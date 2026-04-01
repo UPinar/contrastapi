@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ContrastAPI — Security Intelligence API</title>
+  <meta name="description" content="Security intelligence API for AI models and developers. CVE lookup, domain intelligence, and code security verification.">
+  <meta property="og:title" content="ContrastAPI — Security Intelligence API">
+  <meta property="og:description" content="Free security API for developers and AI. CVE lookup, domain intelligence, code security. No signup required.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://api.contrastcyber.com">
+  <meta property="og:image" content="https://api.contrastcyber.com/static/og-image.png">
+  <meta property="og:site_name" content="ContrastAPI">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="ContrastAPI — Security Intelligence API">
+  <meta name="twitter:description" content="Free security API. CVE lookup, domain intel, code security. No signup required.">
+  <meta name="twitter:image" content="https://api.contrastcyber.com/static/og-image.png">
+  <meta name="msvalidate.01" content="FF2D74F962D3EB9B4CD7B81481A4C873">
+  <link rel="canonical" href="https://api.contrastcyber.com/">
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <link rel="stylesheet" href="/static/style.css?v=8">
+  <link rel="alternate" type="text/plain" href="/llms.txt" title="LLM Discovery">
+  <link rel="alternate" type="application/json" href="/openapi.json" title="OpenAPI Spec">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebAPI",
+    "name": "ContrastAPI",
+    "description": "Security intelligence API for AI models and developers. CVE lookup with EPSS/KEV enrichment, domain reconnaissance, threat intelligence, and code security verification.",
+    "url": "https://api.contrastcyber.com",
+    "documentation": "https://api.contrastcyber.com/docs",
+    "provider": {
+      "@type": "Organization",
+      "name": "ContrastCyber",
+      "url": "https://contrastcyber.com"
+    },
+    "termsOfService": "https://contrastcyber.com",
+    "availableChannel": {
+      "@type": "ServiceChannel",
+      "serviceUrl": "https://api.contrastcyber.com/v1/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div class="glow"></div>
+
+  <nav>
+    <a href="/" class="logo">Contrast<span>API</span></a>
+    <button class="hamburger" aria-label="Menu" aria-expanded="false" onclick="const o=this.getAttribute('aria-expanded')==='true';this.setAttribute('aria-expanded',String(!o));document.querySelector('.nav-links').classList.toggle('open')"><span class="hamburger__lines" aria-hidden="true"></span></button>
+    <div class="nav-links">
+      <a href="/docs">Docs</a>
+      <a href="https://contrastcyber.com">Scan</a>
+      <a href="https://contrastcyber.com/pricing">Pricing</a>
+    </div>
+  </nav>
+
+  <section class="hero">
+    <div class="pill">SECURITY INTELLIGENCE API</div>
+    <h1>Security data for<br><span class="gradient">AI models & developers</span></h1>
+    <p class="subtitle">30+ endpoints: CVE intelligence, domain reconnaissance, SSL analysis, IP reputation, IOC/malware lookup, exploit search, and code security. Structured JSON with LLM-optimized summaries. Free tier included.</p>
+    <p class="api-counter"><strong>{{ "{:,}".format(total_requests) }}</strong> API calls served</p>
+    <div style="text-align:center;margin-top:0.5rem">
+      <a href="https://contrastcyber.com" class="btn-cta">Try it out →</a>
+    </div>
+  </section>
+
+  <!-- Endpoints -->
+  <section class="endpoints">
+    <div class="section-title">Domain Intelligence</div>
+    <div class="endpoint-group">
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/domain/{domain}</span>
+        <span class="endpoint-desc">Full domain report</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/dns/{domain}</span>
+        <span class="endpoint-desc">DNS records</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/whois/{domain}</span>
+        <span class="endpoint-desc">WHOIS lookup</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/subdomains/{domain}</span>
+        <span class="endpoint-desc">Subdomain enumeration</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/certs/{domain}</span>
+        <span class="endpoint-desc">CT log certificates</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/ssl/{domain}</span>
+        <span class="endpoint-desc">SSL certificate details, grade, chain &amp; cipher</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/threat/{domain}</span>
+        <span class="endpoint-desc">URLhaus threat intel</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/ip/{ip}</span>
+        <span class="endpoint-desc">IP intel + reputation (GreyNoise, AbuseIPDB, Shodan)</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/tech/{domain}</span>
+        <span class="endpoint-desc">Technology fingerprinting (CMS, frameworks, CDN, analytics)</span>
+      </div>
+    </div>
+
+    <div class="section-title">CVE Intelligence</div>
+    <div class="endpoint-group">
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/cve/{cve_id}</span>
+        <span class="endpoint-desc">CVE details + EPSS + KEV</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/cves?product=&severity=</span>
+        <span class="endpoint-desc">Search CVEs</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/cves/recent?hours=24</span>
+        <span class="endpoint-desc">Latest CVEs</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/cves/kev</span>
+        <span class="endpoint-desc">CISA exploited vulns</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/epss/{cve_id}</span>
+        <span class="endpoint-desc">Exploit probability</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/exploit/{cve_id}</span>
+        <span class="endpoint-desc">Public exploits &amp; advisories</span>
+      </div>
+    </div>
+
+    <div class="section-title">Threat Intelligence</div>
+    <div class="endpoint-group">
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/ioc/{indicator}</span>
+        <span class="endpoint-desc">Unified IOC enrichment (IP, domain, URL, hash)</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/hash/{hash}</span>
+        <span class="endpoint-desc">Malware hash reputation (MalwareBazaar)</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/password/{sha1_hash}</span>
+        <span class="endpoint-desc">Password breach check (HIBP, found + count only)</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/phishing/{url}</span>
+        <span class="endpoint-desc">Phishing/malware URL check (URLhaus)</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/monitor/{domain}</span>
+        <span class="endpoint-desc">Lightweight domain health check</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/domain/{domain}/vulns</span>
+        <span class="endpoint-desc">Tech stack CVE scan</span>
+      </div>
+      <div class="endpoint">
+        <span class="method post">POST</span>
+        <span class="endpoint-path">/v1/domains/bulk</span>
+        <span class="endpoint-desc">Bulk domain scan (up to 10 domains)</span>
+      </div>
+    </div>
+
+    <div class="section-title">Code Security</div>
+    <div class="endpoint-group">
+      <div class="endpoint">
+        <span class="method post">POST</span>
+        <span class="endpoint-path">/v1/check/headers</span>
+        <span class="endpoint-desc">Validate HTTP headers</span>
+      </div>
+      <div class="endpoint">
+        <span class="method post">POST</span>
+        <span class="endpoint-path">/v1/check/secrets</span>
+        <span class="endpoint-desc">Detect hardcoded secrets</span>
+      </div>
+      <div class="endpoint">
+        <span class="method post">POST</span>
+        <span class="endpoint-path">/v1/check/injection</span>
+        <span class="endpoint-desc">SQL/cmd injection patterns</span>
+      </div>
+      <div class="endpoint">
+        <span class="method post">POST</span>
+        <span class="endpoint-path">/v1/check/dependencies</span>
+        <span class="endpoint-desc">Check packages for CVEs</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/scan/headers/{domain}</span>
+        <span class="endpoint-desc">Live header security scan</span>
+      </div>
+    </div>
+
+    <div class="section-title">Operations</div>
+    <div class="endpoint-group">
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/status</span>
+        <span class="endpoint-desc">API health + data freshness</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/usage</span>
+        <span class="endpoint-desc">Your usage stats (Pro)</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/metrics</span>
+        <span class="endpoint-desc">Prometheus metrics</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- Example -->
+  <section class="example-section">
+    <div class="section-title">Example Request</div>
+    <pre>$ curl https://api.contrastcyber.com/v1/domain/example.com</pre>
+    <pre>{
+  <span class="key">"domain"</span>: <span class="str">"example.com"</span>,
+  <span class="key">"summary"</span>: <span class="str">"example.com resolves to 93.184.216.34. SSL grade A (DigiCert). SPF+DMARC present. No WAF. Risk: B (72/100)."</span>,
+  <span class="key">"risk_score"</span>: {<span class="key">"score"</span>: <span class="num">72</span>, <span class="key">"grade"</span>: <span class="str">"B"</span>},
+  <span class="key">"dns"</span>: {
+    <span class="key">"a"</span>: [<span class="str">"93.184.216.34"</span>],
+    <span class="key">"mx"</span>: [{<span class="key">"priority"</span>: <span class="num">0</span>, <span class="key">"host"</span>: <span class="str">"."</span>}],
+    <span class="key">"ns"</span>: [<span class="str">"a.iana-servers.net"</span>, <span class="str">"b.iana-servers.net"</span>]
+  },
+  <span class="key">"ssl"</span>: {<span class="key">"grade"</span>: <span class="str">"A"</span>, <span class="key">"issuer"</span>: <span class="str">"DigiCert"</span>, <span class="key">"days_remaining"</span>: <span class="num">182</span>},
+  <span class="key">"email_security"</span>: {<span class="key">"spf"</span>: <span class="bool">true</span>, <span class="key">"dmarc"</span>: <span class="bool">true</span>, <span class="key">"dkim"</span>: <span class="bool">false</span>},
+  <span class="key">"threat"</span>: {<span class="key">"url_count"</span>: <span class="num">0</span>, <span class="key">"urls_online"</span>: <span class="num">0</span>},
+  <span class="key">"reputation"</span>: {
+    <span class="key">"greynoise"</span>: {<span class="key">"noise"</span>: <span class="bool">false</span>, <span class="key">"classification"</span>: <span class="str">"benign"</span>},
+    <span class="key">"abuseipdb"</span>: {<span class="key">"abuse_score"</span>: <span class="num">0</span>, <span class="key">"total_reports"</span>: <span class="num">0</span>},
+    <span class="key">"shodan"</span>: {<span class="key">"ports"</span>: [<span class="num">80</span>, <span class="num">443</span>], <span class="key">"org"</span>: <span class="str">"ICANN"</span>}
+  },
+  <span class="key">"whois"</span>: {<span class="key">"registrar"</span>: <span class="str">"RESERVED-IANA"</span>},
+  <span class="key">"subdomains"</span>: {<span class="key">"count"</span>: <span class="num">3</span>},
+  <span class="key">"waf"</span>: {<span class="key">"waf_present"</span>: <span class="bool">false</span>}
+}</pre>
+  </section>
+
+  <!-- Pricing -->
+  <section class="auth-section">
+    <div class="section-title">Pricing</div>
+    <div class="auth-tiers">
+      <div class="tier">
+        <h3>Free</h3>
+        <div class="price">$0 / forever</div>
+        <ul>
+          <li>100 requests/hour</li>
+          <li>All 30+ endpoints</li>
+          <li>No signup required</li>
+          <li>Community support</li>
+        </ul>
+      </div>
+      <div class="tier pro">
+        <h3>Pro</h3>
+        <div class="price">$9 / month</div>
+        <ul>
+          <li>1,000 requests/hour (10x)</li>
+          <li>Bulk domain reports (50 domains)</li>
+          <li>Usage dashboard</li>
+          <li>Priority support</li>
+        </ul>
+        <a href="https://contrastcyber.com/pricing" class="btn-pro">Get Pro &rarr;</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- FAQ -->
+  <section class="auth-section">
+    <div class="faq">
+      <h2>FAQ</h2>
+      <dl>
+        <dt>Do I need an API key?</dt>
+        <dd>No. The free tier works without authentication — just send requests. Pro users include their key via the Authorization: Bearer header.</dd>
+
+        <dt>What happens when I hit the rate limit?</dt>
+        <dd>You'll get a 429 response with a RateLimit-Reset header showing when your limit resets. Upgrade to Pro for 10x the limit.</dd>
+
+        <dt>How do I get my API key after purchase?</dt>
+        <dd>After checkout, you'll be redirected to a welcome page showing your key. Save it immediately — it's shown only once.</dd>
+
+        <dt>Can I cancel anytime?</dt>
+        <dd>Yes. Cancel through Lemon Squeezy customer portal. Your key stays active until the billing period ends.</dd>
+
+        <dt>Is there an SLA?</dt>
+        <dd>The API targets 99.9% uptime. Check /v1/status for real-time health. Pro users get priority support via email.</dd>
+      </dl>
+    </div>
+  </section>
+
+  <section class="auth-section">
+    <div class="section-title">Data Freshness</div>
+    <p style="color:var(--text-muted);margin:0.5rem 0;font-size:0.8rem">
+      Threat intelligence data (IP reputation, GreyNoise, Shodan, AbuseIPDB) is cached for 24 hours per query. CVE/EPSS data syncs every 2 hours. For real-time results, use unique queries.
+    </p>
+  </section>
+
+  <footer>
+    <div class="footer-links">
+      <a href="https://contrastcyber.com/terms">Terms</a>
+      <a href="https://contrastcyber.com/privacy">Privacy</a>
+      <a href="mailto:contact@contrastcyber.com">Contact</a>
+      <a href="https://github.com/UPinar/contrastapi">GitHub</a>
+    </div>
+    <p>&copy; 2026 ContrastCyber</p>
+  </footer>
+</body>
+</html>
