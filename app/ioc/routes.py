@@ -6,15 +6,18 @@ import socket
 from urllib.parse import urlparse
 
 import httpx
-from fastapi import APIRouter, HTTPException, Request
-
 from auth import authenticate
+from domain.recon import _dns_call_with_timeout
+from domain.threat import check_urlhaus
+from fastapi import APIRouter, HTTPException, Request
 from ioc.lookup import (
-    detect_indicator_type, query_threatfox, query_feodo, query_malwarebazaar,
+    detect_indicator_type,
+    query_feodo,
+    query_malwarebazaar,
+    query_threatfox,
 )
 from ioc.password import is_valid_sha1, query_pwned_hash
-from domain.threat import check_urlhaus
-from schemas import IocResponse, HashResponse, PasswordResponse, PhishingResponse
+from schemas import HashResponse, IocResponse, PasswordResponse, PhishingResponse
 from validation import is_private_ip, is_valid_ip
 
 logger = logging.getLogger("contrastapi")
@@ -34,10 +37,14 @@ def ioc_lookup(indicator: str, request: Request):
     indicator = indicator.strip()
     if not indicator or len(indicator) > 2048:
         raise HTTPException(status_code=400, detail="Invalid indicator")
+    # Sanitize indicator for safe inclusion in response summary (prevent XSS in consumers)
+    indicator = re.sub(r"[<>&\"']", "", indicator)
 
     ioc_type = detect_indicator_type(indicator)
     if ioc_type == "unknown":
-        raise HTTPException(status_code=400, detail="Could not detect indicator type. Provide an IP, domain, URL, or file hash.")
+        raise HTTPException(
+            status_code=400, detail="Could not detect indicator type. Provide an IP, domain, URL, or file hash."
+        )
 
     sources = {}
     threat_parts = []
@@ -75,15 +82,15 @@ def ioc_lookup(indicator: str, request: Request):
                 if is_private_ip(host):
                     raise HTTPException(status_code=400, detail="Private/reserved IP addresses are not allowed")
             else:
-                # Resolve hostname and check all addresses for SSRF
-                try:
-                    addrs = socket.getaddrinfo(host, None, proto=socket.IPPROTO_TCP)
-                    if any(is_private_ip(addr[4][0]) for addr in addrs):
-                        raise HTTPException(status_code=400, detail="Private/reserved IP addresses are not allowed")
-                except socket.gaierror:
-                    pass  # unresolvable host — no SSRF risk
+                # Resolve hostname with timeout and check all addresses for SSRF
+                addrs, _ = _dns_call_with_timeout(socket.getaddrinfo, host, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+                if addrs and any(is_private_ip(addr[4][0]) for addr in addrs):
+                    raise HTTPException(status_code=400, detail="Private/reserved IP addresses are not allowed")
             urlhaus = check_urlhaus(host)
-            sources["urlhaus"] = {"found": urlhaus.get("url_count", 0) > 0, "urls_online": urlhaus.get("urls_online", 0)}
+            sources["urlhaus"] = {
+                "found": urlhaus.get("url_count", 0) > 0,
+                "urls_online": urlhaus.get("urls_online", 0),
+            }
             if sources["urlhaus"]["found"]:
                 threat_parts.append(f"{urlhaus['url_count']} malware URLs via URLhaus")
 
@@ -119,7 +126,7 @@ def hash_lookup(file_hash: str, request: Request):
     if not _HEX_RE.match(file_hash) or len(file_hash) not in _HASH_LENS:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid hash. Provide MD5 (32 chars), SHA1 (40 chars), or SHA256 (64 chars).",
+            detail="Invalid hash. Provide MD5 (32 chars), SHA1 (40 chars), or SHA256 (64 chars).",
         )
 
     hash_type = _HASH_LENS[len(file_hash)]
@@ -132,7 +139,7 @@ def hash_lookup(file_hash: str, request: Request):
         tag_str = f" ({', '.join(tags[:3])})" if tags else ""
         summary = f"{file_hash[:16]}... is {family}{tag_str}. First seen {first_seen}."
     else:
-        summary = f"No malware data found for this hash"
+        summary = "No malware data found for this hash"
 
     return {
         "hash": file_hash,
@@ -197,7 +204,9 @@ def phishing_check(url: str, request: Request):
     url = url.strip()
 
     if not url.startswith(("http://", "https://")) or len(url) > 2048:
-        raise HTTPException(status_code=400, detail="Invalid URL. Must start with http:// or https:// and be at most 2048 characters.")
+        raise HTTPException(
+            status_code=400, detail="Invalid URL. Must start with http:// or https:// and be at most 2048 characters."
+        )
 
     # Extract and validate hostname
     try:
@@ -206,8 +215,14 @@ def phishing_check(url: str, request: Request):
         host = ""
     if not host:
         raise HTTPException(status_code=400, detail="Could not extract hostname from URL.")
-    if is_valid_ip(host) and is_private_ip(host):
-        raise HTTPException(status_code=400, detail="Private/reserved IP addresses are not allowed.")
+    if is_valid_ip(host):
+        if is_private_ip(host):
+            raise HTTPException(status_code=400, detail="Private/reserved IP addresses are not allowed.")
+    else:
+        # Resolve domain and check for private IPs (consistent with /v1/ioc)
+        addr_result, _ = _dns_call_with_timeout(socket.getaddrinfo, host, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+        if addr_result and any(is_private_ip(addr[4][0]) for addr in addr_result):
+            raise HTTPException(status_code=400, detail="Private/reserved IP addresses are not allowed.")
 
     # URLhaus host lookup
     uh_host = check_urlhaus(host)

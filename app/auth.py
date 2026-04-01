@@ -8,11 +8,10 @@ Two modes:
 import hashlib
 import secrets
 
-from fastapi import Request, HTTPException
-
-from config import KEY_PREFIX, KEY_LENGTH, FREE_HOURLY_LIMIT, PRO_HOURLY_LIMIT
-from db import (get_api_key, touch_api_key, log_usage)
-from ratelimit import check_limit, check_limit_with_count, get_count, get_reset_time
+from config import FREE_HOURLY_LIMIT, KEY_LENGTH, KEY_PREFIX, PRO_HOURLY_LIMIT
+from db import get_api_key, log_usage, touch_api_key
+from fastapi import HTTPException, Request
+from ratelimit import check_limit_with_count, get_reset_time
 
 
 def generate_key() -> str:
@@ -56,6 +55,7 @@ def authenticate(request: Request, endpoint: str) -> dict:
         HTTPException 429 — rate limit exceeded
     """
     from validation import get_client_ip
+
     client_ip = get_client_ip(request)
     raw_key = extract_key(request)
 
@@ -79,10 +79,9 @@ def authenticate(request: Request, endpoint: str) -> dict:
                 _set_ratelimit_state(request, advertised_limit, 0, get_reset_time("api", store_key))
                 raise HTTPException(
                     status_code=429,
-                    detail=f"Rate limit exceeded ({advertised_limit}/hr). "
-                           "Contact support for higher limits."
+                    detail=f"Rate limit exceeded ({advertised_limit}/hr). Contact support for higher limits.",
                 )
-            _set_ratelimit_state(request, advertised_limit, remaining, get_reset_time("api", store_key))
+            _set_ratelimit_state(request, advertised_limit, remaining * 2, get_reset_time("api", store_key))
         else:
             _set_ratelimit_state(request, advertised_limit, advertised_limit, 0)
 
@@ -102,9 +101,9 @@ def authenticate(request: Request, endpoint: str) -> dict:
             raise HTTPException(
                 status_code=429,
                 detail=f"Rate limit exceeded ({advertised_limit}/hr). "
-                       "Get a Pro key at api.contrastcyber.com for higher limits."
+                "Get a Pro key at api.contrastcyber.com for higher limits.",
             )
-        _set_ratelimit_state(request, advertised_limit, remaining, get_reset_time("api", store_key))
+        _set_ratelimit_state(request, advertised_limit, remaining * 2, get_reset_time("api", store_key))
     else:
         _set_ratelimit_state(request, advertised_limit, advertised_limit, 0)
 

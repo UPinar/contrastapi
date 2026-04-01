@@ -1,8 +1,7 @@
 """Tests for CVE Intelligence module — routes.py + sync.py"""
 
-import json
-import pytest
-from unittest.mock import patch, MagicMock
+from datetime import UTC
+from unittest.mock import MagicMock, patch
 
 import httpx
 from fastapi.testclient import TestClient
@@ -14,6 +13,7 @@ client = TestClient(app)
 def _seed_cve(**overrides):
     """Insert a test CVE and return the data dict."""
     from db import upsert_cve
+
     data = {
         "cve_id": "CVE-2024-1234",
         "description": "Test buffer overflow in nginx",
@@ -110,9 +110,10 @@ class TestCveSearch:
         assert r.json()["count"] == 0
 
     def test_search_by_days(self):
-        from datetime import datetime, timezone, timedelta
-        now = datetime.now(timezone.utc).isoformat()
-        old = (datetime.now(timezone.utc) - timedelta(days=10)).isoformat()
+        from datetime import datetime, timedelta
+
+        now = datetime.now(UTC).isoformat()
+        old = (datetime.now(UTC) - timedelta(days=10)).isoformat()
         _seed_cve(cve_id="CVE-2024-2001", published=now)
         _seed_cve(cve_id="CVE-2024-2002", published=old)
         r = client.get("/v1/cves?days=1")
@@ -124,8 +125,9 @@ class TestCveSearch:
 
 class TestCveRecent:
     def test_recent_200(self):
-        from datetime import datetime, timezone
-        now = datetime.now(timezone.utc).isoformat()
+        from datetime import datetime
+
+        now = datetime.now(UTC).isoformat()
         _seed_cve(cve_id="CVE-2024-3001", published=now)
         r = client.get("/v1/cves/recent?hours=1")
         assert r.status_code == 200
@@ -139,8 +141,9 @@ class TestCveRecent:
         assert r.json()["count"] == 0
 
     def test_recent_respects_limit(self):
-        from datetime import datetime, timezone
-        now = datetime.now(timezone.utc).isoformat()
+        from datetime import datetime
+
+        now = datetime.now(UTC).isoformat()
         for i in range(5):
             _seed_cve(cve_id=f"CVE-2024-400{i}", published=now)
         r = client.get("/v1/cves/recent?hours=1&limit=2")
@@ -188,10 +191,19 @@ class TestCveResponseFormat:
         r = client.get("/v1/cve/CVE-2024-1234")
         data = r.json()
         expected_keys = {
-            "cve_id", "summary", "description", "severity",
-            "cvss_v3", "cvss_vector", "cwe_id",
-            "epss", "kev", "affected_products",
-            "published", "modified", "references",
+            "cve_id",
+            "summary",
+            "description",
+            "severity",
+            "cvss_v3",
+            "cvss_vector",
+            "cwe_id",
+            "epss",
+            "kev",
+            "affected_products",
+            "published",
+            "modified",
+            "references",
         }
         assert expected_keys.issubset(data.keys())
 
@@ -237,22 +249,23 @@ class TestGenerateSummary:
 class TestParseNvdCve:
     def test_parse_basic(self):
         from cve.sync import _parse_nvd_cve
+
         item = {
             "cve": {
                 "id": "CVE-2024-9999",
                 "descriptions": [{"lang": "en", "value": "Test vulnerability"}],
                 "metrics": {
-                    "cvssMetricV31": [{
-                        "cvssData": {
-                            "baseScore": 7.5,
-                            "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
-                            "baseSeverity": "HIGH",
+                    "cvssMetricV31": [
+                        {
+                            "cvssData": {
+                                "baseScore": 7.5,
+                                "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+                                "baseSeverity": "HIGH",
+                            }
                         }
-                    }]
+                    ]
                 },
-                "weaknesses": [{
-                    "description": [{"value": "CWE-79"}]
-                }],
+                "weaknesses": [{"description": [{"value": "CWE-79"}]}],
                 "published": "2024-01-01T00:00:00Z",
                 "lastModified": "2024-01-02T00:00:00Z",
                 "references": [{"url": "https://example.com"}],
@@ -269,6 +282,7 @@ class TestParseNvdCve:
 
     def test_parse_with_cpe(self):
         from cve.sync import _parse_nvd_cve
+
         item = {
             "cve": {
                 "id": "CVE-2024-8888",
@@ -278,14 +292,20 @@ class TestParseNvdCve:
                 "published": "2024-01-01T00:00:00Z",
                 "lastModified": "2024-01-02T00:00:00Z",
                 "references": [],
-                "configurations": [{
-                    "nodes": [{
-                        "cpeMatch": [{
-                            "criteria": "cpe:2.3:a:apache:http_server:2.4.50:*:*:*:*:*:*:*",
-                            "versionEndExcluding": "2.4.58",
-                        }]
-                    }]
-                }],
+                "configurations": [
+                    {
+                        "nodes": [
+                            {
+                                "cpeMatch": [
+                                    {
+                                        "criteria": "cpe:2.3:a:apache:http_server:2.4.50:*:*:*:*:*:*:*",
+                                        "versionEndExcluding": "2.4.58",
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                ],
             }
         }
         result = _parse_nvd_cve(item)
@@ -295,6 +315,7 @@ class TestParseNvdCve:
 
     def test_parse_empty_cve(self):
         from cve.sync import _parse_nvd_cve
+
         result = _parse_nvd_cve({"cve": {"id": "CVE-2024-0000"}})
         assert result["cve_id"] == "CVE-2024-0000"
         assert result["description"] == ""
@@ -302,13 +323,12 @@ class TestParseNvdCve:
 
     def test_parse_v2_fallback_severity(self):
         from cve.sync import _parse_nvd_cve
+
         item = {
             "cve": {
                 "id": "CVE-2024-7777",
                 "descriptions": [],
-                "metrics": {
-                    "cvssMetricV2": [{"baseSeverity": "MEDIUM"}]
-                },
+                "metrics": {"cvssMetricV2": [{"baseSeverity": "MEDIUM"}]},
                 "weaknesses": [],
                 "references": [],
             }
@@ -318,9 +338,9 @@ class TestParseNvdCve:
 
     def test_parse_refs_limited_to_20(self):
         from cve.sync import _parse_nvd_cve
+
         refs = [{"url": f"https://example.com/{i}"} for i in range(30)]
-        item = {"cve": {"id": "CVE-2024-6666", "descriptions": [], "metrics": {},
-                        "weaknesses": [], "references": refs}}
+        item = {"cve": {"id": "CVE-2024-6666", "descriptions": [], "metrics": {}, "weaknesses": [], "references": refs}}
         result = _parse_nvd_cve(item)
         assert len(result["refs"]) == 20
 
@@ -330,17 +350,20 @@ class TestSyncNvd:
     def test_delta_sync(self, mock_req):
         mock_req.return_value = {
             "totalResults": 1,
-            "vulnerabilities": [{
-                "cve": {
-                    "id": "CVE-2024-0001",
-                    "descriptions": [{"lang": "en", "value": "Test"}],
-                    "metrics": {},
-                    "weaknesses": [],
-                    "references": [],
+            "vulnerabilities": [
+                {
+                    "cve": {
+                        "id": "CVE-2024-0001",
+                        "descriptions": [{"lang": "en", "value": "Test"}],
+                        "metrics": {},
+                        "weaknesses": [],
+                        "references": [],
+                    }
                 }
-            }]
+            ],
         }
         from cve.sync import sync_nvd
+
         count = sync_nvd(full=False)
         assert count == 1
 
@@ -348,6 +371,7 @@ class TestSyncNvd:
     def test_empty_response(self, mock_req):
         mock_req.return_value = {"totalResults": 0, "vulnerabilities": []}
         from cve.sync import sync_nvd
+
         count = sync_nvd(full=False)
         assert count == 0
 
@@ -358,20 +382,24 @@ class TestSyncKev:
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.json.return_value = {
-            "vulnerabilities": [{
-                "cveID": "CVE-2024-0001",
-                "shortDescription": "Exploited vuln",
-                "dateAdded": "2024-01-15",
-            }]
+            "vulnerabilities": [
+                {
+                    "cveID": "CVE-2024-0001",
+                    "shortDescription": "Exploited vuln",
+                    "dateAdded": "2024-01-15",
+                }
+            ]
         }
         mock_resp.raise_for_status.return_value = None
         mock_client.get.return_value = mock_resp
 
         from cve.sync import sync_kev
+
         count = sync_kev()
         assert count == 1
 
         from db import get_cve
+
         cve = get_cve("CVE-2024-0001")
         assert cve is not None
         assert cve["in_kev"] == 1
@@ -403,6 +431,7 @@ class TestSyncEpssValidation:
     def test_epss_nan_filtered(self, mock_client):
         _seed_cve(cve_id="CVE-2024-NAN1", epss_score=0.5, epss_percentile=0.5)
         import gzip
+
         csv_content = "#model_version:v2024.01.01\ncve,epss,percentile\nCVE-2024-NAN1,NaN,0.5\n"
         mock_resp = MagicMock()
         mock_resp.status_code = 200
@@ -411,9 +440,11 @@ class TestSyncEpssValidation:
         mock_client.get.return_value = mock_resp
 
         from cve.sync import sync_epss
+
         sync_epss()
 
         from db import get_cve
+
         cve = get_cve("CVE-2024-NAN1")
         assert cve["epss_score"] is None
 
@@ -421,6 +452,7 @@ class TestSyncEpssValidation:
     def test_epss_inf_filtered(self, mock_client):
         _seed_cve(cve_id="CVE-2024-INF1", epss_score=0.5, epss_percentile=0.5)
         import gzip
+
         csv_content = "#model_version:v2024.01.01\ncve,epss,percentile\nCVE-2024-INF1,Infinity,0.9\n"
         mock_resp = MagicMock()
         mock_resp.status_code = 200
@@ -429,9 +461,11 @@ class TestSyncEpssValidation:
         mock_client.get.return_value = mock_resp
 
         from cve.sync import sync_epss
+
         sync_epss()
 
         from db import get_cve
+
         cve = get_cve("CVE-2024-INF1")
         assert cve["epss_score"] is None
 
@@ -439,6 +473,7 @@ class TestSyncEpssValidation:
 class TestCvssVectorParser:
     def test_full_vector_parsed(self):
         from cve.routes import _parse_cvss_vector
+
         result = _parse_cvss_vector("CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:H/I:H/A:H")
         assert result["attack_vector"] == "Network"
         assert result["attack_complexity"] == "Low"
@@ -451,14 +486,17 @@ class TestCvssVectorParser:
 
     def test_none_vector(self):
         from cve.routes import _parse_cvss_vector
+
         assert _parse_cvss_vector(None) is None
 
     def test_empty_vector(self):
         from cve.routes import _parse_cvss_vector
+
         assert _parse_cvss_vector("") is None
 
     def test_non_v3_vector(self):
         from cve.routes import _parse_cvss_vector
+
         assert _parse_cvss_vector("AV:N/AC:L/Au:N/C:P/I:P/A:P") is None
 
     def test_cvss_breakdown_in_response(self):
@@ -494,6 +532,7 @@ class TestOpenApiCveRoutes:
 
 # =========== /v1/exploit/{cve_id} tests ===========
 
+
 class TestExploitLookup:
     @patch("cve.routes.save_cached_domain")
     @patch("cve.routes.get_cached_domain", return_value=None)
@@ -513,9 +552,7 @@ class TestExploitLookup:
 
         edb_resp = MagicMock()
         edb_resp.json.return_value = {
-            "matches": [
-                {"_id": "51234", "description": "PoC for CVE-2024-9999", "source": "ExploitDB"}
-            ]
+            "matches": [{"_id": "51234", "description": "PoC for CVE-2024-9999", "source": "ExploitDB"}]
         }
         edb_resp.raise_for_status = MagicMock()
 
@@ -569,7 +606,13 @@ class TestExploitLookup:
         """ExploitDB timeout should not prevent GitHub results from returning."""
         gh_resp = MagicMock()
         gh_resp.json.return_value = [
-            {"ghsa_id": "GHSA-aaaa", "summary": "Advisory", "severity": "high", "published_at": "2024-06-01T00:00:00Z", "references": []}
+            {
+                "ghsa_id": "GHSA-aaaa",
+                "summary": "Advisory",
+                "severity": "high",
+                "published_at": "2024-06-01T00:00:00Z",
+                "references": [],
+            }
         ]
         gh_resp.raise_for_status = MagicMock()
 
@@ -594,7 +637,10 @@ class TestExploitLookup:
         cached_result = {
             "cve_id": "CVE-2024-1111",
             "exploits_found": 1,
-            "sources": {"github": {"found": True, "count": 1, "advisories": []}, "exploitdb": {"found": False, "count": 0, "results": []}},
+            "sources": {
+                "github": {"found": True, "count": 1, "advisories": []},
+                "exploitdb": {"found": False, "count": 0, "results": []},
+            },
             "has_public_exploit": True,
             "summary": "CVE-2024-1111 — 1 public exploit(s) found",
         }

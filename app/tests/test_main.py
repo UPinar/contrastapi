@@ -1,7 +1,5 @@
 """Tests for main.py — app endpoints"""
 
-import pytest
-
 from fastapi.testclient import TestClient
 from main import app
 
@@ -10,6 +8,7 @@ client = TestClient(app)
 
 # --- Landing page ---
 
+
 def test_landing_page_200():
     r = client.get("/")
     assert r.status_code == 200
@@ -17,6 +16,7 @@ def test_landing_page_200():
 
 
 # --- Status endpoint ---
+
 
 def test_status_200():
     r = client.get("/v1/status")
@@ -28,6 +28,7 @@ def test_status_200():
 
 
 # --- llms.txt ---
+
 
 def test_llms_txt_200():
     r = client.get("/llms.txt")
@@ -43,6 +44,7 @@ def test_llms_txt_content_type():
 
 # --- OpenAPI ---
 
+
 def test_openapi_json():
     r = client.get("/openapi.json")
     assert r.status_code == 200
@@ -52,12 +54,14 @@ def test_openapi_json():
 
 # --- Docs ---
 
+
 def test_docs_page():
     r = client.get("/docs")
     assert r.status_code == 200
 
 
 # --- Error handler ---
+
 
 def test_404_returns_json():
     r = client.get("/nonexistent-path")
@@ -67,6 +71,7 @@ def test_404_returns_json():
 
 
 # --- Middleware ---
+
 
 def test_request_id_header():
     r = client.get("/v1/status")
@@ -107,6 +112,7 @@ def test_status_has_api_status_operation_id():
 
 # --- Metrics ---
 
+
 def test_metrics_200():
     r = client.get("/metrics")
     assert r.status_code == 200
@@ -119,14 +125,19 @@ def test_metrics_200():
 def test_metrics_counts_requests():
     # Make a request, then check metrics increment
     r1 = client.get("/metrics")
-    total_before = int([l for l in r1.text.split("\n") if l.startswith("contrastapi_requests_total ")][0].split()[-1])
+    total_before = int(
+        [line for line in r1.text.split("\n") if line.startswith("contrastapi_requests_total ")][0].split()[-1]
+    )
     client.get("/v1/status")
     r2 = client.get("/metrics")
-    total_after = int([l for l in r2.text.split("\n") if l.startswith("contrastapi_requests_total ")][0].split()[-1])
+    total_after = int(
+        [line for line in r2.text.split("\n") if line.startswith("contrastapi_requests_total ")][0].split()[-1]
+    )
     assert total_after > total_before
 
 
 # --- Usage endpoint ---
+
 
 def test_usage_requires_pro_key():
     r = client.get("/v1/usage")
@@ -136,6 +147,7 @@ def test_usage_requires_pro_key():
 def test_usage_with_valid_key():
     from auth import generate_key, hash_key
     from db import save_api_key
+
     key = generate_key()
     save_api_key(hash_key(key))
     r = client.get("/v1/usage", headers={"Authorization": f"Bearer {key}"})

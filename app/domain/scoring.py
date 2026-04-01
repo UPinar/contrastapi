@@ -40,18 +40,22 @@ def score_domain(report: dict) -> dict:
         email_detail.append("DMARC")
     if email.get("dkim_selectors"):
         email_detail.append("DKIM")
-    factors.append({
-        "name": "Email Security",
-        "score": email_score,
-        "max": 25,
-        "detail": ", ".join(email_detail) if email_detail else "No email authentication records",
-    })
+    factors.append(
+        {
+            "name": "Email Security",
+            "score": email_score,
+            "max": 25,
+            "detail": ", ".join(email_detail) if email_detail else "No email authentication records",
+        }
+    )
 
     # WAF (max 10)
     waf = report.get("waf", {})
     if waf.get("waf_present"):
         score += 10
-        factors.append({"name": "WAF", "score": 10, "max": 10, "detail": f"Behind {', '.join(waf.get('detected', []))}"})
+        factors.append(
+            {"name": "WAF", "score": 10, "max": 10, "detail": f"Behind {', '.join(waf.get('detected', []))}"}
+        )
     else:
         factors.append({"name": "WAF", "score": 0, "max": 10, "detail": "No WAF detected"})
 
@@ -69,12 +73,14 @@ def score_domain(report: dict) -> dict:
         dns_score += 5
         dns_details.append("A/AAAA records present")
     score += dns_score
-    factors.append({
-        "name": "DNS",
-        "score": dns_score,
-        "max": 15,
-        "detail": ", ".join(dns_details) if dns_details else "Incomplete DNS configuration",
-    })
+    factors.append(
+        {
+            "name": "DNS",
+            "score": dns_score,
+            "max": 15,
+            "detail": ", ".join(dns_details) if dns_details else "Incomplete DNS configuration",
+        }
+    )
 
     # WHOIS (max 10)
     whois = report.get("whois", {})
@@ -85,12 +91,16 @@ def score_domain(report: dict) -> dict:
         if whois.get("expiry_date") or whois.get("creation_date"):
             whois_score += 5
     score += whois_score
-    factors.append({
-        "name": "WHOIS",
-        "score": whois_score,
-        "max": 10,
-        "detail": f"Registered with {whois.get('registrar', 'unknown')}" if whois_score > 0 else "WHOIS data unavailable",
-    })
+    factors.append(
+        {
+            "name": "WHOIS",
+            "score": whois_score,
+            "max": 10,
+            "detail": f"Registered with {whois.get('registrar', 'unknown')}"
+            if whois_score > 0
+            else "WHOIS data unavailable",
+        }
+    )
 
     # Subdomains exposure (max 10)
     subs = report.get("subdomains", {})
@@ -115,7 +125,9 @@ def score_domain(report: dict) -> dict:
     cert_count = certs.get("total_certificates", 0)
     if cert_count > 0:
         score += 10
-        factors.append({"name": "Certificate Transparency", "score": 10, "max": 10, "detail": f"{cert_count} certificates logged"})
+        factors.append(
+            {"name": "Certificate Transparency", "score": 10, "max": 10, "detail": f"{cert_count} certificates logged"}
+        )
     else:
         factors.append({"name": "Certificate Transparency", "score": 0, "max": 10, "detail": "No CT log entries"})
 
@@ -126,11 +138,25 @@ def score_domain(report: dict) -> dict:
     if threat_online > 0:
         penalty = min(15, threat_online * 5)
         score = max(0, score - penalty)
-        factors.append({"name": "Threat Intelligence", "score": -penalty, "max": 0, "detail": f"{threat_online} active malware URLs (URLhaus)"})
+        factors.append(
+            {
+                "name": "Threat Intelligence",
+                "score": -penalty,
+                "max": 0,
+                "detail": f"{threat_online} active malware URLs (URLhaus)",
+            }
+        )
     elif threat_urls > 0:
         penalty = min(5, threat_urls)
         score = max(0, score - penalty)
-        factors.append({"name": "Threat Intelligence", "score": -penalty, "max": 0, "detail": f"{threat_urls} historic malware URLs (URLhaus)"})
+        factors.append(
+            {
+                "name": "Threat Intelligence",
+                "score": -penalty,
+                "max": 0,
+                "detail": f"{threat_urls} historic malware URLs (URLhaus)",
+            }
+        )
     else:
         factors.append({"name": "Threat Intelligence", "score": 0, "max": 0, "detail": "No threats found"})
 
@@ -163,11 +189,7 @@ def score_domain(report: dict) -> dict:
         score = max(0, score - rep_penalty)
         factors.append({"name": "IP Reputation", "score": -rep_penalty, "max": 0, "detail": "; ".join(rep_details)})
     elif reputation:
-        has_ok = any(
-            v.get("status") == "ok"
-            for v in reputation.values()
-            if isinstance(v, dict)
-        )
+        has_ok = any(v.get("status") == "ok" for v in reputation.values() if isinstance(v, dict))
         detail = "No reputation issues" if has_ok else "Reputation data unavailable"
         factors.append({"name": "IP Reputation", "score": 0, "max": 0, "detail": detail})
     else:

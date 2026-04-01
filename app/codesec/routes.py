@@ -2,16 +2,15 @@
 
 from collections import Counter
 
+from auth import authenticate
+from codesec.headers import check_headers
+from codesec.injection import detect_injection
+from codesec.secrets import detect_secrets
+from db import search_cves_by_product
+from domain.recon import fetch_live_headers
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
-
-from auth import authenticate
-from codesec.secrets import detect_secrets
-from codesec.injection import detect_injection
-from codesec.headers import check_headers
-from db import search_cves, search_cves_by_product
-from domain.recon import fetch_live_headers
-from validation import clean_domain, validate_domain, is_valid_ip
+from validation import _is_valid_format, clean_domain, is_valid_ip, validate_domain
 
 router = APIRouter(prefix="/v1", tags=["Code Security"])
 
@@ -44,6 +43,7 @@ class DependenciesInput(BaseModel):
 
 # --- Helpers ---
 
+
 def _check_code_size(code: str) -> None:
     if len(code.encode("utf-8")) > MAX_CODE_BYTES:
         raise HTTPException(status_code=400, detail="Code input exceeds 500KB limit")
@@ -56,6 +56,7 @@ def _severity_counts(findings: list[dict]) -> dict[str, int]:
 
 # --- Endpoints ---
 
+
 @router.post("/check/secrets", operation_id="check_secrets")
 def check_secrets_endpoint(body: CodeInput, request: Request):
     """Detect hardcoded secrets (AWS keys, tokens, passwords, etc.) in source code."""
@@ -63,7 +64,10 @@ def check_secrets_endpoint(body: CodeInput, request: Request):
     _check_code_size(body.code)
     lang = body.language.lower()
     if lang not in ALLOWED_LANGUAGES:
-        raise HTTPException(status_code=400, detail=f"Language '{body.language}' not supported. Allowed: {', '.join(sorted(ALLOWED_LANGUAGES))}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Language '{body.language}' not supported. Allowed: {', '.join(sorted(ALLOWED_LANGUAGES))}",
+        )
 
     findings = detect_secrets(body.code, lang)
     by_severity = _severity_counts(findings)
@@ -89,7 +93,10 @@ def check_injection_endpoint(body: CodeInput, request: Request):
     _check_code_size(body.code)
     lang = body.language.lower()
     if lang not in ALLOWED_LANGUAGES:
-        raise HTTPException(status_code=400, detail=f"Language '{body.language}' not supported. Allowed: {', '.join(sorted(ALLOWED_LANGUAGES))}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Language '{body.language}' not supported. Allowed: {', '.join(sorted(ALLOWED_LANGUAGES))}",
+        )
 
     findings = detect_injection(body.code, lang)
     by_severity = _severity_counts(findings)
@@ -112,12 +119,18 @@ def check_injection_endpoint(body: CodeInput, request: Request):
 def scan_headers_endpoint(domain: str, request: Request):
     """Fetch a domain's HTTP headers live and analyze security posture."""
     domain = clean_domain(domain)
-    resolved_ip = validate_domain(domain) if domain else None
-    if not domain or not resolved_ip:
-        if is_valid_ip(domain or ""):
-            raise HTTPException(status_code=400, detail=f"'{domain}' is an IP address, not a domain. Use /v1/ip/{domain} instead.")
+    if not domain:
+        raise HTTPException(status_code=400, detail="Invalid domain")
+    if is_valid_ip(domain):
+        raise HTTPException(
+            status_code=400, detail=f"'{domain}' is an IP address, not a domain. Use /v1/ip/{domain} instead."
+        )
+    if not _is_valid_format(domain):
         raise HTTPException(status_code=400, detail="Invalid domain")
     authenticate(request, request.url.path)
+    resolved_ip = validate_domain(domain)
+    if not resolved_ip:
+        raise HTTPException(status_code=422, detail="Could not resolve this domain. DNS resolution failed.")
 
     result = fetch_live_headers(domain, resolved_ip=resolved_ip)
     if "error" in result:
@@ -165,17 +178,19 @@ def check_dependencies_endpoint(body: DependenciesInput, request: Request):
         cves = search_cves_by_product(pkg.name, version=pkg.version, limit=20)
         for cve in cves:
             severity = (cve.get("severity") or "unknown").lower()
-            findings.append({
-                "package": pkg.name,
-                "version": pkg.version,
-                "cve_id": cve["cve_id"],
-                "severity": severity,
-                "cvss_v3": cve.get("cvss_v3"),
-                "description": cve.get("description", "")[:300],
-                "epss_score": cve.get("epss_score"),
-                "in_kev": bool(cve.get("in_kev")),
-                "remediation": f"Check if {pkg.name} {pkg.version or 'current'} is affected by {cve['cve_id']} and upgrade if so",
-            })
+            findings.append(
+                {
+                    "package": pkg.name,
+                    "version": pkg.version,
+                    "cve_id": cve["cve_id"],
+                    "severity": severity,
+                    "cvss_v3": cve.get("cvss_v3"),
+                    "description": cve.get("description", "")[:300],
+                    "epss_score": cve.get("epss_score"),
+                    "in_kev": bool(cve.get("in_kev")),
+                    "remediation": f"Check if {pkg.name} {pkg.version or 'current'} is affected by {cve['cve_id']} and upgrade if so",
+                }
+            )
 
     by_severity = _severity_counts(findings)
     total = len(findings)

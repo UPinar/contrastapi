@@ -1,13 +1,10 @@
 """Tests for Code Security module — secrets, injection, headers, and routes."""
 
-import pytest
-
+from codesec.headers import check_headers
+from codesec.injection import detect_injection
+from codesec.secrets import detect_secrets
 from fastapi.testclient import TestClient
 from main import app
-
-from codesec.secrets import detect_secrets
-from codesec.injection import detect_injection
-from codesec.headers import check_headers
 
 client = TestClient(app)
 
@@ -292,47 +289,57 @@ class TestCheckHeadersNonePresent:
 
 class TestCheckHeadersPartial:
     def test_high_only_score_50(self):
-        r = check_headers({
-            "Content-Security-Policy": "x",
-            "Strict-Transport-Security": "x",
-        })
+        r = check_headers(
+            {
+                "Content-Security-Policy": "x",
+                "Strict-Transport-Security": "x",
+            }
+        )
         assert r["score"] == 50
         assert r["grade"] == "C"
 
     def test_medium_only_score_30(self):
-        r = check_headers({
-            "X-Content-Type-Options": "nosniff",
-            "X-Frame-Options": "DENY",
-        })
+        r = check_headers(
+            {
+                "X-Content-Type-Options": "nosniff",
+                "X-Frame-Options": "DENY",
+            }
+        )
         assert r["score"] == 30
         assert r["grade"] == "D"
 
     def test_low_only_score_20(self):
-        r = check_headers({
-            "Referrer-Policy": "no-referrer",
-            "Permissions-Policy": "camera=()",
-        })
+        r = check_headers(
+            {
+                "Referrer-Policy": "no-referrer",
+                "Permissions-Policy": "camera=()",
+            }
+        )
         assert r["score"] == 20
         assert r["grade"] == "F"
 
     def test_grade_b_boundary(self):
-        r = check_headers({
-            "Content-Security-Policy": "x",
-            "Strict-Transport-Security": "x",
-            "X-Content-Type-Options": "nosniff",
-            "X-Frame-Options": "DENY",
-        })
+        r = check_headers(
+            {
+                "Content-Security-Policy": "x",
+                "Strict-Transport-Security": "x",
+                "X-Content-Type-Options": "nosniff",
+                "X-Frame-Options": "DENY",
+            }
+        )
         assert r["score"] == 80
         assert r["grade"] == "B"
 
     def test_grade_a_boundary(self):
-        r = check_headers({
-            "Content-Security-Policy": "x",
-            "Strict-Transport-Security": "x",
-            "X-Content-Type-Options": "nosniff",
-            "X-Frame-Options": "DENY",
-            "Referrer-Policy": "x",
-        })
+        r = check_headers(
+            {
+                "Content-Security-Policy": "x",
+                "Strict-Transport-Security": "x",
+                "X-Content-Type-Options": "nosniff",
+                "X-Frame-Options": "DENY",
+                "Referrer-Policy": "x",
+            }
+        )
         assert r["score"] == 90
         assert r["grade"] == "A"
 
@@ -406,7 +413,9 @@ class TestSecretsRoute:
 
 class TestInjectionRoute:
     def test_200_sql_injection(self):
-        r = client.post("/v1/check/injection", json={"code": 'f"SELECT * FROM users WHERE id = {uid}"', "language": "python"})
+        r = client.post(
+            "/v1/check/injection", json={"code": 'f"SELECT * FROM users WHERE id = {uid}"', "language": "python"}
+        )
         assert r.status_code == 200
         assert r.json()["total"] >= 1
 
@@ -450,7 +459,16 @@ class TestHeadersRoute:
     def test_response_shape(self):
         r = client.post("/v1/check/headers", json={"headers": {}})
         d = r.json()
-        expected = {"findings", "total", "by_severity", "summary", "score", "grade", "headers_present", "headers_missing"}
+        expected = {
+            "findings",
+            "total",
+            "by_severity",
+            "summary",
+            "score",
+            "grade",
+            "headers_present",
+            "headers_missing",
+        }
         assert expected == set(d.keys())
 
     def test_400_too_many_headers(self):
@@ -470,7 +488,9 @@ class TestDependenciesRoute:
         assert "summary" in d
 
     def test_200_multiple_packages(self):
-        r = client.post("/v1/check/dependencies", json={"packages": [{"name": "flask"}, {"name": "django", "version": "3.2"}]})
+        r = client.post(
+            "/v1/check/dependencies", json={"packages": [{"name": "flask"}, {"name": "django", "version": "3.2"}]}
+        )
         assert r.status_code == 200
         assert r.json()["total"] >= 0
 
@@ -507,6 +527,7 @@ class TestOpenApiCodesec:
 
 
 # =========== code size limit tests ===========
+
 
 class TestCodeSizeLimit:
     def test_secrets_rejects_oversized_code(self):

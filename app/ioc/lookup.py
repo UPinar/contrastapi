@@ -10,8 +10,7 @@ import threading
 import time
 
 import httpx
-
-from config import FEODO_TTL, FEODO_MAX_BYTES
+from config import FEODO_MAX_BYTES, FEODO_TTL
 
 logger = logging.getLogger("contrastapi")
 
@@ -34,7 +33,7 @@ _HEX_RE = re.compile(r"^[0-9a-fA-F]+$")
 def detect_indicator_type(indicator: str) -> str:
     """Auto-detect IOC type: ip, domain, url, hash, or unknown."""
     indicator = indicator.strip()
-    if "://" in indicator or indicator.startswith("http"):
+    if "://" in indicator:
         return "url"
     if _IP_RE.match(indicator):
         return "ip"

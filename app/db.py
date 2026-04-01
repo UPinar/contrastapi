@@ -13,19 +13,14 @@ import logging
 import sqlite3
 import threading
 from contextlib import contextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
-from config import API_DB_PATH, CVE_DB_PATH, CACHE_DB_PATH, DOMAIN_CACHE_TTL, IP_CACHE_TTL, HASH_SECRET
+from config import API_DB_PATH, CACHE_DB_PATH, CVE_DB_PATH, DOMAIN_CACHE_TTL, HASH_SECRET, IP_CACHE_TTL
 
 logger = logging.getLogger("contrastapi")
 
-# Resolve HMAC key once at import time
-if HASH_SECRET:
-    _hmac_key = HASH_SECRET.encode()
-else:
-    import os
-    _hmac_key = os.urandom(32).hex().encode()
-    logger.warning("CONTRASTAPI_HASH_SECRET not set, using random key — IP hashes will reset on restart")
+# Resolve HMAC key once at import time (config.py guarantees non-empty fallback)
+_hmac_key = HASH_SECRET.encode()
 
 _local = threading.local()
 
@@ -195,32 +190,25 @@ def init_all_dbs():
 
 # --- API key operations ---
 
+
 def save_api_key(key_hash: str, order_id: str | None = None) -> None:
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     with get_api_db() as con:
-        con.execute(
-            "INSERT INTO api_keys (key_hash, order_id, created_at) VALUES (?, ?, ?)",
-            (key_hash, order_id, now)
-        )
+        con.execute("INSERT INTO api_keys (key_hash, order_id, created_at) VALUES (?, ?, ?)", (key_hash, order_id, now))
 
 
 def get_api_key(key_hash: str) -> dict | None:
     with get_api_db() as con:
         cur = con.cursor()
         cur.row_factory = sqlite3.Row
-        row = cur.execute(
-            "SELECT * FROM api_keys WHERE key_hash = ? AND active = 1", (key_hash,)
-        ).fetchone()
+        row = cur.execute("SELECT * FROM api_keys WHERE key_hash = ? AND active = 1", (key_hash,)).fetchone()
         return dict(row) if row else None
 
 
 def touch_api_key(key_hash: str) -> None:
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     with get_api_db() as con:
-        con.execute(
-            "UPDATE api_keys SET last_used_at = ? WHERE key_hash = ?",
-            (now, key_hash)
-        )
+        con.execute("UPDATE api_keys SET last_used_at = ? WHERE key_hash = ?", (now, key_hash))
 
 
 def get_key_by_order_id(order_id: str) -> dict | None:
@@ -228,19 +216,14 @@ def get_key_by_order_id(order_id: str) -> dict | None:
     with get_api_db() as con:
         cur = con.cursor()
         cur.row_factory = sqlite3.Row
-        row = cur.execute(
-            "SELECT * FROM api_keys WHERE order_id = ?", (order_id,)
-        ).fetchone()
+        row = cur.execute("SELECT * FROM api_keys WHERE order_id = ?", (order_id,)).fetchone()
         return dict(row) if row else None
 
 
 def save_pending_key(order_id: str, raw_key: str) -> None:
     """Store raw API key temporarily so the welcome page can show it once."""
     with get_api_db() as con:
-        con.execute(
-            "UPDATE api_keys SET pending_key = ? WHERE order_id = ?",
-            (raw_key, order_id)
-        )
+        con.execute("UPDATE api_keys SET pending_key = ? WHERE order_id = ?", (raw_key, order_id))
 
 
 def get_and_clear_pending_key(order_id: str) -> str | None:
@@ -252,28 +235,22 @@ def get_and_clear_pending_key(order_id: str) -> str | None:
     """
     with get_api_db() as con:
         row = con.execute(
-            "SELECT pending_key FROM api_keys "
-            "WHERE order_id = ? AND pending_key IS NOT NULL",
-            (order_id,)
+            "SELECT pending_key FROM api_keys WHERE order_id = ? AND pending_key IS NOT NULL", (order_id,)
         ).fetchone()
         if row is None:
             return None
-        con.execute(
-            "UPDATE api_keys SET pending_key = NULL WHERE order_id = ?",
-            (order_id,)
-        )
+        con.execute("UPDATE api_keys SET pending_key = NULL WHERE order_id = ?", (order_id,))
         return row[0]
 
 
 def deactivate_api_key(order_id: str) -> int:
     with get_api_db() as con:
-        cur = con.execute(
-            "UPDATE api_keys SET active = 0, pending_key = NULL WHERE order_id = ?", (order_id,)
-        )
+        cur = con.execute("UPDATE api_keys SET active = 0, pending_key = NULL WHERE order_id = ?", (order_id,))
         return cur.rowcount
 
 
 # --- Usage tracking ---
+
 
 def hash_client_ip(ip: str) -> str:
     """Hash a client IP with HMAC for privacy-safe analytics. Returns 16-char hex digest."""
@@ -281,12 +258,12 @@ def hash_client_ip(ip: str) -> str:
 
 
 def log_usage(client_ip: str, endpoint: str, key_hash: str | None = None) -> None:
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     ip_hash = hash_client_ip(client_ip)
     with get_api_db() as con:
         con.execute(
             "INSERT INTO api_usage (key_hash, client_ip, endpoint, called_at) VALUES (?, ?, ?, ?)",
-            (key_hash, ip_hash, endpoint, now)
+            (key_hash, ip_hash, endpoint, now),
         )
 
 
@@ -300,29 +277,25 @@ def get_key_usage_stats(key_hash: str) -> dict:
     """Get usage statistics for a Pro API key."""
     with get_api_db() as con:
         # Total requests
-        total = con.execute(
-            "SELECT COUNT(*) FROM api_usage WHERE key_hash = ?", (key_hash,)
-        ).fetchone()[0]
+        total = con.execute("SELECT COUNT(*) FROM api_usage WHERE key_hash = ?", (key_hash,)).fetchone()[0]
 
         # Last 24h
-        cutoff_24h = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+        cutoff_24h = (datetime.now(UTC) - timedelta(hours=24)).isoformat()
         last_24h = con.execute(
-            "SELECT COUNT(*) FROM api_usage WHERE key_hash = ? AND called_at >= ?",
-            (key_hash, cutoff_24h)
+            "SELECT COUNT(*) FROM api_usage WHERE key_hash = ? AND called_at >= ?", (key_hash, cutoff_24h)
         ).fetchone()[0]
 
         # Last 1h
-        cutoff_1h = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+        cutoff_1h = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
         last_1h = con.execute(
-            "SELECT COUNT(*) FROM api_usage WHERE key_hash = ? AND called_at >= ?",
-            (key_hash, cutoff_1h)
+            "SELECT COUNT(*) FROM api_usage WHERE key_hash = ? AND called_at >= ?", (key_hash, cutoff_1h)
         ).fetchone()[0]
 
         # Top endpoints
         rows = con.execute(
             "SELECT endpoint, COUNT(*) as cnt FROM api_usage WHERE key_hash = ? "
             "GROUP BY endpoint ORDER BY cnt DESC LIMIT 10",
-            (key_hash,)
+            (key_hash,),
         ).fetchall()
         top_endpoints = [{"endpoint": r[0], "count": r[1]} for r in rows]
 
@@ -336,12 +309,13 @@ def get_key_usage_stats(key_hash: str) -> dict:
 
 # --- Domain cache ---
 
+
 def maintenance() -> dict:
     """Run database maintenance: VACUUM, ANALYZE, purge old data."""
     stats = {}
 
     # Purge usage older than 90 days
-    cutoff = (datetime.now(timezone.utc) - timedelta(days=90)).isoformat()
+    cutoff = (datetime.now(UTC) - timedelta(days=90)).isoformat()
     with get_api_db() as con:
         cur = con.execute("DELETE FROM api_usage WHERE called_at < ?", (cutoff,))
         stats["usage_purged"] = cur.rowcount
@@ -349,8 +323,8 @@ def maintenance() -> dict:
 
     # Purge expired domain cache and IP cache
     with get_cache_db() as con:
-        now = datetime.now(timezone.utc)
-        from config import DOMAIN_CACHE_TTL
+        now = datetime.now(UTC)
+
         cache_cutoff = (now - timedelta(seconds=DOMAIN_CACHE_TTL)).isoformat()
         cur = con.execute("DELETE FROM domain_cache WHERE fetched_at < ?", (cache_cutoff,))
         stats["cache_purged"] = cur.rowcount
@@ -371,79 +345,84 @@ def maintenance() -> dict:
 def get_cached_domain(domain: str) -> dict | None:
     """Get cached domain result if not expired."""
     with get_cache_db() as con:
-        row = con.execute(
-            "SELECT result_json, fetched_at FROM domain_cache WHERE domain = ?",
-            (domain,)
-        ).fetchone()
+        row = con.execute("SELECT result_json, fetched_at FROM domain_cache WHERE domain = ?", (domain,)).fetchone()
         if row is None:
             return None
         fetched = datetime.fromisoformat(row[1])
-        age = (datetime.now(timezone.utc) - fetched).total_seconds()
+        age = (datetime.now(UTC) - fetched).total_seconds()
         if age > DOMAIN_CACHE_TTL:
             return None  # expired — maintenance() handles cleanup
         return json.loads(row[0])
 
 
 def save_cached_domain(domain: str, result: dict) -> None:
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     result_str = json.dumps(result)
     with get_cache_db() as con:
         con.execute(
             "INSERT OR REPLACE INTO domain_cache (domain, result_json, fetched_at) VALUES (?, ?, ?)",
-            (domain, result_str, now)
+            (domain, result_str, now),
         )
 
 
 # --- IP cache ---
 
+
 def get_cached_ip(ip: str) -> dict | None:
     """Get cached IP reputation result if not expired."""
     with get_cache_db() as con:
-        row = con.execute(
-            "SELECT result_json, fetched_at FROM ip_cache WHERE ip = ?",
-            (ip,)
-        ).fetchone()
+        row = con.execute("SELECT result_json, fetched_at FROM ip_cache WHERE ip = ?", (ip,)).fetchone()
         if row is None:
             return None
         fetched = datetime.fromisoformat(row[1])
-        age = (datetime.now(timezone.utc) - fetched).total_seconds()
+        age = (datetime.now(UTC) - fetched).total_seconds()
         if age > IP_CACHE_TTL:
             return None  # expired — maintenance() handles cleanup
         return json.loads(row[0])
 
 
 def save_cached_ip(ip: str, result: dict) -> None:
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     result_str = json.dumps(result)
     with get_cache_db() as con:
         con.execute(
-            "INSERT OR REPLACE INTO ip_cache (ip, result_json, fetched_at) VALUES (?, ?, ?)",
-            (ip, result_str, now)
+            "INSERT OR REPLACE INTO ip_cache (ip, result_json, fetched_at) VALUES (?, ?, ?)", (ip, result_str, now)
         )
 
 
 # --- CVE operations ---
 
+
 def upsert_cve(cve_data: dict) -> None:
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     with get_cve_db() as con:
-        con.execute("""
+        con.execute(
+            """
             INSERT OR REPLACE INTO cves
             (cve_id, description, severity, cvss_v3, cvss_vector, cwe_id,
              published, modified, epss_score, epss_percentile,
              in_kev, kev_date_added, affected_products, refs, summary, synced_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            cve_data["cve_id"], cve_data.get("description"),
-            cve_data.get("severity"), cve_data.get("cvss_v3"),
-            cve_data.get("cvss_vector"), cve_data.get("cwe_id"),
-            cve_data.get("published"), cve_data.get("modified"),
-            cve_data.get("epss_score"), cve_data.get("epss_percentile"),
-            cve_data.get("in_kev", 0), cve_data.get("kev_date_added"),
-            json.dumps(cve_data.get("affected_products", [])),
-            json.dumps(cve_data.get("refs", [])),
-            cve_data.get("summary"), now
-        ))
+        """,
+            (
+                cve_data["cve_id"],
+                cve_data.get("description"),
+                cve_data.get("severity"),
+                cve_data.get("cvss_v3"),
+                cve_data.get("cvss_vector"),
+                cve_data.get("cwe_id"),
+                cve_data.get("published"),
+                cve_data.get("modified"),
+                cve_data.get("epss_score"),
+                cve_data.get("epss_percentile"),
+                cve_data.get("in_kev", 0),
+                cve_data.get("kev_date_added"),
+                json.dumps(cve_data.get("affected_products", [])),
+                json.dumps(cve_data.get("refs", [])),
+                cve_data.get("summary"),
+                now,
+            ),
+        )
 
 
 def _deserialize_cve(row: sqlite3.Row) -> dict:
@@ -462,8 +441,9 @@ def get_cve(cve_id: str) -> dict | None:
         return _deserialize_cve(row) if row else None
 
 
-def search_cves(product: str | None = None, severity: str | None = None,
-                days: int | None = None, limit: int = 50) -> list[dict]:
+def search_cves(
+    product: str | None = None, severity: str | None = None, days: int | None = None, limit: int = 50
+) -> list[dict]:
     conditions = []
     params = []
     if product:
@@ -474,8 +454,7 @@ def search_cves(product: str | None = None, severity: str | None = None,
         conditions.append("severity = ?")
         params.append(severity.upper())
     if days:
-        from datetime import timedelta
-        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        cutoff = (datetime.now(UTC) - timedelta(days=days)).isoformat()
         conditions.append("published >= ?")
         params.append(cutoff)
 
@@ -485,10 +464,7 @@ def search_cves(product: str | None = None, severity: str | None = None,
     with get_cve_db() as con:
         cur = con.cursor()
         cur.row_factory = sqlite3.Row
-        rows = cur.execute(
-            f"SELECT * FROM cves WHERE {where} ORDER BY published DESC LIMIT ?",
-            params
-        ).fetchall()
+        rows = cur.execute(f"SELECT * FROM cves WHERE {where} ORDER BY published DESC LIMIT ?", params).fetchall()
         return [_deserialize_cve(row) for row in rows]
 
 
@@ -504,8 +480,7 @@ def _parse_version(v: str) -> tuple:
     return tuple(parts)
 
 
-def search_cves_by_product(product: str, version: str | None = None,
-                           limit: int = 20) -> list[dict]:
+def search_cves_by_product(product: str, version: str | None = None, limit: int = 20) -> list[dict]:
     """Search CVEs via cve_products table with optional version range check."""
     escaped = product.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
     with get_cve_db() as con:
@@ -517,7 +492,7 @@ def search_cves_by_product(product: str, version: str | None = None,
             "JOIN cve_products p ON c.cve_id = p.cve_id "
             "WHERE p.product LIKE ? ESCAPE '\\' "
             "ORDER BY c.published DESC LIMIT ?",
-            (f"%{escaped}%", limit * 3)  # over-fetch to filter by version
+            (f"%{escaped}%", limit * 3),  # over-fetch to filter by version
         ).fetchall()
 
     results = []
@@ -550,14 +525,13 @@ def search_cves_by_product(product: str, version: str | None = None,
 
 
 def get_recent_cves(hours: int = 24, limit: int = 50) -> list[dict]:
-    from datetime import timedelta
-    cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+
+    cutoff = (datetime.now(UTC) - timedelta(hours=hours)).isoformat()
     with get_cve_db() as con:
         cur = con.cursor()
         cur.row_factory = sqlite3.Row
         rows = cur.execute(
-            "SELECT * FROM cves WHERE published >= ? ORDER BY published DESC LIMIT ?",
-            (cutoff, limit)
+            "SELECT * FROM cves WHERE published >= ? ORDER BY published DESC LIMIT ?", (cutoff, limit)
         ).fetchall()
         return [_deserialize_cve(row) for row in rows]
 
@@ -567,18 +541,14 @@ def get_kev_cves(limit: int = 100) -> list[dict]:
         cur = con.cursor()
         cur.row_factory = sqlite3.Row
         rows = cur.execute(
-            "SELECT * FROM cves WHERE in_kev = 1 ORDER BY kev_date_added DESC LIMIT ?",
-            (limit,)
+            "SELECT * FROM cves WHERE in_kev = 1 ORDER BY kev_date_added DESC LIMIT ?", (limit,)
         ).fetchall()
         return [_deserialize_cve(row) for row in rows]
 
 
 def get_epss(cve_id: str) -> dict | None:
     with get_cve_db() as con:
-        row = con.execute(
-            "SELECT epss_score, epss_percentile FROM cves WHERE cve_id = ?",
-            (cve_id,)
-        ).fetchone()
+        row = con.execute("SELECT epss_score, epss_percentile FROM cves WHERE cve_id = ?", (cve_id,)).fetchone()
         if row is None:
             return None
         return {"cve_id": cve_id, "score": row[0], "percentile": row[1]}
@@ -588,8 +558,7 @@ def update_epss(cve_id: str, epss_score: float | None, epss_percentile: float | 
     """Update only EPSS fields for a CVE. Returns True if row existed."""
     with get_cve_db() as con:
         cur = con.execute(
-            "UPDATE cves SET epss_score=?, epss_percentile=? WHERE cve_id=?",
-            (epss_score, epss_percentile, cve_id)
+            "UPDATE cves SET epss_score=?, epss_percentile=? WHERE cve_id=?", (epss_score, epss_percentile, cve_id)
         )
         return cur.rowcount > 0
 
@@ -597,20 +566,16 @@ def update_epss(cve_id: str, epss_score: float | None, epss_percentile: float | 
 def update_kev(cve_id: str, date_added: str | None) -> bool:
     """Update only KEV fields for a CVE. Returns True if row existed."""
     with get_cve_db() as con:
-        cur = con.execute(
-            "UPDATE cves SET in_kev=1, kev_date_added=? WHERE cve_id=?",
-            (date_added, cve_id)
-        )
+        cur = con.execute("UPDATE cves SET in_kev=1, kev_date_added=? WHERE cve_id=?", (date_added, cve_id))
         return cur.rowcount > 0
 
 
 def update_sync_status(source: str, count: int, status: str = "ok") -> None:
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     with get_cve_db() as con:
         con.execute(
-            "INSERT OR REPLACE INTO sync_status (source, last_sync, records_count, status) "
-            "VALUES (?, ?, ?, ?)",
-            (source, now, count, status)
+            "INSERT OR REPLACE INTO sync_status (source, last_sync, records_count, status) VALUES (?, ?, ?, ?)",
+            (source, now, count, status),
         )
 
 

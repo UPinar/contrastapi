@@ -15,12 +15,11 @@ import logging
 import math
 import sys
 import time
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime, timedelta
 
 import httpx
-
-from config import NVD_API_URL, NVD_PAGE_SIZE, NVD_API_KEY, KEV_URL, EPSS_URL
-from db import init_all_dbs, upsert_cve, get_cve, update_sync_status, update_epss, update_kev
+from config import KEV_URL, NVD_API_KEY, NVD_API_URL, NVD_PAGE_SIZE
+from db import get_cve, init_all_dbs, update_epss, update_kev, update_sync_status, upsert_cve
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("contrastapi")
@@ -39,6 +38,7 @@ _client = httpx.Client(
 
 
 # --- NVD Sync ---
+
 
 def _nvd_request(params: dict) -> dict:
     """Make a single NVD API request with retries."""
@@ -142,12 +142,14 @@ def _parse_nvd_cve(item: dict) -> dict:
                     if key in seen:
                         continue
                     seen.add(key)
-                    products.append({
-                        "vendor": vendor,
-                        "product": product,
-                        "version_start": ver_start,
-                        "version_end": ver_end,
-                    })
+                    products.append(
+                        {
+                            "vendor": vendor,
+                            "product": product,
+                            "version_start": ver_start,
+                            "version_end": ver_end,
+                        }
+                    )
 
     # References
     refs = [r.get("url", "") for r in cve.get("references", []) if r.get("url")]
@@ -176,9 +178,9 @@ def sync_nvd(full: bool = False) -> int:
 
     if not full:
         # Delta: last 2.5 hours to overlap with timer interval
-        since = (datetime.now(timezone.utc) - timedelta(hours=2, minutes=30))
+        since = datetime.now(UTC) - timedelta(hours=2, minutes=30)
         params["lastModStartDate"] = since.strftime("%Y-%m-%dT%H:%M:%S.000")
-        params["lastModEndDate"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000")
+        params["lastModEndDate"] = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.000")
         log.info("NVD delta sync since %s", params["lastModStartDate"])
     else:
         log.info("NVD full sync starting...")
@@ -221,13 +223,15 @@ def sync_nvd(full: bool = False) -> int:
 
         time.sleep(NVD_DELAY)
 
-    status = "ok" if total_processed > 0 else "error"
+    # Delta sync with 0 results is normal (no new CVEs in window), not an error
+    status = "ok" if (total_processed > 0 or not full) else "error"
     update_sync_status("nvd", total_processed, status)
     log.info("NVD sync complete: %d CVEs processed", total_processed)
     return total_processed
 
 
 # --- EPSS Sync ---
+
 
 def sync_epss() -> int:
     """Sync EPSS scores from FIRST.org CSV bulk download. Returns count updated."""
@@ -296,6 +300,7 @@ def sync_epss() -> int:
 
 # --- KEV Sync ---
 
+
 def sync_kev() -> int:
     """Sync CISA Known Exploited Vulnerabilities. Returns count updated."""
     log.info("KEV sync starting...")
@@ -314,13 +319,15 @@ def sync_kev() -> int:
             date_added = vuln.get("dateAdded")
             # Try targeted UPDATE first; create minimal entry only if CVE not in DB
             if not update_kev(cve_id, date_added):
-                upsert_cve({
-                    "cve_id": cve_id,
-                    "description": vuln.get("shortDescription"),
-                    "in_kev": 1,
-                    "kev_date_added": date_added,
-                    "summary": f"CISA KEV: {vuln.get('shortDescription', cve_id)}",
-                })
+                upsert_cve(
+                    {
+                        "cve_id": cve_id,
+                        "description": vuln.get("shortDescription"),
+                        "in_kev": 1,
+                        "kev_date_added": date_added,
+                        "summary": f"CISA KEV: {vuln.get('shortDescription', cve_id)}",
+                    }
+                )
             count += 1
 
     except Exception as e:
@@ -334,6 +341,7 @@ def sync_kev() -> int:
 
 
 # --- Main ---
+
 
 def sync_all(full: bool = False):
     """Run all sync tasks."""

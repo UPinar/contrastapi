@@ -247,13 +247,15 @@ def detect_injection(code: str, language: str = "generic") -> list[dict]:
 
         for rule_name, pattern, severity, description, remediation in _ALL_RULES:
             for m in pattern.finditer(line):
-                findings.append({
-                    "type": rule_name,
-                    "severity": severity,
-                    "line": line_num,
-                    "match": _redact(m.group()),
-                    "description": description,
-                    "remediation": remediation,
-                })
+                findings.append(
+                    {
+                        "type": rule_name,
+                        "severity": severity,
+                        "line": line_num,
+                        "match": _redact(m.group()),
+                        "description": description,
+                        "remediation": remediation,
+                    }
+                )
 
     return findings

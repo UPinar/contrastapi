@@ -3,12 +3,11 @@
 import logging
 
 import httpx
-from fastapi import APIRouter, HTTPException, Request, Query
-
 from auth import authenticate
-from db import get_cve, search_cves, get_recent_cves, get_kev_cves, get_epss, get_cached_domain, save_cached_domain
+from db import get_cached_domain, get_cve, get_epss, get_kev_cves, get_recent_cves, save_cached_domain, search_cves
+from fastapi import APIRouter, HTTPException, Query, Request
 from schemas import CveResponse, ExploitResponse
-from validation import validate_cve_id, is_valid_ip
+from validation import is_valid_ip, validate_cve_id
 
 logger = logging.getLogger("contrastapi")
 
@@ -20,9 +19,13 @@ _exploit_client = httpx.Client(timeout=httpx.Timeout(5.0, connect=3.0), follow_r
 def _check_cve_input(cve_id: str):
     """Validate CVE ID and give helpful hints for wrong input types."""
     if is_valid_ip(cve_id):
-        raise HTTPException(status_code=400, detail=f"'{cve_id}' is an IP address, not a CVE ID. Use /v1/ip/{cve_id} instead.")
+        raise HTTPException(
+            status_code=400, detail=f"'{cve_id}' is an IP address, not a CVE ID. Use /v1/ip/{cve_id} instead."
+        )
     if "." in cve_id and not cve_id.startswith("CVE"):
-        raise HTTPException(status_code=400, detail=f"'{cve_id}' looks like a domain, not a CVE ID. Use /v1/domain/{cve_id} instead.")
+        raise HTTPException(
+            status_code=400, detail=f"'{cve_id}' looks like a domain, not a CVE ID. Use /v1/domain/{cve_id} instead."
+        )
     if not validate_cve_id(cve_id):
         raise HTTPException(status_code=400, detail="Invalid CVE ID format (expected CVE-YYYY-NNNNN)")
 
@@ -45,7 +48,9 @@ def cve_lookup(cve_id: str, request: Request):
 @router.get("/cves", operation_id="cve_search")
 def cve_search(
     request: Request,
-    product: str | None = Query(None, min_length=2, max_length=100, description="Filter by product name (e.g. 'nginx', 'apache')"),
+    product: str | None = Query(
+        None, min_length=2, max_length=100, description="Filter by product name (e.g. 'nginx', 'apache')"
+    ),
     severity: str | None = Query(None, description="Filter by severity: CRITICAL, HIGH, MEDIUM, LOW"),
     days: int | None = Query(None, ge=1, le=365, description="CVEs published within N days"),
     limit: int = Query(50, ge=1, le=200, description="Max results"),
@@ -237,13 +242,15 @@ def _search_github_advisories(cve_id: str) -> dict:
         advisories = []
         for item in data[:20]:
             refs = [r.get("url", "") for r in (item.get("references") or []) if r.get("url")]
-            advisories.append({
-                "ghsa_id": item.get("ghsa_id", ""),
-                "summary": item.get("summary", ""),
-                "severity": item.get("severity"),
-                "published_at": item.get("published_at"),
-                "references": refs[:10],
-            })
+            advisories.append(
+                {
+                    "ghsa_id": item.get("ghsa_id", ""),
+                    "summary": item.get("summary", ""),
+                    "severity": item.get("severity"),
+                    "published_at": item.get("published_at"),
+                    "references": refs[:10],
+                }
+            )
         return {"found": len(advisories) > 0, "count": len(advisories), "advisories": advisories}
     except Exception as e:
         logger.warning("GitHub Advisory search failed for %s: %s", cve_id, e)
@@ -262,18 +269,22 @@ def _search_exploitdb(cve_id: str) -> dict:
         matches = data.get("matches", [])
         results = []
         for item in matches[:20]:
-            results.append({
-                "id": str(item.get("_id", "")),
-                "description": item.get("description", ""),
-                "source": item.get("source", ""),
-            })
+            results.append(
+                {
+                    "id": str(item.get("_id", "")),
+                    "description": item.get("description", ""),
+                    "source": item.get("source", ""),
+                }
+            )
         return {"found": len(results) > 0, "count": len(results), "results": results}
     except Exception as e:
         logger.warning("ExploitDB/Shodan search failed for %s: %s", cve_id, e)
         return {"found": False, "count": 0, "results": []}
 
 
-@router.get("/exploit/{cve_id}", operation_id="exploit_lookup", response_model=ExploitResponse, response_model_exclude_none=True)
+@router.get(
+    "/exploit/{cve_id}", operation_id="exploit_lookup", response_model=ExploitResponse, response_model_exclude_none=True
+)
 def exploit_lookup(cve_id: str, request: Request):
     """Search for public exploits and advisories related to a CVE."""
     cve_id = cve_id.strip().upper()

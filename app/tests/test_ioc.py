@@ -1,69 +1,87 @@
 """Tests for ioc/ module — IOC enrichment, malware hash, password breach."""
 
 import socket
-
-import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import httpx
-
+import pytest
 
 # === detect_indicator_type ===
 
+
 def test_detect_ip():
     from ioc.lookup import detect_indicator_type
+
     assert detect_indicator_type("44.228.249.3") == "ip"
 
 
 def test_detect_domain():
     from ioc.lookup import detect_indicator_type
+
     assert detect_indicator_type("evil.example.com") == "domain"
 
 
 def test_detect_url_http():
     from ioc.lookup import detect_indicator_type
+
     assert detect_indicator_type("http://evil.com/malware.exe") == "url"
 
 
 def test_detect_url_https():
     from ioc.lookup import detect_indicator_type
+
     assert detect_indicator_type("https://evil.com/payload") == "url"
 
 
 def test_detect_hash_md5():
     from ioc.lookup import detect_indicator_type
+
     assert detect_indicator_type("d41d8cd98f00b204e9800998ecf8427e") == "hash"
 
 
 def test_detect_hash_sha1():
     from ioc.lookup import detect_indicator_type
+
     assert detect_indicator_type("da39a3ee5e6b4b0d3255bfef95601890afd80709") == "hash"
 
 
 def test_detect_hash_sha256():
     from ioc.lookup import detect_indicator_type
+
     h = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     assert detect_indicator_type(h) == "hash"
 
 
 def test_detect_unknown():
     from ioc.lookup import detect_indicator_type
+
     assert detect_indicator_type("not_an_ioc") == "unknown"
 
 
 def test_detect_empty():
     from ioc.lookup import detect_indicator_type
+
     assert detect_indicator_type("") == "unknown"
 
 
 # === query_threatfox ===
 
+
 def test_threatfox_found():
     from ioc.lookup import query_threatfox
+
     mock_resp = MagicMock()
     mock_resp.json.return_value = {
         "query_status": "ok",
-        "data": [{"malware_printable": "Cobalt Strike", "threat_type": "botnet_cc", "confidence_level": 75, "tags": ["c2"], "first_seen_utc": "2024-01-01"}],
+        "data": [
+            {
+                "malware_printable": "Cobalt Strike",
+                "threat_type": "botnet_cc",
+                "confidence_level": 75,
+                "tags": ["c2"],
+                "first_seen_utc": "2024-01-01",
+            }
+        ],
     }
     mock_resp.raise_for_status = MagicMock()
     with patch("ioc.lookup._client.post", return_value=mock_resp):
@@ -74,6 +92,7 @@ def test_threatfox_found():
 
 def test_threatfox_not_found():
     from ioc.lookup import query_threatfox
+
     mock_resp = MagicMock()
     mock_resp.json.return_value = {"query_status": "no_result", "data": None}
     mock_resp.raise_for_status = MagicMock()
@@ -84,6 +103,7 @@ def test_threatfox_not_found():
 
 def test_threatfox_timeout():
     from ioc.lookup import query_threatfox
+
     with patch("ioc.lookup._client.post", side_effect=httpx.ConnectTimeout("timeout")):
         result = query_threatfox("1.2.3.4")
     assert result["found"] is False
@@ -92,11 +112,16 @@ def test_threatfox_timeout():
 
 # === query_feodo ===
 
+
 def test_feodo_found():
-    from ioc.lookup import query_feodo, _feodo_cache
     import time
+
+    from ioc.lookup import _feodo_cache, query_feodo
+
     # Pre-populate cache
-    _feodo_cache["data"] = {"1.2.3.4": {"malware": "QakBot", "first_seen": "2024-01-15", "last_online": None, "status": "online"}}
+    _feodo_cache["data"] = {
+        "1.2.3.4": {"malware": "QakBot", "first_seen": "2024-01-15", "last_online": None, "status": "online"}
+    }
     _feodo_cache["fetched_at"] = time.time()
     result = query_feodo("1.2.3.4")
     assert result["found"] is True
@@ -104,8 +129,10 @@ def test_feodo_found():
 
 
 def test_feodo_not_found():
-    from ioc.lookup import query_feodo, _feodo_cache
     import time
+
+    from ioc.lookup import _feodo_cache, query_feodo
+
     _feodo_cache["data"] = {"9.9.9.9": {"malware": "test"}}
     _feodo_cache["fetched_at"] = time.time()
     result = query_feodo("1.2.3.4")
@@ -114,12 +141,23 @@ def test_feodo_not_found():
 
 # === query_malwarebazaar ===
 
+
 def test_malwarebazaar_found():
     from ioc.lookup import query_malwarebazaar
+
     mock_resp = MagicMock()
     mock_resp.json.return_value = {
         "query_status": "ok",
-        "data": [{"signature": "AgentTesla", "file_type": "exe", "file_size": 245760, "first_seen": "2024-03-15", "tags": ["stealer"], "file_name": "payload.exe"}],
+        "data": [
+            {
+                "signature": "AgentTesla",
+                "file_type": "exe",
+                "file_size": 245760,
+                "first_seen": "2024-03-15",
+                "tags": ["stealer"],
+                "file_name": "payload.exe",
+            }
+        ],
     }
     mock_resp.raise_for_status = MagicMock()
     with patch("ioc.lookup._client.post", return_value=mock_resp):
@@ -131,6 +169,7 @@ def test_malwarebazaar_found():
 
 def test_malwarebazaar_not_found():
     from ioc.lookup import query_malwarebazaar
+
     mock_resp = MagicMock()
     mock_resp.json.return_value = {"query_status": "hash_not_found", "data": None}
     mock_resp.raise_for_status = MagicMock()
@@ -141,6 +180,7 @@ def test_malwarebazaar_not_found():
 
 def test_malwarebazaar_timeout():
     from ioc.lookup import query_malwarebazaar
+
     with patch("ioc.lookup._client.post", side_effect=httpx.ReadTimeout("timeout")):
         result = query_malwarebazaar("c" * 64)
     assert result["found"] is False
@@ -149,28 +189,34 @@ def test_malwarebazaar_timeout():
 
 # === password.py ===
 
+
 def test_is_valid_sha1():
     from ioc.password import is_valid_sha1
+
     assert is_valid_sha1("a" * 40) is True
     assert is_valid_sha1("A94A8FE5CCB19BA61C4C0873D391E987982FBBD3") is True
 
 
 def test_is_valid_sha1_invalid():
     from ioc.password import is_valid_sha1
-    assert is_valid_sha1("a" * 39) is False   # too short
-    assert is_valid_sha1("a" * 41) is False   # too long
-    assert is_valid_sha1("g" * 40) is False   # non-hex
+
+    assert is_valid_sha1("a" * 39) is False  # too short
+    assert is_valid_sha1("a" * 41) is False  # too long
+    assert is_valid_sha1("g" * 40) is False  # non-hex
     assert is_valid_sha1("") is False
-    assert is_valid_sha1("abcde") is False     # 5 chars (old prefix format)
+    assert is_valid_sha1("abcde") is False  # 5 chars (old prefix format)
 
 
 def test_query_pwned_hash_found():
     from ioc.password import query_pwned_hash
+
     # SHA1 of "password" = 5BAA61E4C9B93F3F0682250B6CF8331B7EE68FD8
     sha1 = "5BAA61E4C9B93F3F0682250B6CF8331B7EE68FD8"
     suffix = sha1[5:]  # E4C9B93F3F0682250B6CF8331B7EE68FD8
     mock_resp = MagicMock()
-    mock_resp.text = f"0018A45C4D1DEF81644B54AB7F969B88D65:23\n{suffix}:3861493\n00D4F6E8FA6EECAD2A3AA415EEC418D38EC:7\n"
+    mock_resp.text = (
+        f"0018A45C4D1DEF81644B54AB7F969B88D65:23\n{suffix}:3861493\n00D4F6E8FA6EECAD2A3AA415EEC418D38EC:7\n"
+    )
     mock_resp.raise_for_status = MagicMock()
     with patch("ioc.password._client.get", return_value=mock_resp):
         result = query_pwned_hash(sha1)
@@ -181,6 +227,7 @@ def test_query_pwned_hash_found():
 
 def test_query_pwned_hash_not_found():
     from ioc.password import query_pwned_hash
+
     sha1 = "a" * 40
     mock_resp = MagicMock()
     mock_resp.text = "0018A45C4D1DEF81644B54AB7F969B88D65:23\n00D4F6E8FA6EECAD2A3AA415EEC418D38EC:7\n"
@@ -193,6 +240,7 @@ def test_query_pwned_hash_not_found():
 
 def test_query_pwned_hash_timeout():
     from ioc.password import query_pwned_hash
+
     with patch("ioc.password._client.get", side_effect=httpx.ConnectTimeout("timeout")):
         result = query_pwned_hash("a" * 40)
     assert result["found"] is False
@@ -201,19 +249,24 @@ def test_query_pwned_hash_timeout():
 
 # === API endpoint tests (via TestClient) ===
 
+
 @pytest.fixture
 def client():
     from fastapi.testclient import TestClient
     from main import app
+
     return TestClient(app, raise_server_exceptions=False)
 
 
 # --- /v1/ioc/{indicator} ---
 
+
 def test_ioc_ip_endpoint(client):
-    with patch("ioc.routes.query_threatfox", return_value={"found": False}), \
-         patch("ioc.routes.query_feodo", return_value={"found": False}), \
-         patch("ioc.routes.check_urlhaus", return_value={"urlhaus_status": "clean", "url_count": 0, "urls_online": 0}):
+    with (
+        patch("ioc.routes.query_threatfox", return_value={"found": False}),
+        patch("ioc.routes.query_feodo", return_value={"found": False}),
+        patch("ioc.routes.check_urlhaus", return_value={"urlhaus_status": "clean", "url_count": 0, "urls_online": 0}),
+    ):
         resp = client.get("/v1/ioc/8.8.8.8")
     assert resp.status_code == 200
     data = resp.json()
@@ -225,8 +278,10 @@ def test_ioc_ip_endpoint(client):
 
 
 def test_ioc_domain_endpoint(client):
-    with patch("ioc.routes.query_threatfox", return_value={"found": False}), \
-         patch("ioc.routes.check_urlhaus", return_value={"urlhaus_status": "clean", "url_count": 0, "urls_online": 0}):
+    with (
+        patch("ioc.routes.query_threatfox", return_value={"found": False}),
+        patch("ioc.routes.check_urlhaus", return_value={"urlhaus_status": "clean", "url_count": 0, "urls_online": 0}),
+    ):
         resp = client.get("/v1/ioc/evil.com")
     assert resp.status_code == 200
     data = resp.json()
@@ -234,7 +289,10 @@ def test_ioc_domain_endpoint(client):
 
 
 def test_ioc_hash_endpoint(client):
-    with patch("ioc.routes.query_threatfox", return_value={"found": True, "malware": "Emotet", "threat_type": "payload", "tags": ["trojan"]}):
+    with patch(
+        "ioc.routes.query_threatfox",
+        return_value={"found": True, "malware": "Emotet", "threat_type": "payload", "tags": ["trojan"]},
+    ):
         resp = client.get("/v1/ioc/" + "a" * 64)
     assert resp.status_code == 200
     data = resp.json()
@@ -243,8 +301,10 @@ def test_ioc_hash_endpoint(client):
 
 
 def test_ioc_url_endpoint(client):
-    with patch("ioc.routes.query_threatfox", return_value={"found": False}), \
-         patch("ioc.routes.check_urlhaus", return_value={"urlhaus_status": "clean", "url_count": 0, "urls_online": 0}):
+    with (
+        patch("ioc.routes.query_threatfox", return_value={"found": False}),
+        patch("ioc.routes.check_urlhaus", return_value={"urlhaus_status": "clean", "url_count": 0, "urls_online": 0}),
+    ):
         resp = client.get("/v1/ioc/http://evil.com/payload.exe")
     assert resp.status_code == 200
     data = resp.json()
@@ -271,8 +331,10 @@ def test_ioc_url_ssrf_private_10(client):
 
 def test_ioc_url_public_host_calls_urlhaus(client):
     """URL IOC with public host should still call URLhaus."""
-    with patch("ioc.routes.query_threatfox", return_value={"found": False}), \
-         patch("ioc.routes.check_urlhaus", return_value={"url_count": 0, "urls_online": 0}):
+    with (
+        patch("ioc.routes.query_threatfox", return_value={"found": False}),
+        patch("ioc.routes.check_urlhaus", return_value={"url_count": 0, "urls_online": 0}),
+    ):
         resp = client.get("/v1/ioc/http://evil.com/payload.exe")
     assert resp.status_code == 200
     assert "urlhaus" in resp.json()["sources"]
@@ -314,9 +376,11 @@ def test_ioc_invalid_indicator(client):
 
 
 def test_ioc_threat_level_high(client):
-    with patch("ioc.routes.query_threatfox", return_value={"found": True, "malware": "Cobalt Strike"}), \
-         patch("ioc.routes.query_feodo", return_value={"found": True, "malware": "QakBot"}), \
-         patch("ioc.routes.check_urlhaus", return_value={"urlhaus_status": "clean", "url_count": 0, "urls_online": 0}):
+    with (
+        patch("ioc.routes.query_threatfox", return_value={"found": True, "malware": "Cobalt Strike"}),
+        patch("ioc.routes.query_feodo", return_value={"found": True, "malware": "QakBot"}),
+        patch("ioc.routes.check_urlhaus", return_value={"urlhaus_status": "clean", "url_count": 0, "urls_online": 0}),
+    ):
         resp = client.get("/v1/ioc/1.2.3.4")
     assert resp.status_code == 200
     assert resp.json()["threat_level"] == "high"
@@ -324,11 +388,20 @@ def test_ioc_threat_level_high(client):
 
 # --- /v1/hash/{hash} ---
 
+
 def test_hash_valid_sha256(client):
-    with patch("ioc.routes.query_malwarebazaar", return_value={
-        "found": True, "malware_family": "AgentTesla", "file_type": "exe",
-        "file_size": 245760, "first_seen": "2024-03-15", "tags": ["stealer"], "file_name": "test.exe"
-    }):
+    with patch(
+        "ioc.routes.query_malwarebazaar",
+        return_value={
+            "found": True,
+            "malware_family": "AgentTesla",
+            "file_type": "exe",
+            "file_size": 245760,
+            "first_seen": "2024-03-15",
+            "tags": ["stealer"],
+            "file_name": "test.exe",
+        },
+    ):
         resp = client.get("/v1/hash/" + "a" * 64)
     assert resp.status_code == 200
     data = resp.json()
@@ -372,6 +445,7 @@ def test_hash_not_found(client):
 
 
 # --- /v1/password/{sha1_hash} ---
+
 
 def test_password_found(client):
     sha1 = "5BAA61E4C9B93F3F0682250B6CF8331B7EE68FD8"
@@ -421,6 +495,7 @@ def test_password_upstream_failure(client):
 
 # --- /v1/password edge cases ---
 
+
 def test_password_39_chars_400(client):
     """SHA1 must be exactly 40 hex chars; 39 is rejected."""
     resp = client.get("/v1/password/" + "a" * 39)
@@ -443,13 +518,16 @@ def test_password_5_char_prefix_400(client):
 
 # --- /v1/phishing/{url} ---
 
+
 def test_phishing_both_found(client):
     """URL + host both found in URLhaus → high threat."""
     url_resp = MagicMock()
     url_resp.json.return_value = {"query_status": "ok", "threat": "malware_download", "tags": ["elf", "mozi"]}
     url_resp.raise_for_status = MagicMock()
-    with patch("ioc.routes._phish_client.post", return_value=url_resp), \
-         patch("ioc.routes.check_urlhaus", return_value={"url_count": 5, "urls_online": 3}):
+    with (
+        patch("ioc.routes._phish_client.post", return_value=url_resp),
+        patch("ioc.routes.check_urlhaus", return_value={"url_count": 5, "urls_online": 3}),
+    ):
         resp = client.get("/v1/phishing/https://evil.example.com/payload.exe")
     assert resp.status_code == 200
     data = resp.json()
@@ -469,8 +547,10 @@ def test_phishing_not_found(client):
     url_resp = MagicMock()
     url_resp.json.return_value = {"query_status": "no_results"}
     url_resp.raise_for_status = MagicMock()
-    with patch("ioc.routes._phish_client.post", return_value=url_resp), \
-         patch("ioc.routes.check_urlhaus", return_value={"url_count": 0, "urls_online": 0}):
+    with (
+        patch("ioc.routes._phish_client.post", return_value=url_resp),
+        patch("ioc.routes.check_urlhaus", return_value={"url_count": 0, "urls_online": 0}),
+    ):
         resp = client.get("/v1/phishing/https://safe.example.com/page")
     assert resp.status_code == 200
     data = resp.json()
@@ -484,8 +564,10 @@ def test_phishing_url_only(client):
     url_resp = MagicMock()
     url_resp.json.return_value = {"query_status": "ok", "threat": "phishing", "tags": ["phish"]}
     url_resp.raise_for_status = MagicMock()
-    with patch("ioc.routes._phish_client.post", return_value=url_resp), \
-         patch("ioc.routes.check_urlhaus", return_value={"url_count": 0, "urls_online": 0}):
+    with (
+        patch("ioc.routes._phish_client.post", return_value=url_resp),
+        patch("ioc.routes.check_urlhaus", return_value={"url_count": 0, "urls_online": 0}),
+    ):
         resp = client.get("/v1/phishing/http://compromised.example.com/login")
     assert resp.status_code == 200
     data = resp.json()
@@ -500,8 +582,10 @@ def test_phishing_host_only(client):
     url_resp = MagicMock()
     url_resp.json.return_value = {"query_status": "no_results"}
     url_resp.raise_for_status = MagicMock()
-    with patch("ioc.routes._phish_client.post", return_value=url_resp), \
-         patch("ioc.routes.check_urlhaus", return_value={"url_count": 2, "urls_online": 1}):
+    with (
+        patch("ioc.routes._phish_client.post", return_value=url_resp),
+        patch("ioc.routes.check_urlhaus", return_value={"url_count": 2, "urls_online": 1}),
+    ):
         resp = client.get("/v1/phishing/https://badhost.example.com/new-path")
     assert resp.status_code == 200
     data = resp.json()
@@ -525,8 +609,10 @@ def test_phishing_private_ip_rejected(client):
 
 def test_phishing_urlhaus_url_timeout(client):
     """URLhaus URL lookup timeout → graceful fallback, no 500."""
-    with patch("ioc.routes._phish_client.post", side_effect=httpx.ConnectTimeout("timeout")), \
-         patch("ioc.routes.check_urlhaus", return_value={"url_count": 0, "urls_online": 0}):
+    with (
+        patch("ioc.routes._phish_client.post", side_effect=httpx.ConnectTimeout("timeout")),
+        patch("ioc.routes.check_urlhaus", return_value={"url_count": 0, "urls_online": 0}),
+    ):
         resp = client.get("/v1/phishing/https://timeout.example.com/page")
     assert resp.status_code == 200
     data = resp.json()
@@ -537,8 +623,12 @@ def test_phishing_urlhaus_url_timeout(client):
 
 def test_threat_endpoint_clean(client):
     """Threat intel for a clean domain returns 200 with expected fields."""
-    with patch("domain.routes._validate_and_auth", return_value=("example.com", "93.184.216.34", {"tier": "free"})), \
-         patch("domain.routes.check_urlhaus", return_value={"urlhaus_status": "clean", "urls_online": 0, "url_count": 0}):
+    with (
+        patch("domain.routes._validate_and_auth", return_value=("example.com", "93.184.216.34", {"tier": "free"})),
+        patch(
+            "domain.routes.check_urlhaus", return_value={"urlhaus_status": "clean", "urls_online": 0, "url_count": 0}
+        ),
+    ):
         resp = client.get("/v1/threat/example.com")
     assert resp.status_code == 200
     data = resp.json()
@@ -549,11 +639,20 @@ def test_threat_endpoint_clean(client):
 
 def test_threat_endpoint_listed(client):
     """Threat intel for a listed domain returns 200 with threat details."""
-    with patch("domain.routes._validate_and_auth", return_value=("evil.com", "1.2.3.4", {"tier": "free"})), \
-         patch("domain.routes.check_urlhaus", return_value={
-             "urlhaus_status": "listed", "urls_online": 3, "url_count": 5,
-             "threat_types": ["malware_download"], "tags": [], "urls": [],
-         }):
+    with (
+        patch("domain.routes._validate_and_auth", return_value=("evil.com", "1.2.3.4", {"tier": "free"})),
+        patch(
+            "domain.routes.check_urlhaus",
+            return_value={
+                "urlhaus_status": "listed",
+                "urls_online": 3,
+                "url_count": 5,
+                "threat_types": ["malware_download"],
+                "tags": [],
+                "urls": [],
+            },
+        ),
+    ):
         resp = client.get("/v1/threat/evil.com")
     assert resp.status_code == 200
     data = resp.json()

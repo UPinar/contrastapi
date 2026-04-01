@@ -1,8 +1,8 @@
 """Threat intelligence — URLhaus integration for malware/threat data."""
 
 import logging
-import httpx
 
+import httpx
 from config import RECON_TIMEOUT, URLHAUS_API_KEY, URLHAUS_API_URL
 
 logger = logging.getLogger("contrastapi")
@@ -45,13 +45,15 @@ def check_urlhaus(domain: str) -> dict:
 
         url_list = []
         for u in urls[:20]:
-            url_list.append({
-                "url": u.get("url", ""),
-                "status": u.get("url_status", "unknown"),
-                "threat": u.get("threat", "unknown"),
-                "date_added": u.get("date_added"),
-                "tags": u.get("tags") or [],
-            })
+            url_list.append(
+                {
+                    "url": u.get("url", ""),
+                    "status": u.get("url_status", "unknown"),
+                    "threat": u.get("threat", "unknown"),
+                    "date_added": u.get("date_added"),
+                    "tags": u.get("tags") or [],
+                }
+            )
 
         return {
             "urlhaus_status": "listed" if urls else "clean",

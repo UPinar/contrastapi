@@ -146,13 +146,15 @@ def detect_secrets(code: str, language: str = "generic") -> list[dict]:
 
         for rule_name, pattern, severity, description, remediation in _SECRET_RULES:
             for m in pattern.finditer(line):
-                findings.append({
-                    "type": rule_name,
-                    "severity": severity,
-                    "line": line_num,
-                    "match": _redact(m.group()),
-                    "description": description,
-                    "remediation": remediation,
-                })
+                findings.append(
+                    {
+                        "type": rule_name,
+                        "severity": severity,
+                        "line": line_num,
+                        "match": _redact(m.group()),
+                        "description": description,
+                        "remediation": remediation,
+                    }
+                )
 
     return findings

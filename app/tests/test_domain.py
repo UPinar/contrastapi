@@ -1,13 +1,11 @@
 """Tests for domain intelligence module — recon.py + routes.py"""
 
 import json
-import os
 import socket
-import pytest
-from unittest.mock import patch, MagicMock
+from datetime import UTC
+from unittest.mock import MagicMock, patch
 
 import dns.resolver
-
 from fastapi.testclient import TestClient
 from main import app
 
@@ -18,61 +16,72 @@ client = TestClient(app)
 
 # --- _parse_whois ---
 
+
 class TestParseWhois:
     def test_parse_registrar(self):
         from domain.recon import _parse_whois
+
         text = "Registrar: Example Registrar Inc.\nCreation Date: 2020-01-01"
         result = _parse_whois(text)
         assert result["registrar"] == "Example Registrar Inc."
 
     def test_parse_creation_date(self):
         from domain.recon import _parse_whois
+
         text = "Creation Date: 2020-01-15T00:00:00Z"
         result = _parse_whois(text)
         assert "2020-01-15" in result["creation_date"]
 
     def test_parse_expiry_date(self):
         from domain.recon import _parse_whois
+
         text = "Registry Expiry Date: 2025-01-15T00:00:00Z"
         result = _parse_whois(text)
         assert "2025-01-15" in result["expiry_date"]
 
     def test_parse_name_servers(self):
         from domain.recon import _parse_whois
+
         text = "Name Server: ns1.example.com\nName Server: ns2.example.com"
         result = _parse_whois(text)
         assert len(result["name_servers"]) == 2
 
     def test_parse_status(self):
         from domain.recon import _parse_whois
+
         text = "Domain Status: clientTransferProhibited\nDomain Status: clientDeleteProhibited"
         result = _parse_whois(text)
         assert len(result["status"]) == 2
 
     def test_parse_empty(self):
         from domain.recon import _parse_whois
+
         assert _parse_whois("") == {}
 
     def test_parse_updated_date(self):
         from domain.recon import _parse_whois
+
         text = "Updated Date: 2024-06-01T12:00:00Z"
         result = _parse_whois(text)
         assert "2024-06-01" in result["updated_date"]
 
     def test_parse_created_date_variant(self):
         from domain.recon import _parse_whois
+
         text = "Created Date: 2020-03-10T00:00:00Z"
         result = _parse_whois(text)
         assert "2020-03-10" in result["creation_date"]
 
     def test_parse_expiry_date_variant(self):
         from domain.recon import _parse_whois
+
         text = "Expiration Date: 2026-03-10T00:00:00Z"
         result = _parse_whois(text)
         assert "2026-03-10" in result["expiry_date"]
 
     def test_parse_last_updated_variant(self):
         from domain.recon import _parse_whois
+
         text = "Last updated: 2025-01-15"
         result = _parse_whois(text)
         assert "2025-01-15" in result["updated_date"]
@@ -80,9 +89,11 @@ class TestParseWhois:
 
 # --- _crtsh_subdomains ---
 
+
 class TestCrtshSubdomains:
     def test_extracts_subdomains(self):
         from domain.recon import _crtsh_subdomains
+
         data = [
             {"name_value": "www.example.com"},
             {"name_value": "mail.example.com\napi.example.com"},
@@ -93,65 +104,84 @@ class TestCrtshSubdomains:
 
     def test_filters_wildcards(self):
         from domain.recon import _crtsh_subdomains
+
         data = [{"name_value": "*.example.com"}]
         result = _crtsh_subdomains("example.com", data)
         assert len(result) == 0
 
     def test_filters_other_domains(self):
         from domain.recon import _crtsh_subdomains
+
         data = [{"name_value": "sub.other.com"}]
         result = _crtsh_subdomains("example.com", data)
         assert len(result) == 0
 
     def test_limits_to_50(self):
         from domain.recon import _crtsh_subdomains
+
         data = [{"name_value": f"sub{i}.example.com"} for i in range(100)]
         result = _crtsh_subdomains("example.com", data)
         assert len(result) <= 50
 
     def test_empty_data(self):
         from domain.recon import _crtsh_subdomains
+
         assert _crtsh_subdomains("example.com", []) == []
 
 
 # --- detect_waf ---
 
+
 class TestDetectWaf:
     def test_detects_cloudflare(self):
         from domain.recon import detect_waf
+
         result = detect_waf({"server": "cloudflare"})
         assert "Cloudflare" in result["detected"]
         assert result["waf_present"] is True
 
     def test_detects_fastly(self):
         from domain.recon import detect_waf
+
         result = detect_waf({"x-fastly-request-id": "abc123"})
         assert "Fastly" in result["detected"]
 
     def test_no_waf(self):
         from domain.recon import detect_waf
+
         result = detect_waf({"server": "nginx"})
         assert result["waf_present"] is False
         assert result["detected"] == []
 
     def test_multiple_waf(self):
         from domain.recon import detect_waf
+
         result = detect_waf({"server": "cloudflare", "x-fastly-request-id": "abc"})
         assert len(result["detected"]) >= 2
 
 
 # --- check_ct_logs ---
 
+
 class TestCheckCtLogs:
     def test_with_data(self):
         from domain.recon import check_ct_logs
+
         data = [
-            {"serial_number": "001", "issuer_name": "Let's Encrypt",
-             "not_before": "2024-01-01", "not_after": "2024-04-01",
-             "common_name": "example.com"},
-            {"serial_number": "002", "issuer_name": "DigiCert",
-             "not_before": "2024-02-01", "not_after": "2024-05-01",
-             "common_name": "www.example.com"},
+            {
+                "serial_number": "001",
+                "issuer_name": "Let's Encrypt",
+                "not_before": "2024-01-01",
+                "not_after": "2024-04-01",
+                "common_name": "example.com",
+            },
+            {
+                "serial_number": "002",
+                "issuer_name": "DigiCert",
+                "not_before": "2024-02-01",
+                "not_after": "2024-05-01",
+                "common_name": "www.example.com",
+            },
         ]
         result = check_ct_logs("example.com", data)
         assert result["total_certificates"] == 2
@@ -159,6 +189,7 @@ class TestCheckCtLogs:
 
     def test_deduplicates_by_serial(self):
         from domain.recon import check_ct_logs
+
         data = [
             {"serial_number": "001", "issuer_name": "LE", "not_before": "", "not_after": "", "common_name": "a.com"},
             {"serial_number": "001", "issuer_name": "LE", "not_before": "", "not_after": "", "common_name": "a.com"},
@@ -168,24 +199,29 @@ class TestCheckCtLogs:
 
     def test_empty_data(self):
         from domain.recon import check_ct_logs
+
         result = check_ct_logs("x.com", [])
         assert result["total_certificates"] == 0
 
     def test_limits_certificates(self):
         from domain.recon import check_ct_logs
-        data = [{"serial_number": str(i), "issuer_name": "LE",
-                 "not_before": "", "not_after": "", "common_name": "x.com"}
-                for i in range(25)]
+
+        data = [
+            {"serial_number": str(i), "issuer_name": "LE", "not_before": "", "not_after": "", "common_name": "x.com"}
+            for i in range(25)
+        ]
         result = check_ct_logs("x.com", data)
         assert len(result["certificates"]) <= 10
 
 
 # --- dns_lookup (mocked) ---
 
+
 class TestDnsLookup:
     @patch("domain.recon.dns.resolver.resolve")
     def test_returns_records(self, mock_resolve):
         from domain.recon import dns_lookup
+
         mock_a = MagicMock()
         mock_a.__str__ = lambda self: "93.184.216.34"
         mock_a.__iter__ = lambda self: iter([mock_a])
@@ -196,6 +232,7 @@ class TestDnsLookup:
             raise dns.resolver.NoAnswer()
 
         import dns.resolver
+
         mock_resolve.side_effect = side_effect
         result = dns_lookup("example.com")
         assert "a" in result
@@ -203,11 +240,13 @@ class TestDnsLookup:
 
 # --- reverse_dns (mocked) ---
 
+
 class TestReverseDns:
     @patch("domain.recon.socket.gethostbyaddr")
     @patch("domain.recon.socket.gethostbyname")
     def test_reverse_dns_success(self, mock_name, mock_addr):
         from domain.recon import reverse_dns
+
         mock_name.return_value = "93.184.216.34"
         mock_addr.return_value = ("example.com", [], [])
         result = reverse_dns("example.com")
@@ -217,6 +256,7 @@ class TestReverseDns:
     @patch("domain.recon.socket.gethostbyname", side_effect=Exception("fail"))
     def test_reverse_dns_failure(self, mock_name):
         from domain.recon import reverse_dns
+
         result = reverse_dns("nonexistent.invalid")
         assert result["ip"] is None
 
@@ -315,7 +355,10 @@ class TestDomainRoutes:
         data = r.json()
         assert data["total_certificates"] == 1
 
-    @patch("domain.routes.ip_enrichment", return_value={"ports": [22, 80], "hostnames": [], "vulns": [], "cpes": [], "tags": []})
+    @patch(
+        "domain.routes.ip_enrichment",
+        return_value={"ports": [22, 80], "hostnames": [], "vulns": [], "cpes": [], "tags": []},
+    )
     @patch("domain.routes.socket.gethostbyaddr", return_value=("example.com", [], []))
     def test_ip_lookup_200(self, mock_ptr, mock_enrich):
         r = client.get("/v1/ip/93.184.216.34")
@@ -324,7 +367,9 @@ class TestDomainRoutes:
         assert data["ip"] == "93.184.216.34"
         assert data["ptr"] == "example.com"
 
-    @patch("domain.routes.ip_enrichment", return_value={"ports": [], "hostnames": [], "vulns": [], "cpes": [], "tags": []})
+    @patch(
+        "domain.routes.ip_enrichment", return_value={"ports": [], "hostnames": [], "vulns": [], "cpes": [], "tags": []}
+    )
     @patch("domain.routes.socket.gethostbyaddr", side_effect=Exception("no PTR"))
     def test_ip_lookup_no_ptr(self, mock_ptr, mock_enrich):
         r = client.get("/v1/ip/1.2.3.4")
@@ -371,15 +416,19 @@ class TestDomainRoutesBadInput:
 class TestIpEnrichment:
     @patch("domain.recon._http")
     def test_enrichment_success(self, mock_http):
-        mock_http.get.return_value = _mock_httpx_response(200, {
-            "ports": [22, 80, 443],
-            "hostnames": ["example.com"],
-            "vulns": ["CVE-2024-1234"],
-            "cpes": ["cpe:/a:nginx:nginx"],
-            "tags": ["cloud"],
-        })
+        mock_http.get.return_value = _mock_httpx_response(
+            200,
+            {
+                "ports": [22, 80, 443],
+                "hostnames": ["example.com"],
+                "vulns": ["CVE-2024-1234"],
+                "cpes": ["cpe:/a:nginx:nginx"],
+                "tags": ["cloud"],
+            },
+        )
 
         from domain.recon import ip_enrichment
+
         result = ip_enrichment("93.184.216.34")
         assert result["ports"] == [22, 80, 443]
         assert "CVE-2024-1234" in result["vulns"]
@@ -389,6 +438,7 @@ class TestIpEnrichment:
     def test_enrichment_failure_graceful(self, mock_http):
         mock_http.get.side_effect = Exception("timeout")
         from domain.recon import ip_enrichment
+
         result = ip_enrichment("1.2.3.4")
         assert result["ports"] == []
         assert result["vulns"] == []
@@ -397,6 +447,7 @@ class TestIpEnrichment:
 class TestDomainScoring:
     def test_perfect_score(self):
         from domain.scoring import score_domain
+
         report = {
             "ssl": {"grade": "A"},
             "email_security": {"spf": "v=spf1 -all", "dmarc": "v=DMARC1; p=reject", "dkim_selectors": ["google"]},
@@ -412,6 +463,7 @@ class TestDomainScoring:
 
     def test_poor_score(self):
         from domain.scoring import score_domain
+
         report = {
             "ssl": {"error": "SSL lookup failed"},
             "email_security": {},
@@ -427,6 +479,7 @@ class TestDomainScoring:
 
     def test_grade_boundaries(self):
         from domain.scoring import _score_to_grade
+
         assert _score_to_grade(100) == "A"
         assert _score_to_grade(85) == "A"
         assert _score_to_grade(70) == "B"
@@ -436,6 +489,7 @@ class TestDomainScoring:
 
     def test_factors_present(self):
         from domain.scoring import score_domain
+
         report = {
             "ssl": {"grade": "B"},
             "email_security": {"spf": "v=spf1"},
@@ -453,34 +507,42 @@ class TestDomainScoring:
 class TestSslGrade:
     def test_grade_a_tls13(self):
         from domain.recon import _ssl_grade
+
         assert _ssl_grade("TLSv1.3", 90) == "A"
 
     def test_grade_b_tls13_short_expiry(self):
         from domain.recon import _ssl_grade
+
         assert _ssl_grade("TLSv1.3", 20) == "B"
 
     def test_grade_c_tls13_very_short(self):
         from domain.recon import _ssl_grade
+
         assert _ssl_grade("TLSv1.3", 5) == "C"
 
     def test_grade_b_tls12(self):
         from domain.recon import _ssl_grade
+
         assert _ssl_grade("TLSv1.2", 90) == "B"
 
     def test_grade_c_tls12_short(self):
         from domain.recon import _ssl_grade
+
         assert _ssl_grade("TLSv1.2", 10) == "C"
 
     def test_grade_f_tls10(self):
         from domain.recon import _ssl_grade
+
         assert _ssl_grade("TLSv1", 90) == "F"
 
     def test_grade_f_tls11(self):
         from domain.recon import _ssl_grade
+
         assert _ssl_grade("TLSv1.1", 90) == "F"
 
     def test_grade_f_expired(self):
         from domain.recon import _ssl_grade
+
         assert _ssl_grade("TLSv1.3", -5) == "F"
 
 
@@ -506,6 +568,7 @@ class TestEmailSecurity:
         mock_resolver.resolve.side_effect = resolve_side_effect
 
         from domain.recon import email_security
+
         result = email_security("example.com", txt_records=["v=spf1 include:_spf.google.com -all"])
         assert result["spf"] is not None
         assert result["dmarc"] is not None
@@ -515,6 +578,7 @@ class TestEmailSecurity:
 
     def test_no_spf(self):
         from domain.recon import email_security
+
         with patch("domain.recon.dns.resolver.Resolver") as mock_cls:
             mock_resolver = MagicMock()
             mock_cls.return_value = mock_resolver
@@ -526,6 +590,7 @@ class TestEmailSecurity:
 
     def test_spf_detected_from_txt(self):
         from domain.recon import email_security
+
         with patch("domain.recon.dns.resolver.Resolver") as mock_cls:
             mock_resolver = MagicMock()
             mock_cls.return_value = mock_resolver
@@ -555,10 +620,12 @@ class TestOpenApiDomainRoutes:
 
 # =========== threat.py unit tests ===========
 
+
 class TestCheckUrlhaus:
     @patch("domain.threat._client")
     def test_clean_domain(self, mock_client):
         from domain.threat import check_urlhaus
+
         mock_client.post.return_value = _mock_httpx_response(200, {"query_status": "no_results"})
         result = check_urlhaus("clean-example.com")
         assert result["urlhaus_status"] == "clean"
@@ -567,15 +634,29 @@ class TestCheckUrlhaus:
     @patch("domain.threat._client")
     def test_listed_domain(self, mock_client):
         from domain.threat import check_urlhaus
-        mock_client.post.return_value = _mock_httpx_response(200, {
-            "query_status": "ok",
-            "urls": [
-                {"url": "http://bad.com/mal.exe", "url_status": "online",
-                 "threat": "malware_download", "date_added": "2026-01-01", "tags": ["elf"]},
-                {"url": "http://bad.com/old.exe", "url_status": "offline",
-                 "threat": "malware_download", "date_added": "2025-06-01", "tags": None},
-            ]
-        })
+
+        mock_client.post.return_value = _mock_httpx_response(
+            200,
+            {
+                "query_status": "ok",
+                "urls": [
+                    {
+                        "url": "http://bad.com/mal.exe",
+                        "url_status": "online",
+                        "threat": "malware_download",
+                        "date_added": "2026-01-01",
+                        "tags": ["elf"],
+                    },
+                    {
+                        "url": "http://bad.com/old.exe",
+                        "url_status": "offline",
+                        "threat": "malware_download",
+                        "date_added": "2025-06-01",
+                        "tags": None,
+                    },
+                ],
+            },
+        )
         result = check_urlhaus("bad.com")
         assert result["urlhaus_status"] == "listed"
         assert result["url_count"] == 2
@@ -586,6 +667,7 @@ class TestCheckUrlhaus:
     @patch("domain.threat._client")
     def test_error_graceful(self, mock_client):
         from domain.threat import check_urlhaus
+
         mock_client.post.side_effect = Exception("timeout")
         result = check_urlhaus("timeout.com")
         assert result["urlhaus_status"] == "error"
@@ -594,10 +676,12 @@ class TestCheckUrlhaus:
 
 # =========== fetch_live_headers unit tests ===========
 
+
 class TestFetchLiveHeaders:
     @patch("domain.recon._safe_redirect_opener.open")
     def test_success(self, mock_open):
         from domain.recon import fetch_live_headers
+
         mock_headers = MagicMock()
         mock_headers.items.return_value = [("Content-Type", "text/html"), ("X-Frame-Options", "DENY")]
         resp = MagicMock()
@@ -615,21 +699,26 @@ class TestFetchLiveHeaders:
     @patch("domain.recon._safe_redirect_opener.open", side_effect=Exception("conn refused"))
     def test_failure(self, mock_open):
         from domain.recon import fetch_live_headers
+
         result = fetch_live_headers("unreachable.test")
         assert "error" in result
 
 
 # =========== scoring threat factor tests ===========
 
+
 class TestThreatScoring:
     def test_no_threat_no_penalty(self):
         from domain.scoring import score_domain
+
         report = {
-            "ssl": {"grade": "A"}, "email_security": {"spf": True, "dmarc": True, "dkim_selectors": ["default"]},
+            "ssl": {"grade": "A"},
+            "email_security": {"spf": True, "dmarc": True, "dkim_selectors": ["default"]},
             "waf": {"waf_present": True, "detected": ["cloudflare"]},
             "dns": {"ns": ["ns1"], "mx": ["mx1"], "a": ["1.2.3.4"]},
             "whois": {"registrar": "Test"},
-            "subdomains": {"count": 3}, "certificates": {"total_certificates": 5},
+            "subdomains": {"count": 3},
+            "certificates": {"total_certificates": 5},
             "threat": {"url_count": 0, "urls_online": 0},
         }
         result = score_domain(report)
@@ -638,12 +727,15 @@ class TestThreatScoring:
 
     def test_active_threat_penalty(self):
         from domain.scoring import score_domain
+
         report = {
-            "ssl": {"grade": "A"}, "email_security": {"spf": True, "dmarc": True, "dkim_selectors": ["default"]},
+            "ssl": {"grade": "A"},
+            "email_security": {"spf": True, "dmarc": True, "dkim_selectors": ["default"]},
             "waf": {"waf_present": True, "detected": ["cloudflare"]},
             "dns": {"ns": ["ns1"], "mx": ["mx1"], "a": ["1.2.3.4"]},
             "whois": {"registrar": "Test"},
-            "subdomains": {"count": 3}, "certificates": {"total_certificates": 5},
+            "subdomains": {"count": 3},
+            "certificates": {"total_certificates": 5},
             "threat": {"url_count": 5, "urls_online": 2},
         }
         result = score_domain(report)
@@ -652,12 +744,15 @@ class TestThreatScoring:
 
     def test_historic_threat_small_penalty(self):
         from domain.scoring import score_domain
+
         report = {
-            "ssl": {"grade": "A"}, "email_security": {"spf": True, "dmarc": True, "dkim_selectors": ["default"]},
+            "ssl": {"grade": "A"},
+            "email_security": {"spf": True, "dmarc": True, "dkim_selectors": ["default"]},
             "waf": {"waf_present": True, "detected": ["cloudflare"]},
             "dns": {"ns": ["ns1"], "mx": ["mx1"], "a": ["1.2.3.4"]},
             "whois": {"registrar": "Test"},
-            "subdomains": {"count": 3}, "certificates": {"total_certificates": 5},
+            "subdomains": {"count": 3},
+            "certificates": {"total_certificates": 5},
             "threat": {"url_count": 3, "urls_online": 0},
         }
         result = score_domain(report)
@@ -667,6 +762,7 @@ class TestThreatScoring:
 
 # =========== reputation.py unit tests ===========
 
+
 def _mock_httpx_response(status_code=200, json_data=None):
     """Helper to create a mock httpx response."""
     resp = MagicMock()
@@ -675,9 +771,8 @@ def _mock_httpx_response(status_code=200, json_data=None):
     resp.raise_for_status.return_value = None
     if status_code >= 400:
         import httpx
-        resp.raise_for_status.side_effect = httpx.HTTPStatusError(
-            "error", request=MagicMock(), response=resp
-        )
+
+        resp.raise_for_status.side_effect = httpx.HTTPStatusError("error", request=MagicMock(), response=resp)
     return resp
 
 
@@ -686,10 +781,17 @@ class TestReputation:
     @patch("domain.reputation.GREYNOISE_API_KEY", "test-key")
     def test_greynoise_success(self, mock_client):
         from domain.reputation import check_greynoise
-        mock_client.get.return_value = _mock_httpx_response(200, {
-            "noise": True, "riot": False, "classification": "malicious",
-            "name": "Test Scanner", "last_seen": "2026-03-01",
-        })
+
+        mock_client.get.return_value = _mock_httpx_response(
+            200,
+            {
+                "noise": True,
+                "riot": False,
+                "classification": "malicious",
+                "name": "Test Scanner",
+                "last_seen": "2026-03-01",
+            },
+        )
         result = check_greynoise("1.2.3.4")
         assert result["status"] == "ok"
         assert result["noise"] is True
@@ -699,6 +801,7 @@ class TestReputation:
     @patch("domain.reputation.GREYNOISE_API_KEY", "")
     def test_greynoise_no_key(self):
         from domain.reputation import check_greynoise
+
         result = check_greynoise("1.2.3.4")
         assert result["status"] == "skipped"
 
@@ -706,6 +809,7 @@ class TestReputation:
     @patch("domain.reputation.GREYNOISE_API_KEY", "test-key")
     def test_greynoise_404(self, mock_client):
         from domain.reputation import check_greynoise
+
         mock_client.get.return_value = _mock_httpx_response(404)
         result = check_greynoise("1.2.3.4")
         assert result["status"] == "not_found"
@@ -714,6 +818,7 @@ class TestReputation:
     @patch("domain.reputation.GREYNOISE_API_KEY", "test-key")
     def test_greynoise_400(self, mock_client):
         from domain.reputation import check_greynoise
+
         mock_client.get.return_value = _mock_httpx_response(400)
         result = check_greynoise("1.2.3.4")
         assert result["status"] == "not_found"
@@ -722,6 +827,7 @@ class TestReputation:
     @patch("domain.reputation.GREYNOISE_API_KEY", "test-key")
     def test_greynoise_error(self, mock_client):
         from domain.reputation import check_greynoise
+
         mock_client.get.side_effect = Exception("connection timeout")
         result = check_greynoise("1.2.3.4")
         assert result["status"] == "error"
@@ -730,13 +836,20 @@ class TestReputation:
     @patch("domain.reputation.ABUSEIPDB_API_KEY", "test-key")
     def test_abuseipdb_success(self, mock_client):
         from domain.reputation import check_abuseipdb
-        mock_client.get.return_value = _mock_httpx_response(200, {
-            "data": {
-                "abuseConfidenceScore": 85, "totalReports": 50,
-                "countryCode": "DE", "isp": "Test ISP",
-                "usageType": "Hosting", "isTor": False,
-            }
-        })
+
+        mock_client.get.return_value = _mock_httpx_response(
+            200,
+            {
+                "data": {
+                    "abuseConfidenceScore": 85,
+                    "totalReports": 50,
+                    "countryCode": "DE",
+                    "isp": "Test ISP",
+                    "usageType": "Hosting",
+                    "isTor": False,
+                }
+            },
+        )
         result = check_abuseipdb("1.2.3.4")
         assert result["status"] == "ok"
         assert result["abuse_score"] == 85
@@ -748,6 +861,7 @@ class TestReputation:
     @patch("domain.reputation.ABUSEIPDB_API_KEY", "")
     def test_abuseipdb_no_key(self):
         from domain.reputation import check_abuseipdb
+
         result = check_abuseipdb("1.2.3.4")
         assert result["status"] == "skipped"
 
@@ -755,6 +869,7 @@ class TestReputation:
     @patch("domain.reputation.ABUSEIPDB_API_KEY", "test-key")
     def test_abuseipdb_error(self, mock_client):
         from domain.reputation import check_abuseipdb
+
         mock_client.get.side_effect = Exception("connection refused")
         result = check_abuseipdb("1.2.3.4")
         assert result["status"] == "error"
@@ -763,13 +878,22 @@ class TestReputation:
     @patch("domain.reputation.SHODAN_API_KEY", "test-key")
     def test_shodan_success(self, mock_client):
         from domain.reputation import check_shodan
-        mock_client.get.return_value = _mock_httpx_response(200, {
-            "os": "Linux", "org": "Example Corp", "isp": "Test ISP",
-            "asn": "AS12345", "ports": [22, 80, 443],
-            "vulns": {"CVE-2024-1111": {}, "CVE-2024-2222": {}},
-            "hostnames": ["example.com"], "city": "Berlin",
-            "country_name": "Germany", "last_update": "2026-03-01",
-        })
+
+        mock_client.get.return_value = _mock_httpx_response(
+            200,
+            {
+                "os": "Linux",
+                "org": "Example Corp",
+                "isp": "Test ISP",
+                "asn": "AS12345",
+                "ports": [22, 80, 443],
+                "vulns": {"CVE-2024-1111": {}, "CVE-2024-2222": {}},
+                "hostnames": ["example.com"],
+                "city": "Berlin",
+                "country_name": "Germany",
+                "last_update": "2026-03-01",
+            },
+        )
         result = check_shodan("1.2.3.4")
         assert result["status"] == "ok"
         assert result["ports"] == [22, 80, 443]
@@ -780,6 +904,7 @@ class TestReputation:
     @patch("domain.reputation.SHODAN_API_KEY", "")
     def test_shodan_no_key(self):
         from domain.reputation import check_shodan
+
         result = check_shodan("1.2.3.4")
         assert result["status"] == "skipped"
 
@@ -787,6 +912,7 @@ class TestReputation:
     @patch("domain.reputation.SHODAN_API_KEY", "test-key")
     def test_shodan_403(self, mock_client):
         from domain.reputation import check_shodan
+
         mock_client.get.return_value = _mock_httpx_response(403)
         result = check_shodan("1.2.3.4")
         assert result["status"] == "restricted"
@@ -795,6 +921,7 @@ class TestReputation:
     @patch("domain.reputation.SHODAN_API_KEY", "test-key")
     def test_shodan_error(self, mock_client):
         from domain.reputation import check_shodan
+
         mock_client.get.side_effect = Exception("timeout")
         result = check_shodan("1.2.3.4")
         assert result["status"] == "error"
@@ -827,6 +954,7 @@ def _get_rep_factor(result: dict) -> dict | None:
 class TestReputationScoring:
     def test_no_reputation_no_penalty(self):
         from domain.scoring import score_domain
+
         result = score_domain({**_BASE_REPORT})
         factor = _get_rep_factor(result)
         assert factor is not None
@@ -835,55 +963,70 @@ class TestReputationScoring:
 
     def test_abuseipdb_high_penalty(self):
         from domain.scoring import score_domain
-        report = _report_with_reputation({
-            "abuseipdb": {"status": "ok", "abuse_score": 90},
-            "greynoise": {"status": "ok", "classification": "benign", "noise": False, "riot": False},
-            "shodan": {"status": "ok"},
-        })
+
+        report = _report_with_reputation(
+            {
+                "abuseipdb": {"status": "ok", "abuse_score": 90},
+                "greynoise": {"status": "ok", "classification": "benign", "noise": False, "riot": False},
+                "shodan": {"status": "ok"},
+            }
+        )
         result = score_domain(report)
         factor = _get_rep_factor(result)
         assert factor["score"] == -10
 
     def test_abuseipdb_moderate_penalty(self):
         from domain.scoring import score_domain
-        report = _report_with_reputation({
-            "abuseipdb": {"status": "ok", "abuse_score": 50},
-            "greynoise": {"status": "ok", "classification": "benign", "noise": False, "riot": False},
-            "shodan": {"status": "ok"},
-        })
+
+        report = _report_with_reputation(
+            {
+                "abuseipdb": {"status": "ok", "abuse_score": 50},
+                "greynoise": {"status": "ok", "classification": "benign", "noise": False, "riot": False},
+                "shodan": {"status": "ok"},
+            }
+        )
         result = score_domain(report)
         factor = _get_rep_factor(result)
         assert factor["score"] == -5
 
     def test_greynoise_malicious_penalty(self):
         from domain.scoring import score_domain
-        report = _report_with_reputation({
-            "abuseipdb": {"status": "ok", "abuse_score": 0},
-            "greynoise": {"status": "ok", "classification": "malicious", "noise": True, "riot": False},
-            "shodan": {"status": "ok"},
-        })
+
+        report = _report_with_reputation(
+            {
+                "abuseipdb": {"status": "ok", "abuse_score": 0},
+                "greynoise": {"status": "ok", "classification": "malicious", "noise": True, "riot": False},
+                "shodan": {"status": "ok"},
+            }
+        )
         result = score_domain(report)
         factor = _get_rep_factor(result)
         assert factor["score"] == -10
 
     def test_greynoise_noise_penalty(self):
         from domain.scoring import score_domain
-        report = _report_with_reputation({
-            "abuseipdb": {"status": "ok", "abuse_score": 0},
-            "greynoise": {"status": "ok", "classification": "unknown", "noise": True, "riot": False},
-            "shodan": {"status": "ok"},
-        })
+
+        report = _report_with_reputation(
+            {
+                "abuseipdb": {"status": "ok", "abuse_score": 0},
+                "greynoise": {"status": "ok", "classification": "unknown", "noise": True, "riot": False},
+                "shodan": {"status": "ok"},
+            }
+        )
         result = score_domain(report)
         factor = _get_rep_factor(result)
         assert factor["score"] == -3
 
     def test_combined_penalty_capped(self):
         from domain.scoring import score_domain
-        report = _report_with_reputation({
-            "abuseipdb": {"status": "ok", "abuse_score": 90},
-            "greynoise": {"status": "ok", "classification": "malicious", "noise": True, "riot": False},
-            "shodan": {"status": "ok"},
-        })
+
+        report = _report_with_reputation(
+            {
+                "abuseipdb": {"status": "ok", "abuse_score": 90},
+                "greynoise": {"status": "ok", "classification": "malicious", "noise": True, "riot": False},
+                "shodan": {"status": "ok"},
+            }
+        )
         result = score_domain(report)
         factor = _get_rep_factor(result)
         # 10 (abuse) + 10 (malicious) = 20, capped at 15
@@ -891,17 +1034,21 @@ class TestReputationScoring:
 
     def test_clean_reputation_no_penalty(self):
         from domain.scoring import score_domain
-        report = _report_with_reputation({
-            "abuseipdb": {"status": "ok", "abuse_score": 0},
-            "greynoise": {"status": "ok", "classification": "benign", "noise": False, "riot": True},
-            "shodan": {"status": "ok"},
-        })
+
+        report = _report_with_reputation(
+            {
+                "abuseipdb": {"status": "ok", "abuse_score": 0},
+                "greynoise": {"status": "ok", "classification": "benign", "noise": False, "riot": True},
+                "shodan": {"status": "ok"},
+            }
+        )
         result = score_domain(report)
         factor = _get_rep_factor(result)
         assert factor["score"] == 0
 
 
 # =========== full_domain_report unit tests ===========
+
 
 class TestFullDomainReport:
     """Unit tests for full_domain_report — all sub-functions mocked."""
@@ -917,9 +1064,11 @@ class TestFullDomainReport:
     @patch("domain.recon.whois_lookup")
     @patch("domain.recon.reverse_dns")
     @patch("domain.recon.dns_lookup")
-    def test_data_assembly(self, m_dns, m_rdns, m_whois, m_ssl, m_crtsh,
-                           m_subs, m_ct, m_threat, m_email, m_headers, m_score):
+    def test_data_assembly(
+        self, m_dns, m_rdns, m_whois, m_ssl, m_crtsh, m_subs, m_ct, m_threat, m_email, m_headers, m_score
+    ):
         from domain.recon import full_domain_report
+
         m_dns.return_value = {"a": ["1.2.3.4"]}
         m_rdns.return_value = {"ip": "1.2.3.4", "ptr": "host.example.com"}
         m_whois.return_value = {"registrar": "Reg Inc."}
@@ -952,11 +1101,25 @@ class TestFullDomainReport:
     @patch("domain.recon.dns_lookup", return_value={"a": ["1.2.3.4"]})
     @patch("domain.recon.ratelimit")
     @patch("db.get_cached_ip", return_value=None)
-    def test_reputation_gating_no_quota(self, m_cache_ip, m_rl, m_dns, m_rdns,
-                                         m_whois, m_ssl, m_crtsh, m_subs, m_ct,
-                                         m_threat, m_email, m_headers, m_score):
+    def test_reputation_gating_no_quota(
+        self,
+        m_cache_ip,
+        m_rl,
+        m_dns,
+        m_rdns,
+        m_whois,
+        m_ssl,
+        m_crtsh,
+        m_subs,
+        m_ct,
+        m_threat,
+        m_email,
+        m_headers,
+        m_score,
+    ):
         """Reputation enrichment skipped when rate limit denies."""
         from domain.recon import full_domain_report
+
         m_rl.check_limit.return_value = False
         result = full_domain_report("example.com", resolved_ip="1.2.3.4", client_ip="10.0.0.1")
         assert "reputation" not in result
@@ -978,12 +1141,29 @@ class TestFullDomainReport:
     @patch("domain.reputation.check_shodan", side_effect=Exception("timeout"))
     @patch("domain.reputation.check_abuseipdb", return_value={"status": "ok"})
     @patch("domain.reputation.check_greynoise", return_value={"status": "ok"})
-    def test_reputation_failure_refunds(self, m_gn, m_ab, m_sh, m_cache_ip,
-                                         m_save_ip, m_rl, m_dns, m_rdns,
-                                         m_whois, m_ssl, m_crtsh, m_subs, m_ct,
-                                         m_threat, m_email, m_headers, m_score):
+    def test_reputation_failure_refunds(
+        self,
+        m_gn,
+        m_ab,
+        m_sh,
+        m_cache_ip,
+        m_save_ip,
+        m_rl,
+        m_dns,
+        m_rdns,
+        m_whois,
+        m_ssl,
+        m_crtsh,
+        m_subs,
+        m_ct,
+        m_threat,
+        m_email,
+        m_headers,
+        m_score,
+    ):
         """On reputation failure, rate limit quota is refunded."""
         from domain.recon import full_domain_report
+
         m_rl.check_limit.return_value = True
         result = full_domain_report("example.com", resolved_ip="1.2.3.4", client_ip="10.0.0.1")
         m_rl.refund.assert_called_once_with("enrichment", "10.0.0.1")
@@ -994,16 +1174,19 @@ class TestFullDomainReport:
     @patch("domain.recon.email_security", return_value={"grade": "A"})
     @patch("domain.threat.check_urlhaus", return_value={"url_count": 3, "urls_online": 1})
     @patch("domain.recon.check_ct_logs", return_value={"total_certificates": 0, "certificates": []})
-    @patch("domain.recon.enumerate_subdomains", return_value={"subdomains": ["a.example.com", "b.example.com"], "count": 2})
+    @patch(
+        "domain.recon.enumerate_subdomains", return_value={"subdomains": ["a.example.com", "b.example.com"], "count": 2}
+    )
     @patch("domain.recon._fetch_crtsh", return_value=[])
     @patch("domain.recon.ssl_info", return_value={"issuer": "DigiCert", "grade": "B"})
     @patch("domain.recon.whois_lookup", return_value={})
     @patch("domain.recon.reverse_dns", return_value={"ip": "5.5.5.5", "ptr": None})
     @patch("domain.recon.dns_lookup", return_value={"a": ["5.5.5.5"]})
-    def test_summary_contains_key_info(self, m_dns, m_rdns, m_whois, m_ssl,
-                                        m_crtsh, m_subs, m_ct, m_threat,
-                                        m_email, m_headers, m_score):
+    def test_summary_contains_key_info(
+        self, m_dns, m_rdns, m_whois, m_ssl, m_crtsh, m_subs, m_ct, m_threat, m_email, m_headers, m_score
+    ):
         from domain.recon import full_domain_report
+
         m_headers.return_value = {"headers": {"server": "cloudflare"}}
         m_score.return_value = {"grade": "C", "score": 55, "factors": []}
         result = full_domain_report("example.com", resolved_ip="5.5.5.5")
@@ -1016,11 +1199,13 @@ class TestFullDomainReport:
 
 # =========== ssl_info unit tests ===========
 
+
 class TestSslInfo:
     @patch("domain.recon.ssl.create_default_context")
     @patch("domain.recon.socket.create_connection")
     def test_successful_cert_parsing(self, mock_conn, mock_ctx):
         from domain.recon import ssl_info
+
         mock_ssock = MagicMock()
         mock_ssock.getpeercert.return_value = {
             "subject": ((("commonName", "example.com"),),),
@@ -1057,6 +1242,7 @@ class TestSslInfo:
     @patch("domain.recon.socket.create_connection")
     def test_expired_cert_grade_f(self, mock_conn, mock_ctx):
         from domain.recon import ssl_info
+
         mock_ssock = MagicMock()
         mock_ssock.getpeercert.return_value = {
             "subject": ((("commonName", "expired.com"),),),
@@ -1088,12 +1274,14 @@ class TestSslInfo:
     @patch("domain.recon.socket.create_connection", side_effect=ConnectionRefusedError("refused"))
     def test_connection_failure_fallback(self, mock_conn):
         from domain.recon import ssl_info
+
         result = ssl_info("unreachable.test")
         assert result["error"] == "SSL lookup failed"
         assert result["grade"] == "F"
 
 
 # =========== /v1/scan/headers/{domain} route tests ===========
+
 
 class TestScanHeadersRoute:
     @patch("codesec.routes.fetch_live_headers")
@@ -1125,17 +1313,20 @@ class TestScanHeadersRoute:
 
 # =========== enumerate_subdomains unit tests ===========
 
+
 class TestEnumerateSubdomains:
     @patch("domain.recon._fetch_crtsh", return_value=[{"name_value": "ct.example.com"}])
     @patch("domain.recon.socket.gethostbyname")
     def test_dns_brute_and_crtsh_merge(self, mock_resolve, mock_crtsh):
         from domain.recon import enumerate_subdomains
+
         def gethostbyname_side(fqdn):
             if fqdn == "www.example.com":
                 return "93.184.216.34"
             if fqdn == "api.example.com":
                 return "93.184.216.35"
             raise socket.gaierror("not found")
+
         mock_resolve.side_effect = gethostbyname_side
         result = enumerate_subdomains("example.com")
         subs = result["subdomains"]
@@ -1148,28 +1339,35 @@ class TestEnumerateSubdomains:
     @patch("domain.recon.socket.gethostbyname")
     def test_private_ip_filtered(self, mock_resolve, mock_crtsh):
         from domain.recon import enumerate_subdomains
+
         def gethostbyname_side(fqdn):
             if fqdn == "www.example.com":
                 return "192.168.1.1"  # private
             if fqdn == "api.example.com":
                 return "8.8.8.8"  # public
             raise socket.gaierror("not found")
+
         mock_resolve.side_effect = gethostbyname_side
         result = enumerate_subdomains("example.com")
         assert "www.example.com" not in result["subdomains"]
         assert "api.example.com" in result["subdomains"]
 
-    @patch("domain.recon._fetch_crtsh", return_value=[
-        {"name_value": "www.example.com"},
-        {"name_value": "www.example.com"},
-    ])
+    @patch(
+        "domain.recon._fetch_crtsh",
+        return_value=[
+            {"name_value": "www.example.com"},
+            {"name_value": "www.example.com"},
+        ],
+    )
     @patch("domain.recon.socket.gethostbyname")
     def test_set_deduplication(self, mock_resolve, mock_crtsh):
         from domain.recon import enumerate_subdomains
+
         def gethostbyname_side(fqdn):
             if fqdn == "www.example.com":
                 return "93.184.216.34"
             raise socket.gaierror("not found")
+
         mock_resolve.side_effect = gethostbyname_side
         result = enumerate_subdomains("example.com")
         assert result["subdomains"].count("www.example.com") == 1
@@ -1177,17 +1375,19 @@ class TestEnumerateSubdomains:
 
 # =========== whois_lookup success path tests ===========
 
+
 class TestWhoisLookupSuccess:
     @patch("domain.recon.socket.create_connection")
     def test_parsing_integration(self, mock_conn):
         from domain.recon import whois_lookup
+
         whois_response = (
-            "Registrar: Test Registrar Inc.\r\n"
-            "Creation Date: 2020-05-15T00:00:00Z\r\n"
-            "Registry Expiry Date: 2027-05-15T00:00:00Z\r\n"
-            "Name Server: ns1.example.com\r\n"
-            "Name Server: ns2.example.com\r\n"
-        ).encode()
+            b"Registrar: Test Registrar Inc.\r\n"
+            b"Creation Date: 2020-05-15T00:00:00Z\r\n"
+            b"Registry Expiry Date: 2027-05-15T00:00:00Z\r\n"
+            b"Name Server: ns1.example.com\r\n"
+            b"Name Server: ns2.example.com\r\n"
+        )
 
         mock_sock = MagicMock()
         mock_sock.recv.side_effect = [whois_response, b""]
@@ -1204,6 +1404,7 @@ class TestWhoisLookupSuccess:
     @patch("domain.recon.socket.create_connection")
     def test_32kb_truncation(self, mock_conn):
         from domain.recon import whois_lookup
+
         # Send > 32KB in chunks to trigger truncation
         big_chunk = b"A" * 33000
 
@@ -1220,10 +1421,12 @@ class TestWhoisLookupSuccess:
 
 # =========== dns_lookup MX, SOA, TXT record parsing tests ===========
 
+
 class TestDnsLookupRecordTypes:
     @patch("domain.recon.dns.resolver.Resolver")
     def test_mx_priority_and_host(self, mock_resolver_cls):
         from domain.recon import dns_lookup
+
         mock_resolver = MagicMock()
         mock_resolver_cls.return_value = mock_resolver
 
@@ -1246,6 +1449,7 @@ class TestDnsLookupRecordTypes:
     @patch("domain.recon.dns.resolver.Resolver")
     def test_soa_fields(self, mock_resolver_cls):
         from domain.recon import dns_lookup
+
         mock_resolver = MagicMock()
         mock_resolver_cls.return_value = mock_resolver
 
@@ -1270,6 +1474,7 @@ class TestDnsLookupRecordTypes:
     @patch("domain.recon.dns.resolver.Resolver")
     def test_txt_stripping(self, mock_resolver_cls):
         from domain.recon import dns_lookup
+
         mock_resolver = MagicMock()
         mock_resolver_cls.return_value = mock_resolver
 
@@ -1289,6 +1494,7 @@ class TestDnsLookupRecordTypes:
 
 # =========== routes.py IP endpoint reputation tests ===========
 
+
 class TestIpRouteReputation:
     @patch("domain.routes.authenticate", return_value={"tier": "free"})
     @patch("domain.routes.save_cached_ip")
@@ -1297,10 +1503,14 @@ class TestIpRouteReputation:
     @patch("domain.routes.check_shodan", return_value={"status": "ok", "ports": [80]})
     @patch("domain.routes.check_abuseipdb", return_value={"status": "ok", "abuse_score": 10})
     @patch("domain.routes.check_greynoise", return_value={"status": "ok", "classification": "benign"})
-    @patch("domain.routes.ip_enrichment", return_value={"ports": [22, 80], "hostnames": [], "vulns": [], "cpes": [], "tags": []})
+    @patch(
+        "domain.routes.ip_enrichment",
+        return_value={"ports": [22, 80], "hostnames": [], "vulns": [], "cpes": [], "tags": []},
+    )
     @patch("domain.routes.socket.gethostbyaddr", return_value=("example.com", [], []))
-    def test_ip_with_reputation(self, mock_ptr, mock_enrich, mock_gn, mock_ab, mock_sh,
-                                mock_limit, mock_cache_get, mock_cache_save, mock_auth):
+    def test_ip_with_reputation(
+        self, mock_ptr, mock_enrich, mock_gn, mock_ab, mock_sh, mock_limit, mock_cache_get, mock_cache_save, mock_auth
+    ):
         r = client.get("/v1/ip/93.184.216.34")
         assert r.status_code == 200
         data = r.json()
@@ -1313,10 +1523,12 @@ class TestIpRouteReputation:
     @patch("domain.routes.authenticate", return_value={"tier": "free"})
     @patch("domain.routes.get_cached_ip", return_value=None)
     @patch("domain.routes.ratelimit.check_limit", return_value=False)
-    @patch("domain.routes.ip_enrichment", return_value={"ports": [22, 80], "hostnames": [], "vulns": ["CVE-2024-1234"], "cpes": [], "tags": []})
+    @patch(
+        "domain.routes.ip_enrichment",
+        return_value={"ports": [22, 80], "hostnames": [], "vulns": ["CVE-2024-1234"], "cpes": [], "tags": []},
+    )
     @patch("domain.routes.socket.gethostbyaddr", return_value=("example.com", [], []))
-    def test_ip_without_reputation_limit_exceeded(self, mock_ptr, mock_enrich, mock_limit,
-                                                  mock_cache_get, mock_auth):
+    def test_ip_without_reputation_limit_exceeded(self, mock_ptr, mock_enrich, mock_limit, mock_cache_get, mock_auth):
         r = client.get("/v1/ip/93.184.216.34")
         assert r.status_code == 200
         data = r.json()
@@ -1328,15 +1540,22 @@ class TestIpRouteReputation:
     @patch("domain.routes.check_greynoise")
     @patch("domain.routes.check_abuseipdb")
     @patch("domain.routes.check_shodan")
-    @patch("domain.routes.get_cached_ip", return_value={
-        "greynoise": {"status": "ok", "classification": "benign"},
-        "abuseipdb": {"status": "ok", "abuse_score": 0},
-        "shodan": {"status": "ok", "ports": [443]},
-    })
-    @patch("domain.routes.ip_enrichment", return_value={"ports": [443], "hostnames": [], "vulns": [], "cpes": [], "tags": []})
+    @patch(
+        "domain.routes.get_cached_ip",
+        return_value={
+            "greynoise": {"status": "ok", "classification": "benign"},
+            "abuseipdb": {"status": "ok", "abuse_score": 0},
+            "shodan": {"status": "ok", "ports": [443]},
+        },
+    )
+    @patch(
+        "domain.routes.ip_enrichment",
+        return_value={"ports": [443], "hostnames": [], "vulns": [], "cpes": [], "tags": []},
+    )
     @patch("domain.routes.socket.gethostbyaddr", return_value=("example.com", [], []))
-    def test_ip_reputation_from_cache(self, mock_ptr, mock_enrich, mock_cache_get,
-                                      mock_sh, mock_ab, mock_gn, mock_auth):
+    def test_ip_reputation_from_cache(
+        self, mock_ptr, mock_enrich, mock_cache_get, mock_sh, mock_ab, mock_gn, mock_auth
+    ):
         r = client.get("/v1/ip/93.184.216.34")
         assert r.status_code == 200
         data = r.json()
@@ -1350,9 +1569,11 @@ class TestIpRouteReputation:
 
 # =========== db.py IP cache tests ===========
 
+
 class TestIpCache:
     def test_save_and_get(self):
-        from db import init_cache_db, save_cached_ip, get_cached_ip
+        from db import get_cached_ip, init_cache_db, save_cached_ip
+
         init_cache_db()
         test_data = {
             "greynoise": {"status": "ok", "classification": "benign"},
@@ -1365,15 +1586,17 @@ class TestIpCache:
         assert result["abuseipdb"]["abuse_score"] == 5
 
     def test_expired_cache_returns_none(self):
-        from datetime import datetime, timezone, timedelta
-        from db import init_cache_db, get_cached_ip, get_cache_db
+        from datetime import datetime, timedelta
+
+        from db import get_cache_db, get_cached_ip, init_cache_db
+
         init_cache_db()
         # Insert with old timestamp
-        old_time = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+        old_time = (datetime.now(UTC) - timedelta(hours=24)).isoformat()
         with get_cache_db() as con:
             con.execute(
                 "INSERT OR REPLACE INTO ip_cache (ip, result_json, fetched_at) VALUES (?, ?, ?)",
-                ("99.99.99.99", json.dumps({"test": True}), old_time)
+                ("99.99.99.99", json.dumps({"test": True}), old_time),
             )
         result = get_cached_ip("99.99.99.99")
         assert result is None
@@ -1381,49 +1604,62 @@ class TestIpCache:
 
 # =========== scoring boundary tests ===========
 
+
 class TestReputationScoringBoundary:
     """Test exact boundary values for abuse_score thresholds."""
 
     def test_abuseipdb_score_24_no_penalty(self):
         from domain.scoring import score_domain
-        report = _report_with_reputation({
-            "abuseipdb": {"status": "ok", "abuse_score": 24},
-            "greynoise": {"status": "ok", "classification": "benign", "noise": False, "riot": False},
-            "shodan": {"status": "ok"},
-        })
+
+        report = _report_with_reputation(
+            {
+                "abuseipdb": {"status": "ok", "abuse_score": 24},
+                "greynoise": {"status": "ok", "classification": "benign", "noise": False, "riot": False},
+                "shodan": {"status": "ok"},
+            }
+        )
         result = score_domain(report)
         factor = _get_rep_factor(result)
         assert factor["score"] == 0
 
     def test_abuseipdb_score_25_moderate_penalty(self):
         from domain.scoring import score_domain
-        report = _report_with_reputation({
-            "abuseipdb": {"status": "ok", "abuse_score": 25},
-            "greynoise": {"status": "ok", "classification": "benign", "noise": False, "riot": False},
-            "shodan": {"status": "ok"},
-        })
+
+        report = _report_with_reputation(
+            {
+                "abuseipdb": {"status": "ok", "abuse_score": 25},
+                "greynoise": {"status": "ok", "classification": "benign", "noise": False, "riot": False},
+                "shodan": {"status": "ok"},
+            }
+        )
         result = score_domain(report)
         factor = _get_rep_factor(result)
         assert factor["score"] == -5
 
     def test_abuseipdb_score_74_moderate_penalty(self):
         from domain.scoring import score_domain
-        report = _report_with_reputation({
-            "abuseipdb": {"status": "ok", "abuse_score": 74},
-            "greynoise": {"status": "ok", "classification": "benign", "noise": False, "riot": False},
-            "shodan": {"status": "ok"},
-        })
+
+        report = _report_with_reputation(
+            {
+                "abuseipdb": {"status": "ok", "abuse_score": 74},
+                "greynoise": {"status": "ok", "classification": "benign", "noise": False, "riot": False},
+                "shodan": {"status": "ok"},
+            }
+        )
         result = score_domain(report)
         factor = _get_rep_factor(result)
         assert factor["score"] == -5
 
     def test_abuseipdb_score_75_high_penalty(self):
         from domain.scoring import score_domain
-        report = _report_with_reputation({
-            "abuseipdb": {"status": "ok", "abuse_score": 75},
-            "greynoise": {"status": "ok", "classification": "benign", "noise": False, "riot": False},
-            "shodan": {"status": "ok"},
-        })
+
+        report = _report_with_reputation(
+            {
+                "abuseipdb": {"status": "ok", "abuse_score": 75},
+                "greynoise": {"status": "ok", "classification": "benign", "noise": False, "riot": False},
+                "shodan": {"status": "ok"},
+            }
+        )
         result = score_domain(report)
         factor = _get_rep_factor(result)
         assert factor["score"] == -10
@@ -1431,16 +1667,20 @@ class TestReputationScoringBoundary:
 
 # =========== scoring skipped reputation tests ===========
 
+
 class TestReputationScoringSkipped:
     """Test that skipped/unavailable reputation shows correct message."""
 
     def test_all_skipped_shows_unavailable(self):
         from domain.scoring import score_domain
-        report = _report_with_reputation({
-            "abuseipdb": {"status": "skipped", "reason": "no API key"},
-            "greynoise": {"status": "skipped", "reason": "no API key"},
-            "shodan": {"status": "skipped", "reason": "no API key"},
-        })
+
+        report = _report_with_reputation(
+            {
+                "abuseipdb": {"status": "skipped", "reason": "no API key"},
+                "greynoise": {"status": "skipped", "reason": "no API key"},
+                "shodan": {"status": "skipped", "reason": "no API key"},
+            }
+        )
         result = score_domain(report)
         factor = _get_rep_factor(result)
         assert factor["score"] == 0
@@ -1448,11 +1688,14 @@ class TestReputationScoringSkipped:
 
     def test_all_error_shows_unavailable(self):
         from domain.scoring import score_domain
-        report = _report_with_reputation({
-            "abuseipdb": {"status": "error", "reason": "connection failed"},
-            "greynoise": {"status": "error", "reason": "connection failed"},
-            "shodan": {"status": "error", "reason": "connection failed"},
-        })
+
+        report = _report_with_reputation(
+            {
+                "abuseipdb": {"status": "error", "reason": "connection failed"},
+                "greynoise": {"status": "error", "reason": "connection failed"},
+                "shodan": {"status": "error", "reason": "connection failed"},
+            }
+        )
         result = score_domain(report)
         factor = _get_rep_factor(result)
         assert factor["score"] == 0
@@ -1460,11 +1703,14 @@ class TestReputationScoringSkipped:
 
     def test_mixed_skipped_and_ok_clean_shows_no_issues(self):
         from domain.scoring import score_domain
-        report = _report_with_reputation({
-            "abuseipdb": {"status": "ok", "abuse_score": 0},
-            "greynoise": {"status": "skipped", "reason": "no API key"},
-            "shodan": {"status": "skipped", "reason": "no API key"},
-        })
+
+        report = _report_with_reputation(
+            {
+                "abuseipdb": {"status": "ok", "abuse_score": 0},
+                "greynoise": {"status": "skipped", "reason": "no API key"},
+                "shodan": {"status": "skipped", "reason": "no API key"},
+            }
+        )
         result = score_domain(report)
         factor = _get_rep_factor(result)
         assert factor["score"] == 0
@@ -1473,6 +1719,7 @@ class TestReputationScoringSkipped:
 
 # =========== reputation 429 rate limit tests ===========
 
+
 class TestReputationRateLimit:
     """Test HTTP 429 rate limit handling."""
 
@@ -1480,6 +1727,7 @@ class TestReputationRateLimit:
     @patch("domain.reputation.GREYNOISE_API_KEY", "test-key")
     def test_greynoise_429(self, mock_client):
         from domain.reputation import check_greynoise
+
         mock_client.get.return_value = _mock_httpx_response(429)
         result = check_greynoise("1.2.3.4")
         assert result["status"] == "rate_limited"
@@ -1488,6 +1736,7 @@ class TestReputationRateLimit:
     @patch("domain.reputation.ABUSEIPDB_API_KEY", "test-key")
     def test_abuseipdb_429(self, mock_client):
         from domain.reputation import check_abuseipdb
+
         mock_client.get.return_value = _mock_httpx_response(429)
         result = check_abuseipdb("1.2.3.4")
         assert result["status"] == "rate_limited"
@@ -1496,6 +1745,7 @@ class TestReputationRateLimit:
     @patch("domain.reputation.SHODAN_API_KEY", "test-key")
     def test_shodan_429(self, mock_client):
         from domain.reputation import check_shodan
+
         mock_client.get.return_value = _mock_httpx_response(429)
         result = check_shodan("1.2.3.4")
         assert result["status"] == "rate_limited"
@@ -1503,85 +1753,106 @@ class TestReputationRateLimit:
 
 # =========== _ssl_grade edge case tests ===========
 
+
 class TestSslGradeEdgeCases:
     def test_tls13_no_expiry_gets_a(self):
         from domain.recon import _ssl_grade
+
         assert _ssl_grade("TLSv1.3", None) == "A"
 
     def test_tls12_no_expiry_gets_b(self):
         from domain.recon import _ssl_grade
+
         assert _ssl_grade("TLSv1.2", None) == "B"
 
     def test_unknown_tls_gets_c(self):
         from domain.recon import _ssl_grade
+
         assert _ssl_grade("unknown", 90) == "C"
 
     def test_sslv3_gets_c(self):
         from domain.recon import _ssl_grade
+
         assert _ssl_grade("SSLv3", 90) == "C"
 
     def test_tls10_gets_f(self):
         from domain.recon import _ssl_grade
+
         assert _ssl_grade("TLSv1", 90) == "F"
 
     def test_tls11_gets_f(self):
         from domain.recon import _ssl_grade
+
         assert _ssl_grade("TLSv1.1", 90) == "F"
 
     def test_expired_cert_gets_f(self):
         from domain.recon import _ssl_grade
+
         assert _ssl_grade("TLSv1.3", -1) == "F"
 
 
 # =========== _score_to_grade boundary tests ===========
 
+
 class TestScoreToGradeBoundary:
     def test_84_is_b(self):
         from domain.scoring import _score_to_grade
+
         assert _score_to_grade(84) == "B"
 
     def test_85_is_a(self):
         from domain.scoring import _score_to_grade
+
         assert _score_to_grade(85) == "A"
 
     def test_69_is_c(self):
         from domain.scoring import _score_to_grade
+
         assert _score_to_grade(69) == "C"
 
     def test_70_is_b(self):
         from domain.scoring import _score_to_grade
+
         assert _score_to_grade(70) == "B"
 
     def test_54_is_d(self):
         from domain.scoring import _score_to_grade
+
         assert _score_to_grade(54) == "D"
 
     def test_55_is_c(self):
         from domain.scoring import _score_to_grade
+
         assert _score_to_grade(55) == "C"
 
     def test_39_is_f(self):
         from domain.scoring import _score_to_grade
+
         assert _score_to_grade(39) == "F"
 
     def test_40_is_d(self):
         from domain.scoring import _score_to_grade
+
         assert _score_to_grade(40) == "D"
 
     def test_0_is_f(self):
         from domain.scoring import _score_to_grade
+
         assert _score_to_grade(0) == "F"
 
     def test_100_is_a(self):
         from domain.scoring import _score_to_grade
+
         assert _score_to_grade(100) == "A"
 
 
 # =========== score_domain edge cases ===========
 
+
 class TestScoreDomainEdgeCases:
     def test_empty_report_no_crash(self):
         from domain.scoring import score_domain
+
         result = score_domain({})
         assert result["grade"] in ("A", "B", "C", "D", "F")
         assert result["score"] >= 0
@@ -1590,6 +1861,7 @@ class TestScoreDomainEdgeCases:
     def test_empty_reputation_includes_factor(self):
         """When reputation dict is empty, IP Reputation factor should still appear."""
         from domain.scoring import score_domain
+
         report = {"reputation": {}}
         result = score_domain(report)
         factor_names = [f["name"] for f in result["factors"]]
@@ -1601,6 +1873,7 @@ class TestScoreDomainEdgeCases:
     def test_missing_reputation_includes_factor(self):
         """When reputation key is missing entirely, IP Reputation factor should still appear."""
         from domain.scoring import score_domain
+
         report = {}
         result = score_domain(report)
         factor_names = [f["name"] for f in result["factors"]]
@@ -1608,6 +1881,7 @@ class TestScoreDomainEdgeCases:
 
 
 # =========== threat_intel route tests ===========
+
 
 class TestThreatIntelRoute:
     @patch("domain.routes.authenticate", return_value={"tier": "free"})
@@ -1619,10 +1893,17 @@ class TestThreatIntelRoute:
         assert "no threats" in r.json()["summary"]
 
     @patch("domain.routes.authenticate", return_value={"tier": "free"})
-    @patch("domain.routes.check_urlhaus", return_value={
-        "urlhaus_status": "listed", "urls_online": 2, "url_count": 3,
-        "threat_types": ["malware_download"], "tags": [], "urls": [],
-    })
+    @patch(
+        "domain.routes.check_urlhaus",
+        return_value={
+            "urlhaus_status": "listed",
+            "urls_online": 2,
+            "url_count": 3,
+            "threat_types": ["malware_download"],
+            "tags": [],
+            "urls": [],
+        },
+    )
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     def test_threat_listed(self, mock_validate, mock_urlhaus, mock_auth):
         r = client.get("/v1/threat/example.com")
@@ -1634,43 +1915,52 @@ class TestThreatIntelRoute:
 
 # =========== whois_lookup unit tests ===========
 
+
 class TestWhoisLookupUnit:
     def test_unsupported_tld_returns_error(self):
         from domain.recon import whois_lookup
+
         result = whois_lookup("example.dev")
         assert "error" in result
         assert "RDAP" in result["error"]
 
     def test_unsupported_tld_app(self):
         from domain.recon import whois_lookup
+
         result = whois_lookup("example.app")
         assert "error" in result
 
 
 # =========== detect_waf edge cases ===========
 
+
 class TestDetectWafEdgeCases:
     def test_case_insensitive_server(self):
         from domain.recon import detect_waf
+
         result = detect_waf({"server": "CloudFlare-Nginx"})
         assert "Cloudflare" in result["detected"]
 
     def test_non_server_header_detection(self):
         from domain.recon import detect_waf
+
         result = detect_waf({"x-fastly-request-id": "abc123"})
         assert "Fastly" in result["detected"]
 
     def test_empty_headers(self):
         from domain.recon import detect_waf
+
         result = detect_waf({})
         assert result["waf_present"] is False
 
 
 # =========== ratelimit refund tests ===========
 
+
 class TestRatelimitRefund:
     def test_refund_removes_last_entry(self):
         import ratelimit
+
         ratelimit.reset()
         ratelimit.check_limit("test_refund", "key1", max_requests=3, window_seconds=60)
         ratelimit.check_limit("test_refund", "key1", max_requests=3, window_seconds=60)
@@ -1680,47 +1970,56 @@ class TestRatelimitRefund:
 
     def test_refund_nonexistent_key_no_crash(self):
         import ratelimit
+
         ratelimit.reset()
         ratelimit.refund("test_refund", "nonexistent")  # should not raise
 
 
 # =========== tech.py unit tests ===========
 
+
 class TestTechDetectFromHeaders:
     def test_nginx_with_version(self):
         from domain.tech import detect_technologies
+
         result = detect_technologies({"server": "nginx/1.24.0"})
         techs = result["technologies"]
         assert any(t["name"] == "Nginx" and t["version"] == "1.24.0" for t in techs)
 
     def test_apache_no_version(self):
         from domain.tech import detect_technologies
+
         result = detect_technologies({"server": "Apache"})
         assert any(t["name"] == "Apache" for t in result["technologies"])
 
     def test_php_from_powered_by(self):
         from domain.tech import detect_technologies
+
         result = detect_technologies({"x-powered-by": "PHP/8.2.1"})
         techs = result["technologies"]
         assert any(t["name"] == "PHP" and t["version"] == "8.2.1" for t in techs)
 
     def test_express_from_powered_by(self):
         from domain.tech import detect_technologies
+
         result = detect_technologies({"x-powered-by": "Express"})
         assert any(t["name"] == "Express.js" for t in result["technologies"])
 
     def test_cloudflare_from_cf_ray(self):
         from domain.tech import detect_technologies
+
         result = detect_technologies({"cf-ray": "abc123", "server": "cloudflare"})
         assert any(t["name"] == "Cloudflare" for t in result["technologies"])
 
     def test_nextjs_from_header(self):
         from domain.tech import detect_technologies
+
         result = detect_technologies({"x-nextjs-cache": "HIT"})
         assert any(t["name"] == "Next.js" for t in result["technologies"])
 
     def test_empty_headers(self):
         from domain.tech import detect_technologies
+
         result = detect_technologies({})
         assert result["count"] == 0
         assert result["technologies"] == []
@@ -1729,16 +2028,19 @@ class TestTechDetectFromHeaders:
 class TestTechDetectFromCookies:
     def test_phpsessid(self):
         from domain.tech import detect_technologies
+
         result = detect_technologies({"set-cookie": "PHPSESSID=abc123; path=/"})
         assert any(t["name"] == "PHP" and t["source"] == "cookie" for t in result["technologies"])
 
     def test_laravel_session(self):
         from domain.tech import detect_technologies
+
         result = detect_technologies({"set-cookie": "laravel_session=xyz; path=/; httponly"})
         assert any(t["name"] == "Laravel" for t in result["technologies"])
 
     def test_jsessionid(self):
         from domain.tech import detect_technologies
+
         result = detect_technologies({"set-cookie": "JSESSIONID=abc123"})
         assert any(t["name"] == "Java" for t in result["technologies"])
 
@@ -1746,12 +2048,14 @@ class TestTechDetectFromCookies:
 class TestTechDetectFromHtml:
     def test_wordpress(self):
         from domain.tech import detect_technologies
+
         html = '<link rel="stylesheet" href="/wp-content/themes/theme/style.css">'
         result = detect_technologies({}, html)
         assert any(t["name"] == "WordPress" for t in result["technologies"])
 
     def test_wordpress_version(self):
         from domain.tech import detect_technologies
+
         html = '<meta name="generator" content="WordPress 6.4.2">'
         result = detect_technologies({}, html)
         techs = result["technologies"]
@@ -1759,18 +2063,21 @@ class TestTechDetectFromHtml:
 
     def test_react(self):
         from domain.tech import detect_technologies
+
         html = '<div id="root" data-reactroot></div>'
         result = detect_technologies({}, html)
         assert any(t["name"] == "React" for t in result["technologies"])
 
     def test_nextjs_from_html(self):
         from domain.tech import detect_technologies
+
         html = '<script id="__NEXT_DATA__" type="application/json">{"props":{}}</script>'
         result = detect_technologies({}, html)
         assert any(t["name"] == "Next.js" for t in result["technologies"])
 
     def test_jquery_with_version(self):
         from domain.tech import detect_technologies
+
         html = '<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>'
         result = detect_technologies({}, html)
         techs = result["technologies"]
@@ -1778,12 +2085,14 @@ class TestTechDetectFromHtml:
 
     def test_google_analytics(self):
         from domain.tech import detect_technologies
+
         html = '<script src="https://www.googletagmanager.com/gtag/js?id=G-123"></script>'
         result = detect_technologies({}, html)
         assert any(t["name"] == "Google Analytics" for t in result["technologies"])
 
     def test_no_html(self):
         from domain.tech import detect_technologies
+
         result = detect_technologies({"server": "nginx"}, None)
         assert any(t["name"] == "Nginx" for t in result["technologies"])
         assert result["count"] == 1
@@ -1792,6 +2101,7 @@ class TestTechDetectFromHtml:
 class TestTechDeduplication:
     def test_no_duplicate_entries(self):
         from domain.tech import detect_technologies
+
         headers = {"x-powered-by": "PHP/8.1", "set-cookie": "PHPSESSID=abc"}
         result = detect_technologies(headers)
         php_entries = [t for t in result["technologies"] if t["name"] == "PHP"]
@@ -1799,6 +2109,7 @@ class TestTechDeduplication:
 
     def test_header_wins_over_cookie(self):
         from domain.tech import detect_technologies
+
         headers = {"x-powered-by": "PHP/8.1", "set-cookie": "PHPSESSID=abc"}
         result = detect_technologies(headers)
         php = [t for t in result["technologies"] if t["name"] == "PHP"][0]
@@ -1809,12 +2120,14 @@ class TestTechDeduplication:
 class TestTechSummary:
     def test_summary_format(self):
         from domain.tech import detect_technologies
+
         result = detect_technologies({"server": "nginx/1.24.0", "x-powered-by": "PHP/8.2"})
         assert "2 technologies detected" in result["summary"]
         assert "Nginx 1.24.0" in result["summary"]
 
     def test_empty_summary(self):
         from domain.tech import detect_technologies
+
         result = detect_technologies({})
         assert result["summary"] == "No technologies detected"
 
@@ -1822,6 +2135,7 @@ class TestTechSummary:
 class TestTechCategories:
     def test_categories_grouped(self):
         from domain.tech import detect_technologies
+
         headers = {"server": "nginx/1.24.0", "x-powered-by": "PHP/8.2", "cf-ray": "abc"}
         result = detect_technologies(headers)
         assert "Server" in result["categories"]
@@ -1876,6 +2190,7 @@ class TestTechRoute:
 
 # =========== /v1/monitor/{domain} route tests ===========
 
+
 class TestMonitorRoute:
     @patch("domain.routes.get_cached_domain", return_value=None)
     @patch("domain.routes.ssl_info", return_value={"grade": "A", "days_remaining": 90})
@@ -1926,6 +2241,7 @@ class TestMonitorRoute:
 
 
 # =========== /v1/domain/{domain}/vulns route tests ===========
+
 
 class TestVulnsRoute:
     @patch("db.search_cves_by_product", return_value=[])
@@ -1978,6 +2294,7 @@ class TestVulnsRoute:
 
 # =========== /v1/ssl/{domain} tests ===========
 
+
 class TestSslCertificate:
     _MOCK_CERT = {
         "subject": ((("commonName", "example.com"),),),
@@ -2007,8 +2324,10 @@ class TestSslCertificate:
         mock_sock = MagicMock()
         mock_sock.__enter__ = MagicMock(return_value=mock_sock)
         mock_sock.__exit__ = MagicMock(return_value=False)
-        with patch("domain.routes.socket.create_connection", return_value=mock_sock), \
-             patch("domain.routes._ssl.create_default_context") as mock_ctx:
+        with (
+            patch("domain.routes.socket.create_connection", return_value=mock_sock),
+            patch("domain.routes._ssl.create_default_context") as mock_ctx,
+        ):
             mock_ctx.return_value.wrap_socket.return_value = mock_ssock
             r = client.get("/v1/ssl/example.com")
         assert r.status_code == 200
@@ -2037,8 +2356,10 @@ class TestSslCertificate:
         mock_sock = MagicMock()
         mock_sock.__enter__ = MagicMock(return_value=mock_sock)
         mock_sock.__exit__ = MagicMock(return_value=False)
-        with patch("domain.routes.socket.create_connection", return_value=mock_sock), \
-             patch("domain.routes._ssl.create_default_context") as mock_ctx:
+        with (
+            patch("domain.routes.socket.create_connection", return_value=mock_sock),
+            patch("domain.routes._ssl.create_default_context") as mock_ctx,
+        ):
             mock_ctx.return_value.wrap_socket.return_value = mock_ssock
             r = client.get("/v1/ssl/expired.com")
         assert r.status_code == 200
@@ -2059,8 +2380,12 @@ class TestSslCertificate:
     def test_ssl_cached(self, mock_validate):
         mock_validate.return_value = ("cached.com", "1.2.3.4", {"tier": "free"})
         cached_result = {
-            "domain": "cached.com", "valid": True, "issuer": "DigiCert",
-            "subject": "cached.com", "grade": "A", "summary": "cached.com — A",
+            "domain": "cached.com",
+            "valid": True,
+            "issuer": "DigiCert",
+            "subject": "cached.com",
+            "grade": "A",
+            "summary": "cached.com — A",
         }
         with patch("domain.routes.get_cached_domain", return_value=cached_result):
             r = client.get("/v1/ssl/cached.com")
@@ -2071,6 +2396,7 @@ class TestSslCertificate:
 
 
 # =========== /v1/domains/bulk tests ===========
+
 
 class TestBulkDomainReport:
     _MOCK_REPORT = {
@@ -2122,10 +2448,12 @@ class TestBulkDomainReport:
     @patch("domain.routes.validate_domain")
     def test_bulk_partial_failure(self, mock_validate, mock_report, mock_cache_get, mock_cache_save):
         """One valid domain, one invalid → partial success."""
+
         def validate_side_effect(domain):
             if domain == "good.com":
                 return "1.2.3.4"
             return None  # bad domain
+
         mock_validate.side_effect = validate_side_effect
         mock_report.return_value = dict(self._MOCK_REPORT)
         r = client.post("/v1/domains/bulk", json={"domains": ["good.com", "!!!invalid"]})
@@ -2174,7 +2502,10 @@ class TestBulkDomainReport:
 
     @patch("domain.routes.save_cached_domain")
     @patch("domain.routes.get_cached_domain", return_value=None)
-    @patch("domain.routes.full_domain_report", side_effect=RuntimeError("/opt/contrastapi/app/domain/recon.py line 42: connection pool exhausted"))
+    @patch(
+        "domain.routes.full_domain_report",
+        side_effect=RuntimeError("/opt/contrastapi/app/domain/recon.py line 42: connection pool exhausted"),
+    )
     @patch("domain.routes.validate_domain", return_value="1.2.3.4")
     def test_bulk_error_sanitized(self, mock_validate, mock_report, mock_cache_get, mock_cache_save):
         """Internal error details (paths, stack traces) must not leak to client."""
@@ -2244,11 +2575,15 @@ class TestBulkDomainReport:
 
 MOCK_RIPE_NETWORK_INFO = {"data": {"asns": ["13335"], "prefix": "1.1.1.0/24"}}
 MOCK_RIPE_OVERVIEW = {"data": {"holder": "CLOUDFLARENET", "resource": "AS13335"}}
-MOCK_RIPE_PREFIXES = {"data": {"prefixes": [
-    {"prefix": "1.1.1.0/24"},
-    {"prefix": "104.16.0.0/13"},
-    {"prefix": "2606:4700::/32"},
-]}}
+MOCK_RIPE_PREFIXES = {
+    "data": {
+        "prefixes": [
+            {"prefix": "1.1.1.0/24"},
+            {"prefix": "104.16.0.0/13"},
+            {"prefix": "2606:4700::/32"},
+        ]
+    }
+}
 
 
 class TestAsnRoute:
@@ -2257,7 +2592,6 @@ class TestAsnRoute:
     @patch("domain.routes.authenticate", return_value={"tier": "free"})
     def test_asn_with_ip(self, mock_auth, mock_cache_get, mock_cache_save):
         """ASN lookup with direct IP input."""
-        import httpx
 
         def mock_get(url, **kwargs):
             resp = MagicMock()
@@ -2271,7 +2605,7 @@ class TestAsnRoute:
                 resp.json.return_value = MOCK_RIPE_PREFIXES
             return resp
 
-        with patch("domain.routes._httpx.get", side_effect=mock_get) as mock_httpx:
+        with patch("domain.routes._ripe_client.get", side_effect=mock_get) as mock_httpx:
             r = client.get("/v1/asn/1.1.1.1")
             assert r.status_code == 200
             data = r.json()
@@ -2289,9 +2623,9 @@ class TestAsnRoute:
     @patch("domain.routes.clean_domain", return_value="example.com")
     @patch("domain.routes.is_valid_ip", return_value=False)
     @patch("domain.routes.authenticate", return_value={"tier": "free"})
-    def test_asn_with_domain(self, mock_auth, mock_is_ip, mock_clean, mock_dns,
-                             mock_cache_get, mock_cache_save):
+    def test_asn_with_domain(self, mock_auth, mock_is_ip, mock_clean, mock_dns, mock_cache_get, mock_cache_save):
         """ASN lookup with domain input — should resolve to IP first."""
+
         def mock_get(url, **kwargs):
             resp = MagicMock()
             resp.status_code = 200
@@ -2304,7 +2638,7 @@ class TestAsnRoute:
                 resp.json.return_value = MOCK_RIPE_PREFIXES
             return resp
 
-        with patch("domain.routes._httpx.get", side_effect=mock_get):
+        with patch("domain.routes._ripe_client.get", side_effect=mock_get):
             r = client.get("/v1/asn/example.com")
             assert r.status_code == 200
             data = r.json()

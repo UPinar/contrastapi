@@ -11,24 +11,40 @@ from fastapi import APIRouter, HTTPException, Request
 
 _reputation_pool = ThreadPoolExecutor(max_workers=3)
 
-from auth import authenticate
-from config import ENRICHMENT_DAILY_LIMIT, RECON_TIMEOUT
-from validation import clean_domain, validate_domain, _is_valid_format, is_valid_ip, is_private_ip, get_client_ip
-from db import get_cached_domain, save_cached_domain, get_cached_ip, save_cached_ip
-from domain.recon import (
-    dns_lookup, reverse_dns, whois_lookup, ssl_info,
-    enumerate_subdomains, check_ct_logs, detect_waf,
-    full_domain_report, ip_enrichment, fetch_live_page,
-    quick_dns_a,
-)
-from domain.reputation import check_greynoise, check_abuseipdb, check_shodan
-from domain.threat import check_urlhaus
-from schemas import DomainReportResponse, DnsResponse, IpLookupResponse, ThreatResponse, TechResponse, MonitorResponse, VulnsResponse, BulkDomainResponse, SslResponse, AsnResponse
+import httpx as _httpx
 import ratelimit
 
-import httpx as _httpx
-
+_ripe_client = _httpx.Client(timeout=_httpx.Timeout(7.0, connect=3.0), follow_redirects=False)
+from auth import authenticate
+from config import ENRICHMENT_DAILY_LIMIT, RECON_TIMEOUT
+from db import get_cached_domain, get_cached_ip, save_cached_domain, save_cached_ip
+from domain.recon import (
+    check_ct_logs,
+    dns_lookup,
+    enumerate_subdomains,
+    fetch_live_page,
+    full_domain_report,
+    ip_enrichment,
+    quick_dns_a,
+    ssl_info,
+    whois_lookup,
+)
+from domain.reputation import check_abuseipdb, check_greynoise, check_shodan
+from domain.threat import check_urlhaus
 from pydantic import BaseModel, Field
+from schemas import (
+    AsnResponse,
+    BulkDomainResponse,
+    DnsResponse,
+    DomainReportResponse,
+    IpLookupResponse,
+    MonitorResponse,
+    SslResponse,
+    TechResponse,
+    ThreatResponse,
+    VulnsResponse,
+)
+from validation import _is_valid_format, clean_domain, get_client_ip, is_private_ip, is_valid_ip, validate_domain
 
 logger = logging.getLogger("contrastapi")
 
@@ -36,16 +52,24 @@ router = APIRouter(prefix="/v1", tags=["Domain Intelligence"])
 
 
 def _validate_and_auth(request: Request, raw_domain: str) -> tuple[str, str, dict]:
-    """Clean domain, authenticate request, validate domain. Returns (domain, resolved_ip, auth_ctx)."""
+    """Authenticate, clean domain, validate domain. Returns (domain, resolved_ip, auth_ctx).
+
+    Auth runs first to reject unauthenticated/rate-limited requests before DNS resolution.
+    """
     domain = clean_domain(raw_domain)
-    resolved_ip = validate_domain(domain) if domain else None
-    if not domain or not resolved_ip:
-        if domain and _is_valid_format(domain):
-            raise HTTPException(status_code=422, detail="Could not resolve this domain. DNS resolution failed.")
-        if is_valid_ip(raw_domain):
-            raise HTTPException(status_code=400, detail=f"'{raw_domain}' is an IP address, not a domain. Use /v1/ip/{raw_domain} instead.")
+    if not domain:
+        raise HTTPException(status_code=400, detail="Invalid domain")
+    if is_valid_ip(raw_domain):
+        raise HTTPException(
+            status_code=400,
+            detail=f"'{raw_domain}' is an IP address, not a domain. Use /v1/ip/{raw_domain} instead.",
+        )
+    if not _is_valid_format(domain):
         raise HTTPException(status_code=400, detail="Invalid domain")
     auth_ctx = authenticate(request, request.url.path)
+    resolved_ip = validate_domain(domain)
+    if not resolved_ip:
+        raise HTTPException(status_code=422, detail="Could not resolve this domain. DNS resolution failed.")
     return domain, resolved_ip, auth_ctx
 
 
@@ -57,7 +81,12 @@ def _from_cache(domain: str, key: str) -> dict | None:
     return None
 
 
-@router.get("/domain/{domain}", operation_id="domain_report", response_model=DomainReportResponse, response_model_exclude_none=True)
+@router.get(
+    "/domain/{domain}",
+    operation_id="domain_report",
+    response_model=DomainReportResponse,
+    response_model_exclude_none=True,
+)
 def domain_report(domain: str, request: Request):
     """Full domain intelligence report with DNS, WHOIS, SSL, subdomains, WAF."""
     domain, resolved_ip, auth_ctx = _validate_and_auth(request, domain)
@@ -122,7 +151,9 @@ def certs(domain: str, request: Request):
     return {"domain": domain, **result}
 
 
-@router.get("/ssl/{domain}", operation_id="ssl_certificate", response_model=SslResponse, response_model_exclude_none=True)
+@router.get(
+    "/ssl/{domain}", operation_id="ssl_certificate", response_model=SslResponse, response_model_exclude_none=True
+)
 def ssl_certificate(domain: str, request: Request):
     """SSL certificate details with grade, chain, cipher, and protocol information."""
     domain, resolved_ip, auth_ctx = _validate_and_auth(request, domain)
@@ -138,7 +169,6 @@ def ssl_certificate(domain: str, request: Request):
         with socket.create_connection((connect_host, 443), timeout=5) as sock:
             with ctx.wrap_socket(sock, server_hostname=domain) as ssock:
                 cert = ssock.getpeercert()
-                der_chain = ssock.getpeercert(binary_form=False)
                 tls_version = ssock.version() or "unknown"
                 cipher_info = ssock.cipher()  # (name, protocol, bits)
 
@@ -167,21 +197,21 @@ def ssl_certificate(domain: str, request: Request):
                     grade = "A"
                 elif tls_version in ("TLSv1.2", "TLSv1.3") and (days_remaining is None or days_remaining > 30):
                     grade = "B"
-                elif valid:
-                    grade = "C"
                 else:
-                    grade = "F"
+                    grade = "C"
 
                 # Chain from OCSP stapling / peer cert chain
                 chain = []
                 try:
                     chain_certs = ssock.get_verified_chain() or []
                     for c in chain_certs:
-                        chain.append({
-                            "subject": c.get("subject", ""),
-                            "issuer": c.get("issuer", ""),
-                            "not_after": c.get("notAfter", ""),
-                        })
+                        chain.append(
+                            {
+                                "subject": c.get("subject", ""),
+                                "issuer": c.get("issuer", ""),
+                                "not_after": c.get("notAfter", ""),
+                            }
+                        )
                 except (AttributeError, Exception):
                     # get_verified_chain not available in all Python versions
                     pass
@@ -221,10 +251,10 @@ def ssl_certificate(domain: str, request: Request):
 
     except (socket.timeout, ConnectionRefusedError, OSError) as e:
         logger.warning("SSL connection failed for %s: %s", domain, e)
-        raise HTTPException(status_code=502, detail=f"Could not establish SSL connection to {domain}")
+        raise HTTPException(status_code=502, detail=f"Could not establish SSL connection to {domain}") from None
     except Exception as e:
         logger.warning("SSL inspection failed for %s: %s", domain, e)
-        raise HTTPException(status_code=502, detail=f"SSL inspection failed for {domain}")
+        raise HTTPException(status_code=502, detail=f"SSL inspection failed for {domain}") from None
 
 
 @router.get("/threat/{domain}", operation_id="threat_intel", response_model=ThreatResponse)
@@ -246,16 +276,20 @@ def ip_lookup(ip: str, request: Request):
     """IP intelligence — reverse DNS, open ports, vulnerabilities, hostnames (via Shodan InternetDB) + reputation."""
     if not is_valid_ip(ip):
         if "." in ip and not ip.replace(".", "").isdigit():
-            raise HTTPException(status_code=400, detail=f"'{ip}' looks like a domain, not an IP. Use /v1/domain/{ip} instead.")
+            raise HTTPException(
+                status_code=400, detail=f"'{ip}' looks like a domain, not an IP. Use /v1/domain/{ip} instead."
+            )
         raise HTTPException(status_code=400, detail="Invalid IP address")
     if is_private_ip(ip):
         raise HTTPException(status_code=400, detail="Private/reserved IP addresses are not allowed")
-    auth_ctx = authenticate(request, "/v1/ip")
+    authenticate(request, "/v1/ip")
     client_ip = get_client_ip(request)
 
     try:
-        hostname, _, _ = socket.gethostbyaddr(ip)
-        ptr = hostname
+        from domain.recon import _dns_call_with_timeout
+
+        addr_result, addr_err = _dns_call_with_timeout(socket.gethostbyaddr, ip)
+        ptr = addr_result[0] if addr_result and not addr_err else None
     except Exception:
         ptr = None
 
@@ -270,8 +304,10 @@ def ip_lookup(ip: str, request: Request):
     if cached_rep is not None:
         reputation = cached_rep
     elif ratelimit.check_limit(
-        store_name="enrichment", key=client_ip,
-        max_requests=ENRICHMENT_DAILY_LIMIT, window_seconds=86400,
+        store_name="enrichment",
+        key=client_ip,
+        max_requests=ENRICHMENT_DAILY_LIMIT,
+        window_seconds=86400,
     ):
         try:
             f_gn = _reputation_pool.submit(check_greynoise, ip)
@@ -307,7 +343,9 @@ def ip_lookup(ip: str, request: Request):
     return result
 
 
-@router.get("/tech/{domain}", operation_id="tech_fingerprint", response_model=TechResponse, response_model_exclude_none=True)
+@router.get(
+    "/tech/{domain}", operation_id="tech_fingerprint", response_model=TechResponse, response_model_exclude_none=True
+)
 def tech_fingerprint(domain: str, request: Request):
     """Technology fingerprinting — detect CMS, frameworks, servers, CDNs, analytics."""
     domain, resolved_ip, auth_ctx = _validate_and_auth(request, domain)
@@ -315,6 +353,7 @@ def tech_fingerprint(domain: str, request: Request):
     if "error" in page:
         raise HTTPException(status_code=502, detail=page["error"])
     from domain.tech import detect_technologies
+
     result = detect_technologies(page["headers"], page.get("html"))
     return {"domain": domain, **result}
 
@@ -388,8 +427,8 @@ def domain_vulns(domain: str, request: Request):
     if "error" in page:
         raise HTTPException(status_code=502, detail=page["error"])
 
-    from domain.tech import detect_technologies
     from db import search_cves_by_product
+    from domain.tech import detect_technologies
 
     tech_result = detect_technologies(page["headers"], page.get("html"))
     technologies = tech_result.get("technologies", [])
@@ -417,12 +456,14 @@ def domain_vulns(domain: str, request: Request):
         if cve_items:
             techs_with_cves += 1
         total_cves += len(cve_items)
-        vulnerabilities.append({
-            "technology": name,
-            "version": version,
-            "cve_count": len(cve_items),
-            "cves": cve_items,
-        })
+        vulnerabilities.append(
+            {
+                "technology": name,
+                "version": version,
+                "cve_count": len(cve_items),
+                "cves": cve_items,
+            }
+        )
 
     scanned = len(technologies)
     if total_cves:
@@ -444,7 +485,7 @@ def asn_lookup(target: str, request: Request):
     """ASN lookup — resolve target (domain or IP) to its Autonomous System Number, holder name, and announced prefixes."""
     import ipaddress
 
-    auth_ctx = authenticate(request, "/v1/asn")
+    authenticate(request, "/v1/asn")
 
     # Determine IP from target
     resolved_ip = None
@@ -477,7 +518,7 @@ def asn_lookup(target: str, request: Request):
 
     # Fetch ASN from RIPE Stat
     try:
-        r1 = _httpx.get(
+        r1 = _ripe_client.get(
             "https://stat.ripe.net/data/network-info/data.json",
             params={"resource": ip},
             timeout=5.0,
@@ -490,12 +531,12 @@ def asn_lookup(target: str, request: Request):
         try:
             asn = int(asn_raw[0])
         except (ValueError, TypeError):
-            raise HTTPException(status_code=404, detail=f"Invalid ASN value for {ip}")
+            raise HTTPException(status_code=404, detail=f"Invalid ASN value for {ip}") from None
     except HTTPException:
         raise
     except Exception as e:
         logger.warning("RIPE network-info failed for %s: %s", ip, e)
-        raise HTTPException(status_code=502, detail="Failed to look up ASN from RIPE Stat")
+        raise HTTPException(status_code=502, detail="Failed to look up ASN from RIPE Stat") from None
 
     # Fetch ASN holder name and prefixes in parallel
     asn_name = ""
@@ -503,9 +544,8 @@ def asn_lookup(target: str, request: Request):
     ipv6_prefixes = []
 
     def _fetch_overview():
-        nonlocal asn_name
         try:
-            r = _httpx.get(
+            r = _ripe_client.get(
                 "https://stat.ripe.net/data/as-overview/data.json",
                 params={"resource": f"AS{asn}"},
                 timeout=5.0,
@@ -519,7 +559,7 @@ def asn_lookup(target: str, request: Request):
 
     def _fetch_prefixes():
         try:
-            r = _httpx.get(
+            r = _ripe_client.get(
                 "https://stat.ripe.net/data/announced-prefixes/data.json",
                 params={"resource": f"AS{asn}"},
                 timeout=5.0,
@@ -587,7 +627,12 @@ def _run_single_report(raw_domain: str, client_ip: str) -> dict:
     domain = clean_domain(raw_domain)
     resolved_ip = validate_domain(domain) if domain else None
     if not domain or not resolved_ip:
-        return {"domain": raw_domain, "status": "error", "report": None, "error": "Invalid domain or DNS resolution failed"}
+        return {
+            "domain": raw_domain,
+            "status": "error",
+            "report": None,
+            "error": "Invalid domain or DNS resolution failed",
+        }
     try:
         cached = get_cached_domain(domain)
         if cached:
@@ -609,6 +654,7 @@ def bulk_domain_report(body: _BulkRequest, request: Request):
 
     # Tier-based bulk limit
     from config import FREE_BULK_LIMIT, PRO_BULK_LIMIT
+
     bulk_limit = PRO_BULK_LIMIT if auth_ctx["tier"] == "pro" else FREE_BULK_LIMIT
 
     # Deduplicate domains (preserve order)
@@ -626,15 +672,18 @@ def bulk_domain_report(body: _BulkRequest, request: Request):
     auth_header = request.headers.get("authorization", "")
     if auth_header.startswith("Bearer "):
         from auth import extract_key, hash_key
+
         raw_key = extract_key(request)
 
     if raw_key:
-        from config import PRO_HOURLY_LIMIT
         from auth import hash_key
+        from config import PRO_HOURLY_LIMIT
+
         store_key = f"pro:{hash_key(raw_key)}"
         limit = PRO_HOURLY_LIMIT
     else:
         from config import FREE_HOURLY_LIMIT
+
         store_key = f"free:{client_ip}"
         limit = FREE_HOURLY_LIMIT
 
@@ -656,19 +705,17 @@ def bulk_domain_report(body: _BulkRequest, request: Request):
                     detail="Rate limit exceeded while reserving bulk quota.",
                 )
 
-    # Run reports in parallel
-    futures = {_bulk_pool.submit(_run_single_report, d, client_ip): d for d in domains}
+    # Run reports in parallel, preserving input order
+    ordered_futures = [(_bulk_pool.submit(_run_single_report, d, client_ip), d) for d in domains]
     results = []
-    for future in futures:
+    for future, domain in ordered_futures:
         try:
             results.append(future.result(timeout=RECON_TIMEOUT + 10))
         except TimeoutError:
             future.cancel()
-            domain = futures[future]
             logger.warning("Bulk report timed out for %s", domain)
             results.append({"domain": domain, "status": "error", "report": None, "error": "Domain report timed out"})
         except Exception as exc:
-            domain = futures[future]
             logger.warning("Bulk report failed for %s: %s", domain, exc)
             results.append({"domain": domain, "status": "error", "report": None, "error": "Domain report failed"})
 

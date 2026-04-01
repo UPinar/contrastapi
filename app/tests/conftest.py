@@ -11,12 +11,16 @@ def temp_dbs(tmp_path, monkeypatch):
     monkeypatch.setenv("CONTRASTAPI_CVE_DB", str(tmp_path / "cve.db"))
     monkeypatch.setenv("CONTRASTAPI_CACHE_DB", str(tmp_path / "cache.db"))
     import importlib
+
     import config
+
     importlib.reload(config)
     import db
+
     importlib.reload(db)
     db.init_all_dbs()
     from ratelimit import reset
+
     reset()
     yield
     reset()
