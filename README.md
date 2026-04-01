@@ -3,12 +3,11 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Python 3.12](https://img.shields.io/badge/Python-3.12-blue.svg)](https://python.org)
 [![Tests](https://img.shields.io/badge/Tests-581_passing-brightgreen.svg)](https://github.com/UPinar/contrastapi/actions)
-[![MCP](https://img.shields.io/badge/MCP-Compatible-purple.svg)](https://modelcontextprotocol.io)
 [![RapidAPI](https://img.shields.io/badge/RapidAPI-Available-blue.svg)](https://rapidapi.com/UPinar/api/contrastapi)
 
 **Security intelligence API for AI agents and developers.** 30+ endpoints: CVE lookup with EPSS/KEV enrichment, domain reconnaissance, SSL analysis, IP reputation (GreyNoise, AbuseIPDB, Shodan), IOC/malware lookup, exploit search, technology fingerprinting, and code security verification. Free, no signup required.
 
-**Live:** [api.contrastcyber.com](https://api.contrastcyber.com) | **MCP:** `https://mcp.contrastcyber.com/mcp` | **Scanner:** [contrastcyber.com](https://contrastcyber.com)
+**Live:** [api.contrastcyber.com](https://api.contrastcyber.com) | **Scanner:** [contrastcyber.com](https://contrastcyber.com)
 
 ## Why ContrastAPI?
 
@@ -16,7 +15,7 @@
 - **CVE intelligence** — 340K+ CVEs enriched with EPSS exploit probability and CISA KEV status
 - **IP reputation** — GreyNoise, AbuseIPDB, Shodan enrichment with 24-hour cache
 - **Tech fingerprinting** — detect CMS, frameworks, CDN, analytics from headers + HTML
-- **AI-native** — MCP server, LLM-optimized summaries, structured JSON
+- **AI-native** — LLM-optimized summaries, structured JSON, OpenAPI spec
 - **Free forever** — 100 req/hr, no API key, no signup
 
 ## Quick Start
@@ -95,28 +94,6 @@ POST /v1/check/injection       SQL/cmd injection patterns
 POST /v1/check/dependencies    Check packages for known CVEs
 ```
 
-## MCP Integration
-
-ContrastAPI is an [MCP](https://modelcontextprotocol.io) server. Add it to Claude, Cursor, or any MCP-compatible AI tool:
-
-```json
-{
-  "mcpServers": {
-    "contrastapi": {
-      "url": "https://mcp.contrastcyber.com/mcp"
-    }
-  }
-}
-```
-
-30+ security tools available — CVE lookup, domain recon, IP reputation, IOC enrichment, exploit search, code scanning — no integration code needed.
-
-Or via Claude Code CLI:
-
-```bash
-claude mcp add --transport http contrastapi https://api.contrastcyber.com/mcp
-```
-
 ## Rate Limits
 
 | Tier | Limit | API Key |
@@ -163,7 +140,6 @@ cd app && PYTHONPATH=. python -m pytest tests/ -v
 - **Database:** SQLite (WAL mode, 3 databases)
 - **DNS:** dnspython
 - **HTTP:** httpx
-- **MCP:** mcp[fastmcp]
 
 ## Also Available On
 
