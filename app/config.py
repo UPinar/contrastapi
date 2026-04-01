@@ -1,0 +1,88 @@
+"""Configuration constants for ContrastAPI"""
+
+import os
+from pathlib import Path
+
+VERSION = "1.5.0"
+
+BASE_DIR = Path(__file__).parent
+
+# Database paths
+_default_api_db = Path("/var/lib/contrastapi/api.db")
+_default_cve_db = Path("/var/lib/contrastapi/cve.db")
+_default_cache_db = Path("/var/lib/contrastapi/domain_cache.db")
+
+API_DB_PATH = Path(os.environ.get(
+    "CONTRASTAPI_DB",
+    str(_default_api_db if _default_api_db.parent.exists() else BASE_DIR / "api.db")
+))
+CVE_DB_PATH = Path(os.environ.get(
+    "CONTRASTAPI_CVE_DB",
+    str(_default_cve_db if _default_cve_db.parent.exists() else BASE_DIR / "cve.db")
+))
+CACHE_DB_PATH = Path(os.environ.get(
+    "CONTRASTAPI_CACHE_DB",
+    str(_default_cache_db if _default_cache_db.parent.exists() else BASE_DIR / "domain_cache.db")
+))
+
+# Rate limits
+FREE_HOURLY_LIMIT = 50       # keyless: 50 per worker × 2 workers ≈ 100 req/hr per IP
+PRO_HOURLY_LIMIT = 500       # Pro key: 500 per worker × 2 workers ≈ 1000 req/hr
+FREE_BULK_LIMIT = 10         # max domains per bulk request (free)
+PRO_BULK_LIMIT = 50          # max domains per bulk request (pro)
+ENRICHMENT_DAILY_LIMIT = 10  # enriched scans per IP per day (protects external API quotas)
+
+# API key
+KEY_PREFIX = "cc_"
+KEY_LENGTH = 48               # hex chars after prefix
+
+# Domain validation
+MAX_DOMAIN_LENGTH = 253
+
+# Domain cache TTL
+DOMAIN_CACHE_TTL = 86400       # 24 hours
+
+# NVD sync
+NVD_API_URL = "https://services.nvd.nist.gov/rest/json/cves/2.0"
+NVD_PAGE_SIZE = 2000
+NVD_API_KEY = os.environ.get("NVD_API_KEY", "")
+
+# CISA KEV (GitHub mirror — CISA blocks datacenter IPs)
+KEV_URL = "https://raw.githubusercontent.com/cisagov/kev-data/develop/known_exploited_vulnerabilities.json"
+
+# FIRST EPSS
+EPSS_URL = "https://api.first.org/data/v1/epss"
+
+# Lemon Squeezy (payment / API key provisioning)
+LEMONSQUEEZY_WEBHOOK_SECRET = os.environ.get("LEMONSQUEEZY_WEBHOOK_SECRET", "")
+LEMONSQUEEZY_API_KEY = os.environ.get("LEMONSQUEEZY_API_KEY", "")
+
+# External API keys (reputation/enrichment)
+GREYNOISE_API_KEY = os.environ.get("GREYNOISE_API_KEY", "")
+ABUSEIPDB_API_KEY = os.environ.get("ABUSEIPDB_API_KEY", "")
+SHODAN_API_KEY = os.environ.get("SHODAN_API_KEY", "")
+URLHAUS_API_KEY = os.environ.get("URLHAUS_API_KEY", "")
+
+# External API URLs
+GREYNOISE_API_URL = "https://api.greynoise.io/v3/community"
+ABUSEIPDB_API_URL = "https://api.abuseipdb.com/api/v2/check"
+SHODAN_API_URL = "https://api.shodan.io/shodan/host"
+URLHAUS_API_URL = "https://urlhaus-api.abuse.ch/v1"
+HIBP_URL = "https://api.pwnedpasswords.com/range"
+
+# Feodo Tracker cache
+FEODO_TTL = 3600                   # 1 hour cache refresh
+FEODO_MAX_BYTES = 10 * 1024 * 1024 # 10 MB response size limit
+
+# IP cache TTL
+IP_CACHE_TTL = 14400  # 4 hours (reputation data changes frequently)
+
+# Timeouts
+RECON_TIMEOUT = 5
+CRTSH_TIMEOUT = 30
+
+# Severity ordering
+SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
+
+# Client IP hashing secret (HMAC key for privacy-safe usage logging)
+HASH_SECRET = os.environ.get("CONTRASTAPI_HASH_SECRET", "")

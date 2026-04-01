@@ -1,0 +1,11 @@
+{
+  "$schema": "https://glama.ai/mcp/schemas/server.json",
+  "maintainers": ["UPinar"],
+  "name": "contrastapi",
+  "display_name": "ContrastAPI — Security Intelligence",
+  "description": "Security intelligence MCP server for AI agents. CVE lookup with EPSS/KEV enrichment, domain reconnaissance (DNS, WHOIS, SSL, subdomains, WAF detection), and code security checks (secrets, injection, headers). 20 tools, no API key required.",
+  "url": "https://mcp.contrastcyber.com/mcp",
+  "category": "Security",
+  "tags": ["security", "cybersecurity", "cve", "domain", "vulnerability", "reconnaissance", "mcp"],
+  "auth": "none"
+}

@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Welcome — ContrastAPI</title>
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <link rel="stylesheet" href="/static/style.css?v=8">
+  <style>
+    .welcome-container { max-width: 600px; margin: 80px auto; padding: 0 24px; text-align: center; }
+    .welcome-container h1 { font-size: 2rem; margin-bottom: 0.5rem; }
+    .welcome-container p { color: #aaa; line-height: 1.6; }
+    .key-box { display: flex; align-items: center; gap: 12px; margin: 32px 0; background: #1a1a2e; border: 1px solid #333; border-radius: 8px; padding: 16px; }
+    .key-box code { flex: 1; font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 0.95rem; color: #00d4ff; word-break: break-all; text-align: left; }
+    .copy-btn { background: #00d4ff; color: #0a0a1a; border: none; border-radius: 6px; padding: 10px 18px; font-weight: 600; cursor: pointer; white-space: nowrap; transition: background 0.2s; }
+    .copy-btn:hover { background: #00b8d9; }
+    .copy-btn.copied { background: #22c55e; }
+    .warning { background: rgba(255, 170, 0, 0.1); border: 1px solid rgba(255, 170, 0, 0.3); border-radius: 8px; padding: 16px; margin: 24px 0; color: #ffaa00; font-size: 0.9rem; }
+    .error-box { background: rgba(255, 60, 60, 0.1); border: 1px solid rgba(255, 60, 60, 0.3); border-radius: 8px; padding: 24px; margin: 32px 0; color: #ff6b6b; }
+    .back-link { display: inline-block; margin-top: 32px; color: #00d4ff; text-decoration: none; }
+    .back-link:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div class="glow"></div>
+
+  <div class="welcome-container">
+    <h1>Welcome to Contrast<span style="color:#00d4ff">API</span> Pro</h1>
+
+    {% if api_key %}
+    <p>Your API key has been generated. Use it in the <code>X-API-Key</code> header with every request.</p>
+
+    <div class="key-box">
+      <code id="api-key">{{ api_key }}</code>
+      <button class="copy-btn" onclick="copyKey(this)">Copy</button>
+    </div>
+
+    <div class="warning">
+      Save this key now. For security, it will not be shown again.
+    </div>
+    {% else %}
+    <div class="error-box">
+      <strong>{{ error }}</strong>
+    </div>
+    {% endif %}
+
+    <a href="/" class="back-link">&larr; Back to API docs</a>
+  </div>
+
+  <script>
+  function copyKey(btn) {
+    var key = document.getElementById('api-key').textContent;
+    navigator.clipboard.writeText(key).then(function() {
+      btn.textContent = 'Copied!';
+      btn.classList.add('copied');
+      setTimeout(function() { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 2000);
+    });
+  }
+  </script>
+</body>
+</html>

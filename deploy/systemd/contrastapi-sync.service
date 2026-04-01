@@ -1,0 +1,10 @@
+[Unit]
+Description=ContrastAPI CVE/EPSS/KEV Sync
+After=network.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/contrastapi/app
+ExecStart=/opt/contrastapi/venv/bin/python -m cve.sync
+Environment=NVD_API_KEY=
+TimeoutStartSec=1800
