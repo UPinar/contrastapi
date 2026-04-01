@@ -4,22 +4,22 @@ Extracted from contrastcyber recon.py, adapted for API responses.
 All functions return structured dicts with summary fields.
 """
 
-import json
 import logging
 import re
 import socket
 import ssl
+import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC
 from urllib.request import Request
 
 import dns.resolver
 import httpx
-
-from config import RECON_TIMEOUT, CRTSH_TIMEOUT, ENRICHMENT_DAILY_LIMIT
-from validation import is_private_ip
 import ratelimit
+from config import CRTSH_TIMEOUT, ENRICHMENT_DAILY_LIMIT, RECON_TIMEOUT
+from validation import is_private_ip
 
 logger = logging.getLogger("contrastapi")
 
@@ -45,10 +45,36 @@ WAF_SIGNATURES = {
 }
 
 COMMON_SUBDOMAINS = [
-    "www", "mail", "ftp", "api", "dev", "staging", "test", "admin",
-    "blog", "shop", "store", "cdn", "media", "static", "assets",
-    "app", "portal", "dashboard", "cpanel", "webmail", "ns1", "ns2",
-    "mx", "smtp", "imap", "pop", "vpn", "remote", "git", "ci",
+    "www",
+    "mail",
+    "ftp",
+    "api",
+    "dev",
+    "staging",
+    "test",
+    "admin",
+    "blog",
+    "shop",
+    "store",
+    "cdn",
+    "media",
+    "static",
+    "assets",
+    "app",
+    "portal",
+    "dashboard",
+    "cpanel",
+    "webmail",
+    "ns1",
+    "ns2",
+    "mx",
+    "smtp",
+    "imap",
+    "pop",
+    "vpn",
+    "remote",
+    "git",
+    "ci",
 ]
 
 WHOIS_SERVERS = {
@@ -81,9 +107,9 @@ CT_MAX_CERTS = 10
 
 # === DNS ===
 
+
 def quick_dns_a(domain: str) -> list[str] | None:
     """Lightweight A-record-only lookup with 3s timeout. For /v1/monitor."""
-    from validation import is_private_ip
     resolver = dns.resolver.Resolver()
     resolver.timeout = 3
     resolver.lifetime = 3
@@ -105,8 +131,7 @@ def dns_lookup(domain: str) -> dict:
             answers = resolver.resolve(domain, rtype)
             if rtype == "MX":
                 records[rtype.lower()] = [
-                    {"priority": r.preference, "host": str(r.exchange).rstrip(".")}
-                    for r in answers
+                    {"priority": r.preference, "host": str(r.exchange).rstrip(".")} for r in answers
                 ]
             elif rtype == "SOA":
                 soa = answers[0]
@@ -117,29 +142,53 @@ def dns_lookup(domain: str) -> dict:
                 }
             else:
                 records[rtype.lower()] = [str(r).strip('"') for r in answers]
-        except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN,
-                dns.resolver.NoNameservers, dns.exception.Timeout):
+        except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN, dns.resolver.NoNameservers, dns.exception.Timeout):
             pass
     return records
+
+
+def _dns_call_with_timeout(func, *args, timeout: int = 3):
+    """Run a blocking DNS call in a thread with timeout. Returns result or None."""
+    result_box = [None]
+    exc_box = [None]
+
+    def _run():
+        try:
+            result_box[0] = func(*args)
+        except Exception as e:
+            exc_box[0] = e
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+    t.join(timeout=timeout)
+    if t.is_alive():
+        return None, TimeoutError("DNS call timed out")
+    if exc_box[0] is not None:
+        return None, exc_box[0]
+    return result_box[0], None
 
 
 def reverse_dns(domain: str) -> dict:
     """Reverse DNS lookup — PTR record from IP."""
     try:
-        ip = socket.gethostbyname(domain)
+        result, err = _dns_call_with_timeout(socket.gethostbyname, domain)
+        if err or not result:
+            return {"ip": None, "ptr": None}
+        ip = result
         if is_private_ip(ip):
             return {"ip": None, "ptr": None}
-        try:
-            hostname, _, _ = socket.gethostbyaddr(ip)
-            return {"ip": ip, "ptr": hostname, "shared_hosting": hostname != domain}
-        except socket.herror:
+        addr_result, addr_err = _dns_call_with_timeout(socket.gethostbyaddr, ip)
+        if addr_err or not addr_result:
             return {"ip": ip, "ptr": None}
+        hostname = addr_result[0]
+        return {"ip": ip, "ptr": hostname, "shared_hosting": hostname != domain}
     except Exception as e:
         logger.warning("reverse_dns failed for %s: %s", domain, e)
         return {"ip": None, "ptr": None}
 
 
 # === WHOIS ===
+
 
 def whois_lookup(domain: str) -> dict:
     """Raw WHOIS query via port 43."""
@@ -153,7 +202,9 @@ def whois_lookup(domain: str) -> dict:
 
         with socket.create_connection((server, 43), timeout=RECON_TIMEOUT) as sock:
             sock.settimeout(RECON_TIMEOUT)
-            sock.sendall(f"{domain}\r\n".encode())
+            # Sanitize domain to prevent CRLF injection into WHOIS protocol
+            safe_domain = domain.replace("\r", "").replace("\n", "")
+            sock.sendall(f"{safe_domain}\r\n".encode())
             response = bytearray()
             deadline = time.time() + RECON_TIMEOUT
             while True:
@@ -200,18 +251,16 @@ def _parse_whois(text: str) -> dict:
 
 # === Subdomains ===
 
+
 def enumerate_subdomains(domain: str, crtsh_data: list | None = None) -> dict:
     """Enumerate subdomains via DNS brute force + crt.sh CT logs."""
     found = set()
 
     def _resolve_sub(sub):
         fqdn = f"{sub}.{domain}"
-        try:
-            ip = socket.gethostbyname(fqdn)
-            if not is_private_ip(ip):
-                return fqdn
-        except socket.gaierror:
-            pass
+        result, err = _dns_call_with_timeout(socket.gethostbyname, fqdn)
+        if result and not err and not is_private_ip(result):
+            return fqdn
         return None
 
     with ThreadPoolExecutor(max_workers=10) as dns_pool:
@@ -259,6 +308,7 @@ def _crtsh_subdomains(domain: str, data: list | None = None) -> list:
 
 # === CT Logs ===
 
+
 def check_ct_logs(domain: str, crtsh_data: list | None = None) -> dict:
     """Certificate transparency log lookup via crt.sh."""
     try:
@@ -269,16 +319,18 @@ def check_ct_logs(domain: str, crtsh_data: list | None = None) -> dict:
         certs = []
         seen: set[str] = set()
         for entry in data[:CT_MAX_ENTRIES]:
-            serial = entry.get("serial_number", "")
+            serial = entry.get("serial_number") or entry.get("id") or str(len(seen))
             if serial in seen:
                 continue
             seen.add(serial)
-            certs.append({
-                "issuer": entry.get("issuer_name", ""),
-                "not_before": entry.get("not_before", ""),
-                "not_after": entry.get("not_after", ""),
-                "common_name": entry.get("common_name", ""),
-            })
+            certs.append(
+                {
+                    "issuer": entry.get("issuer_name", ""),
+                    "not_before": entry.get("not_before", ""),
+                    "not_after": entry.get("not_after", ""),
+                    "common_name": entry.get("common_name", ""),
+                }
+            )
 
         return {
             "total_certificates": len(data),
@@ -290,6 +342,7 @@ def check_ct_logs(domain: str, crtsh_data: list | None = None) -> dict:
 
 
 # === WAF Detection ===
+
 
 def detect_waf(headers: dict) -> dict:
     """Detect WAF from HTTP response headers."""
@@ -305,6 +358,7 @@ def detect_waf(headers: dict) -> dict:
 
 
 # === SSL Info ===
+
 
 def ssl_info(domain: str, resolved_ip: str | None = None) -> dict:
     """Get SSL certificate details with grade and TLS version."""
@@ -370,8 +424,18 @@ def _ssl_grade(tls_version: str, days_remaining: int | None) -> str:
 # === Email Security ===
 
 DKIM_SELECTORS = [
-    "default", "google", "selector1", "selector2", "k1", "mail",
-    "dkim", "s1", "s2", "mandrill", "everlytickey1", "mxvault",
+    "default",
+    "google",
+    "selector1",
+    "selector2",
+    "k1",
+    "mail",
+    "dkim",
+    "s1",
+    "s2",
+    "mandrill",
+    "everlytickey1",
+    "mxvault",
 ]
 
 
@@ -403,10 +467,11 @@ def email_security(domain: str, txt_records: list | None = None) -> dict:
 
     # DKIM — try common selectors + date-based (YYYYMMDD for last 60 days)
     dkim_found = []
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
+
     date_selectors = []
-    today = datetime.now(timezone.utc)
-    for i in range(60):
+    today = datetime.now(UTC)
+    for i in range(7):
         date_selectors.append((today - timedelta(days=i)).strftime("%Y%m%d"))
     all_selectors = list(DKIM_SELECTORS) + date_selectors
     for selector in all_selectors:
@@ -440,39 +505,51 @@ def email_security(domain: str, txt_records: list | None = None) -> dict:
 
 # === Live Header Fetch ===
 
+
 class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
     """Block redirects to prevent SSRF via redirect to internal IPs."""
+
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         return None
 
 
 class _SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
-    """Follow redirects but validate each target is not a private/internal IP."""
+    """Follow redirects but validate and pin each target to prevent DNS rebinding.
+
+    Resolves the redirect hostname, checks all IPs are non-private,
+    then rewrites the URL to connect to the validated IP with a Host header.
+    """
+
     max_redirections = 5  # limit redirect chain length
 
     def redirect_request(self, req, fp, code, msg, headers, newurl):
-        from urllib.parse import urlparse
-        import threading
+        from urllib.parse import urlparse, urlunparse
+
         parsed = urlparse(newurl)
         hostname = parsed.hostname
-        if hostname:
-            # Threaded DNS with 3s timeout to prevent slow-resolve DoS
-            result_box = [None]
-            def _resolve():
-                try:
-                    result_box[0] = socket.getaddrinfo(hostname, None, type=socket.SOCK_STREAM)
-                except Exception:
-                    pass
-            t = threading.Thread(target=_resolve, daemon=True)
-            t.start()
-            t.join(timeout=3)
-            results = result_box[0]
-            if not results:
-                return None  # timeout or resolve failed = block
-            for family, stype, proto, canonname, sockaddr in results:
-                if is_private_ip(sockaddr[0]):
-                    return None  # block redirect to internal IP
-        return super().redirect_request(req, fp, code, msg, headers, newurl)
+        if not hostname:
+            return None
+
+        # Threaded DNS with 3s timeout to prevent slow-resolve DoS
+        result, err = _dns_call_with_timeout(socket.getaddrinfo, hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+        if err or not result:
+            return None  # timeout or resolve failed = block
+        for _family, _stype, _proto, _canonname, sockaddr in result:
+            if is_private_ip(sockaddr[0]):
+                return None  # block redirect to internal IP
+
+        # Pin redirect to validated IP (prevents DNS rebinding TOCTOU)
+        validated_ip = result[0][4][0]
+        if ":" in validated_ip:
+            connect_host = f"[{validated_ip}]"
+        else:
+            connect_host = validated_ip
+        port_suffix = f":{parsed.port}" if parsed.port else ""
+        pinned_url = urlunparse(parsed._replace(netloc=f"{connect_host}{port_suffix}"))
+        new_req = super().redirect_request(req, fp, code, msg, headers, pinned_url)
+        if new_req:
+            new_req.add_unredirected_header("Host", hostname)
+        return new_req
 
 
 _no_redirect_opener = urllib.request.build_opener(_NoRedirectHandler)
@@ -487,13 +564,13 @@ def _ssrf_safe_urlopen(url: str, timeout: int, follow_redirects: bool = False):
     return _no_redirect_opener.open(req, timeout=timeout)
 
 
-def _pinned_urlopen(domain: str, resolved_ip: str | None, scheme: str,
-                    timeout: int, follow_redirects: bool = True):
-    """SSRF-safe urlopen. Uses domain for connection (no DNS rebinding fallback).
-    The resolved_ip was already validated by validate_domain() — we trust it.
-    Redirect targets are validated by _SafeRedirectHandler against private IPs."""
-    # Always connect by domain name — DNS was already validated by validate_domain()
-    # The _safe_redirect_opener prevents redirect-based SSRF to internal IPs
+def _pinned_urlopen(domain: str, resolved_ip: str | None, scheme: str, timeout: int, follow_redirects: bool = True):
+    """SSRF-safe urlopen. Connects by domain name for correct SSL hostname verification.
+
+    Initial DNS resolution was validated by validate_domain() — DNS cache makes
+    rebinding on the first request very unlikely. Redirect targets are pinned to
+    validated IPs by _SafeRedirectHandler to prevent redirect-based DNS rebinding.
+    """
     return _ssrf_safe_urlopen(f"{scheme}://{domain}/", timeout, follow_redirects)
 
 
@@ -509,7 +586,12 @@ def fetch_live_headers(domain: str, resolved_ip: str | None = None) -> dict:
                 headers = {k.lower(): v for k, v in resp.headers.items()}
                 return {"headers": headers, "status_code": resp.status, "url": resp.url}
         except Exception as http_err:
-            logger.warning("fetch_live_headers failed for %s: HTTPS=%s, HTTP=%s", domain, type(https_err).__name__, type(http_err).__name__)
+            logger.warning(
+                "fetch_live_headers failed for %s: HTTPS=%s, HTTP=%s",
+                domain,
+                type(https_err).__name__,
+                type(http_err).__name__,
+            )
             return {"error": f"Could not connect to {domain}"}
 
 
@@ -518,6 +600,7 @@ MAX_HTML_SIZE = 65536  # 64KB
 
 def fetch_live_page(domain: str, resolved_ip: str | None = None) -> dict:
     """Fetch HTTP headers AND HTML body (first 64KB) from a live domain (DNS-pinned)."""
+
     def _fetch(scheme):
         with _pinned_urlopen(domain, resolved_ip, scheme, RECON_TIMEOUT) as resp:
             headers = {k.lower(): v for k, v in resp.headers.items()}
@@ -534,7 +617,12 @@ def fetch_live_page(domain: str, resolved_ip: str | None = None) -> dict:
         try:
             return _fetch("http")
         except Exception as http_err:
-            logger.warning("fetch_live_page failed for %s: HTTPS=%s, HTTP=%s", domain, type(https_err).__name__, type(http_err).__name__)
+            logger.warning(
+                "fetch_live_page failed for %s: HTTPS=%s, HTTP=%s",
+                domain,
+                type(https_err).__name__,
+                type(http_err).__name__,
+            )
             return {"error": f"Could not connect to {domain}"}
 
 
@@ -563,14 +651,14 @@ def ip_enrichment(ip: str) -> dict:
 
 # === Full Domain Report ===
 
-def full_domain_report(domain: str, resolved_ip: str | None = None,
-                       client_ip: str | None = None) -> dict:
+
+def full_domain_report(domain: str, resolved_ip: str | None = None, client_ip: str | None = None) -> dict:
     """Run all domain intelligence checks in parallel, return combined report."""
     report = {"domain": domain}
 
-    from domain.threat import check_urlhaus
-    from domain.reputation import check_greynoise, check_abuseipdb, check_shodan
     from db import get_cached_ip, save_cached_ip
+    from domain.reputation import check_abuseipdb, check_greynoise, check_shodan
+    from domain.threat import check_urlhaus
 
     # Determine whether reputation enrichment is allowed
     enrich = False
@@ -579,8 +667,10 @@ def full_domain_report(domain: str, resolved_ip: str | None = None,
         if cached_rep is not None:
             enrich = True  # cache hit, no quota consumed
         elif client_ip and ratelimit.check_limit(
-            store_name="enrichment", key=client_ip,
-            max_requests=ENRICHMENT_DAILY_LIMIT, window_seconds=86400,
+            store_name="enrichment",
+            key=client_ip,
+            max_requests=ENRICHMENT_DAILY_LIMIT,
+            window_seconds=86400,
         ):
             enrich = True
             cached_rep = None
@@ -601,12 +691,14 @@ def full_domain_report(domain: str, resolved_ip: str | None = None,
         def _subs_with_crtsh():
             data = f_crtsh.result(timeout=CRTSH_TIMEOUT + 2)
             return enumerate_subdomains(domain, crtsh_data=data)
+
         f_subs = pool.submit(_subs_with_crtsh)
 
         # CT logs: wrapper waits for crtsh inside the pool, not on main thread
         def _ct_with_crtsh():
             data = f_crtsh.result(timeout=CRTSH_TIMEOUT + 2)
             return check_ct_logs(domain, data)
+
         f_certs = pool.submit(_ct_with_crtsh)
 
         # Reputation checks for resolved IP (rate-limited per client IP)
@@ -663,6 +755,7 @@ def full_domain_report(domain: str, resolved_ip: str | None = None,
     email_grade = report["email_security"].get("grade", "?")
     # Risk score
     from domain.scoring import score_domain
+
     report["risk"] = score_domain(report)
     risk_grade = report["risk"]["grade"]
     risk_score = report["risk"]["score"]

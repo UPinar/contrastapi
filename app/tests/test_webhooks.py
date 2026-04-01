@@ -6,9 +6,9 @@ All tests skipped until webhook router is enabled in main.py.
 import hashlib
 import hmac
 import json
+from unittest.mock import patch
 
 import pytest
-from unittest.mock import patch
 
 # pytestmark = pytest.mark.skip(reason="Webhook router disabled until Lemon Squeezy verification")
 
@@ -29,8 +29,10 @@ def _make_payload(event_name: str, data: dict, event_id: str | None = None) -> b
 
 # --- verify_signature ---
 
+
 def test_verify_signature_valid():
     from webhooks import verify_signature
+
     payload = b'{"test": true}'
     sig = _sign(payload)
     assert verify_signature(payload, sig, WEBHOOK_SECRET) is True
@@ -38,27 +40,32 @@ def test_verify_signature_valid():
 
 def test_verify_signature_invalid():
     from webhooks import verify_signature
+
     payload = b'{"test": true}'
     assert verify_signature(payload, "bad_signature", WEBHOOK_SECRET) is False
 
 
 def test_verify_signature_empty_secret():
     from webhooks import verify_signature
+
     assert verify_signature(b"data", "sig", "") is False
 
 
 def test_verify_signature_empty_signature():
     from webhooks import verify_signature
+
     assert verify_signature(b"data", "", WEBHOOK_SECRET) is False
 
 
 # --- Webhook endpoint (via TestClient) ---
+
 
 @pytest.fixture
 def client():
     from fastapi.testclient import TestClient
     from main import app
     from ratelimit import reset
+
     reset("welcome")
     return TestClient(app, raise_server_exceptions=False)
 
@@ -99,6 +106,7 @@ def test_webhook_order_created_provisions_key(client):
 
     # Verify key is in DB via order_id
     from db import get_key_by_order_id
+
     key_row = get_key_by_order_id("order_100")
     assert key_row is not None
     assert key_row["order_id"] == "order_100"
@@ -128,6 +136,7 @@ def test_webhook_duplicate_order_idempotent(client):
 
     # Only one key in DB for this order
     from db import get_key_by_order_id
+
     key_row = get_key_by_order_id("order_dup")
     assert key_row is not None
 
@@ -164,6 +173,7 @@ def test_webhook_subscription_cancelled_deactivates(client):
 
     # Verify key is deactivated via order lookup
     from db import get_key_by_order_id
+
     key_row = get_key_by_order_id("order_cancel")
     assert key_row is not None
     assert key_row["active"] == 0
@@ -275,26 +285,32 @@ def test_webhook_cancel_nonexistent_order(client):
 
 # --- _extract_order_id ---
 
+
 def test_extract_order_id_from_data_id():
     from webhooks import _extract_order_id
+
     assert _extract_order_id({"id": "123"}) == "123"
 
 
 def test_extract_order_id_from_attributes():
     from webhooks import _extract_order_id
+
     assert _extract_order_id({"id": "sub_1", "attributes": {"order_id": "456"}}) == "456"
 
 
 def test_extract_order_id_empty():
     from webhooks import _extract_order_id
+
     assert _extract_order_id({}) is None
 
 
 # --- get_key_by_order_id ---
 
+
 def test_get_key_by_order_id_found():
     from auth import generate_key, hash_key
-    from db import save_api_key, get_key_by_order_id
+    from db import get_key_by_order_id, save_api_key
+
     key = generate_key()
     save_api_key(hash_key(key), order_id="order_find")
     row = get_key_by_order_id("order_find")
@@ -304,6 +320,7 @@ def test_get_key_by_order_id_found():
 
 def test_get_key_by_order_id_not_found():
     from db import get_key_by_order_id
+
     assert get_key_by_order_id("nonexistent") is None
 
 
@@ -377,6 +394,7 @@ def test_welcome_missing_order_id(client):
 def test_welcome_rate_limit(client):
     """GET /welcome more than 5 times/min returns 429."""
     from ratelimit import reset
+
     reset("welcome")
     uid = "aaaaaaaa-bbbb-cccc-dddd-ffffffffffff"
     for _ in range(5):

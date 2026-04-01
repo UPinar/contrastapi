@@ -4,12 +4,12 @@ Sliding window rate limiter used for both API key and IP-based
 rate limiting. Automatic cleanup of stale keys.
 """
 
-import time
 import threading
+import time
 from collections import deque
 
 _lock = threading.Lock()
-_MAX_STORE_KEYS = 10000
+_MAX_STORE_KEYS = 2000
 
 # Generic sliding window stores: name → {key → deque of timestamps}
 _stores: dict[str, dict[str, deque]] = {}
@@ -23,24 +23,24 @@ def _get_store(name: str) -> dict[str, deque]:
 
 
 def _expire_deque(dq: deque, cutoff: float) -> None:
-    """Remove expired timestamps from front of deque."""
-    while dq and dq[0] < cutoff:
+    """Remove expired timestamps from front of deque where timestamp <= cutoff."""
+    while dq and dq[0] <= cutoff:
         dq.popleft()
 
 
-def _cleanup_store(store: dict[str, deque], cutoff: float) -> None:
+def _cleanup_store(store: dict[str, deque], cutoff: float, key: str | None = None) -> None:
     """Remove stale keys and enforce max store size."""
     stale = [k for k, v in store.items() if not v or v[-1] < cutoff]
     for k in stale:
         del store[k]
-    if len(store) > _MAX_STORE_KEYS:
+
+    # Reject new keys if store is full (DoS protection)
+    if key is not None and key not in store and len(store) >= _MAX_STORE_KEYS:
         by_age = sorted(store.items(), key=lambda kv: kv[1][-1] if kv[1] else 0)
-        for k, _ in by_age[:len(store) - _MAX_STORE_KEYS]:
-            del store[k]
+        del store[by_age[0][0]]
 
 
-def check_limit(store_name: str, key: str, max_requests: int,
-                window_seconds: int = 3600) -> bool:
+def check_limit(store_name: str, key: str, max_requests: int, window_seconds: int = 3600) -> bool:
     """Check sliding window rate limit. Returns True if allowed.
 
     Args:
@@ -54,10 +54,10 @@ def check_limit(store_name: str, key: str, max_requests: int,
 
     with _lock:
         store = _get_store(store_name)
-        _cleanup_store(store, cutoff)
+        _cleanup_store(store, cutoff, key)
 
         if key not in store:
-            store[key] = deque()
+            store[key] = deque(maxlen=max_requests + 1)
         dq = store[key]
         _expire_deque(dq, cutoff)
 
@@ -106,16 +106,17 @@ def reset(store_name: str | None = None) -> None:
             _stores.clear()
 
 
-def check_limit_with_count(store_name: str, key: str, max_requests: int,
-                           window_seconds: int = 3600) -> tuple[bool, int]:
+def check_limit_with_count(
+    store_name: str, key: str, max_requests: int, window_seconds: int = 3600
+) -> tuple[bool, int]:
     """Check rate limit and return (allowed, remaining) atomically."""
     with _lock:
         store = _get_store(store_name)
         now = time.time()
         cutoff = now - window_seconds
-        _cleanup_store(store, cutoff)
+        _cleanup_store(store, cutoff, key)
         if key not in store:
-            store[key] = deque()
+            store[key] = deque(maxlen=max_requests + 1)
         dq = store[key]
         _expire_deque(dq, cutoff)
         if len(dq) >= max_requests:
@@ -128,5 +129,5 @@ def refund(store_name: str, key: str) -> None:
     """Remove the most recent timestamp from a rate limit key (quota refund on failure)."""
     with _lock:
         store = _get_store(store_name)
-        if key in store and store[key]:
+        if store.get(key):
             store[key].pop()

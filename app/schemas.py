@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from pydantic import BaseModel, Field
 
-
 # === Domain Report ===
+
 
 class DomainReportResponse(BaseModel):
     domain: str
@@ -30,6 +28,7 @@ class DomainReportResponse(BaseModel):
 
 # === DNS ===
 
+
 class DnsResponse(BaseModel):
     domain: str
     records: dict
@@ -37,6 +36,7 @@ class DnsResponse(BaseModel):
 
 
 # === IP Lookup ===
+
 
 class IpLookupResponse(BaseModel):
     ip: str
@@ -53,6 +53,7 @@ class IpLookupResponse(BaseModel):
 
 
 # === Threat Intelligence ===
+
 
 class ThreatUrl(BaseModel):
     url: str = ""
@@ -75,6 +76,7 @@ class ThreatResponse(BaseModel):
 
 # === Technology Fingerprinting ===
 
+
 class TechItem(BaseModel):
     name: str
     category: str
@@ -92,6 +94,7 @@ class TechResponse(BaseModel):
 
 
 # === SSL Certificate ===
+
 
 class SslChainItem(BaseModel):
     subject: str = ""
@@ -120,6 +123,7 @@ class SslResponse(BaseModel):
 
 # === Monitor (lightweight health check) ===
 
+
 class MonitorResponse(BaseModel):
     domain: str
     is_up: bool
@@ -135,6 +139,7 @@ class MonitorResponse(BaseModel):
 
 # === Domain Vulnerabilities (tech stack CVEs) ===
 
+
 class CveVulnItem(BaseModel):
     cve_id: str
     severity: str | None = None
@@ -142,11 +147,13 @@ class CveVulnItem(BaseModel):
     epss_score: float | None = None
     in_kev: bool = False
 
+
 class TechVulnItem(BaseModel):
     technology: str
     version: str | None = None
     cve_count: int = 0
     cves: list[CveVulnItem] = Field(default_factory=list)
+
 
 class VulnsResponse(BaseModel):
     domain: str
@@ -157,6 +164,7 @@ class VulnsResponse(BaseModel):
 
 
 # === IOC Enrichment ===
+
 
 class IocResponse(BaseModel):
     indicator: str
@@ -169,6 +177,7 @@ class IocResponse(BaseModel):
 
 
 # === Malware Hash ===
+
 
 class HashResponse(BaseModel):
     hash: str
@@ -185,6 +194,7 @@ class HashResponse(BaseModel):
 
 # === Password Breach Check ===
 
+
 class PasswordResponse(BaseModel):
     hash_prefix: str
     found: bool = False
@@ -195,6 +205,7 @@ class PasswordResponse(BaseModel):
 
 
 # === Phishing / Malicious URL Check ===
+
 
 class UrlhausHostDetail(BaseModel):
     found: bool = False
@@ -220,6 +231,7 @@ class PhishingResponse(BaseModel):
 
 # === Bulk Domain Report ===
 
+
 class BulkDomainItem(BaseModel):
     domain: str
     status: str = "ok"
@@ -236,6 +248,7 @@ class BulkDomainResponse(BaseModel):
 
 
 # === CVE ===
+
 
 class EpssInfo(BaseModel):
     score: float | None = None
@@ -265,6 +278,7 @@ class CveResponse(BaseModel):
 
 
 # === Exploit Lookup ===
+
 
 class GhsaAdvisory(BaseModel):
     ghsa_id: str = ""
@@ -307,6 +321,7 @@ class ExploitResponse(BaseModel):
 
 
 # === ASN Lookup ===
+
 
 class AsnPrefix(BaseModel):
     prefix: str

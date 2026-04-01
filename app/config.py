@@ -1,6 +1,8 @@
 """Configuration constants for ContrastAPI"""
 
+import hashlib
 import os
+import socket
 from pathlib import Path
 
 VERSION = "1.5.0"
@@ -12,35 +14,37 @@ _default_api_db = Path("/var/lib/contrastapi/api.db")
 _default_cve_db = Path("/var/lib/contrastapi/cve.db")
 _default_cache_db = Path("/var/lib/contrastapi/domain_cache.db")
 
-API_DB_PATH = Path(os.environ.get(
-    "CONTRASTAPI_DB",
-    str(_default_api_db if _default_api_db.parent.exists() else BASE_DIR / "api.db")
-))
-CVE_DB_PATH = Path(os.environ.get(
-    "CONTRASTAPI_CVE_DB",
-    str(_default_cve_db if _default_cve_db.parent.exists() else BASE_DIR / "cve.db")
-))
-CACHE_DB_PATH = Path(os.environ.get(
-    "CONTRASTAPI_CACHE_DB",
-    str(_default_cache_db if _default_cache_db.parent.exists() else BASE_DIR / "domain_cache.db")
-))
+API_DB_PATH = Path(
+    os.environ.get("CONTRASTAPI_DB", str(_default_api_db if _default_api_db.parent.exists() else BASE_DIR / "api.db"))
+)
+CVE_DB_PATH = Path(
+    os.environ.get(
+        "CONTRASTAPI_CVE_DB", str(_default_cve_db if _default_cve_db.parent.exists() else BASE_DIR / "cve.db")
+    )
+)
+CACHE_DB_PATH = Path(
+    os.environ.get(
+        "CONTRASTAPI_CACHE_DB",
+        str(_default_cache_db if _default_cache_db.parent.exists() else BASE_DIR / "domain_cache.db"),
+    )
+)
 
 # Rate limits
-FREE_HOURLY_LIMIT = 50       # keyless: 50 per worker × 2 workers ≈ 100 req/hr per IP
-PRO_HOURLY_LIMIT = 500       # Pro key: 500 per worker × 2 workers ≈ 1000 req/hr
-FREE_BULK_LIMIT = 10         # max domains per bulk request (free)
-PRO_BULK_LIMIT = 50          # max domains per bulk request (pro)
+FREE_HOURLY_LIMIT = 50  # keyless: 50 per worker x 2 workers ≈ 100 req/hr per IP
+PRO_HOURLY_LIMIT = 500  # Pro key: 500 per worker x 2 workers ≈ 1000 req/hr
+FREE_BULK_LIMIT = 10  # max domains per bulk request (free)
+PRO_BULK_LIMIT = 50  # max domains per bulk request (pro)
 ENRICHMENT_DAILY_LIMIT = 10  # enriched scans per IP per day (protects external API quotas)
 
 # API key
 KEY_PREFIX = "cc_"
-KEY_LENGTH = 48               # hex chars after prefix
+KEY_LENGTH = 48  # hex chars after prefix
 
 # Domain validation
 MAX_DOMAIN_LENGTH = 253
 
 # Domain cache TTL
-DOMAIN_CACHE_TTL = 86400       # 24 hours
+DOMAIN_CACHE_TTL = 86400  # 24 hours
 
 # NVD sync
 NVD_API_URL = "https://services.nvd.nist.gov/rest/json/cves/2.0"
@@ -71,8 +75,8 @@ URLHAUS_API_URL = "https://urlhaus-api.abuse.ch/v1"
 HIBP_URL = "https://api.pwnedpasswords.com/range"
 
 # Feodo Tracker cache
-FEODO_TTL = 3600                   # 1 hour cache refresh
-FEODO_MAX_BYTES = 10 * 1024 * 1024 # 10 MB response size limit
+FEODO_TTL = 3600  # 1 hour cache refresh
+FEODO_MAX_BYTES = 10 * 1024 * 1024  # 10 MB response size limit
 
 # IP cache TTL
 IP_CACHE_TTL = 14400  # 4 hours (reputation data changes frequently)
@@ -84,5 +88,6 @@ CRTSH_TIMEOUT = 30
 # Severity ordering
 SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
 
-# Client IP hashing secret (HMAC key for privacy-safe usage logging)
-HASH_SECRET = os.environ.get("CONTRASTAPI_HASH_SECRET", "")
+# Client IP hashing secret — deterministic fallback so hashes survive restarts
+_raw_secret = os.environ.get("CONTRASTAPI_HASH_SECRET", "")
+HASH_SECRET = _raw_secret or hashlib.sha256(f"{socket.gethostname()}:{API_DB_PATH}".encode()).hexdigest()

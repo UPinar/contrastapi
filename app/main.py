@@ -20,15 +20,13 @@ import re
 import time
 import uuid
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import JSONResponse, HTMLResponse, PlainTextResponse, Response
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
 
 from config import BASE_DIR, VERSION
-import uuid as _uuid
-
-from db import init_all_dbs, get_sync_status, get_total_requests, get_and_clear_pending_key
+from db import get_and_clear_pending_key, get_sync_status, get_total_requests, init_all_dbs
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, Response
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 from ratelimit import check_limit
 from validation import get_client_ip
 
@@ -40,6 +38,7 @@ logger = logging.getLogger("contrastapi")
 @asynccontextmanager
 async def lifespan(app):
     import asyncio
+
     init_all_dbs()
     logger.info("ContrastAPI started — databases initialized")
 
@@ -49,10 +48,12 @@ async def lifespan(app):
             await asyncio.sleep(6 * 3600)
             try:
                 from db import maintenance
+
                 stats = maintenance()
                 logger.info("DB maintenance: %s", stats)
             except Exception as e:
                 logger.warning("DB maintenance failed: %s", e)
+
     task = asyncio.create_task(_periodic_maintenance())
 
     yield
@@ -60,7 +61,8 @@ async def lifespan(app):
     # Stop maintenance task
     task.cancel()
     # Shut down thread pools
-    from domain.routes import _reputation_pool, _bulk_pool
+    from domain.routes import _bulk_pool, _reputation_pool
+
     try:
         _reputation_pool.shutdown(wait=False)
     except Exception:
@@ -70,24 +72,41 @@ async def lifespan(app):
     except Exception:
         pass
     # Close HTTP clients
-    from domain.reputation import _client as rep_client
-    from domain.threat import _client as threat_client
-    from domain.recon import _http as recon_client
+    from cve.routes import _exploit_client
     from cve.sync import _client as sync_client
-    for c in (rep_client, threat_client, recon_client, sync_client):
+    from domain.recon import _http as recon_client
+    from domain.reputation import _client as rep_client
+    from domain.routes import _ripe_client
+    from domain.threat import _client as threat_client
+    from ioc.lookup import _client as ioc_client
+    from ioc.password import _client as password_client
+    from ioc.routes import _phish_client
+
+    for c in (
+        rep_client,
+        threat_client,
+        recon_client,
+        sync_client,
+        _exploit_client,
+        _phish_client,
+        ioc_client,
+        password_client,
+        _ripe_client,
+    ):
         try:
             c.close()
         except Exception:
             pass
     # Close thread-local DB connections
     from db import close_thread_connections
+
     close_thread_connections()
 
 
 app = FastAPI(
     title="ContrastAPI",
     description="Security intelligence API for AI models and developers. "
-                "CVE lookup, domain intelligence, and code security verification.",
+    "CVE lookup, domain intelligence, and code security verification.",
     version=VERSION,
     servers=[{"url": "https://api.contrastcyber.com"}],
     docs_url=None,
@@ -114,7 +133,9 @@ _metrics = {
 }
 
 
-_PATH_NORMALIZE = re.compile(r"/v1/(cve|domain|dns|whois|subdomains|certs|ssl|threat|ip|epss|exploit|scan/headers|monitor|ioc|hash|password|asn)/[^/]+(?:/(changes|vulns))?")
+_PATH_NORMALIZE = re.compile(
+    r"/v1/(cve|domain|dns|whois|subdomains|certs|ssl|threat|ip|epss|exploit|scan/headers|monitor|ioc|hash|password|asn|phishing|tech)/[^/]+(?:/(changes|vulns))?"
+)
 
 _MAX_TRACKED_PATHS = 200
 
@@ -142,6 +163,7 @@ def _record_metric(path: str, status: int, elapsed_ms: int):
 
 
 # --- Middleware: Request ID + Rate Limit Headers + Logging ---
+
 
 @app.middleware("http")
 async def request_middleware(request: Request, call_next):
@@ -172,26 +194,22 @@ async def request_middleware(request: Request, call_next):
 
 # --- Error handler ---
 
+
 @app.exception_handler(HTTPException)
 async def api_error_handler(request: Request, exc: HTTPException):
     """All errors return JSON (this is an API, no HTML error pages)."""
-    return JSONResponse(
-        status_code=exc.status_code,
-        content={"error": exc.detail}
-    )
+    return JSONResponse(status_code=exc.status_code, content={"error": exc.detail})
 
 
 @app.exception_handler(Exception)
 async def generic_error_handler(request: Request, exc: Exception):
     """Catch-all — never leak stack traces or internal paths."""
     logger.exception("Unhandled error on %s %s", request.method, request.url.path)
-    return JSONResponse(
-        status_code=500,
-        content={"error": "Internal server error"}
-    )
+    return JSONResponse(status_code=500, content={"error": "Internal server error"})
 
 
 # --- Landing page ---
+
 
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
 def landing_page(request: Request):
@@ -206,9 +224,9 @@ def welcome_page(request: Request, order_id: str = ""):
 
     # Validate order_id is a UUID
     try:
-        _uuid.UUID(order_id)
+        uuid.UUID(order_id)
     except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid order_id format")
+        raise HTTPException(status_code=400, detail="Invalid order_id format") from None
 
     # Rate limit: 5 req/min per IP
     client_ip = get_client_ip(request)
@@ -219,10 +237,14 @@ def welcome_page(request: Request, order_id: str = ""):
     error = None if api_key else "Key already claimed or invalid order"
 
     try:
-        return templates.TemplateResponse(request, "welcome.html", {
-            "api_key": api_key,
-            "error": error,
-        })
+        return templates.TemplateResponse(
+            request,
+            "welcome.html",
+            {
+                "api_key": api_key,
+                "error": error,
+            },
+        )
     except Exception:
         if api_key:
             logger.error("Template render failed for order %s, returning plain text fallback", order_id)
@@ -235,7 +257,8 @@ def welcome_page(request: Request, order_id: str = ""):
 
 @app.get("/docs", response_class=HTMLResponse, include_in_schema=False)
 def custom_docs():
-    return HTMLResponse(content="""<!DOCTYPE html>
+    return HTMLResponse(
+        content="""<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -375,10 +398,12 @@ def custom_docs():
     <p style="color:#71717a;margin:0">&copy; 2026 ContrastCyber</p>
   </footer>
 </body>
-</html>""")
+</html>"""
+    )
 
 
 # --- Meta endpoints ---
+
 
 @app.get("/v1/status", operation_id="api_status", tags=["Meta"])
 def api_status():
@@ -395,7 +420,7 @@ def api_status():
                 "status": info.get("status"),
             }
             for source, info in sync.items()
-        }
+        },
     }
 
 
@@ -412,29 +437,29 @@ def metrics(request: Request):
         m = {k: v if not isinstance(v, dict) else dict(v) for k, v in _metrics.items()}
 
     lines = [
-        f"# HELP contrastapi_requests_total Total HTTP requests",
-        f"# TYPE contrastapi_requests_total counter",
+        "# HELP contrastapi_requests_total Total HTTP requests",
+        "# TYPE contrastapi_requests_total counter",
         f"contrastapi_requests_total {m['requests_total']}",
-        f"# HELP contrastapi_errors_total Total HTTP errors (4xx+5xx)",
-        f"# TYPE contrastapi_errors_total counter",
+        "# HELP contrastapi_errors_total Total HTTP errors (4xx+5xx)",
+        "# TYPE contrastapi_errors_total counter",
         f"contrastapi_errors_total {m['errors_total']}",
-        f"# HELP contrastapi_latency_sum_ms Total response time in ms",
-        f"# TYPE contrastapi_latency_sum_ms counter",
+        "# HELP contrastapi_latency_sum_ms Total response time in ms",
+        "# TYPE contrastapi_latency_sum_ms counter",
         f"contrastapi_latency_sum_ms {m['latency_sum_ms']}",
     ]
 
     avg = round(m["latency_sum_ms"] / m["requests_total"]) if m["requests_total"] > 0 else 0
-    lines.append(f"# HELP contrastapi_latency_avg_ms Average response time in ms")
-    lines.append(f"# TYPE contrastapi_latency_avg_ms gauge")
+    lines.append("# HELP contrastapi_latency_avg_ms Average response time in ms")
+    lines.append("# TYPE contrastapi_latency_avg_ms gauge")
     lines.append(f"contrastapi_latency_avg_ms {avg}")
 
-    lines.append(f"# HELP contrastapi_requests_by_status HTTP requests by status code")
-    lines.append(f"# TYPE contrastapi_requests_by_status counter")
+    lines.append("# HELP contrastapi_requests_by_status HTTP requests by status code")
+    lines.append("# TYPE contrastapi_requests_by_status counter")
     for status, count in sorted(m["requests_by_status"].items()):
         lines.append(f'contrastapi_requests_by_status{{status="{status}"}} {count}')
 
-    lines.append(f"# HELP contrastapi_requests_by_path HTTP requests by path")
-    lines.append(f"# TYPE contrastapi_requests_by_path counter")
+    lines.append("# HELP contrastapi_requests_by_path HTTP requests by path")
+    lines.append("# TYPE contrastapi_requests_by_path counter")
     top_paths = sorted(m["requests_by_path"].items(), key=lambda x: -x[1])[:20]
     for path, count in top_paths:
         safe_path = path.replace("\\", "").replace('"', "").replace("\n", "")
@@ -446,9 +471,9 @@ def metrics(request: Request):
 @app.get("/v1/usage", operation_id="api_usage", tags=["Meta"])
 def api_usage(request: Request):
     """Usage statistics for API key holders."""
-    from auth import extract_key, hash_key, authenticate
-    from db import get_key_usage_stats
+    from auth import authenticate, extract_key
     from config import PRO_HOURLY_LIMIT
+    from db import get_key_usage_stats
 
     raw_key = extract_key(request)
     if not raw_key:
@@ -475,7 +500,7 @@ def llms_txt():
 - [API Documentation](https://api.contrastcyber.com/docs)
 - [OpenAPI Spec](https://api.contrastcyber.com/openapi.json)
 - [Full API Reference](https://api.contrastcyber.com/llms-full.txt)
-- [MCP Server](https://mcp.contrastcyber.com/mcp)
+
 
 ## When to Use This API
 
@@ -958,45 +983,25 @@ Usage statistics for Pro key holders. Requires `Authorization: Bearer cc_xxx`.
 
 
 # Module routers
-from domain.routes import router as domain_router
 from cve.routes import router as cve_router
+from domain.routes import router as domain_router
+
 app.include_router(domain_router)
 app.include_router(cve_router)
 
 from codesec.routes import router as codesec_router
+
 app.include_router(codesec_router)
 
 from ioc.routes import router as ioc_router
+
 app.include_router(ioc_router)
 
 from webhooks import router as webhooks_router
+
 app.include_router(webhooks_router)
 
-# --- MCP Server (Model Context Protocol) ---
-
-from fastapi_mcp import FastApiMCP
-
-mcp = FastApiMCP(
-    app,
-    name="ContrastAPI",
-    description="Security intelligence API — CVE lookup with EPSS/KEV enrichment, "
-                "domain reconnaissance (DNS, WHOIS, SSL, subdomains, WAF detection), "
-                "and code security checks (secrets, injection, headers).",
-    exclude_operations=["landing_page", "llms_txt"],
-)
-mcp.mount_http()
-
-
 # --- AI Discovery endpoints ---
-
-@app.get("/.well-known/mcp.json", include_in_schema=False)
-def mcp_discovery():
-    """MCP server discovery endpoint."""
-    return {
-        "name": "ContrastAPI",
-        "description": "Security intelligence API — CVE, domain recon, code security",
-        "url": "https://mcp.contrastcyber.com/mcp",
-    }
 
 
 @app.get("/.well-known/ai-plugin.json", include_in_schema=False)
@@ -1046,13 +1051,14 @@ def robots_txt():
 
 @app.get("/sitemap.xml", include_in_schema=False)
 def sitemap_xml():
-    from datetime import datetime, timezone
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    xml = f'''<?xml version="1.0" encoding="UTF-8"?>
+    from datetime import UTC, datetime
+
+    today = datetime.now(UTC).strftime("%Y-%m-%d")
+    xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url><loc>https://api.contrastcyber.com/</loc><lastmod>{today}</lastmod><changefreq>weekly</changefreq><priority>1.0</priority></url>
   <url><loc>https://api.contrastcyber.com/docs</loc><lastmod>{today}</lastmod><changefreq>weekly</changefreq><priority>0.8</priority></url>
   <url><loc>https://api.contrastcyber.com/llms.txt</loc><lastmod>{today}</lastmod><changefreq>weekly</changefreq><priority>0.7</priority></url>
   <url><loc>https://api.contrastcyber.com/llms-full.txt</loc><lastmod>{today}</lastmod><changefreq>weekly</changefreq><priority>0.7</priority></url>
-</urlset>'''
+</urlset>"""
     return Response(content=xml, media_type="application/xml")

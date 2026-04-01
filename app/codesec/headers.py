@@ -91,14 +91,16 @@ def check_headers(headers: dict) -> dict:
         else:
             missing.append(header_name)
 
-        findings.append({
-            "header": header_name,
-            "severity": severity,
-            "present": is_present,
-            "description": description,
-            "remediation": remediation,
-            "reference": reference,
-        })
+        findings.append(
+            {
+                "header": header_name,
+                "severity": severity,
+                "present": is_present,
+                "description": description,
+                "remediation": remediation,
+                "reference": reference,
+            }
+        )
 
     score = round(earned * 100 / _MAX_SCORE)
     grade = _grade(score)

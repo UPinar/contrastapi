@@ -13,12 +13,12 @@ import hmac
 import json
 import logging
 import threading
-
-from fastapi import APIRouter, Request, HTTPException
+from collections import OrderedDict
 
 from auth import generate_key, hash_key
 from config import LEMONSQUEEZY_WEBHOOK_SECRET
-from db import save_api_key, save_pending_key, deactivate_api_key, get_key_by_order_id
+from db import deactivate_api_key, get_key_by_order_id, save_api_key, save_pending_key
+from fastapi import APIRouter, HTTPException, Request
 
 logger = logging.getLogger("contrastapi")
 
@@ -27,8 +27,8 @@ if not LEMONSQUEEZY_WEBHOOK_SECRET:
 
 router = APIRouter(tags=["Webhooks"])
 
-# Replay protection: track processed event IDs (in-memory)
-_processed_events: set[str] = set()
+# Replay protection: track processed event IDs (in-memory, FIFO eviction)
+_processed_events: OrderedDict[str, None] = OrderedDict()
 _processed_lock = threading.Lock()
 _MAX_PROCESSED = 10000
 
@@ -58,8 +58,10 @@ def _extract_order_id(data: dict) -> str | None:
 @router.post("/webhooks/lemonsqueezy", include_in_schema=False)
 async def lemonsqueezy_webhook(request: Request):
     """Handle Lemon Squeezy webhook events."""
-    # Read raw body for signature verification
+    # Read raw body for signature verification (limit to 1MB to prevent memory exhaustion)
     body = await request.body()
+    if len(body) > 1_048_576:
+        raise HTTPException(status_code=413, detail="Payload too large")
     signature = request.headers.get("x-signature", "")
 
     if not verify_signature(body, signature, LEMONSQUEEZY_WEBHOOK_SECRET):
@@ -69,7 +71,7 @@ async def lemonsqueezy_webhook(request: Request):
     try:
         payload = json.loads(body)
     except (json.JSONDecodeError, ValueError):
-        raise HTTPException(status_code=400, detail="Invalid JSON payload")
+        raise HTTPException(status_code=400, detail="Invalid JSON payload") from None
 
     meta = payload.get("meta", {})
     event_name = meta.get("event_name", "")
@@ -82,9 +84,10 @@ async def lemonsqueezy_webhook(request: Request):
             if event_id in _processed_events:
                 logger.info("Webhook replay ignored: event_id=%s", event_id)
                 return {"status": "already_processed", "event_id": event_id}
-            if len(_processed_events) >= _MAX_PROCESSED:
-                _processed_events.clear()
-            _processed_events.add(event_id)
+            # FIFO eviction: remove oldest entries when store is full
+            while len(_processed_events) >= _MAX_PROCESSED:
+                _processed_events.popitem(last=False)
+            _processed_events[event_id] = None
 
     if event_name == "order_created":
         return _handle_order_created(data)

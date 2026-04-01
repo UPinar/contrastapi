@@ -11,7 +11,6 @@ import logging
 import re
 
 import httpx
-
 from config import HIBP_URL
 
 logger = logging.getLogger("contrastapi")
