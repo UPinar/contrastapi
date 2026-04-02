@@ -30,8 +30,8 @@ CACHE_DB_PATH = Path(
 )
 
 # Rate limits
-FREE_HOURLY_LIMIT = 50  # keyless: 50 per worker x 2 workers ≈ 100 req/hr per IP
-PRO_HOURLY_LIMIT = 500  # Pro key: 500 per worker x 2 workers ≈ 1000 req/hr
+FREE_HOURLY_LIMIT = 100  # keyless: 100 req/hr per IP (shared across workers)
+PRO_HOURLY_LIMIT = 1000  # Pro key: 1000 req/hr (shared across workers)
 FREE_BULK_LIMIT = 10  # max domains per bulk request (free)
 PRO_BULK_LIMIT = 50  # max domains per bulk request (pro)
 ENRICHMENT_DAILY_LIMIT = 10  # enriched scans per IP per day (protects external API quotas)

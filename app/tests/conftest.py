@@ -16,12 +16,12 @@ def temp_dbs(tmp_path, monkeypatch):
 
     importlib.reload(config)
     import db
+    import ratelimit
 
     importlib.reload(db)
+    importlib.reload(ratelimit)
     db.init_all_dbs()
-    from ratelimit import reset
-
-    reset()
+    ratelimit.reset()
     yield
-    reset()
+    ratelimit.reset()
     db.close_thread_connections()
