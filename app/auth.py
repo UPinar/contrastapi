@@ -86,7 +86,8 @@ def authenticate(request: Request, endpoint: str) -> dict:
             _set_ratelimit_state(request, advertised_limit, advertised_limit, 0)
 
         touch_api_key(kh)
-        log_usage(client_ip, endpoint, key_hash=kh)
+        if not localhost:
+            log_usage(client_ip, endpoint, key_hash=kh)
         return {"tier": "pro", "key_hash": kh, "client_ip": client_ip}
 
     # Keyless — IP rate limit (sliding window)
@@ -107,5 +108,6 @@ def authenticate(request: Request, endpoint: str) -> dict:
     else:
         _set_ratelimit_state(request, advertised_limit, advertised_limit, 0)
 
-    log_usage(client_ip, endpoint)
+    if not localhost:
+        log_usage(client_ip, endpoint)
     return {"tier": "free", "key_hash": None, "client_ip": client_ip}

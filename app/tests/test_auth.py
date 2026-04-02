@@ -285,7 +285,7 @@ def test_authenticate_localhost_pro_skips_rate_limit():
         assert ctx["tier"] == "pro"
 
 
-def test_authenticate_localhost_still_logs_usage(monkeypatch):
+def test_authenticate_localhost_skips_usage_log(monkeypatch):
     import auth
     from auth import authenticate
 
@@ -296,8 +296,7 @@ def test_authenticate_localhost_still_logs_usage(monkeypatch):
     request.client = MagicMock()
     request.client.host = "127.0.0.1"
     authenticate(request, "/v1/test")
-    assert len(calls) == 1
-    assert calls[0][0] == ("127.0.0.1", "/v1/test")
+    assert len(calls) == 0
 
 
 # --- extract_key length validation ---
