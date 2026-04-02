@@ -132,7 +132,7 @@ cd app
 cd app && PYTHONPATH=. python -m pytest tests/ -v
 ```
 
-581 tests covering auth, rate limiting, validation, database operations, domain intelligence, CVE intelligence, threat intelligence, code security, tech fingerprinting, IP reputation, and API routes.
+573 tests covering auth, rate limiting, validation, database operations, domain intelligence, CVE intelligence, threat intelligence, code security, tech fingerprinting, IP reputation, and API routes.
 
 ## Stack
 
