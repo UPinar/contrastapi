@@ -69,7 +69,7 @@ def authenticate(request: Request, endpoint: str) -> dict:
             raise HTTPException(status_code=401, detail="Invalid API key")
 
         limit = PRO_HOURLY_LIMIT
-        advertised_limit = limit * 2
+        advertised_limit = limit
         store_key = f"pro:{kh}"
 
         if not localhost:
@@ -81,7 +81,7 @@ def authenticate(request: Request, endpoint: str) -> dict:
                     status_code=429,
                     detail=f"Rate limit exceeded ({advertised_limit}/hr). Contact support for higher limits.",
                 )
-            _set_ratelimit_state(request, advertised_limit, remaining * 2, get_reset_time("api", store_key))
+            _set_ratelimit_state(request, advertised_limit, remaining, get_reset_time("api", store_key))
         else:
             _set_ratelimit_state(request, advertised_limit, advertised_limit, 0)
 
@@ -91,7 +91,7 @@ def authenticate(request: Request, endpoint: str) -> dict:
 
     # Keyless — IP rate limit (sliding window)
     limit = FREE_HOURLY_LIMIT
-    advertised_limit = limit * 2
+    advertised_limit = limit
     store_key = f"free:{client_ip}"
 
     if not localhost:
@@ -103,7 +103,7 @@ def authenticate(request: Request, endpoint: str) -> dict:
                 detail=f"Rate limit exceeded ({advertised_limit}/hr). "
                 "Get a Pro key at api.contrastcyber.com for higher limits.",
             )
-        _set_ratelimit_state(request, advertised_limit, remaining * 2, get_reset_time("api", store_key))
+        _set_ratelimit_state(request, advertised_limit, remaining, get_reset_time("api", store_key))
     else:
         _set_ratelimit_state(request, advertised_limit, advertised_limit, 0)
 

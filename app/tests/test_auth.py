@@ -221,7 +221,7 @@ def test_authenticate_sets_ratelimit_state():
     request.client.host = "10.10.10.10"
     authenticate(request, "/v1/test")
     assert request.state.ratelimit_limit == 100
-    assert request.state.ratelimit_remaining == 98  # 49 actual * 2 (advertised scaling)
+    assert request.state.ratelimit_remaining == 99
     assert request.state.ratelimit_reset >= 0
 
 
@@ -234,7 +234,7 @@ def test_authenticate_ratelimit_remaining_decreases():
         request.client = MagicMock()
         request.client.host = "11.11.11.11"
         authenticate(request, "/v1/test")
-    assert request.state.ratelimit_remaining == 90  # 45 actual * 2 (advertised scaling)
+    assert request.state.ratelimit_remaining == 95
 
 
 # --- localhost rate limit exemption ---

@@ -42,15 +42,17 @@ async def lifespan(app):
     init_all_dbs()
     logger.info("ContrastAPI started — databases initialized")
 
-    # Periodic DB maintenance (every 6 hours)
+    # Periodic DB maintenance (every hour)
     async def _periodic_maintenance():
         while True:
-            await asyncio.sleep(6 * 3600)
+            await asyncio.sleep(3600)
             try:
                 from db import maintenance
+                from ratelimit import cleanup_expired
 
                 stats = maintenance()
-                logger.info("DB maintenance: %s", stats)
+                expired = cleanup_expired()
+                logger.info("DB maintenance: %s, rate_limits cleaned: %d", stats, expired)
             except Exception as e:
                 logger.warning("DB maintenance failed: %s", e)
 
