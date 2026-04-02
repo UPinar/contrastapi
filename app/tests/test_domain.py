@@ -1460,9 +1460,7 @@ class TestIpRouteReputation:
         return_value={"ports": [443], "hostnames": [], "vulns": [], "cpes": [], "tags": []},
     )
     @patch("domain.routes.socket.gethostbyaddr", return_value=("example.com", [], []))
-    def test_ip_reputation_from_cache(
-        self, mock_ptr, mock_enrich, mock_cache_get, mock_sh, mock_ab, mock_auth
-    ):
+    def test_ip_reputation_from_cache(self, mock_ptr, mock_enrich, mock_cache_get, mock_sh, mock_ab, mock_auth):
         r = client.get("/v1/ip/93.184.216.34")
         assert r.status_code == 200
         data = r.json()
