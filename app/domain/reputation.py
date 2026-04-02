@@ -1,4 +1,4 @@
-"""IP reputation checks — GreyNoise, AbuseIPDB, Shodan full API."""
+"""IP reputation checks — AbuseIPDB, Shodan full API."""
 
 import logging
 
@@ -6,8 +6,6 @@ import httpx
 from config import (
     ABUSEIPDB_API_KEY,
     ABUSEIPDB_API_URL,
-    GREYNOISE_API_KEY,
-    GREYNOISE_API_URL,
     RECON_TIMEOUT,
     SHODAN_API_KEY,
     SHODAN_API_URL,
@@ -21,48 +19,6 @@ _client = httpx.Client(
     headers={"Accept": "application/json"},
     follow_redirects=False,
 )
-
-
-def check_greynoise(ip: str) -> dict:
-    """Check IP against GreyNoise Community API."""
-    if not GREYNOISE_API_KEY:
-        return {"status": "skipped", "reason": "no API key"}
-    cache_key = f"greynoise:{ip}"
-    cached = get_cached_ip(cache_key)
-    if cached is not None:
-        return cached
-    try:
-        resp = _client.get(
-            f"{GREYNOISE_API_URL}/{ip}",
-            headers={"key": GREYNOISE_API_KEY},
-        )
-        if resp.status_code in (400, 404):
-            result = {"status": "not_found", "reason": "IP not in dataset"}
-            save_cached_ip(cache_key, result)
-            return result
-        if resp.status_code == 429:
-            # Cache rate_limited for 24h (DOMAIN_CACHE_TTL) — GreyNoise daily limit resets overnight
-            result = {"status": "rate_limited", "reason": "GreyNoise API rate limit exceeded"}
-            save_cached_ip(cache_key, result)
-            return result
-        resp.raise_for_status()
-        data = resp.json()
-        result = {
-            "status": "ok",
-            "noise": data.get("noise", False),
-            "riot": data.get("riot", False),
-            "classification": data.get("classification", "unknown"),
-            "name": data.get("name", ""),
-            "last_seen": data.get("last_seen", ""),
-        }
-        save_cached_ip(cache_key, result)
-        return result
-    except httpx.HTTPStatusError as e:
-        logger.warning("GreyNoise check failed for %s: HTTP %d", ip, e.response.status_code)
-        return {"status": "error", "reason": f"GreyNoise API returned HTTP {e.response.status_code}"}
-    except Exception:
-        logger.warning("GreyNoise check failed for %s", ip)
-        return {"status": "error", "reason": "GreyNoise API connection failed"}
 
 
 def check_abuseipdb(ip: str) -> dict:

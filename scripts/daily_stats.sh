@@ -35,12 +35,6 @@ TOP_ENDPOINTS=$(sqlite3 -separator ' ' "$API_DB" \
 
 # --- Cache hit/miss from domain_cache.db ---
 # Entries written in last 24h = API calls made (cache miss that resulted in a save)
-GN_TOTAL=$(sqlite3 "$CACHE_DB" \
-  "SELECT COUNT(*) FROM domain_cache WHERE domain LIKE 'greynoise:%';")
-GN_NEW=$(sqlite3 "$CACHE_DB" \
-  "SELECT COUNT(*) FROM domain_cache
-   WHERE domain LIKE 'greynoise:%' AND fetched_at >= '$CUTOFF';")
-
 SH_TOTAL=$(sqlite3 "$CACHE_DB" \
   "SELECT COUNT(*) FROM domain_cache WHERE domain LIKE 'shodan:%';")
 SH_NEW=$(sqlite3 "$CACHE_DB" \
@@ -82,7 +76,6 @@ done <<< "$TOP_IPS"
 MSG+="
 
 <b>API Quota (24h new lookups):</b>
-  GreyNoise: ${GN_NEW}/50 (${GN_TOTAL} cached)
   Shodan: ${SH_NEW}/100 (${SH_TOTAL} cached)
   AbuseIPDB: ~${AB_CALLS} (1000/day)"
 

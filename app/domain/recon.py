@@ -657,7 +657,7 @@ def full_domain_report(domain: str, resolved_ip: str | None = None, client_ip: s
     report = {"domain": domain}
 
     from db import get_cached_ip, save_cached_ip
-    from domain.reputation import check_abuseipdb, check_greynoise, check_shodan
+    from domain.reputation import check_abuseipdb, check_shodan
     from domain.threat import check_urlhaus
 
     # Determine whether reputation enrichment is allowed
@@ -702,9 +702,8 @@ def full_domain_report(domain: str, resolved_ip: str | None = None, client_ip: s
         f_certs = pool.submit(_ct_with_crtsh)
 
         # Reputation checks for resolved IP (rate-limited per client IP)
-        f_gn = f_ab = f_sh = None
+        f_ab = f_sh = None
         if enrich and cached_rep is None and resolved_ip:
-            f_gn = pool.submit(check_greynoise, resolved_ip)
             f_ab = pool.submit(check_abuseipdb, resolved_ip)
             f_sh = pool.submit(check_shodan, resolved_ip)
 
@@ -718,10 +717,9 @@ def full_domain_report(domain: str, resolved_ip: str | None = None, client_ip: s
 
         if enrich and cached_rep is not None:
             report["reputation"] = cached_rep
-        elif f_gn is not None:
+        elif f_ab is not None:
             try:
                 reputation = {
-                    "greynoise": f_gn.result(timeout=RECON_TIMEOUT + 2),
                     "abuseipdb": f_ab.result(timeout=RECON_TIMEOUT + 2),
                     "shodan": f_sh.result(timeout=RECON_TIMEOUT + 2),
                 }

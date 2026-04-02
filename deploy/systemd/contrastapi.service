@@ -8,7 +8,6 @@ WorkingDirectory=/opt/contrastapi/app
 ExecStart=/opt/contrastapi/venv/bin/uvicorn main:app --host 127.0.0.1 --port 8002
 Environment=NVD_API_KEY=
 Environment=URLHAUS_API_KEY=
-Environment=GREYNOISE_API_KEY=
 Environment=ABUSEIPDB_API_KEY=
 Environment=SHODAN_API_KEY=
 Restart=always

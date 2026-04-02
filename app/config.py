@@ -62,13 +62,11 @@ LEMONSQUEEZY_WEBHOOK_SECRET = os.environ.get("LEMONSQUEEZY_WEBHOOK_SECRET", "")
 LEMONSQUEEZY_API_KEY = os.environ.get("LEMONSQUEEZY_API_KEY", "")
 
 # External API keys (reputation/enrichment)
-GREYNOISE_API_KEY = os.environ.get("GREYNOISE_API_KEY", "")
 ABUSEIPDB_API_KEY = os.environ.get("ABUSEIPDB_API_KEY", "")
 SHODAN_API_KEY = os.environ.get("SHODAN_API_KEY", "")
 URLHAUS_API_KEY = os.environ.get("URLHAUS_API_KEY", "")
 
 # External API URLs
-GREYNOISE_API_URL = "https://api.greynoise.io/v3/community"
 ABUSEIPDB_API_URL = "https://api.abuseipdb.com/api/v2/check"
 SHODAN_API_URL = "https://api.shodan.io/shodan/host"
 URLHAUS_API_URL = "https://urlhaus-api.abuse.ch/v1"
