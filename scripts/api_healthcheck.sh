@@ -20,7 +20,6 @@ if [[ -f /opt/contrastapi/.env ]]; then
   source /opt/contrastapi/.env
 fi
 
-GREYNOISE_KEY="${GREYNOISE_API_KEY:-}"
 ABUSEIPDB_KEY="${ABUSEIPDB_API_KEY:-}"
 SHODAN_KEY="${SHODAN_API_KEY:-}"
 URLHAUS_KEY="${URLHAUS_API_KEY:-}"
@@ -72,15 +71,7 @@ check_api() {
 
 echo "=== ContrastAPI Health Check $(date '+%Y-%m-%d %H:%M:%S') ===" | tee "$LOG"
 
-# 1. GreyNoise Community
-if [[ -n "$GREYNOISE_KEY" ]]; then
-  check_api "GreyNoise" \
-    "https://api.greynoise.io/v3/community/${TEST_IP}" \
-    "GET" \
-    "key: ${GREYNOISE_KEY}|Accept: application/json"
-else
-  RESULTS+=("GreyNoise: SKIPPED (no key)")
-fi
+# (GreyNoise removed — 25/week limit too low for production use)
 
 # 2. AbuseIPDB
 if [[ -n "$ABUSEIPDB_KEY" ]]; then

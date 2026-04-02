@@ -107,7 +107,7 @@
       <div class="endpoint">
         <span class="method get">GET</span>
         <span class="endpoint-path">/v1/ip/{ip}</span>
-        <span class="endpoint-desc">IP intel + reputation (GreyNoise, AbuseIPDB, Shodan)</span>
+        <span class="endpoint-desc">IP intel + reputation (AbuseIPDB, Shodan)</span>
       </div>
       <div class="endpoint">
         <span class="method get">GET</span>
@@ -255,7 +255,6 @@
   <span class="key">"email_security"</span>: {<span class="key">"spf"</span>: <span class="bool">true</span>, <span class="key">"dmarc"</span>: <span class="bool">true</span>, <span class="key">"dkim"</span>: <span class="bool">false</span>},
   <span class="key">"threat"</span>: {<span class="key">"url_count"</span>: <span class="num">0</span>, <span class="key">"urls_online"</span>: <span class="num">0</span>},
   <span class="key">"reputation"</span>: {
-    <span class="key">"greynoise"</span>: {<span class="key">"noise"</span>: <span class="bool">false</span>, <span class="key">"classification"</span>: <span class="str">"benign"</span>},
     <span class="key">"abuseipdb"</span>: {<span class="key">"abuse_score"</span>: <span class="num">0</span>, <span class="key">"total_reports"</span>: <span class="num">0</span>},
     <span class="key">"shodan"</span>: {<span class="key">"ports"</span>: [<span class="num">80</span>, <span class="num">443</span>], <span class="key">"org"</span>: <span class="str">"ICANN"</span>}
   },
@@ -319,7 +318,7 @@
   <section class="auth-section">
     <div class="section-title">Data Freshness</div>
     <p style="color:var(--text-muted);margin:0.5rem 0;font-size:0.8rem">
-      Threat intelligence data (IP reputation, GreyNoise, Shodan, AbuseIPDB) is cached for 24 hours per query. CVE/EPSS data syncs every 2 hours. For real-time results, use unique queries.
+      Threat intelligence data (IP reputation, Shodan, AbuseIPDB) is cached for 24 hours per query. CVE/EPSS data syncs every 2 hours. For real-time results, use unique queries.
     </p>
   </section>
 

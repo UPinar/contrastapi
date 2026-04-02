@@ -29,7 +29,7 @@ from domain.recon import (
     ssl_info,
     whois_lookup,
 )
-from domain.reputation import check_abuseipdb, check_greynoise, check_shodan
+from domain.reputation import check_abuseipdb, check_shodan
 from domain.threat import check_urlhaus
 from pydantic import BaseModel, Field
 from schemas import (
@@ -310,11 +310,9 @@ def ip_lookup(ip: str, request: Request):
         window_seconds=86400,
     ):
         try:
-            f_gn = _reputation_pool.submit(check_greynoise, ip)
             f_ab = _reputation_pool.submit(check_abuseipdb, ip)
             f_sh = _reputation_pool.submit(check_shodan, ip)
             reputation = {
-                "greynoise": f_gn.result(timeout=RECON_TIMEOUT + 2),
                 "abuseipdb": f_ab.result(timeout=RECON_TIMEOUT + 2),
                 "shodan": f_sh.result(timeout=RECON_TIMEOUT + 2),
             }

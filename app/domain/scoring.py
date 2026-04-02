@@ -175,15 +175,6 @@ def score_domain(report: dict) -> dict:
             rep_penalty += 5
             rep_details.append(f"AbuseIPDB score {abuse_score} (moderate)")
 
-    greynoise = reputation.get("greynoise", {})
-    if greynoise.get("status") == "ok":
-        if greynoise.get("classification") == "malicious":
-            rep_penalty += 10
-            rep_details.append("GreyNoise: malicious classification")
-        elif greynoise.get("noise") and not greynoise.get("riot"):
-            rep_penalty += 3
-            rep_details.append("GreyNoise: internet noise (not RIOT)")
-
     rep_penalty = min(rep_penalty, 15)
     if rep_penalty > 0:
         score = max(0, score - rep_penalty)

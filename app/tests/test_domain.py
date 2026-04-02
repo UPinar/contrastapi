@@ -778,61 +778,6 @@ def _mock_httpx_response(status_code=200, json_data=None):
 
 class TestReputation:
     @patch("domain.reputation._client")
-    @patch("domain.reputation.GREYNOISE_API_KEY", "test-key")
-    def test_greynoise_success(self, mock_client):
-        from domain.reputation import check_greynoise
-
-        mock_client.get.return_value = _mock_httpx_response(
-            200,
-            {
-                "noise": True,
-                "riot": False,
-                "classification": "malicious",
-                "name": "Test Scanner",
-                "last_seen": "2026-03-01",
-            },
-        )
-        result = check_greynoise("1.2.3.4")
-        assert result["status"] == "ok"
-        assert result["noise"] is True
-        assert result["riot"] is False
-        assert result["classification"] == "malicious"
-
-    @patch("domain.reputation.GREYNOISE_API_KEY", "")
-    def test_greynoise_no_key(self):
-        from domain.reputation import check_greynoise
-
-        result = check_greynoise("1.2.3.4")
-        assert result["status"] == "skipped"
-
-    @patch("domain.reputation._client")
-    @patch("domain.reputation.GREYNOISE_API_KEY", "test-key")
-    def test_greynoise_404(self, mock_client):
-        from domain.reputation import check_greynoise
-
-        mock_client.get.return_value = _mock_httpx_response(404)
-        result = check_greynoise("1.2.3.4")
-        assert result["status"] == "not_found"
-
-    @patch("domain.reputation._client")
-    @patch("domain.reputation.GREYNOISE_API_KEY", "test-key")
-    def test_greynoise_400(self, mock_client):
-        from domain.reputation import check_greynoise
-
-        mock_client.get.return_value = _mock_httpx_response(400)
-        result = check_greynoise("1.2.3.4")
-        assert result["status"] == "not_found"
-
-    @patch("domain.reputation._client")
-    @patch("domain.reputation.GREYNOISE_API_KEY", "test-key")
-    def test_greynoise_error(self, mock_client):
-        from domain.reputation import check_greynoise
-
-        mock_client.get.side_effect = Exception("connection timeout")
-        result = check_greynoise("1.2.3.4")
-        assert result["status"] == "error"
-
-    @patch("domain.reputation._client")
     @patch("domain.reputation.ABUSEIPDB_API_KEY", "test-key")
     def test_abuseipdb_success(self, mock_client):
         from domain.reputation import check_abuseipdb
@@ -967,7 +912,6 @@ class TestReputationScoring:
         report = _report_with_reputation(
             {
                 "abuseipdb": {"status": "ok", "abuse_score": 90},
-                "greynoise": {"status": "ok", "classification": "benign", "noise": False, "riot": False},
                 "shodan": {"status": "ok"},
             }
         )
@@ -981,7 +925,6 @@ class TestReputationScoring:
         report = _report_with_reputation(
             {
                 "abuseipdb": {"status": "ok", "abuse_score": 50},
-                "greynoise": {"status": "ok", "classification": "benign", "noise": False, "riot": False},
                 "shodan": {"status": "ok"},
             }
         )
@@ -989,48 +932,19 @@ class TestReputationScoring:
         factor = _get_rep_factor(result)
         assert factor["score"] == -5
 
-    def test_greynoise_malicious_penalty(self):
-        from domain.scoring import score_domain
-
-        report = _report_with_reputation(
-            {
-                "abuseipdb": {"status": "ok", "abuse_score": 0},
-                "greynoise": {"status": "ok", "classification": "malicious", "noise": True, "riot": False},
-                "shodan": {"status": "ok"},
-            }
-        )
-        result = score_domain(report)
-        factor = _get_rep_factor(result)
-        assert factor["score"] == -10
-
-    def test_greynoise_noise_penalty(self):
-        from domain.scoring import score_domain
-
-        report = _report_with_reputation(
-            {
-                "abuseipdb": {"status": "ok", "abuse_score": 0},
-                "greynoise": {"status": "ok", "classification": "unknown", "noise": True, "riot": False},
-                "shodan": {"status": "ok"},
-            }
-        )
-        result = score_domain(report)
-        factor = _get_rep_factor(result)
-        assert factor["score"] == -3
-
     def test_combined_penalty_capped(self):
         from domain.scoring import score_domain
 
         report = _report_with_reputation(
             {
                 "abuseipdb": {"status": "ok", "abuse_score": 90},
-                "greynoise": {"status": "ok", "classification": "malicious", "noise": True, "riot": False},
                 "shodan": {"status": "ok"},
             }
         )
         result = score_domain(report)
         factor = _get_rep_factor(result)
-        # 10 (abuse) + 10 (malicious) = 20, capped at 15
-        assert factor["score"] == -15
+        # 10 (abuse score 90) — no GreyNoise anymore
+        assert factor["score"] == -10
 
     def test_clean_reputation_no_penalty(self):
         from domain.scoring import score_domain
@@ -1038,7 +952,6 @@ class TestReputationScoring:
         report = _report_with_reputation(
             {
                 "abuseipdb": {"status": "ok", "abuse_score": 0},
-                "greynoise": {"status": "ok", "classification": "benign", "noise": False, "riot": True},
                 "shodan": {"status": "ok"},
             }
         )
@@ -1140,10 +1053,8 @@ class TestFullDomainReport:
     @patch("db.get_cached_ip", return_value=None)
     @patch("domain.reputation.check_shodan", side_effect=Exception("timeout"))
     @patch("domain.reputation.check_abuseipdb", return_value={"status": "ok"})
-    @patch("domain.reputation.check_greynoise", return_value={"status": "ok"})
     def test_reputation_failure_refunds(
         self,
-        m_gn,
         m_ab,
         m_sh,
         m_cache_ip,
@@ -1502,20 +1413,18 @@ class TestIpRouteReputation:
     @patch("domain.routes.ratelimit.check_limit", return_value=True)
     @patch("domain.routes.check_shodan", return_value={"status": "ok", "ports": [80]})
     @patch("domain.routes.check_abuseipdb", return_value={"status": "ok", "abuse_score": 10})
-    @patch("domain.routes.check_greynoise", return_value={"status": "ok", "classification": "benign"})
     @patch(
         "domain.routes.ip_enrichment",
         return_value={"ports": [22, 80], "hostnames": [], "vulns": [], "cpes": [], "tags": []},
     )
     @patch("domain.routes.socket.gethostbyaddr", return_value=("example.com", [], []))
     def test_ip_with_reputation(
-        self, mock_ptr, mock_enrich, mock_gn, mock_ab, mock_sh, mock_limit, mock_cache_get, mock_cache_save, mock_auth
+        self, mock_ptr, mock_enrich, mock_ab, mock_sh, mock_limit, mock_cache_get, mock_cache_save, mock_auth
     ):
         r = client.get("/v1/ip/93.184.216.34")
         assert r.status_code == 200
         data = r.json()
         assert "reputation" in data
-        assert data["reputation"]["greynoise"]["status"] == "ok"
         assert data["reputation"]["abuseipdb"]["status"] == "ok"
         assert data["reputation"]["shodan"]["status"] == "ok"
         mock_cache_save.assert_called_once()
@@ -1537,13 +1446,11 @@ class TestIpRouteReputation:
         assert "CVE-2024-1234" in data["vulns"]
 
     @patch("domain.routes.authenticate", return_value={"tier": "free"})
-    @patch("domain.routes.check_greynoise")
     @patch("domain.routes.check_abuseipdb")
     @patch("domain.routes.check_shodan")
     @patch(
         "domain.routes.get_cached_ip",
         return_value={
-            "greynoise": {"status": "ok", "classification": "benign"},
             "abuseipdb": {"status": "ok", "abuse_score": 0},
             "shodan": {"status": "ok", "ports": [443]},
         },
@@ -1554,7 +1461,7 @@ class TestIpRouteReputation:
     )
     @patch("domain.routes.socket.gethostbyaddr", return_value=("example.com", [], []))
     def test_ip_reputation_from_cache(
-        self, mock_ptr, mock_enrich, mock_cache_get, mock_sh, mock_ab, mock_gn, mock_auth
+        self, mock_ptr, mock_enrich, mock_cache_get, mock_sh, mock_ab, mock_auth
     ):
         r = client.get("/v1/ip/93.184.216.34")
         assert r.status_code == 200
@@ -1562,7 +1469,6 @@ class TestIpRouteReputation:
         assert "reputation" in data
         assert data["reputation"]["abuseipdb"]["abuse_score"] == 0
         # API functions should not have been called
-        mock_gn.assert_not_called()
         mock_ab.assert_not_called()
         mock_sh.assert_not_called()
 
@@ -1576,13 +1482,11 @@ class TestIpCache:
 
         init_cache_db()
         test_data = {
-            "greynoise": {"status": "ok", "classification": "benign"},
             "abuseipdb": {"status": "ok", "abuse_score": 5},
         }
         save_cached_ip("10.20.30.40", test_data)
         result = get_cached_ip("10.20.30.40")
         assert result is not None
-        assert result["greynoise"]["status"] == "ok"
         assert result["abuseipdb"]["abuse_score"] == 5
 
     def test_expired_cache_returns_none(self):
@@ -1614,7 +1518,6 @@ class TestReputationScoringBoundary:
         report = _report_with_reputation(
             {
                 "abuseipdb": {"status": "ok", "abuse_score": 24},
-                "greynoise": {"status": "ok", "classification": "benign", "noise": False, "riot": False},
                 "shodan": {"status": "ok"},
             }
         )
@@ -1628,7 +1531,6 @@ class TestReputationScoringBoundary:
         report = _report_with_reputation(
             {
                 "abuseipdb": {"status": "ok", "abuse_score": 25},
-                "greynoise": {"status": "ok", "classification": "benign", "noise": False, "riot": False},
                 "shodan": {"status": "ok"},
             }
         )
@@ -1642,7 +1544,6 @@ class TestReputationScoringBoundary:
         report = _report_with_reputation(
             {
                 "abuseipdb": {"status": "ok", "abuse_score": 74},
-                "greynoise": {"status": "ok", "classification": "benign", "noise": False, "riot": False},
                 "shodan": {"status": "ok"},
             }
         )
@@ -1656,7 +1557,6 @@ class TestReputationScoringBoundary:
         report = _report_with_reputation(
             {
                 "abuseipdb": {"status": "ok", "abuse_score": 75},
-                "greynoise": {"status": "ok", "classification": "benign", "noise": False, "riot": False},
                 "shodan": {"status": "ok"},
             }
         )
@@ -1677,7 +1577,6 @@ class TestReputationScoringSkipped:
         report = _report_with_reputation(
             {
                 "abuseipdb": {"status": "skipped", "reason": "no API key"},
-                "greynoise": {"status": "skipped", "reason": "no API key"},
                 "shodan": {"status": "skipped", "reason": "no API key"},
             }
         )
@@ -1692,7 +1591,6 @@ class TestReputationScoringSkipped:
         report = _report_with_reputation(
             {
                 "abuseipdb": {"status": "error", "reason": "connection failed"},
-                "greynoise": {"status": "error", "reason": "connection failed"},
                 "shodan": {"status": "error", "reason": "connection failed"},
             }
         )
@@ -1707,7 +1605,6 @@ class TestReputationScoringSkipped:
         report = _report_with_reputation(
             {
                 "abuseipdb": {"status": "ok", "abuse_score": 0},
-                "greynoise": {"status": "skipped", "reason": "no API key"},
                 "shodan": {"status": "skipped", "reason": "no API key"},
             }
         )
@@ -1722,15 +1619,6 @@ class TestReputationScoringSkipped:
 
 class TestReputationRateLimit:
     """Test HTTP 429 rate limit handling."""
-
-    @patch("domain.reputation._client")
-    @patch("domain.reputation.GREYNOISE_API_KEY", "test-key")
-    def test_greynoise_429(self, mock_client):
-        from domain.reputation import check_greynoise
-
-        mock_client.get.return_value = _mock_httpx_response(429)
-        result = check_greynoise("1.2.3.4")
-        assert result["status"] == "rate_limited"
 
     @patch("domain.reputation._client")
     @patch("domain.reputation.ABUSEIPDB_API_KEY", "test-key")

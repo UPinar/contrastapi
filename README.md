@@ -2,10 +2,10 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Python 3.12](https://img.shields.io/badge/Python-3.12-blue.svg)](https://python.org)
-[![Tests](https://img.shields.io/badge/Tests-581_passing-brightgreen.svg)](https://github.com/UPinar/contrastapi/actions)
+[![Tests](https://img.shields.io/badge/Tests-573_passing-brightgreen.svg)](https://github.com/UPinar/contrastapi/actions)
 [![RapidAPI](https://img.shields.io/badge/RapidAPI-Available-blue.svg)](https://rapidapi.com/UPinar/api/contrastapi)
 
-**Security intelligence API for AI agents and developers.** 30+ endpoints: CVE lookup with EPSS/KEV enrichment, domain reconnaissance, SSL analysis, IP reputation (GreyNoise, AbuseIPDB, Shodan), IOC/malware lookup, exploit search, technology fingerprinting, and code security verification. Free, no signup required.
+**Security intelligence API for AI agents and developers.** 30+ endpoints: CVE lookup with EPSS/KEV enrichment, domain reconnaissance, SSL analysis, IP reputation (AbuseIPDB, Shodan), IOC/malware lookup, exploit search, technology fingerprinting, and code security verification. Free, no signup required.
 
 **Live:** [api.contrastcyber.com](https://api.contrastcyber.com) | **Scanner:** [contrastcyber.com](https://contrastcyber.com)
 
@@ -13,7 +13,7 @@
 
 - **One call, full picture** — domain report returns DNS + WHOIS + SSL + subdomains + WAF + IP reputation in a single response
 - **CVE intelligence** — 340K+ CVEs enriched with EPSS exploit probability and CISA KEV status
-- **IP reputation** — GreyNoise, AbuseIPDB, Shodan enrichment with 24-hour cache
+- **IP reputation** — AbuseIPDB, Shodan enrichment with 24-hour cache
 - **Tech fingerprinting** — detect CMS, frameworks, CDN, analytics from headers + HTML
 - **AI-native** — LLM-optimized summaries, structured JSON, OpenAPI spec
 - **Free forever** — 100 req/hr, no API key, no signup
@@ -56,7 +56,7 @@ GET  /v1/whois/{domain}        WHOIS registration data
 GET  /v1/subdomains/{domain}   Subdomain enumeration (DNS brute + CT logs)
 GET  /v1/certs/{domain}        Certificate transparency logs
 GET  /v1/ssl/{domain}          SSL/TLS analysis (cipher, cert chain, grade A-F)
-GET  /v1/ip/{ip}               IP intel + reputation (GreyNoise, AbuseIPDB, Shodan)
+GET  /v1/ip/{ip}               IP intel + reputation (AbuseIPDB, Shodan)
 GET  /v1/tech/{domain}         Technology fingerprinting (CMS, frameworks, CDN, analytics)
 GET  /v1/threat/{domain}       Threat intelligence (URLhaus malware URLs)
 GET  /v1/scan/headers/{domain} Live HTTP security header scan
