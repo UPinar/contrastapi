@@ -2623,3 +2623,32 @@ class TestResponseModelFiltering:
         assert r.status_code == 200
         data = r.json()
         assert "_raw_response" not in data
+
+    # --- response_shape: exact key set validation ---
+
+    @patch("domain.routes._from_cache", return_value=None)
+    @patch("domain.routes.whois_lookup", return_value=MOCK_WHOIS_RESULT)
+    @patch("domain.routes.validate_domain", return_value="93.184.216.34")
+    def test_whois_response_shape(self, mock_validate, mock_whois, mock_cache):
+        r = client.get("/v1/whois/example.com")
+        assert r.status_code == 200
+        assert set(r.json().keys()) == {"domain", "whois", "summary"}
+
+    @patch("domain.routes._from_cache", return_value=None)
+    @patch(
+        "domain.routes.enumerate_subdomains",
+        return_value={"subdomains": ["www.example.com"], "count": 1},
+    )
+    @patch("domain.routes.validate_domain", return_value="93.184.216.34")
+    def test_subdomains_response_shape(self, mock_validate, mock_subs, mock_cache):
+        r = client.get("/v1/subdomains/example.com")
+        assert r.status_code == 200
+        assert set(r.json().keys()) == {"domain", "subdomains", "count", "summary"}
+
+    @patch("domain.routes._from_cache", return_value=None)
+    @patch("domain.routes.check_ct_logs", return_value=MOCK_CT_RESULT)
+    @patch("domain.routes.validate_domain", return_value="93.184.216.34")
+    def test_certs_response_shape(self, mock_validate, mock_ct, mock_cache):
+        r = client.get("/v1/certs/example.com")
+        assert r.status_code == 200
+        assert set(r.json().keys()) == {"domain", "total_certificates", "certificates", "summary"}
