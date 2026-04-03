@@ -2565,7 +2565,26 @@ class TestAsnRoute:
 class TestResponseModelFiltering:
     """Verify response_model_exclude_none and extra='ignore' behavior."""
 
-    # --- whois: exclude_none (cached absent when not from cache) ---
+    # --- dns: cached=False on fresh fetch ---
+    @patch("domain.routes._from_cache", return_value=None)
+    @patch("domain.routes.dns_lookup", return_value=MOCK_DNS_RESULT)
+    @patch("domain.routes.validate_domain", return_value="93.184.216.34")
+    def test_dns_cached_false_on_fresh(self, mock_validate, mock_dns, mock_cache):
+        r = client.get("/v1/dns/example.com")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["cached"] is False
+
+    # --- dns: response shape ---
+    @patch("domain.routes._from_cache", return_value=None)
+    @patch("domain.routes.dns_lookup", return_value=MOCK_DNS_RESULT)
+    @patch("domain.routes.validate_domain", return_value="93.184.216.34")
+    def test_dns_response_shape(self, mock_validate, mock_dns, mock_cache):
+        r = client.get("/v1/dns/example.com")
+        assert r.status_code == 200
+        assert set(r.json().keys()) == {"domain", "records", "summary", "cached"}
+
+    # --- whois: cached=False on fresh fetch ---
     @patch("domain.routes._from_cache", return_value=None)
     @patch("domain.routes.whois_lookup", return_value=MOCK_WHOIS_RESULT)
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
@@ -2573,7 +2592,7 @@ class TestResponseModelFiltering:
         r = client.get("/v1/whois/example.com")
         assert r.status_code == 200
         data = r.json()
-        assert "cached" not in data
+        assert data["cached"] is False
 
     # --- subdomains: exclude_none ---
     @patch("domain.routes._from_cache", return_value=None)
@@ -2586,7 +2605,7 @@ class TestResponseModelFiltering:
         r = client.get("/v1/subdomains/example.com")
         assert r.status_code == 200
         data = r.json()
-        assert "cached" not in data
+        assert data["cached"] is False
 
     # --- subdomains: extra='ignore' drops unknown fields ---
     @patch("domain.routes._from_cache", return_value=None)
@@ -2609,7 +2628,7 @@ class TestResponseModelFiltering:
         r = client.get("/v1/certs/example.com")
         assert r.status_code == 200
         data = r.json()
-        assert "cached" not in data
+        assert data["cached"] is False
 
     # --- certs: extra='ignore' drops unknown fields ---
     @patch("domain.routes._from_cache", return_value=None)
@@ -2632,7 +2651,7 @@ class TestResponseModelFiltering:
     def test_whois_response_shape(self, mock_validate, mock_whois, mock_cache):
         r = client.get("/v1/whois/example.com")
         assert r.status_code == 200
-        assert set(r.json().keys()) == {"domain", "whois", "summary"}
+        assert set(r.json().keys()) == {"domain", "whois", "summary", "cached"}
 
     @patch("domain.routes._from_cache", return_value=None)
     @patch(
@@ -2643,7 +2662,7 @@ class TestResponseModelFiltering:
     def test_subdomains_response_shape(self, mock_validate, mock_subs, mock_cache):
         r = client.get("/v1/subdomains/example.com")
         assert r.status_code == 200
-        assert set(r.json().keys()) == {"domain", "subdomains", "count", "summary"}
+        assert set(r.json().keys()) == {"domain", "subdomains", "count", "summary", "cached"}
 
     @patch("domain.routes._from_cache", return_value=None)
     @patch("domain.routes.check_ct_logs", return_value=MOCK_CT_RESULT)
@@ -2651,4 +2670,4 @@ class TestResponseModelFiltering:
     def test_certs_response_shape(self, mock_validate, mock_ct, mock_cache):
         r = client.get("/v1/certs/example.com")
         assert r.status_code == 200
-        assert set(r.json().keys()) == {"domain", "total_certificates", "certificates", "summary"}
+        assert set(r.json().keys()) == {"domain", "total_certificates", "certificates", "summary", "cached"}
