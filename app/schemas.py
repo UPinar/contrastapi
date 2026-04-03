@@ -23,7 +23,7 @@ class DomainReportResponse(BaseModel):
     summary: str = ""
     cached: bool | None = None
 
-    model_config = {"extra": "allow"}
+    model_config = {"extra": "ignore"}
 
 
 # === DNS ===
@@ -50,7 +50,7 @@ class IpLookupResponse(BaseModel):
     reputation: dict | None = None
     summary: str = ""
 
-    model_config = {"extra": "allow"}
+    model_config = {"extra": "ignore"}
 
 
 # === Threat Intelligence ===
@@ -91,7 +91,6 @@ class TechResponse(BaseModel):
     categories: dict[str, list[str]] = Field(default_factory=dict)
     count: int = 0
     summary: str = ""
-    cached: bool | None = None
 
 
 # === SSL Certificate ===
@@ -174,7 +173,7 @@ class IocResponse(BaseModel):
     sources: dict = Field(default_factory=dict)
     summary: str = ""
 
-    model_config = {"extra": "allow"}
+    model_config = {"extra": "ignore"}
 
 
 # === Malware Hash ===
@@ -202,7 +201,7 @@ class PasswordResponse(BaseModel):
     breach_count: int = 0
     summary: str = ""
 
-    model_config = {"extra": "allow"}
+    model_config = {"extra": "ignore"}
 
 
 # === Phishing / Malicious URL Check ===
@@ -339,3 +338,141 @@ class AsnResponse(BaseModel):
     ipv6_count: int = 0
     summary: str = ""
     cached: bool | None = None
+
+
+# === WHOIS ===
+
+
+class WhoisResponse(BaseModel):
+    domain: str
+    whois: dict
+    summary: str = ""
+    cached: bool | None = None
+
+
+# === Subdomains ===
+
+
+class SubdomainsResponse(BaseModel):
+    domain: str
+    count: int = 0
+    subdomains: list[str] = Field(default_factory=list)
+    summary: str = ""
+    cached: bool | None = None
+
+    model_config = {"extra": "ignore"}
+
+
+# === Certificate Transparency ===
+
+
+class CertsResponse(BaseModel):
+    domain: str
+    total_certificates: int = 0
+    certificates: list[dict] = Field(default_factory=list)
+    summary: str = ""
+    cached: bool | None = None
+
+    model_config = {"extra": "ignore"}
+
+
+# === CVE Search / Recent / KEV ===
+
+
+class CveSearchResponse(BaseModel):
+    count: int = 0
+    summary: str = ""
+    results: list[CveResponse] = Field(default_factory=list)
+
+
+class CveRecentResponse(BaseModel):
+    count: int = 0
+    hours: int = 24
+    summary: str = ""
+    results: list[CveResponse] = Field(default_factory=list)
+
+
+class CveKevResponse(BaseModel):
+    count: int = 0
+    summary: str = ""
+    results: list[CveResponse] = Field(default_factory=list)
+
+
+# === EPSS Score ===
+
+
+class EpssResponse(BaseModel):
+    cve_id: str
+    score: float | None = None
+    percentile: float | None = None
+    summary: str = ""
+
+
+# === Code Security ===
+
+
+class CodeFinding(BaseModel):
+    type: str = ""
+    severity: str = "medium"
+    line: int | None = None
+    match: str | None = None
+    description: str = ""
+    remediation: str = ""
+
+
+class CodeCheckResponse(BaseModel):
+    findings: list[CodeFinding] = Field(default_factory=list)
+    total: int = 0
+    by_severity: dict[str, int] = Field(default_factory=dict)
+    summary: str = ""
+
+
+class HeaderFinding(BaseModel):
+    header: str
+    severity: str
+    present: bool
+    description: str = ""
+    remediation: str = ""
+    reference: str = ""
+
+
+class ScanHeadersResponse(BaseModel):
+    domain: str
+    status_code: int = 0
+    url: str = ""
+    score: int = 0
+    grade: str = "F"
+    findings: list[HeaderFinding] = Field(default_factory=list)
+    summary: str = ""
+    headers_present: list[str] = Field(default_factory=list)
+    headers_missing: list[str] = Field(default_factory=list)
+
+
+class CheckHeadersResponse(BaseModel):
+    findings: list[HeaderFinding] = Field(default_factory=list)
+    total: int = 0
+    by_severity: dict[str, int] = Field(default_factory=dict)
+    summary: str = ""
+    score: int = 0
+    grade: str = "F"
+    headers_present: list[str] = Field(default_factory=list)
+    headers_missing: list[str] = Field(default_factory=list)
+
+
+class DepFinding(BaseModel):
+    package: str
+    version: str | None = None
+    cve_id: str
+    severity: str = "unknown"
+    cvss_v3: float | None = None
+    description: str = ""
+    epss_score: float | None = None
+    in_kev: bool = False
+    remediation: str = ""
+
+
+class DependenciesResponse(BaseModel):
+    findings: list[DepFinding] = Field(default_factory=list)
+    total: int = 0
+    by_severity: dict[str, int] = Field(default_factory=dict)
+    summary: str = ""
