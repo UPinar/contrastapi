@@ -759,7 +759,7 @@ def full_domain_report(domain: str, resolved_ip: str | None = None, client_ip: s
     risk_score = report["risk"]["score"]
 
     threat_count = report.get("threat", {}).get("url_count", 0)
-    threat_str = f"WARNING: {threat_count} URLhaus entries." if threat_count > 0 else ""
+    threat_str = f"WARNING: {threat_count} URLhaus entries" if threat_count > 0 else ""
 
     report["summary"] = (
         f"{domain} resolves to {ip}. "
@@ -767,8 +767,8 @@ def full_domain_report(domain: str, resolved_ip: str | None = None, client_ip: s
         f"SSL grade {ssl_grade} by {ssl_issuer}. "
         f"{waf_str} "
         f"Email security: {email_grade}. "
-        f"{sub_count} subdomains found."
-        f"{' ' + threat_str if threat_str else ''}"
+        f"{sub_count} subdomains found"
+        f"{'. ' + threat_str if threat_str else ''}"
     )
 
     return report
