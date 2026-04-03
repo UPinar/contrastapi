@@ -125,9 +125,8 @@ def domain_report(domain: str, request: Request):
         result = full_domain_report(domain, resolved_ip=resolved_ip, client_ip=client_ip)
     except TimeoutError:
         raise HTTPException(status_code=504, detail="Domain report timed out — upstream services too slow") from None
-    result["cached"] = False
     save_cached_domain(domain, result)
-    return result
+    return {**result, "cached": False}
 
 
 @router.get("/dns/{domain}", operation_id="dns_records", response_model=DnsResponse, response_model_exclude_none=True)
@@ -140,7 +139,7 @@ def dns_records(domain: str, request: Request):
     records = dns_lookup(domain)
     if not records:
         raise HTTPException(status_code=404, detail=f"No DNS records found for '{domain}'")
-    return {"domain": domain, "records": records, "summary": _dns_summary(records, domain)}
+    return {"domain": domain, "records": records, "summary": _dns_summary(records, domain), "cached": False}
 
 
 @router.get(
@@ -155,7 +154,7 @@ def whois_endpoint(domain: str, request: Request):
     result = whois_lookup(domain)
     if "error" in result:
         raise HTTPException(status_code=502, detail=result["error"])
-    return {"domain": domain, "whois": result, "summary": _whois_summary(result, domain)}
+    return {"domain": domain, "whois": result, "summary": _whois_summary(result, domain), "cached": False}
 
 
 @router.get(
@@ -175,7 +174,7 @@ def subdomains(domain: str, request: Request):
     result = enumerate_subdomains(domain)
     count = result.get("count", len(result.get("subdomains", [])))
     summary = f"{count} subdomain{'s' if count != 1 else ''} found for {domain}"
-    return {"domain": domain, **result, "summary": summary}
+    return {"domain": domain, **result, "summary": summary, "cached": False}
 
 
 @router.get("/certs/{domain}", operation_id="ct_logs", response_model=CertsResponse, response_model_exclude_none=True)
@@ -190,7 +189,7 @@ def certs(domain: str, request: Request):
     result = check_ct_logs(domain)
     total = result.get("total_certificates", 0)
     summary = f"{total} certificate{'s' if total != 1 else ''} in CT logs for {domain}"
-    return {"domain": domain, **result, "summary": summary}
+    return {"domain": domain, **result, "summary": summary, "cached": False}
 
 
 @router.get(
@@ -687,9 +686,8 @@ def _run_single_report(raw_domain: str, client_ip: str) -> dict:
         if cached:
             return {"domain": domain, "status": "ok", "report": {**cached, "cached": True}, "error": None}
         report = full_domain_report(domain, resolved_ip=resolved_ip, client_ip=client_ip)
-        report["cached"] = False
         save_cached_domain(domain, report)
-        return {"domain": domain, "status": "ok", "report": report, "error": None}
+        return {"domain": domain, "status": "ok", "report": {**report, "cached": False}, "error": None}
     except Exception as e:
         logger.warning("Bulk report failed for %s: %s", domain, e)
         return {"domain": domain, "status": "error", "report": None, "error": "Domain report failed"}
