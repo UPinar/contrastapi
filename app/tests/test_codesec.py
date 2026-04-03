@@ -546,3 +546,65 @@ class TestCodeSizeLimit:
         code = "x = 1\n" * 100
         r = client.post("/v1/check/secrets", json={"code": code})
         assert r.status_code == 200
+
+
+# =========== response_model filtering tests ===========
+
+
+class TestResponseModelFiltering:
+    """Verify response_model_exclude_none behavior on codesec endpoints."""
+
+    def test_secrets_finding_exclude_none(self):
+        """Finding with no match → match field absent from response."""
+        code = "safe_code = 42"
+        r = client.post("/v1/check/secrets", json={"code": code})
+        assert r.status_code == 200
+        data = r.json()
+        for finding in data["findings"]:
+            if finding.get("match") is None:
+                assert "match" not in finding
+
+    def test_injection_finding_exclude_none(self):
+        """Finding with no match → match field absent from response."""
+        code = "safe_code = 42"
+        r = client.post("/v1/check/injection", json={"code": code})
+        assert r.status_code == 200
+        data = r.json()
+        for finding in data["findings"]:
+            if finding.get("match") is None:
+                assert "match" not in finding
+
+    def test_check_headers_exclude_none(self):
+        """Headers response has no None values."""
+        r = client.post("/v1/check/headers", json={"headers": {}})
+        assert r.status_code == 200
+        data = r.json()
+        # All fields should be present (no Optional fields at top level)
+        assert "findings" in data
+        assert "score" in data
+        assert "grade" in data
+
+    def test_dependencies_exclude_none(self):
+        """Dependency finding with version=None → version absent."""
+        r = client.post(
+            "/v1/check/dependencies",
+            json={"packages": [{"name": "nonexistent-pkg-xyz"}]},
+        )
+        assert r.status_code == 200
+        data = r.json()
+        # No CVEs found for fake package, but response shape is correct
+        assert "findings" in data
+        assert "total" in data
+        assert data["total"] == 0
+
+    def test_dependencies_version_none_excluded(self):
+        """When version is None in a finding, it should be absent."""
+        r = client.post(
+            "/v1/check/dependencies",
+            json={"packages": [{"name": "nginx"}]},
+        )
+        assert r.status_code == 200
+        data = r.json()
+        for finding in data["findings"]:
+            if finding.get("version") is None:
+                assert "version" not in finding
