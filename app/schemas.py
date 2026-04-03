@@ -32,6 +32,7 @@ class DomainReportResponse(BaseModel):
 class DnsResponse(BaseModel):
     domain: str
     records: dict
+    summary: str | None = None
     cached: bool | None = None
 
 
