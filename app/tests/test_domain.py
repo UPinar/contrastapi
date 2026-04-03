@@ -276,7 +276,7 @@ MOCK_FULL_REPORT = {
     "subdomains": MOCK_SUBDOMAIN_RESULT,
     "certificates": MOCK_CT_RESULT,
     "waf": {"detected": [], "waf_present": False},
-    "summary": "example.com resolves to 93.184.216.34.",
+    "summary": "example.com resolves to 93.184.216.34",
 }
 
 
@@ -2549,7 +2549,7 @@ class TestAsnRoute:
             "ipv6_prefixes": [],
             "ipv4_count": 1,
             "ipv6_count": 0,
-            "summary": "AS13335 (CLOUDFLARENET). 1 IPv4 and 0 IPv6 prefixes.",
+            "summary": "AS13335 (CLOUDFLARENET). 1 IPv4 and 0 IPv6 prefixes",
         }
         with patch("domain.routes.get_cached_domain", return_value=cached_data):
             r = client.get("/v1/asn/1.1.1.1")

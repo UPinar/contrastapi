@@ -284,7 +284,7 @@ def ssl_certificate(domain: str, request: Request):
                     "cipher": cipher_dict,
                     "chain": chain,
                     "grade": grade,
-                    "summary": ". ".join(parts) + ".",
+                    "summary": ". ".join(parts),
                 }
 
                 save_cached_domain(f"ssl:{domain}", result)
@@ -377,7 +377,7 @@ def ip_lookup(ip: str, request: Request):
         "ip": ip,
         "ptr": ptr,
         **enrichment,
-        "summary": ". ".join(parts) + ".",
+        "summary": ". ".join(parts),
     }
     if reputation:
         result["reputation"] = reputation
@@ -457,7 +457,7 @@ def domain_monitor(domain: str, request: Request):
         "risk_grade": risk_grade,
         "risk_score": risk_score,
         "last_full_report": last_full_report,
-        "summary": ". ".join(parts) + ".",
+        "summary": ". ".join(parts),
     }
 
 
@@ -652,7 +652,7 @@ def asn_lookup(target: str, request: Request):
         "ipv6_prefixes": ipv6_prefixes,
         "ipv4_count": len(ipv4_prefixes),
         "ipv6_count": len(ipv6_prefixes),
-        "summary": ". ".join(parts) + ".",
+        "summary": ". ".join(parts),
     }
     if resolved_ip:
         result["resolved_ip"] = resolved_ip
