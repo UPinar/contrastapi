@@ -556,13 +556,12 @@ def asn_lookup(target: str, request: Request):
     cache_key = f"asn:{ip}"
     cached = get_cached_domain(cache_key)
     if cached:
-        # Update target/resolved_ip for the actual request
-        cached["target"] = target
+        result = {**cached, "target": target, "cached": True}
         if resolved_ip:
-            cached["resolved_ip"] = resolved_ip
-        elif "resolved_ip" in cached:
-            del cached["resolved_ip"]
-        return {**cached, "cached": True}
+            result["resolved_ip"] = resolved_ip
+        elif "resolved_ip" in result:
+            del result["resolved_ip"]
+        return result
 
     # Fetch ASN from RIPE Stat
     try:
