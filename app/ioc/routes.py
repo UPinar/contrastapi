@@ -30,7 +30,9 @@ _HEX_RE = re.compile(r"^[0-9a-fA-F]+$")
 _HASH_LENS = {32: "md5", 40: "sha1", 64: "sha256"}
 
 
-@router.get("/ioc/{indicator:path}", operation_id="ioc_lookup", response_model=IocResponse, response_model_exclude_none=True)
+@router.get(
+    "/ioc/{indicator:path}", operation_id="ioc_lookup", response_model=IocResponse, response_model_exclude_none=True
+)
 def ioc_lookup(indicator: str, request: Request):
     """Unified IOC enrichment — auto-detects IP, domain, URL, or hash and queries threat feeds."""
     authenticate(request, "/v1/ioc")
@@ -117,7 +119,9 @@ def ioc_lookup(indicator: str, request: Request):
     }
 
 
-@router.get("/hash/{file_hash}", operation_id="hash_lookup", response_model=HashResponse, response_model_exclude_none=True)
+@router.get(
+    "/hash/{file_hash}", operation_id="hash_lookup", response_model=HashResponse, response_model_exclude_none=True
+)
 def hash_lookup(file_hash: str, request: Request):
     """Malware file hash reputation lookup via MalwareBazaar."""
     authenticate(request, "/v1/hash")
@@ -155,7 +159,12 @@ def hash_lookup(file_hash: str, request: Request):
     }
 
 
-@router.get("/password/{sha1_hash}", operation_id="password_check", response_model=PasswordResponse, response_model_exclude_none=True)
+@router.get(
+    "/password/{sha1_hash}",
+    operation_id="password_check",
+    response_model=PasswordResponse,
+    response_model_exclude_none=True,
+)
 def password_check(sha1_hash: str, request: Request):
     """Password breach check via HIBP Pwned Passwords (k-anonymity). Send full SHA1 hash, get found + breach count."""
     authenticate(request, "/v1/password")
@@ -197,7 +206,12 @@ def _query_urlhaus_url(url: str) -> dict:
         return {"found": False, "threat": None, "tags": []}
 
 
-@router.get("/phishing/{url:path}", operation_id="phishing_check", response_model=PhishingResponse, response_model_exclude_none=True)
+@router.get(
+    "/phishing/{url:path}",
+    operation_id="phishing_check",
+    response_model=PhishingResponse,
+    response_model_exclude_none=True,
+)
 def phishing_check(url: str, request: Request):
     """Check if a URL is malicious via URLhaus (host + exact URL lookup)."""
     authenticate(request, "/v1/phishing")

@@ -58,7 +58,9 @@ def _severity_counts(findings: list[dict]) -> dict[str, int]:
 # --- Endpoints ---
 
 
-@router.post("/check/secrets", operation_id="check_secrets", response_model=CodeCheckResponse, response_model_exclude_none=True)
+@router.post(
+    "/check/secrets", operation_id="check_secrets", response_model=CodeCheckResponse, response_model_exclude_none=True
+)
 def check_secrets_endpoint(body: CodeInput, request: Request):
     """Detect hardcoded secrets (AWS keys, tokens, passwords, etc.) in source code."""
     authenticate(request, "/v1/check/secrets")
@@ -87,7 +89,12 @@ def check_secrets_endpoint(body: CodeInput, request: Request):
     }
 
 
-@router.post("/check/injection", operation_id="check_injection", response_model=CodeCheckResponse, response_model_exclude_none=True)
+@router.post(
+    "/check/injection",
+    operation_id="check_injection",
+    response_model=CodeCheckResponse,
+    response_model_exclude_none=True,
+)
 def check_injection_endpoint(body: CodeInput, request: Request):
     """Detect SQL injection, command injection, and path traversal patterns in source code."""
     authenticate(request, "/v1/check/injection")
@@ -116,7 +123,13 @@ def check_injection_endpoint(body: CodeInput, request: Request):
     }
 
 
-@router.get("/scan/headers/{domain}", operation_id="scan_headers", tags=["Domain Intelligence"], response_model=ScanHeadersResponse, response_model_exclude_none=True)
+@router.get(
+    "/scan/headers/{domain}",
+    operation_id="scan_headers",
+    tags=["Domain Intelligence"],
+    response_model=ScanHeadersResponse,
+    response_model_exclude_none=True,
+)
 def scan_headers_endpoint(domain: str, request: Request):
     """Fetch a domain's HTTP headers live and analyze security posture."""
     domain = clean_domain(domain)
@@ -146,7 +159,12 @@ def scan_headers_endpoint(domain: str, request: Request):
     }
 
 
-@router.post("/check/headers", operation_id="check_headers", response_model=CheckHeadersResponse, response_model_exclude_none=True)
+@router.post(
+    "/check/headers",
+    operation_id="check_headers",
+    response_model=CheckHeadersResponse,
+    response_model_exclude_none=True,
+)
 def check_headers_endpoint(body: HeadersInput, request: Request):
     """Validate HTTP security headers (CSP, HSTS, X-Frame-Options, etc.)."""
     authenticate(request, "/v1/check/headers")
@@ -168,7 +186,12 @@ def check_headers_endpoint(body: HeadersInput, request: Request):
     }
 
 
-@router.post("/check/dependencies", operation_id="check_dependencies", response_model=DependenciesResponse, response_model_exclude_none=True)
+@router.post(
+    "/check/dependencies",
+    operation_id="check_dependencies",
+    response_model=DependenciesResponse,
+    response_model_exclude_none=True,
+)
 def check_dependencies_endpoint(body: DependenciesInput, request: Request):
     """Check packages against the CVE database for known vulnerabilities."""
     authenticate(request, "/v1/check/dependencies")
