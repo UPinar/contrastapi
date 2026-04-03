@@ -118,7 +118,12 @@ def epss_score(cve_id: str, request: Request):
     if result is None:
         raise HTTPException(status_code=404, detail=f"No EPSS data for {cve_id}")
 
-    return result
+    score = result.get("score")
+    if score is not None:
+        summary = f"{cve_id}: {score:.0%} exploitation probability"
+    else:
+        summary = f"{cve_id}: no EPSS score available"
+    return {**result, "summary": summary}
 
 
 def _format_cve(row: dict) -> dict:

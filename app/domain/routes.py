@@ -73,6 +73,27 @@ def _validate_and_auth(request: Request, raw_domain: str) -> tuple[str, str, dic
     return domain, resolved_ip, auth_ctx
 
 
+def _dns_summary(records: dict, domain: str) -> str:
+    """Build a one-line DNS record summary."""
+    parts = []
+    for rtype in ("a", "aaaa", "ns", "mx", "txt", "cname", "soa"):
+        recs = records.get(rtype)
+        if recs:
+            count = len(recs) if isinstance(recs, list) else 1
+            parts.append(f"{count} {rtype.upper()}")
+    return (", ".join(parts) + f" records for {domain}") if parts else f"No records for {domain}"
+
+
+def _whois_summary(whois: dict, domain: str) -> str:
+    """Build a one-line WHOIS summary."""
+    parts = [domain]
+    if whois.get("registrar"):
+        parts.append(whois["registrar"])
+    if whois.get("expiry_date"):
+        parts.append(f"expires {whois['expiry_date']}")
+    return " — ".join(parts)
+
+
 def _from_cache(domain: str, key: str) -> dict | None:
     """Try to extract a section from a cached full domain report."""
     cached = get_cached_domain(domain)
@@ -100,7 +121,7 @@ def domain_report(domain: str, request: Request):
     try:
         result = full_domain_report(domain, resolved_ip=resolved_ip, client_ip=client_ip)
     except TimeoutError:
-        raise HTTPException(status_code=504, detail="Domain report timed out — upstream services too slow")
+        raise HTTPException(status_code=504, detail="Domain report timed out — upstream services too slow") from None
     result["cached"] = False
     save_cached_domain(domain, result)
     return result
@@ -112,11 +133,11 @@ def dns_records(domain: str, request: Request):
     domain, resolved_ip, auth_ctx = _validate_and_auth(request, domain)
     cached = _from_cache(domain, "dns")
     if cached:
-        return {"domain": domain, "records": cached, "cached": True}
+        return {"domain": domain, "records": cached, "summary": _dns_summary(cached, domain), "cached": True}
     records = dns_lookup(domain)
     if not records:
         raise HTTPException(status_code=404, detail=f"No DNS records found for '{domain}'")
-    return {"domain": domain, "records": records}
+    return {"domain": domain, "records": records, "summary": _dns_summary(records, domain)}
 
 
 @router.get("/whois/{domain}", operation_id="whois_lookup")
@@ -125,11 +146,11 @@ def whois_endpoint(domain: str, request: Request):
     domain, resolved_ip, auth_ctx = _validate_and_auth(request, domain)
     cached = _from_cache(domain, "whois")
     if cached and "error" not in cached:
-        return {"domain": domain, "whois": cached, "cached": True}
+        return {"domain": domain, "whois": cached, "summary": _whois_summary(cached, domain), "cached": True}
     result = whois_lookup(domain)
     if "error" in result:
         raise HTTPException(status_code=502, detail=result["error"])
-    return {"domain": domain, "whois": result}
+    return {"domain": domain, "whois": result, "summary": _whois_summary(result, domain)}
 
 
 @router.get("/subdomains/{domain}", operation_id="subdomain_enum")
@@ -138,9 +159,13 @@ def subdomains(domain: str, request: Request):
     domain, resolved_ip, auth_ctx = _validate_and_auth(request, domain)
     cached = _from_cache(domain, "subdomains")
     if cached:
-        return {"domain": domain, **cached, "cached": True}
+        count = cached.get("count", len(cached.get("subdomains", [])))
+        summary = f"{count} subdomain{'s' if count != 1 else ''} found for {domain}"
+        return {"domain": domain, **cached, "summary": summary, "cached": True}
     result = enumerate_subdomains(domain)
-    return {"domain": domain, **result}
+    count = result.get("count", len(result.get("subdomains", [])))
+    summary = f"{count} subdomain{'s' if count != 1 else ''} found for {domain}"
+    return {"domain": domain, **result, "summary": summary}
 
 
 @router.get("/certs/{domain}", operation_id="ct_logs")
@@ -149,9 +174,13 @@ def certs(domain: str, request: Request):
     domain, resolved_ip, auth_ctx = _validate_and_auth(request, domain)
     cached = _from_cache(domain, "certificates")
     if cached:
-        return {"domain": domain, **cached, "cached": True}
+        total = cached.get("total_certificates", 0)
+        summary = f"{total} certificate{'s' if total != 1 else ''} in CT logs for {domain}"
+        return {"domain": domain, **cached, "summary": summary, "cached": True}
     result = check_ct_logs(domain)
-    return {"domain": domain, **result}
+    total = result.get("total_certificates", 0)
+    summary = f"{total} certificate{'s' if total != 1 else ''} in CT logs for {domain}"
+    return {"domain": domain, **result, "summary": summary}
 
 
 @router.get(
