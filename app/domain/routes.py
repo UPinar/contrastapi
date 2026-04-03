@@ -35,14 +35,17 @@ from pydantic import BaseModel, Field
 from schemas import (
     AsnResponse,
     BulkDomainResponse,
+    CertsResponse,
     DnsResponse,
     DomainReportResponse,
     IpLookupResponse,
     MonitorResponse,
     SslResponse,
+    SubdomainsResponse,
     TechResponse,
     ThreatResponse,
     VulnsResponse,
+    WhoisResponse,
 )
 from validation import _is_valid_format, clean_domain, get_client_ip, is_private_ip, is_valid_ip, validate_domain
 
@@ -140,7 +143,7 @@ def dns_records(domain: str, request: Request):
     return {"domain": domain, "records": records, "summary": _dns_summary(records, domain)}
 
 
-@router.get("/whois/{domain}", operation_id="whois_lookup")
+@router.get("/whois/{domain}", operation_id="whois_lookup", response_model=WhoisResponse, response_model_exclude_none=True)
 def whois_endpoint(domain: str, request: Request):
     """WHOIS registration data for a domain."""
     domain, resolved_ip, auth_ctx = _validate_and_auth(request, domain)
@@ -153,7 +156,7 @@ def whois_endpoint(domain: str, request: Request):
     return {"domain": domain, "whois": result, "summary": _whois_summary(result, domain)}
 
 
-@router.get("/subdomains/{domain}", operation_id="subdomain_enum")
+@router.get("/subdomains/{domain}", operation_id="subdomain_enum", response_model=SubdomainsResponse, response_model_exclude_none=True)
 def subdomains(domain: str, request: Request):
     """Subdomain enumeration via DNS brute force + certificate transparency."""
     domain, resolved_ip, auth_ctx = _validate_and_auth(request, domain)
@@ -168,7 +171,7 @@ def subdomains(domain: str, request: Request):
     return {"domain": domain, **result, "summary": summary}
 
 
-@router.get("/certs/{domain}", operation_id="ct_logs")
+@router.get("/certs/{domain}", operation_id="ct_logs", response_model=CertsResponse, response_model_exclude_none=True)
 def certs(domain: str, request: Request):
     """Certificate transparency log lookup."""
     domain, resolved_ip, auth_ctx = _validate_and_auth(request, domain)
@@ -289,7 +292,7 @@ def ssl_certificate(domain: str, request: Request):
         raise HTTPException(status_code=502, detail=f"SSL inspection failed for {domain}") from None
 
 
-@router.get("/threat/{domain}", operation_id="threat_intel", response_model=ThreatResponse)
+@router.get("/threat/{domain}", operation_id="threat_intel", response_model=ThreatResponse, response_model_exclude_none=True)
 def threat_intel(domain: str, request: Request):
     """Threat intelligence — check domain against URLhaus for known malware URLs."""
     domain, resolved_ip, auth_ctx = _validate_and_auth(request, domain)
@@ -388,7 +391,7 @@ def tech_fingerprint(domain: str, request: Request):
     return {"domain": domain, **result}
 
 
-@router.get("/monitor/{domain}", operation_id="domain_monitor", response_model=MonitorResponse)
+@router.get("/monitor/{domain}", operation_id="domain_monitor", response_model=MonitorResponse, response_model_exclude_none=True)
 def domain_monitor(domain: str, request: Request):
     """Lightweight health check — DNS up/down, SSL status, risk grade from cache. Designed for high-frequency polling."""
     domain, resolved_ip, auth_ctx = _validate_and_auth(request, domain)
@@ -448,7 +451,7 @@ def domain_monitor(domain: str, request: Request):
     }
 
 
-@router.get("/domain/{domain}/vulns", operation_id="domain_vulns", response_model=VulnsResponse)
+@router.get("/domain/{domain}/vulns", operation_id="domain_vulns", response_model=VulnsResponse, response_model_exclude_none=True)
 def domain_vulns(domain: str, request: Request):
     """Tech stack vulnerability scan — detect technologies, then look up CVEs for each."""
     domain, resolved_ip, auth_ctx = _validate_and_auth(request, domain)
@@ -676,7 +679,7 @@ def _run_single_report(raw_domain: str, client_ip: str) -> dict:
         return {"domain": domain, "status": "error", "report": None, "error": "Domain report failed"}
 
 
-@router.post("/domains/bulk", operation_id="bulk_domain_report", response_model=BulkDomainResponse)
+@router.post("/domains/bulk", operation_id="bulk_domain_report", response_model=BulkDomainResponse, response_model_exclude_none=True)
 def bulk_domain_report(body: _BulkRequest, request: Request):
     """Bulk domain intelligence — up to 10 domains (free) or 50 (pro). Each domain counts as 1 request toward rate limit."""
     auth_ctx = authenticate(request, "/v1/domains/bulk")

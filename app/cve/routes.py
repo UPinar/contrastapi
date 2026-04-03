@@ -6,7 +6,7 @@ import httpx
 from auth import authenticate
 from db import get_cached_domain, get_cve, get_epss, get_kev_cves, get_recent_cves, save_cached_domain, search_cves
 from fastapi import APIRouter, HTTPException, Query, Request
-from schemas import CveResponse, ExploitResponse
+from schemas import CveKevResponse, CveRecentResponse, CveResponse, CveSearchResponse, EpssResponse, ExploitResponse
 from validation import is_valid_ip, validate_cve_id
 
 logger = logging.getLogger("contrastapi")
@@ -30,7 +30,7 @@ def _check_cve_input(cve_id: str):
         raise HTTPException(status_code=400, detail="Invalid CVE ID format (expected CVE-YYYY-NNNNN)")
 
 
-@router.get("/cve/{cve_id}", operation_id="cve_lookup", response_model=CveResponse)
+@router.get("/cve/{cve_id}", operation_id="cve_lookup", response_model=CveResponse, response_model_exclude_none=True)
 def cve_lookup(cve_id: str, request: Request):
     """Look up a single CVE by ID. Returns full details with EPSS score and KEV status."""
     cve_id = cve_id.strip().upper()
@@ -45,7 +45,7 @@ def cve_lookup(cve_id: str, request: Request):
     return _format_cve(result)
 
 
-@router.get("/cves", operation_id="cve_search")
+@router.get("/cves", operation_id="cve_search", response_model=CveSearchResponse, response_model_exclude_none=True)
 def cve_search(
     request: Request,
     product: str | None = Query(
@@ -72,7 +72,7 @@ def cve_search(
     }
 
 
-@router.get("/cves/recent", operation_id="cve_recent")
+@router.get("/cves/recent", operation_id="cve_recent", response_model=CveRecentResponse, response_model_exclude_none=True)
 def cve_recent(
     request: Request,
     hours: int = Query(24, ge=1, le=168, description="CVEs published within N hours (max 168 = 7 days)"),
@@ -90,7 +90,7 @@ def cve_recent(
     }
 
 
-@router.get("/cves/kev", operation_id="cve_kev")
+@router.get("/cves/kev", operation_id="cve_kev", response_model=CveKevResponse, response_model_exclude_none=True)
 def cve_kev(
     request: Request,
     limit: int = Query(100, ge=1, le=500, description="Max results"),
@@ -106,7 +106,7 @@ def cve_kev(
     }
 
 
-@router.get("/epss/{cve_id}", operation_id="epss_score")
+@router.get("/epss/{cve_id}", operation_id="epss_score", response_model=EpssResponse, response_model_exclude_none=True)
 def epss_score(cve_id: str, request: Request):
     """EPSS (Exploit Prediction Scoring System) score for a CVE."""
     cve_id = cve_id.strip().upper()

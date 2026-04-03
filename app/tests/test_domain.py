@@ -2104,7 +2104,7 @@ class TestMonitorRoute:
         assert r.status_code == 200
         data = r.json()
         assert data["is_up"] is False
-        assert data["ssl_grade"] is None
+        assert "ssl_grade" not in data  # excluded by response_model_exclude_none
         assert "DOWN" in data["summary"]
 
     @patch("domain.routes.get_cached_domain")
