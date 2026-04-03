@@ -258,7 +258,7 @@ async def password_check(sha1_hash: str) -> str:
     """Check if a password has been exposed in data breaches via HIBP (k-anonymity, safe).
 
     Args:
-        sha1_hash: First 5 characters of SHA1 hash of the password
+        sha1_hash: Full SHA1 hash of the password (40 hexadecimal characters)
     """
     return _fmt(await _get(f"/v1/password/{sha1_hash}"))
 

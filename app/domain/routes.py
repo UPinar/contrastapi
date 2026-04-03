@@ -97,7 +97,10 @@ def domain_report(domain: str, request: Request):
         return {**cached, "cached": True}
 
     client_ip = get_client_ip(request)
-    result = full_domain_report(domain, resolved_ip=resolved_ip, client_ip=client_ip)
+    try:
+        result = full_domain_report(domain, resolved_ip=resolved_ip, client_ip=client_ip)
+    except TimeoutError:
+        raise HTTPException(status_code=504, detail="Domain report timed out — upstream services too slow")
     result["cached"] = False
     save_cached_domain(domain, result)
     return result
