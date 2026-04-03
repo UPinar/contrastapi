@@ -2557,3 +2557,69 @@ class TestAsnRoute:
             data = r.json()
             assert data["cached"] is True
             assert data["asn"] == 13335
+
+
+# =========== response_model filtering tests ===========
+
+
+class TestResponseModelFiltering:
+    """Verify response_model_exclude_none and extra='ignore' behavior."""
+
+    # --- whois: exclude_none (cached absent when not from cache) ---
+    @patch("domain.routes._from_cache", return_value=None)
+    @patch("domain.routes.whois_lookup", return_value=MOCK_WHOIS_RESULT)
+    @patch("domain.routes.validate_domain", return_value="93.184.216.34")
+    def test_whois_exclude_none(self, mock_validate, mock_whois, mock_cache):
+        r = client.get("/v1/whois/example.com")
+        assert r.status_code == 200
+        data = r.json()
+        assert "cached" not in data
+
+    # --- subdomains: exclude_none ---
+    @patch("domain.routes._from_cache", return_value=None)
+    @patch(
+        "domain.routes.enumerate_subdomains",
+        return_value={"subdomains": ["www.example.com"], "count": 1},
+    )
+    @patch("domain.routes.validate_domain", return_value="93.184.216.34")
+    def test_subdomains_exclude_none(self, mock_validate, mock_subs, mock_cache):
+        r = client.get("/v1/subdomains/example.com")
+        assert r.status_code == 200
+        data = r.json()
+        assert "cached" not in data
+
+    # --- subdomains: extra='ignore' drops unknown fields ---
+    @patch("domain.routes._from_cache", return_value=None)
+    @patch(
+        "domain.routes.enumerate_subdomains",
+        return_value={"subdomains": ["www.example.com"], "count": 1, "_debug_internal": "secret"},
+    )
+    @patch("domain.routes.validate_domain", return_value="93.184.216.34")
+    def test_subdomains_extra_ignored(self, mock_validate, mock_subs, mock_cache):
+        r = client.get("/v1/subdomains/example.com")
+        assert r.status_code == 200
+        data = r.json()
+        assert "_debug_internal" not in data
+
+    # --- certs: exclude_none ---
+    @patch("domain.routes._from_cache", return_value=None)
+    @patch("domain.routes.check_ct_logs", return_value=MOCK_CT_RESULT)
+    @patch("domain.routes.validate_domain", return_value="93.184.216.34")
+    def test_certs_exclude_none(self, mock_validate, mock_ct, mock_cache):
+        r = client.get("/v1/certs/example.com")
+        assert r.status_code == 200
+        data = r.json()
+        assert "cached" not in data
+
+    # --- certs: extra='ignore' drops unknown fields ---
+    @patch("domain.routes._from_cache", return_value=None)
+    @patch(
+        "domain.routes.check_ct_logs",
+        return_value={**MOCK_CT_RESULT, "_raw_response": {"leaked": True}},
+    )
+    @patch("domain.routes.validate_domain", return_value="93.184.216.34")
+    def test_certs_extra_ignored(self, mock_validate, mock_ct, mock_cache):
+        r = client.get("/v1/certs/example.com")
+        assert r.status_code == 200
+        data = r.json()
+        assert "_raw_response" not in data

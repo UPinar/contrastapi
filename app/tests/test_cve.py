@@ -650,3 +650,66 @@ class TestExploitLookup:
         data = r.json()
         assert data["cached"] is True
         assert data["has_public_exploit"] is True
+
+
+# =========== response_model filtering tests ===========
+
+
+class TestResponseModelFiltering:
+    """Verify response_model_exclude_none behavior on CVE endpoints."""
+
+    def test_cve_lookup_exclude_none(self):
+        """CVE without cvss_vector → cvss_breakdown and cvss_vector absent."""
+        _seed_cve(cve_id="CVE-2024-9901", cvss_vector=None, cvss_v3=None, cwe_id=None)
+        r = client.get("/v1/cve/CVE-2024-9901")
+        assert r.status_code == 200
+        data = r.json()
+        assert "cvss_breakdown" not in data
+        assert "cvss_vector" not in data
+        assert "cvss_v3" not in data
+        assert "cwe_id" not in data
+
+    def test_cve_search_exclude_none(self):
+        """Search results exclude None fields in nested CveResponse."""
+        _seed_cve(cve_id="CVE-2024-9902", severity="CRITICAL", cvss_vector=None)
+        r = client.get("/v1/cves?severity=CRITICAL")
+        assert r.status_code == 200
+        data = r.json()
+        for cve in data["results"]:
+            if cve["cve_id"] == "CVE-2024-9902":
+                assert "cvss_breakdown" not in cve
+                break
+
+    def test_cve_recent_exclude_none(self):
+        """Recent CVEs exclude None fields."""
+        from datetime import datetime
+
+        now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+        _seed_cve(cve_id="CVE-2024-9903", published=now, cvss_vector=None)
+        r = client.get("/v1/cves/recent?hours=1")
+        assert r.status_code == 200
+        data = r.json()
+        for cve in data["results"]:
+            if cve["cve_id"] == "CVE-2024-9903":
+                assert "cvss_breakdown" not in cve
+                break
+
+    def test_cve_kev_exclude_none(self):
+        """KEV results exclude None fields."""
+        _seed_cve(cve_id="CVE-2024-9904", in_kev=1, cvss_vector=None)
+        r = client.get("/v1/cves/kev")
+        assert r.status_code == 200
+        data = r.json()
+        for cve in data["results"]:
+            if cve["cve_id"] == "CVE-2024-9904":
+                assert "cvss_breakdown" not in cve
+                break
+
+    def test_epss_exclude_none(self):
+        """EPSS with None score → score absent from response."""
+        _seed_cve(cve_id="CVE-2024-9905", epss_score=None, epss_percentile=None)
+        r = client.get("/v1/epss/CVE-2024-9905")
+        assert r.status_code == 200
+        data = r.json()
+        assert "score" not in data
+        assert "percentile" not in data
