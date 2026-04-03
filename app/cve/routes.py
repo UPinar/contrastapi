@@ -72,7 +72,9 @@ def cve_search(
     }
 
 
-@router.get("/cves/recent", operation_id="cve_recent", response_model=CveRecentResponse, response_model_exclude_none=True)
+@router.get(
+    "/cves/recent", operation_id="cve_recent", response_model=CveRecentResponse, response_model_exclude_none=True
+)
 def cve_recent(
     request: Request,
     hours: int = Query(24, ge=1, le=168, description="CVEs published within N hours (max 168 = 7 days)"),
