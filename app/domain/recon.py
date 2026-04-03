@@ -711,7 +711,7 @@ def full_domain_report(domain: str, resolved_ip: str | None = None, client_ip: s
         report["reverse_dns"] = f_rdns.result(timeout=RECON_TIMEOUT * 2)
         report["whois"] = f_whois.result(timeout=RECON_TIMEOUT * 2)
         report["ssl"] = f_ssl.result(timeout=RECON_TIMEOUT * 2)
-        report["subdomains"] = f_subs.result(timeout=RECON_TIMEOUT * 3)
+        report["subdomains"] = f_subs.result(timeout=CRTSH_TIMEOUT + RECON_TIMEOUT + 4)
         report["certificates"] = f_certs.result(timeout=CRTSH_TIMEOUT + RECON_TIMEOUT + 4)
         report["threat"] = f_threat.result(timeout=RECON_TIMEOUT * 2)
 
