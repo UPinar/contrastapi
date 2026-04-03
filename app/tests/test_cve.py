@@ -205,7 +205,9 @@ class TestCveResponseFormat:
             "modified",
             "references",
         }
-        assert expected_keys.issubset(data.keys())
+        # cvss_breakdown is present because _seed_cve provides a cvss_vector
+        expected_keys.add("cvss_breakdown")
+        assert expected_keys == set(data.keys())
 
     def test_epss_nested_format(self):
         _seed_cve()
@@ -713,3 +715,32 @@ class TestResponseModelFiltering:
         data = r.json()
         assert "score" not in data
         assert "percentile" not in data
+
+    # --- response_shape: exact key set validation ---
+
+    def test_cve_search_response_shape(self):
+        _seed_cve(cve_id="CVE-2024-9910", severity="HIGH")
+        r = client.get("/v1/cves?severity=HIGH")
+        assert r.status_code == 200
+        assert set(r.json().keys()) == {"count", "summary", "results"}
+
+    def test_cve_recent_response_shape(self):
+        from datetime import datetime
+
+        now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+        _seed_cve(cve_id="CVE-2024-9911", published=now)
+        r = client.get("/v1/cves/recent?hours=1")
+        assert r.status_code == 200
+        assert set(r.json().keys()) == {"count", "hours", "summary", "results"}
+
+    def test_cve_kev_response_shape(self):
+        _seed_cve(cve_id="CVE-2024-9912", in_kev=1)
+        r = client.get("/v1/cves/kev")
+        assert r.status_code == 200
+        assert set(r.json().keys()) == {"count", "summary", "results"}
+
+    def test_epss_response_shape(self):
+        _seed_cve(cve_id="CVE-2024-9913", epss_score=0.5, epss_percentile=0.8)
+        r = client.get("/v1/epss/CVE-2024-9913")
+        assert r.status_code == 200
+        assert set(r.json().keys()) == {"cve_id", "score", "percentile", "summary"}
