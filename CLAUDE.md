@@ -10,7 +10,7 @@ Live: api.contrastcyber.com | GitHub: UPinar/contrastapi
 - **Server path:** `/opt/contrastapi/`
 - **DB:** `/var/lib/contrastapi/api.db`, `cve.db`, `domain_cache.db`
 - **CVE sync:** `cd app && python -m cve.sync` (delta) or `--full` (initial)
-- **650 tests, 95% coverage**
+- **678 tests, 95% coverage**
 
 ## Architecture
 - `app/main.py` — FastAPI app, middleware, meta endpoints, lifespan (periodic maintenance)
@@ -23,6 +23,7 @@ Live: api.contrastcyber.com | GitHub: UPinar/contrastapi
 ## Key Rules
 - VERSION constant in config.py — single source of truth
 - EPSS/KEV sync uses targeted UPDATE (update_epss/update_kev), not full read+upsert
-- _SafeRedirectHandler uses getaddrinfo (IPv4+IPv6) with 3s threaded timeout
+- _SSRFSafeBackend (httpcore) validates all DNS-resolved IPs before connecting; IPv4-first fallback
+- /v1/domain/ supports ?lite=true for fast subset (~250ms vs 3-10s)
 - Cache reads don't write (no DELETE in get_cached_domain/get_cached_ip)
 - API keys: env vars in systemd service, never in code
