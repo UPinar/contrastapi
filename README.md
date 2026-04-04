@@ -3,11 +3,39 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Python 3.12](https://img.shields.io/badge/Python-3.12-blue.svg)](https://python.org)
 [![Tests](https://img.shields.io/badge/Tests-677_passing-brightgreen.svg)](https://github.com/UPinar/contrastapi/actions)
+[![MCP](https://img.shields.io/badge/MCP-20_tools-purple.svg)](https://modelcontextprotocol.io)
 [![RapidAPI](https://img.shields.io/badge/RapidAPI-Available-blue.svg)](https://rapidapi.com/UPinar/api/contrastapi)
 
-**Security intelligence API for AI agents and developers.** 30+ endpoints: CVE lookup with EPSS/KEV enrichment, domain reconnaissance, SSL analysis, IP reputation (AbuseIPDB, Shodan), IOC/malware lookup, exploit search, technology fingerprinting, and code security verification. Free, no signup required.
+**Security intelligence API and MCP server for AI agents.** 20 tools / 30+ endpoints: CVE lookup with EPSS/KEV enrichment, domain reconnaissance, SSL analysis, IP reputation (AbuseIPDB, Shodan), IOC/malware lookup, exploit search, technology fingerprinting, and code security scanning. Free, no API key required.
 
-**Live:** [api.contrastcyber.com](https://api.contrastcyber.com) | **Scanner:** [contrastcyber.com](https://contrastcyber.com)
+**Live:** [api.contrastcyber.com](https://api.contrastcyber.com) | **Docs:** [Swagger UI](https://api.contrastcyber.com/docs) | **Scanner:** [contrastcyber.com](https://contrastcyber.com)
+
+## Use with Claude, Cursor, Windsurf
+
+Add to your MCP config (Claude Desktop, Cursor, Windsurf, VS Code, etc.):
+
+```json
+{
+  "mcpServers": {
+    "contrastapi": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://api.contrastcyber.com/mcp/"]
+    }
+  }
+}
+```
+
+Then ask your AI: *"Check if example.com has SSL issues"*, *"Look up CVE-2024-3094"*, *"Is this IP malicious: 8.8.8.8"*
+
+### 20 MCP Tools
+
+| Category | Tools |
+|----------|-------|
+| **Domain Intel** | `domain_report` `dns_lookup` `whois_lookup` `ssl_check` `subdomain_enum` `tech_fingerprint` `threat_intel` `scan_headers` |
+| **IP & Network** | `ip_lookup` `asn_lookup` |
+| **CVE & Exploits** | `cve_lookup` `cve_search` `exploit_lookup` |
+| **Threat Intel** | `ioc_lookup` `hash_lookup` `password_check` `phishing_check` |
+| **Code Security** | `check_secrets` `check_injection` `check_headers` |
 
 ## Why ContrastAPI?
 
@@ -18,7 +46,7 @@
 - **AI-native** — LLM-optimized summaries, structured JSON, OpenAPI spec
 - **Free forever** — 100 req/hr, no API key, no signup
 
-## Quick Start
+## Quick Start (REST API)
 
 ```bash
 # Domain intelligence
@@ -131,18 +159,16 @@ POST /v1/check/dependencies    Check packages for known CVEs
 | CISA KEV | 1,500+ exploited vulns | Every 2 hours |
 | FIRST EPSS | 323k+ exploit scores | Every 2 hours |
 
-## MCP Server
+## MCP Server (Advanced)
 
-All 20 tools available via [Model Context Protocol](https://modelcontextprotocol.io).
-
-**HTTP (remote):**
+**HTTP (remote — recommended):**
 ```
 POST https://api.contrastcyber.com/mcp/
 Content-Type: application/json
 Accept: application/json, text/event-stream
 ```
 
-**Stdio (local):** add to `.mcp.json`:
+**Stdio (local — self-hosted):**
 ```json
 {
   "mcpServers": {
@@ -188,6 +214,7 @@ cd app && PYTHONPATH=. python -m pytest tests/ -v
 
 ## Also Available On
 
+- **Awesome OSINT MCP Servers:** [soxoj/awesome-osint-mcp-servers](https://github.com/soxoj/awesome-osint-mcp-servers)
 - **RapidAPI:** [rapidapi.com/UPinar/api/contrastapi](https://rapidapi.com/UPinar/api/contrastapi)
 - **Product Hunt:** [contrastapi](https://www.producthunt.com/posts/contrastapi)
 

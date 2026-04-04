@@ -1105,6 +1105,21 @@ except ImportError:
 # --- AI Discovery endpoints ---
 
 
+@app.get("/.well-known/mcp/server-card.json", include_in_schema=False)
+def mcp_server_card():
+    """MCP server discovery card (draft spec)."""
+    return {
+        "name": "ContrastAPI",
+        "description": "Security intelligence MCP server with 20 tools: CVE lookup, domain recon, SSL, IP reputation, IOC, exploit search, tech fingerprinting, code security.",
+        "url": "https://api.contrastcyber.com/mcp/",
+        "transport": ["streamable-http"],
+        "auth": "none",
+        "tools_count": 20,
+        "homepage": "https://github.com/UPinar/contrastapi",
+        "documentation": "https://api.contrastcyber.com/docs",
+    }
+
+
 @app.get("/.well-known/ai-plugin.json", include_in_schema=False)
 def ai_plugin():
     """ChatGPT/AI plugin discovery manifest."""
