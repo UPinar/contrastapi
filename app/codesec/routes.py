@@ -1,5 +1,6 @@
 """Code Security API routes — /v1/check/*"""
 
+import threading
 from collections import Counter
 
 from auth import authenticate
@@ -16,6 +17,10 @@ from validation import _is_valid_format, clean_domain, is_valid_ip, validate_dom
 router = APIRouter(prefix="/v1", tags=["Code Security"])
 
 MAX_CODE_BYTES = 500 * 1024  # 500 KB
+MAX_CONCURRENT_SCANS = 4
+
+# Limits concurrent code scans to prevent thread-pool starvation
+_scan_semaphore = threading.Semaphore(MAX_CONCURRENT_SCANS)
 
 
 # --- Request models ---
@@ -72,7 +77,13 @@ def check_secrets_endpoint(body: CodeInput, request: Request):
             detail=f"Language '{body.language}' not supported. Allowed: {', '.join(sorted(ALLOWED_LANGUAGES))}",
         )
 
-    findings = detect_secrets(body.code, lang)
+    acquired = _scan_semaphore.acquire(timeout=5)
+    if not acquired:
+        raise HTTPException(status_code=503, detail="Too many concurrent scans. Please retry.")
+    try:
+        findings = detect_secrets(body.code, lang)
+    finally:
+        _scan_semaphore.release()
     by_severity = _severity_counts(findings)
     total = len(findings)
 
@@ -106,7 +117,13 @@ def check_injection_endpoint(body: CodeInput, request: Request):
             detail=f"Language '{body.language}' not supported. Allowed: {', '.join(sorted(ALLOWED_LANGUAGES))}",
         )
 
-    findings = detect_injection(body.code, lang)
+    acquired = _scan_semaphore.acquire(timeout=5)
+    if not acquired:
+        raise HTTPException(status_code=503, detail="Too many concurrent scans. Please retry.")
+    try:
+        findings = detect_injection(body.code, lang)
+    finally:
+        _scan_semaphore.release()
     by_severity = _severity_counts(findings)
     total = len(findings)
 
