@@ -3,6 +3,7 @@
 import logging
 import re
 import socket
+from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlparse
 
 import httpx
@@ -53,44 +54,57 @@ def ioc_lookup(indicator: str, request: Request):
     sources = {}
     threat_parts = []
 
-    # ThreatFox — works for all types
-    tf = query_threatfox(indicator)
-    sources["threatfox"] = tf
-    if tf.get("found"):
-        threat_parts.append(f"{tf.get('malware', 'unknown')} ({tf.get('threat_type', 'unknown')}) via ThreatFox")
-
-    # Type-specific lookups
+    # Validate before submitting to pool
+    urlhaus_target = None
     if ioc_type == "ip":
         if is_private_ip(indicator):
             raise HTTPException(status_code=400, detail="Private/reserved IP addresses are not allowed")
-        feodo = query_feodo(indicator)
-        sources["feodo"] = feodo
-        if feodo.get("found"):
-            threat_parts.append(f"{feodo.get('malware', 'unknown')} via Feodo Tracker")
-        urlhaus = check_urlhaus(indicator)
-        sources["urlhaus"] = {"found": urlhaus.get("url_count", 0) > 0, "urls_online": urlhaus.get("urls_online", 0)}
-        if sources["urlhaus"]["found"]:
-            threat_parts.append(f"{urlhaus['url_count']} malware URLs via URLhaus")
-
+        urlhaus_target = indicator
     elif ioc_type == "domain":
-        urlhaus = check_urlhaus(indicator)
-        sources["urlhaus"] = {"found": urlhaus.get("url_count", 0) > 0, "urls_online": urlhaus.get("urls_online", 0)}
-        if sources["urlhaus"]["found"]:
-            threat_parts.append(f"{urlhaus['url_count']} malware URLs via URLhaus")
-
+        urlhaus_target = indicator
     elif ioc_type == "url":
-        # URLhaus can check URLs too (via host extraction)
         host = urlparse(indicator).hostname
         if host:
             if is_valid_ip(host):
                 if is_private_ip(host):
                     raise HTTPException(status_code=400, detail="Private/reserved IP addresses are not allowed")
             else:
-                # Resolve hostname with timeout and check all addresses for SSRF
                 addrs, _ = _dns_call_with_timeout(socket.getaddrinfo, host, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
                 if addrs and any(is_private_ip(addr[4][0]) for addr in addrs):
                     raise HTTPException(status_code=400, detail="Private/reserved IP addresses are not allowed")
-            urlhaus = check_urlhaus(host)
+            urlhaus_target = host
+
+    # Fire all lookups in parallel
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        f_tf = pool.submit(query_threatfox, indicator)
+        f_feodo = pool.submit(query_feodo, indicator) if ioc_type == "ip" else None
+        f_urlhaus = pool.submit(check_urlhaus, urlhaus_target) if urlhaus_target else None
+
+        try:
+            tf = f_tf.result(timeout=10)
+        except Exception:
+            logger.debug("ThreatFox lookup failed for %s", indicator)
+            tf = {"found": False}
+        sources["threatfox"] = tf
+        if tf.get("found"):
+            threat_parts.append(f"{tf.get('malware', 'unknown')} ({tf.get('threat_type', 'unknown')}) via ThreatFox")
+
+        if f_feodo is not None:
+            try:
+                feodo = f_feodo.result(timeout=10)
+            except Exception:
+                logger.debug("Feodo lookup failed for %s", indicator)
+                feodo = {"found": False}
+            sources["feodo"] = feodo
+            if feodo.get("found"):
+                threat_parts.append(f"{feodo.get('malware', 'unknown')} via Feodo Tracker")
+
+        if f_urlhaus is not None:
+            try:
+                urlhaus = f_urlhaus.result(timeout=10)
+            except Exception:
+                logger.debug("URLhaus lookup failed for %s", indicator)
+                urlhaus = {"url_count": 0, "urls_online": 0}
             sources["urlhaus"] = {
                 "found": urlhaus.get("url_count", 0) > 0,
                 "urls_online": urlhaus.get("urls_online", 0),
