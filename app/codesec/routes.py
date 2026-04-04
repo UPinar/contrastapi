@@ -165,7 +165,7 @@ def scan_headers_endpoint(domain: str, request: Request):
 
     result = fetch_live_headers(domain, resolved_ip=resolved_ip)
     if "error" in result:
-        raise HTTPException(status_code=502, detail=result["error"])
+        raise HTTPException(status_code=504, detail=result["error"])
 
     analysis = check_headers(result["headers"])
     return {

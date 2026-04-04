@@ -153,7 +153,7 @@ def whois_endpoint(domain: str, request: Request):
         return {"domain": domain, "whois": cached, "summary": _whois_summary(cached, domain), "cached": True}
     result = whois_lookup(domain)
     if "error" in result:
-        raise HTTPException(status_code=502, detail=result["error"])
+        raise HTTPException(status_code=504, detail=result["error"])
     return {"domain": domain, "whois": result, "summary": _whois_summary(result, domain), "cached": False}
 
 
@@ -292,10 +292,10 @@ def ssl_certificate(domain: str, request: Request):
 
     except (socket.timeout, ConnectionRefusedError, OSError) as e:
         logger.warning("SSL connection failed for %s: %s", domain, e)
-        raise HTTPException(status_code=502, detail=f"Could not establish SSL connection to {domain}") from None
+        raise HTTPException(status_code=504, detail=f"Could not establish SSL connection to {domain}") from None
     except Exception as e:
         logger.warning("SSL inspection failed for %s: %s", domain, e)
-        raise HTTPException(status_code=502, detail=f"SSL inspection failed for {domain}") from None
+        raise HTTPException(status_code=504, detail=f"SSL inspection failed for {domain}") from None
 
 
 @router.get(
@@ -392,7 +392,7 @@ def tech_fingerprint(domain: str, request: Request):
     domain, resolved_ip, auth_ctx = _validate_and_auth(request, domain)
     page = fetch_live_page(domain, resolved_ip)
     if "error" in page:
-        raise HTTPException(status_code=502, detail=page["error"])
+        raise HTTPException(status_code=504, detail=page["error"])
     from domain.tech import detect_technologies
 
     result = detect_technologies(page["headers"], page.get("html"))
@@ -473,7 +473,7 @@ def domain_vulns(domain: str, request: Request):
 
     page = fetch_live_page(domain, resolved_ip)
     if "error" in page:
-        raise HTTPException(status_code=502, detail=page["error"])
+        raise HTTPException(status_code=504, detail=page["error"])
 
     from db import search_cves_by_product
     from domain.tech import detect_technologies
@@ -583,7 +583,7 @@ def asn_lookup(target: str, request: Request):
         raise
     except Exception as e:
         logger.warning("RIPE network-info failed for %s: %s", ip, e)
-        raise HTTPException(status_code=502, detail="Failed to look up ASN from RIPE Stat") from None
+        raise HTTPException(status_code=504, detail="Failed to look up ASN from RIPE Stat") from None
 
     # Fetch ASN holder name and prefixes in parallel
     asn_name = ""
