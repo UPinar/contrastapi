@@ -162,9 +162,14 @@ def init_cve_db():
                 source TEXT PRIMARY KEY,
                 last_sync TEXT,
                 records_count INTEGER,
-                status TEXT
+                status TEXT,
+                checkpoint TEXT
             )
         """)
+        # Migration: add checkpoint column if missing (existing installs)
+        cols = {row[1] for row in con.execute("PRAGMA table_info(sync_status)")}
+        if "checkpoint" not in cols:
+            con.execute("ALTER TABLE sync_status ADD COLUMN checkpoint TEXT")
 
 
 def init_cache_db():
@@ -612,12 +617,12 @@ def update_kev(cve_id: str, date_added: str | None) -> bool:
         return cur.rowcount > 0
 
 
-def update_sync_status(source: str, count: int, status: str = "ok") -> None:
+def update_sync_status(source: str, count: int, status: str = "ok", checkpoint: str | None = None) -> None:
     now = datetime.now(UTC).isoformat()
     with get_cve_db() as con:
         con.execute(
-            "INSERT OR REPLACE INTO sync_status (source, last_sync, records_count, status) VALUES (?, ?, ?, ?)",
-            (source, now, count, status),
+            "INSERT OR REPLACE INTO sync_status (source, last_sync, records_count, status, checkpoint) VALUES (?, ?, ?, ?, ?)",
+            (source, now, count, status, checkpoint),
         )
 
 
@@ -627,3 +632,17 @@ def get_sync_status() -> dict:
         cur.row_factory = sqlite3.Row
         rows = cur.execute("SELECT * FROM sync_status").fetchall()
         return {row["source"]: dict(row) for row in rows}
+
+
+def get_sync_checkpoint(source: str) -> str | None:
+    """Return the checkpoint value for a source, or None."""
+    with get_cve_db() as con:
+        row = con.execute("SELECT checkpoint FROM sync_status WHERE source = ?", (source,)).fetchone()
+        return row[0] if row else None
+
+
+def get_last_successful_sync(source: str) -> str | None:
+    """Return the last_sync timestamp for a source if status was 'ok'."""
+    with get_cve_db() as con:
+        row = con.execute("SELECT last_sync FROM sync_status WHERE source = ? AND status = 'ok'", (source,)).fetchone()
+        return row[0] if row else None

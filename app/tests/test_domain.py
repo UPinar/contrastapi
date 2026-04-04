@@ -5,7 +5,9 @@ import socket
 from datetime import UTC
 from unittest.mock import MagicMock, patch
 
+import dns.exception
 import dns.resolver
+import httpx
 from fastapi.testclient import TestClient
 from main import app
 
@@ -582,7 +584,7 @@ class TestEmailSecurity:
         with patch("domain.recon.dns.resolver.Resolver") as mock_cls:
             mock_resolver = MagicMock()
             mock_cls.return_value = mock_resolver
-            mock_resolver.resolve.side_effect = Exception("no record")
+            mock_resolver.resolve.side_effect = dns.exception.DNSException("no record")
             result = email_security("example.com", txt_records=[])
         assert result["spf"] is None
         assert result["grade"] in ("C", "F")
@@ -594,7 +596,7 @@ class TestEmailSecurity:
         with patch("domain.recon.dns.resolver.Resolver") as mock_cls:
             mock_resolver = MagicMock()
             mock_cls.return_value = mock_resolver
-            mock_resolver.resolve.side_effect = Exception("no record")
+            mock_resolver.resolve.side_effect = dns.exception.DNSException("no record")
             result = email_security("example.com", txt_records=["v=spf1 -all", "some other txt"])
         assert result["spf"] == "v=spf1 -all"
 
@@ -815,7 +817,7 @@ class TestReputation:
     def test_abuseipdb_error(self, mock_client):
         from domain.reputation import check_abuseipdb
 
-        mock_client.get.side_effect = Exception("connection refused")
+        mock_client.get.side_effect = httpx.RequestError("connection refused")
         result = check_abuseipdb("1.2.3.4")
         assert result["status"] == "error"
 
@@ -867,7 +869,7 @@ class TestReputation:
     def test_shodan_error(self, mock_client):
         from domain.reputation import check_shodan
 
-        mock_client.get.side_effect = Exception("timeout")
+        mock_client.get.side_effect = httpx.RequestError("timeout")
         result = check_shodan("1.2.3.4")
         assert result["status"] == "error"
 

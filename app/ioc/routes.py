@@ -225,7 +225,7 @@ def phishing_check(url: str, request: Request):
     # Extract and validate hostname
     try:
         host = urlparse(url).hostname or ""
-    except Exception:
+    except ValueError:
         host = ""
     if not host:
         raise HTTPException(status_code=400, detail="Could not extract hostname from URL.")

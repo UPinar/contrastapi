@@ -5,6 +5,7 @@ import logging
 import re
 import socket
 
+import dns.exception
 import dns.resolver
 from config import MAX_DOMAIN_LENGTH
 from fastapi import Request
@@ -65,7 +66,7 @@ def _dns_fallback(domain: str) -> str | None:
                 return None
             logger.info("DNS fallback resolved %s via dnspython", domain)
             return ip
-        except Exception:
+        except (dns.exception.DNSException, OSError):
             continue
     return None
 

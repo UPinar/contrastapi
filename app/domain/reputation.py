@@ -54,7 +54,7 @@ def check_abuseipdb(ip: str) -> dict:
     except httpx.HTTPStatusError as e:
         logger.warning("AbuseIPDB check failed for %s: HTTP %d", ip, e.response.status_code)
         return {"status": "error", "reason": f"AbuseIPDB API returned HTTP {e.response.status_code}"}
-    except Exception:
+    except httpx.RequestError:
         logger.warning("AbuseIPDB check failed for %s", ip)
         return {"status": "error", "reason": "AbuseIPDB API connection failed"}
 
@@ -98,6 +98,6 @@ def check_shodan(ip: str) -> dict:
     except httpx.HTTPStatusError as e:
         logger.warning("Shodan check failed for %s: HTTP %d", ip, e.response.status_code)
         return {"status": "error", "reason": f"Shodan API returned HTTP {e.response.status_code}"}
-    except Exception:
+    except httpx.RequestError:
         logger.warning("Shodan check failed for %s", ip)
         return {"status": "error", "reason": "Shodan API connection failed"}

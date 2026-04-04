@@ -1,12 +1,14 @@
 """CVE data sync engine — fetches from NVD, EPSS, and CISA KEV
 
 Usage:
-    python -m cve.sync                 # delta sync (last 2 hours)
+    python -m cve.sync                 # delta sync (since last successful sync)
     python -m cve.sync --full          # full initial sync (~250k CVEs)
+    python -m cve.sync --resume        # resume a crashed full sync from checkpoint
     python -m cve.sync --epss          # EPSS scores only
     python -m cve.sync --kev           # KEV list only
 
 Designed to run via systemd timer every 2 hours.
+Crash recovery: full syncs save a checkpoint after each page. Use --resume to continue.
 """
 
 import gzip
@@ -19,7 +21,16 @@ from datetime import UTC, datetime, timedelta
 
 import httpx
 from config import KEV_URL, NVD_API_KEY, NVD_API_URL, NVD_PAGE_SIZE
-from db import get_cve, init_all_dbs, update_epss, update_kev, update_sync_status, upsert_cve
+from db import (
+    get_cve,
+    get_last_successful_sync,
+    get_sync_checkpoint,
+    init_all_dbs,
+    update_epss,
+    update_kev,
+    update_sync_status,
+    upsert_cve,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("contrastapi")
@@ -172,21 +183,65 @@ def _parse_nvd_cve(item: dict) -> dict:
     }
 
 
-def sync_nvd(full: bool = False) -> int:
-    """Sync CVEs from NVD. Returns count of CVEs processed."""
+def sync_nvd(full: bool = False, resume: bool = False) -> int:
+    """Sync CVEs from NVD. Returns count of CVEs processed.
+
+    Args:
+        full: Fetch all CVEs (not just recent changes).
+        resume: Resume a crashed full sync from its last checkpoint.
+    """
+    import json as _json
+
     params = {"resultsPerPage": NVD_PAGE_SIZE}
 
+    # --- Determine start_index (resume support) ---
+    total_processed = 0
+    start_index = 0
+
+    if full and resume:
+        raw = get_sync_checkpoint("nvd")
+        if raw:
+            try:
+                cp = _json.loads(raw)
+                if not isinstance(cp, dict):
+                    raise ValueError("checkpoint is not a dict")
+                si = cp.get("start_index", 0)
+                tp = cp.get("total_processed", 0)
+                if isinstance(si, int) and si >= 0 and isinstance(tp, int) and tp >= 0:
+                    start_index = si
+                    total_processed = tp
+                    log.info(
+                        "Resuming NVD full sync from startIndex=%d (already processed %d)", start_index, total_processed
+                    )
+                else:
+                    log.warning(
+                        "Invalid checkpoint values (start_index=%r, total_processed=%r), starting from scratch", si, tp
+                    )
+            except (ValueError, TypeError, AttributeError):
+                log.warning("Invalid NVD checkpoint, starting from scratch")
+
+    # --- Build date filter for delta sync ---
     if not full:
-        # Delta: last 2.5 hours to overlap with timer interval
-        since = datetime.now(UTC) - timedelta(hours=2, minutes=30)
+        # Use last successful sync time with 30min overlap; fallback to 2.5h
+        last_ok = get_last_successful_sync("nvd")
+        if last_ok:
+            try:
+                last_dt = datetime.fromisoformat(last_ok)
+                since = last_dt - timedelta(minutes=30)
+            except ValueError:
+                since = datetime.now(UTC) - timedelta(hours=2, minutes=30)
+        else:
+            since = datetime.now(UTC) - timedelta(hours=2, minutes=30)
         params["lastModStartDate"] = since.strftime("%Y-%m-%dT%H:%M:%S.000")
         params["lastModEndDate"] = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.000")
         log.info("NVD delta sync since %s", params["lastModStartDate"])
     else:
-        log.info("NVD full sync starting...")
+        log.info("NVD full sync starting (startIndex=%d)...", start_index)
 
-    total_processed = 0
-    start_index = 0
+    # Mark as in_progress
+    update_sync_status("nvd", total_processed, "in_progress")
+
+    completed_normally = False
 
     while True:
         params["startIndex"] = start_index
@@ -199,6 +254,8 @@ def sync_nvd(full: bool = False) -> int:
         vulnerabilities = data.get("vulnerabilities", [])
 
         if not vulnerabilities:
+            # No vulnerabilities but we reached here = end of results
+            completed_normally = True
             break
 
         for item in vulnerabilities:
@@ -215,17 +272,30 @@ def sync_nvd(full: bool = False) -> int:
             except Exception as e:
                 log.warning("Failed to process CVE: %s", e)
 
+        start_index += len(vulnerabilities)
         log.info("NVD: processed %d/%d", total_processed, total_results)
 
-        start_index += len(vulnerabilities)
+        # Save checkpoint after each page (full sync only — delta is fast)
+        if full:
+            cp = _json.dumps({"start_index": start_index, "total_processed": total_processed})
+            update_sync_status("nvd", total_processed, "in_progress", checkpoint=cp)
+
         if start_index >= total_results:
+            completed_normally = True
             break
 
         time.sleep(NVD_DELAY)
 
-    # Delta sync with 0 results is normal (no new CVEs in window), not an error
-    status = "ok" if (total_processed > 0 or not full) else "error"
-    update_sync_status("nvd", total_processed, status)
+    # Only clear checkpoint and mark "ok" if sync finished all pages
+    if completed_normally or not full:
+        status = "ok" if (total_processed > 0 or not full) else "error"
+        update_sync_status("nvd", total_processed, status, checkpoint=None)
+    else:
+        # Partial failure: preserve checkpoint for --resume
+        log.warning("NVD sync interrupted after %d CVEs, checkpoint preserved for --resume", total_processed)
+        cp = _json.dumps({"start_index": start_index, "total_processed": total_processed})
+        update_sync_status("nvd", total_processed, "error", checkpoint=cp)
+
     log.info("NVD sync complete: %d CVEs processed", total_processed)
     return total_processed
 
@@ -236,6 +306,7 @@ def sync_nvd(full: bool = False) -> int:
 def sync_epss() -> int:
     """Sync EPSS scores from FIRST.org CSV bulk download. Returns count updated."""
     log.info("EPSS sync starting (CSV bulk)...")
+    update_sync_status("epss", 0, "in_progress")
     count = 0
     epss_csv_url = "https://epss.cyentia.com/epss_scores-current.csv.gz"
 
@@ -304,6 +375,7 @@ def sync_epss() -> int:
 def sync_kev() -> int:
     """Sync CISA Known Exploited Vulnerabilities. Returns count updated."""
     log.info("KEV sync starting...")
+    update_sync_status("kev", 0, "in_progress")
     count = 0
 
     try:
@@ -356,7 +428,11 @@ if __name__ == "__main__":
 
     init_all_dbs()
 
-    if "--full" in args:
+    if "--resume" in args:
+        sync_nvd(full=True, resume=True)
+        sync_kev()
+        sync_epss()
+    elif "--full" in args:
         sync_nvd(full=True)
         sync_kev()
         sync_epss()

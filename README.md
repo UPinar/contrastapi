@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Python 3.12](https://img.shields.io/badge/Python-3.12-blue.svg)](https://python.org)
-[![Tests](https://img.shields.io/badge/Tests-612_passing-brightgreen.svg)](https://github.com/UPinar/contrastapi/actions)
+[![Tests](https://img.shields.io/badge/Tests-621_passing-brightgreen.svg)](https://github.com/UPinar/contrastapi/actions)
 [![RapidAPI](https://img.shields.io/badge/RapidAPI-Available-blue.svg)](https://rapidapi.com/UPinar/api/contrastapi)
 
 **Security intelligence API for AI agents and developers.** 30+ endpoints: CVE lookup with EPSS/KEV enrichment, domain reconnaissance, SSL analysis, IP reputation (AbuseIPDB, Shodan), IOC/malware lookup, exploit search, technology fingerprinting, and code security verification. Free, no signup required.
@@ -37,12 +37,34 @@ curl "https://api.contrastcyber.com/v1/ssl/example.com"
 curl "https://api.contrastcyber.com/v1/ioc/8.8.8.8"
 
 # Public exploit search
-curl "https://api.contrastcyber.com/v1/exploit/CVE-2024-3400"
+curl "https://api.contrastcyber.com/v1/exploit/CVE-2021-44228"
 
 # Check code for secrets
 curl -X POST "https://api.contrastcyber.com/v1/check/secrets" \
   -H "Content-Type: application/json" \
   -d '{"code": "password = \"admin123\"", "language": "python"}'
+```
+
+**Python:**
+
+```python
+import httpx
+
+r = httpx.get("https://api.contrastcyber.com/v1/domain/example.com")
+report = r.json()
+print(report["security_score"])   # "B" (A-F grade)
+print(report["dns"]["a"])         # ["93.184.216.34"]
+print(report["ssl"]["grade"])     # "A"
+```
+
+**JavaScript:**
+
+```javascript
+const r = await fetch("https://api.contrastcyber.com/v1/cve/CVE-2024-3094");
+const cve = await r.json();
+console.log(cve.severity);        // "CRITICAL"
+console.log(cve.epss.score);      // 0.94 (94% exploit probability)
+console.log(cve.kev.in_kev);      // true (actively exploited)
 ```
 
 ## Endpoints
@@ -155,7 +177,7 @@ cd app
 cd app && PYTHONPATH=. python -m pytest tests/ -v
 ```
 
-612 tests covering auth, rate limiting, validation, database operations, domain intelligence, CVE intelligence, threat intelligence, code security, tech fingerprinting, IP reputation, MCP endpoint, and API routes.
+621 tests covering auth, rate limiting, validation, database operations, domain intelligence, CVE intelligence, threat intelligence, code security, tech fingerprinting, IP reputation, MCP endpoint, and API routes.
 
 ## Stack
 

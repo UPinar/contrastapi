@@ -15,6 +15,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC
 from urllib.request import Request
 
+import dns.exception
 import dns.resolver
 import httpx
 import ratelimit
@@ -116,7 +117,7 @@ def quick_dns_a(domain: str) -> list[str] | None:
     try:
         answers = resolver.resolve(domain, "A")
         return [str(r) for r in answers if not is_private_ip(str(r))]
-    except Exception:
+    except dns.exception.DNSException:
         return None
 
 
@@ -462,7 +463,7 @@ def email_security(domain: str, txt_records: list | None = None) -> dict:
             if val.lower().startswith("v=dmarc1"):
                 dmarc = val
                 break
-    except Exception:
+    except dns.exception.DNSException:
         pass  # No DMARC record is common, not an error
 
     # DKIM — try common selectors + date-based (YYYYMMDD for last 60 days)
@@ -480,7 +481,7 @@ def email_security(domain: str, txt_records: list | None = None) -> dict:
             dkim_found.append(selector)
             if len(dkim_found) >= 3:
                 break
-        except Exception:
+        except dns.exception.DNSException:
             pass  # Most selectors won't exist
 
     issues = []

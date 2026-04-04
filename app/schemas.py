@@ -292,6 +292,7 @@ class GithubExploitSource(BaseModel):
     found: bool = False
     count: int = 0
     advisories: list[GhsaAdvisory] = Field(default_factory=list)
+    error: str | None = None
 
 
 class ExploitDbItem(BaseModel):
@@ -304,6 +305,7 @@ class ExploitDbSource(BaseModel):
     found: bool = False
     count: int = 0
     results: list[ExploitDbItem] = Field(default_factory=list)
+    error: str | None = None
 
 
 class ExploitSources(BaseModel):

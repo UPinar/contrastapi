@@ -333,7 +333,7 @@ def ip_lookup(ip: str, request: Request):
 
         addr_result, addr_err = _dns_call_with_timeout(socket.gethostbyaddr, ip)
         ptr = addr_result[0] if addr_result and not addr_err else None
-    except Exception:
+    except (socket.herror, socket.gaierror, OSError):
         ptr = None
 
     enrichment = ip_enrichment(ip)
