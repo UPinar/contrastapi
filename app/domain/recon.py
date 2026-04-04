@@ -527,21 +527,31 @@ class _SSRFSafeBackend(httpcore.SyncBackend):
         for _family, _stype, _proto, _canonname, sockaddr in result:
             if is_private_ip(sockaddr[0]):
                 raise httpcore.ConnectError(f"SSRF blocked: {host} resolves to private IP")
-        validated_ip = result[0][4][0]
-        return super().connect_tcp(
-            validated_ip,
-            port,
-            timeout=timeout,
-            local_address=local_address,
-            socket_options=socket_options,
-        )
+        # Prefer IPv4 over IPv6 for reliability, try each validated IP
+        sorted_results = sorted(result, key=lambda r: (r[0] != socket.AF_INET,))
+        last_err = None
+        for _family, _stype, _proto, _canonname, sockaddr in sorted_results:
+            try:
+                return super().connect_tcp(
+                    sockaddr[0],
+                    port,
+                    timeout=timeout,
+                    local_address=local_address,
+                    socket_options=socket_options,
+                )
+            except Exception as e:
+                last_err = e
+        raise httpcore.ConnectError(f"All addresses failed for {host}: {last_err}")
 
 
 class _SSRFSafeTransport(httpx.HTTPTransport):
-    """HTTP transport with SSRF protection at the connection level."""
+    """HTTP transport with SSRF protection at the connection level.
+
+    Skips super().__init__() to avoid creating a default ConnectionPool
+    that would immediately be discarded. Only self._pool is needed.
+    """
 
     def __init__(self):
-        super().__init__()
         self._pool = httpcore.ConnectionPool(network_backend=_SSRFSafeBackend())
 
 
@@ -549,7 +559,7 @@ _ssrf_http = httpx.Client(
     transport=_SSRFSafeTransport(),
     timeout=httpx.Timeout(RECON_TIMEOUT, connect=5.0),
     headers={"User-Agent": USER_AGENT},
-    follow_redirects=False,
+    # follow_redirects set per-request by callers
     max_redirects=5,
 )
 
