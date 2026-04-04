@@ -14,6 +14,7 @@ import html
 import json
 import logging
 import threading
+import urllib.error
 import urllib.parse
 import urllib.request
 from collections import OrderedDict
@@ -60,7 +61,7 @@ def _notify_telegram(message: str) -> None:
                     method="POST",
                 )
                 urllib.request.urlopen(req, timeout=10)
-            except Exception:
+            except (urllib.error.URLError, OSError):
                 logger.warning("Telegram notify failed for chat %s", cid)
 
     threading.Thread(target=_send, daemon=True).start()

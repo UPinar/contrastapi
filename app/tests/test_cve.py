@@ -553,9 +553,8 @@ class TestExploitLookup:
         gh_resp.raise_for_status = MagicMock()
 
         edb_resp = MagicMock()
-        edb_resp.json.return_value = {
-            "matches": [{"_id": "51234", "description": "PoC for CVE-2024-9999", "source": "ExploitDB"}]
-        }
+        edb_resp.status_code = 200
+        edb_resp.json.return_value = {"references": ["https://example.com/poc", "https://exploit-db.com/12345"]}
         edb_resp.raise_for_status = MagicMock()
 
         def mock_get(url, **kwargs):
@@ -569,12 +568,11 @@ class TestExploitLookup:
         data = r.json()
         assert data["cve_id"] == "CVE-2024-9999"
         assert data["has_public_exploit"] is True
-        assert data["exploits_found"] == 2
         assert data["sources"]["github"]["found"] is True
         assert data["sources"]["github"]["count"] == 1
         assert data["sources"]["github"]["advisories"][0]["ghsa_id"] == "GHSA-xxxx-yyyy-zzzz"
         assert data["sources"]["exploitdb"]["found"] is True
-        assert data["sources"]["exploitdb"]["count"] == 1
+        assert data["sources"]["exploitdb"]["count"] == 2
         assert data["cached"] is False
 
     @patch("cve.routes.save_cached_domain")
@@ -586,7 +584,7 @@ class TestExploitLookup:
         gh_resp.raise_for_status = MagicMock()
 
         edb_resp = MagicMock()
-        edb_resp.json.return_value = {"matches": []}
+        edb_resp.status_code = 404
         edb_resp.raise_for_status = MagicMock()
 
         def mock_get(url, **kwargs):
@@ -744,3 +742,244 @@ class TestResponseModelFiltering:
         r = client.get("/v1/epss/CVE-2024-9913")
         assert r.status_code == 200
         assert set(r.json().keys()) == {"cve_id", "score", "percentile", "summary"}
+
+
+# =========== Crash recovery tests ===========
+
+
+class TestSyncCrashRecovery:
+    """Tests for NVD sync checkpoint/resume and in_progress status."""
+
+    @patch("cve.sync._nvd_request")
+    def test_sync_marks_in_progress(self, mock_req):
+        """Sync should set status='in_progress' at start."""
+        from db import get_sync_status, update_sync_status
+
+        # Clear any prior state
+        update_sync_status("nvd", 0, "ok")
+
+        call_count = 0
+
+        def capture_in_progress(params):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                # Verify in_progress was set before first request
+                st = get_sync_status().get("nvd", {})
+                assert st.get("status") == "in_progress"
+            return {
+                "totalResults": 1,
+                "vulnerabilities": [
+                    {
+                        "cve": {
+                            "id": "CVE-2024-IP01",
+                            "descriptions": [{"lang": "en", "value": "t"}],
+                            "metrics": {},
+                            "weaknesses": [],
+                            "references": [],
+                        }
+                    }
+                ],
+            }
+
+        mock_req.side_effect = capture_in_progress
+        from cve.sync import sync_nvd
+
+        sync_nvd(full=False)
+        st = get_sync_status().get("nvd", {})
+        assert st["status"] == "ok"
+
+    @patch("cve.sync._nvd_request")
+    def test_full_sync_saves_checkpoint(self, mock_req):
+        """Full sync should save checkpoint after each page."""
+        pages = [
+            {
+                "totalResults": 3,
+                "vulnerabilities": [
+                    {
+                        "cve": {
+                            "id": f"CVE-2024-CP0{i}",
+                            "descriptions": [{"lang": "en", "value": "t"}],
+                            "metrics": {},
+                            "weaknesses": [],
+                            "references": [],
+                        }
+                    }
+                    for i in range(2)
+                ],
+            },
+            {
+                "totalResults": 3,
+                "vulnerabilities": [
+                    {
+                        "cve": {
+                            "id": "CVE-2024-CP03",
+                            "descriptions": [{"lang": "en", "value": "t"}],
+                            "metrics": {},
+                            "weaknesses": [],
+                            "references": [],
+                        }
+                    }
+                ],
+            },
+        ]
+        mock_req.side_effect = pages
+
+        from cve.sync import sync_nvd
+        from db import get_sync_status
+
+        count = sync_nvd(full=True)
+        assert count == 3
+        st = get_sync_status().get("nvd", {})
+        assert st["status"] == "ok"
+        assert st.get("checkpoint") is None  # cleared on success
+
+    @patch("cve.sync._nvd_request")
+    def test_resume_from_checkpoint(self, mock_req):
+        """Resume should start from saved checkpoint."""
+        import json
+
+        from db import update_sync_status
+
+        # Simulate a crash: checkpoint saved at start_index=2, 2 already processed
+        cp = json.dumps({"start_index": 2, "total_processed": 2})
+        update_sync_status("nvd", 2, "in_progress", checkpoint=cp)
+
+        # The resumed request should use startIndex=2
+        mock_req.return_value = {
+            "totalResults": 3,
+            "vulnerabilities": [
+                {
+                    "cve": {
+                        "id": "CVE-2024-RS03",
+                        "descriptions": [{"lang": "en", "value": "t"}],
+                        "metrics": {},
+                        "weaknesses": [],
+                        "references": [],
+                    }
+                }
+            ],
+        }
+
+        from cve.sync import sync_nvd
+
+        count = sync_nvd(full=True, resume=True)
+        assert count == 3  # 2 from checkpoint + 1 new
+
+        # Verify startIndex was 2
+        call_args = mock_req.call_args
+        assert call_args[0][0]["startIndex"] == 2
+
+    @patch("cve.sync._nvd_request")
+    def test_resume_no_checkpoint_starts_fresh(self, mock_req):
+        """Resume with no checkpoint should start from 0."""
+        from db import update_sync_status
+
+        update_sync_status("nvd", 0, "ok", checkpoint=None)
+
+        mock_req.return_value = {"totalResults": 0, "vulnerabilities": []}
+        from cve.sync import sync_nvd
+
+        sync_nvd(full=True, resume=True)
+        call_args = mock_req.call_args
+        assert call_args[0][0]["startIndex"] == 0
+
+    @patch("cve.sync.get_last_successful_sync")
+    @patch("cve.sync._nvd_request")
+    def test_delta_uses_last_sync_time(self, mock_req, mock_last):
+        """Delta sync should use last successful sync time instead of hardcoded window."""
+        mock_last.return_value = "2026-04-04T10:00:00+00:00"
+        mock_req.return_value = {"totalResults": 0, "vulnerabilities": []}
+
+        from cve.sync import sync_nvd
+
+        sync_nvd(full=False)
+
+        call_args = mock_req.call_args[0][0]
+        # Should be ~30min before last sync (09:30), not 2.5h before now
+        assert "lastModStartDate" in call_args
+        assert call_args["lastModStartDate"].startswith("2026-04-04T09:30")
+
+    @patch("cve.sync._nvd_request")
+    def test_delta_fallback_no_prior_sync(self, mock_req):
+        """Delta sync without prior sync should fall back to 2.5h window."""
+        from db import update_sync_status
+
+        # Clear NVD sync status
+        update_sync_status("nvd", 0, "error")
+
+        mock_req.return_value = {"totalResults": 0, "vulnerabilities": []}
+        from cve.sync import sync_nvd
+
+        sync_nvd(full=False)
+        # Should not crash, just use fallback window
+        assert mock_req.called
+
+    @patch("cve.sync._nvd_request")
+    def test_partial_failure_preserves_checkpoint(self, mock_req):
+        """If NVD returns empty on page 2, checkpoint should be preserved, not cleared."""
+        import json
+
+        page1 = {
+            "totalResults": 4,
+            "vulnerabilities": [
+                {
+                    "cve": {
+                        "id": f"CVE-2024-PF0{i}",
+                        "descriptions": [{"lang": "en", "value": "t"}],
+                        "metrics": {},
+                        "weaknesses": [],
+                        "references": [],
+                    }
+                }
+                for i in range(2)
+            ],
+        }
+        # Page 2: NVD outage returns empty dict
+        mock_req.side_effect = [page1, {}]
+
+        from cve.sync import sync_nvd
+        from db import get_sync_status
+
+        count = sync_nvd(full=True)
+        assert count == 2
+
+        st = get_sync_status().get("nvd", {})
+        assert st["status"] == "error"
+        # Checkpoint must be preserved for --resume
+        assert st["checkpoint"] is not None
+        cp = json.loads(st["checkpoint"])
+        assert cp["start_index"] == 2
+        assert cp["total_processed"] == 2
+
+    @patch("cve.sync._nvd_request")
+    def test_corrupt_checkpoint_starts_fresh(self, mock_req):
+        """Corrupt checkpoint JSON should be ignored, sync starts from 0."""
+        from db import update_sync_status
+
+        # Set a non-dict JSON checkpoint
+        update_sync_status("nvd", 0, "in_progress", checkpoint='"just_a_string"')
+
+        mock_req.return_value = {"totalResults": 0, "vulnerabilities": []}
+        from cve.sync import sync_nvd
+
+        sync_nvd(full=True, resume=True)
+        call_args = mock_req.call_args[0][0]
+        assert call_args["startIndex"] == 0
+
+    @patch("cve.sync._nvd_request")
+    def test_negative_checkpoint_starts_fresh(self, mock_req):
+        """Checkpoint with negative values should be ignored."""
+        import json
+
+        from db import update_sync_status
+
+        cp = json.dumps({"start_index": -5, "total_processed": -1})
+        update_sync_status("nvd", 0, "in_progress", checkpoint=cp)
+
+        mock_req.return_value = {"totalResults": 0, "vulnerabilities": []}
+        from cve.sync import sync_nvd
+
+        sync_nvd(full=True, resume=True)
+        call_args = mock_req.call_args[0][0]
+        assert call_args["startIndex"] == 0

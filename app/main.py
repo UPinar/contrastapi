@@ -270,9 +270,9 @@ def welcome_page(request: Request, order_id: str = ""):
             "welcome.html",
             context,
         )
-    except Exception:
+    except (ValueError, OSError) as exc:
         if api_key:
-            logger.error("Template render failed for order %s, returning plain text fallback", order_id)
+            logger.error("Template render failed for order %s: %s, returning plain text fallback", order_id, exc)
             return PlainTextResponse(
                 f"Your API key: {api_key}\n\nSave this key now. It will not be shown again.",
                 media_type="text/plain",
@@ -1099,7 +1099,7 @@ try:
     _mcp_starlette = _mcp_instance.streamable_http_app()
     _mcp_session_mgr = _mcp_instance.session_manager
     app.mount("/mcp", _MCPIPForwardMiddleware(_mcp_starlette))
-except Exception:
+except ImportError:
     logger.warning("MCP server not available (mcp package not installed)")
 
 # --- AI Discovery endpoints ---

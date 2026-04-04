@@ -13,7 +13,7 @@ logger = logging.getLogger("contrastapi")
 
 router = APIRouter(prefix="/v1", tags=["CVE Intelligence"])
 
-_exploit_client = httpx.Client(timeout=httpx.Timeout(5.0, connect=3.0), follow_redirects=False)
+_exploit_client = httpx.Client(timeout=httpx.Timeout(5.0, connect=3.0), follow_redirects=True)
 
 
 def _check_cve_input(cve_id: str):
@@ -248,7 +248,10 @@ def _search_github_advisories(cve_id: str) -> dict:
         data = resp.json()
         advisories = []
         for item in data[:20]:
-            refs = [r.get("url", "") for r in (item.get("references") or []) if r.get("url")]
+            raw_refs = item.get("references") or []
+            refs = [
+                r if isinstance(r, str) else r.get("url", "") for r in raw_refs if (isinstance(r, str) or r.get("url"))
+            ]
             advisories.append(
                 {
                     "ghsa_id": item.get("ghsa_id", ""),
@@ -259,34 +262,47 @@ def _search_github_advisories(cve_id: str) -> dict:
                 }
             )
         return {"found": len(advisories) > 0, "count": len(advisories), "advisories": advisories}
+    except httpx.TimeoutException:
+        logger.warning("GitHub Advisory search timed out for %s", cve_id)
+        return {"found": False, "count": 0, "advisories": [], "error": "upstream timeout"}
+    except httpx.HTTPStatusError as e:
+        logger.warning("GitHub Advisory search failed for %s: HTTP %d", cve_id, e.response.status_code)
+        return {"found": False, "count": 0, "advisories": [], "error": "upstream error"}
     except Exception as e:
-        logger.warning("GitHub Advisory search failed for %s: %s", cve_id, e)
-        return {"found": False, "count": 0, "advisories": []}
+        logger.warning("GitHub Advisory search failed for %s: %s", cve_id, type(e).__name__)
+        return {"found": False, "count": 0, "advisories": [], "error": "upstream error"}
 
 
 def _search_exploitdb(cve_id: str) -> dict:
-    """Search Shodan Exploits API for exploit-db entries related to a CVE."""
+    """Search Shodan CVEDB for exploit/vuln info related to a CVE."""
     try:
         resp = _exploit_client.get(
-            "https://exploits.shodan.io/api/search",
-            params={"query": cve_id},
+            f"https://cvedb.shodan.io/cve/{cve_id}",
         )
+        if resp.status_code == 404:
+            return {"found": False, "count": 0, "results": []}
         resp.raise_for_status()
         data = resp.json()
-        matches = data.get("matches", [])
+        refs = data.get("references", [])
         results = []
-        for item in matches[:20]:
+        for url in refs[:20]:
             results.append(
                 {
-                    "id": str(item.get("_id", "")),
-                    "description": item.get("description", ""),
-                    "source": item.get("source", ""),
+                    "id": cve_id,
+                    "description": url if isinstance(url, str) else str(url),
+                    "source": "cvedb.shodan.io",
                 }
             )
         return {"found": len(results) > 0, "count": len(results), "results": results}
+    except httpx.TimeoutException:
+        logger.warning("ExploitDB/Shodan search timed out for %s", cve_id)
+        return {"found": False, "count": 0, "results": [], "error": "upstream timeout"}
+    except httpx.HTTPStatusError as e:
+        logger.warning("ExploitDB/Shodan search failed for %s: HTTP %d", cve_id, e.response.status_code)
+        return {"found": False, "count": 0, "results": [], "error": "upstream error"}
     except Exception as e:
-        logger.warning("ExploitDB/Shodan search failed for %s: %s", cve_id, e)
-        return {"found": False, "count": 0, "results": []}
+        logger.warning("ExploitDB/Shodan search failed for %s: %s", cve_id, type(e).__name__)
+        return {"found": False, "count": 0, "results": [], "error": "upstream error"}
 
 
 @router.get(
