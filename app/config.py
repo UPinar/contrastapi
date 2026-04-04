@@ -79,6 +79,9 @@ FEODO_MAX_BYTES = 10 * 1024 * 1024  # 10 MB response size limit
 # IP cache TTL
 IP_CACHE_TTL = 14400  # 4 hours (reputation data changes frequently)
 
+# Cache entry size limit
+CACHE_MAX_BYTES = 1 * 1024 * 1024  # 1 MB per cached result
+
 # Timeouts
 RECON_TIMEOUT = 5
 CRTSH_TIMEOUT = 30

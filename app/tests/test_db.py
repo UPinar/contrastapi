@@ -3,6 +3,7 @@
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from config import CACHE_MAX_BYTES, DOMAIN_CACHE_TTL, IP_CACHE_TTL
 
 # --- init ---
 
@@ -334,3 +335,216 @@ class TestDuplicateKeyHash:
         save_api_key("unique_hash_test_1")
         with pytest.raises(sqlite3.IntegrityError):
             save_api_key("unique_hash_test_1")
+
+
+# --- Domain cache TTL ---
+
+
+class TestDomainCacheTTL:
+    """Verify domain cache entries expire after DOMAIN_CACHE_TTL (24h)."""
+
+    def _backdate_domain(self, domain: str, seconds_ago: int):
+        from db import get_cache_db
+
+        ts = (datetime.now(UTC) - timedelta(seconds=seconds_ago)).isoformat()
+        with get_cache_db() as con:
+            con.execute("UPDATE domain_cache SET fetched_at = ? WHERE domain = ?", (ts, domain))
+
+    def test_fresh_entry_is_hit(self):
+        from db import get_cached_domain, save_cached_domain
+
+        save_cached_domain("fresh.com", {"score": 85})
+        assert get_cached_domain("fresh.com") == {"score": 85}
+
+    def test_expired_entry_is_miss(self):
+        from db import get_cached_domain, save_cached_domain
+
+        save_cached_domain("old.com", {"score": 50})
+        self._backdate_domain("old.com", DOMAIN_CACHE_TTL + 1)
+        assert get_cached_domain("old.com") is None
+
+    def test_boundary_just_before_ttl_is_hit(self):
+        from db import get_cached_domain, save_cached_domain
+
+        save_cached_domain("boundary.com", {"score": 70})
+        self._backdate_domain("boundary.com", DOMAIN_CACHE_TTL - 1)
+        assert get_cached_domain("boundary.com") is not None
+
+    def test_boundary_just_after_ttl_is_miss(self):
+        from db import get_cached_domain, save_cached_domain
+
+        save_cached_domain("boundary2.com", {"score": 70})
+        self._backdate_domain("boundary2.com", DOMAIN_CACHE_TTL + 1)
+        assert get_cached_domain("boundary2.com") is None
+
+    def test_overwrite_resets_ttl(self):
+        from db import get_cached_domain, save_cached_domain
+
+        save_cached_domain("reset.com", {"v": 1})
+        self._backdate_domain("reset.com", DOMAIN_CACHE_TTL + 1)
+        assert get_cached_domain("reset.com") is None
+        save_cached_domain("reset.com", {"v": 2})
+        assert get_cached_domain("reset.com") == {"v": 2}
+
+
+# --- IP cache TTL ---
+
+
+class TestIPCacheTTL:
+    """Verify IP cache entries expire after IP_CACHE_TTL (4h = 14400s)."""
+
+    def _backdate_ip(self, ip: str, seconds_ago: int):
+        from db import get_cache_db
+
+        ts = (datetime.now(UTC) - timedelta(seconds=seconds_ago)).isoformat()
+        with get_cache_db() as con:
+            con.execute("UPDATE ip_cache SET fetched_at = ? WHERE ip = ?", (ts, ip))
+
+    def test_fresh_ip_is_hit(self):
+        from db import get_cached_ip, save_cached_ip
+
+        save_cached_ip("1.2.3.4", {"abuse_score": 10})
+        assert get_cached_ip("1.2.3.4") == {"abuse_score": 10}
+
+    def test_ip_miss_when_not_cached(self):
+        from db import get_cached_ip
+
+        assert get_cached_ip("9.9.9.9") is None
+
+    def test_expired_ip_is_miss(self):
+        from db import get_cached_ip, save_cached_ip
+
+        save_cached_ip("5.5.5.5", {"abuse_score": 80})
+        self._backdate_ip("5.5.5.5", IP_CACHE_TTL + 1)
+        assert get_cached_ip("5.5.5.5") is None
+
+    def test_boundary_just_before_ip_ttl_is_hit(self):
+        from db import get_cached_ip, save_cached_ip
+
+        save_cached_ip("6.6.6.6", {"abuse_score": 20})
+        self._backdate_ip("6.6.6.6", IP_CACHE_TTL - 1)
+        assert get_cached_ip("6.6.6.6") is not None
+
+    def test_boundary_just_after_ip_ttl_is_miss(self):
+        from db import get_cached_ip, save_cached_ip
+
+        save_cached_ip("7.7.7.7", {"abuse_score": 30})
+        self._backdate_ip("7.7.7.7", IP_CACHE_TTL + 1)
+        assert get_cached_ip("7.7.7.7") is None
+
+    def test_ip_overwrite_resets_ttl(self):
+        from db import get_cached_ip, save_cached_ip
+
+        save_cached_ip("8.8.8.8", {"v": 1})
+        self._backdate_ip("8.8.8.8", IP_CACHE_TTL + 1)
+        assert get_cached_ip("8.8.8.8") is None
+        save_cached_ip("8.8.8.8", {"v": 2})
+        assert get_cached_ip("8.8.8.8") == {"v": 2}
+
+
+# --- Maintenance cache purge ---
+
+
+class TestMaintenanceCachePurge:
+    """Verify maintenance() purges expired domain and IP cache entries."""
+
+    def _backdate_all_domains(self, seconds_ago: int):
+        from db import get_cache_db
+
+        ts = (datetime.now(UTC) - timedelta(seconds=seconds_ago)).isoformat()
+        with get_cache_db() as con:
+            con.execute("UPDATE domain_cache SET fetched_at = ?", (ts,))
+
+    def _backdate_all_ips(self, seconds_ago: int):
+        from db import get_cache_db
+
+        ts = (datetime.now(UTC) - timedelta(seconds=seconds_ago)).isoformat()
+        with get_cache_db() as con:
+            con.execute("UPDATE ip_cache SET fetched_at = ?", (ts,))
+
+    def test_purges_expired_domain_cache(self):
+        from db import maintenance, save_cached_domain
+
+        save_cached_domain("purge1.com", {"x": 1})
+        save_cached_domain("purge2.com", {"x": 2})
+        self._backdate_all_domains(DOMAIN_CACHE_TTL + 1)
+        result = maintenance()
+        assert result["cache_purged"] >= 2
+
+    def test_keeps_fresh_domain_cache(self):
+        from db import get_cached_domain, maintenance, save_cached_domain
+
+        save_cached_domain("keep.com", {"keep": True})
+        maintenance()
+        assert get_cached_domain("keep.com") is not None
+
+    def test_purges_expired_ip_cache(self):
+        from db import maintenance, save_cached_ip
+
+        save_cached_ip("10.0.0.1", {"rep": "bad"})
+        save_cached_ip("10.0.0.2", {"rep": "ok"})
+        self._backdate_all_ips(IP_CACHE_TTL + 1)
+        result = maintenance()
+        assert result["ip_cache_purged"] >= 2
+
+    def test_keeps_fresh_ip_cache(self):
+        from db import get_cached_ip, maintenance, save_cached_ip
+
+        save_cached_ip("10.0.0.3", {"rep": "clean"})
+        maintenance()
+        assert get_cached_ip("10.0.0.3") is not None
+
+    def test_mixed_expired_and_fresh(self):
+        from db import get_cache_db, get_cached_domain, get_cached_ip, maintenance, save_cached_domain, save_cached_ip
+
+        save_cached_domain("expired.com", {"x": 1})
+        save_cached_domain("fresh.com", {"x": 2})
+        save_cached_ip("10.1.1.1", {"y": 1})
+        save_cached_ip("10.1.1.2", {"y": 2})
+        expired_domain = (datetime.now(UTC) - timedelta(seconds=DOMAIN_CACHE_TTL + 1)).isoformat()
+        expired_ip = (datetime.now(UTC) - timedelta(seconds=IP_CACHE_TTL + 1)).isoformat()
+        with get_cache_db() as con:
+            con.execute("UPDATE domain_cache SET fetched_at = ? WHERE domain = ?", (expired_domain, "expired.com"))
+            con.execute("UPDATE ip_cache SET fetched_at = ? WHERE ip = ?", (expired_ip, "10.1.1.1"))
+        result = maintenance()
+        assert result["cache_purged"] >= 1
+        assert result["ip_cache_purged"] >= 1
+        assert get_cached_domain("fresh.com") is not None
+        assert get_cached_ip("10.1.1.2") is not None
+        assert get_cached_domain("expired.com") is None
+        assert get_cached_ip("10.1.1.1") is None
+
+
+# --- Cache size limit ---
+
+
+class TestCacheSizeLimit:
+    """Verify oversized cache entries are silently dropped."""
+
+    def test_domain_cache_rejects_oversized(self):
+        from db import get_cached_domain, save_cached_domain
+
+        huge = {"data": "x" * (CACHE_MAX_BYTES + 1)}
+        save_cached_domain("huge.com", huge)
+        assert get_cached_domain("huge.com") is None
+
+    def test_domain_cache_accepts_within_limit(self):
+        from db import get_cached_domain, save_cached_domain
+
+        normal = {"data": "x" * 1000}
+        save_cached_domain("normal.com", normal)
+        assert get_cached_domain("normal.com") is not None
+
+    def test_ip_cache_rejects_oversized(self):
+        from db import get_cached_ip, save_cached_ip
+
+        huge = {"data": "x" * (CACHE_MAX_BYTES + 1)}
+        save_cached_ip("1.1.1.1", huge)
+        assert get_cached_ip("1.1.1.1") is None
+
+    def test_ip_cache_accepts_within_limit(self):
+        from db import get_cached_ip, save_cached_ip
+
+        normal = {"data": "x" * 1000}
+        save_cached_ip("2.2.2.2", normal)
+        assert get_cached_ip("2.2.2.2") is not None
