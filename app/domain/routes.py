@@ -111,21 +111,22 @@ def _from_cache(domain: str, key: str) -> dict | None:
     response_model=DomainReportResponse,
     response_model_exclude_none=True,
 )
-def domain_report(domain: str, request: Request):
-    """Full domain intelligence report with DNS, WHOIS, SSL, subdomains, WAF."""
+def domain_report(domain: str, request: Request, lite: bool = False):
+    """Full domain intelligence report with DNS, WHOIS, SSL, subdomains, WAF. Use ?lite=true for fast subset."""
     domain, resolved_ip, auth_ctx = _validate_and_auth(request, domain)
 
-    # Check cache
-    cached = get_cached_domain(domain)
+    # Separate cache keys for lite vs full
+    cache_key = f"lite:{domain}" if lite else domain
+    cached = get_cached_domain(cache_key)
     if cached:
         return {**cached, "cached": True}
 
     client_ip = get_client_ip(request)
     try:
-        result = full_domain_report(domain, resolved_ip=resolved_ip, client_ip=client_ip)
+        result = full_domain_report(domain, resolved_ip=resolved_ip, client_ip=client_ip, lite=lite)
     except TimeoutError:
         raise HTTPException(status_code=504, detail="Domain report timed out — upstream services too slow") from None
-    save_cached_domain(domain, result)
+    save_cached_domain(cache_key, result)
     return {**result, "cached": False}
 
 

@@ -305,6 +305,21 @@ class TestDomainRoutes:
         assert data["cached"] is True
         assert mock_report.call_count == 0
 
+    @patch("domain.routes.full_domain_report", return_value=MOCK_FULL_REPORT)
+    @patch("domain.routes.validate_domain", return_value="93.184.216.34")
+    @patch("domain.routes.get_cached_domain", return_value=None)
+    def test_domain_report_lite(self, mock_cache, mock_validate, mock_report):
+        """?lite=true passes lite=True to full_domain_report and uses separate cache key."""
+        r = client.get("/v1/domain/example.com?lite=true")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["domain"] == "example.com"
+        mock_report.assert_called_once()
+        _, kwargs = mock_report.call_args
+        assert kwargs["lite"] is True
+        # Cache key should be lite:example.com
+        mock_cache.assert_called_once_with("lite:example.com")
+
     @patch("domain.routes._is_valid_format", return_value=False)
     @patch("domain.routes.validate_domain", return_value=None)
     @patch("domain.routes.get_cached_domain", return_value=None)
