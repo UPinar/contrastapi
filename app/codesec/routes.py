@@ -163,7 +163,7 @@ def scan_headers_endpoint(domain: str, request: Request):
     if not resolved_ip:
         raise HTTPException(status_code=422, detail="Could not resolve this domain. DNS resolution failed.")
 
-    result = fetch_live_headers(domain, resolved_ip=resolved_ip)
+    result = fetch_live_headers(domain)
     if "error" in result:
         raise HTTPException(status_code=504, detail=result["error"])
 

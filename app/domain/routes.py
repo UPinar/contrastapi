@@ -390,7 +390,7 @@ def ip_lookup(ip: str, request: Request):
 def tech_fingerprint(domain: str, request: Request):
     """Technology fingerprinting — detect CMS, frameworks, servers, CDNs, analytics."""
     domain, resolved_ip, auth_ctx = _validate_and_auth(request, domain)
-    page = fetch_live_page(domain, resolved_ip)
+    page = fetch_live_page(domain)
     if "error" in page:
         raise HTTPException(status_code=504, detail=page["error"])
     from domain.tech import detect_technologies
@@ -471,7 +471,7 @@ def domain_vulns(domain: str, request: Request):
     """Tech stack vulnerability scan — detect technologies, then look up CVEs for each."""
     domain, resolved_ip, auth_ctx = _validate_and_auth(request, domain)
 
-    page = fetch_live_page(domain, resolved_ip)
+    page = fetch_live_page(domain)
     if "error" in page:
         raise HTTPException(status_code=504, detail=page["error"])
 

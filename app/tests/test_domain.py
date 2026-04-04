@@ -680,26 +680,22 @@ class TestCheckUrlhaus:
 
 
 class TestFetchLiveHeaders:
-    @patch("domain.recon._safe_redirect_opener.open")
-    def test_success(self, mock_open):
+    @patch("domain.recon._ssrf_http.get")
+    def test_success(self, mock_get):
         from domain.recon import fetch_live_headers
 
-        mock_headers = MagicMock()
-        mock_headers.items.return_value = [("Content-Type", "text/html"), ("X-Frame-Options", "DENY")]
         resp = MagicMock()
-        resp.headers = mock_headers
-        resp.status = 200
-        resp.url = "https://example.com/"
-        resp.__enter__ = lambda s: s
-        resp.__exit__ = MagicMock(return_value=False)
-        mock_open.return_value = resp
+        resp.headers = httpx.Headers([("Content-Type", "text/html"), ("X-Frame-Options", "DENY")])
+        resp.status_code = 200
+        resp.url = httpx.URL("https://example.com/")
+        mock_get.return_value = resp
         result = fetch_live_headers("example.com")
         assert "headers" in result
         assert result["status_code"] == 200
         assert "x-frame-options" in result["headers"]
 
-    @patch("domain.recon._safe_redirect_opener.open", side_effect=Exception("conn refused"))
-    def test_failure(self, mock_open):
+    @patch("domain.recon._ssrf_http.get", side_effect=Exception("conn refused"))
+    def test_failure(self, mock_get):
         from domain.recon import fetch_live_headers
 
         result = fetch_live_headers("unreachable.test")

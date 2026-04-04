@@ -10,13 +10,12 @@ import socket
 import ssl
 import threading
 import time
-import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC
-from urllib.request import Request
 
 import dns.exception
 import dns.resolver
+import httpcore
 import httpx
 import ratelimit
 from config import CRTSH_TIMEOUT, ENRICHMENT_DAILY_LIMIT, RECON_TIMEOUT
@@ -507,85 +506,74 @@ def email_security(domain: str, txt_records: list | None = None) -> dict:
 # === Live Header Fetch ===
 
 
-class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
-    """Block redirects to prevent SSRF via redirect to internal IPs."""
+class _SSRFSafeBackend(httpcore.SyncBackend):
+    """Network backend that validates all resolved IPs before connecting.
 
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        return None
-
-
-class _SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
-    """Follow redirects but validate and pin each target to prevent DNS rebinding.
-
-    Resolves the redirect hostname, checks all IPs are non-private,
-    then rewrites the URL to connect to the validated IP with a Host header.
+    Resolves DNS once, rejects private IPs, then connects to the validated IP.
+    httpcore uses the request hostname (not the connect IP) for TLS SNI and
+    certificate verification, so SSL works correctly with IP pinning.
     """
 
-    max_redirections = 5  # limit redirect chain length
-
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        from urllib.parse import urlparse, urlunparse
-
-        parsed = urlparse(newurl)
-        hostname = parsed.hostname
-        if not hostname:
-            return None
-
-        # Threaded DNS with 3s timeout to prevent slow-resolve DoS
-        result, err = _dns_call_with_timeout(socket.getaddrinfo, hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+    def connect_tcp(self, host, port, timeout=None, local_address=None, socket_options=None):
+        result, err = _dns_call_with_timeout(
+            socket.getaddrinfo,
+            host,
+            None,
+            socket.AF_UNSPEC,
+            socket.SOCK_STREAM,
+        )
         if err or not result:
-            return None  # timeout or resolve failed = block
+            raise httpcore.ConnectError(f"DNS resolution failed for {host}")
         for _family, _stype, _proto, _canonname, sockaddr in result:
             if is_private_ip(sockaddr[0]):
-                return None  # block redirect to internal IP
-
-        # Pin redirect to validated IP (prevents DNS rebinding TOCTOU)
+                raise httpcore.ConnectError(f"SSRF blocked: {host} resolves to private IP")
         validated_ip = result[0][4][0]
-        if ":" in validated_ip:
-            connect_host = f"[{validated_ip}]"
-        else:
-            connect_host = validated_ip
-        port_suffix = f":{parsed.port}" if parsed.port else ""
-        pinned_url = urlunparse(parsed._replace(netloc=f"{connect_host}{port_suffix}"))
-        new_req = super().redirect_request(req, fp, code, msg, headers, pinned_url)
-        if new_req:
-            new_req.add_unredirected_header("Host", hostname)
-        return new_req
+        return super().connect_tcp(
+            validated_ip,
+            port,
+            timeout=timeout,
+            local_address=local_address,
+            socket_options=socket_options,
+        )
 
 
-_no_redirect_opener = urllib.request.build_opener(_NoRedirectHandler)
-_safe_redirect_opener = urllib.request.build_opener(_SafeRedirectHandler)
+class _SSRFSafeTransport(httpx.HTTPTransport):
+    """HTTP transport with SSRF protection at the connection level."""
+
+    def __init__(self):
+        super().__init__()
+        self._pool = httpcore.ConnectionPool(network_backend=_SSRFSafeBackend())
 
 
-def _ssrf_safe_urlopen(url: str, timeout: int, follow_redirects: bool = False):
-    """SSRF-safe urlopen. Redirects validated against private IP list when followed."""
-    req = Request(url, headers={"User-Agent": USER_AGENT})
-    if follow_redirects:
-        return _safe_redirect_opener.open(req, timeout=timeout)
-    return _no_redirect_opener.open(req, timeout=timeout)
+_ssrf_http = httpx.Client(
+    transport=_SSRFSafeTransport(),
+    timeout=httpx.Timeout(RECON_TIMEOUT, connect=5.0),
+    headers={"User-Agent": USER_AGENT},
+    follow_redirects=False,
+    max_redirects=5,
+)
 
 
-def _pinned_urlopen(domain: str, resolved_ip: str | None, scheme: str, timeout: int, follow_redirects: bool = True):
-    """SSRF-safe urlopen. Connects by domain name for correct SSL hostname verification.
+def _safe_urlopen(domain: str, scheme: str, timeout: int, follow_redirects: bool = True):
+    """SSRF-safe HTTP request. Validates all IPs (including redirect targets) before connecting."""
+    return _ssrf_http.get(
+        f"{scheme}://{domain}/",
+        timeout=timeout,
+        follow_redirects=follow_redirects,
+    )
 
-    Initial DNS resolution was validated by validate_domain() — DNS cache makes
-    rebinding on the first request very unlikely. Redirect targets are pinned to
-    validated IPs by _SafeRedirectHandler to prevent redirect-based DNS rebinding.
-    """
-    return _ssrf_safe_urlopen(f"{scheme}://{domain}/", timeout, follow_redirects)
 
-
-def fetch_live_headers(domain: str, resolved_ip: str | None = None) -> dict:
-    """Fetch HTTP response headers from a live domain (follows redirects safely, DNS-pinned)."""
+def fetch_live_headers(domain: str) -> dict:
+    """Fetch HTTP response headers from a live domain (follows redirects safely)."""
     try:
-        with _pinned_urlopen(domain, resolved_ip, "https", RECON_TIMEOUT) as resp:
-            headers = {k.lower(): v for k, v in resp.headers.items()}
-            return {"headers": headers, "status_code": resp.status, "url": resp.url}
+        resp = _safe_urlopen(domain, "https", RECON_TIMEOUT)
+        headers = {k.lower(): v for k, v in resp.headers.items()}
+        return {"headers": headers, "status_code": resp.status_code, "url": str(resp.url)}
     except Exception as https_err:
         try:
-            with _pinned_urlopen(domain, resolved_ip, "http", RECON_TIMEOUT) as resp:
-                headers = {k.lower(): v for k, v in resp.headers.items()}
-                return {"headers": headers, "status_code": resp.status, "url": resp.url}
+            resp = _safe_urlopen(domain, "http", RECON_TIMEOUT)
+            headers = {k.lower(): v for k, v in resp.headers.items()}
+            return {"headers": headers, "status_code": resp.status_code, "url": str(resp.url)}
         except Exception as http_err:
             logger.warning(
                 "fetch_live_headers failed for %s: HTTPS=%s, HTTP=%s",
@@ -599,18 +587,30 @@ def fetch_live_headers(domain: str, resolved_ip: str | None = None) -> dict:
 MAX_HTML_SIZE = 65536  # 64KB
 
 
-def fetch_live_page(domain: str, resolved_ip: str | None = None) -> dict:
-    """Fetch HTTP headers AND HTML body (first 64KB) from a live domain (DNS-pinned)."""
+def fetch_live_page(domain: str) -> dict:
+    """Fetch HTTP headers AND HTML body (first 64KB) from a live domain."""
 
     def _fetch(scheme):
-        with _pinned_urlopen(domain, resolved_ip, scheme, RECON_TIMEOUT) as resp:
+        with _ssrf_http.stream(
+            "GET",
+            f"{scheme}://{domain}/",
+            timeout=RECON_TIMEOUT,
+            follow_redirects=True,
+        ) as resp:
             headers = {k.lower(): v for k, v in resp.headers.items()}
             html = None
             content_type = headers.get("content-type", "")
             if "text/html" in content_type or "application/xhtml" in content_type:
-                raw = resp.read(MAX_HTML_SIZE)
+                chunks = []
+                remaining = MAX_HTML_SIZE
+                for chunk in resp.iter_bytes():
+                    chunks.append(chunk[:remaining])
+                    remaining -= len(chunks[-1])
+                    if remaining <= 0:
+                        break
+                raw = b"".join(chunks)
                 html = raw.decode("utf-8", errors="ignore")
-            return {"headers": headers, "html": html, "status_code": resp.status, "url": resp.url}
+            return {"headers": headers, "html": html, "status_code": resp.status_code, "url": str(resp.url)}
 
     try:
         return _fetch("https")
@@ -686,7 +686,7 @@ def full_domain_report(domain: str, resolved_ip: str | None = None, client_ip: s
         f_whois = pool.submit(whois_lookup, domain)
         f_ssl = pool.submit(ssl_info, domain, resolved_ip)
         f_threat = pool.submit(check_urlhaus, domain)
-        f_headers = pool.submit(fetch_live_headers, domain, resolved_ip)
+        f_headers = pool.submit(fetch_live_headers, domain)
 
         # Subdomains: reuse crtsh data to avoid duplicate HTTP call
         def _subs_with_crtsh():
