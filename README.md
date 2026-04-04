@@ -5,6 +5,7 @@
 [![Tests](https://img.shields.io/badge/Tests-677_passing-brightgreen.svg)](https://github.com/UPinar/contrastapi/actions)
 [![MCP](https://img.shields.io/badge/MCP-20_tools-purple.svg)](https://modelcontextprotocol.io)
 [![RapidAPI](https://img.shields.io/badge/RapidAPI-Available-blue.svg)](https://rapidapi.com/UPinar/api/contrastapi)
+[![contrastapi MCP server](https://glama.ai/mcp/servers/UPinar/contrastapi/badges/card.svg)](https://glama.ai/mcp/servers/UPinar/contrastapi)
 
 **Security intelligence API and MCP server for AI agents.** 20 tools / 30+ endpoints: CVE lookup with EPSS/KEV enrichment, domain reconnaissance, SSL analysis, IP reputation (AbuseIPDB, Shodan), IOC/malware lookup, exploit search, technology fingerprinting, and code security scanning. Free, no API key required.
 
