@@ -15,7 +15,7 @@ import threading
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 
-from config import API_DB_PATH, CACHE_DB_PATH, CVE_DB_PATH, DOMAIN_CACHE_TTL, HASH_SECRET, IP_CACHE_TTL
+from config import API_DB_PATH, CACHE_DB_PATH, CACHE_MAX_BYTES, CVE_DB_PATH, DOMAIN_CACHE_TTL, HASH_SECRET, IP_CACHE_TTL
 
 logger = logging.getLogger("contrastapi")
 
@@ -405,6 +405,9 @@ def get_cached_domain(domain: str) -> dict | None:
 def save_cached_domain(domain: str, result: dict) -> None:
     now = datetime.now(UTC).isoformat()
     result_str = json.dumps(result)
+    if len(result_str) > CACHE_MAX_BYTES:
+        logger.warning("domain cache entry too large (%d bytes), skipping: %s", len(result_str), domain)
+        return
     with get_cache_db() as con:
         con.execute(
             "INSERT OR REPLACE INTO domain_cache (domain, result_json, fetched_at) VALUES (?, ?, ?)",
@@ -431,6 +434,9 @@ def get_cached_ip(ip: str) -> dict | None:
 def save_cached_ip(ip: str, result: dict) -> None:
     now = datetime.now(UTC).isoformat()
     result_str = json.dumps(result)
+    if len(result_str) > CACHE_MAX_BYTES:
+        logger.warning("IP cache entry too large (%d bytes), skipping: %s", len(result_str), ip)
+        return
     with get_cache_db() as con:
         con.execute(
             "INSERT OR REPLACE INTO ip_cache (ip, result_json, fetched_at) VALUES (?, ?, ?)", (ip, result_str, now)
