@@ -104,6 +104,12 @@ WHOIS_SERVERS = {
 CT_MAX_ENTRIES = 20
 CT_MAX_CERTS = 10
 
+# In-memory TTL cache for crt.sh responses (thread-safe)
+_crtsh_cache: dict[str, tuple[list, float]] = {}
+_crtsh_cache_lock = threading.Lock()
+_CRTSH_CACHE_TTL = 3600  # 1 hour
+_CRTSH_CACHE_MAX = 1000
+
 
 # === DNS ===
 
@@ -278,7 +284,13 @@ def enumerate_subdomains(domain: str, crtsh_data: list | None = None) -> dict:
 
 
 def _fetch_crtsh(query: str) -> list:
-    """Fetch certificate data from crt.sh."""
+    """Fetch certificate data from crt.sh (with 1h in-memory TTL cache)."""
+    now = time.time()
+    with _crtsh_cache_lock:
+        if query in _crtsh_cache:
+            result, ts = _crtsh_cache[query]
+            if now - ts < _CRTSH_CACHE_TTL:
+                return list(result)
     try:
         resp = _http.get(
             "https://crt.sh/",
@@ -286,10 +298,18 @@ def _fetch_crtsh(query: str) -> list:
             timeout=CRTSH_TIMEOUT,
         )
         resp.raise_for_status()
-        return resp.json()
+        data = resp.json()[:CT_MAX_ENTRIES]
     except Exception as e:
         logger.debug("crt.sh fetch failed for %s: %s", query, e)
         return []
+    if not data:
+        return []
+    with _crtsh_cache_lock:
+        _crtsh_cache[query] = (data, now)
+        if len(_crtsh_cache) > _CRTSH_CACHE_MAX:
+            oldest_key = min(_crtsh_cache, key=lambda k: _crtsh_cache[k][1])
+            del _crtsh_cache[oldest_key]
+    return data
 
 
 def _crtsh_subdomains(domain: str, data: list | None = None) -> list:
