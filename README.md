@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Python 3.12](https://img.shields.io/badge/Python-3.12-blue.svg)](https://python.org)
-[![Tests](https://img.shields.io/badge/Tests-603_passing-brightgreen.svg)](https://github.com/UPinar/contrastapi/actions)
+[![Tests](https://img.shields.io/badge/Tests-612_passing-brightgreen.svg)](https://github.com/UPinar/contrastapi/actions)
 [![RapidAPI](https://img.shields.io/badge/RapidAPI-Available-blue.svg)](https://rapidapi.com/UPinar/api/contrastapi)
 
 **Security intelligence API for AI agents and developers.** 30+ endpoints: CVE lookup with EPSS/KEV enrichment, domain reconnaissance, SSL analysis, IP reputation (AbuseIPDB, Shodan), IOC/malware lookup, exploit search, technology fingerprinting, and code security verification. Free, no signup required.
@@ -109,6 +109,29 @@ POST /v1/check/dependencies    Check packages for known CVEs
 | CISA KEV | 1,500+ exploited vulns | Every 2 hours |
 | FIRST EPSS | 323k+ exploit scores | Every 2 hours |
 
+## MCP Server
+
+All 20 tools available via [Model Context Protocol](https://modelcontextprotocol.io).
+
+**HTTP (remote):**
+```
+POST https://api.contrastcyber.com/mcp/
+Content-Type: application/json
+Accept: application/json, text/event-stream
+```
+
+**Stdio (local):** add to `.mcp.json`:
+```json
+{
+  "mcpServers": {
+    "contrastapi": {
+      "command": "python3",
+      "args": ["mcp_server.py"]
+    }
+  }
+}
+```
+
 ## Docs
 
 - **Swagger UI:** https://api.contrastcyber.com/docs
@@ -132,7 +155,7 @@ cd app
 cd app && PYTHONPATH=. python -m pytest tests/ -v
 ```
 
-603 tests covering auth, rate limiting, validation, database operations, domain intelligence, CVE intelligence, threat intelligence, code security, tech fingerprinting, IP reputation, and API routes.
+612 tests covering auth, rate limiting, validation, database operations, domain intelligence, CVE intelligence, threat intelligence, code security, tech fingerprinting, IP reputation, MCP endpoint, and API routes.
 
 ## Stack
 

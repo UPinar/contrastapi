@@ -1,10 +1,10 @@
 """
-ContrastAPI MCP Server — stdio transport
+ContrastAPI MCP Server — stdio + Streamable HTTP transport
 
 Exposes ContrastAPI endpoints as MCP tools for Claude Code / Claude Desktop.
 Calls the live API at api.contrastcyber.com (no local server needed).
 
-Usage in .mcp.json:
+Stdio usage (.mcp.json):
 {
   "mcpServers": {
     "contrastapi": {
@@ -13,18 +13,37 @@ Usage in .mcp.json:
     }
   }
 }
+
+HTTP usage: POST https://api.contrastcyber.com/mcp
 """
 
+import contextvars
 import os
 import sys
 import logging
 import httpx
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 
 logging.basicConfig(level=logging.INFO, stream=sys.stderr)
 logger = logging.getLogger("contrastapi-mcp")
 
-mcp = FastMCP("contrastapi")
+# Carries the real client IP from MCP HTTP handler to internal API calls,
+# so backend rate limiting sees the original IP instead of localhost.
+_client_ip_var: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "mcp_client_ip", default=""
+)
+
+mcp = FastMCP(
+    "contrastapi",
+    stateless_http=True,
+    json_response=True,  # JSON instead of SSE — Cloudflare compatible
+    # Mounted at /mcp in FastAPI — sub-app route must be "/"
+    streamable_http_path="/",
+    transport_security=TransportSecuritySettings(
+        enable_dns_rebinding_protection=False,  # nginx handles this
+    ),
+)
 
 # Use local API if running on the server, otherwise use public API
 API_BASE = os.environ.get("CONTRASTAPI_URL", "http://localhost:8002")
@@ -36,6 +55,10 @@ def _headers() -> dict:
     h = {"Accept": "application/json"}
     if API_KEY:
         h["Authorization"] = f"Bearer {API_KEY}"
+    # Forward real client IP so backend applies correct rate limits
+    client_ip = _client_ip_var.get()
+    if client_ip:
+        h["X-Forwarded-For"] = client_ip
     return h
 
 
@@ -51,7 +74,7 @@ async def _get(path: str, params: dict | None = None) -> dict | str:
             resp.raise_for_status()
             return resp.json()
         except httpx.HTTPStatusError as e:
-            return f"Error {e.response.status_code}: {e.response.text[:200]}"
+            return f"Error {e.response.status_code}"
         except httpx.HTTPError as e:
             return f"Request failed: {e}"
 
@@ -68,7 +91,7 @@ async def _post(path: str, json_body: dict) -> dict | str:
             resp.raise_for_status()
             return resp.json()
         except httpx.HTTPStatusError as e:
-            return f"Error {e.response.status_code}: {e.response.text[:200]}"
+            return f"Error {e.response.status_code}"
         except httpx.HTTPError as e:
             return f"Request failed: {e}"
 
@@ -80,7 +103,7 @@ def _fmt(data: dict | str) -> str:
     if summary:
         return summary
     import json
-    return json.dumps(data, indent=2, default=str)[:4000]
+    return json.dumps(data, indent=2, default=str)[:8000]
 
 
 # === Domain Intelligence ===

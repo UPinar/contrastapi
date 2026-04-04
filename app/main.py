@@ -65,7 +65,13 @@ async def lifespan(app):
 
     task = asyncio.create_task(_periodic_maintenance())
 
-    yield
+    # MCP session manager needs a running task group (skip if mcp not installed)
+    if _mcp_session_mgr is not None:
+        async with _mcp_session_mgr.run():
+            logger.info("MCP Streamable HTTP endpoint ready at /mcp")
+            yield
+    else:
+        yield
 
     # Stop maintenance task
     task.cancel()
@@ -587,6 +593,23 @@ Rate limit headers returned: X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLim
 - GET /v1/status — API health check and data freshness
 - GET /v1/usage — Usage statistics (Pro key required)
 
+## MCP (Model Context Protocol)
+
+ContrastAPI is available as an MCP server with 20 tools.
+MCP tools: domain_report, dns_lookup, whois_lookup, ssl_check, subdomain_enum,
+tech_fingerprint, threat_intel, scan_headers, ip_lookup, asn_lookup, cve_lookup,
+cve_search, exploit_lookup, ioc_lookup, hash_lookup, password_check,
+phishing_check, check_secrets, check_injection, check_headers.
+
+### HTTP Transport (remote)
+POST https://api.contrastcyber.com/mcp/
+Headers: Content-Type: application/json, Accept: application/json, text/event-stream
+Body: JSON-RPC 2.0 (initialize, tools/list, tools/call)
+
+### Stdio Transport (local)
+Add to .mcp.json:
+{"mcpServers": {"contrastapi": {"command": "python3", "args": ["/path/to/mcp_server.py"]}}}
+
 ## Quick Examples
 
 ### CVE Lookup
@@ -1036,6 +1059,48 @@ app.include_router(ioc_router)
 from webhooks import router as webhooks_router
 
 app.include_router(webhooks_router)
+
+# --- MCP Streamable HTTP endpoint ---
+_mcp_session_mgr = None
+try:
+    import importlib.util as _imputil
+
+    _spec = _imputil.spec_from_file_location("mcp_server", str(BASE_DIR.parent / "mcp_server.py"))
+    _mcp_mod = _imputil.module_from_spec(_spec)
+    _spec.loader.exec_module(_mcp_mod)
+    _mcp_instance = _mcp_mod.mcp
+    _mcp_client_ip_var = _mcp_mod._client_ip_var
+
+    class _MCPIPForwardMiddleware:
+        """ASGI middleware that sets the real client IP in contextvars
+        so MCP tool calls forward it to internal API requests."""
+
+        def __init__(self, asgi_app):
+            self.app = asgi_app
+
+        async def __call__(self, scope, receive, send):
+            if scope["type"] == "http":
+                headers = dict(scope.get("headers", []))
+                # Priority: CF-Connecting-IP (Cloudflare) > X-Real-IP (nginx) > XFF
+                ip = (headers.get(b"cf-connecting-ip") or b"").decode().strip()
+                if not ip:
+                    ip = (headers.get(b"x-real-ip") or b"").decode().strip()
+                if not ip:
+                    xff = (headers.get(b"x-forwarded-for") or b"").decode()
+                    ip = xff.split(",")[0].strip() if xff else ""
+                token = _mcp_client_ip_var.set(ip)
+                try:
+                    await self.app(scope, receive, send)
+                finally:
+                    _mcp_client_ip_var.reset(token)
+            else:
+                await self.app(scope, receive, send)
+
+    _mcp_starlette = _mcp_instance.streamable_http_app()
+    _mcp_session_mgr = _mcp_instance.session_manager
+    app.mount("/mcp", _MCPIPForwardMiddleware(_mcp_starlette))
+except Exception:
+    logger.warning("MCP server not available (mcp package not installed)")
 
 # --- AI Discovery endpoints ---
 
