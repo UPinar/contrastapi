@@ -339,7 +339,7 @@ class TestDomainRoutes:
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     def test_whois_error(self, mock_validate, mock_whois):
         r = client.get("/v1/whois/example.dev")
-        assert r.status_code == 502
+        assert r.status_code == 504
 
     @patch("domain.routes.enumerate_subdomains", return_value=MOCK_SUBDOMAIN_RESULT)
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
@@ -1218,10 +1218,10 @@ class TestScanHeadersRoute:
 
     @patch("codesec.routes.fetch_live_headers")
     @patch("codesec.routes.validate_domain", return_value="1.2.3.4")
-    def test_scan_headers_connection_failure_502(self, mock_validate, mock_fetch):
+    def test_scan_headers_connection_failure_504(self, mock_validate, mock_fetch):
         mock_fetch.return_value = {"error": "Could not connect to fail.test"}
         r = client.get("/v1/scan/headers/fail.test")
-        assert r.status_code == 502
+        assert r.status_code == 504
 
 
 # =========== enumerate_subdomains unit tests ===========
@@ -2053,11 +2053,11 @@ class TestTechRoute:
 
     @patch("domain.routes.fetch_live_page")
     @patch("domain.routes._validate_and_auth")
-    def test_tech_502_on_connection_failure(self, mock_validate, mock_page):
+    def test_tech_504_on_connection_failure(self, mock_validate, mock_page):
         mock_validate.return_value = ("down.com", "1.2.3.4", {"tier": "free"})
         mock_page.return_value = {"error": "Could not connect to down.com"}
         r = client.get("/v1/tech/down.com")
-        assert r.status_code == 502
+        assert r.status_code == 504
 
     @patch("domain.routes.fetch_live_page")
     @patch("domain.routes._validate_and_auth")
@@ -2173,11 +2173,11 @@ class TestVulnsRoute:
 
     @patch("domain.routes.fetch_live_page")
     @patch("domain.routes._validate_and_auth")
-    def test_vulns_502_on_page_error(self, mock_validate, mock_page):
+    def test_vulns_504_on_page_error(self, mock_validate, mock_page):
         mock_validate.return_value = ("down.com", "1.2.3.4", {"tier": "free"})
         mock_page.return_value = {"error": "Connection refused"}
         r = client.get("/v1/domain/down.com/vulns")
-        assert r.status_code == 502
+        assert r.status_code == 504
 
 
 # =========== /v1/ssl/{domain} tests ===========
@@ -2262,7 +2262,7 @@ class TestSslCertificate:
         mock_validate.return_value = ("nossl.com", "1.2.3.4", {"tier": "free"})
         with patch("domain.routes.socket.create_connection", side_effect=ConnectionRefusedError("Connection refused")):
             r = client.get("/v1/ssl/nossl.com")
-        assert r.status_code == 502
+        assert r.status_code == 504
 
     @patch("domain.routes._validate_and_auth")
     def test_ssl_cached(self, mock_validate):
