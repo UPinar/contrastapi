@@ -84,8 +84,8 @@ CACHE_MAX_BYTES = 1 * 1024 * 1024  # 1 MB per cached result
 
 # Timeouts
 RECON_TIMEOUT = 5
-CRTSH_TIMEOUT = 30
-BULK_PER_DOMAIN_TIMEOUT = 40  # must exceed CRTSH_TIMEOUT + RECON_TIMEOUT + buffer (39s worst case)
+CRTSH_TIMEOUT = 10
+BULK_PER_DOMAIN_TIMEOUT = 25  # must exceed CRTSH_TIMEOUT + RECON_TIMEOUT + buffer (19s worst case)
 BULK_OVERALL_TIMEOUT = 120  # hard cap for entire bulk request; partial results returned on expiry
 
 # Severity ordering
