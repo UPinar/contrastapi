@@ -20,6 +20,8 @@
     .error-box { background: rgba(255, 60, 60, 0.1); border: 1px solid rgba(255, 60, 60, 0.3); border-radius: 8px; padding: 24px; margin: 32px 0; color: #ff6b6b; }
     .back-link { display: inline-block; margin-top: 32px; color: #00d4ff; text-decoration: none; }
     .back-link:hover { text-decoration: underline; }
+    .spinner { width: 40px; height: 40px; margin: 24px auto; border: 3px solid #333; border-top-color: #00d4ff; border-radius: 50%; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
   </style>
 </head>
 <body>
@@ -29,15 +31,38 @@
     <h1>Welcome to Contrast<span style="color:#00d4ff">API</span> Pro</h1>
 
     {% if api_key %}
-    <p>Your API key has been generated. Use it in the <code>X-API-Key</code> header with every request.</p>
+    <div id="key-section">
+      <p>Your API key has been generated. Use it in the <code>X-API-Key</code> header with every request.</p>
 
-    <div class="key-box">
-      <code id="api-key">{{ api_key }}</code>
-      <button class="copy-btn" onclick="copyKey(this)">Copy</button>
+      <div class="key-box">
+        <code id="api-key">{{ api_key }}</code>
+        <button class="copy-btn" onclick="copyKey(this)">Copy</button>
+      </div>
+
+      <div class="warning">
+        Save this key now. For security, it will not be shown again.
+      </div>
     </div>
-
-    <div class="warning">
-      Save this key now. For security, it will not be shown again.
+    {% elif polling %}
+    <div id="polling-section">
+      <div class="spinner"></div>
+      <p id="polling-msg">Your payment is being processed. This usually takes a few seconds...</p>
+    </div>
+    <div id="key-section" style="display:none">
+      <p>Your API key has been generated. Use it in the <code>X-API-Key</code> header with every request.</p>
+      <div class="key-box">
+        <code id="api-key"></code>
+        <button class="copy-btn" onclick="copyKey(this)">Copy</button>
+      </div>
+      <div class="warning">
+        Save this key now. For security, it will not be shown again.
+      </div>
+    </div>
+    <div id="timeout-section" style="display:none">
+      <div class="error-box">
+        <strong>Key generation is taking longer than expected.</strong>
+        <p style="margin-top:8px">Please refresh this page in a minute. If the problem persists, contact <a href="mailto:support@contrastcyber.com" style="color:#00d4ff">support@contrastcyber.com</a>.</p>
+      </div>
     </div>
     {% else %}
     <div class="error-box">
@@ -57,6 +82,47 @@
       setTimeout(function() { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 2000);
     });
   }
+
+  {% if polling %}
+  (function() {
+    var orderId = {{ order_id | tojson }};
+    var attempts = 0;
+    var networkErrors = 0;
+    var maxAttempts = 10;
+    var interval = 3000;
+    var msgEl = document.getElementById('polling-msg');
+
+    function poll() {
+      attempts++;
+      fetch('/api/check-key?order_id=' + encodeURIComponent(orderId))
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          networkErrors = 0;
+          if (data.ready) {
+            window.location.reload();
+          } else if (attempts >= maxAttempts) {
+            document.getElementById('polling-section').style.display = 'none';
+            document.getElementById('timeout-section').style.display = 'block';
+          } else {
+            setTimeout(poll, interval);
+          }
+        })
+        .catch(function() {
+          networkErrors++;
+          if (networkErrors >= 3) {
+            msgEl.textContent = 'Connection issue. Retrying...';
+          }
+          if (attempts < maxAttempts) setTimeout(poll, interval);
+          else {
+            document.getElementById('polling-section').style.display = 'none';
+            document.getElementById('timeout-section').style.display = 'block';
+          }
+        });
+    }
+
+    setTimeout(poll, interval);
+  })();
+  {% endif %}
   </script>
 </body>
 </html>

@@ -97,9 +97,14 @@ def init_api_db():
                 active INTEGER DEFAULT 1,
                 created_at TEXT NOT NULL,
                 last_used_at TEXT,
-                pending_key TEXT
+                pending_key TEXT,
+                pending_key_created_at TEXT
             )
         """)
+        # Migration: add pending_key_created_at if missing (existing installs)
+        cols = {r[1] for r in con.execute("PRAGMA table_info(api_keys)").fetchall()}
+        if "pending_key_created_at" not in cols:
+            con.execute("ALTER TABLE api_keys ADD COLUMN pending_key_created_at TEXT")
         con.execute("""
             CREATE TABLE IF NOT EXISTS api_usage (
                 id INTEGER PRIMARY KEY,
@@ -223,24 +228,58 @@ def get_key_by_order_id(order_id: str) -> dict | None:
 def save_pending_key(order_id: str, raw_key: str) -> None:
     """Store raw API key temporarily so the welcome page can show it once."""
     with get_api_db() as con:
-        con.execute("UPDATE api_keys SET pending_key = ? WHERE order_id = ?", (raw_key, order_id))
+        con.execute(
+            "UPDATE api_keys SET pending_key = ?, pending_key_created_at = ? WHERE order_id = ?",
+            (raw_key, datetime.now(UTC).isoformat(), order_id),
+        )
+
+
+def has_pending_key(order_id: str) -> bool:
+    """Check if a pending key exists for the order (without revealing or clearing it)."""
+    with get_api_db() as con:
+        row = con.execute(
+            "SELECT 1 FROM api_keys WHERE order_id = ? AND pending_key IS NOT NULL", (order_id,)
+        ).fetchone()
+        return row is not None
+
+
+def cleanup_expired_pending_keys(max_age_hours: int = 24) -> int:
+    """Remove pending keys older than max_age_hours. Returns count of cleared keys."""
+    cutoff = (datetime.now(UTC) - timedelta(hours=max_age_hours)).isoformat()
+    with get_api_db() as con:
+        cur = con.execute(
+            "UPDATE api_keys SET pending_key = NULL, pending_key_created_at = NULL "
+            "WHERE pending_key IS NOT NULL AND pending_key_created_at < ?",
+            (cutoff,),
+        )
+        return cur.rowcount
 
 
 def get_and_clear_pending_key(order_id: str) -> str | None:
     """Atomically return and clear the pending raw key.
 
-    SELECT + UPDATE in a single transaction — TOCTOU-safe because SQLite
-    holds an EXCLUSIVE lock once the UPDATE executes, preventing concurrent
-    readers from seeing the key before it's cleared.
+    BEGIN IMMEDIATE acquires a write lock upfront, preventing concurrent
+    readers from seeing the key between SELECT and UPDATE (no TOCTOU window).
     """
-    with get_api_db() as con:
+    con = _get_conn(str(API_DB_PATH))
+    try:
+        con.execute("BEGIN IMMEDIATE")
         row = con.execute(
-            "SELECT pending_key FROM api_keys WHERE order_id = ? AND pending_key IS NOT NULL", (order_id,)
+            "SELECT pending_key FROM api_keys WHERE order_id = ? AND pending_key IS NOT NULL",
+            (order_id,),
         ).fetchone()
         if row is None:
+            con.commit()
             return None
-        con.execute("UPDATE api_keys SET pending_key = NULL WHERE order_id = ?", (order_id,))
+        con.execute(
+            "UPDATE api_keys SET pending_key = NULL, pending_key_created_at = NULL WHERE order_id = ?",
+            (order_id,),
+        )
+        con.commit()
         return row[0]
+    except Exception:
+        con.rollback()
+        raise
 
 
 def deactivate_api_key(order_id: str) -> int:
@@ -320,6 +359,9 @@ def maintenance() -> dict:
         cur = con.execute("DELETE FROM api_usage WHERE called_at < ?", (cutoff,))
         stats["usage_purged"] = cur.rowcount
         con.execute("ANALYZE")
+
+    # Clear unclaimed pending keys older than 24 hours
+    stats["pending_keys_cleared"] = cleanup_expired_pending_keys(max_age_hours=24)
 
     # Purge expired domain cache and IP cache
     with get_cache_db() as con:

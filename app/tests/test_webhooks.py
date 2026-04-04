@@ -329,6 +329,8 @@ def test_get_key_by_order_id_not_found():
 _UUID_WELCOME = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeee01"
 _UUID_ONCE = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeee02"
 _UUID_INVALID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeee03"
+_UUID_CHECK = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeee04"
+_UUID_CLEANUP = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeee05"
 
 
 def test_welcome_shows_key_after_purchase(client):
@@ -366,17 +368,17 @@ def test_welcome_key_cleared_after_first_view(client):
     assert resp1.status_code == 200
     assert "api-key" in resp1.text
 
-    # Second view — key cleared
+    # Second view — key already claimed, shows error (not polling)
     resp2 = client.get("/welcome", params={"order_id": _UUID_ONCE})
     assert resp2.status_code == 200
-    assert "already claimed" in resp2.text.lower()
+    assert "already been claimed" in resp2.text
 
 
 def test_welcome_invalid_order(client):
-    """GET /welcome with nonexistent UUID order_id shows error."""
+    """GET /welcome with nonexistent UUID order_id shows polling (webhook may not have arrived)."""
     resp = client.get("/welcome", params={"order_id": _UUID_INVALID})
     assert resp.status_code == 200
-    assert "already claimed or invalid order" in resp.text.lower()
+    assert "polling-section" in resp.text
 
 
 def test_welcome_invalid_order_id_format(client):
@@ -402,3 +404,77 @@ def test_welcome_rate_limit(client):
         assert resp.status_code == 200
     resp = client.get("/welcome", params={"order_id": uid})
     assert resp.status_code == 429
+
+
+# --- /api/check-key ---
+
+
+def test_check_key_ready_after_webhook(client):
+    """check-key returns ready=true when pending key exists."""
+    payload = _make_payload("order_created", {"id": _UUID_CHECK}, event_id="evt_check_1")
+    sig = _sign(payload)
+    with patch("webhooks.LEMONSQUEEZY_WEBHOOK_SECRET", WEBHOOK_SECRET):
+        client.post("/webhooks/lemonsqueezy", content=payload, headers={"x-signature": sig})
+
+    resp = client.get("/api/check-key", params={"order_id": _UUID_CHECK})
+    assert resp.status_code == 200
+    assert resp.json()["ready"] is True
+
+
+def test_check_key_not_ready(client):
+    """check-key returns ready=false for unknown order."""
+    resp = client.get("/api/check-key", params={"order_id": _UUID_INVALID})
+    assert resp.status_code == 200
+    assert resp.json()["ready"] is False
+
+
+def test_check_key_missing_order_id(client):
+    """check-key without order_id returns 400."""
+    resp = client.get("/api/check-key")
+    assert resp.status_code == 400
+
+
+def test_check_key_invalid_format(client):
+    """check-key with non-UUID returns 400."""
+    resp = client.get("/api/check-key", params={"order_id": "not-a-uuid"})
+    assert resp.status_code == 400
+
+
+def test_check_key_rate_limit(client):
+    """check-key more than 10 times/min returns 429."""
+    from ratelimit import reset
+
+    reset("check_key")
+    uid = "aaaaaaaa-bbbb-cccc-dddd-ffffffffffff"
+    for _ in range(10):
+        resp = client.get("/api/check-key", params={"order_id": uid})
+        assert resp.status_code == 200
+    resp = client.get("/api/check-key", params={"order_id": uid})
+    assert resp.status_code == 429
+
+
+# --- cleanup_expired_pending_keys ---
+
+
+def test_cleanup_expired_pending_keys(client):
+    """Expired pending keys are cleared by cleanup."""
+    from datetime import UTC, datetime, timedelta
+
+    from db import cleanup_expired_pending_keys, get_api_db, has_pending_key
+
+    # Create a key via webhook
+    payload = _make_payload("order_created", {"id": _UUID_CLEANUP}, event_id="evt_cleanup_1")
+    sig = _sign(payload)
+    with patch("webhooks.LEMONSQUEEZY_WEBHOOK_SECRET", WEBHOOK_SECRET):
+        client.post("/webhooks/lemonsqueezy", content=payload, headers={"x-signature": sig})
+
+    assert has_pending_key(_UUID_CLEANUP) is True
+
+    # Backdate the pending_key_created_at to 25 hours ago
+    old_ts = (datetime.now(UTC) - timedelta(hours=25)).isoformat()
+    with get_api_db() as con:
+        con.execute("UPDATE api_keys SET pending_key_created_at = ? WHERE order_id = ?", (old_ts, _UUID_CLEANUP))
+
+    cleared = cleanup_expired_pending_keys(max_age_hours=24)
+    assert cleared >= 1
+    assert has_pending_key(_UUID_CLEANUP) is False

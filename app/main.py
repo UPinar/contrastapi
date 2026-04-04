@@ -22,7 +22,14 @@ import uuid
 from contextlib import asynccontextmanager
 
 from config import BASE_DIR, VERSION
-from db import get_and_clear_pending_key, get_sync_status, get_total_requests, init_all_dbs
+from db import (
+    get_and_clear_pending_key,
+    get_key_by_order_id,
+    get_sync_status,
+    get_total_requests,
+    has_pending_key,
+    init_all_dbs,
+)
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -236,16 +243,26 @@ def welcome_page(request: Request, order_id: str = ""):
         raise HTTPException(status_code=429, detail="Too many requests")
 
     api_key = get_and_clear_pending_key(order_id)
-    error = None if api_key else "Key already claimed or invalid order"
+
+    if api_key:
+        context = {"api_key": api_key, "error": None, "polling": False, "order_id": order_id}
+    elif get_key_by_order_id(order_id):
+        # Order exists but pending_key already consumed — already claimed
+        context = {
+            "api_key": None,
+            "error": "This API key has already been claimed. If you lost your key, please contact support.",
+            "polling": False,
+            "order_id": order_id,
+        }
+    else:
+        # Order not in DB yet — webhook may not have arrived, show polling spinner
+        context = {"api_key": None, "error": None, "polling": True, "order_id": order_id}
 
     try:
         return templates.TemplateResponse(
             request,
             "welcome.html",
-            {
-                "api_key": api_key,
-                "error": error,
-            },
+            context,
         )
     except Exception:
         if api_key:
@@ -255,6 +272,23 @@ def welcome_page(request: Request, order_id: str = ""):
                 media_type="text/plain",
             )
         raise
+
+
+@app.get("/api/check-key", include_in_schema=False)
+def check_key_ready(request: Request, order_id: str = ""):
+    """Poll endpoint: returns whether a pending key is ready for the given order."""
+    if not order_id:
+        raise HTTPException(status_code=400, detail="Missing order_id")
+    try:
+        uuid.UUID(order_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid order_id format") from None
+
+    client_ip = get_client_ip(request)
+    if not check_limit("check_key", client_ip, max_requests=10, window_seconds=60):
+        raise HTTPException(status_code=429, detail="Too many requests")
+
+    return {"ready": has_pending_key(order_id)}
 
 
 @app.get("/docs", response_class=HTMLResponse, include_in_schema=False)
