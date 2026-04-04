@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Python 3.12](https://img.shields.io/badge/Python-3.12-blue.svg)](https://python.org)
-[![Tests](https://img.shields.io/badge/Tests-650_passing-brightgreen.svg)](https://github.com/UPinar/contrastapi/actions)
+[![Tests](https://img.shields.io/badge/Tests-677_passing-brightgreen.svg)](https://github.com/UPinar/contrastapi/actions)
 [![RapidAPI](https://img.shields.io/badge/RapidAPI-Available-blue.svg)](https://rapidapi.com/UPinar/api/contrastapi)
 
 **Security intelligence API for AI agents and developers.** 30+ endpoints: CVE lookup with EPSS/KEV enrichment, domain reconnaissance, SSL analysis, IP reputation (AbuseIPDB, Shodan), IOC/malware lookup, exploit search, technology fingerprinting, and code security verification. Free, no signup required.
@@ -177,7 +177,7 @@ cd app
 cd app && PYTHONPATH=. python -m pytest tests/ -v
 ```
 
-650 tests covering auth, rate limiting, validation, database operations, domain intelligence, CVE intelligence, threat intelligence, code security, tech fingerprinting, IP reputation, MCP endpoint, and API routes.
+677 tests covering auth, rate limiting, validation, database operations, domain intelligence, CVE intelligence, threat intelligence, code security (ReDoS protection, concurrency limits), tech fingerprinting, IP reputation, MCP endpoint, and API routes.
 
 ## Stack
 

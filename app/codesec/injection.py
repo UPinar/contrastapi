@@ -2,7 +2,7 @@
 
 import re
 
-from codesec.utils import is_comment, safe_line
+from codesec.utils import MAX_FINDINGS, MAX_LINES, is_comment, safe_line, safe_scan_line
 
 # --- SQL Injection rules ---
 
@@ -240,22 +240,25 @@ def detect_injection(code: str, language: str = "generic") -> list[dict]:
     findings = []
     lines = code.split("\n")
 
-    for line_num, line in enumerate(lines, start=1):
+    for line_num, line in enumerate(lines[:MAX_LINES], start=1):
+        if len(findings) >= MAX_FINDINGS:
+            break
         if is_comment(line, language):
             continue
         line = safe_line(line)
 
-        for rule_name, pattern, severity, description, remediation in _ALL_RULES:
-            for m in pattern.finditer(line):
-                findings.append(
-                    {
-                        "type": rule_name,
-                        "severity": severity,
-                        "line": line_num,
-                        "match": _redact(m.group()),
-                        "description": description,
-                        "remediation": remediation,
-                    }
-                )
+        for rule_name, severity, match_text, description, remediation in safe_scan_line(_ALL_RULES, line):
+            findings.append(
+                {
+                    "type": rule_name,
+                    "severity": severity,
+                    "line": line_num,
+                    "match": _redact(match_text),
+                    "description": description,
+                    "remediation": remediation,
+                }
+            )
+            if len(findings) >= MAX_FINDINGS:
+                break
 
     return findings

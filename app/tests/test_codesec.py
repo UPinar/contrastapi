@@ -1,8 +1,12 @@
 """Tests for Code Security module — secrets, injection, headers, and routes."""
 
+import re
+from unittest.mock import patch
+
 from codesec.headers import check_headers
 from codesec.injection import detect_injection
 from codesec.secrets import detect_secrets
+from codesec.utils import MAX_FINDINGS, MAX_LINE_LENGTH, MAX_LINES, REGEX_TIMEOUT_SECONDS, safe_scan_line
 from fastapi.testclient import TestClient
 from main import app
 
@@ -608,3 +612,281 @@ class TestResponseModelFiltering:
         for finding in data["findings"]:
             if finding.get("version") is None:
                 assert "version" not in finding
+
+
+# =========== ReDoS protection tests ===========
+
+
+class TestSafeScanLine:
+    """Unit tests for safe_scan_line timeout wrapper."""
+
+    def test_normal_match_returns_results(self):
+        """safe_scan_line returns matches for normal input."""
+        rules = [("test_rule", re.compile(r"foo"), "high", "desc", "fix")]
+        results = safe_scan_line(rules, "foo bar foo")
+        assert len(results) == 2
+        assert results[0][0] == "test_rule"
+        assert results[0][2] == "foo"  # match text
+
+    def test_no_match_returns_empty(self):
+        """safe_scan_line returns empty list when no match."""
+        rules = [("test_rule", re.compile(r"xyz"), "high", "desc", "fix")]
+        assert safe_scan_line(rules, "hello world") == []
+
+    def test_empty_string(self):
+        """safe_scan_line handles empty string."""
+        rules = [("test_rule", re.compile(r"foo"), "high", "desc", "fix")]
+        assert safe_scan_line(rules, "") == []
+
+    def test_multiple_rules_single_line(self):
+        """All rules are checked against the same line in one batch."""
+        rules = [
+            ("rule_a", re.compile(r"foo"), "high", "desc_a", "fix_a"),
+            ("rule_b", re.compile(r"bar"), "medium", "desc_b", "fix_b"),
+        ]
+        results = safe_scan_line(rules, "foo and bar")
+        assert len(results) == 2
+        names = {r[0] for r in results}
+        assert names == {"rule_a", "rule_b"}
+
+    def test_timeout_returns_empty(self):
+        """safe_scan_line returns [] when scan exceeds timeout."""
+        import concurrent.futures
+
+        with patch("codesec.utils._regex_executor") as mock_exec:
+            mock_future = mock_exec.submit.return_value
+            mock_future.result.side_effect = concurrent.futures.TimeoutError()
+            rules = [("test_rule", re.compile(r"foo"), "high", "desc", "fix")]
+            result = safe_scan_line(rules, "foo bar")
+            assert result == []
+            mock_future.cancel.assert_called_once()
+
+    def test_timeout_logs_warning(self):
+        """Timeout triggers a warning log with line_len and rules count."""
+        import concurrent.futures
+
+        with (
+            patch("codesec.utils._regex_executor") as mock_exec,
+            patch("codesec.utils.logger") as mock_logger,
+        ):
+            mock_future = mock_exec.submit.return_value
+            mock_future.result.side_effect = concurrent.futures.TimeoutError()
+            rules = [("r1", re.compile(r"x"), "high", "d", "f")]
+            safe_scan_line(rules, "x" * 500)
+            mock_logger.warning.assert_called_once()
+            log_msg = mock_logger.warning.call_args[0][0]
+            assert "timeout" in log_msg.lower()
+
+    def test_uses_configured_timeout(self):
+        """Default timeout matches REGEX_TIMEOUT_SECONDS constant."""
+        assert REGEX_TIMEOUT_SECONDS == 1.0
+
+    def test_custom_timeout_passed(self):
+        """Custom timeout is forwarded to future.result()."""
+        with patch("codesec.utils._regex_executor") as mock_exec:
+            mock_future = mock_exec.submit.return_value
+            mock_future.result.return_value = []
+            rules = [("r", re.compile(r"x"), "h", "d", "f")]
+            safe_scan_line(rules, "x", timeout=5.0)
+            mock_future.result.assert_called_once_with(timeout=5.0)
+
+    def test_complex_injection_pattern(self):
+        """Injection-style regex patterns work through safe_scan_line."""
+        rules = [
+            (
+                "SQL f-string",
+                re.compile(r"""f(['"])\s*SELECT\b[^'"]*\{""", re.IGNORECASE),
+                "critical",
+                "desc",
+                "fix",
+            )
+        ]
+        code = '''query = f"SELECT * FROM users WHERE id = {user_id}"'''
+        results = safe_scan_line(rules, code)
+        assert len(results) == 1
+        assert results[0][0] == "SQL f-string"
+
+    def test_result_tuple_structure(self):
+        """Each result is (rule_name, severity, match_text, description, remediation)."""
+        rules = [("my_rule", re.compile(r"abc"), "critical", "my_desc", "my_fix")]
+        results = safe_scan_line(rules, "abc")
+        assert len(results) == 1
+        name, severity, match_text, desc, fix = results[0]
+        assert name == "my_rule"
+        assert severity == "critical"
+        assert match_text == "abc"
+        assert desc == "my_desc"
+        assert fix == "my_fix"
+
+
+class TestReDoSProtectionIntegration:
+    """Integration tests — timeout protection in detect_injection/detect_secrets."""
+
+    def test_injection_long_line_truncated(self):
+        """Lines exceeding MAX_LINE_LENGTH are truncated before regex."""
+        long_line = "eval(" + "x" * (MAX_LINE_LENGTH + 500) + ")"
+        findings = detect_injection(long_line)
+        assert any("eval" in f["type"].lower() for f in findings)
+
+    def test_injection_truncation_hides_late_pattern(self):
+        """Pattern placed after MAX_LINE_LENGTH is NOT detected."""
+        padding = "x" * (MAX_LINE_LENGTH + 100)
+        code = padding + 'eval("danger")'
+        findings = detect_injection(code)
+        assert not any("eval" in f["type"].lower() for f in findings)
+
+    def test_injection_timeout_returns_partial(self):
+        """If regex times out on one line, other lines still scanned."""
+        code = 'os.system("rm -rf /")\nHANG_LINE\neval("code")'
+        with patch("codesec.injection.safe_scan_line") as mock_ssl:
+
+            def selective_timeout(rules, text):
+                if "HANG" in text:
+                    return []  # Simulate timeout — line skipped
+                # Run real scan for other lines
+                results = []
+                for rule_name, pattern, severity, desc, fix in rules:
+                    for m in pattern.finditer(text):
+                        results.append((rule_name, severity, m.group(), desc, fix))
+                return results
+
+            mock_ssl.side_effect = selective_timeout
+            findings = detect_injection(code)
+            types = [f["type"] for f in findings]
+            assert any("os.system" in t for t in types)
+            assert any("eval" in t for t in types)
+
+    def test_secrets_timeout_graceful(self):
+        """detect_secrets returns partial results on timeout."""
+        code = 'key = "AKIAIOSFODNN7EXAMPLE"\nHANG\nsk_live_abcdefghijklmnopqrstuvwx'
+        with patch("codesec.secrets.safe_scan_line") as mock_ssl:
+
+            def selective_timeout(rules, text):
+                if "HANG" in text:
+                    return []
+                results = []
+                for rule_name, pattern, severity, desc, fix in rules:
+                    for m in pattern.finditer(text):
+                        results.append((rule_name, severity, m.group(), desc, fix))
+                return results
+
+            mock_ssl.side_effect = selective_timeout
+            findings = detect_secrets(code)
+            assert any("AWS" in f["type"] for f in findings)
+
+    def test_max_line_length_constant(self):
+        """MAX_LINE_LENGTH is reasonable for regex performance."""
+        assert MAX_LINE_LENGTH <= 2000
+        assert MAX_LINE_LENGTH >= 500
+
+    def test_max_lines_constant(self):
+        """MAX_LINES prevents CPU exhaustion on many-line payloads."""
+        assert MAX_LINES == 10_000
+
+    def test_injection_respects_max_lines(self):
+        """Lines beyond MAX_LINES are not scanned."""
+        # Put eval() on line MAX_LINES+1 — should not be detected
+        safe_lines = ["x = 1\n"] * MAX_LINES
+        code = "".join(safe_lines) + 'eval("danger")'
+        findings = detect_injection(code)
+        assert not any("eval" in f["type"].lower() for f in findings)
+
+    def test_secrets_respects_max_lines(self):
+        """Lines beyond MAX_LINES are not scanned."""
+        safe_lines = ["x = 1\n"] * MAX_LINES
+        code = "".join(safe_lines) + 'key = "AKIAIOSFODNN7EXAMPLE"'
+        findings = detect_secrets(code)
+        assert len(findings) == 0
+
+    def test_injection_route_long_input(self):
+        """API endpoint handles long lines without hanging."""
+        long_code = "\n".join(['x = "' + "a" * 3000 + '"'] * 10)
+        r = client.post("/v1/check/injection", json={"code": long_code})
+        assert r.status_code == 200
+
+    def test_secrets_route_long_input(self):
+        """Secrets endpoint handles long lines without hanging."""
+        long_code = "\n".join(['password = "' + "a" * 3000 + '"'] * 10)
+        r = client.post("/v1/check/secrets", json={"code": long_code})
+        assert r.status_code == 200
+
+    def test_real_redos_pattern_does_not_hang(self):
+        """A known ReDoS-evil pattern completes within timeout via safe_scan_line.
+
+        Uses (a+)+ which has exponential backtracking on 'aaa...!' input.
+        With safe_scan_line timeout, it should return [] instead of hanging.
+        """
+        evil_pattern = re.compile(r"(a+)+$")
+        rules = [("evil", evil_pattern, "critical", "desc", "fix")]
+        # 25 a's + ! is enough to cause catastrophic backtracking
+        evil_input = "a" * 25 + "!"
+        # Should return within timeout (1s), not hang
+        results = safe_scan_line(rules, evil_input, timeout=2.0)
+        # Either finds nothing (timeout) or returns empty (no match on $)
+        # The key assertion: this call completes, it doesn't hang
+        assert isinstance(results, list)
+
+    def test_max_findings_constant(self):
+        """MAX_FINDINGS caps memory usage."""
+        assert MAX_FINDINGS == 1_000
+
+    def test_injection_respects_max_findings(self):
+        """detect_injection stops after MAX_FINDINGS."""
+        # Each line triggers eval() detection — generate more lines than MAX_FINDINGS
+        code = "\n".join(['eval("x")'] * (MAX_FINDINGS + 500))
+        findings = detect_injection(code)
+        assert len(findings) <= MAX_FINDINGS
+
+    def test_secrets_respects_max_findings(self):
+        """detect_secrets stops after MAX_FINDINGS."""
+        code = "\n".join(['key = "AKIAIOSFODNN7EXAMPLE"'] * (MAX_FINDINGS + 500))
+        findings = detect_secrets(code)
+        assert len(findings) <= MAX_FINDINGS
+
+
+class TestScanConcurrency:
+    """Tests for concurrent scan limiting."""
+
+    def test_semaphore_503_on_exhaustion(self):
+        """When semaphore is exhausted, returns 503."""
+        from codesec.routes import _scan_semaphore
+
+        # Drain all permits
+        acquired = []
+        for _ in range(4):
+            acquired.append(_scan_semaphore.acquire(timeout=0))
+
+        try:
+            r = client.post("/v1/check/injection", json={"code": 'eval("x")'})
+            assert r.status_code == 503
+            body = r.json()
+            msg = body.get("detail", body.get("error", "")).lower()
+            assert "concurrent" in msg
+        finally:
+            for _ in acquired:
+                _scan_semaphore.release()
+
+    def test_semaphore_released_on_success(self):
+        """Semaphore is released after successful scan."""
+        from codesec.routes import _scan_semaphore
+
+        before = _scan_semaphore._value
+        r = client.post("/v1/check/injection", json={"code": "safe_code = 1"})
+        assert r.status_code == 200
+        after = _scan_semaphore._value
+        assert before == after
+
+    def test_secrets_semaphore_503(self):
+        """Secrets endpoint also respects concurrency limit."""
+        from codesec.routes import _scan_semaphore
+
+        acquired = []
+        for _ in range(4):
+            acquired.append(_scan_semaphore.acquire(timeout=0))
+
+        try:
+            r = client.post("/v1/check/secrets", json={"code": "x = 1"})
+            assert r.status_code == 503
+        finally:
+            for _ in acquired:
+                _scan_semaphore.release()
