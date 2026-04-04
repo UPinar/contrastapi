@@ -82,6 +82,8 @@ IP_CACHE_TTL = 14400  # 4 hours (reputation data changes frequently)
 # Timeouts
 RECON_TIMEOUT = 5
 CRTSH_TIMEOUT = 30
+BULK_PER_DOMAIN_TIMEOUT = 40  # must exceed CRTSH_TIMEOUT + RECON_TIMEOUT + buffer (39s worst case)
+BULK_OVERALL_TIMEOUT = 120  # hard cap for entire bulk request; partial results returned on expiry
 
 # Severity ordering
 SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
