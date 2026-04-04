@@ -10,7 +10,8 @@ Replaces the previous in-memory limiter which:
 
 import time
 
-from db import get_api_db
+from config import API_DB_PATH
+from db import _get_conn, get_api_db
 
 
 def _ensure_table():
@@ -92,6 +93,42 @@ def get_count(store_name: str, key: str, window_seconds: int = 3600) -> int:
             (full_key, cutoff),
         ).fetchone()
         return row[0] if row else 0
+
+
+def consume_bulk(store_name: str, key: str, count: int, max_requests: int, window_seconds: int = 3600) -> bool:
+    """Atomically consume `count` rate limit slots. Returns True if all slots were available.
+
+    Uses BEGIN IMMEDIATE to acquire a write lock upfront, preventing TOCTOU race
+    between workers (same pattern as db.get_and_clear_pending_key).
+    """
+    _init()
+    if count <= 0:
+        return True
+    now = time.time()
+    cutoff = now - window_seconds
+    full_key = f"{store_name}:{key}"
+
+    con = _get_conn(str(API_DB_PATH))
+    try:
+        con.execute("BEGIN IMMEDIATE")
+        con.execute("DELETE FROM rate_limits WHERE key = ? AND ts <= ?", (full_key, cutoff))
+        row = con.execute(
+            "SELECT COUNT(*) FROM rate_limits WHERE key = ? AND ts > ?",
+            (full_key, cutoff),
+        ).fetchone()
+        current = row[0] if row else 0
+        if current + count > max_requests:
+            con.commit()
+            return False
+        con.executemany(
+            "INSERT INTO rate_limits (key, ts) VALUES (?, ?)",
+            [(full_key, now) for _ in range(count)],
+        )
+        con.commit()
+        return True
+    except Exception:
+        con.rollback()
+        raise
 
 
 def get_reset_time(store_name: str, key: str, window_seconds: int = 3600) -> int:

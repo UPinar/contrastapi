@@ -16,7 +16,7 @@ import ratelimit
 
 _ripe_client = _httpx.Client(timeout=_httpx.Timeout(7.0, connect=3.0), follow_redirects=False)
 from auth import authenticate
-from config import ENRICHMENT_DAILY_LIMIT, RECON_TIMEOUT
+from config import BULK_OVERALL_TIMEOUT, BULK_PER_DOMAIN_TIMEOUT, ENRICHMENT_DAILY_LIMIT, RECON_TIMEOUT
 from db import get_cached_domain, get_cached_ip, save_cached_domain, save_cached_ip
 from domain.recon import (
     check_ct_logs,
@@ -666,7 +666,7 @@ class _BulkRequest(BaseModel):
 
 
 _bulk_pool = ThreadPoolExecutor(max_workers=5)
-_bulk_rate_lock = threading.Lock()
+_bulk_semaphore = threading.Semaphore(2)  # per-worker limit; with workers=2 actual max is 4
 
 
 def _run_single_report(raw_domain: str, client_ip: str) -> dict:
@@ -738,52 +738,77 @@ def bulk_domain_report(body: _BulkRequest, request: Request):
         store_key = f"free:{client_ip}"
         limit = FREE_HOURLY_LIMIT
 
-    # Atomic check-and-consume to prevent race conditions
-    with _bulk_rate_lock:
-        current = ratelimit.get_count("api", store_key)
-        # authenticate() already consumed 1, so we need (count - 1) more slots
-        remaining = limit - current
-        if remaining < count - 1:
-            raise HTTPException(
-                status_code=429,
-                detail=f"Insufficient rate limit quota. Need {count} slots, {remaining + 1} available.",
-            )
-        # Consume the extra (count - 1) rate limit slots
-        for _ in range(count - 1):
-            if not ratelimit.check_limit("api", store_key, limit):
-                raise HTTPException(
-                    status_code=429,
-                    detail="Rate limit exceeded while reserving bulk quota.",
-                )
+    # Atomic check-and-consume: authenticate() already consumed 1, we need (count - 1) more
+    if count > 1 and not ratelimit.consume_bulk("api", store_key, count - 1, limit):
+        raise HTTPException(
+            status_code=429,
+            detail=f"Insufficient rate limit quota for {count} domains.",
+        )
 
-    # Run reports in parallel, preserving input order
-    ordered_futures = [(_bulk_pool.submit(_run_single_report, d, client_ip), d) for d in domains]
-    results = []
-    for future, domain in ordered_futures:
-        try:
-            results.append(future.result(timeout=RECON_TIMEOUT + 10))
-        except TimeoutError:
-            future.cancel()
-            logger.warning("Bulk report timed out for %s", domain)
-            results.append({"domain": domain, "status": "error", "report": None, "error": "Domain report timed out"})
-        except Exception as exc:
-            logger.warning("Bulk report failed for %s: %s", domain, exc)
-            results.append({"domain": domain, "status": "error", "report": None, "error": "Domain report failed"})
+    # Limit concurrent bulk requests to prevent thread pool exhaustion
+    if not _bulk_semaphore.acquire(blocking=False):
+        raise HTTPException(
+            status_code=503,
+            detail="Too many concurrent bulk requests. Please retry shortly.",
+        )
+
+    try:
+        # Run reports in parallel, preserving input order
+        ordered_futures = [(_bulk_pool.submit(_run_single_report, d, client_ip), d) for d in domains]
+        results = []
+        timed_out = 0
+        partial = False
+        deadline = _time.monotonic() + BULK_OVERALL_TIMEOUT
+
+        for future, domain in ordered_futures:
+            remaining = deadline - _time.monotonic()
+            if remaining <= 0:
+                # Overall timeout exceeded — cancel remaining futures, return partial results
+                future.cancel()
+                logger.warning("Bulk overall timeout — skipping %s", domain)
+                results.append({"domain": domain, "status": "error", "report": None, "error": "Bulk request timed out"})
+                timed_out += 1
+                partial = True
+                continue
+            per_domain = min(BULK_PER_DOMAIN_TIMEOUT, remaining)
+            try:
+                results.append(future.result(timeout=per_domain))
+            except TimeoutError:
+                future.cancel()
+                logger.warning("Bulk report timed out for %s", domain)
+                results.append(
+                    {"domain": domain, "status": "error", "report": None, "error": "Domain report timed out"}
+                )
+                timed_out += 1
+            except Exception as exc:
+                logger.warning("Bulk report failed for %s: %s", domain, exc)
+                results.append({"domain": domain, "status": "error", "report": None, "error": "Domain report failed"})
+    finally:
+        _bulk_semaphore.release()
 
     successful = sum(1 for r in results if r["status"] == "ok")
-    failed = len(results) - successful
+    failed = len(results) - successful - timed_out
 
-    if failed == 0:
+    if partial:
+        summary = f"{successful}/{count} domains scanned (partial — overall timeout reached)"
+    elif failed == 0 and timed_out == 0:
         summary = f"All {count} domains scanned successfully"
     elif successful == 0:
         summary = f"All {count} domains failed"
     else:
-        summary = f"{successful}/{count} domains scanned, {failed} failed"
+        parts = [f"{successful}/{count} domains scanned"]
+        if failed:
+            parts.append(f"{failed} failed")
+        if timed_out:
+            parts.append(f"{timed_out} timed out")
+        summary = ", ".join(parts)
 
     return {
         "results": results,
         "total": count,
         "successful": successful,
         "failed": failed,
+        "timed_out": timed_out,
+        "partial": partial,
         "summary": summary,
     }

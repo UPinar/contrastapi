@@ -2356,10 +2356,10 @@ class TestBulkDomainReport:
         assert len(err_items) == 1
         assert err_items[0]["error"] is not None
 
-    @patch("domain.routes.ratelimit.get_count", return_value=99)
+    @patch("domain.routes.ratelimit.consume_bulk", return_value=False)
     @patch("domain.routes.authenticate", return_value={"tier": "free", "key_hash": None, "client_ip": "127.0.0.1"})
-    def test_bulk_rate_limit_exceeded(self, mock_auth, mock_count):
-        """Requesting 5 domains with only 2 slots remaining → 429."""
+    def test_bulk_rate_limit_exceeded(self, mock_auth, mock_consume):
+        """Requesting 5 domains with insufficient quota → 429."""
         r = client.post("/v1/domains/bulk", json={"domains": [f"d{i}.com" for i in range(5)]})
         assert r.status_code == 429
 
@@ -2457,6 +2457,144 @@ class TestBulkDomainReport:
         data = r.json()
         assert data["total"] == 20
         assert data["successful"] == 20
+
+    @patch("domain.routes.save_cached_domain")
+    @patch("domain.routes.get_cached_domain", return_value=None)
+    @patch("domain.routes.full_domain_report")
+    @patch("domain.routes.validate_domain", return_value="1.2.3.4")
+    def test_bulk_per_domain_timeout(self, mock_validate, mock_report, mock_cache_get, mock_cache_save):
+        """Per-domain timeout returns timed_out count."""
+        import time
+
+        def slow_report(*args, **kwargs):
+            time.sleep(5)
+            return dict(self._MOCK_REPORT)
+
+        mock_report.side_effect = slow_report
+        with patch("domain.routes.BULK_PER_DOMAIN_TIMEOUT", 0.1):
+            r = client.post("/v1/domains/bulk", json={"domains": ["slow.com"]})
+        assert r.status_code == 200
+        data = r.json()
+        assert data["timed_out"] == 1
+        assert data["failed"] == 0  # timed_out is separate from failed
+        assert data["results"][0]["error"] == "Domain report timed out"
+
+    @patch("domain.routes.save_cached_domain")
+    @patch("domain.routes.get_cached_domain", return_value=None)
+    @patch("domain.routes.full_domain_report")
+    @patch("domain.routes.validate_domain", return_value="1.2.3.4")
+    def test_bulk_overall_timeout_partial(self, mock_validate, mock_report, mock_cache_get, mock_cache_save):
+        """Overall timeout triggers partial results for remaining domains."""
+        import time
+
+        call_count = 0
+
+        def slow_report(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                time.sleep(5)  # first domain exceeds overall timeout
+            return dict(self._MOCK_REPORT)
+
+        mock_report.side_effect = slow_report
+        with patch("domain.routes.BULK_OVERALL_TIMEOUT", 0.1):
+            r = client.post("/v1/domains/bulk", json={"domains": ["a.com", "b.com", "c.com"]})
+        assert r.status_code == 200
+        data = r.json()
+        assert data["partial"] is True
+        assert data["timed_out"] >= 1
+        assert "partial" in data["summary"]
+
+    @patch("domain.routes.save_cached_domain")
+    @patch("domain.routes.get_cached_domain", return_value=None)
+    @patch("domain.routes.full_domain_report")
+    @patch("domain.routes.validate_domain", return_value="1.2.3.4")
+    def test_bulk_response_has_timeout_fields(self, mock_validate, mock_report, mock_cache_get, mock_cache_save):
+        """Successful bulk response includes timed_out=0 and partial=False."""
+        mock_report.return_value = dict(self._MOCK_REPORT)
+        r = client.post("/v1/domains/bulk", json={"domains": ["ok.com"]})
+        assert r.status_code == 200
+        data = r.json()
+        assert data["timed_out"] == 0
+        assert data["partial"] is False
+
+    def test_bulk_semaphore_rejects_when_full(self):
+        """When bulk semaphore is exhausted, return 503."""
+        from domain.routes import _bulk_semaphore
+
+        # Exhaust both semaphore slots
+        _bulk_semaphore.acquire()
+        _bulk_semaphore.acquire()
+        try:
+            r = client.post("/v1/domains/bulk", json={"domains": ["a.com"]})
+            assert r.status_code == 503
+            body = r.json()
+            msg = body.get("detail", body.get("error", ""))
+            assert "concurrent" in msg.lower()
+        finally:
+            _bulk_semaphore.release()
+            _bulk_semaphore.release()
+
+    @patch("domain.routes.save_cached_domain")
+    @patch("domain.routes.get_cached_domain", return_value=None)
+    @patch("domain.routes.full_domain_report")
+    @patch("domain.routes.validate_domain", return_value="1.2.3.4")
+    def test_bulk_semaphore_released_on_error(self, mock_validate, mock_report, mock_cache_get, mock_cache_save):
+        """Semaphore is released even if domain processing raises."""
+        from domain.routes import _bulk_semaphore
+
+        mock_report.side_effect = RuntimeError("boom")
+        # Verify semaphore is available before and after (acquire+release probe)
+        assert _bulk_semaphore.acquire(blocking=False) is True
+        _bulk_semaphore.release()
+        r = client.post("/v1/domains/bulk", json={"domains": ["crash.com"]})
+        assert r.status_code == 200  # errors are caught, not raised
+        # Semaphore should still be acquirable (was released in finally)
+        assert _bulk_semaphore.acquire(blocking=False) is True
+        _bulk_semaphore.release()
+
+
+class TestConsumeBulk:
+    """Tests for ratelimit.consume_bulk atomic operation."""
+
+    def setup_method(self):
+        import ratelimit
+
+        ratelimit.reset()
+
+    def test_consume_bulk_success(self):
+        """Consuming slots within limit succeeds."""
+        import ratelimit
+
+        assert ratelimit.consume_bulk("api", "test_key", 5, 10) is True
+        assert ratelimit.get_count("api", "test_key") == 5
+
+    def test_consume_bulk_exceeds_limit(self):
+        """Consuming more slots than available fails without partial insert."""
+        import ratelimit
+
+        # Fill 8 of 10 slots
+        for _ in range(8):
+            ratelimit.check_limit("api", "test_key", 10)
+        # Try to consume 5 more — should fail (8 + 5 > 10)
+        assert ratelimit.consume_bulk("api", "test_key", 5, 10) is False
+        # Count should remain 8 (no partial insert)
+        assert ratelimit.get_count("api", "test_key") == 8
+
+    def test_consume_bulk_exact_fit(self):
+        """Consuming exactly the remaining slots succeeds."""
+        import ratelimit
+
+        for _ in range(7):
+            ratelimit.check_limit("api", "test_key", 10)
+        assert ratelimit.consume_bulk("api", "test_key", 3, 10) is True
+        assert ratelimit.get_count("api", "test_key") == 10
+
+    def test_consume_bulk_zero(self):
+        """Consuming 0 slots always succeeds."""
+        import ratelimit
+
+        assert ratelimit.consume_bulk("api", "test_key", 0, 10) is True
 
 
 # =========== ASN Lookup ===========
