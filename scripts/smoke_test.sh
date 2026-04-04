@@ -17,15 +17,25 @@ TELEGRAM_TOKEN_FILE="/etc/telegram-bot/token"
 TELEGRAM_CHAT_FILE="/etc/telegram-bot/chat_ids"
 STATE_FILE="/tmp/contrastapi_smoke_state"
 
+html_escape() {
+  local s="$1"
+  s="${s//&/&amp;}"
+  s="${s//</&lt;}"
+  s="${s//>/&gt;}"
+  echo "$s"
+}
+
 send_telegram() {
   local message="$1"
-  [ ! -f "$TELEGRAM_TOKEN_FILE" ] && return
+  [ ! -f "$TELEGRAM_TOKEN_FILE" ] || [ ! -f "$TELEGRAM_CHAT_FILE" ] && return
   local token
   token=$(cat "$TELEGRAM_TOKEN_FILE")
   while IFS= read -r cid; do
     [ -z "$cid" ] || [ "${cid:0:1}" = "#" ] && continue
     curl -s -X POST "https://api.telegram.org/bot${token}/sendMessage" \
-      -d "chat_id=$cid" -d "parse_mode=HTML" -d "text=$message" \
+      --data-urlencode "chat_id=$cid" \
+      --data-urlencode "parse_mode=HTML" \
+      --data-urlencode "text=$message" \
       --max-time 10 >/dev/null 2>&1
   done < "$TELEGRAM_CHAT_FILE"
 }
@@ -49,7 +59,7 @@ check() {
     $QUIET || printf "  [OK]   %3s  %-6s %s\n" "$status" "$method" "$path"
   else
     ((FAIL++))
-    FAILURES="${FAILURES}❌ ${method} ${path} → ${status} (expected ${expect})\n"
+    FAILURES="${FAILURES}❌ ${method} $(html_escape "${path}") → ${status} (expected ${expect})\n"
     $QUIET || printf "  [FAIL] %3s  %-6s %s  (expected %s)\n" "$status" "$method" "$path" "$expect"
   fi
 }

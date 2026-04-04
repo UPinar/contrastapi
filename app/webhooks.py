@@ -10,10 +10,14 @@ Flow:
 
 import hashlib
 import hmac
+import html
 import json
 import logging
 import threading
+import urllib.parse
+import urllib.request
 from collections import OrderedDict
+from pathlib import Path
 
 from auth import generate_key, hash_key
 from config import LEMONSQUEEZY_WEBHOOK_SECRET
@@ -24,6 +28,43 @@ logger = logging.getLogger("contrastapi")
 
 if not LEMONSQUEEZY_WEBHOOK_SECRET:
     logger.warning("LEMONSQUEEZY_WEBHOOK_SECRET is not set — all webhooks will be rejected")
+
+_TELEGRAM_TOKEN_FILE = Path("/etc/telegram-bot/token")
+_TELEGRAM_CHAT_FILE = Path("/etc/telegram-bot/chat_ids")
+
+
+def _notify_telegram(message: str) -> None:
+    """Send Telegram notification in background thread (fire-and-forget)."""
+
+    def _send():
+        try:
+            token = _TELEGRAM_TOKEN_FILE.read_text().strip()
+            chat_ids = _TELEGRAM_CHAT_FILE.read_text().splitlines()
+        except FileNotFoundError:
+            return
+        for line in chat_ids:
+            cid = line.strip()
+            if not cid or cid.startswith("#"):
+                continue
+            try:
+                data = urllib.parse.urlencode(
+                    {
+                        "chat_id": cid,
+                        "parse_mode": "HTML",
+                        "text": message,
+                    }
+                ).encode()
+                req = urllib.request.Request(
+                    f"https://api.telegram.org/bot{token}/sendMessage",
+                    data=data,
+                    method="POST",
+                )
+                urllib.request.urlopen(req, timeout=10)
+            except Exception:
+                logger.warning("Telegram notify failed for chat %s", cid)
+
+    threading.Thread(target=_send, daemon=True).start()
+
 
 router = APIRouter(tags=["Webhooks"])
 
@@ -119,6 +160,7 @@ def _handle_order_created(data: dict) -> dict:
     save_pending_key(order_id, raw_key)
 
     logger.info("API key provisioned for order %s", order_id)
+    _notify_telegram(f"<b>💰 New Pro Customer!</b>\nOrder: <code>{html.escape(order_id)}</code>")
 
     return {"status": "provisioned", "order_id": order_id}
 
