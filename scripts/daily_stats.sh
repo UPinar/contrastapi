@@ -4,6 +4,14 @@
 
 set -euo pipefail
 
+html_escape() {
+  local s="$1"
+  s="${s//&/&amp;}"
+  s="${s//</&lt;}"
+  s="${s//>/&gt;}"
+  echo "$s"
+}
+
 API_DB="/var/lib/contrastapi/api.db"
 CACHE_DB="/var/lib/contrastapi/domain_cache.db"
 CUTOFF=$(date -u -d '24 hours ago' '+%Y-%m-%dT%H:%M:%S')
@@ -59,7 +67,7 @@ MSG+="
 while IFS=' ' read -r ep cnt; do
   [[ -z "$ep" ]] && continue
   MSG+="
-  ${ep} (${cnt})"
+  $(html_escape "$ep") (${cnt})"
 done <<< "$TOP_ENDPOINTS"
 
 # Top users
@@ -69,7 +77,7 @@ MSG+="
 while IFS=' ' read -r ip cnt; do
   [[ -z "$ip" ]] && continue
   MSG+="
-  ${ip} (${cnt})"
+  $(html_escape "$ip") (${cnt})"
 done <<< "$TOP_IPS"
 
 # Cache / API quota
@@ -86,8 +94,8 @@ if [[ "$TELEGRAM_ENABLED" == true ]]; then
   while IFS= read -r CID; do
     [[ -z "${CID}" || "${CID}" == \#* ]] && continue
     curl -s -X POST "https://api.telegram.org/bot${TOKEN}/sendMessage" \
-      -d chat_id="${CID}" \
-      -d parse_mode="HTML" \
+      --data-urlencode "chat_id=${CID}" \
+      --data-urlencode "parse_mode=HTML" \
       --data-urlencode "text=${MSG}" \
       --max-time 10 \
       -o /dev/null &

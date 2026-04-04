@@ -5,6 +5,14 @@
 
 set -euo pipefail
 
+html_escape() {
+  local s="$1"
+  s="${s//&/&amp;}"
+  s="${s//</&lt;}"
+  s="${s//>/&gt;}"
+  echo "$s"
+}
+
 LOG="/root/daily_logs/healthcheck.log"
 
 # Telegram (optional)
@@ -144,20 +152,27 @@ if [[ ${#FAILED[@]} -gt 0 ]]; then
     DATE=$(date '+%Y-%m-%d %H:%M:%S')
     FAIL_LIST=""
     for f in "${FAILED[@]}"; do
-      FAIL_LIST="${FAIL_LIST}%0A  - ${f}"
+      FAIL_LIST="${FAIL_LIST}
+  - $(html_escape "$f")"
     done
 
-    MSG="<b>ContrastAPI Health Check FAILED</b>%0A%0ATime: ${DATE}%0AFailed:${FAIL_LIST}%0A%0AAll results:%0A"
+    MSG="<b>ContrastAPI Health Check FAILED</b>
+
+Time: ${DATE}
+Failed:${FAIL_LIST}
+
+All results:"
     for r in "${RESULTS[@]}"; do
-      MSG="${MSG}%0A  ${r}"
+      MSG="${MSG}
+  $(html_escape "$r")"
     done
 
     while IFS= read -r CID; do
       [[ -z "${CID}" || "${CID}" == \#* ]] && continue
       curl -s -X POST "https://api.telegram.org/bot${TOKEN}/sendMessage" \
-        -d chat_id="${CID}" \
-        -d parse_mode="HTML" \
-        -d text="${MSG}" \
+        --data-urlencode "chat_id=${CID}" \
+        --data-urlencode "parse_mode=HTML" \
+        --data-urlencode "text=${MSG}" \
         --max-time 10 \
         -o /dev/null &
     done < "${CHAT_IDS}"
