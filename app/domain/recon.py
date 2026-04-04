@@ -10,7 +10,7 @@ import socket
 import ssl
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC
 
 import dns.exception
@@ -594,31 +594,49 @@ def _safe_urlopen(domain: str, scheme: str, timeout: int, follow_redirects: bool
 
 
 def fetch_live_headers(domain: str) -> dict:
-    """Fetch HTTP response headers from a live domain (follows redirects safely)."""
-    try:
-        resp = _safe_urlopen(domain, "https", RECON_TIMEOUT)
-        headers = {k.lower(): v for k, v in resp.headers.items()}
-        return {"headers": headers, "status_code": resp.status_code, "url": str(resp.url)}
-    except Exception as https_err:
-        try:
-            resp = _safe_urlopen(domain, "http", RECON_TIMEOUT)
-            headers = {k.lower(): v for k, v in resp.headers.items()}
-            return {"headers": headers, "status_code": resp.status_code, "url": str(resp.url)}
-        except Exception as http_err:
-            logger.warning(
-                "fetch_live_headers failed for %s: HTTPS=%s, HTTP=%s",
-                domain,
-                type(https_err).__name__,
-                type(http_err).__name__,
-            )
-            return {"error": f"Could not connect to {domain}"}
+    """Fetch HTTP response headers from a live domain (HTTPS/HTTP in parallel, first wins)."""
+
+    def _try_scheme(scheme):
+        resp = _safe_urlopen(domain, scheme, RECON_TIMEOUT)
+        return {
+            "headers": {k.lower(): v for k, v in resp.headers.items()},
+            "status_code": resp.status_code,
+            "url": str(resp.url),
+        }
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = {pool.submit(_try_scheme, s): s for s in ("https", "http")}
+        errors = {}
+        for future in as_completed(futures):
+            scheme = futures[future]
+            try:
+                result = future.result()
+                # Prefer HTTPS: if HTTPS won, return immediately
+                if scheme == "https":
+                    return result
+                # HTTP finished first — wait briefly for HTTPS
+                https_future = [f for f, s in futures.items() if s == "https"][0]
+                try:
+                    return https_future.result(timeout=1.0)
+                except Exception:
+                    return result
+            except Exception as e:
+                errors[scheme] = type(e).__name__
+
+    logger.warning(
+        "fetch_live_headers failed for %s: HTTPS=%s, HTTP=%s",
+        domain,
+        errors.get("https", "?"),
+        errors.get("http", "?"),
+    )
+    return {"error": f"Could not connect to {domain}"}
 
 
 MAX_HTML_SIZE = 65536  # 64KB
 
 
 def fetch_live_page(domain: str) -> dict:
-    """Fetch HTTP headers AND HTML body (first 64KB) from a live domain."""
+    """Fetch HTTP headers AND HTML body (first 64KB) from a live domain (HTTPS/HTTP in parallel)."""
 
     def _fetch(scheme):
         with _ssrf_http.stream(
@@ -642,19 +660,30 @@ def fetch_live_page(domain: str) -> dict:
                 html = raw.decode("utf-8", errors="ignore")
             return {"headers": headers, "html": html, "status_code": resp.status_code, "url": str(resp.url)}
 
-    try:
-        return _fetch("https")
-    except Exception as https_err:
-        try:
-            return _fetch("http")
-        except Exception as http_err:
-            logger.warning(
-                "fetch_live_page failed for %s: HTTPS=%s, HTTP=%s",
-                domain,
-                type(https_err).__name__,
-                type(http_err).__name__,
-            )
-            return {"error": f"Could not connect to {domain}"}
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = {pool.submit(_fetch, s): s for s in ("https", "http")}
+        errors = {}
+        for future in as_completed(futures):
+            scheme = futures[future]
+            try:
+                result = future.result()
+                if scheme == "https":
+                    return result
+                https_future = [f for f, s in futures.items() if s == "https"][0]
+                try:
+                    return https_future.result(timeout=1.0)
+                except Exception:
+                    return result
+            except Exception as e:
+                errors[scheme] = type(e).__name__
+
+    logger.warning(
+        "fetch_live_page failed for %s: HTTPS=%s, HTTP=%s",
+        domain,
+        errors.get("https", "?"),
+        errors.get("http", "?"),
+    )
+    return {"error": f"Could not connect to {domain}"}
 
 
 # === IP Enrichment (Shodan InternetDB) ===
@@ -683,17 +712,25 @@ def ip_enrichment(ip: str) -> dict:
 # === Full Domain Report ===
 
 
-def full_domain_report(domain: str, resolved_ip: str | None = None, client_ip: str | None = None) -> dict:
-    """Run all domain intelligence checks in parallel, return combined report."""
+def full_domain_report(
+    domain: str, resolved_ip: str | None = None, client_ip: str | None = None, lite: bool = False
+) -> dict:
+    """Run domain intelligence checks in parallel, return combined report.
+
+    When lite=True, only fast modules run (DNS, reverse DNS, email security,
+    headers/WAF, SSL). Slow modules (crt.sh, subdomains, CT logs, WHOIS,
+    live page, URLhaus, reputation) are skipped and return empty defaults.
+    """
     report = {"domain": domain}
 
     from db import get_cached_ip, save_cached_ip
     from domain.reputation import check_abuseipdb, check_shodan
     from domain.threat import check_urlhaus
 
-    # Determine whether reputation enrichment is allowed
+    # Determine whether reputation enrichment is allowed (skip in lite mode)
     enrich = False
-    if resolved_ip:
+    cached_rep = None
+    if not lite and resolved_ip:
         cached_rep = get_cached_ip(resolved_ip)
         if cached_rep is not None:
             enrich = True  # cache hit, no quota consumed
@@ -705,46 +742,59 @@ def full_domain_report(domain: str, resolved_ip: str | None = None, client_ip: s
         ):
             enrich = True
             cached_rep = None
-        else:
-            cached_rep = None
 
     with ThreadPoolExecutor(max_workers=10) as pool:
-        # Submit all independent tasks immediately — no blocking waits
-        f_crtsh = pool.submit(_fetch_crtsh, f"%.{domain}")
+        # Fast modules (always run)
         f_dns = pool.submit(dns_lookup, domain)
         f_rdns = pool.submit(reverse_dns, domain)
-        f_whois = pool.submit(whois_lookup, domain)
         f_ssl = pool.submit(ssl_info, domain, resolved_ip)
-        f_threat = pool.submit(check_urlhaus, domain)
         f_headers = pool.submit(fetch_live_headers, domain)
 
-        # Subdomains: reuse crtsh data to avoid duplicate HTTP call
-        def _subs_with_crtsh():
-            data = f_crtsh.result(timeout=CRTSH_TIMEOUT + 2)
-            return enumerate_subdomains(domain, crtsh_data=data)
-
-        f_subs = pool.submit(_subs_with_crtsh)
-
-        # CT logs: wrapper waits for crtsh inside the pool, not on main thread
-        def _ct_with_crtsh():
-            data = f_crtsh.result(timeout=CRTSH_TIMEOUT + 2)
-            return check_ct_logs(domain, data)
-
-        f_certs = pool.submit(_ct_with_crtsh)
-
-        # Reputation checks for resolved IP (rate-limited per client IP)
+        # Slow modules (skip in lite mode)
+        f_crtsh = f_whois = f_threat = f_subs = f_certs = None
         f_ab = f_sh = None
-        if enrich and cached_rep is None and resolved_ip:
-            f_ab = pool.submit(check_abuseipdb, resolved_ip)
-            f_sh = pool.submit(check_shodan, resolved_ip)
+        if not lite:
+            f_crtsh = pool.submit(_fetch_crtsh, f"%.{domain}")
+            f_whois = pool.submit(whois_lookup, domain)
+            f_threat = pool.submit(check_urlhaus, domain)
+
+            def _subs_with_crtsh():
+                data = f_crtsh.result(timeout=CRTSH_TIMEOUT + 2)
+                return enumerate_subdomains(domain, crtsh_data=data)
+
+            f_subs = pool.submit(_subs_with_crtsh)
+
+            def _ct_with_crtsh():
+                data = f_crtsh.result(timeout=CRTSH_TIMEOUT + 2)
+                return check_ct_logs(domain, data)
+
+            f_certs = pool.submit(_ct_with_crtsh)
+
+            if enrich and cached_rep is None and resolved_ip:
+                f_ab = pool.submit(check_abuseipdb, resolved_ip)
+                f_sh = pool.submit(check_shodan, resolved_ip)
 
         report["dns"] = f_dns.result(timeout=RECON_TIMEOUT * 3)
         report["reverse_dns"] = f_rdns.result(timeout=RECON_TIMEOUT * 2)
-        report["whois"] = f_whois.result(timeout=RECON_TIMEOUT * 2)
         report["ssl"] = f_ssl.result(timeout=RECON_TIMEOUT * 2)
-        report["subdomains"] = f_subs.result(timeout=CRTSH_TIMEOUT + RECON_TIMEOUT + 4)
-        report["certificates"] = f_certs.result(timeout=CRTSH_TIMEOUT + RECON_TIMEOUT + 4)
-        report["threat"] = f_threat.result(timeout=RECON_TIMEOUT * 2)
+
+        if lite:
+            report["whois"] = {}
+            report["subdomains"] = {"subdomains": [], "count": 0}
+            report["certificates"] = {"total_certificates": 0, "certificates": []}
+            report["threat"] = {
+                "urlhaus_status": "skipped",
+                "url_count": 0,
+                "urls_online": 0,
+                "threat_types": [],
+                "tags": [],
+                "urls": [],
+            }
+        else:
+            report["whois"] = f_whois.result(timeout=RECON_TIMEOUT * 2)
+            report["subdomains"] = f_subs.result(timeout=CRTSH_TIMEOUT + RECON_TIMEOUT + 4)
+            report["certificates"] = f_certs.result(timeout=CRTSH_TIMEOUT + RECON_TIMEOUT + 4)
+            report["threat"] = f_threat.result(timeout=RECON_TIMEOUT * 2)
 
         if enrich and cached_rep is not None:
             report["reputation"] = cached_rep
