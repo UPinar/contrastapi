@@ -441,6 +441,63 @@ def _ssl_grade(tls_version: str, days_remaining: int | None) -> str:
     return "C"
 
 
+# === Disposable Email Detection ===
+
+
+def check_disposable(email: str, domain: str | None = None) -> dict:
+    """Check if an email uses a disposable/temporary email provider.
+
+    Args:
+        email: Full email address.
+        domain: Pre-extracted and cleaned domain. If None, extracted from email.
+    """
+    from domain.disposable_domains import DISPOSABLE_DOMAINS, DISPOSABLE_MX_HOSTS, DISPOSABLE_PROVIDERS
+
+    if domain is None:
+        if "@" not in email:
+            return {
+                "email": email,
+                "domain": "",
+                "disposable": False,
+                "provider": None,
+                "mx_disposable": False,
+                "risk_level": "low",
+                "mx_records": [],
+            }
+        domain = email.rsplit("@", 1)[1].lower()
+
+    is_disposable = domain in DISPOSABLE_DOMAINS
+    provider = DISPOSABLE_PROVIDERS.get(domain) if is_disposable else None
+
+    # MX lookup to catch domains sharing disposable MX infrastructure
+    records = dns_lookup(domain)
+    mx_records = records.get("mx", [])
+    mx_disposable = False
+    for mx in mx_records:
+        host = mx.get("host", "").lower().rstrip(".")
+        if host in DISPOSABLE_MX_HOSTS:
+            mx_disposable = True
+            break
+
+    disposable = is_disposable or mx_disposable
+    if is_disposable:
+        risk_level = "high"
+    elif mx_disposable:
+        risk_level = "medium"
+    else:
+        risk_level = "low"
+
+    return {
+        "email": email,
+        "domain": domain,
+        "disposable": disposable,
+        "provider": provider,
+        "mx_disposable": mx_disposable,
+        "risk_level": risk_level,
+        "mx_records": mx_records,
+    }
+
+
 # === Email Security ===
 
 DKIM_SELECTORS = [
@@ -457,6 +514,57 @@ DKIM_SELECTORS = [
     "everlytickey1",
     "mxvault",
 ]
+
+
+_MAIL_PROVIDERS = {
+    "google.com": "Google Workspace",
+    "googlemail.com": "Google Workspace",
+    "outlook.com": "Microsoft 365",
+    "outlook.de": "Microsoft 365",
+    "protection.outlook.com": "Microsoft 365",
+    "pphosted.com": "Proofpoint",
+    "mimecast.com": "Mimecast",
+    "barracudanetworks.com": "Barracuda",
+    "messagelabs.com": "Symantec",
+    "zoho.com": "Zoho Mail",
+    "zoho.eu": "Zoho Mail",
+    "secureserver.net": "GoDaddy",
+    "emailsrvr.com": "Rackspace",
+    "yahoodns.net": "Yahoo Mail",
+    "icloud.com": "Apple iCloud",
+    "mail.me.com": "Apple iCloud",
+    "ovh.net": "OVH",
+    "yandex.net": "Yandex Mail",
+    "yandex.ru": "Yandex Mail",
+    "mailgun.org": "Mailgun",
+    "amazonaws.com": "Amazon SES",
+    "sophos.com": "Sophos",
+    "forcepoint.com": "Forcepoint",
+    "fireeyecloud.com": "FireEye",
+    "ess.barracuda.com": "Barracuda",
+    "kundenserver.de": "IONOS",
+    "registrar-servers.com": "Namecheap",
+    "pair.com": "pair Networks",
+    "fastmail.com": "Fastmail",
+    "migadu.com": "Migadu",
+    "tutanota.de": "Tutanota",
+    "protonmail.ch": "ProtonMail",
+}
+
+
+def detect_mail_provider(mx_records: list[dict]) -> str | None:
+    """Detect mail provider from MX record hostnames."""
+    if not mx_records:
+        return None
+    # Use highest-priority (lowest number) MX record
+    sorted_mx = sorted(mx_records, key=lambda r: r.get("priority", 99))
+    for mx in sorted_mx:
+        host = mx.get("host", "").lower().rstrip(".")
+        # Match against known provider domains (check suffix)
+        for domain_suffix, provider in _MAIL_PROVIDERS.items():
+            if host == domain_suffix or host.endswith("." + domain_suffix):
+                return provider
+    return None
 
 
 def email_security(domain: str, txt_records: list | None = None) -> dict:
@@ -707,6 +815,106 @@ def ip_enrichment(ip: str) -> dict:
     except Exception as e:
         logger.debug("ip_enrichment failed for %s: %s", ip, e)
         return {"ports": [], "hostnames": [], "vulns": [], "cpes": [], "tags": []}
+
+
+# === Phone Lookup ===
+
+
+def phone_lookup(number: str) -> dict:
+    """Validate and extract intelligence from a phone number.
+
+    Args:
+        number: Phone number with or without + prefix (e.g. +905551234567).
+    """
+    if len(number) > 50:
+        return {"valid": False, "number": "", "error": "Input too long (max 50 chars)"}
+
+    import phonenumbers
+    from phonenumbers import carrier, geocoder, timezone
+
+    try:
+        parsed = phonenumbers.parse(number, None)
+    except phonenumbers.NumberParseException:
+        # Try with + prefix if missing
+        if not number.startswith("+"):
+            try:
+                parsed = phonenumbers.parse("+" + number, None)
+            except phonenumbers.NumberParseException:
+                return {
+                    "valid": False,
+                    "number": number,
+                    "error": "Could not parse phone number",
+                }
+        else:
+            return {
+                "valid": False,
+                "number": number,
+                "error": "Could not parse phone number",
+            }
+
+    valid = phonenumbers.is_valid_number(parsed)
+    if not valid:
+        return {
+            "valid": False,
+            "number": number,
+            "error": "Phone number is not valid",
+        }
+
+    # Number formats
+    e164 = phonenumbers.format_number(parsed, phonenumbers.PhoneNumberFormat.E164)
+    international = phonenumbers.format_number(parsed, phonenumbers.PhoneNumberFormat.INTERNATIONAL)
+    national = phonenumbers.format_number(parsed, phonenumbers.PhoneNumberFormat.NATIONAL)
+
+    # Country
+    region = phonenumbers.region_code_for_number(parsed)
+    country_name = geocoder.description_for_number(parsed, "en") or ""
+
+    # Number type
+    num_type = phonenumbers.number_type(parsed)
+    type_map = {
+        phonenumbers.PhoneNumberType.MOBILE: "mobile",
+        phonenumbers.PhoneNumberType.FIXED_LINE: "fixed_line",
+        phonenumbers.PhoneNumberType.FIXED_LINE_OR_MOBILE: "fixed_line_or_mobile",
+        phonenumbers.PhoneNumberType.VOIP: "voip",
+        phonenumbers.PhoneNumberType.TOLL_FREE: "toll_free",
+        phonenumbers.PhoneNumberType.PREMIUM_RATE: "premium_rate",
+        phonenumbers.PhoneNumberType.SHARED_COST: "shared_cost",
+        phonenumbers.PhoneNumberType.PERSONAL_NUMBER: "personal_number",
+        phonenumbers.PhoneNumberType.PAGER: "pager",
+        phonenumbers.PhoneNumberType.UAN: "uan",
+    }
+    type_str = type_map.get(num_type, "unknown")
+
+    # Carrier
+    carrier_name = carrier.name_for_number(parsed, "en") or ""
+
+    # Timezone
+    tz_list = list(timezone.time_zones_for_number(parsed))
+
+    # Summary
+    parts = [e164]
+    if country_name:
+        parts.append(country_name)
+    parts.append(type_str)
+    if carrier_name:
+        parts.append(carrier_name)
+    summary = " — ".join(parts)
+
+    return {
+        "valid": True,
+        "number": e164,
+        "format": {
+            "e164": e164,
+            "international": international,
+            "national": national,
+        },
+        "country_code": region or "",
+        "country_name": country_name,
+        "type": type_str,
+        "carrier": carrier_name,
+        "timezone": tz_list,
+        "summary": summary,
+    }
 
 
 # === Full Domain Report ===
