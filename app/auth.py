@@ -102,7 +102,7 @@ def authenticate(request: Request, endpoint: str) -> dict:
             raise HTTPException(
                 status_code=429,
                 detail=f"Rate limit exceeded ({advertised_limit}/hr). "
-                "Get a Pro key at api.contrastcyber.com for higher limits.",
+                "Upgrade to Pro (1000/hr): https://contrastcyber.com/pricing",
             )
         _set_ratelimit_state(request, advertised_limit, remaining, get_reset_time("api", store_key))
     else:
