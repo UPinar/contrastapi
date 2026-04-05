@@ -347,6 +347,318 @@ def check_key_ready(request: Request, order_id: str = ""):
     return {"ready": has_pending_key(order_id)}
 
 
+@app.get("/quickstart", response_class=HTMLResponse, include_in_schema=False)
+def quickstart():
+    return HTMLResponse(
+        content="""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Quick Start | ContrastAPI</title>
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <link rel="stylesheet" href="/static/style.css?v=8">
+  <style>
+    .page { max-inline-size: 52rem; margin-inline: auto; padding: 3rem 2rem; position: relative; z-index: 1; }
+    .page h1 { font-size: 2.25rem; font-weight: 800; letter-spacing: -0.04em; margin-block-end: 0.5rem; }
+    .page h1 span { background: linear-gradient(135deg, var(--primary), var(--purple)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .page .subtitle { color: var(--text-dim); margin-block-end: 3rem; }
+    .page h2 { font-size: 1.1rem; margin: 2.5rem 0 1rem; padding-block-end: 0.5rem; border-block-end: 1px solid var(--border); }
+    .page h2 .num { color: var(--primary); }
+    .page p { color: var(--text-muted); margin-block-end: 1rem; }
+    .code-block { position: relative; background: var(--bg-card); border: 1px solid var(--border); border-radius: 0.5rem; padding: 1rem 1.25rem; margin-block-end: 1.5rem; overflow-x: auto; }
+    .code-block code { color: #e4e4e7; font-size: 0.75rem; white-space: pre; font-family: var(--font-mono); }
+    .code-block .lang { position: absolute; top: 0.5rem; right: 0.75rem; color: var(--primary); font-size: 0.7rem; text-transform: uppercase; }
+    .pill-inline { display: inline-block; background: rgba(59,130,246,0.1); color: var(--primary); border: 1px solid rgba(59,130,246,0.2); border-radius: 4px; padding: 0.1rem 0.5rem; font-size: 0.7rem; }
+    .pill-inline.green { background: rgba(34,197,94,0.1); color: var(--green); border-color: rgba(34,197,94,0.2); }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+    .grid .card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 0.5rem; padding: 1.25rem; }
+    .grid .card h3 { font-size: 0.95rem; margin-block-end: 0.5rem; }
+    .grid .card p { font-size: 0.85rem; margin: 0; }
+    @media (max-width: 600px) { .grid { grid-template-columns: 1fr; } .page h1 { font-size: 1.75rem; } }
+  </style>
+</head>
+<body>
+  <div class="glow"></div>
+
+  <nav>
+    <a href="/" class="logo">Contrast<span>API</span></a>
+    <button class="hamburger" aria-label="Menu" aria-expanded="false" onclick="const o=this.getAttribute('aria-expanded')==='true';this.setAttribute('aria-expanded',String(!o));document.querySelector('.nav-links').classList.toggle('open')"><span class="hamburger__lines" aria-hidden="true"></span></button>
+    <div class="nav-links">
+      <a href="/quickstart">API Start</a>
+      <a href="/mcp-setup">MCP Setup</a>
+      <a href="/docs">Docs</a>
+      <a href="https://contrastcyber.com/pricing">Pricing</a>
+    </div>
+  </nav>
+
+  <div class="page">
+    <h1>Quick <span>Start</span></h1>
+    <p class="subtitle">From zero to first API call in 30 seconds. No signup, no API key required.</p>
+
+    <h2><span class="num">1</span> cURL</h2>
+    <p>Copy, paste, run.</p>
+    <div class="code-block"><span class="lang">bash</span><code>curl https://api.contrastcyber.com/v1/domain/example.com</code></div>
+
+    <div class="code-block"><span class="lang">bash</span><code># CVE lookup
+curl https://api.contrastcyber.com/v1/cve/CVE-2024-3094
+
+# Live header scan
+curl https://api.contrastcyber.com/v1/scan/headers/example.com
+
+# IP intelligence
+curl https://api.contrastcyber.com/v1/ip/8.8.8.8
+
+# Code secrets scan
+curl -X POST https://api.contrastcyber.com/v1/check/secrets \\
+  -H "Content-Type: application/json" \\
+  -d '{"code": "aws_key = AKIAIOSFODNN7EXAMPLE"}'</code></div>
+
+    <h2><span class="num">2</span> Node.js / JavaScript</h2>
+    <p><span class="pill-inline">npm</span> No SDK needed — just fetch.</p>
+    <div class="code-block"><span class="lang">javascript</span><code>// Domain security report
+const res = await fetch('https://api.contrastcyber.com/v1/domain/example.com');
+const data = await res.json();
+console.log(data.risk_score);   // { grade: "B", score: 72, ... }
+console.log(data.ssl.grade);    // "A"
+console.log(data.dns.records);  // [{ type: "A", value: "93.184.216.34" }, ...]
+
+// CVE lookup
+const cve = await fetch('https://api.contrastcyber.com/v1/cve/CVE-2024-3094');
+const vuln = await cve.json();
+console.log(vuln.severity);     // "critical"
+console.log(vuln.epss_score);   // 0.94</code></div>
+
+    <h2><span class="num">3</span> Python</h2>
+    <div class="code-block"><span class="lang">python</span><code>import requests
+
+# Domain report
+r = requests.get('https://api.contrastcyber.com/v1/domain/example.com')
+data = r.json()
+print(data['risk_score']['grade'])  # "B"
+
+# Scan code for secrets
+r = requests.post('https://api.contrastcyber.com/v1/check/secrets',
+    json={'code': 'password = "hunter2"'})
+print(r.json()['findings'])</code></div>
+
+    <h2><span class="num">4</span> CI/CD (GitHub Actions)</h2>
+    <div class="code-block"><span class="lang">yaml</span><code># .github/workflows/security.yml
+- name: Security header check
+  run: |
+    GRADE=$(curl -s https://api.contrastcyber.com/v1/scan/headers/$DOMAIN | jq -r '.grade')
+    if [ "$GRADE" = "F" ]; then echo "Security grade F!" && exit 1; fi</code></div>
+
+    <h2>What's next?</h2>
+    <div class="grid">
+      <div class="card">
+        <h3>API Reference</h3>
+        <p>All 35+ endpoints with try-it-out. <a href="/docs">Open docs &rarr;</a></p>
+      </div>
+      <div class="card">
+        <h3>Rate Limits</h3>
+        <p><span class="pill-inline green">Free</span> 100 req/hr &middot; <span class="pill-inline">Pro</span> 1000 req/hr. <a href="https://contrastcyber.com/pricing">Pricing &rarr;</a></p>
+      </div>
+      <div class="card">
+        <h3>MCP Setup</h3>
+        <p>Use with Claude, Cursor, VS Code. <a href="/mcp-setup">Setup guide &rarr;</a></p>
+      </div>
+      <div class="card">
+        <h3>GitHub</h3>
+        <p>Star, issues, contributions. <a href="https://github.com/UPinar/contrastapi">Repository &rarr;</a></p>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    <div class="footer-links">
+      <a href="https://contrastcyber.com/terms">Terms</a>
+      <a href="https://contrastcyber.com/privacy">Privacy</a>
+      <a href="mailto:contact@contrastcyber.com">Contact</a>
+      <a href="https://github.com/UPinar/contrastapi">GitHub</a>
+    </div>
+    <p>&copy; 2026 ContrastCyber</p>
+  </footer>
+</body>
+</html>"""
+    )
+
+
+@app.get("/mcp-setup", response_class=HTMLResponse, include_in_schema=False)
+def mcp_setup():
+    return HTMLResponse(
+        content="""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MCP Setup | ContrastAPI</title>
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <link rel="stylesheet" href="/static/style.css?v=8">
+  <style>
+    .page { max-inline-size: 52rem; margin-inline: auto; padding: 3rem 2rem; position: relative; z-index: 1; }
+    .page h1 { font-size: 2.25rem; font-weight: 800; letter-spacing: -0.04em; margin-block-end: 0.5rem; }
+    .page h1 span { background: linear-gradient(135deg, var(--primary), var(--purple)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .page .subtitle { color: var(--text-dim); margin-block-end: 3rem; }
+    .page h2 { font-size: 1.1rem; margin: 2.5rem 0 1rem; padding-block-end: 0.5rem; border-block-end: 1px solid var(--border); }
+    .page h2 .num { color: var(--primary); }
+    .page p { color: var(--text-muted); margin-block-end: 1rem; }
+    .code-block { position: relative; background: var(--bg-card); border: 1px solid var(--border); border-radius: 0.5rem; padding: 1rem 1.25rem; margin-block-end: 1.5rem; overflow-x: auto; }
+    .code-block code { color: #e4e4e7; font-size: 0.75rem; white-space: pre; font-family: var(--font-mono); }
+    .code-block .lang { position: absolute; top: 0.5rem; right: 0.75rem; color: var(--primary); font-size: 0.7rem; text-transform: uppercase; }
+    .try-box { background: var(--bg-card); border: 1px solid var(--border); border-radius: 0.5rem; padding: 1.25rem; margin: 1.5rem 0; }
+    .try-box h3 { font-size: 0.95rem; margin-block-end: 0.75rem; color: var(--primary); }
+    .try-box p { font-size: 0.85rem; color: var(--text-muted); margin-block-end: 0.5rem; }
+    .try-box em { color: var(--text); font-style: normal; }
+    .tools-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin: 1rem 0; }
+    .tool { background: var(--bg-card); border: 1px solid var(--border-dim); border-radius: 0.375rem; padding: 0.5rem 0.75rem; font-size: 0.8rem; }
+    .tool .name { color: var(--primary); }
+    .tool .desc { color: var(--text-dim); font-size: 0.75rem; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+    .grid .card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 0.5rem; padding: 1.25rem; }
+    .grid .card h3 { font-size: 0.95rem; margin-block-end: 0.5rem; }
+    .grid .card p { font-size: 0.85rem; margin: 0; }
+    @media (max-width: 600px) { .grid { grid-template-columns: 1fr; } .tools-grid { grid-template-columns: 1fr; } .page h1 { font-size: 1.75rem; } }
+  </style>
+</head>
+<body>
+  <div class="glow"></div>
+
+  <nav>
+    <a href="/" class="logo">Contrast<span>API</span></a>
+    <button class="hamburger" aria-label="Menu" aria-expanded="false" onclick="const o=this.getAttribute('aria-expanded')==='true';this.setAttribute('aria-expanded',String(!o));document.querySelector('.nav-links').classList.toggle('open')"><span class="hamburger__lines" aria-hidden="true"></span></button>
+    <div class="nav-links">
+      <a href="/quickstart">API Start</a>
+      <a href="/mcp-setup">MCP Setup</a>
+      <a href="/docs">Docs</a>
+      <a href="https://contrastcyber.com/pricing">Pricing</a>
+    </div>
+  </nav>
+
+  <div class="page">
+    <h1>MCP <span>Setup</span></h1>
+    <p class="subtitle">Give your AI agent 23 security tools. One config, zero signup.</p>
+
+    <h2><span class="num">1</span> Claude Desktop</h2>
+    <p>Edit <code>~/.claude/claude_desktop_config.json</code>:</p>
+    <div class="code-block"><span class="lang">json</span><code>{
+  "mcpServers": {
+    "contrastapi": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://api.contrastcyber.com/mcp/"]
+    }
+  }
+}</code></div>
+    <p>Restart Claude Desktop. Done.</p>
+
+    <h2><span class="num">2</span> Cursor</h2>
+    <p>Add to <code>.cursor/mcp.json</code> in your project root:</p>
+    <div class="code-block"><span class="lang">json</span><code>{
+  "mcpServers": {
+    "contrastapi": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://api.contrastcyber.com/mcp/"]
+    }
+  }
+}</code></div>
+
+    <h2><span class="num">3</span> VS Code (Claude Code)</h2>
+    <p>Add to <code>.mcp.json</code> in your project root:</p>
+    <div class="code-block"><span class="lang">json</span><code>{
+  "mcpServers": {
+    "contrastapi": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://api.contrastcyber.com/mcp/"]
+    }
+  }
+}</code></div>
+
+    <h2><span class="num">4</span> Windsurf</h2>
+    <p>Add to <code>~/.codeium/windsurf/mcp_config.json</code>:</p>
+    <div class="code-block"><span class="lang">json</span><code>{
+  "mcpServers": {
+    "contrastapi": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://api.contrastcyber.com/mcp/"]
+    }
+  }
+}</code></div>
+
+    <h2><span class="num">5</span> Any MCP Client (HTTP)</h2>
+    <p>Use the remote HTTP transport directly:</p>
+    <div class="code-block"><span class="lang">http</span><code>POST https://api.contrastcyber.com/mcp/
+Content-Type: application/json
+Accept: application/json, text/event-stream
+
+{"jsonrpc":"2.0","id":1,"method":"initialize",
+ "params":{"protocolVersion":"2025-03-26",
+   "capabilities":{},
+   "clientInfo":{"name":"my-app","version":"1.0"}}}</code></div>
+
+    <div class="try-box">
+      <h3>Try it now</h3>
+      <p>After setup, ask your AI:</p>
+      <p><em>"Scan example.com for security issues"</em></p>
+      <p><em>"Look up CVE-2024-3094"</em></p>
+      <p><em>"Check if 8.8.8.8 is malicious"</em></p>
+      <p><em>"Find subdomains of example.com"</em></p>
+      <p><em>"Scan this code for hardcoded secrets"</em></p>
+    </div>
+
+    <h2>23 Tools</h2>
+    <div class="tools-grid">
+      <div class="tool"><span class="name">domain_report</span> <span class="desc">Full domain security audit</span></div>
+      <div class="tool"><span class="name">dns_lookup</span> <span class="desc">DNS records</span></div>
+      <div class="tool"><span class="name">whois_lookup</span> <span class="desc">Registration data</span></div>
+      <div class="tool"><span class="name">ssl_check</span> <span class="desc">Certificate analysis</span></div>
+      <div class="tool"><span class="name">subdomain_enum</span> <span class="desc">Subdomain discovery</span></div>
+      <div class="tool"><span class="name">tech_fingerprint</span> <span class="desc">CMS/framework detection</span></div>
+      <div class="tool"><span class="name">threat_intel</span> <span class="desc">Malware/URLhaus lookup</span></div>
+      <div class="tool"><span class="name">scan_headers</span> <span class="desc">Live header analysis</span></div>
+      <div class="tool"><span class="name">email_mx</span> <span class="desc">SPF/DMARC/DKIM check</span></div>
+      <div class="tool"><span class="name">email_disposable</span> <span class="desc">Disposable email detection</span></div>
+      <div class="tool"><span class="name">ip_lookup</span> <span class="desc">IP intelligence (Shodan)</span></div>
+      <div class="tool"><span class="name">asn_lookup</span> <span class="desc">ASN/network info</span></div>
+      <div class="tool"><span class="name">cve_lookup</span> <span class="desc">CVE + EPSS + KEV</span></div>
+      <div class="tool"><span class="name">cve_search</span> <span class="desc">Search CVEs by product</span></div>
+      <div class="tool"><span class="name">exploit_lookup</span> <span class="desc">Public exploits</span></div>
+      <div class="tool"><span class="name">ioc_lookup</span> <span class="desc">IOC enrichment</span></div>
+      <div class="tool"><span class="name">hash_lookup</span> <span class="desc">File hash reputation</span></div>
+      <div class="tool"><span class="name">password_check</span> <span class="desc">Breach database check</span></div>
+      <div class="tool"><span class="name">phishing_check</span> <span class="desc">URL phishing detection</span></div>
+      <div class="tool"><span class="name">phone_lookup</span> <span class="desc">Phone number OSINT</span></div>
+      <div class="tool"><span class="name">check_secrets</span> <span class="desc">Hardcoded secret scan</span></div>
+      <div class="tool"><span class="name">check_injection</span> <span class="desc">SQL/command injection</span></div>
+      <div class="tool"><span class="name">check_headers</span> <span class="desc">Header validation</span></div>
+    </div>
+
+    <h2>What's next?</h2>
+    <div class="grid">
+      <div class="card">
+        <h3>REST API</h3>
+        <p>Use without MCP — cURL, Node.js, Python. <a href="/quickstart">API Quick Start &rarr;</a></p>
+      </div>
+      <div class="card">
+        <h3>Full Reference</h3>
+        <p>All endpoints with try-it-out. <a href="/docs">API Docs &rarr;</a></p>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    <div class="footer-links">
+      <a href="https://contrastcyber.com/terms">Terms</a>
+      <a href="https://contrastcyber.com/privacy">Privacy</a>
+      <a href="mailto:contact@contrastcyber.com">Contact</a>
+      <a href="https://github.com/UPinar/contrastapi">GitHub</a>
+    </div>
+    <p>&copy; 2026 ContrastCyber</p>
+  </footer>
+</body>
+</html>"""
+    )
+
+
 @app.get("/docs", response_class=HTMLResponse, include_in_schema=False)
 def custom_docs():
     return HTMLResponse(
@@ -357,6 +669,7 @@ def custom_docs():
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>API Docs | ContrastAPI</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <link rel="stylesheet" href="/static/style.css?v=8">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css">
   <style>
     @font-face {
@@ -369,24 +682,8 @@ def custom_docs():
     body { margin: 0; background: #09090b; }
     /* Top bar */
     .swagger-ui .topbar { display: none; }
-    /* Custom header */
-    .docs-header {
-      position: sticky;
-      top: 0;
-      z-index: 999;
-      background: #09090b;
-      border-bottom: 1px solid #27272a;
-      padding: 0.75rem 2rem;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      font-family: 'Geist Mono', monospace;
-    }
-    .docs-header .logo { color: #fafafa; font-weight: 700; font-size: 1.1rem; text-decoration: none; }
-    .docs-header .logo span { color: #3b82f6; }
-    .docs-nav { display: flex; gap: 1.5rem; }
-    .docs-nav a { color: #a1a1aa; text-decoration: none; font-size: 0.85rem; }
-    .docs-nav a:hover { color: #fafafa; }
+    /* Docs nav — uses style.css nav classes, just needs sticky positioning */
+    nav.docs-nav-wrap { position: sticky; top: 0; z-index: 999; background: #09090b; border-bottom: 1px solid #27272a; }
     /* Dark theme overrides */
     .swagger-ui { background: #09090b; font-family: 'Geist Mono', -apple-system, monospace; }
     .swagger-ui .wrapper { max-width: 1100px; padding: 1rem 2rem; }
@@ -398,14 +695,14 @@ def custom_docs():
     .swagger-ui .opblock-tag { color: #fafafa; border-bottom: 1px solid #1c1c1f; font-family: 'Geist Mono', monospace; }
     .swagger-ui .opblock-tag:hover { background: rgba(39,39,42,0.4); }
     .swagger-ui .opblock-tag small { color: #71717a; }
-    /* GET blocks */
-    .swagger-ui .opblock.opblock-get { background: rgba(59,130,246,0.05); border-color: rgba(59,130,246,0.3); }
-    .swagger-ui .opblock.opblock-get .opblock-summary-method { background: #3b82f6; }
-    .swagger-ui .opblock.opblock-get .opblock-summary { border-color: rgba(59,130,246,0.3); }
-    /* POST blocks */
-    .swagger-ui .opblock.opblock-post { background: rgba(34,197,94,0.05); border-color: rgba(34,197,94,0.3); }
-    .swagger-ui .opblock.opblock-post .opblock-summary-method { background: #22c55e; }
-    .swagger-ui .opblock.opblock-post .opblock-summary { border-color: rgba(34,197,94,0.3); }
+    /* GET blocks — green like landing page */
+    .swagger-ui .opblock.opblock-get { background: rgba(34,197,94,0.04); border: 1px solid rgba(34,197,94,0.15); border-radius: 0.5rem; }
+    .swagger-ui .opblock.opblock-get .opblock-summary-method { background: rgba(34,197,94,0.15); color: #22c55e; font-size: 0.65rem; font-weight: 700; padding: 0.2rem 0.5rem; border-radius: 0.25rem; }
+    .swagger-ui .opblock.opblock-get .opblock-summary { border-color: rgba(34,197,94,0.15); }
+    /* POST blocks — blue like landing page */
+    .swagger-ui .opblock.opblock-post { background: rgba(59,130,246,0.04); border: 1px solid rgba(59,130,246,0.15); border-radius: 0.5rem; }
+    .swagger-ui .opblock.opblock-post .opblock-summary-method { background: rgba(59,130,246,0.15); color: #3b82f6; font-size: 0.65rem; font-weight: 700; padding: 0.2rem 0.5rem; border-radius: 0.25rem; }
+    .swagger-ui .opblock.opblock-post .opblock-summary { border-color: rgba(59,130,246,0.15); }
     /* Summary text */
     .swagger-ui .opblock .opblock-summary-description { color: #a1a1aa; }
     .swagger-ui .opblock .opblock-summary-path { color: #fafafa; }
@@ -457,14 +754,16 @@ def custom_docs():
   </style>
 </head>
 <body>
-  <div class="docs-header">
+  <nav class="docs-nav-wrap">
     <a href="/" class="logo">Contrast<span>API</span></a>
-    <div class="docs-nav">
+    <button class="hamburger" aria-label="Menu" aria-expanded="false" onclick="const o=this.getAttribute('aria-expanded')==='true';this.setAttribute('aria-expanded',String(!o));document.querySelector('.nav-links').classList.toggle('open')"><span class="hamburger__lines" aria-hidden="true"></span></button>
+    <div class="nav-links">
+      <a href="/quickstart">API Start</a>
+      <a href="/mcp-setup">MCP Setup</a>
       <a href="/docs">Docs</a>
-      <a href="https://contrastcyber.com">Scan</a>
       <a href="https://contrastcyber.com/pricing">Pricing</a>
     </div>
-  </div>
+  </nav>
   <div id="swagger-ui"></div>
   <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
   <script>
@@ -480,14 +779,14 @@ def custom_docs():
       syntaxHighlight: { theme: 'monokai' }
     });
   </script>
-  <footer style="background:#09090b;border-top:1px solid #27272a;padding:1.5rem;text-align:center;font-family:'Geist Mono',monospace;font-size:0.8rem">
-    <div style="display:flex;justify-content:center;gap:1.5rem;flex-wrap:wrap;margin-bottom:0.75rem">
-      <a href="https://contrastcyber.com/terms" style="color:#a1a1aa;text-decoration:none">Terms</a>
-      <a href="https://contrastcyber.com/privacy" style="color:#a1a1aa;text-decoration:none">Privacy</a>
-      <a href="mailto:contact@contrastcyber.com" style="color:#a1a1aa;text-decoration:none">Contact</a>
-      <a href="https://github.com/UPinar/contrastapi" style="color:#a1a1aa;text-decoration:none">GitHub</a>
+  <footer>
+    <div class="footer-links">
+      <a href="https://contrastcyber.com/terms">Terms</a>
+      <a href="https://contrastcyber.com/privacy">Privacy</a>
+      <a href="mailto:contact@contrastcyber.com">Contact</a>
+      <a href="https://github.com/UPinar/contrastapi">GitHub</a>
     </div>
-    <p style="color:#71717a;margin:0">&copy; 2026 ContrastCyber</p>
+    <p>&copy; 2026 ContrastCyber</p>
   </footer>
 </body>
 </html>"""
@@ -589,6 +888,8 @@ def llms_txt():
 
 > Security intelligence API for AI models and developers. Free to use, no API key required.
 
+- [Quick Start](https://api.contrastcyber.com/quickstart)
+- [MCP Setup](https://api.contrastcyber.com/mcp-setup)
 - [API Documentation](https://api.contrastcyber.com/docs)
 - [OpenAPI Spec](https://api.contrastcyber.com/openapi.json)
 - [Full API Reference](https://api.contrastcyber.com/llms-full.txt)
@@ -1223,6 +1524,8 @@ def sitemap_xml():
     xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url><loc>https://api.contrastcyber.com/</loc><lastmod>{today}</lastmod><changefreq>weekly</changefreq><priority>1.0</priority></url>
+  <url><loc>https://api.contrastcyber.com/quickstart</loc><lastmod>{today}</lastmod><changefreq>weekly</changefreq><priority>0.9</priority></url>
+  <url><loc>https://api.contrastcyber.com/mcp-setup</loc><lastmod>{today}</lastmod><changefreq>weekly</changefreq><priority>0.9</priority></url>
   <url><loc>https://api.contrastcyber.com/docs</loc><lastmod>{today}</lastmod><changefreq>weekly</changefreq><priority>0.8</priority></url>
   <url><loc>https://api.contrastcyber.com/llms.txt</loc><lastmod>{today}</lastmod><changefreq>weekly</changefreq><priority>0.7</priority></url>
   <url><loc>https://api.contrastcyber.com/llms-full.txt</loc><lastmod>{today}</lastmod><changefreq>weekly</changefreq><priority>0.7</priority></url>

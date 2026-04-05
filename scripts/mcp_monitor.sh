@@ -24,6 +24,7 @@ set -uo pipefail
 # === Config ===
 NGINX_LOG="/var/log/nginx/access.log"
 MCP_USERS_FILE="/var/lib/contrastapi/mcp_known_ips.txt"
+API_USERS_FILE="/var/lib/contrastapi/api_known_ips.txt"
 TELEGRAM_TOKEN_FILE="/etc/telegram-bot/token"
 TELEGRAM_CHAT_FILE="/etc/telegram-bot/chat_ids"
 
@@ -169,9 +170,9 @@ check_mcp_new_users() {
   local seen_ips
   seen_ips=$(cat "$MCP_USERS_FILE" 2>/dev/null)
 
-  # Get unique IPs from MCP requests
+  # Get unique IPs from successful MCP POST requests (POST + 200 only — filters bots/scrapers)
   local current_ips new_count=0
-  current_ips=$(echo "$lines" | awk '{print $1}' | sort -u)
+  current_ips=$(echo "$lines" | grep '"POST' | awk '$9 == 200 {print $1}' | sort -u)
 
   while IFS= read -r ip; do
     [[ -z "$ip" ]] && continue
@@ -192,7 +193,59 @@ check_mcp_new_users() {
 }
 
 ###############################################################################
-# CHECK 5: MCP Health — can we initialize?
+# CHECK 5: API new users — unique IPs hitting /v1/* with 200 response
+###############################################################################
+get_api_lines() {
+  [[ ! -f "$NGINX_LOG" ]] && return
+
+  local pattern=""
+  for i in 0 1 2 3 4 5; do
+    local ts
+    ts=$(date -u -d "$i minutes ago" '+%d/%b/%Y:%H:%M' 2>/dev/null)
+    [[ -z "$ts" ]] && continue
+    [[ -n "$pattern" ]] && pattern+="|"
+    pattern+="$ts"
+  done
+  [[ -z "$pattern" ]] && return
+
+  grep -E "($pattern)" "$NGINX_LOG" 2>/dev/null \
+    | grep ' /v1/' \
+    | tail -5000
+}
+
+check_api_new_users() {
+  local lines="$1"
+  [[ -z "$lines" ]] && return
+
+  touch "$API_USERS_FILE" 2>/dev/null
+
+  local seen_ips
+  seen_ips=$(cat "$API_USERS_FILE" 2>/dev/null)
+
+  # Only count successful API requests (GET/POST + 200)
+  local current_ips new_count=0
+  current_ips=$(echo "$lines" | awk '$9 == 200 {print $1}' | sort -u)
+
+  while IFS= read -r ip; do
+    [[ -z "$ip" ]] && continue
+    if ! echo "$seen_ips" | grep -qF "$ip"; then
+      new_count=$((new_count + 1))
+      echo "$ip" >> "$API_USERS_FILE"
+    fi
+  done <<< "$current_ips"
+
+  local total_known
+  total_known=$(wc -l < "$API_USERS_FILE" 2>/dev/null || echo 0)
+  metric "API users: $total_known total, $new_count new"
+
+  if [[ "$new_count" -gt 0 ]]; then
+    alert "New API user(s): $new_count (total: $total_known)"
+  fi
+  log "  API users: $total_known total, $new_count new"
+}
+
+###############################################################################
+# CHECK 6: MCP Health — can we initialize?
 ###############################################################################
 check_mcp_health() {
   local result
@@ -257,6 +310,11 @@ main() {
   check_mcp_slow "$mcp_lines"
   check_mcp_new_users "$mcp_lines"
 
+  # API user tracking
+  local api_lines
+  api_lines=$(get_api_lines)
+  check_api_new_users "$api_lines"
+
   if [[ "$VERBOSE" -eq 1 ]]; then
     echo ""
     echo "=== MCP Metrics ==="
@@ -266,7 +324,7 @@ main() {
   fi
 
   if [[ ${#ALERTS[@]} -gt 0 ]]; then
-    local msg="<b>MCP Monitor Alert</b>"
+    local msg="<b>ContrastAPI Monitor Alert</b>"
     msg+="%0A$(date -u '+%Y-%m-%d %H:%M UTC')"
     for a in "${ALERTS[@]}"; do
       msg+="%0A$a"
