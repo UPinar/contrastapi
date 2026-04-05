@@ -62,7 +62,7 @@ def test_mcp_tools_list(mcp_client):
     assert r.status_code == 200
     data = r.json()
     tools = data["result"]["tools"]
-    assert len(tools) == 20
+    assert len(tools) == 23
     names = {t["name"] for t in tools}
     assert "domain_report" in names
     assert "cve_lookup" in names
