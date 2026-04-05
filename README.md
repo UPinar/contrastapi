@@ -1,5 +1,9 @@
 # ContrastAPI
 
+<p align="center">
+  <img src="app/static/banner.png" alt="ContrastAPI Banner" width="100%">
+</p>
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Python 3.12](https://img.shields.io/badge/Python-3.12-blue.svg)](https://python.org)
 [![Tests](https://img.shields.io/badge/Tests-721_passing-brightgreen.svg)](https://github.com/UPinar/contrastapi/actions)
