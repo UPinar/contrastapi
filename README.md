@@ -9,6 +9,7 @@
 [![Tests](https://img.shields.io/badge/Tests-721_passing-brightgreen.svg)](https://github.com/UPinar/contrastapi/actions)
 [![MCP](https://img.shields.io/badge/MCP-23_tools-purple.svg)](https://modelcontextprotocol.io)
 [![RapidAPI](https://img.shields.io/badge/RapidAPI-Available-blue.svg)](https://rapidapi.com/UPinar/api/contrastapi)
+[![npm](https://img.shields.io/npm/v/contrastapi.svg)](https://www.npmjs.com/package/contrastapi)
 
 **Security intelligence API and MCP server for AI agents.** 23 tools / 35+ endpoints: CVE lookup with EPSS/KEV enrichment, domain reconnaissance, SSL analysis, IP reputation (AbuseIPDB, Shodan), IOC/malware lookup, exploit search, technology fingerprinting, email security, phone validation, and code security scanning. Free, no API key required.
 
@@ -28,6 +29,27 @@ Then ask your AI:
 - *"What's the EPSS score for CVE-2021-44228?"*
 
 ## Quick Start
+
+### Node.js SDK
+
+```bash
+npm install contrastapi
+```
+
+```javascript
+const api = require("contrastapi")();
+
+const report = await api.domain.report("example.com");
+const cve = await api.cve.lookup("CVE-2024-3094");
+const ssl = await api.domain.ssl("example.com");
+const headers = await api.scan.headers("example.com");
+```
+
+With API key (Pro): `const api = require("contrastapi")({ apiKey: "your-key" });`
+
+Full SDK docs: [sdk/node/](sdk/node/)
+
+### cURL
 
 ```bash
 curl https://api.contrastcyber.com/v1/domain/example.com

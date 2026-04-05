@@ -1,0 +1,35 @@
+{
+  "name": "contrastapi",
+  "version": "1.0.0",
+  "description": "Official Node.js SDK for ContrastAPI — security intelligence for developers and AI agents",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "license": "MIT",
+  "author": "ContrastCyber <hello@contrastcyber.com>",
+  "homepage": "https://contrastcyber.com",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/UPinar/contrastapi"
+  },
+  "keywords": [
+    "security",
+    "cve",
+    "vulnerability",
+    "domain",
+    "dns",
+    "whois",
+    "ssl",
+    "threat-intelligence",
+    "mcp",
+    "osint",
+    "api"
+  ],
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=14"
+  }
+}
