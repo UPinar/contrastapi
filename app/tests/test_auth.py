@@ -1,6 +1,6 @@
 """Tests for auth.py"""
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -183,9 +183,9 @@ def test_authenticate_deactivated_key_401():
     assert exc_info.value.status_code == 401
 
 
+@patch("auth.PRO_HOURLY_LIMIT", 5)
 def test_authenticate_pro_rate_limit_429():
     from auth import authenticate, generate_key, hash_key
-    from config import PRO_HOURLY_LIMIT
     from db import save_api_key
     from fastapi import HTTPException
 
@@ -193,7 +193,7 @@ def test_authenticate_pro_rate_limit_429():
     kh = hash_key(key)
     save_api_key(kh)
     # Exhaust the limit via authenticate calls (sliding window)
-    for i in range(PRO_HOURLY_LIMIT):
+    for i in range(5):
         request = MagicMock()
         request.headers = {"authorization": f"Bearer {key}"}
         request.client = MagicMock()
@@ -269,14 +269,14 @@ def test_authenticate_localhost_ipv6_skips_rate_limit():
         assert ctx["client_ip"] == "::1"
 
 
+@patch("auth.PRO_HOURLY_LIMIT", 5)
 def test_authenticate_localhost_pro_skips_rate_limit():
     from auth import authenticate, generate_key, hash_key
-    from config import PRO_HOURLY_LIMIT
     from db import save_api_key
 
     key = generate_key()
     save_api_key(hash_key(key))
-    for _ in range(PRO_HOURLY_LIMIT + 5):
+    for _ in range(10):
         request = MagicMock()
         request.headers = {"authorization": f"Bearer {key}"}
         request.client = MagicMock()
