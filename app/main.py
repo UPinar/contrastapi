@@ -35,6 +35,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, Res
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from ratelimit import check_limit
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from validation import get_client_ip
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -201,6 +202,7 @@ async def request_middleware(request: Request, call_next):
     # Request logging + metrics
     elapsed = int((time.time() - start) * 1000)
     safe_path = request.url.path.replace("\n", "").replace("\r", "")
+    safe_path = re.sub(r"/v1/phone/[^/?]+", "/v1/phone/***", safe_path)
     logger.info("%s %s %s %dms [%s]", request.method, safe_path, response.status_code, elapsed, request_id)
     _record_metric(request.url.path, response.status_code, elapsed)
 
@@ -210,10 +212,58 @@ async def request_middleware(request: Request, call_next):
 # --- Error handler ---
 
 
-@app.exception_handler(HTTPException)
-async def api_error_handler(request: Request, exc: HTTPException):
-    """All errors return JSON (this is an API, no HTML error pages)."""
-    return JSONResponse(status_code=exc.status_code, content={"error": exc.detail})
+ENDPOINT_HINTS = [
+    ("/v1/code/", "Did you mean /v1/check/secrets or /v1/check/injection?"),
+    ("/v1/domain/http", "Don't include http:// — use just the domain: /v1/domain/example.com"),
+    ("/v1/domain/", "Include a domain: /v1/domain/example.com"),
+    ("/v1/cve/", "Usage: /v1/cve/CVE-2024-3094 or /v1/cves?keyword=apache"),
+    ("/v1/epss/", "Include a CVE ID: /v1/epss/CVE-2024-3094"),
+    ("/v1/exploit/", "Include a CVE ID: /v1/exploit/CVE-2024-3094"),
+    ("/v1/tech/", "Include a domain: /v1/tech/example.com"),
+    ("/v1/dns/", "Include a domain: /v1/dns/example.com"),
+    ("/v1/ssl/", "Include a domain: /v1/ssl/example.com"),
+    ("/v1/whois/", "Include a domain: /v1/whois/example.com"),
+    ("/v1/subdomains/", "Include a domain: /v1/subdomains/example.com"),
+    ("/v1/certs/", "Include a domain: /v1/certs/example.com"),
+    ("/v1/threat/", "Include a domain: /v1/threat/example.com"),
+    ("/v1/monitor/", "Include a domain: /v1/monitor/example.com"),
+    ("/v1/ip/", "Include an IP address: /v1/ip/8.8.8.8"),
+    ("/v1/asn/", "Include an ASN or IP: /v1/asn/AS13335 or /v1/asn/8.8.8.8"),
+    ("/v1/ioc/", "Include an indicator (IP, domain, or hash): /v1/ioc/1.2.3.4"),
+    ("/v1/hash/", "Include a file hash (MD5/SHA1/SHA256): /v1/hash/abc123..."),
+    ("/v1/password/", "GET /v1/password/{sha1_hash} — provide full SHA1 hash (40 hex chars)"),
+    ("/v1/phishing/", "GET /v1/phishing/{url} — e.g., /v1/phishing/https://example.com"),
+    ("/v1/phone/", "Include a phone number with country code: /v1/phone/+905551234567"),
+    ("/v1/email/", "Include an email: /v1/email/mx/user@example.com or /v1/email/disposable/user@example.com"),
+    ("/v1/check/", "POST endpoints: /v1/check/secrets, /v1/check/headers, /v1/check/injection, /v1/check/dependencies"),
+    ("/v1/scan/", "GET /v1/scan/headers/{domain} — e.g., /v1/scan/headers/example.com"),
+    (
+        "/v1/",
+        "Full docs: https://api.contrastcyber.com/docs — "
+        "Try: /v1/domain/example.com, /v1/cve/CVE-2024-3094, /v1/ip/8.8.8.8",
+    ),
+]
+ENDPOINT_HINT_DEFAULT = ENDPOINT_HINTS[-1][1]
+
+
+@app.exception_handler(StarletteHTTPException)
+async def api_error_handler(request: Request, exc: StarletteHTTPException):
+    """All errors return JSON with helpful hints."""
+    content = {"error": exc.detail}
+    path = request.url.path
+
+    if exc.status_code == 404:
+        for prefix, hint in ENDPOINT_HINTS:
+            if path.startswith(prefix):
+                content["hint"] = hint
+                break
+        else:
+            content["hint"] = ENDPOINT_HINT_DEFAULT
+
+    if exc.status_code == 405:
+        content["hint"] = f"Method {request.method} not allowed. Try POST for /v1/check/* endpoints."
+
+    return JSONResponse(status_code=exc.status_code, content=content)
 
 
 @app.exception_handler(Exception)
