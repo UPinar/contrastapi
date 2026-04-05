@@ -18,6 +18,7 @@ router = APIRouter(prefix="/v1", tags=["Code Security"])
 
 MAX_CODE_BYTES = 500 * 1024  # 500 KB
 MAX_CONCURRENT_SCANS = 4
+SEMAPHORE_TIMEOUT = 5
 
 # Limits concurrent code scans to prevent thread-pool starvation
 _scan_semaphore = threading.Semaphore(MAX_CONCURRENT_SCANS)
@@ -77,7 +78,7 @@ def check_secrets_endpoint(body: CodeInput, request: Request):
             detail=f"Language '{body.language}' not supported. Allowed: {', '.join(sorted(ALLOWED_LANGUAGES))}",
         )
 
-    acquired = _scan_semaphore.acquire(timeout=5)
+    acquired = _scan_semaphore.acquire(timeout=SEMAPHORE_TIMEOUT)
     if not acquired:
         raise HTTPException(status_code=503, detail="Too many concurrent scans. Please retry.")
     try:
@@ -117,7 +118,7 @@ def check_injection_endpoint(body: CodeInput, request: Request):
             detail=f"Language '{body.language}' not supported. Allowed: {', '.join(sorted(ALLOWED_LANGUAGES))}",
         )
 
-    acquired = _scan_semaphore.acquire(timeout=5)
+    acquired = _scan_semaphore.acquire(timeout=SEMAPHORE_TIMEOUT)
     if not acquired:
         raise HTTPException(status_code=503, detail="Too many concurrent scans. Please retry.")
     try:

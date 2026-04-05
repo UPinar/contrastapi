@@ -789,8 +789,9 @@ class TestSyncCrashRecovery:
         st = get_sync_status().get("nvd", {})
         assert st["status"] == "ok"
 
+    @patch("time.sleep")
     @patch("cve.sync._nvd_request")
-    def test_full_sync_saves_checkpoint(self, mock_req):
+    def test_full_sync_saves_checkpoint(self, mock_req, mock_sleep):
         """Full sync should save checkpoint after each page."""
         pages = [
             {
@@ -915,8 +916,9 @@ class TestSyncCrashRecovery:
         # Should not crash, just use fallback window
         assert mock_req.called
 
+    @patch("time.sleep")
     @patch("cve.sync._nvd_request")
-    def test_partial_failure_preserves_checkpoint(self, mock_req):
+    def test_partial_failure_preserves_checkpoint(self, mock_req, mock_sleep):
         """If NVD returns empty on page 2, checkpoint should be preserved, not cleared."""
         import json
 

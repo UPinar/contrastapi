@@ -1,7 +1,7 @@
 """Tests for Code Security module — secrets, injection, headers, and routes."""
 
 import re
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from codesec.headers import check_headers
 from codesec.injection import detect_injection
@@ -811,20 +811,26 @@ class TestReDoSProtectionIntegration:
         assert r.status_code == 200
 
     def test_real_redos_pattern_does_not_hang(self):
-        """A known ReDoS-evil pattern completes within timeout via safe_scan_line.
+        """safe_scan_line returns [] on timeout instead of hanging.
 
-        Uses (a+)+ which has exponential backtracking on 'aaa...!' input.
-        With safe_scan_line timeout, it should return [] instead of hanging.
+        Mocks the executor to simulate a slow regex that exceeds the timeout.
         """
+        import concurrent.futures
+
         evil_pattern = re.compile(r"(a+)+$")
         rules = [("evil", evil_pattern, "critical", "desc", "fix")]
-        # 25 a's + ! is enough to cause catastrophic backtracking
         evil_input = "a" * 25 + "!"
-        # Should return within timeout (1s), not hang
-        results = safe_scan_line(rules, evil_input, timeout=2.0)
-        # Either finds nothing (timeout) or returns empty (no match on $)
-        # The key assertion: this call completes, it doesn't hang
-        assert isinstance(results, list)
+
+        # Simulate a future that times out
+        mock_future = MagicMock()
+        mock_future.result.side_effect = concurrent.futures.TimeoutError()
+
+        with patch("codesec.utils._regex_executor") as mock_exec:
+            mock_exec.submit.return_value = mock_future
+            results = safe_scan_line(rules, evil_input, timeout=0.1)
+
+        assert results == []
+        mock_future.cancel.assert_called_once()
 
     def test_max_findings_constant(self):
         """MAX_FINDINGS caps memory usage."""
@@ -847,6 +853,7 @@ class TestReDoSProtectionIntegration:
 class TestScanConcurrency:
     """Tests for concurrent scan limiting."""
 
+    @patch("codesec.routes.SEMAPHORE_TIMEOUT", 0.1)
     def test_semaphore_503_on_exhaustion(self):
         """When semaphore is exhausted, returns 503."""
         from codesec.routes import _scan_semaphore
@@ -876,6 +883,7 @@ class TestScanConcurrency:
         after = _scan_semaphore._value
         assert before == after
 
+    @patch("codesec.routes.SEMAPHORE_TIMEOUT", 0.1)
     def test_secrets_semaphore_503(self):
         """Secrets endpoint also respects concurrency limit."""
         from codesec.routes import _scan_semaphore

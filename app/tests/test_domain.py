@@ -2962,7 +2962,8 @@ class TestEmailMxRoute:
         assert r.status_code == 200
         assert set(r.json().keys()) == {"domain", "mx_records", "mail_provider", "email_security", "summary", "cached"}
 
-    @patch("domain.routes.email_security", side_effect=lambda *a, **kw: __import__("time").sleep(15))
+    @patch("domain.routes.RECON_TIMEOUT", 0.1)
+    @patch("domain.routes.email_security", side_effect=lambda *a, **kw: __import__("time").sleep(0.5))
     @patch("domain.routes.dns_lookup", return_value=MOCK_MX_DNS)
     @patch("domain.routes.get_cached_domain", return_value=None)
     @patch("domain.routes.save_cached_domain")
