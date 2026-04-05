@@ -44,7 +44,7 @@ KEY_LENGTH = 48  # hex chars after prefix
 MAX_DOMAIN_LENGTH = 253
 
 # Domain cache TTL
-DOMAIN_CACHE_TTL = 86400  # 24 hours
+DOMAIN_CACHE_TTL = 3600  # 1 hour
 
 # NVD sync
 NVD_API_URL = "https://services.nvd.nist.gov/rest/json/cves/2.0"
@@ -77,7 +77,7 @@ FEODO_TTL = 3600  # 1 hour cache refresh
 FEODO_MAX_BYTES = 10 * 1024 * 1024  # 10 MB response size limit
 
 # IP cache TTL
-IP_CACHE_TTL = 14400  # 4 hours (reputation data changes frequently)
+IP_CACHE_TTL = 3600  # 1 hour
 
 # Cache entry size limit
 CACHE_MAX_BYTES = 1 * 1024 * 1024  # 1 MB per cached result
