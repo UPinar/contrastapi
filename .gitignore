@@ -10,3 +10,5 @@ venv/
 test_*.db
 .mcpregistry_*
 scripts/
+.npmrc
+node_modules/
