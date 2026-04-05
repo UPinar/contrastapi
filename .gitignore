@@ -9,3 +9,4 @@ venv/
 .env
 test_*.db
 .mcpregistry_*
+scripts/

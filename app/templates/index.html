@@ -58,8 +58,8 @@
   <section class="hero">
     <div class="pill">SECURITY INTELLIGENCE API</div>
     <h1>Security data for<br><span class="gradient">AI models & developers</span></h1>
-    <p class="subtitle">30+ endpoints: CVE intelligence, domain reconnaissance, SSL analysis, IP reputation, IOC/malware lookup, exploit search, and code security. Structured JSON with LLM-optimized summaries. Free tier included.</p>
-    <p class="api-counter"><strong>{{ "{:,}".format(total_requests) }}</strong> API calls served</p>
+    <p class="subtitle">35+ endpoints: CVE intelligence, domain reconnaissance, SSL analysis, IP reputation, IOC/malware lookup, exploit search, email security, phone validation, and code security. Structured JSON with LLM-optimized summaries. Free tier included.</p>
+    <!-- counter removed -->
     <div style="text-align:center;margin-top:0.5rem">
       <a href="https://contrastcyber.com" class="btn-cta">Try it out →</a>
     </div>
@@ -113,6 +113,26 @@
         <span class="method get">GET</span>
         <span class="endpoint-path">/v1/tech/{domain}</span>
         <span class="endpoint-desc">Technology fingerprinting (CMS, frameworks, CDN, analytics)</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/asn/{target}</span>
+        <span class="endpoint-desc">ASN lookup (AS number or IP)</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/email/mx/{domain}</span>
+        <span class="endpoint-desc">Mail provider detection + email security grade</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/email/disposable/{email}</span>
+        <span class="endpoint-desc">Disposable/temporary email check</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/phone/{number}</span>
+        <span class="endpoint-desc">Phone validation, carrier, country, timezone</span>
       </div>
     </div>
 

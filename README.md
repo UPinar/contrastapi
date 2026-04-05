@@ -2,12 +2,11 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Python 3.12](https://img.shields.io/badge/Python-3.12-blue.svg)](https://python.org)
-[![Tests](https://img.shields.io/badge/Tests-677_passing-brightgreen.svg)](https://github.com/UPinar/contrastapi/actions)
-[![MCP](https://img.shields.io/badge/MCP-20_tools-purple.svg)](https://modelcontextprotocol.io)
+[![Tests](https://img.shields.io/badge/Tests-721_passing-brightgreen.svg)](https://github.com/UPinar/contrastapi/actions)
+[![MCP](https://img.shields.io/badge/MCP-23_tools-purple.svg)](https://modelcontextprotocol.io)
 [![RapidAPI](https://img.shields.io/badge/RapidAPI-Available-blue.svg)](https://rapidapi.com/UPinar/api/contrastapi)
-[![contrastapi MCP server](https://glama.ai/mcp/servers/UPinar/contrastapi/badges/score.svg)](https://glama.ai/mcp/servers/UPinar/contrastapi)
 
-**Security intelligence API and MCP server for AI agents.** 20 tools / 30+ endpoints: CVE lookup with EPSS/KEV enrichment, domain reconnaissance, SSL analysis, IP reputation (AbuseIPDB, Shodan), IOC/malware lookup, exploit search, technology fingerprinting, and code security scanning. Free, no API key required.
+**Security intelligence API and MCP server for AI agents.** 22 tools / 30+ endpoints: CVE lookup with EPSS/KEV enrichment, domain reconnaissance, SSL analysis, IP reputation (AbuseIPDB, Shodan), IOC/malware lookup, exploit search, technology fingerprinting, and code security scanning. Free, no API key required.
 
 **Live:** [api.contrastcyber.com](https://api.contrastcyber.com) | **Docs:** [Swagger UI](https://api.contrastcyber.com/docs) | **Scanner:** [contrastcyber.com](https://contrastcyber.com)
 
@@ -32,7 +31,7 @@ Then ask your AI: *"Check if example.com has SSL issues"*, *"Look up CVE-2024-30
 
 | Category | Tools |
 |----------|-------|
-| **Domain Intel** | `domain_report` `dns_lookup` `whois_lookup` `ssl_check` `subdomain_enum` `tech_fingerprint` `threat_intel` `scan_headers` |
+| **Domain Intel** | `domain_report` `dns_lookup` `whois_lookup` `ssl_check` `subdomain_enum` `tech_fingerprint` `threat_intel` `scan_headers` `email_mx` `email_disposable` |
 | **IP & Network** | `ip_lookup` `asn_lookup` |
 | **CVE & Exploits** | `cve_lookup` `cve_search` `exploit_lookup` |
 | **Threat Intel** | `ioc_lookup` `hash_lookup` `password_check` `phishing_check` |
@@ -86,14 +85,21 @@ print(report["dns"]["a"])         # ["93.184.216.34"]
 print(report["ssl"]["grade"])     # "A"
 ```
 
-**JavaScript:**
+**JavaScript (Node.js / axios):**
 
 ```javascript
-const r = await fetch("https://api.contrastcyber.com/v1/cve/CVE-2024-3094");
-const cve = await r.json();
-console.log(cve.severity);        // "CRITICAL"
-console.log(cve.epss.score);      // 0.94 (94% exploit probability)
-console.log(cve.kev.in_kev);      // true (actively exploited)
+import axios from "axios";
+
+// Domain security report
+const { data: report } = await axios.get("https://api.contrastcyber.com/v1/domain/example.com");
+console.log(report.security_score); // "B" (A-F grade)
+console.log(report.ssl.grade);      // "A"
+
+// CVE lookup with EPSS + KEV
+const { data: cve } = await axios.get("https://api.contrastcyber.com/v1/cve/CVE-2024-3094");
+console.log(cve.severity);          // "CRITICAL"
+console.log(cve.epss.score);        // 0.94 (94% exploit probability)
+console.log(cve.kev.in_kev);        // true (actively exploited)
 ```
 
 ## Endpoints
@@ -113,6 +119,8 @@ GET  /v1/threat/{domain}       Threat intelligence (URLhaus malware URLs)
 GET  /v1/scan/headers/{domain} Live HTTP security header scan
 GET  /v1/monitor/{domain}      Lightweight domain health check
 GET  /v1/domain/{domain}/vulns Tech stack CVE scan
+GET  /v1/email/mx/{domain}     Mail provider detection + email security grade
+GET  /v1/email/disposable/{email} Disposable/temporary email check
 POST /v1/domains/bulk          Bulk domain scan (10 free, 50 pro)
 ```
 
