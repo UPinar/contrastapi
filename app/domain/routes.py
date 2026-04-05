@@ -20,11 +20,15 @@ from config import BULK_OVERALL_TIMEOUT, BULK_PER_DOMAIN_TIMEOUT, ENRICHMENT_DAI
 from db import get_cached_domain, get_cached_ip, save_cached_domain, save_cached_ip
 from domain.recon import (
     check_ct_logs,
+    check_disposable,
+    detect_mail_provider,
     dns_lookup,
+    email_security,
     enumerate_subdomains,
     fetch_live_page,
     full_domain_report,
     ip_enrichment,
+    phone_lookup,
     quick_dns_a,
     ssl_info,
     whois_lookup,
@@ -36,10 +40,13 @@ from schemas import (
     AsnResponse,
     BulkDomainResponse,
     CertsResponse,
+    DisposableResponse,
     DnsResponse,
     DomainReportResponse,
+    EmailMxResponse,
     IpLookupResponse,
     MonitorResponse,
+    PhoneLookupResponse,
     SslResponse,
     SubdomainsResponse,
     TechResponse,
@@ -52,6 +59,44 @@ from validation import _is_valid_format, clean_domain, get_client_ip, is_private
 logger = logging.getLogger("contrastapi")
 
 router = APIRouter(prefix="/v1", tags=["Domain Intelligence"])
+
+
+@router.get("/", include_in_schema=False)
+def api_root(request: Request):
+    """Available endpoints when someone hits /v1/ directly."""
+    authenticate(request, "/v1")
+    return {
+        "api": "ContrastAPI",
+        "docs": "https://api.contrastcyber.com/docs",
+        "endpoints": {
+            "domain": {"path": "/v1/domain/example.com", "method": "GET", "description": "Full security report"},
+            "dns": {"path": "/v1/dns/example.com", "method": "GET", "description": "DNS records"},
+            "ssl": {"path": "/v1/ssl/example.com", "method": "GET", "description": "SSL/TLS analysis"},
+            "whois": {"path": "/v1/whois/example.com", "method": "GET", "description": "WHOIS data"},
+            "subdomains": {
+                "path": "/v1/subdomains/example.com",
+                "method": "GET",
+                "description": "Subdomain enumeration",
+            },
+            "tech": {"path": "/v1/tech/example.com", "method": "GET", "description": "Technology fingerprint"},
+            "ip": {
+                "path": "/v1/ip/8.8.8.8",
+                "method": "GET",
+                "description": "IP reputation (expects IP address, not domain)",
+            },
+            "cve": {"path": "/v1/cve/CVE-2024-3094", "method": "GET", "description": "CVE lookup with EPSS/KEV"},
+            "cve_search": {"path": "/v1/cves?keyword=apache", "method": "GET", "description": "Search CVEs by keyword"},
+            "epss": {"path": "/v1/epss/CVE-2024-3094", "method": "GET", "description": "Exploit probability score"},
+            "check_secrets": {"path": "/v1/check/secrets", "method": "POST", "description": "Detect secrets in code"},
+            "check_headers": {"path": "/v1/check/headers", "method": "POST", "description": "Validate HTTP headers"},
+            "check_injection": {
+                "path": "/v1/check/injection",
+                "method": "POST",
+                "description": "Detect injection flaws",
+            },
+        },
+        "quick_start": "curl https://api.contrastcyber.com/v1/domain/example.com",
+    }
 
 
 def _validate_and_auth(request: Request, raw_domain: str) -> tuple[str, str, dict]:
@@ -141,6 +186,137 @@ def dns_records(domain: str, request: Request):
     if not records:
         raise HTTPException(status_code=404, detail=f"No DNS records found for '{domain}'")
     return {"domain": domain, "records": records, "summary": _dns_summary(records, domain), "cached": False}
+
+
+@router.get(
+    "/email/mx/{domain}",
+    operation_id="email_mx",
+    response_model=EmailMxResponse,
+    response_model_exclude_none=True,
+)
+def email_mx(domain: str, request: Request):
+    """Email MX analysis — mail provider detection, SPF/DMARC/DKIM check, security grade."""
+    domain, resolved_ip, auth_ctx = _validate_and_auth(request, domain)
+
+    # Check cache
+    cache_key = f"email_mx:{domain}"
+    cached = get_cached_domain(cache_key)
+    if cached:
+        return {**cached, "cached": True}
+
+    # Fetch DNS records for MX + TXT (SPF)
+    records = dns_lookup(domain)
+    mx_records = records.get("mx", [])
+    txt_records = records.get("txt", [])
+
+    # Detect mail provider
+    provider = detect_mail_provider(mx_records)
+
+    # Email security check (SPF/DMARC/DKIM) — run in thread with timeout
+    # to prevent DKIM probing from blocking a worker (up to 19 selectors x 5s each)
+    pool = ThreadPoolExecutor(max_workers=1)
+    try:
+        security = pool.submit(email_security, domain, txt_records).result(timeout=RECON_TIMEOUT * 2)
+    except TimeoutError:
+        security = {
+            "spf": None,
+            "dmarc": None,
+            "dkim_selectors": [],
+            "grade": "F",
+            "issues": ["Email security check timed out"],
+        }
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
+
+    # Build summary
+    parts = [domain]
+    if provider:
+        parts.append(f"uses {provider}")
+    elif mx_records:
+        parts.append(f"{len(mx_records)} MX record{'s' if len(mx_records) != 1 else ''}")
+    else:
+        parts.append("no MX records")
+
+    configured = []
+    if security.get("spf"):
+        configured.append("SPF")
+    if security.get("dmarc"):
+        configured.append("DMARC")
+    if security.get("dkim_selectors"):
+        configured.append("DKIM")
+    if configured:
+        parts.append("+".join(configured) + " configured")
+
+    parts.append(f"Grade: {security.get('grade', 'F')}")
+    summary = " — ".join(parts)
+
+    result = {
+        "domain": domain,
+        "mx_records": mx_records,
+        "mail_provider": provider,
+        "email_security": security,
+        "summary": summary,
+    }
+    save_cached_domain(cache_key, result)
+    return {**result, "cached": False}
+
+
+def _disposable_summary(email: str, result: dict) -> str:
+    """Build a one-line summary for the disposable email check."""
+    if result.get("disposable"):
+        provider_str = f" ({result['provider']})" if result.get("provider") else ""
+        return f"{email} — disposable{provider_str}, risk: {result.get('risk_level', 'high')}"
+    return f"{email} — not disposable, risk: low"
+
+
+@router.get(
+    "/email/disposable/{email}",
+    operation_id="email_disposable",
+    response_model=DisposableResponse,
+    response_model_exclude_none=True,
+)
+def email_disposable(email: str, request: Request):
+    """Check if an email uses a disposable/temporary email provider."""
+    if "@" not in email:
+        raise HTTPException(status_code=400, detail="Invalid email — must contain @")
+    local_part, raw_domain = email.rsplit("@", 1)
+    if not local_part or len(local_part) > 254 or any(ord(c) < 32 or ord(c) == 127 for c in local_part):
+        raise HTTPException(status_code=400, detail="Invalid email local-part")
+    domain = clean_domain(raw_domain)
+    if not domain or not _is_valid_format(domain):
+        raise HTTPException(status_code=400, detail="Invalid email domain")
+    authenticate(request, request.url.path)
+
+    # Check cache (keyed by domain — rebuild summary with current email on hit)
+    cache_key = f"email_disp:{domain}"
+    cached = get_cached_domain(cache_key)
+    if cached:
+        summary = _disposable_summary(email, cached)
+        return {**cached, "email": email, "summary": summary, "cached": True}
+
+    resolved_ip = validate_domain(domain)
+    if not resolved_ip:
+        raise HTTPException(status_code=422, detail="Could not resolve email domain. DNS resolution failed.")
+
+    result = check_disposable(email, domain=domain)
+    result["summary"] = _disposable_summary(email, result)
+
+    save_cached_domain(cache_key, result)
+    return {**result, "cached": False}
+
+
+@router.get(
+    "/phone/{number}",
+    operation_id="phone_lookup",
+    response_model=PhoneLookupResponse,
+    response_model_exclude_none=True,
+    include_in_schema=True,
+)
+def phone_endpoint(number: str, request: Request):
+    """Phone number validation and intelligence — format, country, type, carrier, timezone."""
+    authenticate(request, request.url.path)
+    result = phone_lookup(number)
+    return result
 
 
 @router.get(

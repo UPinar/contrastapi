@@ -480,3 +480,67 @@ class DependenciesResponse(BaseModel):
     total: int = 0
     by_severity: dict[str, int] = Field(default_factory=dict)
     summary: str = ""
+
+
+# === Email MX ===
+
+
+class MxRecord(BaseModel):
+    priority: int
+    host: str
+
+
+class EmailSecurityDetail(BaseModel):
+    spf: str | None = None
+    dmarc: str | None = None
+    dkim_selectors: list[str] = Field(default_factory=list)
+    grade: str = "F"
+    issues: list[str] = Field(default_factory=list)
+
+
+class EmailMxResponse(BaseModel):
+    domain: str
+    mx_records: list[MxRecord] = Field(default_factory=list)
+    mail_provider: str | None = None
+    email_security: EmailSecurityDetail = Field(default_factory=EmailSecurityDetail)
+    summary: str = ""
+    cached: bool | None = None
+
+
+# === Phone Lookup ===
+
+
+class PhoneFormat(BaseModel):
+    e164: str = ""
+    international: str = ""
+    national: str = ""
+
+
+class PhoneLookupResponse(BaseModel):
+    valid: bool = False
+    number: str = ""
+    format: PhoneFormat | None = None
+    country_code: str = ""
+    country_name: str = ""
+    type: str = "unknown"
+    carrier: str = ""
+    timezone: list[str] = Field(default_factory=list)
+    summary: str = ""
+    error: str | None = None
+
+    model_config = {"extra": "ignore"}
+
+
+# === Disposable Email ===
+
+
+class DisposableResponse(BaseModel):
+    email: str
+    domain: str
+    disposable: bool = False
+    provider: str | None = None
+    mx_disposable: bool = False
+    risk_level: str = "low"
+    mx_records: list[MxRecord] = Field(default_factory=list)
+    summary: str = ""
+    cached: bool | None = None

@@ -18,9 +18,10 @@ HTTP usage: POST https://api.contrastcyber.com/mcp
 """
 
 import contextvars
+import logging
 import os
 import sys
-import logging
+
 import httpx
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
@@ -187,6 +188,38 @@ async def scan_headers(domain: str) -> str:
         domain: Target domain
     """
     return _fmt(await _get(f"/v1/scan/headers/{domain}"))
+
+
+@mcp.tool()
+async def email_mx(domain: str) -> str:
+    """Email MX analysis — mail provider detection, SPF/DMARC/DKIM check, security grade.
+
+    Args:
+        domain: Target domain (e.g. example.com)
+    """
+    return _fmt(await _get(f"/v1/email/mx/{domain}"))
+
+
+@mcp.tool()
+async def email_disposable(email: str) -> str:
+    """Check if an email uses a disposable/temporary email provider.
+
+    Args:
+        email: Email address to check (e.g. user@tempmail.com)
+    """
+    from urllib.parse import quote
+    return _fmt(await _get(f"/v1/email/disposable/{quote(email, safe='')}"))
+
+
+@mcp.tool()
+async def phone_lookup(number: str) -> str:
+    """Phone number validation and intelligence — format, country, type, carrier, timezone.
+
+    Args:
+        number: Phone number with country code (e.g. +905551234567)
+    """
+    from urllib.parse import quote
+    return _fmt(await _get(f"/v1/phone/{quote(number, safe='')}"))
 
 
 # === IP Intelligence ===
