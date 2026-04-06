@@ -5,4 +5,4 @@ python-multipart==0.0.24
 dnspython==2.8.0
 httpx==0.28.1
 pytest==9.0.2
-phonenumbers==9.0.2
+phonenumbers==9.0.27
