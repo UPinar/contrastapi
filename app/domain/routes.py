@@ -156,6 +156,13 @@ def _from_cache(domain: str, key: str) -> dict | None:
     response_model=DomainReportResponse,
     response_model_exclude_none=True,
 )
+@router.post(
+    "/domain/{domain}",
+    operation_id="domain_report_post",
+    response_model=DomainReportResponse,
+    response_model_exclude_none=True,
+    include_in_schema=False,
+)
 def domain_report(domain: str, request: Request, lite: bool = False):
     """Full domain intelligence report with DNS, WHOIS, SSL, subdomains, WAF. Use ?lite=true for fast subset."""
     domain, resolved_ip, auth_ctx = _validate_and_auth(request, domain)
