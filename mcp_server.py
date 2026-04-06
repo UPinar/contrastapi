@@ -180,6 +180,16 @@ async def threat_intel(domain: str) -> str:
 
 
 @mcp.tool()
+async def wayback_lookup(domain: str) -> str:
+    """Web archive history — snapshots from the Wayback Machine showing when a domain was first seen and how it changed over time.
+
+    Args:
+        domain: Target domain (e.g. example.com)
+    """
+    return _fmt(await _get(f"/v1/archive/{domain}"))
+
+
+@mcp.tool()
 async def scan_headers(domain: str) -> str:
     """Live HTTP security header scan — CSP, HSTS, X-Frame-Options, etc.
 

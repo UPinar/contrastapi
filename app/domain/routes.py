@@ -18,6 +18,7 @@ _ripe_client = _httpx.Client(timeout=_httpx.Timeout(7.0, connect=3.0), follow_re
 from auth import authenticate
 from config import BULK_OVERALL_TIMEOUT, BULK_PER_DOMAIN_TIMEOUT, ENRICHMENT_DAILY_LIMIT, RECON_TIMEOUT
 from db import get_cached_domain, get_cached_ip, save_cached_domain, save_cached_ip
+from domain.archive import wayback_lookup
 from domain.recon import (
     check_ct_logs,
     check_disposable,
@@ -52,6 +53,7 @@ from schemas import (
     TechResponse,
     ThreatResponse,
     VulnsResponse,
+    WaybackResponse,
     WhoisResponse,
 )
 from validation import _is_valid_format, clean_domain, get_client_ip, is_private_ip, is_valid_ip, validate_domain
@@ -496,6 +498,18 @@ def threat_intel(domain: str, request: Request):
     else:
         summary = f"{domain} — {url_count} URL{'s' if url_count != 1 else ''} in URLhaus ({urls_online} online)"
     return {"domain": domain, **result, "summary": summary}
+
+
+@router.get(
+    "/archive/{domain}",
+    operation_id="wayback_lookup",
+    response_model=WaybackResponse,
+    response_model_exclude_none=True,
+)
+def wayback_lookup_route(domain: str, request: Request):
+    """Web archive lookup — historical snapshots from the Wayback Machine."""
+    domain, resolved_ip, auth_ctx = _validate_and_auth(request, domain)
+    return wayback_lookup(domain)
 
 
 @router.get("/ip/{ip}", operation_id="ip_lookup", response_model=IpLookupResponse, response_model_exclude_none=True)

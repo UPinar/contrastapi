@@ -111,6 +111,7 @@ GET  /v1/ip/{ip}               IP intel + reputation (AbuseIPDB, Shodan)
 GET  /v1/asn/{target}          ASN lookup (AS number or IP)
 GET  /v1/tech/{domain}         Technology fingerprinting (CMS, frameworks, CDN, analytics)
 GET  /v1/threat/{domain}       Threat intelligence (URLhaus malware URLs)
+GET  /v1/archive/{domain}      Web archive history (Wayback Machine snapshots)
 GET  /v1/scan/headers/{domain} Live HTTP security header scan
 GET  /v1/monitor/{domain}      Lightweight domain health check
 GET  /v1/domain/{domain}/vulns Tech stack CVE scan

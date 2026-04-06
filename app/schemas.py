@@ -75,6 +75,28 @@ class ThreatResponse(BaseModel):
     summary: str = ""
 
 
+# === Wayback Machine / Web Archive ===
+
+
+class WaybackSnapshot(BaseModel):
+    timestamp: str
+    date: str
+    status: str
+    mimetype: str
+    url: str
+
+
+class WaybackResponse(BaseModel):
+    domain: str
+    total_snapshots: int = 0
+    first_seen: str | None = None
+    last_seen: str | None = None
+    years_online: int = 0
+    snapshots: list[WaybackSnapshot] = Field(default_factory=list)
+    archive_url: str = ""
+    summary: str = ""
+
+
 # === Technology Fingerprinting ===
 
 
