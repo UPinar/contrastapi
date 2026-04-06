@@ -248,7 +248,7 @@ ENDPOINT_HINTS = [
     ("/v1/scan/", "GET /v1/scan/headers/{domain} — e.g., /v1/scan/headers/example.com"),
     (
         "/v1/",
-        "Full docs: https://api.contrastcyber.com/docs — "
+        "Full docs: https://github.com/UPinar/contrastapi#endpoints — "
         "Try: /v1/domain/example.com, /v1/cve/CVE-2024-3094, /v1/ip/8.8.8.8",
     ),
 ]
@@ -396,7 +396,7 @@ def quickstart():
     <div class="nav-links">
       <a href="/quickstart">API Start</a>
       <a href="/mcp-setup">MCP Setup</a>
-      <a href="/docs">Docs</a>
+      <a href="https://github.com/UPinar/contrastapi#endpoints">Docs</a>
       <a href="https://contrastcyber.com/pricing">Pricing</a>
     </div>
   </nav>
@@ -462,7 +462,7 @@ print(r.json()['findings'])</code></div>
     <div class="grid">
       <div class="card">
         <h3>API Reference</h3>
-        <p>All 35+ endpoints with try-it-out. <a href="/docs">Open docs &rarr;</a></p>
+        <p>All 35+ endpoints with try-it-out. <a href="https://github.com/UPinar/contrastapi#endpoints">Open docs &rarr;</a></p>
       </div>
       <div class="card">
         <h3>Rate Limits</h3>
@@ -539,7 +539,7 @@ def mcp_setup():
     <div class="nav-links">
       <a href="/quickstart">API Start</a>
       <a href="/mcp-setup">MCP Setup</a>
-      <a href="/docs">Docs</a>
+      <a href="https://github.com/UPinar/contrastapi#endpoints">Docs</a>
       <a href="https://contrastcyber.com/pricing">Pricing</a>
     </div>
   </nav>
@@ -649,7 +649,7 @@ Accept: application/json, text/event-stream
       </div>
       <div class="card">
         <h3>Full Reference</h3>
-        <p>All endpoints with try-it-out. <a href="/docs">API Docs &rarr;</a></p>
+        <p>All endpoints with try-it-out. <a href="https://github.com/UPinar/contrastapi#endpoints">API Docs &rarr;</a></p>
       </div>
     </div>
   </div>
@@ -668,137 +668,14 @@ Accept: application/json, text/event-stream
     )
 
 
-@app.get("/docs", response_class=HTMLResponse, include_in_schema=False)
+@app.get("/docs", include_in_schema=False)
 def custom_docs():
-    return HTMLResponse(
-        content="""<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>API Docs | ContrastAPI</title>
-  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-  <link rel="stylesheet" href="/static/style.css?v=8">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css">
-  <style>
-    @font-face {
-      font-family: 'Geist Mono';
-      font-style: normal;
-      font-weight: 100 900;
-      font-display: swap;
-      src: url('/static/fonts/geist-mono.woff2') format('woff2');
-    }
-    body { margin: 0; background: #09090b; }
-    /* Top bar */
-    .swagger-ui .topbar { display: none; }
-    /* Docs nav — uses style.css nav classes, just needs sticky positioning */
-    nav.docs-nav-wrap { position: sticky; top: 0; z-index: 999; background: #09090b; border-bottom: 1px solid #27272a; }
-    /* Dark theme overrides */
-    .swagger-ui { background: #09090b; font-family: 'Geist Mono', -apple-system, monospace; }
-    .swagger-ui .wrapper { max-width: 1100px; padding: 1rem 2rem; }
-    .swagger-ui .info { margin: 1.5rem 0; }
-    .swagger-ui .info .title { color: #fafafa; font-family: 'Geist Mono', monospace; }
-    .swagger-ui .info .description, .swagger-ui .info p { color: #a1a1aa; }
-    .swagger-ui .info a { color: #3b82f6; }
-    .swagger-ui .scheme-container { background: #09090b; border-bottom: 1px solid #27272a; box-shadow: none; }
-    .swagger-ui .opblock-tag { color: #fafafa; border-bottom: 1px solid #1c1c1f; font-family: 'Geist Mono', monospace; }
-    .swagger-ui .opblock-tag:hover { background: rgba(39,39,42,0.4); }
-    .swagger-ui .opblock-tag small { color: #71717a; }
-    /* GET blocks — green like landing page */
-    .swagger-ui .opblock.opblock-get { background: rgba(34,197,94,0.04); border: 1px solid rgba(34,197,94,0.15); border-radius: 0.5rem; }
-    .swagger-ui .opblock.opblock-get .opblock-summary-method { background: rgba(34,197,94,0.15); color: #22c55e; font-size: 0.65rem; font-weight: 700; padding: 0.2rem 0.5rem; border-radius: 0.25rem; }
-    .swagger-ui .opblock.opblock-get .opblock-summary { border-color: rgba(34,197,94,0.15); }
-    /* POST blocks — blue like landing page */
-    .swagger-ui .opblock.opblock-post { background: rgba(59,130,246,0.04); border: 1px solid rgba(59,130,246,0.15); border-radius: 0.5rem; }
-    .swagger-ui .opblock.opblock-post .opblock-summary-method { background: rgba(59,130,246,0.15); color: #3b82f6; font-size: 0.65rem; font-weight: 700; padding: 0.2rem 0.5rem; border-radius: 0.25rem; }
-    .swagger-ui .opblock.opblock-post .opblock-summary { border-color: rgba(59,130,246,0.15); }
-    /* Summary text */
-    .swagger-ui .opblock .opblock-summary-description { color: #a1a1aa; }
-    .swagger-ui .opblock .opblock-summary-path { color: #fafafa; }
-    .swagger-ui .opblock .opblock-summary-path__deprecated { color: #71717a; }
-    /* Expanded content */
-    .swagger-ui .opblock-body { background: #0a0a0c; }
-    .swagger-ui .opblock-description-wrapper p { color: #a1a1aa; }
-    .swagger-ui table thead tr th { color: #a1a1aa; border-bottom: 1px solid #27272a; }
-    .swagger-ui table tbody tr td { color: #fafafa; border-bottom: 1px solid #1c1c1f; }
-    .swagger-ui .parameter__name { color: #fafafa; }
-    .swagger-ui .parameter__type { color: #71717a; }
-    .swagger-ui .parameter__in { color: #71717a; }
-    /* Response */
-    .swagger-ui .responses-inner h4, .swagger-ui .responses-inner h5 { color: #fafafa; }
-    .swagger-ui .response-col_status { color: #22c55e; }
-    .swagger-ui .response-col_description { color: #a1a1aa; }
-    /* Models */
-    .swagger-ui section.models { border: 1px solid #27272a; }
-    .swagger-ui section.models h4 { color: #fafafa; }
-    .swagger-ui .model-box { background: #0a0a0c; }
-    .swagger-ui .model { color: #a1a1aa; }
-    .swagger-ui .prop-type { color: #3b82f6; }
-    /* Try it out */
-    .swagger-ui .btn.execute { background: #3b82f6; border-color: #3b82f6; color: #fff; }
-    .swagger-ui .btn.execute:hover { background: #2563eb; }
-    .swagger-ui .btn { color: #a1a1aa; border-color: #27272a; }
-    .swagger-ui .btn:hover { color: #fafafa; }
-    .swagger-ui .btn.try-out__btn { border-color: #3b82f6; color: #3b82f6; }
-    /* Code blocks */
-    .swagger-ui .highlight-code, .swagger-ui .microlight { background: #0a0a0c !important; color: #fafafa; border-radius: 0.375rem; }
-    .swagger-ui .copy-to-clipboard { background: #1c1c1f; }
-    /* Inputs */
-    .swagger-ui input[type=text], .swagger-ui textarea, .swagger-ui select {
-      background: #0a0a0c; color: #fafafa; border: 1px solid #27272a; border-radius: 0.375rem;
-    }
-    .swagger-ui select { color: #fafafa; }
-    /* Scrollbar */
-    .swagger-ui ::-webkit-scrollbar { width: 6px; height: 6px; }
-    .swagger-ui ::-webkit-scrollbar-track { background: #09090b; }
-    .swagger-ui ::-webkit-scrollbar-thumb { background: #27272a; border-radius: 3px; }
-    /* Loading */
-    .swagger-ui .loading-container { background: #09090b; }
-    .swagger-ui .loading-container .loading::after { color: #a1a1aa; }
-    /* Auth */
-    .swagger-ui .auth-wrapper { background: #09090b; }
-    .swagger-ui .dialog-ux .modal-ux { background: #18181b; border: 1px solid #27272a; }
-    .swagger-ui .dialog-ux .modal-ux-header h3 { color: #fafafa; }
-    .swagger-ui .dialog-ux .modal-ux-content p { color: #a1a1aa; }
-  </style>
-</head>
-<body>
-  <nav class="docs-nav-wrap">
-    <a href="/" class="logo">Contrast<span>API</span></a>
-    <button class="hamburger" aria-label="Menu" aria-expanded="false" onclick="const o=this.getAttribute('aria-expanded')==='true';this.setAttribute('aria-expanded',String(!o));document.querySelector('.nav-links').classList.toggle('open')"><span class="hamburger__lines" aria-hidden="true"></span></button>
-    <div class="nav-links">
-      <a href="/quickstart">API Start</a>
-      <a href="/mcp-setup">MCP Setup</a>
-      <a href="/docs">Docs</a>
-      <a href="https://contrastcyber.com/pricing">Pricing</a>
-    </div>
-  </nav>
-  <div id="swagger-ui"></div>
-  <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
-  <script>
-    SwaggerUIBundle({
-      url: '/openapi.json',
-      dom_id: '#swagger-ui',
-      presets: [SwaggerUIBundle.presets.apis, SwaggerUIBundle.SwaggerUIStandalonePreset],
-      layout: 'BaseLayout',
-      deepLinking: true,
-      defaultModelsExpandDepth: -1,
-      docExpansion: 'list',
-      filter: true,
-      syntaxHighlight: { theme: 'monokai' }
-    });
-  </script>
-  <footer>
-    <div class="footer-links">
-      <a href="https://contrastcyber.com/terms">Terms</a>
-      <a href="https://contrastcyber.com/privacy">Privacy</a>
-      <a href="mailto:contact@contrastcyber.com">Contact</a>
-      <a href="https://github.com/UPinar/contrastapi">GitHub</a>
-    </div>
-    <p>&copy; 2026 ContrastCyber</p>
-  </footer>
-</body>
-</html>"""
+    return JSONResponse(
+        status_code=404,
+        content={
+            "error": "Not found",
+            "hint": "See https://github.com/UPinar/contrastapi for API documentation.",
+        },
     )
 
 
@@ -812,15 +689,7 @@ def api_status():
     return {
         "status": "ok",
         "version": VERSION,
-        "total_requests": get_total_requests(),
-        "data_sources": {
-            source: {
-                "last_sync": info.get("last_sync"),
-                "records": info.get("records_count"),
-                "status": info.get("status"),
-            }
-            for source, info in sync.items()
-        },
+        "data_sources": {source: {"status": info.get("status")} for source, info in sync.items()},
     }
 
 
@@ -899,7 +768,7 @@ def llms_txt():
 
 - [Quick Start](https://api.contrastcyber.com/quickstart)
 - [MCP Setup](https://api.contrastcyber.com/mcp-setup)
-- [API Documentation](https://api.contrastcyber.com/docs)
+- [API Documentation](https://github.com/UPinar/contrastapi#endpoints)
 - [OpenAPI Spec](https://api.contrastcyber.com/openapi.json)
 - [Full API Reference](https://api.contrastcyber.com/llms-full.txt)
 
@@ -1476,7 +1345,7 @@ def mcp_server_card():
         "auth": "none",
         "tools_count": 20,
         "homepage": "https://github.com/UPinar/contrastapi",
-        "documentation": "https://api.contrastcyber.com/docs",
+        "documentation": "https://github.com/UPinar/contrastapi#endpoints",
     }
 
 
@@ -1535,7 +1404,6 @@ def sitemap_xml():
   <url><loc>https://api.contrastcyber.com/</loc><lastmod>{today}</lastmod><changefreq>weekly</changefreq><priority>1.0</priority></url>
   <url><loc>https://api.contrastcyber.com/quickstart</loc><lastmod>{today}</lastmod><changefreq>weekly</changefreq><priority>0.9</priority></url>
   <url><loc>https://api.contrastcyber.com/mcp-setup</loc><lastmod>{today}</lastmod><changefreq>weekly</changefreq><priority>0.9</priority></url>
-  <url><loc>https://api.contrastcyber.com/docs</loc><lastmod>{today}</lastmod><changefreq>weekly</changefreq><priority>0.8</priority></url>
   <url><loc>https://api.contrastcyber.com/llms.txt</loc><lastmod>{today}</lastmod><changefreq>weekly</changefreq><priority>0.7</priority></url>
   <url><loc>https://api.contrastcyber.com/llms-full.txt</loc><lastmod>{today}</lastmod><changefreq>weekly</changefreq><priority>0.7</priority></url>
 </urlset>"""
