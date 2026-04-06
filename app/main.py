@@ -628,7 +628,7 @@ Accept: application/json, text/event-stream
       <p><em>"Is user@example.com a disposable email?"</em></p>
     </div>
 
-    <h2>23 Tools</h2>
+    <h2>24 Tools</h2>
     <div class="tools-grid">
       <div class="tool"><span class="name">domain_report</span> <span class="desc">Full domain security audit</span></div>
       <div class="tool"><span class="name">dns_lookup</span> <span class="desc">DNS records</span></div>
@@ -637,6 +637,7 @@ Accept: application/json, text/event-stream
       <div class="tool"><span class="name">subdomain_enum</span> <span class="desc">Subdomain discovery</span></div>
       <div class="tool"><span class="name">tech_fingerprint</span> <span class="desc">CMS/framework detection</span></div>
       <div class="tool"><span class="name">threat_intel</span> <span class="desc">Malware/URLhaus lookup</span></div>
+      <div class="tool"><span class="name">wayback_lookup</span> <span class="desc">Web archive history</span></div>
       <div class="tool"><span class="name">scan_headers</span> <span class="desc">Live header analysis</span></div>
       <div class="tool"><span class="name">email_mx</span> <span class="desc">SPF/DMARC/DKIM check</span></div>
       <div class="tool"><span class="name">email_disposable</span> <span class="desc">Disposable email detection</span></div>
