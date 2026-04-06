@@ -3,13 +3,12 @@
 import logging
 
 import httpx
-from config import RECON_TIMEOUT
 
 logger = logging.getLogger("contrastapi")
 
 WAYBACK_CDX_URL = "https://web.archive.org/cdx/search/cdx"
 
-_client = httpx.Client(timeout=httpx.Timeout(RECON_TIMEOUT + 5, connect=5.0), follow_redirects=False)
+_client = httpx.Client(timeout=httpx.Timeout(20.0, connect=5.0), follow_redirects=False)
 
 
 def _parse_date(ts: str) -> str:
