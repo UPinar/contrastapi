@@ -291,6 +291,13 @@ def landing_page(request: Request):
     return templates.TemplateResponse(request, "index.html", {"total_requests": total})
 
 
+@app.get("/cn/", response_class=HTMLResponse, include_in_schema=False)
+@app.get("/cn", response_class=HTMLResponse, include_in_schema=False)
+def landing_page_cn(request: Request):
+    total = get_total_requests()
+    return templates.TemplateResponse(request, "index_cn.html", {"total_requests": total})
+
+
 @app.get("/welcome", response_class=HTMLResponse, include_in_schema=False)
 def welcome_page(request: Request, order_id: str = ""):
     if not order_id:

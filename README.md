@@ -13,6 +13,8 @@
 
 **Security intelligence API and MCP server for AI agents.** 29 tools / 35+ endpoints: CVE lookup with EPSS/KEV enrichment, domain reconnaissance, SSL analysis, IP reputation (AbuseIPDB, Shodan), IOC/malware lookup, exploit search, technology fingerprinting, email security, phone validation, and code security scanning. Free, no API key required.
 
+**English** | [中文](README_CN.md)
+
 **Live:** [api.contrastcyber.com](https://api.contrastcyber.com) | **Quick Start:** [API](https://api.contrastcyber.com/quickstart) · [MCP](https://api.contrastcyber.com/mcp-setup) | **Docs:** [Endpoints](#endpoints) | **Scanner:** [contrastcyber.com](https://contrastcyber.com)
 
 ## Use with AI Agents
