@@ -126,6 +126,7 @@ GET  /v1/ip/{ip}               IP 情报 + 信誉（AbuseIPDB、Shodan）
 GET  /v1/asn/{target}          ASN 查询（AS 号或 IP）
 GET  /v1/tech/{domain}         技术指纹识别（CMS、框架、CDN、分析工具）
 GET  /v1/threat/{domain}       威胁情报（URLhaus 恶意 URL）
+GET  /v1/archive/{domain}      网站历史存档（Wayback Machine 快照）
 GET  /v1/scan/headers/{domain} HTTP 安全头实时扫描
 GET  /v1/monitor/{domain}      轻量级域名健康检查
 GET  /v1/domain/{domain}/vulns 技术栈 CVE 扫描
