@@ -11,9 +11,9 @@
 [![RapidAPI](https://img.shields.io/badge/RapidAPI-Available-blue.svg)](https://rapidapi.com/UPinar/api/contrastapi)
 [![npm](https://img.shields.io/npm/v/contrastapi.svg)](https://www.npmjs.com/package/contrastapi)
 
-**Security intelligence API and MCP server for AI agents.** 23 tools / 35+ endpoints: CVE lookup with EPSS/KEV enrichment, domain reconnaissance, SSL analysis, IP reputation (AbuseIPDB, Shodan), IOC/malware lookup, exploit search, technology fingerprinting, email security, phone validation, and code security scanning. Free, no API key required.
+**Security intelligence API and MCP server for AI agents.** 29 tools / 35+ endpoints: CVE lookup with EPSS/KEV enrichment, domain reconnaissance, SSL analysis, IP reputation (AbuseIPDB, Shodan), IOC/malware lookup, exploit search, technology fingerprinting, email security, phone validation, and code security scanning. Free, no API key required.
 
-**Live:** [api.contrastcyber.com](https://api.contrastcyber.com) | **Quick Start:** [API](https://api.contrastcyber.com/quickstart) · [MCP](https://api.contrastcyber.com/mcp-setup) | **Docs:** [Swagger UI](https://api.contrastcyber.com/docs) | **Scanner:** [contrastcyber.com](https://contrastcyber.com)
+**Live:** [api.contrastcyber.com](https://api.contrastcyber.com) | **Quick Start:** [API](https://api.contrastcyber.com/quickstart) · [MCP](https://api.contrastcyber.com/mcp-setup) | **Docs:** [Endpoints](#endpoints) | **Scanner:** [contrastcyber.com](https://contrastcyber.com)
 
 ## Use with AI Agents
 
@@ -138,7 +138,6 @@ POST /v1/check/dependencies    Check packages for known CVEs
 
 - **API Quick Start:** https://api.contrastcyber.com/quickstart
 - **MCP Setup:** https://api.contrastcyber.com/mcp-setup
-- **Swagger UI:** https://api.contrastcyber.com/docs
 - **OpenAPI spec:** https://api.contrastcyber.com/openapi.json
 - **LLM discovery:** https://api.contrastcyber.com/llms.txt
 

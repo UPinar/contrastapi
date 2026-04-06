@@ -67,7 +67,7 @@ def api_root(request: Request):
     authenticate(request, "/v1")
     return {
         "api": "ContrastAPI",
-        "docs": "https://api.contrastcyber.com/docs",
+        "docs": "https://github.com/UPinar/contrastapi#endpoints",
         "endpoints": {
             "domain": {"path": "/v1/domain/example.com", "method": "GET", "description": "Full security report"},
             "dns": {"path": "/v1/dns/example.com", "method": "GET", "description": "DNS records"},
@@ -155,6 +155,13 @@ def _from_cache(domain: str, key: str) -> dict | None:
     operation_id="domain_report",
     response_model=DomainReportResponse,
     response_model_exclude_none=True,
+)
+@router.post(
+    "/domain/{domain}",
+    operation_id="domain_report_post",
+    response_model=DomainReportResponse,
+    response_model_exclude_none=True,
+    include_in_schema=False,
 )
 def domain_report(domain: str, request: Request, lite: bool = False):
     """Full domain intelligence report with DNS, WHOIS, SSL, subdomains, WAF. Use ?lite=true for fast subset."""
