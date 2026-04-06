@@ -301,9 +301,55 @@ def hash_client_ip(ip: str) -> str:
     return hmac.new(_hmac_key, ip.encode(), hashlib.sha256).hexdigest()[:16]
 
 
+def normalize_endpoint(endpoint: str) -> str:
+    """Strip path parameters from endpoint paths for privacy-safe logging.
+
+    /v1/domain/example.com → /v1/domain
+    /v1/ip/8.8.8.8 → /v1/ip
+    /v1/cve/CVE-2024-1234 → /v1/cve
+    /v1/email/mx/user@x.com → /v1/email/mx
+    /v1/email/disposable/x.com → /v1/email/disposable
+    /v1/scan/headers/x.com → /v1/scan/headers
+    /v1/phone/+905551234 → /v1/phone
+    """
+    ep = endpoint.rstrip("/")
+
+    # 3-segment routes with path param at position 4
+    _three_seg = ("/v1/email/mx/", "/v1/email/disposable/", "/v1/scan/headers/")
+    for prefix in _three_seg:
+        if endpoint.startswith(prefix):
+            return prefix.rstrip("/")
+
+    # 2-segment routes that take a path param at position 3
+    _parameterized = (
+        "domain",
+        "ip",
+        "cve",
+        "phone",
+        "asn",
+        "exploit",
+        "dns",
+        "whois",
+        "subdomains",
+        "certs",
+        "ssl",
+        "threat",
+        "tech",
+        "monitor",
+        "epss",
+    )
+    parts = ep.split("/")
+    # /v1/domain/example.com → ["", "v1", "domain", "example.com"]
+    if len(parts) > 3 and parts[1] == "v1" and parts[2] in _parameterized:
+        return "/".join(parts[:3])
+
+    return ep
+
+
 def log_usage(client_ip: str, endpoint: str, key_hash: str | None = None) -> None:
     now = datetime.now(UTC).isoformat()
     ip_hash = hash_client_ip(client_ip)
+    endpoint = normalize_endpoint(endpoint)
     with get_api_db() as con:
         con.execute(
             "INSERT INTO api_usage (key_hash, client_ip, endpoint, called_at) VALUES (?, ?, ?, ?)",
@@ -358,11 +404,21 @@ def maintenance() -> dict:
     """Run database maintenance: VACUUM, ANALYZE, purge old data."""
     stats = {}
 
-    # Purge usage older than 90 days
+    # Purge usage older than 90 days + normalize legacy endpoint paths
     cutoff = (datetime.now(UTC) - timedelta(days=90)).isoformat()
     with get_api_db() as con:
         cur = con.execute("DELETE FROM api_usage WHERE called_at < ?", (cutoff,))
         stats["usage_purged"] = cur.rowcount
+
+        # Retroactive normalize: strip path params from old records
+        rows = con.execute("SELECT DISTINCT endpoint FROM api_usage").fetchall()
+        normalized_count = 0
+        for (ep,) in rows:
+            clean = normalize_endpoint(ep)
+            if clean != ep:
+                con.execute("UPDATE api_usage SET endpoint = ? WHERE endpoint = ?", (clean, ep))
+                normalized_count += 1
+        stats["endpoints_normalized"] = normalized_count
         con.execute("ANALYZE")
 
     # Clear unclaimed pending keys older than 24 hours
