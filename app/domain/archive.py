@@ -46,7 +46,8 @@ def wayback_lookup(domain: str) -> dict:
                 "output": "json",
                 "fl": "timestamp,statuscode,mimetype,digest",
                 "collapse": "timestamp:8",
-                "limit": -20,
+                "limit": 20,
+                "sort": "reverse",
             },
         )
         resp.raise_for_status()
