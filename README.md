@@ -15,7 +15,7 @@
 
 **English** | [中文](README_CN.md)
 
-**Live:** [api.contrastcyber.com](https://api.contrastcyber.com) | **Quick Start:** [API](https://api.contrastcyber.com/quickstart) · [MCP](https://api.contrastcyber.com/mcp-setup) | **Docs:** [Endpoints](#endpoints) | **Scanner:** [contrastcyber.com](https://contrastcyber.com)
+**Live:** [api.contrastcyber.com](https://api.contrastcyber.com) | **Quick Start:** [API](https://api.contrastcyber.com/quickstart) · [MCP](https://api.contrastcyber.com/mcp-setup) | **Docs:** [Endpoints](#endpoints) | **Scanner:** [contrastcyber.com](https://contrastcyber.com) | **Blog:** [I Built 23 Security Tools That AI Agents Can Use](https://dev.to/contrastcyber/i-built-23-security-tools-that-ai-agents-can-use-4he7)
 
 ## Use with AI Agents
 
