@@ -31,9 +31,7 @@ logger = logging.getLogger("contrastapi-mcp")
 
 # Carries the real client IP from MCP HTTP handler to internal API calls,
 # so backend rate limiting sees the original IP instead of localhost.
-_client_ip_var: contextvars.ContextVar[str] = contextvars.ContextVar(
-    "mcp_client_ip", default=""
-)
+_client_ip_var: contextvars.ContextVar[str] = contextvars.ContextVar("mcp_client_ip", default="")
 
 mcp = FastMCP(
     "contrastapi",
@@ -104,6 +102,7 @@ def _fmt(data: dict | str) -> str:
     if summary:
         return summary
     import json
+
     return json.dumps(data, indent=2, default=str)[:8000]
 
 
@@ -208,6 +207,7 @@ async def email_disposable(email: str) -> str:
         email: Email address to check (e.g. user@tempmail.com)
     """
     from urllib.parse import quote
+
     return _fmt(await _get(f"/v1/email/disposable/{quote(email, safe='')}"))
 
 
@@ -219,6 +219,7 @@ async def phone_lookup(number: str) -> str:
         number: Phone number with country code (e.g. +905551234567)
     """
     from urllib.parse import quote
+
     return _fmt(await _get(f"/v1/phone/{quote(number, safe='')}"))
 
 
@@ -362,6 +363,7 @@ async def check_headers(headers: str) -> str:
         headers: JSON string of header name-value pairs, e.g. {"Content-Security-Policy": "default-src 'self'"}
     """
     import json
+
     try:
         h = json.loads(headers)
     except json.JSONDecodeError:

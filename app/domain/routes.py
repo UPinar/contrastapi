@@ -67,7 +67,7 @@ def api_root(request: Request):
     authenticate(request, "/v1")
     return {
         "api": "ContrastAPI",
-        "docs": "https://api.contrastcyber.com/docs",
+        "docs": "https://github.com/UPinar/contrastapi#endpoints",
         "endpoints": {
             "domain": {"path": "/v1/domain/example.com", "method": "GET", "description": "Full security report"},
             "dns": {"path": "/v1/dns/example.com", "method": "GET", "description": "DNS records"},
