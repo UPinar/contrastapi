@@ -25,6 +25,11 @@ def test_status_200():
     assert data["status"] == "ok"
     assert "version" in data
     assert "data_sources" in data
+    # Operational details must not be exposed
+    assert "total_requests" not in data
+    for src in data["data_sources"].values():
+        assert "last_sync" not in src
+        assert "records" not in src
 
 
 # --- llms.txt ---
@@ -57,7 +62,8 @@ def test_openapi_json():
 
 def test_docs_page():
     r = client.get("/docs")
-    assert r.status_code == 200
+    assert r.status_code == 404
+    assert "github.com" in r.json()["hint"]
 
 
 # --- Error handler ---

@@ -295,6 +295,24 @@ class TestDomainRoutes:
         assert "dns" in data
         assert "summary" in data
 
+    @patch("domain.routes.full_domain_report", return_value=MOCK_FULL_REPORT)
+    @patch("domain.routes.validate_domain", return_value="93.184.216.34")
+    @patch("domain.routes.get_cached_domain", return_value=None)
+    def test_domain_report_post(self, mock_cache, mock_validate, mock_report):
+        """POST returns same result as GET (Salesforce SFDC-Callout compat)."""
+        r = client.post("/v1/domain/example.com")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["domain"] == "example.com"
+
+    @patch("domain.routes.full_domain_report", return_value=MOCK_FULL_REPORT)
+    @patch("domain.routes.validate_domain", return_value="93.184.216.34")
+    @patch("domain.routes.get_cached_domain", return_value=None)
+    def test_domain_report_post_with_body(self, mock_cache, mock_validate, mock_report):
+        """POST with JSON body is ignored (body not read)."""
+        r = client.post("/v1/domain/example.com", json={"extra": "ignored"})
+        assert r.status_code == 200
+
     @patch("domain.routes.full_domain_report")
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     @patch("domain.routes.get_cached_domain", return_value=MOCK_FULL_REPORT)
