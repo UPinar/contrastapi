@@ -280,15 +280,16 @@ def test_maintenance_runs():
 def test_get_key_usage_stats():
     from db import get_key_usage_stats, log_usage
 
-    log_usage("5.5.5.5", "/v1/cve/test", key_hash="stats_key")
-    log_usage("5.5.5.5", "/v1/domain/test", key_hash="stats_key")
-    log_usage("5.5.5.5", "/v1/cve/test", key_hash="stats_key")
+    log_usage("5.5.5.5", "/v1/cve/CVE-2024-1234", key_hash="stats_key")
+    log_usage("5.5.5.5", "/v1/domain/example.com", key_hash="stats_key")
+    log_usage("5.5.5.5", "/v1/cve/CVE-2024-5678", key_hash="stats_key")
     stats = get_key_usage_stats("stats_key")
     assert stats["total_requests"] == 3
     assert stats["last_24h"] == 3
     assert stats["last_1h"] == 3
     assert len(stats["top_endpoints"]) == 2
-    assert stats["top_endpoints"][0]["endpoint"] == "/v1/cve/test"
+    # Path params stripped: /v1/cve/CVE-2024-1234 → /v1/cve
+    assert stats["top_endpoints"][0]["endpoint"] == "/v1/cve"
     assert stats["top_endpoints"][0]["count"] == 2
 
 
@@ -304,6 +305,128 @@ class TestLogUsageAssertions:
         with get_api_db() as con:
             count = con.execute("SELECT COUNT(*) FROM api_usage").fetchone()[0]
             assert count >= 2
+
+
+# --- normalize_endpoint tests ---
+
+
+class TestNormalizeEndpoint:
+    def test_strips_domain(self):
+        from db import normalize_endpoint
+
+        assert normalize_endpoint("/v1/domain/example.com") == "/v1/domain"
+
+    def test_strips_ip(self):
+        from db import normalize_endpoint
+
+        assert normalize_endpoint("/v1/ip/8.8.8.8") == "/v1/ip"
+
+    def test_strips_cve_id(self):
+        from db import normalize_endpoint
+
+        assert normalize_endpoint("/v1/cve/CVE-2024-1234") == "/v1/cve"
+
+    def test_strips_email_mx(self):
+        from db import normalize_endpoint
+
+        assert normalize_endpoint("/v1/email/mx/user@test.com") == "/v1/email/mx"
+
+    def test_strips_email_disposable(self):
+        from db import normalize_endpoint
+
+        assert normalize_endpoint("/v1/email/disposable/test.com") == "/v1/email/disposable"
+
+    def test_strips_scan_headers(self):
+        from db import normalize_endpoint
+
+        assert normalize_endpoint("/v1/scan/headers/example.com") == "/v1/scan/headers"
+
+    def test_strips_phone(self):
+        from db import normalize_endpoint
+
+        assert normalize_endpoint("/v1/phone/+905551234567") == "/v1/phone"
+
+    def test_strips_dns(self):
+        from db import normalize_endpoint
+
+        assert normalize_endpoint("/v1/dns/example.com") == "/v1/dns"
+
+    def test_strips_whois(self):
+        from db import normalize_endpoint
+
+        assert normalize_endpoint("/v1/whois/example.com") == "/v1/whois"
+
+    def test_strips_subdomains(self):
+        from db import normalize_endpoint
+
+        assert normalize_endpoint("/v1/subdomains/example.com") == "/v1/subdomains"
+
+    def test_strips_certs(self):
+        from db import normalize_endpoint
+
+        assert normalize_endpoint("/v1/certs/example.com") == "/v1/certs"
+
+    def test_strips_ssl(self):
+        from db import normalize_endpoint
+
+        assert normalize_endpoint("/v1/ssl/example.com") == "/v1/ssl"
+
+    def test_strips_threat(self):
+        from db import normalize_endpoint
+
+        assert normalize_endpoint("/v1/threat/example.com") == "/v1/threat"
+
+    def test_strips_tech(self):
+        from db import normalize_endpoint
+
+        assert normalize_endpoint("/v1/tech/example.com") == "/v1/tech"
+
+    def test_strips_monitor(self):
+        from db import normalize_endpoint
+
+        assert normalize_endpoint("/v1/monitor/example.com") == "/v1/monitor"
+
+    def test_strips_epss(self):
+        from db import normalize_endpoint
+
+        assert normalize_endpoint("/v1/epss/CVE-2024-1234") == "/v1/epss"
+
+    def test_strips_asn(self):
+        from db import normalize_endpoint
+
+        assert normalize_endpoint("/v1/asn/AS13335") == "/v1/asn"
+
+    def test_strips_exploit(self):
+        from db import normalize_endpoint
+
+        assert normalize_endpoint("/v1/exploit/CVE-2024-1234") == "/v1/exploit"
+
+    def test_keeps_clean_endpoints(self):
+        from db import normalize_endpoint
+
+        assert normalize_endpoint("/v1/check/secrets") == "/v1/check/secrets"
+        assert normalize_endpoint("/v1/check/injection") == "/v1/check/injection"
+        assert normalize_endpoint("/v1/check/headers") == "/v1/check/headers"
+        assert normalize_endpoint("/v1/check/dependencies") == "/v1/check/dependencies"
+        assert normalize_endpoint("/v1/ioc") == "/v1/ioc"
+        assert normalize_endpoint("/v1/hash") == "/v1/hash"
+        assert normalize_endpoint("/v1/password") == "/v1/password"
+        assert normalize_endpoint("/v1/phishing") == "/v1/phishing"
+        assert normalize_endpoint("/v1/usage") == "/v1/usage"
+        assert normalize_endpoint("/v1/domains/bulk") == "/v1/domains/bulk"
+        assert normalize_endpoint("/v1") == "/v1"
+        assert normalize_endpoint("/v1/cves/recent") == "/v1/cves/recent"
+        assert normalize_endpoint("/v1/cves/kev") == "/v1/cves/kev"
+
+    def test_strips_trailing_slash(self):
+        from db import normalize_endpoint
+
+        assert normalize_endpoint("/v1/domain/example.com/") == "/v1/domain"
+
+    def test_domain_vulns_4segment(self):
+        from db import normalize_endpoint
+
+        assert normalize_endpoint("/v1/domain/example.com/vulns") == "/v1/domain"
 
 
 # --- maintenance purge test ---

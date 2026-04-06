@@ -150,10 +150,20 @@ _metrics = {
 
 
 _PATH_NORMALIZE = re.compile(
-    r"/v1/(cve|domain|dns|whois|subdomains|certs|ssl|threat|ip|epss|exploit|scan/headers|monitor|ioc|hash|password|asn|phishing|tech)/[^/]+(?:/(changes|vulns))?"
+    r"/v1/(cve|domain|dns|whois|subdomains|certs|ssl|threat|ip|epss|exploit|scan/headers|monitor|ioc|hash|password|asn|phishing|tech|email/mx|email/disposable|phone)/[^/]+(?:/(changes|vulns))?"
 )
 
 _MAX_TRACKED_PATHS = 200
+
+_LOG_SANITIZE = re.compile(
+    r"/v1/(phone|email/mx|email/disposable|ip|domain|dns|whois|subdomains|certs|ssl|threat|tech|monitor|ioc|phishing|scan/headers|asn|password)/[^/?]+"
+)
+
+
+def _sanitize_path(path: str) -> str:
+    """Redact PII (domains, IPs, emails, phones) from request paths for safe logging."""
+    safe = path.replace("\n", "").replace("\r", "")
+    return _LOG_SANITIZE.sub(r"/v1/\1/***", safe)
 
 
 def _normalize_path(path: str) -> str:
@@ -201,8 +211,7 @@ async def request_middleware(request: Request, call_next):
 
     # Request logging + metrics
     elapsed = int((time.time() - start) * 1000)
-    safe_path = request.url.path.replace("\n", "").replace("\r", "")
-    safe_path = re.sub(r"/v1/phone/[^/?]+", "/v1/phone/***", safe_path)
+    safe_path = _sanitize_path(request.url.path)
     logger.info("%s %s %s %dms [%s]", request.method, safe_path, response.status_code, elapsed, request_id)
     _record_metric(request.url.path, response.status_code, elapsed)
 
@@ -269,7 +278,7 @@ async def api_error_handler(request: Request, exc: StarletteHTTPException):
 @app.exception_handler(Exception)
 async def generic_error_handler(request: Request, exc: Exception):
     """Catch-all — never leak stack traces or internal paths."""
-    logger.exception("Unhandled error on %s %s", request.method, request.url.path)
+    logger.exception("Unhandled error on %s %s", request.method, _sanitize_path(request.url.path))
     return JSONResponse(status_code=500, content={"error": "Internal server error"})
 
 
