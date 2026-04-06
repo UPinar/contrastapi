@@ -614,11 +614,18 @@ Accept: application/json, text/event-stream
     <div class="try-box">
       <h3>Try it now</h3>
       <p>After setup, ask your AI:</p>
-      <p><em>"Scan example.com for security issues"</em></p>
-      <p><em>"Look up CVE-2024-3094"</em></p>
-      <p><em>"Check if 8.8.8.8 is malicious"</em></p>
-      <p><em>"Find subdomains of example.com"</em></p>
-      <p><em>"Scan this code for hardcoded secrets"</em></p>
+      <p><em>"Run a full security audit on example.com"</em></p>
+      <p><em>"Is the SSL certificate on example.com expiring soon?"</em></p>
+      <p><em>"What technologies does example.com use?"</em></p>
+      <p><em>"Look up CVE-2024-3094 &mdash; is it being exploited in the wild?"</em></p>
+      <p><em>"Find critical Apache vulnerabilities from the last 6 months"</em></p>
+      <p><em>"Is 8.8.8.8 malicious? Check its reputation"</em></p>
+      <p><em>"What ASN does 1.1.1.1 belong to?"</em></p>
+      <p><em>"Enrich this IOC: 185.220.101.1"</em></p>
+      <p><em>"Check if http://evil-example.test/login is a phishing URL"</em></p>
+      <p><em>"Has this password been exposed in a data breach?"</em></p>
+      <p><em>"Check this code for hardcoded API keys and secrets"</em></p>
+      <p><em>"Is user@example.com a disposable email?"</em></p>
     </div>
 
     <h2>23 Tools</h2>
