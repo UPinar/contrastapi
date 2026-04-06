@@ -23,12 +23,40 @@ Setup for Claude Desktop, Cursor, VS Code, Windsurf: **[MCP Setup Guide](https:/
 
 Then ask your AI:
 
-- *"Scan example.com for security issues"*
-- *"Look up CVE-2024-3094"*
-- *"Is 8.8.8.8 malicious?"*
-- *"Find subdomains of example.com"*
-- *"Check this code for hardcoded secrets"*
-- *"What's the EPSS score for CVE-2021-44228?"*
+**Recon & Domain**
+- *"Run a full security audit on example.com"*
+- *"What are the DNS records for example.com?"*
+- *"Is the SSL certificate on example.com expiring soon?"*
+- *"What technologies does example.com use?"*
+- *"Check the security headers on example.com"*
+- *"Find all subdomains of example.com"*
+- *"Who registered example.com and when does it expire?"*
+- *"Does example.com have proper SPF and DMARC records?"*
+
+**CVE & Exploits**
+- *"Look up CVE-2024-3094 — is it being exploited in the wild?"*
+- *"Find critical Apache vulnerabilities from the last 6 months"*
+- *"Are there public exploits for CVE-2021-44228?"*
+
+**IP & Network**
+- *"Is 8.8.8.8 malicious? Check its reputation"*
+- *"What ASN does 1.1.1.1 belong to?"*
+
+**Threat Intelligence**
+- *"Check example.com for known malware URLs"*
+- *"Enrich this IOC: 185.220.101.1"*
+- *"Check if http://evil-example.test/login is a phishing URL"*
+- *"Has this password been exposed in a data breach?"*
+- *"Is this file hash known malware? a1b2c3d4..."*
+
+**Code Security**
+- *"Check this code for hardcoded API keys and secrets"*
+- *"Scan this function for SQL injection vulnerabilities"*
+- *"Validate these HTTP security headers: Content-Security-Policy, X-Frame-Options"*
+
+**Contact Validation**
+- *"Is user@example.com a disposable email?"*
+- *"Look up this phone number: +1-555-0123"*
 
 ## Quick Start
 
