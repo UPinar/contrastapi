@@ -634,6 +634,157 @@ class TestEmailSecurity:
         assert result["spf"] == "v=spf1 -all"
 
 
+class TestDkimParallelDetection:
+    """Tests for parallel DKIM selector probing in email_security()."""
+
+    _SPF_TXT = "v=spf1 include:_spf.google.com -all"
+
+    def _mock_dmarc(self):
+        rec = MagicMock()
+        rec.__iter__ = lambda s: iter([MagicMock(__str__=lambda s: '"v=DMARC1; p=reject"')])
+        return rec
+
+    @patch("domain.recon.dns.resolver.Resolver")
+    def test_dkim_date_selector_found(self, mock_cls):
+        mock_resolver = MagicMock()
+        mock_cls.return_value = mock_resolver
+
+        def resolve_side_effect(name, rtype):
+            if "_dmarc." in name:
+                return self._mock_dmarc()
+            if "20260319._domainkey." in name:
+                return MagicMock()
+            if "_domainkey." in name:
+                raise dns.exception.DNSException("NXDOMAIN")
+            raise dns.exception.DNSException("unexpected")
+
+        mock_resolver.resolve.side_effect = resolve_side_effect
+
+        from domain.recon import email_security
+
+        result = email_security("example.com", txt_records=[self._SPF_TXT])
+        assert "20260319" in result["dkim_selectors"]
+        assert result["grade"] == "A"
+
+    @patch("domain.recon.dns.resolver.Resolver")
+    def test_dkim_named_selector_found(self, mock_cls):
+        mock_resolver = MagicMock()
+        mock_cls.return_value = mock_resolver
+
+        def resolve_side_effect(name, rtype):
+            if "_dmarc." in name:
+                return self._mock_dmarc()
+            if "google._domainkey." in name:
+                return MagicMock()
+            if "_domainkey." in name:
+                raise dns.exception.DNSException("NXDOMAIN")
+            raise dns.exception.DNSException("unexpected")
+
+        mock_resolver.resolve.side_effect = resolve_side_effect
+
+        from domain.recon import email_security
+
+        result = email_security("example.com", txt_records=[self._SPF_TXT])
+        assert "google" in result["dkim_selectors"]
+
+    @patch("domain.recon.dns.resolver.Resolver")
+    def test_dkim_early_exit_at_3(self, mock_cls):
+        mock_resolver = MagicMock()
+        mock_cls.return_value = mock_resolver
+
+        # 5 selectors will match — only 3 should be collected
+        match_selectors = {"default", "google", "selector1", "k1", "mail"}
+
+        def resolve_side_effect(name, rtype):
+            if "_dmarc." in name:
+                return self._mock_dmarc()
+            if "_domainkey." in name:
+                selector = name.split("._domainkey.")[0]
+                if selector in match_selectors:
+                    return MagicMock()
+                raise dns.exception.DNSException("NXDOMAIN")
+            raise dns.exception.DNSException("unexpected")
+
+        mock_resolver.resolve.side_effect = resolve_side_effect
+
+        from domain.recon import email_security
+
+        result = email_security("example.com", txt_records=[self._SPF_TXT])
+        assert len(result["dkim_selectors"]) == 3
+        assert set(result["dkim_selectors"]).issubset(match_selectors)
+
+    @patch("domain.recon.dns.resolver.Resolver")
+    def test_dkim_timeout_no_crash(self, mock_cls):
+        mock_resolver = MagicMock()
+        mock_cls.return_value = mock_resolver
+
+        def resolve_side_effect(name, rtype):
+            if "_dmarc." in name:
+                return self._mock_dmarc()
+            if "_domainkey." in name:
+                raise dns.exception.Timeout("timeout")
+            raise dns.exception.DNSException("unexpected")
+
+        mock_resolver.resolve.side_effect = resolve_side_effect
+
+        from domain.recon import email_security
+
+        result = email_security("example.com", txt_records=[self._SPF_TXT])
+        assert result["dkim_selectors"] == []
+        assert result["grade"] == "B"
+        assert any("DKIM" in i for i in result["issues"])
+
+    @patch("domain.recon.dns.resolver.Resolver")
+    def test_dkim_no_selectors_found(self, mock_cls):
+        mock_resolver = MagicMock()
+        mock_cls.return_value = mock_resolver
+
+        def resolve_side_effect(name, rtype):
+            if "_dmarc." in name:
+                return self._mock_dmarc()
+            if "_domainkey." in name:
+                raise dns.resolver.NXDOMAIN("no record")
+            raise dns.exception.DNSException("unexpected")
+
+        mock_resolver.resolve.side_effect = resolve_side_effect
+
+        from domain.recon import email_security
+
+        result = email_security("example.com", txt_records=[self._SPF_TXT])
+        assert result["dkim_selectors"] == []
+        assert result["grade"] == "B"
+        assert any("No DKIM record found" in i for i in result["issues"])
+
+    @patch("domain.recon.dns.resolver.Resolver")
+    def test_dkim_mixed_results(self, mock_cls):
+        mock_resolver = MagicMock()
+        mock_cls.return_value = mock_resolver
+
+        from datetime import datetime, timedelta
+
+        today = datetime.now(UTC)
+        date_sel = (today - timedelta(days=1)).strftime("%Y%m%d")
+
+        def resolve_side_effect(name, rtype):
+            if "_dmarc." in name:
+                return self._mock_dmarc()
+            if "_domainkey." in name:
+                selector = name.split("._domainkey.")[0]
+                if selector in ("default", date_sel):
+                    return MagicMock()
+                raise dns.exception.DNSException("NXDOMAIN")
+            raise dns.exception.DNSException("unexpected")
+
+        mock_resolver.resolve.side_effect = resolve_side_effect
+
+        from domain.recon import email_security
+
+        result = email_security("example.com", txt_records=[self._SPF_TXT])
+        assert "default" in result["dkim_selectors"]
+        assert date_sel in result["dkim_selectors"]
+        assert len(result["dkim_selectors"]) == 2
+
+
 class TestOpenApiDomainRoutes:
     def test_openapi_has_domain_operations(self):
         r = client.get("/openapi.json")
