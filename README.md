@@ -6,16 +6,16 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Python 3.12](https://img.shields.io/badge/Python-3.12-blue.svg)](https://python.org)
-[![Tests](https://img.shields.io/badge/Tests-756_passing-brightgreen.svg)](https://github.com/UPinar/contrastapi/actions)
-[![MCP](https://img.shields.io/badge/MCP-24_tools-purple.svg)](https://modelcontextprotocol.io)
+[![Tests](https://img.shields.io/badge/Tests-782_passing-brightgreen.svg)](https://github.com/UPinar/contrastapi/actions)
+[![MCP](https://img.shields.io/badge/MCP-25_tools-purple.svg)](https://modelcontextprotocol.io)
 [![RapidAPI](https://img.shields.io/badge/RapidAPI-Available-blue.svg)](https://rapidapi.com/UPinar/api/contrastapi)
 [![npm](https://img.shields.io/npm/v/contrastapi.svg)](https://www.npmjs.com/package/contrastapi)
 
-**Security intelligence API and MCP server for AI agents.** 24 MCP tools / 35+ endpoints: CVE lookup with EPSS/KEV enrichment, domain reconnaissance, SSL analysis, IP reputation (AbuseIPDB, Shodan), IOC/malware lookup, exploit search, technology fingerprinting, email security, phone validation, and code security scanning. Free, no API key required.
+**Security intelligence API and MCP server for AI agents.** 25 MCP tools / 35+ endpoints: CVE lookup with EPSS/KEV enrichment, domain reconnaissance, SSL analysis, IP reputation (AbuseIPDB, Shodan), IOC/malware lookup, exploit search, technology fingerprinting, email security, phone validation, and code security scanning. Free, no API key required.
 
 **English** | [中文](README_CN.md)
 
-**Live:** [api.contrastcyber.com](https://api.contrastcyber.com) | **Quick Start:** [API](https://api.contrastcyber.com/quickstart) · [MCP](https://api.contrastcyber.com/mcp-setup) | **Docs:** [Endpoints](#endpoints) | **Scanner:** [contrastcyber.com](https://contrastcyber.com) | **Blog:** [I Built 24 Security Tools That AI Agents Can Use](https://dev.to/contrastcyber/i-built-23-security-tools-that-ai-agents-can-use-4he7)
+**Live:** [api.contrastcyber.com](https://api.contrastcyber.com) | **Quick Start:** [API](https://api.contrastcyber.com/quickstart) · [MCP](https://api.contrastcyber.com/mcp-setup) | **Docs:** [Endpoints](#endpoints) | **Scanner:** [contrastcyber.com](https://contrastcyber.com) | **Blog:** [I Built 25 Security Tools That AI Agents Can Use](https://dev.to/contrastcyber/i-built-23-security-tools-that-ai-agents-can-use-4he7)
 
 ## Use with AI Agents
 
@@ -57,6 +57,7 @@ Then ask your AI:
 **Contact Validation**
 - *"Is user@example.com a disposable email?"*
 - *"Look up this phone number: +1-555-0123"*
+- *"Find accounts for username 'johndoe' across platforms"*
 
 ## Quick Start
 
@@ -139,6 +140,7 @@ GET /v1/hash/{hash}            Malware hash reputation (MalwareBazaar)
 GET /v1/password/{sha1}        Password breach check (HIBP, k-anonymity)
 GET /v1/phishing/{url}         Phishing/malware URL check (URLhaus)
 GET /v1/phone/{number}         Phone number OSINT (carrier, type, country)
+GET /v1/username/{username}    Username OSINT (16 platforms, account discovery)
 ```
 
 ### Code Security
@@ -189,7 +191,7 @@ cd app
 cd app && PYTHONPATH=. python -m pytest tests/ -v
 ```
 
-756 tests covering auth, rate limiting, validation, database operations, domain intelligence, CVE intelligence, threat intelligence, code security (ReDoS protection, concurrency limits), tech fingerprinting, IP reputation, email security, phone validation, web archive, MCP endpoint, and API routes.
+782 tests covering auth, rate limiting, validation, database operations, domain intelligence, CVE intelligence, threat intelligence, code security (ReDoS protection, concurrency limits), tech fingerprinting, IP reputation, email security, phone validation, web archive, MCP endpoint, and API routes.
 
 ## Stack
 
