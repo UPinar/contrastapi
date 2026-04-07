@@ -11,7 +11,7 @@ import ssl
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import UTC
+from datetime import UTC, datetime, timedelta
 
 import dns.exception
 import dns.resolver
@@ -549,6 +549,7 @@ _MAIL_PROVIDERS = {
     "migadu.com": "Migadu",
     "tutanota.de": "Tutanota",
     "protonmail.ch": "ProtonMail",
+    "infomaniak.ch": "Infomaniak",
 }
 
 
@@ -593,23 +594,35 @@ def email_security(domain: str, txt_records: list | None = None) -> dict:
     except dns.exception.DNSException:
         pass  # No DMARC record is common, not an error
 
-    # DKIM — try common selectors + date-based (YYYYMMDD for last 60 days)
+    # DKIM — try common selectors + date-based (YYYYMMDD for last 30 days)
     dkim_found = []
-    from datetime import datetime, timedelta
-
-    date_selectors = []
     today = datetime.now(UTC)
-    for i in range(7):
-        date_selectors.append((today - timedelta(days=i)).strftime("%Y%m%d"))
+    date_selectors = [(today - timedelta(days=i)).strftime("%Y%m%d") for i in range(30)]
     all_selectors = list(DKIM_SELECTORS) + date_selectors
-    for selector in all_selectors:
+
+    def _check_dkim(selector: str) -> str | None:
         try:
-            answers = resolver.resolve(f"{selector}._domainkey.{domain}", "TXT")
-            dkim_found.append(selector)
-            if len(dkim_found) >= 3:
-                break
+            r = dns.resolver.Resolver()
+            r.timeout = 2
+            r.lifetime = 3
+            r.resolve(f"{selector}._domainkey.{domain}", "TXT")
+            return selector
         except dns.exception.DNSException:
-            pass  # Most selectors won't exist
+            return None
+
+    pool = ThreadPoolExecutor(max_workers=10)
+    try:
+        futures = {pool.submit(_check_dkim, s): s for s in all_selectors}
+        for future in as_completed(futures, timeout=8):
+            result = future.result(timeout=4)
+            if result:
+                dkim_found.append(result)
+                if len(dkim_found) >= 3:
+                    break
+    except TimeoutError:
+        pass
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
 
     issues = []
     if not spf:
