@@ -20,6 +20,7 @@ HTTP usage: POST https://api.contrastcyber.com/mcp
 import contextvars
 import logging
 import os
+import re
 import sys
 
 import httpx
@@ -49,6 +50,16 @@ API_BASE = os.environ.get("CONTRASTAPI_URL", "http://localhost:8002")
 API_KEY = os.environ.get("CONTRASTAPI_KEY", "")
 TIMEOUT = 30.0
 
+_LOG_SANITIZE = re.compile(
+    r"/v1/(phone|email/mx|email/disposable|ip|domain|dns|whois|subdomains|certs|ssl|threat|tech|monitor|ioc|phishing|scan/headers|asn|password|archive|username|cve|cves|exploit|hash|epss)/[^/?]+"
+)
+
+
+def _safe_path(path: str) -> str:
+    """Redact PII from API paths for safe logging."""
+    safe = re.sub(r"[\x00-\x1f\x7f]", "", path)
+    return _LOG_SANITIZE.sub(r"/v1/\1/***", safe)
+
 
 def _headers() -> dict:
     h = {"Accept": "application/json"}
@@ -62,6 +73,7 @@ def _headers() -> dict:
 
 
 async def _get(path: str, params: dict | None = None) -> dict | str:
+    client_ip = _client_ip_var.get() or "unknown"
     async with httpx.AsyncClient() as client:
         try:
             resp = await client.get(
@@ -71,14 +83,18 @@ async def _get(path: str, params: dict | None = None) -> dict | str:
                 headers=_headers(),
             )
             resp.raise_for_status()
+            logger.info("mcp_tool GET %s %d %s", _safe_path(path), resp.status_code, client_ip)
             return resp.json()
         except httpx.HTTPStatusError as e:
+            logger.info("mcp_tool GET %s %d %s", _safe_path(path), e.response.status_code, client_ip)
             return f"Error {e.response.status_code}"
         except httpx.HTTPError as e:
+            logger.info("mcp_tool GET %s err %s", _safe_path(path), client_ip)
             return f"Request failed: {e}"
 
 
 async def _post(path: str, json_body: dict) -> dict | str:
+    client_ip = _client_ip_var.get() or "unknown"
     async with httpx.AsyncClient() as client:
         try:
             resp = await client.post(
@@ -88,10 +104,13 @@ async def _post(path: str, json_body: dict) -> dict | str:
                 headers=_headers(),
             )
             resp.raise_for_status()
+            logger.info("mcp_tool POST %s %d %s", _safe_path(path), resp.status_code, client_ip)
             return resp.json()
         except httpx.HTTPStatusError as e:
+            logger.info("mcp_tool POST %s %d %s", _safe_path(path), e.response.status_code, client_ip)
             return f"Error {e.response.status_code}"
         except httpx.HTTPError as e:
+            logger.info("mcp_tool POST %s err %s", _safe_path(path), client_ip)
             return f"Request failed: {e}"
 
 
