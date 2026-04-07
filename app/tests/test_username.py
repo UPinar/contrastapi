@@ -264,7 +264,7 @@ class TestUsernameRoute:
             "found_count": 1,
             "checked_count": 19,
             "results": [{"platform": "github", "url": "https://github.com/testuser", "status": "found"}],
-            "summary": "testuser — found on 1/19 platforms (github)",
+            "summary": "testuser — found on 1/16 platforms (github)",
         }
         r = client.get("/v1/username/testuser")
         assert r.status_code == 200
@@ -292,7 +292,7 @@ class TestUsernameRoute:
             "found_count": 0,
             "checked_count": 19,
             "results": [],
-            "summary": "shapetest — not found on any of 19 platforms checked",
+            "summary": "shapetest — not found on any of 16 platforms checked",
         }
         r = client.get("/v1/username/shapetest")
         assert r.status_code == 200

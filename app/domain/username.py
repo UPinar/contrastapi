@@ -1,4 +1,4 @@
-"""Username OSINT lookup — check if a username exists on 19 platforms."""
+"""Username OSINT lookup — check if a username exists on 16 platforms."""
 
 import logging
 import re
@@ -30,13 +30,10 @@ _pool = ThreadPoolExecutor(max_workers=30)
 #   prefix with "!" to invert: "!needle" means needle MUST be present = found
 PLATFORMS: list[tuple[str, str, str | None, str, str | None]] = [
     ("github", "https://github.com/{u}", None, "head", None),
-    ("gitlab", "https://gitlab.com/{u}", None, "get", "sign_in"),
     ("bitbucket", "https://bitbucket.org/{u}/", None, "head", None),
     ("reddit", "https://www.reddit.com/user/{u}", "https://www.reddit.com/user/{u}/about.json", "get", '"error"'),
     ("twitter", "https://x.com/{u}", None, "head", None),
-    ("instagram", "https://www.instagram.com/{u}/", None, "get", "login"),
     ("tiktok", "https://www.tiktok.com/@{u}", None, "get", 'statusCode":10221'),
-    ("youtube", "https://www.youtube.com/@{u}", None, "head", None),
     ("pinterest", "https://www.pinterest.com/{u}/", None, "get", "404"),
     ("telegram", "https://t.me/{u}", None, "get", "!tgme_page_extra"),
     ("steam", "https://steamcommunity.com/id/{u}", None, "get", "could not be found"),
@@ -93,7 +90,7 @@ def _check_platform(
 
 
 def username_lookup(username: str) -> dict:
-    """Check if a username exists on 19 platforms.
+    """Check if a username exists on 16 platforms.
 
     Args:
         username: The username to search for (alphanumeric, dot, underscore, hyphen).
