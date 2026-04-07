@@ -566,3 +566,23 @@ class DisposableResponse(BaseModel):
     mx_records: list[MxRecord] = Field(default_factory=list)
     summary: str = ""
     cached: bool | None = None
+
+
+# === Username Lookup ===
+
+
+class UsernameMatch(BaseModel):
+    platform: str = ""
+    url: str = ""
+    status: str = ""  # "found" | "not_found" | "error"
+
+
+class UsernameLookupResponse(BaseModel):
+    username: str = ""
+    found_count: int = 0
+    checked_count: int = 0
+    results: list[UsernameMatch] = Field(default_factory=list)
+    summary: str = ""
+    error: str | None = None
+
+    model_config = {"extra": "ignore"}

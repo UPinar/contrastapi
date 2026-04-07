@@ -43,6 +43,9 @@ KEY_LENGTH = 48  # hex chars after prefix
 # Domain validation
 MAX_DOMAIN_LENGTH = 253
 
+# Username validation
+MAX_USERNAME_LENGTH = 39  # GitHub's limit, reasonable cap
+
 # Domain cache TTL
 DOMAIN_CACHE_TTL = 3600  # 1 hour
 
@@ -84,6 +87,7 @@ CACHE_MAX_BYTES = 1 * 1024 * 1024  # 1 MB per cached result
 
 # Timeouts
 RECON_TIMEOUT = 5
+USERNAME_LOOKUP_TIMEOUT = 5  # per-platform HTTP timeout for username checks
 CRTSH_TIMEOUT = 10
 BULK_PER_DOMAIN_TIMEOUT = 25  # must exceed CRTSH_TIMEOUT + RECON_TIMEOUT + buffer (19s worst case)
 BULK_OVERALL_TIMEOUT = 120  # hard cap for entire bulk request; partial results returned on expiry

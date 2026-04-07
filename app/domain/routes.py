@@ -36,6 +36,7 @@ from domain.recon import (
 )
 from domain.reputation import check_abuseipdb, check_shodan
 from domain.threat import check_urlhaus
+from domain.username import username_lookup
 from pydantic import BaseModel, Field
 from schemas import (
     AsnResponse,
@@ -52,6 +53,7 @@ from schemas import (
     SubdomainsResponse,
     TechResponse,
     ThreatResponse,
+    UsernameLookupResponse,
     VulnsResponse,
     WaybackResponse,
     WhoisResponse,
@@ -326,6 +328,19 @@ def phone_endpoint(number: str, request: Request):
     authenticate(request, request.url.path)
     result = phone_lookup(number)
     return result
+
+
+@router.get(
+    "/username/{username}",
+    operation_id="username_lookup",
+    response_model=UsernameLookupResponse,
+    response_model_exclude_none=True,
+    include_in_schema=True,
+)
+def username_endpoint(username: str, request: Request):
+    """Username OSINT — check if a username exists on 19 platforms (GitHub, Reddit, X, etc.)."""
+    authenticate(request, request.url.path)
+    return username_lookup(username)
 
 
 @router.get(
