@@ -8,6 +8,7 @@
 [![Python 3.12](https://img.shields.io/badge/Python-3.12-blue.svg)](https://python.org)
 [![Tests](https://img.shields.io/badge/Tests-782_passing-brightgreen.svg)](https://github.com/UPinar/contrastapi/actions)
 [![MCP](https://img.shields.io/badge/MCP-25_tools-purple.svg)](https://modelcontextprotocol.io)
+[![VS Code](https://img.shields.io/badge/VS_Code-Marketplace-007ACC.svg)](https://marketplace.visualstudio.com/items?itemName=ContrastAPI.contrastapi)
 [![RapidAPI](https://img.shields.io/badge/RapidAPI-Available-blue.svg)](https://rapidapi.com/UPinar/api/contrastapi)
 [![npm](https://img.shields.io/npm/v/contrastapi.svg)](https://www.npmjs.com/package/contrastapi)
 
@@ -15,11 +16,13 @@
 
 **English** | [中文](README_CN.md)
 
-**Live:** [api.contrastcyber.com](https://api.contrastcyber.com) | **Quick Start:** [API](https://api.contrastcyber.com/quickstart) · [MCP](https://api.contrastcyber.com/mcp-setup) | **Docs:** [Endpoints](#endpoints) | **Scanner:** [contrastcyber.com](https://contrastcyber.com) | **Blog:** [I Built 25 Security Tools That AI Agents Can Use](https://dev.to/contrastcyber/i-built-23-security-tools-that-ai-agents-can-use-4he7)
+**Live:** [api.contrastcyber.com](https://api.contrastcyber.com) | **Quick Start:** [API](https://api.contrastcyber.com/quickstart) · [MCP](https://api.contrastcyber.com/mcp-setup) · [VS Code](https://marketplace.visualstudio.com/items?itemName=ContrastAPI.contrastapi) | **Docs:** [Endpoints](#endpoints) | **Scanner:** [contrastcyber.com](https://contrastcyber.com) | **Blog:** [I Built 25 Security Tools That AI Agents Can Use](https://dev.to/contrastcyber/i-built-23-security-tools-that-ai-agents-can-use-4he7)
 
 ## Use with AI Agents
 
-Setup for Claude Desktop, Cursor, VS Code, Windsurf: **[MCP Setup Guide](https://api.contrastcyber.com/mcp-setup)**
+**VS Code Extension:** Install [ContrastAPI](https://marketplace.visualstudio.com/items?itemName=ContrastAPI.contrastapi) from the Marketplace — 25 security tools in your editor, no API key required.
+
+**MCP Setup** for Claude Desktop, Cursor, VS Code, Windsurf: **[MCP Setup Guide](https://api.contrastcyber.com/mcp-setup)**
 
 Then ask your AI:
 

@@ -8,12 +8,13 @@
 [![Python 3.12](https://img.shields.io/badge/Python-3.12-blue.svg)](https://python.org)
 [![Tests](https://img.shields.io/badge/Tests-782_passing-brightgreen.svg)](https://github.com/UPinar/contrastapi/actions)
 [![MCP](https://img.shields.io/badge/MCP-25_tools-purple.svg)](https://modelcontextprotocol.io)
+[![VS Code](https://img.shields.io/badge/VS_Code-Marketplace-007ACC.svg)](https://marketplace.visualstudio.com/items?itemName=ContrastAPI.contrastapi)
 [![RapidAPI](https://img.shields.io/badge/RapidAPI-Available-blue.svg)](https://rapidapi.com/UPinar/api/contrastapi)
 [![npm](https://img.shields.io/npm/v/contrastapi.svg)](https://www.npmjs.com/package/contrastapi)
 
 **安全情报 API 和 AI 智能体 MCP 服务器。** 25 个 MCP 工具 / 35+ 个端点：CVE 查询（含 EPSS/KEV 增强）、域名侦察、SSL 分析、IP 信誉（AbuseIPDB、Shodan）、IOC/恶意软件查询、漏洞利用搜索、技术指纹识别、电子邮件安全、电话号码验证和代码安全扫描。免费使用，无需 API 密钥。
 
-**在线服务：** [api.contrastcyber.com](https://api.contrastcyber.com) | **快速入门：** [API](https://api.contrastcyber.com/quickstart) · [MCP](https://api.contrastcyber.com/mcp-setup) | **文档：** [接口列表](#接口列表) | **扫描器：** [contrastcyber.com](https://contrastcyber.com)
+**在线服务：** [api.contrastcyber.com](https://api.contrastcyber.com) | **快速入门：** [API](https://api.contrastcyber.com/quickstart) · [MCP](https://api.contrastcyber.com/mcp-setup) · [VS Code](https://marketplace.visualstudio.com/items?itemName=ContrastAPI.contrastapi) | **文档：** [接口列表](#接口列表) | **扫描器：** [contrastcyber.com](https://contrastcyber.com)
 
 ---
 
@@ -23,7 +24,9 @@
 
 ## 与 AI 智能体配合使用
 
-支持 Claude Desktop、Cursor、VS Code、Windsurf 等工具：**[MCP 配置指南](https://api.contrastcyber.com/mcp-setup)**
+**VS Code 扩展：** 从 [Marketplace](https://marketplace.visualstudio.com/items?itemName=ContrastAPI.contrastapi) 安装 ContrastAPI — 编辑器内 25 个安全工具，无需 API 密钥。
+
+**MCP 配置** 支持 Claude Desktop、Cursor、VS Code、Windsurf 等工具：**[MCP 配置指南](https://api.contrastcyber.com/mcp-setup)**
 
 也支持 **DeepSeek**、**Qwen（通义千问）** 等支持 MCP 协议的中国 AI 模型。
 
