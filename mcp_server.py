@@ -366,6 +366,18 @@ async def check_injection(code: str, language: str = "generic") -> str:
 
 
 @mcp.tool()
+async def username_lookup(username: str) -> str:
+    """Username OSINT — check if a username exists on 19 platforms (GitHub, Reddit, X, Instagram, etc.).
+
+    Args:
+        username: Username to search for (e.g. torvalds, johndoe)
+    """
+    from urllib.parse import quote
+
+    return _fmt(await _get(f"/v1/username/{quote(username, safe='')}"))
+
+
+@mcp.tool()
 async def check_headers(headers: str) -> str:
     """Validate HTTP security headers — CSP, HSTS, X-Frame-Options, etc.
 
