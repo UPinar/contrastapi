@@ -338,7 +338,7 @@ def phone_endpoint(number: str, request: Request):
     include_in_schema=True,
 )
 def username_endpoint(username: str, request: Request):
-    """Username OSINT — check if a username exists on 19 platforms (GitHub, Reddit, X, etc.)."""
+    """Username OSINT — check if a username exists on 16 platforms (GitHub, Reddit, X, etc.)."""
     authenticate(request, request.url.path)
     return username_lookup(username)
 

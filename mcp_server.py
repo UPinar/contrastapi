@@ -367,7 +367,7 @@ async def check_injection(code: str, language: str = "generic") -> str:
 
 @mcp.tool()
 async def username_lookup(username: str) -> str:
-    """Username OSINT — check if a username exists on 19 platforms (GitHub, Reddit, X, Instagram, etc.).
+    """Username OSINT — check if a username exists on 16 platforms (GitHub, Reddit, X, Instagram, etc.).
 
     Args:
         username: Username to search for (e.g. torvalds, johndoe)
