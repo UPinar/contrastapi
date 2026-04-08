@@ -18,11 +18,14 @@ HTTP usage: POST https://api.contrastcyber.com/mcp
 """
 
 import contextvars
+import ipaddress
+import json
 import logging
 import os
 import re
 import sys
 from typing import Annotated
+from urllib.parse import quote
 
 import httpx
 from mcp.server.fastmcp import FastMCP
@@ -66,10 +69,24 @@ _LOG_SANITIZE = re.compile(
 )
 
 
+_CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f]")
+
+
 def _safe_path(path: str) -> str:
     """Redact PII from API paths for safe logging."""
-    safe = re.sub(r"[\x00-\x1f\x7f]", "", path)
+    safe = _CONTROL_CHARS.sub("", path)
     return _LOG_SANITIZE.sub(r"/v1/\1/***", safe)
+
+
+def _safe_ip(ip: str) -> str:
+    """Validate and sanitize client IP — reject spoofed/malformed values."""
+    ip = _CONTROL_CHARS.sub("", ip).strip()
+    if not ip:
+        return ""
+    try:
+        return str(ipaddress.ip_address(ip))
+    except ValueError:
+        return ""
 
 
 def _headers() -> dict:
@@ -77,52 +94,59 @@ def _headers() -> dict:
     if API_KEY:
         h["Authorization"] = f"Bearer {API_KEY}"
     # Forward real client IP so backend applies correct rate limits
-    client_ip = _client_ip_var.get()
+    client_ip = _safe_ip(_client_ip_var.get())
     if client_ip:
         h["X-Forwarded-For"] = client_ip
     return h
 
 
+_http_client: httpx.AsyncClient | None = None
+
+
+def _get_client() -> httpx.AsyncClient:
+    """Return a shared httpx client with connection pooling."""
+    global _http_client
+    if _http_client is None or _http_client.is_closed:
+        _http_client = httpx.AsyncClient(base_url=API_BASE, timeout=TIMEOUT)
+    return _http_client
+
+
+def _log_ip() -> str:
+    """Return sanitized client IP for logging."""
+    return _safe_ip(_client_ip_var.get()) or "unknown"
+
+
 async def _get(path: str, params: dict | None = None) -> dict | str:
-    client_ip = _client_ip_var.get() or "unknown"
-    async with httpx.AsyncClient() as client:
-        try:
-            resp = await client.get(
-                f"{API_BASE}{path}",
-                params=params,
-                timeout=TIMEOUT,
-                headers=_headers(),
-            )
-            resp.raise_for_status()
-            logger.info("mcp_tool GET %s %d %s", _safe_path(path), resp.status_code, client_ip)
-            return resp.json()
-        except httpx.HTTPStatusError as e:
-            logger.info("mcp_tool GET %s %d %s", _safe_path(path), e.response.status_code, client_ip)
-            return f"Error {e.response.status_code}"
-        except httpx.HTTPError as e:
-            logger.info("mcp_tool GET %s err %s", _safe_path(path), client_ip)
-            return f"Request failed: {e}"
+    client_ip = _log_ip()
+    try:
+        resp = await _get_client().get(path, params=params, headers=_headers())
+        resp.raise_for_status()
+        logger.info("mcp_tool GET %s %d %s", _safe_path(path), resp.status_code, client_ip)
+        return resp.json()
+    except httpx.HTTPStatusError as e:
+        logger.info("mcp_tool GET %s %d %s", _safe_path(path), e.response.status_code, client_ip)
+        return f"Error {e.response.status_code}"
+    except httpx.HTTPError:
+        logger.info("mcp_tool GET %s err %s", _safe_path(path), client_ip)
+        return "Request failed"
 
 
 async def _post(path: str, json_body: dict) -> dict | str:
-    client_ip = _client_ip_var.get() or "unknown"
-    async with httpx.AsyncClient() as client:
-        try:
-            resp = await client.post(
-                f"{API_BASE}{path}",
-                json=json_body,
-                timeout=TIMEOUT,
-                headers=_headers(),
-            )
-            resp.raise_for_status()
-            logger.info("mcp_tool POST %s %d %s", _safe_path(path), resp.status_code, client_ip)
-            return resp.json()
-        except httpx.HTTPStatusError as e:
-            logger.info("mcp_tool POST %s %d %s", _safe_path(path), e.response.status_code, client_ip)
-            return f"Error {e.response.status_code}"
-        except httpx.HTTPError as e:
-            logger.info("mcp_tool POST %s err %s", _safe_path(path), client_ip)
-            return f"Request failed: {e}"
+    client_ip = _log_ip()
+    try:
+        resp = await _get_client().post(path, json=json_body, headers=_headers())
+        resp.raise_for_status()
+        logger.info("mcp_tool POST %s %d %s", _safe_path(path), resp.status_code, client_ip)
+        return resp.json()
+    except httpx.HTTPStatusError as e:
+        logger.info("mcp_tool POST %s %d %s", _safe_path(path), e.response.status_code, client_ip)
+        return f"Error {e.response.status_code}"
+    except httpx.HTTPError:
+        logger.info("mcp_tool POST %s err %s", _safe_path(path), client_ip)
+        return "Request failed"
+
+
+MAX_RESPONSE_CHARS = 8000
 
 
 def _fmt(data: dict | str) -> str:
@@ -131,87 +155,176 @@ def _fmt(data: dict | str) -> str:
     summary = data.get("summary", "")
     if summary:
         return summary
-    import json
+    return json.dumps(data, indent=2, default=str)[:MAX_RESPONSE_CHARS]
 
-    return json.dumps(data, indent=2, default=str)[:8000]
+
+# --- Input validation ---
+_DOMAIN_RE = re.compile(r"^(?!-)[A-Za-z0-9-]{1,63}(?<!-)(\.[A-Za-z0-9-]{1,63})*\.[A-Za-z]{2,}$")
+_CVE_RE = re.compile(r"^CVE-\d{4}-\d{4,}$", re.IGNORECASE)
+_HASH_RE = re.compile(r"^[a-fA-F0-9]{32}$|^[a-fA-F0-9]{40}$|^[a-fA-F0-9]{64}$")
+
+
+def _validate_domain(domain: str) -> str | None:
+    """Return error message if domain is invalid, else None."""
+    domain = domain.strip().lower().rstrip(".")
+    if not _DOMAIN_RE.match(domain):
+        return f"Invalid domain format: {domain!r}. Expected format: example.com"
+    return None
+
+
+def _validate_ip(ip: str) -> str | None:
+    """Return error message if IP is invalid, else None."""
+    try:
+        ipaddress.ip_address(ip.strip())
+        return None
+    except ValueError:
+        return f"Invalid IP address: {ip!r}. Expected IPv4 (1.2.3.4) or IPv6."
+
+
+def _validate_cve(cve_id: str) -> str | None:
+    """Return error message if CVE ID is invalid, else None."""
+    if not _CVE_RE.match(cve_id.strip()):
+        return f"Invalid CVE ID: {cve_id!r}. Expected format: CVE-2024-1234"
+    return None
 
 
 # === Domain Intelligence ===
 
 
 @mcp.tool(annotations=_RO)
-async def domain_report(domain: Annotated[str, Field(description="Target domain (e.g. example.com)")]) -> str:
-    """Full security report for a domain — DNS, WHOIS, SSL, subdomains, reputation, risk score."""
+async def domain_report(
+    domain: Annotated[
+        str, Field(description="Root domain to analyze, without protocol or path (e.g. 'example.com', 'shopify.com')")
+    ],
+) -> str:
+    """Retrieve a comprehensive security report for a domain combining DNS records, WHOIS registration, SSL/TLS certificate, subdomain discovery, threat reputation, and an overall risk score into a single response. Use this as the first step when investigating a domain — it provides a broad overview. For deeper analysis of a specific area, follow up with the dedicated tool (ssl_check, dns_lookup, etc.). Returns JSON with sections: dns, whois, ssl, subdomains, threats, and a numeric risk_score (0-100, higher = riskier). Read-only lookup, no authentication required."""
+    if err := _validate_domain(domain):
+        return err
     return _fmt(await _get(f"/v1/domain/{domain}"))
 
 
 @mcp.tool(annotations=_RO)
-async def dns_lookup(domain: Annotated[str, Field(description="Target domain (e.g. example.com)")]) -> str:
-    """DNS records for a domain — A, AAAA, MX, NS, TXT, CNAME, SOA."""
+async def dns_lookup(
+    domain: Annotated[
+        str, Field(description="Root domain to query, without protocol or path (e.g. 'example.com', 'cloudflare.com')")
+    ],
+) -> str:
+    """Retrieve all DNS records for a domain including A, AAAA, MX, NS, TXT, CNAME, and SOA record types. Use this when you need to inspect mail routing (MX), verify nameserver delegation (NS), check SPF/DMARC policies (TXT), or confirm IP resolution (A/AAAA). For a broader security overview that includes DNS, use domain_report instead. Returns JSON with a records array, each containing type, value, and TTL fields. Read-only DNS query, no authentication required."""
+    if err := _validate_domain(domain):
+        return err
     return _fmt(await _get(f"/v1/dns/{domain}"))
 
 
 @mcp.tool(annotations=_RO)
-async def whois_lookup(domain: Annotated[str, Field(description="Target domain (e.g. example.com)")]) -> str:
-    """WHOIS registration data — registrar, creation date, expiry, nameservers."""
+async def whois_lookup(
+    domain: Annotated[str, Field(description="Root domain to query WHOIS for (e.g. 'example.com', 'github.com')")],
+) -> str:
+    """Retrieve WHOIS registration data for a domain including registrar name, registrant organization, creation date, expiry date, last updated date, and authoritative nameservers. Use this to determine domain ownership, age, or expiration status. For a full security overview that includes WHOIS, use domain_report instead. Returns JSON with fields: registrar, creation_date, expiration_date, updated_date, nameservers, status, and dnssec. Read-only WHOIS query, no authentication required."""
+    if err := _validate_domain(domain):
+        return err
     return _fmt(await _get(f"/v1/whois/{domain}"))
 
 
 @mcp.tool(annotations=_RO)
-async def ssl_check(domain: Annotated[str, Field(description="Target domain (e.g. example.com)")]) -> str:
-    """SSL/TLS certificate analysis — cipher suite, chain, expiry, grade."""
+async def ssl_check(
+    domain: Annotated[
+        str, Field(description="Domain to check SSL/TLS certificate for (e.g. 'example.com', 'api.stripe.com')")
+    ],
+) -> str:
+    """Analyze the SSL/TLS certificate and connection security of a domain by connecting to port 443 and inspecting the certificate chain, cipher suite, protocol version, and expiry date. Use this to verify certificate validity, detect expiring certificates, or audit TLS configuration strength. Returns JSON with fields: grade (A-F), protocol, cipher, issuer, subject, not_before, not_after, chain (array of certificates), and san (Subject Alternative Names). Read-only TLS handshake, no authentication required."""
+    if err := _validate_domain(domain):
+        return err
     return _fmt(await _get(f"/v1/ssl/{domain}"))
 
 
 @mcp.tool(annotations=_RO)
-async def subdomain_enum(domain: Annotated[str, Field(description="Target domain (e.g. example.com)")]) -> str:
-    """Subdomain enumeration via DNS brute-force and certificate transparency."""
+async def subdomain_enum(
+    domain: Annotated[
+        str, Field(description="Root domain to enumerate subdomains for (e.g. 'example.com', 'tesla.com')")
+    ],
+) -> str:
+    """Discover subdomains of a domain using passive methods: Certificate Transparency log searches and DNS common-name brute-forcing. Use this to map an organization's attack surface or find forgotten/exposed services. This is a passive, non-intrusive enumeration — it does not actively probe discovered hosts. Returns JSON with a subdomains array of discovered hostnames and their resolved IP addresses. Read-only lookup, no authentication required."""
+    if err := _validate_domain(domain):
+        return err
     return _fmt(await _get(f"/v1/subdomains/{domain}"))
 
 
 @mcp.tool(annotations=_RO)
-async def tech_fingerprint(domain: Annotated[str, Field(description="Target domain (e.g. example.com)")]) -> str:
-    """Technology fingerprinting — CMS, frameworks, CDN, analytics, server."""
+async def tech_fingerprint(
+    domain: Annotated[str, Field(description="Domain to fingerprint (e.g. 'example.com', 'shopify.com')")],
+) -> str:
+    """Identify the technology stack of a website by analyzing HTTP headers, HTML meta tags, and JavaScript includes. Detects CMS (WordPress, Drupal), frameworks (React, Angular), CDN providers (Cloudflare, Akamai), analytics tools, web servers, and programming languages. Use this for reconnaissance to understand what software a target runs. Returns JSON with a technologies array, each containing name, category, confidence percentage, and version (when detectable). Read-only HTTP request, no authentication required."""
+    if err := _validate_domain(domain):
+        return err
     return _fmt(await _get(f"/v1/tech/{domain}"))
 
 
 @mcp.tool(annotations=_RO)
-async def threat_intel(domain: Annotated[str, Field(description="Target domain (e.g. example.com)")]) -> str:
-    """Threat intelligence for a domain — URLhaus malware URL check."""
+async def threat_intel(
+    domain: Annotated[
+        str, Field(description="Domain to check for threats (e.g. 'suspicious-site.com', 'example.com')")
+    ],
+) -> str:
+    """Check if a domain is associated with malware distribution, botnet C2, or other malicious activity by querying URLhaus and abuse.ch threat feeds. Use this to assess whether a domain is safe to visit or interact with. For checking a specific URL (not just domain), use phishing_check instead. For file-based IOC lookups, use ioc_lookup. Returns JSON with fields: malware_urls (count of active malicious URLs), threat_tags, threat_status, and a summary assessment. Read-only threat feed query, no authentication required."""
+    if err := _validate_domain(domain):
+        return err
     return _fmt(await _get(f"/v1/threat/{domain}"))
 
 
 @mcp.tool(annotations=_RO)
-async def wayback_lookup(domain: Annotated[str, Field(description="Target domain (e.g. example.com)")]) -> str:
-    """Web archive history — snapshots from the Wayback Machine showing when a domain was first seen and how it changed over time."""
+async def wayback_lookup(
+    domain: Annotated[str, Field(description="Domain to look up in web archives (e.g. 'example.com', 'archive.org')")],
+) -> str:
+    """Retrieve historical web archive snapshots for a domain from the Wayback Machine, showing when the site was first captured, the most recent snapshot, and total snapshot count over time. Use this to investigate domain history, verify how long a site has existed, or detect changes in content over time. For a broader security overview of a domain, use domain_report instead. Returns JSON with fields: first_snapshot (date + URL), last_snapshot (date + URL), total_snapshots, and a yearly_breakdown of capture counts. Read-only query to the Internet Archive API, no authentication required."""
+    if err := _validate_domain(domain):
+        return err
     return _fmt(await _get(f"/v1/archive/{domain}"))
 
 
 @mcp.tool(annotations=_RO)
-async def scan_headers(domain: Annotated[str, Field(description="Target domain (e.g. example.com)")]) -> str:
-    """Live HTTP security header scan — CSP, HSTS, X-Frame-Options, etc."""
+async def scan_headers(
+    domain: Annotated[
+        str, Field(description="Domain to scan live HTTP headers for (e.g. 'example.com', 'api.github.com')")
+    ],
+) -> str:
+    """Perform a live HTTP request to a domain and analyze the security headers in the response, checking for Content-Security-Policy, Strict-Transport-Security, X-Frame-Options, X-Content-Type-Options, Permissions-Policy, and Referrer-Policy. Use this to audit a live website's header configuration. Unlike check_headers (which validates headers you already have), this tool fetches headers directly from the target. Returns JSON with fields: headers_present (list), headers_missing (list), findings (array with severity and recommendation per header), and a total score. Read-only HTTP GET request to the target domain, no authentication required."""
+    if err := _validate_domain(domain):
+        return err
     return _fmt(await _get(f"/v1/scan/headers/{domain}"))
 
 
 @mcp.tool(annotations=_RO)
-async def email_mx(domain: Annotated[str, Field(description="Target domain (e.g. example.com)")]) -> str:
-    """Email MX analysis — mail provider detection, SPF/DMARC/DKIM check, security grade."""
+async def email_mx(
+    domain: Annotated[
+        str, Field(description="Domain to analyze email configuration for (e.g. 'example.com', 'google.com')")
+    ],
+) -> str:
+    """Analyze the email security configuration of a domain by checking MX records, SPF policy, DMARC policy, and DKIM selectors. Identifies the mail provider (Google Workspace, Microsoft 365, etc.) and grades the overall email security posture. Use this to verify email authentication setup or assess phishing risk for a domain. Returns JSON with fields: mx_records, provider, spf (record + validity), dmarc (record + policy), dkim (selector results), and grade (A-F with 0-100 score). Read-only DNS queries, no authentication required."""
+    if err := _validate_domain(domain):
+        return err
     return _fmt(await _get(f"/v1/email/mx/{domain}"))
 
 
 @mcp.tool(annotations=_RO)
-async def email_disposable(email: Annotated[str, Field(description="Email address to check (e.g. user@tempmail.com)")]) -> str:
-    """Check if an email uses a disposable/temporary email provider."""
-    from urllib.parse import quote
-
+async def email_disposable(
+    email: Annotated[
+        str, Field(description="Full email address to check (e.g. 'user@tempmail.com', 'test@guerrillamail.com')")
+    ],
+) -> str:
+    """Check whether an email address uses a known disposable or temporary email provider (e.g. Guerrilla Mail, Temp Mail, Mailinator). Use this for input validation to detect throwaway signups or to assess the legitimacy of a contact email. Returns JSON with fields: disposable (boolean), domain, and provider (name of the disposable service if detected). Read-only lookup against a local database of disposable domains, no authentication required."""
     return _fmt(await _get(f"/v1/email/disposable/{quote(email, safe='')}"))
 
 
 @mcp.tool(annotations=_RO)
-async def phone_lookup(number: Annotated[str, Field(description="Phone number with country code (e.g. +905551234567)")]) -> str:
-    """Phone number validation and intelligence — format, country, type, carrier, timezone."""
-    from urllib.parse import quote
-
+async def phone_lookup(
+    number: Annotated[
+        str,
+        Field(
+            description="Phone number in E.164 format with country code (e.g. '+14155552671', '+905551234567', '+442071234567')"
+        ),
+    ],
+) -> str:
+    """Validate and analyze a phone number to determine its country, region, carrier, line type (mobile/landline/VoIP), and timezone. Use this to verify phone number legitimacy, identify the carrier or country of origin, or detect VoIP numbers that may indicate fraud. The number must include the country code prefix. Returns JSON with fields: valid (boolean), country, region, carrier, line_type, timezone, and formatted versions (national, international, E.164). Read-only lookup, no authentication required."""
     return _fmt(await _get(f"/v1/phone/{quote(number, safe='')}"))
 
 
@@ -219,14 +332,24 @@ async def phone_lookup(number: Annotated[str, Field(description="Phone number wi
 
 
 @mcp.tool(annotations=_RO)
-async def ip_lookup(ip: Annotated[str, Field(description="IPv4 or IPv6 address")]) -> str:
-    """IP intelligence — PTR, ports, hostnames, vulnerabilities, reputation."""
+async def ip_lookup(
+    ip: Annotated[str, Field(description="IPv4 or IPv6 address to investigate (e.g. '8.8.8.8', '2606:4700::1111')")],
+) -> str:
+    """Retrieve comprehensive intelligence about an IP address including geolocation, PTR record, open ports, associated hostnames, known vulnerabilities, abuse reports, and reputation score. Use this to investigate suspicious IPs from logs, identify the owner of an IP, or assess whether an IP is malicious. For network-level info (ASN, IP ranges), use asn_lookup instead. Returns JSON with fields: ip, ptr, geo (country, city, org), ports (array), hostnames, vulns (array), reputation (score + categories), and abuse_contacts. Read-only lookup, no authentication required."""
+    if err := _validate_ip(ip):
+        return err
     return _fmt(await _get(f"/v1/ip/{ip}"))
 
 
 @mcp.tool(annotations=_RO)
-async def asn_lookup(target: Annotated[str, Field(description="Domain or IP address")]) -> str:
-    """ASN lookup — AS number, holder, IPv4/IPv6 prefixes."""
+async def asn_lookup(
+    target: Annotated[
+        str, Field(description="Domain or IP address to look up ASN for (e.g. 'cloudflare.com', '8.8.8.8')")
+    ],
+) -> str:
+    """Look up the Autonomous System Number (ASN) for a domain or IP address, returning the AS number, organization name, and all announced IPv4/IPv6 prefixes. Use this to identify which network operator owns an IP range, or to understand the network infrastructure behind a domain. For detailed IP-level intelligence (ports, reputation), use ip_lookup instead. Returns JSON with fields: asn (number), holder (organization name), prefixes_v4 (array of CIDR blocks), and prefixes_v6. Read-only lookup, no authentication required."""
+    if _validate_domain(target) and _validate_ip(target):
+        return f"Invalid input: {target!r}. Expected a domain (example.com) or IP address (8.8.8.8)."
     return _fmt(await _get(f"/v1/asn/{target}"))
 
 
@@ -234,19 +357,37 @@ async def asn_lookup(target: Annotated[str, Field(description="Domain or IP addr
 
 
 @mcp.tool(annotations=_RO)
-async def cve_lookup(cve_id: Annotated[str, Field(description="CVE identifier (e.g. CVE-2024-1234)")]) -> str:
-    """CVE details — description, CVSS, EPSS score, KEV status, affected products."""
+async def cve_lookup(
+    cve_id: Annotated[
+        str, Field(description="CVE identifier in format CVE-YYYY-NNNNN (e.g. 'CVE-2024-3094', 'CVE-2023-44487')")
+    ],
+) -> str:
+    """Retrieve detailed information about a specific CVE vulnerability including description, CVSS v3.1 base score and vector, EPSS exploitation probability score, CISA KEV (Known Exploited Vulnerabilities) status, affected products (CPE), and reference URLs. Use this when you have a specific CVE ID and need full details. To search for CVEs by product or severity, use cve_search instead. To find public exploits for a CVE, use exploit_lookup. Returns JSON with fields: cve_id, description, cvss_score, cvss_vector, cvss_breakdown, epss (score + percentile), kev (boolean + due_date), affected_products, and references. Read-only database lookup, no authentication required."""
+    if err := _validate_cve(cve_id):
+        return err
     return _fmt(await _get(f"/v1/cve/{cve_id}"))
 
 
 @mcp.tool(annotations=_RO)
 async def cve_search(
-    product: Annotated[str, Field(description="Filter by product name (e.g. nginx, apache)")] = "",
-    severity: Annotated[str, Field(description="CRITICAL, HIGH, MEDIUM, or LOW")] = "",
-    days: Annotated[int, Field(description="CVEs from last N days (1-365)")] = 30,
-    limit: Annotated[int, Field(description="Max results (max 200)")] = 10,
+    product: Annotated[
+        str,
+        Field(
+            description="Filter by product or vendor name, case-insensitive (e.g. 'nginx', 'apache', 'microsoft'). Leave empty to search all products"
+        ),
+    ] = "",
+    severity: Annotated[
+        str,
+        Field(
+            description="Filter by CVSS severity level: 'CRITICAL' (9.0-10.0), 'HIGH' (7.0-8.9), 'MEDIUM' (4.0-6.9), or 'LOW' (0.1-3.9). Leave empty for all severities"
+        ),
+    ] = "",
+    days: Annotated[
+        int, Field(description="Time window: return CVEs published in the last N days. Range: 1-365, default: 30")
+    ] = 30,
+    limit: Annotated[int, Field(description="Maximum number of results to return. Range: 1-200, default: 10")] = 10,
 ) -> str:
-    """Search CVEs by product, severity, or date range."""
+    """Search the CVE database for vulnerabilities matching filters on product name, severity level, and publication date range. Use this to find recent vulnerabilities affecting specific software, or to get an overview of critical CVEs in a time window. For details on a specific CVE you already know, use cve_lookup instead. Returns JSON with fields: total (matching count), cves (array of objects with cve_id, description, cvss_score, severity, published_date, and epss_score). Results are sorted by publication date, newest first. Read-only database query, no authentication required."""
     params = {"limit": limit, "days": days}
     if product:
         params["product"] = product
@@ -256,8 +397,14 @@ async def cve_search(
 
 
 @mcp.tool(annotations=_RO)
-async def exploit_lookup(cve_id: Annotated[str, Field(description="CVE identifier (e.g. CVE-2024-1234)")]) -> str:
-    """Find public exploits for a CVE — GitHub Advisory, ExploitDB."""
+async def exploit_lookup(
+    cve_id: Annotated[
+        str, Field(description="CVE identifier in format CVE-YYYY-NNNNN (e.g. 'CVE-2024-3094', 'CVE-2023-44487')")
+    ],
+) -> str:
+    """Search for publicly available exploits and proof-of-concept code for a specific CVE by querying GitHub Advisory Database and ExploitDB. Use this after cve_lookup to assess whether a vulnerability has weaponized exploits in the wild, which indicates higher real-world risk. Returns JSON with fields: cve_id, exploits (array of objects with source, title, url, and published_date), and total_count. An empty exploits array means no public exploits were found. Read-only lookup, no authentication required."""
+    if err := _validate_cve(cve_id):
+        return err
     return _fmt(await _get(f"/v1/exploit/{cve_id}"))
 
 
@@ -265,28 +412,58 @@ async def exploit_lookup(cve_id: Annotated[str, Field(description="CVE identifie
 
 
 @mcp.tool(annotations=_RO)
-async def ioc_lookup(indicator: Annotated[str, Field(description="IP, domain, URL, or file hash (MD5/SHA1/SHA256)")]) -> str:
-    """IOC enrichment — auto-detects IP, domain, URL, or file hash and queries ThreatFox/URLhaus/Feodo."""
-    return _fmt(await _get(f"/v1/ioc/{indicator}"))
+async def ioc_lookup(
+    indicator: Annotated[
+        str,
+        Field(
+            description="Indicator of Compromise: IP address, domain, full URL, or file hash in MD5/SHA1/SHA256 format (e.g. '8.8.8.8', 'evil.com', 'https://evil.com/malware.exe', 'd41d8cd98f00b204e9800998ecf8427e')"
+        ),
+    ],
+) -> str:
+    """Enrich an Indicator of Compromise (IOC) by auto-detecting its type (IP, domain, URL, or file hash) and querying abuse.ch threat feeds: ThreatFox for malware indicators, URLhaus for malicious URLs, and Feodo for botnet C2 servers. Use this as the primary tool for threat hunting when you have a suspicious indicator but don't know its type. For malware-specific hash lookups with file metadata, use hash_lookup instead. For domain-only threat checks, use threat_intel. Returns JSON with fields: indicator, type (auto-detected), found (boolean), threat_type, malware_family, tags, confidence, source, and references. Read-only threat feed query, no authentication required."""
+    return _fmt(await _get(f"/v1/ioc/{quote(indicator, safe='')}"))
 
 
 @mcp.tool(annotations=_RO)
-async def hash_lookup(file_hash: Annotated[str, Field(description="MD5, SHA1, or SHA256 hash")]) -> str:
-    """Malware hash reputation via MalwareBazaar — family, file type, tags."""
+async def hash_lookup(
+    file_hash: Annotated[
+        str,
+        Field(
+            description="File hash in MD5 (32 hex chars), SHA-1 (40 hex chars), or SHA-256 (64 hex chars) format (e.g. 'd41d8cd98f00b204e9800998ecf8427e')"
+        ),
+    ],
+) -> str:
+    """Look up a file hash in the MalwareBazaar database to check if it is a known malware sample. Returns malware family name, file type, file size, tags, first/last seen dates, and download count. Use this when you have a suspicious file hash from logs, alerts, or forensic analysis and need to determine if it is malicious. For general IOC lookups that auto-detect indicator type, use ioc_lookup instead. Returns JSON with fields: found (boolean), malware_family, file_type, file_size, tags, first_seen, last_seen, and signature. Read-only database query, no authentication required."""
+    if not _HASH_RE.match(file_hash.strip()):
+        return "Invalid hash format. Expected MD5 (32), SHA-1 (40), or SHA-256 (64) hex characters."
     return _fmt(await _get(f"/v1/hash/{file_hash}"))
 
 
 @mcp.tool(annotations=_RO)
-async def password_check(sha1_hash: Annotated[str, Field(description="Full SHA1 hash of the password (40 hex characters)")]) -> str:
-    """Check if a password has been exposed in data breaches via HIBP (k-anonymity, safe)."""
+async def password_check(
+    sha1_hash: Annotated[
+        str,
+        Field(
+            description="Full SHA-1 hash of the password as 40 lowercase hexadecimal characters (e.g. '5baa61e4c9b93f3f0682250b6cf8331b7ee68fd8' for 'password')"
+        ),
+    ],
+) -> str:
+    """Check if a password has been exposed in known data breaches by querying the Have I Been Pwned (HIBP) Pwned Passwords API using k-anonymity (only a 5-character hash prefix is sent, preserving privacy). Use this to validate password strength during security audits or user registration. IMPORTANT: send the SHA-1 hash of the password, never the plaintext. Returns JSON with fields: found (boolean) and count (number of times the password appeared in breach datasets). A count of 0 means the password has not been seen in any known breaches. Read-only lookup, no authentication required."""
+    if not re.match(r"^[a-fA-F0-9]{40}$", sha1_hash.strip()):
+        return "Invalid SHA-1 hash. Expected exactly 40 hexadecimal characters."
     return _fmt(await _get(f"/v1/password/{sha1_hash}"))
 
 
 @mcp.tool(annotations=_RO)
-async def phishing_check(url: Annotated[str, Field(description="URL to check for phishing/malware")]) -> str:
-    """Check if a URL is a known phishing/malware URL via URLhaus."""
-    from urllib.parse import quote
-
+async def phishing_check(
+    url: Annotated[
+        str,
+        Field(
+            description="Full URL to check, including protocol (e.g. 'https://suspicious-login.com/verify', 'http://evil.com/payload.exe')"
+        ),
+    ],
+) -> str:
+    """Check if a specific URL is a known phishing page or malware distribution URL by querying the URLhaus database. Use this when you have a full URL (not just a domain) that you suspect may be malicious — for example, from a phishing email or suspicious link. For domain-level threat assessment, use threat_intel instead. For general IOC enrichment, use ioc_lookup. Returns JSON with fields: found (boolean), threat_type (phishing/malware/none), status (online/offline), tags, date_added, and source. Read-only database query, no authentication required."""
     return _fmt(await _get(f"/v1/phishing/{quote(url, safe='')}"))
 
 
@@ -295,35 +472,63 @@ async def phishing_check(url: Annotated[str, Field(description="URL to check for
 
 @mcp.tool(annotations=_RO)
 async def check_secrets(
-    code: Annotated[str, Field(description="Source code to scan")],
-    language: Annotated[str, Field(description="Programming language (python, javascript, go, etc.)")] = "generic",
+    code: Annotated[
+        str,
+        Field(description="Source code string to scan for secrets (can be a single file or code snippet)"),
+    ],
+    language: Annotated[
+        str,
+        Field(
+            description="Programming language for context-aware scanning: 'python', 'javascript', 'go', 'java', 'ruby', 'php', 'csharp', 'rust', or 'generic' for language-agnostic patterns. Default: 'generic'"
+        ),
+    ] = "generic",
 ) -> str:
-    """Detect hardcoded secrets in source code — AWS keys, tokens, passwords."""
+    """Scan source code for hardcoded secrets and credentials including AWS access keys, API tokens, private keys, database connection strings, JWT secrets, and passwords. Uses pattern matching with language-specific context (e.g. Python f-strings, Go const blocks) to reduce false positives. Use this during code review or CI/CD to catch leaked credentials before they reach production. For injection vulnerability detection in the same code, use check_injection. Returns JSON with fields: total (finding count), by_severity (CRITICAL/HIGH/MEDIUM/LOW counts), and findings (array with severity, type, line_number, matched_text, and recommendation). Read-only static analysis, code is not stored or transmitted beyond this request."""
     return _fmt(await _post("/v1/check/secrets", {"code": code, "language": language}))
 
 
 @mcp.tool(annotations=_RO)
 async def check_injection(
-    code: Annotated[str, Field(description="Source code to scan")],
-    language: Annotated[str, Field(description="Programming language (python, javascript, go, etc.)")] = "generic",
+    code: Annotated[
+        str,
+        Field(
+            description="Source code string to scan for injection vulnerabilities (can be a single file or code snippet)"
+        ),
+    ],
+    language: Annotated[
+        str,
+        Field(
+            description="Programming language for context-aware scanning: 'python', 'javascript', 'go', 'java', 'ruby', 'php', 'csharp', 'rust', or 'generic'. Default: 'generic'"
+        ),
+    ] = "generic",
 ) -> str:
-    """Detect SQL injection, command injection, and path traversal vulnerabilities."""
+    """Scan source code for injection vulnerabilities: SQL injection (string concatenation in queries), command injection (unsanitized input in shell commands), and path traversal (user input in file paths). Uses language-specific patterns to detect unsafe data flow from user input to dangerous sinks. Use this during code review to find exploitable injection points. For hardcoded secret detection in the same code, use check_secrets. Returns JSON with fields: total (finding count), by_severity (CRITICAL/HIGH/MEDIUM/LOW counts), and findings (array with severity, type, line_number, matched_text, and recommendation). Read-only static analysis, code is not stored or transmitted beyond this request."""
     return _fmt(await _post("/v1/check/injection", {"code": code, "language": language}))
 
 
 @mcp.tool(annotations=_RO)
-async def username_lookup(username: Annotated[str, Field(description="Username to search for (e.g. torvalds, johndoe)")]) -> str:
-    """Username OSINT — check if a username exists on 16 platforms (GitHub, Reddit, X, Instagram, etc.)."""
-    from urllib.parse import quote
-
+async def username_lookup(
+    username: Annotated[
+        str,
+        Field(
+            description="Username string to search across platforms, without @ prefix (e.g. 'torvalds', 'johndoe', 'elonmusk')"
+        ),
+    ],
+) -> str:
+    """Search for a username across multiple social media and developer platforms (GitHub, Reddit, X/Twitter, Instagram, LinkedIn, TikTok, Facebook, YouTube, Pinterest, Telegram, Discord, Mastodon, Keybase, HackerOne, GitLab, Medium) to check if accounts exist. Use this for OSINT investigations to map a person's online presence or verify identity claims. Returns JSON with fields: username, total_found (count), and platforms (array of objects with name, exists (boolean), url, and status_code). Read-only HTTP checks to public profile pages, no authentication required."""
     return _fmt(await _get(f"/v1/username/{quote(username, safe='')}"))
 
 
 @mcp.tool(annotations=_RO)
-async def check_headers(headers: Annotated[str, Field(description='JSON string of header name-value pairs, e.g. {"Content-Security-Policy": "default-src \'self\'"}')]) -> str:
-    """Validate HTTP security headers — CSP, HSTS, X-Frame-Options, etc."""
-    import json
-
+async def check_headers(
+    headers: Annotated[
+        str,
+        Field(
+            description='JSON string of HTTP header name-value pairs to validate. Example: \'{"Strict-Transport-Security": "max-age=31536000", "X-Frame-Options": "DENY"}\'. Include only security-relevant headers you want to analyze.'
+        ),
+    ],
+) -> str:
+    """Validate a set of HTTP security headers that you already have (e.g. copied from browser DevTools, a curl response, or an existing configuration). Checks Content-Security-Policy, Strict-Transport-Security, X-Frame-Options, X-Content-Type-Options, Permissions-Policy, and Referrer-Policy against security best practices. Unlike scan_headers (which fetches headers live from a domain), this tool analyzes headers you provide directly — useful for testing configurations before deployment or validating headers from non-public servers. Returns JSON with fields: total (finding count), by_severity (counts), and findings (array with severity, header_name, issue, and recommendation). Read-only validation, no external requests made."""
     try:
         h = json.loads(headers)
     except json.JSONDecodeError:
@@ -349,7 +554,9 @@ Summarize findings with severity ratings and actionable recommendations."""
 
 
 @mcp.prompt()
-def vulnerability_check(product: Annotated[str, Field(description="Product name to check (e.g. nginx, apache)")]) -> str:
+def vulnerability_check(
+    product: Annotated[str, Field(description="Product name to check (e.g. nginx, apache)")],
+) -> str:
     """Check recent vulnerabilities and exploits for a product."""
     return f"""Check vulnerabilities for {product}:
 

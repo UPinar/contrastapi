@@ -1066,6 +1066,7 @@ try:
     _spec.loader.exec_module(_mcp_mod)
     _mcp_instance = _mcp_mod.mcp
     _mcp_client_ip_var = _mcp_mod._client_ip_var
+    _mcp_safe_ip = _mcp_mod._safe_ip
 
     class _MCPIPForwardMiddleware:
         """ASGI middleware that sets the real client IP in contextvars
@@ -1084,7 +1085,8 @@ try:
                 if not ip:
                     xff = (headers.get(b"x-forwarded-for") or b"").decode()
                     ip = xff.split(",")[0].strip() if xff else ""
-                token = _mcp_client_ip_var.set(ip)
+                # Validate IP before storing — reject spoofed/malformed values
+                token = _mcp_client_ip_var.set(_mcp_safe_ip(ip))
                 try:
                     await self.app(scope, receive, send)
                 finally:
