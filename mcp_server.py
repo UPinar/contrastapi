@@ -27,7 +27,16 @@ from typing import Annotated
 import httpx
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
+from mcp.types import ToolAnnotations
 from pydantic import Field
+
+# Shared annotations — all tools are read-only API lookups
+_RO = ToolAnnotations(
+    readOnlyHint=True,
+    destructiveHint=False,
+    idempotentHint=True,
+    openWorldHint=True,
+)
 
 logging.basicConfig(level=logging.INFO, stream=sys.stderr)
 logger = logging.getLogger("contrastapi-mcp")
@@ -130,67 +139,67 @@ def _fmt(data: dict | str) -> str:
 # === Domain Intelligence ===
 
 
-@mcp.tool()
+@mcp.tool(annotations=_RO)
 async def domain_report(domain: Annotated[str, Field(description="Target domain (e.g. example.com)")]) -> str:
     """Full security report for a domain — DNS, WHOIS, SSL, subdomains, reputation, risk score."""
     return _fmt(await _get(f"/v1/domain/{domain}"))
 
 
-@mcp.tool()
+@mcp.tool(annotations=_RO)
 async def dns_lookup(domain: Annotated[str, Field(description="Target domain (e.g. example.com)")]) -> str:
     """DNS records for a domain — A, AAAA, MX, NS, TXT, CNAME, SOA."""
     return _fmt(await _get(f"/v1/dns/{domain}"))
 
 
-@mcp.tool()
+@mcp.tool(annotations=_RO)
 async def whois_lookup(domain: Annotated[str, Field(description="Target domain (e.g. example.com)")]) -> str:
     """WHOIS registration data — registrar, creation date, expiry, nameservers."""
     return _fmt(await _get(f"/v1/whois/{domain}"))
 
 
-@mcp.tool()
+@mcp.tool(annotations=_RO)
 async def ssl_check(domain: Annotated[str, Field(description="Target domain (e.g. example.com)")]) -> str:
     """SSL/TLS certificate analysis — cipher suite, chain, expiry, grade."""
     return _fmt(await _get(f"/v1/ssl/{domain}"))
 
 
-@mcp.tool()
+@mcp.tool(annotations=_RO)
 async def subdomain_enum(domain: Annotated[str, Field(description="Target domain (e.g. example.com)")]) -> str:
     """Subdomain enumeration via DNS brute-force and certificate transparency."""
     return _fmt(await _get(f"/v1/subdomains/{domain}"))
 
 
-@mcp.tool()
+@mcp.tool(annotations=_RO)
 async def tech_fingerprint(domain: Annotated[str, Field(description="Target domain (e.g. example.com)")]) -> str:
     """Technology fingerprinting — CMS, frameworks, CDN, analytics, server."""
     return _fmt(await _get(f"/v1/tech/{domain}"))
 
 
-@mcp.tool()
+@mcp.tool(annotations=_RO)
 async def threat_intel(domain: Annotated[str, Field(description="Target domain (e.g. example.com)")]) -> str:
     """Threat intelligence for a domain — URLhaus malware URL check."""
     return _fmt(await _get(f"/v1/threat/{domain}"))
 
 
-@mcp.tool()
+@mcp.tool(annotations=_RO)
 async def wayback_lookup(domain: Annotated[str, Field(description="Target domain (e.g. example.com)")]) -> str:
     """Web archive history — snapshots from the Wayback Machine showing when a domain was first seen and how it changed over time."""
     return _fmt(await _get(f"/v1/archive/{domain}"))
 
 
-@mcp.tool()
+@mcp.tool(annotations=_RO)
 async def scan_headers(domain: Annotated[str, Field(description="Target domain (e.g. example.com)")]) -> str:
     """Live HTTP security header scan — CSP, HSTS, X-Frame-Options, etc."""
     return _fmt(await _get(f"/v1/scan/headers/{domain}"))
 
 
-@mcp.tool()
+@mcp.tool(annotations=_RO)
 async def email_mx(domain: Annotated[str, Field(description="Target domain (e.g. example.com)")]) -> str:
     """Email MX analysis — mail provider detection, SPF/DMARC/DKIM check, security grade."""
     return _fmt(await _get(f"/v1/email/mx/{domain}"))
 
 
-@mcp.tool()
+@mcp.tool(annotations=_RO)
 async def email_disposable(email: Annotated[str, Field(description="Email address to check (e.g. user@tempmail.com)")]) -> str:
     """Check if an email uses a disposable/temporary email provider."""
     from urllib.parse import quote
@@ -198,7 +207,7 @@ async def email_disposable(email: Annotated[str, Field(description="Email addres
     return _fmt(await _get(f"/v1/email/disposable/{quote(email, safe='')}"))
 
 
-@mcp.tool()
+@mcp.tool(annotations=_RO)
 async def phone_lookup(number: Annotated[str, Field(description="Phone number with country code (e.g. +905551234567)")]) -> str:
     """Phone number validation and intelligence — format, country, type, carrier, timezone."""
     from urllib.parse import quote
@@ -209,13 +218,13 @@ async def phone_lookup(number: Annotated[str, Field(description="Phone number wi
 # === IP Intelligence ===
 
 
-@mcp.tool()
+@mcp.tool(annotations=_RO)
 async def ip_lookup(ip: Annotated[str, Field(description="IPv4 or IPv6 address")]) -> str:
     """IP intelligence — PTR, ports, hostnames, vulnerabilities, reputation."""
     return _fmt(await _get(f"/v1/ip/{ip}"))
 
 
-@mcp.tool()
+@mcp.tool(annotations=_RO)
 async def asn_lookup(target: Annotated[str, Field(description="Domain or IP address")]) -> str:
     """ASN lookup — AS number, holder, IPv4/IPv6 prefixes."""
     return _fmt(await _get(f"/v1/asn/{target}"))
@@ -224,13 +233,13 @@ async def asn_lookup(target: Annotated[str, Field(description="Domain or IP addr
 # === CVE Intelligence ===
 
 
-@mcp.tool()
+@mcp.tool(annotations=_RO)
 async def cve_lookup(cve_id: Annotated[str, Field(description="CVE identifier (e.g. CVE-2024-1234)")]) -> str:
     """CVE details — description, CVSS, EPSS score, KEV status, affected products."""
     return _fmt(await _get(f"/v1/cve/{cve_id}"))
 
 
-@mcp.tool()
+@mcp.tool(annotations=_RO)
 async def cve_search(
     product: Annotated[str, Field(description="Filter by product name (e.g. nginx, apache)")] = "",
     severity: Annotated[str, Field(description="CRITICAL, HIGH, MEDIUM, or LOW")] = "",
@@ -246,7 +255,7 @@ async def cve_search(
     return _fmt(await _get("/v1/cves", params))
 
 
-@mcp.tool()
+@mcp.tool(annotations=_RO)
 async def exploit_lookup(cve_id: Annotated[str, Field(description="CVE identifier (e.g. CVE-2024-1234)")]) -> str:
     """Find public exploits for a CVE — GitHub Advisory, ExploitDB."""
     return _fmt(await _get(f"/v1/exploit/{cve_id}"))
@@ -255,34 +264,36 @@ async def exploit_lookup(cve_id: Annotated[str, Field(description="CVE identifie
 # === Threat Intelligence / IOC ===
 
 
-@mcp.tool()
+@mcp.tool(annotations=_RO)
 async def ioc_lookup(indicator: Annotated[str, Field(description="IP, domain, URL, or file hash (MD5/SHA1/SHA256)")]) -> str:
     """IOC enrichment — auto-detects IP, domain, URL, or file hash and queries ThreatFox/URLhaus/Feodo."""
     return _fmt(await _get(f"/v1/ioc/{indicator}"))
 
 
-@mcp.tool()
+@mcp.tool(annotations=_RO)
 async def hash_lookup(file_hash: Annotated[str, Field(description="MD5, SHA1, or SHA256 hash")]) -> str:
     """Malware hash reputation via MalwareBazaar — family, file type, tags."""
     return _fmt(await _get(f"/v1/hash/{file_hash}"))
 
 
-@mcp.tool()
+@mcp.tool(annotations=_RO)
 async def password_check(sha1_hash: Annotated[str, Field(description="Full SHA1 hash of the password (40 hex characters)")]) -> str:
     """Check if a password has been exposed in data breaches via HIBP (k-anonymity, safe)."""
     return _fmt(await _get(f"/v1/password/{sha1_hash}"))
 
 
-@mcp.tool()
+@mcp.tool(annotations=_RO)
 async def phishing_check(url: Annotated[str, Field(description="URL to check for phishing/malware")]) -> str:
     """Check if a URL is a known phishing/malware URL via URLhaus."""
-    return _fmt(await _get(f"/v1/phishing/{url}"))
+    from urllib.parse import quote
+
+    return _fmt(await _get(f"/v1/phishing/{quote(url, safe='')}"))
 
 
 # === Code Security ===
 
 
-@mcp.tool()
+@mcp.tool(annotations=_RO)
 async def check_secrets(
     code: Annotated[str, Field(description="Source code to scan")],
     language: Annotated[str, Field(description="Programming language (python, javascript, go, etc.)")] = "generic",
@@ -291,7 +302,7 @@ async def check_secrets(
     return _fmt(await _post("/v1/check/secrets", {"code": code, "language": language}))
 
 
-@mcp.tool()
+@mcp.tool(annotations=_RO)
 async def check_injection(
     code: Annotated[str, Field(description="Source code to scan")],
     language: Annotated[str, Field(description="Programming language (python, javascript, go, etc.)")] = "generic",
@@ -300,7 +311,7 @@ async def check_injection(
     return _fmt(await _post("/v1/check/injection", {"code": code, "language": language}))
 
 
-@mcp.tool()
+@mcp.tool(annotations=_RO)
 async def username_lookup(username: Annotated[str, Field(description="Username to search for (e.g. torvalds, johndoe)")]) -> str:
     """Username OSINT — check if a username exists on 16 platforms (GitHub, Reddit, X, Instagram, etc.)."""
     from urllib.parse import quote
@@ -308,7 +319,7 @@ async def username_lookup(username: Annotated[str, Field(description="Username t
     return _fmt(await _get(f"/v1/username/{quote(username, safe='')}"))
 
 
-@mcp.tool()
+@mcp.tool(annotations=_RO)
 async def check_headers(headers: Annotated[str, Field(description='JSON string of header name-value pairs, e.g. {"Content-Security-Policy": "default-src \'self\'"}')]) -> str:
     """Validate HTTP security headers — CSP, HSTS, X-Frame-Options, etc."""
     import json
@@ -318,6 +329,33 @@ async def check_headers(headers: Annotated[str, Field(description='JSON string o
     except json.JSONDecodeError:
         return "Invalid JSON. Provide headers as JSON object."
     return _fmt(await _post("/v1/check/headers", {"headers": h}))
+
+
+# === Prompts ===
+
+
+@mcp.prompt()
+def security_audit(domain: Annotated[str, Field(description="Target domain to audit")]) -> str:
+    """Run a full security audit on a domain — combines domain report, SSL, headers, and threat intel."""
+    return f"""Perform a comprehensive security audit for {domain}:
+
+1. Run domain_report for full overview
+2. Run ssl_check for certificate details
+3. Run scan_headers for HTTP security headers
+4. Run threat_intel for malware/threat checks
+5. Run email_mx for email security (SPF/DMARC/DKIM)
+
+Summarize findings with severity ratings and actionable recommendations."""
+
+
+@mcp.prompt()
+def vulnerability_check(product: Annotated[str, Field(description="Product name to check (e.g. nginx, apache)")]) -> str:
+    """Check recent vulnerabilities and exploits for a product."""
+    return f"""Check vulnerabilities for {product}:
+
+1. Run cve_search with product="{product}" and days=90
+2. For any CRITICAL or HIGH CVEs found, run exploit_lookup to check for public exploits
+3. Summarize: total CVEs, severity breakdown, exploitable ones, and patch recommendations."""
 
 
 def main():
