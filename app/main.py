@@ -553,7 +553,7 @@ def mcp_setup():
 
   <div class="page">
     <h1>MCP <span>Setup</span></h1>
-    <p class="subtitle">Give your AI agent 23 security tools. One config, zero signup.</p>
+    <p class="subtitle">Give your AI agent 25 security tools. One config, zero signup.</p>
 
     <h2><span class="num">1</span> Claude Desktop</h2>
     <p>Edit <code>~/.claude/claude_desktop_config.json</code>:</p>
@@ -807,7 +807,7 @@ No API key needed. Free: 100 requests/hour per IP.
 API key (1000 req/hr): pass `Authorization: Bearer cc_xxx` header.
 Rate limit headers returned: X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset.
 
-## Endpoints (20 tools)
+## Endpoints (25 MCP tools)
 
 ### CVE Intelligence
 - GET /v1/cve/{cve_id} — Full CVE details with EPSS score, KEV status, CVSS breakdown
@@ -815,17 +815,31 @@ Rate limit headers returned: X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLim
 - GET /v1/cves/recent?hours=24 — Recently published CVEs
 - GET /v1/cves/kev — CISA Known Exploited Vulnerabilities
 - GET /v1/epss/{cve_id} — EPSS exploit probability score
+- GET /v1/exploit/{cve_id} — Public exploits and advisories (GitHub Advisory, ExploitDB)
 
 ### Domain Intelligence
 - GET /v1/domain/{domain} — Full domain report (DNS + WHOIS + SSL + subdomains + WAF + email security + threat intel + risk score)
 - GET /v1/dns/{domain} — DNS records (A, AAAA, MX, NS, TXT, CNAME, SOA)
 - GET /v1/whois/{domain} — WHOIS registration data
+- GET /v1/ssl/{domain} — SSL/TLS certificate analysis (cipher, chain, expiry, grade)
 - GET /v1/subdomains/{domain} — Subdomain enumeration (DNS brute + CT logs)
 - GET /v1/certs/{domain} — Certificate Transparency log entries
 - GET /v1/ip/{ip} — IP intelligence (reverse DNS, open ports, vulns, hostnames via Shodan)
+- GET /v1/asn/{target} — ASN lookup (AS number, holder, prefixes). Accepts domain or IP
 - GET /v1/threat/{domain} — Threat intelligence (URLhaus malware URL lookup)
 - GET /v1/tech/{domain} — Technology fingerprinting (CMS, frameworks, servers, CDN, analytics)
 - GET /v1/scan/headers/{domain} — Live HTTP security header scan and analysis
+- GET /v1/email/mx/{domain} — Email MX analysis (provider, SPF/DMARC/DKIM, security grade)
+- GET /v1/email/disposable/{email} — Check if email uses disposable/temporary provider
+- GET /v1/phone/{number} — Phone number validation (format, country, type, carrier, timezone)
+- GET /v1/username/{username} — Username OSINT across 16 platforms
+- GET /v1/archive/{domain} — Wayback Machine historical snapshots
+
+### Threat Intelligence / IOC
+- GET /v1/ioc/{indicator} — Unified IOC enrichment (IP, domain, URL, hash → ThreatFox/URLhaus/Feodo)
+- GET /v1/hash/{file_hash} — Malware hash reputation via MalwareBazaar
+- GET /v1/password/{sha1_hash} — Password breach check via HIBP (k-anonymity)
+- GET /v1/phishing/{url} — Phishing/malware URL check via URLhaus
 
 ### Code Security
 - POST /v1/check/headers — Validate HTTP security headers (JSON body: {"headers": {...}})
@@ -839,11 +853,12 @@ Rate limit headers returned: X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLim
 
 ## MCP (Model Context Protocol)
 
-ContrastAPI is available as an MCP server with 20 tools.
+ContrastAPI is available as an MCP server with 25 tools.
 MCP tools: domain_report, dns_lookup, whois_lookup, ssl_check, subdomain_enum,
-tech_fingerprint, threat_intel, scan_headers, ip_lookup, asn_lookup, cve_lookup,
-cve_search, exploit_lookup, ioc_lookup, hash_lookup, password_check,
-phishing_check, check_secrets, check_injection, check_headers.
+tech_fingerprint, threat_intel, scan_headers, email_mx, email_disposable,
+phone_lookup, username_lookup, wayback_lookup, ip_lookup, asn_lookup,
+cve_lookup, cve_search, exploit_lookup, ioc_lookup, hash_lookup,
+password_check, phishing_check, check_secrets, check_injection, check_headers.
 
 ### HTTP Transport (remote)
 POST https://api.contrastcyber.com/mcp/
@@ -889,399 +904,136 @@ Body: {"code": "aws_key = 'AKIAIOSFODNN7EXAMPLE'", "language": "python"}
 
 @app.get("/llms-full.txt", response_class=PlainTextResponse, include_in_schema=False)
 def llms_full_txt():
-    """Full API reference for LLM context — detailed parameter and response docs."""
+    """Full API reference for LLM context — compact format, under 200 lines."""
     return """\
 # ContrastAPI — Full API Reference
 
-> Security intelligence API for AI models and developers.
-> Base URL: https://api.contrastcyber.com
-> Auth: None required (100 req/hr). Pro key: Authorization: Bearer cc_xxx (1000 req/hr).
-> All responses are JSON. All endpoints include a "summary" field optimized for LLM consumption.
-
----
+> Security intelligence API. 25 MCP tools. Base URL: https://api.contrastcyber.com
+> Auth: None required (100 req/hr). Pro: Authorization: Bearer cc_xxx (1000 req/hr).
+> All responses JSON with a "summary" field optimized for LLM consumption.
+> OpenAPI spec: https://api.contrastcyber.com/openapi.json
 
 ## CVE Intelligence
 
-### GET /v1/cve/{cve_id}
-Look up a single CVE by ID. Returns full details with EPSS score and KEV status.
+GET /v1/cve/{cve_id} — Full CVE details with EPSS + KEV + CVSS breakdown.
+  Response keys: cve_id, summary, description, severity, cvss_v3, cvss_vector, cvss_breakdown, cwe_id, epss:{score,percentile}, kev:{in_kev,date_added}, affected_products, published, modified, references
+  Errors: 400, 404
 
-**Parameters:**
-- cve_id (path, required): CVE ID in format CVE-YYYY-NNNNN (e.g., CVE-2024-3094)
+GET /v1/cves?product=&severity=&days=&limit= — Search CVEs by product/severity/date.
+  Response keys: count, summary, results
 
-**Response:**
-{
-  "cve_id": "CVE-2024-3094",
-  "summary": "CRITICAL (CWE-506) — Malicious code in xz/liblzma. CVSS 10.0. Actively exploited (CISA KEV). EPSS 93% exploitation probability.",
-  "description": "...",
-  "severity": "CRITICAL",
-  "cvss_v3": 10.0,
-  "cvss_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H",
-  "cwe_id": "CWE-506",
-  "epss": {"score": 0.93, "percentile": 0.99},
-  "kev": {"in_kev": true, "date_added": "2024-03-29"},
-  "affected_products": ["xz-utils"],
-  "published": "2024-03-29T00:00:00",
-  "modified": "2024-04-01T00:00:00",
-  "references": ["https://nvd.nist.gov/vuln/detail/CVE-2024-3094"]
-}
+GET /v1/cves/recent?hours=24&limit=50 — Recently published CVEs.
+  Response keys: count, hours, summary, results
 
-**Errors:** 400 (invalid CVE format), 404 (CVE not found)
+GET /v1/cves/kev?limit=100 — CISA Known Exploited Vulnerabilities.
+  Response keys: count, summary, results
 
----
+GET /v1/epss/{cve_id} — EPSS exploit probability score.
+  Response keys: cve_id, score, percentile, summary
 
-### GET /v1/cves
-Search CVEs by product, severity, and/or date range.
-
-**Parameters:**
-- product (query, optional): Filter by product name, min 2 chars (e.g., "nginx", "apache")
-- severity (query, optional): CRITICAL, HIGH, MEDIUM, or LOW
-- days (query, optional): CVEs published within N days (1-365)
-- limit (query, optional): Max results, default 50 (1-200)
-
-**Example:** GET /v1/cves?product=nginx&severity=HIGH&days=90&limit=10
-
-**Response:**
-{
-  "count": 3,
-  "summary": "3 CVEs found (nginx, HIGH, last 90d)",
-  "results": [...]
-}
-
----
-
-### GET /v1/cves/recent
-Get recently published CVEs.
-
-**Parameters:**
-- hours (query, optional): CVEs from last N hours, default 24 (1-168)
-- limit (query, optional): Max results, default 50 (1-200)
-
-**Response:**
-{
-  "count": 15,
-  "hours": 24,
-  "summary": "15 CVEs published in the last 24 hours",
-  "results": [...]
-}
-
----
-
-### GET /v1/cves/kev
-CISA Known Exploited Vulnerabilities — actively exploited CVEs.
-
-**Parameters:**
-- limit (query, optional): Max results, default 100 (1-500)
-
-**Response:**
-{
-  "count": 50,
-  "summary": "50 actively exploited CVEs (CISA KEV)",
-  "results": [...]
-}
-
----
-
-### GET /v1/epss/{cve_id}
-EPSS (Exploit Prediction Scoring System) score for a CVE.
-
-**Parameters:**
-- cve_id (path, required): CVE ID (e.g., CVE-2024-3094)
-
-**Response:**
-{
-  "cve_id": "CVE-2024-3094",
-  "epss_score": 0.93,
-  "epss_percentile": 0.99
-}
-
----
+GET /v1/exploit/{cve_id} — Public exploits (GitHub Advisory + ExploitDB).
+  Response keys: cve_id, exploits_found, sources:{github:{found,count,advisories},exploitdb:{found,count,results}}, has_public_exploit, summary
 
 ## Domain Intelligence
 
-### GET /v1/domain/{domain}
-Full domain intelligence report — runs all checks in parallel.
+GET /v1/domain/{domain} — Full domain report (DNS+WHOIS+SSL+subdomains+WAF+email+threat+risk). Supports ?lite=true.
+  Response keys: domain, summary, dns, reverse_dns, whois, ssl, email_security, subdomains, certificates, waf, threat, risk:{score,grade,factors}
 
-**Parameters:**
-- domain (path, required): Domain name (e.g., example.com)
+GET /v1/dns/{domain} — DNS records (A, AAAA, MX, NS, TXT, CNAME, SOA).
+  Response keys: domain, records:{a,aaaa,mx,ns,txt,cname,soa}, summary
 
-**Response:**
-{
-  "domain": "example.com",
-  "summary": "example.com resolves to 93.184.216.34. Security grade B (72/100). SSL grade A by DigiCert. No WAF detected. Email security: B. 3 subdomains found.",
-  "dns": {"a": ["93.184.216.34"], "mx": [...], "ns": [...], "txt": [...]},
-  "reverse_dns": {"ip": "93.184.216.34", "ptr": "..."},
-  "whois": {"registrar": "...", "creation_date": "1995-08-14", "expiry_date": "2025-08-13"},
-  "ssl": {"common_name": "...", "issuer": "DigiCert", "not_after": "...", "san": [...], "grade": "A", "tls_version": "TLSv1.3", "days_remaining": 120},
-  "email_security": {"spf": "v=spf1 ...", "dmarc": "v=DMARC1 ...", "dkim_selectors": ["default"], "grade": "A"},
-  "subdomains": {"subdomains": ["www.example.com", "mail.example.com"], "count": 2},
-  "certificates": {"total_certificates": 15, "certificates": [...]},
-  "waf": {"detected": [], "waf_present": false},
-  "threat": {"urlhaus_status": "clean", "urls_online": 0, "url_count": 0},
-  "risk": {"score": 72, "max_score": 100, "grade": "B", "factors": [...]}
-}
+GET /v1/whois/{domain} — WHOIS registration data.
+  Response keys: domain, whois:{registrar,creation_date,expiry_date,name_servers}, summary
 
----
+GET /v1/ssl/{domain} — SSL/TLS certificate analysis.
+  Response keys: domain, valid, issuer, subject, not_before, not_after, days_remaining, san, protocol, cipher:{name,bits}, chain, grade, summary
 
-### GET /v1/dns/{domain}
-DNS records only (A, AAAA, MX, NS, TXT, CNAME, SOA).
+GET /v1/subdomains/{domain} — Subdomain enumeration (DNS brute + CT logs).
+  Response keys: domain, subdomains, count, summary
 
-**Parameters:**
-- domain (path, required): Domain name
+GET /v1/certs/{domain} — Certificate Transparency log entries.
+  Response keys: domain, total_certificates, certificates:[{issuer,not_before,not_after,common_name}], summary
 
-**Response:**
-{
-  "domain": "example.com",
-  "records": {"a": ["93.184.216.34"], "mx": [{"priority": 10, "host": "mail.example.com"}], ...}
-}
+GET /v1/ip/{ip} — IP intelligence (Shodan InternetDB). No private/reserved IPs.
+  Response keys: ip, ptr, ports, hostnames, vulns, cpes, tags, summary
 
----
+GET /v1/asn/{target} — ASN lookup. Accepts domain or IP.
+  Response keys: target, resolved_ip, asn, asn_name, ipv4_prefixes, ipv6_prefixes, ipv4_count, ipv6_count, summary
 
-### GET /v1/whois/{domain}
-WHOIS registration data.
+GET /v1/threat/{domain} — Threat intelligence (URLhaus).
+  Response keys: domain, urlhaus_status, urls_online, url_count, threat_types, tags, urls, summary
 
-**Parameters:**
-- domain (path, required): Domain name
+GET /v1/tech/{domain} — Technology fingerprinting (CMS, frameworks, CDN).
+  Response keys: domain, technologies:[{name,category,source,version}], categories, count, summary
 
-**Response:**
-{
-  "domain": "example.com",
-  "whois": {"registrar": "...", "creation_date": "...", "expiry_date": "...", "name_servers": [...]}
-}
+GET /v1/scan/headers/{domain} — Live HTTP security header scan.
+  Response keys: domain, status_code, url, score, grade, findings, headers_present, headers_missing, summary
 
----
+GET /v1/email/mx/{domain} — Email MX analysis (provider + SPF/DMARC/DKIM).
+  Response keys: domain, mx_records, mail_provider, email_security:{spf,dmarc,dkim_selectors,grade,issues}, summary
 
-### GET /v1/subdomains/{domain}
-Subdomain enumeration via DNS brute force + Certificate Transparency logs.
+GET /v1/email/disposable/{email} — Disposable email check.
+  Response keys: email, domain, disposable, provider, mx_disposable, risk_level, summary
 
-**Parameters:**
-- domain (path, required): Domain name
+GET /v1/phone/{number} — Phone validation. Include country code (e.g. +14155551234).
+  Response keys: valid, number, format:{e164,international,national}, country_code, country_name, type, carrier, timezone, summary
 
-**Response:**
-{
-  "domain": "example.com",
-  "subdomains": ["www.example.com", "mail.example.com", "api.example.com"],
-  "count": 3
-}
+GET /v1/username/{username} — Username OSINT across 16 platforms (3-39 chars).
+  Response keys: username, found_count, checked_count, results:[{platform,url,status}], summary
 
----
+GET /v1/archive/{domain} — Wayback Machine history.
+  Response keys: domain, total_snapshots, first_seen, last_seen, years_online, snapshots, archive_url, summary
 
-### GET /v1/certs/{domain}
-Certificate Transparency log entries from crt.sh.
+## Threat Intelligence / IOC
 
-**Parameters:**
-- domain (path, required): Domain name
+GET /v1/ioc/{indicator} — Unified IOC enrichment. Auto-detects IP/domain/URL/hash.
+  Response keys: indicator, type, threat_level, sources:{threatfox,feodo,urlhaus}, summary
 
-**Response:**
-{
-  "domain": "example.com",
-  "total_certificates": 42,
-  "certificates": [{"issuer": "...", "not_before": "...", "not_after": "...", "common_name": "..."}]
-}
+GET /v1/hash/{file_hash} — Malware hash (MalwareBazaar). MD5/SHA1/SHA256.
+  Response keys: hash, hash_type, found, malware_family, file_type, file_size, first_seen, tags, file_name, summary
 
----
+GET /v1/password/{sha1_hash} — Password breach check (HIBP k-anonymity). Full SHA1 hash.
+  Response keys: hash_prefix, found, breach_count, summary
 
-### GET /v1/ip/{ip}
-IP intelligence — reverse DNS, open ports, vulnerabilities, hostnames via Shodan InternetDB.
-
-**Parameters:**
-- ip (path, required): IPv4 or IPv6 address (no private/reserved IPs)
-
-**Response:**
-{
-  "ip": "93.184.216.34",
-  "ptr": "example.com",
-  "ports": [80, 443, 8080],
-  "hostnames": ["example.com"],
-  "vulns": ["CVE-2024-1234"],
-  "cpes": ["cpe:/a:apache:httpd:2.4.51"],
-  "tags": ["http", "https"],
-  "summary": "93.184.216.34 → example.com. 3 open ports. 1 known vulnerability."
-}
-
----
-
-### GET /v1/threat/{domain}
-Threat intelligence — check domain against URLhaus for known malware URLs.
-
-**Parameters:**
-- domain (path, required): Domain name
-
-**Response:**
-{
-  "domain": "example.com",
-  "urlhaus_status": "clean",
-  "urls_online": 0,
-  "url_count": 0,
-  "threat_types": [],
-  "tags": [],
-  "urls": [],
-  "summary": "example.com — no threats found in URLhaus"
-}
-
----
-
-### GET /v1/scan/headers/{domain}
-Fetch a live domain's HTTP headers and analyze security posture.
-
-**Parameters:**
-- domain (path, required): Domain name
-
-**Response:**
-{
-  "domain": "example.com",
-  "status_code": 200,
-  "url": "https://example.com/",
-  "score": 65,
-  "grade": "C",
-  "findings": [{"header": "Content-Security-Policy", "present": false, "severity": "high", ...}],
-  "headers_present": ["Strict-Transport-Security", "X-Content-Type-Options"],
-  "headers_missing": ["Content-Security-Policy", "Permissions-Policy"]
-}
-
----
+GET /v1/phishing/{url} — Phishing/malware URL check (URLhaus). Must start with http(s)://.
+  Response keys: url, host, is_malicious, urlhaus_host:{found,urls_online,url_count}, urlhaus_url:{found,threat,tags}, threat_level, summary
 
 ## Code Security
 
-### POST /v1/check/secrets
-Detect hardcoded secrets in source code (14 patterns: AWS keys, GitHub tokens, JWTs, etc.).
+POST /v1/check/secrets — Detect hardcoded secrets (14 patterns). Body: {"code":"...","language":"python"}
+  Response keys: findings:[{type,severity,line,match,description,remediation}], total, by_severity, summary
 
-**Request Body:**
-{
-  "code": "api_key = 'AKIAIOSFODNN7EXAMPLE'",
-  "language": "python"
-}
+POST /v1/check/injection — SQL/command/path injection. Body: {"code":"...","language":"python"}
+  Response keys: findings:[{type,severity,line,match,description,remediation}], total, by_severity, summary
 
-**Response:**
-{
-  "findings": [
-    {
-      "type": "aws_access_key",
-      "severity": "critical",
-      "line": 1,
-      "match": "AKIAIOSFODNN7EXAMPLE",
-      "description": "AWS Access Key ID detected",
-      "remediation": "Use environment variables or AWS IAM roles"
-    }
-  ],
-  "summary": "Found 1 hardcoded secret (1 critical)",
-  "total": 1,
-  "by_severity": {"critical": 1}
-}
+POST /v1/check/headers — Validate security headers. Body: {"headers":{"header-name":"value"}}
+  Response keys: findings, total, by_severity, score, grade, headers_present:[], headers_missing:[], summary
 
----
+POST /v1/check/dependencies — Check packages for CVEs. Body: {"packages":[{"name":"...","version":"..."}]}
+  Response keys: findings:[{package,version,cve_id,severity,cvss_v3,epss_score,in_kev,remediation}], total, by_severity, summary
 
-### POST /v1/check/injection
-Detect SQL injection, command injection, and path traversal patterns.
+## Meta
 
-**Request Body:**
-{
-  "code": "query = f'SELECT * FROM users WHERE id = {user_id}'",
-  "language": "python"
-}
+GET /v1/status — Health check. Response: {status, version, data_sources}
+GET /v1/usage — Pro key stats (requires auth). Response: {total_requests, last_24h, last_1h, hourly_limit, hourly_remaining, top_endpoints}
 
-**Response:**
-{
-  "findings": [{"type": "sql_injection", "severity": "high", "line": 1, ...}],
-  "summary": "Found 1 injection pattern (1 high)",
-  "total": 1,
-  "by_severity": {"high": 1}
-}
+## Example: CVE Lookup
 
----
+GET /v1/cve/CVE-2024-3094 →
+{"cve_id":"CVE-2024-3094", "summary":"CRITICAL — xz/liblzma backdoor. CVSS 10.0. CISA KEV. EPSS 93%.",
+ "severity":"CRITICAL", "cvss_v3":10.0, "epss":{"score":0.93}, "kev":{"in_kev":true}}
 
-### POST /v1/check/headers
-Validate HTTP security headers against best practices.
+## Example: Domain Report
 
-**Request Body:**
-{
-  "headers": {
-    "content-security-policy": "default-src 'self'",
-    "strict-transport-security": "max-age=31536000; includeSubDomains",
-    "x-content-type-options": "nosniff",
-    "x-frame-options": "DENY",
-    "referrer-policy": "strict-origin-when-cross-origin",
-    "permissions-policy": "camera=(), microphone=()"
-  }
-}
+GET /v1/domain/example.com →
+{"domain":"example.com", "summary":"Grade B (72/100). SSL A (DigiCert, TLSv1.3). 3 subdomains. No threats.",
+ "risk":{"score":72,"grade":"B"}, "ssl":{"grade":"A","days_remaining":120}}
 
-**Response:**
-{
-  "findings": [],
-  "summary": "All 6 security headers present — score 100/100 (grade A)",
-  "score": 100,
-  "grade": "A",
-  "headers_present": 6,
-  "headers_missing": 0
-}
+## Rate Limits & Data Sources
 
----
-
-### POST /v1/check/dependencies
-Check software packages against the CVE database.
-
-**Request Body:**
-{
-  "packages": [
-    {"name": "lodash", "version": "4.17.15"},
-    {"name": "express", "version": "4.17.1"}
-  ]
-}
-
-**Response:**
-{
-  "findings": [{"package": "lodash", "version": "4.17.15", "cve_id": "CVE-2020-28500", ...}],
-  "summary": "Found 1 CVE across 1 of 2 packages (1 high)",
-  "total_cves": 1,
-  "packages_affected": 1,
-  "packages_clean": 1
-}
-
----
-
-## Error Responses
-
-All errors return JSON:
-{"error": "description of the error"}
-
-Common status codes:
-- 400: Invalid input (bad CVE format, invalid domain, missing fields)
-- 401: Invalid API key
-- 404: Resource not found (CVE not in database, no EPSS data)
-- 429: Rate limit exceeded
-
----
-
-## Rate Limits
-
-- Keyless: 100 requests/hour per IP address (sliding window)
-- Pro key: 1000 requests/hour per key (sliding window)
-- Every response includes: X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset headers
-- Every response includes: X-Request-ID header for request tracing
-
-### GET /v1/usage
-Usage statistics for Pro key holders. Requires `Authorization: Bearer cc_xxx`.
-
-**Response:**
-{
-  "total_requests": 1523,
-  "last_24h": 89,
-  "last_1h": 12,
-  "hourly_limit": 1000,
-  "hourly_remaining": 988,
-  "top_endpoints": [{"endpoint": "/v1/cve/CVE-2024-3094", "count": 45}, ...]
-}
-
----
-
-## Data Sources
-
-- NVD: 340,000+ CVEs (synced every 2 hours)
-- EPSS: 323,000+ exploit probability scores (synced every 2 hours)
-- CISA KEV: 1,500+ actively exploited vulnerabilities (synced every 2 hours)
-- Shodan InternetDB: IP enrichment (ports, vulns, hostnames — free, no key)
-- URLhaus (abuse.ch): Malware URL database (free, live queries)
-- crt.sh: Certificate Transparency logs (live queries)
-- DNS/WHOIS/SSL: Live queries per request
+Keyless: 100 req/hr per IP. Pro: 1000 req/hr. Headers: X-RateLimit-{Limit,Remaining,Reset}, X-Request-ID.
+Data: NVD (340K+ CVEs), EPSS (323K+), CISA KEV (1500+), Shodan, URLhaus, ThreatFox, MalwareBazaar,
+GitHub Advisory DB, HIBP, Wayback Machine, crt.sh. CVE/EPSS/KEV synced every 2h. Others live.
 """
 
 
@@ -1354,11 +1106,11 @@ def mcp_server_card():
     """MCP server discovery card (draft spec)."""
     return {
         "name": "ContrastAPI",
-        "description": "Security intelligence MCP server with 20 tools: CVE lookup, domain recon, SSL, IP reputation, IOC, exploit search, tech fingerprinting, code security.",
+        "description": "Security intelligence MCP server with 25 tools: CVE lookup, domain recon, SSL, IP/ASN, email/phone OSINT, IOC, exploit search, tech fingerprinting, code security.",
         "url": "https://api.contrastcyber.com/mcp/",
         "transport": ["streamable-http"],
         "auth": "none",
-        "tools_count": 20,
+        "tools_count": 25,
         "homepage": "https://github.com/UPinar/contrastapi",
         "documentation": "https://github.com/UPinar/contrastapi#endpoints",
     }
