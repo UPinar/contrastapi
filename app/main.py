@@ -391,6 +391,8 @@ def quickstart():
     .grid .card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 0.5rem; padding: 1.25rem; }
     .grid .card h3 { font-size: 0.95rem; margin-block-end: 0.5rem; }
     .grid .card p { font-size: 0.85rem; margin: 0; }
+    .grid .card a { color: var(--primary); }
+    .grid .card a:visited { color: var(--primary); }
     @media (max-width: 600px) { .grid { grid-template-columns: 1fr; } .page h1 { font-size: 1.75rem; } }
   </style>
 </head>
@@ -468,8 +470,8 @@ print(r.json()['findings'])</code></div>
     <h2>What's next?</h2>
     <div class="grid">
       <div class="card">
-        <h3>API Reference</h3>
-        <p>All 35+ endpoints with try-it-out. <a href="https://github.com/UPinar/contrastapi#endpoints">Open docs &rarr;</a></p>
+        <h3>Playground</h3>
+        <p>Try all 25 endpoints from your browser. <a href="/playground">Open playground &rarr;</a></p>
       </div>
       <div class="card">
         <h3>Rate Limits</h3>
@@ -534,6 +536,8 @@ def mcp_setup():
     .grid .card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 0.5rem; padding: 1.25rem; }
     .grid .card h3 { font-size: 0.95rem; margin-block-end: 0.5rem; }
     .grid .card p { font-size: 0.85rem; margin: 0; }
+    .grid .card a { color: var(--primary); }
+    .grid .card a:visited { color: var(--primary); }
     @media (max-width: 600px) { .grid { grid-template-columns: 1fr; } .tools-grid { grid-template-columns: 1fr; } .page h1 { font-size: 1.75rem; } }
   </style>
 </head>
@@ -664,8 +668,8 @@ Accept: application/json, text/event-stream
         <p>Use without MCP — cURL, Node.js, Python. <a href="/quickstart">API Quick Start &rarr;</a></p>
       </div>
       <div class="card">
-        <h3>Full Reference</h3>
-        <p>All endpoints with try-it-out. <a href="https://github.com/UPinar/contrastapi#endpoints">API Docs &rarr;</a></p>
+        <h3>Playground</h3>
+        <p>Try all 25 endpoints from your browser. <a href="/playground">Open playground &rarr;</a></p>
       </div>
     </div>
   </div>
