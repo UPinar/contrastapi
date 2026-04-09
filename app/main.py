@@ -373,7 +373,7 @@ def quickstart():
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Quick Start | ContrastAPI</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-  <link rel="stylesheet" href="/static/style.css?v=8">
+  <link rel="stylesheet" href="/static/style.css?v=9">
   <style>
     .page { max-inline-size: 52rem; margin-inline: auto; padding: 3rem 2rem; position: relative; z-index: 1; }
     .page h1 { font-size: 2.25rem; font-weight: 800; letter-spacing: -0.04em; margin-block-end: 0.5rem; }
@@ -403,7 +403,7 @@ def quickstart():
     <div class="nav-links">
       <a href="/quickstart">API Start</a>
       <a href="/mcp-setup">MCP Setup</a>
-      <a href="https://github.com/UPinar/contrastapi#endpoints">Docs</a>
+      <a href="/playground">Playground</a>
       <a href="https://contrastcyber.com/pricing">Pricing</a>
     </div>
   </nav>
@@ -510,7 +510,7 @@ def mcp_setup():
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>MCP Setup | ContrastAPI</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-  <link rel="stylesheet" href="/static/style.css?v=8">
+  <link rel="stylesheet" href="/static/style.css?v=9">
   <style>
     .page { max-inline-size: 52rem; margin-inline: auto; padding: 3rem 2rem; position: relative; z-index: 1; }
     .page h1 { font-size: 2.25rem; font-weight: 800; letter-spacing: -0.04em; margin-block-end: 0.5rem; }
@@ -546,7 +546,7 @@ def mcp_setup():
     <div class="nav-links">
       <a href="/quickstart">API Start</a>
       <a href="/mcp-setup">MCP Setup</a>
-      <a href="https://github.com/UPinar/contrastapi#endpoints">Docs</a>
+      <a href="/playground">Playground</a>
       <a href="https://contrastcyber.com/pricing">Pricing</a>
     </div>
   </nav>
@@ -628,7 +628,7 @@ Accept: application/json, text/event-stream
       <p><em>"Is user@example.com a disposable email?"</em></p>
     </div>
 
-    <h2>24 Tools</h2>
+    <h2>25 Tools</h2>
     <div class="tools-grid">
       <div class="tool"><span class="name">domain_report</span> <span class="desc">Full domain security audit</span></div>
       <div class="tool"><span class="name">dns_lookup</span> <span class="desc">DNS records</span></div>
@@ -651,6 +651,7 @@ Accept: application/json, text/event-stream
       <div class="tool"><span class="name">password_check</span> <span class="desc">Breach database check</span></div>
       <div class="tool"><span class="name">phishing_check</span> <span class="desc">URL phishing detection</span></div>
       <div class="tool"><span class="name">phone_lookup</span> <span class="desc">Phone number OSINT</span></div>
+      <div class="tool"><span class="name">username_lookup</span> <span class="desc">Username OSINT across 16 platforms</span></div>
       <div class="tool"><span class="name">check_secrets</span> <span class="desc">Hardcoded secret scan</span></div>
       <div class="tool"><span class="name">check_injection</span> <span class="desc">SQL/command injection</span></div>
       <div class="tool"><span class="name">check_headers</span> <span class="desc">Header validation</span></div>
@@ -681,6 +682,11 @@ Accept: application/json, text/event-stream
 </body>
 </html>"""
     )
+
+
+@app.get("/playground", response_class=HTMLResponse, include_in_schema=False)
+def playground(request: Request):
+    return templates.TemplateResponse(request, "playground.html")
 
 
 @app.get("/docs", include_in_schema=False)

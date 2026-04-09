@@ -1,0 +1,905 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Playground | ContrastAPI</title>
+  <meta name="description" content="Try ContrastAPI endpoints directly from your browser. No signup, no API key, no setup.">
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <link rel="stylesheet" href="/static/style.css?v=9">
+</head>
+<body>
+  <div class="glow"></div>
+
+  <nav>
+    <a href="/" class="logo">Contrast<span>API</span></a>
+    <button class="hamburger" aria-label="Menu" aria-expanded="false" onclick="const o=this.getAttribute('aria-expanded')==='true';this.setAttribute('aria-expanded',String(!o));document.querySelector('.nav-links').classList.toggle('open')"><span class="hamburger__lines" aria-hidden="true"></span></button>
+    <div class="nav-links">
+      <a href="/quickstart">API Start</a>
+      <a href="/mcp-setup">MCP Setup</a>
+      <a href="/playground">Playground</a>
+      <a href="https://contrastcyber.com/pricing">Pricing</a>
+    </div>
+  </nav>
+
+  <div class="page">
+    <h1>API <span>Playground</span></h1>
+    <p class="subtitle">Try every endpoint from your browser. No signup, no API key, no setup.</p>
+
+    <div class="section-title">Domain Intelligence</div>
+
+    <div class="pg-card" id="ep-domain_report">
+      <div class="pg-card-header">
+        <span class="method get">GET</span>
+        <span class="name">/v1/domain/{domain}</span>
+        <span class="desc">Full domain security report with DNS, WHOIS, SSL, subdomains, and risk score</span>
+      </div>
+      <div class="pg-card-body">
+        <div class="pg-inputs">
+          <label>domain</label>
+          <input type="text" id="input-domain_report" value="cloudflare.com" placeholder="example.com">
+          <button class="btn-run" onclick="run('domain_report')">Run &rarr;</button>
+        </div>
+        <div class="pg-response" id="resp-domain_report">
+          <pre>{
+  <span class="key">"domain"</span>: <span class="str">"cloudflare.com"</span>,
+  <span class="key">"risk_score"</span>: <span class="num">15</span>,
+  <span class="key">"dns"</span>: {
+    <span class="key">"a"</span>: [<span class="str">"104.16.132.229"</span>],
+    <span class="key">"mx"</span>: [<span class="str">"route1.mx.cloudflare.net"</span>]
+  },
+  <span class="key">"whois"</span>: {
+    <span class="key">"registrar"</span>: <span class="str">"Cloudflare, Inc."</span>,
+    <span class="key">"created"</span>: <span class="str">"2009-02-17"</span>
+  },
+  <span class="key">"ssl"</span>: {
+    <span class="key">"grade"</span>: <span class="str">"A"</span>,
+    <span class="key">"issuer"</span>: <span class="str">"Google Trust Services"</span>,
+    <span class="key">"expires_in_days"</span>: <span class="num">89</span>
+  },
+  <span class="key">"subdomains"</span>: [<span class="str">"www.cloudflare.com"</span>, <span class="str">"api.cloudflare.com"</span>, <span class="str">"dash.cloudflare.com"</span>]
+}</pre>
+        </div>
+      </div>
+    </div>
+
+    <div class="pg-card" id="ep-dns">
+      <div class="pg-card-header">
+        <span class="method get">GET</span>
+        <span class="name">/v1/dns/{domain}</span>
+        <span class="desc">DNS records — A, AAAA, MX, NS, TXT, CNAME, SOA</span>
+      </div>
+      <div class="pg-card-body">
+        <div class="pg-inputs">
+          <label>domain</label>
+          <input type="text" id="input-dns" value="cloudflare.com" placeholder="example.com">
+          <button class="btn-run" onclick="run('dns')">Run &rarr;</button>
+        </div>
+        <div class="pg-response" id="resp-dns">
+          <pre>{
+  <span class="key">"domain"</span>: <span class="str">"cloudflare.com"</span>,
+  <span class="key">"records"</span>: [
+    {<span class="key">"type"</span>: <span class="str">"A"</span>, <span class="key">"value"</span>: <span class="str">"104.16.132.229"</span>, <span class="key">"ttl"</span>: <span class="num">300</span>},
+    {<span class="key">"type"</span>: <span class="str">"MX"</span>, <span class="key">"value"</span>: <span class="str">"route1.mx.cloudflare.net"</span>, <span class="key">"ttl"</span>: <span class="num">300</span>, <span class="key">"priority"</span>: <span class="num">36</span>},
+    {<span class="key">"type"</span>: <span class="str">"NS"</span>, <span class="key">"value"</span>: <span class="str">"ns1.cloudflare.com"</span>, <span class="key">"ttl"</span>: <span class="num">86400</span>},
+    {<span class="key">"type"</span>: <span class="str">"TXT"</span>, <span class="key">"value"</span>: <span class="str">"v=spf1 include:_spf.google.com ~all"</span>, <span class="key">"ttl"</span>: <span class="num">300</span>}
+  ]
+}</pre>
+        </div>
+      </div>
+    </div>
+
+    <div class="pg-card" id="ep-whois">
+      <div class="pg-card-header">
+        <span class="method get">GET</span>
+        <span class="name">/v1/whois/{domain}</span>
+        <span class="desc">WHOIS registration data — registrar, dates, nameservers, DNSSEC</span>
+      </div>
+      <div class="pg-card-body">
+        <div class="pg-inputs">
+          <label>domain</label>
+          <input type="text" id="input-whois" value="cloudflare.com" placeholder="example.com">
+          <button class="btn-run" onclick="run('whois')">Run &rarr;</button>
+        </div>
+        <div class="pg-response" id="resp-whois">
+          <pre>{
+  <span class="key">"domain"</span>: <span class="str">"cloudflare.com"</span>,
+  <span class="key">"registrar"</span>: <span class="str">"Cloudflare, Inc."</span>,
+  <span class="key">"creation_date"</span>: <span class="str">"2009-02-17T00:00:00"</span>,
+  <span class="key">"expiration_date"</span>: <span class="str">"2033-02-17T00:00:00"</span>,
+  <span class="key">"updated_date"</span>: <span class="str">"2024-01-15T00:00:00"</span>,
+  <span class="key">"nameservers"</span>: [<span class="str">"ns1.cloudflare.com"</span>, <span class="str">"ns2.cloudflare.com"</span>],
+  <span class="key">"status"</span>: [<span class="str">"clientTransferProhibited"</span>],
+  <span class="key">"dnssec"</span>: <span class="bool">true</span>
+}</pre>
+        </div>
+      </div>
+    </div>
+
+    <div class="pg-card" id="ep-subdomains">
+      <div class="pg-card-header">
+        <span class="method get">GET</span>
+        <span class="name">/v1/subdomains/{domain}</span>
+        <span class="desc">Subdomain enumeration via certificate transparency logs</span>
+      </div>
+      <div class="pg-card-body">
+        <div class="pg-inputs">
+          <label>domain</label>
+          <input type="text" id="input-subdomains" value="cloudflare.com" placeholder="example.com">
+          <button class="btn-run" onclick="run('subdomains')">Run &rarr;</button>
+        </div>
+        <div class="pg-response" id="resp-subdomains">
+          <pre>{
+  <span class="key">"domain"</span>: <span class="str">"cloudflare.com"</span>,
+  <span class="key">"subdomains"</span>: [
+    <span class="str">"www.cloudflare.com"</span>,
+    <span class="str">"api.cloudflare.com"</span>,
+    <span class="str">"dash.cloudflare.com"</span>,
+    <span class="str">"support.cloudflare.com"</span>,
+    <span class="str">"blog.cloudflare.com"</span>
+  ],
+  <span class="key">"total"</span>: <span class="num">5</span>
+}</pre>
+        </div>
+      </div>
+    </div>
+
+    <div class="pg-card" id="ep-ssl">
+      <div class="pg-card-header">
+        <span class="method get">GET</span>
+        <span class="name">/v1/ssl/{domain}</span>
+        <span class="desc">SSL/TLS certificate analysis — grade, cipher, expiry, SAN</span>
+      </div>
+      <div class="pg-card-body">
+        <div class="pg-inputs">
+          <label>domain</label>
+          <input type="text" id="input-ssl" value="cloudflare.com" placeholder="example.com">
+          <button class="btn-run" onclick="run('ssl')">Run &rarr;</button>
+        </div>
+        <div class="pg-response" id="resp-ssl">
+          <pre>{
+  <span class="key">"domain"</span>: <span class="str">"cloudflare.com"</span>,
+  <span class="key">"grade"</span>: <span class="str">"A"</span>,
+  <span class="key">"protocol"</span>: <span class="str">"TLSv1.3"</span>,
+  <span class="key">"cipher"</span>: <span class="str">"TLS_AES_256_GCM_SHA384"</span>,
+  <span class="key">"issuer"</span>: <span class="str">"Google Trust Services"</span>,
+  <span class="key">"not_before"</span>: <span class="str">"2024-12-01T00:00:00"</span>,
+  <span class="key">"not_after"</span>: <span class="str">"2025-03-01T00:00:00"</span>,
+  <span class="key">"days_remaining"</span>: <span class="num">89</span>,
+  <span class="key">"san"</span>: [<span class="str">"cloudflare.com"</span>, <span class="str">"*.cloudflare.com"</span>]
+}</pre>
+        </div>
+      </div>
+    </div>
+
+    <div class="pg-card" id="ep-threat">
+      <div class="pg-card-header">
+        <span class="method get">GET</span>
+        <span class="name">/v1/threat/{domain}</span>
+        <span class="desc">URLhaus threat intelligence lookup</span>
+      </div>
+      <div class="pg-card-body">
+        <div class="pg-inputs">
+          <label>domain</label>
+          <input type="text" id="input-threat" value="example.com" placeholder="example.com">
+          <button class="btn-run" onclick="run('threat')">Run &rarr;</button>
+        </div>
+        <div class="pg-response" id="resp-threat">
+          <pre>{
+  <span class="key">"domain"</span>: <span class="str">"example.com"</span>,
+  <span class="key">"malware_urls"</span>: <span class="num">0</span>,
+  <span class="key">"threat_tags"</span>: [],
+  <span class="key">"threat_status"</span>: <span class="str">"clean"</span>,
+  <span class="key">"summary"</span>: <span class="str">"No threats found in URLhaus"</span>
+}</pre>
+        </div>
+      </div>
+    </div>
+
+    <div class="pg-card" id="ep-ip">
+      <div class="pg-card-header">
+        <span class="method get">GET</span>
+        <span class="name">/v1/ip/{ip}</span>
+        <span class="desc">IP intelligence — geolocation, ports, reputation</span>
+      </div>
+      <div class="pg-card-body">
+        <div class="pg-inputs">
+          <label>ip</label>
+          <input type="text" id="input-ip" value="8.8.8.8" placeholder="8.8.8.8">
+          <button class="btn-run" onclick="run('ip')">Run &rarr;</button>
+        </div>
+        <div class="pg-response" id="resp-ip">
+          <pre>{
+  <span class="key">"ip"</span>: <span class="str">"8.8.8.8"</span>,
+  <span class="key">"ptr"</span>: <span class="str">"dns.google"</span>,
+  <span class="key">"geo"</span>: {
+    <span class="key">"country"</span>: <span class="str">"US"</span>,
+    <span class="key">"city"</span>: <span class="str">"Mountain View"</span>,
+    <span class="key">"org"</span>: <span class="str">"Google LLC"</span>
+  },
+  <span class="key">"ports"</span>: [<span class="num">53</span>, <span class="num">443</span>],
+  <span class="key">"hostnames"</span>: [<span class="str">"dns.google"</span>],
+  <span class="key">"reputation"</span>: {
+    <span class="key">"score"</span>: <span class="num">0</span>,
+    <span class="key">"categories"</span>: []
+  }
+}</pre>
+        </div>
+      </div>
+    </div>
+
+    <div class="pg-card" id="ep-tech">
+      <div class="pg-card-header">
+        <span class="method get">GET</span>
+        <span class="name">/v1/tech/{domain}</span>
+        <span class="desc">Technology fingerprinting — CMS, frameworks, CDN</span>
+      </div>
+      <div class="pg-card-body">
+        <div class="pg-inputs">
+          <label>domain</label>
+          <input type="text" id="input-tech" value="shopify.com" placeholder="example.com">
+          <button class="btn-run" onclick="run('tech')">Run &rarr;</button>
+        </div>
+        <div class="pg-response" id="resp-tech">
+          <pre>{
+  <span class="key">"domain"</span>: <span class="str">"shopify.com"</span>,
+  <span class="key">"technologies"</span>: [
+    {<span class="key">"name"</span>: <span class="str">"Cloudflare"</span>, <span class="key">"category"</span>: <span class="str">"CDN"</span>, <span class="key">"confidence"</span>: <span class="num">100</span>},
+    {<span class="key">"name"</span>: <span class="str">"Ruby on Rails"</span>, <span class="key">"category"</span>: <span class="str">"Framework"</span>, <span class="key">"confidence"</span>: <span class="num">80</span>},
+    {<span class="key">"name"</span>: <span class="str">"Nginx"</span>, <span class="key">"category"</span>: <span class="str">"Web Server"</span>, <span class="key">"confidence"</span>: <span class="num">90</span>}
+  ]
+}</pre>
+        </div>
+      </div>
+    </div>
+
+    <div class="pg-card" id="ep-asn">
+      <div class="pg-card-header">
+        <span class="method get">GET</span>
+        <span class="name">/v1/asn/{target}</span>
+        <span class="desc">ASN lookup — network operator, IP prefixes</span>
+      </div>
+      <div class="pg-card-body">
+        <div class="pg-inputs">
+          <label>target</label>
+          <input type="text" id="input-asn" value="cloudflare.com" placeholder="domain or IP">
+          <button class="btn-run" onclick="run('asn')">Run &rarr;</button>
+        </div>
+        <div class="pg-response" id="resp-asn">
+          <pre>{
+  <span class="key">"asn"</span>: <span class="num">13335</span>,
+  <span class="key">"holder"</span>: <span class="str">"CLOUDFLARENET - Cloudflare, Inc."</span>,
+  <span class="key">"prefixes_v4"</span>: [<span class="str">"104.16.0.0/20"</span>, <span class="str">"172.64.0.0/13"</span>],
+  <span class="key">"prefixes_v6"</span>: [<span class="str">"2606:4700::/32"</span>],
+  <span class="key">"resolved_from"</span>: <span class="str">"cloudflare.com"</span>
+}</pre>
+        </div>
+      </div>
+    </div>
+
+    <div class="pg-card" id="ep-email_mx">
+      <div class="pg-card-header">
+        <span class="method get">GET</span>
+        <span class="name">/v1/email/mx/{domain}</span>
+        <span class="desc">Email security — MX, SPF, DMARC, DKIM, provider detection</span>
+      </div>
+      <div class="pg-card-body">
+        <div class="pg-inputs">
+          <label>domain</label>
+          <input type="text" id="input-email_mx" value="google.com" placeholder="example.com">
+          <button class="btn-run" onclick="run('email_mx')">Run &rarr;</button>
+        </div>
+        <div class="pg-response" id="resp-email_mx">
+          <pre>{
+  <span class="key">"domain"</span>: <span class="str">"google.com"</span>,
+  <span class="key">"provider"</span>: <span class="str">"Google Workspace"</span>,
+  <span class="key">"mx_records"</span>: [<span class="str">"smtp.google.com"</span>],
+  <span class="key">"spf"</span>: {
+    <span class="key">"record"</span>: <span class="str">"v=spf1 include:_spf.google.com ~all"</span>,
+    <span class="key">"valid"</span>: <span class="bool">true</span>
+  },
+  <span class="key">"dmarc"</span>: {
+    <span class="key">"record"</span>: <span class="str">"v=DMARC1; p=reject"</span>,
+    <span class="key">"policy"</span>: <span class="str">"reject"</span>
+  },
+  <span class="key">"grade"</span>: <span class="str">"B"</span>,
+  <span class="key">"score"</span>: <span class="num">80</span>
+}</pre>
+        </div>
+      </div>
+    </div>
+
+    <div class="pg-card" id="ep-email_disposable">
+      <div class="pg-card-header">
+        <span class="method get">GET</span>
+        <span class="name">/v1/email/disposable/{email}</span>
+        <span class="desc">Disposable email provider detection</span>
+      </div>
+      <div class="pg-card-body">
+        <div class="pg-inputs">
+          <label>email</label>
+          <input type="text" id="input-email_disposable" value="test@tempmail.com" placeholder="user@example.com">
+          <button class="btn-run" onclick="run('email_disposable')">Run &rarr;</button>
+        </div>
+        <div class="pg-response" id="resp-email_disposable">
+          <pre>{
+  <span class="key">"email"</span>: <span class="str">"test@tempmail.com"</span>,
+  <span class="key">"disposable"</span>: <span class="bool">true</span>,
+  <span class="key">"domain"</span>: <span class="str">"tempmail.com"</span>,
+  <span class="key">"risk"</span>: <span class="str">"high"</span>
+}</pre>
+        </div>
+      </div>
+    </div>
+
+    <div class="pg-card" id="ep-phone">
+      <div class="pg-card-header">
+        <span class="method get">GET</span>
+        <span class="name">/v1/phone/{number}</span>
+        <span class="desc">Phone number validation — carrier, type, location</span>
+      </div>
+      <div class="pg-card-body">
+        <div class="pg-inputs">
+          <label>number</label>
+          <input type="text" id="input-phone" value="+14155552671" placeholder="+country code...">
+          <button class="btn-run" onclick="run('phone')">Run &rarr;</button>
+        </div>
+        <div class="pg-response" id="resp-phone">
+          <pre>{
+  <span class="key">"number"</span>: <span class="str">"+14155552671"</span>,
+  <span class="key">"valid"</span>: <span class="bool">true</span>,
+  <span class="key">"country"</span>: <span class="str">"US"</span>,
+  <span class="key">"region"</span>: <span class="str">"California"</span>,
+  <span class="key">"carrier"</span>: <span class="str">""</span>,
+  <span class="key">"line_type"</span>: <span class="str">"fixed_line_or_mobile"</span>,
+  <span class="key">"timezone"</span>: <span class="str">"America/Los_Angeles"</span>
+}</pre>
+        </div>
+      </div>
+    </div>
+
+    <div class="pg-card" id="ep-username">
+      <div class="pg-card-header">
+        <span class="method get">GET</span>
+        <span class="name">/v1/username/{username}</span>
+        <span class="desc">Username OSINT — check 16 platforms</span>
+      </div>
+      <div class="pg-card-body">
+        <div class="pg-inputs">
+          <label>username</label>
+          <input type="text" id="input-username" value="torvalds" placeholder="username">
+          <button class="btn-run" onclick="run('username')">Run &rarr;</button>
+        </div>
+        <div class="pg-response" id="resp-username">
+          <pre>{
+  <span class="key">"username"</span>: <span class="str">"torvalds"</span>,
+  <span class="key">"total_found"</span>: <span class="num">7</span>,
+  <span class="key">"platforms"</span>: [
+    {<span class="key">"name"</span>: <span class="str">"github"</span>, <span class="key">"exists"</span>: <span class="bool">true</span>, <span class="key">"url"</span>: <span class="str">"https://github.com/torvalds"</span>},
+    {<span class="key">"name"</span>: <span class="str">"reddit"</span>, <span class="key">"exists"</span>: <span class="bool">true</span>, <span class="key">"url"</span>: <span class="str">"https://reddit.com/user/torvalds"</span>},
+    {<span class="key">"name"</span>: <span class="str">"keybase"</span>, <span class="key">"exists"</span>: <span class="bool">true</span>, <span class="key">"url"</span>: <span class="str">"https://keybase.io/torvalds"</span>}
+  ]
+}</pre>
+        </div>
+      </div>
+    </div>
+
+    <div class="pg-card" id="ep-archive">
+      <div class="pg-card-header">
+        <span class="method get">GET</span>
+        <span class="name">/v1/archive/{domain}</span>
+        <span class="desc">Wayback Machine archive history</span>
+      </div>
+      <div class="pg-card-body">
+        <div class="pg-inputs">
+          <label>domain</label>
+          <input type="text" id="input-archive" value="example.com" placeholder="example.com">
+          <button class="btn-run" onclick="run('archive')">Run &rarr;</button>
+        </div>
+        <div class="pg-response" id="resp-archive">
+          <pre>{
+  <span class="key">"domain"</span>: <span class="str">"example.com"</span>,
+  <span class="key">"first_snapshot"</span>: {
+    <span class="key">"date"</span>: <span class="str">"1997-01-01"</span>,
+    <span class="key">"url"</span>: <span class="str">"https://web.archive.org/web/19970101/http://example.com"</span>
+  },
+  <span class="key">"last_snapshot"</span>: {
+    <span class="key">"date"</span>: <span class="str">"2026-04-01"</span>,
+    <span class="key">"url"</span>: <span class="str">"https://web.archive.org/web/20260401/http://example.com"</span>
+  },
+  <span class="key">"total_snapshots"</span>: <span class="num">125000</span>
+}</pre>
+        </div>
+      </div>
+    </div>
+
+    <div class="pg-card" id="ep-scan_headers">
+      <div class="pg-card-header">
+        <span class="method get">GET</span>
+        <span class="name">/v1/scan/headers/{domain}</span>
+        <span class="desc">Live HTTP security header scan</span>
+      </div>
+      <div class="pg-card-body">
+        <div class="pg-inputs">
+          <label>domain</label>
+          <input type="text" id="input-scan_headers" value="contrastcyber.com" placeholder="example.com">
+          <button class="btn-run" onclick="run('scan_headers')">Run &rarr;</button>
+        </div>
+        <div class="pg-response" id="resp-scan_headers">
+          <pre>{
+  <span class="key">"domain"</span>: <span class="str">"contrastcyber.com"</span>,
+  <span class="key">"headers_present"</span>: [
+    <span class="str">"Strict-Transport-Security"</span>,
+    <span class="str">"X-Frame-Options"</span>,
+    <span class="str">"X-Content-Type-Options"</span>,
+    <span class="str">"Content-Security-Policy"</span>,
+    <span class="str">"Referrer-Policy"</span>,
+    <span class="str">"Permissions-Policy"</span>
+  ],
+  <span class="key">"headers_missing"</span>: [],
+  <span class="key">"score"</span>: <span class="num">100</span>,
+  <span class="key">"grade"</span>: <span class="str">"A"</span>
+}</pre>
+        </div>
+      </div>
+    </div>
+
+    <div class="section-title">CVE Intelligence</div>
+
+    <div class="pg-card" id="ep-cve">
+      <div class="pg-card-header">
+        <span class="method get">GET</span>
+        <span class="name">/v1/cve/{cve_id}</span>
+        <span class="desc">CVE details — CVSS, EPSS, KEV, affected products</span>
+      </div>
+      <div class="pg-card-body">
+        <div class="pg-inputs">
+          <label>cve_id</label>
+          <input type="text" id="input-cve" value="CVE-2024-3094" placeholder="CVE-YYYY-NNNNN">
+          <button class="btn-run" onclick="run('cve')">Run &rarr;</button>
+        </div>
+        <div class="pg-response" id="resp-cve">
+          <pre>{
+  <span class="key">"cve_id"</span>: <span class="str">"CVE-2024-3094"</span>,
+  <span class="key">"description"</span>: <span class="str">"Malicious code in xz/liblzma 5.6.0-5.6.1"</span>,
+  <span class="key">"cvss_score"</span>: <span class="num">10.0</span>,
+  <span class="key">"cvss_vector"</span>: <span class="str">"CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H"</span>,
+  <span class="key">"epss"</span>: {
+    <span class="key">"score"</span>: <span class="num">0.85</span>,
+    <span class="key">"percentile"</span>: <span class="num">0.99</span>
+  },
+  <span class="key">"kev"</span>: <span class="bool">true</span>,
+  <span class="key">"severity"</span>: <span class="str">"CRITICAL"</span>
+}</pre>
+        </div>
+      </div>
+    </div>
+
+    <div class="pg-card" id="ep-cve_search">
+      <div class="pg-card-header">
+        <span class="method get">GET</span>
+        <span class="name">/v1/cves</span>
+        <span class="desc">Search CVEs by product, severity, date range</span>
+      </div>
+      <div class="pg-card-body">
+        <div class="pg-inputs">
+          <label>product</label>
+          <input type="text" id="input-cve_search-product" value="nginx" placeholder="product name">
+          <label>severity</label>
+          <select id="input-cve_search-severity">
+            <option value="">Any</option>
+            <option value="CRITICAL" selected>CRITICAL</option>
+            <option value="HIGH">HIGH</option>
+            <option value="MEDIUM">MEDIUM</option>
+            <option value="LOW">LOW</option>
+          </select>
+          <label>days</label>
+          <input type="number" id="input-cve_search-days" value="30" min="1" max="365" style="max-width:4rem">
+          <label>limit</label>
+          <input type="number" id="input-cve_search-limit" value="5" min="1" max="200" style="max-width:4rem">
+          <button class="btn-run" onclick="run('cve_search')">Run &rarr;</button>
+        </div>
+        <div class="pg-response" id="resp-cve_search">
+          <pre>{
+  <span class="key">"total"</span>: <span class="num">1</span>,
+  <span class="key">"cves"</span>: [
+    {
+      <span class="key">"cve_id"</span>: <span class="str">"CVE-2025-23419"</span>,
+      <span class="key">"description"</span>: <span class="str">"TLS Session Resumption Vulnerability in Nginx"</span>,
+      <span class="key">"cvss_score"</span>: <span class="num">9.8</span>,
+      <span class="key">"severity"</span>: <span class="str">"CRITICAL"</span>,
+      <span class="key">"published_date"</span>: <span class="str">"2025-02-05"</span>,
+      <span class="key">"epss_score"</span>: <span class="num">0.12</span>
+    }
+  ]
+}</pre>
+        </div>
+      </div>
+    </div>
+
+    <div class="pg-card" id="ep-exploit">
+      <div class="pg-card-header">
+        <span class="method get">GET</span>
+        <span class="name">/v1/exploit/{cve_id}</span>
+        <span class="desc">Public exploits and PoC code for a CVE</span>
+      </div>
+      <div class="pg-card-body">
+        <div class="pg-inputs">
+          <label>cve_id</label>
+          <input type="text" id="input-exploit" value="CVE-2024-3094" placeholder="CVE-YYYY-NNNNN">
+          <button class="btn-run" onclick="run('exploit')">Run &rarr;</button>
+        </div>
+        <div class="pg-response" id="resp-exploit">
+          <pre>{
+  <span class="key">"cve_id"</span>: <span class="str">"CVE-2024-3094"</span>,
+  <span class="key">"total_count"</span>: <span class="num">21</span>,
+  <span class="key">"exploits"</span>: [
+    {
+      <span class="key">"source"</span>: <span class="str">"GitHub Advisory"</span>,
+      <span class="key">"title"</span>: <span class="str">"xz-utils backdoor"</span>,
+      <span class="key">"url"</span>: <span class="str">"https://github.com/advisories/GHSA-rxwq-x6h5-x525"</span>,
+      <span class="key">"published_date"</span>: <span class="str">"2024-03-29"</span>
+    }
+  ]
+}</pre>
+        </div>
+      </div>
+    </div>
+
+    <div class="pg-card" id="ep-epss">
+      <div class="pg-card-header">
+        <span class="method get">GET</span>
+        <span class="name">/v1/epss/{cve_id}</span>
+        <span class="desc">EPSS exploitation probability score</span>
+      </div>
+      <div class="pg-card-body">
+        <div class="pg-inputs">
+          <label>cve_id</label>
+          <input type="text" id="input-epss" value="CVE-2024-3094" placeholder="CVE-YYYY-NNNNN">
+          <button class="btn-run" onclick="run('epss')">Run &rarr;</button>
+        </div>
+        <div class="pg-response" id="resp-epss">
+          <pre>{
+  <span class="key">"cve_id"</span>: <span class="str">"CVE-2024-3094"</span>,
+  <span class="key">"epss_score"</span>: <span class="num">0.85</span>,
+  <span class="key">"percentile"</span>: <span class="num">0.99</span>,
+  <span class="key">"date"</span>: <span class="str">"2026-04-09"</span>
+}</pre>
+        </div>
+      </div>
+    </div>
+
+    <div class="section-title">Threat Intelligence</div>
+
+    <div class="pg-card" id="ep-ioc">
+      <div class="pg-card-header">
+        <span class="method get">GET</span>
+        <span class="name">/v1/ioc/{indicator}</span>
+        <span class="desc">IOC enrichment — ThreatFox, URLhaus, Feodo</span>
+      </div>
+      <div class="pg-card-body">
+        <div class="pg-inputs">
+          <label>indicator</label>
+          <input type="text" id="input-ioc" value="8.8.8.8" placeholder="IP, domain, URL, or hash">
+          <button class="btn-run" onclick="run('ioc')">Run &rarr;</button>
+        </div>
+        <div class="pg-response" id="resp-ioc">
+          <pre>{
+  <span class="key">"indicator"</span>: <span class="str">"8.8.8.8"</span>,
+  <span class="key">"type"</span>: <span class="str">"ip"</span>,
+  <span class="key">"found"</span>: <span class="bool">false</span>,
+  <span class="key">"threat_type"</span>: <span class="bool">null</span>,
+  <span class="key">"malware_family"</span>: <span class="bool">null</span>,
+  <span class="key">"tags"</span>: [],
+  <span class="key">"confidence"</span>: <span class="bool">null</span>,
+  <span class="key">"source"</span>: <span class="str">"abuse.ch"</span>,
+  <span class="key">"references"</span>: []
+}</pre>
+        </div>
+      </div>
+    </div>
+
+    <div class="pg-card" id="ep-hash">
+      <div class="pg-card-header">
+        <span class="method get">GET</span>
+        <span class="name">/v1/hash/{file_hash}</span>
+        <span class="desc">File hash malware lookup — MalwareBazaar</span>
+      </div>
+      <div class="pg-card-body">
+        <div class="pg-inputs">
+          <label>file_hash</label>
+          <input type="text" id="input-hash" value="d41d8cd98f00b204e9800998ecf8427e" placeholder="MD5, SHA1, or SHA256">
+          <button class="btn-run" onclick="run('hash')">Run &rarr;</button>
+        </div>
+        <div class="pg-response" id="resp-hash">
+          <pre>{
+  <span class="key">"file_hash"</span>: <span class="str">"d41d8cd98f00b204e9800998ecf8427e"</span>,
+  <span class="key">"found"</span>: <span class="bool">false</span>,
+  <span class="key">"malware_family"</span>: <span class="bool">null</span>,
+  <span class="key">"file_type"</span>: <span class="bool">null</span>,
+  <span class="key">"file_size"</span>: <span class="bool">null</span>,
+  <span class="key">"tags"</span>: [],
+  <span class="key">"first_seen"</span>: <span class="bool">null</span>,
+  <span class="key">"last_seen"</span>: <span class="bool">null</span>,
+  <span class="key">"signature"</span>: <span class="bool">null</span>
+}</pre>
+        </div>
+      </div>
+    </div>
+
+    <div class="pg-card" id="ep-password">
+      <div class="pg-card-header">
+        <span class="method get">GET</span>
+        <span class="name">/v1/password/{sha1_hash}</span>
+        <span class="desc">Password breach check — Have I Been Pwned (k-anonymity)</span>
+      </div>
+      <div class="pg-card-body">
+        <div class="pg-inputs">
+          <label>sha1_hash</label>
+          <input type="text" id="input-password" value="5baa61e4c9b93f3f0682250b6cf8331b7ee68fd8" placeholder="SHA1 hash of password">
+          <button class="btn-run" onclick="run('password')">Run &rarr;</button>
+        </div>
+        <div class="pg-response" id="resp-password">
+          <pre>{
+  <span class="key">"found"</span>: <span class="bool">true</span>,
+  <span class="key">"count"</span>: <span class="num">52256179</span>
+}</pre>
+        </div>
+      </div>
+    </div>
+
+    <div class="pg-card" id="ep-phishing">
+      <div class="pg-card-header">
+        <span class="method get">GET</span>
+        <span class="name">/v1/phishing/{url}</span>
+        <span class="desc">Phishing/malware URL check — URLhaus</span>
+      </div>
+      <div class="pg-card-body">
+        <div class="pg-inputs">
+          <label>url</label>
+          <input type="text" id="input-phishing" value="https://example.com/login" placeholder="https://...">
+          <button class="btn-run" onclick="run('phishing')">Run &rarr;</button>
+        </div>
+        <div class="pg-response" id="resp-phishing">
+          <pre>{
+  <span class="key">"url"</span>: <span class="str">"https://example.com/login"</span>,
+  <span class="key">"found"</span>: <span class="bool">false</span>,
+  <span class="key">"threat_type"</span>: <span class="str">"none"</span>,
+  <span class="key">"status"</span>: <span class="bool">null</span>,
+  <span class="key">"tags"</span>: [],
+  <span class="key">"date_added"</span>: <span class="bool">null</span>,
+  <span class="key">"source"</span>: <span class="str">"URLhaus"</span>
+}</pre>
+        </div>
+      </div>
+    </div>
+
+    <div class="section-title">Code Security</div>
+
+    <div class="pg-card" id="ep-check_secrets">
+      <div class="pg-card-header">
+        <span class="method post">POST</span>
+        <span class="name">/v1/check/secrets</span>
+        <span class="desc">Scan code for hardcoded secrets and API keys</span>
+      </div>
+      <div class="pg-card-body">
+        <div class="pg-inputs pg-inputs-col">
+          <div class="pg-inputs-row">
+            <label>language</label>
+            <select id="input-check_secrets-lang">
+              <option value="python" selected>Python</option>
+              <option value="javascript">JavaScript</option>
+              <option value="go">Go</option>
+              <option value="java">Java</option>
+              <option value="generic">Generic</option>
+            </select>
+            <button class="btn-run" onclick="run('check_secrets')">Run &rarr;</button>
+          </div>
+          <textarea id="input-check_secrets-code" rows="4" class="pg-textarea">API_KEY = "EXAMPLE_KEY_NOT_REAL"
+DB_PASSWORD = "super_secret_123"
+token = "ghp_xxxxxxxxxxxxxxxxxxxx"</textarea>
+        </div>
+        <div class="pg-response" id="resp-check_secrets">
+          <pre>{
+  <span class="key">"total"</span>: <span class="num">3</span>,
+  <span class="key">"by_severity"</span>: {
+    <span class="key">"CRITICAL"</span>: <span class="num">1</span>,
+    <span class="key">"HIGH"</span>: <span class="num">2</span>,
+    <span class="key">"MEDIUM"</span>: <span class="num">0</span>,
+    <span class="key">"LOW"</span>: <span class="num">0</span>
+  },
+  <span class="key">"findings"</span>: [
+    {
+      <span class="key">"severity"</span>: <span class="str">"CRITICAL"</span>,
+      <span class="key">"type"</span>: <span class="str">"AWS Access Key"</span>,
+      <span class="key">"line_number"</span>: <span class="num">1</span>,
+      <span class="key">"matched_text"</span>: <span class="str">"EXAMPLE_KEY_NOT_REAL"</span>,
+      <span class="key">"recommendation"</span>: <span class="str">"Remove and rotate this AWS access key immediately"</span>
+    }
+  ]
+}</pre>
+        </div>
+      </div>
+    </div>
+
+    <div class="pg-card" id="ep-check_injection">
+      <div class="pg-card-header">
+        <span class="method post">POST</span>
+        <span class="name">/v1/check/injection</span>
+        <span class="desc">Detect SQL/command injection vulnerabilities</span>
+      </div>
+      <div class="pg-card-body">
+        <div class="pg-inputs pg-inputs-col">
+          <div class="pg-inputs-row">
+            <label>language</label>
+            <select id="input-check_injection-lang">
+              <option value="python" selected>Python</option>
+              <option value="javascript">JavaScript</option>
+              <option value="go">Go</option>
+              <option value="java">Java</option>
+              <option value="generic">Generic</option>
+            </select>
+            <button class="btn-run" onclick="run('check_injection')">Run &rarr;</button>
+          </div>
+          <textarea id="input-check_injection-code" rows="4" class="pg-textarea">query = "SELECT * FROM users WHERE id = " + user_input
+os.system("ping " + hostname)
+open("/var/log/" + filename)</textarea>
+        </div>
+        <div class="pg-response" id="resp-check_injection">
+          <pre>{
+  <span class="key">"total"</span>: <span class="num">3</span>,
+  <span class="key">"by_severity"</span>: {
+    <span class="key">"CRITICAL"</span>: <span class="num">0</span>,
+    <span class="key">"HIGH"</span>: <span class="num">3</span>,
+    <span class="key">"MEDIUM"</span>: <span class="num">0</span>,
+    <span class="key">"LOW"</span>: <span class="num">0</span>
+  },
+  <span class="key">"findings"</span>: [
+    {
+      <span class="key">"severity"</span>: <span class="str">"HIGH"</span>,
+      <span class="key">"type"</span>: <span class="str">"SQL Injection"</span>,
+      <span class="key">"line_number"</span>: <span class="num">1</span>,
+      <span class="key">"matched_text"</span>: <span class="str">"SELECT * FROM users WHERE id = \" + user_input"</span>,
+      <span class="key">"recommendation"</span>: <span class="str">"Use parameterized queries instead of string concatenation"</span>
+    }
+  ]
+}</pre>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    <div class="footer-links">
+      <a href="https://contrastcyber.com/terms">Terms</a>
+      <a href="https://contrastcyber.com/privacy">Privacy</a>
+      <a href="mailto:contact@contrastcyber.com">Contact</a>
+      <a href="https://github.com/UPinar/contrastapi">GitHub</a>
+    </div>
+    <p>&copy; 2026 ContrastCyber</p>
+  </footer>
+
+  <script>
+    function escapeHtml(s) {
+      return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    function formatJson(obj, indent) {
+      indent = indent || 0;
+      var pad = '  '.repeat(indent);
+      var padInner = '  '.repeat(indent + 1);
+
+      if (obj === null) return '<span class="bool">null</span>';
+      if (typeof obj === 'boolean') return '<span class="bool">' + obj + '</span>';
+      if (typeof obj === 'number') return '<span class="num">' + obj + '</span>';
+      if (typeof obj === 'string') return '<span class="str">"' + escapeHtml(obj) + '"</span>';
+
+      if (Array.isArray(obj)) {
+        if (obj.length === 0) return '[]';
+        var items = obj.map(function(v) { return padInner + formatJson(v, indent + 1); });
+        return '[\n' + items.join(',\n') + '\n' + pad + ']';
+      }
+
+      var keys = Object.keys(obj);
+      if (keys.length === 0) return '{}';
+      var entries = keys.map(function(k) {
+        return padInner + '<span class="key">"' + escapeHtml(k) + '"</span>: ' + formatJson(obj[k], indent + 1);
+      });
+      return '{\n' + entries.join(',\n') + '\n' + pad + '}';
+    }
+
+    var ENDPOINTS = {
+      'domain_report': '/v1/domain/',
+      'dns': '/v1/dns/',
+      'whois': '/v1/whois/',
+      'subdomains': '/v1/subdomains/',
+      'ssl': '/v1/ssl/',
+      'threat': '/v1/threat/',
+      'ip': '/v1/ip/',
+      'tech': '/v1/tech/',
+      'asn': '/v1/asn/',
+      'email_mx': '/v1/email/mx/',
+      'email_disposable': '/v1/email/disposable/',
+      'phone': '/v1/phone/',
+      'username': '/v1/username/',
+      'archive': '/v1/archive/',
+      'scan_headers': '/v1/scan/headers/',
+      'cve': '/v1/cve/',
+      'cve_search': 'QUERY',
+      'exploit': '/v1/exploit/',
+      'epss': '/v1/epss/',
+      'ioc': '/v1/ioc/',
+      'hash': '/v1/hash/',
+      'password': '/v1/password/',
+      'phishing': '/v1/phishing/',
+      'check_secrets': 'POST',
+      'check_injection': 'POST'
+    };
+
+    async function run(id) {
+      if (!ENDPOINTS[id]) return;
+      var btn = document.querySelector('#ep-' + id + ' .btn-run');
+      var resp = document.querySelector('#resp-' + id + ' pre');
+
+      var val;
+      var url;
+      if (id === 'cve_search') {
+        url = '/v1/cves?' + new URLSearchParams({
+          product: document.getElementById('input-cve_search-product').value.trim(),
+          severity: document.getElementById('input-cve_search-severity').value,
+          days: document.getElementById('input-cve_search-days').value.trim() || '30',
+          limit: document.getElementById('input-cve_search-limit').value.trim() || '10'
+        }).toString();
+      } else if (ENDPOINTS[id] === 'POST') {
+        var code = document.getElementById('input-' + id + '-code').value;
+        if (!code.trim()) {
+          resp.innerHTML = '<span class="pg-error">Please enter code to scan</span>';
+          return;
+        }
+        url = '/v1/' + id.replace('check_', 'check/');
+      } else {
+        var input = document.querySelector('#input-' + id);
+        val = input.value.trim();
+        if (!val) {
+          resp.innerHTML = '<span class="pg-error">Please enter a value</span>';
+          return;
+        }
+        url = ENDPOINTS[id] + encodeURIComponent(val);
+      }
+
+      btn.disabled = true;
+      btn.textContent = 'Loading...';
+      resp.innerHTML = '<span style="color:var(--text-dim)">Loading...</span>';
+
+      var controller = new AbortController();
+      var timer = setTimeout(function() { controller.abort(); }, 15000);
+
+      try {
+        var fetchOpts = { signal: controller.signal };
+        if (ENDPOINTS[id] === 'POST') {
+          fetchOpts.method = 'POST';
+          fetchOpts.headers = { 'Content-Type': 'application/json' };
+          fetchOpts.body = JSON.stringify({
+            code: document.getElementById('input-' + id + '-code').value,
+            language: document.getElementById('input-' + id + '-lang').value
+          });
+        }
+        var res = await fetch(url, fetchOpts);
+        clearTimeout(timer);
+        var data = await res.json();
+        if (!res.ok) {
+          resp.innerHTML = '<span class="pg-error">' + escapeHtml(String(data.detail || 'Error ' + res.status)) + '</span>';
+        } else {
+          resp.innerHTML = formatJson(data);
+        }
+      } catch (e) {
+        clearTimeout(timer);
+        resp.innerHTML = '<span class="pg-error">' + (e.name === 'AbortError' ? 'Request timed out' : 'Network error') + '</span>';
+      }
+
+      btn.disabled = false;
+      btn.textContent = 'Run \u2192';
+    }
+  </script>
+</body>
+</html>
