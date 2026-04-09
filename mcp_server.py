@@ -448,7 +448,7 @@ async def password_check(
         ),
     ],
 ) -> str:
-    """Check if a password has been exposed in known data breaches by querying the Have I Been Pwned (HIBP) Pwned Passwords API using k-anonymity (only a 5-character hash prefix is sent, preserving privacy). Use this to validate password strength during security audits or user registration. IMPORTANT: send the SHA-1 hash of the password, never the plaintext. Returns JSON with fields: found (boolean) and count (number of times the password appeared in breach datasets). A count of 0 means the password has not been seen in any known breaches. Read-only lookup, no authentication required."""
+    """Check if a SHA-1 hash appears in the Have I Been Pwned (HIBP) breach dataset using k-anonymity (only a 5-character prefix is sent to HIBP, the full hash never leaves this tool). This is a read-only lookup — no data is stored, no files are accessed, no system state is modified. Input must be a 40-char hex SHA-1 digest. Returns JSON with fields: found (boolean) and count (number of breach appearances). A count of 0 means the hash has not been seen in any known breaches."""
     if not re.match(r"^[a-fA-F0-9]{40}$", sha1_hash.strip()):
         return "Invalid SHA-1 hash. Expected exactly 40 hexadecimal characters."
     return _fmt(await _get(f"/v1/password/{sha1_hash}"))
@@ -483,7 +483,7 @@ async def check_secrets(
         ),
     ] = "generic",
 ) -> str:
-    """Scan source code for hardcoded secrets and credentials including AWS access keys, API tokens, private keys, database connection strings, JWT secrets, and passwords. Uses pattern matching with language-specific context (e.g. Python f-strings, Go const blocks) to reduce false positives. Use this during code review or CI/CD to catch leaked credentials before they reach production. For injection vulnerability detection in the same code, use check_injection. Returns JSON with fields: total (finding count), by_severity (CRITICAL/HIGH/MEDIUM/LOW counts), and findings (array with severity, type, line_number, matched_text, and recommendation). Read-only static analysis, code is not stored or transmitted beyond this request."""
+    """Static analysis tool that scans source code snippets for hardcoded tokens and keys (e.g. AWS access keys, API tokens, connection strings). Uses pattern matching with language-specific context to reduce false positives. This tool performs read-only analysis on the provided code string — it does not access any files, environment variables, or system resources. The code is analyzed in-memory and not stored. For injection vulnerability detection, use check_injection. Returns JSON with fields: total (finding count), by_severity (CRITICAL/HIGH/MEDIUM/LOW counts), and findings array."""
     return _fmt(await _post("/v1/check/secrets", {"code": code, "language": language}))
 
 
@@ -502,7 +502,7 @@ async def check_injection(
         ),
     ] = "generic",
 ) -> str:
-    """Scan source code for injection vulnerabilities: SQL injection (string concatenation in queries), command injection (unsanitized input in shell commands), and path traversal (user input in file paths). Uses language-specific patterns to detect unsafe data flow from user input to dangerous sinks. Use this during code review to find exploitable injection points. For hardcoded secret detection in the same code, use check_secrets. Returns JSON with fields: total (finding count), by_severity (CRITICAL/HIGH/MEDIUM/LOW counts), and findings (array with severity, type, line_number, matched_text, and recommendation). Read-only static analysis, code is not stored or transmitted beyond this request."""
+    """Static analysis tool that scans source code snippets for injection vulnerabilities: SQL injection (string concatenation in queries), command injection (unsanitized input in shell commands), and path traversal (user input in file paths). Uses language-specific patterns to detect unsafe data flow. This tool performs read-only analysis on the provided code string — it does not access any files, execute any code, or modify system state. For hardcoded key detection, use check_secrets. Returns JSON with fields: total (finding count), by_severity (CRITICAL/HIGH/MEDIUM/LOW counts), and findings array."""
     return _fmt(await _post("/v1/check/injection", {"code": code, "language": language}))
 
 

@@ -26,9 +26,22 @@ jobs:
       - name: Ruff format check
         run: ruff format --check app/
 
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Audit dependencies
+        run: pip install -q pip-audit && pip-audit -r requirements.txt
+
   test:
     runs-on: ubuntu-latest
-    needs: [lint]
+    needs: [lint, security]
 
     steps:
       - uses: actions/checkout@v4
