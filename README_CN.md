@@ -7,12 +7,12 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Python 3.12](https://img.shields.io/badge/Python-3.12-blue.svg)](https://python.org)
 [![Tests](https://img.shields.io/badge/Tests-782_passing-brightgreen.svg)](https://github.com/UPinar/contrastapi/actions)
-[![MCP](https://img.shields.io/badge/MCP-25_tools-purple.svg)](https://modelcontextprotocol.io)
+[![MCP](https://img.shields.io/badge/MCP-29_tools-purple.svg)](https://modelcontextprotocol.io)
 [![VS Code](https://img.shields.io/badge/VS_Code-Marketplace-007ACC.svg)](https://marketplace.visualstudio.com/items?itemName=ContrastAPI.contrastapi)
 [![RapidAPI](https://img.shields.io/badge/RapidAPI-Available-blue.svg)](https://rapidapi.com/UPinar/api/contrastapi)
 [![npm](https://img.shields.io/npm/v/contrastapi.svg)](https://www.npmjs.com/package/contrastapi)
 
-**安全情报 API 和 AI 智能体 MCP 服务器。** 25 个 MCP 工具 / 35+ 个端点：CVE 查询（含 EPSS/KEV 增强）、域名侦察、SSL 分析、IP 信誉（AbuseIPDB、Shodan）、IOC/恶意软件查询、漏洞利用搜索、技术指纹识别、电子邮件安全、电话号码验证和代码安全扫描。免费使用，无需 API 密钥。
+**安全情报 API 和 AI 智能体 MCP 服务器。** 29 个 MCP 工具 / 39+ 个端点：CVE 查询（含 EPSS/KEV 增强）、域名侦察、SSL 分析、IP 信誉（AbuseIPDB、Shodan）、IOC/恶意软件查询、漏洞利用搜索、技术指纹识别、电子邮件安全、电话号码验证和代码安全扫描。免费使用，无需 API 密钥。
 
 **在线服务：** [api.contrastcyber.com](https://api.contrastcyber.com) | **快速入门：** [API](https://api.contrastcyber.com/quickstart) · [MCP](https://api.contrastcyber.com/mcp-setup) · [VS Code](https://marketplace.visualstudio.com/items?itemName=ContrastAPI.contrastapi) | **文档：** [接口列表](#接口列表) | **扫描器：** [contrastcyber.com](https://contrastcyber.com)
 
@@ -24,7 +24,7 @@
 
 ## 与 AI 智能体配合使用
 
-**VS Code 扩展：** 从 [Marketplace](https://marketplace.visualstudio.com/items?itemName=ContrastAPI.contrastapi) 安装 ContrastAPI — 编辑器内 25 个安全工具，无需 API 密钥。
+**VS Code 扩展：** 从 [Marketplace](https://marketplace.visualstudio.com/items?itemName=ContrastAPI.contrastapi) 安装 ContrastAPI — 编辑器内 29 个安全工具，无需 API 密钥。
 
 **MCP 配置** 支持 Claude Desktop、Cursor、VS Code、Windsurf 等工具：**[MCP 配置指南](https://api.contrastcyber.com/mcp-setup)**
 
@@ -120,6 +120,8 @@ curl https://api.contrastcyber.com/v1/domain/example.com
 
 ```
 GET  /v1/domain/{domain}       完整域名报告（DNS + WHOIS + SSL + 子域名 + WAF + 信誉）
+GET  /v1/audit/{domain}        综合审计（完整报告 + 技术指纹 + 实时响应头）
+GET  /v1/threat-report/{ip}    编排式 IP 威胁报告（Shodan + AbuseIPDB + ASN）
 GET  /v1/dns/{domain}          DNS 记录（A、AAAA、MX、NS、TXT、CNAME、SOA）
 GET  /v1/whois/{domain}        WHOIS 注册信息
 GET  /v1/subdomains/{domain}   子域名枚举（DNS 爆破 + CT 日志）
@@ -147,6 +149,7 @@ GET /v1/cves/recent?hours=24   最新 CVE
 GET /v1/cves/kev               CISA 已利用漏洞
 GET /v1/epss/{cve_id}          漏洞利用概率
 GET /v1/exploit/{cve_id}       公开漏洞利用搜索（GitHub Advisory + Shodan）
+POST /v1/cves/bulk             批量 CVE 查询（免费 10 个，Pro 50 个）
 ```
 
 ### 威胁情报
@@ -156,6 +159,7 @@ GET /v1/ioc/{indicator}        统一 IOC 查询（IP、域名、URL、哈希）
 GET /v1/hash/{hash}            恶意软件哈希信誉（MalwareBazaar）
 GET /v1/password/{sha1}        密码泄露检查（HIBP，k-匿名）
 GET /v1/phishing/{url}         钓鱼/恶意 URL 检查（URLhaus）
+POST /v1/iocs/bulk             批量 IOC 富化（免费 10 个，Pro 50 个）
 GET /v1/phone/{number}         电话号码 OSINT（运营商、类型、国家）
 ```
 

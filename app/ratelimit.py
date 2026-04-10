@@ -131,6 +131,46 @@ def consume_bulk(store_name: str, key: str, count: int, max_requests: int, windo
         raise
 
 
+def consume_credits(
+    store_name: str, key: str, cost: int, max_requests: int, window_seconds: int = 3600
+) -> tuple[bool, int]:
+    """Atomically consume `cost` rate limit slots. Returns (allowed, remaining).
+
+    For cost<=1 delegates to check_limit_with_count (backwards compat).
+    For cost>1 uses BEGIN IMMEDIATE pattern to atomically check + insert cost rows.
+    If the request would exceed the limit, no rows are inserted.
+    """
+    if cost <= 1:
+        return check_limit_with_count(store_name, key, max_requests, window_seconds)
+
+    _init()
+    now = time.time()
+    cutoff = now - window_seconds
+    full_key = f"{store_name}:{key}"
+
+    con = _get_conn(str(API_DB_PATH))
+    try:
+        con.execute("BEGIN IMMEDIATE")
+        con.execute("DELETE FROM rate_limits WHERE key = ? AND ts <= ?", (full_key, cutoff))
+        row = con.execute(
+            "SELECT COUNT(*) FROM rate_limits WHERE key = ? AND ts > ?",
+            (full_key, cutoff),
+        ).fetchone()
+        current = row[0] if row else 0
+        if current + cost > max_requests:
+            con.commit()
+            return False, max(0, max_requests - current)
+        con.executemany(
+            "INSERT INTO rate_limits (key, ts) VALUES (?, ?)",
+            [(full_key, now) for _ in range(cost)],
+        )
+        con.commit()
+        return True, max(0, max_requests - current - cost)
+    except Exception:
+        con.rollback()
+        raise
+
+
 def get_reset_time(store_name: str, key: str, window_seconds: int = 3600) -> int:
     """Seconds until the oldest request in the window expires."""
     _init()

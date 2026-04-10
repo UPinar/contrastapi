@@ -6,7 +6,16 @@ import httpx
 from auth import authenticate
 from db import get_cached_domain, get_cve, get_epss, get_kev_cves, get_recent_cves, save_cached_domain, search_cves
 from fastapi import APIRouter, HTTPException, Query, Request
-from schemas import CveKevResponse, CveRecentResponse, CveResponse, CveSearchResponse, EpssResponse, ExploitResponse
+from pydantic import BaseModel, Field
+from schemas import (
+    BulkCveResponse,
+    CveKevResponse,
+    CveRecentResponse,
+    CveResponse,
+    CveSearchResponse,
+    EpssResponse,
+    ExploitResponse,
+)
 from validation import is_valid_ip, validate_cve_id
 
 logger = logging.getLogger("contrastapi")
@@ -347,3 +356,88 @@ def exploit_lookup(cve_id: str, request: Request):
 
     save_cached_domain(cache_key, result)
     return {**result, "cached": False}
+
+
+# === Bulk CVE Lookup ===
+
+
+class _BulkCveRequest(BaseModel):
+    cve_ids: list[str] = Field(..., min_length=1, max_length=50)
+
+
+@router.post(
+    "/cves/bulk",
+    operation_id="bulk_cve_lookup",
+    response_model=BulkCveResponse,
+    response_model_exclude_none=True,
+)
+def bulk_cve_lookup(body: _BulkCveRequest, request: Request):
+    """Bulk CVE lookup — up to 10 CVEs (free) or 50 (pro). Each CVE counts as 1 request toward rate limit."""
+    import ratelimit
+    from auth import extract_key, hash_key
+    from config import FREE_BULK_LIMIT, FREE_HOURLY_LIMIT, PRO_BULK_LIMIT, PRO_HOURLY_LIMIT
+    from validation import get_client_ip
+
+    auth_ctx = authenticate(request, "/v1/cves/bulk")
+    client_ip = get_client_ip(request)
+
+    bulk_limit = PRO_BULK_LIMIT if auth_ctx["tier"] == "pro" else FREE_BULK_LIMIT
+
+    cve_ids = list(dict.fromkeys(c.strip().upper() for c in body.cve_ids if c.strip()))
+    count = len(cve_ids)
+
+    if count == 0:
+        raise HTTPException(status_code=400, detail="cve_ids must contain at least one valid CVE ID")
+    if count > bulk_limit:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Too many CVE IDs. Limit: {bulk_limit} (your tier: {auth_ctx['tier']})",
+        )
+
+    for cid in cve_ids:
+        if not validate_cve_id(cid):
+            raise HTTPException(status_code=400, detail=f"Invalid CVE ID format: {cid}")
+
+    raw_key = extract_key(request)
+    if raw_key:
+        store_key = f"pro:{hash_key(raw_key)}"
+        limit = PRO_HOURLY_LIMIT
+    else:
+        store_key = f"free:{client_ip}"
+        limit = FREE_HOURLY_LIMIT
+
+    if count > 1 and not ratelimit.consume_bulk("api", store_key, count - 1, limit):
+        raise HTTPException(
+            status_code=429,
+            detail=f"Insufficient rate limit quota for {count} CVE IDs.",
+        )
+
+    results = []
+    successful = 0
+    for cid in cve_ids:
+        try:
+            row = get_cve(cid)
+            if row is None:
+                results.append({"cve_id": cid, "status": "not_found", "cve": None, "error": f"CVE {cid} not found"})
+            else:
+                results.append({"cve_id": cid, "status": "ok", "cve": _format_cve(row), "error": None})
+                successful += 1
+        except Exception as e:
+            logger.warning("Bulk CVE lookup failed for %s: %s", cid, type(e).__name__)
+            results.append({"cve_id": cid, "status": "error", "cve": None, "error": "Lookup failed"})
+
+    failed = count - successful
+    if failed == 0:
+        summary = f"All {count} CVEs found"
+    elif successful == 0:
+        summary = f"No CVEs found in {count} lookups"
+    else:
+        summary = f"{successful}/{count} CVEs found, {failed} not found or failed"
+
+    return {
+        "results": results,
+        "total": count,
+        "successful": successful,
+        "failed": failed,
+        "summary": summary,
+    }

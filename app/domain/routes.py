@@ -5,7 +5,8 @@ import socket
 import ssl as _ssl
 import threading
 import time as _time
-from concurrent.futures import ThreadPoolExecutor, TimeoutError
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeoutError
 
 from fastapi import APIRouter, HTTPException, Request
 
@@ -16,7 +17,14 @@ import ratelimit
 
 _ripe_client = _httpx.Client(timeout=_httpx.Timeout(7.0, connect=3.0), follow_redirects=False)
 from auth import authenticate
-from config import BULK_OVERALL_TIMEOUT, BULK_PER_DOMAIN_TIMEOUT, ENRICHMENT_DAILY_LIMIT, RECON_TIMEOUT
+from config import (
+    BULK_OVERALL_TIMEOUT,
+    BULK_PER_DOMAIN_TIMEOUT,
+    COST_AUDIT,
+    COST_THREAT_REPORT,
+    ENRICHMENT_DAILY_LIMIT,
+    RECON_TIMEOUT,
+)
 from db import get_cached_domain, get_cached_ip, save_cached_domain, save_cached_ip
 from domain.archive import wayback_lookup
 from domain.recon import (
@@ -40,6 +48,7 @@ from domain.username import username_lookup
 from pydantic import BaseModel, Field
 from schemas import (
     AsnResponse,
+    AuditResponse,
     BulkDomainResponse,
     CertsResponse,
     DisposableResponse,
@@ -52,6 +61,7 @@ from schemas import (
     SslResponse,
     SubdomainsResponse,
     TechResponse,
+    ThreatReportResponse,
     ThreatResponse,
     UsernameLookupResponse,
     VulnsResponse,
@@ -61,6 +71,22 @@ from schemas import (
 from validation import _is_valid_format, clean_domain, get_client_ip, is_private_ip, is_valid_ip, validate_domain
 
 logger = logging.getLogger("contrastapi")
+
+# Headers stripped from audit response to prevent leaking target-site secrets
+# into API output (e.g. user auditing their own site with active session).
+_AUDIT_SENSITIVE_HEADERS = frozenset(
+    {
+        "authorization",
+        "cookie",
+        "set-cookie",
+        "proxy-authorization",
+        "x-api-key",
+        "x-auth-token",
+        "x-csrf-token",
+        "x-xsrf-token",
+        "x-session-token",
+    }
+)
 
 router = APIRouter(prefix="/v1", tags=["Domain Intelligence"])
 
@@ -180,7 +206,7 @@ def domain_report(domain: str, request: Request, lite: bool = False):
     client_ip = get_client_ip(request)
     try:
         result = full_domain_report(domain, resolved_ip=resolved_ip, client_ip=client_ip, lite=lite)
-    except TimeoutError:
+    except FuturesTimeoutError:
         raise HTTPException(status_code=504, detail="Domain report timed out — upstream services too slow") from None
     save_cached_domain(cache_key, result)
     return {**result, "cached": False}
@@ -228,7 +254,7 @@ def email_mx(domain: str, request: Request):
     pool = ThreadPoolExecutor(max_workers=1)
     try:
         security = pool.submit(email_security, domain, txt_records).result(timeout=RECON_TIMEOUT * 2)
-    except TimeoutError:
+    except FuturesTimeoutError:
         security = {
             "spf": None,
             "dmarc": None,
@@ -986,7 +1012,7 @@ def bulk_domain_report(body: _BulkRequest, request: Request):
             per_domain = min(BULK_PER_DOMAIN_TIMEOUT, remaining)
             try:
                 results.append(future.result(timeout=per_domain))
-            except TimeoutError:
+            except FuturesTimeoutError:
                 future.cancel()
                 logger.warning("Bulk report timed out for %s", domain)
                 results.append(
@@ -1023,5 +1049,183 @@ def bulk_domain_report(body: _BulkRequest, request: Request):
         "failed": failed,
         "timed_out": timed_out,
         "partial": partial,
+        "summary": summary,
+    }
+
+
+@router.get(
+    "/audit/{domain}",
+    operation_id="audit_domain",
+    response_model=AuditResponse,
+    response_model_exclude_none=True,
+)
+def audit_domain(domain: str, request: Request):
+    """Comprehensive domain audit — full intelligence report + technology fingerprint + live HTTP headers in a single call.
+
+    Aggregates DNS, SSL, WHOIS, subdomains, threat intelligence, technology detection,
+    HTTP security headers, and reputation data. Designed for AI agents and security
+    automation that need a complete picture in one request.
+    """
+    from domain.recon import fetch_live_headers
+    from domain.tech import detect_technologies
+
+    authenticate(request, "/v1/audit", cost=COST_AUDIT)
+
+    domain = clean_domain(domain)
+    if not domain:
+        raise HTTPException(status_code=400, detail="Invalid domain")
+
+    client_ip = get_client_ip(request)
+
+    cached = get_cached_domain(domain)
+    if cached:
+        report = cached
+    else:
+        # Hard timeout guard — full_domain_report can hang on slow upstream
+        # fail-overs (WHOIS, CT logs, subdomain enum). Cap at BULK_PER_DOMAIN_TIMEOUT.
+        with ThreadPoolExecutor(max_workers=1) as _pool:
+            _fut = _pool.submit(full_domain_report, domain, client_ip=client_ip)
+            try:
+                report = _fut.result(timeout=BULK_PER_DOMAIN_TIMEOUT)
+            except FuturesTimeoutError:
+                logger.warning("audit_domain: full_domain_report timed out for %s", domain)
+                raise HTTPException(status_code=504, detail="Domain audit timed out — target upstream slow") from None
+            except Exception as e:
+                logger.warning("audit_domain: full_domain_report failed for %s: %s", domain, type(e).__name__)
+                raise HTTPException(status_code=502, detail="Domain audit failed") from None
+        save_cached_domain(domain, report)
+
+    try:
+        live = fetch_live_headers(domain)
+    except Exception as e:
+        logger.warning("audit_domain: fetch_live_headers failed for %s: %s", domain, e)
+        live = {}
+    headers = live.get("headers", {}) if isinstance(live, dict) else {}
+    if not isinstance(headers, dict):
+        headers = {}
+    # Filter sensitive headers before they leave the server. Lowercase keys for
+    # case-insensitive matching (HTTP headers are case-insensitive).
+    headers = {k: v for k, v in headers.items() if k.lower() not in _AUDIT_SENSITIVE_HEADERS}
+    tech = (
+        detect_technologies(headers) if headers else {"technologies": [], "categories": {}, "count": 0, "summary": ""}
+    )
+
+    summary_parts = []
+    if report.get("summary"):
+        summary_parts.append(report["summary"])
+    if tech.get("count"):
+        summary_parts.append(f"{tech['count']} technologies detected")
+    summary = " · ".join(summary_parts) if summary_parts else f"Audit completed for {domain}"
+
+    return {
+        "domain": domain,
+        "report": report,
+        "technologies": tech,
+        "live_headers": headers,
+        "summary": summary,
+    }
+
+
+@router.get(
+    "/threat-report/{ip}",
+    operation_id="threat_report",
+    response_model=ThreatReportResponse,
+    response_model_exclude_none=True,
+)
+def threat_report(ip: str, request: Request):
+    """Comprehensive IP threat report — Shodan InternetDB + AbuseIPDB + Shodan full + ASN in a single call.
+
+    Aggregates open ports, vulnerabilities, abuse reports, geolocation, ASN ownership,
+    and reputation across multiple sources. Designed for SOC triage and threat hunting
+    where a complete IP profile is needed without making 4+ separate API calls.
+    """
+    authenticate(request, "/v1/threat-report", cost=COST_THREAT_REPORT)
+
+    if not is_valid_ip(ip):
+        raise HTTPException(status_code=400, detail="Invalid IP address")
+    if is_private_ip(ip):
+        raise HTTPException(status_code=400, detail="Private/reserved IP addresses are not allowed")
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        f_enrich = pool.submit(ip_enrichment, ip)
+        f_abuse = pool.submit(check_abuseipdb, ip)
+        f_shodan = pool.submit(check_shodan, ip)
+
+        try:
+            enrichment = f_enrich.result(timeout=10)
+        except Exception as e:
+            logger.warning("threat_report: ip_enrichment failed for %s: %s", ip, type(e).__name__)
+            f_enrich.cancel()
+            enrichment = {"ports": [], "hostnames": [], "vulns": [], "cpes": [], "tags": []}
+        try:
+            abuseipdb = f_abuse.result(timeout=10)
+        except Exception as e:
+            logger.warning("threat_report: check_abuseipdb failed for %s: %s", ip, type(e).__name__)
+            f_abuse.cancel()
+            abuseipdb = {"status": "error"}
+        try:
+            shodan_data = f_shodan.result(timeout=10)
+        except Exception as e:
+            logger.warning("threat_report: check_shodan failed for %s: %s", ip, type(e).__name__)
+            f_shodan.cancel()
+            shodan_data = {"status": "error"}
+
+    if not isinstance(enrichment, dict):
+        enrichment = {"ports": [], "hostnames": [], "vulns": [], "cpes": [], "tags": []}
+    if not isinstance(abuseipdb, dict):
+        abuseipdb = {"status": "error"}
+    if not isinstance(shodan_data, dict):
+        shodan_data = {"status": "error"}
+
+    asn_data = {}
+    try:
+        cache_key = f"asn:{ip}"
+        cached_asn = get_cached_domain(cache_key)
+        if cached_asn:
+            asn_data = cached_asn
+        else:
+            r = _ripe_client.get(
+                "https://stat.ripe.net/data/network-info/data.json",
+                params={"resource": ip},
+                timeout=5.0,
+            )
+            r.raise_for_status()
+            data = r.json().get("data", {})
+            asns = data.get("asns", [])
+            if asns and asns[0]:
+                asn_data = {"asn": int(asns[0]), "prefix": data.get("prefix", "")}
+                save_cached_domain(cache_key, asn_data)
+    except Exception as e:
+        logger.warning("threat_report: ASN lookup failed for %s: %s", ip, type(e).__name__)
+        asn_data = {"error": "lookup_failed"}
+
+    threat_level = "none"
+    raw_score = abuseipdb.get("abuse_score")
+    abuse_score = raw_score if isinstance(raw_score, int) else None
+    if shodan_data.get("vulns") or enrichment.get("vulns") or (abuse_score is not None and abuse_score >= 50):
+        threat_level = "high"
+    elif abuse_score is not None and abuse_score >= 25:
+        threat_level = "medium"
+    elif enrichment.get("ports"):
+        threat_level = "low"
+
+    summary_parts = [f"IP {ip}"]
+    if isinstance(asn_data.get("asn"), int):
+        summary_parts.append(f"AS{asn_data['asn']}")
+    if enrichment.get("ports"):
+        summary_parts.append(f"{len(enrichment['ports'])} open ports")
+    if enrichment.get("vulns") or shodan_data.get("vulns"):
+        all_vulns = set(enrichment.get("vulns", [])) | set(shodan_data.get("vulns", []))
+        summary_parts.append(f"{len(all_vulns)} known vulns")
+    summary_parts.append(f"threat level: {threat_level}")
+    summary = " · ".join(summary_parts)
+
+    return {
+        "ip": ip,
+        "enrichment": enrichment,
+        "abuseipdb": abuseipdb,
+        "shodan": shodan_data,
+        "asn": asn_data,
+        "threat_level": threat_level,
         "summary": summary,
     }

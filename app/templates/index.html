@@ -4,16 +4,16 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ContrastAPI — Security Intelligence API</title>
-  <meta name="description" content="Security intelligence API and MCP server with 25 tools. CVE lookup, domain recon, threat intel, code security. Free, no API key required.">
-  <meta property="og:title" content="ContrastAPI — 25 Security Tools for AI Agents">
-  <meta property="og:description" content="Free security intelligence API and MCP server. 25 tools: CVE, domain recon, IOC, exploit search, code security. No signup required.">
+  <meta name="description" content="Security intelligence API and MCP server with 29 tools. CVE lookup, domain recon, threat intel, code security. Free, no API key required.">
+  <meta property="og:title" content="ContrastAPI — 29 Security Tools for AI Agents">
+  <meta property="og:description" content="Free security intelligence API and MCP server. 29 tools: CVE, domain recon, IOC, exploit search, code security. No signup required.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://api.contrastcyber.com">
   <meta property="og:image" content="https://api.contrastcyber.com/static/og-image.png">
   <meta property="og:site_name" content="ContrastAPI">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="ContrastAPI — 25 Security Tools for AI Agents">
-  <meta name="twitter:description" content="Free security MCP server. 25 tools: CVE, domain recon, IOC, exploit search, code security. No signup.">
+  <meta name="twitter:title" content="ContrastAPI — 29 Security Tools for AI Agents">
+  <meta name="twitter:description" content="Free security MCP server. 29 tools: CVE, domain recon, IOC, exploit search, code security. No signup.">
   <meta name="twitter:image" content="https://api.contrastcyber.com/static/og-image.png">
   <meta name="msvalidate.01" content="FF2D74F962D3EB9B4CD7B81481A4C873">
   <link rel="canonical" href="https://api.contrastcyber.com/">
@@ -77,6 +77,11 @@
         <span class="method get">GET</span>
         <span class="endpoint-path">/v1/domain/{domain}</span>
         <span class="endpoint-desc">Full domain report</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/audit/{domain}</span>
+        <span class="endpoint-desc">Full audit (report + tech + headers)</span>
       </div>
       <div class="endpoint">
         <span class="method get">GET</span>
@@ -207,9 +212,24 @@
         <span class="endpoint-desc">Tech stack CVE scan</span>
       </div>
       <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/threat-report/{ip}</span>
+        <span class="endpoint-desc">IP threat report (Shodan + AbuseIPDB + ASN)</span>
+      </div>
+      <div class="endpoint">
         <span class="method post">POST</span>
         <span class="endpoint-path">/v1/domains/bulk</span>
         <span class="endpoint-desc">Bulk domain scan (up to 10 domains)</span>
+      </div>
+      <div class="endpoint">
+        <span class="method post">POST</span>
+        <span class="endpoint-path">/v1/cves/bulk</span>
+        <span class="endpoint-desc">Bulk CVE lookup (free 10, pro 50 per request)</span>
+      </div>
+      <div class="endpoint">
+        <span class="method post">POST</span>
+        <span class="endpoint-path">/v1/iocs/bulk</span>
+        <span class="endpoint-desc">Bulk IOC enrichment (free 10, pro 50 per request)</span>
       </div>
     </div>
 
@@ -303,6 +323,36 @@
 }</pre>
   </section>
 
+  <!-- Credit Costs -->
+  <section class="endpoints">
+    <div class="section-title">Credit Costs</div>
+    <p style="color:#aaa;font-size:0.9rem;margin:0.5rem 0 1rem 0.5rem">
+      Transparent pricing — every response includes <code style="color:#58a6ff">X-RateLimit-Cost</code> so you can budget calls.
+    </p>
+    <div class="endpoint-group">
+      <div class="endpoint">
+        <span class="method get">1&times;</span>
+        <span class="endpoint-path">Most endpoints</span>
+        <span class="endpoint-desc">1 credit per call</span>
+      </div>
+      <div class="endpoint">
+        <span class="method post">4&times;</span>
+        <span class="endpoint-path">/v1/audit/{domain}</span>
+        <span class="endpoint-desc">Aggregates 4 upstream sources</span>
+      </div>
+      <div class="endpoint">
+        <span class="method post">4&times;</span>
+        <span class="endpoint-path">/v1/threat-report/{ip}</span>
+        <span class="endpoint-desc">Aggregates Shodan + AbuseIPDB + ASN + enrichment</span>
+      </div>
+      <div class="endpoint">
+        <span class="method post">N&times;</span>
+        <span class="endpoint-path">Bulk endpoints</span>
+        <span class="endpoint-desc">N credits for N items in the request</span>
+      </div>
+    </div>
+  </section>
+
   <!-- Pricing -->
   <section class="auth-section">
     <div class="section-title">Pricing</div>
@@ -311,8 +361,9 @@
         <h3>Free</h3>
         <div class="price">$0 / forever</div>
         <ul>
-          <li>100 requests/hour</li>
-          <li>All 30+ endpoints</li>
+          <li>100 credits/hour</li>
+          <li>All 29 endpoints</li>
+          <li>Bulk endpoints: 10 items/request</li>
           <li>No signup required</li>
           <li>Community support</li>
         </ul>
@@ -321,8 +372,8 @@
         <h3>Pro</h3>
         <div class="price">$19 / month</div>
         <ul>
-          <li>1,000 requests/hour (10x)</li>
-          <li>Bulk domain reports (50 domains)</li>
+          <li>1,000 credits/hour (10x)</li>
+          <li>Bulk endpoints: 50 items/request</li>
           <li>Usage dashboard</li>
           <li>Priority support</li>
         </ul>

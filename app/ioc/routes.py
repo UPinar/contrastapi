@@ -3,7 +3,8 @@
 import logging
 import re
 import socket
-from concurrent.futures import ThreadPoolExecutor
+import time as _time
+from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from urllib.parse import urlparse
 
 import httpx
@@ -19,7 +20,8 @@ from ioc.lookup import (
     query_threatfox,
 )
 from ioc.password import is_valid_sha1, query_pwned_hash
-from schemas import HashResponse, IocResponse, PasswordResponse, PhishingResponse
+from pydantic import BaseModel, Field
+from schemas import BulkIocResponse, HashResponse, IocResponse, PasswordResponse, PhishingResponse
 from validation import is_private_ip, is_valid_ip
 
 logger = logging.getLogger("contrastapi")
@@ -293,5 +295,180 @@ def phishing_check(url: str, request: Request):
         "urlhaus_host": urlhaus_host,
         "urlhaus_url": urlhaus_url,
         "threat_level": threat_level,
+        "summary": summary,
+    }
+
+
+# === Bulk IOC Lookup ===
+
+_BULK_IOC_PER_TIMEOUT = 10
+_BULK_IOC_OVERALL_TIMEOUT = 120
+
+
+class _BulkIocRequest(BaseModel):
+    indicators: list[str] = Field(..., min_length=1, max_length=50)
+
+
+def _run_single_ioc(indicator: str) -> dict:
+    """Lookup a single IOC via threatfox + feodo (if IP) + urlhaus."""
+    indicator = indicator.strip()
+    if not indicator:
+        return {"indicator": indicator, "status": "error", "ioc": None, "error": "Empty indicator"}
+    # Strip control chars (newlines, tabs, bidi overrides, etc.) — str.isprintable()
+    # returns False for \n, \r, \t and Unicode control chars but True for normal space.
+    indicator = "".join(c for c in indicator if c.isprintable())
+    indicator = re.sub(r"[<>&\"']", "", indicator)
+
+    ioc_type = detect_indicator_type(indicator)
+    if ioc_type == "unknown":
+        return {"indicator": indicator, "status": "error", "ioc": None, "error": "Unknown indicator type"}
+
+    if ioc_type == "ip" and is_private_ip(indicator):
+        return {"indicator": indicator, "status": "error", "ioc": None, "error": "Private IP not allowed"}
+
+    # Determine target for urlhaus host lookup (mirror single /v1/ioc behavior)
+    urlhaus_target = None
+    if ioc_type in ("ip", "domain"):
+        urlhaus_target = indicator
+    elif ioc_type == "url":
+        host = urlparse(indicator).hostname
+        if host:
+            if is_valid_ip(host) and is_private_ip(host):
+                return {"indicator": indicator, "status": "error", "ioc": None, "error": "Private IP not allowed"}
+            urlhaus_target = host
+
+    sources = {}
+    threat_level = "none"
+    try:
+        tf = query_threatfox(indicator)
+        sources["threatfox"] = tf
+        if tf.get("found"):
+            threat_level = "high"
+    except Exception:
+        sources["threatfox"] = {"found": False}
+
+    if ioc_type == "ip":
+        try:
+            feodo = query_feodo(indicator)
+            sources["feodo"] = feodo
+            if feodo.get("found"):
+                threat_level = "high"
+        except Exception:
+            sources["feodo"] = {"found": False}
+
+    if urlhaus_target:
+        try:
+            urlhaus = check_urlhaus(urlhaus_target)
+            if urlhaus:
+                sources["urlhaus"] = urlhaus
+                if urlhaus.get("urlhaus_status") == "found":
+                    threat_level = "high"
+        except Exception:
+            pass
+
+    return {
+        "indicator": indicator,
+        "status": "ok",
+        "ioc": {"type": ioc_type, "threat_level": threat_level, "sources": sources},
+        "error": None,
+    }
+
+
+@router.post(
+    "/iocs/bulk",
+    operation_id="bulk_ioc_lookup",
+    response_model=BulkIocResponse,
+    response_model_exclude_none=True,
+)
+def bulk_ioc_lookup(body: _BulkIocRequest, request: Request):
+    """Bulk IOC enrichment — up to 10 indicators (free) or 50 (pro). Each indicator counts as 1 request toward rate limit."""
+    import ratelimit
+    from auth import extract_key, hash_key
+    from config import FREE_BULK_LIMIT, FREE_HOURLY_LIMIT, PRO_BULK_LIMIT, PRO_HOURLY_LIMIT
+    from validation import get_client_ip
+
+    auth_ctx = authenticate(request, "/v1/iocs/bulk")
+    client_ip = get_client_ip(request)
+
+    bulk_limit = PRO_BULK_LIMIT if auth_ctx["tier"] == "pro" else FREE_BULK_LIMIT
+
+    indicators = list(dict.fromkeys(i.strip() for i in body.indicators if i.strip()))
+    count = len(indicators)
+
+    if count == 0:
+        raise HTTPException(status_code=400, detail="indicators must contain at least one value")
+    if count > bulk_limit:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Too many indicators. Limit: {bulk_limit} (your tier: {auth_ctx['tier']})",
+        )
+
+    raw_key = extract_key(request)
+    if raw_key:
+        store_key = f"pro:{hash_key(raw_key)}"
+        limit = PRO_HOURLY_LIMIT
+    else:
+        store_key = f"free:{client_ip}"
+        limit = FREE_HOURLY_LIMIT
+
+    if count > 1 and not ratelimit.consume_bulk("api", store_key, count - 1, limit):
+        raise HTTPException(
+            status_code=429,
+            detail=f"Insufficient rate limit quota for {count} indicators.",
+        )
+
+    results = []
+    timed_out = 0
+    partial = False
+    deadline = _time.monotonic() + _BULK_IOC_OVERALL_TIMEOUT
+
+    with ThreadPoolExecutor(max_workers=5) as pool:
+        futures = [(pool.submit(_run_single_ioc, ind), ind) for ind in indicators]
+        for future, ind in futures:
+            remaining = deadline - _time.monotonic()
+            if remaining <= 0:
+                future.cancel()
+                results.append(
+                    {"indicator": ind, "status": "error", "ioc": None, "error": "Request processing took too long"}
+                )
+                timed_out += 1
+                partial = True
+                continue
+            per_ind = min(_BULK_IOC_PER_TIMEOUT, remaining)
+            try:
+                results.append(future.result(timeout=per_ind))
+            except TimeoutError:
+                future.cancel()
+                results.append(
+                    {"indicator": ind, "status": "error", "ioc": None, "error": "Request processing took too long"}
+                )
+                timed_out += 1
+            except Exception as e:
+                # Log type only — never expose exception detail in response or full message
+                logger.warning("Bulk IOC lookup failed for %s: %s", ind, type(e).__name__)
+                results.append({"indicator": ind, "status": "error", "ioc": None, "error": "Lookup failed"})
+
+    successful = sum(1 for r in results if r["status"] == "ok")
+    failed = count - successful - timed_out
+
+    if partial:
+        summary = f"{successful}/{count} indicators processed (partial — overall timeout)"
+    elif failed == 0 and timed_out == 0:
+        summary = f"All {count} indicators processed"
+    else:
+        parts = [f"{successful}/{count} processed"]
+        if failed:
+            parts.append(f"{failed} failed")
+        if timed_out:
+            parts.append(f"{timed_out} timed out")
+        summary = ", ".join(parts)
+
+    return {
+        "results": results,
+        "total": count,
+        "successful": successful,
+        "failed": failed,
+        "timed_out": timed_out,
+        "partial": partial,
         "summary": summary,
     }

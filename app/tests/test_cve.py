@@ -985,3 +985,109 @@ class TestSyncCrashRecovery:
         sync_nvd(full=True, resume=True)
         call_args = mock_req.call_args[0][0]
         assert call_args["startIndex"] == 0
+
+
+class TestBulkCveLookup:
+    """Tests for POST /v1/cves/bulk"""
+
+    _MOCK_CVE = {
+        "cve_id": "CVE-2024-3094",
+        "description": "Backdoor in xz",
+        "severity": "CRITICAL",
+        "cvss_v3": 10.0,
+        "cvss_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+        "cwe_id": "CWE-506",
+        "epss_score": 0.97,
+        "epss_percentile": 0.99,
+        "in_kev": True,
+        "kev_date_added": "2024-03-29",
+        "affected_products": [],
+        "published": "2024-03-29",
+        "modified": "2024-04-01",
+        "refs": [],
+        "summary": "Backdoor in xz (CRITICAL)",
+    }
+
+    @patch("cve.routes.get_cve")
+    def test_bulk_cve_success(self, mock_get):
+        mock_get.return_value = dict(self._MOCK_CVE)
+        r = client.post("/v1/cves/bulk", json={"cve_ids": ["CVE-2024-3094", "CVE-2021-44228"]})
+        assert r.status_code == 200
+        data = r.json()
+        assert data["total"] == 2
+        assert data["successful"] == 2
+        assert data["failed"] == 0
+        assert len(data["results"]) == 2
+
+    @patch("cve.routes.get_cve", return_value=None)
+    def test_bulk_cve_not_found(self, mock_get):
+        r = client.post("/v1/cves/bulk", json={"cve_ids": ["CVE-9999-99999"]})
+        assert r.status_code == 200
+        data = r.json()
+        assert data["successful"] == 0
+        assert data["results"][0]["status"] == "not_found"
+
+    @patch("cve.routes.get_cve")
+    def test_bulk_cve_mixed(self, mock_get):
+        def side(cid):
+            return dict(self._MOCK_CVE) if cid == "CVE-2024-3094" else None
+
+        mock_get.side_effect = side
+        r = client.post("/v1/cves/bulk", json={"cve_ids": ["CVE-2024-3094", "CVE-9999-99999"]})
+        assert r.status_code == 200
+        data = r.json()
+        assert data["successful"] == 1
+        assert data["failed"] == 1
+
+    def test_bulk_cve_invalid_format(self):
+        r = client.post("/v1/cves/bulk", json={"cve_ids": ["NOT-A-CVE"]})
+        assert r.status_code == 400
+
+    def test_bulk_cve_empty_list(self):
+        r = client.post("/v1/cves/bulk", json={"cve_ids": []})
+        assert r.status_code == 422
+
+    def test_bulk_cve_over_free_limit(self):
+        ids = [f"CVE-2024-{i:05d}" for i in range(11)]
+        r = client.post("/v1/cves/bulk", json={"cve_ids": ids})
+        assert r.status_code == 422
+        body = r.json()
+        detail = body.get("detail") or body.get("error") or ""
+        assert "Limit: 10" in detail or "Too many" in detail, f"Expected limit error message, got: {detail}"
+
+    def test_bulk_cve_over_max_limit(self):
+        ids = [f"CVE-2024-{i:05d}" for i in range(51)]
+        r = client.post("/v1/cves/bulk", json={"cve_ids": ids})
+        assert r.status_code == 422
+
+    @patch("ratelimit.consume_bulk", return_value=False)
+    @patch("cve.routes.authenticate", return_value={"tier": "free", "key_hash": None, "client_ip": "127.0.0.1"})
+    def test_bulk_cve_rate_limit(self, mock_auth, mock_consume):
+        ids = [f"CVE-2024-{i:05d}" for i in range(5)]
+        r = client.post("/v1/cves/bulk", json={"cve_ids": ids})
+        assert r.status_code == 429
+        # Verify consume_bulk was called with count - 1 (authenticate consumed 1 already)
+        mock_consume.assert_called_once()
+        args = mock_consume.call_args.args
+        assert args[0] == "api"
+        assert args[2] == 4  # count - 1 = 5 - 1 = 4
+
+    @patch("cve.routes.get_cve")
+    def test_bulk_cve_deduplicates(self, mock_get):
+        mock_get.return_value = dict(self._MOCK_CVE)
+        r = client.post("/v1/cves/bulk", json={"cve_ids": ["CVE-2024-3094", "CVE-2024-3094"]})
+        assert r.status_code == 200
+        data = r.json()
+        assert data["total"] == 1
+
+    def test_bulk_cve_format_edge_cases(self):
+        """Various malformed CVE IDs should all return 400."""
+        bad_ids = [
+            "CVE-2024-",  # missing number
+            "CVE--12345",  # missing year
+            "CVE-2024",  # missing dash and number
+            "ABC-2024-12345",  # wrong prefix
+        ]
+        for bad in bad_ids:
+            r = client.post("/v1/cves/bulk", json={"cve_ids": [bad]})
+            assert r.status_code == 400, f"Expected 400 for {bad!r}, got {r.status_code}"

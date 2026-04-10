@@ -36,6 +36,13 @@ FREE_BULK_LIMIT = 10  # max domains per bulk request (free)
 PRO_BULK_LIMIT = 50  # max domains per bulk request (pro)
 ENRICHMENT_DAILY_LIMIT = 10  # enriched scans per IP per day (protects external API quotas)
 
+# Endpoint credit costs — based on upstream API calls per request.
+# Default is 1 (single upstream). Orchestration endpoints cost more because
+# they aggregate multiple sources. Transparent pricing, surfaced via X-RateLimit-Cost header.
+COST_DEFAULT = 1
+COST_AUDIT = 4  # domain_report + live_headers + tech_detect + cache layer
+COST_THREAT_REPORT = 4  # ip_enrichment + abuseipdb + shodan + asn
+
 # API key
 KEY_PREFIX = "cc_"
 KEY_LENGTH = 48  # hex chars after prefix

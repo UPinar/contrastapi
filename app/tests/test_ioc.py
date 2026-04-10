@@ -659,3 +659,111 @@ def test_threat_endpoint_listed(client):
     assert data["url_count"] == 5
     assert data["urls_online"] == 3
     assert "5 URL" in data["summary"]
+
+
+# === /v1/iocs/bulk ===
+
+
+class TestBulkIocLookup:
+    """Tests for POST /v1/iocs/bulk"""
+
+    @patch("ioc.routes.check_urlhaus")
+    @patch("ioc.routes.query_feodo")
+    @patch("ioc.routes.query_threatfox")
+    @patch("ioc.routes.detect_indicator_type")
+    def test_bulk_ioc_success(self, mock_detect, mock_tf, mock_feodo, mock_urlhaus, client):
+        mock_detect.return_value = "ip"
+        mock_tf.return_value = {"found": False}
+        mock_feodo.return_value = {"found": False}
+        mock_urlhaus.return_value = {"urlhaus_status": "not_found"}
+        r = client.post("/v1/iocs/bulk", json={"indicators": ["8.8.8.8", "1.1.1.1"]})
+        assert r.status_code == 200
+        data = r.json()
+        assert data["total"] == 2
+        assert data["successful"] == 2
+        assert data["partial"] is False
+
+    def test_bulk_ioc_empty_list(self, client):
+        r = client.post("/v1/iocs/bulk", json={"indicators": []})
+        assert r.status_code == 422
+
+    def test_bulk_ioc_over_free_limit(self, client):
+        r = client.post("/v1/iocs/bulk", json={"indicators": [f"8.8.8.{i}" for i in range(11)]})
+        assert r.status_code == 422
+
+    def test_bulk_ioc_over_max_limit(self, client):
+        r = client.post("/v1/iocs/bulk", json={"indicators": [f"8.8.8.{i}" for i in range(51)]})
+        assert r.status_code == 422
+
+    @patch("ioc.routes.detect_indicator_type", return_value="unknown")
+    def test_bulk_ioc_unknown_type(self, mock_detect, client):
+        r = client.post("/v1/iocs/bulk", json={"indicators": ["???"]})
+        assert r.status_code == 200
+        data = r.json()
+        assert data["successful"] == 0
+        assert data["results"][0]["status"] == "error"
+        assert "Unknown" in data["results"][0]["error"]
+
+    @patch("ioc.routes.detect_indicator_type", return_value="ip")
+    def test_bulk_ioc_private_ip(self, mock_detect, client):
+        r = client.post("/v1/iocs/bulk", json={"indicators": ["192.168.1.1"]})
+        assert r.status_code == 200
+        data = r.json()
+        assert data["successful"] == 0
+        assert "Private" in data["results"][0]["error"]
+
+    @patch("ratelimit.consume_bulk", return_value=False)
+    @patch("ioc.routes.authenticate", return_value={"tier": "free", "key_hash": None, "client_ip": "127.0.0.1"})
+    def test_bulk_ioc_rate_limit(self, mock_auth, mock_consume, client):
+        r = client.post("/v1/iocs/bulk", json={"indicators": [f"8.8.8.{i}" for i in range(5)]})
+        assert r.status_code == 429
+
+    @patch("ioc.routes.check_urlhaus")
+    @patch("ioc.routes.query_feodo", return_value={"found": False})
+    @patch("ioc.routes.query_threatfox", return_value={"found": False})
+    @patch("ioc.routes.detect_indicator_type", return_value="ip")
+    def test_bulk_ioc_strips_control_chars(self, mock_detect, mock_tf, mock_feodo, mock_urlhaus, client):
+        """Indicators with newlines/control chars must be sanitized."""
+        mock_urlhaus.return_value = {"urlhaus_status": "not_found"}
+        r = client.post("/v1/iocs/bulk", json={"indicators": ["8.8.8.8\n", "8.8.8.8\u202e"]})
+        assert r.status_code == 200
+        data = r.json()
+        for item in data["results"]:
+            assert "\n" not in item["indicator"]
+            assert "\u202e" not in item["indicator"]
+
+    @patch("ioc.routes.check_urlhaus", return_value={"urlhaus_status": "not_found"})
+    @patch("ioc.routes.query_feodo", return_value={"found": False})
+    @patch("ioc.routes.query_threatfox", return_value={"found": False})
+    @patch("ioc.routes.detect_indicator_type", return_value="ip")
+    def test_bulk_ioc_lookup_uses_cleaned_indicator(self, mock_detect, mock_tf, mock_feodo, mock_urlhaus, client):
+        """Downstream lookup functions must receive the SANITIZED indicator, not raw input."""
+        r = client.post("/v1/iocs/bulk", json={"indicators": ["8.8.8.8\n"]})
+        assert r.status_code == 200
+        # query_threatfox must have been called with the cleaned indicator
+        called_with = mock_tf.call_args.args[0]
+        assert "\n" not in called_with
+        assert called_with == "8.8.8.8"
+
+    @patch("ioc.routes.check_urlhaus", return_value={"urlhaus_status": "not_found"})
+    @patch("ioc.routes.query_feodo", return_value={"found": False})
+    @patch("ioc.routes.query_threatfox", return_value={"found": False})
+    @patch("ioc.routes.detect_indicator_type", return_value="ip")
+    def test_bulk_ioc_deduplicates(self, mock_detect, mock_tf, mock_feodo, mock_urlhaus, client):
+        """Duplicate indicators should be deduplicated — only unique ones processed."""
+        r = client.post("/v1/iocs/bulk", json={"indicators": ["8.8.8.8", "8.8.8.8", "8.8.8.8"]})
+        assert r.status_code == 200
+        data = r.json()
+        assert data["total"] == 1
+        assert len(data["results"]) == 1
+
+    @patch("ratelimit.consume_bulk", return_value=False)
+    @patch("ioc.routes.authenticate", return_value={"tier": "free", "key_hash": None, "client_ip": "127.0.0.1"})
+    def test_bulk_ioc_consume_bulk_call_args(self, mock_auth, mock_consume, client):
+        """Verify consume_bulk is called with count - 1 (authenticate consumed 1)."""
+        r = client.post("/v1/iocs/bulk", json={"indicators": [f"8.8.8.{i}" for i in range(5)]})
+        assert r.status_code == 429
+        mock_consume.assert_called_once()
+        args = mock_consume.call_args.args
+        assert args[0] == "api"
+        assert args[2] == 4  # count - 1 = 5 - 1 = 4

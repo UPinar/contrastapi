@@ -11,7 +11,7 @@ import secrets
 from config import FREE_HOURLY_LIMIT, KEY_LENGTH, KEY_PREFIX, PRO_HOURLY_LIMIT
 from db import get_api_key, log_usage, touch_api_key
 from fastapi import HTTPException, Request
-from ratelimit import check_limit_with_count, get_reset_time
+from ratelimit import consume_credits, get_reset_time
 
 
 def generate_key() -> str:
@@ -41,7 +41,7 @@ def extract_key(request: Request) -> str | None:
     return None
 
 
-def authenticate(request: Request, endpoint: str) -> dict:
+def authenticate(request: Request, endpoint: str, cost: int = 1) -> dict:
     """Authenticate request. Returns auth context dict.
 
     For Pro keys: verifies key, checks hourly limit (1000/hr).
@@ -60,6 +60,7 @@ def authenticate(request: Request, endpoint: str) -> dict:
     raw_key = extract_key(request)
 
     localhost = client_ip in ("127.0.0.1", "::1")
+    request.state.ratelimit_cost = cost
 
     if raw_key:
         # Pro key authentication
@@ -74,7 +75,7 @@ def authenticate(request: Request, endpoint: str) -> dict:
 
         if not localhost:
             # Check Pro rate limit (sliding window)
-            allowed, remaining = check_limit_with_count("api", store_key, limit)
+            allowed, remaining = consume_credits("api", store_key, cost, limit)
             if not allowed:
                 _set_ratelimit_state(request, advertised_limit, 0, get_reset_time("api", store_key))
                 raise HTTPException(
@@ -88,6 +89,7 @@ def authenticate(request: Request, endpoint: str) -> dict:
         touch_api_key(kh)
         if not localhost:
             log_usage(client_ip, endpoint, key_hash=kh)
+        request.state.ratelimit_tier = "pro"
         return {"tier": "pro", "key_hash": kh, "client_ip": client_ip}
 
     # Keyless — IP rate limit (sliding window)
@@ -96,7 +98,7 @@ def authenticate(request: Request, endpoint: str) -> dict:
     store_key = f"free:{client_ip}"
 
     if not localhost:
-        allowed, remaining = check_limit_with_count("api", store_key, limit)
+        allowed, remaining = consume_credits("api", store_key, cost, limit)
         if not allowed:
             _set_ratelimit_state(request, advertised_limit, 0, get_reset_time("api", store_key))
             raise HTTPException(
@@ -110,4 +112,5 @@ def authenticate(request: Request, endpoint: str) -> dict:
 
     if not localhost:
         log_usage(client_ip, endpoint)
+    request.state.ratelimit_tier = "free"
     return {"tier": "free", "key_hash": None, "client_ip": client_ip}

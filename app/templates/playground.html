@@ -63,6 +63,30 @@
       </div>
     </div>
 
+    <div class="pg-card" id="ep-audit">
+      <div class="pg-card-header">
+        <span class="method get">GET</span>
+        <span class="name">/v1/audit/{domain}</span>
+        <span class="desc">Full audit — domain report + tech fingerprint + live headers (4 credits)</span>
+      </div>
+      <div class="pg-card-body">
+        <div class="pg-inputs">
+          <label>domain</label>
+          <input type="text" id="input-audit" value="example.com" placeholder="example.com">
+          <button class="btn-run" onclick="run('audit')">Run &rarr;</button>
+        </div>
+        <div class="pg-response" id="resp-audit">
+          <pre>{
+  <span class="key">"domain"</span>: <span class="str">"example.com"</span>,
+  <span class="key">"summary"</span>: <span class="str">"Audit for example.com · 3 technologies detected"</span>,
+  <span class="key">"technologies"</span>: {<span class="key">"count"</span>: <span class="num">3</span>, <span class="key">"summary"</span>: <span class="str">"nginx, Cloudflare, jQuery"</span>},
+  <span class="key">"live_headers"</span>: {<span class="key">"server"</span>: <span class="str">"nginx"</span>, <span class="key">"x-powered-by"</span>: <span class="str">"Express"</span>},
+  <span class="key">"report"</span>: {<span class="key">"...full domain report..."</span>: <span class="bool">null</span>}
+}</pre>
+        </div>
+      </div>
+    </div>
+
     <div class="pg-card" id="ep-dns">
       <div class="pg-card-header">
         <span class="method get">GET</span>
@@ -571,6 +595,31 @@
 
     <div class="section-title">Threat Intelligence</div>
 
+    <div class="pg-card" id="ep-threat_report">
+      <div class="pg-card-header">
+        <span class="method get">GET</span>
+        <span class="name">/v1/threat-report/{ip}</span>
+        <span class="desc">IP threat report — Shodan + AbuseIPDB + ASN + enrichment (4 credits)</span>
+      </div>
+      <div class="pg-card-body">
+        <div class="pg-inputs">
+          <label>ip</label>
+          <input type="text" id="input-threat_report" value="8.8.8.8" placeholder="IPv4 address">
+          <button class="btn-run" onclick="run('threat_report')">Run &rarr;</button>
+        </div>
+        <div class="pg-response" id="resp-threat_report">
+          <pre>{
+  <span class="key">"ip"</span>: <span class="str">"8.8.8.8"</span>,
+  <span class="key">"threat_level"</span>: <span class="str">"none"</span>,
+  <span class="key">"summary"</span>: <span class="str">"IP 8.8.8.8 · AS15169 · 2 open ports · threat level: none"</span>,
+  <span class="key">"enrichment"</span>: {<span class="key">"ports"</span>: [<span class="num">53</span>, <span class="num">443</span>], <span class="key">"vulns"</span>: []},
+  <span class="key">"abuseipdb"</span>: {<span class="key">"abuse_score"</span>: <span class="num">0</span>},
+  <span class="key">"asn"</span>: {<span class="key">"asn"</span>: <span class="num">15169</span>}
+}</pre>
+        </div>
+      </div>
+    </div>
+
     <div class="pg-card" id="ep-ioc">
       <div class="pg-card-header">
         <span class="method get">GET</span>
@@ -810,6 +859,7 @@ open("/var/log/" + filename)</textarea>
 
     var ENDPOINTS = {
       'domain_report': '/v1/domain/',
+      'audit': '/v1/audit/',
       'dns': '/v1/dns/',
       'whois': '/v1/whois/',
       'subdomains': '/v1/subdomains/',
@@ -828,6 +878,7 @@ open("/var/log/" + filename)</textarea>
       'cve_search': 'QUERY',
       'exploit': '/v1/exploit/',
       'epss': '/v1/epss/',
+      'threat_report': '/v1/threat-report/',
       'ioc': '/v1/ioc/',
       'hash': '/v1/hash/',
       'password': '/v1/password/',
