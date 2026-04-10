@@ -172,3 +172,55 @@ class TestCheckLimitWithCount:
         assert rem1 == 2
         assert rem2 == 1
         assert rem3 == 0
+
+
+# --- consume_credits ---
+
+
+class TestConsumeCredits:
+    def test_cost_one_matches_check_limit_with_count(self):
+        from ratelimit import check_limit_with_count, consume_credits, reset
+
+        reset()
+        allowed_a, rem_a = consume_credits("cc_a", "k", 1, 5)
+        reset()
+        allowed_b, rem_b = check_limit_with_count("cc_a", "k", 5)
+        assert allowed_a is allowed_b is True
+        assert rem_a == rem_b == 4
+
+    def test_cost_four_decrements_by_four(self):
+        from ratelimit import consume_credits, get_count
+
+        allowed, remaining = consume_credits("cc_b", "k", 4, 10)
+        assert allowed is True
+        assert remaining == 6
+        assert get_count("cc_b", "k") == 4
+
+    def test_cost_four_exhausts_exactly(self):
+        from ratelimit import consume_credits, get_count
+
+        # Burn 7 slots first (can't use cost=7 because we haven't tested that yet — use loop of 1)
+        for _ in range(7):
+            consume_credits("cc_c", "k", 1, 10)
+        # 3 slots free, cost=4 should fail
+        allowed, remaining = consume_credits("cc_c", "k", 4, 10)
+        assert allowed is False
+        assert remaining == 3  # unchanged
+        # Verify no partial insertion
+        assert get_count("cc_c", "k") == 7
+
+    def test_cost_four_exact_fit(self):
+        from ratelimit import consume_credits
+
+        consume_credits("cc_d", "k", 1, 5)  # 4 free
+        allowed, remaining = consume_credits("cc_d", "k", 4, 5)
+        assert allowed is True
+        assert remaining == 0
+
+    def test_cost_zero_delegates(self):
+        from ratelimit import consume_credits
+
+        allowed, remaining = consume_credits("cc_e", "k", 0, 5)
+        assert allowed is True
+        # cost<=1 path inserts one row via check_limit_with_count
+        assert remaining == 4

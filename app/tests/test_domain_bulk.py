@@ -643,3 +643,240 @@ class TestResponseModelFiltering:
         r = client.get("/v1/certs/example.com")
         assert r.status_code == 200
         assert set(r.json().keys()) == {"domain", "total_certificates", "certificates", "summary", "cached"}
+
+
+# =========== /v1/audit/{domain} tests ===========
+
+
+class TestAuditDomain:
+    """Tests for GET /v1/audit/{domain}"""
+
+    _MOCK_REPORT = {
+        "domain": "example.com",
+        "dns": {"a": ["93.184.216.34"]},
+        "ssl": {"valid": True, "grade": "A"},
+        "summary": "example.com - healthy",
+    }
+
+    _MOCK_LIVE = {"headers": {"server": "nginx/1.18", "x-frame-options": "DENY"}}
+
+    @patch("domain.tech.detect_technologies")
+    @patch("domain.recon.fetch_live_headers")
+    @patch("domain.routes.save_cached_domain")
+    @patch("domain.routes.get_cached_domain", return_value=None)
+    @patch("domain.routes.full_domain_report")
+    @patch("domain.routes.clean_domain", return_value="example.com")
+    def test_audit_success(self, mock_clean, mock_report, mock_get, mock_save, mock_live, mock_tech):
+        mock_report.return_value = dict(self._MOCK_REPORT)
+        mock_live.return_value = dict(self._MOCK_LIVE)
+        mock_tech.return_value = {
+            "technologies": [{"name": "nginx", "category": "Web Server", "source": "header"}],
+            "categories": {"Web Server": ["nginx"]},
+            "count": 1,
+            "summary": "1 technology",
+        }
+        r = client.get("/v1/audit/example.com")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["domain"] == "example.com"
+        assert data["report"]["dns"]["a"] == ["93.184.216.34"]
+        assert data["technologies"]["count"] == 1
+        assert data["live_headers"]["server"] == "nginx/1.18"
+        assert "example.com" in data["summary"]
+
+    @patch("domain.routes.clean_domain", return_value=None)
+    def test_audit_invalid_domain(self, mock_clean):
+        r = client.get("/v1/audit/!!!")
+        assert r.status_code == 400
+
+    @patch("domain.tech.detect_technologies")
+    @patch("domain.recon.fetch_live_headers", side_effect=RuntimeError("connection refused"))
+    @patch("domain.routes.save_cached_domain")
+    @patch("domain.routes.get_cached_domain", return_value=None)
+    @patch("domain.routes.full_domain_report")
+    @patch("domain.routes.clean_domain", return_value="example.com")
+    def test_audit_live_headers_failure(self, mock_clean, mock_report, mock_get, mock_save, mock_live, mock_tech):
+        """fetch_live_headers exception must NOT crash audit - returns empty headers/tech."""
+        mock_report.return_value = dict(self._MOCK_REPORT)
+        mock_tech.return_value = {"technologies": [], "categories": {}, "count": 0, "summary": ""}
+        r = client.get("/v1/audit/example.com")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["report"]["dns"]["a"] == ["93.184.216.34"]
+        assert data["live_headers"] == {}
+        assert data["technologies"]["count"] == 0
+
+    @patch("domain.tech.detect_technologies")
+    @patch("domain.recon.fetch_live_headers")
+    @patch("domain.routes.get_cached_domain")
+    @patch("domain.routes.clean_domain", return_value="cached.com")
+    def test_audit_uses_cache(self, mock_clean, mock_get, mock_live, mock_tech):
+        """Cache hit should NOT call full_domain_report."""
+        cached = dict(self._MOCK_REPORT)
+        cached["domain"] = "cached.com"
+        mock_get.return_value = cached
+        mock_live.return_value = {"headers": {}}
+        mock_tech.return_value = {"technologies": [], "categories": {}, "count": 0, "summary": ""}
+        with patch("domain.routes.full_domain_report") as mock_full:
+            r = client.get("/v1/audit/cached.com")
+            mock_full.assert_not_called()
+        assert r.status_code == 200
+
+
+# =========== /v1/threat-report/{ip} tests ===========
+
+
+class TestThreatReport:
+    """Tests for GET /v1/threat-report/{ip}"""
+
+    @patch("domain.routes._ripe_client")
+    @patch("domain.routes.check_shodan")
+    @patch("domain.routes.check_abuseipdb")
+    @patch("domain.routes.ip_enrichment")
+    def test_threat_report_success(self, mock_enrich, mock_abuse, mock_shodan, mock_ripe):
+        mock_enrich.return_value = {
+            "ports": [80, 443],
+            "hostnames": ["dns.google"],
+            "vulns": [],
+            "cpes": [],
+            "tags": [],
+        }
+        mock_abuse.return_value = {"status": "ok", "abuse_score": 0, "country": "US"}
+        mock_shodan.return_value = {"status": "ok", "org": "Google LLC", "ports": [80, 443], "vulns": []}
+        mock_ripe_resp = MagicMock()
+        mock_ripe_resp.json.return_value = {"data": {"asns": [15169], "prefix": "8.8.8.0/24"}}
+        mock_ripe_resp.raise_for_status = MagicMock()
+        mock_ripe.get.return_value = mock_ripe_resp
+
+        with patch("domain.routes.get_cached_domain", return_value=None), patch("domain.routes.save_cached_domain"):
+            r = client.get("/v1/threat-report/8.8.8.8")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["ip"] == "8.8.8.8"
+        assert data["enrichment"]["ports"] == [80, 443]
+        assert data["abuseipdb"]["abuse_score"] == 0
+        assert data["shodan"]["org"] == "Google LLC"
+        assert data["asn"]["asn"] == 15169
+        assert data["threat_level"] == "low"
+        assert "AS15169" in data["summary"]
+
+    def test_threat_report_invalid_ip(self):
+        r = client.get("/v1/threat-report/not-an-ip")
+        assert r.status_code == 400
+
+    def test_threat_report_private_ip(self):
+        r = client.get("/v1/threat-report/192.168.1.1")
+        assert r.status_code == 400
+        body = r.json()
+        assert "Private" in (body.get("detail") or body.get("error") or "")
+
+    @patch("domain.routes._ripe_client")
+    @patch("domain.routes.check_shodan", side_effect=RuntimeError("upstream down"))
+    @patch("domain.routes.check_abuseipdb")
+    @patch("domain.routes.ip_enrichment")
+    def test_threat_report_partial_failure(self, mock_enrich, mock_abuse, mock_shodan, mock_ripe):
+        """Shodan failure should not crash endpoint - returns error dict."""
+        mock_enrich.return_value = {"ports": [], "hostnames": [], "vulns": [], "cpes": [], "tags": []}
+        mock_abuse.return_value = {"status": "ok", "abuse_score": 75}
+        mock_ripe_resp = MagicMock()
+        mock_ripe_resp.json.return_value = {"data": {"asns": [12345], "prefix": "1.2.3.0/24"}}
+        mock_ripe_resp.raise_for_status = MagicMock()
+        mock_ripe.get.return_value = mock_ripe_resp
+
+        with patch("domain.routes.get_cached_domain", return_value=None), patch("domain.routes.save_cached_domain"):
+            r = client.get("/v1/threat-report/1.2.3.4")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["shodan"]["status"] == "error"
+        assert data["threat_level"] == "high"
+
+    @patch("domain.routes._ripe_client")
+    @patch("domain.routes.check_shodan")
+    @patch("domain.routes.check_abuseipdb")
+    @patch("domain.routes.ip_enrichment")
+    def test_threat_report_asn_failure(self, mock_enrich, mock_abuse, mock_shodan, mock_ripe):
+        """RIPE failure should not crash - asn_data has error key."""
+        mock_enrich.return_value = {"ports": [], "hostnames": [], "vulns": [], "cpes": [], "tags": []}
+        mock_abuse.return_value = {"status": "ok"}
+        mock_shodan.return_value = {"status": "ok"}
+        mock_ripe.get.side_effect = RuntimeError("RIPE timeout")
+
+        with patch("domain.routes.get_cached_domain", return_value=None):
+            r = client.get("/v1/threat-report/1.2.3.4")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["asn"] == {"error": "lookup_failed"}
+
+    @patch("domain.routes._ripe_client")
+    @patch(
+        "domain.routes.check_shodan",
+        side_effect=RuntimeError("/opt/contrastapi/app/domain/reputation.py line 73: connection refused"),
+    )
+    @patch("domain.routes.check_abuseipdb")
+    @patch("domain.routes.ip_enrichment")
+    def test_threat_report_no_exception_leakage(self, mock_enrich, mock_abuse, mock_shodan, mock_ripe):
+        """Internal error details (paths, exception messages) must NOT leak in response."""
+        mock_enrich.return_value = {"ports": [], "hostnames": [], "vulns": [], "cpes": [], "tags": []}
+        mock_abuse.return_value = {"status": "ok"}
+        mock_ripe_resp = MagicMock()
+        mock_ripe_resp.json.return_value = {"data": {"asns": [12345], "prefix": "1.2.3.0/24"}}
+        mock_ripe_resp.raise_for_status = MagicMock()
+        mock_ripe.get.return_value = mock_ripe_resp
+
+        with patch("domain.routes.get_cached_domain", return_value=None), patch("domain.routes.save_cached_domain"):
+            r = client.get("/v1/threat-report/1.2.3.4")
+        assert r.status_code == 200
+        body_text = r.text
+        # Production should NOT echo internal paths or full exception messages
+        assert "/opt" not in body_text
+        assert "reputation.py" not in body_text
+        assert "connection refused" not in body_text
+
+
+# =========== /v1/audit additional edge cases ===========
+
+
+class TestAuditDomainEdgeCases:
+    """Additional edge case tests for audit_domain."""
+
+    _MOCK_REPORT = {
+        "domain": "example.com",
+        "dns": {"a": ["93.184.216.34"]},
+        "summary": "example.com - healthy",
+    }
+
+    @patch("domain.tech.detect_technologies")
+    @patch("domain.recon.fetch_live_headers")
+    @patch("domain.routes.save_cached_domain")
+    @patch("domain.routes.get_cached_domain", return_value=None)
+    @patch("domain.routes.full_domain_report")
+    @patch("domain.routes.clean_domain", return_value="example.com")
+    def test_audit_empty_headers(self, mock_clean, mock_report, mock_get, mock_save, mock_live, mock_tech):
+        """When fetch_live_headers returns empty headers, tech detection is skipped."""
+        mock_report.return_value = dict(self._MOCK_REPORT)
+        mock_live.return_value = {"headers": {}}
+        r = client.get("/v1/audit/example.com")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["live_headers"] == {}
+        assert data["technologies"]["count"] == 0
+        # detect_technologies should NOT be called when headers are empty
+        mock_tech.assert_not_called()
+
+    @patch("domain.tech.detect_technologies")
+    @patch("domain.recon.fetch_live_headers")
+    @patch("domain.routes.save_cached_domain")
+    @patch("domain.routes.get_cached_domain", return_value=None)
+    @patch("domain.routes.full_domain_report")
+    @patch("domain.routes.clean_domain", return_value="example.com")
+    def test_audit_malformed_live_headers(self, mock_clean, mock_report, mock_get, mock_save, mock_live, mock_tech):
+        """When fetch_live_headers returns a non-dict 'headers' field, audit must not crash."""
+        mock_report.return_value = dict(self._MOCK_REPORT)
+        # Malformed: headers is a string instead of dict
+        mock_live.return_value = {"headers": "not-a-dict"}
+        r = client.get("/v1/audit/example.com")
+        assert r.status_code == 200
+        data = r.json()
+        # Type guard should reset to empty dict
+        assert data["live_headers"] == {}
+        assert data["technologies"]["count"] == 0

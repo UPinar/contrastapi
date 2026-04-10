@@ -7,12 +7,12 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Python 3.12](https://img.shields.io/badge/Python-3.12-blue.svg)](https://python.org)
 [![Tests](https://img.shields.io/badge/Tests-782_passing-brightgreen.svg)](https://github.com/UPinar/contrastapi/actions)
-[![MCP](https://img.shields.io/badge/MCP-25_tools-purple.svg)](https://modelcontextprotocol.io)
+[![MCP](https://img.shields.io/badge/MCP-29_tools-purple.svg)](https://modelcontextprotocol.io)
 [![VS Code](https://img.shields.io/badge/VS_Code-Marketplace-007ACC.svg)](https://marketplace.visualstudio.com/items?itemName=ContrastAPI.contrastapi)
 [![RapidAPI](https://img.shields.io/badge/RapidAPI-Available-blue.svg)](https://rapidapi.com/UPinar/api/contrastapi)
 [![npm](https://img.shields.io/npm/v/contrastapi.svg)](https://www.npmjs.com/package/contrastapi)
 
-**Security intelligence API and MCP server for AI agents.** 25 MCP tools / 35+ endpoints: CVE lookup with EPSS/KEV enrichment, domain reconnaissance, SSL analysis, IP reputation (AbuseIPDB, Shodan), IOC/malware lookup, exploit search, technology fingerprinting, email security, phone validation, and code security scanning. Free, no API key required.
+**Security intelligence API and MCP server for AI agents.** 29 MCP tools / 39+ endpoints: CVE lookup with EPSS/KEV enrichment, domain reconnaissance, SSL analysis, IP reputation (AbuseIPDB, Shodan), IOC/malware lookup, exploit search, technology fingerprinting, email security, phone validation, and code security scanning. Free, no API key required.
 
 **English** | [中文](README_CN.md)
 
@@ -20,7 +20,7 @@
 
 ## Use with AI Agents
 
-**VS Code Extension:** Install [ContrastAPI](https://marketplace.visualstudio.com/items?itemName=ContrastAPI.contrastapi) from the Marketplace — 25 security tools in your editor, no API key required.
+**VS Code Extension:** Install [ContrastAPI](https://marketplace.visualstudio.com/items?itemName=ContrastAPI.contrastapi) from the Marketplace — 29 security tools in your editor, no API key required.
 
 **MCP Setup** for Claude Desktop, Cursor, VS Code, Windsurf: **[MCP Setup Guide](https://api.contrastcyber.com/mcp-setup)**
 
@@ -106,6 +106,8 @@ More examples: **[API Quick Start](https://api.contrastcyber.com/quickstart)** (
 
 ```
 GET  /v1/domain/{domain}       Full domain report (DNS + WHOIS + SSL + subs + WAF + reputation)
+GET  /v1/audit/{domain}        Comprehensive audit (full report + tech fingerprint + live headers)
+GET  /v1/threat-report/{ip}    Orchestrated IP threat report (Shodan + AbuseIPDB + ASN)
 GET  /v1/dns/{domain}          DNS records (A, AAAA, MX, NS, TXT, CNAME, SOA)
 GET  /v1/whois/{domain}        WHOIS registration data
 GET  /v1/subdomains/{domain}   Subdomain enumeration (DNS brute + CT logs)
@@ -133,6 +135,7 @@ GET /v1/cves/recent?hours=24   Latest CVEs
 GET /v1/cves/kev               CISA exploited vulns
 GET /v1/epss/{cve_id}          Exploit probability
 GET /v1/exploit/{cve_id}       Public exploit search (GitHub Advisory + Shodan)
+POST /v1/cves/bulk             Bulk CVE lookup (10 free, 50 pro)
 ```
 
 ### Threat Intelligence
@@ -142,6 +145,7 @@ GET /v1/ioc/{indicator}        Unified IOC enrichment (IP, domain, URL, hash)
 GET /v1/hash/{hash}            Malware hash reputation (MalwareBazaar)
 GET /v1/password/{sha1}        Password breach check (HIBP, k-anonymity)
 GET /v1/phishing/{url}         Phishing/malware URL check (URLhaus)
+POST /v1/iocs/bulk             Bulk IOC enrichment (10 free, 50 pro)
 GET /v1/phone/{number}         Phone number OSINT (carrier, type, country)
 GET /v1/username/{username}    Username OSINT (16 platforms, account discovery)
 ```
@@ -161,6 +165,19 @@ POST /v1/check/dependencies    Check packages for known CVEs
 |------|-------|---------|
 | Free | 100 req/hr | Not required |
 | Pro | 1,000 req/hr | [Get API Key](https://contrastcyber.com/pricing) |
+
+### Credit Costs
+
+Most endpoints consume **1 credit** per call. Aggregating endpoints that fan out to multiple upstream sources cost more:
+
+| Endpoint | Cost |
+|----------|------|
+| Most endpoints | 1 |
+| `GET /v1/audit/{domain}` | 4 |
+| `GET /v1/threat-report/{ip}` | 4 |
+| Bulk endpoints (`/v1/cves/bulk`, `/v1/iocs/bulk`) | N (one per item) |
+
+Every authenticated response includes an `X-RateLimit-Cost` header so you can track usage transparently alongside `X-RateLimit-Remaining`.
 
 ## Data Sources
 

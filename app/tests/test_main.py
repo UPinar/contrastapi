@@ -164,3 +164,88 @@ def test_usage_with_valid_key():
     assert "last_1h" in data
     assert "hourly_limit" in data
     assert "top_endpoints" in data
+
+
+# --- X-RateLimit-Tier header (Feature-Gate Phase 1) ---
+
+
+def test_x_ratelimit_tier_header_free():
+    """Free tier requests should get X-RateLimit-Tier: free header.
+
+    Uses /v1/ioc/xxx so authenticate() runs before the 400 for unknown indicator.
+    """
+    r = client.get("/v1/ioc/xxx")
+    assert r.headers.get("X-RateLimit-Tier") == "free"
+
+
+def test_x_ratelimit_tier_header_pro():
+    """Pro key requests should get X-RateLimit-Tier: pro header."""
+    from auth import hash_key
+    from db import get_api_db, save_api_key
+
+    test_key = "cc_" + "a" * 48
+    key_hash = hash_key(test_key)
+    try:
+        save_api_key(key_hash)
+        r = client.get("/v1/ioc/xxx", headers={"Authorization": f"Bearer {test_key}"})
+        assert r.headers.get("X-RateLimit-Tier") == "pro"
+    finally:
+        with get_api_db() as con:
+            con.execute("DELETE FROM api_keys WHERE key_hash = ?", (key_hash,))
+
+
+# --- X-RateLimit-Cost header (weighted credits) ---
+
+
+def test_x_ratelimit_cost_default_one():
+    """Standard endpoints consume 1 credit."""
+    r = client.get("/v1/ioc/xxx")
+    assert r.headers.get("X-RateLimit-Cost") == "1"
+
+
+def test_x_ratelimit_cost_audit_four():
+    """audit_domain consumes COST_AUDIT=4 credits. Uses input that clean_domain reduces to empty → 400 fast."""
+    # clean_domain('...') strips trailing dots → "" → handler returns 400 immediately after authenticate().
+    r = client.get("/v1/audit/...")
+    assert r.status_code == 400
+    assert r.headers.get("X-RateLimit-Cost") == "4"
+
+
+def test_x_ratelimit_cost_threat_report_four():
+    """threat_report consumes COST_THREAT_REPORT=4 credits."""
+    r = client.get("/v1/threat-report/8.8.8.8")
+    assert r.headers.get("X-RateLimit-Cost") == "4"
+
+
+def test_threat_report_cost_exhausts_free_limit_at_25():
+    """24 threat-report calls = 96 credits (ok), 25th = 100 (ok), 26th = 104 > 100 (429).
+
+    Uses X-Forwarded-For to get a non-localhost IP so rate limiting actually enforces.
+    Hits an invalid IP so authenticate() runs but the handler exits fast with 400.
+    """
+    from ratelimit import reset
+
+    reset("api")
+    headers = {"X-Forwarded-For": "203.0.113.42"}
+    for i in range(25):
+        r = client.get("/v1/threat-report/not_an_ip", headers=headers)
+        assert r.status_code == 400, f"call {i + 1} expected 400, got {r.status_code}"
+    # 26th call exceeds limit
+    r = client.get("/v1/threat-report/not_an_ip", headers=headers)
+    assert r.status_code == 429
+    reset("api")
+
+
+def test_regular_endpoint_still_costs_one_per_call():
+    """Non-weighted endpoints should decrement X-RateLimit-Remaining by 1 per call."""
+    from ratelimit import reset
+
+    reset("api")
+    headers = {"X-Forwarded-For": "203.0.113.43"}
+    r1 = client.get("/v1/ioc/xxx", headers=headers)
+    r2 = client.get("/v1/ioc/xxx", headers=headers)
+    rem1 = int(r1.headers["X-RateLimit-Remaining"])
+    rem2 = int(r2.headers["X-RateLimit-Remaining"])
+    assert rem1 - rem2 == 1
+    assert r1.headers["X-RateLimit-Cost"] == "1"
+    reset("api")

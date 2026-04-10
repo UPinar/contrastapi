@@ -181,6 +181,22 @@ def _validate_ip(ip: str) -> str | None:
         return f"Invalid IP address: {ip!r}. Expected IPv4 (1.2.3.4) or IPv6."
 
 
+def _validate_public_ip(ip: str) -> str | None:
+    """Return error message if IP is invalid OR private/reserved, else None.
+
+    Used by tools that hit external services (Shodan, AbuseIPDB) where private IPs
+    are pointless and could enable SSRF-like probing. Defense-in-depth — backend
+    also rejects private IPs, but failing fast at the MCP layer avoids wasted requests.
+    """
+    try:
+        addr = ipaddress.ip_address(ip.strip())
+    except ValueError:
+        return f"Invalid IP address: {ip!r}. Expected IPv4 (1.2.3.4) or IPv6."
+    if addr.is_private or addr.is_loopback or addr.is_reserved or addr.is_link_local or addr.is_multicast:
+        return f"Private/reserved IP addresses are not allowed: {ip!r}"
+    return None
+
+
 def _validate_cve(cve_id: str) -> str | None:
     """Return error message if CVE ID is invalid, else None."""
     if not _CVE_RE.match(cve_id.strip()):
@@ -201,6 +217,34 @@ async def domain_report(
     if err := _validate_domain(domain):
         return err
     return _fmt(await _get(f"/v1/domain/{domain}"))
+
+
+@mcp.tool(annotations=_RO)
+async def audit_domain(
+    domain: Annotated[
+        str,
+        Field(description="Root domain to audit, without protocol or path (e.g. 'example.com', 'shopify.com')"),
+    ],
+) -> str:
+    """Comprehensive domain audit in a single call — combines a full domain report (DNS, WHOIS, SSL, subdomains, WAF, threat intel, risk score), live HTTP security headers, and technology stack fingerprinting. Use this when you want a complete picture of a target without making multiple requests. For investigations that need only one aspect (e.g. just DNS or just SSL), use the dedicated tool instead. Returns JSON with fields: domain, report (full domain intel), technologies (detected tech stack with categories and count), live_headers (HTTP response headers from the live site), and a combined summary. Read-only orchestrated lookup, no authentication required."""
+    if err := _validate_domain(domain):
+        return err
+    return _fmt(await _get(f"/v1/audit/{domain}"))
+
+
+@mcp.tool(annotations=_RO)
+async def threat_report(
+    ip: Annotated[
+        str,
+        Field(
+            description="Public IPv4 or IPv6 address to investigate (e.g. '8.8.8.8', '1.1.1.1'). Private/reserved IPs are rejected."
+        ),
+    ],
+) -> str:
+    """Comprehensive IP threat report in a single call — combines Shodan InternetDB enrichment (open ports, hostnames, vulnerabilities, CPEs), AbuseIPDB reputation (abuse score, country, ISP), full Shodan lookup (organization, OS, geolocation), and ASN ownership (AS number, prefix). Use this for SOC triage and threat hunting when you need a complete IP profile without making 4+ separate requests. Returns JSON with fields: ip, enrichment, abuseipdb, shodan, asn, threat_level (none/low/medium/high), and a summary. Read-only orchestrated lookup, no authentication required."""
+    if err := _validate_public_ip(ip):
+        return err
+    return _fmt(await _get(f"/v1/threat-report/{ip}"))
 
 
 @mcp.tool(annotations=_RO)
@@ -408,6 +452,26 @@ async def exploit_lookup(
     return _fmt(await _get(f"/v1/exploit/{cve_id}"))
 
 
+@mcp.tool(annotations=_RO)
+async def bulk_cve_lookup(
+    cve_ids: Annotated[
+        list[str],
+        Field(
+            description="List of CVE identifiers in format CVE-YYYY-NNNNN (e.g. ['CVE-2024-3094', 'CVE-2021-44228', 'CVE-2023-44487']). Maximum 10 per request for free tier, 50 for Pro."
+        ),
+    ],
+) -> str:
+    """Look up multiple CVEs in a single request — efficient for vulnerability scanning, dependency audits, and threat intelligence pipelines that need to enrich many CVE IDs at once. Each CVE returns full details (severity, CVSS breakdown, EPSS score, KEV status, description, references). Use bulk_cve_lookup instead of calling cve_lookup repeatedly when you have a list of 5+ CVEs to check. For a single CVE, use cve_lookup. Returns JSON with fields: results (array of CVE details), total, successful, failed, and summary. Read-only database lookup, free tier allows 10 IDs per request, Pro allows 50."""
+    if not isinstance(cve_ids, list) or not cve_ids:
+        return "cve_ids must be a non-empty list"
+    # Per-item validation: fail fast at MCP layer with a clear message instead of
+    # waiting for the backend to reject the whole batch on the first invalid ID.
+    for cid in cve_ids:
+        if not isinstance(cid, str) or (err := _validate_cve(cid)):
+            return err if isinstance(cid, str) else f"All cve_ids must be strings, got: {type(cid).__name__}"
+    return _fmt(await _post("/v1/cves/bulk", {"cve_ids": cve_ids}))
+
+
 # === Threat Intelligence / IOC ===
 
 
@@ -465,6 +529,21 @@ async def phishing_check(
 ) -> str:
     """Check if a specific URL is a known phishing page or malware distribution URL by querying the URLhaus database. Use this when you have a full URL (not just a domain) that you suspect may be malicious — for example, from a phishing email or suspicious link. For domain-level threat assessment, use threat_intel instead. For general IOC enrichment, use ioc_lookup. Returns JSON with fields: found (boolean), threat_type (phishing/malware/none), status (online/offline), tags, date_added, and source. Read-only database query, no authentication required."""
     return _fmt(await _get(f"/v1/phishing/{quote(url, safe='')}"))
+
+
+@mcp.tool(annotations=_RO)
+async def bulk_ioc_lookup(
+    indicators: Annotated[
+        list[str],
+        Field(
+            description="List of indicators of compromise: IP addresses, domains, URLs, or file hashes (e.g. ['8.8.8.8', 'evil.com', 'd41d8cd98f00b204e9800998ecf8427e']). Maximum 10 per request for free tier, 50 for Pro. Each indicator type is auto-detected."
+        ),
+    ],
+) -> str:
+    """Enrich multiple Indicators of Compromise in a single request — auto-detects each indicator type (IP/domain/URL/hash) and queries threat feeds (ThreatFox, URLhaus, Feodo) in parallel. Use this for SOC alert triage, threat hunting, or batch enrichment when you have many suspicious indicators to investigate at once. For a single indicator, use ioc_lookup. Returns JSON with fields: results (array with indicator, type, threat_level, sources), total, successful, failed, timed_out, partial (true if some indicators hit the overall timeout), and summary. Read-only threat feed query, free tier allows 10 indicators per request, Pro allows 50."""
+    if not isinstance(indicators, list) or not indicators:
+        return "indicators must be a non-empty list"
+    return _fmt(await _post("/v1/iocs/bulk", {"indicators": indicators}))
 
 
 # === Code Security ===

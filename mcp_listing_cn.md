@@ -6,9 +6,9 @@ Bu dosya mcpmarket.com, LobeHub, MCPdb vb. dizinlere submit ederken kullanılaca
 
 ## Kısa Açıklama (一句话介绍)
 
-**EN:** Security intelligence MCP server — 25 tools for CVE, domain, IP, threat intel, code security. Free, no API key.
+**EN:** Security intelligence MCP server — 29 tools for CVE, domain, IP, threat intel, code security. Free, no API key.
 
-**CN:** 安全情报 MCP 服务器 — 25 个工具，覆盖 CVE 查询、域名侦察、IP 信誉、威胁情报、代码安全。免费，无需 API 密钥。
+**CN:** 安全情报 MCP 服务器 — 29 个工具，覆盖 CVE 查询、域名侦察、IP 信誉、威胁情报、代码安全。免费，无需 API 密钥。
 
 ---
 
@@ -16,7 +16,7 @@ Bu dosya mcpmarket.com, LobeHub, MCPdb vb. dizinlere submit ederken kullanılaca
 
 ### English
 
-ContrastAPI is a security intelligence MCP server with 25 tools covering CVE lookup (EPSS/KEV enrichment), domain reconnaissance, SSL analysis, IP reputation (AbuseIPDB + Shodan), IOC/malware lookup, exploit search, technology fingerprinting, email security, phone validation, and code security scanning.
+ContrastAPI is a security intelligence MCP server with 29 tools covering CVE lookup (EPSS/KEV enrichment), domain reconnaissance, SSL analysis, IP reputation (AbuseIPDB + Shodan), IOC/malware lookup, exploit search, technology fingerprinting, email security, phone validation, and code security scanning.
 
 - **Free tier:** 100 req/hr, no API key, no signup
 - **Transport:** Streamable HTTP (`https://api.contrastcyber.com/mcp/`) + stdio
@@ -25,7 +25,7 @@ ContrastAPI is a security intelligence MCP server with 25 tools covering CVE loo
 
 ### 中文
 
-ContrastAPI 是一个安全情报 MCP 服务器，提供 25 个安全工具，覆盖 CVE 漏洞查询（含 EPSS/KEV 增强）、域名侦察、SSL 分析、IP 信誉查询（AbuseIPDB + Shodan）、IOC/恶意软件查询、漏洞利用搜索、技术指纹识别、电子邮件安全检测、电话号码验证和代码安全扫描。
+ContrastAPI 是一个安全情报 MCP 服务器，提供 29 个安全工具，覆盖 CVE 漏洞查询（含 EPSS/KEV 增强）、域名侦察、SSL 分析、IP 信誉查询（AbuseIPDB + Shodan）、IOC/恶意软件查询、漏洞利用搜索、技术指纹识别、电子邮件安全检测、电话号码验证和代码安全扫描。
 
 - **免费使用：** 100 次请求/小时，无需 API 密钥，无需注册
 - **传输协议：** Streamable HTTP (`https://api.contrastcyber.com/mcp/`) + stdio

@@ -209,6 +209,16 @@ async def request_middleware(request: Request, call_next):
         response.headers["X-RateLimit-Remaining"] = str(getattr(request.state, "ratelimit_remaining", 0))
         response.headers["X-RateLimit-Reset"] = str(getattr(request.state, "ratelimit_reset", 0))
 
+    # Tier header (set by auth.authenticate via request.state)
+    tier = getattr(request.state, "ratelimit_tier", None)
+    if tier:
+        response.headers["X-RateLimit-Tier"] = tier
+
+    # Credit cost header (set by auth.authenticate via request.state)
+    cost = getattr(request.state, "ratelimit_cost", None)
+    if cost is not None:
+        response.headers["X-RateLimit-Cost"] = str(cost)
+
     # Request logging + metrics
     elapsed = int((time.time() - start) * 1000)
     safe_path = _sanitize_path(request.url.path)
@@ -471,7 +481,7 @@ print(r.json()['findings'])</code></div>
     <div class="grid">
       <div class="card">
         <h3>Playground</h3>
-        <p>Try all 25 endpoints from your browser. <a href="/playground">Open playground &rarr;</a></p>
+        <p>Try all 27 endpoints from your browser. <a href="/playground">Open playground &rarr;</a></p>
       </div>
       <div class="card">
         <h3>Rate Limits</h3>
@@ -669,7 +679,7 @@ Accept: application/json, text/event-stream
       </div>
       <div class="card">
         <h3>Playground</h3>
-        <p>Try all 25 endpoints from your browser. <a href="/playground">Open playground &rarr;</a></p>
+        <p>Try all 27 endpoints from your browser. <a href="/playground">Open playground &rarr;</a></p>
       </div>
     </div>
   </div>
@@ -815,9 +825,19 @@ Use ContrastAPI when you need to:
 
 No API key needed. Free: 100 requests/hour per IP.
 API key (1000 req/hr): pass `Authorization: Bearer cc_xxx` header.
-Rate limit headers returned: X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset.
+Rate limit headers returned: X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset, X-RateLimit-Cost, X-RateLimit-Tier.
 
-## Endpoints (25 MCP tools)
+## Credit Costs
+
+Most endpoints cost 1 credit per call. Aggregating endpoints that fan out to multiple upstream sources cost more:
+- `GET /v1/audit/{domain}` — 4 credits (domain report + live headers + tech fingerprint)
+- `GET /v1/threat-report/{ip}` — 4 credits (Shodan + AbuseIPDB + full Shodan + ASN)
+- `POST /v1/cves/bulk`, `POST /v1/iocs/bulk` — 1 credit per item in the request
+- All other endpoints — 1 credit
+
+Every authenticated response includes X-RateLimit-Cost so clients can budget calls transparently.
+
+## Endpoints (29 MCP tools)
 
 ### CVE Intelligence
 - GET /v1/cve/{cve_id} — Full CVE details with EPSS score, KEV status, CVSS breakdown
@@ -826,9 +846,12 @@ Rate limit headers returned: X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLim
 - GET /v1/cves/kev — CISA Known Exploited Vulnerabilities
 - GET /v1/epss/{cve_id} — EPSS exploit probability score
 - GET /v1/exploit/{cve_id} — Public exploits and advisories (GitHub Advisory, ExploitDB)
+- POST /v1/cves/bulk — Bulk CVE lookup (10 free, 50 pro per request)
 
 ### Domain Intelligence
 - GET /v1/domain/{domain} — Full domain report (DNS + WHOIS + SSL + subdomains + WAF + email security + threat intel + risk score)
+- GET /v1/audit/{domain} — Orchestrated domain audit (full report + tech fingerprint + live headers in one call)
+- GET /v1/threat-report/{ip} — Orchestrated IP threat report (Shodan + AbuseIPDB + ASN + enrichment)
 - GET /v1/dns/{domain} — DNS records (A, AAAA, MX, NS, TXT, CNAME, SOA)
 - GET /v1/whois/{domain} — WHOIS registration data
 - GET /v1/ssl/{domain} — SSL/TLS certificate analysis (cipher, chain, expiry, grade)
@@ -850,6 +873,7 @@ Rate limit headers returned: X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLim
 - GET /v1/hash/{file_hash} — Malware hash reputation via MalwareBazaar
 - GET /v1/password/{sha1_hash} — Password breach check via HIBP (k-anonymity)
 - GET /v1/phishing/{url} — Phishing/malware URL check via URLhaus
+- POST /v1/iocs/bulk — Bulk IOC enrichment (10 free, 50 pro per request)
 
 ### Code Security
 - POST /v1/check/headers — Validate HTTP security headers (JSON body: {"headers": {...}})
@@ -863,12 +887,12 @@ Rate limit headers returned: X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLim
 
 ## MCP (Model Context Protocol)
 
-ContrastAPI is available as an MCP server with 25 tools.
-MCP tools: domain_report, dns_lookup, whois_lookup, ssl_check, subdomain_enum,
+ContrastAPI is available as an MCP server with 29 tools.
+MCP tools: domain_report, audit_domain, dns_lookup, whois_lookup, ssl_check, subdomain_enum,
 tech_fingerprint, threat_intel, scan_headers, email_mx, email_disposable,
-phone_lookup, username_lookup, wayback_lookup, ip_lookup, asn_lookup,
-cve_lookup, cve_search, exploit_lookup, ioc_lookup, hash_lookup,
-password_check, phishing_check, check_secrets, check_injection, check_headers.
+phone_lookup, username_lookup, wayback_lookup, ip_lookup, asn_lookup, threat_report,
+cve_lookup, cve_search, exploit_lookup, bulk_cve_lookup, ioc_lookup, hash_lookup,
+password_check, phishing_check, bulk_ioc_lookup, check_secrets, check_injection, check_headers.
 
 ### HTTP Transport (remote)
 POST https://api.contrastcyber.com/mcp/
@@ -918,7 +942,7 @@ def llms_full_txt():
     return """\
 # ContrastAPI — Full API Reference
 
-> Security intelligence API. 25 MCP tools. Base URL: https://api.contrastcyber.com
+> Security intelligence API. 29 MCP tools. Base URL: https://api.contrastcyber.com
 > Auth: None required (100 req/hr). Pro: Authorization: Bearer cc_xxx (1000 req/hr).
 > All responses JSON with a "summary" field optimized for LLM consumption.
 > OpenAPI spec: https://api.contrastcyber.com/openapi.json
@@ -944,10 +968,19 @@ GET /v1/epss/{cve_id} — EPSS exploit probability score.
 GET /v1/exploit/{cve_id} — Public exploits (GitHub Advisory + ExploitDB).
   Response keys: cve_id, exploits_found, sources:{github:{found,count,advisories},exploitdb:{found,count,results}}, has_public_exploit, summary
 
+POST /v1/cves/bulk — Bulk CVE lookup. Body: {"cve_ids":["CVE-2024-1234",...]} (max 10 free, 50 pro).
+  Response keys: results:[{cve_id,status,cve,error}], total, successful, failed, summary
+
 ## Domain Intelligence
 
 GET /v1/domain/{domain} — Full domain report (DNS+WHOIS+SSL+subdomains+WAF+email+threat+risk). Supports ?lite=true.
   Response keys: domain, summary, dns, reverse_dns, whois, ssl, email_security, subdomains, certificates, waf, threat, risk:{score,grade,factors}
+
+GET /v1/audit/{domain} — Orchestrated audit: full domain report + tech fingerprint + live HTTP headers in one call.
+  Response keys: domain, report (full domain intel), technologies:{technologies,categories,count,summary}, live_headers, summary
+
+GET /v1/threat-report/{ip} — Orchestrated IP threat report: Shodan InternetDB + AbuseIPDB + Shodan full + ASN. No private IPs.
+  Response keys: ip, enrichment:{ports,hostnames,vulns,cpes,tags}, abuseipdb, shodan, asn:{asn,prefix}, threat_level, summary
 
 GET /v1/dns/{domain} — DNS records (A, AAAA, MX, NS, TXT, CNAME, SOA).
   Response keys: domain, records:{a,aaaa,mx,ns,txt,cname,soa}, summary
@@ -1008,6 +1041,9 @@ GET /v1/password/{sha1_hash} — Password breach check (HIBP k-anonymity). Full 
 GET /v1/phishing/{url} — Phishing/malware URL check (URLhaus). Must start with http(s)://.
   Response keys: url, host, is_malicious, urlhaus_host:{found,urls_online,url_count}, urlhaus_url:{found,threat,tags}, threat_level, summary
 
+POST /v1/iocs/bulk — Bulk IOC enrichment. Body: {"indicators":["8.8.8.8","evil.com",...]} (max 10 free, 50 pro).
+  Response keys: results:[{indicator,status,ioc:{type,threat_level,sources},error}], total, successful, failed, timed_out, partial, summary
+
 ## Code Security
 
 POST /v1/check/secrets — Detect hardcoded secrets (14 patterns). Body: {"code":"...","language":"python"}
@@ -1041,7 +1077,8 @@ GET /v1/domain/example.com →
 
 ## Rate Limits & Data Sources
 
-Keyless: 100 req/hr per IP. Pro: 1000 req/hr. Headers: X-RateLimit-{Limit,Remaining,Reset}, X-Request-ID.
+Keyless: 100 req/hr per IP. Pro: 1000 req/hr. Headers: X-RateLimit-{Limit,Remaining,Reset,Cost,Tier}, X-Request-ID.
+Credit costs: most endpoints = 1, /v1/audit and /v1/threat-report = 4, bulk endpoints = N (one per item).
 Data: NVD (340K+ CVEs), EPSS (323K+), CISA KEV (1500+), Shodan, URLhaus, ThreatFox, MalwareBazaar,
 GitHub Advisory DB, HIBP, Wayback Machine, crt.sh. CVE/EPSS/KEV synced every 2h. Others live.
 """
@@ -1118,11 +1155,11 @@ def mcp_server_card():
     """MCP server discovery card (draft spec)."""
     return {
         "name": "ContrastAPI",
-        "description": "Security intelligence MCP server with 25 tools: CVE lookup, domain recon, SSL, IP/ASN, email/phone OSINT, IOC, exploit search, tech fingerprinting, code security.",
+        "description": "Security intelligence MCP server with 29 tools: CVE lookup, domain recon, SSL, IP/ASN, email/phone OSINT, IOC, exploit search, tech fingerprinting, orchestrated audit + threat reports, bulk lookups, code security.",
         "url": "https://api.contrastcyber.com/mcp/",
         "transport": ["streamable-http"],
         "auth": "none",
-        "tools_count": 25,
+        "tools_count": 29,
         "homepage": "https://github.com/UPinar/contrastapi",
         "documentation": "https://github.com/UPinar/contrastapi#endpoints",
     }

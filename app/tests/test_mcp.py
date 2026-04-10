@@ -62,11 +62,16 @@ def test_mcp_tools_list(mcp_client):
     assert r.status_code == 200
     data = r.json()
     tools = data["result"]["tools"]
-    assert len(tools) == 25
+    assert len(tools) == 29
     names = {t["name"] for t in tools}
     assert "domain_report" in names
     assert "cve_lookup" in names
     assert "check_secrets" in names
+    # Feature-Gate Phase 1 tools
+    assert "audit_domain" in names
+    assert "threat_report" in names
+    assert "bulk_cve_lookup" in names
+    assert "bulk_ioc_lookup" in names
 
 
 # --- Error handling ---
@@ -189,6 +194,188 @@ def test_mcp_tool_call_nonexistent_tool(mcp_client):
     assert r.status_code == 200
     data = r.json()
     assert data["result"]["isError"] is True
+
+
+# --- Feature-Gate Phase 1 tool calls ---
+
+
+def test_mcp_tool_call_audit_domain(mcp_client, monkeypatch):
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "mcp_server_test", str(__import__("config").BASE_DIR.parent / "mcp_server.py")
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    async def mock_get(path, params=None):
+        return {"summary": "audit ok"}
+
+    monkeypatch.setattr(mod, "_get", mock_get)
+    r = mcp_client.post(
+        "/mcp/",
+        headers=MCP_HEADERS,
+        json={
+            "jsonrpc": "2.0",
+            "id": 20,
+            "method": "tools/call",
+            "params": {"name": "audit_domain", "arguments": {"domain": "example.com"}},
+        },
+    )
+    assert r.status_code == 200
+    assert "content" in r.json()["result"]
+
+
+def test_mcp_tool_call_audit_domain_invalid(mcp_client):
+    r = mcp_client.post(
+        "/mcp/",
+        headers=MCP_HEADERS,
+        json={
+            "jsonrpc": "2.0",
+            "id": 21,
+            "method": "tools/call",
+            "params": {"name": "audit_domain", "arguments": {"domain": "not_a_domain"}},
+        },
+    )
+    assert r.status_code == 200
+    # Validation error returns a string, not an exception
+    text = str(r.json()["result"]["content"])
+    assert "Invalid domain" in text
+
+
+def test_mcp_tool_call_threat_report(mcp_client, monkeypatch):
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "mcp_server_test", str(__import__("config").BASE_DIR.parent / "mcp_server.py")
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    async def mock_get(path, params=None):
+        return {"summary": "threat ok"}
+
+    monkeypatch.setattr(mod, "_get", mock_get)
+    r = mcp_client.post(
+        "/mcp/",
+        headers=MCP_HEADERS,
+        json={
+            "jsonrpc": "2.0",
+            "id": 22,
+            "method": "tools/call",
+            "params": {"name": "threat_report", "arguments": {"ip": "8.8.8.8"}},
+        },
+    )
+    assert r.status_code == 200
+    assert "content" in r.json()["result"]
+
+
+def test_mcp_tool_call_threat_report_invalid_ip(mcp_client):
+    r = mcp_client.post(
+        "/mcp/",
+        headers=MCP_HEADERS,
+        json={
+            "jsonrpc": "2.0",
+            "id": 23,
+            "method": "tools/call",
+            "params": {"name": "threat_report", "arguments": {"ip": "not_an_ip"}},
+        },
+    )
+    assert r.status_code == 200
+    text = str(r.json()["result"]["content"])
+    assert "Invalid IP" in text
+
+
+def test_mcp_tool_call_bulk_cve_lookup(mcp_client, monkeypatch):
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "mcp_server_test", str(__import__("config").BASE_DIR.parent / "mcp_server.py")
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    async def mock_post(path, json_body):
+        return {"summary": "bulk cve ok", "total": 2, "successful": 2, "failed": 0}
+
+    monkeypatch.setattr(mod, "_post", mock_post)
+    r = mcp_client.post(
+        "/mcp/",
+        headers=MCP_HEADERS,
+        json={
+            "jsonrpc": "2.0",
+            "id": 24,
+            "method": "tools/call",
+            "params": {
+                "name": "bulk_cve_lookup",
+                "arguments": {"cve_ids": ["CVE-2024-0001", "CVE-2024-0002"]},
+            },
+        },
+    )
+    assert r.status_code == 200
+    assert "content" in r.json()["result"]
+
+
+def test_mcp_tool_call_bulk_cve_lookup_empty(mcp_client):
+    r = mcp_client.post(
+        "/mcp/",
+        headers=MCP_HEADERS,
+        json={
+            "jsonrpc": "2.0",
+            "id": 25,
+            "method": "tools/call",
+            "params": {"name": "bulk_cve_lookup", "arguments": {"cve_ids": []}},
+        },
+    )
+    assert r.status_code == 200
+    text = str(r.json()["result"]["content"])
+    assert "non-empty list" in text
+
+
+def test_mcp_tool_call_bulk_ioc_lookup(mcp_client, monkeypatch):
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "mcp_server_test", str(__import__("config").BASE_DIR.parent / "mcp_server.py")
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    async def mock_post(path, json_body):
+        return {"summary": "bulk ioc ok", "total": 2}
+
+    monkeypatch.setattr(mod, "_post", mock_post)
+    r = mcp_client.post(
+        "/mcp/",
+        headers=MCP_HEADERS,
+        json={
+            "jsonrpc": "2.0",
+            "id": 26,
+            "method": "tools/call",
+            "params": {
+                "name": "bulk_ioc_lookup",
+                "arguments": {"indicators": ["8.8.8.8", "evil.com"]},
+            },
+        },
+    )
+    assert r.status_code == 200
+    assert "content" in r.json()["result"]
+
+
+def test_mcp_tool_call_bulk_ioc_lookup_empty(mcp_client):
+    r = mcp_client.post(
+        "/mcp/",
+        headers=MCP_HEADERS,
+        json={
+            "jsonrpc": "2.0",
+            "id": 27,
+            "method": "tools/call",
+            "params": {"name": "bulk_ioc_lookup", "arguments": {"indicators": []}},
+        },
+    )
+    assert r.status_code == 200
+    text = str(r.json()["result"]["content"])
+    assert "non-empty list" in text
 
 
 # --- Docs mention MCP ---

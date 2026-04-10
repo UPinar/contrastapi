@@ -586,3 +586,69 @@ class UsernameLookupResponse(BaseModel):
     error: str | None = None
 
     model_config = {"extra": "ignore"}
+
+
+# === Audit (orchestrated domain intel) ===
+
+
+class AuditResponse(BaseModel):
+    domain: str
+    report: dict = Field(default_factory=dict)
+    technologies: dict = Field(default_factory=dict)
+    live_headers: dict = Field(default_factory=dict)
+    summary: str = ""
+
+    model_config = {"extra": "ignore"}
+
+
+# === Threat Report (orchestrated IP intel) ===
+
+
+class ThreatReportResponse(BaseModel):
+    ip: str
+    enrichment: dict = Field(default_factory=dict)
+    abuseipdb: dict = Field(default_factory=dict)
+    shodan: dict = Field(default_factory=dict)
+    asn: dict = Field(default_factory=dict)
+    threat_level: str = "none"
+    summary: str = ""
+
+    model_config = {"extra": "ignore"}
+
+
+# === Bulk CVE ===
+
+
+class BulkCveItem(BaseModel):
+    cve_id: str
+    status: str = "ok"
+    cve: dict | None = None
+    error: str | None = None
+
+
+class BulkCveResponse(BaseModel):
+    results: list[BulkCveItem] = Field(default_factory=list)
+    total: int = 0
+    successful: int = 0
+    failed: int = 0
+    summary: str = ""
+
+
+# === Bulk IOC ===
+
+
+class BulkIocItem(BaseModel):
+    indicator: str
+    status: str = "ok"
+    ioc: dict | None = None
+    error: str | None = None
+
+
+class BulkIocResponse(BaseModel):
+    results: list[BulkIocItem] = Field(default_factory=list)
+    total: int = 0
+    successful: int = 0
+    failed: int = 0
+    timed_out: int = 0
+    partial: bool = False
+    summary: str = ""

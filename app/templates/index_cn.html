@@ -4,10 +4,10 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ContrastAPI — 安全情报 API</title>
-  <meta name="description" content="面向 AI 模型和开发者的安全情报 API 和 MCP 服务器，25 个工具。CVE 查询、域名侦察、威胁情报、代码安全。免费，无需 API 密钥。">
+  <meta name="description" content="面向 AI 模型和开发者的安全情报 API 和 MCP 服务器，29 个工具。CVE 查询、域名侦察、威胁情报、代码安全。免费，无需 API 密钥。">
   <meta name="keywords" content="MCP 安全工具, API 安全扫描, CVE 查询, 域名情报, 威胁情报, AI 安全, MCP 服务器, 安全 API">
-  <meta property="og:title" content="ContrastAPI — 25 个 AI 安全工具">
-  <meta property="og:description" content="免费安全情报 MCP 服务器，25 个工具：CVE、域名侦察、IOC、漏洞利用搜索、代码安全。无需注册。">
+  <meta property="og:title" content="ContrastAPI — 29 个 AI 安全工具">
+  <meta property="og:description" content="免费安全情报 MCP 服务器，29 个工具：CVE、域名侦察、IOC、漏洞利用搜索、代码安全。无需注册。">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://api.contrastcyber.com/cn/">
   <meta property="og:image" content="https://api.contrastcyber.com/static/og-image.png">
@@ -78,6 +78,11 @@
         <span class="method get">GET</span>
         <span class="endpoint-path">/v1/domain/{domain}</span>
         <span class="endpoint-desc">完整域名报告</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/audit/{domain}</span>
+        <span class="endpoint-desc">完整审计（报告 + 技术 + 响应头）</span>
       </div>
       <div class="endpoint">
         <span class="method get">GET</span>
@@ -208,9 +213,24 @@
         <span class="endpoint-desc">技术栈 CVE 扫描</span>
       </div>
       <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/threat-report/{ip}</span>
+        <span class="endpoint-desc">IP 威胁报告（Shodan + AbuseIPDB + ASN）</span>
+      </div>
+      <div class="endpoint">
         <span class="method post">POST</span>
         <span class="endpoint-path">/v1/domains/bulk</span>
         <span class="endpoint-desc">批量域名扫描（最多 10 个域名）</span>
+      </div>
+      <div class="endpoint">
+        <span class="method post">POST</span>
+        <span class="endpoint-path">/v1/cves/bulk</span>
+        <span class="endpoint-desc">批量 CVE 查询（免费每次 10 条，Pro 50 条）</span>
+      </div>
+      <div class="endpoint">
+        <span class="method post">POST</span>
+        <span class="endpoint-path">/v1/iocs/bulk</span>
+        <span class="endpoint-desc">批量 IOC 富化（免费每次 10 条，Pro 50 条）</span>
       </div>
     </div>
 
@@ -304,6 +324,36 @@
 }</pre>
   </section>
 
+  <!-- 信用额度 -->
+  <section class="endpoints">
+    <div class="section-title">信用额度</div>
+    <p style="color:#aaa;font-size:0.9rem;margin:0.5rem 0 1rem 0.5rem">
+      透明计价 — 每个响应都包含 <code style="color:#58a6ff">X-RateLimit-Cost</code> 响应头，便于预算管理。
+    </p>
+    <div class="endpoint-group">
+      <div class="endpoint">
+        <span class="method get">1&times;</span>
+        <span class="endpoint-path">大多数端点</span>
+        <span class="endpoint-desc">每次调用 1 信用</span>
+      </div>
+      <div class="endpoint">
+        <span class="method post">4&times;</span>
+        <span class="endpoint-path">/v1/audit/{domain}</span>
+        <span class="endpoint-desc">聚合 4 个上游数据源</span>
+      </div>
+      <div class="endpoint">
+        <span class="method post">4&times;</span>
+        <span class="endpoint-path">/v1/threat-report/{ip}</span>
+        <span class="endpoint-desc">聚合 Shodan + AbuseIPDB + ASN + 信息富化</span>
+      </div>
+      <div class="endpoint">
+        <span class="method post">N&times;</span>
+        <span class="endpoint-path">批量端点</span>
+        <span class="endpoint-desc">N 条数据消耗 N 信用</span>
+      </div>
+    </div>
+  </section>
+
   <!-- 价格 -->
   <section class="auth-section">
     <div class="section-title">价格</div>
@@ -312,8 +362,9 @@
         <h3>免费版</h3>
         <div class="price">$0 / 永久免费</div>
         <ul>
-          <li>100 次请求/小时</li>
-          <li>全部 30+ 个接口</li>
+          <li>100 信用/小时</li>
+          <li>全部 29 个接口</li>
+          <li>批量端点：每次 10 条</li>
           <li>无需注册</li>
           <li>社区支持</li>
         </ul>
@@ -322,8 +373,8 @@
         <h3>Pro 版</h3>
         <div class="price">$19 / 月</div>
         <ul>
-          <li>1,000 次请求/小时（10 倍）</li>
-          <li>批量域名报告（50 个域名）</li>
+          <li>1,000 信用/小时（10 倍）</li>
+          <li>批量端点：每次 50 条</li>
           <li>使用量仪表盘</li>
           <li>优先支持</li>
         </ul>
