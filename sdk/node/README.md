@@ -44,6 +44,19 @@ const api = ContrastAPI({ apiKey: "your-api-key" });
 
 ## All Methods
 
+### Credit Costs
+
+Most endpoints cost 1 credit. Heavy orchestration endpoints cost more:
+
+| Endpoint | Cost |
+| --- | --- |
+| `domain.audit()` | 4× |
+| `ip.threatReport()` | 4× |
+| `cve.bulk([...])` | N× (per item) |
+| `ioc.bulk([...])` | N× (per item) |
+
+Bulk endpoints: free tier up to 10 items per call, Pro tier up to 50. Free tier: 100 credits/hour. Pro tier: 1000 credits/hour.
+
 ### Domain Intelligence
 ```javascript
 api.domain.report("example.com")           // Full domain report
@@ -58,11 +71,13 @@ api.domain.threat("example.com")           // Threat intelligence
 api.domain.monitor("example.com")          // Domain monitoring
 api.domain.vulns("example.com")            // Known vulnerabilities
 api.domain.bulk(["a.com", "b.com"])        // Bulk domain reports
+api.domain.audit("example.com")            // Full audit (report + tech + headers) — 4 credits
 ```
 
 ### IP & ASN
 ```javascript
 api.ip.lookup("8.8.8.8")                   // IP intelligence
+api.ip.threatReport("8.8.8.8")             // Threat report (AbuseIPDB + Shodan + ASN) — 4 credits
 api.asn.lookup("google.com")               // ASN lookup
 ```
 
@@ -74,6 +89,7 @@ api.cve.recent()                           // Recently published
 api.cve.kev()                              // Known exploited (CISA KEV)
 api.cve.epss("CVE-2024-3094")              // EPSS score
 api.cve.exploit("CVE-2024-3094")           // Public exploits
+api.cve.bulk(["CVE-2024-3094", "CVE-2021-44228"])  // Bulk CVE lookup — N credits
 ```
 
 ### Threat Intelligence
@@ -81,6 +97,7 @@ api.cve.exploit("CVE-2024-3094")           // Public exploits
 api.ioc.lookup("evil.com")                 // IOC enrichment (auto-detect type)
 api.ioc.hash("abc123...")                  // Malware hash lookup
 api.ioc.phishing("https://evil.com/login") // Phishing check
+api.ioc.bulk(["8.8.8.8", "evil.com"])      // Bulk IOC lookup — N credits
 ```
 
 ### Email & Phone

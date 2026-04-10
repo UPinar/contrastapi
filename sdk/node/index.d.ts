@@ -16,9 +16,11 @@ declare function ContrastAPI(options?: {
     monitor(domain: string): Promise<any>;
     vulns(domain: string): Promise<any>;
     bulk(domains: string[]): Promise<any>;
+    audit(domain: string): Promise<any>;
   };
   ip: {
     lookup(ip: string): Promise<any>;
+    threatReport(ip: string): Promise<any>;
   };
   asn: {
     lookup(target: string): Promise<any>;
@@ -30,11 +32,13 @@ declare function ContrastAPI(options?: {
     kev(params?: { limit?: number }): Promise<any>;
     epss(cveId: string): Promise<any>;
     exploit(cveId: string): Promise<any>;
+    bulk(cveIds: string[]): Promise<any>;
   };
   ioc: {
     lookup(indicator: string): Promise<any>;
     hash(fileHash: string): Promise<any>;
     phishing(url: string): Promise<any>;
+    bulk(indicators: string[]): Promise<any>;
   };
   email: {
     mx(domain: string): Promise<any>;

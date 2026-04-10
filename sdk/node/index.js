@@ -111,11 +111,13 @@ function ContrastAPI(options = {}) {
         }
         return post("/v1/domains/bulk", { domains });
       },
+      audit: (domain) => get(`/v1/audit/${enc(domain)}`),
     },
 
     // --- IP Intelligence ---
     ip: {
       lookup: (ip) => get(`/v1/ip/${enc(ip)}`),
+      threatReport: (ip) => get(`/v1/threat-report/${enc(ip)}`),
     },
 
     // --- ASN ---
@@ -149,6 +151,12 @@ function ContrastAPI(options = {}) {
       },
       epss: (cveId) => get(`/v1/epss/${enc(cveId)}`),
       exploit: (cveId) => get(`/v1/exploit/${enc(cveId)}`),
+      bulk: (cveIds) => {
+        if (!Array.isArray(cveIds) || !cveIds.every(c => typeof c === "string")) {
+          throw new Error("cveIds must be an array of strings");
+        }
+        return post("/v1/cves/bulk", { cve_ids: cveIds });
+      },
     },
 
     // --- Threat Intelligence / IOC ---
@@ -156,6 +164,12 @@ function ContrastAPI(options = {}) {
       lookup: (indicator) => get(`/v1/ioc/${encPath(indicator)}`),
       hash: (fileHash) => get(`/v1/hash/${enc(fileHash)}`),
       phishing: (url) => get(`/v1/phishing/${encPath(url)}`),
+      bulk: (indicators) => {
+        if (!Array.isArray(indicators) || !indicators.every(i => typeof i === "string")) {
+          throw new Error("indicators must be an array of strings");
+        }
+        return post("/v1/iocs/bulk", { indicators });
+      },
     },
 
     // --- Email ---
