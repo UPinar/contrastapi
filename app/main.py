@@ -383,7 +383,7 @@ def quickstart():
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Quick Start | ContrastAPI</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-  <link rel="stylesheet" href="/static/style.css?v=17">
+  <link rel="stylesheet" href="/static/style.css?v=18">
   <style>
     .page { max-inline-size: 52rem; margin-inline: auto; padding: 3rem 2rem; position: relative; z-index: 1; }
     .page h1 { font-size: 2.25rem; font-weight: 800; letter-spacing: -0.04em; margin-block-end: 0.5rem; }
@@ -523,7 +523,7 @@ def mcp_setup():
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>MCP Setup | ContrastAPI</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-  <link rel="stylesheet" href="/static/style.css?v=17">
+  <link rel="stylesheet" href="/static/style.css?v=18">
   <style>
     .page { max-inline-size: 52rem; margin-inline: auto; padding: 3rem 2rem; position: relative; z-index: 1; }
     .page h1 { font-size: 2.25rem; font-weight: 800; letter-spacing: -0.04em; margin-block-end: 0.5rem; }
