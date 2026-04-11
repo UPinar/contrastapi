@@ -1,4 +1,4 @@
-# ContrastAPI
+# ContrastAPI — 为 AI 智能体打造的 29 个安全工具
 
 <p align="center">
   <img src="app/static/banner.png" alt="ContrastAPI Banner" width="100%">
@@ -6,70 +6,40 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Python 3.12](https://img.shields.io/badge/Python-3.12-blue.svg)](https://python.org)
-[![Tests](https://img.shields.io/badge/Tests-782_passing-brightgreen.svg)](https://github.com/UPinar/contrastapi/actions)
+[![Tests](https://img.shields.io/badge/Tests-841_passing-brightgreen.svg)](https://github.com/UPinar/contrastapi/actions)
 [![MCP](https://img.shields.io/badge/MCP-29_tools-purple.svg)](https://modelcontextprotocol.io)
-[![VS Code](https://img.shields.io/badge/VS_Code-Marketplace-007ACC.svg)](https://marketplace.visualstudio.com/items?itemName=ContrastAPI.contrastapi)
-[![RapidAPI](https://img.shields.io/badge/RapidAPI-Available-blue.svg)](https://rapidapi.com/UPinar/api/contrastapi)
+[![Smithery](https://img.shields.io/badge/Smithery-98%2F100-orange.svg)](https://smithery.ai/server/@UPinar/contrastapi)
 [![npm](https://img.shields.io/npm/v/contrastapi.svg)](https://www.npmjs.com/package/contrastapi)
+[![VS Code](https://img.shields.io/badge/VS_Code-Marketplace-007ACC.svg)](https://marketplace.visualstudio.com/items?itemName=ContrastAPI.contrastapi)
 
-**安全情报 API 和 AI 智能体 MCP 服务器。** 29 个 MCP 工具 / 39+ 个端点：CVE 查询（含 EPSS/KEV 增强）、域名侦察、SSL 分析、IP 信誉（AbuseIPDB、Shodan）、IOC/恶意软件查询、漏洞利用搜索、技术指纹识别、电子邮件安全、电话号码验证和代码安全扫描。免费使用，无需 API 密钥。
+**安全情报 API 和 AI 智能体 MCP 服务器。** 域名审计、CVE 查询（含 EPSS+KEV）、IP 威胁报告、IOC 增强，以及 25 个其他工具。**免费使用，无需 API 密钥，每小时 100 信用额度。**
 
-**在线服务：** [api.contrastcyber.com](https://api.contrastcyber.com) | **快速入门：** [API](https://api.contrastcyber.com/quickstart) · [MCP](https://api.contrastcyber.com/mcp-setup) · [VS Code](https://marketplace.visualstudio.com/items?itemName=ContrastAPI.contrastapi) | **文档：** [接口列表](#接口列表) | **扫描器：** [contrastcyber.com](https://contrastcyber.com)
-
----
-
-[English](README.md) | **中文**
-
----
-
-## 与 AI 智能体配合使用
-
-**VS Code 扩展：** 从 [Marketplace](https://marketplace.visualstudio.com/items?itemName=ContrastAPI.contrastapi) 安装 ContrastAPI — 编辑器内 29 个安全工具，无需 API 密钥。
-
-**MCP 配置** 支持 Claude Desktop、Cursor、VS Code、Windsurf 等工具：**[MCP 配置指南](https://api.contrastcyber.com/mcp-setup)**
+[English](README.md) | **中文** · **在线服务：** [api.contrastcyber.com](https://api.contrastcyber.com)
 
 也支持 **DeepSeek**、**Qwen（通义千问）** 等支持 MCP 协议的中国 AI 模型。
 
-配置完成后，直接向 AI 提问：
+---
 
-**侦察与域名**
-- *"对 example.com 进行全面安全审计"*
-- *"example.com 的 DNS 记录有哪些？"*
-- *"example.com 的 SSL 证书是否即将过期？"*
-- *"example.com 使用了哪些技术？"*
-- *"检查 example.com 的安全响应头"*
-- *"枚举 example.com 的所有子域名"*
-- *"example.com 的注册信息和到期时间？"*
-- *"example.com 是否正确配置了 SPF 和 DMARC？"*
+## 30 秒快速配置
 
-**CVE 与漏洞利用**
-- *"查询 CVE-2024-3094 — 是否正在被利用？"*
-- *"查找过去 6 个月内 Apache 的严重漏洞"*
-- *"CVE-2021-44228 是否有公开的漏洞利用？"*
+选择你的集成方式：
 
-**IP 与网络**
-- *"8.8.8.8 是否为恶意 IP？检查其信誉"*
-- *"1.1.1.1 属于哪个 ASN？"*
+### 方式 1：MCP（Claude Desktop / Cursor / VS Code / Windsurf）
 
-**威胁情报**
-- *"检查 example.com 是否存在已知恶意 URL"*
-- *"查询此 IOC 的情报：185.220.101.1"*
-- *"检查 http://evil-example.test/login 是否为钓鱼网站"*
-- *"此密码是否在数据泄露中出现过？"*
-- *"此文件哈希是否为已知恶意软件？a1b2c3d4..."*
+添加到你的 MCP 配置：
 
-**代码安全**
-- *"检查代码中是否有硬编码的 API 密钥和凭证"*
-- *"扫描此函数是否存在 SQL 注入漏洞"*
-- *"验证这些 HTTP 安全响应头：Content-Security-Policy、X-Frame-Options"*
+    {
+      "mcpServers": {
+        "contrastapi": {
+          "command": "npx",
+          "args": ["-y", "mcp-remote", "https://api.contrastcyber.com/mcp/"]
+        }
+      }
+    }
 
-**联系方式验证**
-- *"user@example.com 是否为一次性邮箱？"*
-- *"查询此电话号码：+86-138-0000-0000"*
+重启你的 AI 智能体。完成。完整配置指南：**[api.contrastcyber.com/mcp-setup](https://api.contrastcyber.com/mcp-setup)**
 
-## 快速入门
-
-### Node.js SDK
+### 方式 2：Node.js SDK
 
 ```bash
 npm install contrastapi
@@ -78,123 +48,67 @@ npm install contrastapi
 ```javascript
 const api = require("contrastapi")();
 
-const report = await api.domain.report("example.com");
-const cve = await api.cve.lookup("CVE-2024-3094");
-const ssl = await api.domain.ssl("example.com");
-const headers = await api.scan.headers("example.com");
+const audit = await api.domain.audit("example.com");        // 完整审计
+const cve   = await api.cve.lookup("CVE-2024-3094");        // EPSS + KEV
+const ip    = await api.ip.threatReport("8.8.8.8");         // Shodan + AbuseIPDB + ASN
+const bulk  = await api.cve.bulk(["CVE-2021-44228", "CVE-2024-3094"]);
 ```
 
-使用 API 密钥（Pro 版）：`const api = require("contrastapi")({ apiKey: "your-key" });`
+零依赖，支持 Node 14+。完整 SDK 文档：[sdk/node/](sdk/node/)
 
-完整 SDK 文档：[sdk/node/](sdk/node/)
-
-### Python
-
-```python
-import httpx
-
-resp = httpx.get("https://api.contrastcyber.com/v1/domain/example.com")
-print(resp.json())
-```
-
-### cURL
+### 方式 3：cURL
 
 ```bash
-curl https://api.contrastcyber.com/v1/domain/example.com
+curl https://api.contrastcyber.com/v1/cve/CVE-2024-3094
+curl https://api.contrastcyber.com/v1/audit/example.com
+curl https://api.contrastcyber.com/v1/threat-report/8.8.8.8
 ```
 
 更多示例：**[API 快速入门](https://api.contrastcyber.com/quickstart)**（cURL、Node.js、Python、CI/CD）
 
+### 方式 4：VS Code 扩展
+
+从 Marketplace 安装 **[ContrastAPI — Security Intelligence](https://marketplace.visualstudio.com/items?itemName=ContrastAPI.contrastapi)**。29 个命令、侧边栏树状菜单、右键上下文菜单。无需 API 密钥。
+
+---
+
+## 立即试用
+
+配置完成后，向你的 AI 智能体提问：
+
+- *"对 example.com 进行全面安全审计"*
+- *"CVE-2024-3094 是否正在被利用？检查 EPSS + KEV"*
+- *"8.8.8.8 是恶意 IP 吗？查询 AbuseIPDB、Shodan 和 ASN"*
+
+更多示例提示词：[docs/PROMPTS.md](docs/PROMPTS.md) · [/playground](https://api.contrastcyber.com/playground)（交互式测试工具）
+
+---
+
+## 功能一览
+
+- **29 个 MCP 工具**，覆盖 6 个类别 — 完整列表：**[docs/ENDPOINTS.md](docs/ENDPOINTS.md)**
+- **34 万+ CVE** 每 2 小时从 NVD 同步，并整合 EPSS 漏洞利用概率 + CISA KEV 状态
+- **加权信用额度** — 简单调用 1 个信用，重度编排调用（audit、threat_report）4 个,批量调用 N 个
+- **LLM 优化摘要** — 每个响应都包含 `summary` 字段，智能体无需解析嵌套 JSON 即可推理
+- **分发渠道** — [npm SDK](https://www.npmjs.com/package/contrastapi) · [VS Code 扩展](https://marketplace.visualstudio.com/items?itemName=ContrastAPI.contrastapi) · [Smithery MCP](https://smithery.ai/server/@UPinar/contrastapi)（98/100 质量评分）· REST API
+
 ## 为什么选择 ContrastAPI？
 
-- **一次调用，全面报告** — 域名报告包含 DNS + WHOIS + SSL + 子域名 + WAF + IP 信誉
-- **CVE 情报** — 34 万+ CVE 漏洞，含 EPSS 利用概率和 CISA KEV 状态
-- **IP 信誉查询** — AbuseIPDB、Shodan 数据增强，24 小时缓存
-- **技术指纹识别** — 通过 HTTP 头和 HTML 检测 CMS、框架、CDN、分析工具
-- **AI 原生设计** — LLM 优化摘要、结构化 JSON、OpenAPI 规范
-- **永久免费** — 100 次请求/小时，无需 API 密钥，无需注册
+- **一次调用，全貌呈现** — `audit` 接口在单个响应中返回完整报告 + 技术指纹 + 实时响应头
+- **AI 原生** — 结构化 JSON、LLM 摘要、OpenAPI 规范、MCP 优先
+- **永久免费** — 每小时 100 信用额度，无需 API 密钥，无需注册，无需信用卡
 
-## 接口列表
+## 文档与链接
 
-### 域名情报
+- **API 快速入门：** [api.contrastcyber.com/quickstart](https://api.contrastcyber.com/quickstart)
+- **MCP 配置：** [api.contrastcyber.com/mcp-setup](https://api.contrastcyber.com/mcp-setup)
+- **完整接口列表：** [docs/ENDPOINTS.md](docs/ENDPOINTS.md)
+- **OpenAPI 规范：** [api.contrastcyber.com/openapi.json](https://api.contrastcyber.com/openapi.json)
+- **LLM 发现：** [api.contrastcyber.com/llms.txt](https://api.contrastcyber.com/llms.txt)
+- **交互式 Playground：** [api.contrastcyber.com/playground](https://api.contrastcyber.com/playground)
 
-```
-GET  /v1/domain/{domain}       完整域名报告（DNS + WHOIS + SSL + 子域名 + WAF + 信誉）
-GET  /v1/audit/{domain}        综合审计（完整报告 + 技术指纹 + 实时响应头）
-GET  /v1/threat-report/{ip}    编排式 IP 威胁报告（Shodan + AbuseIPDB + ASN）
-GET  /v1/dns/{domain}          DNS 记录（A、AAAA、MX、NS、TXT、CNAME、SOA）
-GET  /v1/whois/{domain}        WHOIS 注册信息
-GET  /v1/subdomains/{domain}   子域名枚举（DNS 爆破 + CT 日志）
-GET  /v1/certs/{domain}        证书透明度日志
-GET  /v1/ssl/{domain}          SSL/TLS 分析（密码套件、证书链、A-F 评级）
-GET  /v1/ip/{ip}               IP 情报 + 信誉（AbuseIPDB、Shodan）
-GET  /v1/asn/{target}          ASN 查询（AS 号或 IP）
-GET  /v1/tech/{domain}         技术指纹识别（CMS、框架、CDN、分析工具）
-GET  /v1/threat/{domain}       威胁情报（URLhaus 恶意 URL）
-GET  /v1/archive/{domain}      网站历史存档（Wayback Machine 快照）
-GET  /v1/scan/headers/{domain} HTTP 安全头实时扫描
-GET  /v1/monitor/{domain}      轻量级域名健康检查
-GET  /v1/domain/{domain}/vulns 技术栈 CVE 扫描
-GET  /v1/email/mx/{domain}     邮件服务商检测 + 电子邮件安全评级
-GET  /v1/email/disposable/{email} 一次性/临时邮箱检测
-POST /v1/domains/bulk          批量域名扫描（免费 10 个，Pro 50 个）
-```
-
-### CVE 情报
-
-```
-GET /v1/cve/{cve_id}           CVE 详情 + EPSS + KEV
-GET /v1/cves?product=&severity= CVE 搜索
-GET /v1/cves/recent?hours=24   最新 CVE
-GET /v1/cves/kev               CISA 已利用漏洞
-GET /v1/epss/{cve_id}          漏洞利用概率
-GET /v1/exploit/{cve_id}       公开漏洞利用搜索（GitHub Advisory + Shodan）
-POST /v1/cves/bulk             批量 CVE 查询（免费 10 个，Pro 50 个）
-```
-
-### 威胁情报
-
-```
-GET /v1/ioc/{indicator}        统一 IOC 查询（IP、域名、URL、哈希）
-GET /v1/hash/{hash}            恶意软件哈希信誉（MalwareBazaar）
-GET /v1/password/{sha1}        密码泄露检查（HIBP，k-匿名）
-GET /v1/phishing/{url}         钓鱼/恶意 URL 检查（URLhaus）
-POST /v1/iocs/bulk             批量 IOC 富化（免费 10 个，Pro 50 个）
-GET /v1/phone/{number}         电话号码 OSINT（运营商、类型、国家）
-```
-
-### 代码安全
-
-```
-POST /v1/check/headers         验证 HTTP 安全头
-POST /v1/check/secrets         检测硬编码密钥
-POST /v1/check/injection       SQL/命令注入模式检测
-POST /v1/check/dependencies    检查依赖包已知 CVE
-```
-
-## 速率限制
-
-| 套餐 | 限制 | API 密钥 |
-|------|------|----------|
-| 免费版 | 100 次请求/小时 | 不需要 |
-| Pro 版 | 1,000 次请求/小时 | [获取 API 密钥](https://contrastcyber.com/pricing) |
-
-## 数据来源
-
-| 来源 | 记录数 | 更新频率 |
-|------|--------|----------|
-| NVD (NIST) | 34 万+ CVE | 每 2 小时 |
-| CISA KEV | 1,500+ 已利用漏洞 | 每 2 小时 |
-| FIRST EPSS | 32.3 万+ 利用评分 | 每 2 小时 |
-
-## 文档
-
-- **API 快速入门：** https://api.contrastcyber.com/quickstart
-- **MCP 配置指南：** https://api.contrastcyber.com/mcp-setup
-- **OpenAPI 规范：** https://api.contrastcyber.com/openapi.json
-- **LLM 发现：** https://api.contrastcyber.com/llms.txt
-
-## 自行部署
+<details>
+<summary><strong>自托管部署</strong></summary>
 
 ```bash
 git clone https://github.com/UPinar/contrastapi.git
@@ -205,26 +119,45 @@ cd app
 ../venv/bin/uvicorn main:app --host 127.0.0.1 --port 8002
 ```
 
-## 测试
+需要 Python 3.12。SQLite 数据库首次运行时自动初始化。完整接口参考请查看 [docs/ENDPOINTS.md](docs/ENDPOINTS.md)。
+
+</details>
+
+<details>
+<summary><strong>测试</strong></summary>
 
 ```bash
 cd app && PYTHONPATH=. python -m pytest tests/ -v
 ```
 
-721 个测试，覆盖认证、速率限制、验证、数据库操作、域名情报、CVE 情报、威胁情报、代码安全（ReDoS 防护、并发限制）、技术指纹识别、IP 信誉、电子邮件安全、电话号码验证、MCP 端点和 API 路由。
+**841 个测试**，每 15 分钟执行一次 **36/36 冒烟测试**。覆盖认证、速率限制、验证、数据库操作、域名情报、CVE 情报、威胁情报、代码安全（ReDoS 防护、并发限制）、技术指纹、IP 信誉、邮件安全、电话验证、Web 归档、MCP 端点、批量接口、加权信用系统以及 API 路由。
 
-## 技术栈
+</details>
 
-- **运行环境：** Python 3.12、FastAPI、uvicorn
-- **数据库：** SQLite（WAL 模式，3 个数据库）
-- **DNS：** dnspython
+<details>
+<summary><strong>技术栈与架构</strong></summary>
+
+- **运行时：** Python 3.12、FastAPI、uvicorn（2 workers）
+- **MCP：** 官方 `mcp-python-sdk`，Streamable HTTP 传输，挂载为 `/mcp` 子应用
+- **扫描器：** 定制 C 二进制程序，2 秒内完成域名审计（SSL、DNS、响应头、邮件安全）
+- **数据库：** SQLite + WAL 模式（3 个数据库：API 速率限制、CVE 缓存、域名缓存）
+- **DNS：** dnspython + `_SSRFSafeBackend`（定制 httpcore 后端，连接前验证所有解析的 IP — 防御 DNS 重绑定）
 - **HTTP：** httpx
+- **速率限制：** SQLite 滑动窗口，通过 WAL 模式在多 worker 间共享
+- **加权信用：** 原子性 `BEGIN IMMEDIATE` 消耗 — 要么整个 N 信用批次适配，要么请求被拒绝
 
-## 其他平台
+</details>
 
+<details>
+<summary><strong>也可通过以下渠道获取</strong></summary>
+
+- **Smithery：** [smithery.ai/server/@UPinar/contrastapi](https://smithery.ai/server/@UPinar/contrastapi)（98/100 质量评分）
+- **npm：** [npmjs.com/package/contrastapi](https://www.npmjs.com/package/contrastapi)
+- **VS Code Marketplace：** [ContrastAPI — Security Intelligence](https://marketplace.visualstudio.com/items?itemName=ContrastAPI.contrastapi)
 - **Awesome OSINT MCP Servers：** [soxoj/awesome-osint-mcp-servers](https://github.com/soxoj/awesome-osint-mcp-servers)
 - **RapidAPI：** [rapidapi.com/UPinar/api/contrastapi](https://rapidapi.com/UPinar/api/contrastapi)
-- **Product Hunt：** [contrastapi](https://www.producthunt.com/posts/contrastapi)
+
+</details>
 
 ## 许可证
 
