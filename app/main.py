@@ -567,7 +567,7 @@ def mcp_setup():
 
   <div class="page">
     <h1>MCP <span>Setup</span></h1>
-    <p class="subtitle">Give your AI agent 25 security tools. One config, zero signup.</p>
+    <p class="subtitle">Give your AI agent 29 security tools. One config, zero signup.</p>
 
     <h2><span class="num">1</span> Claude Desktop</h2>
     <p>Edit <code>~/.claude/claude_desktop_config.json</code>:</p>
@@ -642,9 +642,10 @@ Accept: application/json, text/event-stream
       <p><em>"Is user@example.com a disposable email?"</em></p>
     </div>
 
-    <h2>25 Tools</h2>
+    <h2>29 Tools</h2>
     <div class="tools-grid">
       <div class="tool"><span class="name">domain_report</span> <span class="desc">Full domain security audit</span></div>
+      <div class="tool"><span class="name">audit_domain</span> <span class="desc">Report + tech + live headers (one call)</span></div>
       <div class="tool"><span class="name">dns_lookup</span> <span class="desc">DNS records</span></div>
       <div class="tool"><span class="name">whois_lookup</span> <span class="desc">Registration data</span></div>
       <div class="tool"><span class="name">ssl_check</span> <span class="desc">Certificate analysis</span></div>
@@ -656,11 +657,14 @@ Accept: application/json, text/event-stream
       <div class="tool"><span class="name">email_mx</span> <span class="desc">SPF/DMARC/DKIM check</span></div>
       <div class="tool"><span class="name">email_disposable</span> <span class="desc">Disposable email detection</span></div>
       <div class="tool"><span class="name">ip_lookup</span> <span class="desc">IP intelligence (Shodan)</span></div>
+      <div class="tool"><span class="name">threat_report</span> <span class="desc">IP threat report (AbuseIPDB + Shodan + ASN)</span></div>
       <div class="tool"><span class="name">asn_lookup</span> <span class="desc">ASN/network info</span></div>
       <div class="tool"><span class="name">cve_lookup</span> <span class="desc">CVE + EPSS + KEV</span></div>
       <div class="tool"><span class="name">cve_search</span> <span class="desc">Search CVEs by product</span></div>
+      <div class="tool"><span class="name">bulk_cve_lookup</span> <span class="desc">Bulk CVE lookup (up to 50)</span></div>
       <div class="tool"><span class="name">exploit_lookup</span> <span class="desc">Public exploits</span></div>
       <div class="tool"><span class="name">ioc_lookup</span> <span class="desc">IOC enrichment</span></div>
+      <div class="tool"><span class="name">bulk_ioc_lookup</span> <span class="desc">Bulk IOC lookup (up to 50)</span></div>
       <div class="tool"><span class="name">hash_lookup</span> <span class="desc">File hash reputation</span></div>
       <div class="tool"><span class="name">password_check</span> <span class="desc">Breach database check</span></div>
       <div class="tool"><span class="name">phishing_check</span> <span class="desc">URL phishing detection</span></div>
