@@ -139,7 +139,7 @@ cd app && PYTHONPATH=. python -m pytest tests/ -v
 
 - **运行时：** Python 3.12、FastAPI、uvicorn（2 workers）
 - **MCP：** 官方 `mcp-python-sdk`，Streamable HTTP 传输，挂载为 `/mcp` 子应用
-- **扫描器：** 定制 C 二进制程序，2 秒内完成域名审计（SSL、DNS、响应头、邮件安全）
+- **域名审计：** 通过 `ThreadPoolExecutor` 并行运行 8+ 项检查（SSL、DNS、WHOIS、SPF/DMARC/DKIM、CT 日志、技术栈识别、安全响应头），配合 1 小时 SQLite 缓存加速热路径响应
 - **数据库：** SQLite + WAL 模式（3 个数据库：API 速率限制、CVE 缓存、域名缓存）
 - **DNS：** dnspython + `_SSRFSafeBackend`（定制 httpcore 后端，连接前验证所有解析的 IP — 防御 DNS 重绑定）
 - **HTTP：** httpx

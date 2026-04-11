@@ -137,7 +137,7 @@ cd app && PYTHONPATH=. python -m pytest tests/ -v
 
 - **Runtime:** Python 3.12, FastAPI, uvicorn (2 workers)
 - **MCP:** Official `mcp-python-sdk` with Streamable HTTP transport, mounted as sub-app at `/mcp`
-- **Scanner:** Custom C binary for sub-2-second domain audits (SSL, DNS, headers, email security)
+- **Domain audit:** 8+ parallel checks (SSL, DNS, WHOIS, SPF/DMARC/DKIM, CT logs, tech fingerprint, security headers) via `ThreadPoolExecutor`, with 1-hour SQLite caching for warm-path responses
 - **Database:** SQLite with WAL mode (3 databases: API rate-limit, CVE cache, domain cache)
 - **DNS:** dnspython with `_SSRFSafeBackend` (custom httpcore backend that validates all resolved IPs before connecting — catches DNS rebinding)
 - **HTTP:** httpx

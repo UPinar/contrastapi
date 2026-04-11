@@ -377,7 +377,7 @@ await api.cve.lookup("CVE-2024-3094");</pre>
       </div>
       <div class="use-case">
         <h3>一次调用审计域名</h3>
-        <p><code>GET /v1/audit/{domain}</code> — 单次请求完成全面审计：SSL 评级、DNS 健康状况、技术栈识别、邮件安全（SPF/DMARC/DKIM）、实时安全响应头。通过 C 扫描器实现 2 秒内响应。</p>
+        <p><code>GET /v1/audit/{domain}</code> — 单次请求完成全面审计：SSL 评级、DNS 健康状况、技术栈识别、邮件安全（SPF/DMARC/DKIM）、实时安全响应头。8+ 项检查并行执行，热缓存下通常 3 秒内完成。</p>
       </div>
       <div class="use-case">
         <h3>用 AI 智能体分流威胁情报</h3>
