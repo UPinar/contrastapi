@@ -166,6 +166,48 @@ def test_usage_with_valid_key():
     assert "top_endpoints" in data
 
 
+# --- Privacy transparency endpoint ---
+
+
+def test_privacy_my_data_free_tier():
+    r = client.get("/v1/privacy/my-data", headers={"X-Forwarded-For": "203.0.113.5"})
+    assert r.status_code == 200
+    data = r.json()
+    assert data["tier"] == "free"
+    assert data["api_key_record"] is None
+    assert len(data["client_ip_hash"]) == 16
+    assert "usage_last_24h" in data
+    assert "not_stored" in data
+    assert isinstance(data["not_stored"], list) and len(data["not_stored"]) >= 3
+    assert "source_code" in data
+    body_str = r.text
+    assert "203.0.113.5" not in body_str
+
+
+def test_privacy_my_data_pro_tier():
+    from auth import generate_key, hash_key
+    from db import save_api_key
+
+    key = generate_key()
+    save_api_key(hash_key(key))
+    r = client.get("/v1/privacy/my-data", headers={"Authorization": f"Bearer {key}"})
+    assert r.status_code == 200
+    data = r.json()
+    assert data["tier"] == "pro"
+    assert data["api_key_record"] is not None
+    assert "created_at" in data["api_key_record"]
+    assert data["api_key_record"]["active"] is True
+
+
+def test_privacy_my_data_does_not_leak_query_params():
+    """After calling /v1/domain/example.com, privacy/my-data must show /v1/domain — not /v1/domain/example.com."""
+    client.get("/v1/domain/example.com", headers={"X-Forwarded-For": "198.51.100.9"})
+    r = client.get("/v1/privacy/my-data", headers={"X-Forwarded-For": "198.51.100.9"})
+    assert r.status_code == 200
+    endpoints_seen = [row["endpoint"] for row in r.json()["usage_last_24h"]["by_endpoint"]]
+    assert all("example.com" not in ep for ep in endpoints_seen)
+
+
 # --- X-RateLimit-Tier header (Feature-Gate Phase 1) ---
 
 
