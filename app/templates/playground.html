@@ -542,6 +542,31 @@
       </div>
     </div>
 
+    <div class="pg-card" id="ep-bulk_cve">
+      <div class="pg-card-header">
+        <span class="method post">POST</span>
+        <span class="name">/v1/cves/bulk</span>
+        <span class="desc">Bulk CVE lookup — up to 10 (free) or 50 (pro), 1 credit each</span>
+      </div>
+      <div class="pg-card-body">
+        <div class="pg-inputs">
+          <label>cve_ids (comma-separated)</label>
+          <input type="text" id="input-bulk_cve" value="CVE-2024-3094,CVE-2021-44228,CVE-2014-0160" placeholder="CVE-YYYY-NNNNN,...">
+          <button class="btn-run" onclick="run('bulk_cve')">Run &rarr;</button>
+        </div>
+        <div class="pg-response" id="resp-bulk_cve">
+          <pre>{
+  <span class="key">"count"</span>: <span class="num">3</span>,
+  <span class="key">"results"</span>: [
+    {<span class="key">"cve_id"</span>: <span class="str">"CVE-2024-3094"</span>, <span class="key">"cvss_score"</span>: <span class="num">10.0</span>, <span class="key">"kev"</span>: <span class="bool">true</span>},
+    {<span class="key">"cve_id"</span>: <span class="str">"CVE-2021-44228"</span>, <span class="key">"cvss_score"</span>: <span class="num">10.0</span>, <span class="key">"kev"</span>: <span class="bool">true</span>},
+    {<span class="key">"cve_id"</span>: <span class="str">"CVE-2014-0160"</span>, <span class="key">"cvss_score"</span>: <span class="num">7.5</span>, <span class="key">"kev"</span>: <span class="bool">false</span>}
+  ]
+}</pre>
+        </div>
+      </div>
+    </div>
+
     <div class="pg-card" id="ep-exploit">
       <div class="pg-card-header">
         <span class="method get">GET</span>
@@ -644,6 +669,32 @@
   <span class="key">"confidence"</span>: <span class="bool">null</span>,
   <span class="key">"source"</span>: <span class="str">"abuse.ch"</span>,
   <span class="key">"references"</span>: []
+}</pre>
+        </div>
+      </div>
+    </div>
+
+    <div class="pg-card" id="ep-bulk_ioc">
+      <div class="pg-card-header">
+        <span class="method post">POST</span>
+        <span class="name">/v1/iocs/bulk</span>
+        <span class="desc">Bulk IOC enrichment — up to 10 (free) or 50 (pro), 1 credit each</span>
+      </div>
+      <div class="pg-card-body">
+        <div class="pg-inputs">
+          <label>indicators (comma or newline separated)</label>
+          <input type="text" id="input-bulk_ioc" value="8.8.8.8,1.1.1.1,malware.example.com" placeholder="IP, domain, URL, or hash per item">
+          <button class="btn-run" onclick="run('bulk_ioc')">Run &rarr;</button>
+        </div>
+        <div class="pg-response" id="resp-bulk_ioc">
+          <pre>{
+  <span class="key">"count"</span>: <span class="num">3</span>,
+  <span class="key">"summary"</span>: <span class="str">"All 3 indicators processed"</span>,
+  <span class="key">"results"</span>: [
+    {<span class="key">"indicator"</span>: <span class="str">"8.8.8.8"</span>, <span class="key">"type"</span>: <span class="str">"ip"</span>, <span class="key">"found"</span>: <span class="bool">false</span>},
+    {<span class="key">"indicator"</span>: <span class="str">"1.1.1.1"</span>, <span class="key">"type"</span>: <span class="str">"ip"</span>, <span class="key">"found"</span>: <span class="bool">false</span>},
+    {<span class="key">"indicator"</span>: <span class="str">"malware.example.com"</span>, <span class="key">"type"</span>: <span class="str">"domain"</span>, <span class="key">"found"</span>: <span class="bool">false</span>}
+  ]
 }</pre>
         </div>
       </div>
@@ -877,10 +928,12 @@ open("/var/log/" + filename)</textarea>
       'scan_headers': '/v1/scan/headers/',
       'cve': '/v1/cve/',
       'cve_search': 'QUERY',
+      'bulk_cve': 'POST_BULK_CVE',
       'exploit': '/v1/exploit/',
       'epss': '/v1/epss/',
       'threat_report': '/v1/threat-report/',
       'ioc': '/v1/ioc/',
+      'bulk_ioc': 'POST_BULK_IOC',
       'hash': '/v1/hash/',
       'password': '/v1/password/',
       'phishing': '/v1/phishing/',
@@ -895,6 +948,7 @@ open("/var/log/" + filename)</textarea>
 
       var val;
       var url;
+      var bulkItems;
       if (id === 'cve_search') {
         url = '/v1/cves?' + new URLSearchParams({
           product: document.getElementById('input-cve_search-product').value.trim(),
@@ -902,6 +956,18 @@ open("/var/log/" + filename)</textarea>
           days: document.getElementById('input-cve_search-days').value.trim() || '30',
           limit: document.getElementById('input-cve_search-limit').value.trim() || '10'
         }).toString();
+      } else if (ENDPOINTS[id] === 'POST_BULK_CVE' || ENDPOINTS[id] === 'POST_BULK_IOC') {
+        var rawBulk = document.getElementById('input-' + id).value.trim();
+        if (!rawBulk) {
+          resp.innerHTML = '<span class="pg-error">Please enter at least one value</span>';
+          return;
+        }
+        bulkItems = rawBulk.split(/[,\n]+/).map(function(s) { return s.trim(); }).filter(Boolean);
+        if (bulkItems.length === 0) {
+          resp.innerHTML = '<span class="pg-error">Please enter at least one value</span>';
+          return;
+        }
+        url = ENDPOINTS[id] === 'POST_BULK_CVE' ? '/v1/cves/bulk' : '/v1/iocs/bulk';
       } else if (ENDPOINTS[id] === 'POST') {
         var code = document.getElementById('input-' + id + '-code').value;
         if (!code.trim()) {
@@ -935,6 +1001,14 @@ open("/var/log/" + filename)</textarea>
             code: document.getElementById('input-' + id + '-code').value,
             language: document.getElementById('input-' + id + '-lang').value
           });
+        } else if (ENDPOINTS[id] === 'POST_BULK_CVE') {
+          fetchOpts.method = 'POST';
+          fetchOpts.headers = { 'Content-Type': 'application/json' };
+          fetchOpts.body = JSON.stringify({ cve_ids: bulkItems });
+        } else if (ENDPOINTS[id] === 'POST_BULK_IOC') {
+          fetchOpts.method = 'POST';
+          fetchOpts.headers = { 'Content-Type': 'application/json' };
+          fetchOpts.body = JSON.stringify({ indicators: bulkItems });
         }
         var res = await fetch(url, fetchOpts);
         clearTimeout(timer);
