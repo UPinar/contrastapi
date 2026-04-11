@@ -11,6 +11,7 @@
 [![Smithery](https://img.shields.io/badge/Smithery-98%2F100-orange.svg)](https://smithery.ai/server/@UPinar/contrastapi)
 [![npm](https://img.shields.io/npm/v/contrastapi.svg)](https://www.npmjs.com/package/contrastapi)
 [![VS Code](https://img.shields.io/badge/VS_Code-Marketplace-007ACC.svg)](https://marketplace.visualstudio.com/items?itemName=ContrastAPI.contrastapi)
+[![SafeSkill 90/100](https://img.shields.io/badge/SafeSkill-90%2F100_Verified%20Safe-brightgreen)](https://safeskill.dev/scan/upinar-contrastapi)
 
 **Security intelligence API and MCP server for AI agents.** Domain audit, CVE lookup with EPSS+KEV, IP threat reports, IOC enrichment, and 25 more tools. **Free, no API key, 100 credits/hour.**
 
