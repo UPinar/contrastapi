@@ -397,6 +397,61 @@ def get_key_usage_stats(key_hash: str) -> dict:
         }
 
 
+def get_privacy_data(client_ip: str, key_hash: str | None = None) -> dict:
+    """Return everything the DB has about a caller — for /v1/privacy/my-data transparency endpoint.
+
+    Looks up api_usage by hashed IP (if free) or key_hash (if pro), plus the api_keys row
+    for pro. Query parameters (domains, IPs, CVEs, etc.) are never stored, so they cannot
+    appear here — see normalize_endpoint() above.
+    """
+    ip_hash = hash_client_ip(client_ip)
+    cutoff_24h = (datetime.now(UTC) - timedelta(hours=24)).isoformat()
+
+    with get_api_db() as con:
+        if key_hash:
+            filter_col = "key_hash"
+            filter_val = key_hash
+        else:
+            filter_col = "client_ip"
+            filter_val = ip_hash
+
+        total_24h = con.execute(
+            f"SELECT COUNT(*) FROM api_usage WHERE {filter_col} = ? AND called_at >= ?",
+            (filter_val, cutoff_24h),
+        ).fetchone()[0]
+
+        rows = con.execute(
+            f"SELECT endpoint, COUNT(*) as cnt, MAX(called_at) as last "
+            f"FROM api_usage WHERE {filter_col} = ? AND called_at >= ? "
+            f"GROUP BY endpoint ORDER BY cnt DESC LIMIT 20",
+            (filter_val, cutoff_24h),
+        ).fetchall()
+        by_endpoint = [{"endpoint": r[0], "count": r[1], "last_called_at": r[2]} for r in rows]
+
+        api_key_record = None
+        if key_hash:
+            row = con.execute(
+                "SELECT order_id, active, created_at, last_used_at FROM api_keys WHERE key_hash = ?",
+                (key_hash,),
+            ).fetchone()
+            if row:
+                api_key_record = {
+                    "order_id": row[0],
+                    "active": bool(row[1]),
+                    "created_at": row[2],
+                    "last_used_at": row[3],
+                }
+
+    return {
+        "client_ip_hash": ip_hash,
+        "api_key_record": api_key_record,
+        "usage_last_24h": {
+            "total_requests": total_24h,
+            "by_endpoint": by_endpoint,
+        },
+    }
+
+
 # --- Domain cache ---
 
 

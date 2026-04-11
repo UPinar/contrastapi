@@ -799,6 +799,50 @@ def api_usage(request: Request):
     return stats
 
 
+@app.get("/v1/privacy/my-data", operation_id="privacy_my_data", tags=["Meta"])
+def privacy_my_data(request: Request):
+    """Return everything this API has stored about you. GDPR-style transparency.
+
+    Shows the hashed IP, Pro key record (if any), and last-24h endpoint usage.
+    The raw domains, IPs, CVEs, hashes, or code you submitted are NEVER stored —
+    path parameters are stripped before any DB write (see db.normalize_endpoint).
+    """
+    from auth import authenticate
+    from config import FREE_HOURLY_LIMIT, PRO_HOURLY_LIMIT
+    from db import get_privacy_data
+
+    auth_ctx = authenticate(request, "/v1/privacy/my-data")
+    data = get_privacy_data(auth_ctx["client_ip"], auth_ctx["key_hash"])
+
+    tier = auth_ctx["tier"]
+    limit = PRO_HOURLY_LIMIT if tier == "pro" else FREE_HOURLY_LIMIT
+    remaining = getattr(request.state, "ratelimit_remaining", None)
+
+    return {
+        "tier": tier,
+        "rate_limit": {
+            "hourly_limit": limit,
+            "remaining_in_window": remaining,
+            "window_seconds": 3600,
+        },
+        **data,
+        "not_stored": [
+            "Your raw IP address. Only a salted HMAC hash is stored, used for anonymized analytics.",
+            "The domain names, IP addresses, CVE IDs, file hashes, emails, phone numbers, usernames, or source code you submit. Path parameters are stripped before logging — see db.normalize_endpoint at https://github.com/UPinar/contrastapi/blob/main/app/db.py",
+            "Response contents. Domain and IP lookups use a 1-hour performance cache keyed by the queried target (not by you); everything else is processed in real time.",
+            "Your name, email, phone, or any personal identifier. No signup, no accounts.",
+            "Tracking cookies, third-party analytics, or fingerprinting data.",
+        ],
+        "source_code": {
+            "hashing": "https://github.com/UPinar/contrastapi/blob/main/app/db.py (hash_client_ip)",
+            "endpoint_normalization": "https://github.com/UPinar/contrastapi/blob/main/app/db.py (normalize_endpoint)",
+            "this_endpoint": "https://github.com/UPinar/contrastapi/blob/main/app/main.py (privacy_my_data)",
+        },
+        "privacy_policy": "https://contrastcyber.com/privacy",
+        "contact": "contact@contrastcyber.com",
+    }
+
+
 @app.get("/llms.txt", response_class=PlainTextResponse, include_in_schema=False)
 def llms_txt():
     """LLM discovery file — concise version for quick context."""
@@ -890,6 +934,7 @@ Every authenticated response includes X-RateLimit-Cost so clients can budget cal
 ### Meta
 - GET /v1/status — API health check and data freshness
 - GET /v1/usage — Usage statistics (Pro key required)
+- GET /v1/privacy/my-data — GDPR transparency: returns everything the DB has about the caller (hashed IP, 24h endpoint usage, Pro key record if any). Query parameters are never stored. No auth required.
 
 ## MCP (Model Context Protocol)
 
@@ -1068,6 +1113,7 @@ POST /v1/check/dependencies — Check packages for CVEs. Body: {"packages":[{"na
 
 GET /v1/status — Health check. Response: {status, version, data_sources}
 GET /v1/usage — Pro key stats (requires auth). Response: {total_requests, last_24h, last_1h, hourly_limit, hourly_remaining, top_endpoints}
+GET /v1/privacy/my-data — GDPR transparency. Returns every row the DB has about the caller — hashed IP, 24h endpoint usage (normalized, no query params), Pro key record if any. Free and Pro tier both supported. No auth required. Response: {tier, rate_limit, client_ip_hash, api_key_record, usage_last_24h:{total_requests,by_endpoint}, not_stored, source_code, privacy_policy}
 
 ## Example: CVE Lookup
 
