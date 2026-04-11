@@ -375,7 +375,7 @@ await api.cve.lookup("CVE-2024-3094");</pre>
       </div>
       <div class="use-case">
         <h3>Audit a domain in one call</h3>
-        <p><code>GET /v1/audit/{domain}</code> — full audit in a single request: SSL grade, DNS hygiene, tech fingerprint, email security (SPF/DMARC/DKIM), live security headers. Sub-2-second response via the C scanner.</p>
+        <p><code>GET /v1/audit/{domain}</code> — full audit in a single request: SSL grade, DNS hygiene, tech fingerprint, email security (SPF/DMARC/DKIM), live security headers. Runs 8+ checks in parallel; typically under 3 seconds on a warm cache.</p>
       </div>
       <div class="use-case">
         <h3>Triage threat intel with an AI agent</h3>
