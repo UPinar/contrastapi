@@ -299,6 +299,94 @@ def test_authenticate_localhost_skips_usage_log(monkeypatch):
     assert len(calls) == 0
 
 
+def test_authenticate_dnt_header_skips_usage_log(monkeypatch):
+    """DNT: 1 → no usage row written (privacy.html section 3 promise)."""
+    import auth
+    from auth import authenticate
+
+    calls = []
+    monkeypatch.setattr(auth, "log_usage", lambda *a, **kw: calls.append((a, kw)))
+    request = MagicMock()
+    request.headers = {"dnt": "1"}
+    request.client = MagicMock()
+    request.client.host = "203.0.113.10"
+    ctx = authenticate(request, "/v1/test")
+    assert ctx["tier"] == "free"
+    assert len(calls) == 0
+
+
+def test_authenticate_sec_gpc_header_skips_usage_log(monkeypatch):
+    """Sec-GPC: 1 → no usage row written."""
+    import auth
+    from auth import authenticate
+
+    calls = []
+    monkeypatch.setattr(auth, "log_usage", lambda *a, **kw: calls.append((a, kw)))
+    request = MagicMock()
+    request.headers = {"sec-gpc": "1"}
+    request.client = MagicMock()
+    request.client.host = "203.0.113.11"
+    ctx = authenticate(request, "/v1/test")
+    assert ctx["tier"] == "free"
+    assert len(calls) == 0
+
+
+def test_authenticate_no_privacy_header_logs_normally(monkeypatch):
+    """No DNT/GPC → usage row written as before."""
+    import auth
+    from auth import authenticate
+
+    calls = []
+    monkeypatch.setattr(auth, "log_usage", lambda *a, **kw: calls.append((a, kw)))
+    request = MagicMock()
+    request.headers = {}
+    request.client = MagicMock()
+    request.client.host = "203.0.113.12"
+    authenticate(request, "/v1/test")
+    assert len(calls) == 1
+
+
+def test_authenticate_dnt_pro_key_skips_usage_log(monkeypatch):
+    """Pro tier also honors DNT — no usage row written even with valid key."""
+    import auth
+    from auth import authenticate, generate_key, hash_key
+    from db import save_api_key
+
+    calls = []
+    monkeypatch.setattr(auth, "log_usage", lambda *a, **kw: calls.append((a, kw)))
+    key = generate_key()
+    save_api_key(hash_key(key))
+    request = MagicMock()
+    request.headers = {"authorization": f"Bearer {key}", "dnt": "1"}
+    request.client = MagicMock()
+    request.client.host = "203.0.113.13"
+    ctx = authenticate(request, "/v1/test")
+    assert ctx["tier"] == "pro"
+    assert len(calls) == 0
+
+
+def test_authenticate_dnt_does_not_bypass_rate_limit(monkeypatch):
+    """DNT skips logging but rate limiting still applies (abuse protection)."""
+    from auth import authenticate
+    from config import FREE_HOURLY_LIMIT
+    from fastapi import HTTPException
+
+    # Exhaust the limit with DNT header
+    for _ in range(FREE_HOURLY_LIMIT):
+        request = MagicMock()
+        request.headers = {"dnt": "1"}
+        request.client = MagicMock()
+        request.client.host = "203.0.113.99"
+        authenticate(request, "/v1/test")
+    request = MagicMock()
+    request.headers = {"dnt": "1"}
+    request.client = MagicMock()
+    request.client.host = "203.0.113.99"
+    with pytest.raises(HTTPException) as exc_info:
+        authenticate(request, "/v1/test")
+    assert exc_info.value.status_code == 429
+
+
 # --- extract_key length validation ---
 
 

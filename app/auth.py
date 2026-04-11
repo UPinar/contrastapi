@@ -41,6 +41,15 @@ def extract_key(request: Request) -> str | None:
     return None
 
 
+def _privacy_opt_out(request: Request) -> bool:
+    """True if the client sent DNT: 1 or Sec-GPC: 1 — skip analytics logging.
+
+    Rate limiting still applies (abuse protection); only the hashed-IP usage row
+    is suppressed. Promised in /privacy section 3.
+    """
+    return request.headers.get("dnt") == "1" or request.headers.get("sec-gpc") == "1"
+
+
 def authenticate(request: Request, endpoint: str, cost: int = 1) -> dict:
     """Authenticate request. Returns auth context dict.
 
@@ -87,7 +96,7 @@ def authenticate(request: Request, endpoint: str, cost: int = 1) -> dict:
             _set_ratelimit_state(request, advertised_limit, advertised_limit, 0)
 
         touch_api_key(kh)
-        if not localhost:
+        if not localhost and not _privacy_opt_out(request):
             log_usage(client_ip, endpoint, key_hash=kh)
         request.state.ratelimit_tier = "pro"
         return {"tier": "pro", "key_hash": kh, "client_ip": client_ip}
@@ -110,7 +119,7 @@ def authenticate(request: Request, endpoint: str, cost: int = 1) -> dict:
     else:
         _set_ratelimit_state(request, advertised_limit, advertised_limit, 0)
 
-    if not localhost:
+    if not localhost and not _privacy_opt_out(request):
         log_usage(client_ip, endpoint)
     request.state.ratelimit_tier = "free"
     return {"tier": "free", "key_hash": None, "client_ip": client_ip}
