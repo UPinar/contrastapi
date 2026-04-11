@@ -383,7 +383,7 @@ def quickstart():
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Quick Start | ContrastAPI</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-  <link rel="stylesheet" href="/static/style.css?v=9">
+  <link rel="stylesheet" href="/static/style.css?v=16">
   <style>
     .page { max-inline-size: 52rem; margin-inline: auto; padding: 3rem 2rem; position: relative; z-index: 1; }
     .page h1 { font-size: 2.25rem; font-weight: 800; letter-spacing: -0.04em; margin-block-end: 0.5rem; }
@@ -417,6 +417,7 @@ def quickstart():
       <a href="/mcp-setup">MCP Setup</a>
       <a href="/playground">Playground</a>
       <a href="https://contrastcyber.com/pricing">Pricing</a>
+      <a href="https://github.com/UPinar/contrastapi" class="gh-star" target="_blank" rel="noopener">★ GitHub</a>
     </div>
   </nav>
 
@@ -481,7 +482,7 @@ print(r.json()['findings'])</code></div>
     <div class="grid">
       <div class="card">
         <h3>Playground</h3>
-        <p>Try all 27 endpoints from your browser. <a href="/playground">Open playground &rarr;</a></p>
+        <p>Try all 29 endpoints from your browser. <a href="/playground">Open playground &rarr;</a></p>
       </div>
       <div class="card">
         <h3>Rate Limits</h3>
@@ -522,7 +523,7 @@ def mcp_setup():
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>MCP Setup | ContrastAPI</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-  <link rel="stylesheet" href="/static/style.css?v=9">
+  <link rel="stylesheet" href="/static/style.css?v=16">
   <style>
     .page { max-inline-size: 52rem; margin-inline: auto; padding: 3rem 2rem; position: relative; z-index: 1; }
     .page h1 { font-size: 2.25rem; font-weight: 800; letter-spacing: -0.04em; margin-block-end: 0.5rem; }
@@ -562,6 +563,7 @@ def mcp_setup():
       <a href="/mcp-setup">MCP Setup</a>
       <a href="/playground">Playground</a>
       <a href="https://contrastcyber.com/pricing">Pricing</a>
+      <a href="https://github.com/UPinar/contrastapi" class="gh-star" target="_blank" rel="noopener">★ GitHub</a>
     </div>
   </nav>
 
@@ -683,7 +685,7 @@ Accept: application/json, text/event-stream
       </div>
       <div class="card">
         <h3>Playground</h3>
-        <p>Try all 27 endpoints from your browser. <a href="/playground">Open playground &rarr;</a></p>
+        <p>Try all 29 endpoints from your browser. <a href="/playground">Open playground &rarr;</a></p>
       </div>
     </div>
   </div>

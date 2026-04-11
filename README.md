@@ -12,7 +12,7 @@
 [![npm](https://img.shields.io/npm/v/contrastapi.svg)](https://www.npmjs.com/package/contrastapi)
 [![VS Code](https://img.shields.io/badge/VS_Code-Marketplace-007ACC.svg)](https://marketplace.visualstudio.com/items?itemName=ContrastAPI.contrastapi)
 
-**Security intelligence API and MCP server for AI agents.** Domain audit, CVE lookup with EPSS+KEV, IP threat reports, IOC enrichment, and 25 more tools. **Free, no API key, 100 credits/hour.**
+**Security intelligence API and MCP server for AI agents.** Domain audit, CVE lookup with EPSS+KEV, IP threat reports, IOC enrichment, tech fingerprinting, and 23 more. **Free, no API key, 100 credits/hour.**
 
 **English** | [中文](README_CN.md) · **Live:** [api.contrastcyber.com](https://api.contrastcyber.com)
 
@@ -93,7 +93,7 @@ More example prompts: [docs/PROMPTS.md](docs/PROMPTS.md) · [/playground](https:
 ## Why ContrastAPI?
 
 - **One call, full picture** — `audit` returns report + tech fingerprint + live headers in a single response
-- **AI-native** — structured JSON, LLM summaries, OpenAPI spec, MCP-first
+- **Machine-readable** — structured JSON, LLM-optimized summaries, OpenAPI spec, MCP-first
 - **Free forever** — 100 credits/hour, no API key, no signup, no credit card
 
 ## Docs & Links

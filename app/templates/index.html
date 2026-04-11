@@ -20,7 +20,7 @@
   <link rel="alternate" hreflang="en" href="https://api.contrastcyber.com/">
   <link rel="alternate" hreflang="zh" href="https://api.contrastcyber.com/cn/">
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-  <link rel="stylesheet" href="/static/style.css?v=9">
+  <link rel="stylesheet" href="/static/style.css?v=16">
   <link rel="alternate" type="text/plain" href="/llms.txt" title="LLM Discovery">
   <link rel="alternate" type="application/json" href="/openapi.json" title="OpenAPI Spec">
   <script type="application/ld+json">
@@ -56,22 +56,79 @@
       <a href="/mcp-setup">MCP Setup</a>
       <a href="/playground">Playground</a>
       <a href="https://contrastcyber.com/pricing">Pricing</a>
+      <a href="https://github.com/UPinar/contrastapi" class="gh-star" target="_blank" rel="noopener">★ GitHub</a>
     </div>
   </nav>
 
   <section class="hero">
-    <div class="pill">SECURITY INTELLIGENCE API</div>
-    <h1>Security data for<br><span class="gradient">AI models & developers</span></h1>
-    <p class="subtitle">35+ endpoints: CVE intelligence, domain reconnaissance, SSL analysis, IP reputation, IOC/malware lookup, exploit search, email security, phone validation, and code security. Structured JSON with LLM-optimized summaries. Free tier included.</p>
-    <!-- counter removed -->
-    <div style="text-align:center;margin-top:0.5rem">
-      <a href="/playground" class="btn-cta">Try it out →</a>
+    <div class="pill">29 TOOLS · 39+ ENDPOINTS · MCP SERVER</div>
+    <h1>29 security tools,<br><span class="gradient">one JSON config.</span></h1>
+    <p class="subtitle">CVE + EPSS + KEV lookup, domain recon, IP threat reports, IOC enrichment, and code security. Structured JSON with LLM-optimized summaries. Works with Claude Desktop, Cursor, VS Code, and any MCP client.</p>
+    <div class="cta-group">
+      <a href="#setup" class="btn-cta">Install in 30 seconds →</a>
+      <a href="/playground" class="btn-cta-secondary">Try Playground</a>
+    </div>
+    <p class="cta-microcopy">No API key · 841 tests passing · &lt;500ms latency · MIT licensed</p>
+    <pre class="hero-curl">$ curl https://api.contrastcyber.com/v1/audit/example.com</pre>
+  </section>
+
+  <!-- Trust Strip -->
+  <section class="trust-strip" aria-label="Trust signals">
+    <div class="trust-strip-inner">
+      <span><strong>841</strong> tests passing</span>
+      <span><strong>98/100</strong> on <a href="https://smithery.ai/server/@UPinar/contrastapi" target="_blank" rel="noopener">Smithery</a></span>
+      <span><strong>29</strong> MCP tools, <strong>39+</strong> endpoints</span>
+      <span><a href="https://www.npmjs.com/package/contrastapi" target="_blank" rel="noopener">npm</a> · <a href="https://marketplace.visualstudio.com/items?itemName=ContrastAPI.contrastapi" target="_blank" rel="noopener">VS Code</a></span>
+      <span>MIT licensed · Free forever</span>
+    </div>
+  </section>
+
+  <!-- 30-Second Setup -->
+  <section id="setup" class="endpoints setup-section" aria-labelledby="setup-title">
+    <h2 id="setup-title" class="section-title">30-Second Setup</h2>
+    <div class="setup-cards">
+      <div class="setup-card">
+        <h3>1. MCP (Claude / Cursor / VS Code)</h3>
+        <pre>{
+  "mcpServers": {
+    "contrastapi": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote",
+        "https://api.contrastcyber.com/mcp/"]
+    }
+  }
+}</pre>
+        <a href="/mcp-setup">Full MCP guide →</a>
+      </div>
+      <div class="setup-card">
+        <h3>2. Node.js SDK</h3>
+        <pre>npm install contrastapi</pre>
+        <pre>const api = require("contrastapi")();
+await api.domain.audit("example.com");
+await api.cve.lookup("CVE-2024-3094");</pre>
+        <a href="https://www.npmjs.com/package/contrastapi" target="_blank" rel="noopener">View on npm →</a>
+      </div>
+      <div class="setup-card">
+        <h3>3. cURL</h3>
+        <pre>curl https://api.contrastcyber.com\
+  /v1/audit/example.com</pre>
+        <pre>curl https://api.contrastcyber.com\
+  /v1/cve/CVE-2024-3094</pre>
+        <a href="/quickstart">Quick start guide →</a>
+      </div>
+      <div class="setup-card">
+        <h3>4. VS Code Extension</h3>
+        <pre>code --install-extension \
+  ContrastAPI.contrastapi</pre>
+        <p class="setup-card-note">29 commands · sidebar tree · right-click menu · no API key</p>
+        <a href="https://marketplace.visualstudio.com/items?itemName=ContrastAPI.contrastapi" target="_blank" rel="noopener">Marketplace →</a>
+      </div>
     </div>
   </section>
 
   <!-- Endpoints -->
   <section class="endpoints">
-    <div class="section-title">Domain Intelligence</div>
+    <h2 class="section-title">Domain Intelligence</h2>
     <div class="endpoint-group">
       <div class="endpoint">
         <span class="method get">GET</span>
@@ -145,7 +202,7 @@
       </div>
     </div>
 
-    <div class="section-title">CVE Intelligence</div>
+    <h2 class="section-title">CVE Intelligence</h2>
     <div class="endpoint-group">
       <div class="endpoint">
         <span class="method get">GET</span>
@@ -179,7 +236,7 @@
       </div>
     </div>
 
-    <div class="section-title">Threat Intelligence</div>
+    <h2 class="section-title">Threat Intelligence</h2>
     <div class="endpoint-group">
       <div class="endpoint">
         <span class="method get">GET</span>
@@ -233,7 +290,7 @@
       </div>
     </div>
 
-    <div class="section-title">Code Security</div>
+    <h2 class="section-title">Code Security</h2>
     <div class="endpoint-group">
       <div class="endpoint">
         <span class="method post">POST</span>
@@ -262,7 +319,7 @@
       </div>
     </div>
 
-    <div class="section-title">Operations</div>
+    <h2 class="section-title">Operations</h2>
     <div class="endpoint-group">
       <div class="endpoint">
         <span class="method get">GET</span>
@@ -282,24 +339,9 @@
     </div>
   </section>
 
-  <!-- MCP -->
-  <section class="endpoints">
-    <div class="section-title">MCP Server</div>
-    <div class="endpoint-group">
-      <div class="endpoint">
-        <span class="method post">POST</span>
-        <span class="endpoint-path">/mcp/</span>
-        <span class="endpoint-desc">Streamable HTTP transport (all 29 tools)</span>
-      </div>
-    </div>
-    <p style="color:#aaa;font-size:0.85rem;margin:0.5rem 0 0 0.5rem">
-      Also available via stdio — see <a href="/llms.txt" style="color:#58a6ff">llms.txt</a> for setup.
-    </p>
-  </section>
-
   <!-- Example -->
   <section class="example-section">
-    <div class="section-title">Example Request</div>
+    <h2 class="section-title">Example Request</h2>
     <pre>$ curl https://api.contrastcyber.com/v1/domain/example.com</pre>
     <pre>{
   <span class="key">"domain"</span>: <span class="str">"example.com"</span>,
@@ -323,9 +365,32 @@
 }</pre>
   </section>
 
+  <!-- Use Cases -->
+  <section class="endpoints use-cases-section" aria-labelledby="usecases-title">
+    <h2 id="usecases-title" class="section-title">Use Cases</h2>
+    <div class="use-cases">
+      <div class="use-case">
+        <h3>Scan dependencies for CVEs</h3>
+        <p><code>POST /v1/check/dependencies</code> — find exploited vulns, EPSS exploit probability, and CISA KEV status across your <code>package.json</code>, <code>requirements.txt</code>, or <code>go.sum</code>. Bulk endpoint supports 10 (free) or 50 (Pro) items per request.</p>
+      </div>
+      <div class="use-case">
+        <h3>Audit a domain in one call</h3>
+        <p><code>GET /v1/audit/{domain}</code> — full audit in a single request: SSL grade, DNS hygiene, tech fingerprint, email security (SPF/DMARC/DKIM), live security headers. Sub-2-second response via the C scanner.</p>
+      </div>
+      <div class="use-case">
+        <h3>Triage threat intel with an AI agent</h3>
+        <p>Point Claude Desktop at the MCP server and ask: <em>"Is this IOC malicious? Check AbuseIPDB, Shodan, URLhaus, and MalwareBazaar."</em> The agent chains the lookups automatically — you get a structured summary, not a wall of raw JSON.</p>
+      </div>
+      <div class="use-case">
+        <h3>PR-time security checks in CI</h3>
+        <p><code>POST /v1/check/secrets</code> + <code>/v1/check/injection</code> in your CI pipeline — block PRs that introduce hardcoded credentials, SQL/command injection patterns, or ReDoS-prone regexes. No API key required.</p>
+      </div>
+    </div>
+  </section>
+
   <!-- Credit Costs -->
   <section class="endpoints">
-    <div class="section-title">Credit Costs</div>
+    <h2 class="section-title">Credit Costs</h2>
     <p style="color:#aaa;font-size:0.9rem;margin:0.5rem 0 1rem 0.5rem">
       Transparent pricing — every response includes <code style="color:#58a6ff">X-RateLimit-Cost</code> so you can budget calls.
     </p>
@@ -355,7 +420,7 @@
 
   <!-- Pricing -->
   <section class="auth-section">
-    <div class="section-title">Pricing</div>
+    <h2 class="section-title">Pricing</h2>
     <div class="auth-tiers">
       <div class="tier">
         <h3>Free</h3>
@@ -406,7 +471,7 @@
   </section>
 
   <section class="auth-section">
-    <div class="section-title">Data Freshness</div>
+    <h2 class="section-title">Data Freshness</h2>
     <p style="color:var(--text-muted);margin:0.5rem 0;font-size:0.8rem">
       Threat intelligence data (IP reputation, Shodan, AbuseIPDB) is cached for 24 hours per query. CVE/EPSS data syncs every 2 hours. For real-time results, use unique queries.
     </p>
