@@ -12,7 +12,7 @@
 [![npm](https://img.shields.io/npm/v/contrastapi.svg)](https://www.npmjs.com/package/contrastapi)
 [![VS Code](https://img.shields.io/badge/VS_Code-Marketplace-007ACC.svg)](https://marketplace.visualstudio.com/items?itemName=ContrastAPI.contrastapi)
 
-**安全情报 API 和 AI 智能体 MCP 服务器。** 域名审计、CVE 查询（含 EPSS+KEV）、IP 威胁报告、IOC 增强，以及 25 个其他工具。**免费使用，无需 API 密钥，每小时 100 信用额度。**
+**安全情报 API 和 AI 智能体 MCP 服务器。** 域名审计、CVE 查询（含 EPSS+KEV）、IP 威胁报告、IOC 增强、技术栈识别，以及其他 23 个工具。**免费使用，无需 API 密钥，每小时 100 信用额度。**
 
 [English](README.md) | **中文** · **在线服务：** [api.contrastcyber.com](https://api.contrastcyber.com)
 
@@ -95,7 +95,7 @@ curl https://api.contrastcyber.com/v1/threat-report/8.8.8.8
 ## 为什么选择 ContrastAPI？
 
 - **一次调用，全貌呈现** — `audit` 接口在单个响应中返回完整报告 + 技术指纹 + 实时响应头
-- **AI 原生** — 结构化 JSON、LLM 摘要、OpenAPI 规范、MCP 优先
+- **机器可读** — 结构化 JSON、LLM 优化摘要、OpenAPI 规范、MCP 优先
 - **永久免费** — 每小时 100 信用额度，无需 API 密钥，无需注册，无需信用卡
 
 ## 文档与链接

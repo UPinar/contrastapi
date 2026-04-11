@@ -21,7 +21,7 @@
   <link rel="alternate" hreflang="en" href="https://api.contrastcyber.com/">
   <link rel="alternate" hreflang="zh" href="https://api.contrastcyber.com/cn/">
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-  <link rel="stylesheet" href="/static/style.css?v=9">
+  <link rel="stylesheet" href="/static/style.css?v=16">
   <link rel="alternate" type="text/plain" href="/llms.txt" title="LLM Discovery">
   <link rel="alternate" type="application/json" href="/openapi.json" title="OpenAPI Spec">
   <script type="application/ld+json">
@@ -57,22 +57,80 @@
       <a href="/mcp-setup">MCP 配置</a>
       <a href="/playground">Playground</a>
       <a href="https://contrastcyber.com/pricing">价格</a>
+      <a href="https://github.com/UPinar/contrastapi" class="gh-star" target="_blank" rel="noopener">★ GitHub</a>
       <a href="/" style="font-size:0.8rem;opacity:0.7">English</a>
     </div>
   </nav>
 
   <section class="hero">
-    <div class="pill">安全情报 API · MCP 服务器</div>
-    <h1>为 AI 智能体和开发者<br><span class="gradient">提供安全数据</span></h1>
-    <p class="subtitle">35+ 个接口：CVE 情报、域名侦察、SSL 分析、IP 信誉、IOC/恶意软件查询、漏洞利用搜索、电子邮件安全、电话号码验证和代码安全扫描。结构化 JSON + LLM 优化摘要。支持 DeepSeek、Qwen、Claude 等 MCP 兼容模型。免费使用。</p>
-    <div style="text-align:center;margin-top:0.5rem">
-      <a href="/playground" class="btn-cta">立即试用 →</a>
+    <div class="pill">29 个工具 · 39+ 接口 · MCP 服务器</div>
+    <h1>29 个安全工具，<br><span class="gradient">一份 JSON 配置。</span></h1>
+    <p class="subtitle">CVE + EPSS + KEV 查询、域名侦察、IP 威胁报告、IOC 增强，以及代码安全扫描。结构化 JSON + LLM 优化摘要。支持 Claude Desktop、Cursor、VS Code，以及任何 MCP 兼容客户端（含 DeepSeek、Qwen）。</p>
+    <div class="cta-group">
+      <a href="#setup" class="btn-cta">30 秒内安装 →</a>
+      <a href="/playground" class="btn-cta-secondary">试用 Playground</a>
+    </div>
+    <p class="cta-microcopy">无需 API 密钥 · 841 项测试 · &lt;500ms 延迟 · MIT 许可</p>
+    <pre class="hero-curl">$ curl https://api.contrastcyber.com/v1/audit/example.com</pre>
+  </section>
+
+  <!-- 信任标识 -->
+  <section class="trust-strip" aria-label="信任标识">
+    <div class="trust-strip-inner">
+      <span><strong>841</strong> 项测试通过</span>
+      <span><a href="https://smithery.ai/server/@UPinar/contrastapi" target="_blank" rel="noopener">Smithery</a> <strong>98/100</strong></span>
+      <span><strong>29</strong> 个 MCP 工具，<strong>39+</strong> 接口</span>
+      <span><a href="https://www.npmjs.com/package/contrastapi" target="_blank" rel="noopener">npm</a> · <a href="https://marketplace.visualstudio.com/items?itemName=ContrastAPI.contrastapi" target="_blank" rel="noopener">VS Code</a></span>
+      <span>MIT 许可 · 永久免费</span>
+    </div>
+  </section>
+
+  <!-- 30 秒配置 -->
+  <section id="setup" class="endpoints setup-section" aria-labelledby="setup-title">
+    <h2 id="setup-title" class="section-title">30 秒配置</h2>
+    <div class="setup-cards">
+      <div class="setup-card">
+        <h3>1. MCP（Claude / Cursor / VS Code）</h3>
+        <pre>{
+  "mcpServers": {
+    "contrastapi": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote",
+        "https://api.contrastcyber.com/mcp/"]
+    }
+  }
+}</pre>
+        <a href="/mcp-setup">完整 MCP 指南 →</a>
+      </div>
+      <div class="setup-card">
+        <h3>2. Node.js SDK</h3>
+        <pre>npm install contrastapi</pre>
+        <pre>const api = require("contrastapi")();
+await api.domain.audit("example.com");
+await api.cve.lookup("CVE-2024-3094");</pre>
+        <a href="https://www.npmjs.com/package/contrastapi" target="_blank" rel="noopener">在 npm 查看 →</a>
+      </div>
+      <div class="setup-card">
+        <h3>3. cURL</h3>
+        <pre>curl https://api.contrastcyber.com\
+  /v1/audit/example.com</pre>
+        <pre>curl https://api.contrastcyber.com\
+  /v1/cve/CVE-2024-3094</pre>
+        <a href="/quickstart">快速入门指南 →</a>
+      </div>
+      <div class="setup-card">
+        <h3>4. VS Code 扩展</h3>
+        <pre>code --install-extension \
+  ContrastAPI.contrastapi</pre>
+        <p class="setup-card-note">29 个命令 · 侧边栏树 · 右键菜单 · 无需 API 密钥</p>
+        <a href="https://marketplace.visualstudio.com/items?itemName=ContrastAPI.contrastapi" target="_blank" rel="noopener">Marketplace →</a>
+      </div>
     </div>
   </section>
 
   <!-- 接口列表 -->
   <section class="endpoints">
-    <div class="section-title">域名情报</div>
+    <h2 class="section-title">域名情报</h2>
     <div class="endpoint-group">
       <div class="endpoint">
         <span class="method get">GET</span>
@@ -146,7 +204,7 @@
       </div>
     </div>
 
-    <div class="section-title">CVE 情报</div>
+    <h2 class="section-title">CVE 情报</h2>
     <div class="endpoint-group">
       <div class="endpoint">
         <span class="method get">GET</span>
@@ -180,7 +238,7 @@
       </div>
     </div>
 
-    <div class="section-title">威胁情报</div>
+    <h2 class="section-title">威胁情报</h2>
     <div class="endpoint-group">
       <div class="endpoint">
         <span class="method get">GET</span>
@@ -234,7 +292,7 @@
       </div>
     </div>
 
-    <div class="section-title">代码安全</div>
+    <h2 class="section-title">代码安全</h2>
     <div class="endpoint-group">
       <div class="endpoint">
         <span class="method post">POST</span>
@@ -263,7 +321,7 @@
       </div>
     </div>
 
-    <div class="section-title">运维</div>
+    <h2 class="section-title">运维</h2>
     <div class="endpoint-group">
       <div class="endpoint">
         <span class="method get">GET</span>
@@ -283,24 +341,9 @@
     </div>
   </section>
 
-  <!-- MCP -->
-  <section class="endpoints">
-    <div class="section-title">MCP 服务器</div>
-    <div class="endpoint-group">
-      <div class="endpoint">
-        <span class="method post">POST</span>
-        <span class="endpoint-path">/mcp/</span>
-        <span class="endpoint-desc">Streamable HTTP 传输（全部 29 个工具）</span>
-      </div>
-    </div>
-    <p style="color:#aaa;font-size:0.85rem;margin:0.5rem 0 0 0.5rem">
-      也支持 stdio 方式 — 查看 <a href="/llms.txt" style="color:#58a6ff">llms.txt</a> 了解配置方法。兼容 DeepSeek、Qwen（通义千问）等支持 MCP 协议的模型。
-    </p>
-  </section>
-
   <!-- 示例 -->
   <section class="example-section">
-    <div class="section-title">请求示例</div>
+    <h2 class="section-title">请求示例</h2>
     <pre>$ curl https://api.contrastcyber.com/v1/domain/example.com</pre>
     <pre>{
   <span class="key">"domain"</span>: <span class="str">"example.com"</span>,
@@ -324,9 +367,32 @@
 }</pre>
   </section>
 
+  <!-- 用例 -->
+  <section class="endpoints use-cases-section" aria-labelledby="usecases-title">
+    <h2 id="usecases-title" class="section-title">使用场景</h2>
+    <div class="use-cases">
+      <div class="use-case">
+        <h3>扫描依赖项中的 CVE</h3>
+        <p><code>POST /v1/check/dependencies</code> — 在 <code>package.json</code>、<code>requirements.txt</code> 或 <code>go.sum</code> 中查找已被利用的漏洞、EPSS 利用概率以及 CISA KEV 状态。批量接口支持每请求 10 个（免费）或 50 个（Pro）。</p>
+      </div>
+      <div class="use-case">
+        <h3>一次调用审计域名</h3>
+        <p><code>GET /v1/audit/{domain}</code> — 单次请求完成全面审计：SSL 评级、DNS 健康状况、技术栈识别、邮件安全（SPF/DMARC/DKIM）、实时安全响应头。通过 C 扫描器实现 2 秒内响应。</p>
+      </div>
+      <div class="use-case">
+        <h3>用 AI 智能体分流威胁情报</h3>
+        <p>将 Claude Desktop 指向 MCP 服务器后提问：<em>"这个 IOC 是恶意的吗？查一下 AbuseIPDB、Shodan、URLhaus 和 MalwareBazaar。"</em> 智能体会自动串联查询，返回结构化摘要而非原始 JSON。</p>
+      </div>
+      <div class="use-case">
+        <h3>CI 流水线中的 PR 安全检查</h3>
+        <p>在 CI 中调用 <code>POST /v1/check/secrets</code> + <code>/v1/check/injection</code> — 拦截引入硬编码凭据、SQL/命令注入模式或 ReDoS 正则的 PR。无需 API 密钥。</p>
+      </div>
+    </div>
+  </section>
+
   <!-- 信用额度 -->
   <section class="endpoints">
-    <div class="section-title">信用额度</div>
+    <h2 class="section-title">信用额度</h2>
     <p style="color:#aaa;font-size:0.9rem;margin:0.5rem 0 1rem 0.5rem">
       透明计价 — 每个响应都包含 <code style="color:#58a6ff">X-RateLimit-Cost</code> 响应头，便于预算管理。
     </p>
@@ -356,7 +422,7 @@
 
   <!-- 价格 -->
   <section class="auth-section">
-    <div class="section-title">价格</div>
+    <h2 class="section-title">价格</h2>
     <div class="auth-tiers">
       <div class="tier">
         <h3>免费版</h3>
@@ -410,7 +476,7 @@
   </section>
 
   <section class="auth-section">
-    <div class="section-title">数据新鲜度</div>
+    <h2 class="section-title">数据新鲜度</h2>
     <p style="color:var(--text-muted);margin:0.5rem 0;font-size:0.8rem">
       威胁情报数据（IP 信誉、Shodan、AbuseIPDB）每次查询缓存 24 小时。CVE/EPSS 数据每 2 小时同步一次。如需实时结果，请使用不同的查询。
     </p>

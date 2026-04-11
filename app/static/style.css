@@ -484,6 +484,7 @@ footer p { color: var(--text-dim); }
     display: flex;
     flex-basis: auto;
     flex-direction: row;
+    align-items: center;
     gap: 1.75rem;
     padding: 0;
     border: none;
@@ -556,4 +557,225 @@ footer p { color: var(--text-dim); }
   .pg-card-header .desc { display: none; }
   .pg-inputs { flex-direction: column; align-items: stretch; }
   .pg-inputs input { min-width: 0; }
+}
+
+/* ============================================ */
+/* Landing v10: Hero CTAs, Trust Strip, Setup, Use Cases */
+/* ============================================ */
+
+/* Nav GitHub star — high-specificity wins without !important */
+.nav-links a.gh-star {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  border: 1px solid var(--border);
+  padding: 0.35rem 0.75rem;
+  border-radius: 0.375rem;
+  background: var(--bg-card);
+  color: var(--text);
+  font-size: 0.75rem;
+  line-height: 1;
+  transition: background 0.2s, border-color 0.2s;
+}
+.nav-links a.gh-star:hover {
+  background: var(--bg-hover);
+  border-color: var(--primary);
+  color: var(--text);
+}
+
+/* Hero CTA group (2 buttons side by side) */
+.cta-group {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 1rem;
+}
+
+.btn-cta-secondary {
+  display: inline-block;
+  padding: 0.85rem 1.75rem;
+  border-radius: 0.5rem;
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background 0.2s, border-color 0.2s, transform 0.1s;
+  white-space: nowrap;
+}
+.btn-cta-secondary:hover {
+  background: var(--bg-hover);
+  border-color: var(--primary);
+}
+.btn-cta-secondary:active { transform: scale(0.98); }
+
+.cta-group .btn-cta {
+  margin-block-start: 0;
+}
+
+.cta-microcopy {
+  margin: 0.9rem auto 0;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  max-width: 32rem;
+}
+
+/* Hero curl one-liner */
+.hero-curl {
+  margin: 1.5rem auto 0;
+  max-width: 38rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  padding: 0.85rem 1.1rem;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--text);
+  text-align: start;
+  overflow-x: auto;
+  white-space: pre;
+}
+
+/* Trust Strip (post-hero social proof) */
+.trust-strip {
+  position: relative;
+  z-index: 10;
+  max-width: 60rem;
+  margin: 2rem auto 3rem;
+  padding: 0 1.25rem;
+}
+.trust-strip-inner {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.6rem 1.5rem;
+  padding: 0.9rem 1.25rem;
+  background: #18181b;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  font-size: 0.78rem;
+  color: var(--text);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.4);
+}
+.trust-strip-inner span { white-space: nowrap; }
+.trust-strip-inner strong { color: var(--primary); font-weight: 700; }
+.trust-strip-inner a {
+  color: var(--text);
+  text-decoration: underline;
+  text-decoration-color: var(--border);
+  text-underline-offset: 3px;
+}
+.trust-strip-inner a:hover { text-decoration-color: var(--primary); }
+
+/* 30-Second Setup cards */
+.setup-section { margin-bottom: 3rem; }
+.setup-section .section-title { margin-bottom: 1.25rem; }
+.setup-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+.setup-card {
+  background: #18181b;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  padding: 1.1rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.4);
+  min-width: 0;
+  overflow: hidden;
+}
+.setup-card h3 {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text);
+  margin: 0 0 0.75rem;
+  letter-spacing: -0.01em;
+}
+.setup-card pre {
+  background: rgba(9,9,11,0.6);
+  border: 1px solid var(--border-dim);
+  border-radius: 0.375rem;
+  padding: 0.7rem 0.85rem;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--text);
+  overflow-x: auto;
+  margin: 0 0 0.6rem;
+  white-space: pre;
+  line-height: 1.55;
+  max-width: 100%;
+  min-width: 0;
+}
+.setup-card a {
+  margin-top: auto;
+  font-size: 0.75rem;
+  color: var(--primary);
+  text-decoration: none;
+  font-weight: 600;
+}
+.setup-card a:hover { text-decoration: underline; }
+.setup-card-note {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin: 0 0 0.6rem;
+  line-height: 1.5;
+}
+
+/* Use Cases cards */
+.use-cases-section { margin-top: 3rem; margin-bottom: 3rem; }
+.use-cases-section .section-title { margin-bottom: 1.25rem; }
+.use-cases {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+.use-case {
+  background: #18181b;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  padding: 1.1rem 1.25rem;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.4);
+  min-width: 0;
+  overflow: hidden;
+}
+.use-case h3 {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--text);
+  margin: 0 0 0.6rem;
+  letter-spacing: -0.01em;
+}
+.use-case p {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  line-height: 1.65;
+  margin: 0;
+}
+.use-case code {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--primary);
+  background: rgba(59,130,246,0.08);
+  padding: 0.1rem 0.35rem;
+  border-radius: 0.25rem;
+}
+.use-case em {
+  color: var(--text);
+  font-style: italic;
+}
+
+/* Mobile responsive */
+@media (max-width: 767px) {
+  .setup-cards, .use-cases { grid-template-columns: 1fr; }
+  .hero-curl { font-size: 0.75rem; padding: 0.75rem 0.9rem; }
+  .cta-group { flex-direction: column; align-items: stretch; }
+  .cta-group .btn-cta, .cta-group .btn-cta-secondary { text-align: center; }
+  .trust-strip { margin: 1.5rem auto 2rem; }
+  .trust-strip-inner { gap: 0.5rem 1rem; font-size: 0.72rem; padding: 0.75rem 1rem; }
 }
