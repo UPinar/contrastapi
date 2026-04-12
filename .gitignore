@@ -14,3 +14,4 @@ plans/
 .npmrc
 node_modules/
 research_landing*.md
+.coverage
