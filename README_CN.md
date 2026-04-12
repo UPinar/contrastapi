@@ -6,7 +6,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Python 3.12](https://img.shields.io/badge/Python-3.12-blue.svg)](https://python.org)
-[![Tests](https://img.shields.io/badge/Tests-841_passing-brightgreen.svg)](https://github.com/UPinar/contrastapi/actions)
+[![Tests](https://img.shields.io/badge/Tests-853_passing-brightgreen.svg)](https://github.com/UPinar/contrastapi/actions)
 [![MCP](https://img.shields.io/badge/MCP-29_tools-purple.svg)](https://modelcontextprotocol.io)
 [![Smithery](https://img.shields.io/badge/Smithery-98%2F100-orange.svg)](https://smithery.ai/servers/contrastcyber/contrastapi)
 [![npm](https://img.shields.io/npm/v/contrastapi.svg)](https://www.npmjs.com/package/contrastapi)
@@ -130,7 +130,7 @@ cd app
 cd app && PYTHONPATH=. python -m pytest tests/ -v
 ```
 
-**841 个测试**，每 15 分钟执行一次 **36/36 冒烟测试**。覆盖认证、速率限制、验证、数据库操作、域名情报、CVE 情报、威胁情报、代码安全（ReDoS 防护、并发限制）、技术指纹、IP 信誉、邮件安全、电话验证、Web 归档、MCP 端点、批量接口、加权信用系统以及 API 路由。
+**853 个测试**，每 15 分钟执行一次 **36/36 冒烟测试**。覆盖认证、速率限制、验证、数据库操作、域名情报、CVE 情报、威胁情报、代码安全（ReDoS 防护、并发限制）、技术指纹、IP 信誉、邮件安全、电话验证、Web 归档、MCP 端点、批量接口、加权信用系统以及 API 路由。
 
 </details>
 
