@@ -23,7 +23,6 @@ import json
 import logging
 import os
 import re
-import sys
 from typing import Annotated
 from urllib.parse import quote
 
@@ -41,8 +40,7 @@ _RO = ToolAnnotations(
     openWorldHint=True,
 )
 
-logging.basicConfig(level=logging.INFO, stream=sys.stderr)
-logger = logging.getLogger("contrastapi-mcp")
+logger = logging.getLogger("contrastapi.mcp")
 
 # Carries the real client IP from MCP HTTP handler to internal API calls,
 # so backend rate limiting sees the original IP instead of localhost.
