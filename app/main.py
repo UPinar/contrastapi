@@ -1176,14 +1176,31 @@ try:
 
         async def __call__(self, scope, receive, send):
             if scope["type"] == "http":
-                headers = dict(scope.get("headers", []))
+                raw_headers = scope.get("headers", [])
+                headers_map = dict(raw_headers)
                 # Priority: CF-Connecting-IP (Cloudflare) > X-Real-IP (nginx) > XFF
-                ip = (headers.get(b"cf-connecting-ip") or b"").decode().strip()
+                ip = (headers_map.get(b"cf-connecting-ip") or b"").decode().strip()
                 if not ip:
-                    ip = (headers.get(b"x-real-ip") or b"").decode().strip()
+                    ip = (headers_map.get(b"x-real-ip") or b"").decode().strip()
                 if not ip:
-                    xff = (headers.get(b"x-forwarded-for") or b"").decode()
+                    xff = (headers_map.get(b"x-forwarded-for") or b"").decode()
                     ip = xff.split(",")[0].strip() if xff else ""
+                # Normalize Accept header for Streamable HTTP spec — Chiark
+                # and other probes may send */* or omit the header entirely.
+                new_headers = list(raw_headers)
+                accept_idx = next(
+                    (i for i, (k, _) in enumerate(new_headers) if k.lower() == b"accept"),
+                    None,
+                )
+                current = new_headers[accept_idx][1].decode("latin-1").lower() if accept_idx is not None else ""
+                if "application/json" not in current or "text/event-stream" not in current:
+                    canonical = (b"accept", b"application/json, text/event-stream")
+                    if accept_idx is not None:
+                        new_headers[accept_idx] = canonical
+                    else:
+                        new_headers.append(canonical)
+                    scope = dict(scope)
+                    scope["headers"] = new_headers
                 # Validate IP before storing — reject spoofed/malformed values
                 token = _mcp_client_ip_var.set(_mcp_safe_ip(ip))
                 try:
