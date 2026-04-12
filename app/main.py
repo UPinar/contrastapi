@@ -1185,11 +1185,34 @@ try:
                 if not ip:
                     xff = (headers_map.get(b"x-forwarded-for") or b"").decode()
                     ip = xff.split(",")[0].strip() if xff else ""
+                # GET/HEAD → return health JSON for crawlers/availability checks
+                if scope.get("method") in ("GET", "HEAD"):
+                    import json as _json
+
+                    body = _json.dumps(
+                        {
+                            "name": "ContrastAPI MCP Server",
+                            "version": VERSION,
+                            "transport": "streamable-http",
+                            "method": "POST",
+                            "tools": 29,
+                            "docs": "https://api.contrastcyber.com/mcp-setup",
+                        }
+                    ).encode()
+                    await send(
+                        {
+                            "type": "http.response.start",
+                            "status": 200,
+                            "headers": [
+                                [b"content-type", b"application/json"],
+                                [b"content-length", str(len(body)).encode()],
+                            ],
+                        }
+                    )
+                    await send({"type": "http.response.body", "body": body if scope.get("method") == "GET" else b""})
+                    return
                 # Normalize Accept header for POST only — tolerant probes
-                # (Chiark, etc.) may omit it on initialize. GET is left
-                # alone so availability checks return 406 instantly instead
-                # of hanging on the SSE stream that a GET with the canonical
-                # Accept header would open.
+                # (Chiark, etc.) may omit it on initialize.
                 if scope.get("method") == "POST":
                     new_headers = list(raw_headers)
                     accept_idx = next(
