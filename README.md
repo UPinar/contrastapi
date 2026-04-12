@@ -8,7 +8,7 @@
 [![Python 3.12](https://img.shields.io/badge/Python-3.12-blue.svg)](https://python.org)
 [![Tests](https://img.shields.io/badge/Tests-853_passing-brightgreen.svg)](https://github.com/UPinar/contrastapi/actions)
 [![MCP](https://img.shields.io/badge/MCP-29_tools-purple.svg)](https://modelcontextprotocol.io)
-[![Smithery](https://img.shields.io/badge/Smithery-98%2F100-orange.svg)](https://smithery.ai/servers/contrastcyber/contrastapi)
+[![Smithery](https://img.shields.io/badge/Smithery-96%2F100-orange.svg)](https://smithery.ai/servers/contrastcyber/contrastapi)
 [![npm](https://img.shields.io/npm/v/contrastapi.svg)](https://www.npmjs.com/package/contrastapi)
 [![VS Code](https://img.shields.io/badge/VS_Code-Marketplace-007ACC.svg)](https://marketplace.visualstudio.com/items?itemName=ContrastAPI.contrastapi)
 
@@ -88,7 +88,7 @@ More example prompts: [docs/PROMPTS.md](docs/PROMPTS.md) · [/playground](https:
 - **340K+ CVEs** synced from NVD every 2 hours, enriched with EPSS exploit probability + CISA KEV status
 - **Weighted credits** — 1 for simple calls, 4 for heavy orchestration (audit, threat report), N for bulk lookups
 - **LLM-optimized summaries** — every response includes a `summary` field so agents reason without parsing nested JSON
-- **Distribution** — [npm SDK](https://www.npmjs.com/package/contrastapi) · [VS Code Extension](https://marketplace.visualstudio.com/items?itemName=ContrastAPI.contrastapi) · [Smithery MCP](https://smithery.ai/servers/contrastcyber/contrastapi) (98/100 quality) · REST API
+- **Distribution** — [npm SDK](https://www.npmjs.com/package/contrastapi) · [VS Code Extension](https://marketplace.visualstudio.com/items?itemName=ContrastAPI.contrastapi) · [Smithery MCP](https://smithery.ai/servers/contrastcyber/contrastapi) (96/100 quality) · REST API
 
 ## Why ContrastAPI?
 
@@ -149,7 +149,7 @@ cd app && PYTHONPATH=. python -m pytest tests/ -v
 <details>
 <summary><strong>Also Available On</strong></summary>
 
-- **Smithery:** [smithery.ai/servers/contrastcyber/contrastapi](https://smithery.ai/servers/contrastcyber/contrastapi) (98/100 quality score)
+- **Smithery:** [smithery.ai/servers/contrastcyber/contrastapi](https://smithery.ai/servers/contrastcyber/contrastapi) (96/100 quality score)
 - **npm:** [npmjs.com/package/contrastapi](https://www.npmjs.com/package/contrastapi)
 - **VS Code Marketplace:** [ContrastAPI — Security Intelligence](https://marketplace.visualstudio.com/items?itemName=ContrastAPI.contrastapi)
 - **Awesome OSINT MCP Servers:** [soxoj/awesome-osint-mcp-servers](https://github.com/soxoj/awesome-osint-mcp-servers)
