@@ -427,3 +427,16 @@ def test_mcp_initialize_with_wildcard_accept(mcp_client):
         },
     )
     assert r.status_code == 200
+
+
+def test_mcp_get_without_accept_returns_406(mcp_client):
+    """GET /mcp/ without the Streamable HTTP Accept header must return 406
+    fast — we do NOT normalize GET because the canonical Accept opens an
+    SSE stream that hangs availability probers (e.g. Chiark tier 1)."""
+    r = mcp_client.get("/mcp/")
+    assert r.status_code == 406
+
+
+def test_mcp_get_with_wildcard_accept_returns_406(mcp_client):
+    r = mcp_client.get("/mcp/", headers={"Accept": "*/*"})
+    assert r.status_code == 406

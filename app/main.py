@@ -1185,22 +1185,26 @@ try:
                 if not ip:
                     xff = (headers_map.get(b"x-forwarded-for") or b"").decode()
                     ip = xff.split(",")[0].strip() if xff else ""
-                # Normalize Accept header for Streamable HTTP spec — Chiark
-                # and other probes may send */* or omit the header entirely.
-                new_headers = list(raw_headers)
-                accept_idx = next(
-                    (i for i, (k, _) in enumerate(new_headers) if k.lower() == b"accept"),
-                    None,
-                )
-                current = new_headers[accept_idx][1].decode("latin-1").lower() if accept_idx is not None else ""
-                if "application/json" not in current or "text/event-stream" not in current:
-                    canonical = (b"accept", b"application/json, text/event-stream")
-                    if accept_idx is not None:
-                        new_headers[accept_idx] = canonical
-                    else:
-                        new_headers.append(canonical)
-                    scope = dict(scope)
-                    scope["headers"] = new_headers
+                # Normalize Accept header for POST only — tolerant probes
+                # (Chiark, etc.) may omit it on initialize. GET is left
+                # alone so availability checks return 406 instantly instead
+                # of hanging on the SSE stream that a GET with the canonical
+                # Accept header would open.
+                if scope.get("method") == "POST":
+                    new_headers = list(raw_headers)
+                    accept_idx = next(
+                        (i for i, (k, _) in enumerate(new_headers) if k.lower() == b"accept"),
+                        None,
+                    )
+                    current = new_headers[accept_idx][1].decode("latin-1").lower() if accept_idx is not None else ""
+                    if "application/json" not in current or "text/event-stream" not in current:
+                        canonical = (b"accept", b"application/json, text/event-stream")
+                        if accept_idx is not None:
+                            new_headers[accept_idx] = canonical
+                        else:
+                            new_headers.append(canonical)
+                        scope = dict(scope)
+                        scope["headers"] = new_headers
                 # Validate IP before storing — reject spoofed/malformed values
                 token = _mcp_client_ip_var.set(_mcp_safe_ip(ip))
                 try:
