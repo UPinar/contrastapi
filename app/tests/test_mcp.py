@@ -78,7 +78,7 @@ def test_mcp_tools_list(mcp_client):
 
 
 def test_mcp_missing_accept_header(mcp_client):
-    """Should return 406 without proper Accept header."""
+    """Middleware normalizes missing Accept header to the canonical value."""
     r = mcp_client.post(
         "/mcp/",
         headers={"Content-Type": "application/json"},
@@ -93,7 +93,7 @@ def test_mcp_missing_accept_header(mcp_client):
             },
         },
     )
-    assert r.status_code == 406
+    assert r.status_code == 200
 
 
 def test_mcp_invalid_content_type(mcp_client):
@@ -387,3 +387,43 @@ def test_llms_txt_mentions_mcp(mcp_client):
     assert r.status_code == 200
     assert "MCP" in r.text
     assert "/mcp/" in r.text
+
+
+# --- Accept header normalization (Chiark.ai probe compatibility) ---
+
+
+def test_mcp_initialize_without_accept_header(mcp_client):
+    r = mcp_client.post(
+        "/mcp/",
+        headers={"Content-Type": "application/json"},
+        json={
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2025-03-26",
+                "capabilities": {},
+                "clientInfo": {"name": "test", "version": "1.0"},
+            },
+        },
+    )
+    assert r.status_code == 200
+    assert r.json()["result"]["serverInfo"]["name"] == "contrastapi"
+
+
+def test_mcp_initialize_with_wildcard_accept(mcp_client):
+    r = mcp_client.post(
+        "/mcp/",
+        headers={"Content-Type": "application/json", "Accept": "*/*"},
+        json={
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2025-03-26",
+                "capabilities": {},
+                "clientInfo": {"name": "test", "version": "1.0"},
+            },
+        },
+    )
+    assert r.status_code == 200
