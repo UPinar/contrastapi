@@ -5,7 +5,7 @@ import os
 import socket
 from pathlib import Path
 
-VERSION = "1.5.0"
+VERSION = "1.6.0"
 
 BASE_DIR = Path(__file__).parent
 
