@@ -61,7 +61,7 @@
     <div id="timeout-section" style="display:none">
       <div class="error-box">
         <strong>Key generation is taking longer than expected.</strong>
-        <p style="margin-top:8px">Please refresh this page in a minute. If the problem persists, contact <a href="mailto:support@contrastcyber.com" style="color:#00d4ff">support@contrastcyber.com</a>.</p>
+        <p style="margin-top:8px">Please refresh this page in a minute. If the problem persists, contact <span style="color:#00d4ff;cursor:pointer;text-decoration:underline" onclick="navigator.clipboard.writeText('support@contrastcyber.com');var t=this.textContent;this.textContent='Copied!';setTimeout(()=>this.textContent=t,1500);">support@contrastcyber.com</span>.</p>
       </div>
     </div>
     {% else %}
