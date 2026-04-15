@@ -513,6 +513,25 @@ def get_cached_domain(domain: str) -> dict | None:
         return json.loads(row[0])
 
 
+def get_cached_domain_with_age(key: str) -> tuple[dict, int] | None:
+    """Get cached domain result + age in seconds. Returns None if missing/expired."""
+    with get_cache_db() as con:
+        row = con.execute("SELECT result_json, fetched_at FROM domain_cache WHERE domain = ?", (key,)).fetchone()
+        if row is None or row[1] is None:
+            return None
+        try:
+            fetched = datetime.fromisoformat(row[1])
+        except (ValueError, TypeError):
+            logger.warning("domain cache: malformed fetched_at for %s", key)
+            return None
+        age = int((datetime.now(UTC) - fetched).total_seconds())
+        if age > DOMAIN_CACHE_TTL:
+            return None
+        if age < 0:
+            age = 0
+        return json.loads(row[0]), age
+
+
 def save_cached_domain(domain: str, result: dict) -> None:
     now = datetime.now(UTC).isoformat()
     result_str = json.dumps(result)
@@ -540,6 +559,25 @@ def get_cached_ip(ip: str) -> dict | None:
         if age > IP_CACHE_TTL:
             return None  # expired — maintenance() handles cleanup
         return json.loads(row[0])
+
+
+def get_cached_ip_with_age(ip: str) -> tuple[dict, int] | None:
+    """Get cached IP reputation result + age in seconds. Returns None if missing/expired."""
+    with get_cache_db() as con:
+        row = con.execute("SELECT result_json, fetched_at FROM ip_cache WHERE ip = ?", (ip,)).fetchone()
+        if row is None or row[1] is None:
+            return None
+        try:
+            fetched = datetime.fromisoformat(row[1])
+        except (ValueError, TypeError):
+            logger.warning("ip cache: malformed fetched_at for %s", ip)
+            return None
+        age = int((datetime.now(UTC) - fetched).total_seconds())
+        if age > IP_CACHE_TTL:
+            return None
+        if age < 0:
+            age = 0
+        return json.loads(row[0]), age
 
 
 def save_cached_ip(ip: str, result: dict) -> None:

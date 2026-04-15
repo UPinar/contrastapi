@@ -285,7 +285,7 @@ MOCK_FULL_REPORT = {
 class TestDomainRoutes:
     @patch("domain.routes.full_domain_report", return_value=MOCK_FULL_REPORT)
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
-    @patch("domain.routes.get_cached_domain", return_value=None)
+    @patch("domain.routes.get_cached_domain_with_age", return_value=None)
     def test_domain_report_200(self, mock_cache, mock_validate, mock_report):
         """validate_domain is called in _validate_and_auth for all routes."""
         r = client.get("/v1/domain/example.com")
@@ -297,7 +297,7 @@ class TestDomainRoutes:
 
     @patch("domain.routes.full_domain_report", return_value=MOCK_FULL_REPORT)
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
-    @patch("domain.routes.get_cached_domain", return_value=None)
+    @patch("domain.routes.get_cached_domain_with_age", return_value=None)
     def test_domain_report_post(self, mock_cache, mock_validate, mock_report):
         """POST returns same result as GET (Salesforce SFDC-Callout compat)."""
         r = client.post("/v1/domain/example.com")
@@ -307,7 +307,7 @@ class TestDomainRoutes:
 
     @patch("domain.routes.full_domain_report", return_value=MOCK_FULL_REPORT)
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
-    @patch("domain.routes.get_cached_domain", return_value=None)
+    @patch("domain.routes.get_cached_domain_with_age", return_value=None)
     def test_domain_report_post_with_body(self, mock_cache, mock_validate, mock_report):
         """POST with JSON body is ignored (body not read)."""
         r = client.post("/v1/domain/example.com", json={"extra": "ignored"})
@@ -315,7 +315,7 @@ class TestDomainRoutes:
 
     @patch("domain.routes.full_domain_report")
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
-    @patch("domain.routes.get_cached_domain", return_value=MOCK_FULL_REPORT)
+    @patch("domain.routes.get_cached_domain_with_age", return_value=(MOCK_FULL_REPORT, 3600))
     def test_domain_report_cached(self, mock_cache, mock_validate, mock_report):
         r = client.get("/v1/domain/example.com")
         assert r.status_code == 200
@@ -324,7 +324,7 @@ class TestDomainRoutes:
 
     @patch("domain.routes.full_domain_report", return_value=MOCK_FULL_REPORT)
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
-    @patch("domain.routes.get_cached_domain", return_value=None)
+    @patch("domain.routes.get_cached_domain_with_age", return_value=None)
     def test_domain_report_lite(self, mock_cache, mock_validate, mock_report):
         """?lite=true passes lite=True to full_domain_report and uses separate cache key."""
         r = client.get("/v1/domain/example.com?lite=true")
@@ -339,10 +339,25 @@ class TestDomainRoutes:
 
     @patch("domain.routes._is_valid_format", return_value=False)
     @patch("domain.routes.validate_domain", return_value=None)
-    @patch("domain.routes.get_cached_domain", return_value=None)
+    @patch("domain.routes.get_cached_domain_with_age", return_value=None)
     def test_domain_report_invalid_domain(self, mock_cache, mock_validate, mock_format):
         r = client.get("/v1/domain/nonexistent.invalid")
         assert r.status_code == 400
+
+    @patch("domain.routes.full_domain_report", return_value=MOCK_FULL_REPORT)
+    @patch("domain.routes.validate_domain", return_value="93.184.216.34")
+    @patch("domain.routes.get_cached_domain_with_age", return_value=None)
+    def test_domain_report_verdict(self, mock_cache, mock_validate, mock_report):
+        r = client.get("/v1/domain/example.com")
+        assert r.status_code == 200
+        body = r.json()
+        assert "verdict" in body
+        v = body["verdict"]
+        assert v["deterministic"] is True
+        assert set(v["falsifiable_fields"]) >= {"dns", "whois", "ssl"}
+        if "data_age_seconds" in v:
+            assert isinstance(v["data_age_seconds"], int)
+            assert v["data_age_seconds"] >= 0
 
     @patch("domain.routes.dns_lookup", return_value=MOCK_DNS_RESULT)
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
@@ -410,6 +425,23 @@ class TestDomainRoutes:
         assert r.status_code == 200
         data = r.json()
         assert data.get("ptr") is None
+
+    @patch(
+        "domain.routes.ip_enrichment",
+        return_value={"ports": [22, 80], "hostnames": [], "vulns": [], "cpes": [], "tags": []},
+    )
+    @patch("domain.routes.socket.gethostbyaddr", return_value=("example.com", [], []))
+    def test_ip_lookup_verdict(self, mock_ptr, mock_enrich):
+        r = client.get("/v1/ip/93.184.216.34")
+        assert r.status_code == 200
+        body = r.json()
+        assert "verdict" in body
+        v = body["verdict"]
+        assert v["deterministic"] is True
+        assert set(v["falsifiable_fields"]) >= {"ptr", "ports", "vulns"}
+        if "data_age_seconds" in v:
+            assert isinstance(v["data_age_seconds"], int)
+            assert v["data_age_seconds"] >= 0
 
 
 class TestDomainRoutesBadInput:
@@ -1590,7 +1622,7 @@ class TestDnsLookupRecordTypes:
 class TestIpRouteReputation:
     @patch("domain.routes.authenticate", return_value={"tier": "free"})
     @patch("domain.routes.save_cached_ip")
-    @patch("domain.routes.get_cached_ip", return_value=None)
+    @patch("domain.routes.get_cached_ip_with_age", return_value=None)
     @patch("domain.routes.ratelimit.check_limit", return_value=True)
     @patch("domain.routes.check_shodan", return_value={"status": "ok", "ports": [80]})
     @patch("domain.routes.check_abuseipdb", return_value={"status": "ok", "abuse_score": 10})
@@ -1611,7 +1643,7 @@ class TestIpRouteReputation:
         mock_cache_save.assert_called_once()
 
     @patch("domain.routes.authenticate", return_value={"tier": "free"})
-    @patch("domain.routes.get_cached_ip", return_value=None)
+    @patch("domain.routes.get_cached_ip_with_age", return_value=None)
     @patch("domain.routes.ratelimit.check_limit", return_value=False)
     @patch(
         "domain.routes.ip_enrichment",
@@ -1630,11 +1662,14 @@ class TestIpRouteReputation:
     @patch("domain.routes.check_abuseipdb")
     @patch("domain.routes.check_shodan")
     @patch(
-        "domain.routes.get_cached_ip",
-        return_value={
-            "abuseipdb": {"status": "ok", "abuse_score": 0},
-            "shodan": {"status": "ok", "ports": [443]},
-        },
+        "domain.routes.get_cached_ip_with_age",
+        return_value=(
+            {
+                "abuseipdb": {"status": "ok", "abuse_score": 0},
+                "shodan": {"status": "ok", "ports": [443]},
+            },
+            1800,
+        ),
     )
     @patch(
         "domain.routes.ip_enrichment",

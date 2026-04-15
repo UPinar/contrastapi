@@ -21,6 +21,7 @@ class DomainReportResponse(BaseModel):
     risk: dict = Field(default_factory=dict)
     reputation: dict | None = None
     summary: str = ""
+    verdict: Verdict | None = None
 
     model_config = {"extra": "ignore"}
 
@@ -47,6 +48,7 @@ class IpLookupResponse(BaseModel):
     tags: list[str] = Field(default_factory=list)
     reputation: dict | None = None
     summary: str = ""
+    verdict: Verdict | None = None
 
     model_config = {"extra": "ignore"}
 

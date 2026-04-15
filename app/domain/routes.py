@@ -25,7 +25,7 @@ from config import (
     ENRICHMENT_DAILY_LIMIT,
     RECON_TIMEOUT,
 )
-from db import get_cached_domain, get_cached_ip, save_cached_domain, save_cached_ip
+from db import get_cached_domain, get_cached_domain_with_age, get_cached_ip_with_age, save_cached_domain, save_cached_ip
 from domain.archive import wayback_lookup
 from domain.recon import (
     check_ct_logs,
@@ -64,6 +64,7 @@ from schemas import (
     ThreatReportResponse,
     ThreatResponse,
     UsernameLookupResponse,
+    Verdict,
     VulnsResponse,
     WaybackResponse,
     WhoisResponse,
@@ -172,6 +173,24 @@ def _whois_summary(whois: dict, domain: str) -> str:
     return " — ".join(parts)
 
 
+def _domain_verdict(age_seconds: int) -> Verdict:
+    """Build verdict metadata for domain_report responses."""
+    return Verdict(
+        deterministic=True,
+        falsifiable_fields=["dns", "whois", "ssl", "subdomains", "certificates"],
+        data_age_seconds=age_seconds,
+    )
+
+
+def _ip_verdict(age_seconds: int | None) -> Verdict:
+    """Build verdict metadata for ip_lookup responses. age=None if no cached reputation."""
+    return Verdict(
+        deterministic=True,
+        falsifiable_fields=["ptr", "ports", "vulns", "hostnames"],
+        data_age_seconds=age_seconds,
+    )
+
+
 def _from_cache(domain: str, key: str) -> dict | None:
     """Try to extract a section from a cached full domain report."""
     cached = get_cached_domain(domain)
@@ -199,9 +218,10 @@ def domain_report(domain: str, request: Request, lite: bool = False):
 
     # Separate cache keys for lite vs full
     cache_key = f"lite:{domain}" if lite else domain
-    cached = get_cached_domain(cache_key)
-    if cached:
-        return {**cached}
+    hit = get_cached_domain_with_age(cache_key)
+    if hit is not None:
+        cached, age = hit
+        return {**cached, "verdict": _domain_verdict(age)}
 
     client_ip = get_client_ip(request)
     try:
@@ -209,7 +229,7 @@ def domain_report(domain: str, request: Request, lite: bool = False):
     except FuturesTimeoutError:
         raise HTTPException(status_code=504, detail="Domain report timed out — upstream services too slow") from None
     save_cached_domain(cache_key, result)
-    return {**result}
+    return {**result, "verdict": _domain_verdict(0)}
 
 
 @router.get("/dns/{domain}", operation_id="dns_records", response_model=DnsResponse, response_model_exclude_none=True)
@@ -582,9 +602,10 @@ def ip_lookup(ip: str, request: Request):
 
     # Reputation enrichment (rate-limited per client IP)
     reputation = {}
-    cached_rep = get_cached_ip(ip)
-    if cached_rep is not None:
-        reputation = cached_rep
+    rep_age: int | None = None
+    hit = get_cached_ip_with_age(ip)
+    if hit is not None:
+        reputation, rep_age = hit
     elif ratelimit.check_limit(
         store_name="enrichment",
         key=client_ip,
@@ -599,6 +620,7 @@ def ip_lookup(ip: str, request: Request):
                 "shodan": f_sh.result(timeout=RECON_TIMEOUT + 2),
             }
             save_cached_ip(ip, reputation)
+            rep_age = 0
         except Exception as e:
             logger.warning("Reputation enrichment failed for %s: %s", ip, type(e).__name__)
             reputation = {}
@@ -620,6 +642,7 @@ def ip_lookup(ip: str, request: Request):
     }
     if reputation:
         result["reputation"] = reputation
+    result["verdict"] = _ip_verdict(rep_age)
     return result
 
 
