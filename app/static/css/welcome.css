@@ -1,0 +1,15 @@
+.welcome-container { max-width: 600px; margin: 80px auto; padding: 0 24px; text-align: center; }
+.welcome-container h1 { font-size: 2rem; margin-bottom: 0.5rem; }
+.welcome-container p { color: #aaa; line-height: 1.6; }
+.key-box { display: flex; align-items: center; gap: 12px; margin: 32px 0; background: #1a1a2e; border: 1px solid #333; border-radius: 8px; padding: 16px; }
+.key-box code { flex: 1; font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 0.95rem; color: #00d4ff; word-break: break-all; text-align: left; }
+.copy-btn { background: #00d4ff; color: #0a0a1a; border: none; border-radius: 6px; padding: 10px 18px; font-weight: 600; cursor: pointer; white-space: nowrap; transition: background 0.2s; }
+.copy-btn:hover { background: #00b8d9; }
+.copy-btn.copied { background: #22c55e; }
+.warning { background: rgba(255, 170, 0, 0.1); border: 1px solid rgba(255, 170, 0, 0.3); border-radius: 8px; padding: 16px; margin: 24px 0; color: #ffaa00; font-size: 0.9rem; }
+.error-box { background: rgba(255, 60, 60, 0.1); border: 1px solid rgba(255, 60, 60, 0.3); border-radius: 8px; padding: 24px; margin: 32px 0; color: #ff6b6b; }
+.back-link { display: inline-block; margin-top: 32px; color: #00d4ff; text-decoration: none; }
+.back-link:hover { text-decoration: underline; }
+.spinner { width: 40px; height: 40px; margin: 24px auto; border: 3px solid #333; border-top-color: #00d4ff; border-radius: 50%; animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.copy-support { color: #00d4ff; cursor: pointer; text-decoration: underline; }

@@ -7,22 +7,8 @@
   <meta name="robots" content="noindex, nofollow">
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
   <link rel="stylesheet" href="/static/style.css?v=18">
-  <style>
-    .welcome-container { max-width: 600px; margin: 80px auto; padding: 0 24px; text-align: center; }
-    .welcome-container h1 { font-size: 2rem; margin-bottom: 0.5rem; }
-    .welcome-container p { color: #aaa; line-height: 1.6; }
-    .key-box { display: flex; align-items: center; gap: 12px; margin: 32px 0; background: #1a1a2e; border: 1px solid #333; border-radius: 8px; padding: 16px; }
-    .key-box code { flex: 1; font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 0.95rem; color: #00d4ff; word-break: break-all; text-align: left; }
-    .copy-btn { background: #00d4ff; color: #0a0a1a; border: none; border-radius: 6px; padding: 10px 18px; font-weight: 600; cursor: pointer; white-space: nowrap; transition: background 0.2s; }
-    .copy-btn:hover { background: #00b8d9; }
-    .copy-btn.copied { background: #22c55e; }
-    .warning { background: rgba(255, 170, 0, 0.1); border: 1px solid rgba(255, 170, 0, 0.3); border-radius: 8px; padding: 16px; margin: 24px 0; color: #ffaa00; font-size: 0.9rem; }
-    .error-box { background: rgba(255, 60, 60, 0.1); border: 1px solid rgba(255, 60, 60, 0.3); border-radius: 8px; padding: 24px; margin: 32px 0; color: #ff6b6b; }
-    .back-link { display: inline-block; margin-top: 32px; color: #00d4ff; text-decoration: none; }
-    .back-link:hover { text-decoration: underline; }
-    .spinner { width: 40px; height: 40px; margin: 24px auto; border: 3px solid #333; border-top-color: #00d4ff; border-radius: 50%; animation: spin 0.8s linear infinite; }
-    @keyframes spin { to { transform: rotate(360deg); } }
-  </style>
+  <link rel="stylesheet" href="/static/css/welcome.css?v=1">
+  <script src="/static/js/welcome.js?v=1" defer></script>
 </head>
 <body>
   <div class="glow"></div>
@@ -36,7 +22,7 @@
 
       <div class="key-box">
         <code id="api-key">{{ api_key }}</code>
-        <button class="copy-btn" onclick="copyKey(this)">Copy</button>
+        <button class="copy-btn">Copy</button>
       </div>
 
       <div class="warning">
@@ -44,7 +30,7 @@
       </div>
     </div>
     {% elif polling %}
-    <div id="polling-section">
+    <div id="polling-section" data-order-id="{{ order_id }}">
       <div class="spinner"></div>
       <p id="polling-msg">Your payment is being processed. This usually takes a few seconds...</p>
     </div>
@@ -52,7 +38,7 @@
       <p>Your API key has been generated. Use it in the <code>X-API-Key</code> header with every request.</p>
       <div class="key-box">
         <code id="api-key"></code>
-        <button class="copy-btn" onclick="copyKey(this)">Copy</button>
+        <button class="copy-btn">Copy</button>
       </div>
       <div class="warning">
         Save this key now. For security, it will not be shown again.
@@ -61,7 +47,7 @@
     <div id="timeout-section" style="display:none">
       <div class="error-box">
         <strong>Key generation is taking longer than expected.</strong>
-        <p style="margin-top:8px">Please refresh this page in a minute. If the problem persists, contact <span style="color:#00d4ff;cursor:pointer;text-decoration:underline" onclick="navigator.clipboard.writeText('support@contrastcyber.com');var t=this.textContent;this.textContent='Copied!';setTimeout(()=>this.textContent=t,1500);">support@contrastcyber.com</span>.</p>
+        <p style="margin-top:8px">Please refresh this page in a minute. If the problem persists, contact <span class="copy-support" data-copy-email="support@contrastcyber.com">support@contrastcyber.com</span>.</p>
       </div>
     </div>
     {% else %}
@@ -72,57 +58,5 @@
 
     <a href="/" class="back-link">&larr; Back to API docs</a>
   </div>
-
-  <script>
-  function copyKey(btn) {
-    var key = document.getElementById('api-key').textContent;
-    navigator.clipboard.writeText(key).then(function() {
-      btn.textContent = 'Copied!';
-      btn.classList.add('copied');
-      setTimeout(function() { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 2000);
-    });
-  }
-
-  {% if polling %}
-  (function() {
-    var orderId = {{ order_id | tojson }};
-    var attempts = 0;
-    var networkErrors = 0;
-    var maxAttempts = 10;
-    var interval = 3000;
-    var msgEl = document.getElementById('polling-msg');
-
-    function poll() {
-      attempts++;
-      fetch('/api/check-key?order_id=' + encodeURIComponent(orderId))
-        .then(function(r) { return r.json(); })
-        .then(function(data) {
-          networkErrors = 0;
-          if (data.ready) {
-            window.location.reload();
-          } else if (attempts >= maxAttempts) {
-            document.getElementById('polling-section').style.display = 'none';
-            document.getElementById('timeout-section').style.display = 'block';
-          } else {
-            setTimeout(poll, interval);
-          }
-        })
-        .catch(function() {
-          networkErrors++;
-          if (networkErrors >= 3) {
-            msgEl.textContent = 'Connection issue. Retrying...';
-          }
-          if (attempts < maxAttempts) setTimeout(poll, interval);
-          else {
-            document.getElementById('polling-section').style.display = 'none';
-            document.getElementById('timeout-section').style.display = 'block';
-          }
-        });
-    }
-
-    setTimeout(poll, interval);
-  })();
-  {% endif %}
-  </script>
 </body>
 </html>

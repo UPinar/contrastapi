@@ -22,6 +22,7 @@
   <link rel="alternate" hreflang="zh" href="https://api.contrastcyber.com/cn/">
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
   <link rel="stylesheet" href="/static/style.css?v=20">
+  <script src="/static/js/landing.js?v=1" defer></script>
   <link rel="alternate" type="text/plain" href="/llms.txt" title="LLM Discovery">
   <link rel="alternate" type="application/json" href="/openapi.json" title="OpenAPI Spec">
   <script type="application/ld+json">
@@ -47,12 +48,11 @@
   </script>
 </head>
 <body>
-  <script>window.__copyCmd=function(b){var p=b.previousElementSibling;var t=(p.querySelector('code')||p).innerText.replace(/^\$\s+/,'');navigator.clipboard.writeText(t).then(function(){b.classList.add('copied');b.setAttribute('aria-label','已复制');setTimeout(function(){b.classList.remove('copied');b.setAttribute('aria-label','复制命令')},1500)})};</script>
   <div class="glow"></div>
 
   <nav>
     <a href="/cn/" class="logo">Contrast<span>API</span></a>
-    <button class="hamburger" aria-label="菜单" aria-expanded="false" onclick="const o=this.getAttribute('aria-expanded')==='true';this.setAttribute('aria-expanded',String(!o));document.querySelector('.nav-links').classList.toggle('open')"><span class="hamburger__lines" aria-hidden="true"></span></button>
+    <button class="hamburger" aria-label="菜单" aria-expanded="false"><span class="hamburger__lines" aria-hidden="true"></span></button>
     <div class="nav-links">
       <a href="/quickstart">快速入门</a>
       <a href="/mcp-setup">MCP 配置</a>
@@ -74,7 +74,7 @@
     <p class="cta-microcopy">无需 API 密钥 · 841 项测试 · &lt;500ms 延迟 · MIT 许可</p>
     <div class="hero-curl-wrap">
       <pre class="hero-curl"><span class="prompt">$ </span><code>curl https://api.contrastcyber.com/v1/audit/example.com</code></pre>
-      <button type="button" class="copy-btn" aria-label="复制命令" onclick="__copyCmd(this)">
+      <button type="button" class="copy-btn" aria-label="复制命令">
         <svg class="icon-copy" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
         <svg class="icon-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
       </button>
@@ -120,9 +120,9 @@ await api.cve.lookup("CVE-2024-3094");</pre>
       <div class="setup-card">
         <h3>3. cURL</h3>
         <div class="copy-wrap"><pre>curl https://api.contrastcyber.com\
-  /v1/audit/example.com</pre><button type="button" class="copy-btn" aria-label="复制命令" onclick="__copyCmd(this)"><svg class="icon-copy" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><svg class="icon-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg></button></div>
+  /v1/audit/example.com</pre><button type="button" class="copy-btn" aria-label="复制命令"><svg class="icon-copy" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><svg class="icon-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg></button></div>
         <div class="copy-wrap"><pre>curl https://api.contrastcyber.com\
-  /v1/cve/CVE-2024-3094</pre><button type="button" class="copy-btn" aria-label="复制命令" onclick="__copyCmd(this)"><svg class="icon-copy" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><svg class="icon-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg></button></div>
+  /v1/cve/CVE-2024-3094</pre><button type="button" class="copy-btn" aria-label="复制命令"><svg class="icon-copy" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><svg class="icon-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg></button></div>
         <a href="/quickstart">快速入门指南 →</a>
       </div>
       <div class="setup-card">
@@ -351,7 +351,7 @@ await api.cve.lookup("CVE-2024-3094");</pre>
   <!-- 示例 -->
   <section class="example-section">
     <h2 class="section-title">请求示例</h2>
-    <div class="copy-wrap"><pre>$ curl https://api.contrastcyber.com/v1/domain/example.com</pre><button type="button" class="copy-btn" aria-label="复制命令" onclick="__copyCmd(this)"><svg class="icon-copy" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><svg class="icon-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg></button></div>
+    <div class="copy-wrap"><pre>$ curl https://api.contrastcyber.com/v1/domain/example.com</pre><button type="button" class="copy-btn" aria-label="复制命令"><svg class="icon-copy" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><svg class="icon-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg></button></div>
     <pre>{
   <span class="key">"domain"</span>: <span class="str">"example.com"</span>,
   <span class="key">"summary"</span>: <span class="str">"example.com resolves to 93.184.216.34. SSL grade A (DigiCert). SPF+DMARC present. No WAF. Risk: B (72/100)."</span>,
@@ -493,7 +493,7 @@ await api.cve.lookup("CVE-2024-3094");</pre>
     <div class="footer-links">
       <a href="https://contrastcyber.com/terms">条款</a>
       <a href="https://contrastcyber.com/privacy">隐私</a>
-      <a href="#" onclick="event.preventDefault();navigator.clipboard.writeText('contact@contrastcyber.com');var t=this.textContent;this.textContent='已复制!';setTimeout(()=>this.textContent=t,1500);">联系我们</a>
+      <a href="#" data-copy-email="contact@contrastcyber.com">联系我们</a>
       <a href="https://github.com/UPinar/contrastapi">GitHub</a>
       <a href="/">English</a>
     </div>
