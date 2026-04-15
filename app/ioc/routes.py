@@ -21,7 +21,7 @@ from ioc.lookup import (
 )
 from ioc.password import is_valid_sha1, query_pwned_hash
 from pydantic import BaseModel, Field
-from schemas import BulkIocResponse, HashResponse, IocResponse, PasswordResponse, PhishingResponse
+from schemas import BulkIocResponse, HashResponse, IocResponse, PasswordResponse, PhishingResponse, Verdict
 from validation import is_private_ip, is_valid_ip
 
 logger = logging.getLogger("contrastapi")
@@ -33,6 +33,15 @@ router = APIRouter(prefix="/v1", tags=["Threat Intelligence"])
 
 _HEX_RE = re.compile(r"^[0-9a-fA-F]+$")
 _HASH_LENS = {32: "md5", 40: "sha1", 64: "sha256"}
+
+
+def _ioc_verdict() -> Verdict:
+    """Build verdict metadata for ioc_lookup responses (live threat-feed queries, age=0)."""
+    return Verdict(
+        deterministic=True,
+        falsifiable_fields=["type", "threat_level", "sources"],
+        data_age_seconds=0,
+    )
 
 
 @router.get(
@@ -134,6 +143,7 @@ def ioc_lookup(indicator: str, request: Request):
         "threat_level": threat_level,
         "sources": sources,
         "summary": summary,
+        "verdict": _ioc_verdict(),
     }
 
 

@@ -191,6 +191,15 @@ def _ip_verdict(age_seconds: int | None) -> Verdict:
     )
 
 
+def _threat_verdict() -> Verdict:
+    """Build verdict metadata for threat_intel responses (live URLhaus query, age=0)."""
+    return Verdict(
+        deterministic=True,
+        falsifiable_fields=["urlhaus_status", "url_count", "urls_online", "threat_types"],
+        data_age_seconds=0,
+    )
+
+
 def _from_cache(domain: str, key: str) -> dict | None:
     """Try to extract a section from a cached full domain report."""
     cached = get_cached_domain(domain)
@@ -558,7 +567,7 @@ def threat_intel(domain: str, request: Request):
         summary = f"{domain} — no threats found in URLhaus"
     else:
         summary = f"{domain} — {url_count} URL{'s' if url_count != 1 else ''} in URLhaus ({urls_online} online)"
-    return {"domain": domain, **result, "summary": summary}
+    return {"domain": domain, **result, "summary": summary, "verdict": _threat_verdict()}
 
 
 @router.get(

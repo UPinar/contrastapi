@@ -386,6 +386,22 @@ def test_ioc_threat_level_high(client):
     assert resp.json()["threat_level"] == "high"
 
 
+def test_ioc_lookup_verdict(client):
+    with (
+        patch("ioc.routes.query_threatfox", return_value={"found": False}),
+        patch("ioc.routes.query_feodo", return_value={"found": False}),
+        patch("ioc.routes.check_urlhaus", return_value={"url_count": 0, "urls_online": 0}),
+    ):
+        resp = client.get("/v1/ioc/8.8.8.8")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert "verdict" in body
+    v = body["verdict"]
+    assert v["deterministic"] is True
+    assert set(v["falsifiable_fields"]) >= {"type", "threat_level", "sources"}
+    assert v["data_age_seconds"] == 0
+
+
 # --- /v1/hash/{hash} ---
 
 

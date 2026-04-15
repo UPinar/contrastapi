@@ -157,6 +157,30 @@ cd app && PYTHONPATH=. python -m pytest tests/ -v
 
 </details>
 
+## Multi-Agent Usage
+
+ContrastAPI responses include a `verdict` metadata block on key endpoints
+(`cve_lookup`, `domain_report`, `ip_lookup`, `threat_intel`, `ioc_lookup`):
+
+```json
+{
+  "verdict": {
+    "deterministic": true,
+    "falsifiable_fields": ["cve_id", "severity", "cvss_v3", "published", "references"],
+    "data_age_seconds": 1834
+  }
+}
+```
+
+This lets an orchestrator run Agent A (calling ContrastAPI) and Agent B
+(independently verifying a subset of `falsifiable_fields` against the upstream
+authority — NVD, RDAP, CT logs, URLhaus). `deterministic: true` means the same
+query will return the same answer; `data_age_seconds` is the distance from the
+latest upstream sync (or `0` for live fetches).
+
+Probe `GET /v1/capabilities` — responses with `"verdict_metadata": true` support
+this pattern across the endpoints listed above.
+
 ## License
 
 MIT

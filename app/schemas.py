@@ -73,6 +73,9 @@ class ThreatResponse(BaseModel):
     tags: list[str] = Field(default_factory=list)
     urls: list[ThreatUrl] = Field(default_factory=list)
     summary: str = ""
+    verdict: Verdict | None = None
+
+    model_config = {"extra": "ignore"}
 
 
 # === Wayback Machine / Web Archive ===
@@ -193,6 +196,7 @@ class IocResponse(BaseModel):
     threat_level: str = "none"
     sources: dict = Field(default_factory=dict)
     summary: str = ""
+    verdict: Verdict | None = None
 
     model_config = {"extra": "ignore"}
 

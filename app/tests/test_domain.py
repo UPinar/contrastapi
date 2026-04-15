@@ -2014,6 +2014,29 @@ class TestThreatIntelRoute:
         assert "3 URL" in data["summary"]
         assert data["urls_online"] == 2
 
+    @patch("domain.routes.authenticate", return_value={"tier": "free"})
+    @patch(
+        "domain.routes.check_urlhaus",
+        return_value={
+            "urlhaus_status": "not_found",
+            "urls_online": 0,
+            "url_count": 0,
+            "threat_types": [],
+            "tags": [],
+            "urls": [],
+        },
+    )
+    @patch("domain.routes.validate_domain", return_value="93.184.216.34")
+    def test_threat_intel_verdict(self, mock_validate, mock_urlhaus, mock_auth):
+        r = client.get("/v1/threat/example.com")
+        assert r.status_code == 200
+        body = r.json()
+        assert "verdict" in body
+        v = body["verdict"]
+        assert v["deterministic"] is True
+        assert set(v["falsifiable_fields"]) >= {"urlhaus_status", "url_count", "urls_online"}
+        assert v["data_age_seconds"] == 0
+
 
 # =========== whois_lookup unit tests ===========
 

@@ -878,6 +878,7 @@ def api_capabilities():
         "api_version": VERSION,
         "base_url": "https://api.contrastcyber.com",
         "total_tools": 29,
+        "verdict_metadata": True,
         "auth": {
             "type": "none_required",
             "free_tier": {"requests_per_hour": 100},

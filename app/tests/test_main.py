@@ -84,6 +84,12 @@ def test_capabilities_no_auth_required():
     assert r.json()["auth"]["type"] == "none_required"
 
 
+def test_capabilities_verdict_metadata():
+    r = client.get("/v1/capabilities")
+    assert r.status_code == 200
+    assert r.json()["verdict_metadata"] is True
+
+
 # --- llms.txt ---
 
 
