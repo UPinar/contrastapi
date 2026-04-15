@@ -6,7 +6,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Python 3.12](https://img.shields.io/badge/Python-3.12-blue.svg)](https://python.org)
-[![Tests](https://img.shields.io/badge/Tests-853_passing-brightgreen.svg)](https://github.com/UPinar/contrastapi/actions)
+[![Tests](https://img.shields.io/badge/Tests-870_passing-brightgreen.svg)](https://github.com/UPinar/contrastapi/actions)
 [![MCP](https://img.shields.io/badge/MCP-29_tools-purple.svg)](https://modelcontextprotocol.io)
 [![Smithery](https://img.shields.io/badge/Smithery-96%2F100-orange.svg)](https://smithery.ai/servers/contrastcyber/contrastapi)
 [![npm](https://img.shields.io/npm/v/contrastapi.svg)](https://www.npmjs.com/package/contrastapi)
@@ -22,7 +22,7 @@
 
 Pick your integration:
 
-### Option 1: MCP (Claude Desktop / Cursor / VS Code / Windsurf)
+### Option 1: MCP (Claude Desktop / Cursor / VS Code / Windsurf / OpenClaw)
 
 Add to your MCP config:
 
@@ -128,7 +128,7 @@ Requires Python 3.12. SQLite databases auto-initialize on first run. See [docs/E
 cd app && PYTHONPATH=. python -m pytest tests/ -v
 ```
 
-**853 tests, 36/36 smoke-test coverage** on every 15-minute cron. Covers auth, rate limiting, validation, database ops, domain intelligence, CVE intelligence, threat intelligence, code security (ReDoS protection, concurrency limits), tech fingerprinting, IP reputation, email security, phone validation, web archive, MCP endpoint, bulk endpoints, weighted credit system, and API routes.
+**870 tests, 36/36 smoke-test coverage** on every 15-minute cron. Covers auth, rate limiting, validation, database ops, domain intelligence, CVE intelligence, threat intelligence, code security (ReDoS protection, concurrency limits), tech fingerprinting, IP reputation, email security, phone validation, web archive, MCP endpoint, bulk endpoints, weighted credit system, and API routes.
 
 </details>
 

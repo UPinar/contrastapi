@@ -643,7 +643,22 @@ def mcp_setup():
   }
 }</code></div>
 
-    <h2><span class="num">5</span> Any MCP Client (HTTP)</h2>
+    <h2><span class="num">5</span> OpenClaw</h2>
+    <p>Run this command in your terminal (adds ContrastAPI to OpenClaw's gateway config):</p>
+    <div class="code-block"><span class="lang">bash</span><code>openclaw mcp set contrastapi '{"url":"https://api.contrastcyber.com/mcp/","transport":"streamable-http"}'</code></div>
+    <p>Or edit your OpenClaw config directly and add under <code>mcp.servers</code>:</p>
+    <div class="code-block"><span class="lang">json</span><code>{
+  "mcp": {
+    "servers": {
+      "contrastapi": {
+        "url": "https://api.contrastcyber.com/mcp/",
+        "transport": "streamable-http"
+      }
+    }
+  }
+}</code></div>
+
+    <h2><span class="num">6</span> Any MCP Client (HTTP)</h2>
     <p>Use the remote HTTP transport directly:</p>
     <div class="code-block"><span class="lang">http</span><code>POST https://api.contrastcyber.com/mcp/
 Content-Type: application/json
