@@ -268,6 +268,15 @@ class BulkDomainResponse(BaseModel):
     summary: str = ""
 
 
+# === Verdict ===
+
+
+class Verdict(BaseModel):
+    deterministic: bool
+    falsifiable_fields: list[str]
+    data_age_seconds: int | None = None
+
+
 # === CVE ===
 
 
@@ -295,6 +304,7 @@ class CveResponse(BaseModel):
     published: str | None = None
     modified: str | None = None
     references: list[str] = Field(default_factory=list)
+    verdict: Verdict | None = None
 
 
 # === Exploit Lookup ===

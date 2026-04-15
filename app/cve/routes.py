@@ -1,10 +1,20 @@
 """CVE Intelligence API routes — /v1/cve/*, /v1/cves/*, /v1/epss/*, /v1/exploit/*"""
 
 import logging
+from datetime import UTC, datetime
 
 import httpx
 from auth import authenticate
-from db import get_cached_domain, get_cve, get_epss, get_kev_cves, get_recent_cves, save_cached_domain, search_cves
+from db import (
+    get_cached_domain,
+    get_cve,
+    get_epss,
+    get_kev_cves,
+    get_last_successful_sync,
+    get_recent_cves,
+    save_cached_domain,
+    search_cves,
+)
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from schemas import (
@@ -15,6 +25,7 @@ from schemas import (
     CveSearchResponse,
     EpssResponse,
     ExploitResponse,
+    Verdict,
 )
 from validation import is_valid_ip, validate_cve_id
 
@@ -51,7 +62,9 @@ def cve_lookup(cve_id: str, request: Request):
     if result is None:
         raise HTTPException(status_code=404, detail=f"CVE {cve_id} not found")
 
-    return _format_cve(result)
+    formatted = _format_cve(result)
+    formatted["verdict"] = _cve_verdict()
+    return formatted
 
 
 @router.get("/cves", operation_id="cve_search", response_model=CveSearchResponse, response_model_exclude_none=True)
@@ -135,6 +148,24 @@ def epss_score(cve_id: str, request: Request):
     else:
         summary = f"{cve_id}: no EPSS score available"
     return {**result, "summary": summary}
+
+
+def _cve_verdict() -> Verdict:
+    """Build a verdict metadata block for cve_lookup responses."""
+    last = get_last_successful_sync("nvd")
+    age: int | None = None
+    if last:
+        try:
+            age = int((datetime.now(UTC) - datetime.fromisoformat(last)).total_seconds())
+            if age < 0:
+                age = None
+        except ValueError:
+            age = None
+    return Verdict(
+        deterministic=True,
+        falsifiable_fields=["cve_id", "severity", "cvss_v3", "published", "references"],
+        data_age_seconds=age,
+    )
 
 
 def _format_cve(row: dict) -> dict:

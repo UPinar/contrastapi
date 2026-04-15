@@ -72,6 +72,19 @@ class TestCveLookup:
         r = client.get("/v1/cve/CVE-24-1")
         assert r.status_code == 400
 
+    def test_lookup_verdict(self):
+        _seed_cve()
+        r = client.get("/v1/cve/CVE-2024-1234")
+        assert r.status_code == 200
+        body = r.json()
+        assert "verdict" in body
+        v = body["verdict"]
+        assert v["deterministic"] is True
+        assert set(v["falsifiable_fields"]) >= {"cve_id", "severity", "cvss_v3", "published", "references"}
+        if "data_age_seconds" in v:
+            assert isinstance(v["data_age_seconds"], int)
+            assert v["data_age_seconds"] >= 0
+
 
 class TestCveSearch:
     def test_search_by_severity(self):
@@ -206,6 +219,8 @@ class TestCveResponseFormat:
         }
         # cvss_breakdown is present when cvss_vector data exists
         expected_keys.add("cvss_breakdown")
+        # verdict is present on single-CVE lookup
+        expected_keys.add("verdict")
         assert expected_keys == set(data.keys())
 
     def test_epss_nested_format(self):
