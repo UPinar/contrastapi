@@ -457,34 +457,15 @@ def quickstart():
   <title>Quick Start | ContrastAPI</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
   <link rel="stylesheet" href="/static/style.css?v=18">
-  <style>
-    .page { max-inline-size: 52rem; margin-inline: auto; padding: 3rem 2rem; position: relative; z-index: 1; }
-    .page h1 { font-size: 2.25rem; font-weight: 800; letter-spacing: -0.04em; margin-block-end: 0.5rem; }
-    .page h1 span { background: linear-gradient(135deg, var(--primary), var(--purple)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-    .page .subtitle { color: var(--text-dim); margin: 0 0 3rem; max-width: none; }
-    .page h2 { font-size: 1.1rem; margin: 2.5rem 0 1rem; padding-block-end: 0.5rem; border-block-end: 1px solid var(--border); }
-    .page h2 .num { color: var(--primary); }
-    .page p { color: var(--text-muted); margin-block-end: 1rem; }
-    .code-block { position: relative; background: var(--bg-card); border: 1px solid var(--border); border-radius: 0.5rem; padding: 1rem 1.25rem; margin-block-end: 1.5rem; overflow-x: auto; }
-    .code-block code { color: #e4e4e7; font-size: 0.75rem; white-space: pre; font-family: var(--font-mono); }
-    .code-block .lang { position: absolute; top: 0.5rem; right: 0.75rem; color: var(--primary); font-size: 0.7rem; text-transform: uppercase; }
-    .pill-inline { display: inline-block; background: rgba(59,130,246,0.1); color: var(--primary); border: 1px solid rgba(59,130,246,0.2); border-radius: 4px; padding: 0.1rem 0.5rem; font-size: 0.7rem; }
-    .pill-inline.green { background: rgba(34,197,94,0.1); color: var(--green); border-color: rgba(34,197,94,0.2); }
-    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
-    .grid .card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 0.5rem; padding: 1.25rem; }
-    .grid .card h3 { font-size: 0.95rem; margin-block-end: 0.5rem; }
-    .grid .card p { font-size: 0.85rem; margin: 0; }
-    .grid .card a { color: var(--primary); }
-    .grid .card a:visited { color: var(--primary); }
-    @media (max-width: 600px) { .grid { grid-template-columns: 1fr; } .page h1 { font-size: 1.75rem; } }
-  </style>
+  <link rel="stylesheet" href="/static/css/page.css?v=1">
+  <script src="/static/js/landing.js?v=1" defer></script>
 </head>
 <body>
   <div class="glow"></div>
 
   <nav>
     <a href="/" class="logo">Contrast<span>API</span></a>
-    <button class="hamburger" aria-label="Menu" aria-expanded="false" onclick="const o=this.getAttribute('aria-expanded')==='true';this.setAttribute('aria-expanded',String(!o));document.querySelector('.nav-links').classList.toggle('open')"><span class="hamburger__lines" aria-hidden="true"></span></button>
+    <button class="hamburger" aria-label="Menu" aria-expanded="false"><span class="hamburger__lines" aria-hidden="true"></span></button>
     <div class="nav-links">
       <a href="/quickstart">API Start</a>
       <a href="/mcp-setup">MCP Setup</a>
@@ -576,7 +557,7 @@ print(r.json()['findings'])</code></div>
     <div class="footer-links">
       <a href="https://contrastcyber.com/terms">Terms</a>
       <a href="https://contrastcyber.com/privacy">Privacy</a>
-      <a href="#" onclick="event.preventDefault();navigator.clipboard.writeText('contact@contrastcyber.com');var t=this.textContent;this.textContent='Copied!';setTimeout(()=>this.textContent=t,1500);">Contact</a>
+      <a href="#" data-copy-email="contact@contrastcyber.com">Contact</a>
       <a href="https://github.com/UPinar/contrastapi">GitHub</a>
     </div>
     <p>&copy; 2026 ContrastCyber</p>
@@ -597,40 +578,15 @@ def mcp_setup():
   <title>MCP Setup | ContrastAPI</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
   <link rel="stylesheet" href="/static/style.css?v=18">
-  <style>
-    .page { max-inline-size: 52rem; margin-inline: auto; padding: 3rem 2rem; position: relative; z-index: 1; }
-    .page h1 { font-size: 2.25rem; font-weight: 800; letter-spacing: -0.04em; margin-block-end: 0.5rem; }
-    .page h1 span { background: linear-gradient(135deg, var(--primary), var(--purple)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-    .page .subtitle { color: var(--text-dim); margin: 0 0 3rem; max-width: none; }
-    .page h2 { font-size: 1.1rem; margin: 2.5rem 0 1rem; padding-block-end: 0.5rem; border-block-end: 1px solid var(--border); }
-    .page h2 .num { color: var(--primary); }
-    .page p { color: var(--text-muted); margin-block-end: 1rem; }
-    .code-block { position: relative; background: var(--bg-card); border: 1px solid var(--border); border-radius: 0.5rem; padding: 1rem 1.25rem; margin-block-end: 1.5rem; overflow-x: auto; }
-    .code-block code { color: #e4e4e7; font-size: 0.75rem; white-space: pre; font-family: var(--font-mono); }
-    .code-block .lang { position: absolute; top: 0.5rem; right: 0.75rem; color: var(--primary); font-size: 0.7rem; text-transform: uppercase; }
-    .try-box { background: var(--bg-card); border: 1px solid var(--border); border-radius: 0.5rem; padding: 1.25rem; margin: 1.5rem 0; }
-    .try-box h3 { font-size: 0.95rem; margin-block-end: 0.75rem; color: var(--primary); }
-    .try-box p { font-size: 0.85rem; color: var(--text-muted); margin-block-end: 0.5rem; }
-    .try-box em { color: var(--text); font-style: normal; }
-    .tools-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin: 1rem 0; }
-    .tool { background: var(--bg-card); border: 1px solid var(--border-dim); border-radius: 0.375rem; padding: 0.5rem 0.75rem; font-size: 0.8rem; }
-    .tool .name { color: var(--primary); }
-    .tool .desc { color: var(--text-dim); font-size: 0.75rem; }
-    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
-    .grid .card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 0.5rem; padding: 1.25rem; }
-    .grid .card h3 { font-size: 0.95rem; margin-block-end: 0.5rem; }
-    .grid .card p { font-size: 0.85rem; margin: 0; }
-    .grid .card a { color: var(--primary); }
-    .grid .card a:visited { color: var(--primary); }
-    @media (max-width: 600px) { .grid { grid-template-columns: 1fr; } .tools-grid { grid-template-columns: 1fr; } .page h1 { font-size: 1.75rem; } }
-  </style>
+  <link rel="stylesheet" href="/static/css/page.css?v=1">
+  <script src="/static/js/landing.js?v=1" defer></script>
 </head>
 <body>
   <div class="glow"></div>
 
   <nav>
     <a href="/" class="logo">Contrast<span>API</span></a>
-    <button class="hamburger" aria-label="Menu" aria-expanded="false" onclick="const o=this.getAttribute('aria-expanded')==='true';this.setAttribute('aria-expanded',String(!o));document.querySelector('.nav-links').classList.toggle('open')"><span class="hamburger__lines" aria-hidden="true"></span></button>
+    <button class="hamburger" aria-label="Menu" aria-expanded="false"><span class="hamburger__lines" aria-hidden="true"></span></button>
     <div class="nav-links">
       <a href="/quickstart">API Start</a>
       <a href="/mcp-setup">MCP Setup</a>
@@ -782,7 +738,7 @@ Accept: application/json, text/event-stream
     <div class="footer-links">
       <a href="https://contrastcyber.com/terms">Terms</a>
       <a href="https://contrastcyber.com/privacy">Privacy</a>
-      <a href="#" onclick="event.preventDefault();navigator.clipboard.writeText('contact@contrastcyber.com');var t=this.textContent;this.textContent='Copied!';setTimeout(()=>this.textContent=t,1500);">Contact</a>
+      <a href="#" data-copy-email="contact@contrastcyber.com">Contact</a>
       <a href="https://github.com/UPinar/contrastapi">GitHub</a>
     </div>
     <p>&copy; 2026 ContrastCyber</p>
