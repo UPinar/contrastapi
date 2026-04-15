@@ -428,3 +428,22 @@ class TestSecurityHeaders:
         assert "frame-ancestors 'none'" in csp
         assert "base-uri 'none'" in csp
         assert "form-action 'self'" in csp
+
+    def test_csp_script_src_no_unsafe_inline(self):
+        r = client.get("/")
+        csp = r.headers["Content-Security-Policy"]
+        script_src = next(
+            (d for d in csp.split(";") if d.strip().startswith("script-src")),
+            "",
+        )
+        assert script_src, "script-src directive missing"
+        assert "'unsafe-inline'" not in script_src, f"script-src should not contain 'unsafe-inline': {script_src}"
+
+    def test_csp_script_src_has_jsonld_hash(self):
+        r = client.get("/")
+        csp = r.headers["Content-Security-Policy"]
+        script_src = next(
+            (d for d in csp.split(";") if d.strip().startswith("script-src")),
+            "",
+        )
+        assert "'sha256-" in script_src, f"script-src should include at least one sha256 hash: {script_src}"

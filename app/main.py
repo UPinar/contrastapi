@@ -14,12 +14,15 @@ Modules:
   validation.py  — input sanitization, IP detection
 """
 
+import base64
+import hashlib
 import logging
 import os
 import re
 import time
 import uuid
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from auth import extract_key
 from config import BASE_DIR, UPGRADE_URL, VERSION
@@ -192,10 +195,38 @@ def _record_metric(path: str, status: int, elapsed_ms: int):
 
 # --- Security headers (set on every response; replaces nginx snippet) ---
 
+
+def _compute_jsonld_hash(template_path: Path) -> str:
+    """Return 'sha256-BASE64' CSP token for the first JSON-LD block in the file, or '' if none."""
+    try:
+        content = template_path.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+    m = re.search(
+        r'<script type="application/ld\+json">(.*?)</script>',
+        content,
+        re.DOTALL,
+    )
+    if not m:
+        return ""
+    digest = hashlib.sha256(m.group(1).encode("utf-8")).digest()
+    return "'sha256-" + base64.b64encode(digest).decode("ascii") + "'"
+
+
+_TEMPLATES_DIR = Path(__file__).parent / "templates"
+_JSONLD_HASHES = " ".join(
+    h
+    for h in (
+        _compute_jsonld_hash(_TEMPLATES_DIR / "index.html"),
+        _compute_jsonld_hash(_TEMPLATES_DIR / "index_cn.html"),
+    )
+    if h
+)
+
 _CSP_POLICY = (
     "default-src 'self'; "
     "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
-    "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://static.cloudflareinsights.com; "
+    f"script-src 'self' {_JSONLD_HASHES} https://cdn.jsdelivr.net https://static.cloudflareinsights.com; "
     "img-src 'self' https://fastapi.tiangolo.com; "
     "connect-src 'self' https://cloudflareinsights.com; "
     "font-src 'self'; "
