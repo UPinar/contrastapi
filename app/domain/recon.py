@@ -189,7 +189,7 @@ def reverse_dns(domain: str) -> dict:
         hostname = addr_result[0]
         return {"ip": ip, "ptr": hostname, "shared_hosting": hostname != domain}
     except Exception as e:
-        logger.warning("reverse_dns failed for %s: %s", domain, e)
+        logger.warning("reverse_dns failed: %s", type(e).__name__)
         return {"ip": None, "ptr": None}
 
 
@@ -228,7 +228,7 @@ def whois_lookup(domain: str) -> dict:
         info["raw_length"] = len(text)
         return info
     except Exception as e:
-        logger.warning("whois_lookup failed for %s: %s", domain, e)
+        logger.warning("whois_lookup failed: %s", type(e).__name__)
         return {"error": "WHOIS lookup failed"}
 
 
@@ -300,7 +300,7 @@ def _fetch_crtsh(query: str) -> list:
         resp.raise_for_status()
         data = resp.json()[:CT_MAX_ENTRIES]
     except Exception as e:
-        logger.debug("crt.sh fetch failed for %s: %s", query, e)
+        logger.debug("crt.sh fetch failed: %s", type(e).__name__)
         return []
     if not data:
         return []
@@ -357,7 +357,7 @@ def check_ct_logs(domain: str, crtsh_data: list | None = None) -> dict:
             "certificates": certs[:CT_MAX_CERTS],
         }
     except Exception as e:
-        logger.debug("CT log check failed: %s", e)
+        logger.debug("CT log check failed: %s", type(e).__name__)
         return {"total_certificates": 0, "certificates": []}
 
 
@@ -418,7 +418,7 @@ def ssl_info(domain: str, resolved_ip: str | None = None) -> dict:
                     "grade": grade,
                 }
     except Exception as e:
-        logger.warning("ssl_info failed for %s: %s", domain, e)
+        logger.warning("ssl_info failed: %s", type(e).__name__)
         return {"error": "SSL lookup failed", "grade": "F"}
 
 
@@ -745,8 +745,7 @@ def fetch_live_headers(domain: str) -> dict:
                 errors[scheme] = type(e).__name__
 
     logger.warning(
-        "fetch_live_headers failed for %s: HTTPS=%s, HTTP=%s",
-        domain,
+        "fetch_live_headers failed: HTTPS=%s, HTTP=%s",
         errors.get("https", "?"),
         errors.get("http", "?"),
     )
@@ -799,8 +798,7 @@ def fetch_live_page(domain: str) -> dict:
                 errors[scheme] = type(e).__name__
 
     logger.warning(
-        "fetch_live_page failed for %s: HTTPS=%s, HTTP=%s",
-        domain,
+        "fetch_live_page failed: HTTPS=%s, HTTP=%s",
         errors.get("https", "?"),
         errors.get("http", "?"),
     )
@@ -827,7 +825,7 @@ def ip_enrichment(ip: str) -> dict:
             "internetdb_status": "ok",
         }
     except Exception as e:
-        logger.debug("ip_enrichment failed for %s: %s", ip, e)
+        logger.debug("ip_enrichment failed: %s", type(e).__name__)
         return {"ports": [], "hostnames": [], "vulns": [], "cpes": [], "tags": [], "internetdb_status": "error"}
 
 
@@ -1029,7 +1027,7 @@ def full_domain_report(
                 save_cached_ip(resolved_ip, reputation)
                 report["reputation"] = reputation
             except Exception as e:
-                logger.warning("Reputation enrichment failed for %s: %s", resolved_ip, type(e).__name__)
+                logger.warning("Reputation enrichment failed: %s", type(e).__name__)
                 if client_ip:
                     ratelimit.refund("enrichment", client_ip)
 

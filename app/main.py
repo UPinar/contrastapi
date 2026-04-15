@@ -314,8 +314,13 @@ async def validation_error_handler(request: Request, exc: RequestValidationError
 
 @app.exception_handler(Exception)
 async def generic_error_handler(request: Request, exc: Exception):
-    """Catch-all — never leak stack traces or internal paths."""
-    logger.exception("Unhandled error on %s %s", request.method, _sanitize_path(request.url.path))
+    """Catch-all — never leak stack traces, internal paths, or upstream URLs."""
+    logger.error(
+        "Unhandled error on %s %s: %s",
+        request.method,
+        _sanitize_path(request.url.path),
+        type(exc).__name__,
+    )
     return JSONResponse(status_code=500, content={"error": "Internal server error"})
 
 

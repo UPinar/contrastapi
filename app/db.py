@@ -522,7 +522,7 @@ def get_cached_domain_with_age(key: str) -> tuple[dict, int] | None:
         try:
             fetched = datetime.fromisoformat(row[1])
         except (ValueError, TypeError):
-            logger.warning("domain cache: malformed fetched_at for %s", key)
+            logger.warning("domain cache: malformed fetched_at")
             return None
         age = int((datetime.now(UTC) - fetched).total_seconds())
         if age > DOMAIN_CACHE_TTL:
@@ -536,7 +536,7 @@ def save_cached_domain(domain: str, result: dict) -> None:
     now = datetime.now(UTC).isoformat()
     result_str = json.dumps(result)
     if len(result_str) > CACHE_MAX_BYTES:
-        logger.warning("domain cache entry too large (%d bytes), skipping: %s", len(result_str), domain)
+        logger.warning("domain cache entry too large (%d bytes), skipping", len(result_str))
         return
     with get_cache_db() as con:
         con.execute(
@@ -570,7 +570,7 @@ def get_cached_ip_with_age(ip: str) -> tuple[dict, int] | None:
         try:
             fetched = datetime.fromisoformat(row[1])
         except (ValueError, TypeError):
-            logger.warning("ip cache: malformed fetched_at for %s", ip)
+            logger.warning("ip cache: malformed fetched_at")
             return None
         age = int((datetime.now(UTC) - fetched).total_seconds())
         if age > IP_CACHE_TTL:
@@ -584,7 +584,7 @@ def save_cached_ip(ip: str, result: dict) -> None:
     now = datetime.now(UTC).isoformat()
     result_str = json.dumps(result)
     if len(result_str) > CACHE_MAX_BYTES:
-        logger.warning("IP cache entry too large (%d bytes), skipping: %s", len(result_str), ip)
+        logger.warning("IP cache entry too large (%d bytes), skipping", len(result_str))
         return
     with get_cache_db() as con:
         con.execute(

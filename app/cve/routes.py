@@ -305,13 +305,13 @@ def _search_github_advisories(cve_id: str) -> dict:
             )
         return {"found": len(advisories) > 0, "count": len(advisories), "advisories": advisories}
     except httpx.TimeoutException:
-        logger.warning("GitHub Advisory search timed out for %s", cve_id)
+        logger.warning("GitHub Advisory search timed out")
         return {"found": False, "count": 0, "advisories": [], "error": "upstream timeout"}
     except httpx.HTTPStatusError as e:
-        logger.warning("GitHub Advisory search failed for %s: HTTP %d", cve_id, e.response.status_code)
+        logger.warning("GitHub Advisory search failed: HTTP %d", e.response.status_code)
         return {"found": False, "count": 0, "advisories": [], "error": "upstream error"}
     except Exception as e:
-        logger.warning("GitHub Advisory search failed for %s: %s", cve_id, type(e).__name__)
+        logger.warning("GitHub Advisory search failed: %s", type(e).__name__)
         return {"found": False, "count": 0, "advisories": [], "error": "upstream error"}
 
 
@@ -337,13 +337,13 @@ def _search_exploitdb(cve_id: str) -> dict:
             )
         return {"found": len(results) > 0, "count": len(results), "results": results}
     except httpx.TimeoutException:
-        logger.warning("ExploitDB/Shodan search timed out for %s", cve_id)
+        logger.warning("ExploitDB/Shodan search timed out")
         return {"found": False, "count": 0, "results": [], "error": "upstream timeout"}
     except httpx.HTTPStatusError as e:
-        logger.warning("ExploitDB/Shodan search failed for %s: HTTP %d", cve_id, e.response.status_code)
+        logger.warning("ExploitDB/Shodan search failed: HTTP %d", e.response.status_code)
         return {"found": False, "count": 0, "results": [], "error": "upstream error"}
     except Exception as e:
-        logger.warning("ExploitDB/Shodan search failed for %s: %s", cve_id, type(e).__name__)
+        logger.warning("ExploitDB/Shodan search failed: %s", type(e).__name__)
         return {"found": False, "count": 0, "results": [], "error": "upstream error"}
 
 
@@ -456,7 +456,7 @@ def bulk_cve_lookup(body: _BulkCveRequest, request: Request):
                 results.append({"cve_id": cid, "status": "ok", "cve": _format_cve(row), "error": None})
                 successful += 1
         except Exception as e:
-            logger.warning("Bulk CVE lookup failed for %s: %s", cid, type(e).__name__)
+            logger.warning("Bulk CVE lookup failed: %s", type(e).__name__)
             results.append({"cve_id": cid, "status": "error", "cve": None, "error": "Lookup failed"})
 
     failed = count - successful

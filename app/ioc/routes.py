@@ -100,7 +100,7 @@ def ioc_lookup(indicator: str, request: Request):
         try:
             tf = f_tf.result(timeout=10)
         except Exception:
-            logger.debug("ThreatFox lookup failed for %s", indicator)
+            logger.debug("ThreatFox lookup failed")
             tf = {"found": False}
             unavailable_sources.append("threatfox")
         sources["threatfox"] = tf
@@ -112,7 +112,7 @@ def ioc_lookup(indicator: str, request: Request):
             try:
                 feodo = f_feodo.result(timeout=10)
             except Exception:
-                logger.debug("Feodo lookup failed for %s", indicator)
+                logger.debug("Feodo lookup failed")
                 feodo = {"found": False}
                 unavailable_sources.append("feodo")
             sources["feodo"] = feodo
@@ -124,7 +124,7 @@ def ioc_lookup(indicator: str, request: Request):
             try:
                 urlhaus = f_urlhaus.result(timeout=10)
             except Exception:
-                logger.debug("URLhaus lookup failed for %s", indicator)
+                logger.debug("URLhaus lookup failed")
                 urlhaus = {"url_count": 0, "urls_online": 0}
                 unavailable_sources.append("urlhaus")
             sources["urlhaus"] = {
@@ -241,7 +241,7 @@ def _query_urlhaus_url(url: str) -> dict:
             "tags": data.get("tags") or [],
         }
     except Exception as e:
-        logger.warning("URLhaus URL check failed for %s: %s", url, e)
+        logger.warning("URLhaus URL check failed: %s", type(e).__name__)
         return {"found": False, "threat": None, "tags": []}
 
 
@@ -466,7 +466,7 @@ def bulk_ioc_lookup(body: _BulkIocRequest, request: Request):
                 timed_out += 1
             except Exception as e:
                 # Log type only — never expose exception detail in response or full message
-                logger.warning("Bulk IOC lookup failed for %s: %s", ind, type(e).__name__)
+                logger.warning("Bulk IOC lookup failed: %s", type(e).__name__)
                 results.append({"indicator": ind, "status": "error", "ioc": None, "error": "Lookup failed"})
 
     successful = sum(1 for r in results if r["status"] == "ok")

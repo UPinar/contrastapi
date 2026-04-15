@@ -64,7 +64,7 @@ def _dns_fallback(domain: str) -> str | None:
             ip = str(answers[0])
             if is_private_ip(ip):
                 return None
-            logger.info("DNS fallback resolved %s via dnspython", domain)
+            logger.info("DNS fallback resolved via dnspython")
             return ip
         except (dns.exception.DNSException, OSError):
             continue

@@ -52,7 +52,7 @@ def wayback_lookup(domain: str) -> dict:
         resp.raise_for_status()
         rows = resp.json()
     except Exception as e:
-        logger.warning("Wayback CDX lookup failed for %s: %s", domain, e)
+        logger.warning("Wayback CDX lookup failed: %s", type(e).__name__)
         return error_result
 
     # First row is column headers — skip it

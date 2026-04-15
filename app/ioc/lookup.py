@@ -68,13 +68,13 @@ def query_threatfox(indicator: str) -> dict:
             "ioc_count": len(entries),
         }
     except httpx.TimeoutException:
-        logger.warning("ThreatFox query timed out for %s", indicator)
+        logger.warning("ThreatFox query timed out")
         return {"found": False, "error": "upstream timeout"}
     except httpx.HTTPStatusError as e:
-        logger.warning("ThreatFox query failed for %s: HTTP %d", indicator, e.response.status_code)
+        logger.warning("ThreatFox query failed: HTTP %d", e.response.status_code)
         return {"found": False, "error": "upstream error"}
     except Exception as e:
-        logger.warning("ThreatFox query failed for %s: %s", indicator, type(e).__name__)
+        logger.warning("ThreatFox query failed: %s", type(e).__name__)
         return {"found": False, "error": "upstream error"}
 
 
@@ -143,11 +143,11 @@ def query_malwarebazaar(file_hash: str) -> dict:
             "file_name": entry.get("file_name"),
         }
     except httpx.TimeoutException:
-        logger.warning("MalwareBazaar query timed out for %s", file_hash[:12])
+        logger.warning("MalwareBazaar query timed out")
         return {"found": False, "error": "upstream timeout"}
     except httpx.HTTPStatusError as e:
-        logger.warning("MalwareBazaar query failed for %s: HTTP %d", file_hash[:12], e.response.status_code)
+        logger.warning("MalwareBazaar query failed: HTTP %d", e.response.status_code)
         return {"found": False, "error": "upstream error"}
     except Exception as e:
-        logger.warning("MalwareBazaar query failed for %s: %s", file_hash[:12], type(e).__name__)
+        logger.warning("MalwareBazaar query failed: %s", type(e).__name__)
         return {"found": False, "error": "upstream error"}

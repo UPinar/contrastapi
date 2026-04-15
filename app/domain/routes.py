@@ -581,10 +581,10 @@ def ssl_certificate(domain: str, request: Request):
                 return {**result}
 
     except (socket.timeout, ConnectionRefusedError, OSError) as e:
-        logger.warning("SSL connection failed for %s: %s", domain, e)
+        logger.warning("SSL connection failed: %s", type(e).__name__)
         raise HTTPException(status_code=504, detail=f"Could not establish SSL connection to {domain}") from None
     except Exception as e:
-        logger.warning("SSL inspection failed for %s: %s", domain, e)
+        logger.warning("SSL inspection failed: %s", type(e).__name__)
         raise HTTPException(status_code=504, detail=f"SSL inspection failed for {domain}") from None
 
 
@@ -671,7 +671,7 @@ def ip_lookup(ip: str, request: Request):
             save_cached_ip(ip, reputation)
             rep_age = 0
         except Exception as e:
-            logger.warning("Reputation enrichment failed for %s: %s", ip, type(e).__name__)
+            logger.warning("Reputation enrichment failed: %s", type(e).__name__)
             reputation = {}
             reputation_failed = True
             ratelimit.refund("enrichment", client_ip)
@@ -731,7 +731,7 @@ def domain_monitor(domain: str, request: Request):
             ssl_days = ssl_result.get("days_remaining")
             ssl_grade = ssl_result.get("grade")
     except Exception as e:
-        logger.debug("ssl_info failed for %s: %s", domain, e)
+        logger.debug("ssl_info failed: %s", type(e).__name__)
 
     # Compare against cached full report
     dns_changed = None
@@ -894,7 +894,7 @@ def asn_lookup(target: str, request: Request):
     except HTTPException:
         raise
     except Exception as e:
-        logger.warning("RIPE network-info failed for %s: %s", ip, e)
+        logger.warning("RIPE network-info failed: %s", type(e).__name__)
         raise HTTPException(status_code=504, detail="Failed to look up ASN from RIPE Stat") from None
 
     # Fetch ASN holder name and prefixes in parallel
@@ -913,7 +913,7 @@ def asn_lookup(target: str, request: Request):
             asn_name_val = r.json().get("data", {}).get("holder", "")
             return asn_name_val
         except Exception as e:
-            logger.warning("RIPE as-overview failed for AS%s: %s", asn, e)
+            logger.warning("RIPE as-overview failed: %s", type(e).__name__)
             return ""
 
     def _fetch_prefixes():
@@ -941,7 +941,7 @@ def asn_lookup(target: str, request: Request):
                     continue
             return v4, v6
         except Exception as e:
-            logger.warning("RIPE announced-prefixes failed for AS%s: %s", asn, e)
+            logger.warning("RIPE announced-prefixes failed: %s", type(e).__name__)
             return [], []
 
     f_overview = _reputation_pool.submit(_fetch_overview)
@@ -1000,7 +1000,7 @@ def _run_single_report(raw_domain: str, client_ip: str) -> dict:
         save_cached_domain(domain, report)
         return {"domain": domain, "status": "ok", "report": {**report}, "error": None}
     except Exception as e:
-        logger.warning("Bulk report failed for %s: %s", domain, e)
+        logger.warning("Bulk report failed: %s", type(e).__name__)
         return {"domain": domain, "status": "error", "report": None, "error": "Domain report failed"}
 
 
@@ -1077,7 +1077,7 @@ def bulk_domain_report(body: _BulkRequest, request: Request):
             if remaining <= 0:
                 # Overall timeout exceeded — cancel remaining futures, return partial results
                 future.cancel()
-                logger.warning("Bulk overall timeout — skipping %s", domain)
+                logger.warning("Bulk overall timeout — skipping remaining domains")
                 results.append({"domain": domain, "status": "error", "report": None, "error": "Bulk request timed out"})
                 timed_out += 1
                 partial = True
@@ -1087,13 +1087,13 @@ def bulk_domain_report(body: _BulkRequest, request: Request):
                 results.append(future.result(timeout=per_domain))
             except FuturesTimeoutError:
                 future.cancel()
-                logger.warning("Bulk report timed out for %s", domain)
+                logger.warning("Bulk report timed out")
                 results.append(
                     {"domain": domain, "status": "error", "report": None, "error": "Domain report timed out"}
                 )
                 timed_out += 1
             except Exception as exc:
-                logger.warning("Bulk report failed for %s: %s", domain, exc)
+                logger.warning("Bulk report failed: %s", type(exc).__name__)
                 results.append({"domain": domain, "status": "error", "report": None, "error": "Domain report failed"})
     finally:
         _bulk_semaphore.release()
@@ -1161,17 +1161,17 @@ def audit_domain(domain: str, request: Request):
             try:
                 report = _fut.result(timeout=BULK_PER_DOMAIN_TIMEOUT)
             except FuturesTimeoutError:
-                logger.warning("audit_domain: full_domain_report timed out for %s", domain)
+                logger.warning("audit_domain: full_domain_report timed out")
                 raise HTTPException(status_code=504, detail="Domain audit timed out — target upstream slow") from None
             except Exception as e:
-                logger.warning("audit_domain: full_domain_report failed for %s: %s", domain, type(e).__name__)
+                logger.warning("audit_domain: full_domain_report failed: %s", type(e).__name__)
                 raise HTTPException(status_code=502, detail="Domain audit failed") from None
         save_cached_domain(domain, report)
 
     try:
         live = fetch_live_headers(domain)
     except Exception as e:
-        logger.warning("audit_domain: fetch_live_headers failed for %s: %s", domain, e)
+        logger.warning("audit_domain: fetch_live_headers failed: %s", type(e).__name__)
         live = {}
     headers = live.get("headers", {}) if isinstance(live, dict) else {}
     if not isinstance(headers, dict):
@@ -1227,19 +1227,19 @@ def threat_report(ip: str, request: Request):
         try:
             enrichment = f_enrich.result(timeout=10)
         except Exception as e:
-            logger.warning("threat_report: ip_enrichment failed for %s: %s", ip, type(e).__name__)
+            logger.warning("threat_report: ip_enrichment failed: %s", type(e).__name__)
             f_enrich.cancel()
             enrichment = {"ports": [], "hostnames": [], "vulns": [], "cpes": [], "tags": []}
         try:
             abuseipdb = f_abuse.result(timeout=10)
         except Exception as e:
-            logger.warning("threat_report: check_abuseipdb failed for %s: %s", ip, type(e).__name__)
+            logger.warning("threat_report: check_abuseipdb failed: %s", type(e).__name__)
             f_abuse.cancel()
             abuseipdb = {"status": "error"}
         try:
             shodan_data = f_shodan.result(timeout=10)
         except Exception as e:
-            logger.warning("threat_report: check_shodan failed for %s: %s", ip, type(e).__name__)
+            logger.warning("threat_report: check_shodan failed: %s", type(e).__name__)
             f_shodan.cancel()
             shodan_data = {"status": "error"}
 
@@ -1269,7 +1269,7 @@ def threat_report(ip: str, request: Request):
                 asn_data = {"asn": int(asns[0]), "prefix": data.get("prefix", "")}
                 save_cached_domain(cache_key, asn_data)
     except Exception as e:
-        logger.warning("threat_report: ASN lookup failed for %s: %s", ip, type(e).__name__)
+        logger.warning("threat_report: ASN lookup failed: %s", type(e).__name__)
         asn_data = {"error": "lookup_failed"}
 
     threat_level = "none"

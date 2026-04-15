@@ -64,7 +64,7 @@ def check_urlhaus(domain: str) -> dict:
             "urls": url_list,
         }
     except Exception as e:
-        logger.warning("URLhaus check failed for %s: %s", domain, e)
+        logger.warning("URLhaus check failed: %s", type(e).__name__)
         return {
             "urlhaus_status": "error",
             "urls_online": 0,
