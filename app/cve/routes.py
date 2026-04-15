@@ -165,6 +165,9 @@ def _cve_verdict() -> Verdict:
         deterministic=True,
         falsifiable_fields=["cve_id", "severity", "cvss_v3", "published", "references"],
         data_age_seconds=age,
+        sources_queried=["nvd_cache"],
+        sources_unavailable=[],
+        completeness="complete",
     )
 
 

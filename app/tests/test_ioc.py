@@ -400,6 +400,25 @@ def test_ioc_lookup_verdict(client):
     assert v["deterministic"] is True
     assert set(v["falsifiable_fields"]) >= {"type", "threat_level", "sources"}
     assert v["data_age_seconds"] == 0
+    assert set(v["sources_queried"]) >= {"threatfox", "urlhaus"}
+    assert v["sources_unavailable"] == []
+    assert v["completeness"] == "complete"
+
+
+def test_ioc_lookup_verdict_partial_on_source_failure(client):
+    with (
+        patch("ioc.routes.query_threatfox", side_effect=TimeoutError("timeout")),
+        patch("ioc.routes.query_feodo", return_value={"found": False}),
+        patch("ioc.routes.check_urlhaus", return_value={"url_count": 0, "urls_online": 0}),
+    ):
+        resp = client.get("/v1/ioc/8.8.8.8")
+    assert resp.status_code == 200
+    v = resp.json()["verdict"]
+    assert v["completeness"] == "partial"
+    assert "sources_queried" in v
+    assert isinstance(v["sources_queried"], list)
+    assert len(v["sources_queried"]) >= 1
+    assert "threatfox" in v["sources_unavailable"]
 
 
 # --- /v1/hash/{hash} ---

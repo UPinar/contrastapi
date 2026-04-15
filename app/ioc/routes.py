@@ -35,12 +35,15 @@ _HEX_RE = re.compile(r"^[0-9a-fA-F]+$")
 _HASH_LENS = {32: "md5", 40: "sha1", 64: "sha256"}
 
 
-def _ioc_verdict() -> Verdict:
+def _ioc_verdict(queried: list[str], unavailable: list[str]) -> Verdict:
     """Build verdict metadata for ioc_lookup responses (live threat-feed queries, age=0)."""
     return Verdict(
         deterministic=True,
         falsifiable_fields=["type", "threat_level", "sources"],
         data_age_seconds=0,
+        sources_queried=queried,
+        sources_unavailable=unavailable,
+        completeness="partial" if unavailable else "complete",
     )
 
 
@@ -64,6 +67,8 @@ def ioc_lookup(indicator: str, request: Request):
 
     sources = {}
     threat_parts = []
+    queried_sources: list[str] = []
+    unavailable_sources: list[str] = []
 
     # Validate before submitting to pool
     urlhaus_target = None
@@ -91,31 +96,37 @@ def ioc_lookup(indicator: str, request: Request):
         f_feodo = pool.submit(query_feodo, indicator) if ioc_type == "ip" else None
         f_urlhaus = pool.submit(check_urlhaus, urlhaus_target) if urlhaus_target else None
 
+        queried_sources.append("threatfox")
         try:
             tf = f_tf.result(timeout=10)
         except Exception:
             logger.debug("ThreatFox lookup failed for %s", indicator)
             tf = {"found": False}
+            unavailable_sources.append("threatfox")
         sources["threatfox"] = tf
         if tf.get("found"):
             threat_parts.append(f"{tf.get('malware', 'unknown')} ({tf.get('threat_type', 'unknown')}) via ThreatFox")
 
         if f_feodo is not None:
+            queried_sources.append("feodo")
             try:
                 feodo = f_feodo.result(timeout=10)
             except Exception:
                 logger.debug("Feodo lookup failed for %s", indicator)
                 feodo = {"found": False}
+                unavailable_sources.append("feodo")
             sources["feodo"] = feodo
             if feodo.get("found"):
                 threat_parts.append(f"{feodo.get('malware', 'unknown')} via Feodo Tracker")
 
         if f_urlhaus is not None:
+            queried_sources.append("urlhaus")
             try:
                 urlhaus = f_urlhaus.result(timeout=10)
             except Exception:
                 logger.debug("URLhaus lookup failed for %s", indicator)
                 urlhaus = {"url_count": 0, "urls_online": 0}
+                unavailable_sources.append("urlhaus")
             sources["urlhaus"] = {
                 "found": urlhaus.get("url_count", 0) > 0,
                 "urls_online": urlhaus.get("urls_online", 0),
@@ -143,7 +154,7 @@ def ioc_lookup(indicator: str, request: Request):
         "threat_level": threat_level,
         "sources": sources,
         "summary": summary,
-        "verdict": _ioc_verdict(),
+        "verdict": _ioc_verdict(queried_sources, unavailable_sources),
     }
 
 

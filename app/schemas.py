@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 # === Domain Report ===
@@ -281,6 +283,9 @@ class Verdict(BaseModel):
     deterministic: bool
     falsifiable_fields: list[str]
     data_age_seconds: int | None = None
+    sources_queried: list[str] = Field(default_factory=list)
+    sources_unavailable: list[str] = Field(default_factory=list)
+    completeness: Literal["complete", "partial"] = "complete"
 
 
 # === CVE ===

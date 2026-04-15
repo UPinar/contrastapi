@@ -84,6 +84,9 @@ class TestCveLookup:
         if "data_age_seconds" in v:
             assert isinstance(v["data_age_seconds"], int)
             assert v["data_age_seconds"] >= 0
+        assert v["sources_queried"] == ["nvd_cache"]
+        assert v["sources_unavailable"] == []
+        assert v["completeness"] == "complete"
 
 
 class TestCveSearch:

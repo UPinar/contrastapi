@@ -191,12 +191,16 @@ def _ip_verdict(age_seconds: int | None) -> Verdict:
     )
 
 
-def _threat_verdict() -> Verdict:
+def _threat_verdict(unavailable: bool = False) -> Verdict:
     """Build verdict metadata for threat_intel responses (live URLhaus query, age=0)."""
+    unavailable_list = ["urlhaus"] if unavailable else []
     return Verdict(
         deterministic=True,
         falsifiable_fields=["urlhaus_status", "url_count", "urls_online", "threat_types"],
         data_age_seconds=0,
+        sources_queried=["urlhaus"],
+        sources_unavailable=unavailable_list,
+        completeness="partial" if unavailable else "complete",
     )
 
 
@@ -561,13 +565,14 @@ def threat_intel(domain: str, request: Request):
     """Threat intelligence — check domain against URLhaus for known malware URLs."""
     domain, resolved_ip, auth_ctx = _validate_and_auth(request, domain)
     result = check_urlhaus(domain)
+    urlhaus_unavailable = result.get("urlhaus_status") == "error"
     urls_online = result["urls_online"]
     url_count = result["url_count"]
     if url_count == 0:
         summary = f"{domain} — no threats found in URLhaus"
     else:
         summary = f"{domain} — {url_count} URL{'s' if url_count != 1 else ''} in URLhaus ({urls_online} online)"
-    return {"domain": domain, **result, "summary": summary, "verdict": _threat_verdict()}
+    return {"domain": domain, **result, "summary": summary, "verdict": _threat_verdict(unavailable=urlhaus_unavailable)}
 
 
 @router.get(

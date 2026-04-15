@@ -2036,6 +2036,30 @@ class TestThreatIntelRoute:
         assert v["deterministic"] is True
         assert set(v["falsifiable_fields"]) >= {"urlhaus_status", "url_count", "urls_online"}
         assert v["data_age_seconds"] == 0
+        assert v["sources_queried"] == ["urlhaus"]
+        assert v["sources_unavailable"] == []
+        assert v["completeness"] == "complete"
+
+    @patch("domain.routes.authenticate", return_value={"tier": "free"})
+    @patch(
+        "domain.routes.check_urlhaus",
+        return_value={
+            "urlhaus_status": "error",
+            "urls_online": 0,
+            "url_count": 0,
+            "threat_types": [],
+            "tags": [],
+            "urls": [],
+        },
+    )
+    @patch("domain.routes.validate_domain", return_value="93.184.216.34")
+    def test_threat_intel_verdict_partial_on_error(self, mock_validate, mock_urlhaus, mock_auth):
+        r = client.get("/v1/threat/example.com")
+        assert r.status_code == 200
+        v = r.json()["verdict"]
+        assert v["sources_queried"] == ["urlhaus"]
+        assert v["sources_unavailable"] == ["urlhaus"]
+        assert v["completeness"] == "partial"
 
 
 # =========== whois_lookup unit tests ===========
