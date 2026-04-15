@@ -31,7 +31,8 @@ from db import (
     init_all_dbs,
 )
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, Response
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from ratelimit import check_limit
@@ -258,7 +259,7 @@ ENDPOINT_HINTS = [
     ("/v1/scan/", "GET /v1/scan/headers/{domain} — e.g., /v1/scan/headers/example.com"),
     (
         "/v1/",
-        "Full docs: https://github.com/UPinar/contrastapi#endpoints — "
+        "Full docs: https://github.com/UPinar/contrastapi/blob/main/docs/ENDPOINTS.md — "
         "Try: /v1/domain/example.com, /v1/cve/CVE-2024-3094, /v1/ip/8.8.8.8",
     ),
 ]
@@ -283,6 +284,32 @@ async def api_error_handler(request: Request, exc: StarletteHTTPException):
         content["hint"] = f"Method {request.method} not allowed. Try POST for /v1/check/* endpoints."
 
     return JSONResponse(status_code=exc.status_code, content=content)
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_error_handler(request: Request, exc: RequestValidationError):
+    err = exc.errors()[0] if exc.errors() else {}
+    loc = err.get("loc", ())
+    field = loc[-1] if loc else None
+    received = err.get("input")
+    reason = err.get("msg", "Validation failed").removeprefix("Value error, ")
+    path = request.url.path
+    suggestion = ENDPOINT_HINT_DEFAULT
+    for prefix, hint in ENDPOINT_HINTS:
+        if path.startswith(prefix):
+            suggestion = hint
+            break
+    content = {
+        "error": "Validation failed",
+        "reason": reason,
+        "suggestion": suggestion,
+        "docs": "https://github.com/UPinar/contrastapi/blob/main/docs/ENDPOINTS.md",
+    }
+    if field:
+        content["field"] = field
+    if received is not None and isinstance(received, str) and len(received) < 200:
+        content["received"] = received
+    return JSONResponse(status_code=422, content=content)
 
 
 @app.exception_handler(Exception)
@@ -853,7 +880,7 @@ def llms_txt():
 
 - [Quick Start](https://api.contrastcyber.com/quickstart)
 - [MCP Setup](https://api.contrastcyber.com/mcp-setup)
-- [API Documentation](https://github.com/UPinar/contrastapi#endpoints)
+- [API Documentation](https://github.com/UPinar/contrastapi/blob/main/docs/ENDPOINTS.md)
 - [OpenAPI Spec](https://api.contrastcyber.com/openapi.json)
 - [Full API Reference](https://api.contrastcyber.com/llms-full.txt)
 
@@ -1155,6 +1182,53 @@ from webhooks import router as webhooks_router
 
 app.include_router(webhooks_router)
 
+
+@app.get("/mcp/debug", include_in_schema=False)
+def mcp_debug():
+    """Human-readable MCP handshake guide — helps crawlers and developers debug 400 errors."""
+    return JSONResponse(
+        {
+            "endpoint": "https://api.contrastcyber.com/mcp/",
+            "protocol": "MCP Streamable HTTP",
+            "protocol_version": "2024-11-05",
+            "required_headers": {
+                "Content-Type": "application/json",
+                "Accept": "application/json, text/event-stream",
+            },
+            "valid_initialize_request": {
+                "jsonrpc": "2.0",
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {},
+                    "clientInfo": {"name": "your-client", "version": "1.0"},
+                },
+                "id": 1,
+            },
+            "common_errors": [
+                {
+                    "symptom": "HTTP 400",
+                    "cause": "Missing or malformed JSON-RPC fields",
+                    "fix": "Body must include jsonrpc='2.0', method, id, and params",
+                },
+                {
+                    "symptom": "HTTP 400",
+                    "cause": "Missing Accept header",
+                    "fix": "Add 'Accept: application/json, text/event-stream'",
+                },
+                {
+                    "symptom": "HTTP 200 + RPC error -32602",
+                    "cause": "params.clientInfo missing",
+                    "fix": "Add clientInfo: {name: 'your-client', version: '1.0'} to params",
+                },
+            ],
+            "tools_count": 29,
+            "docs": "https://github.com/UPinar/contrastapi/blob/main/docs/ENDPOINTS.md",
+            "setup_guide": "https://api.contrastcyber.com/mcp-setup",
+        }
+    )
+
+
 # --- MCP Streamable HTTP endpoint ---
 _mcp_session_mgr = None
 try:
@@ -1246,18 +1320,52 @@ except ImportError:
 # --- AI Discovery endpoints ---
 
 
+@app.get("/.well-known/mcp.json", include_in_schema=False)
+@app.get("/.well-known/mcp-server.json", include_in_schema=False)
+def mcp_server_card_alias():
+    """Aliases for MCP discovery crawlers probing non-SEP-2127 paths (e.g. NotHumanSearch)."""
+    return mcp_server_card()
+
+
 @app.get("/.well-known/mcp/server-card.json", include_in_schema=False)
 def mcp_server_card():
     """MCP server discovery card (draft spec)."""
     return {
-        "name": "ContrastAPI",
-        "description": "Security intelligence MCP server with 29 tools: CVE lookup, domain recon, SSL, IP/ASN, email/phone OSINT, IOC, exploit search, tech fingerprinting, orchestrated audit + threat reports, bulk lookups, code security.",
-        "url": "https://api.contrastcyber.com/mcp/",
-        "transport": ["streamable-http"],
+        "$schema": "https://modelcontextprotocol.io/schemas/server-card.json",
+        "version": "1.0",
+        "protocolVersion": "2024-11-05",
+        "serverInfo": {
+            "name": "contrastapi",
+            "title": "ContrastAPI \u2014 Security Intelligence",
+            "description": (
+                "Security intelligence MCP server with 29 tools: CVE lookup with EPSS/KEV "
+                "enrichment, domain recon (DNS, WHOIS, SSL, subdomains, WAF), IP/ASN lookup, "
+                "email/phone/username OSINT, IOC/threat intel, exploit search, tech "
+                "fingerprinting, orchestrated audit + threat reports, bulk lookups, code "
+                "security checks."
+            ),
+            "version": "1.0.0",
+            "homepage": "https://github.com/UPinar/contrastapi",
+            "repository": "https://github.com/UPinar/contrastapi",
+        },
+        "transport": [
+            {
+                "type": "streamable-http",
+                "url": "https://api.contrastcyber.com/mcp/",
+            }
+        ],
+        "capabilities": {
+            "tools": True,
+            "resources": False,
+            "prompts": False,
+        },
+        "provider": {
+            "name": "ContrastCyber",
+            "url": "https://contrastcyber.com",
+        },
         "auth": "none",
         "tools_count": 29,
-        "homepage": "https://github.com/UPinar/contrastapi",
-        "documentation": "https://github.com/UPinar/contrastapi#endpoints",
+        "documentation": "https://github.com/UPinar/contrastapi/blob/main/docs/ENDPOINTS.md",
     }
 
 
@@ -1284,6 +1392,15 @@ def ai_plugin():
         "contact_email": "info@contrastcyber.com",
         "legal_info_url": "https://contrastcyber.com",
     }
+
+
+@app.get("/.well-known/glama.json", include_in_schema=False)
+def glama_manifest():
+    """Glama.ai MCP aggregator discovery manifest (served from /opt/contrastapi/glama.json)."""
+    return FileResponse(
+        "/opt/contrastapi/glama.json",
+        media_type="application/json",
+    )
 
 
 @app.get("/robots.txt", response_class=PlainTextResponse, include_in_schema=False)
