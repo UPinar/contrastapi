@@ -393,3 +393,38 @@ def test_regular_endpoint_still_costs_one_per_call():
     assert rem1 - rem2 == 1
     assert r1.headers["X-RateLimit-Cost"] == "1"
     reset("api")
+
+
+# --- Security headers middleware ---
+
+
+class TestSecurityHeaders:
+    _EXPECTED = {
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "Referrer-Policy": "strict-origin-when-cross-origin",
+        "Permissions-Policy": "geolocation=(), microphone=(), camera=()",
+        "Strict-Transport-Security": "max-age=63072000; includeSubDomains; preload",
+    }
+
+    def test_security_headers_on_root(self):
+        r = client.get("/")
+        assert r.status_code == 200
+        for name, value in self._EXPECTED.items():
+            assert r.headers.get(name) == value
+        assert "Content-Security-Policy" in r.headers
+
+    def test_security_headers_on_api_endpoint(self):
+        r = client.get("/v1/status")
+        assert r.status_code == 200
+        for name, value in self._EXPECTED.items():
+            assert r.headers.get(name) == value
+        assert "Content-Security-Policy" in r.headers
+
+    def test_csp_contains_required_directives(self):
+        r = client.get("/")
+        csp = r.headers["Content-Security-Policy"]
+        assert "object-src 'none'" in csp
+        assert "frame-ancestors 'none'" in csp
+        assert "base-uri 'none'" in csp
+        assert "form-action 'self'" in csp

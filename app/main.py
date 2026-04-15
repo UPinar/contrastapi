@@ -190,6 +190,39 @@ def _record_metric(path: str, status: int, elapsed_ms: int):
             _metrics["errors_total"] += 1
 
 
+# --- Security headers (set on every response; replaces nginx snippet) ---
+
+_CSP_POLICY = (
+    "default-src 'self'; "
+    "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+    "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://static.cloudflareinsights.com; "
+    "img-src 'self' https://fastapi.tiangolo.com; "
+    "connect-src 'self' https://cloudflareinsights.com; "
+    "font-src 'self'; "
+    "object-src 'none'; "
+    "base-uri 'none'; "
+    "form-action 'self'; "
+    "frame-ancestors 'none';"
+)
+
+_SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "Permissions-Policy": "geolocation=(), microphone=(), camera=()",
+    "Strict-Transport-Security": "max-age=63072000; includeSubDomains; preload",
+    "Content-Security-Policy": _CSP_POLICY,
+}
+
+
+@app.middleware("http")
+async def security_headers_middleware(request: Request, call_next):
+    response = await call_next(request)
+    for name, value in _SECURITY_HEADERS.items():
+        response.headers.setdefault(name, value)
+    return response
+
+
 # --- Middleware: Request ID + Rate Limit Headers + Logging ---
 
 
@@ -543,7 +576,7 @@ print(r.json()['findings'])</code></div>
     <div class="footer-links">
       <a href="https://contrastcyber.com/terms">Terms</a>
       <a href="https://contrastcyber.com/privacy">Privacy</a>
-      <a href="mailto:contact@contrastcyber.com">Contact</a>
+      <a href="#" onclick="event.preventDefault();navigator.clipboard.writeText('contact@contrastcyber.com');var t=this.textContent;this.textContent='Copied!';setTimeout(()=>this.textContent=t,1500);">Contact</a>
       <a href="https://github.com/UPinar/contrastapi">GitHub</a>
     </div>
     <p>&copy; 2026 ContrastCyber</p>
@@ -749,7 +782,7 @@ Accept: application/json, text/event-stream
     <div class="footer-links">
       <a href="https://contrastcyber.com/terms">Terms</a>
       <a href="https://contrastcyber.com/privacy">Privacy</a>
-      <a href="mailto:contact@contrastcyber.com">Contact</a>
+      <a href="#" onclick="event.preventDefault();navigator.clipboard.writeText('contact@contrastcyber.com');var t=this.textContent;this.textContent='Copied!';setTimeout(()=>this.textContent=t,1500);">Contact</a>
       <a href="https://github.com/UPinar/contrastapi">GitHub</a>
     </div>
     <p>&copy; 2026 ContrastCyber</p>
