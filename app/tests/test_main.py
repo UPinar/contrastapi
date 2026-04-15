@@ -55,6 +55,29 @@ def test_capabilities_structure():
     assert len(mcp_tools) == 29
 
 
+def test_capabilities_blast_radius():
+    r = client.get("/v1/capabilities")
+    data = r.json()
+    # Legend exists with all three levels
+    legend = data["blast_radius_legend"]
+    assert "zero" in legend
+    assert "low" in legend
+    assert "high" in legend
+    # Every tool in non-meta categories has blast_radius in valid set
+    valid = {"zero", "low", "high"}
+    for cat_name in ("cve", "domain", "ioc", "code_security"):
+        for tool in data["categories"][cat_name]["tools"]:
+            assert "blast_radius" in tool, f"missing blast_radius in {cat_name}: {tool.get('path')}"
+            assert tool["blast_radius"] in valid, f"invalid blast_radius in {cat_name}: {tool.get('path')}"
+    # Spot-check specific paths
+    domain_tools = {t["path"]: t for t in data["categories"]["domain"]["tools"]}
+    assert domain_tools["/v1/domain/{domain}"]["blast_radius"] == "high"
+    cve_tools = {t["path"]: t for t in data["categories"]["cve"]["tools"]}
+    assert cve_tools["/v1/cve/{cve_id}"]["blast_radius"] == "zero"
+    ioc_tools = {t["path"]: t for t in data["categories"]["ioc"]["tools"]}
+    assert ioc_tools["/v1/ioc/{indicator}"]["blast_radius"] == "low"
+
+
 def test_capabilities_no_auth_required():
     r = client.get("/v1/capabilities")
     assert r.status_code == 200  # no key needed
