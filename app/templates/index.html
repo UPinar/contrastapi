@@ -20,7 +20,7 @@
   <link rel="alternate" hreflang="en" href="https://api.contrastcyber.com/">
   <link rel="alternate" hreflang="zh" href="https://api.contrastcyber.com/cn/">
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-  <link rel="stylesheet" href="/static/style.css?v=18">
+  <link rel="stylesheet" href="/static/style.css?v=20">
   <link rel="alternate" type="text/plain" href="/llms.txt" title="LLM Discovery">
   <link rel="alternate" type="application/json" href="/openapi.json" title="OpenAPI Spec">
   <script type="application/ld+json">
@@ -45,6 +45,7 @@
   </script>
 </head>
 <body>
+  <script>window.__copyCmd=function(b){var p=b.previousElementSibling;var t=(p.querySelector('code')||p).innerText.replace(/^\$\s+/,'');navigator.clipboard.writeText(t).then(function(){b.classList.add('copied');b.setAttribute('aria-label','Copied');setTimeout(function(){b.classList.remove('copied');b.setAttribute('aria-label','Copy command')},1500)})};</script>
   <script>if(navigator.language&&navigator.language.startsWith('zh')){document.addEventListener('DOMContentLoaded',function(){var b=document.createElement('div');b.style.cssText='background:#1e3a5f;text-align:center;padding:8px;font-size:14px';b.innerHTML='<a href="/cn/" style="color:#93c5fd;text-decoration:none">中文版本可用 — View in Chinese →</a><button style="background:none;border:none;color:#666;margin-left:12px;cursor:pointer;font-size:16px">×</button>';b.querySelector('button').onclick=function(){b.remove()};document.body.insertBefore(b,document.body.firstChild)})}</script>
   <div class="glow"></div>
 
@@ -69,7 +70,13 @@
       <a href="/playground" class="btn-cta-secondary">Try Playground</a>
     </div>
     <p class="cta-microcopy">No API key · 870 tests passing · &lt;500ms latency · MIT licensed</p>
-    <pre class="hero-curl">$ curl https://api.contrastcyber.com/v1/audit/example.com</pre>
+    <div class="hero-curl-wrap">
+      <pre class="hero-curl"><span class="prompt">$ </span><code>curl https://api.contrastcyber.com/v1/audit/example.com</code></pre>
+      <button type="button" class="copy-btn" aria-label="Copy command" onclick="__copyCmd(this)">
+        <svg class="icon-copy" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+        <svg class="icon-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+      </button>
+    </div>
   </section>
 
   <!-- Trust Strip -->
@@ -110,10 +117,10 @@ await api.cve.lookup("CVE-2024-3094");</pre>
       </div>
       <div class="setup-card">
         <h3>3. cURL</h3>
-        <pre>curl https://api.contrastcyber.com\
-  /v1/audit/example.com</pre>
-        <pre>curl https://api.contrastcyber.com\
-  /v1/cve/CVE-2024-3094</pre>
+        <div class="copy-wrap"><pre>curl https://api.contrastcyber.com\
+  /v1/audit/example.com</pre><button type="button" class="copy-btn" aria-label="Copy command" onclick="__copyCmd(this)"><svg class="icon-copy" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><svg class="icon-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg></button></div>
+        <div class="copy-wrap"><pre>curl https://api.contrastcyber.com\
+  /v1/cve/CVE-2024-3094</pre><button type="button" class="copy-btn" aria-label="Copy command" onclick="__copyCmd(this)"><svg class="icon-copy" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><svg class="icon-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg></button></div>
         <a href="/quickstart">Quick start guide →</a>
       </div>
       <div class="setup-card">
@@ -342,7 +349,7 @@ await api.cve.lookup("CVE-2024-3094");</pre>
   <!-- Example -->
   <section class="example-section">
     <h2 class="section-title">Example Request</h2>
-    <pre>$ curl https://api.contrastcyber.com/v1/domain/example.com</pre>
+    <div class="copy-wrap"><pre>$ curl https://api.contrastcyber.com/v1/domain/example.com</pre><button type="button" class="copy-btn" aria-label="Copy command" onclick="__copyCmd(this)"><svg class="icon-copy" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><svg class="icon-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg></button></div>
     <pre>{
   <span class="key">"domain"</span>: <span class="str">"example.com"</span>,
   <span class="key">"summary"</span>: <span class="str">"example.com resolves to 93.184.216.34. SSL grade A (DigiCert). SPF+DMARC present. No WAF. Risk: B (72/100)."</span>,

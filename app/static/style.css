@@ -625,13 +625,17 @@ footer p { color: var(--text-dim); }
 }
 
 /* Hero curl one-liner */
-.hero-curl {
+.hero-curl-wrap {
+  position: relative;
   margin: 1.5rem auto 0;
   max-width: 38rem;
+}
+.hero-curl {
+  margin: 0;
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: 0.5rem;
-  padding: 0.85rem 1.1rem;
+  padding: 0.85rem 2.6rem 0.85rem 1.1rem;
   font-family: var(--font-mono);
   font-size: 0.78rem;
   color: var(--text);
@@ -639,6 +643,43 @@ footer p { color: var(--text-dim); }
   overflow-x: auto;
   white-space: pre;
 }
+.hero-curl .prompt { color: var(--text-muted, #888); user-select: none; }
+.hero-curl code { font: inherit; color: inherit; background: none; padding: 0; }
+
+/* Generic copy-wrap for any pre block */
+.copy-wrap { position: relative; }
+.copy-wrap > pre { padding-right: 2.6rem; }
+.copy-wrap .copy-btn,
+.hero-curl-wrap .copy-btn {
+  position: absolute;
+  top: 50%;
+  right: 0.45rem;
+  transform: translateY(-50%);
+  width: 1.75rem;
+  height: 1.75rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 0.3rem;
+  color: var(--text-muted, #888);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+  z-index: 2;
+}
+.copy-wrap .copy-btn:hover,
+.hero-curl-wrap .copy-btn:hover { background: rgba(255,255,255,0.06); color: var(--text); border-color: var(--border); }
+.copy-wrap .copy-btn:focus-visible,
+.hero-curl-wrap .copy-btn:focus-visible { outline: 2px solid var(--accent, #7dd3fc); outline-offset: 2px; }
+.copy-wrap .copy-btn .icon-check,
+.hero-curl-wrap .copy-btn .icon-check { display: none; color: #34d399; }
+.copy-wrap .copy-btn.copied .icon-copy,
+.hero-curl-wrap .copy-btn.copied .icon-copy { display: none; }
+.copy-wrap .copy-btn.copied .icon-check,
+.hero-curl-wrap .copy-btn.copied .icon-check { display: inline; }
+.copy-wrap .copy-btn.copied,
+.hero-curl-wrap .copy-btn.copied { color: #34d399; }
 
 /* Trust Strip (post-hero social proof) */
 .trust-strip {
