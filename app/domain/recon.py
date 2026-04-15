@@ -824,10 +824,11 @@ def ip_enrichment(ip: str) -> dict:
             "vulns": data.get("vulns", []),
             "cpes": data.get("cpes", []),
             "tags": data.get("tags", []),
+            "internetdb_status": "ok",
         }
     except Exception as e:
         logger.debug("ip_enrichment failed for %s: %s", ip, e)
-        return {"ports": [], "hostnames": [], "vulns": [], "cpes": [], "tags": []}
+        return {"ports": [], "hostnames": [], "vulns": [], "cpes": [], "tags": [], "internetdb_status": "error"}
 
 
 # === Phone Lookup ===

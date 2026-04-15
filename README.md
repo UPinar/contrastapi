@@ -167,7 +167,10 @@ ContrastAPI responses include a `verdict` metadata block on key endpoints
   "verdict": {
     "deterministic": true,
     "falsifiable_fields": ["cve_id", "severity", "cvss_v3", "published", "references"],
-    "data_age_seconds": 1834
+    "data_age_seconds": 1834,
+    "sources_queried": ["nvd_cache"],
+    "sources_unavailable": [],
+    "completeness": "complete"
   }
 }
 ```
@@ -177,6 +180,8 @@ This lets an orchestrator run Agent A (calling ContrastAPI) and Agent B
 authority — NVD, RDAP, CT logs, URLhaus). `deterministic: true` means the same
 query will return the same answer; `data_age_seconds` is the distance from the
 latest upstream sync (or `0` for live fetches).
+
+`sources_queried` lists upstream providers consulted for this response; `sources_unavailable` lists any that failed (timeout, parse error, rate-limit, upstream 5xx). `completeness` is `"partial"` whenever `sources_unavailable` is non-empty — agents should treat partial responses as best-effort and re-query later.
 
 Probe `GET /v1/capabilities` — responses with `"verdict_metadata": true` support
 this pattern across the endpoints listed above.

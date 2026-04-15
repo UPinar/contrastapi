@@ -173,21 +173,51 @@ def _whois_summary(whois: dict, domain: str) -> str:
     return " — ".join(parts)
 
 
-def _domain_verdict(age_seconds: int) -> Verdict:
+def _domain_verdict(report: dict, age_seconds: int, lite: bool) -> Verdict:
     """Build verdict metadata for domain_report responses."""
+    queried = ["dns", "ssl"]
+    unavailable: list[str] = []
+    if not lite:
+        queried.extend(["whois", "subdomains", "ct_logs", "urlhaus"])
+        threat = report.get("threat", {}) or {}
+        if threat.get("urlhaus_status") == "error":
+            unavailable.append("urlhaus")
+        if "reputation" in report:
+            queried.append("reputation")
+            # If reputation fetch failed, report["reputation"] is absent — we cannot
+            # distinguish quota-blocked from fetch-failed from this signal alone.
     return Verdict(
         deterministic=True,
         falsifiable_fields=["dns", "whois", "ssl", "subdomains", "certificates"],
         data_age_seconds=age_seconds,
+        sources_queried=queried,
+        sources_unavailable=unavailable,
+        completeness="partial" if unavailable else "complete",
     )
 
 
-def _ip_verdict(age_seconds: int | None) -> Verdict:
-    """Build verdict metadata for ip_lookup responses. age=None if no cached reputation."""
+def _ip_verdict(
+    age_seconds: int | None,
+    internetdb_failed: bool,
+    reputation_attempted: bool,
+    reputation_failed: bool,
+) -> Verdict:
+    """Build verdict metadata for ip_lookup responses."""
+    queried = ["internetdb"]
+    if reputation_attempted:
+        queried.append("reputation")
+    unavailable: list[str] = []
+    if internetdb_failed:
+        unavailable.append("internetdb")
+    if reputation_attempted and reputation_failed:
+        unavailable.append("reputation")
     return Verdict(
         deterministic=True,
         falsifiable_fields=["ptr", "ports", "vulns", "hostnames"],
         data_age_seconds=age_seconds,
+        sources_queried=queried,
+        sources_unavailable=unavailable,
+        completeness="partial" if unavailable else "complete",
     )
 
 
@@ -234,7 +264,7 @@ def domain_report(domain: str, request: Request, lite: bool = False):
     hit = get_cached_domain_with_age(cache_key)
     if hit is not None:
         cached, age = hit
-        return {**cached, "verdict": _domain_verdict(age)}
+        return {**cached, "verdict": _domain_verdict(cached, age, lite=lite)}
 
     client_ip = get_client_ip(request)
     try:
@@ -242,7 +272,7 @@ def domain_report(domain: str, request: Request, lite: bool = False):
     except FuturesTimeoutError:
         raise HTTPException(status_code=504, detail="Domain report timed out — upstream services too slow") from None
     save_cached_domain(cache_key, result)
-    return {**result, "verdict": _domain_verdict(0)}
+    return {**result, "verdict": _domain_verdict(result, 0, lite=lite)}
 
 
 @router.get("/dns/{domain}", operation_id="dns_records", response_model=DnsResponse, response_model_exclude_none=True)
@@ -610,6 +640,7 @@ def ip_lookup(ip: str, request: Request):
         ptr = None
 
     enrichment = ip_enrichment(ip)
+    internetdb_failed = enrichment.pop("internetdb_status", "ok") == "error"
     ports = enrichment.get("ports", [])
     vulns = enrichment.get("vulns", [])
     hostnames = enrichment.get("hostnames", [])
@@ -617,15 +648,19 @@ def ip_lookup(ip: str, request: Request):
     # Reputation enrichment (rate-limited per client IP)
     reputation = {}
     rep_age: int | None = None
+    reputation_attempted = False
+    reputation_failed = False
     hit = get_cached_ip_with_age(ip)
     if hit is not None:
         reputation, rep_age = hit
+        reputation_attempted = True
     elif ratelimit.check_limit(
         store_name="enrichment",
         key=client_ip,
         max_requests=ENRICHMENT_DAILY_LIMIT,
         window_seconds=86400,
     ):
+        reputation_attempted = True
         try:
             f_ab = _reputation_pool.submit(check_abuseipdb, ip)
             f_sh = _reputation_pool.submit(check_shodan, ip)
@@ -638,6 +673,7 @@ def ip_lookup(ip: str, request: Request):
         except Exception as e:
             logger.warning("Reputation enrichment failed for %s: %s", ip, type(e).__name__)
             reputation = {}
+            reputation_failed = True
             ratelimit.refund("enrichment", client_ip)
 
     parts = [f"{ip} → {ptr}" if ptr else f"{ip} — no PTR record"]
@@ -656,7 +692,7 @@ def ip_lookup(ip: str, request: Request):
     }
     if reputation:
         result["reputation"] = reputation
-    result["verdict"] = _ip_verdict(rep_age)
+    result["verdict"] = _ip_verdict(rep_age, internetdb_failed, reputation_attempted, reputation_failed)
     return result
 
 

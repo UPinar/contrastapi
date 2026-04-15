@@ -277,6 +277,14 @@ MOCK_FULL_REPORT = {
     "ssl": {"issuer": "DigiCert", "common_name": "example.com"},
     "subdomains": MOCK_SUBDOMAIN_RESULT,
     "certificates": MOCK_CT_RESULT,
+    "threat": {
+        "urlhaus_status": "clean",
+        "url_count": 0,
+        "urls_online": 0,
+        "threat_types": [],
+        "tags": [],
+        "urls": [],
+    },
     "waf": {"detected": [], "waf_present": False},
     "summary": "example.com resolves to 93.184.216.34",
 }
@@ -359,6 +367,53 @@ class TestDomainRoutes:
             assert isinstance(v["data_age_seconds"], int)
             assert v["data_age_seconds"] >= 0
 
+    @patch("domain.routes.full_domain_report", return_value=MOCK_FULL_REPORT)
+    @patch("domain.routes.validate_domain", return_value="93.184.216.34")
+    @patch("domain.routes.get_cached_domain_with_age", return_value=None)
+    def test_domain_report_verdict_complete_full_mode(self, mock_cache, mock_validate, mock_report):
+        r = client.get("/v1/domain/example.com")
+        assert r.status_code == 200
+        v = r.json()["verdict"]
+        assert set(v["sources_queried"]) >= {"dns", "ssl", "whois", "subdomains", "ct_logs", "urlhaus"}
+        assert "urlhaus" in v["sources_queried"]  # threat key present + status != "error"
+        assert v["completeness"] == "complete"
+        assert v["sources_unavailable"] == []
+
+    @patch(
+        "domain.routes.full_domain_report",
+        return_value={
+            **MOCK_FULL_REPORT,
+            "threat": {
+                "urlhaus_status": "error",
+                "url_count": 0,
+                "urls_online": 0,
+                "threat_types": [],
+                "tags": [],
+                "urls": [],
+            },
+        },
+    )
+    @patch("domain.routes.validate_domain", return_value="93.184.216.34")
+    @patch("domain.routes.get_cached_domain_with_age", return_value=None)
+    def test_domain_report_verdict_partial_on_urlhaus_error(self, mock_cache, mock_validate, mock_report):
+        r = client.get("/v1/domain/example.com")
+        assert r.status_code == 200
+        v = r.json()["verdict"]
+        assert "urlhaus" in v["sources_unavailable"]
+        assert v["completeness"] == "partial"
+
+    @patch("domain.routes.full_domain_report", return_value=MOCK_FULL_REPORT)
+    @patch("domain.routes.validate_domain", return_value="93.184.216.34")
+    @patch("domain.routes.get_cached_domain_with_age", return_value=None)
+    def test_domain_report_verdict_lite_mode(self, mock_cache, mock_validate, mock_report):
+        r = client.get("/v1/domain/example.com?lite=true")
+        assert r.status_code == 200
+        v = r.json()["verdict"]
+        assert v["sources_queried"] == ["dns", "ssl"]
+        assert "whois" not in v["sources_queried"]
+        assert "urlhaus" not in v["sources_queried"]
+        assert v["completeness"] == "complete"
+
     @patch("domain.routes.dns_lookup", return_value=MOCK_DNS_RESULT)
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     def test_dns_records_200(self, mock_validate, mock_dns):
@@ -406,7 +461,14 @@ class TestDomainRoutes:
 
     @patch(
         "domain.routes.ip_enrichment",
-        return_value={"ports": [22, 80], "hostnames": [], "vulns": [], "cpes": [], "tags": []},
+        return_value={
+            "ports": [22, 80],
+            "hostnames": [],
+            "vulns": [],
+            "cpes": [],
+            "tags": [],
+            "internetdb_status": "ok",
+        },
     )
     @patch("domain.routes.socket.gethostbyaddr", return_value=("example.com", [], []))
     def test_ip_lookup_200(self, mock_ptr, mock_enrich):
@@ -417,7 +479,8 @@ class TestDomainRoutes:
         assert data["ptr"] == "example.com"
 
     @patch(
-        "domain.routes.ip_enrichment", return_value={"ports": [], "hostnames": [], "vulns": [], "cpes": [], "tags": []}
+        "domain.routes.ip_enrichment",
+        return_value={"ports": [], "hostnames": [], "vulns": [], "cpes": [], "tags": [], "internetdb_status": "ok"},
     )
     @patch("domain.routes.socket.gethostbyaddr", side_effect=Exception("no PTR"))
     def test_ip_lookup_no_ptr(self, mock_ptr, mock_enrich):
@@ -428,7 +491,14 @@ class TestDomainRoutes:
 
     @patch(
         "domain.routes.ip_enrichment",
-        return_value={"ports": [22, 80], "hostnames": [], "vulns": [], "cpes": [], "tags": []},
+        return_value={
+            "ports": [22, 80],
+            "hostnames": [],
+            "vulns": [],
+            "cpes": [],
+            "tags": [],
+            "internetdb_status": "ok",
+        },
     )
     @patch("domain.routes.socket.gethostbyaddr", return_value=("example.com", [], []))
     def test_ip_lookup_verdict(self, mock_ptr, mock_enrich):
@@ -442,6 +512,33 @@ class TestDomainRoutes:
         if "data_age_seconds" in v:
             assert isinstance(v["data_age_seconds"], int)
             assert v["data_age_seconds"] >= 0
+
+    @patch(
+        "domain.routes.ip_enrichment",
+        return_value={"ports": [80], "hostnames": [], "vulns": [], "cpes": [], "tags": [], "internetdb_status": "ok"},
+    )
+    @patch("domain.routes.socket.gethostbyaddr", return_value=("example.com", [], []))
+    def test_ip_lookup_verdict_complete_happy_path(self, mock_ptr, mock_enrich):
+        r = client.get("/v1/ip/93.184.216.34")
+        assert r.status_code == 200
+        body = r.json()
+        v = body["verdict"]
+        assert "internetdb" in v["sources_queried"]
+        assert v["completeness"] == "complete"
+        assert v["sources_unavailable"] == []
+        assert "internetdb_status" not in body
+
+    @patch(
+        "domain.routes.ip_enrichment",
+        return_value={"ports": [], "hostnames": [], "vulns": [], "cpes": [], "tags": [], "internetdb_status": "error"},
+    )
+    @patch("domain.routes.socket.gethostbyaddr", return_value=("example.com", [], []))
+    def test_ip_lookup_verdict_partial_on_internetdb_error(self, mock_ptr, mock_enrich):
+        r = client.get("/v1/ip/93.184.216.34")
+        assert r.status_code == 200
+        v = r.json()["verdict"]
+        assert "internetdb" in v["sources_unavailable"]
+        assert v["completeness"] == "partial"
 
 
 class TestDomainRoutesBadInput:
@@ -1628,7 +1725,14 @@ class TestIpRouteReputation:
     @patch("domain.routes.check_abuseipdb", return_value={"status": "ok", "abuse_score": 10})
     @patch(
         "domain.routes.ip_enrichment",
-        return_value={"ports": [22, 80], "hostnames": [], "vulns": [], "cpes": [], "tags": []},
+        return_value={
+            "ports": [22, 80],
+            "hostnames": [],
+            "vulns": [],
+            "cpes": [],
+            "tags": [],
+            "internetdb_status": "ok",
+        },
     )
     @patch("domain.routes.socket.gethostbyaddr", return_value=("example.com", [], []))
     def test_ip_with_reputation(
@@ -1647,7 +1751,14 @@ class TestIpRouteReputation:
     @patch("domain.routes.ratelimit.check_limit", return_value=False)
     @patch(
         "domain.routes.ip_enrichment",
-        return_value={"ports": [22, 80], "hostnames": [], "vulns": ["CVE-2024-1234"], "cpes": [], "tags": []},
+        return_value={
+            "ports": [22, 80],
+            "hostnames": [],
+            "vulns": ["CVE-2024-1234"],
+            "cpes": [],
+            "tags": [],
+            "internetdb_status": "ok",
+        },
     )
     @patch("domain.routes.socket.gethostbyaddr", return_value=("example.com", [], []))
     def test_ip_without_reputation_limit_exceeded(self, mock_ptr, mock_enrich, mock_limit, mock_cache_get, mock_auth):
@@ -1673,7 +1784,7 @@ class TestIpRouteReputation:
     )
     @patch(
         "domain.routes.ip_enrichment",
-        return_value={"ports": [443], "hostnames": [], "vulns": [], "cpes": [], "tags": []},
+        return_value={"ports": [443], "hostnames": [], "vulns": [], "cpes": [], "tags": [], "internetdb_status": "ok"},
     )
     @patch("domain.routes.socket.gethostbyaddr", return_value=("example.com", [], []))
     def test_ip_reputation_from_cache(self, mock_ptr, mock_enrich, mock_cache_get, mock_sh, mock_ab, mock_auth):
