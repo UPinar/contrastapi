@@ -201,7 +201,7 @@ def domain_report(domain: str, request: Request, lite: bool = False):
     cache_key = f"lite:{domain}" if lite else domain
     cached = get_cached_domain(cache_key)
     if cached:
-        return {**cached, "cached": True}
+        return {**cached}
 
     client_ip = get_client_ip(request)
     try:
@@ -209,7 +209,7 @@ def domain_report(domain: str, request: Request, lite: bool = False):
     except FuturesTimeoutError:
         raise HTTPException(status_code=504, detail="Domain report timed out — upstream services too slow") from None
     save_cached_domain(cache_key, result)
-    return {**result, "cached": False}
+    return {**result}
 
 
 @router.get("/dns/{domain}", operation_id="dns_records", response_model=DnsResponse, response_model_exclude_none=True)
@@ -218,11 +218,11 @@ def dns_records(domain: str, request: Request):
     domain, resolved_ip, auth_ctx = _validate_and_auth(request, domain)
     cached = _from_cache(domain, "dns")
     if cached:
-        return {"domain": domain, "records": cached, "summary": _dns_summary(cached, domain), "cached": True}
+        return {"domain": domain, "records": cached, "summary": _dns_summary(cached, domain)}
     records = dns_lookup(domain)
     if not records:
         raise HTTPException(status_code=404, detail=f"No DNS records found for '{domain}'")
-    return {"domain": domain, "records": records, "summary": _dns_summary(records, domain), "cached": False}
+    return {"domain": domain, "records": records, "summary": _dns_summary(records, domain)}
 
 
 @router.get(
@@ -239,7 +239,7 @@ def email_mx(domain: str, request: Request):
     cache_key = f"email_mx:{domain}"
     cached = get_cached_domain(cache_key)
     if cached:
-        return {**cached, "cached": True}
+        return {**cached}
 
     # Fetch DNS records for MX + TXT (SPF)
     records = dns_lookup(domain)
@@ -295,7 +295,7 @@ def email_mx(domain: str, request: Request):
         "summary": summary,
     }
     save_cached_domain(cache_key, result)
-    return {**result, "cached": False}
+    return {**result}
 
 
 def _disposable_summary(email: str, result: dict) -> str:
@@ -329,7 +329,7 @@ def email_disposable(email: str, request: Request):
     cached = get_cached_domain(cache_key)
     if cached:
         summary = _disposable_summary(email, cached)
-        return {**cached, "email": email, "summary": summary, "cached": True}
+        return {**cached, "email": email, "summary": summary}
 
     resolved_ip = validate_domain(domain)
     if not resolved_ip:
@@ -339,7 +339,7 @@ def email_disposable(email: str, request: Request):
     result["summary"] = _disposable_summary(email, result)
 
     save_cached_domain(cache_key, result)
-    return {**result, "cached": False}
+    return {**result}
 
 
 @router.get(
@@ -377,11 +377,11 @@ def whois_endpoint(domain: str, request: Request):
     domain, resolved_ip, auth_ctx = _validate_and_auth(request, domain)
     cached = _from_cache(domain, "whois")
     if cached and "error" not in cached:
-        return {"domain": domain, "whois": cached, "summary": _whois_summary(cached, domain), "cached": True}
+        return {"domain": domain, "whois": cached, "summary": _whois_summary(cached, domain)}
     result = whois_lookup(domain)
     if "error" in result:
         raise HTTPException(status_code=504, detail=result["error"])
-    return {"domain": domain, "whois": result, "summary": _whois_summary(result, domain), "cached": False}
+    return {"domain": domain, "whois": result, "summary": _whois_summary(result, domain)}
 
 
 @router.get(
@@ -397,11 +397,11 @@ def subdomains(domain: str, request: Request):
     if cached:
         count = cached.get("count", len(cached.get("subdomains", [])))
         summary = f"{count} subdomain{'s' if count != 1 else ''} found for {domain}"
-        return {"domain": domain, **cached, "summary": summary, "cached": True}
+        return {"domain": domain, **cached, "summary": summary}
     result = enumerate_subdomains(domain)
     count = result.get("count", len(result.get("subdomains", [])))
     summary = f"{count} subdomain{'s' if count != 1 else ''} found for {domain}"
-    return {"domain": domain, **result, "summary": summary, "cached": False}
+    return {"domain": domain, **result, "summary": summary}
 
 
 @router.get("/certs/{domain}", operation_id="ct_logs", response_model=CertsResponse, response_model_exclude_none=True)
@@ -412,11 +412,11 @@ def certs(domain: str, request: Request):
     if cached:
         total = cached.get("total_certificates", 0)
         summary = f"{total} certificate{'s' if total != 1 else ''} in CT logs for {domain}"
-        return {"domain": domain, **cached, "summary": summary, "cached": True}
+        return {"domain": domain, **cached, "summary": summary}
     result = check_ct_logs(domain)
     total = result.get("total_certificates", 0)
     summary = f"{total} certificate{'s' if total != 1 else ''} in CT logs for {domain}"
-    return {"domain": domain, **result, "summary": summary, "cached": False}
+    return {"domain": domain, **result, "summary": summary}
 
 
 @router.get(
@@ -429,7 +429,7 @@ def ssl_certificate(domain: str, request: Request):
     # Check cache (keyed as ssl:<domain> in domain_cache)
     cached = get_cached_domain(f"ssl:{domain}")
     if cached:
-        return {**cached, "cached": True}
+        return {**cached}
 
     try:
         ctx = _ssl.create_default_context()
@@ -515,7 +515,7 @@ def ssl_certificate(domain: str, request: Request):
                 }
 
                 save_cached_domain(f"ssl:{domain}", result)
-                return {**result, "cached": False}
+                return {**result}
 
     except (socket.timeout, ConnectionRefusedError, OSError) as e:
         logger.warning("SSL connection failed for %s: %s", domain, e)
@@ -795,7 +795,7 @@ def asn_lookup(target: str, request: Request):
     cache_key = f"asn:{ip}"
     cached = get_cached_domain(cache_key)
     if cached:
-        result = {**cached, "target": target, "cached": True}
+        result = {**cached, "target": target}
         if resolved_ip:
             result["resolved_ip"] = resolved_ip
         elif "resolved_ip" in result:
@@ -897,7 +897,7 @@ def asn_lookup(target: str, request: Request):
         result["resolved_ip"] = resolved_ip
 
     save_cached_domain(cache_key, result)
-    return {**result, "cached": False}
+    return {**result}
 
 
 class _BulkRequest(BaseModel):
@@ -922,10 +922,10 @@ def _run_single_report(raw_domain: str, client_ip: str) -> dict:
     try:
         cached = get_cached_domain(domain)
         if cached:
-            return {"domain": domain, "status": "ok", "report": {**cached, "cached": True}, "error": None}
+            return {"domain": domain, "status": "ok", "report": {**cached}, "error": None}
         report = full_domain_report(domain, resolved_ip=resolved_ip, client_ip=client_ip)
         save_cached_domain(domain, report)
-        return {"domain": domain, "status": "ok", "report": {**report, "cached": False}, "error": None}
+        return {"domain": domain, "status": "ok", "report": {**report}, "error": None}
     except Exception as e:
         logger.warning("Bulk report failed for %s: %s", domain, e)
         return {"domain": domain, "status": "error", "report": None, "error": "Domain report failed"}

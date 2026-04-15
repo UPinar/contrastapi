@@ -320,7 +320,6 @@ class TestDomainRoutes:
         r = client.get("/v1/domain/example.com")
         assert r.status_code == 200
         data = r.json()
-        assert data["cached"] is True
         assert mock_report.call_count == 0
 
     @patch("domain.routes.full_domain_report", return_value=MOCK_FULL_REPORT)

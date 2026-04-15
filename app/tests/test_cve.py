@@ -196,7 +196,6 @@ class TestCveResponseFormat:
             "description",
             "severity",
             "cvss_v3",
-            "cvss_vector",
             "cwe_id",
             "epss",
             "kev",
@@ -205,7 +204,7 @@ class TestCveResponseFormat:
             "modified",
             "references",
         }
-        # cvss_breakdown is present because _seed_cve provides a cvss_vector
+        # cvss_breakdown is present when cvss_vector data exists
         expected_keys.add("cvss_breakdown")
         assert expected_keys == set(data.keys())
 
@@ -573,7 +572,6 @@ class TestExploitLookup:
         assert data["sources"]["github"]["advisories"][0]["ghsa_id"] == "GHSA-xxxx-yyyy-zzzz"
         assert data["sources"]["exploitdb"]["found"] is True
         assert data["sources"]["exploitdb"]["count"] == 2
-        assert data["cached"] is False
 
     @patch("cve.routes.save_cached_domain")
     @patch("cve.routes.get_cached_domain", return_value=None)
@@ -648,7 +646,6 @@ class TestExploitLookup:
             r = client.get("/v1/exploit/CVE-2024-1111")
         assert r.status_code == 200
         data = r.json()
-        assert data["cached"] is True
         assert data["has_public_exploit"] is True
 
 

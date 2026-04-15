@@ -93,7 +93,6 @@ class TestEmailMxRoute:
         assert data["mail_provider"] == "Google Workspace"
         assert len(data["mx_records"]) == 2
         assert data["email_security"]["grade"] == "A"
-        assert data["cached"] is False
         assert "Google Workspace" in data["summary"]
 
     @patch(
@@ -124,7 +123,6 @@ class TestEmailMxRoute:
         }
         r = client.get("/v1/email/mx/example.com")
         assert r.status_code == 200
-        assert r.json()["cached"] is True
 
     def test_email_mx_invalid_domain(self):
         r = client.get("/v1/email/mx/not_a_domain")
@@ -143,7 +141,7 @@ class TestEmailMxRoute:
     def test_email_mx_response_shape(self, mock_validate, mock_save, mock_cache, mock_dns, mock_email):
         r = client.get("/v1/email/mx/example.com")
         assert r.status_code == 200
-        assert set(r.json().keys()) == {"domain", "mx_records", "mail_provider", "email_security", "summary", "cached"}
+        assert set(r.json().keys()) == {"domain", "mx_records", "mail_provider", "email_security", "summary"}
 
     @patch("domain.routes.RECON_TIMEOUT", 0.1)
     @patch("domain.routes.email_security", side_effect=lambda *a, **kw: __import__("time").sleep(0.5))
@@ -279,7 +277,6 @@ class TestDisposableRoute:
         }
         r = client.get("/v1/email/disposable/test@tempmail.com")
         assert r.status_code == 200
-        assert r.json()["cached"] is True
 
     @patch("domain.routes.check_disposable", return_value=MOCK_DISPOSABLE_RESULT)
     @patch("domain.routes.get_cached_domain", return_value=None)
@@ -298,7 +295,6 @@ class TestDisposableRoute:
             "risk_level",
             "mx_records",
             "summary",
-            "cached",
         }
         assert required_keys.issubset(set(data.keys()))
 

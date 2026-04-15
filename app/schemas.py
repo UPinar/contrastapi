@@ -21,7 +21,6 @@ class DomainReportResponse(BaseModel):
     risk: dict = Field(default_factory=dict)
     reputation: dict | None = None
     summary: str = ""
-    cached: bool | None = None
 
     model_config = {"extra": "ignore"}
 
@@ -33,7 +32,6 @@ class DnsResponse(BaseModel):
     domain: str
     records: dict
     summary: str | None = None
-    cached: bool | None = None
 
 
 # === IP Lookup ===
@@ -140,7 +138,6 @@ class SslResponse(BaseModel):
     chain: list[SslChainItem] = Field(default_factory=list)
     grade: str = "F"
     summary: str = ""
-    cached: bool | None = None
 
 
 # === Monitor (lightweight health check) ===
@@ -290,7 +287,6 @@ class CveResponse(BaseModel):
     description: str | None = None
     severity: str | None = None
     cvss_v3: float | None = None
-    cvss_vector: str | None = None
     cvss_breakdown: dict | None = None
     cwe_id: str | None = None
     epss: EpssInfo = Field(default_factory=EpssInfo)
@@ -343,7 +339,6 @@ class ExploitResponse(BaseModel):
     sources: ExploitSources = Field(default_factory=ExploitSources)
     has_public_exploit: bool = False
     summary: str = ""
-    cached: bool | None = None
 
 
 # === ASN Lookup ===
@@ -363,7 +358,6 @@ class AsnResponse(BaseModel):
     ipv4_count: int = 0
     ipv6_count: int = 0
     summary: str = ""
-    cached: bool | None = None
 
 
 # === WHOIS ===
@@ -373,7 +367,6 @@ class WhoisResponse(BaseModel):
     domain: str
     whois: dict
     summary: str = ""
-    cached: bool | None = None
 
 
 # === Subdomains ===
@@ -384,7 +377,6 @@ class SubdomainsResponse(BaseModel):
     count: int = 0
     subdomains: list[str] = Field(default_factory=list)
     summary: str = ""
-    cached: bool | None = None
 
     model_config = {"extra": "ignore"}
 
@@ -397,7 +389,6 @@ class CertsResponse(BaseModel):
     total_certificates: int = 0
     certificates: list[dict] = Field(default_factory=list)
     summary: str = ""
-    cached: bool | None = None
 
     model_config = {"extra": "ignore"}
 
@@ -526,7 +517,6 @@ class EmailMxResponse(BaseModel):
     mail_provider: str | None = None
     email_security: EmailSecurityDetail = Field(default_factory=EmailSecurityDetail)
     summary: str = ""
-    cached: bool | None = None
 
 
 # === Phone Lookup ===
@@ -565,7 +555,6 @@ class DisposableResponse(BaseModel):
     risk_level: str = "low"
     mx_records: list[MxRecord] = Field(default_factory=list)
     summary: str = ""
-    cached: bool | None = None
 
 
 # === Username Lookup ===

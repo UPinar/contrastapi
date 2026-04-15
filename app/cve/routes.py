@@ -145,7 +145,6 @@ def _format_cve(row: dict) -> dict:
         "description": row.get("description"),
         "severity": row.get("severity"),
         "cvss_v3": row.get("cvss_v3"),
-        "cvss_vector": row.get("cvss_vector"),
         "cvss_breakdown": _parse_cvss_vector(row.get("cvss_vector")),
         "cwe_id": row.get("cwe_id"),
         "epss": {
@@ -327,7 +326,7 @@ def exploit_lookup(cve_id: str, request: Request):
     cache_key = f"exploit:{cve_id}"
     cached = get_cached_domain(cache_key)
     if cached:
-        return {**cached, "cached": True}
+        return {**cached}
 
     github = _search_github_advisories(cve_id)
     exploitdb = _search_exploitdb(cve_id)
@@ -355,7 +354,7 @@ def exploit_lookup(cve_id: str, request: Request):
     }
 
     save_cached_domain(cache_key, result)
-    return {**result, "cached": False}
+    return {**result}
 
 
 # === Bulk CVE Lookup ===
