@@ -32,6 +32,35 @@ def test_status_200():
         assert "records" not in src
 
 
+# --- Capabilities endpoint ---
+
+
+def test_capabilities_200():
+    r = client.get("/v1/capabilities")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["total_tools"] == 29
+    assert data["schema_version"] == "1.0"
+    assert "categories" in data
+    assert "auth" in data
+
+
+def test_capabilities_structure():
+    r = client.get("/v1/capabilities")
+    data = r.json()
+    cats = data["categories"]
+    assert set(cats.keys()) == {"cve", "domain", "ioc", "code_security", "meta"}
+    # Count MCP-named tools (name is not None) == 29
+    mcp_tools = [t for cat in cats.values() for t in cat["tools"] if t.get("name") is not None]
+    assert len(mcp_tools) == 29
+
+
+def test_capabilities_no_auth_required():
+    r = client.get("/v1/capabilities")
+    assert r.status_code == 200  # no key needed
+    assert r.json()["auth"]["type"] == "none_required"
+
+
 # --- llms.txt ---
 
 
