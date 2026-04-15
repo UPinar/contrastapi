@@ -336,6 +336,50 @@ def test_threat_report_cost_exhausts_free_limit_at_25():
     reset("api")
 
 
+def test_x_upgrade_url_header_on_free_429():
+    """Free-tier 429 must carry X-Upgrade-URL header pointing at /pricing."""
+    from config import UPGRADE_URL
+    from ratelimit import reset
+
+    reset("api")
+    headers = {"X-Forwarded-For": "203.0.113.71"}
+    for _ in range(25):
+        client.get("/v1/threat-report/not_an_ip", headers=headers)
+    r = client.get("/v1/threat-report/not_an_ip", headers=headers)
+    assert r.status_code == 429
+    assert r.headers.get("X-Upgrade-URL") == UPGRADE_URL
+    reset("api")
+
+
+def test_x_upgrade_url_header_absent_on_free_200():
+    """Successful free-tier responses must NOT carry the upsell header (no spam)."""
+    from ratelimit import reset
+
+    reset("api")
+    headers = {"X-Forwarded-For": "203.0.113.72"}
+    r = client.get("/v1/status", headers=headers)
+    assert r.status_code == 200
+    assert "X-Upgrade-URL" not in r.headers
+
+
+def test_x_upgrade_url_header_absent_on_pro_tier():
+    """Pro tier already pays — upsell header must never appear on pro responses."""
+    from auth import hash_key
+    from config import KEY_LENGTH, KEY_PREFIX
+    from db import get_api_db, save_api_key
+
+    test_key = KEY_PREFIX + "b" * KEY_LENGTH
+    key_hash = hash_key(test_key)
+    try:
+        save_api_key(key_hash)
+        r = client.get("/v1/ioc/xxx", headers={"Authorization": f"Bearer {test_key}"})
+        assert r.headers.get("X-RateLimit-Tier") == "pro"
+        assert "X-Upgrade-URL" not in r.headers
+    finally:
+        with get_api_db() as con:
+            con.execute("DELETE FROM api_keys WHERE key_hash = ?", (key_hash,))
+
+
 def test_regular_endpoint_still_costs_one_per_call():
     """Non-weighted endpoints should decrement X-RateLimit-Remaining by 1 per call."""
     from ratelimit import reset

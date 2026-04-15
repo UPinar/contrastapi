@@ -47,6 +47,9 @@ COST_THREAT_REPORT = 4  # ip_enrichment + abuseipdb + shodan + asn
 KEY_PREFIX = "cc_"
 KEY_LENGTH = 48  # hex chars after prefix
 
+# Upgrade signal — pricing URL surfaced to free-tier clients on 429
+UPGRADE_URL = "https://contrastcyber.com/pricing"
+
 # Domain validation
 MAX_DOMAIN_LENGTH = 253
 

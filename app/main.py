@@ -21,7 +21,8 @@ import time
 import uuid
 from contextlib import asynccontextmanager
 
-from config import BASE_DIR, VERSION
+from auth import extract_key
+from config import BASE_DIR, UPGRADE_URL, VERSION
 from db import (
     get_and_clear_pending_key,
     get_key_by_order_id,
@@ -219,6 +220,13 @@ async def request_middleware(request: Request, call_next):
     cost = getattr(request.state, "ratelimit_cost", None)
     if cost is not None:
         response.headers["X-RateLimit-Cost"] = str(cost)
+
+    # Upgrade signal: only on free-tier 429s (Pro already pays; 200s don't need upsell).
+    # auth.authenticate() raises HTTPException(429) BEFORE setting request.state.ratelimit_tier
+    # (see auth.py:113 vs auth.py:124), so `tier` is None in middleware on the 429 path.
+    # Fall back to extract_key(): no valid Bearer cc_ token == free tier.
+    if response.status_code == 429 and extract_key(request) is None:
+        response.headers["X-Upgrade-URL"] = UPGRADE_URL
 
     # Request logging + metrics
     elapsed = int((time.time() - start) * 1000)
@@ -911,6 +919,11 @@ def api_capabilities():
             "X-RateLimit-Cost",
             "X-RateLimit-Tier",
         ],
+        "upgrade_signal": {
+            "header": "X-Upgrade-URL",
+            "emitted_when": "Only on HTTP 429 responses for free-tier clients",
+            "value": UPGRADE_URL,
+        },
         "blast_radius_legend": {
             "zero": "Local DB or pure computation. No outbound network to target.",
             "low": "Third-party API lookup or passive DNS/WHOIS/CT. Does not contact target host.",
