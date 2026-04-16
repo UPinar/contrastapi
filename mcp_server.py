@@ -442,7 +442,7 @@ async def cve_search(
         ),
     ] = "",
     limit: Annotated[int, Field(description="Maximum results to return. Range: 1-200.", ge=1, le=200)] = 10,
-    offset: Annotated[int, Field(description="Skip N results for pagination. Use with limit to page through results.", ge=0)] = 0,
+    offset: Annotated[int, Field(description="Skip N results for pagination. Use with limit to page through results.", ge=0, le=5000)] = 0,
 ) -> str:
     """Search the CVE database with filters. Returns matching vulnerabilities with CVSS scores, EPSS exploit probability, and KEV status.
 
@@ -467,6 +467,18 @@ Returns: count (returned), total (matching), truncated (true = more pages availa
     if offset > 0:
         params["offset"] = offset
     return _fmt(await _get("/v1/cves", params))
+
+
+@mcp.tool(annotations=_RO)
+async def cve_leading(
+    limit: Annotated[int, Field(description="Maximum results to return. Range: 1-200.", ge=1, le=200)] = 50,
+    offset: Annotated[int, Field(description="Skip N results for pagination.", ge=0, le=5000)] = 0,
+) -> str:
+    """List CVEs that ContrastAPI indexed from MITRE/GHSA BEFORE NVD has published them. These are early-warning vulnerabilities — we have the data, NVD doesn't yet. Use this to find the freshest, most actionable CVEs that other tools miss. Returns the same format as cve_search: count, total, truncated, offset, results array. Each result includes sources and first_seen_source fields showing which upstream (mitre/ghsa) first reported it."""
+    params: dict = {"limit": limit}
+    if offset > 0:
+        params["offset"] = offset
+    return _fmt(await _get("/v1/cve/leading", params))
 
 
 @mcp.tool(annotations=_RO)

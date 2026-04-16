@@ -112,7 +112,7 @@ MCP server framework for AI agent tool integration.
 | Function / Class | Signature | What it does | Used in |
 |-----------------|-----------|--------------|---------|
 | `FastMCP()` | `FastMCP(name, instructions, stateless_http=True)` | Creates MCP server with tool registry | mcp_server.py |
-| `@mcp.tool()` | `@mcp.tool() async def my_tool(param: str) -> str` | Registers function as MCP tool (29 tools) | mcp_server.py |
+| `@mcp.tool()` | `@mcp.tool() async def my_tool(param: str) -> str` | Registers function as MCP tool (30 tools) | mcp_server.py |
 | `TransportSecuritySettings` | `TransportSecuritySettings(enable_dns_rebinding_protection=False)` | Configures transport security for public API | mcp_server.py |
 
 ---

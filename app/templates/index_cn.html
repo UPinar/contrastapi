@@ -4,10 +4,10 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ContrastAPI — 安全情报 API</title>
-  <meta name="description" content="面向 AI 模型和开发者的安全情报 API 和 MCP 服务器，29 个工具。CVE 查询、域名侦察、威胁情报、代码安全。免费，无需 API 密钥。">
+  <meta name="description" content="面向 AI 模型和开发者的安全情报 API 和 MCP 服务器，{{ tool_count }} 个工具。CVE 查询、域名侦察、威胁情报、代码安全。免费，无需 API 密钥。">
   <meta name="keywords" content="MCP 安全工具, API 安全扫描, CVE 查询, 域名情报, 威胁情报, AI 安全, MCP 服务器, 安全 API">
-  <meta property="og:title" content="ContrastAPI — 29 个 AI 安全工具">
-  <meta property="og:description" content="免费安全情报 MCP 服务器，29 个工具：CVE、域名侦察、IOC、漏洞利用搜索、代码安全。无需注册。">
+  <meta property="og:title" content="ContrastAPI — {{ tool_count }} 个 AI 安全工具">
+  <meta property="og:description" content="免费安全情报 MCP 服务器，{{ tool_count }} 个工具：CVE、域名侦察、IOC、漏洞利用搜索、代码安全。无需注册。">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://api.contrastcyber.com/cn/">
   <meta property="og:image" content="https://api.contrastcyber.com/static/og-image.png">
@@ -64,8 +64,8 @@
   </nav>
 
   <section class="hero">
-    <div class="pill">29 个工具 · 36+ 接口 · MCP 服务器</div>
-    <h1>29 个安全工具，<br><span class="gradient">一份 JSON 配置。</span></h1>
+    <div class="pill">{{ tool_count }} 个工具 · {{ endpoint_count }} 接口 · MCP 服务器</div>
+    <h1>{{ tool_count }} 个安全工具，<br><span class="gradient">一份 JSON 配置。</span></h1>
     <p class="subtitle">CVE + EPSS + KEV 查询、域名侦察、IP 威胁报告、IOC 增强，以及代码安全扫描。结构化 JSON + LLM 优化摘要。支持 Claude Desktop、Cursor、VS Code，以及任何 MCP 兼容客户端（含 DeepSeek、Qwen）。</p>
     <div class="cta-group">
       <a href="#setup" class="btn-cta">30 秒内安装 →</a>
@@ -86,7 +86,7 @@
     <div class="trust-strip-inner">
       <span><strong>893</strong> 项测试通过</span>
       <span><a href="https://smithery.ai/servers/contrastcyber/contrastapi" target="_blank" rel="noopener">Smithery</a> <strong>96/100</strong></span>
-      <span><strong>29</strong> 个 MCP 工具，<strong>36+</strong> 接口</span>
+      <span><strong>{{ tool_count }}</strong> 个 MCP 工具，<strong>{{ endpoint_count }}</strong> 接口</span>
       <span><a href="https://www.npmjs.com/package/contrastapi" target="_blank" rel="noopener">npm</a> · <a href="https://marketplace.visualstudio.com/items?itemName=ContrastAPI.contrastapi" target="_blank" rel="noopener">VS Code</a></span>
       <span>MIT 许可 · 永久免费</span>
     </div>
@@ -129,7 +129,7 @@ await api.cve.lookup("CVE-2024-3094");</pre>
         <h3>4. VS Code 扩展</h3>
         <pre>code --install-extension \
   ContrastAPI.contrastapi</pre>
-        <p class="setup-card-note">29 个命令 · 侧边栏树 · 右键菜单 · 无需 API 密钥</p>
+        <p class="setup-card-note">{{ tool_count }} 个命令 · 侧边栏树 · 右键菜单 · 无需 API 密钥</p>
         <a href="https://marketplace.visualstudio.com/items?itemName=ContrastAPI.contrastapi" target="_blank" rel="noopener">Marketplace →</a>
       </div>
     </div>
@@ -421,7 +421,7 @@ await api.cve.lookup("CVE-2024-3094");</pre>
         <div class="price">$0 / 永久免费</div>
         <ul>
           <li>100 信用/小时</li>
-          <li>全部 29 个接口</li>
+          <li>全部 {{ tool_count }} 个接口</li>
           <li>批量端点：每次 10 条</li>
           <li>无需注册</li>
           <li>社区支持</li>

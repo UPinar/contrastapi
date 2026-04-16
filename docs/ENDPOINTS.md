@@ -1,6 +1,6 @@
 # ContrastAPI Endpoints
 
-Full list of 39+ REST endpoints. Base URL: `https://api.contrastcyber.com`
+Full list of 40+ REST endpoints. Base URL: `https://api.contrastcyber.com`
 
 - **Free tier:** 100 credits/hour, no API key required
 - **Pro tier:** 1,000 credits/hour ([Get API Key](https://contrastcyber.com/pricing))
@@ -36,6 +36,7 @@ GET /v1/asn/{target}              ASN lookup (AS number or IP)
 ## CVE Intelligence
 
 ```
+GET  /v1/cve/leading              CVEs indexed before NVD (MITRE/GHSA-only)
 GET  /v1/cve/{cve_id}             CVE details + EPSS + KEV
 GET  /v1/cves?product=&severity=&kev=&epss_min=&sort=&offset=  Search CVEs (with pagination)
 GET  /v1/exploit/{cve_id}         Public exploit search (GitHub Advisory + Shodan)

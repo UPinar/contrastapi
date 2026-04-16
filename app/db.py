@@ -662,6 +662,27 @@ def get_cve(cve_id: str) -> dict | None:
         return _deserialize_cve(row) if row else None
 
 
+def get_leading_cves(limit: int = 50, offset: int = 0) -> tuple[list[dict], int]:
+    """Return CVEs that exist in MITRE/GHSA but NOT yet in NVD.
+    These are 'leading' CVEs — indexed before NVD enriches them."""
+    with get_cve_db() as con:
+        cur = con.cursor()
+        cur.row_factory = sqlite3.Row
+
+        where = (
+            "EXISTS (SELECT 1 FROM cve_sources cs WHERE cs.cve_id = c.cve_id AND cs.source IN ('mitre', 'ghsa')) "
+            "AND NOT EXISTS (SELECT 1 FROM cve_sources cs WHERE cs.cve_id = c.cve_id AND cs.source = 'nvd')"
+        )
+        total = cur.execute(f"SELECT COUNT(*) FROM cves c WHERE {where}").fetchone()[0]
+        rows = cur.execute(
+            f"SELECT c.* FROM cves c WHERE {where} "
+            "ORDER BY (SELECT MIN(first_seen_at) FROM cve_sources WHERE cve_id = c.cve_id) DESC "
+            "LIMIT ? OFFSET ?",
+            (limit, offset),
+        ).fetchall()
+        return [_deserialize_cve(row) for row in rows], total
+
+
 def search_cves(
     product: str | None = None,
     severity: str | None = None,

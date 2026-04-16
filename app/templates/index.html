@@ -4,16 +4,16 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ContrastAPI — Security Intelligence API</title>
-  <meta name="description" content="Security intelligence API and MCP server with 29 tools. CVE lookup, domain recon, threat intel, code security. Free, no API key required.">
-  <meta property="og:title" content="ContrastAPI — 29 Security Tools for AI Agents">
-  <meta property="og:description" content="Free security intelligence API and MCP server. 29 tools: CVE, domain recon, IOC, exploit search, code security. No signup required.">
+  <meta name="description" content="Security intelligence API and MCP server with {{ tool_count }} tools. CVE lookup, domain recon, threat intel, code security. Free, no API key required.">
+  <meta property="og:title" content="ContrastAPI — {{ tool_count }} Security Tools for AI Agents">
+  <meta property="og:description" content="Free security intelligence API and MCP server. {{ tool_count }} tools: CVE, domain recon, IOC, exploit search, code security. No signup required.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://api.contrastcyber.com">
   <meta property="og:image" content="https://api.contrastcyber.com/static/og-image.png">
   <meta property="og:site_name" content="ContrastAPI">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="ContrastAPI — 29 Security Tools for AI Agents">
-  <meta name="twitter:description" content="Free security MCP server. 29 tools: CVE, domain recon, IOC, exploit search, code security. No signup.">
+  <meta name="twitter:title" content="ContrastAPI — {{ tool_count }} Security Tools for AI Agents">
+  <meta name="twitter:description" content="Free security MCP server. {{ tool_count }} tools: CVE, domain recon, IOC, exploit search, code security. No signup.">
   <meta name="twitter:image" content="https://api.contrastcyber.com/static/og-image.png">
   <meta name="msvalidate.01" content="FF2D74F962D3EB9B4CD7B81481A4C873">
   <link rel="canonical" href="https://api.contrastcyber.com/">
@@ -61,8 +61,8 @@
   </nav>
 
   <section class="hero">
-    <div class="pill">29 TOOLS · 36+ ENDPOINTS · MCP SERVER</div>
-    <h1>29 security tools,<br><span class="gradient">one JSON config.</span></h1>
+    <div class="pill">{{ tool_count }} TOOLS · {{ endpoint_count }} ENDPOINTS · MCP SERVER</div>
+    <h1>{{ tool_count }} security tools,<br><span class="gradient">one JSON config.</span></h1>
     <p class="subtitle">CVE + EPSS + KEV lookup, domain recon, IP threat reports, IOC enrichment, and code security. Structured JSON with LLM-optimized summaries. Works with Claude Desktop, Cursor, VS Code, and any MCP client.</p>
     <div class="cta-group">
       <a href="#setup" class="btn-cta">Install in 30 seconds →</a>
@@ -83,7 +83,7 @@
     <div class="trust-strip-inner">
       <span><strong>893</strong> tests passing</span>
       <span><strong>96/100</strong> on <a href="https://smithery.ai/servers/contrastcyber/contrastapi" target="_blank" rel="noopener">Smithery</a></span>
-      <span><strong>29</strong> MCP tools, <strong>36+</strong> endpoints</span>
+      <span><strong>{{ tool_count }}</strong> MCP tools, <strong>{{ endpoint_count }}</strong> endpoints</span>
       <span><a href="https://www.npmjs.com/package/contrastapi" target="_blank" rel="noopener">npm</a> · <a href="https://marketplace.visualstudio.com/items?itemName=ContrastAPI.contrastapi" target="_blank" rel="noopener">VS Code</a></span>
       <span>MIT licensed · Free forever</span>
     </div>

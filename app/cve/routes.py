@@ -10,6 +10,7 @@ from db import (
     get_cve,
     get_cve_sources,
     get_last_successful_sync,
+    get_leading_cves,
     save_cached_domain,
     search_cves,
 )
@@ -45,6 +46,36 @@ def _check_cve_input(cve_id: str):
         raise HTTPException(status_code=400, detail="Invalid CVE ID format (expected CVE-YYYY-NNNNN)")
 
 
+@router.get(
+    "/cve/leading",
+    operation_id="cve_leading",
+    response_model=CveSearchResponse,
+    response_model_exclude_none=True,
+)
+def cve_leading(
+    request: Request,
+    limit: int = Query(50, ge=1, le=200, description="Max results per page"),
+    offset: int = Query(0, ge=0, le=5000, description="Number of results to skip (for pagination)"),
+):
+    """CVEs indexed from MITRE/GHSA before NVD has enriched them. These are
+    vulnerabilities we know about that NVD hasn't published yet — our unique
+    early-warning feed."""
+    authenticate(request, request.url.path)
+
+    results, total = get_leading_cves(limit=limit, offset=offset)
+    count = len(results)
+    truncated = total > offset + count
+    summary = f"{count} leading CVE{'s' if count != 1 else ''} returned, {total} total (indexed before NVD)"
+    return {
+        "count": count,
+        "total": total,
+        "truncated": truncated,
+        "offset": offset,
+        "summary": summary,
+        "results": [_format_cve(r) for r in results],
+    }
+
+
 @router.get("/cve/{cve_id}", operation_id="cve_lookup", response_model=CveResponse, response_model_exclude_none=True)
 def cve_lookup(cve_id: str, request: Request):
     """Look up a single CVE by ID. Returns full details with EPSS score and KEV status."""
@@ -77,7 +108,7 @@ def cve_search(
     epss_min: float | None = Query(None, ge=0.0, le=1.0, description="Minimum EPSS score (0.0-1.0)"),
     sort: str | None = Query(None, description="Sort order: epss_desc, cvss_desc, published_desc (default)"),
     limit: int = Query(50, ge=1, le=200, description="Max results per page"),
-    offset: int = Query(0, ge=0, le=100000, description="Number of results to skip (for pagination)"),
+    offset: int = Query(0, ge=0, le=5000, description="Number of results to skip (for pagination)"),
 ):
     """Search CVEs by product, severity, date range, KEV status, and EPSS score."""
     authenticate(request, request.url.path)

@@ -25,7 +25,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from auth import extract_key
-from config import BASE_DIR, UPGRADE_URL, VERSION
+from config import BASE_DIR, ENDPOINT_COUNT, MCP_TOOL_COUNT, UPGRADE_URL, VERSION
 from db import (
     get_and_clear_pending_key,
     get_key_by_order_id,
@@ -401,14 +401,20 @@ async def generic_error_handler(request: Request, exc: Exception):
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
 def landing_page(request: Request):
     total = get_total_requests()
-    return templates.TemplateResponse(request, "index.html", {"total_requests": total})
+    return templates.TemplateResponse(
+        request, "index.html", {"total_requests": total, "tool_count": MCP_TOOL_COUNT, "endpoint_count": ENDPOINT_COUNT}
+    )
 
 
 @app.get("/cn/", response_class=HTMLResponse, include_in_schema=False)
 @app.get("/cn", response_class=HTMLResponse, include_in_schema=False)
 def landing_page_cn(request: Request):
     total = get_total_requests()
-    return templates.TemplateResponse(request, "index_cn.html", {"total_requests": total})
+    return templates.TemplateResponse(
+        request,
+        "index_cn.html",
+        {"total_requests": total, "tool_count": MCP_TOOL_COUNT, "endpoint_count": ENDPOINT_COUNT},
+    )
 
 
 @app.get("/welcome", response_class=HTMLResponse, include_in_schema=False)
@@ -737,6 +743,7 @@ Accept: application/json, text/event-stream
       <div class="tool"><span class="name">asn_lookup</span> <span class="desc">ASN/network info</span></div>
       <div class="tool"><span class="name">cve_lookup</span> <span class="desc">CVE + EPSS + KEV</span></div>
       <div class="tool"><span class="name">cve_search</span> <span class="desc">Search CVEs by product</span></div>
+      <div class="tool"><span class="name">cve_leading</span> <span class="desc">CVEs before NVD</span></div>
       <div class="tool"><span class="name">bulk_cve_lookup</span> <span class="desc">Bulk CVE lookup (up to 50)</span></div>
       <div class="tool"><span class="name">exploit_lookup</span> <span class="desc">Public exploits</span></div>
       <div class="tool"><span class="name">ioc_lookup</span> <span class="desc">IOC enrichment</span></div>
@@ -919,12 +926,12 @@ def privacy_my_data(request: Request):
 
 @app.get("/v1/capabilities", operation_id="api_capabilities", tags=["Meta"])
 def api_capabilities():
-    """Machine-readable catalog of all 29 MCP tools and REST endpoints."""
+    """Machine-readable catalog of all MCP tools and REST endpoints."""
     return {
         "schema_version": "1.0",
         "api_version": VERSION,
         "base_url": "https://api.contrastcyber.com",
-        "total_tools": 29,
+        "total_tools": MCP_TOOL_COUNT,
         "verdict_metadata": True,
         "auth": {
             "type": "none_required",
@@ -978,6 +985,16 @@ def api_capabilities():
                         "description": "Search CVEs by product, severity, date",
                         "params": {"product": "str", "severity": "str", "days": "int", "limit": "int"},
                         "response_keys": ["count", "summary", "results"],
+                    },
+                    {
+                        "name": "cve_leading",
+                        "method": "GET",
+                        "path": "/v1/cve/leading",
+                        "credit_cost": 1,
+                        "blast_radius": "zero",
+                        "description": "CVEs indexed from MITRE/GHSA before NVD — early-warning feed",
+                        "params": {"limit": "int", "offset": "int"},
+                        "response_keys": ["count", "total", "summary", "results"],
                     },
                     {
                         "name": "exploit_lookup",
@@ -1381,7 +1398,7 @@ def api_capabilities():
 @app.get("/llms.txt", response_class=PlainTextResponse, include_in_schema=False)
 def llms_txt():
     """LLM discovery file — concise version for quick context."""
-    return """\
+    return f"""\
 # ContrastAPI
 
 > Security intelligence API for AI models and developers. Free to use, no API key required.
@@ -1415,53 +1432,53 @@ Rate limit headers returned: X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLim
 ## Credit Costs
 
 Most endpoints cost 1 credit per call. Aggregating endpoints that fan out to multiple upstream sources cost more:
-- `GET /v1/audit/{domain}` — 4 credits (domain report + live headers + tech fingerprint)
-- `GET /v1/threat-report/{ip}` — 4 credits (Shodan + AbuseIPDB + full Shodan + ASN)
+- `GET /v1/audit/{{domain}}` — 4 credits (domain report + live headers + tech fingerprint)
+- `GET /v1/threat-report/{{ip}}` — 4 credits (Shodan + AbuseIPDB + full Shodan + ASN)
 - `POST /v1/cves/bulk`, `POST /v1/iocs/bulk` — 1 credit per item in the request
 - All other endpoints — 1 credit
 
 Every authenticated response includes X-RateLimit-Cost so clients can budget calls transparently.
 
-## Endpoints (29 MCP tools)
+## Endpoints ({MCP_TOOL_COUNT} MCP tools)
 
 ### CVE Intelligence
-- GET /v1/cve/{cve_id} — Full CVE details with EPSS score, KEV status, CVSS breakdown
+- GET /v1/cve/{{cve_id}} — Full CVE details with EPSS score, KEV status, CVSS breakdown
 - GET /v1/cves?product=&severity=&days= — Search CVEs by product, severity, date
-- GET /v1/exploit/{cve_id} — Public exploits and advisories (GitHub Advisory, ExploitDB)
+- GET /v1/exploit/{{cve_id}} — Public exploits and advisories (GitHub Advisory, ExploitDB)
 - POST /v1/cves/bulk — Bulk CVE lookup (10 free, 50 pro per request)
 
 ### Domain Intelligence
-- GET /v1/domain/{domain} — Full domain report (DNS + WHOIS + SSL + subdomains + WAF + email security + threat intel + risk score)
-- GET /v1/audit/{domain} — Orchestrated domain audit (full report + tech fingerprint + live headers in one call)
-- GET /v1/threat-report/{ip} — Orchestrated IP threat report (Shodan + AbuseIPDB + ASN + enrichment)
-- GET /v1/dns/{domain} — DNS records (A, AAAA, MX, NS, TXT, CNAME, SOA)
-- GET /v1/whois/{domain} — WHOIS registration data
-- GET /v1/ssl/{domain} — SSL/TLS certificate analysis (cipher, chain, expiry, grade)
-- GET /v1/subdomains/{domain} — Subdomain enumeration (DNS brute + CT logs)
-- GET /v1/certs/{domain} — Certificate Transparency log entries
-- GET /v1/ip/{ip} — IP intelligence (reverse DNS, open ports, vulns, hostnames via Shodan)
-- GET /v1/asn/{target} — ASN lookup (AS number, holder, prefixes). Accepts domain or IP
-- GET /v1/threat/{domain} — Threat intelligence (URLhaus malware URL lookup)
-- GET /v1/tech/{domain} — Technology fingerprinting (CMS, frameworks, servers, CDN, analytics)
-- GET /v1/scan/headers/{domain} — Live HTTP security header scan and analysis
-- GET /v1/email/mx/{domain} — Email MX analysis (provider, SPF/DMARC/DKIM, security grade)
-- GET /v1/email/disposable/{email} — Check if email uses disposable/temporary provider
-- GET /v1/phone/{number} — Phone number validation (format, country, type, carrier, timezone)
-- GET /v1/username/{username} — Username OSINT across 16 platforms
-- GET /v1/archive/{domain} — Wayback Machine historical snapshots
+- GET /v1/domain/{{domain}} — Full domain report (DNS + WHOIS + SSL + subdomains + WAF + email security + threat intel + risk score)
+- GET /v1/audit/{{domain}} — Orchestrated domain audit (full report + tech fingerprint + live headers in one call)
+- GET /v1/threat-report/{{ip}} — Orchestrated IP threat report (Shodan + AbuseIPDB + ASN + enrichment)
+- GET /v1/dns/{{domain}} — DNS records (A, AAAA, MX, NS, TXT, CNAME, SOA)
+- GET /v1/whois/{{domain}} — WHOIS registration data
+- GET /v1/ssl/{{domain}} — SSL/TLS certificate analysis (cipher, chain, expiry, grade)
+- GET /v1/subdomains/{{domain}} — Subdomain enumeration (DNS brute + CT logs)
+- GET /v1/certs/{{domain}} — Certificate Transparency log entries
+- GET /v1/ip/{{ip}} — IP intelligence (reverse DNS, open ports, vulns, hostnames via Shodan)
+- GET /v1/asn/{{target}} — ASN lookup (AS number, holder, prefixes). Accepts domain or IP
+- GET /v1/threat/{{domain}} — Threat intelligence (URLhaus malware URL lookup)
+- GET /v1/tech/{{domain}} — Technology fingerprinting (CMS, frameworks, servers, CDN, analytics)
+- GET /v1/scan/headers/{{domain}} — Live HTTP security header scan and analysis
+- GET /v1/email/mx/{{domain}} — Email MX analysis (provider, SPF/DMARC/DKIM, security grade)
+- GET /v1/email/disposable/{{email}} — Check if email uses disposable/temporary provider
+- GET /v1/phone/{{number}} — Phone number validation (format, country, type, carrier, timezone)
+- GET /v1/username/{{username}} — Username OSINT across 16 platforms
+- GET /v1/archive/{{domain}} — Wayback Machine historical snapshots
 
 ### Threat Intelligence / IOC
-- GET /v1/ioc/{indicator} — Unified IOC enrichment (IP, domain, URL, hash → ThreatFox/URLhaus/Feodo)
-- GET /v1/hash/{file_hash} — Malware hash reputation via MalwareBazaar
-- GET /v1/password/{sha1_hash} — Password breach check via HIBP (k-anonymity)
-- GET /v1/phishing/{url} — Phishing/malware URL check via URLhaus
+- GET /v1/ioc/{{indicator}} — Unified IOC enrichment (IP, domain, URL, hash → ThreatFox/URLhaus/Feodo)
+- GET /v1/hash/{{file_hash}} — Malware hash reputation via MalwareBazaar
+- GET /v1/password/{{sha1_hash}} — Password breach check via HIBP (k-anonymity)
+- GET /v1/phishing/{{url}} — Phishing/malware URL check via URLhaus
 - POST /v1/iocs/bulk — Bulk IOC enrichment (10 free, 50 pro per request)
 
 ### Code Security
-- POST /v1/check/headers — Validate HTTP security headers (JSON body: {"headers": {...}})
-- POST /v1/check/secrets — Detect hardcoded secrets (JSON body: {"code": "...", "language": "python"})
-- POST /v1/check/injection — SQL/command/path injection detection (JSON body: {"code": "...", "language": "python"})
-- POST /v1/check/dependencies — Check packages against CVE DB (JSON body: {"packages": [{"name": "...", "version": "..."}]})
+- POST /v1/check/headers — Validate HTTP security headers (JSON body: {{"headers": {{...}}}})
+- POST /v1/check/secrets — Detect hardcoded secrets (JSON body: {{"code": "...", "language": "python"}})
+- POST /v1/check/injection — SQL/command/path injection detection (JSON body: {{"code": "...", "language": "python"}})
+- POST /v1/check/dependencies — Check packages against CVE DB (JSON body: {{"packages": [{{"name": "...", "version": "..."}}]}})
 
 ### Meta
 - GET /v1/status — API health check and data freshness
@@ -1470,11 +1487,11 @@ Every authenticated response includes X-RateLimit-Cost so clients can budget cal
 
 ## MCP (Model Context Protocol)
 
-ContrastAPI is available as an MCP server with 29 tools.
+ContrastAPI is available as an MCP server with {MCP_TOOL_COUNT} tools.
 MCP tools: domain_report, audit_domain, dns_lookup, whois_lookup, ssl_check, subdomain_enum,
 tech_fingerprint, threat_intel, scan_headers, email_mx, email_disposable,
 phone_lookup, username_lookup, wayback_lookup, ip_lookup, asn_lookup, threat_report,
-cve_lookup, cve_search, exploit_lookup, bulk_cve_lookup, ioc_lookup, hash_lookup,
+cve_lookup, cve_search, cve_leading, exploit_lookup, bulk_cve_lookup, ioc_lookup, hash_lookup,
 password_check, phishing_check, bulk_ioc_lookup, check_secrets, check_injection, check_headers.
 
 ### HTTP Transport (remote)
@@ -1484,7 +1501,7 @@ Body: JSON-RPC 2.0 (initialize, tools/list, tools/call)
 
 ### Stdio Transport (local)
 Add to .mcp.json:
-{"mcpServers": {"contrastapi": {"command": "python3", "args": ["/path/to/mcp_server.py"]}}}
+{{"mcpServers": {{"contrastapi": {{"command": "python3", "args": ["/path/to/mcp_server.py"]}}}}}}
 
 ## Quick Examples
 
@@ -1514,7 +1531,7 @@ GET https://api.contrastcyber.com/v1/tech/example.com
 
 ### Secret Detection
 POST https://api.contrastcyber.com/v1/check/secrets
-Body: {"code": "aws_key = 'AKIAIOSFODNN7EXAMPLE'", "language": "python"}
+Body: {{"code": "aws_key = 'AKIAIOSFODNN7EXAMPLE'", "language": "python"}}
 → Returns findings with severity, line number, remediation advice
 """
 
@@ -1522,137 +1539,137 @@ Body: {"code": "aws_key = 'AKIAIOSFODNN7EXAMPLE'", "language": "python"}
 @app.get("/llms-full.txt", response_class=PlainTextResponse, include_in_schema=False)
 def llms_full_txt():
     """Full API reference for LLM context — compact format, under 200 lines."""
-    return """\
+    return f"""\
 # ContrastAPI — Full API Reference
 
-> Security intelligence API. 29 MCP tools. Base URL: https://api.contrastcyber.com
+> Security intelligence API. {MCP_TOOL_COUNT} MCP tools. Base URL: https://api.contrastcyber.com
 > Auth: None required (100 req/hr). Pro: Authorization: Bearer cc_xxx (1000 req/hr).
 > All responses JSON with a "summary" field optimized for LLM consumption.
 > OpenAPI spec: https://api.contrastcyber.com/openapi.json
 
 ## CVE Intelligence
 
-GET /v1/cve/{cve_id} — Full CVE details with EPSS + KEV + CVSS breakdown.
-  Response keys: cve_id, summary, description, severity, cvss_v3, cvss_breakdown, cwe_id, epss:{score,percentile}, kev:{in_kev,date_added}, affected_products, published, modified, references
+GET /v1/cve/{{cve_id}} — Full CVE details with EPSS + KEV + CVSS breakdown.
+  Response keys: cve_id, summary, description, severity, cvss_v3, cvss_breakdown, cwe_id, epss:{{score,percentile}}, kev:{{in_kev,date_added}}, affected_products, published, modified, references
   Errors: 400, 404
 
 GET /v1/cves?product=&severity=&days=&limit= — Search CVEs by product/severity/date.
   Response keys: count, summary, results
 
-GET /v1/exploit/{cve_id} — Public exploits (GitHub Advisory + ExploitDB).
-  Response keys: cve_id, exploits_found, sources:{github:{found,count,advisories},exploitdb:{found,count,results}}, has_public_exploit, summary
+GET /v1/exploit/{{cve_id}} — Public exploits (GitHub Advisory + ExploitDB).
+  Response keys: cve_id, exploits_found, sources:{{github:{{found,count,advisories}},exploitdb:{{found,count,results}}}}, has_public_exploit, summary
 
-POST /v1/cves/bulk — Bulk CVE lookup. Body: {"cve_ids":["CVE-2024-1234",...]} (max 10 free, 50 pro).
-  Response keys: results:[{cve_id,status,cve,error}], total, successful, failed, summary
+POST /v1/cves/bulk — Bulk CVE lookup. Body: {{"cve_ids":["CVE-2024-1234",...]}} (max 10 free, 50 pro).
+  Response keys: results:[{{cve_id,status,cve,error}}], total, successful, failed, summary
 
 ## Domain Intelligence
 
-GET /v1/domain/{domain} — Full domain report (DNS+WHOIS+SSL+subdomains+WAF+email+threat+risk). Supports ?lite=true.
-  Response keys: domain, summary, dns, reverse_dns, whois, ssl, email_security, subdomains, certificates, waf, threat, risk:{score,grade,factors}
+GET /v1/domain/{{domain}} — Full domain report (DNS+WHOIS+SSL+subdomains+WAF+email+threat+risk). Supports ?lite=true.
+  Response keys: domain, summary, dns, reverse_dns, whois, ssl, email_security, subdomains, certificates, waf, threat, risk:{{score,grade,factors}}
 
-GET /v1/audit/{domain} — Orchestrated audit: full domain report + tech fingerprint + live HTTP headers in one call.
-  Response keys: domain, report (full domain intel), technologies:{technologies,categories,count,summary}, live_headers, summary
+GET /v1/audit/{{domain}} — Orchestrated audit: full domain report + tech fingerprint + live HTTP headers in one call.
+  Response keys: domain, report (full domain intel), technologies:{{technologies,categories,count,summary}}, live_headers, summary
 
-GET /v1/threat-report/{ip} — Orchestrated IP threat report: Shodan InternetDB + AbuseIPDB + Shodan full + ASN. No private IPs.
-  Response keys: ip, enrichment:{ports,hostnames,vulns,cpes,tags}, abuseipdb, shodan, asn:{asn,prefix}, threat_level, summary
+GET /v1/threat-report/{{ip}} — Orchestrated IP threat report: Shodan InternetDB + AbuseIPDB + Shodan full + ASN. No private IPs.
+  Response keys: ip, enrichment:{{ports,hostnames,vulns,cpes,tags}}, abuseipdb, shodan, asn:{{asn,prefix}}, threat_level, summary
 
-GET /v1/dns/{domain} — DNS records (A, AAAA, MX, NS, TXT, CNAME, SOA).
-  Response keys: domain, records:{a,aaaa,mx,ns,txt,cname,soa}, summary
+GET /v1/dns/{{domain}} — DNS records (A, AAAA, MX, NS, TXT, CNAME, SOA).
+  Response keys: domain, records:{{a,aaaa,mx,ns,txt,cname,soa}}, summary
 
-GET /v1/whois/{domain} — WHOIS registration data.
-  Response keys: domain, whois:{registrar,creation_date,expiry_date,name_servers}, summary
+GET /v1/whois/{{domain}} — WHOIS registration data.
+  Response keys: domain, whois:{{registrar,creation_date,expiry_date,name_servers}}, summary
 
-GET /v1/ssl/{domain} — SSL/TLS certificate analysis.
-  Response keys: domain, valid, issuer, subject, not_before, not_after, days_remaining, san, protocol, cipher:{name,bits}, chain, grade, summary
+GET /v1/ssl/{{domain}} — SSL/TLS certificate analysis.
+  Response keys: domain, valid, issuer, subject, not_before, not_after, days_remaining, san, protocol, cipher:{{name,bits}}, chain, grade, summary
 
-GET /v1/subdomains/{domain} — Subdomain enumeration (DNS brute + CT logs).
+GET /v1/subdomains/{{domain}} — Subdomain enumeration (DNS brute + CT logs).
   Response keys: domain, subdomains, count, summary
 
-GET /v1/certs/{domain} — Certificate Transparency log entries.
-  Response keys: domain, total_certificates, certificates:[{issuer,not_before,not_after,common_name}], summary
+GET /v1/certs/{{domain}} — Certificate Transparency log entries.
+  Response keys: domain, total_certificates, certificates:[{{issuer,not_before,not_after,common_name}}], summary
 
-GET /v1/ip/{ip} — IP intelligence (Shodan InternetDB). No private/reserved IPs.
+GET /v1/ip/{{ip}} — IP intelligence (Shodan InternetDB). No private/reserved IPs.
   Response keys: ip, ptr, ports, hostnames, vulns, cpes, tags, summary
 
-GET /v1/asn/{target} — ASN lookup. Accepts domain or IP.
+GET /v1/asn/{{target}} — ASN lookup. Accepts domain or IP.
   Response keys: target, resolved_ip, asn, asn_name, ipv4_prefixes, ipv6_prefixes, ipv4_count, ipv6_count, summary
 
-GET /v1/threat/{domain} — Threat intelligence (URLhaus).
+GET /v1/threat/{{domain}} — Threat intelligence (URLhaus).
   Response keys: domain, urlhaus_status, urls_online, url_count, threat_types, tags, urls, summary
 
-GET /v1/tech/{domain} — Technology fingerprinting (CMS, frameworks, CDN).
-  Response keys: domain, technologies:[{name,category,source,version}], categories, count, summary
+GET /v1/tech/{{domain}} — Technology fingerprinting (CMS, frameworks, CDN).
+  Response keys: domain, technologies:[{{name,category,source,version}}], categories, count, summary
 
-GET /v1/scan/headers/{domain} — Live HTTP security header scan.
+GET /v1/scan/headers/{{domain}} — Live HTTP security header scan.
   Response keys: domain, status_code, url, score, grade, findings, headers_present, headers_missing, summary
 
-GET /v1/email/mx/{domain} — Email MX analysis (provider + SPF/DMARC/DKIM).
-  Response keys: domain, mx_records, mail_provider, email_security:{spf,dmarc,dkim_selectors,grade,issues}, summary
+GET /v1/email/mx/{{domain}} — Email MX analysis (provider + SPF/DMARC/DKIM).
+  Response keys: domain, mx_records, mail_provider, email_security:{{spf,dmarc,dkim_selectors,grade,issues}}, summary
 
-GET /v1/email/disposable/{email} — Disposable email check.
+GET /v1/email/disposable/{{email}} — Disposable email check.
   Response keys: email, domain, disposable, provider, mx_disposable, risk_level, summary
 
-GET /v1/phone/{number} — Phone validation. Include country code (e.g. +14155551234).
-  Response keys: valid, number, format:{e164,international,national}, country_code, country_name, type, carrier, timezone, summary
+GET /v1/phone/{{number}} — Phone validation. Include country code (e.g. +14155551234).
+  Response keys: valid, number, format:{{e164,international,national}}, country_code, country_name, type, carrier, timezone, summary
 
-GET /v1/username/{username} — Username OSINT across 16 platforms (3-39 chars).
-  Response keys: username, found_count, checked_count, results:[{platform,url,status}], summary
+GET /v1/username/{{username}} — Username OSINT across 16 platforms (3-39 chars).
+  Response keys: username, found_count, checked_count, results:[{{platform,url,status}}], summary
 
-GET /v1/archive/{domain} — Wayback Machine history.
+GET /v1/archive/{{domain}} — Wayback Machine history.
   Response keys: domain, total_snapshots, first_seen, last_seen, years_online, snapshots, archive_url, summary
 
 ## Threat Intelligence / IOC
 
-GET /v1/ioc/{indicator} — Unified IOC enrichment. Auto-detects IP/domain/URL/hash.
-  Response keys: indicator, type, threat_level, sources:{threatfox,feodo,urlhaus}, summary
+GET /v1/ioc/{{indicator}} — Unified IOC enrichment. Auto-detects IP/domain/URL/hash.
+  Response keys: indicator, type, threat_level, sources:{{threatfox,feodo,urlhaus}}, summary
 
-GET /v1/hash/{file_hash} — Malware hash (MalwareBazaar). MD5/SHA1/SHA256.
+GET /v1/hash/{{file_hash}} — Malware hash (MalwareBazaar). MD5/SHA1/SHA256.
   Response keys: hash, hash_type, found, malware_family, file_type, file_size, first_seen, tags, file_name, summary
 
-GET /v1/password/{sha1_hash} — Password breach check (HIBP k-anonymity). Full SHA1 hash.
+GET /v1/password/{{sha1_hash}} — Password breach check (HIBP k-anonymity). Full SHA1 hash.
   Response keys: hash_prefix, found, breach_count, summary
 
-GET /v1/phishing/{url} — Phishing/malware URL check (URLhaus). Must start with http(s)://.
-  Response keys: url, host, is_malicious, urlhaus_host:{found,urls_online,url_count}, urlhaus_url:{found,threat,tags}, threat_level, summary
+GET /v1/phishing/{{url}} — Phishing/malware URL check (URLhaus). Must start with http(s)://.
+  Response keys: url, host, is_malicious, urlhaus_host:{{found,urls_online,url_count}}, urlhaus_url:{{found,threat,tags}}, threat_level, summary
 
-POST /v1/iocs/bulk — Bulk IOC enrichment. Body: {"indicators":["8.8.8.8","evil.com",...]} (max 10 free, 50 pro).
-  Response keys: results:[{indicator,status,ioc:{type,threat_level,sources},error}], total, successful, failed, timed_out, partial, summary
+POST /v1/iocs/bulk — Bulk IOC enrichment. Body: {{"indicators":["8.8.8.8","evil.com",...]}} (max 10 free, 50 pro).
+  Response keys: results:[{{indicator,status,ioc:{{type,threat_level,sources}},error}}], total, successful, failed, timed_out, partial, summary
 
 ## Code Security
 
-POST /v1/check/secrets — Detect hardcoded secrets (14 patterns). Body: {"code":"...","language":"python"}
-  Response keys: findings:[{type,severity,line,match,description,remediation}], total, by_severity, summary
+POST /v1/check/secrets — Detect hardcoded secrets (14 patterns). Body: {{"code":"...","language":"python"}}
+  Response keys: findings:[{{type,severity,line,match,description,remediation}}], total, by_severity, summary
 
-POST /v1/check/injection — SQL/command/path injection. Body: {"code":"...","language":"python"}
-  Response keys: findings:[{type,severity,line,match,description,remediation}], total, by_severity, summary
+POST /v1/check/injection — SQL/command/path injection. Body: {{"code":"...","language":"python"}}
+  Response keys: findings:[{{type,severity,line,match,description,remediation}}], total, by_severity, summary
 
-POST /v1/check/headers — Validate security headers. Body: {"headers":{"header-name":"value"}}
+POST /v1/check/headers — Validate security headers. Body: {{"headers":{{"header-name":"value"}}}}
   Response keys: findings, total, by_severity, score, grade, headers_present:[], headers_missing:[], summary
 
-POST /v1/check/dependencies — Check packages for CVEs. Body: {"packages":[{"name":"...","version":"..."}]}
-  Response keys: findings:[{package,version,cve_id,severity,cvss_v3,epss_score,in_kev,remediation}], total, by_severity, summary
+POST /v1/check/dependencies — Check packages for CVEs. Body: {{"packages":[{{"name":"...","version":"..."}}]}}
+  Response keys: findings:[{{package,version,cve_id,severity,cvss_v3,epss_score,in_kev,remediation}}], total, by_severity, summary
 
 ## Meta
 
-GET /v1/status — Health check. Response: {status, version, data_sources}
-GET /v1/usage — Pro key stats (requires auth). Response: {total_requests, last_24h, last_1h, hourly_limit, hourly_remaining, top_endpoints}
-GET /v1/privacy/my-data — GDPR transparency. Returns every row the DB has about the caller — hashed IP, 24h endpoint usage (normalized, no query params), Pro key record if any. Free and Pro tier both supported. No auth required. Response: {tier, rate_limit, client_ip_hash, api_key_record, usage_last_24h:{total_requests,by_endpoint}, not_stored, source_code, privacy_policy}
+GET /v1/status — Health check. Response: {{status, version, data_sources}}
+GET /v1/usage — Pro key stats (requires auth). Response: {{total_requests, last_24h, last_1h, hourly_limit, hourly_remaining, top_endpoints}}
+GET /v1/privacy/my-data — GDPR transparency. Returns every row the DB has about the caller — hashed IP, 24h endpoint usage (normalized, no query params), Pro key record if any. Free and Pro tier both supported. No auth required. Response: {{tier, rate_limit, client_ip_hash, api_key_record, usage_last_24h:{{total_requests,by_endpoint}}, not_stored, source_code, privacy_policy}}
 
 ## Example: CVE Lookup
 
 GET /v1/cve/CVE-2024-3094 →
-{"cve_id":"CVE-2024-3094", "summary":"CRITICAL — xz/liblzma backdoor. CVSS 10.0. CISA KEV. EPSS 93%.",
- "severity":"CRITICAL", "cvss_v3":10.0, "epss":{"score":0.93}, "kev":{"in_kev":true}}
+{{"cve_id":"CVE-2024-3094", "summary":"CRITICAL — xz/liblzma backdoor. CVSS 10.0. CISA KEV. EPSS 93%.",
+ "severity":"CRITICAL", "cvss_v3":10.0, "epss":{{"score":0.93}}, "kev":{{"in_kev":true}}}}
 
 ## Example: Domain Report
 
 GET /v1/domain/example.com →
-{"domain":"example.com", "summary":"Grade B (72/100). SSL A (DigiCert, TLSv1.3). 3 subdomains. No threats.",
- "risk":{"score":72,"grade":"B"}, "ssl":{"grade":"A","days_remaining":120}}
+{{"domain":"example.com", "summary":"Grade B (72/100). SSL A (DigiCert, TLSv1.3). 3 subdomains. No threats.",
+ "risk":{{"score":72,"grade":"B"}}, "ssl":{{"grade":"A","days_remaining":120}}}}
 
 ## Rate Limits & Data Sources
 
-Keyless: 100 req/hr per IP. Pro: 1000 req/hr. Headers: X-RateLimit-{Limit,Remaining,Reset,Cost,Tier}, X-Request-ID.
+Keyless: 100 req/hr per IP. Pro: 1000 req/hr. Headers: X-RateLimit-{{Limit,Remaining,Reset,Cost,Tier}}, X-Request-ID.
 Credit costs: most endpoints = 1, /v1/audit and /v1/threat-report = 4, bulk endpoints = N (one per item).
 Data: NVD (340K+ CVEs), EPSS (323K+), CISA KEV (1500+), Shodan, URLhaus, ThreatFox, MalwareBazaar,
 GitHub Advisory DB, HIBP, Wayback Machine, crt.sh. CVE/EPSS/KEV synced every 2h. Others live.
@@ -1718,7 +1735,7 @@ def mcp_debug():
                     "fix": "Add clientInfo: {name: 'your-client', version: '1.0'} to params",
                 },
             ],
-            "tools_count": 29,
+            "tools_count": MCP_TOOL_COUNT,
             "docs": "https://github.com/UPinar/contrastapi/blob/main/docs/ENDPOINTS.md",
             "setup_guide": "https://api.contrastcyber.com/mcp-setup",
         }
@@ -1765,7 +1782,7 @@ try:
                             "version": VERSION,
                             "transport": "streamable-http",
                             "method": "POST",
-                            "tools": 29,
+                            "tools": MCP_TOOL_COUNT,
                             "docs": "https://api.contrastcyber.com/mcp-setup",
                         }
                     ).encode()
@@ -1834,7 +1851,7 @@ def mcp_server_card():
             "name": "contrastapi",
             "title": "ContrastAPI \u2014 Security Intelligence",
             "description": (
-                "Security intelligence MCP server with 29 tools: CVE lookup with EPSS/KEV "
+                f"Security intelligence MCP server with {MCP_TOOL_COUNT} tools: CVE lookup with EPSS/KEV "
                 "enrichment, domain recon (DNS, WHOIS, SSL, subdomains, WAF), IP/ASN lookup, "
                 "email/phone/username OSINT, IOC/threat intel, exploit search, tech "
                 "fingerprinting, orchestrated audit + threat reports, bulk lookups, code "
@@ -1860,7 +1877,7 @@ def mcp_server_card():
             "url": "https://contrastcyber.com",
         },
         "auth": "none",
-        "tools_count": 29,
+        "tools_count": MCP_TOOL_COUNT,
         "documentation": "https://github.com/UPinar/contrastapi/blob/main/docs/ENDPOINTS.md",
     }
 

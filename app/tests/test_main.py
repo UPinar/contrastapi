@@ -39,20 +39,23 @@ def test_capabilities_200():
     r = client.get("/v1/capabilities")
     assert r.status_code == 200
     data = r.json()
-    assert data["total_tools"] == 29
+    from config import MCP_TOOL_COUNT
+
+    assert data["total_tools"] == MCP_TOOL_COUNT
     assert data["schema_version"] == "1.0"
     assert "categories" in data
     assert "auth" in data
 
 
 def test_capabilities_structure():
+    from config import MCP_TOOL_COUNT
+
     r = client.get("/v1/capabilities")
     data = r.json()
     cats = data["categories"]
     assert set(cats.keys()) == {"cve", "domain", "ioc", "code_security", "meta"}
-    # Count MCP-named tools (name is not None) == 29
     mcp_tools = [t for cat in cats.values() for t in cat["tools"] if t.get("name") is not None]
-    assert len(mcp_tools) == 29
+    assert len(mcp_tools) == MCP_TOOL_COUNT
 
 
 def test_capabilities_blast_radius():

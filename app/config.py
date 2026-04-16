@@ -6,6 +6,8 @@ import socket
 from pathlib import Path
 
 VERSION = "1.6.0"
+MCP_TOOL_COUNT = 30
+ENDPOINT_COUNT = "40+"
 
 BASE_DIR = Path(__file__).parent
 

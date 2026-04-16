@@ -18,9 +18,13 @@ Copy-paste these into Claude Desktop, Cursor, VS Code, or any MCP-enabled agent 
 
 - *"Look up CVE-2024-3094 — is it being exploited in the wild?"*
 - *"Find critical Apache vulnerabilities from the last 6 months"*
+- *"Show me all CISA KEV entries from the last 30 days"*
+- *"Find CVEs with EPSS score above 0.9 — what's most likely to be exploited?"*
+- *"Search for critical Linux kernel CVEs, sorted by exploit probability"*
 - *"Are there public exploits for CVE-2021-44228?"*
 - *"What's the EPSS score for CVE-2023-4863?"*
 - *"Check these CVEs in bulk: CVE-2024-3094, CVE-2021-44228, CVE-2023-4863"*
+- *"Show me CVEs that were indexed before NVD — what's leading right now?"*
 
 ## IP & Network
 
@@ -43,6 +47,7 @@ Copy-paste these into Claude Desktop, Cursor, VS Code, or any MCP-enabled agent 
 - *"Check this code for hardcoded API keys and secrets"*
 - *"Scan this function for SQL injection vulnerabilities"*
 - *"Validate these HTTP security headers: Content-Security-Policy, X-Frame-Options"*
+- *"Here are my server's response headers — grade them for security misconfigurations"*
 - *"Check if these npm dependencies have known CVEs: lodash@4.17.0, axios@0.21.0"*
 
 ## Contact Validation / OSINT
@@ -64,5 +69,7 @@ Agents can chain tools naturally. Example single-prompt workflows:
   → Agent runs `bulk_ioc_lookup` → filters by `abuse_confidence_score > 75`
 - *"Given this dependency list, check each package for known CVEs and sort by EPSS score"*
   → Agent runs `check_dependencies` → chains `cve_lookup` + `epss` → sorts
+- *"List leading CVEs and check if any have public exploits"*
+  → Agent runs `cve_leading` → loops `exploit_lookup` for each → flags actionable ones
 
 The `summary` field in every response lets the agent reason about results without parsing nested JSON — cuts token usage and improves chaining quality.

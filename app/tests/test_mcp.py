@@ -61,8 +61,10 @@ def test_mcp_tools_list(mcp_client):
     )
     assert r.status_code == 200
     data = r.json()
+    from config import MCP_TOOL_COUNT
+
     tools = data["result"]["tools"]
-    assert len(tools) == 29
+    assert len(tools) == MCP_TOOL_COUNT
     names = {t["name"] for t in tools}
     assert "domain_report" in names
     assert "cve_lookup" in names
@@ -431,19 +433,23 @@ def test_mcp_initialize_with_wildcard_accept(mcp_client):
 
 def test_mcp_get_returns_health(mcp_client):
     """GET /mcp/ returns a health JSON for crawlers and availability checks."""
+    from config import MCP_TOOL_COUNT
+
     r = mcp_client.get("/mcp/")
     assert r.status_code == 200
     data = r.json()
     assert data["name"] == "ContrastAPI MCP Server"
     assert data["transport"] == "streamable-http"
     assert data["method"] == "POST"
-    assert data["tools"] == 29
+    assert data["tools"] == MCP_TOOL_COUNT
 
 
 def test_mcp_get_no_trailing_slash_returns_health(mcp_client):
     """GET /mcp (no slash) — FastAPI may 307 redirect to /mcp/, TestClient follows."""
+    from config import MCP_TOOL_COUNT
+
     r = mcp_client.get("/mcp")
     assert r.status_code == 200
     data = r.json()
     assert data["name"] == "ContrastAPI MCP Server"
-    assert data["tools"] == 29
+    assert data["tools"] == MCP_TOOL_COUNT

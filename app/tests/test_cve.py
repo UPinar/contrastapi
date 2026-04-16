@@ -693,6 +693,105 @@ class TestCveSources:
         assert rows[0]["source_url"].startswith("https://nvd.nist.gov/vuln/detail/")
 
 
+class TestCveLeading:
+    def test_leading_returns_mitre_only_cves(self):
+        from db import record_cve_source, upsert_cve_if_absent
+
+        # CVE with only MITRE source (leading)
+        upsert_cve_if_absent({"cve_id": "CVE-2026-LEAD1", "description": "MITRE-only vuln"})
+        record_cve_source("CVE-2026-LEAD1", "mitre")
+
+        # CVE with NVD source (not leading)
+        _seed_cve(cve_id="CVE-2026-LEAD2", description="NVD-enriched vuln")
+        record_cve_source("CVE-2026-LEAD2", "mitre")
+        record_cve_source("CVE-2026-LEAD2", "nvd")
+
+        r = client.get("/v1/cve/leading")
+        assert r.status_code == 200
+        data = r.json()
+        cve_ids = [c["cve_id"] for c in data["results"]]
+        assert "CVE-2026-LEAD1" in cve_ids
+        assert "CVE-2026-LEAD2" not in cve_ids
+
+    def test_leading_returns_ghsa_only_cves(self):
+        from db import record_cve_source, upsert_cve_if_absent
+
+        upsert_cve_if_absent({"cve_id": "CVE-2026-LEAD3", "description": "GHSA-only vuln"})
+        record_cve_source("CVE-2026-LEAD3", "ghsa")
+
+        r = client.get("/v1/cve/leading")
+        assert r.status_code == 200
+        data = r.json()
+        cve_ids = [c["cve_id"] for c in data["results"]]
+        assert "CVE-2026-LEAD3" in cve_ids
+
+    def test_leading_pagination(self):
+        from db import record_cve_source, upsert_cve_if_absent
+
+        for i in range(5):
+            cid = f"CVE-2026-PG{i:04d}"
+            upsert_cve_if_absent({"cve_id": cid, "description": f"Pagination test {i}"})
+            record_cve_source(cid, "mitre")
+
+        r = client.get("/v1/cve/leading?limit=2&offset=0")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["count"] == 2
+        assert data["total"] >= 5
+        assert data["truncated"] is True
+
+    def test_leading_empty_when_all_have_nvd(self):
+        """When all CVEs have NVD source, leading should return 0 results."""
+        from db import record_cve_source
+
+        _seed_cve(cve_id="CVE-2026-ALLNVD")
+        record_cve_source("CVE-2026-ALLNVD", "nvd")
+        record_cve_source("CVE-2026-ALLNVD", "mitre")
+
+        r = client.get("/v1/cve/leading")
+        assert r.status_code == 200
+        data = r.json()
+        # Should not include CVEs that have NVD source
+        cve_ids = [c["cve_id"] for c in data["results"]]
+        assert "CVE-2026-ALLNVD" not in cve_ids
+
+    def test_leading_response_format(self):
+        from db import record_cve_source, upsert_cve_if_absent
+
+        upsert_cve_if_absent({"cve_id": "CVE-2026-FMT1", "description": "Format test"})
+        record_cve_source("CVE-2026-FMT1", "mitre")
+
+        r = client.get("/v1/cve/leading")
+        assert r.status_code == 200
+        data = r.json()
+        assert "count" in data
+        assert "total" in data
+        assert "truncated" in data
+        assert "offset" in data
+        assert "summary" in data
+        assert "results" in data
+        assert "indexed before NVD" in data["summary"]
+
+    def test_leading_sources_field(self):
+        from db import record_cve_source, upsert_cve_if_absent
+
+        upsert_cve_if_absent({"cve_id": "CVE-2026-SRCF1", "description": "Sources test"})
+        record_cve_source("CVE-2026-SRCF1", "mitre")
+        record_cve_source("CVE-2026-SRCF1", "ghsa")
+
+        r = client.get("/v1/cve/leading")
+        assert r.status_code == 200
+        for cve in r.json()["results"]:
+            if cve["cve_id"] == "CVE-2026-SRCF1":
+                assert "mitre" in cve["sources"]
+                assert "ghsa" in cve["sources"]
+                assert "nvd" not in cve["sources"]
+                assert cve["first_seen_source"] in ("mitre", "ghsa")
+                break
+        else:
+            raise AssertionError("CVE-2026-SRCF1 not in leading results")
+
+
 def _build_mitre_zip(records: list[dict]) -> bytes:
     """Build an in-memory zip that mimics a cvelistV5 deltaCves.zip asset."""
     import io

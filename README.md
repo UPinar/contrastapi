@@ -74,9 +74,9 @@ Install **[ContrastAPI — Security Intelligence](https://marketplace.visualstud
 
 After setup, ask your AI agent:
 
-- *"Run a full security audit on example.com"*
 - *"Is CVE-2024-3094 being exploited in the wild? Check EPSS + KEV."*
-- *"Is 8.8.8.8 malicious? Pull AbuseIPDB, Shodan, and ASN."*
+- *"Show me CVEs indexed before NVD — what's leading right now?"*
+- *"Audit example.com, then look up CVEs for every technology detected"*
 
 More example prompts: [docs/PROMPTS.md](docs/PROMPTS.md) · [/playground](https://api.contrastcyber.com/playground) (interactive tester)
 
@@ -84,7 +84,7 @@ More example prompts: [docs/PROMPTS.md](docs/PROMPTS.md) · [/playground](https:
 
 ## What's Inside
 
-- **29 MCP tools** across 6 categories — full list: **[docs/ENDPOINTS.md](docs/ENDPOINTS.md)**
+- **30 MCP tools** across 6 categories — full list: **[docs/ENDPOINTS.md](docs/ENDPOINTS.md)**
 - **340K+ CVEs** from NVD + MITRE cvelistV5 + GitHub Security Advisories, enriched with EPSS + CISA KEV. `cve_lookup` exposes `sources`, `first_seen_source`, `first_seen_at` — agents detect CVEs indexed before NVD publishes. `cve_search` supports `kev`, `epss_min`, `sort`, and `offset` pagination — agents can filter to actively exploited CVEs, sort by exploit probability, and page through large result sets.
 - **Weighted credits** — 1 for simple calls, 4 for heavy orchestration (audit, threat report), N for bulk lookups
 - **LLM-optimized summaries** — every response includes a `summary` field so agents reason without parsing nested JSON
