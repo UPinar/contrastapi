@@ -685,9 +685,9 @@ footer p { color: var(--text-dim); }
 .trust-strip {
   position: relative;
   z-index: 10;
-  max-width: 60rem;
+  max-width: 52rem;
   margin: 2rem auto 3rem;
-  padding: 0 1.25rem;
+  padding: 0 2rem;
 }
 .trust-strip-inner {
   display: flex;
@@ -695,12 +695,11 @@ footer p { color: var(--text-dim); }
   justify-content: center;
   gap: 0.6rem 1.5rem;
   padding: 0.9rem 1.25rem;
-  background: #18181b;
-  border: 1px solid var(--border);
+  background: var(--bg-card);
+  border: 1px solid var(--border-dim);
   border-radius: 0.5rem;
   font-size: 0.78rem;
   color: var(--text);
-  box-shadow: 0 1px 3px rgba(0,0,0,0.4);
 }
 .trust-strip-inner span { white-space: nowrap; }
 .trust-strip-inner strong { color: var(--primary); font-weight: 700; }
@@ -721,8 +720,8 @@ footer p { color: var(--text-dim); }
   gap: 1rem;
 }
 .setup-card {
-  background: #18181b;
-  border: 1px solid var(--border);
+  background: var(--bg-card);
+  border: 1px solid var(--border-dim);
   border-radius: 0.5rem;
   padding: 1.1rem 1.25rem;
   display: flex;
@@ -767,6 +766,42 @@ footer p { color: var(--text-dim); }
   margin: 0 0 0.6rem;
   line-height: 1.5;
 }
+
+/* GitHub CTA */
+.github-cta {
+  position: relative;
+  z-index: 10;
+  max-width: 52rem;
+  margin: 0 auto;
+  padding: 0 2rem 2rem;
+}
+.github-cta-inner {
+  text-align: center;
+  padding: 2rem 1rem;
+  border: 1px solid var(--border-dim);
+  border-radius: 0.5rem;
+  background: var(--bg-card);
+}
+.github-cta-text {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  margin: 0 0 1rem;
+}
+.btn-github {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.65rem 1.5rem;
+  background: #fafafa;
+  color: #09090b;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  font-weight: 600;
+  border-radius: 0.5rem;
+  text-decoration: none;
+  transition: background 0.2s var(--ease);
+}
+.btn-github:hover { background: #d4d4d8; }
 
 /* Use Cases cards */
 .use-cases-section { margin-top: 3rem; margin-bottom: 3rem; }

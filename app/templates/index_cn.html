@@ -21,7 +21,7 @@
   <link rel="alternate" hreflang="en" href="https://api.contrastcyber.com/">
   <link rel="alternate" hreflang="zh" href="https://api.contrastcyber.com/cn/">
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-  <link rel="stylesheet" href="/static/style.css?v=20">
+  <link rel="stylesheet" href="/static/style.css?v=21">
   <script src="/static/js/landing.js?v=1" defer></script>
   <link rel="alternate" type="text/plain" href="/llms.txt" title="LLM Discovery">
   <link rel="alternate" type="application/json" href="/openapi.json" title="OpenAPI Spec">
@@ -50,18 +50,7 @@
 <body>
   <div class="glow"></div>
 
-  <nav>
-    <a href="/cn/" class="logo">Contrast<span>API</span></a>
-    <button class="hamburger" aria-label="菜单" aria-expanded="false"><span class="hamburger__lines" aria-hidden="true"></span></button>
-    <div class="nav-links">
-      <a href="/quickstart">快速入门</a>
-      <a href="/mcp-setup">MCP 配置</a>
-      <a href="/playground">Playground</a>
-      <a href="https://contrastcyber.com/pricing">价格</a>
-      <a href="https://github.com/UPinar/contrastapi" class="gh-star" target="_blank" rel="noopener">★ GitHub</a>
-      <a href="/" style="font-size:0.8rem;opacity:0.7">English</a>
-    </div>
-  </nav>
+  {% include "nav_cn.html" %}
 
   <section class="hero">
     <div class="pill">{{ tool_count }} 个工具 · {{ endpoint_count }} 接口 · MCP 服务器</div>
@@ -132,6 +121,17 @@ await api.cve.lookup("CVE-2024-3094");</pre>
         <p class="setup-card-note">{{ tool_count }} 个命令 · 侧边栏树 · 右键菜单 · 无需 API 密钥</p>
         <a href="https://marketplace.visualstudio.com/items?itemName=ContrastAPI.contrastapi" target="_blank" rel="noopener">Marketplace →</a>
       </div>
+    </div>
+  </section>
+
+  <!-- GitHub CTA -->
+  <section class="github-cta" aria-label="GitHub">
+    <div class="github-cta-inner">
+    <p class="github-cta-text">开源项目，MIT 许可证，公开构建。</p>
+    <a href="https://github.com/UPinar/contrastapi" class="btn-github" target="_blank" rel="noopener">
+      <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      在 GitHub 上加星
+    </a>
     </div>
   </section>
 
@@ -383,7 +383,7 @@ await api.cve.lookup("CVE-2024-3094");</pre>
   </section>
 
   <!-- 信用额度 -->
-  <section class="endpoints">
+  <section class="endpoints" style="margin-top:3rem">
     <h2 class="section-title">信用额度</h2>
     <p style="color:#aaa;font-size:0.9rem;margin:0.5rem 0 1rem 0.5rem">
       透明计价 — 每个响应都包含 <code style="color:#58a6ff">X-RateLimit-Cost</code> 响应头，便于预算管理。

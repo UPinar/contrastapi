@@ -20,7 +20,7 @@
   <link rel="alternate" hreflang="en" href="https://api.contrastcyber.com/">
   <link rel="alternate" hreflang="zh" href="https://api.contrastcyber.com/cn/">
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-  <link rel="stylesheet" href="/static/style.css?v=20">
+  <link rel="stylesheet" href="/static/style.css?v=21">
   <script src="/static/js/landing.js?v=1" defer></script>
   <link rel="alternate" type="text/plain" href="/llms.txt" title="LLM Discovery">
   <link rel="alternate" type="application/json" href="/openapi.json" title="OpenAPI Spec">
@@ -48,17 +48,7 @@
 <body>
   <div class="glow"></div>
 
-  <nav>
-    <a href="/" class="logo">Contrast<span>API</span></a>
-    <button class="hamburger" aria-label="Menu" aria-expanded="false"><span class="hamburger__lines" aria-hidden="true"></span></button>
-    <div class="nav-links">
-      <a href="/quickstart">API Start</a>
-      <a href="/mcp-setup">MCP Setup</a>
-      <a href="/playground">Playground</a>
-      <a href="https://contrastcyber.com/pricing">Pricing</a>
-      <a href="https://github.com/UPinar/contrastapi" class="gh-star" target="_blank" rel="noopener">★ GitHub</a>
-    </div>
-  </nav>
+  {% include "nav.html" %}
 
   <section class="hero">
     <div class="pill">{{ tool_count }} TOOLS · {{ endpoint_count }} ENDPOINTS · MCP SERVER</div>
@@ -68,7 +58,6 @@
       <a href="#setup" class="btn-cta">Install in 30 seconds →</a>
       <a href="/playground" class="btn-cta-secondary">Try Playground</a>
     </div>
-    <p class="cta-microcopy">No API key · 893 tests passing · &lt;500ms latency · MIT licensed</p>
     <div class="hero-curl-wrap">
       <pre class="hero-curl"><span class="prompt">$ </span><code>curl https://api.contrastcyber.com/v1/audit/example.com</code></pre>
       <button type="button" class="copy-btn" aria-label="Copy command">
@@ -86,49 +75,6 @@
       <span><strong>{{ tool_count }}</strong> MCP tools, <strong>{{ endpoint_count }}</strong> endpoints</span>
       <span><a href="https://www.npmjs.com/package/contrastapi" target="_blank" rel="noopener">npm</a> · <a href="https://marketplace.visualstudio.com/items?itemName=ContrastAPI.contrastapi" target="_blank" rel="noopener">VS Code</a></span>
       <span>MIT licensed · Free forever</span>
-    </div>
-  </section>
-
-  <!-- 30-Second Setup -->
-  <section id="setup" class="endpoints setup-section" aria-labelledby="setup-title">
-    <h2 id="setup-title" class="section-title">30-Second Setup</h2>
-    <div class="setup-cards">
-      <div class="setup-card">
-        <h3>1. MCP (Claude / Cursor / VS Code)</h3>
-        <pre>{
-  "mcpServers": {
-    "contrastapi": {
-      "command": "npx",
-      "args": ["-y", "mcp-remote",
-        "https://api.contrastcyber.com/mcp/"]
-    }
-  }
-}</pre>
-        <a href="/mcp-setup">Full MCP guide →</a>
-      </div>
-      <div class="setup-card">
-        <h3>2. Node.js SDK</h3>
-        <pre>npm install contrastapi</pre>
-        <pre>const api = require("contrastapi")();
-await api.domain.audit("example.com");
-await api.cve.lookup("CVE-2024-3094");</pre>
-        <a href="https://www.npmjs.com/package/contrastapi" target="_blank" rel="noopener">View on npm →</a>
-      </div>
-      <div class="setup-card">
-        <h3>3. cURL</h3>
-        <div class="copy-wrap"><pre>curl https://api.contrastcyber.com\
-  /v1/audit/example.com</pre><button type="button" class="copy-btn" aria-label="Copy command"><svg class="icon-copy" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><svg class="icon-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg></button></div>
-        <div class="copy-wrap"><pre>curl https://api.contrastcyber.com\
-  /v1/cve/CVE-2024-3094</pre><button type="button" class="copy-btn" aria-label="Copy command"><svg class="icon-copy" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><svg class="icon-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg></button></div>
-        <a href="/quickstart">Quick start guide →</a>
-      </div>
-      <div class="setup-card">
-        <h3>4. VS Code Extension</h3>
-        <pre>code --install-extension \
-  ContrastAPI.contrastapi</pre>
-        <p class="setup-card-note">29 commands · sidebar tree · right-click menu · no API key</p>
-        <a href="https://marketplace.visualstudio.com/items?itemName=ContrastAPI.contrastapi" target="_blank" rel="noopener">Marketplace →</a>
-      </div>
     </div>
   </section>
 
@@ -330,57 +276,62 @@ await api.cve.lookup("CVE-2024-3094");</pre>
     </div>
   </section>
 
-  <!-- Example -->
-  <section class="example-section">
-    <h2 class="section-title">Example Request</h2>
-    <div class="copy-wrap"><pre>$ curl https://api.contrastcyber.com/v1/domain/example.com</pre><button type="button" class="copy-btn" aria-label="Copy command"><svg class="icon-copy" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><svg class="icon-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg></button></div>
-    <pre>{
-  <span class="key">"domain"</span>: <span class="str">"example.com"</span>,
-  <span class="key">"summary"</span>: <span class="str">"example.com resolves to 93.184.216.34. SSL grade A (DigiCert). SPF+DMARC present. No WAF. Risk: B (72/100)."</span>,
-  <span class="key">"risk_score"</span>: {<span class="key">"score"</span>: <span class="num">72</span>, <span class="key">"grade"</span>: <span class="str">"B"</span>},
-  <span class="key">"dns"</span>: {
-    <span class="key">"a"</span>: [<span class="str">"93.184.216.34"</span>],
-    <span class="key">"mx"</span>: [{<span class="key">"priority"</span>: <span class="num">0</span>, <span class="key">"host"</span>: <span class="str">"."</span>}],
-    <span class="key">"ns"</span>: [<span class="str">"a.iana-servers.net"</span>, <span class="str">"b.iana-servers.net"</span>]
-  },
-  <span class="key">"ssl"</span>: {<span class="key">"grade"</span>: <span class="str">"A"</span>, <span class="key">"issuer"</span>: <span class="str">"DigiCert"</span>, <span class="key">"days_remaining"</span>: <span class="num">182</span>},
-  <span class="key">"email_security"</span>: {<span class="key">"spf"</span>: <span class="bool">true</span>, <span class="key">"dmarc"</span>: <span class="bool">true</span>, <span class="key">"dkim"</span>: <span class="bool">false</span>},
-  <span class="key">"threat"</span>: {<span class="key">"url_count"</span>: <span class="num">0</span>, <span class="key">"urls_online"</span>: <span class="num">0</span>},
-  <span class="key">"reputation"</span>: {
-    <span class="key">"abuseipdb"</span>: {<span class="key">"abuse_score"</span>: <span class="num">0</span>, <span class="key">"total_reports"</span>: <span class="num">0</span>},
-    <span class="key">"shodan"</span>: {<span class="key">"ports"</span>: [<span class="num">80</span>, <span class="num">443</span>], <span class="key">"org"</span>: <span class="str">"ICANN"</span>}
-  },
-  <span class="key">"whois"</span>: {<span class="key">"registrar"</span>: <span class="str">"RESERVED-IANA"</span>},
-  <span class="key">"subdomains"</span>: {<span class="key">"count"</span>: <span class="num">3</span>},
-  <span class="key">"waf"</span>: {<span class="key">"waf_present"</span>: <span class="bool">false</span>}
-}</pre>
+  <!-- GitHub CTA -->
+  <section class="github-cta" aria-label="GitHub">
+    <div class="github-cta-inner">
+    <p class="github-cta-text">Open source, MIT licensed, built in public.</p>
+    <a href="https://github.com/UPinar/contrastapi" class="btn-github" target="_blank" rel="noopener">
+      <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      Star on GitHub
+    </a>
+    </div>
   </section>
 
-  <!-- Use Cases -->
-  <section class="endpoints use-cases-section" aria-labelledby="usecases-title">
-    <h2 id="usecases-title" class="section-title">Use Cases</h2>
-    <div class="use-cases">
-      <div class="use-case">
-        <h3>Scan dependencies for CVEs</h3>
-        <p><code>POST /v1/check/dependencies</code> — find exploited vulns, EPSS exploit probability, and CISA KEV status across your <code>package.json</code>, <code>requirements.txt</code>, or <code>go.sum</code>. Bulk endpoint supports 10 (free) or 50 (Pro) items per request.</p>
+  <!-- 30-Second Setup -->
+  <section id="setup" class="endpoints setup-section" aria-labelledby="setup-title">
+    <h2 id="setup-title" class="section-title">30-Second Setup</h2>
+    <div class="setup-cards">
+      <div class="setup-card">
+        <h3>1. MCP (Claude / Cursor / VS Code)</h3>
+        <pre>{
+  "mcpServers": {
+    "contrastapi": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote",
+        "https://api.contrastcyber.com/mcp/"]
+    }
+  }
+}</pre>
+        <a href="/mcp-setup">Full MCP guide →</a>
       </div>
-      <div class="use-case">
-        <h3>Audit a domain in one call</h3>
-        <p><code>GET /v1/audit/{domain}</code> — full audit in a single request: SSL grade, DNS hygiene, tech fingerprint, email security (SPF/DMARC/DKIM), live security headers. Runs 8+ checks in parallel; typically under 3 seconds on a warm cache.</p>
+      <div class="setup-card">
+        <h3>2. Node.js SDK</h3>
+        <pre>npm install contrastapi</pre>
+        <pre>const api = require("contrastapi")();
+await api.domain.audit("example.com");
+await api.cve.lookup("CVE-2024-3094");</pre>
+        <a href="https://www.npmjs.com/package/contrastapi" target="_blank" rel="noopener">View on npm →</a>
       </div>
-      <div class="use-case">
-        <h3>Triage threat intel with an AI agent</h3>
-        <p>Point Claude Desktop at the MCP server and ask: <em>"Is this IOC malicious? Check AbuseIPDB, Shodan, URLhaus, and MalwareBazaar."</em> The agent chains the lookups automatically — you get a structured summary, not a wall of raw JSON.</p>
+      <div class="setup-card">
+        <h3>3. cURL</h3>
+        <div class="copy-wrap"><pre>curl https://api.contrastcyber.com\
+  /v1/audit/example.com</pre><button type="button" class="copy-btn" aria-label="Copy command"><svg class="icon-copy" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><svg class="icon-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg></button></div>
+        <div class="copy-wrap"><pre>curl https://api.contrastcyber.com\
+  /v1/cve/CVE-2024-3094</pre><button type="button" class="copy-btn" aria-label="Copy command"><svg class="icon-copy" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><svg class="icon-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg></button></div>
+        <a href="/quickstart">Quick start guide →</a>
       </div>
-      <div class="use-case">
-        <h3>PR-time security checks in CI</h3>
-        <p><code>POST /v1/check/secrets</code> + <code>/v1/check/injection</code> in your CI pipeline — block PRs that introduce hardcoded credentials, SQL/command injection patterns, or ReDoS-prone regexes. No API key required.</p>
+      <div class="setup-card">
+        <h3>4. VS Code Extension</h3>
+        <pre>code --install-extension \
+  ContrastAPI.contrastapi</pre>
+        <p class="setup-card-note">29 commands · sidebar tree · right-click menu · no API key</p>
+        <a href="https://marketplace.visualstudio.com/items?itemName=ContrastAPI.contrastapi" target="_blank" rel="noopener">Marketplace →</a>
       </div>
     </div>
   </section>
 
   <!-- Credit Costs -->
-  <section class="endpoints">
+  <section class="endpoints" style="margin-top:3rem">
     <h2 class="section-title">Credit Costs</h2>
     <p style="color:#aaa;font-size:0.9rem;margin:0.5rem 0 1rem 0.5rem">
       Transparent pricing — every response includes <code style="color:#58a6ff">X-RateLimit-Cost</code> so you can budget calls.

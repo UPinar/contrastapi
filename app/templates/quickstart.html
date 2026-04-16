@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Quick Start | ContrastAPI</title>
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <link rel="stylesheet" href="/static/style.css?v=18">
+  <link rel="stylesheet" href="/static/css/page.css?v=2">
+  <script src="/static/js/landing.js?v=1" defer></script>
+</head>
+<body>
+  <div class="glow"></div>
+
+  {% include "nav.html" %}
+
+  <div class="page">
+    <h1>Quick <span>Start</span></h1>
+    <p class="subtitle">From zero to first API call in 30 seconds. No signup, no API key required.</p>
+
+    <h2><span class="num">1</span> cURL</h2>
+    <p>Copy, paste, run.</p>
+    <div class="code-block"><span class="lang">bash</span><code>curl https://api.contrastcyber.com/v1/domain/example.com</code></div>
+
+    <div class="code-block"><span class="lang">bash</span><code># CVE lookup
+curl https://api.contrastcyber.com/v1/cve/CVE-2024-3094
+
+# Live header scan
+curl https://api.contrastcyber.com/v1/scan/headers/example.com
+
+# IP intelligence
+curl https://api.contrastcyber.com/v1/ip/8.8.8.8
+
+# Code secrets scan
+curl -X POST https://api.contrastcyber.com/v1/check/secrets \
+  -H "Content-Type: application/json" \
+  -d '{"code": "aws_key = AKIAIOSFODNN7EXAMPLE"}'</code></div>
+
+    <h2><span class="num">2</span> Node.js / JavaScript</h2>
+    <p><span class="pill-inline">npm</span> No SDK needed — just fetch.</p>
+    <div class="code-block"><span class="lang">javascript</span><code>// Domain security report
+const res = await fetch('https://api.contrastcyber.com/v1/domain/example.com');
+const data = await res.json();
+console.log(data.risk_score);   // { grade: "B", score: 72, ... }
+console.log(data.ssl.grade);    // "A"
+console.log(data.dns.records);  // [{ type: "A", value: "93.184.216.34" }, ...]
+
+// CVE lookup
+const cve = await fetch('https://api.contrastcyber.com/v1/cve/CVE-2024-3094');
+const vuln = await cve.json();
+console.log(vuln.severity);     // "critical"
+console.log(vuln.epss_score);   // 0.94</code></div>
+
+    <h2><span class="num">3</span> Python</h2>
+    <div class="code-block"><span class="lang">python</span><code>import requests
+
+# Domain report
+r = requests.get('https://api.contrastcyber.com/v1/domain/example.com')
+data = r.json()
+print(data['risk_score']['grade'])  # "B"
+
+# Scan code for secrets
+r = requests.post('https://api.contrastcyber.com/v1/check/secrets',
+    json={'code': 'password = "hunter2"'})
+print(r.json()['findings'])</code></div>
+
+    <h2><span class="num">4</span> CI/CD (GitHub Actions)</h2>
+    <div class="code-block"><span class="lang">yaml</span><code># .github/workflows/security.yml
+- name: Security header check
+  run: |
+    GRADE=$(curl -s https://api.contrastcyber.com/v1/scan/headers/$DOMAIN | jq -r '.grade')
+    if [ "$GRADE" = "F" ]; then echo "Security grade F!" && exit 1; fi</code></div>
+
+  </div>
+
+  <footer>
+    <div class="footer-links">
+      <a href="https://contrastcyber.com/terms">Terms</a>
+      <a href="https://contrastcyber.com/privacy">Privacy</a>
+      <a href="#" data-copy-email="contact@contrastcyber.com">Contact</a>
+      <a href="https://github.com/UPinar/contrastapi">GitHub</a>
+    </div>
+    <p>&copy; 2026 ContrastCyber</p>
+  </footer>
+</body>
+</html>
