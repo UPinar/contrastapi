@@ -362,7 +362,7 @@ async def phone_lookup(
     number: Annotated[
         str,
         Field(
-            description="Phone number in E.164 format with country code (e.g. '+14155552671', '+905551234567', '+442071234567')"
+            description="Phone number in E.164 format: + followed by country code and number, no spaces or dashes. Examples: '+14155552671' (US), '+905551234567' (TR), '+442071234567' (UK). Wrong: '0555-123-4567', '(415) 555-2671'"
         ),
     ],
 ) -> str:
@@ -415,26 +415,57 @@ async def cve_search(
     product: Annotated[
         str,
         Field(
-            description="Filter by product or vendor name, case-insensitive (e.g. 'nginx', 'apache', 'microsoft'). Leave empty to search all products"
+            description="Product or vendor name to filter by, case-insensitive. Examples: 'nginx', 'apache', 'microsoft', 'linux kernel'. Omit to search all products."
         ),
     ] = "",
     severity: Annotated[
         str,
         Field(
-            description="Filter by CVSS severity level: 'CRITICAL' (9.0-10.0), 'HIGH' (7.0-8.9), 'MEDIUM' (4.0-6.9), or 'LOW' (0.1-3.9). Leave empty for all severities"
+            description="CVSS severity level. Must be one of: CRITICAL, HIGH, MEDIUM, LOW. Omit for all severities.",
+            json_schema_extra={"enum": ["", "CRITICAL", "HIGH", "MEDIUM", "LOW"]},
         ),
     ] = "",
     days: Annotated[
-        int, Field(description="Time window: return CVEs published in the last N days. Range: 1-365, default: 30")
+        int, Field(description="Time window in days. Returns CVEs published in the last N days. Range: 1-365.", ge=1, le=365)
     ] = 30,
-    limit: Annotated[int, Field(description="Maximum number of results to return. Range: 1-200, default: 10")] = 10,
+    kev: Annotated[
+        bool, Field(description="If true, return only CVEs in the CISA Known Exploited Vulnerabilities (KEV) catalog — these are actively exploited in the wild.")
+    ] = False,
+    epss_min: Annotated[
+        float, Field(description="Minimum EPSS score filter (0.0-1.0). EPSS predicts exploitation probability. 0.5 = top ~5% most likely to be exploited. 0.0 = no filter.", ge=0.0, le=1.0)
+    ] = 0.0,
+    sort: Annotated[
+        str,
+        Field(
+            description="Sort order for results. Must be one of: published_desc (newest first), epss_desc (most exploitable first), cvss_desc (most severe first). Omit for newest first.",
+            json_schema_extra={"enum": ["", "published_desc", "epss_desc", "cvss_desc"]},
+        ),
+    ] = "",
+    limit: Annotated[int, Field(description="Maximum results to return. Range: 1-200.", ge=1, le=200)] = 10,
+    offset: Annotated[int, Field(description="Skip N results for pagination. Use with limit to page through results.", ge=0)] = 0,
 ) -> str:
-    """Search the CVE database for vulnerabilities matching filters on product name, severity level, and publication date range. Use this to find recent vulnerabilities affecting specific software, or to get an overview of critical CVEs in a time window. For details on a specific CVE you already know, use cve_lookup instead. Returns JSON with fields: total (matching count), cves (array of objects with cve_id, description, cvss_score, severity, published_date, and epss_score). Results are sorted by publication date, newest first. Read-only database query, no authentication required."""
+    """Search the CVE database with filters. Returns matching vulnerabilities with CVSS scores, EPSS exploit probability, and KEV status.
+
+Common queries:
+- Critical CVEs this week: severity=CRITICAL, days=7
+- Actively exploited: kev=true
+- Most exploitable nginx CVEs: product=nginx, sort=epss_desc
+- High-risk CVEs (EPSS>50%): epss_min=0.5, sort=epss_desc
+
+Returns: count (returned), total (matching), truncated (true = more pages available, use offset), results array. For a specific CVE ID, use cve_lookup instead."""
     params = {"limit": limit, "days": days}
     if product:
         params["product"] = product
     if severity:
         params["severity"] = severity
+    if kev:
+        params["kev"] = "true"
+    if epss_min > 0:
+        params["epss_min"] = epss_min
+    if sort:
+        params["sort"] = sort
+    if offset > 0:
+        params["offset"] = offset
     return _fmt(await _get("/v1/cves", params))
 
 
@@ -491,7 +522,7 @@ async def hash_lookup(
     file_hash: Annotated[
         str,
         Field(
-            description="File hash in MD5 (32 hex chars), SHA-1 (40 hex chars), or SHA-256 (64 hex chars) format (e.g. 'd41d8cd98f00b204e9800998ecf8427e')"
+            description="File hash to look up. Accepts MD5 (32 chars), SHA-1 (40 chars), or SHA-256 (64 chars). Lowercase hex only, no spaces. Example: 'd41d8cd98f00b204e9800998ecf8427e'"
         ),
     ],
 ) -> str:
@@ -556,11 +587,16 @@ async def check_secrets(
     language: Annotated[
         str,
         Field(
-            description="Programming language for context-aware scanning: 'python', 'javascript', 'go', 'java', 'ruby', 'php', 'csharp', 'rust', or 'generic' for language-agnostic patterns. Default: 'generic'"
+            description="Programming language of the code. Must be one of: python, javascript, typescript, java, go, ruby, shell, bash, generic. Use 'generic' if unsure.",
+            json_schema_extra={"enum": ["python", "javascript", "typescript", "java", "go", "ruby", "shell", "bash", "generic"]},
         ),
     ] = "generic",
 ) -> str:
-    """Static analysis tool that scans source code snippets for hardcoded tokens and keys (e.g. AWS access keys, API tokens, connection strings). Uses pattern matching with language-specific context to reduce false positives. This tool performs read-only analysis on the provided code string — it does not access any files, environment variables, or system resources. The code is analyzed in-memory and not stored. For injection vulnerability detection, use check_injection. Returns JSON with fields: total (finding count), by_severity (CRITICAL/HIGH/MEDIUM/LOW counts), and findings array."""
+    """Scan code for hardcoded secrets (AWS keys, API tokens, connection strings, private keys).
+
+Examples: pass a Python file to find leaked AWS_SECRET_ACCESS_KEY, or a .env snippet to find exposed tokens.
+
+Returns: total (count), by_severity (CRITICAL/HIGH/MEDIUM/LOW), findings array. Read-only, code is not stored. For injection detection, use check_injection instead."""
     return _fmt(await _post("/v1/check/secrets", {"code": code, "language": language}))
 
 
@@ -575,11 +611,16 @@ async def check_injection(
     language: Annotated[
         str,
         Field(
-            description="Programming language for context-aware scanning: 'python', 'javascript', 'go', 'java', 'ruby', 'php', 'csharp', 'rust', or 'generic'. Default: 'generic'"
+            description="Programming language of the code. Must be one of: python, javascript, typescript, java, go, ruby, shell, bash, generic. Use 'generic' if unsure.",
+            json_schema_extra={"enum": ["python", "javascript", "typescript", "java", "go", "ruby", "shell", "bash", "generic"]},
         ),
     ] = "generic",
 ) -> str:
-    """Static analysis tool that scans source code snippets for injection vulnerabilities: SQL injection (string concatenation in queries), command injection (unsanitized input in shell commands), and path traversal (user input in file paths). Uses language-specific patterns to detect unsafe data flow. This tool performs read-only analysis on the provided code string — it does not access any files, execute any code, or modify system state. For hardcoded key detection, use check_secrets. Returns JSON with fields: total (finding count), by_severity (CRITICAL/HIGH/MEDIUM/LOW counts), and findings array."""
+    """Scan code for injection vulnerabilities: SQL injection, command injection, and path traversal.
+
+Detects unsafe patterns like string concatenation in SQL queries, unsanitized input in shell commands, and user input in file paths.
+
+Returns: total (count), by_severity (CRITICAL/HIGH/MEDIUM/LOW), findings array. Read-only, code is not stored. For hardcoded secrets, use check_secrets instead."""
     return _fmt(await _post("/v1/check/injection", {"code": code, "language": language}))
 
 

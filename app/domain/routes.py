@@ -117,7 +117,6 @@ def api_root(request: Request):
             },
             "cve": {"path": "/v1/cve/CVE-2024-3094", "method": "GET", "description": "CVE lookup with EPSS/KEV"},
             "cve_search": {"path": "/v1/cves?keyword=apache", "method": "GET", "description": "Search CVEs by keyword"},
-            "epss": {"path": "/v1/epss/CVE-2024-3094", "method": "GET", "description": "Exploit probability score"},
             "check_secrets": {"path": "/v1/check/secrets", "method": "POST", "description": "Detect secrets in code"},
             "check_headers": {"path": "/v1/check/headers", "method": "POST", "description": "Validate HTTP headers"},
             "check_injection": {

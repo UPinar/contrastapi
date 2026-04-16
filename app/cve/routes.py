@@ -1,4 +1,4 @@
-"""CVE Intelligence API routes — /v1/cve/*, /v1/cves/*, /v1/epss/*, /v1/exploit/*"""
+"""CVE Intelligence API routes — /v1/cve/*, /v1/cves/*, /v1/exploit/*"""
 
 import logging
 from datetime import UTC, datetime
@@ -9,10 +9,7 @@ from db import (
     get_cached_domain,
     get_cve,
     get_cve_sources,
-    get_epss,
-    get_kev_cves,
     get_last_successful_sync,
-    get_recent_cves,
     save_cached_domain,
     search_cves,
 )
@@ -20,11 +17,8 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from schemas import (
     BulkCveResponse,
-    CveKevResponse,
-    CveRecentResponse,
     CveResponse,
     CveSearchResponse,
-    EpssResponse,
     ExploitResponse,
     Verdict,
 )
@@ -79,79 +73,54 @@ def cve_search(
     ),
     severity: str | None = Query(None, description="Filter by severity: CRITICAL, HIGH, MEDIUM, LOW"),
     days: int | None = Query(None, ge=1, le=365, description="CVEs published within N days"),
-    limit: int = Query(50, ge=1, le=200, description="Max results"),
+    kev: bool = Query(False, description="Filter to CISA KEV entries only"),
+    epss_min: float | None = Query(None, ge=0.0, le=1.0, description="Minimum EPSS score (0.0-1.0)"),
+    sort: str | None = Query(None, description="Sort order: epss_desc, cvss_desc, published_desc (default)"),
+    limit: int = Query(50, ge=1, le=200, description="Max results per page"),
+    offset: int = Query(0, ge=0, le=100000, description="Number of results to skip (for pagination)"),
 ):
-    """Search CVEs by product, severity, and/or date range."""
+    """Search CVEs by product, severity, date range, KEV status, and EPSS score."""
     authenticate(request, request.url.path)
 
     if severity and severity.upper() not in ("CRITICAL", "HIGH", "MEDIUM", "LOW"):
         raise HTTPException(status_code=400, detail="severity must be CRITICAL, HIGH, MEDIUM, or LOW")
+    if sort and sort not in ("epss_desc", "cvss_desc", "published_desc"):
+        raise HTTPException(status_code=400, detail="sort must be epss_desc, cvss_desc, or published_desc")
 
-    results = search_cves(product=product, severity=severity, days=days, limit=limit)
+    results, total = search_cves(
+        product=product,
+        severity=severity,
+        days=days,
+        kev=kev,
+        epss_min=epss_min,
+        sort=sort,
+        limit=limit,
+        offset=offset,
+    )
     count = len(results)
-    filters = [f for f in [product, severity, f"last {days}d" if days else None] if f]
-    summary = f"{count} CVE{'s' if count != 1 else ''} found" + (f" ({', '.join(filters)})" if filters else "")
+    truncated = total > offset + count
+    filters = [
+        f
+        for f in [
+            product,
+            severity,
+            f"last {days}d" if days else None,
+            "KEV" if kev else None,
+            f"EPSS>={epss_min}" if epss_min is not None else None,
+        ]
+        if f
+    ]
+    summary = f"{count} CVE{'s' if count != 1 else ''} returned, {total} total" + (
+        f" ({', '.join(filters)})" if filters else ""
+    )
     return {
         "count": count,
+        "total": total,
+        "truncated": truncated,
+        "offset": offset,
         "summary": summary,
         "results": [_format_cve(r) for r in results],
     }
-
-
-@router.get(
-    "/cves/recent", operation_id="cve_recent", response_model=CveRecentResponse, response_model_exclude_none=True
-)
-def cve_recent(
-    request: Request,
-    hours: int = Query(24, ge=1, le=168, description="CVEs published within N hours (max 168 = 7 days)"),
-    limit: int = Query(50, ge=1, le=200, description="Max results"),
-):
-    """Get recently published CVEs."""
-    authenticate(request, request.url.path)
-    results = get_recent_cves(hours=hours, limit=limit)
-    count = len(results)
-    return {
-        "count": count,
-        "hours": hours,
-        "summary": f"{count} CVE{'s' if count != 1 else ''} published in the last {hours} hour{'s' if hours != 1 else ''}",
-        "results": [_format_cve(r) for r in results],
-    }
-
-
-@router.get("/cves/kev", operation_id="cve_kev", response_model=CveKevResponse, response_model_exclude_none=True)
-def cve_kev(
-    request: Request,
-    limit: int = Query(100, ge=1, le=500, description="Max results"),
-):
-    """CISA Known Exploited Vulnerabilities — actively exploited CVEs."""
-    authenticate(request, request.url.path)
-    results = get_kev_cves(limit=limit)
-    count = len(results)
-    return {
-        "count": count,
-        "summary": f"{count} actively exploited CVE{'s' if count != 1 else ''} (CISA KEV)",
-        "results": [_format_cve(r) for r in results],
-    }
-
-
-@router.get("/epss/{cve_id}", operation_id="epss_score", response_model=EpssResponse, response_model_exclude_none=True)
-def epss_score(cve_id: str, request: Request):
-    """EPSS (Exploit Prediction Scoring System) score for a CVE."""
-    cve_id = cve_id.strip().upper()
-    _check_cve_input(cve_id)
-
-    authenticate(request, request.url.path)
-
-    result = get_epss(cve_id)
-    if result is None:
-        raise HTTPException(status_code=404, detail=f"No EPSS data for {cve_id}")
-
-    score = result.get("score")
-    if score is not None:
-        summary = f"{cve_id}: {score:.0%} exploitation probability"
-    else:
-        summary = f"{cve_id}: no EPSS score available"
-    return {**result, "summary": summary}
 
 
 def _cve_verdict(sources: list[str] | None = None, completeness: str = "complete") -> Verdict:

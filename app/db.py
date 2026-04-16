@@ -145,6 +145,7 @@ def init_cve_db():
         con.execute("CREATE INDEX IF NOT EXISTS idx_cves_severity ON cves(severity)")
         con.execute("CREATE INDEX IF NOT EXISTS idx_cves_published ON cves(published)")
         con.execute("CREATE INDEX IF NOT EXISTS idx_cves_epss ON cves(epss_score)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_cves_kev ON cves(in_kev)")
         con.execute("""
             CREATE TABLE IF NOT EXISTS cve_products (
                 id INTEGER PRIMARY KEY,
@@ -355,7 +356,6 @@ def normalize_endpoint(endpoint: str) -> str:
         "threat",
         "tech",
         "monitor",
-        "epss",
     )
     parts = ep.split("/")
     # /v1/domain/example.com → ["", "v1", "domain", "example.com"]
@@ -663,8 +663,15 @@ def get_cve(cve_id: str) -> dict | None:
 
 
 def search_cves(
-    product: str | None = None, severity: str | None = None, days: int | None = None, limit: int = 50
-) -> list[dict]:
+    product: str | None = None,
+    severity: str | None = None,
+    days: int | None = None,
+    kev: bool = False,
+    epss_min: float | None = None,
+    sort: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> tuple[list[dict], int]:
     conditions = []
     params = []
     if product:
@@ -678,15 +685,30 @@ def search_cves(
         cutoff = (datetime.now(UTC) - timedelta(days=days)).isoformat()
         conditions.append("published >= ?")
         params.append(cutoff)
+    if kev:
+        conditions.append("in_kev = 1")
+    if epss_min is not None:
+        conditions.append("epss_score >= ?")
+        params.append(epss_min)
+
+    order_clauses = {
+        "epss_desc": "CASE WHEN epss_score IS NULL THEN 1 ELSE 0 END, epss_score DESC",
+        "cvss_desc": "CASE WHEN cvss_v3 IS NULL THEN 1 ELSE 0 END, cvss_v3 DESC",
+        "published_desc": "published DESC",
+    }
+    order_by = order_clauses.get(sort, "published DESC")
 
     where = " AND ".join(conditions) if conditions else "1=1"
-    params.append(limit)
 
     with get_cve_db() as con:
         cur = con.cursor()
         cur.row_factory = sqlite3.Row
-        rows = cur.execute(f"SELECT * FROM cves WHERE {where} ORDER BY published DESC LIMIT ?", params).fetchall()
-        return [_deserialize_cve(row) for row in rows]
+        total = cur.execute(f"SELECT COUNT(*) FROM cves WHERE {where}", params).fetchone()[0]
+        query_params = [*params, limit, offset]
+        rows = cur.execute(
+            f"SELECT * FROM cves WHERE {where} ORDER BY {order_by} LIMIT ? OFFSET ?", query_params
+        ).fetchall()
+        return [_deserialize_cve(row) for row in rows], total
 
 
 def _parse_version(v: str) -> tuple:
@@ -743,36 +765,6 @@ def search_cves_by_product(product: str, version: str | None = None, limit: int 
         if len(results) >= limit:
             break
     return results
-
-
-def get_recent_cves(hours: int = 24, limit: int = 50) -> list[dict]:
-
-    cutoff = (datetime.now(UTC) - timedelta(hours=hours)).isoformat()
-    with get_cve_db() as con:
-        cur = con.cursor()
-        cur.row_factory = sqlite3.Row
-        rows = cur.execute(
-            "SELECT * FROM cves WHERE published >= ? ORDER BY published DESC LIMIT ?", (cutoff, limit)
-        ).fetchall()
-        return [_deserialize_cve(row) for row in rows]
-
-
-def get_kev_cves(limit: int = 100) -> list[dict]:
-    with get_cve_db() as con:
-        cur = con.cursor()
-        cur.row_factory = sqlite3.Row
-        rows = cur.execute(
-            "SELECT * FROM cves WHERE in_kev = 1 ORDER BY kev_date_added DESC LIMIT ?", (limit,)
-        ).fetchall()
-        return [_deserialize_cve(row) for row in rows]
-
-
-def get_epss(cve_id: str) -> dict | None:
-    with get_cve_db() as con:
-        row = con.execute("SELECT epss_score, epss_percentile FROM cves WHERE cve_id = ?", (cve_id,)).fetchone()
-        if row is None:
-            return None
-        return {"cve_id": cve_id, "score": row[0], "percentile": row[1]}
 
 
 def update_epss(cve_id: str, epss_score: float | None, epss_percentile: float | None) -> bool:

@@ -309,7 +309,6 @@ ENDPOINT_HINTS = [
     ("/v1/domain/http", "Don't include http:// — use just the domain: /v1/domain/example.com"),
     ("/v1/domain/", "Include a domain: /v1/domain/example.com"),
     ("/v1/cve/", "Usage: /v1/cve/CVE-2024-3094 or /v1/cves?keyword=apache"),
-    ("/v1/epss/", "Include a CVE ID: /v1/epss/CVE-2024-3094"),
     ("/v1/exploit/", "Include a CVE ID: /v1/exploit/CVE-2024-3094"),
     ("/v1/tech/", "Include a domain: /v1/tech/example.com"),
     ("/v1/dns/", "Include a domain: /v1/dns/example.com"),
@@ -981,35 +980,6 @@ def api_capabilities():
                         "response_keys": ["count", "summary", "results"],
                     },
                     {
-                        "name": None,
-                        "method": "GET",
-                        "path": "/v1/cves/recent",
-                        "credit_cost": 1,
-                        "blast_radius": "zero",
-                        "description": "Recently published CVEs",
-                        "params": {"hours": "int (default 24)", "limit": "int"},
-                        "response_keys": ["count", "hours", "summary", "results"],
-                    },
-                    {
-                        "name": None,
-                        "method": "GET",
-                        "path": "/v1/cves/kev",
-                        "credit_cost": 1,
-                        "blast_radius": "zero",
-                        "description": "CISA Known Exploited Vulnerabilities list",
-                        "params": {"limit": "int"},
-                        "response_keys": ["count", "summary", "results"],
-                    },
-                    {
-                        "name": None,
-                        "method": "GET",
-                        "path": "/v1/epss/{cve_id}",
-                        "credit_cost": 1,
-                        "blast_radius": "zero",
-                        "description": "EPSS exploit probability score",
-                        "response_keys": ["cve_id", "score", "percentile", "summary"],
-                    },
-                    {
                         "name": "exploit_lookup",
                         "method": "GET",
                         "path": "/v1/exploit/{cve_id}",
@@ -1457,9 +1427,6 @@ Every authenticated response includes X-RateLimit-Cost so clients can budget cal
 ### CVE Intelligence
 - GET /v1/cve/{cve_id} — Full CVE details with EPSS score, KEV status, CVSS breakdown
 - GET /v1/cves?product=&severity=&days= — Search CVEs by product, severity, date
-- GET /v1/cves/recent?hours=24 — Recently published CVEs
-- GET /v1/cves/kev — CISA Known Exploited Vulnerabilities
-- GET /v1/epss/{cve_id} — EPSS exploit probability score
 - GET /v1/exploit/{cve_id} — Public exploits and advisories (GitHub Advisory, ExploitDB)
 - POST /v1/cves/bulk — Bulk CVE lookup (10 free, 50 pro per request)
 
@@ -1571,15 +1538,6 @@ GET /v1/cve/{cve_id} — Full CVE details with EPSS + KEV + CVSS breakdown.
 
 GET /v1/cves?product=&severity=&days=&limit= — Search CVEs by product/severity/date.
   Response keys: count, summary, results
-
-GET /v1/cves/recent?hours=24&limit=50 — Recently published CVEs.
-  Response keys: count, hours, summary, results
-
-GET /v1/cves/kev?limit=100 — CISA Known Exploited Vulnerabilities.
-  Response keys: count, summary, results
-
-GET /v1/epss/{cve_id} — EPSS exploit probability score.
-  Response keys: cve_id, score, percentile, summary
 
 GET /v1/exploit/{cve_id} — Public exploits (GitHub Advisory + ExploitDB).
   Response keys: cve_id, exploits_found, sources:{github:{found,count,advisories},exploitdb:{found,count,results}}, has_public_exploit, summary

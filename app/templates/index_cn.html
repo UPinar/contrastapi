@@ -64,14 +64,14 @@
   </nav>
 
   <section class="hero">
-    <div class="pill">29 个工具 · 39+ 接口 · MCP 服务器</div>
+    <div class="pill">29 个工具 · 36+ 接口 · MCP 服务器</div>
     <h1>29 个安全工具，<br><span class="gradient">一份 JSON 配置。</span></h1>
     <p class="subtitle">CVE + EPSS + KEV 查询、域名侦察、IP 威胁报告、IOC 增强，以及代码安全扫描。结构化 JSON + LLM 优化摘要。支持 Claude Desktop、Cursor、VS Code，以及任何 MCP 兼容客户端（含 DeepSeek、Qwen）。</p>
     <div class="cta-group">
       <a href="#setup" class="btn-cta">30 秒内安装 →</a>
       <a href="/playground" class="btn-cta-secondary">试用 Playground</a>
     </div>
-    <p class="cta-microcopy">无需 API 密钥 · 841 项测试 · &lt;500ms 延迟 · MIT 许可</p>
+    <p class="cta-microcopy">无需 API 密钥 · 893 项测试 · &lt;500ms 延迟 · MIT 许可</p>
     <div class="hero-curl-wrap">
       <pre class="hero-curl"><span class="prompt">$ </span><code>curl https://api.contrastcyber.com/v1/audit/example.com</code></pre>
       <button type="button" class="copy-btn" aria-label="复制命令">
@@ -84,9 +84,9 @@
   <!-- 信任标识 -->
   <section class="trust-strip" aria-label="信任标识">
     <div class="trust-strip-inner">
-      <span><strong>904</strong> 项测试通过</span>
+      <span><strong>893</strong> 项测试通过</span>
       <span><a href="https://smithery.ai/servers/contrastcyber/contrastapi" target="_blank" rel="noopener">Smithery</a> <strong>96/100</strong></span>
-      <span><strong>29</strong> 个 MCP 工具，<strong>39+</strong> 接口</span>
+      <span><strong>29</strong> 个 MCP 工具，<strong>36+</strong> 接口</span>
       <span><a href="https://www.npmjs.com/package/contrastapi" target="_blank" rel="noopener">npm</a> · <a href="https://marketplace.visualstudio.com/items?itemName=ContrastAPI.contrastapi" target="_blank" rel="noopener">VS Code</a></span>
       <span>MIT 许可 · 永久免费</span>
     </div>
@@ -220,23 +220,8 @@ await api.cve.lookup("CVE-2024-3094");</pre>
       </div>
       <div class="endpoint">
         <span class="method get">GET</span>
-        <span class="endpoint-path">/v1/cves?product=&severity=</span>
-        <span class="endpoint-desc">CVE 搜索</span>
-      </div>
-      <div class="endpoint">
-        <span class="method get">GET</span>
-        <span class="endpoint-path">/v1/cves/recent?hours=24</span>
-        <span class="endpoint-desc">最新 CVE</span>
-      </div>
-      <div class="endpoint">
-        <span class="method get">GET</span>
-        <span class="endpoint-path">/v1/cves/kev</span>
-        <span class="endpoint-desc">CISA 已利用漏洞</span>
-      </div>
-      <div class="endpoint">
-        <span class="method get">GET</span>
-        <span class="endpoint-path">/v1/epss/{cve_id}</span>
-        <span class="endpoint-desc">漏洞利用概率</span>
+        <span class="endpoint-path">/v1/cves?product=&severity=&kev=&epss_min=&sort=&offset=</span>
+        <span class="endpoint-desc">CVE 搜索 (分页)</span>
       </div>
       <div class="endpoint">
         <span class="method get">GET</span>

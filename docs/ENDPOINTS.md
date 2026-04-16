@@ -37,10 +37,7 @@ GET /v1/asn/{target}              ASN lookup (AS number or IP)
 
 ```
 GET  /v1/cve/{cve_id}             CVE details + EPSS + KEV
-GET  /v1/cves?product=&severity=  Search CVEs
-GET  /v1/cves/recent?hours=24     Latest CVEs
-GET  /v1/cves/kev                 CISA exploited vulns
-GET  /v1/epss/{cve_id}            Exploit probability
+GET  /v1/cves?product=&severity=&kev=&epss_min=&sort=&offset=  Search CVEs (with pagination)
 GET  /v1/exploit/{cve_id}         Public exploit search (GitHub Advisory + Shodan)
 POST /v1/cves/bulk                Bulk CVE lookup (10 free, 50 pro)  [cost: N per item]
 ```

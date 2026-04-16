@@ -167,8 +167,9 @@ def test_search_cves_by_severity():
 
     upsert_cve({"cve_id": "CVE-2024-0001", "severity": "CRITICAL", "published": "2024-06-01T00:00:00Z"})
     upsert_cve({"cve_id": "CVE-2024-0002", "severity": "LOW", "published": "2024-06-01T00:00:00Z"})
-    results = search_cves(severity="CRITICAL")
+    results, total = search_cves(severity="CRITICAL")
     assert len(results) >= 1
+    assert total >= 1
     assert all(r["severity"] == "CRITICAL" for r in results)
 
 
@@ -183,33 +184,9 @@ def test_search_cves_by_product():
             "published": "2024-06-01T00:00:00Z",
         }
     )
-    results = search_cves(product="nginx")
+    results, total = search_cves(product="nginx")
     assert len(results) >= 1
-
-
-def test_get_kev_cves():
-    from db import get_kev_cves, upsert_cve
-
-    upsert_cve({"cve_id": "CVE-2024-7001", "in_kev": 1, "kev_date_added": "2024-03-01"})
-    upsert_cve({"cve_id": "CVE-2024-7002", "in_kev": 0})
-    results = get_kev_cves()
-    assert len(results) >= 1
-    assert all(r["in_kev"] == 1 for r in results)
-
-
-def test_get_epss():
-    from db import get_epss, upsert_cve
-
-    upsert_cve({"cve_id": "CVE-2024-8001", "epss_score": 0.92, "epss_percentile": 0.99})
-    result = get_epss("CVE-2024-8001")
-    assert result["score"] == 0.92
-    assert result["percentile"] == 0.99
-
-
-def test_get_epss_not_found():
-    from db import get_epss
-
-    assert get_epss("CVE-9999-9999") is None
+    assert total >= 1
 
 
 # --- Sync status ---
@@ -233,32 +210,6 @@ def test_sync_status_updates():
     update_sync_status("kev", 150, "ok")
     status = get_sync_status()
     assert status["kev"]["records_count"] == 150
-
-
-# --- get_recent_cves ---
-
-
-def test_get_recent_cves():
-    from db import get_recent_cves, upsert_cve
-
-    now = datetime.now(UTC).isoformat()
-    old = (datetime.now(UTC) - timedelta(hours=48)).isoformat()
-    upsert_cve({"cve_id": "CVE-2024-REC1", "published": now, "severity": "HIGH"})
-    upsert_cve({"cve_id": "CVE-2024-REC2", "published": old, "severity": "LOW"})
-    results = get_recent_cves(hours=24)
-    cve_ids = [r["cve_id"] for r in results]
-    assert "CVE-2024-REC1" in cve_ids
-    assert "CVE-2024-REC2" not in cve_ids
-
-
-def test_get_recent_cves_respects_limit():
-    from db import get_recent_cves, upsert_cve
-
-    now = datetime.now(UTC).isoformat()
-    for i in range(5):
-        upsert_cve({"cve_id": f"CVE-2024-LIM{i}", "published": now})
-    results = get_recent_cves(hours=24, limit=3)
-    assert len(results) <= 3
 
 
 # --- Maintenance ---
@@ -386,11 +337,6 @@ class TestNormalizeEndpoint:
 
         assert normalize_endpoint("/v1/monitor/example.com") == "/v1/monitor"
 
-    def test_strips_epss(self):
-        from db import normalize_endpoint
-
-        assert normalize_endpoint("/v1/epss/CVE-2024-1234") == "/v1/epss"
-
     def test_strips_asn(self):
         from db import normalize_endpoint
 
@@ -415,8 +361,6 @@ class TestNormalizeEndpoint:
         assert normalize_endpoint("/v1/usage") == "/v1/usage"
         assert normalize_endpoint("/v1/domains/bulk") == "/v1/domains/bulk"
         assert normalize_endpoint("/v1") == "/v1"
-        assert normalize_endpoint("/v1/cves/recent") == "/v1/cves/recent"
-        assert normalize_endpoint("/v1/cves/kev") == "/v1/cves/kev"
 
     def test_strips_trailing_slash(self):
         from db import normalize_endpoint

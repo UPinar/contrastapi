@@ -183,67 +183,106 @@ class TestCveSearch:
         assert "CVE-2024-2001" in cve_ids
         assert "CVE-2024-2002" not in cve_ids
 
-
-class TestCveRecent:
-    def test_recent_200(self):
-        from datetime import datetime
-
-        now = datetime.now(UTC).isoformat()
-        _seed_cve(cve_id="CVE-2024-3001", published=now)
-        r = client.get("/v1/cves/recent?hours=1")
+    def test_search_kev_filter(self):
+        _seed_cve(cve_id="CVE-2024-6001", in_kev=1)
+        _seed_cve(cve_id="CVE-2024-6002", in_kev=0)
+        r = client.get("/v1/cves?kev=true")
         assert r.status_code == 200
-        data = r.json()
-        assert data["hours"] == 1
-        assert data["count"] >= 1
+        cve_ids = [c["cve_id"] for c in r.json()["results"]]
+        assert "CVE-2024-6001" in cve_ids
+        assert "CVE-2024-6002" not in cve_ids
+        assert "KEV" in r.json()["summary"]
 
-    def test_recent_empty(self):
-        r = client.get("/v1/cves/recent?hours=1")
+    def test_search_epss_min_filter(self):
+        _seed_cve(cve_id="CVE-2024-6010", epss_score=0.9)
+        _seed_cve(cve_id="CVE-2024-6011", epss_score=0.1)
+        r = client.get("/v1/cves?epss_min=0.5")
         assert r.status_code == 200
-        assert r.json()["count"] == 0
+        cve_ids = [c["cve_id"] for c in r.json()["results"]]
+        assert "CVE-2024-6010" in cve_ids
+        assert "CVE-2024-6011" not in cve_ids
 
-    def test_recent_respects_limit(self):
-        from datetime import datetime
-
-        now = datetime.now(UTC).isoformat()
-        for i in range(5):
-            _seed_cve(cve_id=f"CVE-2024-400{i}", published=now)
-        r = client.get("/v1/cves/recent?hours=1&limit=2")
+    def test_search_sort_epss_desc(self):
+        _seed_cve(cve_id="CVE-2024-6020", epss_score=0.3, severity="LOW")
+        _seed_cve(cve_id="CVE-2024-6021", epss_score=0.9, severity="LOW")
+        _seed_cve(cve_id="CVE-2024-6022", epss_score=0.6, severity="LOW")
+        r = client.get("/v1/cves?sort=epss_desc&severity=LOW")
         assert r.status_code == 200
-        assert r.json()["count"] <= 2
+        ids = [c["cve_id"] for c in r.json()["results"] if c["cve_id"].startswith("CVE-2024-602")]
+        assert ids == ["CVE-2024-6021", "CVE-2024-6022", "CVE-2024-6020"]
 
-
-class TestCveKev:
-    def test_kev_200(self):
-        _seed_cve(cve_id="CVE-2024-5001", in_kev=1, kev_date_added="2024-06-01")
-        _seed_cve(cve_id="CVE-2024-5002", in_kev=0)
-        r = client.get("/v1/cves/kev")
+    def test_search_sort_cvss_desc(self):
+        _seed_cve(cve_id="CVE-2024-6030", cvss_v3=5.0)
+        _seed_cve(cve_id="CVE-2024-6031", cvss_v3=9.8)
+        r = client.get("/v1/cves?sort=cvss_desc")
         assert r.status_code == 200
-        data = r.json()
-        assert data["count"] >= 1
-        assert all(c["kev"]["in_kev"] is True for c in data["results"])
+        ids = [c["cve_id"] for c in r.json()["results"] if c["cve_id"].startswith("CVE-2024-603")]
+        assert ids[0] == "CVE-2024-6031"
 
-    def test_kev_empty(self):
-        r = client.get("/v1/cves/kev")
-        assert r.status_code == 200
-        assert r.json()["count"] == 0
-
-
-class TestEpssScore:
-    def test_epss_200(self):
-        _seed_cve(cve_id="CVE-2024-6001", epss_score=0.89, epss_percentile=0.99)
-        r = client.get("/v1/epss/CVE-2024-6001")
-        assert r.status_code == 200
-        data = r.json()
-        assert data["score"] == 0.89
-        assert data["percentile"] == 0.99
-
-    def test_epss_404(self):
-        r = client.get("/v1/epss/CVE-9999-0000")
-        assert r.status_code == 404
-
-    def test_epss_invalid_format(self):
-        r = client.get("/v1/epss/not-a-cve")
+    def test_search_invalid_sort(self):
+        r = client.get("/v1/cves?sort=random")
         assert r.status_code == 400
+
+    def test_search_sort_epss_nulls_last(self):
+        _seed_cve(cve_id="CVE-2024-6050", epss_score=0.9)
+        _seed_cve(cve_id="CVE-2024-6051", epss_score=None, epss_percentile=None)  # NULL epss_score
+        _seed_cve(cve_id="CVE-2024-6052", epss_score=0.3)
+        r = client.get("/v1/cves?sort=epss_desc")
+        assert r.status_code == 200
+        ids = [c["cve_id"] for c in r.json()["results"] if c["cve_id"].startswith("CVE-2024-605")]
+        assert ids == ["CVE-2024-6050", "CVE-2024-6052", "CVE-2024-6051"]
+
+    def test_search_sort_cvss_nulls_last(self):
+        _seed_cve(cve_id="CVE-2024-6060", cvss_v3=9.8)
+        _seed_cve(cve_id="CVE-2024-6061", cvss_v3=None, cvss_vector=None)  # NULL cvss_v3
+        _seed_cve(cve_id="CVE-2024-6062", cvss_v3=5.0)
+        r = client.get("/v1/cves?sort=cvss_desc")
+        assert r.status_code == 200
+        ids = [c["cve_id"] for c in r.json()["results"] if c["cve_id"].startswith("CVE-2024-606")]
+        assert ids == ["CVE-2024-6060", "CVE-2024-6062", "CVE-2024-6061"]
+
+    def test_search_combined_kev_epss(self):
+        _seed_cve(cve_id="CVE-2024-6040", in_kev=1, epss_score=0.8)
+        _seed_cve(cve_id="CVE-2024-6041", in_kev=1, epss_score=0.2)
+        _seed_cve(cve_id="CVE-2024-6042", in_kev=0, epss_score=0.9)
+        r = client.get("/v1/cves?kev=true&epss_min=0.5&sort=epss_desc")
+        assert r.status_code == 200
+        cve_ids = [c["cve_id"] for c in r.json()["results"]]
+        assert "CVE-2024-6040" in cve_ids
+        assert "CVE-2024-6041" not in cve_ids
+        assert "CVE-2024-6042" not in cve_ids
+
+    def test_search_pagination_total_and_truncated(self):
+        for i in range(5):
+            _seed_cve(cve_id=f"CVE-2024-7100{i}", severity="MEDIUM")
+        r = client.get("/v1/cves?severity=MEDIUM&limit=2")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["count"] == 2
+        assert data["total"] == 5
+        assert data["truncated"] is True
+        assert data["offset"] == 0
+
+    def test_search_pagination_offset(self):
+        for i in range(5):
+            _seed_cve(cve_id=f"CVE-2024-7200{i}", severity="LOW")
+        r = client.get("/v1/cves?severity=LOW&limit=2&offset=2")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["count"] == 2
+        assert data["total"] == 5
+        assert data["offset"] == 2
+        assert data["truncated"] is True
+
+    def test_search_pagination_last_page(self):
+        for i in range(3):
+            _seed_cve(cve_id=f"CVE-2024-7300{i}", severity="CRITICAL")
+        r = client.get("/v1/cves?severity=CRITICAL&limit=10")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["count"] == 3
+        assert data["total"] == 3
+        assert data["truncated"] is False
 
 
 class TestCveResponseFormat:
@@ -479,16 +518,8 @@ class TestCveParamBoundaries:
         r = client.get("/v1/cves?limit=300")
         assert r.status_code == 422
 
-    def test_recent_hours_exceeds_max(self):
-        r = client.get("/v1/cves/recent?hours=500")
-        assert r.status_code == 422
-
     def test_search_product_too_long(self):
         r = client.get(f"/v1/cves?product={'a' * 101}")
-        assert r.status_code == 422
-
-    def test_kev_limit_exceeds_max(self):
-        r = client.get("/v1/cves/kev?limit=600")
         assert r.status_code == 422
 
 
@@ -1088,9 +1119,6 @@ class TestOpenApiCveRoutes:
                     operation_ids.add(method_data["operationId"])
         assert "cve_lookup" in operation_ids
         assert "cve_search" in operation_ids
-        assert "cve_recent" in operation_ids
-        assert "cve_kev" in operation_ids
-        assert "epss_score" in operation_ids
         assert "exploit_lookup" in operation_ids
 
 
@@ -1240,68 +1268,13 @@ class TestResponseModelFiltering:
                 assert "cvss_breakdown" not in cve
                 break
 
-    def test_cve_recent_exclude_none(self):
-        """Recent CVEs exclude None fields."""
-        from datetime import datetime
-
-        now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-        _seed_cve(cve_id="CVE-2024-9903", published=now, cvss_vector=None)
-        r = client.get("/v1/cves/recent?hours=1")
-        assert r.status_code == 200
-        data = r.json()
-        for cve in data["results"]:
-            if cve["cve_id"] == "CVE-2024-9903":
-                assert "cvss_breakdown" not in cve
-                break
-
-    def test_cve_kev_exclude_none(self):
-        """KEV results exclude None fields."""
-        _seed_cve(cve_id="CVE-2024-9904", in_kev=1, cvss_vector=None)
-        r = client.get("/v1/cves/kev")
-        assert r.status_code == 200
-        data = r.json()
-        for cve in data["results"]:
-            if cve["cve_id"] == "CVE-2024-9904":
-                assert "cvss_breakdown" not in cve
-                break
-
-    def test_epss_exclude_none(self):
-        """EPSS with None score → score absent from response."""
-        _seed_cve(cve_id="CVE-2024-9905", epss_score=None, epss_percentile=None)
-        r = client.get("/v1/epss/CVE-2024-9905")
-        assert r.status_code == 200
-        data = r.json()
-        assert "score" not in data
-        assert "percentile" not in data
-
     # --- response_shape: exact key set validation ---
 
     def test_cve_search_response_shape(self):
         _seed_cve(cve_id="CVE-2024-9910", severity="HIGH")
         r = client.get("/v1/cves?severity=HIGH")
         assert r.status_code == 200
-        assert set(r.json().keys()) == {"count", "summary", "results"}
-
-    def test_cve_recent_response_shape(self):
-        from datetime import datetime
-
-        now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-        _seed_cve(cve_id="CVE-2024-9911", published=now)
-        r = client.get("/v1/cves/recent?hours=1")
-        assert r.status_code == 200
-        assert set(r.json().keys()) == {"count", "hours", "summary", "results"}
-
-    def test_cve_kev_response_shape(self):
-        _seed_cve(cve_id="CVE-2024-9912", in_kev=1)
-        r = client.get("/v1/cves/kev")
-        assert r.status_code == 200
-        assert set(r.json().keys()) == {"count", "summary", "results"}
-
-    def test_epss_response_shape(self):
-        _seed_cve(cve_id="CVE-2024-9913", epss_score=0.5, epss_percentile=0.8)
-        r = client.get("/v1/epss/CVE-2024-9913")
-        assert r.status_code == 200
-        assert set(r.json().keys()) == {"cve_id", "score", "percentile", "summary"}
+        assert set(r.json().keys()) == {"count", "total", "truncated", "offset", "summary", "results"}
 
 
 # =========== Crash recovery tests ===========

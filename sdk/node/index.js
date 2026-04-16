@@ -136,20 +136,6 @@ function ContrastAPI(options = {}) {
         if (params.limit) q.set("limit", params.limit);
         return get(`/v1/cves?${q}`);
       },
-      recent: (params = {}) => {
-        const q = new URLSearchParams();
-        if (params.hours) q.set("hours", params.hours);
-        if (params.limit) q.set("limit", params.limit);
-        const qs = q.toString();
-        return get(`/v1/cves/recent${qs ? "?" + qs : ""}`);
-      },
-      kev: (params = {}) => {
-        const q = new URLSearchParams();
-        if (params.limit) q.set("limit", params.limit);
-        const qs = q.toString();
-        return get(`/v1/cves/kev${qs ? "?" + qs : ""}`);
-      },
-      epss: (cveId) => get(`/v1/epss/${enc(cveId)}`),
       exploit: (cveId) => get(`/v1/exploit/${enc(cveId)}`),
       bulk: (cveIds) => {
         if (!Array.isArray(cveIds) || !cveIds.every(c => typeof c === "string")) {

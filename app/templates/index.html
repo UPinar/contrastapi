@@ -61,14 +61,14 @@
   </nav>
 
   <section class="hero">
-    <div class="pill">29 TOOLS · 39+ ENDPOINTS · MCP SERVER</div>
+    <div class="pill">29 TOOLS · 36+ ENDPOINTS · MCP SERVER</div>
     <h1>29 security tools,<br><span class="gradient">one JSON config.</span></h1>
     <p class="subtitle">CVE + EPSS + KEV lookup, domain recon, IP threat reports, IOC enrichment, and code security. Structured JSON with LLM-optimized summaries. Works with Claude Desktop, Cursor, VS Code, and any MCP client.</p>
     <div class="cta-group">
       <a href="#setup" class="btn-cta">Install in 30 seconds →</a>
       <a href="/playground" class="btn-cta-secondary">Try Playground</a>
     </div>
-    <p class="cta-microcopy">No API key · 904 tests passing · &lt;500ms latency · MIT licensed</p>
+    <p class="cta-microcopy">No API key · 893 tests passing · &lt;500ms latency · MIT licensed</p>
     <div class="hero-curl-wrap">
       <pre class="hero-curl"><span class="prompt">$ </span><code>curl https://api.contrastcyber.com/v1/audit/example.com</code></pre>
       <button type="button" class="copy-btn" aria-label="Copy command">
@@ -81,9 +81,9 @@
   <!-- Trust Strip -->
   <section class="trust-strip" aria-label="Trust signals">
     <div class="trust-strip-inner">
-      <span><strong>904</strong> tests passing</span>
+      <span><strong>893</strong> tests passing</span>
       <span><strong>96/100</strong> on <a href="https://smithery.ai/servers/contrastcyber/contrastapi" target="_blank" rel="noopener">Smithery</a></span>
-      <span><strong>29</strong> MCP tools, <strong>39+</strong> endpoints</span>
+      <span><strong>29</strong> MCP tools, <strong>36+</strong> endpoints</span>
       <span><a href="https://www.npmjs.com/package/contrastapi" target="_blank" rel="noopener">npm</a> · <a href="https://marketplace.visualstudio.com/items?itemName=ContrastAPI.contrastapi" target="_blank" rel="noopener">VS Code</a></span>
       <span>MIT licensed · Free forever</span>
     </div>
@@ -217,23 +217,8 @@ await api.cve.lookup("CVE-2024-3094");</pre>
       </div>
       <div class="endpoint">
         <span class="method get">GET</span>
-        <span class="endpoint-path">/v1/cves?product=&severity=</span>
-        <span class="endpoint-desc">Search CVEs</span>
-      </div>
-      <div class="endpoint">
-        <span class="method get">GET</span>
-        <span class="endpoint-path">/v1/cves/recent?hours=24</span>
-        <span class="endpoint-desc">Latest CVEs</span>
-      </div>
-      <div class="endpoint">
-        <span class="method get">GET</span>
-        <span class="endpoint-path">/v1/cves/kev</span>
-        <span class="endpoint-desc">CISA exploited vulns</span>
-      </div>
-      <div class="endpoint">
-        <span class="method get">GET</span>
-        <span class="endpoint-path">/v1/epss/{cve_id}</span>
-        <span class="endpoint-desc">Exploit probability</span>
+        <span class="endpoint-path">/v1/cves?product=&severity=&kev=&epss_min=&sort=&offset=</span>
+        <span class="endpoint-desc">Search CVEs (paginated)</span>
       </div>
       <div class="endpoint">
         <span class="method get">GET</span>

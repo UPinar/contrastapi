@@ -50,7 +50,6 @@
     'cve_search': 'QUERY',
     'bulk_cve': 'POST_BULK_CVE',
     'exploit': '/v1/exploit/',
-    'epss': '/v1/epss/',
     'threat_report': '/v1/threat-report/',
     'ioc': '/v1/ioc/',
     'bulk_ioc': 'POST_BULK_IOC',
@@ -70,12 +69,23 @@
     var url;
     var bulkItems;
     if (id === 'cve_search') {
-      url = '/v1/cves?' + new URLSearchParams({
-        product: document.getElementById('input-cve_search-product').value.trim(),
-        severity: document.getElementById('input-cve_search-severity').value,
+      var searchParams = {
         days: document.getElementById('input-cve_search-days').value.trim() || '30',
-        limit: document.getElementById('input-cve_search-limit').value.trim() || '10'
-      }).toString();
+        limit: document.getElementById('input-cve_search-limit').value.trim() || '5'
+      };
+      var productVal = document.getElementById('input-cve_search-product').value.trim();
+      if (productVal) searchParams.product = productVal;
+      var severityVal = document.getElementById('input-cve_search-severity').value;
+      if (severityVal) searchParams.severity = severityVal;
+      var kevVal = document.getElementById('input-cve_search-kev').value;
+      if (kevVal) searchParams.kev = kevVal;
+      var epssVal = document.getElementById('input-cve_search-epss_min').value.trim();
+      if (epssVal) searchParams.epss_min = epssVal;
+      var sortVal = document.getElementById('input-cve_search-sort').value;
+      if (sortVal) searchParams.sort = sortVal;
+      var offsetVal = document.getElementById('input-cve_search-offset').value.trim();
+      if (offsetVal && offsetVal !== '0') searchParams.offset = offsetVal;
+      url = '/v1/cves?' + new URLSearchParams(searchParams).toString();
     } else if (ENDPOINTS[id] === 'POST_BULK_CVE' || ENDPOINTS[id] === 'POST_BULK_IOC') {
       var rawBulk = document.getElementById('input-' + id).value.trim();
       if (!rawBulk) {

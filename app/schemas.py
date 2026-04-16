@@ -422,31 +422,11 @@ class CertsResponse(BaseModel):
 
 class CveSearchResponse(BaseModel):
     count: int = 0
+    total: int = 0
+    truncated: bool = False
+    offset: int = 0
     summary: str = ""
     results: list[CveResponse] = Field(default_factory=list)
-
-
-class CveRecentResponse(BaseModel):
-    count: int = 0
-    hours: int = 24
-    summary: str = ""
-    results: list[CveResponse] = Field(default_factory=list)
-
-
-class CveKevResponse(BaseModel):
-    count: int = 0
-    summary: str = ""
-    results: list[CveResponse] = Field(default_factory=list)
-
-
-# === EPSS Score ===
-
-
-class EpssResponse(BaseModel):
-    cve_id: str
-    score: float | None = None
-    percentile: float | None = None
-    summary: str = ""
 
 
 # === Code Security ===
