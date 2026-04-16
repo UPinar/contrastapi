@@ -15,3 +15,4 @@ plans/
 node_modules/
 research_landing*.md
 .coverage
+deploy/
