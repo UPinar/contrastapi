@@ -408,11 +408,11 @@ def sync_mitre(full: bool = False) -> int:
         release = resp.json()
         tag = release.get("tag_name", "unknown")
 
-        # Pick the delta asset; fall back to any zip if the name scheme shifts
+        # Pick the delta asset (e.g. "2026-04-16_delta_CVEs_at_0100Z.zip")
         asset = None
         for a in release.get("assets", []) or []:
             name = (a.get("name") or "").lower()
-            if name.startswith("delta") and name.endswith(".zip"):
+            if "delta" in name and name.endswith(".zip"):
                 asset = a
                 break
         if asset is None:
@@ -786,13 +786,19 @@ if __name__ == "__main__":
         sync_ghsa(full=False)
         sync_kev()
         sync_epss()
-    elif "--mitre" in args:
-        sync_mitre(full=False)
-    elif "--ghsa" in args:
-        sync_ghsa(full=False)
-    elif "--epss" in args:
-        sync_epss()
-    elif "--kev" in args:
-        sync_kev()
+    elif "--source" in args:
+        src = args[args.index("--source") + 1] if args.index("--source") + 1 < len(args) else ""
+        if src == "mitre":
+            sync_mitre(full=False)
+        elif src == "ghsa":
+            sync_ghsa(full=False)
+        elif src == "epss":
+            sync_epss()
+        elif src == "kev":
+            sync_kev()
+        elif src == "nvd":
+            sync_nvd(full=False)
+        else:
+            print(f"Unknown source: {src}. Options: nvd, mitre, ghsa, epss, kev")
     else:
         sync_all()
