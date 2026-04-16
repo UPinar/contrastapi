@@ -70,6 +70,12 @@ KEV_URL = "https://raw.githubusercontent.com/cisagov/kev-data/develop/known_expl
 # FIRST EPSS
 EPSS_URL = "https://api.first.org/data/v1/epss"
 
+# MITRE cvelistV5 (CNA-direct upstream, typically hours ahead of NVD)
+MITRE_RELEASES_URL = "https://api.github.com/repos/CVEProject/cvelistV5/releases/latest"
+
+# GitHub Security Advisories (leads NVD on OSS CVEs)
+GHSA_API_URL = "https://api.github.com/advisories"
+
 # Lemon Squeezy (payment / API key provisioning)
 LEMONSQUEEZY_WEBHOOK_SECRET = os.environ.get("LEMONSQUEEZY_WEBHOOK_SECRET", "")
 LEMONSQUEEZY_API_KEY = os.environ.get("LEMONSQUEEZY_API_KEY", "")

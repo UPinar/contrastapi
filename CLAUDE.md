@@ -10,11 +10,11 @@ Live: api.contrastcyber.com | GitHub: UPinar/contrastapi
 - **Server path:** `/opt/contrastapi/`
 - **DB:** `/var/lib/contrastapi/api.db`, `cve.db`, `domain_cache.db`
 - **CVE sync:** `cd app && python -m cve.sync` (delta) or `--full` (initial)
-- **870 tests, 95% coverage**
+- **904 tests, 95% coverage**
 
 ## Architecture
 - `app/main.py` — FastAPI app, middleware, meta endpoints, lifespan (periodic maintenance)
-- `app/cve/` — CVE lookup, NVD/EPSS/KEV sync
+- `app/cve/` — CVE lookup, NVD/MITRE/GHSA/EPSS/KEV sync
 - `app/domain/` — DNS, WHOIS, SSL, subdomains, reputation, tech fingerprint, threat intel, scoring
 - `app/codesec/` — secrets detection, injection detection, header validation
 - `app/codesec/utils.py` — shared is_comment + safe_line (ReDoS protection)

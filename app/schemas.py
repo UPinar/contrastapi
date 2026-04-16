@@ -285,7 +285,7 @@ class Verdict(BaseModel):
     data_age_seconds: int | None = None
     sources_queried: list[str] = Field(default_factory=list)
     sources_unavailable: list[str] = Field(default_factory=list)
-    completeness: Literal["complete", "partial"] = "complete"
+    completeness: Literal["complete", "partial", "minimal"] = "complete"
 
 
 # === CVE ===
@@ -315,6 +315,9 @@ class CveResponse(BaseModel):
     published: str | None = None
     modified: str | None = None
     references: list[str] = Field(default_factory=list)
+    sources: list[str] = Field(default_factory=list)
+    first_seen_source: str | None = None
+    first_seen_at: str | None = None
     verdict: Verdict | None = None
 
 

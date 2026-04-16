@@ -170,6 +170,25 @@ def init_cve_db():
         cols = {row[1] for row in con.execute("PRAGMA table_info(sync_status)")}
         if "checkpoint" not in cols:
             con.execute("ALTER TABLE sync_status ADD COLUMN checkpoint TEXT")
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS cve_sources (
+                cve_id TEXT NOT NULL,
+                source TEXT NOT NULL,
+                first_seen_at TEXT NOT NULL,
+                last_seen_at TEXT NOT NULL,
+                source_url TEXT,
+                PRIMARY KEY (cve_id, source)
+            )
+        """)
+        con.execute("CREATE INDEX IF NOT EXISTS idx_cve_sources_first_seen ON cve_sources(first_seen_at DESC)")
+        # One-shot backfill: mark all existing CVEs as source='nvd' (guarded by empty check)
+        already = con.execute("SELECT 1 FROM cve_sources LIMIT 1").fetchone()
+        if not already:
+            con.execute(
+                "INSERT OR IGNORE INTO cve_sources (cve_id, source, first_seen_at, last_seen_at, source_url) "
+                "SELECT cve_id, 'nvd', synced_at, synced_at, 'https://nvd.nist.gov/vuln/detail/' || cve_id "
+                "FROM cves WHERE synced_at IS NOT NULL"
+            )
 
 
 def init_cache_db():
@@ -770,6 +789,68 @@ def update_kev(cve_id: str, date_added: str | None) -> bool:
     with get_cve_db() as con:
         cur = con.execute("UPDATE cves SET in_kev=1, kev_date_added=? WHERE cve_id=?", (date_added, cve_id))
         return cur.rowcount > 0
+
+
+def upsert_cve_if_absent(cve_data: dict) -> bool:
+    """Insert a CVE row only if it does not already exist. Used by non-NVD sources
+    (MITRE, GHSA) so stronger NVD data is never overwritten with weaker upstream data.
+    Returns True if a new row was inserted."""
+    now = datetime.now(UTC).isoformat()
+    with get_cve_db() as con:
+        cur = con.execute(
+            """
+            INSERT OR IGNORE INTO cves
+            (cve_id, description, severity, cvss_v3, cvss_vector, cwe_id,
+             published, modified, epss_score, epss_percentile,
+             in_kev, kev_date_added, affected_products, refs, summary, synced_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                cve_data["cve_id"],
+                cve_data.get("description"),
+                cve_data.get("severity"),
+                cve_data.get("cvss_v3"),
+                cve_data.get("cvss_vector"),
+                cve_data.get("cwe_id"),
+                cve_data.get("published"),
+                cve_data.get("modified"),
+                cve_data.get("epss_score"),
+                cve_data.get("epss_percentile"),
+                cve_data.get("in_kev", 0),
+                cve_data.get("kev_date_added"),
+                json.dumps(cve_data.get("affected_products", [])),
+                json.dumps(cve_data.get("refs", [])),
+                cve_data.get("summary"),
+                now,
+            ),
+        )
+        return cur.rowcount > 0
+
+
+def record_cve_source(cve_id: str, source: str, source_url: str | None = None) -> None:
+    """Record that a CVE was seen from a given source. Preserves first_seen_at on
+    repeat observations, always bumps last_seen_at."""
+    now = datetime.now(UTC).isoformat()
+    with get_cve_db() as con:
+        con.execute(
+            "INSERT INTO cve_sources (cve_id, source, first_seen_at, last_seen_at, source_url) "
+            "VALUES (?, ?, ?, ?, ?) "
+            "ON CONFLICT(cve_id, source) DO UPDATE SET last_seen_at = excluded.last_seen_at",
+            (cve_id, source, now, now, source_url),
+        )
+
+
+def get_cve_sources(cve_id: str) -> list[dict]:
+    """Return all source observations for a CVE, ordered by first_seen_at ASC."""
+    with get_cve_db() as con:
+        cur = con.cursor()
+        cur.row_factory = sqlite3.Row
+        rows = cur.execute(
+            "SELECT source, first_seen_at, last_seen_at, source_url "
+            "FROM cve_sources WHERE cve_id = ? ORDER BY first_seen_at ASC",
+            (cve_id,),
+        ).fetchall()
+        return [dict(row) for row in rows]
 
 
 def update_sync_status(source: str, count: int, status: str = "ok", checkpoint: str | None = None) -> None:

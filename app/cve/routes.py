@@ -8,6 +8,7 @@ from auth import authenticate
 from db import (
     get_cached_domain,
     get_cve,
+    get_cve_sources,
     get_epss,
     get_kev_cves,
     get_last_successful_sync,
@@ -63,7 +64,10 @@ def cve_lookup(cve_id: str, request: Request):
         raise HTTPException(status_code=404, detail=f"CVE {cve_id} not found")
 
     formatted = _format_cve(result)
-    formatted["verdict"] = _cve_verdict()
+    is_minimal = not (result.get("severity") or result.get("cvss_v3") or result.get("description"))
+    completeness = "minimal" if is_minimal else "complete"
+    sources_for_verdict = [f"{s}_cache" for s in formatted["sources"]] or ["nvd_cache"]
+    formatted["verdict"] = _cve_verdict(sources=sources_for_verdict, completeness=completeness)
     return formatted
 
 
@@ -150,7 +154,7 @@ def epss_score(cve_id: str, request: Request):
     return {**result, "summary": summary}
 
 
-def _cve_verdict() -> Verdict:
+def _cve_verdict(sources: list[str] | None = None, completeness: str = "complete") -> Verdict:
     """Build a verdict metadata block for cve_lookup responses."""
     last = get_last_successful_sync("nvd")
     age: int | None = None
@@ -165,14 +169,16 @@ def _cve_verdict() -> Verdict:
         deterministic=True,
         falsifiable_fields=["cve_id", "severity", "cvss_v3", "published", "references"],
         data_age_seconds=age,
-        sources_queried=["nvd_cache"],
+        sources_queried=sources or ["nvd_cache"],
         sources_unavailable=[],
-        completeness="complete",
+        completeness=completeness,  # type: ignore[arg-type]
     )
 
 
 def _format_cve(row: dict) -> dict:
     """Format a raw CVE db row into API response format."""
+    sources_rows = get_cve_sources(row["cve_id"])
+    source_names = [s["source"] for s in sources_rows]
     return {
         "cve_id": row["cve_id"],
         "summary": row.get("summary") or _generate_summary(row),
@@ -193,6 +199,9 @@ def _format_cve(row: dict) -> dict:
         "published": row.get("published"),
         "modified": row.get("modified"),
         "references": row.get("refs", []),
+        "sources": source_names,
+        "first_seen_source": source_names[0] if source_names else None,
+        "first_seen_at": sources_rows[0]["first_seen_at"] if sources_rows else None,
     }
 
 

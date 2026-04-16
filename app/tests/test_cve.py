@@ -88,6 +88,51 @@ class TestCveLookup:
         assert v["sources_unavailable"] == []
         assert v["completeness"] == "complete"
 
+    def test_cve_lookup_sources_field(self):
+        from db import get_cve_db, record_cve_source
+
+        _seed_cve(cve_id="CVE-2024-8001")
+        record_cve_source("CVE-2024-8001", "mitre", "https://example.com/mitre")
+        with get_cve_db() as con:
+            con.execute(
+                "UPDATE cve_sources SET first_seen_at = ?, last_seen_at = ? WHERE cve_id = ? AND source = ?",
+                ("2024-06-01T00:00:00+00:00", "2024-06-01T00:00:00+00:00", "CVE-2024-8001", "mitre"),
+            )
+        record_cve_source("CVE-2024-8001", "nvd", "https://example.com/nvd")
+        with get_cve_db() as con:
+            con.execute(
+                "UPDATE cve_sources SET first_seen_at = ?, last_seen_at = ? WHERE cve_id = ? AND source = ?",
+                ("2024-06-02T00:00:00+00:00", "2024-06-02T00:00:00+00:00", "CVE-2024-8001", "nvd"),
+            )
+
+        r = client.get("/v1/cve/CVE-2024-8001")
+        assert r.status_code == 200
+        body = r.json()
+        assert body["sources"] == ["mitre", "nvd"]
+        assert body["first_seen_source"] == "mitre"
+        assert body["first_seen_at"] == "2024-06-01T00:00:00+00:00"
+        assert body["verdict"]["sources_queried"] == ["mitre_cache", "nvd_cache"]
+        assert body["verdict"]["completeness"] == "complete"
+
+    def test_cve_lookup_minimal_completeness(self):
+        from db import get_cve_db, record_cve_source
+
+        with get_cve_db() as con:
+            con.execute("DELETE FROM cves WHERE cve_id = ?", ("CVE-2024-8002",))
+            con.execute(
+                "INSERT INTO cves (cve_id, published) VALUES (?, ?)",
+                ("CVE-2024-8002", "2024-07-01T00:00:00Z"),
+            )
+        record_cve_source("CVE-2024-8002", "mitre", "https://example.com/mitre-mini")
+
+        r = client.get("/v1/cve/CVE-2024-8002")
+        assert r.status_code == 200
+        body = r.json()
+        assert body["sources"] == ["mitre"]
+        assert body["first_seen_source"] == "mitre"
+        assert body["verdict"]["completeness"] == "minimal"
+        assert body["verdict"]["sources_queried"] == ["mitre_cache"]
+
 
 class TestCveSearch:
     def test_search_by_severity(self):
@@ -224,6 +269,8 @@ class TestCveResponseFormat:
         expected_keys.add("cvss_breakdown")
         # verdict is present on single-CVE lookup
         expected_keys.add("verdict")
+        # sources list is always present (empty list stays because exclude_none only drops None)
+        expected_keys.add("sources")
         assert expected_keys == set(data.keys())
 
     def test_epss_nested_format(self):
@@ -530,6 +577,504 @@ class TestCvssVectorParser:
         r = client.get("/v1/cve/CVE-2024-NOVECT")
         data = r.json()
         assert data.get("cvss_breakdown") is None
+
+
+class TestCveSources:
+    def test_record_and_get_cve_sources(self):
+        from db import get_cve_sources, record_cve_source
+
+        record_cve_source("CVE-2024-SRC1", "mitre", "https://cve.mitre.org/CVE-2024-SRC1")
+        rows = get_cve_sources("CVE-2024-SRC1")
+        assert len(rows) == 1
+        assert rows[0]["source"] == "mitre"
+        assert rows[0]["source_url"] == "https://cve.mitre.org/CVE-2024-SRC1"
+        assert isinstance(rows[0]["first_seen_at"], str)
+        assert isinstance(rows[0]["last_seen_at"], str)
+
+    def test_record_cve_source_preserves_first_seen(self):
+        import time
+
+        from db import get_cve_sources, record_cve_source
+
+        record_cve_source("CVE-2024-SRC2", "mitre", "https://cve.mitre.org/CVE-2024-SRC2")
+        first = get_cve_sources("CVE-2024-SRC2")[0]
+        time.sleep(0.01)
+        record_cve_source("CVE-2024-SRC2", "mitre", "https://cve.mitre.org/CVE-2024-SRC2")
+        second = get_cve_sources("CVE-2024-SRC2")[0]
+        assert second["first_seen_at"] == first["first_seen_at"]
+        assert second["last_seen_at"] >= first["last_seen_at"]
+
+    def test_record_multiple_sources_ordered(self):
+        import time
+
+        from db import get_cve_sources, record_cve_source
+
+        record_cve_source("CVE-2024-SRC3", "mitre", "https://cve.mitre.org/CVE-2024-SRC3")
+        time.sleep(0.01)
+        record_cve_source("CVE-2024-SRC3", "nvd", "https://nvd.nist.gov/vuln/detail/CVE-2024-SRC3")
+        rows = get_cve_sources("CVE-2024-SRC3")
+        assert len(rows) == 2
+        assert rows[0]["source"] == "mitre"
+        assert rows[1]["source"] == "nvd"
+
+    def test_upsert_cve_if_absent_inserts_new(self):
+        from db import get_cve, upsert_cve_if_absent
+
+        inserted = upsert_cve_if_absent({"cve_id": "CVE-2024-NEW1", "description": "x"})
+        assert inserted is True
+        row = get_cve("CVE-2024-NEW1")
+        assert row is not None
+        assert row["cve_id"] == "CVE-2024-NEW1"
+
+    def test_upsert_cve_if_absent_preserves_existing(self):
+        from db import get_cve, upsert_cve_if_absent
+
+        _seed_cve(cve_id="CVE-2024-KEEP1", severity="CRITICAL", cvss_v3=9.8)
+        inserted = upsert_cve_if_absent({"cve_id": "CVE-2024-KEEP1", "description": "weaker", "severity": "LOW"})
+        assert inserted is False
+        row = get_cve("CVE-2024-KEEP1")
+        assert row["severity"] == "CRITICAL"
+        assert row["cvss_v3"] == 9.8
+
+    @patch("cve.sync._nvd_request")
+    def test_sync_nvd_records_source(self, mock_req):
+        mock_req.return_value = {
+            "totalResults": 1,
+            "vulnerabilities": [
+                {
+                    "cve": {
+                        "id": "CVE-2024-0002",
+                        "descriptions": [{"lang": "en", "value": "Test"}],
+                        "metrics": {},
+                        "weaknesses": [],
+                        "references": [],
+                    }
+                }
+            ],
+        }
+        from cve.sync import sync_nvd
+        from db import get_cve_sources
+
+        sync_nvd(full=False)
+        rows = get_cve_sources("CVE-2024-0002")
+        assert len(rows) == 1
+        assert rows[0]["source"] == "nvd"
+        assert rows[0]["source_url"].startswith("https://nvd.nist.gov/vuln/detail/")
+
+
+def _build_mitre_zip(records: list[dict]) -> bytes:
+    """Build an in-memory zip that mimics a cvelistV5 deltaCves.zip asset."""
+    import io
+    import json as _json
+    import zipfile
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for rec in records:
+            cid = rec.get("cveMetadata", {}).get("cveId", "unknown")
+            zf.writestr(f"cves/{cid}.json", _json.dumps(rec))
+    return buf.getvalue()
+
+
+class TestParseMitreCve:
+    def test_basic_published_record(self):
+        from cve.sync import _parse_mitre_cve
+
+        record = {
+            "cveMetadata": {
+                "cveId": "CVE-2024-70001",
+                "state": "PUBLISHED",
+                "datePublished": "2024-01-15T00:00:00.000Z",
+                "dateUpdated": "2024-01-16T00:00:00.000Z",
+            },
+            "containers": {
+                "cna": {
+                    "descriptions": [{"lang": "en", "value": "A real bug"}],
+                    "references": [{"url": "https://example.com/1"}, {"url": "https://example.com/2"}],
+                }
+            },
+        }
+        result = _parse_mitre_cve(record)
+        assert result["cve_id"] == "CVE-2024-70001"
+        assert result["description"] == "A real bug"
+        assert result["published"] == "2024-01-15T00:00:00.000Z"
+        assert result["modified"] == "2024-01-16T00:00:00.000Z"
+        assert result["refs"] == ["https://example.com/1", "https://example.com/2"]
+        # NVD-owned fields stay NULL so NVD can enrich later
+        assert result["severity"] is None
+        assert result["cvss_v3"] is None
+        assert result["cwe_id"] is None
+
+    def test_rejected_record_is_skipped(self):
+        from cve.sync import _parse_mitre_cve
+
+        record = {
+            "cveMetadata": {"cveId": "CVE-2024-70002", "state": "REJECTED"},
+            "containers": {"cna": {}},
+        }
+        result = _parse_mitre_cve(record)
+        assert result.get("_skip") is True
+
+    def test_missing_cna_tolerated(self):
+        from cve.sync import _parse_mitre_cve
+
+        record = {"cveMetadata": {"cveId": "CVE-2024-70003", "state": "PUBLISHED"}}
+        result = _parse_mitre_cve(record)
+        assert result["cve_id"] == "CVE-2024-70003"
+        assert result["description"] == ""
+        assert result["refs"] == []
+
+    def test_refs_capped_at_20(self):
+        from cve.sync import _parse_mitre_cve
+
+        record = {
+            "cveMetadata": {"cveId": "CVE-2024-70004", "state": "PUBLISHED"},
+            "containers": {
+                "cna": {
+                    "descriptions": [{"lang": "en", "value": "x"}],
+                    "references": [{"url": f"https://example.com/{i}"} for i in range(30)],
+                }
+            },
+        }
+        assert len(_parse_mitre_cve(record)["refs"]) == 20
+
+
+class TestSyncMitre:
+    @patch("cve.sync._client")
+    def test_delta_sync_happy_path(self, mock_client):
+        record = {
+            "cveMetadata": {
+                "cveId": "CVE-2024-70011",
+                "state": "PUBLISHED",
+                "datePublished": "2024-03-01T00:00:00.000Z",
+                "dateUpdated": "2024-03-01T00:00:00.000Z",
+            },
+            "containers": {
+                "cna": {
+                    "descriptions": [{"lang": "en", "value": "Mitre-first bug"}],
+                    "references": [{"url": "https://example.com/advisory"}],
+                }
+            },
+        }
+        zip_bytes = _build_mitre_zip([record])
+
+        release_resp = MagicMock()
+        release_resp.raise_for_status.return_value = None
+        release_resp.json.return_value = {
+            "tag_name": "cve_2024-03-01_0000Z",
+            "assets": [
+                {"name": "deltaCves.zip", "browser_download_url": "https://example.com/deltaCves.zip"},
+                {"name": "cves_at_2024-03-01_0000Z.zip.zip", "browser_download_url": "https://example.com/full.zip"},
+            ],
+        }
+        zip_resp = MagicMock()
+        zip_resp.raise_for_status.return_value = None
+        zip_resp.content = zip_bytes
+        mock_client.get.side_effect = [release_resp, zip_resp]
+
+        from cve.sync import sync_mitre
+        from db import get_cve, get_cve_sources
+
+        count = sync_mitre(full=False)
+        assert count == 1
+        row = get_cve("CVE-2024-70011")
+        assert row is not None
+        assert row["description"] == "Mitre-first bug"
+        assert row["severity"] is None  # NVD will enrich later
+        sources = get_cve_sources("CVE-2024-70011")
+        assert len(sources) == 1
+        assert sources[0]["source"] == "mitre"
+        assert "CVERecord" in sources[0]["source_url"]
+
+    @patch("cve.sync._client")
+    def test_delta_sync_skips_rejected(self, mock_client):
+        rejected = {
+            "cveMetadata": {"cveId": "CVE-2024-70012", "state": "REJECTED"},
+            "containers": {"cna": {}},
+        }
+        zip_bytes = _build_mitre_zip([rejected])
+
+        release_resp = MagicMock()
+        release_resp.raise_for_status.return_value = None
+        release_resp.json.return_value = {
+            "tag_name": "t1",
+            "assets": [{"name": "deltaCves.zip", "browser_download_url": "https://example.com/delta.zip"}],
+        }
+        zip_resp = MagicMock()
+        zip_resp.raise_for_status.return_value = None
+        zip_resp.content = zip_bytes
+        mock_client.get.side_effect = [release_resp, zip_resp]
+
+        from cve.sync import sync_mitre
+        from db import get_cve
+
+        count = sync_mitre(full=False)
+        assert count == 0
+        assert get_cve("CVE-2024-70012") is None
+
+    @patch("cve.sync._client")
+    def test_mitre_does_not_overwrite_nvd_data(self, mock_client):
+        """If NVD already published richer data, MITRE delta must not overwrite it."""
+        _seed_cve(cve_id="CVE-2024-70013", severity="CRITICAL", cvss_v3=9.8, description="NVD description")
+
+        record = {
+            "cveMetadata": {"cveId": "CVE-2024-70013", "state": "PUBLISHED"},
+            "containers": {"cna": {"descriptions": [{"lang": "en", "value": "Weaker MITRE desc"}]}},
+        }
+        release_resp = MagicMock()
+        release_resp.raise_for_status.return_value = None
+        release_resp.json.return_value = {
+            "tag_name": "t2",
+            "assets": [{"name": "deltaCves.zip", "browser_download_url": "https://example.com/delta.zip"}],
+        }
+        zip_resp = MagicMock()
+        zip_resp.raise_for_status.return_value = None
+        zip_resp.content = _build_mitre_zip([record])
+        mock_client.get.side_effect = [release_resp, zip_resp]
+
+        from cve.sync import sync_mitre
+        from db import get_cve, get_cve_sources
+
+        sync_mitre(full=False)
+        row = get_cve("CVE-2024-70013")
+        assert row["severity"] == "CRITICAL"
+        assert row["cvss_v3"] == 9.8
+        assert row["description"] == "NVD description"
+        # But we still record the MITRE observation
+        sources = {s["source"] for s in get_cve_sources("CVE-2024-70013")}
+        assert "mitre" in sources
+
+    def test_full_sync_not_implemented(self):
+        import pytest
+        from cve.sync import sync_mitre
+
+        with pytest.raises(NotImplementedError):
+            sync_mitre(full=True)
+
+
+class TestParseGhsaAdvisory:
+    def test_basic_advisory(self):
+        from cve.sync import _parse_ghsa_advisory
+
+        item = {
+            "cve_id": "CVE-2024-80001",
+            "summary": "XSS in foo",
+            "description": "Long description here",
+            "published_at": "2024-05-01T00:00:00Z",
+            "updated_at": "2024-05-02T00:00:00Z",
+            "references": ["https://example.com/a", "https://example.com/b"],
+            "html_url": "https://github.com/advisories/GHSA-xxxx",
+        }
+        result = _parse_ghsa_advisory(item)
+        assert result["cve_id"] == "CVE-2024-80001"
+        assert result["description"] == "XSS in foo"
+        assert result["published"] == "2024-05-01T00:00:00Z"
+        assert result["modified"] == "2024-05-02T00:00:00Z"
+        assert result["refs"] == ["https://example.com/a", "https://example.com/b"]
+        # NVD-owned fields stay NULL
+        assert result["severity"] is None
+        assert result["cvss_v3"] is None
+        assert result["cvss_vector"] is None
+        assert result["cwe_id"] is None
+        assert result["affected_products"] == []
+
+    def test_missing_cve_id_skipped(self):
+        from cve.sync import _parse_ghsa_advisory
+
+        result = _parse_ghsa_advisory({"cve_id": None, "summary": "x"})
+        assert result.get("_skip") is True
+
+    def test_description_falls_back_to_long_field(self):
+        from cve.sync import _parse_ghsa_advisory
+
+        long_desc = "x" * 2500
+        item = {
+            "cve_id": "CVE-2024-80002",
+            "summary": "",
+            "description": long_desc,
+            "updated_at": "2024-05-01T00:00:00Z",
+        }
+        result = _parse_ghsa_advisory(item)
+        assert len(result["description"]) == 2000
+        assert result["description"] == "x" * 2000
+
+    def test_refs_capped_at_20(self):
+        from cve.sync import _parse_ghsa_advisory
+
+        item = {
+            "cve_id": "CVE-2024-80003",
+            "summary": "s",
+            "references": [f"https://example.com/{i}" for i in range(25)],
+        }
+        assert len(_parse_ghsa_advisory(item)["refs"]) == 20
+
+
+def _mk_ghsa_resp(advisories, next_url=None, remaining=None):
+    resp = MagicMock()
+    resp.raise_for_status.return_value = None
+    resp.json.return_value = advisories
+    headers = {}
+    if next_url:
+        headers["link"] = f'<{next_url}>; rel="next"'
+    if remaining is not None:
+        headers["x-ratelimit-remaining"] = str(remaining)
+    resp.headers = headers
+    return resp
+
+
+class TestSyncGhsa:
+    @patch("cve.sync._client")
+    def test_delta_sync_happy_path(self, mock_client):
+        advisories = [
+            {
+                "cve_id": "CVE-2024-80011",
+                "summary": "first bug",
+                "published_at": "2024-06-01T00:00:00Z",
+                "updated_at": "2024-06-02T00:00:00Z",
+                "references": ["https://example.com/1"],
+                "html_url": "https://github.com/advisories/GHSA-aaaa",
+            },
+            {
+                "cve_id": "CVE-2024-80012",
+                "summary": "second bug",
+                "published_at": "2024-06-01T00:00:00Z",
+                "updated_at": "2024-06-01T12:00:00Z",
+                "references": [],
+                "html_url": "https://github.com/advisories/GHSA-bbbb",
+            },
+        ]
+        mock_client.get.side_effect = [_mk_ghsa_resp(advisories)]
+
+        from cve.sync import sync_ghsa
+        from db import get_cve, get_cve_sources
+
+        count = sync_ghsa(full=False)
+        assert count == 2
+        assert get_cve("CVE-2024-80011") is not None
+        assert get_cve("CVE-2024-80012") is not None
+        sources = {s["source"] for s in get_cve_sources("CVE-2024-80011")}
+        assert "ghsa" in sources
+
+    @patch("cve.sync._client")
+    def test_delta_sync_skips_null_cve_id(self, mock_client):
+        advisories = [
+            {
+                "cve_id": None,
+                "summary": "not yet assigned",
+                "updated_at": "2024-06-03T00:00:00Z",
+                "html_url": "https://github.com/advisories/GHSA-cccc",
+            },
+            {
+                "cve_id": "CVE-2024-80013",
+                "summary": "real one",
+                "updated_at": "2024-06-03T00:00:00Z",
+                "html_url": "https://github.com/advisories/GHSA-dddd",
+            },
+        ]
+        mock_client.get.side_effect = [_mk_ghsa_resp(advisories)]
+
+        from cve.sync import sync_ghsa
+        from db import get_cve
+
+        count = sync_ghsa(full=False)
+        assert count == 1
+        assert get_cve("CVE-2024-80013") is not None
+
+    @patch("cve.sync._client")
+    def test_delta_sync_paginates(self, mock_client):
+        page1 = [
+            {
+                "cve_id": "CVE-2024-80021",
+                "summary": "p1",
+                "updated_at": "2024-07-02T00:00:00Z",
+                "html_url": "https://github.com/advisories/GHSA-1111",
+            }
+        ]
+        page2 = [
+            {
+                "cve_id": "CVE-2024-80022",
+                "summary": "p2",
+                "updated_at": "2024-07-01T00:00:00Z",
+                "html_url": "https://github.com/advisories/GHSA-2222",
+            }
+        ]
+        mock_client.get.side_effect = [
+            _mk_ghsa_resp(page1, next_url="https://api.github.com/advisories?page=2"),
+            _mk_ghsa_resp(page2),
+        ]
+
+        from cve.sync import sync_ghsa
+        from db import get_cve
+
+        count = sync_ghsa(full=False)
+        assert count == 2
+        assert get_cve("CVE-2024-80021") is not None
+        assert get_cve("CVE-2024-80022") is not None
+        assert mock_client.get.call_count == 2
+
+    @patch("cve.sync._client")
+    def test_delta_sync_stops_on_checkpoint(self, mock_client):
+        from db import update_sync_status
+
+        # Seed checkpoint equal to the newest updated_at in the fixture
+        update_sync_status("ghsa", 0, "ok", checkpoint="2024-08-02T00:00:00Z")
+
+        advisories = [
+            {
+                "cve_id": "CVE-2024-80031",
+                "summary": "already seen",
+                "updated_at": "2024-08-02T00:00:00Z",
+                "html_url": "https://github.com/advisories/GHSA-cp01",
+            },
+            {
+                "cve_id": "CVE-2024-80032",
+                "summary": "older",
+                "updated_at": "2024-08-01T00:00:00Z",
+                "html_url": "https://github.com/advisories/GHSA-cp02",
+            },
+        ]
+        mock_client.get.side_effect = [_mk_ghsa_resp(advisories)]
+
+        from cve.sync import sync_ghsa
+        from db import get_cve
+
+        count = sync_ghsa(full=False)
+        assert count == 0
+        assert get_cve("CVE-2024-80031") is None
+        assert get_cve("CVE-2024-80032") is None
+
+    @patch("cve.sync._client")
+    def test_ghsa_does_not_overwrite_nvd_data(self, mock_client):
+        """If NVD already published richer data, GHSA delta must not overwrite it."""
+        _seed_cve(cve_id="CVE-2024-80041", severity="CRITICAL", cvss_v3=9.8, description="NVD desc")
+
+        advisories = [
+            {
+                "cve_id": "CVE-2024-80041",
+                "summary": "GHSA summary",
+                "updated_at": "2024-09-01T00:00:00Z",
+                "html_url": "https://github.com/advisories/GHSA-win1",
+            }
+        ]
+        mock_client.get.side_effect = [_mk_ghsa_resp(advisories)]
+
+        from cve.sync import sync_ghsa
+        from db import get_cve, get_cve_sources
+
+        sync_ghsa(full=False)
+        row = get_cve("CVE-2024-80041")
+        assert row["severity"] == "CRITICAL"
+        assert row["cvss_v3"] == 9.8
+        assert row["description"] == "NVD desc"
+        sources = {s["source"] for s in get_cve_sources("CVE-2024-80041")}
+        assert "ghsa" in sources
+
+    def test_full_sync_not_implemented(self):
+        import pytest
+        from cve.sync import sync_ghsa
+
+        with pytest.raises(NotImplementedError):
+            sync_ghsa(full=True)
 
 
 class TestOpenApiCveRoutes:

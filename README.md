@@ -6,7 +6,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Python 3.12](https://img.shields.io/badge/Python-3.12-blue.svg)](https://python.org)
-[![Tests](https://img.shields.io/badge/Tests-870_passing-brightgreen.svg)](https://github.com/UPinar/contrastapi/actions)
+[![Tests](https://img.shields.io/badge/Tests-904_passing-brightgreen.svg)](https://github.com/UPinar/contrastapi/actions)
 [![MCP](https://img.shields.io/badge/MCP-29_tools-purple.svg)](https://modelcontextprotocol.io)
 [![Smithery](https://img.shields.io/badge/Smithery-96%2F100-orange.svg)](https://smithery.ai/servers/contrastcyber/contrastapi)
 [![npm](https://img.shields.io/npm/v/contrastapi.svg)](https://www.npmjs.com/package/contrastapi)
@@ -85,7 +85,7 @@ More example prompts: [docs/PROMPTS.md](docs/PROMPTS.md) · [/playground](https:
 ## What's Inside
 
 - **29 MCP tools** across 6 categories — full list: **[docs/ENDPOINTS.md](docs/ENDPOINTS.md)**
-- **340K+ CVEs** synced from NVD every 2 hours, enriched with EPSS exploit probability + CISA KEV status
+- **340K+ CVEs** from NVD + MITRE cvelistV5 + GitHub Security Advisories, enriched with EPSS + CISA KEV. `cve_lookup` exposes `sources`, `first_seen_source`, `first_seen_at` — agents detect CVEs indexed before NVD publishes.
 - **Weighted credits** — 1 for simple calls, 4 for heavy orchestration (audit, threat report), N for bulk lookups
 - **LLM-optimized summaries** — every response includes a `summary` field so agents reason without parsing nested JSON
 - **Distribution** — [npm SDK](https://www.npmjs.com/package/contrastapi) · [VS Code Extension](https://marketplace.visualstudio.com/items?itemName=ContrastAPI.contrastapi) · [Smithery MCP](https://smithery.ai/servers/contrastcyber/contrastapi) (96/100 quality) · REST API
@@ -128,7 +128,7 @@ Requires Python 3.12. SQLite databases auto-initialize on first run. See [docs/E
 cd app && PYTHONPATH=. python -m pytest tests/ -v
 ```
 
-**870 tests, 36/36 smoke-test coverage** on every 15-minute cron. Covers auth, rate limiting, validation, database ops, domain intelligence, CVE intelligence, threat intelligence, code security (ReDoS protection, concurrency limits), tech fingerprinting, IP reputation, email security, phone validation, web archive, MCP endpoint, bulk endpoints, weighted credit system, and API routes.
+**904 tests, 36/36 smoke-test coverage** on every 15-minute cron. Covers auth, rate limiting, validation, database ops, domain intelligence, CVE intelligence, threat intelligence, code security (ReDoS protection, concurrency limits), tech fingerprinting, IP reputation, email security, phone validation, web archive, MCP endpoint, bulk endpoints, weighted credit system, and API routes.
 
 </details>
 
@@ -168,10 +168,13 @@ ContrastAPI responses include a `verdict` metadata block on key endpoints
     "deterministic": true,
     "falsifiable_fields": ["cve_id", "severity", "cvss_v3", "published", "references"],
     "data_age_seconds": 1834,
-    "sources_queried": ["nvd_cache"],
+    "sources_queried": ["mitre_cache", "nvd_cache"],
     "sources_unavailable": [],
     "completeness": "complete"
-  }
+  },
+  "sources": ["mitre", "nvd"],
+  "first_seen_source": "mitre",
+  "first_seen_at": "2024-06-01T03:22:00Z"
 }
 ```
 
@@ -182,6 +185,8 @@ query will return the same answer; `data_age_seconds` is the distance from the
 latest upstream sync (or `0` for live fetches).
 
 `sources_queried` lists upstream providers consulted for this response; `sources_unavailable` lists any that failed (timeout, parse error, rate-limit, upstream 5xx). `completeness` is `"partial"` whenever `sources_unavailable` is non-empty — agents should treat partial responses as best-effort and re-query later.
+
+`sources` lists which upstream feeds have indexed this CVE (ordered by first observation). `first_seen_source` and `first_seen_at` reveal which feed saw it earliest — during 0-day bursts, MITRE and GHSA typically lead NVD by hours to weeks. `completeness: "minimal"` means only MITRE/GHSA have the CVE so far (no severity/CVSS from NVD yet).
 
 Probe `GET /v1/capabilities` — responses with `"verdict_metadata": true` support
 this pattern across the endpoints listed above.

@@ -1,9 +1,11 @@
-"""CVE data sync engine — fetches from NVD, EPSS, and CISA KEV
+"""CVE data sync engine — fetches from NVD, MITRE, GHSA, EPSS, and CISA KEV
 
 Usage:
-    python -m cve.sync                 # delta sync (since last successful sync)
-    python -m cve.sync --full          # full initial sync (~250k CVEs)
-    python -m cve.sync --resume        # resume a crashed full sync from checkpoint
+    python -m cve.sync                 # delta sync (NVD + MITRE + GHSA + KEV + EPSS)
+    python -m cve.sync --full          # full initial NVD sync (~250k CVEs) + delta others
+    python -m cve.sync --resume        # resume a crashed full NVD sync from checkpoint
+    python -m cve.sync --mitre         # MITRE cvelistV5 delta only
+    python -m cve.sync --ghsa          # GitHub Security Advisories delta only
     python -m cve.sync --epss          # EPSS scores only
     python -m cve.sync --kev           # KEV list only
 
@@ -13,24 +15,37 @@ Crash recovery: full syncs save a checkpoint after each page. Use --resume to co
 
 import gzip
 import io
+import json
 import logging
 import math
+import re
 import sys
 import time
+import zipfile
 from datetime import UTC, datetime, timedelta
 
 import httpx
-from config import KEV_URL, NVD_API_KEY, NVD_API_URL, NVD_PAGE_SIZE
+from config import (
+    GHSA_API_URL,
+    KEV_URL,
+    MITRE_RELEASES_URL,
+    NVD_API_KEY,
+    NVD_API_URL,
+    NVD_PAGE_SIZE,
+)
 from db import (
     get_cve,
     get_last_successful_sync,
     get_sync_checkpoint,
     init_all_dbs,
+    record_cve_source,
     update_epss,
     update_kev,
     update_sync_status,
     upsert_cve,
+    upsert_cve_if_absent,
 )
+from validation import validate_cve_id
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("contrastapi")
@@ -190,8 +205,6 @@ def sync_nvd(full: bool = False, resume: bool = False) -> int:
         full: Fetch all CVEs (not just recent changes).
         resume: Resume a crashed full sync from its last checkpoint.
     """
-    import json as _json
-
     params = {"resultsPerPage": NVD_PAGE_SIZE}
 
     # --- Determine start_index (resume support) ---
@@ -202,7 +215,7 @@ def sync_nvd(full: bool = False, resume: bool = False) -> int:
         raw = get_sync_checkpoint("nvd")
         if raw:
             try:
-                cp = _json.loads(raw)
+                cp = json.loads(raw)
                 if not isinstance(cp, dict):
                     raise ValueError("checkpoint is not a dict")
                 si = cp.get("start_index", 0)
@@ -268,6 +281,11 @@ def sync_nvd(full: bool = False, resume: bool = False) -> int:
                         for key in ("epss_score", "epss_percentile", "in_kev", "kev_date_added"):
                             cve_data.setdefault(key, existing.get(key))
                     upsert_cve(cve_data)
+                    record_cve_source(
+                        cve_data["cve_id"],
+                        "nvd",
+                        f"https://nvd.nist.gov/vuln/detail/{cve_data['cve_id']}",
+                    )
                     total_processed += 1
             except Exception as e:
                 log.warning("Failed to process CVE: %s", e)
@@ -277,7 +295,7 @@ def sync_nvd(full: bool = False, resume: bool = False) -> int:
 
         # Save checkpoint after each page (full sync only — delta is fast)
         if full:
-            cp = _json.dumps({"start_index": start_index, "total_processed": total_processed})
+            cp = json.dumps({"start_index": start_index, "total_processed": total_processed})
             update_sync_status("nvd", total_processed, "in_progress", checkpoint=cp)
 
         if start_index >= total_results:
@@ -293,11 +311,337 @@ def sync_nvd(full: bool = False, resume: bool = False) -> int:
     else:
         # Partial failure: preserve checkpoint for --resume
         log.warning("NVD sync interrupted after %d CVEs, checkpoint preserved for --resume", total_processed)
-        cp = _json.dumps({"start_index": start_index, "total_processed": total_processed})
+        cp = json.dumps({"start_index": start_index, "total_processed": total_processed})
         update_sync_status("nvd", total_processed, "error", checkpoint=cp)
 
     log.info("NVD sync complete: %d CVEs processed", total_processed)
     return total_processed
+
+
+# --- MITRE cvelistV5 Sync ---
+
+# Cap on JSON files decoded per release to keep memory bounded against zip-bomb
+# style release assets. Real deltaCves.zip carries ~hundreds of files.
+MITRE_MAX_ENTRIES = 50_000
+MITRE_MAX_DECOMPRESSED = 500 * 1024 * 1024  # 500MB total across all members
+
+
+def _github_headers() -> dict:
+    """Headers for GitHub REST API calls. Unauthenticated — 60/hr per IP is ample
+    for our cadence (1 MITRE call per 2h sync, ≤3 GHSA calls per 15min sync)."""
+    return {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
+
+
+def _parse_mitre_cve(item: dict) -> dict:
+    """Parse a single CVE Record Format v5.1 JSON into our DB format.
+
+    Lossy on purpose: no CVSS/CWE extraction — NVD owns those fields.
+    Tolerates missing CNA container and malformed entries."""
+    meta = item.get("cveMetadata", {}) or {}
+    cve_id = meta.get("cveId", "") or ""
+
+    if not validate_cve_id(cve_id):
+        return {"cve_id": cve_id, "_skip": True}
+
+    state = meta.get("state", "")
+
+    # Skip rejected/reserved records — nothing to store
+    if state and state != "PUBLISHED":
+        return {"cve_id": cve_id, "_skip": True}
+
+    containers = item.get("containers", {}) or {}
+    cna = containers.get("cna", {}) or {}
+
+    # English description
+    desc = ""
+    for d in cna.get("descriptions", []) or []:
+        if d.get("lang", "").lower().startswith("en"):
+            desc = d.get("value", "") or ""
+            break
+
+    # References (cap at 20)
+    refs = []
+    for r in cna.get("references", []) or []:
+        url = r.get("url")
+        if url:
+            refs.append(url)
+        if len(refs) >= 20:
+            break
+
+    published = meta.get("datePublished")
+    modified = meta.get("dateUpdated") or meta.get("dateReserved")
+
+    return {
+        "cve_id": cve_id,
+        "description": desc,
+        "severity": None,
+        "cvss_v3": None,
+        "cvss_vector": None,
+        "cwe_id": None,
+        "published": published,
+        "modified": modified,
+        "affected_products": [],
+        "refs": refs,
+    }
+
+
+def sync_mitre(full: bool = False) -> int:
+    """Sync CVEs from MITRE cvelistV5 via the nightly GitHub release.
+
+    v1 scope: delta only. Fetches the `latest` release, picks the smallest
+    delta asset (deltaCves.zip), extracts each JSON, upserts via
+    upsert_cve_if_absent (so NVD always wins), and records source observation.
+
+    `full=True` is reserved for a future v1.1 — raises NotImplementedError.
+    Returns count of CVEs processed.
+    """
+    if full:
+        raise NotImplementedError("MITRE full sync not implemented yet — use NVD full, MITRE delta")
+
+    log.info("MITRE delta sync starting...")
+    update_sync_status("mitre", 0, "in_progress")
+
+    try:
+        # Discover the latest release tarball
+        resp = _client.get(MITRE_RELEASES_URL, headers=_github_headers(), timeout=30)
+        resp.raise_for_status()
+        release = resp.json()
+        tag = release.get("tag_name", "unknown")
+
+        # Pick the delta asset; fall back to any zip if the name scheme shifts
+        asset = None
+        for a in release.get("assets", []) or []:
+            name = (a.get("name") or "").lower()
+            if name.startswith("delta") and name.endswith(".zip"):
+                asset = a
+                break
+        if asset is None:
+            log.warning("MITRE: no delta asset in release %s", tag)
+            update_sync_status("mitre", 0, "ok", checkpoint=tag)
+            return 0
+
+        dl_url = asset.get("browser_download_url")
+        if not dl_url:
+            log.error("MITRE: delta asset missing download URL")
+            update_sync_status("mitre", 0, "error")
+            return 0
+
+        # Download the zip. GitHub release assets are unauthenticated, browser-like.
+        zresp = _client.get(dl_url, timeout=120)
+        zresp.raise_for_status()
+        zdata = zresp.content
+
+        count = 0
+        decompressed = 0
+        with zipfile.ZipFile(io.BytesIO(zdata)) as zf:
+            members = [m for m in zf.infolist() if m.filename.lower().endswith(".json")]
+            if len(members) > MITRE_MAX_ENTRIES:
+                log.warning("MITRE: release has %d entries, capping at %d", len(members), MITRE_MAX_ENTRIES)
+                members = members[:MITRE_MAX_ENTRIES]
+
+            for info in members:
+                if info.is_dir():
+                    continue
+                remaining = MITRE_MAX_DECOMPRESSED - decompressed
+                if remaining <= 0:
+                    log.warning("MITRE: decompressed size exceeds limit, stopping")
+                    break
+                try:
+                    with zf.open(info) as fh:
+                        # Read at most remaining+1 bytes so an oversized member trips the cap
+                        # instead of trusting info.file_size metadata (zip-bomb hardening).
+                        raw = fh.read(remaining + 1)
+                    if len(raw) > remaining:
+                        log.warning("MITRE: decompressed size exceeds limit, stopping")
+                        break
+                    decompressed += len(raw)
+                    record = json.loads(raw.decode("utf-8"))
+                except (OSError, UnicodeDecodeError, json.JSONDecodeError) as e:
+                    log.warning("MITRE: failed to decode %s: %s", info.filename, e)
+                    continue
+
+                try:
+                    cve_data = _parse_mitre_cve(record)
+                except Exception as e:
+                    log.warning("MITRE: parse error in %s: %s", info.filename, e)
+                    continue
+
+                if not cve_data.get("cve_id") or cve_data.get("_skip"):
+                    continue
+
+                upsert_cve_if_absent(cve_data)
+                record_cve_source(
+                    cve_data["cve_id"],
+                    "mitre",
+                    f"https://www.cve.org/CVERecord?id={cve_data['cve_id']}",
+                )
+                count += 1
+
+        update_sync_status("mitre", count, "ok", checkpoint=tag)
+        log.info("MITRE sync complete: %d CVEs processed (release %s)", count, tag)
+        return count
+
+    except httpx.HTTPError as e:
+        log.error("MITRE sync HTTP error: %s", e)
+        update_sync_status("mitre", 0, "error")
+        return 0
+    except zipfile.BadZipFile as e:
+        log.error("MITRE sync bad zip: %s", e)
+        update_sync_status("mitre", 0, "error")
+        return 0
+    except Exception as e:
+        log.error("MITRE sync failed: %s", e)
+        update_sync_status("mitre", 0, "error")
+        return 0
+
+
+# --- GHSA (GitHub Security Advisories) Sync ---
+
+GHSA_MAX_PAGES = 20
+_GHSA_LINK_NEXT_RE = re.compile(r'<([^>]+)>\s*;\s*rel="next"')
+
+
+def _parse_ghsa_advisory(item: dict) -> dict:
+    """Parse one advisory from the GHSA REST response into our DB format.
+
+    Lossy on purpose: no severity/CVSS/CWE extraction. NVD owns those fields,
+    so upsert_cve_if_absent() will never overwrite richer NVD records."""
+    cve_id = item.get("cve_id")
+    if not cve_id or not validate_cve_id(cve_id):
+        return {"cve_id": cve_id or "", "_skip": True}
+
+    desc = (item.get("summary") or "").strip()
+    if not desc:
+        desc = (item.get("description") or "").strip()
+    if len(desc) > 2000:
+        desc = desc[:2000]
+
+    refs = []
+    for url in item.get("references") or []:
+        if url:
+            refs.append(url)
+        if len(refs) >= 20:
+            break
+
+    return {
+        "cve_id": cve_id,
+        "description": desc,
+        "severity": None,
+        "cvss_v3": None,
+        "cvss_vector": None,
+        "cwe_id": None,
+        "published": item.get("published_at"),
+        "modified": item.get("updated_at"),
+        "affected_products": [],
+        "refs": refs,
+    }
+
+
+def _ghsa_next_link(headers) -> str | None:
+    """Extract the rel=next URL from a GitHub Link header, if any."""
+    link = headers.get("link") if headers else None
+    if not link:
+        return None
+    m = _GHSA_LINK_NEXT_RE.search(link)
+    if not m:
+        return None
+    url = m.group(1)
+    if not url.startswith("https://api.github.com/"):
+        log.warning("GHSA: ignoring non-GitHub pagination URL: %s", url)
+        return None
+    return url
+
+
+def sync_ghsa(full: bool = False) -> int:
+    """Sync CVEs from GitHub Security Advisories.
+
+    Delta-only: walks /advisories sorted by updated desc until we reach the
+    last-seen checkpoint (ISO8601 updated_at of the newest advisory from the
+    previous run). Unauth GitHub: 60 req/hr per IP is ample for a 2h cron.
+
+    Returns count of CVE-bearing advisories processed.
+    """
+    if full:
+        raise NotImplementedError("GHSA full sync not implemented yet — delta keeps up")
+
+    log.info("GHSA delta sync starting...")
+    # Read checkpoint BEFORE marking in_progress — update_sync_status uses
+    # INSERT OR REPLACE and would otherwise wipe the stored value.
+    checkpoint = get_sync_checkpoint("ghsa")
+    update_sync_status("ghsa", 0, "in_progress", checkpoint=checkpoint)
+    newest_seen: str | None = None
+    count = 0
+
+    try:
+        url = GHSA_API_URL
+        params: dict | None = {"per_page": 100, "sort": "updated", "direction": "desc"}
+        stop = False
+
+        for _page_num in range(GHSA_MAX_PAGES):
+            resp = _client.get(url, params=params, headers=_github_headers(), timeout=30)
+            resp.raise_for_status()
+            advisories = resp.json() or []
+
+            if not advisories:
+                break
+
+            for adv in advisories:
+                updated_at = adv.get("updated_at")
+                if updated_at and (newest_seen is None or updated_at > newest_seen):
+                    newest_seen = updated_at
+
+                if checkpoint and updated_at and updated_at <= checkpoint:
+                    stop = True
+                    break
+
+                if not adv.get("cve_id"):
+                    continue
+
+                try:
+                    cve_data = _parse_ghsa_advisory(adv)
+                except Exception as e:
+                    log.warning("GHSA: parse error: %s", e)
+                    continue
+
+                if not cve_data.get("cve_id") or cve_data.get("_skip"):
+                    continue
+
+                upsert_cve_if_absent(cve_data)
+                record_cve_source(cve_data["cve_id"], "ghsa", adv.get("html_url"))
+                count += 1
+
+            if stop:
+                break
+
+            # Rate-limit awareness
+            remaining = resp.headers.get("x-ratelimit-remaining")
+            if remaining is not None:
+                try:
+                    if int(remaining) <= 2:
+                        log.warning("GHSA: rate limit remaining=%s, breaking to resume next cron", remaining)
+                        break
+                except ValueError:
+                    pass
+
+            next_url = _ghsa_next_link(resp.headers)
+            if not next_url:
+                break
+            url = next_url
+            params = None  # next link already has the query string
+
+        new_checkpoint = newest_seen or checkpoint
+        update_sync_status("ghsa", count, "ok", checkpoint=new_checkpoint)
+        log.info("GHSA sync complete: %d CVE-bearing advisories processed", count)
+        return count
+
+    except httpx.HTTPError as e:
+        log.error("GHSA sync HTTP error: %s", e)
+        update_sync_status("ghsa", 0, "error")
+        return 0
+    except Exception as e:
+        log.error("GHSA sync failed: %s", e)
+        update_sync_status("ghsa", 0, "error")
+        return 0
 
 
 # --- EPSS Sync ---
@@ -416,9 +760,11 @@ def sync_kev() -> int:
 
 
 def sync_all(full: bool = False):
-    """Run all sync tasks."""
+    """Run all sync tasks. MITRE and GHSA run delta-only regardless of `full`."""
     init_all_dbs()
     sync_nvd(full=full)
+    sync_mitre(full=False)
+    sync_ghsa(full=False)
     sync_kev()
     sync_epss()
 
@@ -430,12 +776,20 @@ if __name__ == "__main__":
 
     if "--resume" in args:
         sync_nvd(full=True, resume=True)
+        sync_mitre(full=False)
+        sync_ghsa(full=False)
         sync_kev()
         sync_epss()
     elif "--full" in args:
         sync_nvd(full=True)
+        sync_mitre(full=False)
+        sync_ghsa(full=False)
         sync_kev()
         sync_epss()
+    elif "--mitre" in args:
+        sync_mitre(full=False)
+    elif "--ghsa" in args:
+        sync_ghsa(full=False)
     elif "--epss" in args:
         sync_epss()
     elif "--kev" in args:
