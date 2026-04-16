@@ -1,5 +1,7 @@
 """Tests for main.py — app endpoints"""
 
+from unittest.mock import patch
+
 from fastapi.testclient import TestClient
 from main import app
 
@@ -378,6 +380,93 @@ def test_x_upgrade_url_header_absent_on_pro_tier():
         r = client.get("/v1/ioc/xxx", headers={"Authorization": f"Bearer {test_key}"})
         assert r.headers.get("X-RateLimit-Tier") == "pro"
         assert "X-Upgrade-URL" not in r.headers
+    finally:
+        with get_api_db() as con:
+            con.execute("DELETE FROM api_keys WHERE key_hash = ?", (key_hash,))
+
+
+def test_free_429_body_has_upgrade_cta():
+    """Free-tier 429 response body must include structured upgrade CTA."""
+    from ratelimit import reset
+
+    reset("api")
+    headers = {"X-Forwarded-For": "203.0.113.73"}
+    for _ in range(25):
+        client.get("/v1/threat-report/not_an_ip", headers=headers)
+    r = client.get("/v1/threat-report/not_an_ip", headers=headers)
+    assert r.status_code == 429
+    body = r.json()
+    assert body["tier"] == "free"
+    assert body["limit"] == 100
+    assert "upgrade" in body
+    assert body["upgrade"]["pro_limit"] == 1000
+    assert "contrastcyber.com/pricing" in body["upgrade"]["url"]
+    reset("api")
+
+
+def test_free_422_body_has_upgrade_cta():
+    """Free-tier 422 validation error must include upgrade CTA."""
+    from ratelimit import reset
+
+    reset("api")
+    headers = {"X-Forwarded-For": "203.0.113.74"}
+    r = client.post("/v1/domains/bulk", json={"domains": []}, headers=headers)
+    assert r.status_code == 422
+    body = r.json()
+    assert "upgrade" in body
+    assert body["upgrade"]["pro_limit"] == 1000
+    assert "contrastcyber.com/pricing" in body["upgrade"]["url"]
+    assert "message" in body["upgrade"]
+    reset("api")
+
+
+@patch("auth.PRO_HOURLY_LIMIT", 5)
+def test_pro_429_body_has_support_no_upgrade():
+    """Pro-tier 429 response body must include support contact, not upgrade CTA."""
+    from auth import hash_key
+    from config import KEY_LENGTH, KEY_PREFIX
+    from db import get_api_db, save_api_key
+    from ratelimit import reset
+
+    reset("api")
+    test_key = KEY_PREFIX + "v" * KEY_LENGTH
+    key_hash = hash_key(test_key)
+    try:
+        save_api_key(key_hash)
+        auth_header = {"Authorization": f"Bearer {test_key}"}
+        for _ in range(5):
+            client.get("/v1/threat-report/not_an_ip", headers=auth_header)
+        r = client.get("/v1/threat-report/not_an_ip", headers=auth_header)
+        assert r.status_code == 429
+        body = r.json()
+        assert body["tier"] == "pro"
+        assert "support" in body
+        assert "support@contrastcyber.com" in body["support"]
+        assert "upgrade" not in body
+    finally:
+        with get_api_db() as con:
+            con.execute("DELETE FROM api_keys WHERE key_hash = ?", (key_hash,))
+        reset("api")
+
+
+def test_pro_422_body_no_upgrade_cta():
+    """Pro-tier 422 must NOT include upgrade CTA."""
+    from auth import hash_key
+    from config import KEY_LENGTH, KEY_PREFIX
+    from db import get_api_db, save_api_key
+
+    test_key = KEY_PREFIX + "u" * KEY_LENGTH
+    key_hash = hash_key(test_key)
+    try:
+        save_api_key(key_hash)
+        r = client.post(
+            "/v1/domains/bulk",
+            json={"domains": []},
+            headers={"Authorization": f"Bearer {test_key}"},
+        )
+        assert r.status_code == 422
+        body = r.json()
+        assert "upgrade" not in body
     finally:
         with get_api_db() as con:
             con.execute("DELETE FROM api_keys WHERE key_hash = ?", (key_hash,))

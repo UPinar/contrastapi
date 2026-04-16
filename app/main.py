@@ -25,7 +25,15 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from auth import extract_key
-from config import BASE_DIR, ENDPOINT_COUNT, MCP_TOOL_COUNT, UPGRADE_URL, VERSION
+from config import (
+    BASE_DIR,
+    ENDPOINT_COUNT,
+    FREE_HOURLY_LIMIT,
+    MCP_TOOL_COUNT,
+    PRO_HOURLY_LIMIT,
+    UPGRADE_URL,
+    VERSION,
+)
 from db import (
     get_and_clear_pending_key,
     get_key_by_order_id,
@@ -337,6 +345,14 @@ ENDPOINT_HINTS = [
 ENDPOINT_HINT_DEFAULT = ENDPOINT_HINTS[-1][1]
 
 
+def _upgrade_cta() -> dict:
+    return {
+        "pro_limit": PRO_HOURLY_LIMIT,
+        "url": UPGRADE_URL,
+        "message": f"Designed for automation — unlock {PRO_HOURLY_LIMIT} req/hr with Pro.",
+    }
+
+
 @app.exception_handler(StarletteHTTPException)
 async def api_error_handler(request: Request, exc: StarletteHTTPException):
     """All errors return JSON with helpful hints."""
@@ -353,6 +369,17 @@ async def api_error_handler(request: Request, exc: StarletteHTTPException):
 
     if exc.status_code == 405:
         content["hint"] = f"Method {request.method} not allowed. Try POST for /v1/check/* endpoints."
+
+    if exc.status_code == 429:
+        is_free = extract_key(request) is None
+        if is_free:
+            content["tier"] = "free"
+            content["limit"] = FREE_HOURLY_LIMIT
+            content["upgrade"] = _upgrade_cta()
+        else:
+            content["tier"] = "pro"
+            content["limit"] = PRO_HOURLY_LIMIT
+            content["support"] = "Contact support for higher limits: support@contrastcyber.com"
 
     return JSONResponse(status_code=exc.status_code, content=content)
 
@@ -380,6 +407,8 @@ async def validation_error_handler(request: Request, exc: RequestValidationError
         content["field"] = field
     if received is not None and isinstance(received, str) and len(received) < 200:
         content["received"] = received
+    if extract_key(request) is None:
+        content["upgrade"] = _upgrade_cta()
     return JSONResponse(status_code=422, content=content)
 
 
@@ -862,8 +891,7 @@ def metrics(request: Request):
 @app.get("/v1/usage", operation_id="api_usage", tags=["Meta"])
 def api_usage(request: Request):
     """Usage statistics for API key holders."""
-    from auth import authenticate, extract_key
-    from config import PRO_HOURLY_LIMIT
+    from auth import authenticate
     from db import get_key_usage_stats
 
     raw_key = extract_key(request)
@@ -889,7 +917,6 @@ def privacy_my_data(request: Request):
     path parameters are stripped before any DB write (see db.normalize_endpoint).
     """
     from auth import authenticate
-    from config import FREE_HOURLY_LIMIT, PRO_HOURLY_LIMIT
     from db import get_privacy_data
 
     auth_ctx = authenticate(request, "/v1/privacy/my-data")
