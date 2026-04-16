@@ -87,7 +87,7 @@ curl https://api.contrastcyber.com/v1/threat-report/8.8.8.8
 ## 功能一览
 
 - **30 个 MCP 工具**，覆盖 6 个类别 — 完整列表：**[docs/ENDPOINTS.md](docs/ENDPOINTS.md)**
-- **34 万+ CVE** 每 2 小时从 NVD 同步，并整合 EPSS 漏洞利用概率 + CISA KEV 状态
+- **34 万+ CVE** 来自 NVD + MITRE cvelistV5 + GitHub Security Advisories，每 2 小时同步，整合 EPSS 漏洞利用概率 + CISA KEV 状态。`cve_lookup` 返回 `sources`、`first_seen_source`、`first_seen_at` — 智能体可检测 NVD 发布前已收录的 CVE。`cve_search` 支持 `kev`、`epss_min`、`sort` 和 `offset` 分页 — 智能体可筛选活跃利用漏洞、按利用概率排序并翻页浏览大型结果集。
 - **加权信用额度** — 简单调用 1 个信用，重度编排调用（audit、threat_report）4 个,批量调用 N 个
 - **LLM 优化摘要** — 每个响应都包含 `summary` 字段，智能体无需解析嵌套 JSON 即可推理
 - **分发渠道** — [npm SDK](https://www.npmjs.com/package/contrastapi) · [VS Code 扩展](https://marketplace.visualstudio.com/items?itemName=ContrastAPI.contrastapi) · [Smithery MCP](https://smithery.ai/servers/contrastcyber/contrastapi)（96/100 质量评分）· REST API
