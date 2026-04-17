@@ -78,7 +78,19 @@
   }
 }</code></div>
 
-    <h2><span class="num">6</span> Any MCP Client (HTTP)</h2>
+    <h2><span class="num">6</span> LM Studio</h2>
+    <p>One-click install (requires <a href="https://lmstudio.ai/" target="_blank" rel="noopener">LM Studio 0.3.17+</a>):</p>
+    <p><a href="lmstudio://add_mcp?name=contrastapi&amp;config=eyJ1cmwiOiJodHRwczovL2FwaS5jb250cmFzdGN5YmVyLmNvbS9tY3AvIn0%3D" class="btn-cta">Add to LM Studio</a></p>
+    <p>Or add manually via <strong>Program &rarr; Install &rarr; Edit mcp.json</strong>:</p>
+    <div class="code-block"><span class="lang">json</span><code>{
+  "mcpServers": {
+    "contrastapi": {
+      "url": "https://api.contrastcyber.com/mcp/"
+    }
+  }
+}</code></div>
+
+    <h2><span class="num">7</span> Any MCP Client (HTTP)</h2>
     <p>Use the remote HTTP transport directly:</p>
     <div class="code-block"><span class="lang">http</span><code>POST https://api.contrastcyber.com/mcp/
 Content-Type: application/json
