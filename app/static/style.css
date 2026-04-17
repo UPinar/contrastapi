@@ -313,6 +313,8 @@ h1 .gradient {
   font-size: 0.8rem;
   color: var(--text);
   font-weight: 500;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .endpoint-desc {
@@ -546,6 +548,7 @@ footer p { color: var(--text-dim); }
 .pg-response .num { color: #f59e0b; }
 .pg-response .bool { color: #c084fc; }
 .pg-error { color: var(--red); font-size: 0.75rem; padding: 0.5rem; }
+.pg-loading { color: var(--text-dim); }
 .pg-textarea { width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 0.375rem; padding: 0.75rem; color: var(--text); font-family: var(--font-mono); font-size: 0.75rem; resize: vertical; outline: none; }
 .pg-textarea:focus { border-color: var(--primary); }
 .pg-inputs-col { flex-direction: column; align-items: stretch; }
@@ -855,3 +858,17 @@ footer p { color: var(--text-dim); }
   .trust-strip { margin: 1.5rem auto 2rem; }
   .trust-strip-inner { gap: 0.5rem 1rem; font-size: 0.72rem; padding: 0.75rem 1rem; }
 }
+
+/* CSP Phase 2: utility classes replacing inline style attrs */
+.endpoints-mt { margin-top: 3rem; }
+.endpoints-lede { color: #aaa; font-size: 0.9rem; margin: 0.5rem 0 1rem 0.5rem; }
+.code-accent { color: #58a6ff; }
+.freshness-note { color: var(--text-muted); margin: 0.5rem 0; font-size: 0.8rem; }
+.pg-input-grow { flex: 1; }
+.pg-input-narrow { max-width: 5rem; }
+
+/* ZH redirect banner (CSP Phase 2) */
+.zh-banner { background: #1e3a5f; text-align: center; padding: 8px; font-size: 14px; }
+.zh-banner a { color: #93c5fd; text-decoration: none; }
+.zh-banner button { background: none; border: none; color: #666; margin-left: 12px; cursor: pointer; font-size: 16px; }
+.nav-lang-en { font-size: 0.8rem; opacity: 0.7; }

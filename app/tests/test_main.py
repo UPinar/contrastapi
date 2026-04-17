@@ -531,6 +531,16 @@ class TestSecurityHeaders:
         assert script_src, "script-src directive missing"
         assert "'unsafe-inline'" not in script_src, f"script-src should not contain 'unsafe-inline': {script_src}"
 
+    def test_csp_style_src_no_unsafe_inline(self):
+        r = client.get("/")
+        csp = r.headers["Content-Security-Policy"]
+        style_src = next(
+            (d for d in csp.split(";") if d.strip().startswith("style-src")),
+            "",
+        )
+        assert style_src, "style-src directive missing"
+        assert "'unsafe-inline'" not in style_src, f"style-src should not contain 'unsafe-inline': {style_src}"
+
     def test_csp_script_src_has_jsonld_hash(self):
         r = client.get("/")
         csp = r.headers["Content-Security-Policy"]

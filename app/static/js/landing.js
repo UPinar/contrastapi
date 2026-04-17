@@ -50,8 +50,8 @@
     // ZH redirect banner (English page only)
     if (!isZh && navigator.language && navigator.language.toLowerCase().indexOf('zh') === 0) {
       var b = document.createElement('div');
-      b.style.cssText = 'background:#1e3a5f;text-align:center;padding:8px;font-size:14px';
-      b.innerHTML = '<a href="/cn/" style="color:#93c5fd;text-decoration:none">中文版本可用 — View in Chinese →</a><button style="background:none;border:none;color:#666;margin-left:12px;cursor:pointer;font-size:16px">×</button>';
+      b.className = 'zh-banner';
+      b.innerHTML = '<a href="/cn/">中文版本可用 — View in Chinese →</a><button>×</button>';
       b.querySelector('button').addEventListener('click', function () { b.remove(); });
       document.body.insertBefore(b, document.body.firstChild);
     }

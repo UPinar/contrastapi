@@ -6,15 +6,15 @@
   <title>Welcome — ContrastAPI</title>
   <meta name="robots" content="noindex, nofollow">
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-  <link rel="stylesheet" href="/static/style.css?v=18">
-  <link rel="stylesheet" href="/static/css/welcome.css?v=1">
-  <script src="/static/js/welcome.js?v=1" defer></script>
+  <link rel="stylesheet" href="/static/style.css?v=22">
+  <link rel="stylesheet" href="/static/css/welcome.css?v=2">
+  <script src="/static/js/welcome.js?v=2" defer></script>
 </head>
 <body>
   <div class="glow"></div>
 
   <div class="welcome-container">
-    <h1>Welcome to Contrast<span style="color:#00d4ff">API</span> Pro</h1>
+    <h1>Welcome to Contrast<span class="welcome-brand-api">API</span> Pro</h1>
 
     {% if api_key %}
     <div id="key-section">
@@ -34,7 +34,7 @@
       <div class="spinner"></div>
       <p id="polling-msg">Your payment is being processed. This usually takes a few seconds...</p>
     </div>
-    <div id="key-section" style="display:none">
+    <div id="key-section" class="is-hidden">
       <p>Your API key has been generated. Use it in the <code>X-API-Key</code> header with every request.</p>
       <div class="key-box">
         <code id="api-key"></code>
@@ -44,10 +44,10 @@
         Save this key now. For security, it will not be shown again.
       </div>
     </div>
-    <div id="timeout-section" style="display:none">
+    <div id="timeout-section" class="is-hidden">
       <div class="error-box">
         <strong>Key generation is taking longer than expected.</strong>
-        <p style="margin-top:8px">Please refresh this page in a minute. If the problem persists, contact <span class="copy-support" data-copy-email="support@contrastcyber.com">support@contrastcyber.com</span>.</p>
+        <p class="welcome-error-hint">Please refresh this page in a minute. If the problem persists, contact <span class="copy-support" data-copy-email="support@contrastcyber.com">support@contrastcyber.com</span>.</p>
       </div>
     </div>
     {% else %}

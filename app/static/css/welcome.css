@@ -13,3 +13,6 @@
 .spinner { width: 40px; height: 40px; margin: 24px auto; border: 3px solid #333; border-top-color: #00d4ff; border-radius: 50%; animation: spin 0.8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .copy-support { color: #00d4ff; cursor: pointer; text-decoration: underline; }
+.welcome-brand-api { color: #00d4ff; }
+.is-hidden { display: none; }
+.welcome-error-hint { margin-top: 8px; }

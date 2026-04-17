@@ -20,8 +20,8 @@
   <link rel="alternate" hreflang="en" href="https://api.contrastcyber.com/">
   <link rel="alternate" hreflang="zh" href="https://api.contrastcyber.com/cn/">
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-  <link rel="stylesheet" href="/static/style.css?v=21">
-  <script src="/static/js/landing.js?v=1" defer></script>
+  <link rel="stylesheet" href="/static/style.css?v=24">
+  <script src="/static/js/landing.js?v=2" defer></script>
   <link rel="alternate" type="text/plain" href="/llms.txt" title="LLM Discovery">
   <link rel="alternate" type="application/json" href="/openapi.json" title="OpenAPI Spec">
   <script type="application/ld+json">
@@ -331,10 +331,10 @@ await api.cve.lookup("CVE-2024-3094");</pre>
   </section>
 
   <!-- Credit Costs -->
-  <section class="endpoints" style="margin-top:3rem">
+  <section class="endpoints endpoints-mt">
     <h2 class="section-title">Credit Costs</h2>
-    <p style="color:#aaa;font-size:0.9rem;margin:0.5rem 0 1rem 0.5rem">
-      Transparent pricing — every response includes <code style="color:#58a6ff">X-RateLimit-Cost</code> so you can budget calls.
+    <p class="endpoints-lede">
+      Transparent pricing — every response includes <code class="code-accent">X-RateLimit-Cost</code> so you can budget calls.
     </p>
     <div class="endpoint-group">
       <div class="endpoint">
@@ -414,7 +414,7 @@ await api.cve.lookup("CVE-2024-3094");</pre>
 
   <section class="auth-section">
     <h2 class="section-title">Data Freshness</h2>
-    <p style="color:var(--text-muted);margin:0.5rem 0;font-size:0.8rem">
+    <p class="freshness-note">
       Threat intelligence data (IP reputation, Shodan, AbuseIPDB) is cached for 24 hours per query. CVE/EPSS data syncs every 2 hours. For real-time results, use unique queries.
     </p>
   </section>

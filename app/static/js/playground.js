@@ -117,7 +117,7 @@
 
     btn.disabled = true;
     btn.textContent = 'Loading...';
-    resp.innerHTML = '<span style="color:var(--text-dim)">Loading...</span>';
+    resp.innerHTML = '<span class="pg-loading">Loading...</span>';
 
     var controller = new AbortController();
     var timer = setTimeout(function() { controller.abort(); }, 15000);

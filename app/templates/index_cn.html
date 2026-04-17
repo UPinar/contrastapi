@@ -21,8 +21,8 @@
   <link rel="alternate" hreflang="en" href="https://api.contrastcyber.com/">
   <link rel="alternate" hreflang="zh" href="https://api.contrastcyber.com/cn/">
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-  <link rel="stylesheet" href="/static/style.css?v=21">
-  <script src="/static/js/landing.js?v=1" defer></script>
+  <link rel="stylesheet" href="/static/style.css?v=24">
+  <script src="/static/js/landing.js?v=2" defer></script>
   <link rel="alternate" type="text/plain" href="/llms.txt" title="LLM Discovery">
   <link rel="alternate" type="application/json" href="/openapi.json" title="OpenAPI Spec">
   <script type="application/ld+json">
@@ -60,7 +60,6 @@
       <a href="#setup" class="btn-cta">30 秒内安装 →</a>
       <a href="/playground" class="btn-cta-secondary">试用 Playground</a>
     </div>
-    <p class="cta-microcopy">无需 API 密钥 · 893 项测试 · &lt;500ms 延迟 · MIT 许可</p>
     <div class="hero-curl-wrap">
       <pre class="hero-curl"><span class="prompt">$ </span><code>curl https://api.contrastcyber.com/v1/audit/example.com</code></pre>
       <button type="button" class="copy-btn" aria-label="复制命令">
@@ -333,60 +332,11 @@ await api.cve.lookup("CVE-2024-3094");</pre>
     </div>
   </section>
 
-  <!-- 示例 -->
-  <section class="example-section">
-    <h2 class="section-title">请求示例</h2>
-    <div class="copy-wrap"><pre>$ curl https://api.contrastcyber.com/v1/domain/example.com</pre><button type="button" class="copy-btn" aria-label="复制命令"><svg class="icon-copy" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><svg class="icon-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg></button></div>
-    <pre>{
-  <span class="key">"domain"</span>: <span class="str">"example.com"</span>,
-  <span class="key">"summary"</span>: <span class="str">"example.com resolves to 93.184.216.34. SSL grade A (DigiCert). SPF+DMARC present. No WAF. Risk: B (72/100)."</span>,
-  <span class="key">"risk_score"</span>: {<span class="key">"score"</span>: <span class="num">72</span>, <span class="key">"grade"</span>: <span class="str">"B"</span>},
-  <span class="key">"dns"</span>: {
-    <span class="key">"a"</span>: [<span class="str">"93.184.216.34"</span>],
-    <span class="key">"mx"</span>: [{<span class="key">"priority"</span>: <span class="num">0</span>, <span class="key">"host"</span>: <span class="str">"."</span>}],
-    <span class="key">"ns"</span>: [<span class="str">"a.iana-servers.net"</span>, <span class="str">"b.iana-servers.net"</span>]
-  },
-  <span class="key">"ssl"</span>: {<span class="key">"grade"</span>: <span class="str">"A"</span>, <span class="key">"issuer"</span>: <span class="str">"DigiCert"</span>, <span class="key">"days_remaining"</span>: <span class="num">182</span>},
-  <span class="key">"email_security"</span>: {<span class="key">"spf"</span>: <span class="bool">true</span>, <span class="key">"dmarc"</span>: <span class="bool">true</span>, <span class="key">"dkim"</span>: <span class="bool">false</span>},
-  <span class="key">"threat"</span>: {<span class="key">"url_count"</span>: <span class="num">0</span>, <span class="key">"urls_online"</span>: <span class="num">0</span>},
-  <span class="key">"reputation"</span>: {
-    <span class="key">"abuseipdb"</span>: {<span class="key">"abuse_score"</span>: <span class="num">0</span>, <span class="key">"total_reports"</span>: <span class="num">0</span>},
-    <span class="key">"shodan"</span>: {<span class="key">"ports"</span>: [<span class="num">80</span>, <span class="num">443</span>], <span class="key">"org"</span>: <span class="str">"ICANN"</span>}
-  },
-  <span class="key">"whois"</span>: {<span class="key">"registrar"</span>: <span class="str">"RESERVED-IANA"</span>},
-  <span class="key">"subdomains"</span>: {<span class="key">"count"</span>: <span class="num">3</span>},
-  <span class="key">"waf"</span>: {<span class="key">"waf_present"</span>: <span class="bool">false</span>}
-}</pre>
-  </section>
-
-  <!-- 用例 -->
-  <section class="endpoints use-cases-section" aria-labelledby="usecases-title">
-    <h2 id="usecases-title" class="section-title">使用场景</h2>
-    <div class="use-cases">
-      <div class="use-case">
-        <h3>扫描依赖项中的 CVE</h3>
-        <p><code>POST /v1/check/dependencies</code> — 在 <code>package.json</code>、<code>requirements.txt</code> 或 <code>go.sum</code> 中查找已被利用的漏洞、EPSS 利用概率以及 CISA KEV 状态。批量接口支持每请求 10 个（免费）或 50 个（Pro）。</p>
-      </div>
-      <div class="use-case">
-        <h3>一次调用审计域名</h3>
-        <p><code>GET /v1/audit/{domain}</code> — 单次请求完成全面审计：SSL 评级、DNS 健康状况、技术栈识别、邮件安全（SPF/DMARC/DKIM）、实时安全响应头。8+ 项检查并行执行，热缓存下通常 3 秒内完成。</p>
-      </div>
-      <div class="use-case">
-        <h3>用 AI 智能体分流威胁情报</h3>
-        <p>将 Claude Desktop 指向 MCP 服务器后提问：<em>"这个 IOC 是恶意的吗？查一下 AbuseIPDB、Shodan、URLhaus 和 MalwareBazaar。"</em> 智能体会自动串联查询，返回结构化摘要而非原始 JSON。</p>
-      </div>
-      <div class="use-case">
-        <h3>CI 流水线中的 PR 安全检查</h3>
-        <p>在 CI 中调用 <code>POST /v1/check/secrets</code> + <code>/v1/check/injection</code> — 拦截引入硬编码凭据、SQL/命令注入模式或 ReDoS 正则的 PR。无需 API 密钥。</p>
-      </div>
-    </div>
-  </section>
-
   <!-- 信用额度 -->
-  <section class="endpoints" style="margin-top:3rem">
+  <section class="endpoints endpoints-mt">
     <h2 class="section-title">信用额度</h2>
-    <p style="color:#aaa;font-size:0.9rem;margin:0.5rem 0 1rem 0.5rem">
-      透明计价 — 每个响应都包含 <code style="color:#58a6ff">X-RateLimit-Cost</code> 响应头，便于预算管理。
+    <p class="endpoints-lede">
+      透明计价 — 每个响应都包含 <code class="code-accent">X-RateLimit-Cost</code> 响应头，便于预算管理。
     </p>
     <div class="endpoint-group">
       <div class="endpoint">
@@ -469,7 +419,7 @@ await api.cve.lookup("CVE-2024-3094");</pre>
 
   <section class="auth-section">
     <h2 class="section-title">数据新鲜度</h2>
-    <p style="color:var(--text-muted);margin:0.5rem 0;font-size:0.8rem">
+    <p class="freshness-note">
       威胁情报数据（IP 信誉、Shodan、AbuseIPDB）每次查询缓存 24 小时。CVE/EPSS 数据每 2 小时同步一次。如需实时结果，请使用不同的查询。
     </p>
   </section>

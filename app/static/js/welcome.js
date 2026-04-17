@@ -41,9 +41,9 @@
     var msgEl = document.getElementById('polling-msg');
 
     function showTimeout() {
-      section.style.display = 'none';
+      section.classList.add('is-hidden');
       var t = document.getElementById('timeout-section');
-      if (t) t.style.display = 'block';
+      if (t) t.classList.remove('is-hidden');
     }
 
     function poll() {

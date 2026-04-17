@@ -242,7 +242,7 @@ _JSONLD_HASHES = " ".join(
 
 _CSP_POLICY = (
     "default-src 'self'; "
-    "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+    "style-src 'self' https://cdn.jsdelivr.net; "
     f"script-src 'self' {_JSONLD_HASHES} https://cdn.jsdelivr.net https://static.cloudflareinsights.com; "
     "img-src 'self' https://fastapi.tiangolo.com; "
     "connect-src 'self' https://cloudflareinsights.com; "
