@@ -63,7 +63,8 @@ API_KEY = os.environ.get("CONTRASTAPI_KEY", "")
 TIMEOUT = 30.0
 
 _LOG_SANITIZE = re.compile(
-    r"/v1/(phone|email/mx|email/disposable|ip|domain|dns|whois|subdomains|certs|ssl|threat|tech|monitor|ioc|phishing|scan/headers|asn|password|archive|username|cve|cves|exploit|hash|epss)/[^/?]+"
+    r"/v1/(phone|email/mx|email/disposable|ip|domain|dns|whois|subdomains|certs|ssl|threat|tech|monitor|ioc|phishing|scan/headers|asn|password|archive|username|cve|cves|exploit|hash|epss)(?:/(lookup|search|leading|bulk|report))?/[^?]+",
+    re.IGNORECASE,
 )
 
 
@@ -73,7 +74,17 @@ _CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f]")
 def _safe_path(path: str) -> str:
     """Redact PII from API paths for safe logging."""
     safe = _CONTROL_CHARS.sub("", path)
-    return _LOG_SANITIZE.sub(r"/v1/\1/***", safe)
+    query_idx = safe.find("?")
+    if query_idx >= 0:
+        safe = safe[:query_idx]
+    return _LOG_SANITIZE.sub(
+        lambda m: (
+            f"/v1/{m.group(1).lower()}/{m.group(2).lower()}/***"
+            if m.group(2)
+            else f"/v1/{m.group(1).lower()}/***"
+        ),
+        safe,
+    )
 
 
 def _safe_ip(ip: str) -> str:

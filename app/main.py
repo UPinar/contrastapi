@@ -169,14 +169,23 @@ _PATH_NORMALIZE = re.compile(
 _MAX_TRACKED_PATHS = 200
 
 _LOG_SANITIZE = re.compile(
-    r"/v1/(phone|email/mx|email/disposable|ip|domain|dns|whois|subdomains|certs|ssl|threat|tech|monitor|ioc|phishing|scan/headers|asn|password|archive|username|cve|cves|exploit|hash|epss)/[^/?]+"
+    r"/v1/(phone|email/mx|email/disposable|ip|domain|dns|whois|subdomains|certs|ssl|threat|tech|monitor|ioc|phishing|scan/headers|asn|password|archive|username|cve|cves|exploit|hash|epss)(?:/(lookup|search|leading|bulk|report))?/[^?]+",
+    re.IGNORECASE,
 )
 
 
 def _sanitize_path(path: str) -> str:
     """Redact PII (domains, IPs, emails, phones) from request paths for safe logging."""
     safe = re.sub(r"[\x00-\x1f\x7f]", "", path)
-    return _LOG_SANITIZE.sub(r"/v1/\1/***", safe)
+    query_idx = safe.find("?")
+    if query_idx >= 0:
+        safe = safe[:query_idx]
+    return _LOG_SANITIZE.sub(
+        lambda m: (
+            f"/v1/{m.group(1).lower()}/{m.group(2).lower()}/***" if m.group(2) else f"/v1/{m.group(1).lower()}/***"
+        ),
+        safe,
+    )
 
 
 def _normalize_path(path: str) -> str:
