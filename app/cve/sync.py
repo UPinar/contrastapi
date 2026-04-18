@@ -332,11 +332,23 @@ def _github_headers() -> dict:
     return {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
 
 
-def _parse_mitre_cve(item: dict) -> dict:
-    """Parse a single CVE Record Format v5.1 JSON into our DB format.
+def _severity_from_score(score: float | None) -> str | None:
+    """Derive CVSS v3 severity label from numeric base score."""
+    if score is None:
+        return None
+    if score >= 9.0:
+        return "CRITICAL"
+    if score >= 7.0:
+        return "HIGH"
+    if score >= 4.0:
+        return "MEDIUM"
+    if score >= 0.1:
+        return "LOW"
+    return "NONE"
 
-    Lossy on purpose: no CVSS/CWE extraction — NVD owns those fields.
-    Tolerates missing CNA container and malformed entries."""
+
+def _parse_mitre_cve(item: dict) -> dict:
+    """Parse a single CVE Record Format v5.1 JSON into our DB format. Extracts CVSS/CWE/CPE from CNA container."""
     meta = item.get("cveMetadata", {}) or {}
     cve_id = meta.get("cveId", "") or ""
 
@@ -359,6 +371,113 @@ def _parse_mitre_cve(item: dict) -> dict:
             desc = d.get("value", "") or ""
             break
 
+    # CVSS v3.1 → v3.0, skip other/v2
+    severity = None
+    cvss_v3 = None
+    cvss_vector = None
+    for metric in cna.get("metrics", []) or []:
+        if not isinstance(metric, dict):
+            continue
+        cvss_data = None
+        for key in ("cvssV3_1", "cvssV3_0"):
+            val = metric.get(key)
+            if isinstance(val, dict):
+                cvss_data = val
+                break
+        if cvss_data:
+            raw_score = cvss_data.get("baseScore")
+            cvss_v3 = raw_score if isinstance(raw_score, (int, float)) and not isinstance(raw_score, bool) else None
+            raw_vector = cvss_data.get("vectorString")
+            cvss_vector = raw_vector if isinstance(raw_vector, str) else None
+            raw_sev = cvss_data.get("baseSeverity")
+            if isinstance(raw_sev, str):
+                severity = raw_sev.upper()
+            else:
+                severity = _severity_from_score(cvss_v3)
+            break
+
+    # CWE — first cweId matching CWE-<digits>
+    cwe_id = None
+    for pt in cna.get("problemTypes", []) or []:
+        for wd in pt.get("descriptions", []) or []:
+            val = wd.get("cweId", "")
+            if isinstance(val, str) and re.match(r"^CWE-\d+$", val):
+                cwe_id = val
+                break
+        if cwe_id:
+            break
+
+    # Affected products from CNA affected[] — cap iteration for DoS protection
+    products = []
+    seen = set()
+    for aff in (cna.get("affected", []) or [])[:100]:
+        if not isinstance(aff, dict):
+            continue
+        vendor = aff.get("vendor") or ""
+        if not isinstance(vendor, str):
+            vendor = ""
+        if vendor.lower() == "n/a":
+            continue
+        product = aff.get("product") or ""
+        if not isinstance(product, str):
+            product = ""
+        vendor = vendor[:256]
+        product = product[:256]
+        versions = aff.get("versions", []) or []
+        cpes = aff.get("cpes", []) or []
+
+        if versions:
+            for v in versions[:50]:
+                if not isinstance(v, dict):
+                    continue
+                if v.get("status", "affected") == "unaffected":
+                    continue
+                ver_start = v.get("version") or None
+                ver_end = v.get("lessThan") or v.get("lessThanOrEqual") or None
+                if isinstance(ver_start, str):
+                    ver_start = ver_start[:256]
+                elif ver_start is not None:
+                    ver_start = None
+                if isinstance(ver_end, str):
+                    ver_end = ver_end[:256]
+                elif ver_end is not None:
+                    ver_end = None
+                key = (vendor, product, ver_start, ver_end)
+                if key in seen:
+                    continue
+                seen.add(key)
+                products.append(
+                    {
+                        "vendor": vendor or None,
+                        "product": product or None,
+                        "version_start": ver_start,
+                        "version_end": ver_end,
+                    }
+                )
+        elif cpes:
+            # CPE fallback: extract version from field index 5 (0-based)
+            for cpe in cpes[:20]:
+                if not isinstance(cpe, str):
+                    continue
+                parts = cpe.split(":")
+                if len(parts) >= 6:
+                    cpe_ver = parts[5][:256]
+                    if cpe_ver and cpe_ver not in ("*", "-"):
+                        ver_start = cpe_ver
+                        ver_end = None
+                        key = (vendor, product, ver_start, ver_end)
+                        if key in seen:
+                            continue
+                        seen.add(key)
+                        products.append(
+                            {
+                                "vendor": vendor or None,
+                                "product": product or None,
+                                "version_start": ver_start,
+                                "version_end": ver_end,
+                            }
+                        )
+
     # References (cap at 20)
     refs = []
     for r in cna.get("references", []) or []:
@@ -374,13 +493,13 @@ def _parse_mitre_cve(item: dict) -> dict:
     return {
         "cve_id": cve_id,
         "description": desc,
-        "severity": None,
-        "cvss_v3": None,
-        "cvss_vector": None,
-        "cwe_id": None,
+        "severity": severity,
+        "cvss_v3": cvss_v3,
+        "cvss_vector": cvss_vector,
+        "cwe_id": cwe_id,
         "published": published,
         "modified": modified,
-        "affected_products": [],
+        "affected_products": products,
         "refs": refs,
     }
 

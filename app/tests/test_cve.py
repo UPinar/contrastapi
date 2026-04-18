@@ -990,7 +990,7 @@ class TestParseMitreCve:
         assert result["published"] == "2024-01-15T00:00:00.000Z"
         assert result["modified"] == "2024-01-16T00:00:00.000Z"
         assert result["refs"] == ["https://example.com/1", "https://example.com/2"]
-        # NVD-owned fields stay NULL so NVD can enrich later
+        # No metrics/problemTypes/affected in this fixture — fields stay None
         assert result["severity"] is None
         assert result["cvss_v3"] is None
         assert result["cwe_id"] is None
@@ -1027,6 +1027,267 @@ class TestParseMitreCve:
             },
         }
         assert len(_parse_mitre_cve(record)["refs"]) == 20
+
+    def test_extracts_cvss_v31(self):
+        from cve.sync import _parse_mitre_cve
+
+        record = {
+            "cveMetadata": {"cveId": "CVE-2024-70010", "state": "PUBLISHED"},
+            "containers": {
+                "cna": {
+                    "metrics": [
+                        {
+                            "cvssV3_1": {
+                                "baseScore": 7.5,
+                                "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+                                "baseSeverity": "HIGH",
+                            }
+                        }
+                    ]
+                }
+            },
+        }
+        result = _parse_mitre_cve(record)
+        assert result["cvss_v3"] == 7.5
+        assert result["cvss_vector"] == "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N"
+        assert result["severity"] == "HIGH"
+
+    def test_extracts_cvss_v30_fallback(self):
+        from cve.sync import _parse_mitre_cve
+
+        record = {
+            "cveMetadata": {"cveId": "CVE-2024-70011", "state": "PUBLISHED"},
+            "containers": {
+                "cna": {
+                    "metrics": [
+                        {
+                            "cvssV3_0": {
+                                "baseScore": 5.3,
+                                "vectorString": "CVSS:3.0/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N",
+                                "baseSeverity": "MEDIUM",
+                            }
+                        }
+                    ]
+                }
+            },
+        }
+        result = _parse_mitre_cve(record)
+        assert result["cvss_v3"] == 5.3
+        assert result["severity"] == "MEDIUM"
+
+    def test_derives_severity_when_only_score(self):
+        from cve.sync import _parse_mitre_cve
+
+        record = {
+            "cveMetadata": {"cveId": "CVE-2024-70012", "state": "PUBLISHED"},
+            "containers": {
+                "cna": {
+                    "metrics": [
+                        {
+                            "cvssV3_1": {
+                                "baseScore": 9.1,
+                                "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N",
+                            }
+                        }
+                    ]
+                }
+            },
+        }
+        result = _parse_mitre_cve(record)
+        assert result["severity"] == "CRITICAL"
+
+    def test_extracts_cwe(self):
+        from cve.sync import _parse_mitre_cve
+
+        record = {
+            "cveMetadata": {"cveId": "CVE-2024-70013", "state": "PUBLISHED"},
+            "containers": {
+                "cna": {"problemTypes": [{"descriptions": [{"cweId": "CWE-79", "description": "XSS", "lang": "en"}]}]}
+            },
+        }
+        result = _parse_mitre_cve(record)
+        assert result["cwe_id"] == "CWE-79"
+
+    def test_extracts_affected_products(self):
+        from cve.sync import _parse_mitre_cve
+
+        record = {
+            "cveMetadata": {"cveId": "CVE-2024-70014", "state": "PUBLISHED"},
+            "containers": {
+                "cna": {
+                    "affected": [
+                        {
+                            "vendor": "acme",
+                            "product": "widget",
+                            "versions": [{"version": "1.0", "lessThan": "2.0", "status": "affected"}],
+                        }
+                    ]
+                }
+            },
+        }
+        result = _parse_mitre_cve(record)
+        assert len(result["affected_products"]) == 1
+        p = result["affected_products"][0]
+        assert p["vendor"] == "acme"
+        assert p["product"] == "widget"
+        assert p["version_start"] == "1.0"
+        assert p["version_end"] == "2.0"
+
+    def test_skips_unaffected_versions(self):
+        from cve.sync import _parse_mitre_cve
+
+        record = {
+            "cveMetadata": {"cveId": "CVE-2024-70015", "state": "PUBLISHED"},
+            "containers": {
+                "cna": {
+                    "affected": [
+                        {
+                            "vendor": "acme",
+                            "product": "widget",
+                            "versions": [{"version": "1.0", "lessThan": "2.0", "status": "unaffected"}],
+                        }
+                    ]
+                }
+            },
+        }
+        result = _parse_mitre_cve(record)
+        assert result["affected_products"] == []
+
+    def test_skips_na_vendor(self):
+        from cve.sync import _parse_mitre_cve
+
+        record = {
+            "cveMetadata": {"cveId": "CVE-2024-70016", "state": "PUBLISHED"},
+            "containers": {
+                "cna": {
+                    "affected": [
+                        {
+                            "vendor": "n/a",
+                            "product": "widget",
+                            "versions": [{"version": "1.0", "status": "affected"}],
+                        }
+                    ]
+                }
+            },
+        }
+        result = _parse_mitre_cve(record)
+        assert result["affected_products"] == []
+
+    def test_cpe_fallback_when_no_versions(self):
+        from cve.sync import _parse_mitre_cve
+
+        record = {
+            "cveMetadata": {"cveId": "CVE-2024-70017", "state": "PUBLISHED"},
+            "containers": {
+                "cna": {
+                    "affected": [
+                        {
+                            "vendor": "acme",
+                            "product": "widget",
+                            "cpes": ["cpe:2.3:a:acme:widget:1.5:*:*:*:*:*:*:*"],
+                        }
+                    ]
+                }
+            },
+        }
+        result = _parse_mitre_cve(record)
+        assert len(result["affected_products"]) == 1
+        assert result["affected_products"][0]["version_start"] == "1.5"
+
+    def test_malformed_metrics_tolerated(self):
+        from cve.sync import _parse_mitre_cve
+
+        record = {
+            "cveMetadata": {"cveId": "CVE-2024-70018", "state": "PUBLISHED"},
+            "containers": {
+                "cna": {
+                    "metrics": [
+                        {"other": {"type": "custom", "content": {}}},
+                        {"cvssV3_1": "not_a_dict"},
+                    ]
+                }
+            },
+        }
+        result = _parse_mitre_cve(record)
+        assert result["cvss_v3"] is None
+        assert result["cvss_vector"] is None
+        assert result["severity"] is None
+
+    def test_basescore_as_string_rejected(self):
+        from cve.sync import _parse_mitre_cve
+
+        record = {
+            "cveMetadata": {"cveId": "CVE-2024-70019", "state": "PUBLISHED"},
+            "containers": {
+                "cna": {
+                    "metrics": [
+                        {"cvssV3_1": {"baseScore": "9.9", "baseSeverity": "CRITICAL"}},
+                    ]
+                }
+            },
+        }
+        result = _parse_mitre_cve(record)
+        assert result["cvss_v3"] is None
+        assert result["severity"] == "CRITICAL"
+
+    def test_baseseverity_non_string_falls_back_to_score(self):
+        from cve.sync import _parse_mitre_cve
+
+        record = {
+            "cveMetadata": {"cveId": "CVE-2024-70020", "state": "PUBLISHED"},
+            "containers": {
+                "cna": {
+                    "metrics": [
+                        {"cvssV3_1": {"baseScore": 7.5, "baseSeverity": None}},
+                    ]
+                }
+            },
+        }
+        result = _parse_mitre_cve(record)
+        assert result["cvss_v3"] == 7.5
+        assert result["severity"] == "HIGH"
+
+    def test_cwe_non_numeric_suffix_rejected(self):
+        from cve.sync import _parse_mitre_cve
+
+        record = {
+            "cveMetadata": {"cveId": "CVE-2024-70021", "state": "PUBLISHED"},
+            "containers": {"cna": {"problemTypes": [{"descriptions": [{"cweId": "CWE-abc"}, {"cweId": "CWE-79"}]}]}},
+        }
+        result = _parse_mitre_cve(record)
+        assert result["cwe_id"] == "CWE-79"
+
+
+class TestSeverityFromScore:
+    def test_critical(self):
+        from cve.sync import _severity_from_score
+
+        assert _severity_from_score(9.0) == "CRITICAL"
+        assert _severity_from_score(10.0) == "CRITICAL"
+
+    def test_high(self):
+        from cve.sync import _severity_from_score
+
+        assert _severity_from_score(7.0) == "HIGH"
+        assert _severity_from_score(8.9) == "HIGH"
+
+    def test_medium(self):
+        from cve.sync import _severity_from_score
+
+        assert _severity_from_score(4.0) == "MEDIUM"
+        assert _severity_from_score(6.9) == "MEDIUM"
+
+    def test_low(self):
+        from cve.sync import _severity_from_score
+
+        assert _severity_from_score(0.1) == "LOW"
+        assert _severity_from_score(3.9) == "LOW"
+
+    def test_none(self):
+        from cve.sync import _severity_from_score
+
+        assert _severity_from_score(0.0) == "NONE"
+        assert _severity_from_score(None) is None
 
 
 class TestSyncMitre:
