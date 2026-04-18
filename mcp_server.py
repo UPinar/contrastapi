@@ -161,9 +161,11 @@ MAX_RESPONSE_CHARS = 8000
 def _fmt(data: dict | str) -> str:
     if isinstance(data, str):
         return data
-    summary = data.get("summary", "")
+    summary = data.get("summary", "") if isinstance(data, dict) else ""
     if summary:
-        return summary
+        detail_data = {k: v for k, v in data.items() if k != "summary"}
+        detail = json.dumps(detail_data, indent=2, default=str)
+        return f"{summary}\n\n{detail}"[:MAX_RESPONSE_CHARS]
     return json.dumps(data, indent=2, default=str)[:MAX_RESPONSE_CHARS]
 
 
