@@ -90,12 +90,6 @@ More example prompts: [docs/PROMPTS.md](docs/PROMPTS.md) · [/playground](https:
 - **LLM-optimized summaries** — every response includes a `summary` field so agents reason without parsing nested JSON
 - **Distribution** — [npm SDK](https://www.npmjs.com/package/contrastapi) · [VS Code Extension](https://marketplace.visualstudio.com/items?itemName=ContrastAPI.contrastapi) · [Smithery MCP](https://smithery.ai/servers/contrastcyber/contrastapi) (96/100 quality) · REST API
 
-## Why ContrastAPI?
-
-- **One call, full picture** — `audit` returns report + tech fingerprint + live headers in a single response
-- **Machine-readable** — structured JSON, LLM-optimized summaries, OpenAPI spec, MCP-first
-- **Free forever** — 100 credits/hour, no API key, no signup, no credit card
-
 ## Docs & Links
 
 - **API Quick Start:** [api.contrastcyber.com/quickstart](https://api.contrastcyber.com/quickstart)
