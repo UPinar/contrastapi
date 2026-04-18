@@ -169,14 +169,19 @@
       var res = await fetch(url, fetchOpts);
       clearTimeout(timer);
       var data = await res.json();
+      var panel = resp.closest('.pg-response');
       if (!res.ok) {
         resp.innerHTML = '<span class="pg-error">' + escapeHtml(String(data.detail || 'Error ' + res.status)) + '</span>';
+        if (panel) panel.dataset.raw = '';
       } else {
         resp.innerHTML = formatJson(data);
+        if (panel) panel.dataset.raw = JSON.stringify(data, null, 2);
       }
     } catch (e) {
       clearTimeout(timer);
       resp.innerHTML = '<span class="pg-error">' + (e.name === 'AbortError' ? 'Request timed out' : 'Network error') + '</span>';
+      var panelErr = resp.closest('.pg-response');
+      if (panelErr) panelErr.dataset.raw = '';
     }
 
     btn.disabled = false;
@@ -186,6 +191,52 @@
   function init() {
     document.querySelectorAll('.btn-run[data-tool]').forEach(function (btn) {
       btn.addEventListener('click', function () { run(btn.getAttribute('data-tool')); });
+    });
+
+    document.querySelectorAll('.pg-response').forEach(function (panel) {
+      if (panel.querySelector('.pg-copy')) return;
+
+      var scroll = document.createElement('div');
+      scroll.className = 'pg-response-scroll';
+      while (panel.firstChild) scroll.appendChild(panel.firstChild);
+      panel.appendChild(scroll);
+
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'pg-copy';
+      btn.textContent = 'Copy';
+      btn.setAttribute('aria-label', 'Copy JSON response to clipboard');
+      btn.addEventListener('click', function () {
+        var raw = panel.dataset.raw;
+        if (!raw) {
+          var pre = panel.querySelector('pre');
+          raw = pre ? pre.textContent : '';
+        }
+        if (!raw) return;
+        var clip = navigator.clipboard;
+        if (!clip || !clip.writeText) {
+          btn.textContent = 'Unsupported';
+          setTimeout(function () { btn.textContent = 'Copy'; }, 1500);
+          return;
+        }
+        clip.writeText(raw).then(function () {
+          btn.textContent = 'Copied!';
+          setTimeout(function () { btn.textContent = 'Copy'; }, 1500);
+        }).catch(function () {
+          btn.textContent = 'Failed';
+          setTimeout(function () { btn.textContent = 'Copy'; }, 1500);
+        });
+      });
+      panel.appendChild(btn);
+    });
+
+    document.querySelectorAll('.pg-card input, .pg-card textarea, .pg-card select').forEach(function (el) {
+      el.addEventListener('input', function () {
+        var card = el.closest('.pg-card');
+        if (!card) return;
+        var panel = card.querySelector('.pg-response');
+        if (panel) panel.dataset.raw = '';
+      });
     });
 
     var hamburger = document.querySelector('.hamburger');

@@ -107,7 +107,9 @@ Accept: application/json, text/event-stream
       <h4>Recon &amp; Domain</h4>
       <ul>
         <li><em>"Run a full security audit on example.com"</em></li>
+        <li><em>"Give me a quick domain summary for example.com (DNS + WHOIS + SSL, skip full audit)"</em></li>
         <li><em>"What are the DNS records for example.com?"</em></li>
+        <li><em>"What's the MX record for example.com?"</em></li>
         <li><em>"Is the SSL certificate on example.com expiring soon?"</em></li>
         <li><em>"What technologies does example.com use?"</em></li>
         <li><em>"Check the security headers on example.com"</em></li>
@@ -120,7 +122,7 @@ Accept: application/json, text/event-stream
       <h4>CVE &amp; Exploits</h4>
       <ul>
         <li><em>"Look up CVE-2024-3094 &mdash; is it being exploited in the wild?"</em></li>
-        <li><em>"Find critical Apache vulnerabilities from the last 6 months"</em></li>
+        <li><em>"Find critical Apache vulnerabilities published between 2025-01-01 and 2025-06-30"</em></li>
         <li><em>"Show me all CISA KEV entries from the last 30 days"</em></li>
         <li><em>"Find CVEs with EPSS score above 0.9 &mdash; what's most likely to be exploited?"</em></li>
         <li><em>"Search for critical Linux kernel CVEs, sorted by exploit probability"</em></li>
@@ -140,6 +142,7 @@ Accept: application/json, text/event-stream
       <ul>
         <li><em>"Check example.com for known malware URLs"</em></li>
         <li><em>"Enrich this IOC: 185.220.101.1"</em></li>
+        <li><em>"Enrich these indicators in bulk: 185.220.101.1, evil-example.test, 44d88612fea8a8f36de82e1278abb02f"</em></li>
         <li><em>"Check if http://evil-example.test/login is a phishing URL"</em></li>
         <li><em>"Has this password been exposed in a data breach?"</em></li>
         <li><em>"Is this file hash known malware? a1b2c3d4e5f6..."</em></li>
