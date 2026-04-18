@@ -1,8 +1,6 @@
 """Tests for MCP Streamable HTTP endpoint (/mcp/)"""
 
 import pytest
-from main import app
-from starlette.testclient import TestClient
 
 mcp = pytest.importorskip("mcp", reason="mcp package not installed")
 
@@ -10,13 +8,6 @@ MCP_HEADERS = {
     "Content-Type": "application/json",
     "Accept": "application/json, text/event-stream",
 }
-
-
-@pytest.fixture(scope="module")
-def mcp_client():
-    """TestClient with lifespan — needed for MCP session manager."""
-    with TestClient(app) as c:
-        yield c
 
 
 # --- Initialize ---

@@ -4,6 +4,7 @@ import importlib
 import os
 
 import pytest
+from starlette.testclient import TestClient
 
 # --- Session-scoped: set env vars + reload modules once ---
 
@@ -69,3 +70,18 @@ def temp_dbs():
 
     ratelimit.reset()
     yield
+
+
+# --- Session-scoped MCP client — shared across all MCP test modules ---
+# The MCP StreamableHTTPSessionManager can only be started once per instance;
+# sharing a single TestClient prevents "can only be called once" RuntimeError.
+
+
+@pytest.fixture(scope="session")
+def mcp_client(_session_dbs):
+    """Single TestClient with lifespan — shared across MCP tests."""
+    pytest.importorskip("mcp", reason="mcp package not installed")
+    import main
+
+    with TestClient(main.app) as c:
+        yield c
