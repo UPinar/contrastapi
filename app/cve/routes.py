@@ -1,6 +1,7 @@
 """CVE Intelligence API routes — /v1/cve/*, /v1/cves/*, /v1/exploit/*"""
 
 import logging
+import re
 from datetime import UTC, datetime
 
 import httpx
@@ -30,6 +31,23 @@ logger = logging.getLogger("contrastapi")
 router = APIRouter(prefix="/v1", tags=["CVE Intelligence"])
 
 _exploit_client = httpx.Client(timeout=httpx.Timeout(5.0, connect=3.0), follow_redirects=True)
+
+_DATE_RE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
+_MIN_DATE = "1970-01-01"
+_MAX_DATE = "2099-12-31"
+
+
+def _parse_date(value: str, name: str) -> str:
+    """Validate YYYY-MM-DD (ASCII, 1970-2099) and return the canonical date string."""
+    if not _DATE_RE.match(value):
+        raise HTTPException(status_code=400, detail=f"{name} must be a valid YYYY-MM-DD date (UTC)")
+    try:
+        datetime.strptime(value, "%Y-%m-%d")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"{name} must be a valid YYYY-MM-DD date (UTC)") from e
+    if value < _MIN_DATE or value > _MAX_DATE:
+        raise HTTPException(status_code=400, detail=f"{name} must be between {_MIN_DATE} and {_MAX_DATE}")
+    return value
 
 
 def _check_cve_input(cve_id: str):
@@ -100,10 +118,20 @@ def cve_lookup(cve_id: str, request: Request):
 def cve_search(
     request: Request,
     product: str | None = Query(
-        None, min_length=2, max_length=100, description="Filter by product name (e.g. 'nginx', 'apache')"
+        None,
+        min_length=2,
+        max_length=100,
+        description="Filter by product/vendor name. Exact match (case-insensitive) against NVD CPE tokens — not substring. Use canonical names: 'nginx', 'apache', 'linux_kernel'.",
     ),
     severity: str | None = Query(None, description="Filter by severity: CRITICAL, HIGH, MEDIUM, LOW"),
-    days: int | None = Query(None, ge=1, le=365, description="CVEs published within N days"),
+    published_after: str | None = Query(
+        None,
+        description="Inclusive lower bound on publish date (YYYY-MM-DD, UTC). Example: 2015-01-01 returns CVEs published on or after that day.",
+    ),
+    published_before: str | None = Query(
+        None,
+        description="Inclusive upper bound on publish date (YYYY-MM-DD, UTC). Example: 2020-12-31 returns CVEs published on or before that day.",
+    ),
     kev: bool = Query(False, description="Filter to CISA KEV entries only"),
     epss_min: float | None = Query(None, ge=0.0, le=1.0, description="Minimum EPSS score (0.0-1.0)"),
     sort: str | None = Query(None, description="Sort order: epss_desc, cvss_desc, published_desc (default)"),
@@ -118,10 +146,16 @@ def cve_search(
     if sort and sort not in ("epss_desc", "cvss_desc", "published_desc"):
         raise HTTPException(status_code=400, detail="sort must be epss_desc, cvss_desc, or published_desc")
 
+    after_date = _parse_date(published_after, "published_after") if published_after else None
+    before_date = _parse_date(published_before, "published_before") if published_before else None
+    if after_date and before_date and after_date > before_date:
+        raise HTTPException(status_code=400, detail="published_after must be <= published_before")
+
     results, total = search_cves(
         product=product,
         severity=severity,
-        days=days,
+        published_after=after_date,
+        published_before=before_date,
         kev=kev,
         epss_min=epss_min,
         sort=sort,
@@ -130,12 +164,19 @@ def cve_search(
     )
     count = len(results)
     truncated = total > offset + count
+    range_label = None
+    if published_after and published_before:
+        range_label = f"{published_after}..{published_before}"
+    elif published_after:
+        range_label = f"since {published_after}"
+    elif published_before:
+        range_label = f"until {published_before}"
     filters = [
         f
         for f in [
             product,
             severity,
-            f"last {days}d" if days else None,
+            range_label,
             "KEV" if kev else None,
             f"EPSS>={epss_min}" if epss_min is not None else None,
         ]

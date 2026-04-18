@@ -697,7 +697,8 @@ def get_leading_cves(limit: int = 50, offset: int = 0) -> tuple[list[dict], int]
 def search_cves(
     product: str | None = None,
     severity: str | None = None,
-    days: int | None = None,
+    published_after: str | None = None,
+    published_before: str | None = None,
     kev: bool = False,
     epss_min: float | None = None,
     sort: str | None = None,
@@ -714,10 +715,13 @@ def search_cves(
     if severity:
         conditions.append("severity = ?")
         params.append(severity.upper())
-    if days:
-        cutoff = (datetime.now(UTC) - timedelta(days=days)).isoformat()
+    if published_after:
         conditions.append("published >= ?")
-        params.append(cutoff)
+        params.append(published_after)
+    if published_before:
+        next_day = (datetime.strptime(published_before, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
+        conditions.append("published < ?")
+        params.append(next_day)
     if kev:
         conditions.append("in_kev = 1")
     if epss_min is not None:

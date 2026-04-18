@@ -155,7 +155,7 @@ def test_request_id_unique():
 
 
 def test_ratelimit_headers_on_api_endpoint():
-    r = client.get("/v1/cves?days=1")
+    r = client.get("/v1/cves?limit=1")
     assert "x-ratelimit-limit" in r.headers
     assert "x-ratelimit-remaining" in r.headers
     assert "x-ratelimit-reset" in r.headers

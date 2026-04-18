@@ -426,7 +426,7 @@ async def cve_search(
     product: Annotated[
         str,
         Field(
-            description="Product or vendor name to filter by, case-insensitive. Examples: 'nginx', 'apache', 'microsoft', 'linux kernel'. Omit to search all products."
+            description="Product or vendor name to filter by. EXACT match (case-insensitive) against the canonical product/vendor token stored in NVD CPE data — not a substring or fuzzy search. Use the short canonical name exactly as vendors publish it: 'nginx' (not 'nginx web server'), 'apache' (not 'Apache HTTP Server'), 'linux_kernel' (not 'Linux Kernel'), 'microsoft' (vendor). If unsure of the exact token, try the lowercase project name first; if 0 results, try the vendor name. Omit to search all products."
         ),
     ] = "",
     severity: Annotated[
@@ -436,9 +436,18 @@ async def cve_search(
             json_schema_extra={"enum": ["", "CRITICAL", "HIGH", "MEDIUM", "LOW"]},
         ),
     ] = "",
-    days: Annotated[
-        int, Field(description="Time window in days. Returns CVEs published in the last N days. Range: 1-365.", ge=1, le=365)
-    ] = 30,
+    published_after: Annotated[
+        str,
+        Field(
+            description="Inclusive lower bound on publish date as YYYY-MM-DD (UTC). Pick this when the user names a starting point, e.g. 'since 2015' → '2015-01-01', 'after March 2024' → '2024-03-01'. Omit to not bound the lower edge. Combine with published_before for ranges."
+        ),
+    ] = "",
+    published_before: Annotated[
+        str,
+        Field(
+            description="Inclusive upper bound on publish date as YYYY-MM-DD (UTC). Pick this when the user names an ending point, e.g. 'before 2020' → '2019-12-31', 'up to 2023' → '2023-12-31'. Omit to not bound the upper edge. Combine with published_after for ranges."
+        ),
+    ] = "",
     kev: Annotated[
         bool, Field(description="If true, return only CVEs in the CISA Known Exploited Vulnerabilities (KEV) catalog — these are actively exploited in the wild.")
     ] = False,
@@ -458,17 +467,22 @@ async def cve_search(
     """Search the CVE database with filters. Returns matching vulnerabilities with CVSS scores, EPSS exploit probability, and KEV status.
 
 Common queries:
-- Critical CVEs this week: severity=CRITICAL, days=7
+- Critical CVEs this week: severity=CRITICAL, published_after=<today-7d>
 - Actively exploited: kev=true
 - Most exploitable nginx CVEs: product=nginx, sort=epss_desc
+- Old nginx CVEs (2015-2018): product=nginx, published_after=2015-01-01, published_before=2018-12-31
 - High-risk CVEs (EPSS>50%): epss_min=0.5, sort=epss_desc
 
 Returns: count (returned), total (matching), truncated (true = more pages available, use offset), results array. For a specific CVE ID, use cve_lookup instead."""
-    params = {"limit": limit, "days": days}
+    params = {"limit": limit}
     if product:
         params["product"] = product
     if severity:
         params["severity"] = severity
+    if published_after:
+        params["published_after"] = published_after
+    if published_before:
+        params["published_before"] = published_before
     if kev:
         params["kev"] = "true"
     if epss_min > 0:
@@ -701,7 +715,7 @@ def vulnerability_check(
     """Check recent vulnerabilities and exploits for a product."""
     return f"""Check vulnerabilities for {product}:
 
-1. Run cve_search with product="{product}" and days=90
+1. Run cve_search with product="{product}" and published_after set to 90 days ago (YYYY-MM-DD)
 2. For any CRITICAL or HIGH CVEs found, run exploit_lookup to check for public exploits
 3. Summarize: total CVEs, severity breakdown, exploitable ones, and patch recommendations."""
 

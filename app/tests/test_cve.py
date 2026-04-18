@@ -1,6 +1,5 @@
 """Tests for CVE Intelligence module — routes.py + sync.py"""
 
-from datetime import UTC
 from unittest.mock import MagicMock, patch
 
 import httpx
@@ -194,18 +193,66 @@ class TestCveSearch:
         assert r.status_code == 200
         assert r.json()["count"] == 0
 
-    def test_search_by_days(self):
-        from datetime import datetime, timedelta
-
-        now = datetime.now(UTC).isoformat()
-        old = (datetime.now(UTC) - timedelta(days=10)).isoformat()
-        _seed_cve(cve_id="CVE-2024-2001", published=now)
-        _seed_cve(cve_id="CVE-2024-2002", published=old)
-        r = client.get("/v1/cves?days=1")
+    def test_search_by_published_after(self):
+        _seed_cve(cve_id="CVE-2015-9001", published="2015-06-15T00:00:00+00:00")
+        _seed_cve(cve_id="CVE-2020-9001", published="2020-06-15T00:00:00+00:00")
+        r = client.get("/v1/cves?published_after=2018-01-01")
         assert r.status_code == 200
         cve_ids = [c["cve_id"] for c in r.json()["results"]]
-        assert "CVE-2024-2001" in cve_ids
-        assert "CVE-2024-2002" not in cve_ids
+        assert "CVE-2020-9001" in cve_ids
+        assert "CVE-2015-9001" not in cve_ids
+
+    def test_search_by_published_range(self):
+        _seed_cve(cve_id="CVE-2016-9001", published="2016-03-10T00:00:00+00:00")
+        _seed_cve(cve_id="CVE-2017-9001", published="2017-07-20T00:00:00+00:00")
+        _seed_cve(cve_id="CVE-2019-9001", published="2019-02-01T00:00:00+00:00")
+        r = client.get("/v1/cves?published_after=2016-01-01&published_before=2017-12-31")
+        assert r.status_code == 200
+        cve_ids = [c["cve_id"] for c in r.json()["results"]]
+        assert "CVE-2016-9001" in cve_ids
+        assert "CVE-2017-9001" in cve_ids
+        assert "CVE-2019-9001" not in cve_ids
+
+    def test_search_bad_date_format(self):
+        r = client.get("/v1/cves?published_after=not-a-date")
+        assert r.status_code == 400
+        body = r.json()
+        msg = body.get("detail") or body.get("error") or ""
+        assert "YYYY-MM-DD" in msg
+
+    def test_search_inverted_range_rejected(self):
+        r = client.get("/v1/cves?published_after=2020-01-01&published_before=2015-01-01")
+        assert r.status_code == 400
+
+    def test_search_boundary_inclusive(self):
+        _seed_cve(cve_id="CVE-2020-B001", published="2020-01-01T00:00:00+00:00")
+        _seed_cve(cve_id="CVE-2020-B002", published="2020-12-31T23:59:59+00:00")
+        r = client.get("/v1/cves?published_after=2020-01-01&published_before=2020-12-31")
+        assert r.status_code == 200
+        cve_ids = [c["cve_id"] for c in r.json()["results"]]
+        assert "CVE-2020-B001" in cve_ids
+        assert "CVE-2020-B002" in cve_ids
+
+    def test_search_mixed_timezone_format(self):
+        _seed_cve(cve_id="CVE-2020-TZ1", published="2020-06-15T12:00:00Z")
+        _seed_cve(cve_id="CVE-2020-TZ2", published="2020-06-15T12:00:00+00:00")
+        r = client.get("/v1/cves?published_after=2020-06-15&published_before=2020-06-15")
+        assert r.status_code == 200
+        cve_ids = [c["cve_id"] for c in r.json()["results"]]
+        assert "CVE-2020-TZ1" in cve_ids
+        assert "CVE-2020-TZ2" in cve_ids
+
+    def test_search_unicode_digit_rejected(self):
+        r = client.get("/v1/cves?published_after=\u0662\u0660\u0662\u0660-01-01")
+        assert r.status_code == 400
+
+    def test_search_max_year_rejected(self):
+        r = client.get("/v1/cves?published_before=9999-12-31")
+        assert r.status_code == 400
+
+    def test_search_min_year_rejected(self):
+        r = client.get("/v1/cves?published_after=1900-01-01")
+        assert r.status_code == 400
 
     def test_search_kev_filter(self):
         _seed_cve(cve_id="CVE-2024-6001", in_kev=1)

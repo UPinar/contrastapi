@@ -1186,7 +1186,7 @@ Every authenticated response includes X-RateLimit-Cost so clients can budget cal
 
 ### CVE Intelligence
 - GET /v1/cve/{{cve_id}} — Full CVE details with EPSS score, KEV status, CVSS breakdown
-- GET /v1/cves?product=&severity=&days= — Search CVEs by product, severity, date
+- GET /v1/cves?product=&severity=&published_after=&published_before= — Search CVEs by product, severity, date range
 - GET /v1/exploit/{{cve_id}} — Public exploits and advisories (GitHub Advisory, ExploitDB)
 - POST /v1/cves/bulk — Bulk CVE lookup (10 free, 50 pro per request)
 
@@ -1296,7 +1296,7 @@ GET /v1/cve/{{cve_id}} — Full CVE details with EPSS + KEV + CVSS breakdown.
   Response keys: cve_id, summary, description, severity, cvss_v3, cvss_breakdown, cwe_id, epss:{{score,percentile}}, kev:{{in_kev,date_added}}, affected_products, published, modified, references
   Errors: 400, 404
 
-GET /v1/cves?product=&severity=&days=&limit= — Search CVEs by product/severity/date.
+GET /v1/cves?product=&severity=&published_after=&published_before=&limit= — Search CVEs by product/severity/date range (YYYY-MM-DD bounds).
   Response keys: count, summary, results
 
 GET /v1/exploit/{{cve_id}} — Public exploits (GitHub Advisory + ExploitDB).
