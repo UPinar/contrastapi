@@ -158,6 +158,7 @@ def init_cve_db():
             )
         """)
         con.execute("CREATE INDEX IF NOT EXISTS idx_products_vendor ON cve_products(vendor, product)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_products_product_lower ON cve_products(LOWER(product))")
         con.execute("""
             CREATE TABLE IF NOT EXISTS sync_status (
                 source TEXT PRIMARY KEY,
@@ -644,6 +645,16 @@ def upsert_cve(cve_data: dict) -> None:
                 now,
             ),
         )
+        con.execute("DELETE FROM cve_products WHERE cve_id = ?", (cve_data["cve_id"],))
+        for p in cve_data.get("affected_products", []):
+            vendor = p.get("vendor")
+            product = p.get("product")
+            if not vendor and not product:
+                continue
+            con.execute(
+                "INSERT INTO cve_products (cve_id, vendor, product, version_start, version_end) VALUES (?, ?, ?, ?, ?)",
+                (cve_data["cve_id"], vendor, product, p.get("version_start"), p.get("version_end")),
+            )
 
 
 def _deserialize_cve(row: sqlite3.Row) -> dict:
@@ -696,9 +707,10 @@ def search_cves(
     conditions = []
     params = []
     if product:
-        escaped = product.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-        conditions.append("(description LIKE ? ESCAPE '\\' OR affected_products LIKE ? ESCAPE '\\')")
-        params.extend([f"%{escaped}%", f"%{escaped}%"])
+        conditions.append(
+            "EXISTS (SELECT 1 FROM cve_products p WHERE p.cve_id = cves.cve_id AND LOWER(p.product) = LOWER(?))"
+        )
+        params.append(product)
     if severity:
         conditions.append("severity = ?")
         params.append(severity.upper())
@@ -837,7 +849,55 @@ def upsert_cve_if_absent(cve_data: dict) -> bool:
                 now,
             ),
         )
-        return cur.rowcount > 0
+        inserted = cur.rowcount > 0
+        if inserted:
+            for p in cve_data.get("affected_products", []):
+                vendor = p.get("vendor")
+                product = p.get("product")
+                if not vendor and not product:
+                    continue
+                con.execute(
+                    "INSERT INTO cve_products (cve_id, vendor, product, version_start, version_end) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (cve_data["cve_id"], vendor, product, p.get("version_start"), p.get("version_end")),
+                )
+        return inserted
+
+
+def backfill_cve_products(batch_size: int = 1000) -> int:
+    """Populate cve_products from existing cves.affected_products JSON.
+    Idempotent: deletes per-cve_id before insert. Returns total rows inserted."""
+    total = 0
+    last_id = ""
+    with get_cve_db() as con:
+        while True:
+            rows = con.execute(
+                "SELECT cve_id, affected_products FROM cves WHERE cve_id > ? ORDER BY cve_id LIMIT ?",
+                (last_id, batch_size),
+            ).fetchall()
+            if not rows:
+                break
+            for cve_id, ap_json in rows:
+                con.execute("DELETE FROM cve_products WHERE cve_id = ?", (cve_id,))
+                if not ap_json:
+                    continue
+                try:
+                    products = json.loads(ap_json)
+                except (json.JSONDecodeError, TypeError):
+                    continue
+                for p in products or []:
+                    vendor = p.get("vendor")
+                    product = p.get("product")
+                    if not vendor and not product:
+                        continue
+                    con.execute(
+                        "INSERT INTO cve_products (cve_id, vendor, product, version_start, version_end) "
+                        "VALUES (?, ?, ?, ?, ?)",
+                        (cve_id, vendor, product, p.get("version_start"), p.get("version_end")),
+                    )
+                    total += 1
+            last_id = rows[-1][0]
+    return total
 
 
 def record_cve_source(cve_id: str, source: str, source_url: str | None = None) -> None:

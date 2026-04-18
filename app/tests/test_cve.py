@@ -145,14 +145,38 @@ class TestCveSearch:
         assert all(c["severity"] == "CRITICAL" for c in data["results"])
 
     def test_search_by_product(self):
-        _seed_cve(cve_id="CVE-2024-0010", description="XSS in apache httpd")
-        _seed_cve(cve_id="CVE-2024-0011", description="Bug in nodejs")
+        _seed_cve(
+            cve_id="CVE-2024-0010",
+            description="XSS in apache httpd",
+            affected_products=[{"vendor": "apache", "product": "apache"}],
+        )
+        _seed_cve(
+            cve_id="CVE-2024-0011",
+            description="Bug in nodejs",
+            affected_products=[{"vendor": "nodejs", "product": "nodejs"}],
+        )
         r = client.get("/v1/cves?product=apache")
         assert r.status_code == 200
         data = r.json()
         assert data["count"] >= 1
         cve_ids = [c["cve_id"] for c in data["results"]]
         assert "CVE-2024-0010" in cve_ids
+        assert "CVE-2024-0011" not in cve_ids
+
+    def test_search_by_product_no_substring_false_positive(self):
+        _seed_cve(
+            cve_id="CVE-2024-0020",
+            affected_products=[{"vendor": "nginx", "product": "nginx"}],
+        )
+        _seed_cve(
+            cve_id="CVE-2024-0021",
+            affected_products=[{"vendor": "runebook", "product": "nginx-ui"}],
+        )
+        r = client.get("/v1/cves?product=nginx")
+        assert r.status_code == 200
+        cve_ids = [c["cve_id"] for c in r.json()["results"]]
+        assert "CVE-2024-0020" in cve_ids
+        assert "CVE-2024-0021" not in cve_ids  # substring match must NOT leak
 
     def test_search_invalid_severity(self):
         r = client.get("/v1/cves?severity=EXTREME")
@@ -521,6 +545,95 @@ class TestCveParamBoundaries:
     def test_search_product_too_long(self):
         r = client.get(f"/v1/cves?product={'a' * 101}")
         assert r.status_code == 422
+
+
+class TestCveProductsTable:
+    def test_upsert_cve_populates_cve_products(self):
+        from db import get_cve_db, upsert_cve
+
+        upsert_cve(
+            {
+                "cve_id": "CVE-2024-PROD1",
+                "affected_products": [
+                    {"vendor": "acme", "product": "widget", "version_start": "1.0", "version_end": "2.0"},
+                    {"vendor": "acme", "product": "gizmo"},
+                ],
+            }
+        )
+        with get_cve_db() as con:
+            rows = con.execute(
+                "SELECT vendor, product, version_start, version_end FROM cve_products "
+                "WHERE cve_id = ? ORDER BY product",
+                ("CVE-2024-PROD1",),
+            ).fetchall()
+        assert len(rows) == 2
+        assert rows[0] == ("acme", "gizmo", None, None)
+        assert rows[1] == ("acme", "widget", "1.0", "2.0")
+
+    def test_upsert_cve_replaces_cve_products(self):
+        from db import get_cve_db, upsert_cve
+
+        upsert_cve({"cve_id": "CVE-2024-PROD2", "affected_products": [{"vendor": "a", "product": "old"}]})
+        upsert_cve({"cve_id": "CVE-2024-PROD2", "affected_products": [{"vendor": "a", "product": "new"}]})
+        with get_cve_db() as con:
+            rows = con.execute("SELECT product FROM cve_products WHERE cve_id = ?", ("CVE-2024-PROD2",)).fetchall()
+        assert [r[0] for r in rows] == ["new"]
+
+    def test_upsert_cve_if_absent_populates_on_insert(self):
+        from db import get_cve_db, upsert_cve_if_absent
+
+        inserted = upsert_cve_if_absent(
+            {
+                "cve_id": "CVE-2024-PROD3",
+                "affected_products": [{"vendor": "v", "product": "p"}],
+            }
+        )
+        assert inserted is True
+        with get_cve_db() as con:
+            rows = con.execute("SELECT product FROM cve_products WHERE cve_id = ?", ("CVE-2024-PROD3",)).fetchall()
+        assert [r[0] for r in rows] == ["p"]
+
+    def test_upsert_cve_if_absent_skips_populate_when_existing(self):
+        from db import get_cve_db, upsert_cve, upsert_cve_if_absent
+
+        upsert_cve({"cve_id": "CVE-2024-PROD4", "affected_products": [{"vendor": "nvd", "product": "strong"}]})
+        inserted = upsert_cve_if_absent(
+            {
+                "cve_id": "CVE-2024-PROD4",
+                "affected_products": [{"vendor": "mitre", "product": "weak"}],
+            }
+        )
+        assert inserted is False
+        with get_cve_db() as con:
+            rows = con.execute("SELECT product FROM cve_products WHERE cve_id = ?", ("CVE-2024-PROD4",)).fetchall()
+        assert [r[0] for r in rows] == ["strong"]
+
+    def test_search_uses_product_lower_index(self):
+        """Regression guard: the LOWER(product) filter must hit the functional index,
+        not a full table scan. Without this index, searches against the production
+        cve_products table (~1M rows) degrade to O(n) per request."""
+        from db import get_cve_db, upsert_cve
+
+        upsert_cve(
+            {
+                "cve_id": "CVE-2024-PLAN1",
+                "affected_products": [{"vendor": "acme", "product": "widget"}],
+            }
+        )
+        with get_cve_db() as con:
+            plan = con.execute(
+                "EXPLAIN QUERY PLAN "
+                "SELECT 1 FROM cves WHERE EXISTS ("
+                "  SELECT 1 FROM cve_products p "
+                "  WHERE p.cve_id = cves.cve_id "
+                "  AND LOWER(p.product) = LOWER(?)"
+                ")",
+                ("widget",),
+            ).fetchall()
+        plan_text = " ".join(str(row) for row in plan)
+        assert "idx_products_product_lower" in plan_text, (
+            f"Query plan should use idx_products_product_lower, got: {plan_text}"
+        )
 
 
 class TestSyncEpssValidation:

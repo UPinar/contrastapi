@@ -182,6 +182,7 @@ def test_search_cves_by_product():
             "description": "Buffer overflow in nginx",
             "severity": "HIGH",
             "published": "2024-06-01T00:00:00Z",
+            "affected_products": [{"vendor": "nginx", "product": "nginx"}],
         }
     )
     results, total = search_cves(product="nginx")
