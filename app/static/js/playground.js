@@ -57,7 +57,8 @@
     'password': '/v1/password/',
     'phishing': '/v1/phishing/',
     'check_secrets': 'POST',
-    'check_injection': 'POST'
+    'check_injection': 'POST',
+    'check_dependencies': 'POST_DEPS'
   };
 
   async function run(id) {
@@ -105,6 +106,24 @@
         return;
       }
       url = '/v1/' + id.replace('check_', 'check/');
+    } else if (ENDPOINTS[id] === 'POST_DEPS') {
+      var rawDeps = document.getElementById('input-' + id + '-packages').value.trim();
+      if (!rawDeps) {
+        resp.innerHTML = '<span class="pg-error">Please enter at least one package</span>';
+        return;
+      }
+      bulkItems = rawDeps.split(/\n+/).map(function(line) {
+        var trimmed = line.trim();
+        var idx = trimmed.indexOf('==');
+        return idx === -1
+          ? { name: trimmed, version: null }
+          : { name: trimmed.slice(0, idx).trim(), version: trimmed.slice(idx + 2).trim() || null };
+      }).filter(function(p) { return p.name; });
+      if (bulkItems.length === 0) {
+        resp.innerHTML = '<span class="pg-error">Please enter at least one package</span>';
+        return;
+      }
+      url = '/v1/check/dependencies';
     } else {
       var input = document.querySelector('#input-' + id);
       val = input.value.trim();
@@ -139,6 +158,10 @@
         fetchOpts.method = 'POST';
         fetchOpts.headers = { 'Content-Type': 'application/json' };
         fetchOpts.body = JSON.stringify({ indicators: bulkItems });
+      } else if (ENDPOINTS[id] === 'POST_DEPS') {
+        fetchOpts.method = 'POST';
+        fetchOpts.headers = { 'Content-Type': 'application/json' };
+        fetchOpts.body = JSON.stringify({ packages: bulkItems });
       }
       var res = await fetch(url, fetchOpts);
       clearTimeout(timer);

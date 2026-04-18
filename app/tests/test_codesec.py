@@ -507,6 +507,106 @@ class TestDependenciesRoute:
         d = r.json()
         assert set(d.keys()) == {"findings", "total", "by_severity", "summary"}
 
+    def test_over_free_limit_422(self):
+        """Free tier: >10 packages → 422 before any DB work."""
+        pkgs = [{"name": f"pkg{i}"} for i in range(11)]
+        r = client.post("/v1/check/dependencies", json={"packages": pkgs})
+        assert r.status_code == 422
+        assert "Too many packages" in r.json().get("error", "")
+
+    def test_over_pydantic_max_422(self):
+        """>50 packages rejected by Pydantic before auth runs."""
+        pkgs = [{"name": f"pkg{i}"} for i in range(51)]
+        r = client.post("/v1/check/dependencies", json={"packages": pkgs})
+        assert r.status_code == 422
+
+    def test_consume_bulk_called_with_count_minus_one(self):
+        """Verify per-package charging: N packages → consume_bulk(count - 1) after authenticate()'s 1."""
+        from unittest.mock import patch
+
+        with (
+            patch("ratelimit.consume_bulk", return_value=True) as mock_consume,
+            patch(
+                "codesec.routes.authenticate",
+                return_value={"tier": "free", "key_hash": None, "client_ip": "127.0.0.1"},
+            ),
+        ):
+            pkgs = [{"name": f"pkg{i}"} for i in range(5)]
+            r = client.post("/v1/check/dependencies", json={"packages": pkgs})
+            assert r.status_code == 200
+            mock_consume.assert_called_once()
+            assert mock_consume.call_args.args[2] == 4  # count(5) - 1
+
+    def test_bulk_rate_limit_exhausted(self):
+        """When consume_bulk returns False → 429."""
+        from unittest.mock import patch
+
+        with (
+            patch("ratelimit.consume_bulk", return_value=False),
+            patch(
+                "codesec.routes.authenticate",
+                return_value={"tier": "free", "key_hash": None, "client_ip": "127.0.0.1"},
+            ),
+        ):
+            pkgs = [{"name": f"pkg{i}"} for i in range(5)]
+            r = client.post("/v1/check/dependencies", json={"packages": pkgs})
+            assert r.status_code == 429
+
+    def test_deduplicates_repeat_packages(self):
+        """Duplicate (name, version) pairs are collapsed before charging — prevents 10x credit waste on same pkg."""
+        from unittest.mock import patch
+
+        with (
+            patch("ratelimit.consume_bulk", return_value=True) as mock_consume,
+            patch(
+                "codesec.routes.authenticate",
+                return_value={"tier": "free", "key_hash": None, "client_ip": "127.0.0.1"},
+            ),
+        ):
+            pkgs = [{"name": "flask", "version": "2.0.0"}] * 5 + [{"name": "django"}]
+            r = client.post("/v1/check/dependencies", json={"packages": pkgs})
+            assert r.status_code == 200
+            # 2 unique after dedup → consume_bulk called with 2 - 1 = 1
+            mock_consume.assert_called_once()
+            assert mock_consume.call_args.args[2] == 1
+
+    def test_single_package_skips_consume_bulk(self):
+        """count=1 → authenticate()'s 1 credit is enough, consume_bulk must NOT be called."""
+        from unittest.mock import patch
+
+        with (
+            patch("ratelimit.consume_bulk") as mock_consume,
+            patch(
+                "codesec.routes.authenticate",
+                return_value={"tier": "free", "key_hash": None, "client_ip": "127.0.0.1"},
+            ),
+        ):
+            r = client.post("/v1/check/dependencies", json={"packages": [{"name": "flask"}]})
+            assert r.status_code == 200
+            mock_consume.assert_not_called()
+
+    def test_dedup_normalizes_version_whitespace_and_case(self):
+        """Versions differing only in whitespace/case are deduped — blocks charge-inflation via formatting."""
+        from unittest.mock import patch
+
+        with (
+            patch("ratelimit.consume_bulk", return_value=True) as mock_consume,
+            patch(
+                "codesec.routes.authenticate",
+                return_value={"tier": "free", "key_hash": None, "client_ip": "127.0.0.1"},
+            ),
+        ):
+            pkgs = [
+                {"name": "foo", "version": "1.0.0"},
+                {"name": "foo", "version": "1.0.0 "},
+                {"name": "foo", "version": "1.0.0"},
+                {"name": "FOO", "version": "1.0.0"},
+            ]
+            r = client.post("/v1/check/dependencies", json={"packages": pkgs})
+            assert r.status_code == 200
+            # All 4 collapse to 1 → count=1 path, consume_bulk NOT called
+            mock_consume.assert_not_called()
+
 
 class TestOpenApiCodesec:
     def test_operation_ids_present(self):

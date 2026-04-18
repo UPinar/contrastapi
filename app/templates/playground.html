@@ -867,6 +867,45 @@ open("/var/log/" + filename)</textarea>
         </div>
       </div>
     </div>
+
+    <div class="pg-card" id="ep-check_dependencies">
+      <div class="pg-card-header">
+        <span class="method post">POST</span>
+        <span class="name">/v1/check/dependencies</span>
+        <span class="desc">Check packages for CVEs (free 10, pro 50 per request)</span>
+      </div>
+      <div class="pg-card-body">
+        <div class="pg-inputs pg-inputs-col">
+          <div class="pg-inputs-row">
+            <label for="input-check_dependencies-packages">packages (name==version, one per line)</label>
+            <button class="btn-run" data-tool="check_dependencies">Run &rarr;</button>
+          </div>
+          <textarea id="input-check_dependencies-packages" rows="4" class="pg-textarea">requests==2.25.1
+lodash==4.17.20
+openssl==3.0.0</textarea>
+        </div>
+        <div class="pg-response" id="resp-check_dependencies">
+          <pre>{
+  <span class="key">"total"</span>: <span class="num">2</span>,
+  <span class="key">"by_severity"</span>: {
+    <span class="key">"critical"</span>: <span class="num">1</span>,
+    <span class="key">"high"</span>: <span class="num">1</span>
+  },
+  <span class="key">"summary"</span>: <span class="str">"Found 2 CVEs across 2 of 3 packages (1 critical, 1 high)"</span>,
+  <span class="key">"findings"</span>: [
+    {
+      <span class="key">"package"</span>: <span class="str">"openssl"</span>,
+      <span class="key">"version"</span>: <span class="str">"3.0.0"</span>,
+      <span class="key">"cve_id"</span>: <span class="str">"CVE-2023-0286"</span>,
+      <span class="key">"severity"</span>: <span class="str">"high"</span>,
+      <span class="key">"cvss_v3"</span>: <span class="num">7.4</span>,
+      <span class="key">"in_kev"</span>: <span class="bool">false</span>
+    }
+  ]
+}</pre>
+        </div>
+      </div>
+    </div>
   </div>
 
   <footer>

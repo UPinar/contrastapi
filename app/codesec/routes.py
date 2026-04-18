@@ -45,7 +45,7 @@ class PackageItem(BaseModel):
 
 
 class DependenciesInput(BaseModel):
-    packages: list[PackageItem] = Field(..., min_length=1, max_length=500)
+    packages: list[PackageItem] = Field(..., min_length=1, max_length=50)
 
 
 # --- Helpers ---
@@ -211,11 +211,53 @@ def check_headers_endpoint(body: HeadersInput, request: Request):
     response_model_exclude_none=True,
 )
 def check_dependencies_endpoint(body: DependenciesInput, request: Request):
-    """Check packages against the CVE database for known vulnerabilities."""
-    authenticate(request, "/v1/check/dependencies")
+    """Check packages against the CVE database for known vulnerabilities.
+
+    Up to 10 packages (free) or 50 (pro). Each package counts as 1 request toward rate limit.
+    """
+    import ratelimit
+    from auth import extract_key, hash_key
+    from config import FREE_BULK_LIMIT, FREE_HOURLY_LIMIT, PRO_BULK_LIMIT, PRO_HOURLY_LIMIT
+    from validation import get_client_ip
+
+    auth_ctx = authenticate(request, "/v1/check/dependencies")
+
+    seen: set[tuple[str, str | None]] = set()
+    packages: list[PackageItem] = []
+    for p in body.packages:
+        version_norm = p.version.strip().lower() if p.version else None
+        key = (p.name.strip().lower(), version_norm)
+        if not key[0] or key in seen:
+            continue
+        seen.add(key)
+        packages.append(p)
+    count = len(packages)
+    if count == 0:
+        raise HTTPException(status_code=400, detail="packages must contain at least one non-empty name")
+
+    bulk_limit = PRO_BULK_LIMIT if auth_ctx["tier"] == "pro" else FREE_BULK_LIMIT
+    if count > bulk_limit:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Too many packages. Limit: {bulk_limit} (your tier: {auth_ctx['tier']})",
+        )
+
+    raw_key = extract_key(request)
+    if raw_key:
+        store_key = f"pro:{hash_key(raw_key)}"
+        limit = PRO_HOURLY_LIMIT
+    else:
+        store_key = f"free:{get_client_ip(request)}"
+        limit = FREE_HOURLY_LIMIT
+
+    if count > 1 and not ratelimit.consume_bulk("api", store_key, count - 1, limit):
+        raise HTTPException(
+            status_code=429,
+            detail=f"Insufficient rate limit quota for {count} packages.",
+        )
 
     findings = []
-    for pkg in body.packages:
+    for pkg in packages:
         # Use cve_products table for precise vendor/product matching with version ranges
         cves = search_cves_by_product(pkg.name, version=pkg.version, limit=20)
         for cve in cves:
@@ -236,7 +278,7 @@ def check_dependencies_endpoint(body: DependenciesInput, request: Request):
 
     by_severity = _severity_counts(findings)
     total = len(findings)
-    pkg_count = len(body.packages)
+    pkg_count = count
 
     if total == 0:
         summary = f"No known CVEs found for {pkg_count} package{'s' if pkg_count != 1 else ''}"
