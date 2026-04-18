@@ -190,6 +190,43 @@ def test_search_cves_by_product():
     assert total >= 1
 
 
+def test_search_cves_by_products_bulk():
+    from db import search_cves_by_products_bulk, upsert_cve
+
+    upsert_cve(
+        {
+            "cve_id": "CVE-2024-BULK1",
+            "description": "Bulk test CVE A",
+            "severity": "HIGH",
+            "published": "2024-01-01T00:00:00Z",
+            "affected_products": [{"vendor": "acme", "product": "widget"}],
+        }
+    )
+    upsert_cve(
+        {
+            "cve_id": "CVE-2024-BULK2",
+            "description": "Bulk test CVE B",
+            "severity": "MEDIUM",
+            "published": "2024-02-01T00:00:00Z",
+            "affected_products": [{"vendor": "acme", "product": "gadget"}],
+        }
+    )
+
+    result = search_cves_by_products_bulk(["widget", "gadget"])
+    assert "widget" in result
+    assert "gadget" in result
+    assert any(c["cve_id"] == "CVE-2024-BULK1" for c in result["widget"])
+    assert any(c["cve_id"] == "CVE-2024-BULK2" for c in result["gadget"])
+
+    result = search_cves_by_products_bulk(["WIDGET"])
+    assert "widget" in result
+
+    result = search_cves_by_products_bulk(["nonexistent-xyz"])
+    assert "nonexistent-xyz" not in result
+
+    assert search_cves_by_products_bulk([]) == {}
+
+
 # --- Sync status ---
 
 

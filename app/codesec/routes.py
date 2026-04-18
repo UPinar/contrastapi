@@ -7,7 +7,7 @@ from auth import authenticate
 from codesec.headers import check_headers
 from codesec.injection import detect_injection
 from codesec.secrets import detect_secrets
-from db import search_cves_by_product
+from db import _parse_version, search_cves_by_products_bulk
 from domain.recon import fetch_live_headers
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -256,11 +256,41 @@ def check_dependencies_endpoint(body: DependenciesInput, request: Request):
             detail=f"Insufficient rate limit quota for {count} packages.",
         )
 
+    product_names = [pkg.name for pkg in packages]
+    try:
+        cve_groups = search_cves_by_products_bulk(product_names, limit_per_product=20)
+    except Exception:
+        raise HTTPException(status_code=503, detail="CVE database temporarily unavailable. Please retry.") from None
+
     findings = []
     for pkg in packages:
-        # Use cve_products table for precise vendor/product matching with version ranges
-        cves = search_cves_by_product(pkg.name, version=pkg.version, limit=20)
+        pkg_name_norm = pkg.name.strip().lower()
+        cves = cve_groups.get(pkg_name_norm, [])
+        parsed_ver = _parse_version(pkg.version) if pkg.version else None
+        matched_cves = []
         for cve in cves:
+            if parsed_ver:
+                matched = False
+                for prod in cve.get("affected_products", []):
+                    if pkg_name_norm not in (prod.get("product") or "").lower():
+                        continue
+                    vs = prod.get("version_start")
+                    ve = prod.get("version_end")
+                    try:
+                        if vs and parsed_ver < _parse_version(vs):
+                            continue
+                        if ve and parsed_ver >= _parse_version(ve):
+                            continue
+                    except TypeError:
+                        continue
+                    matched = True
+                    break
+                if not matched and cve.get("affected_products"):
+                    continue
+            matched_cves.append(cve)
+            if len(matched_cves) >= 20:
+                break
+        for cve in matched_cves:
             severity = (cve.get("severity") or "unknown").lower()
             findings.append(
                 {

@@ -804,6 +804,59 @@ def search_cves_by_product(product: str, version: str | None = None, limit: int 
     return results
 
 
+def search_cves_by_products_bulk(products: list[str], limit_per_product: int = 20) -> dict[str, list[dict]]:
+    """Bulk variant of search_cves_by_product.
+
+    Given a list of product names, returns a dict mapping
+    lowercase product name -> list of CVE rows (deserialized, most recent first).
+
+    Uses exact lowercase match against cve_products.product (indexed by
+    idx_products_product_lower), not LIKE substring match. Callers that
+    need substring matching must use search_cves_by_product.
+
+    Over-fetches limit_per_product * 3 per product so callers can apply
+    additional filtering (e.g. version ranges) without losing results.
+    """
+    products_lower = list({p.strip().lower() for p in products if p and p.strip()})
+    if not products_lower:
+        return {}
+    if len(products_lower) > 500:
+        raise ValueError(f"Too many products for bulk lookup: {len(products_lower)} (max 500)")
+    placeholders = ",".join(["?"] * len(products_lower))
+    sql = f"""
+        WITH ranked AS (
+          SELECT c.*, LOWER(p.product) AS matched,
+                 ROW_NUMBER() OVER (
+                   PARTITION BY LOWER(p.product)
+                   ORDER BY c.published DESC
+                 ) AS rn
+          FROM cves c
+          JOIN cve_products p ON c.cve_id = p.cve_id
+          WHERE LOWER(p.product) IN ({placeholders})
+        )
+        SELECT * FROM ranked WHERE rn <= ?
+    """
+    params = [*products_lower, limit_per_product * 3]
+    with get_cve_db() as con:
+        cur = con.cursor()
+        cur.row_factory = sqlite3.Row
+        rows = cur.execute(sql, params).fetchall()
+
+    result: dict[str, list[dict]] = {}
+    seen: dict[str, set[str]] = {}
+    for row in rows:
+        matched = row["matched"]
+        cve_id = row["cve_id"]
+        if matched not in seen:
+            seen[matched] = set()
+            result[matched] = []
+        if cve_id in seen[matched]:
+            continue
+        seen[matched].add(cve_id)
+        result[matched].append(_deserialize_cve(row))
+    return result
+
+
 def update_epss(cve_id: str, epss_score: float | None, epss_percentile: float | None) -> bool:
     """Update only EPSS fields for a CVE. Returns True if row existed."""
     with get_cve_db() as con:
