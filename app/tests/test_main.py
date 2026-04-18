@@ -497,6 +497,9 @@ class TestSecurityHeaders:
         "Referrer-Policy": "strict-origin-when-cross-origin",
         "Permissions-Policy": "geolocation=(), microphone=(), camera=()",
         "Strict-Transport-Security": "max-age=63072000; includeSubDomains; preload",
+        "Cross-Origin-Embedder-Policy": "credentialless",
+        "Cross-Origin-Opener-Policy": "same-origin",
+        "Cross-Origin-Resource-Policy": "same-origin",
     }
 
     def test_security_headers_on_root(self):
@@ -520,6 +523,11 @@ class TestSecurityHeaders:
         assert "frame-ancestors 'none'" in csp
         assert "base-uri 'none'" in csp
         assert "form-action 'self'" in csp
+        assert "frame-src 'none'" in csp
+        assert "child-src 'none'" in csp
+        assert "worker-src 'self'" in csp
+        assert "manifest-src 'self'" in csp
+        assert "media-src 'none'" in csp
 
     def test_csp_script_src_no_unsafe_inline(self):
         r = client.get("/")
