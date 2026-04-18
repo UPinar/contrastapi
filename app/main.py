@@ -248,6 +248,11 @@ _CSP_POLICY = (
     "connect-src 'self' https://cloudflareinsights.com; "
     "font-src 'self'; "
     "object-src 'none'; "
+    "frame-src 'none'; "
+    "child-src 'none'; "
+    "worker-src 'self'; "
+    "manifest-src 'self'; "
+    "media-src 'none'; "
     "base-uri 'none'; "
     "form-action 'self'; "
     "frame-ancestors 'none';"
@@ -259,6 +264,9 @@ _SECURITY_HEADERS = {
     "Referrer-Policy": "strict-origin-when-cross-origin",
     "Permissions-Policy": "geolocation=(), microphone=(), camera=()",
     "Strict-Transport-Security": "max-age=63072000; includeSubDomains; preload",
+    "Cross-Origin-Embedder-Policy": "credentialless",
+    "Cross-Origin-Opener-Policy": "same-origin",
+    "Cross-Origin-Resource-Policy": "same-origin",
     "Content-Security-Policy": _CSP_POLICY,
 }
 
@@ -1434,6 +1442,8 @@ from ioc.routes import router as ioc_router
 
 app.include_router(ioc_router)
 
+from datetime import UTC
+
 from webhooks import router as webhooks_router
 
 app.include_router(webhooks_router)
@@ -1497,6 +1507,54 @@ try:
     _mcp_client_ip_var = _mcp_mod._client_ip_var
     _mcp_safe_ip = _mcp_mod._safe_ip
 
+    import json as _mcp_json
+    from datetime import datetime as _mcp_datetime
+
+    _MCP_TOOL_LOG = "/var/log/contrastapi/mcp_tools.jsonl"
+    _MCP_TOOL_BODY_LIMIT = 256 * 1024  # 256KB cap — larger body = skip (log gate)
+    _MCP_BUFFER_HARD_LIMIT = 1024 * 1024  # 1MB hard cap on POST body buffering — protects RAM
+
+    def _extract_tool_name(body_bytes: bytes) -> "str | None":
+        """Parse JSON-RPC body, return tool name if method=tools/call, else None.
+
+        Privacy: NEVER logs params.arguments — only params.name (tool identifier).
+        Silent on any error.
+        """
+        if not body_bytes or len(body_bytes) > _MCP_TOOL_BODY_LIMIT:
+            return None
+        try:
+            obj = _mcp_json.loads(body_bytes)
+        except (ValueError, UnicodeDecodeError):
+            return None
+        if not isinstance(obj, dict):
+            return None
+        if obj.get("method") != "tools/call":
+            return None
+        params = obj.get("params")
+        if not isinstance(params, dict):
+            return None
+        name = params.get("name")
+        if not isinstance(name, str) or not name:
+            return None
+        if len(name) > 64 or not name.replace("_", "").isalnum():
+            return None
+        return name
+
+    def _log_mcp_tool(name: str) -> None:
+        """Append one JSON line to the tool usage log. Silent on any error."""
+        try:
+            line = (
+                _mcp_json.dumps(
+                    {"date": _mcp_datetime.now(UTC).strftime("%Y-%m-%d"), "tool": name},
+                    separators=(",", ":"),
+                )
+                + "\n"
+            )
+            with open(_MCP_TOOL_LOG, "a") as f:
+                f.write(line)
+        except Exception:
+            pass
+
     class _MCPIPForwardMiddleware:
         """ASGI middleware that sets the real client IP in contextvars
         so MCP tool calls forward it to internal API requests."""
@@ -1558,6 +1616,56 @@ try:
                             new_headers.append(canonical)
                         scope = dict(scope)
                         scope["headers"] = new_headers
+                    # Buffer full body for tool-name extraction + replay to downstream app.
+                    # Hard cap protects against memory DoS via chunked uploads — MCP requests
+                    # are normally <10KB, so 1MB is generous.
+                    body_chunks = []
+                    cumulative = 0
+                    oversized = False
+                    more = True
+                    while more:
+                        msg = await receive()
+                        if msg["type"] == "http.request":
+                            chunk = msg.get("body", b"")
+                            if chunk and not oversized:
+                                cumulative += len(chunk)
+                                if cumulative > _MCP_BUFFER_HARD_LIMIT:
+                                    oversized = True
+                                    body_chunks = []  # drop already-buffered chunks
+                                else:
+                                    body_chunks.append(chunk)
+                            more = msg.get("more_body", False)
+                        else:
+                            break
+                    if oversized:
+                        err = b'{"jsonrpc":"2.0","error":{"code":-32600,"message":"Request body too large"},"id":null}'
+                        await send(
+                            {
+                                "type": "http.response.start",
+                                "status": 413,
+                                "headers": [
+                                    [b"content-type", b"application/json"],
+                                    [b"content-length", str(len(err)).encode()],
+                                ],
+                            }
+                        )
+                        await send({"type": "http.response.body", "body": err})
+                        return
+                    full_body = b"".join(body_chunks)
+                    # Extract + log tool name — best-effort, never raises
+                    tool_name = _extract_tool_name(full_body)
+                    if tool_name:
+                        _log_mcp_tool(tool_name)
+                    # Replay receive: yield cached body once, then disconnect
+                    _sent = {"done": False}
+
+                    async def _replay_receive():
+                        if not _sent["done"]:
+                            _sent["done"] = True
+                            return {"type": "http.request", "body": full_body, "more_body": False}
+                        return {"type": "http.disconnect"}
+
+                    receive = _replay_receive
                 # Validate IP before storing — reject spoofed/malformed values
                 token = _mcp_client_ip_var.set(_mcp_safe_ip(ip))
                 try:
