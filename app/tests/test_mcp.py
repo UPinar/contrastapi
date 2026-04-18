@@ -444,3 +444,60 @@ def test_mcp_get_no_trailing_slash_returns_health(mcp_client):
     data = r.json()
     assert data["name"] == "ContrastAPI MCP Server"
     assert data["tools"] == MCP_TOOL_COUNT
+
+
+# --- _format_error helper ---
+
+
+def _load_mcp_mod():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "mcp_server_test_fmterr", str(__import__("config").BASE_DIR.parent / "mcp_server.py")
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class _FakeResp:
+    def __init__(self, status_code, body):
+        self.status_code = status_code
+        self._body = body
+
+    def json(self):
+        if isinstance(self._body, Exception):
+            raise self._body
+        return self._body
+
+
+def test_format_error_preserves_detail_and_hint():
+    mod = _load_mcp_mod()
+    resp = _FakeResp(429, {"error": "Too many requests", "tier": "free", "upgrade": "Get 1000/hr at /pricing"})
+    out = mod._format_error(resp)
+    assert "429" in out
+    assert "Too many requests" in out
+    assert "/pricing" in out
+
+
+def test_format_error_includes_field_and_reason():
+    mod = _load_mcp_mod()
+    resp = _FakeResp(422, {"error": "Validation failed", "reason": "must be IPv4", "field": "ip"})
+    out = mod._format_error(resp)
+    assert "422" in out
+    assert "must be IPv4" in out
+    assert "ip" in out
+
+
+def test_format_error_falls_back_on_non_json_body():
+    mod = _load_mcp_mod()
+    resp = _FakeResp(500, ValueError("not json"))
+    out = mod._format_error(resp)
+    assert out == "Error 500"
+
+
+def test_format_error_handles_non_dict_json():
+    mod = _load_mcp_mod()
+    resp = _FakeResp(502, ["unexpected", "list"])
+    out = mod._format_error(resp)
+    assert out == "Error 502"

@@ -125,6 +125,36 @@ def _log_ip() -> str:
     return _safe_ip(_client_ip_var.get()) or "unknown"
 
 
+def _format_error(response: httpx.Response) -> str:
+    """Extract useful error fields from API JSON body; fall back to status code.
+
+    Preserves detail so the AI agent sees *why* the call failed (rate-limit tier,
+    validation field, upgrade CTA) instead of a bare `Error 429`.
+    """
+    status = response.status_code
+    try:
+        body = response.json()
+    except (ValueError, json.JSONDecodeError):
+        return f"Error {status}"
+    if not isinstance(body, dict):
+        return f"Error {status}"
+
+    parts = [f"Error {status}"]
+    msg = body.get("error") or body.get("detail") or body.get("message")
+    if isinstance(msg, str) and msg:
+        parts.append(f": {msg[:500]}")
+    reason = body.get("reason")
+    if isinstance(reason, str) and reason:
+        parts.append(f" ({reason[:200]})")
+    field = body.get("field")
+    if isinstance(field, str) and field:
+        parts.append(f" [field: {field}]")
+    hint = body.get("hint") or body.get("suggestion") or body.get("upgrade")
+    if isinstance(hint, str) and hint:
+        parts.append(f" — {hint[:200]}")
+    return "".join(parts)
+
+
 async def _get(path: str, params: dict | None = None) -> dict | str:
     client_ip = _log_ip()
     try:
@@ -134,7 +164,7 @@ async def _get(path: str, params: dict | None = None) -> dict | str:
         return resp.json()
     except httpx.HTTPStatusError as e:
         logger.info("mcp_tool GET %s %d %s", _safe_path(path), e.response.status_code, client_ip)
-        return f"Error {e.response.status_code}"
+        return _format_error(e.response)
     except httpx.HTTPError:
         logger.info("mcp_tool GET %s err %s", _safe_path(path), client_ip)
         return "Request failed"
@@ -149,7 +179,7 @@ async def _post(path: str, json_body: dict) -> dict | str:
         return resp.json()
     except httpx.HTTPStatusError as e:
         logger.info("mcp_tool POST %s %d %s", _safe_path(path), e.response.status_code, client_ip)
-        return f"Error {e.response.status_code}"
+        return _format_error(e.response)
     except httpx.HTTPError:
         logger.info("mcp_tool POST %s err %s", _safe_path(path), client_ip)
         return "Request failed"
