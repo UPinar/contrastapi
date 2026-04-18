@@ -774,13 +774,17 @@ class TestDkimParallelDetection:
 
     @patch("domain.recon.dns.resolver.Resolver")
     def test_dkim_date_selector_found(self, mock_cls):
+        from datetime import datetime, timedelta
+
+        target_selector = (datetime.now() - timedelta(days=1)).strftime("%Y%m%d")
+
         mock_resolver = MagicMock()
         mock_cls.return_value = mock_resolver
 
         def resolve_side_effect(name, rtype):
             if "_dmarc." in name:
                 return self._mock_dmarc()
-            if "20260319._domainkey." in name:
+            if f"{target_selector}._domainkey." in name:
                 return MagicMock()
             if "_domainkey." in name:
                 raise dns.exception.DNSException("NXDOMAIN")
@@ -791,7 +795,7 @@ class TestDkimParallelDetection:
         from domain.recon import email_security
 
         result = email_security("example.com", txt_records=[self._SPF_TXT])
-        assert "20260319" in result["dkim_selectors"]
+        assert target_selector in result["dkim_selectors"]
         assert result["grade"] == "A"
 
     @patch("domain.recon.dns.resolver.Resolver")
