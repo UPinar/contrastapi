@@ -41,7 +41,7 @@ class HeadersInput(BaseModel):
 
 class PackageItem(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
-    version: str | None = None
+    version: str | None = Field(default=None, max_length=100)
 
 
 class DependenciesInput(BaseModel):

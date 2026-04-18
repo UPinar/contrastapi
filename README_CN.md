@@ -1,4 +1,4 @@
-# ContrastAPI — 为 AI 智能体打造的 29 个安全工具
+# ContrastAPI — 为 AI 智能体打造的 31 个安全工具
 
 <p align="center">
   <img src="app/static/banner.png" alt="ContrastAPI Banner" width="100%">
@@ -7,12 +7,12 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Python 3.12](https://img.shields.io/badge/Python-3.12-blue.svg)](https://python.org)
 [![Tests](https://img.shields.io/badge/Tests-893_passing-brightgreen.svg)](https://github.com/UPinar/contrastapi/actions)
-[![MCP](https://img.shields.io/badge/MCP-29_tools-purple.svg)](https://modelcontextprotocol.io)
+[![MCP](https://img.shields.io/badge/MCP-31_tools-purple.svg)](https://modelcontextprotocol.io)
 [![Smithery](https://img.shields.io/badge/Smithery-96%2F100-orange.svg)](https://smithery.ai/servers/contrastcyber/contrastapi)
 [![npm](https://img.shields.io/npm/v/contrastapi.svg)](https://www.npmjs.com/package/contrastapi)
 [![VS Code](https://img.shields.io/badge/VS_Code-Marketplace-007ACC.svg)](https://marketplace.visualstudio.com/items?itemName=ContrastAPI.contrastapi)
 
-**安全情报 API 和 AI 智能体 MCP 服务器。** 域名审计、CVE 查询（含 EPSS+KEV）、IP 威胁报告、IOC 增强、技术栈识别，以及其他 23 个工具。**免费使用，无需 API 密钥，每小时 100 信用额度。**
+**安全情报 API 和 AI 智能体 MCP 服务器。** 域名审计、CVE 查询（含 EPSS+KEV）、IP 威胁报告、IOC 增强、技术栈识别，以及其他 25 个工具。**免费使用，无需 API 密钥，每小时 100 信用额度。**
 
 [English](README.md) | **中文** · **在线服务：** [api.contrastcyber.com](https://api.contrastcyber.com)
 
@@ -68,7 +68,7 @@ curl https://api.contrastcyber.com/v1/threat-report/8.8.8.8
 
 ### 方式 4：VS Code 扩展
 
-从 Marketplace 安装 **[ContrastAPI — Security Intelligence](https://marketplace.visualstudio.com/items?itemName=ContrastAPI.contrastapi)**。29 个命令、侧边栏树状菜单、右键上下文菜单。无需 API 密钥。
+从 Marketplace 安装 **[ContrastAPI — Security Intelligence](https://marketplace.visualstudio.com/items?itemName=ContrastAPI.contrastapi)**。31 个命令、侧边栏树状菜单、右键上下文菜单。无需 API 密钥。
 
 ---
 
@@ -86,7 +86,7 @@ curl https://api.contrastcyber.com/v1/threat-report/8.8.8.8
 
 ## 功能一览
 
-- **30 个 MCP 工具**，覆盖 6 个类别 — 完整列表：**[docs/ENDPOINTS.md](docs/ENDPOINTS.md)**
+- **31 个 MCP 工具**，覆盖 6 个类别 — 完整列表：**[docs/ENDPOINTS.md](docs/ENDPOINTS.md)**
 - **34 万+ CVE** 来自 NVD + MITRE cvelistV5 + GitHub Security Advisories，每 2 小时同步，整合 EPSS 漏洞利用概率 + CISA KEV 状态。`cve_lookup` 返回 `sources`、`first_seen_source`、`first_seen_at` — 智能体可检测 NVD 发布前已收录的 CVE。`cve_search` 支持 `kev`、`epss_min`、`sort` 和 `offset` 分页 — 智能体可筛选活跃利用漏洞、按利用概率排序并翻页浏览大型结果集。
 - **加权信用额度** — 简单调用 1 个信用，重度编排调用（audit、threat_report）4 个,批量调用 N 个
 - **LLM 优化摘要** — 每个响应都包含 `summary` 字段，智能体无需解析嵌套 JSON 即可推理

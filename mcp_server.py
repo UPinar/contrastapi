@@ -662,6 +662,40 @@ Returns: total (count), by_severity (CRITICAL/HIGH/MEDIUM/LOW), findings array. 
 
 
 @mcp.tool(annotations=_RO)
+async def check_dependencies(
+    packages: Annotated[
+        list[dict],
+        Field(
+            description="List of dependency packages to audit. Each item is an object with 'name' (required, max 200 chars, e.g. 'lodash', 'django', 'log4j-core') and optional 'version' (max 100 chars, e.g. '4.17.0', '2.14.1'). Only 'name' and 'version' fields are used; extra fields are ignored. Example: [{\"name\": \"lodash\", \"version\": \"4.17.0\"}, {\"name\": \"django\"}]. Maximum 10 per request for free tier, 50 for Pro."
+        ),
+    ],
+) -> str:
+    """Audit a list of project dependencies (npm/PyPI/Maven/RubyGems/etc.) against the CVE database for known vulnerabilities.
+
+Use this to scan a requirements.txt, package.json, pom.xml, or Gemfile.lock when you want to check many packages at once. For a single vulnerability by ID, use cve_lookup. For searching CVEs by product without version, use cve_search.
+
+Returns JSON with fields: findings (array — each with package name, version, cve_id, severity, cvss_score, description), total (count of vulnerable packages), by_severity (CRITICAL/HIGH/MEDIUM/LOW counts), summary (human-readable one-line digest). An empty findings array means no known CVEs match the provided packages+versions. Read-only lookup, no authentication required."""
+    if not isinstance(packages, list) or not packages:
+        return "packages must be a non-empty list"
+    if len(packages) > 50:
+        return "Too many packages. Maximum 50 per request (Pro tier) or 10 (free tier)."
+    for pkg in packages:
+        if not isinstance(pkg, dict):
+            return f"Each package must be an object like {{\"name\": \"lodash\", \"version\": \"4.17.0\"}}, got: {type(pkg).__name__}"
+        name = pkg.get("name")
+        if not isinstance(name, str) or not name.strip():
+            return "Each package must have a non-empty 'name' string field"
+        if len(name) > 200:
+            return "'name' must be at most 200 characters"
+        version = pkg.get("version")
+        if version is not None and not isinstance(version, str):
+            return f"'version' must be a string or null, got: {type(version).__name__}"
+        if isinstance(version, str) and len(version) > 100:
+            return "'version' must be at most 100 characters"
+    return _fmt(await _post("/v1/check/dependencies", {"packages": packages}))
+
+
+@mcp.tool(annotations=_RO)
 async def username_lookup(
     username: Annotated[
         str,

@@ -1103,14 +1103,14 @@ def api_capabilities():
                         ],
                     },
                     {
-                        "name": None,
+                        "name": "check_dependencies",
                         "method": "POST",
                         "path": "/v1/check/dependencies",
                         "credit_cost": 1,
                         "credit_cost_note": "1 credit per package in request",
                         "blast_radius": "zero",
                         "description": "Check packages against CVE database",
-                        "body": {"packages": "list[{name: str, version: str}]"},
+                        "body": {"packages": "list[{name: str, version: str}] (max 10 free, 50 pro)"},
                         "response_keys": ["findings", "total", "by_severity", "summary"],
                     },
                 ],
@@ -1243,7 +1243,7 @@ MCP tools: domain_report, audit_domain, dns_lookup, whois_lookup, ssl_check, sub
 tech_fingerprint, threat_intel, scan_headers, email_mx, email_disposable,
 phone_lookup, username_lookup, wayback_lookup, ip_lookup, asn_lookup, threat_report,
 cve_lookup, cve_search, cve_leading, exploit_lookup, bulk_cve_lookup, ioc_lookup, hash_lookup,
-password_check, phishing_check, bulk_ioc_lookup, check_secrets, check_injection, check_headers.
+password_check, phishing_check, bulk_ioc_lookup, check_secrets, check_injection, check_dependencies, check_headers.
 
 ### HTTP Transport (remote)
 POST https://api.contrastcyber.com/mcp/
