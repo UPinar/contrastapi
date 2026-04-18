@@ -71,13 +71,16 @@
     var bulkItems;
     if (id === 'cve_search') {
       var searchParams = {
-        days: document.getElementById('input-cve_search-days').value.trim() || '30',
         limit: document.getElementById('input-cve_search-limit').value.trim() || '5'
       };
       var productVal = document.getElementById('input-cve_search-product').value.trim();
       if (productVal) searchParams.product = productVal;
       var severityVal = document.getElementById('input-cve_search-severity').value;
       if (severityVal) searchParams.severity = severityVal;
+      var afterVal = document.getElementById('input-cve_search-published_after').value.trim();
+      if (afterVal) searchParams.published_after = afterVal;
+      var beforeVal = document.getElementById('input-cve_search-published_before').value.trim();
+      if (beforeVal) searchParams.published_before = beforeVal;
       var kevVal = document.getElementById('input-cve_search-kev').value;
       if (kevVal) searchParams.kev = kevVal;
       var epssVal = document.getElementById('input-cve_search-epss_min').value.trim();
