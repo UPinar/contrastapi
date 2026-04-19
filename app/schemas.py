@@ -382,6 +382,7 @@ class AsnResponse(BaseModel):
     ipv4_count: int = 0
     ipv6_count: int = 0
     summary: str = ""
+    warnings: list[str] = Field(default_factory=list)
 
 
 # === WHOIS ===

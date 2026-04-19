@@ -8,6 +8,14 @@ import time as _time
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeoutError
 
+
+class AsnUpstreamError(Exception):
+    def __init__(self, upstream: str, reason: str):
+        self.upstream = upstream
+        self.reason = reason
+        super().__init__(f"{upstream}: {reason}")
+
+
 from fastapi import APIRouter, HTTPException, Request
 
 _reputation_pool = ThreadPoolExecutor(max_workers=3)
@@ -911,9 +919,8 @@ def asn_lookup(target: str, request: Request):
             r.raise_for_status()
             asn_name_val = r.json().get("data", {}).get("holder", "")
             return asn_name_val
-        except Exception as e:
-            logger.warning("RIPE as-overview failed: %s", type(e).__name__)
-            return ""
+        except (_httpx.HTTPError, _httpx.TimeoutException, ValueError, KeyError, TypeError) as e:
+            raise AsnUpstreamError("as-overview", type(e).__name__) from e
 
     def _fetch_prefixes():
         try:
@@ -939,14 +946,35 @@ def asn_lookup(target: str, request: Request):
                 except ValueError:
                     continue
             return v4, v6
-        except Exception as e:
-            logger.warning("RIPE announced-prefixes failed: %s", type(e).__name__)
-            return [], []
+        except (_httpx.HTTPError, _httpx.TimeoutException, ValueError, KeyError, TypeError) as e:
+            raise AsnUpstreamError("announced-prefixes", type(e).__name__) from e
 
     f_overview = _reputation_pool.submit(_fetch_overview)
     f_prefixes = _reputation_pool.submit(_fetch_prefixes)
-    asn_name = f_overview.result(timeout=7)
-    ipv4_prefixes, ipv6_prefixes = f_prefixes.result(timeout=7)
+
+    warnings: list[str] = []
+
+    try:
+        asn_name = f_overview.result(timeout=7)
+    except AsnUpstreamError as e:
+        asn_name = ""
+        warnings.append(f"{e.upstream}: {e.reason}")
+        logger.warning("ASN upstream failure: %s %s", e.upstream, e.reason)
+    except FuturesTimeoutError:
+        asn_name = ""
+        warnings.append("as-overview: timeout")
+        logger.warning("ASN upstream failure: as-overview FuturesTimeoutError")
+
+    try:
+        ipv4_prefixes, ipv6_prefixes = f_prefixes.result(timeout=7)
+    except AsnUpstreamError as e:
+        ipv4_prefixes, ipv6_prefixes = [], []
+        warnings.append(f"{e.upstream}: {e.reason}")
+        logger.warning("ASN upstream failure: %s %s", e.upstream, e.reason)
+    except FuturesTimeoutError:
+        ipv4_prefixes, ipv6_prefixes = [], []
+        warnings.append("announced-prefixes: timeout")
+        logger.warning("ASN upstream failure: announced-prefixes FuturesTimeoutError")
 
     parts = [f"AS{asn}"]
     if asn_name:
@@ -954,6 +982,10 @@ def asn_lookup(target: str, request: Request):
     parts.append(f"{len(ipv4_prefixes)} IPv4 and {len(ipv6_prefixes)} IPv6 prefixes")
     if resolved_ip:
         parts.append(f"resolved from {target}")
+
+    summary = ". ".join(parts)
+    if warnings:
+        summary += " (partial: metadata unavailable)"
 
     result = {
         "target": target,
@@ -963,7 +995,8 @@ def asn_lookup(target: str, request: Request):
         "ipv6_prefixes": ipv6_prefixes,
         "ipv4_count": len(ipv4_prefixes),
         "ipv6_count": len(ipv6_prefixes),
-        "summary": ". ".join(parts),
+        "summary": summary,
+        "warnings": warnings,
     }
     if resolved_ip:
         result["resolved_ip"] = resolved_ip

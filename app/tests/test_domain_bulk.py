@@ -2,6 +2,7 @@
 
 from unittest.mock import MagicMock, patch
 
+import httpx
 from fastapi.testclient import TestClient
 from main import app
 
@@ -501,6 +502,95 @@ class TestAsnRoute:
             assert data["resolved_ip"] == "1.1.1.1"
             assert data["asn"] == 13335
 
+    @patch("domain.routes.save_cached_domain")
+    @patch("domain.routes.get_cached_domain", return_value=None)
+    @patch("domain.routes.authenticate", return_value={"tier": "free"})
+    def test_asn_lookup_overview_upstream_timeout(self, mock_auth, mock_cache_get, mock_cache_save):
+        """as-overview timeout degrades gracefully: asn_name empty, prefixes populated, warnings signal failure."""
+
+        def mock_get(url, **kwargs):
+            if "as-overview" in url:
+                raise httpx.TimeoutException("timeout")
+            resp = MagicMock()
+            resp.status_code = 200
+            resp.raise_for_status = MagicMock()
+            if "network-info" in url:
+                resp.json.return_value = MOCK_RIPE_NETWORK_INFO
+            elif "announced-prefixes" in url:
+                resp.json.return_value = MOCK_RIPE_PREFIXES
+            return resp
+
+        with patch("domain.routes._ripe_client.get", side_effect=mock_get):
+            r = client.get("/v1/asn/1.1.1.1")
+            assert r.status_code == 200
+            data = r.json()
+            assert data["asn"] == 13335
+            assert data["asn_name"] == ""
+            assert len(data["ipv4_prefixes"]) == 2
+            assert any("as-overview" in w.lower() and "timeout" in w.lower() for w in data["warnings"])
+            assert "partial" in data["summary"].lower()
+
+    @patch("domain.routes.save_cached_domain")
+    @patch("domain.routes.get_cached_domain", return_value=None)
+    @patch("domain.routes.authenticate", return_value={"tier": "free"})
+    def test_asn_lookup_prefixes_upstream_5xx(self, mock_auth, mock_cache_get, mock_cache_save):
+        """announced-prefixes HTTP 503 degrades gracefully: asn_name populated, prefixes empty, warnings signal failure."""
+
+        def mock_get(url, **kwargs):
+            resp = MagicMock()
+            resp.status_code = 200
+            resp.raise_for_status = MagicMock()
+            if "network-info" in url:
+                resp.json.return_value = MOCK_RIPE_NETWORK_INFO
+            elif "as-overview" in url:
+                resp.json.return_value = MOCK_RIPE_OVERVIEW
+            elif "announced-prefixes" in url:
+                resp.status_code = 503
+                resp.raise_for_status.side_effect = httpx.HTTPStatusError(
+                    "503 Service Unavailable",
+                    request=MagicMock(),
+                    response=MagicMock(),
+                )
+            return resp
+
+        with patch("domain.routes._ripe_client.get", side_effect=mock_get):
+            r = client.get("/v1/asn/1.1.1.1")
+            assert r.status_code == 200
+            data = r.json()
+            assert data["asn_name"] == "CLOUDFLARENET"
+            assert data["ipv4_prefixes"] == []
+            assert data["ipv6_prefixes"] == []
+            assert any("announced-prefixes" in w.lower() for w in data["warnings"])
+
+    @patch("domain.routes.save_cached_domain")
+    @patch("domain.routes.get_cached_domain", return_value=None)
+    @patch("domain.routes.authenticate", return_value={"tier": "free"})
+    def test_asn_lookup_clean_success_no_warnings(self, mock_auth, mock_cache_get, mock_cache_save):
+        """All upstreams succeed — warnings is empty, response shape unchanged."""
+
+        def mock_get(url, **kwargs):
+            resp = MagicMock()
+            resp.status_code = 200
+            resp.raise_for_status = MagicMock()
+            if "network-info" in url:
+                resp.json.return_value = MOCK_RIPE_NETWORK_INFO
+            elif "as-overview" in url:
+                resp.json.return_value = MOCK_RIPE_OVERVIEW
+            elif "announced-prefixes" in url:
+                resp.json.return_value = MOCK_RIPE_PREFIXES
+            return resp
+
+        with patch("domain.routes._ripe_client.get", side_effect=mock_get):
+            r = client.get("/v1/asn/1.1.1.1")
+            assert r.status_code == 200
+            data = r.json()
+            assert data["asn"] == 13335
+            assert data["asn_name"] == "CLOUDFLARENET"
+            assert data["ipv4_count"] == 2
+            assert data["ipv6_count"] == 1
+            assert data["warnings"] == []
+            assert "partial" not in data["summary"].lower()
+
     def test_asn_private_ip_rejected(self):
         """Private IP should be rejected with 400."""
         r = client.get("/v1/asn/192.168.1.1")
@@ -519,12 +609,14 @@ class TestAsnRoute:
             "ipv4_count": 1,
             "ipv6_count": 0,
             "summary": "AS13335 (CLOUDFLARENET). 1 IPv4 and 0 IPv6 prefixes",
+            "warnings": [],
         }
         with patch("domain.routes.get_cached_domain", return_value=cached_data):
             r = client.get("/v1/asn/1.1.1.1")
             assert r.status_code == 200
             data = r.json()
             assert data["asn"] == 13335
+            assert data.get("warnings") == []
 
 
 # =========== response_model filtering tests ===========
