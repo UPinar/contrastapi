@@ -497,13 +497,9 @@ def subdomains(domain: str, request: Request):
     domain, resolved_ip, auth_ctx = _validate_and_auth(request, domain)
     cached = _from_cache(domain, "subdomains")
     if cached:
-        count = cached.get("count", len(cached.get("subdomains", [])))
-        summary = f"{count} subdomain{'s' if count != 1 else ''} found for {domain}"
-        return {"domain": domain, **cached, "summary": summary}
+        return {"domain": domain, **cached}
     result = enumerate_subdomains(domain)
-    count = result.get("count", len(result.get("subdomains", [])))
-    summary = f"{count} subdomain{'s' if count != 1 else ''} found for {domain}"
-    return {"domain": domain, **result, "summary": summary}
+    return {"domain": domain, **result}
 
 
 @router.get("/certs/{domain}", operation_id="ct_logs", response_model=CertsResponse, response_model_exclude_none=True)

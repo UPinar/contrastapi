@@ -107,6 +107,8 @@ CACHE_MAX_BYTES = 1 * 1024 * 1024  # 1 MB per cached result
 RECON_TIMEOUT = 5
 USERNAME_LOOKUP_TIMEOUT = 5  # per-platform HTTP timeout for username checks
 CRTSH_TIMEOUT = 10
+CRTSH_MAX_RESULTS = 1000
+CRTSH_MAX_BYTES = 10 * 1024 * 1024  # 10 MB hard cap on crt.sh response body before JSON parse
 BULK_PER_DOMAIN_TIMEOUT = 25  # must exceed CRTSH_TIMEOUT + RECON_TIMEOUT + buffer (19s worst case)
 BULK_OVERALL_TIMEOUT = 120  # hard cap for entire bulk request; partial results returned on expiry
 

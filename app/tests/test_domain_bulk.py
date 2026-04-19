@@ -875,7 +875,16 @@ class TestResponseModelFiltering:
     def test_subdomains_response_shape(self, mock_validate, mock_subs, mock_cache):
         r = client.get("/v1/subdomains/example.com")
         assert r.status_code == 200
-        assert set(r.json().keys()) == {"domain", "subdomains", "count", "summary"}
+        assert set(r.json().keys()) == {
+            "domain",
+            "subdomains",
+            "count",
+            "summary",
+            "sources",
+            "warnings",
+            "found_via_wordlist",
+            "found_via_crtsh",
+        }
 
     @patch("domain.routes._from_cache", return_value=None)
     @patch("domain.routes.check_ct_logs", return_value=MOCK_CT_RESULT)

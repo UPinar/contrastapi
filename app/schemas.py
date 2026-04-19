@@ -404,6 +404,10 @@ class SubdomainsResponse(BaseModel):
     count: int = 0
     subdomains: list[str] = Field(default_factory=list)
     summary: str = ""
+    sources: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    found_via_wordlist: int = 0
+    found_via_crtsh: int = 0
 
     model_config = {"extra": "ignore"}
 

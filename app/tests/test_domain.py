@@ -100,35 +100,111 @@ class TestCrtshSubdomains:
             {"name_value": "www.example.com"},
             {"name_value": "mail.example.com\napi.example.com"},
         ]
-        result = _crtsh_subdomains("example.com", data)
-        assert "www.example.com" in result
-        assert "api.example.com" in result
+        subs, warnings = _crtsh_subdomains("example.com", data)
+        assert "www.example.com" in subs
+        assert "api.example.com" in subs
 
     def test_filters_wildcards(self):
         from domain.recon import _crtsh_subdomains
 
         data = [{"name_value": "*.example.com"}]
-        result = _crtsh_subdomains("example.com", data)
-        assert len(result) == 0
+        subs, warnings = _crtsh_subdomains("example.com", data)
+        assert len(subs) == 0
 
     def test_filters_other_domains(self):
         from domain.recon import _crtsh_subdomains
 
         data = [{"name_value": "sub.other.com"}]
-        result = _crtsh_subdomains("example.com", data)
-        assert len(result) == 0
+        subs, warnings = _crtsh_subdomains("example.com", data)
+        assert len(subs) == 0
 
     def test_limits_to_50(self):
         from domain.recon import _crtsh_subdomains
 
         data = [{"name_value": f"sub{i}.example.com"} for i in range(100)]
-        result = _crtsh_subdomains("example.com", data)
-        assert len(result) <= 50
+        subs, warnings = _crtsh_subdomains("example.com", data)
+        assert len(subs) <= 50
 
     def test_empty_data(self):
         from domain.recon import _crtsh_subdomains
 
-        assert _crtsh_subdomains("example.com", []) == []
+        subs, warnings = _crtsh_subdomains("example.com", [])
+        assert subs == []
+
+
+# --- _fetch_crtsh error handling ---
+
+
+class TestFetchCrtsh:
+    def test_fetch_crtsh_timeout(self):
+        from domain.recon import _fetch_crtsh
+
+        with patch("domain.recon._http") as mock_http:
+            mock_http.get.side_effect = httpx.TimeoutException("timed out")
+            data, err = _fetch_crtsh("%.example.com")
+            assert data == []
+            assert err == "crt_sh_timeout"
+
+    def test_fetch_crtsh_429(self):
+        from domain.recon import _fetch_crtsh
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 429
+        with patch("domain.recon._http") as mock_http:
+            mock_http.get.return_value = mock_resp
+            data, err = _fetch_crtsh("%.example.com")
+            assert data == []
+            assert err == "crt_sh_rate_limited"
+
+    def test_fetch_crtsh_malformed_json(self):
+        from domain.recon import _fetch_crtsh
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.raise_for_status.return_value = None
+        mock_resp.json.side_effect = json.JSONDecodeError("bad json", "", 0)
+        with patch("domain.recon._http") as mock_http:
+            mock_http.get.return_value = mock_resp
+            data, err = _fetch_crtsh("%.example.com")
+            assert data == []
+            assert err == "parse_error"
+
+    def test_enumerate_subdomains_crtsh_down(self):
+        from domain.recon import enumerate_subdomains
+
+        with patch("domain.recon._fetch_crtsh", return_value=([], "crt_sh_timeout")):
+            with patch("domain.recon.socket.gethostbyname", side_effect=socket.gaierror):
+                result = enumerate_subdomains("example.com")
+        assert result["warnings"] == ["crt_sh_timeout"]
+        assert result["sources"] == []
+        assert result["subdomains"] == []
+
+    def test_enumerate_subdomains_no_crtsh_results(self):
+        from domain.recon import enumerate_subdomains
+
+        with patch("domain.recon._fetch_crtsh", return_value=([], None)):
+            with patch("domain.recon.socket.gethostbyname", side_effect=socket.gaierror):
+                result = enumerate_subdomains("example.com")
+        assert result["warnings"] == []
+
+    def test_crtsh_wildcard_dedup(self):
+        from domain.recon import _crtsh_subdomains
+
+        data = [{"name_value": "*.api.example.com\napi.example.com"}]
+        subs, warnings = _crtsh_subdomains("example.com", data)
+        assert subs.count("api.example.com") == 1
+        assert warnings == []
+
+    def test_enumerate_subdomains_cap_large_result(self):
+        from domain.recon import CRTSH_MAX_RESULTS, enumerate_subdomains
+
+        large_data = [{"name_value": f"sub{i}.example.com"} for i in range(2000)]
+        assert len(large_data) > CRTSH_MAX_RESULTS
+
+        with patch("domain.recon._fetch_crtsh", return_value=(large_data[:CRTSH_MAX_RESULTS], None)):
+            with patch("domain.recon.socket.gethostbyname", side_effect=socket.gaierror):
+                result = enumerate_subdomains("example.com")
+        assert len(result["subdomains"]) <= 50
 
 
 # --- detect_waf ---
@@ -1286,7 +1362,7 @@ class TestFullDomainReport:
     @patch("domain.threat.check_urlhaus")
     @patch("domain.recon.check_ct_logs")
     @patch("domain.recon.enumerate_subdomains")
-    @patch("domain.recon._fetch_crtsh", return_value=[])
+    @patch("domain.recon._fetch_crtsh", return_value=([], None))
     @patch("domain.recon.ssl_info")
     @patch("domain.recon.whois_lookup")
     @patch("domain.recon.reverse_dns")
@@ -1321,7 +1397,7 @@ class TestFullDomainReport:
     @patch("domain.threat.check_urlhaus", return_value={"url_count": 0, "urls_online": 0})
     @patch("domain.recon.check_ct_logs", return_value={"total_certificates": 0, "certificates": []})
     @patch("domain.recon.enumerate_subdomains", return_value={"subdomains": [], "count": 0})
-    @patch("domain.recon._fetch_crtsh", return_value=[])
+    @patch("domain.recon._fetch_crtsh", return_value=([], None))
     @patch("domain.recon.ssl_info", return_value={"issuer": "LE", "grade": "B"})
     @patch("domain.recon.whois_lookup", return_value={})
     @patch("domain.recon.reverse_dns", return_value={"ip": "1.2.3.4", "ptr": None})
@@ -1357,7 +1433,7 @@ class TestFullDomainReport:
     @patch("domain.threat.check_urlhaus", return_value={"url_count": 0, "urls_online": 0})
     @patch("domain.recon.check_ct_logs", return_value={"total_certificates": 0, "certificates": []})
     @patch("domain.recon.enumerate_subdomains", return_value={"subdomains": [], "count": 0})
-    @patch("domain.recon._fetch_crtsh", return_value=[])
+    @patch("domain.recon._fetch_crtsh", return_value=([], None))
     @patch("domain.recon.ssl_info", return_value={"issuer": "LE", "grade": "A"})
     @patch("domain.recon.whois_lookup", return_value={})
     @patch("domain.recon.reverse_dns", return_value={"ip": "1.2.3.4", "ptr": None})
@@ -1402,7 +1478,7 @@ class TestFullDomainReport:
     @patch(
         "domain.recon.enumerate_subdomains", return_value={"subdomains": ["a.example.com", "b.example.com"], "count": 2}
     )
-    @patch("domain.recon._fetch_crtsh", return_value=[])
+    @patch("domain.recon._fetch_crtsh", return_value=([], None))
     @patch("domain.recon.ssl_info", return_value={"issuer": "DigiCert", "grade": "B"})
     @patch("domain.recon.whois_lookup", return_value={})
     @patch("domain.recon.reverse_dns", return_value={"ip": "5.5.5.5", "ptr": None})
@@ -1540,7 +1616,7 @@ class TestScanHeadersRoute:
 
 
 class TestEnumerateSubdomains:
-    @patch("domain.recon._fetch_crtsh", return_value=[{"name_value": "ct.example.com"}])
+    @patch("domain.recon._fetch_crtsh", return_value=([{"name_value": "ct.example.com"}], None))
     @patch("domain.recon.socket.gethostbyname")
     def test_dns_brute_and_crtsh_merge(self, mock_resolve, mock_crtsh):
         from domain.recon import enumerate_subdomains
@@ -1560,7 +1636,7 @@ class TestEnumerateSubdomains:
         assert "ct.example.com" in subs
         assert result["count"] == 3
 
-    @patch("domain.recon._fetch_crtsh", return_value=[])
+    @patch("domain.recon._fetch_crtsh", return_value=([], None))
     @patch("domain.recon.socket.gethostbyname")
     def test_private_ip_filtered(self, mock_resolve, mock_crtsh):
         from domain.recon import enumerate_subdomains
@@ -1579,10 +1655,13 @@ class TestEnumerateSubdomains:
 
     @patch(
         "domain.recon._fetch_crtsh",
-        return_value=[
-            {"name_value": "www.example.com"},
-            {"name_value": "www.example.com"},
-        ],
+        return_value=(
+            [
+                {"name_value": "www.example.com"},
+                {"name_value": "www.example.com"},
+            ],
+            None,
+        ),
     )
     @patch("domain.recon.socket.gethostbyname")
     def test_set_deduplication(self, mock_resolve, mock_crtsh):

@@ -4,6 +4,7 @@ Extracted from contrastcyber recon.py, adapted for API responses.
 All functions return structured dicts with summary fields.
 """
 
+import json
 import logging
 import re
 import socket
@@ -18,7 +19,7 @@ import dns.resolver
 import httpcore
 import httpx
 import ratelimit
-from config import CRTSH_TIMEOUT, ENRICHMENT_DAILY_LIMIT, RECON_TIMEOUT
+from config import CRTSH_MAX_BYTES, CRTSH_MAX_RESULTS, CRTSH_TIMEOUT, ENRICHMENT_DAILY_LIMIT, RECON_TIMEOUT
 from validation import is_private_ip
 
 logger = logging.getLogger("contrastapi")
@@ -260,7 +261,8 @@ def _parse_whois(text: str) -> dict:
 
 def enumerate_subdomains(domain: str, crtsh_data: list | None = None) -> dict:
     """Enumerate subdomains via DNS brute force + crt.sh CT logs."""
-    found = set()
+    found_wordlist: set[str] = set()
+    warnings: list[str] = []
 
     def _resolve_sub(sub):
         fqdn = f"{sub}.{domain}"
@@ -274,56 +276,117 @@ def enumerate_subdomains(domain: str, crtsh_data: list | None = None) -> dict:
         for fut in futures:
             result = fut.result()
             if result:
-                found.add(result)
+                found_wordlist.add(result)
 
-    ct_subs = _crtsh_subdomains(domain, crtsh_data)
-    found.update(ct_subs)
+    found_crtsh, crtsh_warnings = _crtsh_subdomains(domain, crtsh_data)
+    warnings.extend(crtsh_warnings)
 
-    unique = sorted(found)
-    return {"subdomains": unique, "count": len(unique)}
+    all_found = sorted(found_wordlist | set(found_crtsh))
+
+    sources = []
+    if found_wordlist:
+        sources.append("wordlist")
+    if found_crtsh:
+        sources.append("crt_sh")
+
+    summary = f"{len(all_found)} subdomain(s) found for {domain}"
+    if found_wordlist and found_crtsh:
+        summary += f" ({len(found_wordlist)} via wordlist, {len(found_crtsh)} via CT logs)"
+    elif found_crtsh:
+        summary += " (all via CT logs)"
+    if warnings:
+        summary += f" [{'; '.join(warnings)}]"
+
+    return {
+        "subdomains": all_found,
+        "count": len(all_found),
+        "sources": sources,
+        "found_via_wordlist": len(found_wordlist),
+        "found_via_crtsh": len(found_crtsh),
+        "warnings": warnings,
+        "summary": summary,
+    }
 
 
-def _fetch_crtsh(query: str) -> list:
-    """Fetch certificate data from crt.sh (with 1h in-memory TTL cache)."""
+def _fetch_crtsh(query: str) -> tuple[list, str | None]:
+    """Fetch certificate data from crt.sh (with 1h in-memory TTL cache).
+
+    Returns:
+        (data, error_msg) where error_msg is None on success or one of:
+        "crt_sh_timeout" | "crt_sh_rate_limited" | "crt_sh_unavailable" |
+        "parse_error" | "crt_sh_error"
+    """
     now = time.time()
     with _crtsh_cache_lock:
         if query in _crtsh_cache:
             result, ts = _crtsh_cache[query]
             if now - ts < _CRTSH_CACHE_TTL:
-                return list(result)
+                return (list(result), None)
     try:
         resp = _http.get(
             "https://crt.sh/",
             params={"q": query, "output": "json"},
             timeout=CRTSH_TIMEOUT,
         )
+        if resp.status_code == 429:
+            return ([], "crt_sh_rate_limited")
         resp.raise_for_status()
-        data = resp.json()[:CT_MAX_ENTRIES]
+        if len(resp.content) > CRTSH_MAX_BYTES:
+            return ([], "crt_sh_unavailable")
+        data = resp.json()[:CRTSH_MAX_RESULTS]
+    except httpx.TimeoutException:
+        return ([], "crt_sh_timeout")
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code >= 500:
+            return ([], "crt_sh_unavailable")
+        return ([], "crt_sh_error")
+    except (ValueError, json.JSONDecodeError):
+        return ([], "parse_error")
     except Exception as e:
         logger.debug("crt.sh fetch failed: %s", type(e).__name__)
-        return []
+        return ([], "crt_sh_error")
     if not data:
-        return []
+        return ([], None)
     with _crtsh_cache_lock:
         _crtsh_cache[query] = (data, now)
         if len(_crtsh_cache) > _CRTSH_CACHE_MAX:
             oldest_key = min(_crtsh_cache, key=lambda k: _crtsh_cache[k][1])
             del _crtsh_cache[oldest_key]
-    return data
+    return (data, None)
 
 
-def _crtsh_subdomains(domain: str, data: list | None = None) -> list:
-    """Extract subdomain names from crt.sh data."""
+def _crtsh_subdomains(domain: str, data: list | None = None) -> tuple[list, list]:
+    """Extract subdomain names from crt.sh data.
+
+    Returns:
+        (subdomains, warnings) tuple
+    """
+    warnings: list[str] = []
     if data is None:
-        data = _fetch_crtsh(f"%.{domain}")
-    subs = set()
+        data, fetch_error = _fetch_crtsh(f"%.{domain}")
+        if fetch_error:
+            warnings.append(fetch_error)
+        if not data:
+            return ([], warnings)
+
+    subs: set[str] = set()
+    parse_errors = 0
     for entry in data:
-        name = entry.get("name_value", "")
-        for n in name.split("\n"):
-            n = n.strip().lower()
-            if n.endswith(f".{domain}") and "*" not in n:
-                subs.add(n)
-    return list(subs)[:50]
+        try:
+            name = entry.get("name_value", "")
+            for n in name.split("\n"):
+                n = n.strip().lower()
+                if "*" in n:
+                    n = n.replace("*.", "")
+                if n.endswith(f".{domain}") and n != domain:
+                    subs.add(n)
+        except Exception:
+            parse_errors += 1
+
+    if parse_errors > 0:
+        warnings.append(f"parse_error: {parse_errors} entries")
+
+    return (sorted(subs)[:50], warnings)
 
 
 # === CT Logs ===
@@ -332,7 +395,7 @@ def _crtsh_subdomains(domain: str, data: list | None = None) -> list:
 def check_ct_logs(domain: str, crtsh_data: list | None = None) -> dict:
     """Certificate transparency log lookup via crt.sh."""
     try:
-        data = crtsh_data if crtsh_data is not None else _fetch_crtsh(domain)
+        data = crtsh_data if crtsh_data is not None else _fetch_crtsh(domain)[0]
         if not data:
             return {"total_certificates": 0, "certificates": []}
 
@@ -979,13 +1042,13 @@ def full_domain_report(
             f_threat = pool.submit(check_urlhaus, domain)
 
             def _subs_with_crtsh():
-                data = f_crtsh.result(timeout=CRTSH_TIMEOUT + 2)
+                data, _ = f_crtsh.result(timeout=CRTSH_TIMEOUT + 2)
                 return enumerate_subdomains(domain, crtsh_data=data)
 
             f_subs = pool.submit(_subs_with_crtsh)
 
             def _ct_with_crtsh():
-                data = f_crtsh.result(timeout=CRTSH_TIMEOUT + 2)
+                data, _ = f_crtsh.result(timeout=CRTSH_TIMEOUT + 2)
                 return check_ct_logs(domain, data)
 
             f_certs = pool.submit(_ct_with_crtsh)

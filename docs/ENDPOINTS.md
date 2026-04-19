@@ -13,7 +13,7 @@ GET  /v1/domain/{domain}          Full domain report (DNS + WHOIS + SSL + subs +
 GET  /v1/audit/{domain}           Comprehensive audit (full report + tech fingerprint + live headers)  [cost: 4]
 GET  /v1/dns/{domain}             DNS records (A, AAAA, MX, NS, TXT, CNAME, SOA)
 GET  /v1/whois/{domain}           WHOIS registration data
-GET  /v1/subdomains/{domain}      Subdomain enumeration (DNS brute + CT logs)
+GET  /v1/subdomains/{domain}      Subdomain enumeration via wordlist DNS brute-force + Certificate Transparency logs (crt.sh)
 GET  /v1/certs/{domain}           Certificate transparency logs
 GET  /v1/ssl/{domain}             SSL/TLS analysis (cipher, cert chain, grade A-F)
 GET  /v1/tech/{domain}            Technology fingerprinting (CMS, frameworks, CDN, analytics)
