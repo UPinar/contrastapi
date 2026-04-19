@@ -1581,9 +1581,14 @@ try:
     def _log_mcp_tool(name: str) -> None:
         """Append one JSON line to the tool usage log. Silent on any error."""
         try:
+            now = _mcp_datetime.now(UTC)
             line = (
                 _mcp_json.dumps(
-                    {"date": _mcp_datetime.now(UTC).strftime("%Y-%m-%d"), "tool": name},
+                    {
+                        "date": now.strftime("%Y-%m-%d"),
+                        "ts": now.strftime("%H:%M"),
+                        "tool": name,
+                    },
                     separators=(",", ":"),
                 )
                 + "\n"
