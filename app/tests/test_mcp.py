@@ -435,6 +435,22 @@ def test_mcp_get_returns_health(mcp_client):
     assert data["tools"] == MCP_TOOL_COUNT
 
 
+def test_mcp_get_health_shape_for_nginx_split(mcp_client):
+    """GET /mcp/ must return a complete buffered JSON response (Content-Length present).
+    This pins the 'synchronous JSON health' contract that justifies the generous GET rate limit.
+    A streaming response would drop Content-Length and break the nginx zone assumption."""
+    from config import MCP_TOOL_COUNT
+
+    r = mcp_client.get("/mcp/")
+    assert r.status_code == 200
+    assert "content-length" in r.headers, "Response must be buffered (Content-Length absent implies streaming)"
+    data = r.json()
+    assert data["name"] == "ContrastAPI MCP Server"
+    assert data["transport"] == "streamable-http"
+    assert data["method"] == "POST"
+    assert data["tools"] == MCP_TOOL_COUNT
+
+
 def test_mcp_get_no_trailing_slash_returns_health(mcp_client):
     """GET /mcp (no slash) — FastAPI may 307 redirect to /mcp/, TestClient follows."""
     from config import MCP_TOOL_COUNT
