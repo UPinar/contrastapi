@@ -9,7 +9,8 @@ venv/
 .env
 test_*.db
 .mcpregistry_*
-scripts/
+scripts/*
+!scripts/backfill_mitre_fields.py
 plans/
 .npmrc
 node_modules/

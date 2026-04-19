@@ -504,6 +504,48 @@ def _parse_mitre_cve(item: dict) -> dict:
     }
 
 
+MITRE_API_URL = "https://cveawg.mitre.org/api/cve/{cve_id}"
+
+
+def _fetch_mitre_cve(cve_id: str) -> dict | None:
+    """Fetch a single CVE record from cveawg.mitre.org.
+
+    Returns parsed JSON dict on 200, None on 404/timeout/parse_error.
+    Raises httpx.HTTPStatusError for 429 (caller handles backoff).
+    Honors RateLimit-Remaining header — sleeps until reset when low.
+    """
+    try:
+        resp = _client.get(MITRE_API_URL.format(cve_id=cve_id), timeout=7.0)
+    except (httpx.TimeoutException, httpx.ConnectError, httpx.NetworkError) as e:
+        log.warning("MITRE network error for %s: %s", cve_id, type(e).__name__)
+        return None
+
+    if resp.status_code == 404:
+        log.warning("MITRE 404 for %s", cve_id)
+        return None
+    if resp.status_code == 429:
+        resp.raise_for_status()  # caller handles
+    if resp.status_code >= 400:
+        log.warning("MITRE %d for %s", resp.status_code, cve_id)
+        return None
+
+    # Defensive rate-limit budgeting
+    try:
+        remaining = int(resp.headers.get("RateLimit-Remaining", "999"))
+        reset = int(resp.headers.get("RateLimit-Reset", "0"))
+        if remaining < 10 and reset > 0:
+            log.info("MITRE rate-limit low (remaining=%d); sleeping %ds", remaining, reset)
+            time.sleep(min(reset, 60))
+    except (ValueError, TypeError):
+        pass
+
+    try:
+        return resp.json()
+    except json.JSONDecodeError:
+        log.warning("MITRE parse error for %s", cve_id)
+        return None
+
+
 def sync_mitre(full: bool = False) -> int:
     """Sync CVEs from MITRE cvelistV5 via the nightly GitHub release.
 
