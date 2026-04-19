@@ -708,9 +708,7 @@ def search_cves(
     conditions = []
     params = []
     if product:
-        conditions.append(
-            "EXISTS (SELECT 1 FROM cve_products p WHERE p.cve_id = cves.cve_id AND LOWER(p.product) = LOWER(?))"
-        )
+        conditions.append("cve_id IN (SELECT cve_id FROM cve_products WHERE LOWER(product) = LOWER(?))")
         params.append(product)
     if severity:
         conditions.append("severity = ?")
