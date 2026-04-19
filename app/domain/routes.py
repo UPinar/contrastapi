@@ -226,13 +226,15 @@ def _domain_verdict(report: dict, age_seconds: int, lite: bool) -> Verdict:
             queried.append("reputation")
             # If reputation fetch failed, report["reputation"] is absent — we cannot
             # distinguish quota-blocked from fetch-failed from this signal alone.
+    else:
+        unavailable.extend(["whois", "subdomains", "ct_logs", "urlhaus", "reputation"])
     return Verdict(
         deterministic=True,
         falsifiable_fields=["dns", "whois", "ssl", "subdomains", "certificates"],
         data_age_seconds=age_seconds,
         sources_queried=queried,
         sources_unavailable=unavailable,
-        completeness="partial" if unavailable else "complete",
+        completeness="complete" if (not unavailable or lite) else "partial",
     )
 
 

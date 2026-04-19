@@ -501,6 +501,7 @@ class TestDomainRoutes:
         assert v["sources_queried"] == ["dns", "ssl"]
         assert "whois" not in v["sources_queried"]
         assert "urlhaus" not in v["sources_queried"]
+        assert set(v["sources_unavailable"]) == {"whois", "subdomains", "ct_logs", "urlhaus", "reputation"}
         assert v["completeness"] == "complete"
 
     @patch("domain.routes.dns_lookup", return_value=MOCK_DNS_RESULT)
