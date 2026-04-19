@@ -616,6 +616,102 @@ class TestDomainRoutes:
         assert "internetdb" in v["sources_unavailable"]
         assert v["completeness"] == "partial"
 
+    _enrich_empty = {
+        "ports": [],
+        "hostnames": [],
+        "vulns": [],
+        "cpes": [],
+        "tags": [],
+        "internetdb_status": "ok",
+    }
+
+    @patch("domain.routes.check_cloud_provider", return_value="AWS")
+    @patch("domain.routes.check_tor_exit", return_value=False)
+    @patch("domain.routes.ip_enrichment", return_value={**_enrich_empty})
+    @patch("domain.routes.socket.gethostbyaddr", side_effect=Exception("no PTR"))
+    def test_ip_cloud_provider_aws(self, mock_ptr, mock_enrich, mock_tor, mock_cloud):
+        r = client.get("/v1/ip/3.5.140.2")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["cloud_provider"] == "AWS"
+        assert "tor_exit" not in data  # False → None → excluded
+
+    @patch("domain.routes.check_cloud_provider", return_value=None)
+    @patch("domain.routes.check_tor_exit", return_value=False)
+    @patch("domain.routes.ip_enrichment", return_value={**_enrich_empty})
+    @patch("domain.routes.socket.gethostbyaddr", side_effect=Exception("no PTR"))
+    def test_ip_cloud_provider_none(self, mock_ptr, mock_enrich, mock_tor, mock_cloud):
+        r = client.get("/v1/ip/1.2.3.4")
+        assert r.status_code == 200
+        data = r.json()
+        assert "cloud_provider" not in data
+
+    @patch("domain.routes.check_cloud_provider", return_value=None)
+    @patch("domain.routes.check_tor_exit", return_value=True)
+    @patch("domain.routes.ip_enrichment", return_value={**_enrich_empty})
+    @patch("domain.routes.socket.gethostbyaddr", side_effect=Exception("no PTR"))
+    def test_ip_tor_exit_true(self, mock_ptr, mock_enrich, mock_tor, mock_cloud):
+        r = client.get("/v1/ip/1.2.3.4")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["tor_exit"] is True
+
+    @patch("domain.routes.check_cloud_provider", return_value=None)
+    @patch("domain.routes.check_tor_exit", return_value=False)
+    @patch("domain.routes.ip_enrichment", return_value={**_enrich_empty})
+    @patch("domain.routes.socket.gethostbyaddr", side_effect=Exception("no PTR"))
+    def test_ip_risk_score_present(self, mock_ptr, mock_enrich, mock_tor, mock_cloud):
+        r = client.get("/v1/ip/1.2.3.4")
+        assert r.status_code == 200
+        data = r.json()
+        assert "risk_score" in data
+        assert 0 <= data["risk_score"] <= 100
+
+    @patch("domain.routes.check_cloud_provider", return_value="GCP")
+    @patch("domain.routes.check_tor_exit", return_value=False)
+    @patch(
+        "domain.routes.ip_enrichment",
+        return_value={"ports": [], "hostnames": [], "vulns": [], "cpes": [], "tags": [], "internetdb_status": "ok"},
+    )
+    @patch("domain.routes.socket.gethostbyaddr", return_value=("dns.google", [], []))
+    def test_ip_risk_score_low_clean_cloud(self, mock_ptr, mock_enrich, mock_tor, mock_cloud):
+        r = client.get("/v1/ip/8.8.8.8")
+        assert r.status_code == 200
+        data = r.json()
+        # cloud bonus + ptr bonus, no abuse, no tor → low score
+        assert data["risk_score"] <= 30
+
+    @patch("domain.routes.check_cloud_provider", return_value=None)
+    @patch("domain.routes.check_tor_exit", return_value=True)
+    @patch("domain.routes.ip_enrichment", return_value={**_enrich_empty})
+    @patch("domain.routes.socket.gethostbyaddr", side_effect=Exception("no PTR"))
+    def test_ip_risk_score_high_tor(self, mock_ptr, mock_enrich, mock_tor, mock_cloud):
+        r = client.get("/v1/ip/1.2.3.4")
+        assert r.status_code == 200
+        data = r.json()
+        # tor_exit=True → at least 20 penalty
+        assert data["risk_score"] >= 20
+
+    @patch("domain.routes.check_cloud_provider", return_value="AWS")
+    @patch("domain.routes.check_tor_exit", return_value=False)
+    @patch("domain.routes.ip_enrichment", return_value={**_enrich_empty})
+    @patch("domain.routes.socket.gethostbyaddr", side_effect=Exception("no PTR"))
+    def test_ip_verdict_extended_falsifiable_fields(self, mock_ptr, mock_enrich, mock_tor, mock_cloud):
+        r = client.get("/v1/ip/3.5.140.2")
+        assert r.status_code == 200
+        fields = r.json()["verdict"]["falsifiable_fields"]
+        assert "cloud_provider" in fields
+        assert "tor_exit" in fields
+        assert "risk_score" in fields
+
+    @patch("domain.routes.check_cloud_provider", side_effect=Exception("upstream down"))
+    @patch("domain.routes.check_tor_exit", return_value=False)
+    @patch("domain.routes.ip_enrichment", return_value={**_enrich_empty})
+    @patch("domain.routes.socket.gethostbyaddr", side_effect=Exception("no PTR"))
+    def test_ip_intel_cache_failure_resilient(self, mock_ptr, mock_enrich, mock_tor, mock_cloud):
+        r = client.get("/v1/ip/1.2.3.4")
+        assert r.status_code == 200  # must not 500
+
 
 class TestDomainRoutesBadInput:
     def test_empty_domain_400(self):

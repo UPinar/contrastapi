@@ -28,7 +28,7 @@ POST /v1/domains/bulk             Bulk domain scan (10 free, 50 pro)
 ## IP & Network
 
 ```
-GET /v1/ip/{ip}                   IP intel + reputation (AbuseIPDB, Shodan)
+GET /v1/ip/{ip}                   IP intel + reputation + cloud/Tor detection + risk score
 GET /v1/threat-report/{ip}        Orchestrated threat report (Shodan + AbuseIPDB + ASN)  [cost: 4]
 GET /v1/asn/{target}              ASN lookup (AS number or IP)
 ```

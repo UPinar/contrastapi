@@ -420,7 +420,7 @@ async def phone_lookup(
 async def ip_lookup(
     ip: Annotated[str, Field(description="IPv4 or IPv6 address to investigate (e.g. '8.8.8.8', '2606:4700::1111')")],
 ) -> str:
-    """Retrieve comprehensive intelligence about an IP address including geolocation, PTR record, open ports, associated hostnames, known vulnerabilities, abuse reports, and reputation score. Use this to investigate suspicious IPs from logs, identify the owner of an IP, or assess whether an IP is malicious. For network-level info (ASN, IP ranges), use asn_lookup instead. Returns JSON with fields: ip, ptr, geo (country, city, org), ports (array), hostnames, vulns (array), reputation (score + categories), and abuse_contacts. Read-only lookup, no authentication required."""
+    """Retrieve comprehensive intelligence about an IP address including geolocation, PTR record, open ports, associated hostnames, known vulnerabilities, abuse reports, and reputation score. Use this to investigate suspicious IPs from logs, identify the owner of an IP, or assess whether an IP is malicious. For network-level info (ASN, IP ranges), use asn_lookup instead. Returns JSON with fields: ip, ptr, geo (country, city, org), ports (array), hostnames, vulns (array), reputation (score + categories), abuse_contacts. Also returns: cloud_provider (AWS/GCP/Cloudflare; omitted if not a known cloud range), tor_exit: true if IP is a Tor exit node (omitted when not), risk_score (0-100 composite — higher = riskier; always present). Read-only lookup, no authentication required."""
     if err := _validate_ip(ip):
         return err
     return _fmt(await _get(f"/v1/ip/{ip}"))

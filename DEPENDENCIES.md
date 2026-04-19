@@ -110,6 +110,20 @@ X.509 certificate parsing. Used by Bug F AIA (Authority Information Access) inte
 
 ---
 
+## IP / CIDR
+
+### pytricia 1.3.0
+C-backed radix trie (patricia) for fast longest-prefix-match CIDR lookup. Used to check whether an IP belongs to AWS/GCP/Cloudflare published ranges in `/v1/ip/{ip}`.
+
+| Function / Class | Signature | What it does | Used in |
+|-----------------|-----------|--------------|---------|
+| `pytricia.PyTricia()` | `pytricia.PyTricia(32)` for v4, `pytricia.PyTricia(128)` for v6 | Creates a radix trie keyed on IP prefix length | domain/ip_intel.py |
+| `trie[cidr] = value` | `trie["3.0.0.0/8"] = "AWS"` | Inserts CIDR → provider label | domain/ip_intel.py |
+| `trie.get(ip)` | `trie.get("3.5.140.2") -> str \| None` | Longest-prefix lookup, returns value of covering CIDR or None | domain/ip_intel.py:check_cloud_provider |
+| `list(trie)` | iterates inserted CIDR prefixes | Snapshot of keys — used to preserve previous entries when a source fails | domain/ip_intel.py:_refresh_cloud_cache |
+
+---
+
 ## Data / Parsing
 
 ### phonenumbers 9.0.27
@@ -165,6 +179,7 @@ MCP server framework for AI agent tool integration.
 | `app/main.py` | fastapi, starlette, jinja2, re |
 | `app/domain/recon.py` | dnspython, httpcore, httpx, phonenumbers |
 | `app/domain/routes.py` | fastapi, httpx, pydantic, cryptography |
+| `app/domain/ip_intel.py` | httpx, pytricia |
 | `app/domain/reputation.py` | httpx |
 | `app/domain/threat.py` | httpx |
 | `app/cve/routes.py` | fastapi, httpx |

@@ -97,6 +97,16 @@ HIBP_URL = "https://api.pwnedpasswords.com/range"
 FEODO_TTL = 3600  # 1 hour cache refresh
 FEODO_MAX_BYTES = 10 * 1024 * 1024  # 10 MB response size limit
 
+# IP intel cache (cloud provider ranges + Tor exit list)
+CLOUD_IP_TTL = 3600
+TOR_EXIT_TTL = 3600
+CLOUD_IP_MAX_BYTES = 5 * 1024 * 1024  # AWS ~1.5MB, GCP ~200KB, CF ~5KB
+TOR_EXIT_MAX_BYTES = 1 * 1024 * 1024
+AWS_IP_RANGES_URL = "https://ip-ranges.amazonaws.com/ip-ranges.json"
+GCP_IP_RANGES_URL = "https://www.gstatic.com/ipranges/cloud.json"
+CF_IP_RANGES_URL = "https://api.cloudflare.com/client/v4/ips"
+TOR_EXIT_LIST_URL = "https://check.torproject.org/torbulkexitlist"
+
 # IP cache TTL
 IP_CACHE_TTL = 3600  # 1 hour
 

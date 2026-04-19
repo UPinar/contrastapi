@@ -49,6 +49,9 @@ class IpLookupResponse(BaseModel):
     cpes: list[str] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
     reputation: dict | None = None
+    cloud_provider: str | None = None
+    tor_exit: bool | None = None
+    risk_score: int = 0
     summary: str = ""
     verdict: Verdict | None = None
 

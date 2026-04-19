@@ -42,6 +42,7 @@ from cryptography import x509
 from cryptography.x509.oid import AuthorityInformationAccessOID
 from db import get_cached_domain, get_cached_domain_with_age, get_cached_ip_with_age, save_cached_domain, save_cached_ip
 from domain.archive import wayback_lookup
+from domain.ip_intel import check_cloud_provider, check_tor_exit, score_ip
 from domain.recon import (
     _ssrf_http,
     check_ct_logs,
@@ -252,7 +253,7 @@ def _ip_verdict(
         unavailable.append("reputation")
     return Verdict(
         deterministic=True,
-        falsifiable_fields=["ptr", "ports", "vulns", "hostnames"],
+        falsifiable_fields=["ptr", "ports", "vulns", "hostnames", "cloud_provider", "tor_exit", "risk_score"],
         data_age_seconds=age_seconds,
         sources_queried=queried,
         sources_unavailable=unavailable,
@@ -756,6 +757,15 @@ def ip_lookup(ip: str, request: Request):
             reputation_failed = True
             ratelimit.refund("enrichment", client_ip)
 
+    try:
+        cloud_provider = check_cloud_provider(ip)
+    except Exception:
+        cloud_provider = None
+    try:
+        tor_exit = check_tor_exit(ip)
+    except Exception:
+        tor_exit = False
+
     parts = [f"{ip} → {ptr}" if ptr else f"{ip} — no PTR record"]
     if ports:
         parts.append(f"{len(ports)} open ports")
@@ -763,11 +773,18 @@ def ip_lookup(ip: str, request: Request):
         parts.append(f"{len(vulns)} known vulnerabilities")
     if hostnames:
         parts.append(f"{len(hostnames)} hostnames")
+    if cloud_provider:
+        parts.append(f"hosted on {cloud_provider}")
+    if tor_exit:
+        parts.append("Tor exit node")
 
     result = {
         "ip": ip,
         "ptr": ptr,
         **enrichment,
+        "cloud_provider": cloud_provider,
+        "tor_exit": tor_exit if tor_exit else None,
+        "risk_score": score_ip(reputation or None, ports, ptr, cloud_provider, tor_exit),
         "summary": ". ".join(parts),
     }
     if reputation:

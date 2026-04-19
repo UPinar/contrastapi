@@ -63,10 +63,32 @@ async def lifespan(app):
     init_all_dbs()
     logger.info("ContrastAPI started — databases initialized")
 
-    # Periodic DB maintenance (every hour)
+    # Non-blocking warm: run cache refresh in background so startup is not
+    # held hostage by slow/poisoned upstream DNS or connectivity.
+    async def _warm_ip_intel():
+        from domain.ip_intel import _refresh_cloud_cache, _refresh_tor_cache
+
+        for name, fn in (("cloud", _refresh_cloud_cache), ("tor", _refresh_tor_cache)):
+            try:
+                await asyncio.wait_for(asyncio.to_thread(fn), timeout=20)
+            except asyncio.CancelledError:
+                raise
+            except asyncio.TimeoutError:
+                logger.warning("IP intel %s warm timed out (20s)", name)
+            except Exception as e:
+                logger.warning("IP intel %s warm failed: %s", name, type(e).__name__)
+        logger.info("IP intel caches warm attempt complete")
+
+    warm_task = asyncio.create_task(_warm_ip_intel())
+
+    # Periodic DB maintenance (every hour). Each step is independently guarded
+    # so one failure never kills the loop.
     async def _periodic_maintenance():
         while True:
-            await asyncio.sleep(3600)
+            try:
+                await asyncio.sleep(3600)
+            except asyncio.CancelledError:
+                raise
             try:
                 from db import maintenance
                 from ratelimit import cleanup_expired
@@ -76,6 +98,15 @@ async def lifespan(app):
                 logger.info("DB maintenance: %s, rate_limits cleaned: %d", stats, expired)
             except Exception as e:
                 logger.warning("DB maintenance failed: %s", e)
+            try:
+                from domain.ip_intel import _refresh_cloud_cache, _refresh_tor_cache
+
+                await asyncio.wait_for(asyncio.to_thread(_refresh_cloud_cache), timeout=60)
+                await asyncio.wait_for(asyncio.to_thread(_refresh_tor_cache), timeout=60)
+            except asyncio.TimeoutError:
+                logger.warning("IP intel periodic refresh timed out (60s)")
+            except Exception as e:
+                logger.warning("IP intel refresh failed: %s", type(e).__name__)
 
     task = asyncio.create_task(_periodic_maintenance())
 
@@ -87,8 +118,9 @@ async def lifespan(app):
     else:
         yield
 
-    # Stop maintenance task
+    # Stop maintenance + warm tasks
     task.cancel()
+    warm_task.cancel()
     # Shut down thread pools
     from domain.routes import _bulk_pool, _reputation_pool
 
