@@ -663,10 +663,10 @@ _GHSA_LINK_NEXT_RE = re.compile(r'<([^>]+)>\s*;\s*rel="next"')
 
 
 def _parse_ghsa_advisory(item: dict) -> dict:
-    """Parse one advisory from the GHSA REST response into our DB format.
+    """Parse GHSA advisory: description, references, and timestamps (lossy by design).
 
-    Lossy on purpose: no severity/CVSS/CWE extraction. NVD owns those fields,
-    so upsert_cve_if_absent() will never overwrite richer NVD records."""
+    Severity/CVSS/CWE intentionally skipped — NVD/MITRE own those fields.
+    upsert_cve_if_absent() guards via COALESCE so GHSA never overwrites them."""
     cve_id = item.get("cve_id")
     if not cve_id or not validate_cve_id(cve_id):
         return {"cve_id": cve_id or "", "_skip": True}
