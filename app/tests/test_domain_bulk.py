@@ -474,13 +474,8 @@ class TestBulkDomainReport:
         """Overall timeout triggers partial results for remaining domains."""
         import time
 
-        call_count = 0
-
         def slow_report(*args, **kwargs):
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
-                time.sleep(5)  # first domain exceeds overall timeout
+            time.sleep(5)  # all domains block past overall timeout
             return dict(self._MOCK_REPORT)
 
         mock_report.side_effect = slow_report
