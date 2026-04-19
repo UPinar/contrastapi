@@ -83,6 +83,33 @@ DNS resolution and record queries.
 
 ---
 
+## Cryptography / X.509
+
+### cryptography 46.0.7
+X.509 certificate parsing. Used by Bug F AIA (Authority Information Access) intermediate fetch in `/v1/ssl/{domain}`.
+
+| Function / Class | Signature | What it does | Used in |
+|-----------------|-----------|--------------|---------|
+| `x509.load_der_x509_certificate()` | `x509.load_der_x509_certificate(der_bytes) -> Certificate` | Parse DER-encoded cert (TLS handshake output + most AIA responses) | domain/routes.py:ssl_certificate |
+| `x509.load_pem_x509_certificate()` | `x509.load_pem_x509_certificate(pem_bytes) -> Certificate` | Parse PEM-encoded cert (AIA fallback when body is `-----BEGIN CERTIFICATE-----`) | domain/routes.py:ssl_certificate |
+| `cert.subject.rfc4514_string()` | `Name.rfc4514_string() -> str` | Distinguished Name as RFC 4514 string (`CN=...,O=...`) | domain/routes.py:ssl_certificate |
+| `cert.issuer.rfc4514_string()` | same | Issuer DN as RFC 4514 string | domain/routes.py:ssl_certificate |
+| `cert.not_valid_after` | `datetime` property | Certificate expiry timestamp | domain/routes.py:ssl_certificate |
+| `cert.extensions.get_extension_for_class()` | `extensions.get_extension_for_class(x509.AuthorityInformationAccess) -> Extension` | Look up AIA extension on leaf cert to find CA Issuers URLs | domain/routes.py:ssl_certificate |
+| `x509.ExtensionNotFound` | `except x509.ExtensionNotFound` | Raised when cert has no AIA extension (self-signed / missing) | domain/routes.py:ssl_certificate |
+| `AuthorityInformationAccessOID.CA_ISSUERS` | OID constant | Filters AIA access descriptions to caIssuers URLs (ignores OCSP) | domain/routes.py:ssl_certificate |
+| `x509.CertificateBuilder()` | `.subject_name().issuer_name().public_key().serial_number().not_valid_before().not_valid_after().add_extension().sign()` | Builds synthetic cert for tests | tests/test_domain_bulk.py |
+| `x509.Name()` / `x509.NameAttribute()` | `Name([NameAttribute(NameOID.COMMON_NAME, "example.com")])` | Build DN for test certs | tests/test_domain_bulk.py |
+| `x509.SubjectAlternativeName()` / `x509.DNSName()` | extension body | SAN extension for test certs | tests/test_domain_bulk.py |
+| `x509.AuthorityInformationAccess()` / `x509.AccessDescription()` / `x509.UniformResourceIdentifier()` | AIA extension body | Attach AIA URL for test fixtures | tests/test_domain_bulk.py |
+| `x509.random_serial_number()` | `-> int` | RFC 5280 serial number generator for test certs | tests/test_domain_bulk.py |
+| `NameOID.COMMON_NAME`, `NameOID.ORGANIZATION_NAME` | OID constants | DN attribute types for Name() | tests/test_domain_bulk.py |
+| `hashes.SHA256()` | algorithm instance | Signature hash for `CertificateBuilder.sign()` | tests/test_domain_bulk.py |
+| `serialization.Encoding.DER` / `.PEM` | enum | Output encoding for `cert.public_bytes()` when feeding mocked handshakes/AIA responses | tests/test_domain_bulk.py |
+| `rsa.generate_private_key()` | `rsa.generate_private_key(public_exponent=65537, key_size=2048)` | Key pair for test certs | tests/test_domain_bulk.py |
+
+---
+
 ## Data / Parsing
 
 ### phonenumbers 9.0.27
@@ -123,7 +150,6 @@ MCP server framework for AI agent tool integration.
 |---------|---------|------|
 | **pydantic-settings** | 2.13.1 | Settings management extension (available, not imported) |
 | **python-whois** | 0.9.6 | WHOIS library — **unused**, project has own raw-socket WHOIS client in recon.py. Consider removing. |
-| **cryptography** | 46.0.6 | TLS/crypto primitives; transitive dep of Python's ssl module and httpx |
 | **requests** | 2.33.1 | HTTP client; transitive dep, httpx used instead |
 | **PyJWT** | 2.12.1 | JWT encoding/decoding; reserved for future auth features |
 | **sse-starlette** | 3.3.4 | Server-Sent Events; required by MCP HTTP transport at runtime |
@@ -138,7 +164,7 @@ MCP server framework for AI agent tool integration.
 |--------|-------------------|
 | `app/main.py` | fastapi, starlette, jinja2, re |
 | `app/domain/recon.py` | dnspython, httpcore, httpx, phonenumbers |
-| `app/domain/routes.py` | fastapi, httpx, pydantic |
+| `app/domain/routes.py` | fastapi, httpx, pydantic, cryptography |
 | `app/domain/reputation.py` | httpx |
 | `app/domain/threat.py` | httpx |
 | `app/cve/routes.py` | fastapi, httpx |
