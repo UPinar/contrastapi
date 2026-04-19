@@ -16,7 +16,8 @@ _SECRET_RULES = [
     (
         "AWS Secret Key",
         re.compile(
-            r"""(?:aws_secret_access_key|aws_secret|secret_key)\s*[:=]\s*['"][A-Za-z0-9/+=]{40}['"]""",
+            r"""(?:aws_secret_access_key|aws_secret|secret_key)\s*[:=]\s*"""
+            r"""(?:['"][A-Za-z0-9/+=]{40}['"]|[A-Za-z0-9/+=]{40}(?![A-Za-z0-9/+=]))""",
             re.IGNORECASE,
         ),
         "critical",

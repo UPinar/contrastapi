@@ -31,6 +31,21 @@ class TestDetectSecretsAWS:
         r = detect_secrets('x = 1\nkey = "AKIAIOSFODNN7EXAMPLE"')
         assert r[0]["line"] == 2
 
+    def test_aws_secret_key_env_var_style(self):
+        r = detect_secrets("AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY")
+        aws_secret = [f for f in r if f["type"] == "AWS Secret Key"]
+        assert len(aws_secret) == 1
+        assert aws_secret[0]["severity"] == "critical"
+
+    def test_aws_secret_key_quoted_still_works(self):
+        r = detect_secrets('aws_secret_access_key = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"')
+        aws_secret = [f for f in r if f["type"] == "AWS Secret Key"]
+        assert len(aws_secret) == 1
+
+    def test_aws_secret_key_no_context_not_matched(self):
+        r = detect_secrets('blob = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"')
+        assert not any(f["type"] == "AWS Secret Key" for f in r)
+
 
 class TestDetectSecretsGitHub:
     def test_github_pat(self):
