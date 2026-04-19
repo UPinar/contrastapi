@@ -362,6 +362,7 @@ MOCK_FULL_REPORT = {
         "urls": [],
     },
     "waf": {"detected": [], "waf_present": False},
+    "risk": {"score": 85, "max_score": 100, "grade": "B", "factors": []},
     "summary": "example.com resolves to 93.184.216.34",
 }
 
@@ -396,6 +397,18 @@ class TestDomainRoutes:
         """POST with JSON body is ignored (body not read)."""
         r = client.post("/v1/domain/example.com", json={"extra": "ignored"})
         assert r.status_code == 200
+
+    @patch("domain.routes.full_domain_report", return_value=MOCK_FULL_REPORT)
+    @patch("domain.routes.validate_domain", return_value="93.184.216.34")
+    @patch("domain.routes.get_cached_domain_with_age", return_value=None)
+    def test_domain_report_risk_score_alias(self, mock_cache, mock_validate, mock_report):
+        r = client.get("/v1/domain/example.com")
+        assert r.status_code == 200
+        data = r.json()
+        assert "risk" in data
+        assert "risk_score" in data
+        assert isinstance(data["risk_score"], int)
+        assert data["risk_score"] == data["risk"]["score"]
 
     @patch("domain.routes.full_domain_report")
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")

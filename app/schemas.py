@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 
 # === Domain Report ===
 
@@ -21,6 +21,14 @@ class DomainReportResponse(BaseModel):
     waf: dict = Field(default_factory=dict)
     threat: dict = Field(default_factory=dict)
     risk: dict = Field(default_factory=dict)
+
+    @computed_field
+    @property
+    def risk_score(self) -> int | None:
+        """Top-level alias for risk.score — backward-compat with old docstring consumers."""
+        s = self.risk.get("score")
+        return s if isinstance(s, int) else None
+
     reputation: dict | None = None
     summary: str = ""
     verdict: Verdict | None = None
