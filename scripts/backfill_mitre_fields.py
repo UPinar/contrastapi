@@ -29,6 +29,7 @@ from db import get_cve_db, init_all_dbs, record_cve_source, upsert_cve_if_absent
 from validation import validate_cve_id  # noqa: E402
 
 DEFAULT_STATE_FILE = "/var/lib/contrastapi/backfill_mitre_state.json"
+DEFAULT_START_ID = "CVE-2024-"
 EMPTY_CVE_SQL = """
 SELECT cve_id FROM cves
 WHERE cve_id > ?
@@ -104,6 +105,11 @@ def main() -> int:
     parser.add_argument("--limit", type=int, default=0, help="cap total updates (0 = unlimited)")
     parser.add_argument("--batch-size", type=int, default=100)
     parser.add_argument("--state-file", default=DEFAULT_STATE_FILE)
+    parser.add_argument(
+        "--start-id",
+        default=DEFAULT_START_ID,
+        help=f"lexical cursor floor (default: {DEFAULT_START_ID!r} — skips pre-2024 CVEs)",
+    )
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -111,8 +117,15 @@ def main() -> int:
     init_all_dbs()
 
     state_path = Path(args.state_file)
-    last_id = "" if args.reset else load_state(state_path)
-    log.info("Starting backfill (dry_run=%s, last_id=%r, limit=%d)", args.dry_run, last_id, args.limit)
+    saved_id = "" if args.reset else load_state(state_path)
+    last_id = max(saved_id, args.start_id)
+    log.info(
+        "Starting backfill (dry_run=%s, last_id=%r, start_id=%r, limit=%d)",
+        args.dry_run,
+        last_id,
+        args.start_id,
+        args.limit,
+    )
 
     start = time.monotonic()
     total_updated = total_skipped = total_failed = 0

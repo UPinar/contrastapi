@@ -231,6 +231,34 @@ class TestBackfillMitre:
         assert "CVE-BOGUS" not in fetched
         assert "CVE-2025-1100" in fetched
 
+    def test_backfill_start_id_skips_pre_floor(self, monkeypatch, tmp_path):
+        # Seed one pre-floor CVE (must not be fetched) and one post-floor (must be fetched)
+        _seed_empty_cve("CVE-2020-9999")
+        _seed_empty_cve("CVE-2025-2000")
+
+        fetched: list[str] = []
+
+        def _mock_fetch(cid):
+            fetched.append(cid)
+            return _mitre_record(cid)
+
+        monkeypatch.setattr(_backfill_mod, "_fetch_mitre_cve", _mock_fetch)
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "backfill",
+                "--start-id",
+                "CVE-2024-",
+                "--state-file",
+                str(tmp_path / "state.json"),
+            ],
+        )
+        _backfill_mod.main()
+
+        assert "CVE-2020-9999" not in fetched
+        assert "CVE-2025-2000" in fetched
+
     def test_backfill_handles_fetch_failure(self, monkeypatch, tmp_path):
         monkeypatch.setattr(_backfill_mod, "_fetch_mitre_cve", lambda cid: None)
 
