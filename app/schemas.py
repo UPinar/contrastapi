@@ -103,6 +103,7 @@ class WaybackResponse(BaseModel):
     snapshots: list[WaybackSnapshot] = Field(default_factory=list)
     archive_url: str = ""
     summary: str = ""
+    warnings: list[str] = Field(default_factory=list)
 
 
 # === Technology Fingerprinting ===

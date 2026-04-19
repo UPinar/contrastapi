@@ -119,7 +119,14 @@ USERNAME_LOOKUP_TIMEOUT = 5  # per-platform HTTP timeout for username checks
 CRTSH_TIMEOUT = 10
 CRTSH_MAX_RESULTS = 1000
 CRTSH_MAX_BYTES = 10 * 1024 * 1024  # 10 MB hard cap on crt.sh response body before JSON parse
-BULK_PER_DOMAIN_TIMEOUT = 25  # must exceed CRTSH_TIMEOUT + RECON_TIMEOUT + buffer (19s worst case)
+BULK_PER_DOMAIN_TIMEOUT = 25
+
+# Wayback Machine CDX API limits
+WAYBACK_CDX_TIMEOUT = 20
+WAYBACK_CDX_MAX_RESULTS = 10000
+WAYBACK_CDX_MAX_BYTES = 50 * 1024 * 1024  # 50 MB body cap
+WAYBACK_CACHE_TTL = 86400  # 24h — wayback history is very stable
+WAYBACK_CACHE_MAX = 500  # LRU cap on in-memory cache
 BULK_OVERALL_TIMEOUT = 120  # hard cap for entire bulk request; partial results returned on expiry
 
 # Severity ordering

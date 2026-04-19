@@ -1,14 +1,32 @@
 """Wayback Machine / Web Archive lookup — historical snapshots via CDX API."""
 
+import json
 import logging
+import threading
+import time
 
 import httpx
+from config import (
+    WAYBACK_CACHE_MAX,
+    WAYBACK_CACHE_TTL,
+    WAYBACK_CDX_MAX_BYTES,
+    WAYBACK_CDX_MAX_RESULTS,
+    WAYBACK_CDX_TIMEOUT,
+)
 
 logger = logging.getLogger("contrastapi")
 
+USER_AGENT = "contrastapi/1.0"
 WAYBACK_CDX_URL = "https://web.archive.org/cdx/search/cdx"
 
-_client = httpx.Client(timeout=httpx.Timeout(20.0, connect=5.0), follow_redirects=False)
+_client = httpx.Client(
+    timeout=httpx.Timeout(WAYBACK_CDX_TIMEOUT, connect=5.0),
+    follow_redirects=False,
+    headers={"User-Agent": USER_AGENT},
+)
+
+_wayback_cache: dict[str, tuple[dict, float]] = {}
+_wayback_cache_lock = threading.Lock()
 
 
 def _parse_date(ts: str) -> str:
@@ -18,25 +36,8 @@ def _parse_date(ts: str) -> str:
     return ts
 
 
-def wayback_lookup(domain: str) -> dict:
-    """Query Wayback Machine CDX API for archived snapshots of a domain.
-
-    Returns:
-        Dict with total_snapshots, first_seen, last_seen, years_online,
-        snapshots list, archive_url, and summary.
-    """
-    archive_url = f"https://web.archive.org/web/*/{domain}"
-    error_result = {
-        "domain": domain,
-        "total_snapshots": 0,
-        "first_seen": None,
-        "last_seen": None,
-        "years_online": 0,
-        "snapshots": [],
-        "archive_url": archive_url,
-        "summary": f"{domain} — no archived snapshots found",
-    }
-
+def _fetch_cdx(domain: str) -> tuple[list | None, str | None]:
+    """Returns (rows, error_msg). error_msg is None on success."""
     try:
         resp = _client.get(
             WAYBACK_CDX_URL,
@@ -45,20 +46,48 @@ def wayback_lookup(domain: str) -> dict:
                 "output": "json",
                 "fl": "timestamp,statuscode,mimetype,digest",
                 "collapse": "timestamp:8",
-                "limit": 20,
+                "limit": WAYBACK_CDX_MAX_RESULTS,
                 "sort": "reverse",
             },
         )
+        if resp.status_code == 429:
+            return None, "cdx_rate_limited"
+        if resp.status_code >= 500:
+            return None, "cdx_unavailable"
         resp.raise_for_status()
+
+        if len(resp.content) > WAYBACK_CDX_MAX_BYTES:
+            return None, "cdx_body_too_large"
+
         rows = resp.json()
-    except Exception as e:
-        logger.warning("Wayback CDX lookup failed: %s", type(e).__name__)
-        return error_result
+        return rows, None
+    except httpx.TimeoutException:
+        return None, "cdx_timeout"
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code >= 500:
+            return None, "cdx_unavailable"
+        return None, "cdx_error"
+    except (ValueError, json.JSONDecodeError):
+        return None, "cdx_parse_error"
+    except httpx.HTTPError:
+        return None, "cdx_error"
 
-    # First row is column headers — skip it
-    if not rows or len(rows) < 2:
-        return error_result
 
+def _empty_response(domain: str, warnings: list[str]) -> dict:
+    return {
+        "domain": domain,
+        "total_snapshots": 0,
+        "first_seen": None,
+        "last_seen": None,
+        "years_online": 0,
+        "snapshots": [],
+        "archive_url": f"https://web.archive.org/web/*/{domain}",
+        "summary": f"{domain} — no archived snapshots found",
+        "warnings": warnings,
+    }
+
+
+def _build_response(domain: str, rows: list, warnings: list[str]) -> dict:
     snapshots = []
     for row in rows[1:]:
         if len(row) != 4:
@@ -74,7 +103,6 @@ def wayback_lookup(domain: str) -> dict:
             }
         )
 
-    # Sort newest first
     snapshots.sort(key=lambda s: s["timestamp"], reverse=True)
 
     total = len(snapshots)
@@ -98,6 +126,34 @@ def wayback_lookup(domain: str) -> dict:
         "last_seen": last_seen,
         "years_online": years_online,
         "snapshots": snapshots,
-        "archive_url": archive_url,
+        "archive_url": f"https://web.archive.org/web/*/{domain}",
         "summary": summary,
+        "warnings": warnings,
     }
+
+
+def wayback_lookup(domain: str) -> dict:
+    now = time.time()
+    with _wayback_cache_lock:
+        cached = _wayback_cache.get(domain)
+        if cached and (now - cached[1]) < WAYBACK_CACHE_TTL:
+            return cached[0]
+
+    warnings: list[str] = []
+    rows, err = _fetch_cdx(domain)
+
+    if err:
+        warnings.append(err)
+        result = _empty_response(domain, warnings)
+    elif not rows or len(rows) < 2:
+        result = _empty_response(domain, warnings)
+    else:
+        result = _build_response(domain, rows, warnings)
+
+    with _wayback_cache_lock:
+        if len(_wayback_cache) >= WAYBACK_CACHE_MAX:
+            oldest_key = min(_wayback_cache, key=lambda k: _wayback_cache[k][1])
+            del _wayback_cache[oldest_key]
+        _wayback_cache[domain] = (result, now)
+
+    return result
