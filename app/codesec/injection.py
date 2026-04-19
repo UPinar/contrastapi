@@ -43,8 +43,9 @@ _SQL_RULES = [
     (
         "SQL Injection: string concatenation in query",
         re.compile(
-            r"""(['"])\s*(?:SELECT|INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|REPLACE|MERGE)\b"""
-            r"""[^'"]*\1\s*\+""",
+            r"""(?:"\s*(?:SELECT|INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|REPLACE|MERGE)\b[^"\n]{0,300}"""
+            r"""|'\s*(?:SELECT|INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|REPLACE|MERGE)\b[^'\n]{0,300})"""
+            r"""['"]\s*\+""",
             re.IGNORECASE,
         ),
         "high",
@@ -213,6 +214,16 @@ _PATH_RULES = [
         "high",
         "File-serving function called with potentially unsanitized input",
         "Use a whitelist of allowed files or validate the resolved path stays within the static directory",
+    ),
+    (
+        "Path Traversal: path-like string concatenation",
+        re.compile(
+            r"""(?:['"][^'"\n]{0,200}/[^'"\n]{0,200}['"]\s*\+\s*[A-Za-z_]"""
+            r"""|[A-Za-z_][\w.]{0,80}\s*\+\s*['"][^'"\n]{0,200}/[^'"\n]{0,200}['"])""",
+        ),
+        "medium",
+        "Path-like string literal concatenated with a variable",
+        "Canonicalize the resulting path with os.path.realpath() and validate it stays within an allowed base directory",
     ),
 ]
 

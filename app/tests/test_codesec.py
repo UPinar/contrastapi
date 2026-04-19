@@ -149,6 +149,14 @@ class TestInjectionSQL:
         r = detect_injection('cursor.execute(f"SELECT * FROM {table}")')
         assert any("raw SQL" in f["type"] for f in r)
 
+    def test_concat_sql_mixed_quotes(self):
+        r = detect_injection('''q = "SELECT * FROM users WHERE id = '" + user_id + "'"''')
+        assert any("concatenation" in f["type"] for f in r), r
+
+    def test_concat_sql_single_outer_double_inner(self):
+        r = detect_injection("""q = 'SELECT * FROM users WHERE name = "' + name + '"'""")
+        assert any("concatenation" in f["type"] for f in r), r
+
 
 class TestInjectionCommand:
     def test_os_system(self):
@@ -203,6 +211,14 @@ class TestInjectionPathTraversal:
     def test_send_file_user_input(self):
         r = detect_injection('return send_file(request.args["path"])')
         assert any("send_file" in f["type"] for f in r)
+
+    def test_path_bare_concat_prefix(self):
+        r = detect_injection('dst = "/var/data/" + filename')
+        assert any("path-like" in f["type"] for f in r), r
+
+    def test_path_bare_concat_suffix(self):
+        r = detect_injection('dst = base + "/uploads/file.txt"')
+        assert any("path-like" in f["type"] for f in r), r
 
 
 class TestInjectionComments:
