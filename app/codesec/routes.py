@@ -7,7 +7,7 @@ from auth import authenticate
 from codesec.headers import check_headers
 from codesec.injection import detect_injection
 from codesec.secrets import detect_secrets
-from db import _parse_version, search_cves_by_products_bulk
+from db import _normalize_product, _parse_version, search_cves_by_products_bulk
 from domain.recon import fetch_live_headers
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -264,7 +264,7 @@ def check_dependencies_endpoint(body: DependenciesInput, request: Request):
 
     findings = []
     for pkg in packages:
-        pkg_name_norm = pkg.name.strip().lower()
+        pkg_name_norm = _normalize_product(pkg.name).strip().lower()
         cves = cve_groups.get(pkg_name_norm, [])
         parsed_ver = _parse_version(pkg.version) if pkg.version else None
         matched_cves = []

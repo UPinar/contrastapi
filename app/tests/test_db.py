@@ -227,6 +227,61 @@ def test_search_cves_by_products_bulk():
     assert search_cves_by_products_bulk([]) == {}
 
 
+def test_normalize_product_helper():
+    from db import _normalize_product
+
+    # Alias hit (case-insensitive + strip)
+    assert _normalize_product("log4j-core") == "log4j"
+    assert _normalize_product("Log4j-Core") == "log4j"
+    assert _normalize_product("  log4j-core  ") == "log4j"
+    assert _normalize_product("spring-web") == "spring_framework"
+    assert _normalize_product("tomcat-embed-core") == "tomcat"
+
+    # Miss → unchanged
+    assert _normalize_product("nginx") == "nginx"
+    assert _normalize_product("UnknownLib") == "UnknownLib"
+
+    # Empty / falsy
+    assert _normalize_product("") == ""
+
+
+def test_search_cves_with_product_alias():
+    from db import search_cves, search_cves_by_products_bulk, upsert_cve
+
+    upsert_cve(
+        {
+            "cve_id": "CVE-2021-44228",
+            "description": "Log4Shell RCE",
+            "severity": "CRITICAL",
+            "published": "2021-12-10T00:00:00Z",
+            "affected_products": [{"vendor": "apache", "product": "log4j"}],
+        }
+    )
+    upsert_cve(
+        {
+            "cve_id": "CVE-2022-22965",
+            "description": "Spring4Shell RCE",
+            "severity": "CRITICAL",
+            "published": "2022-03-31T00:00:00Z",
+            "affected_products": [{"vendor": "pivotal_software", "product": "spring_framework"}],
+        }
+    )
+
+    # Maven artifactId should resolve to NVD canonical name via alias
+    results, total = search_cves(product="log4j-core")
+    assert total >= 1
+    assert any(r["cve_id"] == "CVE-2021-44228" for r in results)
+
+    results, total = search_cves(product="spring-web")
+    assert total >= 1
+    assert any(r["cve_id"] == "CVE-2022-22965" for r in results)
+
+    # Bulk variant also normalizes
+    bulk = search_cves_by_products_bulk(["log4j-core", "spring-web"])
+    assert "log4j" in bulk
+    assert "spring_framework" in bulk
+
+
 # --- Sync status ---
 
 

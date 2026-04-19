@@ -607,6 +607,35 @@ class TestDependenciesRoute:
             # All 4 collapse to 1 → count=1 path, consume_bulk NOT called
             mock_consume.assert_not_called()
 
+    def test_maven_artifactid_alias_finds_cves(self):
+        """Regression: posting a Maven artifactId (log4j-core) must resolve to
+        NVD canonical name (log4j) via PRODUCT_ALIAS and return the CVE.
+        Caught a CRITICAL bug where the bulk function returned a dict keyed by
+        normalized name but the caller looked up by original input."""
+        from db import upsert_cve
+
+        upsert_cve(
+            {
+                "cve_id": "CVE-2021-44228",
+                "description": "Log4Shell RCE",
+                "severity": "CRITICAL",
+                "published": "2021-12-10T00:00:00Z",
+                "affected_products": [
+                    {"vendor": "apache", "product": "log4j", "version_start": "2.0.0", "version_end": "2.15.0"}
+                ],
+            }
+        )
+
+        r = client.post(
+            "/v1/check/dependencies",
+            json={"packages": [{"name": "log4j-core", "version": "2.14.1"}]},
+        )
+        assert r.status_code == 200
+        findings = r.json()["findings"]
+        assert any(f["cve_id"] == "CVE-2021-44228" for f in findings), (
+            f"Maven artifactId 'log4j-core' should alias to 'log4j' and find CVE-2021-44228, got findings: {findings}"
+        )
+
 
 class TestOpenApiCodesec:
     def test_operation_ids_present(self):

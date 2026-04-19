@@ -19,6 +19,42 @@ from config import API_DB_PATH, CACHE_DB_PATH, CACHE_MAX_BYTES, CVE_DB_PATH, DOM
 
 logger = logging.getLogger("contrastapi")
 
+# Map common Maven artifactIds to NVD canonical product names.
+PRODUCT_ALIAS: dict[str, str] = {
+    # Log4j
+    "log4j-core": "log4j",
+    "log4j-api": "log4j",
+    # Logback
+    "logback-core": "logback",
+    "logback-classic": "logback",
+    # Spring Framework
+    "spring-core": "spring_framework",
+    "spring-web": "spring_framework",
+    "spring-beans": "spring_framework",
+    "spring-context": "spring_framework",
+    "spring-webmvc": "spring_framework",
+    # Spring Boot
+    "spring-boot": "spring_boot",
+    "spring-boot-autoconfigure": "spring_boot",
+    # Tomcat
+    "tomcat-embed-core": "tomcat",
+    "tomcat-embed-websocket": "tomcat",
+    # Apache Commons
+    "commons-text": "commons_text",
+    "commons-fileupload": "commons_fileupload",
+    # Struts
+    "struts2-core": "struts",
+}
+
+
+def _normalize_product(name: str | None) -> str | None:
+    """Map common Maven artifactIds to NVD canonical product names.
+    Case-insensitive lookup. Returns input unchanged if no alias exists."""
+    if not name:
+        return name
+    return PRODUCT_ALIAS.get(name.strip().lower(), name)
+
+
 # Resolve HMAC key once at import time (config.py guarantees non-empty fallback)
 _hmac_key = HASH_SECRET.encode()
 
@@ -708,6 +744,7 @@ def search_cves(
     conditions = []
     params = []
     if product:
+        product = _normalize_product(product)
         conditions.append("cve_id IN (SELECT cve_id FROM cve_products WHERE LOWER(product) = LOWER(?))")
         params.append(product)
     if severity:
@@ -760,6 +797,7 @@ def _parse_version(v: str) -> tuple:
 
 def search_cves_by_product(product: str, version: str | None = None, limit: int = 20) -> list[dict]:
     """Search CVEs via cve_products table with optional version range check."""
+    product = _normalize_product(product)
     escaped = product.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
     with get_cve_db() as con:
         cur = con.cursor()
@@ -806,7 +844,15 @@ def search_cves_by_products_bulk(products: list[str], limit_per_product: int = 2
     """Bulk variant of search_cves_by_product.
 
     Given a list of product names, returns a dict mapping
-    lowercase product name -> list of CVE rows (deserialized, most recent first).
+    **NVD canonical product name (lowercase, post-alias)** -> list of CVE rows
+    (deserialized, most recent first).
+
+    IMPORTANT: Inputs are passed through _normalize_product() before the query,
+    so Maven artifactIds like "log4j-core" are resolved to NVD canonical names
+    like "log4j". Callers looking up results in the returned dict MUST apply
+    _normalize_product().strip().lower() to their lookup key, or they will
+    receive an empty list for any aliased input. See PRODUCT_ALIAS for the
+    full alias map.
 
     Uses exact lowercase match against cve_products.product (indexed by
     idx_products_product_lower), not LIKE substring match. Callers that
@@ -815,7 +861,7 @@ def search_cves_by_products_bulk(products: list[str], limit_per_product: int = 2
     Over-fetches limit_per_product * 3 per product so callers can apply
     additional filtering (e.g. version ranges) without losing results.
     """
-    products_lower = list({p.strip().lower() for p in products if p and p.strip()})
+    products_lower = list({_normalize_product(p).strip().lower() for p in products if p and p.strip()})
     if not products_lower:
         return {}
     if len(products_lower) > 500:
