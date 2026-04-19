@@ -2094,7 +2094,14 @@ class TestBulkCveLookup:
 
     def test_bulk_cve_invalid_format(self):
         r = client.post("/v1/cves/bulk", json={"cve_ids": ["NOT-A-CVE"]})
-        assert r.status_code == 400
+        assert r.status_code == 200
+        data = r.json()
+        assert data["total"] == 1
+        assert data["successful"] == 0
+        assert data["failed"] == 1
+        assert data["partial"] is True
+        assert data["results"][0]["status"] == "invalid_format"
+        assert data["results"][0]["error"] is not None
 
     def test_bulk_cve_empty_list(self):
         r = client.post("/v1/cves/bulk", json={"cve_ids": []})
@@ -2134,7 +2141,7 @@ class TestBulkCveLookup:
         assert data["total"] == 1
 
     def test_bulk_cve_format_edge_cases(self):
-        """Various malformed CVE IDs should all return 400."""
+        """Various malformed CVE IDs should return 200 with per-item invalid_format."""
         bad_ids = [
             "CVE-2024-",  # missing number
             "CVE--12345",  # missing year
@@ -2143,4 +2150,63 @@ class TestBulkCveLookup:
         ]
         for bad in bad_ids:
             r = client.post("/v1/cves/bulk", json={"cve_ids": [bad]})
-            assert r.status_code == 400, f"Expected 400 for {bad!r}, got {r.status_code}"
+            assert r.status_code == 200, f"Expected 200 for {bad!r}, got {r.status_code}"
+            data = r.json()
+            assert data["results"][0]["status"] == "invalid_format"
+            assert data["results"][0]["error"] is not None
+            assert data["partial"] is True
+
+    @patch("cve.routes.get_cve")
+    def test_bulk_cve_mixed_valid_invalid_format(self, mock_get):
+        """Valid + invalid-format IDs in same batch → 200 OK with per-item status."""
+        mock_get.return_value = dict(self._MOCK_CVE)
+        r = client.post(
+            "/v1/cves/bulk",
+            json={"cve_ids": ["CVE-2024-3094", "NOT-A-CVE", "CVE-2021-44228"]},
+        )
+        assert r.status_code == 200
+        data = r.json()
+        assert data["total"] == 3
+        assert data["successful"] == 2
+        assert data["failed"] == 1
+        assert data["partial"] is True
+        statuses = {r["status"] for r in data["results"]}
+        assert statuses == {"ok", "invalid_format"}
+        invalid = [r for r in data["results"] if r["status"] == "invalid_format"]
+        assert len(invalid) == 1
+        assert invalid[0]["cve_id"] == "NOT-A-CVE"
+        assert invalid[0]["error"] is not None
+
+    @patch("cve.routes.get_cve")
+    def test_bulk_cve_partial_flag_false_when_all_ok(self, mock_get):
+        """partial=False only when every item is status=ok."""
+        mock_get.return_value = dict(self._MOCK_CVE)
+        r = client.post("/v1/cves/bulk", json={"cve_ids": ["CVE-2024-3094"]})
+        assert r.status_code == 200
+        data = r.json()
+        assert data["partial"] is False
+        assert data["failed"] == 0
+        assert data["timed_out"] == 0
+
+    @patch("cve.routes.get_cve", return_value=None)
+    def test_bulk_cve_mixed_invalid_and_not_found(self, mock_get):
+        """invalid_format + not_found statuses coexist in one response."""
+        r = client.post(
+            "/v1/cves/bulk",
+            json={"cve_ids": ["CVE-9999-99999", "NOT-A-CVE"]},
+        )
+        assert r.status_code == 200
+        data = r.json()
+        assert data["successful"] == 0
+        assert data["failed"] == 2
+        assert data["partial"] is True
+        statuses = {r["status"] for r in data["results"]}
+        assert statuses == {"not_found", "invalid_format"}
+
+    def test_bulk_cve_item_length_cap(self):
+        """Oversized per-item CVE ID (>64 chars) rejected by schema before dispatch."""
+        r = client.post(
+            "/v1/cves/bulk",
+            json={"cve_ids": ["CVE-2024-" + "9" * 100]},
+        )
+        assert r.status_code == 422

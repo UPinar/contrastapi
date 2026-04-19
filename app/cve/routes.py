@@ -3,6 +3,7 @@
 import logging
 import re
 from datetime import UTC, datetime
+from typing import Annotated
 
 import httpx
 from auth import authenticate
@@ -16,7 +17,7 @@ from db import (
     search_cves,
 )
 from fastapi import APIRouter, HTTPException, Query, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StringConstraints
 from schemas import (
     BulkCveResponse,
     CveResponse,
@@ -445,7 +446,7 @@ def exploit_lookup(cve_id: str, request: Request):
 
 
 class _BulkCveRequest(BaseModel):
-    cve_ids: list[str] = Field(..., min_length=1, max_length=50)
+    cve_ids: list[Annotated[str, StringConstraints(max_length=64)]] = Field(..., min_length=1, max_length=50)
 
 
 @router.post(
@@ -477,10 +478,6 @@ def bulk_cve_lookup(body: _BulkCveRequest, request: Request):
             detail=f"Too many CVE IDs. Limit: {bulk_limit} (your tier: {auth_ctx['tier']})",
         )
 
-    for cid in cve_ids:
-        if not validate_cve_id(cid):
-            raise HTTPException(status_code=400, detail=f"Invalid CVE ID format: {cid}")
-
     raw_key = extract_key(request)
     if raw_key:
         store_key = f"pro:{hash_key(raw_key)}"
@@ -498,6 +495,16 @@ def bulk_cve_lookup(body: _BulkCveRequest, request: Request):
     results = []
     successful = 0
     for cid in cve_ids:
+        if not validate_cve_id(cid):
+            results.append(
+                {
+                    "cve_id": cid,
+                    "status": "invalid_format",
+                    "cve": None,
+                    "error": f"Invalid CVE ID format: {cid}",
+                }
+            )
+            continue
         try:
             row = get_cve(cid)
             if row is None:
@@ -510,17 +517,21 @@ def bulk_cve_lookup(body: _BulkCveRequest, request: Request):
             results.append({"cve_id": cid, "status": "error", "cve": None, "error": "Lookup failed"})
 
     failed = count - successful
+    partial = failed > 0
+
     if failed == 0:
         summary = f"All {count} CVEs found"
     elif successful == 0:
         summary = f"No CVEs found in {count} lookups"
     else:
-        summary = f"{successful}/{count} CVEs found, {failed} not found or failed"
+        summary = f"{successful}/{count} CVEs found, {failed} invalid, not found or failed"
 
     return {
         "results": results,
         "total": count,
         "successful": successful,
         "failed": failed,
+        "timed_out": 0,
+        "partial": partial,
         "summary": summary,
     }

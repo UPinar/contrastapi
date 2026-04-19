@@ -625,6 +625,8 @@ class BulkCveResponse(BaseModel):
     total: int = 0
     successful: int = 0
     failed: int = 0
+    timed_out: int = 0
+    partial: bool = False
     summary: str = ""
 
 

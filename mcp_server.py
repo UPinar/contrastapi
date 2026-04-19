@@ -559,14 +559,11 @@ async def bulk_cve_lookup(
         ),
     ],
 ) -> str:
-    """Look up multiple CVEs in a single request — efficient for vulnerability scanning, dependency audits, and threat intelligence pipelines that need to enrich many CVE IDs at once. Each CVE returns full details (severity, CVSS breakdown, EPSS score, KEV status, description, references). Use bulk_cve_lookup instead of calling cve_lookup repeatedly when you have a list of 5+ CVEs to check. For a single CVE, use cve_lookup. Returns JSON with fields: results (array of CVE details), total, successful, failed, and summary. Read-only database lookup, free tier allows 10 IDs per request, Pro allows 50."""
+    """Look up multiple CVEs in a single request — efficient for vulnerability scanning, dependency audits, and threat intelligence pipelines that need to enrich many CVE IDs at once. Each CVE returns full details (severity, CVSS breakdown, EPSS score, KEV status, description, references). Use bulk_cve_lookup instead of calling cve_lookup repeatedly when you have a list of 5+ CVEs to check. Invalid CVE IDs are returned per-item with status='invalid_format' rather than failing the whole batch. For a single CVE, use cve_lookup. Returns JSON with fields: results (array with per-item status), total, successful, failed, timed_out, partial, and summary. Read-only database lookup, free tier allows 10 IDs per request, Pro allows 50."""
     if not isinstance(cve_ids, list) or not cve_ids:
         return "cve_ids must be a non-empty list"
-    # Per-item validation: fail fast at MCP layer with a clear message instead of
-    # waiting for the backend to reject the whole batch on the first invalid ID.
-    for cid in cve_ids:
-        if not isinstance(cid, str) or (err := _validate_cve(cid)):
-            return err if isinstance(cid, str) else f"All cve_ids must be strings, got: {type(cid).__name__}"
+    if not all(isinstance(cid, str) for cid in cve_ids):
+        return "All cve_ids must be strings"
     return _fmt(await _post("/v1/cves/bulk", {"cve_ids": cve_ids}))
 
 
