@@ -1,8 +1,13 @@
 """Tests for SSL certificate, bulk domain report, ASN lookup, and response model filtering."""
 
+import datetime
 from unittest.mock import MagicMock, patch
 
 import httpx
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.x509.oid import AuthorityInformationAccessOID, NameOID
 from fastapi.testclient import TestClient
 from main import app
 
@@ -11,6 +16,48 @@ client = TestClient(app)
 MOCK_DNS_RESULT = {"a": ["93.184.216.34"], "ns": ["a.iana-servers.net"]}
 MOCK_WHOIS_RESULT = {"registrar": "Test Registrar", "creation_date": "2020-01-01", "raw_length": 500}
 MOCK_CT_RESULT = {"total_certificates": 1, "certificates": [{"issuer": "LE", "common_name": "example.com"}]}
+
+
+def _build_test_cert(include_aia_url: str | None = None) -> tuple[bytes, bytes]:
+    """Return (der_bytes, pem_bytes) for a self-signed leaf cert."""
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    now = datetime.datetime.now(datetime.UTC)
+    builder = (
+        x509.CertificateBuilder()
+        .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "example.com")]))
+        .issuer_name(x509.Name([x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Let's Encrypt")]))
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now)
+        .not_valid_after(now + datetime.timedelta(days=365))
+        .add_extension(
+            x509.SubjectAlternativeName([x509.DNSName("example.com"), x509.DNSName("www.example.com")]),
+            critical=False,
+        )
+    )
+    if include_aia_url:
+        builder = builder.add_extension(
+            x509.AuthorityInformationAccess(
+                [
+                    x509.AccessDescription(
+                        AuthorityInformationAccessOID.CA_ISSUERS,
+                        x509.UniformResourceIdentifier(include_aia_url),
+                    )
+                ]
+            ),
+            critical=False,
+        )
+    cert = builder.sign(key, hashes.SHA256())
+    return (
+        cert.public_bytes(serialization.Encoding.DER),
+        cert.public_bytes(serialization.Encoding.PEM),
+    )
+
+
+# Pre-build certs once at module level to avoid repeated key gen in tests
+_LEAF_DER, _LEAF_PEM = _build_test_cert()
+_LEAF_AIA_DER, _LEAF_AIA_PEM = _build_test_cert(include_aia_url="http://ca.example.com/intermediate.crt")
+_INTER_DER, _INTER_PEM = _build_test_cert()  # reuse as a stand-in intermediate
 
 
 # =========== /v1/ssl/{domain} tests ===========
@@ -26,12 +73,19 @@ class TestSslCertificate:
         "subjectAltName": (("DNS", "example.com"), ("DNS", "www.example.com")),
     }
 
-    def _make_mock_ssock(self, cert=None, version="TLSv1.3", cipher=("TLS_AES_256_GCM_SHA384", "TLSv1.3", 256)):
+    def _make_mock_ssock(
+        self, cert=None, version="TLSv1.3", cipher=("TLS_AES_256_GCM_SHA384", "TLSv1.3", 256), leaf_der=None
+    ):
         mock_ssock = MagicMock()
-        mock_ssock.getpeercert.return_value = cert or dict(self._MOCK_CERT)
+        base_cert = cert if cert is not None else dict(self._MOCK_CERT)
+        der = leaf_der if leaf_der is not None else _LEAF_DER
+
+        def _getpeercert(binary_form=False):
+            return der if binary_form else base_cert
+
+        mock_ssock.getpeercert.side_effect = _getpeercert
         mock_ssock.version.return_value = version
         mock_ssock.cipher.return_value = cipher
-        mock_ssock.get_verified_chain.side_effect = AttributeError
         mock_ssock.__enter__ = MagicMock(return_value=mock_ssock)
         mock_ssock.__exit__ = MagicMock(return_value=False)
         return mock_ssock
@@ -64,6 +118,9 @@ class TestSslCertificate:
         assert "www.example.com" in data["san"]
         assert data["grade"] in ("A", "B")
         assert data["serial_number"] == "0123456789ABCDEF"
+        assert data["warnings"] == []
+        assert len(data["chain"]) == 1
+        assert data["chain"][0]["source"] == "handshake"
 
     @patch("domain.routes.save_cached_domain")
     @patch("domain.routes.get_cached_domain", return_value=None)
@@ -112,6 +169,106 @@ class TestSslCertificate:
         assert r.status_code == 200
         data = r.json()
         assert data["grade"] == "A"
+
+    @patch("domain.routes.save_cached_domain")
+    @patch("domain.routes.get_cached_domain", return_value=None)
+    @patch("domain.routes._validate_and_auth")
+    def test_ssl_chain_no_aia_extension(self, mock_validate, mock_cache_get, mock_cache_save):
+        mock_validate.return_value = ("example.com", "93.184.216.34", {"tier": "free"})
+        mock_ssock = self._make_mock_ssock(leaf_der=_LEAF_DER)
+        mock_sock = MagicMock()
+        mock_sock.__enter__ = MagicMock(return_value=mock_sock)
+        mock_sock.__exit__ = MagicMock(return_value=False)
+        with (
+            patch("domain.routes.socket.create_connection", return_value=mock_sock),
+            patch("domain.routes._ssl.create_default_context") as mock_ctx,
+        ):
+            mock_ctx.return_value.wrap_socket.return_value = mock_ssock
+            r = client.get("/v1/ssl/example.com")
+        assert r.status_code == 200
+        data = r.json()
+        assert len(data["chain"]) == 1
+        assert data["warnings"] == []
+        assert "partial" not in data["summary"]
+
+    @patch("domain.routes.save_cached_domain")
+    @patch("domain.routes.get_cached_domain", return_value=None)
+    @patch("domain.routes._validate_and_auth")
+    def test_ssl_chain_with_aia_success(self, mock_validate, mock_cache_get, mock_cache_save):
+        mock_validate.return_value = ("example.com", "93.184.216.34", {"tier": "free"})
+        mock_ssock = self._make_mock_ssock(leaf_der=_LEAF_AIA_DER)
+        mock_sock = MagicMock()
+        mock_sock.__enter__ = MagicMock(return_value=mock_sock)
+        mock_sock.__exit__ = MagicMock(return_value=False)
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.content = _INTER_DER
+        with (
+            patch("domain.routes.socket.create_connection", return_value=mock_sock),
+            patch("domain.routes._ssl.create_default_context") as mock_ctx,
+            patch("domain.routes._ssrf_http") as mock_http,
+        ):
+            mock_ctx.return_value.wrap_socket.return_value = mock_ssock
+            mock_http.get.return_value = mock_resp
+            r = client.get("/v1/ssl/example.com")
+        assert r.status_code == 200
+        data = r.json()
+        assert len(data["chain"]) == 2
+        assert data["chain"][1]["source"] == "aia_fetch"
+        assert data["warnings"] == []
+        assert "partial" not in data["summary"]
+
+    @patch("domain.routes.save_cached_domain")
+    @patch("domain.routes.get_cached_domain", return_value=None)
+    @patch("domain.routes._validate_and_auth")
+    def test_ssl_chain_aia_timeout(self, mock_validate, mock_cache_get, mock_cache_save):
+        mock_validate.return_value = ("example.com", "93.184.216.34", {"tier": "free"})
+        mock_ssock = self._make_mock_ssock(leaf_der=_LEAF_AIA_DER)
+        mock_sock = MagicMock()
+        mock_sock.__enter__ = MagicMock(return_value=mock_sock)
+        mock_sock.__exit__ = MagicMock(return_value=False)
+        with (
+            patch("domain.routes.socket.create_connection", return_value=mock_sock),
+            patch("domain.routes._ssl.create_default_context") as mock_ctx,
+            patch("domain.routes._ssrf_http") as mock_http,
+        ):
+            mock_ctx.return_value.wrap_socket.return_value = mock_ssock
+            mock_http.get.side_effect = httpx.TimeoutException("timeout")
+            r = client.get("/v1/ssl/example.com")
+        assert r.status_code == 200
+        data = r.json()
+        assert len(data["chain"]) == 1
+        assert data["chain"][0]["source"] == "handshake"
+        assert len(data["warnings"]) == 1
+        assert "timeout" in data["warnings"][0].lower()
+        assert "partial" in data["summary"]
+
+    @patch("domain.routes.save_cached_domain")
+    @patch("domain.routes.get_cached_domain", return_value=None)
+    @patch("domain.routes._validate_and_auth")
+    def test_ssl_chain_aia_malformed(self, mock_validate, mock_cache_get, mock_cache_save):
+        mock_validate.return_value = ("example.com", "93.184.216.34", {"tier": "free"})
+        mock_ssock = self._make_mock_ssock(leaf_der=_LEAF_AIA_DER)
+        mock_sock = MagicMock()
+        mock_sock.__enter__ = MagicMock(return_value=mock_sock)
+        mock_sock.__exit__ = MagicMock(return_value=False)
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.content = b"not a cert at all"
+        with (
+            patch("domain.routes.socket.create_connection", return_value=mock_sock),
+            patch("domain.routes._ssl.create_default_context") as mock_ctx,
+            patch("domain.routes._ssrf_http") as mock_http,
+        ):
+            mock_ctx.return_value.wrap_socket.return_value = mock_ssock
+            mock_http.get.return_value = mock_resp
+            r = client.get("/v1/ssl/example.com")
+        assert r.status_code == 200
+        data = r.json()
+        assert len(data["chain"]) == 1
+        assert len(data["warnings"]) == 1
+        assert "parse" in data["warnings"][0].lower()
+        assert "partial" in data["summary"]
 
 
 # =========== /v1/domains/bulk tests ===========

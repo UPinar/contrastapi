@@ -127,6 +127,7 @@ class SslChainItem(BaseModel):
     subject: str = ""
     issuer: str = ""
     not_after: str = ""
+    source: str = "handshake"
 
 
 class SslResponse(BaseModel):
@@ -144,6 +145,7 @@ class SslResponse(BaseModel):
     cipher: dict = Field(default_factory=dict)
     chain: list[SslChainItem] = Field(default_factory=list)
     grade: str = "F"
+    warnings: list[str] = Field(default_factory=list, max_length=10)
     summary: str = ""
 
 

@@ -1,5 +1,6 @@
 """Domain Intelligence API routes — /v1/domain/*, /v1/dns/*, /v1/whois/*, etc."""
 
+import atexit
 import logging
 import socket
 import ssl as _ssl
@@ -7,6 +8,7 @@ import threading
 import time as _time
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeoutError
+from urllib.parse import urlparse as _urlparse
 
 
 class AsnUpstreamError(Exception):
@@ -19,6 +21,9 @@ class AsnUpstreamError(Exception):
 from fastapi import APIRouter, HTTPException, Request
 
 _reputation_pool = ThreadPoolExecutor(max_workers=3)
+_aia_pool = ThreadPoolExecutor(max_workers=2)
+atexit.register(_aia_pool.shutdown, wait=False)
+atexit.register(_reputation_pool.shutdown, wait=False)
 
 import httpx as _httpx
 import ratelimit
@@ -33,9 +38,12 @@ from config import (
     ENRICHMENT_DAILY_LIMIT,
     RECON_TIMEOUT,
 )
+from cryptography import x509
+from cryptography.x509.oid import AuthorityInformationAccessOID
 from db import get_cached_domain, get_cached_domain_with_age, get_cached_ip_with_age, save_cached_domain, save_cached_ip
 from domain.archive import wayback_lookup
 from domain.recon import (
+    _ssrf_http,
     check_ct_logs,
     check_disposable,
     detect_mail_provider,
@@ -80,6 +88,30 @@ from schemas import (
 from validation import _is_valid_format, clean_domain, get_client_ip, is_private_ip, is_valid_ip, validate_domain
 
 logger = logging.getLogger("contrastapi")
+
+
+def _safe_rdn(s: str) -> str:
+    """Strip control chars from RFC 4514 DN strings to prevent log/response injection."""
+    return "".join(c for c in s if c >= " " and c != "\x7f")[:512]
+
+
+def _safe_url(url: str) -> str:
+    """Strip CRLF / control chars from URLs before logging or returning in responses."""
+    return "".join(c for c in url if c >= " " and c != "\x7f")[:2048]
+
+
+def _fetch_intermediate(url):
+    resp = _ssrf_http.get(url, timeout=5.0)
+    if resp.status_code != 200:
+        raise ValueError(f"HTTP {resp.status_code}")
+    body = resp.content[:10240]
+    for loader in (x509.load_der_x509_certificate, x509.load_pem_x509_certificate):
+        try:
+            return loader(body)
+        except Exception:
+            continue
+    raise ValueError("cert parse failed: unsupported format")
+
 
 # Headers stripped from audit response to prevent leaking target-site secrets
 # into API output (e.g. user auditing their own site with active session).
@@ -538,21 +570,63 @@ def ssl_certificate(domain: str, request: Request):
                 else:
                     grade = "C"
 
-                # Chain from OCSP stapling / peer cert chain
+                # Chain: leaf from handshake, intermediates via AIA caIssuers
                 chain = []
+                warnings = []
+                leaf_cert = None
                 try:
-                    chain_certs = ssock.get_verified_chain() or []
-                    for c in chain_certs:
-                        chain.append(
-                            {
-                                "subject": c.get("subject", ""),
-                                "issuer": c.get("issuer", ""),
-                                "not_after": c.get("notAfter", ""),
-                            }
-                        )
-                except (AttributeError, Exception):
-                    # get_verified_chain not available in all Python versions
-                    pass
+                    der = ssock.getpeercert(binary_form=True)
+                    leaf_cert = x509.load_der_x509_certificate(der)
+                    chain.append(
+                        {
+                            "subject": _safe_rdn(leaf_cert.subject.rfc4514_string()),
+                            "issuer": _safe_rdn(leaf_cert.issuer.rfc4514_string()),
+                            "not_after": leaf_cert.not_valid_after.isoformat(),
+                            "source": "handshake",
+                        }
+                    )
+                except (ValueError, TypeError, AttributeError) as e:
+                    warnings.append(f"leaf cert parse failed: {type(e).__name__}")
+                    leaf_cert = None
+
+                if leaf_cert is not None:
+                    # Collect AIA caIssuers URLs (http/https only, cap at 2)
+                    aia_urls: list[str] = []
+                    try:
+                        aia = leaf_cert.extensions.get_extension_for_class(x509.AuthorityInformationAccess)
+                        for desc in aia.value:
+                            if desc.access_method == AuthorityInformationAccessOID.CA_ISSUERS:
+                                url = desc.access_location.value
+                                if not isinstance(url, str) or len(url) > 2048:
+                                    continue
+                                if _urlparse(url).scheme in ("http", "https"):
+                                    aia_urls.append(url)
+                                if len(aia_urls) >= 2:
+                                    break
+                    except x509.ExtensionNotFound:
+                        pass
+
+                    if aia_urls:
+                        futures = {_aia_pool.submit(_fetch_intermediate, u): u for u in aia_urls}
+                        for fut, url in futures.items():
+                            try:
+                                ic = fut.result(timeout=7)
+                                chain.append(
+                                    {
+                                        "subject": _safe_rdn(ic.subject.rfc4514_string()),
+                                        "issuer": _safe_rdn(ic.issuer.rfc4514_string()),
+                                        "not_after": ic.not_valid_after.isoformat(),
+                                        "source": "aia_fetch",
+                                    }
+                                )
+                            except _httpx.TimeoutException:
+                                warnings.append(f"AIA fetch timeout: {_safe_url(url)}")
+                            except _httpx.HTTPError:
+                                warnings.append(f"AIA fetch error: {_safe_url(url)}")
+                            except (ValueError, TypeError):
+                                warnings.append(f"AIA parse failed: {_safe_url(url)}")
+                            except Exception:
+                                warnings.append(f"AIA fetch error: {_safe_url(url)}")
 
                 cipher_dict = {}
                 if cipher_info:
@@ -565,6 +639,8 @@ def ssl_certificate(domain: str, request: Request):
                     parts.append(f"{days_remaining} days remaining")
                 if not valid:
                     parts.append("EXPIRED")
+                if warnings:
+                    parts.append("(partial: chain incomplete)")
 
                 result = {
                     "domain": domain,
@@ -581,6 +657,7 @@ def ssl_certificate(domain: str, request: Request):
                     "cipher": cipher_dict,
                     "chain": chain,
                     "grade": grade,
+                    "warnings": warnings,
                     "summary": ". ".join(parts),
                 }
 
