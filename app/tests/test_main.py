@@ -643,3 +643,29 @@ class TestSecurityHeaders:
             "",
         )
         assert "'sha256-" in script_src, f"script-src should include at least one sha256 hash: {script_src}"
+
+
+# --- OAuth discovery stubs ---
+
+
+def test_oauth_protected_resource_200_shape():
+    r = client.get("/.well-known/oauth-protected-resource")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["resource"] == "https://api.contrastcyber.com"
+    assert body["authorization_servers"] == []
+    assert "header" in body["bearer_methods_supported"]
+
+
+def test_oauth_protected_resource_mcp_alias_equivalent():
+    r1 = client.get("/.well-known/oauth-protected-resource")
+    r2 = client.get("/.well-known/oauth-protected-resource/mcp")
+    assert r2.status_code == 200
+    assert r1.json() == r2.json()
+
+
+def test_oauth_authorization_server_404_structured():
+    r = client.get("/.well-known/oauth-authorization-server")
+    assert r.status_code == 404
+    body = r.json()
+    assert body["error"] == "not_found"

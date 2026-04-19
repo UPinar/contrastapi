@@ -1810,6 +1810,38 @@ def glama_manifest():
     )
 
 
+# --- OAuth discovery stubs (RFC 9728 / RFC 8414) ---
+# MCP SDKs (undici, TypeScript, Python) probe these paths per session.
+# ContrastAPI uses custom Bearer cc_* tokens, not OAuth. Empty
+# authorization_servers signals "Bearer optional, no OAuth server".
+
+_OAUTH_PROTECTED_RESOURCE_METADATA = {
+    "resource": "https://api.contrastcyber.com",
+    "authorization_servers": [],
+    "bearer_methods_supported": ["header"],
+    "scopes_supported": [],
+}
+
+
+@app.get("/.well-known/oauth-protected-resource", include_in_schema=False)
+@app.get("/.well-known/oauth-protected-resource/mcp", include_in_schema=False)
+def oauth_protected_resource():
+    """RFC 9728 — auth_servers=[] signals OAuth not required."""
+    return _OAUTH_PROTECTED_RESOURCE_METADATA
+
+
+@app.get("/.well-known/oauth-authorization-server", include_in_schema=False)
+def oauth_authorization_server():
+    """No OAuth server; structured 404 per RFC 8414 absence."""
+    return JSONResponse(
+        status_code=404,
+        content={
+            "error": "not_found",
+            "error_description": "no OAuth authorization server",
+        },
+    )
+
+
 @app.get("/robots.txt", response_class=PlainTextResponse, include_in_schema=False)
 def robots_txt():
     """Allow AI crawlers and point to llms.txt."""
