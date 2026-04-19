@@ -580,7 +580,7 @@ def ssl_certificate(domain: str, request: Request):
                         {
                             "subject": _safe_rdn(leaf_cert.subject.rfc4514_string()),
                             "issuer": _safe_rdn(leaf_cert.issuer.rfc4514_string()),
-                            "not_after": leaf_cert.not_valid_after.isoformat(),
+                            "not_after": leaf_cert.not_valid_after_utc.replace(tzinfo=None).isoformat(),
                             "source": "handshake",
                         }
                     )
@@ -614,7 +614,7 @@ def ssl_certificate(domain: str, request: Request):
                                     {
                                         "subject": _safe_rdn(ic.subject.rfc4514_string()),
                                         "issuer": _safe_rdn(ic.issuer.rfc4514_string()),
-                                        "not_after": ic.not_valid_after.isoformat(),
+                                        "not_after": ic.not_valid_after_utc.replace(tzinfo=None).isoformat(),
                                         "source": "aia_fetch",
                                     }
                                 )
