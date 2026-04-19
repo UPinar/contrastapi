@@ -420,6 +420,9 @@ async def api_error_handler(request: Request, exc: StarletteHTTPException):
         content["hint"] = f"Method {request.method} not allowed. Try POST for /v1/check/* endpoints."
 
     if exc.status_code == 429:
+        reset_seconds = getattr(request.state, "ratelimit_reset", 0)
+        content["error_code"] = "rate_limit"
+        content["reset_in"] = reset_seconds
         is_free = extract_key(request) is None
         if is_free:
             content["tier"] = "free"
@@ -429,6 +432,9 @@ async def api_error_handler(request: Request, exc: StarletteHTTPException):
             content["tier"] = "pro"
             content["limit"] = PRO_HOURLY_LIMIT
             content["support"] = "Contact support for higher limits: support@contrastcyber.com"
+        resp = JSONResponse(status_code=429, content=content)
+        resp.headers["Retry-After"] = str(reset_seconds)
+        return resp
 
     return JSONResponse(status_code=exc.status_code, content=content)
 

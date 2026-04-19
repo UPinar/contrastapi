@@ -449,6 +449,92 @@ def test_pro_429_body_has_support_no_upgrade():
         reset("api")
 
 
+def test_free_429_has_retry_after_header():
+    """Free-tier 429 must carry Retry-After header with non-negative int value."""
+    from ratelimit import reset
+
+    reset("api")
+    headers = {"X-Forwarded-For": "203.0.113.80"}
+    for _ in range(25):
+        client.get("/v1/threat-report/not_an_ip", headers=headers)
+    r = client.get("/v1/threat-report/not_an_ip", headers=headers)
+    assert r.status_code == 429
+    assert "Retry-After" in r.headers
+    assert int(r.headers["Retry-After"]) >= 0
+    reset("api")
+
+
+def test_free_429_has_reset_in_body():
+    """Free-tier 429 body must include reset_in as non-negative int."""
+    from ratelimit import reset
+
+    reset("api")
+    headers = {"X-Forwarded-For": "203.0.113.81"}
+    for _ in range(25):
+        client.get("/v1/threat-report/not_an_ip", headers=headers)
+    r = client.get("/v1/threat-report/not_an_ip", headers=headers)
+    assert r.status_code == 429
+    body = r.json()
+    assert "reset_in" in body
+    assert isinstance(body["reset_in"], int)
+    assert body["reset_in"] >= 0
+    reset("api")
+
+
+@patch("auth.PRO_HOURLY_LIMIT", 5)
+def test_pro_429_has_retry_after_header():
+    """Pro-tier 429 must carry Retry-After header with non-negative int value."""
+    from auth import hash_key
+    from config import KEY_LENGTH, KEY_PREFIX
+    from db import get_api_db, save_api_key
+    from ratelimit import reset
+
+    reset("api")
+    test_key = KEY_PREFIX + "w" * KEY_LENGTH
+    key_hash = hash_key(test_key)
+    try:
+        save_api_key(key_hash)
+        auth_header = {"Authorization": f"Bearer {test_key}"}
+        for _ in range(5):
+            client.get("/v1/threat-report/not_an_ip", headers=auth_header)
+        r = client.get("/v1/threat-report/not_an_ip", headers=auth_header)
+        assert r.status_code == 429
+        assert "Retry-After" in r.headers
+        assert int(r.headers["Retry-After"]) >= 0
+    finally:
+        with get_api_db() as con:
+            con.execute("DELETE FROM api_keys WHERE key_hash = ?", (key_hash,))
+        reset("api")
+
+
+def test_retry_after_matches_x_ratelimit_reset():
+    """Retry-After header value must equal X-RateLimit-Reset header value."""
+    from ratelimit import reset
+
+    reset("api")
+    headers = {"X-Forwarded-For": "203.0.113.82"}
+    for _ in range(25):
+        client.get("/v1/threat-report/not_an_ip", headers=headers)
+    r = client.get("/v1/threat-report/not_an_ip", headers=headers)
+    assert r.status_code == 429
+    assert r.headers["Retry-After"] == r.headers["X-RateLimit-Reset"]
+    reset("api")
+
+
+def test_429_body_has_error_code_rate_limit():
+    """429 response body must include error_code == 'rate_limit'."""
+    from ratelimit import reset
+
+    reset("api")
+    headers = {"X-Forwarded-For": "203.0.113.83"}
+    for _ in range(25):
+        client.get("/v1/threat-report/not_an_ip", headers=headers)
+    r = client.get("/v1/threat-report/not_an_ip", headers=headers)
+    assert r.status_code == 429
+    assert r.json()["error_code"] == "rate_limit"
+    reset("api")
+
+
 def test_pro_422_body_no_upgrade_cta():
     """Pro-tier 422 must NOT include upgrade CTA."""
     from auth import hash_key
