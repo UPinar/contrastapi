@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, computed_field
 
@@ -446,6 +446,8 @@ class CveSearchResponse(BaseModel):
     offset: int = 0
     summary: str = ""
     results: list[CveResponse] = Field(default_factory=list)
+    query_echo: dict[str, Any] | None = None
+    next_offset: int | None = None
 
 
 # === Code Security ===

@@ -741,13 +741,27 @@ def search_cves(
     sort: str | None = None,
     limit: int = 50,
     offset: int = 0,
+    cwe_id: str | None = None,
+    cvss_min: float | None = None,
+    cvss_max: float | None = None,
+    vendor: str | None = None,
 ) -> tuple[list[dict], int]:
     conditions = []
     params = []
-    if product:
+    if product and vendor:
+        product_norm = _normalize_product(product)
+        conditions.append(
+            "cve_id IN (SELECT cve_id FROM cve_products WHERE LOWER(product) = LOWER(?) AND LOWER(vendor) = LOWER(?))"
+        )
+        params.extend([product_norm, vendor])
+    elif product:
         product = _normalize_product(product)
         conditions.append("cve_id IN (SELECT cve_id FROM cve_products WHERE LOWER(product) = LOWER(?))")
         params.append(product)
+    # vendor: no alias normalization (cve_products.vendor assumed canonical; audit pending)
+    elif vendor:
+        conditions.append("cve_id IN (SELECT cve_id FROM cve_products WHERE LOWER(vendor) = LOWER(?))")
+        params.append(vendor)
     if severity:
         conditions.append("severity = ?")
         params.append(severity.upper())
@@ -763,6 +777,15 @@ def search_cves(
     if epss_min is not None:
         conditions.append("epss_score >= ?")
         params.append(epss_min)
+    if cwe_id is not None:
+        conditions.append("UPPER(cwe_id) = UPPER(?)")
+        params.append(cwe_id)
+    if cvss_min is not None:
+        conditions.append("cvss_v3 >= ?")
+        params.append(cvss_min)
+    if cvss_max is not None:
+        conditions.append("cvss_v3 <= ?")
+        params.append(cvss_max)
 
     order_clauses = {
         "epss_desc": "CASE WHEN epss_score IS NULL THEN 1 ELSE 0 END, epss_score DESC",

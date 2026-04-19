@@ -493,8 +493,26 @@ async def cve_search(
             json_schema_extra={"enum": ["", "published_desc", "epss_desc", "cvss_desc"]},
         ),
     ] = "",
-    limit: Annotated[int, Field(description="Maximum results to return. Range: 1-200.", ge=1, le=200)] = 10,
+    limit: Annotated[int, Field(description="Maximum results to return. Range: 1-200.", ge=1, le=200)] = 50,
     offset: Annotated[int, Field(description="Skip N results for pagination. Use with limit to page through results.", ge=0, le=5000)] = 0,
+    cwe_id: Annotated[
+        str,
+        Field(
+            description="Filter by CWE weakness ID. Exact match, case-insensitive. Common values: CWE-79 (XSS), CWE-89 (SQL injection), CWE-120 (buffer overflow), CWE-78 (command injection). Format: CWE-<number>. Omit to not filter by CWE."
+        ),
+    ] = "",
+    cvss_min: Annotated[
+        float, Field(description="Minimum CVSS v3 base score (0.0-10.0). Default 0.0 = no filter (sentinel, not applied). Set > 0 to filter — CVEs with null CVSS are excluded when active. Use 7.0 for high+critical, 9.0 for critical only.", ge=0.0, le=10.0)
+    ] = 0.0,
+    cvss_max: Annotated[
+        float, Field(description="Maximum CVSS v3 base score (0.0-10.0). Default 10.0 = no filter (sentinel, not applied). Set < 10.0 to filter — CVEs with null CVSS are excluded when active. Combine with cvss_min for a range.", ge=0.0, le=10.0)
+    ] = 10.0,
+    vendor: Annotated[
+        str,
+        Field(
+            description="Filter by vendor name (case-insensitive). When combined with product, both must match the same CPE row — prevents cross-row false matches. Example: vendor=apache, product=struts."
+        ),
+    ] = "",
 ) -> str:
     """Search the CVE database with filters. Returns matching vulnerabilities with CVSS scores, EPSS exploit probability, and KEV status.
 
@@ -504,11 +522,18 @@ Common queries:
 - Most exploitable nginx CVEs: product=nginx, sort=epss_desc
 - Old nginx CVEs (2015-2018): product=nginx, published_after=2015-01-01, published_before=2018-12-31
 - High-risk CVEs (EPSS>50%): epss_min=0.5, sort=epss_desc
+- XSS CVEs: cwe_id=CWE-79
+- High-severity range: cvss_min=7.0, cvss_max=9.0
 
-Returns: count (returned), total (matching), truncated (true = more pages available, use offset), results array. For a specific CVE ID, use cve_lookup instead."""
+Returns: count (returned), total (matching), truncated (true = more pages available),
+next_offset (auto-computed — use as offset for next page, null if last page),
+query_echo (echo of parameters you sent), results array.
+Default limit is 50 (max 200). For a specific CVE ID, use cve_lookup instead."""
     params = {"limit": limit}
     if product:
         params["product"] = product
+    if vendor:
+        params["vendor"] = vendor
     if severity:
         params["severity"] = severity
     if published_after:
@@ -523,6 +548,12 @@ Returns: count (returned), total (matching), truncated (true = more pages availa
         params["sort"] = sort
     if offset > 0:
         params["offset"] = offset
+    if cwe_id:
+        params["cwe_id"] = cwe_id
+    if cvss_min > 0:
+        params["cvss_min"] = cvss_min
+    if cvss_max < 10.0:
+        params["cvss_max"] = cvss_max
     return _fmt(await _get("/v1/cves", params))
 
 

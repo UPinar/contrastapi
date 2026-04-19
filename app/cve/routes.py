@@ -138,6 +138,19 @@ def cve_search(
     sort: str | None = Query(None, description="Sort order: epss_desc, cvss_desc, published_desc (default)"),
     limit: int = Query(50, ge=1, le=200, description="Max results per page"),
     offset: int = Query(0, ge=0, le=5000, description="Number of results to skip (for pagination)"),
+    cwe_id: str | None = Query(None, description="Filter by CWE ID (e.g. CWE-79, CWE-89, CWE-120)"),
+    cvss_min: float | None = Query(
+        None, ge=0.0, le=10.0, description="Minimum CVSS v3 score (0.0-10.0). CVEs with null CVSS are excluded."
+    ),
+    cvss_max: float | None = Query(
+        None, ge=0.0, le=10.0, description="Maximum CVSS v3 score (0.0-10.0). CVEs with null CVSS are excluded."
+    ),
+    vendor: str | None = Query(
+        None,
+        min_length=2,
+        max_length=100,
+        description="Filter by vendor name (case-insensitive). When combined with product, both must match the same cpe row.",
+    ),
 ):
     """Search CVEs by product, severity, date range, KEV status, and EPSS score."""
     authenticate(request, request.url.path)
@@ -146,6 +159,11 @@ def cve_search(
         raise HTTPException(status_code=400, detail="severity must be CRITICAL, HIGH, MEDIUM, or LOW")
     if sort and sort not in ("epss_desc", "cvss_desc", "published_desc"):
         raise HTTPException(status_code=400, detail="sort must be epss_desc, cvss_desc, or published_desc")
+    if cwe_id is not None:
+        if not re.fullmatch(r"CWE-\d+", cwe_id, re.IGNORECASE):
+            raise HTTPException(status_code=400, detail="cwe_id must match pattern CWE-<number> (e.g. CWE-79)")
+    if cvss_min is not None and cvss_max is not None and cvss_min > cvss_max:
+        raise HTTPException(status_code=400, detail="cvss_min must be <= cvss_max")
 
     after_date = _parse_date(published_after, "published_after") if published_after else None
     before_date = _parse_date(published_before, "published_before") if published_before else None
@@ -162,6 +180,10 @@ def cve_search(
         sort=sort,
         limit=limit,
         offset=offset,
+        cwe_id=cwe_id,
+        cvss_min=cvss_min,
+        cvss_max=cvss_max,
+        vendor=vendor,
     )
     count = len(results)
     truncated = total > offset + count
@@ -176,16 +198,40 @@ def cve_search(
         f
         for f in [
             product,
+            vendor,
             severity,
             range_label,
             "KEV" if kev else None,
             f"EPSS>={epss_min}" if epss_min is not None else None,
+            cwe_id,
+            f"CVSS>={cvss_min}" if cvss_min is not None else None,
+            f"CVSS<={cvss_max}" if cvss_max is not None else None,
         ]
         if f
     ]
     summary = f"{count} CVE{'s' if count != 1 else ''} returned, {total} total" + (
         f" ({', '.join(filters)})" if filters else ""
     )
+    query_echo = {
+        k: v
+        for k, v in {
+            "product": product,
+            "vendor": vendor,
+            "severity": severity,
+            "cwe_id": cwe_id,
+            "published_after": published_after,
+            "published_before": published_before,
+            "kev": True if kev else None,
+            "epss_min": epss_min,
+            "cvss_min": cvss_min,
+            "cvss_max": cvss_max,
+            "sort": sort,
+            "limit": limit,
+            "offset": offset if offset else None,
+        }.items()
+        if v is not None and v != ""
+    }
+    next_offset = offset + count if truncated else None
     return {
         "count": count,
         "total": total,
@@ -193,6 +239,8 @@ def cve_search(
         "offset": offset,
         "summary": summary,
         "results": [_format_cve(r) for r in results],
+        "query_echo": query_echo,
+        "next_offset": next_offset,
     }
 
 

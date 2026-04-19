@@ -355,6 +355,137 @@ class TestCveSearch:
         assert data["total"] == 3
         assert data["truncated"] is False
 
+    def test_search_cwe_id_filter(self):
+        _seed_cve(cve_id="CVE-2024-8100", cwe_id="CWE-79")
+        _seed_cve(cve_id="CVE-2024-8101", cwe_id="CWE-89")
+        r = client.get("/v1/cves?cwe_id=CWE-79")
+        assert r.status_code == 200
+        cve_ids = [c["cve_id"] for c in r.json()["results"]]
+        assert "CVE-2024-8100" in cve_ids
+        assert "CVE-2024-8101" not in cve_ids
+
+    def test_search_cwe_id_case_insensitive(self):
+        _seed_cve(cve_id="CVE-2024-8110", cwe_id="cwe-120")
+        r = client.get("/v1/cves?cwe_id=CWE-120")
+        assert r.status_code == 200
+        cve_ids = [c["cve_id"] for c in r.json()["results"]]
+        assert "CVE-2024-8110" in cve_ids
+
+    def test_search_cwe_id_invalid_format(self):
+        r = client.get("/v1/cves?cwe_id=garbage")
+        assert r.status_code == 400
+
+    def test_search_cvss_min_filter(self):
+        _seed_cve(cve_id="CVE-2024-8200", cvss_v3=4.0)
+        _seed_cve(cve_id="CVE-2024-8201", cvss_v3=7.5)
+        _seed_cve(cve_id="CVE-2024-8202", cvss_v3=9.8)
+        r = client.get("/v1/cves?cvss_min=7.0")
+        assert r.status_code == 200
+        cve_ids = [c["cve_id"] for c in r.json()["results"]]
+        assert "CVE-2024-8201" in cve_ids
+        assert "CVE-2024-8202" in cve_ids
+        assert "CVE-2024-8200" not in cve_ids
+
+    def test_search_cvss_max_filter(self):
+        _seed_cve(cve_id="CVE-2024-8210", cvss_v3=4.0)
+        _seed_cve(cve_id="CVE-2024-8211", cvss_v3=7.5)
+        r = client.get("/v1/cves?cvss_max=7.0")
+        assert r.status_code == 200
+        cve_ids = [c["cve_id"] for c in r.json()["results"]]
+        assert "CVE-2024-8210" in cve_ids
+        assert "CVE-2024-8211" not in cve_ids
+
+    def test_search_cvss_range(self):
+        _seed_cve(cve_id="CVE-2024-8220", cvss_v3=4.0)
+        _seed_cve(cve_id="CVE-2024-8221", cvss_v3=7.5)
+        _seed_cve(cve_id="CVE-2024-8222", cvss_v3=9.8)
+        r = client.get("/v1/cves?cvss_min=5.0&cvss_max=8.0")
+        assert r.status_code == 200
+        cve_ids = [c["cve_id"] for c in r.json()["results"]]
+        assert "CVE-2024-8221" in cve_ids
+        assert "CVE-2024-8220" not in cve_ids
+        assert "CVE-2024-8222" not in cve_ids
+
+    def test_search_cvss_inverted_range_rejected(self):
+        r = client.get("/v1/cves?cvss_min=8.0&cvss_max=5.0")
+        assert r.status_code == 400
+
+    def test_search_cvss_excludes_null(self):
+        # CVEs with null cvss_v3 are excluded when a cvss_min/max filter is active (SQLite NULL semantics)
+        _seed_cve(cve_id="CVE-2024-8230", cvss_v3=None, cvss_vector=None)
+        r = client.get("/v1/cves?cvss_min=0.0")
+        assert r.status_code == 200
+        cve_ids = [c["cve_id"] for c in r.json()["results"]]
+        assert "CVE-2024-8230" not in cve_ids
+
+    def test_search_vendor_filter(self):
+        _seed_cve(cve_id="CVE-2024-8300", affected_products=[{"vendor": "apache", "product": "struts"}])
+        _seed_cve(cve_id="CVE-2024-8301", affected_products=[{"vendor": "nginx", "product": "nginx"}])
+        r = client.get("/v1/cves?vendor=apache")
+        assert r.status_code == 200
+        cve_ids = [c["cve_id"] for c in r.json()["results"]]
+        assert "CVE-2024-8300" in cve_ids
+        assert "CVE-2024-8301" not in cve_ids
+
+    def test_search_product_and_vendor_combined(self):
+        # product matches row 1, vendor matches row 2 of same CVE — must NOT return that CVE
+        from db import upsert_cve
+
+        upsert_cve(
+            {
+                "cve_id": "CVE-2024-8310",
+                "description": "test",
+                "severity": "LOW",
+                "cvss_v3": 3.0,
+                "published": "2024-01-01T00:00:00Z",
+                "affected_products": [
+                    {"vendor": "vendor_a", "product": "product_x"},
+                    {"vendor": "vendor_b", "product": "product_y"},
+                ],
+            }
+        )
+        # product=product_x matches row 1, vendor=vendor_b matches row 2 — no single row satisfies both
+        r = client.get("/v1/cves?product=product_x&vendor=vendor_b")
+        assert r.status_code == 200
+        cve_ids = [c["cve_id"] for c in r.json()["results"]]
+        assert "CVE-2024-8310" not in cve_ids
+
+    def test_search_query_echo_populated(self):
+        r = client.get("/v1/cves?severity=HIGH&cvss_min=7.0&limit=5")
+        assert r.status_code == 200
+        data = r.json()
+        assert "query_echo" in data
+        echo = data["query_echo"]
+        assert echo["severity"] == "HIGH"
+        assert echo["cvss_min"] == 7.0
+        assert echo["limit"] == 5
+
+    def test_search_query_echo_minimal(self):
+        r = client.get("/v1/cves")
+        assert r.status_code == 200
+        data = r.json()
+        assert "query_echo" in data
+        echo = data["query_echo"]
+        assert echo == {"limit": 50}
+
+    def test_search_next_offset_populated_when_truncated(self):
+        for i in range(5):
+            _seed_cve(cve_id=f"CVE-2024-8400{i}", severity="LOW")
+        r = client.get("/v1/cves?severity=LOW&limit=2&offset=0")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["truncated"] is True
+        assert data["next_offset"] == data["offset"] + data["count"]
+
+    def test_search_next_offset_omitted_on_last_page(self):
+        for i in range(3):
+            _seed_cve(cve_id=f"CVE-2024-8500{i}", severity="MEDIUM")
+        r = client.get("/v1/cves?severity=MEDIUM&limit=10")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["truncated"] is False
+        assert "next_offset" not in data
+
 
 class TestCveResponseFormat:
     def test_response_has_all_fields(self):
@@ -1881,7 +2012,8 @@ class TestResponseModelFiltering:
         _seed_cve(cve_id="CVE-2024-9910", severity="HIGH")
         r = client.get("/v1/cves?severity=HIGH")
         assert r.status_code == 200
-        assert set(r.json().keys()) == {"count", "total", "truncated", "offset", "summary", "results"}
+        assert set(r.json().keys()) == {"count", "total", "truncated", "offset", "summary", "results", "query_echo"}
+        assert "next_offset" not in r.json(), "next_offset must be omitted when truncated=False"
 
 
 # =========== Crash recovery tests ===========
