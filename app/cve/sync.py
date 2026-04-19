@@ -509,7 +509,7 @@ def sync_mitre(full: bool = False) -> int:
 
     v1 scope: delta only. Fetches the `latest` release, picks the smallest
     delta asset (deltaCves.zip), extracts each JSON, upserts via
-    upsert_cve_if_absent (so NVD always wins), and records source observation.
+    upsert_cve_if_absent (NVD strong fields always win; empty fields may be backfilled from MITRE/GHSA), and records source observation.
 
     `full=True` is reserved for a future v1.1 — raises NotImplementedError.
     Returns count of CVEs processed.

@@ -195,6 +195,7 @@ def init_cve_db():
         """)
         con.execute("CREATE INDEX IF NOT EXISTS idx_products_vendor ON cve_products(vendor, product)")
         con.execute("CREATE INDEX IF NOT EXISTS idx_products_product_lower ON cve_products(LOWER(product))")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_products_cve_id ON cve_products(cve_id)")
         con.execute("""
             CREATE TABLE IF NOT EXISTS sync_status (
                 source TEXT PRIMARY KEY,
@@ -918,10 +919,28 @@ def update_kev(cve_id: str, date_added: str | None) -> bool:
 
 
 def upsert_cve_if_absent(cve_data: dict) -> bool:
-    """Insert a CVE row only if it does not already exist. Used by non-NVD sources
-    (MITRE, GHSA) so stronger NVD data is never overwritten with weaker upstream data.
-    Returns True if a new row was inserted."""
+    """Insert a new CVE row if absent; fill empty fields on an existing row.
+
+    NVD strong fields always win; empty fields may be backfilled from MITRE/GHSA.
+    Scalar fields (description, severity, cvss_vector, cwe_id, published, modified)
+    are filled only when NULL; empty-string inputs are ignored (treated as NULL).
+    cvss_v3 (REAL) is filled only when NULL. JSON array fields (affected_products,
+    refs) are filled when NULL or a valid empty JSON array (tolerant of whitespace).
+    Fields owned by dedicated writers (epss_score, epss_percentile, in_kev,
+    kev_date_added, summary, synced_at) are never touched on update.
+
+    cve_products is populated from cve_data["affected_products"] when the CVE is
+    newly inserted, OR when the existing row had empty products and zero cve_products
+    rows exist for it.
+
+    Returns True only when a new row was inserted.
+    """
     now = datetime.now(UTC).isoformat()
+    cve_id = cve_data["cve_id"]
+    products = cve_data.get("affected_products", [])
+    products_json = json.dumps(products)
+    refs_json = json.dumps(cve_data.get("refs", []))
+
     with get_cve_db() as con:
         cur = con.execute(
             """
@@ -932,7 +951,7 @@ def upsert_cve_if_absent(cve_data: dict) -> bool:
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                cve_data["cve_id"],
+                cve_id,
                 cve_data.get("description"),
                 cve_data.get("severity"),
                 cve_data.get("cvss_v3"),
@@ -944,15 +963,15 @@ def upsert_cve_if_absent(cve_data: dict) -> bool:
                 cve_data.get("epss_percentile"),
                 cve_data.get("in_kev", 0),
                 cve_data.get("kev_date_added"),
-                json.dumps(cve_data.get("affected_products", [])),
-                json.dumps(cve_data.get("refs", [])),
+                products_json,
+                refs_json,
                 cve_data.get("summary"),
                 now,
             ),
         )
         inserted = cur.rowcount > 0
         if inserted:
-            for p in cve_data.get("affected_products", []):
+            for p in products:
                 vendor = p.get("vendor")
                 product = p.get("product")
                 if not vendor and not product:
@@ -960,8 +979,58 @@ def upsert_cve_if_absent(cve_data: dict) -> bool:
                 con.execute(
                     "INSERT INTO cve_products (cve_id, vendor, product, version_start, version_end) "
                     "VALUES (?, ?, ?, ?, ?)",
-                    (cve_data["cve_id"], vendor, product, p.get("version_start"), p.get("version_end")),
+                    (cve_id, vendor, product, p.get("version_start"), p.get("version_end")),
                 )
+        else:
+            con.execute(
+                """
+                UPDATE cves SET
+                  description       = COALESCE(description,  NULLIF(?, '')),
+                  severity          = COALESCE(severity,     NULLIF(?, '')),
+                  cvss_v3           = COALESCE(cvss_v3,      ?),
+                  cvss_vector       = COALESCE(cvss_vector,  NULLIF(?, '')),
+                  cwe_id            = COALESCE(cwe_id,       NULLIF(?, '')),
+                  published         = COALESCE(published,    NULLIF(?, '')),
+                  modified          = COALESCE(modified,     NULLIF(?, '')),
+                  affected_products = CASE
+                    WHEN affected_products IS NULL
+                      OR affected_products = '[]'
+                      OR (json_valid(affected_products) = 1 AND json_array_length(affected_products) = 0)
+                    THEN ? ELSE affected_products END,
+                  refs = CASE
+                    WHEN refs IS NULL
+                      OR refs = '[]'
+                      OR (json_valid(refs) = 1 AND json_array_length(refs) = 0)
+                    THEN ? ELSE refs END
+                WHERE cve_id = ?
+                """,
+                (
+                    cve_data.get("description"),
+                    cve_data.get("severity"),
+                    cve_data.get("cvss_v3"),
+                    cve_data.get("cvss_vector"),
+                    cve_data.get("cwe_id"),
+                    cve_data.get("published"),
+                    cve_data.get("modified"),
+                    products_json,
+                    refs_json,
+                    cve_id,
+                ),
+            )
+            existing_products = con.execute("SELECT COUNT(*) FROM cve_products WHERE cve_id = ?", (cve_id,)).fetchone()[
+                0
+            ]
+            if existing_products == 0 and products:
+                for p in products:
+                    vendor = p.get("vendor")
+                    product = p.get("product")
+                    if not vendor and not product:
+                        continue
+                    con.execute(
+                        "INSERT INTO cve_products (cve_id, vendor, product, version_start, version_end) "
+                        "VALUES (?, ?, ?, ?, ?)",
+                        (cve_id, vendor, product, p.get("version_start"), p.get("version_end")),
+                    )
         return inserted
 
 

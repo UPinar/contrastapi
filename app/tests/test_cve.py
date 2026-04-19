@@ -655,6 +655,93 @@ class TestCveProductsTable:
             rows = con.execute("SELECT product FROM cve_products WHERE cve_id = ?", ("CVE-2024-PROD4",)).fetchall()
         assert [r[0] for r in rows] == ["strong"]
 
+    def test_upsert_cve_if_absent_fills_empty_cwe(self):
+        from db import get_cve, upsert_cve, upsert_cve_if_absent
+
+        upsert_cve({"cve_id": "CVE-2024-FILL1", "description": "x"})
+        result = upsert_cve_if_absent({"cve_id": "CVE-2024-FILL1", "cwe_id": "CWE-79"})
+        assert result is False
+        assert get_cve("CVE-2024-FILL1")["cwe_id"] == "CWE-79"
+
+    def test_upsert_cve_if_absent_preserves_existing_cwe(self):
+        from db import get_cve, upsert_cve, upsert_cve_if_absent
+
+        upsert_cve({"cve_id": "CVE-2024-FILL2", "cwe_id": "CWE-79"})
+        upsert_cve_if_absent({"cve_id": "CVE-2024-FILL2", "cwe_id": "CWE-888"})
+        assert get_cve("CVE-2024-FILL2")["cwe_id"] == "CWE-79"
+
+    def test_upsert_cve_if_absent_fills_empty_affected_products(self):
+        from db import get_cve, get_cve_db, upsert_cve, upsert_cve_if_absent
+
+        upsert_cve({"cve_id": "CVE-2024-FILL3", "affected_products": []})
+        upsert_cve_if_absent(
+            {
+                "cve_id": "CVE-2024-FILL3",
+                "affected_products": [
+                    {"vendor": "acme", "product": "foo"},
+                    {"vendor": "acme", "product": "bar"},
+                ],
+            }
+        )
+        row = get_cve("CVE-2024-FILL3")
+        assert row["affected_products"] != "[]"
+        with get_cve_db() as con:
+            count = con.execute("SELECT COUNT(*) FROM cve_products WHERE cve_id = ?", ("CVE-2024-FILL3",)).fetchone()[0]
+        assert count == 2
+
+    def test_upsert_cve_if_absent_preserves_strong_affected_products(self):
+        from db import get_cve_db, upsert_cve, upsert_cve_if_absent
+
+        upsert_cve({"cve_id": "CVE-2024-FILL4", "affected_products": [{"vendor": "nvd", "product": "strong"}]})
+        upsert_cve_if_absent(
+            {
+                "cve_id": "CVE-2024-FILL4",
+                "affected_products": [{"vendor": "mitre", "product": "weak"}],
+            }
+        )
+        with get_cve_db() as con:
+            rows = con.execute("SELECT product FROM cve_products WHERE cve_id = ?", ("CVE-2024-FILL4",)).fetchall()
+        assert [r[0] for r in rows] == ["strong"]
+
+    def test_upsert_cve_if_absent_ignores_empty_string_scalar(self):
+        """Empty-string scalar from a source must not overwrite NULL (treated as unfilled)."""
+        from db import get_cve, get_cve_db, upsert_cve_if_absent
+
+        with get_cve_db() as con:
+            con.execute(
+                "INSERT INTO cves (cve_id, description, cwe_id) VALUES (?, NULL, NULL)",
+                ("CVE-2024-FILL5",),
+            )
+        upsert_cve_if_absent({"cve_id": "CVE-2024-FILL5", "description": "", "cwe_id": ""})
+        row = get_cve("CVE-2024-FILL5")
+        assert row["description"] is None
+        assert row["cwe_id"] is None
+
+    def test_upsert_cve_if_absent_fills_whitespace_empty_json(self):
+        """Legacy/malformed '[ ]' in affected_products must be treated as empty and backfilled."""
+        from db import get_cve_db, upsert_cve_if_absent
+
+        with get_cve_db() as con:
+            con.execute(
+                "INSERT INTO cves (cve_id, affected_products, refs) VALUES (?, ?, ?)",
+                ("CVE-2024-FILL6", "[ ]", "[\n]"),
+            )
+        upsert_cve_if_absent(
+            {
+                "cve_id": "CVE-2024-FILL6",
+                "affected_products": [{"vendor": "acme", "product": "foo"}],
+                "refs": ["https://example.com"],
+            }
+        )
+        with get_cve_db() as con:
+            row = con.execute(
+                "SELECT affected_products, refs FROM cves WHERE cve_id = ?", ("CVE-2024-FILL6",)
+            ).fetchone()
+            count = con.execute("SELECT COUNT(*) FROM cve_products WHERE cve_id = ?", ("CVE-2024-FILL6",)).fetchone()[0]
+        assert "acme" in row[0]
+        assert "example.com" in row[1]
+        assert count == 1
+
     def test_search_uses_product_lower_index(self):
         """Regression guard: the LOWER(product) filter must hit the functional index,
         not a full table scan. Without this index, searches against the production
