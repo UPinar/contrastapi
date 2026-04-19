@@ -919,11 +919,12 @@ def upsert_cve_if_absent(cve_data: dict) -> bool:
         return inserted
 
 
-def backfill_cve_products(batch_size: int = 1000) -> int:
+def backfill_cve_products(batch_size: int = 1000, start_after: str = "") -> int:
     """Populate cve_products from existing cves.affected_products JSON.
-    Idempotent: deletes per-cve_id before insert. Returns total rows inserted."""
+    Idempotent: deletes per-cve_id before insert. Returns total rows inserted.
+    start_after: resume from CVE id (exclusive); empty string starts from beginning."""
     total = 0
-    last_id = ""
+    last_id = start_after
     with get_cve_db() as con:
         while True:
             rows = con.execute(
