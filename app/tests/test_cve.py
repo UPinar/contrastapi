@@ -512,6 +512,10 @@ class TestCveResponseFormat:
         expected_keys.add("verdict")
         # sources list is always present (empty list stays because exclude_none only drops None)
         expected_keys.add("sources")
+        # enrichment fields always present on single-CVE lookup
+        expected_keys.add("patch_available")
+        expected_keys.add("related_cves")
+        # patch_url only present when a patch URL exists (excluded by response_model_exclude_none=True)
         assert expected_keys == set(data.keys())
 
     def test_epss_nested_format(self):
@@ -525,6 +529,91 @@ class TestCveResponseFormat:
         data = client.get("/v1/cve/CVE-2024-1234").json()
         assert "in_kev" in data["kev"]
         assert "date_added" in data["kev"]
+
+
+class TestCveEnrichment:
+    def test_patch_available_github_advisory(self):
+        _seed_cve(
+            cve_id="CVE-2024-9001",
+            refs=["https://github.com/advisories/GHSA-abcd-1234-efgh"],
+        )
+        data = client.get("/v1/cve/CVE-2024-9001").json()
+        assert data["patch_available"] is True
+        assert data["patch_url"] == "https://github.com/advisories/GHSA-abcd-1234-efgh"
+
+    def test_patch_available_github_commit(self):
+        _seed_cve(
+            cve_id="CVE-2024-9002",
+            refs=["https://github.com/foo/bar/commit/a1b2c3d4e5f6789"],
+        )
+        data = client.get("/v1/cve/CVE-2024-9002").json()
+        assert data["patch_available"] is True
+        assert "a1b2c3d4e5f6789" in data["patch_url"]
+
+    def test_patch_available_false(self):
+        _seed_cve(
+            cve_id="CVE-2024-9003",
+            refs=["https://nvd.nist.gov/vuln/detail/CVE-2024-9003"],
+        )
+        data = client.get("/v1/cve/CVE-2024-9003").json()
+        assert data["patch_available"] is False
+        assert "patch_url" not in data
+
+    def test_patch_available_empty_refs(self):
+        _seed_cve(cve_id="CVE-2024-9004", refs=[])
+        data = client.get("/v1/cve/CVE-2024-9004").json()
+        assert data["patch_available"] is False
+        assert "patch_url" not in data
+
+    def test_related_cves_populated(self):
+        _seed_cve(
+            cve_id="CVE-2024-9010",
+            severity="HIGH",
+            cvss_v3=8.0,
+            affected_products=[{"vendor": "acme", "product": "uniquewidget"}],
+        )
+        _seed_cve(
+            cve_id="CVE-2024-9011",
+            severity="CRITICAL",
+            cvss_v3=9.5,
+            affected_products=[{"vendor": "acme", "product": "uniquewidget"}],
+        )
+        _seed_cve(
+            cve_id="CVE-2024-9012",
+            severity="MEDIUM",
+            cvss_v3=5.0,
+            affected_products=[{"vendor": "acme", "product": "uniquewidget"}],
+        )
+        data = client.get("/v1/cve/CVE-2024-9010").json()
+        assert len(data["related_cves"]) == 2
+        severities = [r["severity"] for r in data["related_cves"]]
+        assert severities[0] == "CRITICAL"
+
+    def test_related_cves_excludes_self(self):
+        _seed_cve(cve_id="CVE-2024-9013", affected_products=[{"vendor": "acme", "product": "uniquewidget"}])
+        data = client.get("/v1/cve/CVE-2024-9013").json()
+        cve_ids = [r["cve_id"] for r in data["related_cves"]]
+        assert "CVE-2024-9013" not in cve_ids
+
+    def test_related_cves_empty_when_no_products(self):
+        _seed_cve(cve_id="CVE-2024-9014", affected_products=[])
+        data = client.get("/v1/cve/CVE-2024-9014").json()
+        assert data["related_cves"] == []
+
+    def test_related_cves_no_matches(self):
+        _seed_cve(
+            cve_id="CVE-2024-9015", affected_products=[{"vendor": "xyzzy", "product": "totally_unique_product_xyz123"}]
+        )
+        data = client.get("/v1/cve/CVE-2024-9015").json()
+        assert data["related_cves"] == []
+
+    def test_enrichment_absent_from_search(self):
+        _seed_cve(cve_id="CVE-2024-9020", refs=["https://github.com/advisories/GHSA-abcd-1234-efgh"])
+        data = client.get("/v1/cves?product=nginx&limit=5").json()
+        for result in data.get("results", []):
+            assert "patch_available" not in result
+            assert "patch_url" not in result
+            assert "related_cves" not in result
 
 
 # =========== routes.py — _format_cve + _generate_summary ===========

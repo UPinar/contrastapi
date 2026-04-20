@@ -4,6 +4,7 @@ import logging
 import re
 from datetime import UTC, datetime
 from typing import Annotated
+from urllib.parse import unquote
 
 import httpx
 from auth import authenticate
@@ -13,6 +14,7 @@ from db import (
     get_cve_sources,
     get_last_successful_sync,
     get_leading_cves,
+    get_related_cves_by_product,
     save_cached_domain,
     search_cves,
 )
@@ -36,6 +38,37 @@ _exploit_client = httpx.Client(timeout=httpx.Timeout(5.0, connect=3.0), follow_r
 _DATE_RE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
 _MIN_DATE = "1970-01-01"
 _MAX_DATE = "2099-12-31"
+
+_PATCH_URL_PATTERNS = (
+    re.compile(r"github\.com/advisories/GHSA-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}", re.IGNORECASE),
+    re.compile(r"github\.com/[^/]+/[^/]+/(?:commit|pull)/[a-f0-9]{7,}", re.IGNORECASE),
+    re.compile(r"(?:access\.)?redhat\.com/(?:errata|security/cve)/(?:RHSA|RHBA)-", re.IGNORECASE),
+    re.compile(r"ubuntu\.com/security/notices/USN-", re.IGNORECASE),
+    re.compile(r"debian\.org/security/(?:dla|dsa)-", re.IGNORECASE),
+    re.compile(r"portal\.msrc\.microsoft\.com/(?:[^/]+/)?security-guidance(?:$|[/?#])", re.IGNORECASE),
+    re.compile(
+        r"security\.(?:adobe|apple|cisco|google|hp|ibm|intel|microsoft|mozilla|oracle|paloaltonetworks|redhat|samsung|sap|vmware)\.(?:com|net|org)/",
+        re.IGNORECASE,
+    ),  # known-vendor security advisory subdomain
+)
+
+# Open-redirect guard: reject URLs whose path/query looks like a redirector,
+# even if the host matches an allowlisted vendor. Prevents NVD-poisoned refs
+# like security.microsoft.com/redirect?to=attacker from surfacing as patch_url.
+_REDIRECT_BLOCKLIST = re.compile(
+    r"/(?:redirect|redir|goto|out|r)(?:[/?]|$)|[?&](?:url|u|to|dest|target|goto|next|return|ref|link|continue)=",
+    re.IGNORECASE,
+)
+
+
+def _extract_patch_url(references: list[str]) -> tuple[bool, str | None]:
+    """Detect patch/advisory URL from references list (open-redirect-guarded)."""
+    for pattern in _PATCH_URL_PATTERNS:
+        for url in references:
+            # double-unquote to defeat %2F/%3F + %252F double-encoding tricks on the blocklist
+            if pattern.search(url) and not _REDIRECT_BLOCKLIST.search(unquote(unquote(url))):
+                return True, url
+    return False, None
 
 
 def _parse_date(value: str, name: str) -> str:
@@ -113,7 +146,7 @@ def cve_lookup(cve_id: str, request: Request):
     if result is None:
         raise HTTPException(status_code=404, detail=f"CVE {cve_id} not found")
 
-    formatted = _format_cve(result)
+    formatted = _format_cve(result, include_enrichment=True)
     is_minimal = not (result.get("severity") or result.get("cvss_v3") or result.get("description"))
     completeness = "minimal" if is_minimal else "complete"
     sources_for_verdict = [f"{s}_cache" for s in formatted["sources"]]
@@ -279,11 +312,18 @@ def _cve_verdict(sources: list[str] | None = None, completeness: str = "complete
     )
 
 
-def _format_cve(row: dict) -> dict:
-    """Format a raw CVE db row into API response format."""
+def _format_cve(row: dict, include_enrichment: bool = False) -> dict:
+    """Format a raw CVE db row into API response format.
+
+    When include_enrichment=True (single-CVE lookup only), adds patch_available,
+    patch_url, and related_cves. related_cves uses affected_products[0] only —
+    multi-product CVEs are not UNIONed (simpler, 95% sufficient). Enrichment is
+    gated off by default to avoid N+1 queries in search/bulk call sites.
+    """
     sources_rows = get_cve_sources(row["cve_id"])
     source_names = [s["source"] for s in sources_rows]
-    return {
+    references = row.get("refs", [])
+    result = {
         "cve_id": row["cve_id"],
         "summary": row.get("summary") or _generate_summary(row),
         "description": row.get("description"),
@@ -302,11 +342,26 @@ def _format_cve(row: dict) -> dict:
         "affected_products": row.get("affected_products", []),
         "published": row.get("published"),
         "modified": row.get("modified"),
-        "references": row.get("refs", []),
+        "references": references,
         "sources": source_names,
         "first_seen_source": source_names[0] if source_names else None,
         "first_seen_at": sources_rows[0]["first_seen_at"] if sources_rows else None,
     }
+    if include_enrichment:
+        patch_available, patch_url = _extract_patch_url(references)
+        result["patch_available"] = patch_available
+        result["patch_url"] = patch_url
+        affected = row.get("affected_products") or []
+        if affected and (first := affected[0]).get("product"):
+            result["related_cves"] = get_related_cves_by_product(
+                product=first["product"],
+                vendor=first.get("vendor"),
+                limit=5,
+                exclude_cve_id=row["cve_id"],
+            )
+        else:
+            result["related_cves"] = []
+    return result
 
 
 _CVSS_METRICS = {

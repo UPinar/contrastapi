@@ -333,6 +333,9 @@ class CveResponse(BaseModel):
     first_seen_source: str | None = None
     first_seen_at: str | None = None
     verdict: Verdict | None = None
+    patch_available: bool | None = None
+    patch_url: str | None = None
+    related_cves: list[dict] | None = None
 
 
 # === Exploit Lookup ===

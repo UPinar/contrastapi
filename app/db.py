@@ -819,6 +819,48 @@ def _parse_version(v: str) -> tuple:
     return tuple(parts)
 
 
+def get_related_cves_by_product(
+    product: str,
+    vendor: str | None = None,
+    limit: int = 5,
+    exclude_cve_id: str | None = None,
+) -> list[dict]:
+    """Return other CVEs affecting the same product, severity DESC."""
+    product_norm = _normalize_product(product)
+    conditions = ["LOWER(cp.product) = LOWER(?)"]
+    params: list = [product_norm]
+    if vendor:
+        conditions.append("LOWER(cp.vendor) = LOWER(?)")
+        params.append(vendor)
+    if exclude_cve_id:
+        conditions.append("c.cve_id != ?")
+        params.append(exclude_cve_id)
+    where = " AND ".join(conditions)
+    params.append(limit)
+    sql = f"""
+        SELECT DISTINCT c.cve_id, c.severity, c.cvss_v3
+        FROM cves c
+        JOIN cve_products cp ON cp.cve_id = c.cve_id
+        WHERE {where}
+        ORDER BY
+          CASE c.severity
+            WHEN 'CRITICAL' THEN 1
+            WHEN 'HIGH' THEN 2
+            WHEN 'MEDIUM' THEN 3
+            WHEN 'LOW' THEN 4
+            ELSE 5
+          END,
+          CASE WHEN c.cvss_v3 IS NULL THEN 1 ELSE 0 END,
+          c.cvss_v3 DESC
+        LIMIT ?
+    """
+    with get_cve_db() as con:
+        cur = con.cursor()
+        cur.row_factory = sqlite3.Row
+        rows = cur.execute(sql, tuple(params)).fetchall()
+        return [{"cve_id": r["cve_id"], "severity": r["severity"], "cvss_v3": r["cvss_v3"]} for r in rows]
+
+
 def search_cves_by_product(product: str, version: str | None = None, limit: int = 20) -> list[dict]:
     """Search CVEs via cve_products table with optional version range check."""
     product = _normalize_product(product)
