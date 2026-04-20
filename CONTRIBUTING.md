@@ -36,7 +36,7 @@ app/
 │   └── server.py      # Tool definitions + handlers
 ├── templates/         # HTML templates (landing, docs, quickstart)
 ├── static/            # CSS, JS, images
-└── tests/             # 780+ tests, pytest
+└── tests/             # 1100+ tests, pytest
 ```
 
 ## Adding a New Endpoint
