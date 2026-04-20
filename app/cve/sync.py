@@ -1148,8 +1148,8 @@ def sync_osv(full: bool = False) -> int:
 
 # --- ExploitDB CSV Sync ---
 
-EXPLOITDB_CSV_URL = "https://raw.githubusercontent.com/offensive-security/exploitdb/main/files_exploits.csv"
-EXPLOITDB_ALLOWED_HOSTS = frozenset({"raw.githubusercontent.com", "codeload.github.com"})
+EXPLOITDB_CSV_URL = "https://gitlab.com/exploit-database/exploitdb/-/raw/main/files_exploits.csv"
+EXPLOITDB_ALLOWED_HOSTS = frozenset({"gitlab.com", "raw.githubusercontent.com", "codeload.github.com"})
 EXPLOITDB_CHUNK_SIZE = 1000
 EXPLOITDB_MAX_BYTES = 50 * 1024 * 1024  # 50 MiB guard
 EXPLOITDB_CVE_PATTERN = re.compile(r"^CVE-(19|20)\d{2}-\d{4,7}$")
