@@ -126,6 +126,14 @@ C-backed radix trie (patricia) for fast longest-prefix-match CIDR lookup. Used t
 
 ## Data / Parsing
 
+### cvss 3.6
+CVSS (Common Vulnerability Scoring System) v2/v3/v4 vector parsing. Used to recompute base scores when OSV.dev returns only a vector string (no numeric score) in `_parse_cvss_vector_score()`. Imported lazily to keep cold-path modules off the critical import graph.
+
+| Function / Class | Signature | What it does | Used in |
+|-----------------|-----------|--------------|---------|
+| `CVSS3()` | `CVSS3(vector_string) -> CVSS3` | Parses `CVSS:3.0`/`CVSS:3.1` vector string; raises on malformed input | cve/sync.py:_parse_cvss_vector_score |
+| `.base_score` | `CVSS3(v).base_score -> Decimal` | Computed base score (0.0–10.0) derived from vector metrics | cve/sync.py:_parse_cvss_vector_score |
+
 ### phonenumbers 9.0.27
 Phone number parsing, validation, and carrier/geo lookup (Google libphonenumber).
 
@@ -183,6 +191,7 @@ MCP server framework for AI agent tool integration.
 | `app/domain/reputation.py` | httpx |
 | `app/domain/threat.py` | httpx |
 | `app/cve/routes.py` | fastapi, httpx |
+| `app/cve/sync.py` | httpx, cvss (lazy) |
 | `app/codesec/routes.py` | fastapi, pydantic |
 | `app/ioc/routes.py` | fastapi, httpx |
 | `app/auth.py` | fastapi |

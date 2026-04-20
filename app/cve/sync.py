@@ -1,11 +1,12 @@
-"""CVE data sync engine — fetches from NVD, MITRE, GHSA, EPSS, and CISA KEV
+"""CVE data sync engine — fetches from NVD, MITRE, GHSA, OSV, EPSS, and CISA KEV
 
 Usage:
-    python -m cve.sync                 # delta sync (NVD + MITRE + GHSA + KEV + EPSS)
+    python -m cve.sync                 # delta sync (NVD + MITRE + GHSA + OSV + KEV + EPSS)
     python -m cve.sync --full          # full initial NVD sync (~250k CVEs) + delta others
     python -m cve.sync --resume        # resume a crashed full NVD sync from checkpoint
     python -m cve.sync --mitre         # MITRE cvelistV5 delta only
     python -m cve.sync --ghsa          # GitHub Security Advisories delta only
+    python -m cve.sync --source osv    # OSV.dev backfill delta only
     python -m cve.sync --epss          # EPSS scores only
     python -m cve.sync --kev           # KEV list only
 
@@ -35,6 +36,7 @@ from config import (
 )
 from db import (
     get_cve,
+    get_cves_needing_osv_backfill,
     get_last_successful_sync,
     get_sync_checkpoint,
     init_all_dbs,
@@ -61,6 +63,24 @@ _client = httpx.Client(
     headers={"User-Agent": USER_AGENT},
     follow_redirects=True,
 )
+
+OSV_API_URL = "https://api.osv.dev/v1/vulns/{cve_id}"
+OSV_MAX_PER_RUN = 500
+OSV_INTER_REQUEST_SLEEP = 0.1
+
+_OSV_ECOSYSTEM_VENDOR: dict[str, str] = {
+    "npm": "nodejs",
+    "PyPI": "python",
+    "Maven": "apache",
+    "Go": "golang",
+    "RubyGems": "ruby-lang",
+    "NuGet": "microsoft",
+    "crates.io": "rust-lang",
+    "Packagist": "php",
+    "Hex": "erlang",
+    "Pub": "google",
+    "SwiftURL": "apple",
+}
 
 
 # --- NVD Sync ---
@@ -917,15 +937,222 @@ def sync_kev() -> int:
     return count
 
 
+# --- OSV Sync ---
+
+
+def _parse_cvss_vector_score(vector: str) -> tuple[float | None, str | None]:
+    """Parse a CVSS:3.x vector string → (base_score, vector). Returns (None, vector) on error."""
+    if not isinstance(vector, str) or not vector.startswith("CVSS:3"):
+        return None, vector if isinstance(vector, str) else None
+    try:
+        from cvss import CVSS3
+
+        c = CVSS3(vector)
+        return float(c.base_score), vector
+    except Exception as e:
+        log.warning("CVSS3 parse error for vector %r: %s", vector[:80], type(e).__name__)
+        return None, vector
+
+
+def _extract_products_from_osv_affected(affected: list) -> list[dict]:
+    out: list[dict] = []
+    seen: set[tuple] = set()
+    for a in (affected or [])[:100]:
+        if not isinstance(a, dict):
+            continue
+        pkg = a.get("package") or {}
+        ecosystem = pkg.get("ecosystem") or ""
+        name = pkg.get("name") or ""
+        if not isinstance(name, str) or not name:
+            continue
+        vendor = _OSV_ECOSYSTEM_VENDOR.get(ecosystem, (ecosystem or "").lower()) or None
+        product = name[:256]
+
+        ver_start: str | None = None
+        ver_end: str | None = None
+        for rng in (a.get("ranges") or [])[:10]:
+            for ev in (rng.get("events") or [])[:20]:
+                if isinstance(ev, dict):
+                    if "introduced" in ev and not ver_start:
+                        v = ev.get("introduced")
+                        if isinstance(v, str) and v not in ("0", ""):
+                            ver_start = v[:256]
+                    if "fixed" in ev and not ver_end:
+                        v = ev.get("fixed")
+                        if isinstance(v, str):
+                            ver_end = v[:256]
+        key = (vendor, product, ver_start, ver_end)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(
+            {
+                "vendor": vendor,
+                "product": product,
+                "version_start": ver_start,
+                "version_end": ver_end,
+            }
+        )
+    return out
+
+
+def _parse_osv_vulnerability(vuln: dict) -> dict:
+    """Parse an OSV vulnerability object into upsert_cve_if_absent's dict contract."""
+    if not isinstance(vuln, dict):
+        return {"cve_id": "", "_skip": True}
+
+    aliases = vuln.get("aliases") or []
+    cve_id = ""
+    for a in aliases:
+        if isinstance(a, str) and a.startswith("CVE-") and validate_cve_id(a):
+            cve_id = a
+            break
+    if not cve_id:
+        return {"cve_id": "", "_skip": True}
+
+    desc = (vuln.get("summary") or "").strip()
+    if not desc:
+        desc = (vuln.get("details") or "").strip()
+    if len(desc) > 2000:
+        desc = desc[:2000]
+
+    severity = None
+    cvss_v3 = None
+    cvss_vector = None
+    for sev in vuln.get("severity") or []:
+        if not isinstance(sev, dict):
+            continue
+        if sev.get("type") in ("CVSS_V3", "CVSS_V4"):
+            score, vector = _parse_cvss_vector_score(sev.get("score"))
+            if score is not None:
+                cvss_v3 = score
+                cvss_vector = vector
+                severity = _severity_from_score(score)
+            break
+
+    cwe_id = None
+    cwes = (vuln.get("database_specific") or {}).get("cwe_ids") or []
+    for c in cwes:
+        if isinstance(c, str) and re.match(r"^CWE-\d+$", c):
+            cwe_id = c
+            break
+
+    refs = []
+    for r in vuln.get("references") or []:
+        if not isinstance(r, dict):
+            continue
+        url = r.get("url")
+        if isinstance(url, str) and url:
+            refs.append(url)
+        if len(refs) >= 20:
+            break
+
+    return {
+        "cve_id": cve_id,
+        "description": desc,
+        "severity": severity,
+        "cvss_v3": cvss_v3,
+        "cvss_vector": cvss_vector,
+        "cwe_id": cwe_id,
+        "published": vuln.get("published"),
+        "modified": vuln.get("modified"),
+        "affected_products": _extract_products_from_osv_affected(vuln.get("affected") or []),
+        "refs": refs,
+    }
+
+
+def _fetch_osv_vulnerability(cve_id: str) -> dict | None:
+    """Fetch a single CVE from OSV.dev. Returns parsed JSON dict on 200, None on 404/error."""
+    try:
+        resp = _client.get(OSV_API_URL.format(cve_id=cve_id), timeout=10.0)
+    except (httpx.TimeoutException, httpx.ConnectError, httpx.NetworkError) as e:
+        log.warning("OSV network error for %s: %s", cve_id, type(e).__name__)
+        return None
+
+    if resp.status_code == 404:
+        return None
+    if resp.status_code >= 400:
+        log.warning("OSV %d for %s", resp.status_code, cve_id)
+        return None
+    if len(resp.content) > 5 * 1024 * 1024:
+        log.warning("OSV response too large for %s: %d bytes", cve_id, len(resp.content))
+        return None
+    try:
+        return resp.json()
+    except json.JSONDecodeError:
+        log.warning("OSV parse error for %s", cve_id)
+        return None
+
+
+def sync_osv(full: bool = False) -> int:
+    """Backfill CVE enrichment from OSV.dev for post-NVD-gap CVEs.
+
+    Delta-only: selects CVEs with incomplete CVSS/CWE published on/after
+    2026-04-15, fetches per-CVE, upserts via upsert_cve_if_absent (NVD strong
+    fields always win). `full=True` raises NotImplementedError.
+
+    Returns count of CVEs with non-empty OSV data merged.
+    """
+    if full:
+        raise NotImplementedError("OSV full sync not implemented — delta keeps up")
+
+    log.info("OSV delta sync starting...")
+    update_sync_status("osv", 0, "in_progress")
+    count = 0
+
+    try:
+        cve_ids = get_cves_needing_osv_backfill(limit=OSV_MAX_PER_RUN)
+        if not cve_ids:
+            update_sync_status("osv", 0, "ok")
+            log.info("OSV sync complete: 0 CVEs needed backfill")
+            return 0
+
+        for cve_id in cve_ids:
+            vuln = _fetch_osv_vulnerability(cve_id)
+            if vuln is None:
+                time.sleep(OSV_INTER_REQUEST_SLEEP)
+                continue
+
+            try:
+                cve_data = _parse_osv_vulnerability(vuln)
+            except Exception as e:
+                log.warning("OSV parse error for %s: %s", cve_id, e)
+                time.sleep(OSV_INTER_REQUEST_SLEEP)
+                continue
+
+            if not cve_data.get("cve_id") or cve_data.get("_skip"):
+                time.sleep(OSV_INTER_REQUEST_SLEEP)
+                continue
+
+            upsert_cve_if_absent(cve_data)
+            record_cve_source(
+                cve_data["cve_id"],
+                "osv",
+                f"https://osv.dev/vulnerability/{vuln.get('id') or cve_data['cve_id']}",
+            )
+            count += 1
+            time.sleep(OSV_INTER_REQUEST_SLEEP)
+
+        update_sync_status("osv", count, "ok")
+        log.info("OSV sync complete: %d CVEs enriched", count)
+        return count
+
+    except Exception as e:
+        log.error("OSV sync failed: %s", e)
+        update_sync_status("osv", count, "error")
+        return count
+
+
 # --- Main ---
 
 
 def sync_all(full: bool = False):
-    """Run all sync tasks. MITRE and GHSA run delta-only regardless of `full`."""
+    """Run all sync tasks. MITRE, GHSA, and OSV run delta-only regardless of `full`."""
     init_all_dbs()
     sync_nvd(full=full)
     sync_mitre(full=False)
     sync_ghsa(full=False)
+    sync_osv(full=False)
     sync_kev()
     sync_epss()
 
@@ -939,12 +1166,14 @@ if __name__ == "__main__":
         sync_nvd(full=True, resume=True)
         sync_mitre(full=False)
         sync_ghsa(full=False)
+        sync_osv(full=False)
         sync_kev()
         sync_epss()
     elif "--full" in args:
         sync_nvd(full=True)
         sync_mitre(full=False)
         sync_ghsa(full=False)
+        sync_osv(full=False)
         sync_kev()
         sync_epss()
     elif "--source" in args:
@@ -953,6 +1182,8 @@ if __name__ == "__main__":
             sync_mitre(full=False)
         elif src == "ghsa":
             sync_ghsa(full=False)
+        elif src == "osv":
+            sync_osv(full=False)
         elif src == "epss":
             sync_epss()
         elif src == "kev":
@@ -960,6 +1191,6 @@ if __name__ == "__main__":
         elif src == "nvd":
             sync_nvd(full=False)
         else:
-            print(f"Unknown source: {src}. Options: nvd, mitre, ghsa, epss, kev")
+            print(f"Unknown source: {src}. Options: nvd, mitre, ghsa, osv, epss, kev")
     else:
         sync_all()

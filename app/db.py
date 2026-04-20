@@ -1191,3 +1191,23 @@ def get_last_successful_sync(source: str) -> str | None:
     with get_cve_db() as con:
         row = con.execute("SELECT last_sync FROM sync_status WHERE source = ? AND status = 'ok'", (source,)).fetchone()
         return row[0] if row else None
+
+
+def get_cves_needing_osv_backfill(limit: int = 500, since: str = "2026-04-15") -> list[str]:
+    """Return CVE IDs with incomplete NVD enrichment eligible for OSV backfill.
+
+    Targets CVEs published on/after `since` that have NULL cvss_v3 OR NULL cwe_id.
+    Ordered by published DESC to prioritize recent gaps.
+    """
+    with get_cve_db() as con:
+        rows = con.execute(
+            """
+            SELECT cve_id FROM cves
+            WHERE (cvss_v3 IS NULL OR cwe_id IS NULL)
+              AND published >= ?
+            ORDER BY published DESC
+            LIMIT ?
+            """,
+            (since, limit),
+        ).fetchall()
+    return [r[0] for r in rows]

@@ -1935,6 +1935,182 @@ class TestSyncGhsa:
             sync_ghsa(full=True)
 
 
+def _build_osv_resp(vuln: dict, status_code: int = 200):
+    """Build a mock httpx response for _fetch_osv_vulnerability."""
+    resp = MagicMock()
+    resp.status_code = status_code
+    resp.json.return_value = vuln
+    return resp
+
+
+class TestSyncOsv:
+    def test_osv_extracts_cve_from_aliases(self):
+        from cve.sync import _parse_osv_vulnerability
+
+        vuln = {"id": "GHSA-xxxx-yyyy-zzzz", "aliases": ["CVE-2026-91001"], "summary": "test bug"}
+        result = _parse_osv_vulnerability(vuln)
+        assert result["cve_id"] == "CVE-2026-91001"
+        assert result.get("_skip") is not True
+
+    def test_osv_skips_when_no_cve_alias(self):
+        from cve.sync import _parse_osv_vulnerability
+
+        vuln = {"id": "GHSA-xxxx-yyyy-zzzz", "aliases": ["PYSEC-2026-123"], "summary": "no CVE"}
+        result = _parse_osv_vulnerability(vuln)
+        assert result.get("_skip") is True
+
+    def test_osv_parses_cvss_v3_vector(self):
+        from cve.sync import _parse_osv_vulnerability
+
+        vector = "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"
+        vuln = {
+            "id": "GHSA-test",
+            "aliases": ["CVE-2026-91002"],
+            "summary": "critical bug",
+            "severity": [{"type": "CVSS_V3", "score": vector}],
+        }
+        result = _parse_osv_vulnerability(vuln)
+        assert isinstance(result["cvss_v3"], float)
+        assert result["cvss_v3"] == 9.8
+        assert result["severity"] == "CRITICAL"
+
+    def test_osv_parses_cwe_from_database_specific(self):
+        from cve.sync import _parse_osv_vulnerability
+
+        vuln = {
+            "id": "GHSA-test",
+            "aliases": ["CVE-2026-91003"],
+            "summary": "xss bug",
+            "database_specific": {"cwe_ids": ["CWE-79"]},
+        }
+        result = _parse_osv_vulnerability(vuln)
+        assert result["cwe_id"] == "CWE-79"
+
+    @patch("cve.sync._client")
+    def test_osv_handles_404_gracefully(self, mock_client):
+        from cve.sync import _fetch_osv_vulnerability
+
+        mock_client.get.return_value = _build_osv_resp({}, status_code=404)
+        result = _fetch_osv_vulnerability("CVE-2026-91004")
+        assert result is None
+
+    @patch("cve.sync._client")
+    def test_osv_handles_network_error(self, mock_client):
+        from cve.sync import _fetch_osv_vulnerability
+
+        mock_client.get.side_effect = httpx.TimeoutException("timeout")
+        result = _fetch_osv_vulnerability("CVE-2026-91005")
+        assert result is None
+
+    @patch("cve.sync._client")
+    def test_osv_does_not_overwrite_nvd_data(self, mock_client):
+        """NVD cvss_v3=9.8 must survive OSV enrichment with cvss_v3=5.0."""
+        _seed_cve(
+            cve_id="CVE-2026-91006",
+            severity="CRITICAL",
+            cvss_v3=9.8,
+            cwe_id=None,
+            published="2026-04-16T00:00:00Z",
+        )
+
+        osv_vuln = {
+            "id": "GHSA-nvd-win",
+            "aliases": ["CVE-2026-91006"],
+            "summary": "OSV summary",
+            "severity": [{"type": "CVSS_V3", "score": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:N/A:N"}],
+        }
+        mock_client.get.return_value = _build_osv_resp(osv_vuln)
+
+        from cve.sync import sync_osv
+        from db import get_cve
+
+        sync_osv(full=False)
+        row = get_cve("CVE-2026-91006")
+        assert row["cvss_v3"] == 9.8
+        assert row["severity"] == "CRITICAL"
+
+    @patch("cve.sync._client")
+    def test_osv_records_source_url(self, mock_client):
+        _seed_cve(
+            cve_id="CVE-2026-91007",
+            severity=None,
+            cvss_v3=None,
+            cwe_id=None,
+            published="2026-04-16T00:00:00Z",
+        )
+
+        osv_vuln = {
+            "id": "GHSA-src-url",
+            "aliases": ["CVE-2026-91007"],
+            "summary": "source url test",
+        }
+        mock_client.get.return_value = _build_osv_resp(osv_vuln)
+
+        from cve.sync import sync_osv
+        from db import get_cve_sources
+
+        sync_osv(full=False)
+        sources = get_cve_sources("CVE-2026-91007")
+        osv_source = next((s for s in sources if s["source"] == "osv"), None)
+        assert osv_source is not None
+        assert osv_source["source_url"].startswith("https://osv.dev/vulnerability/")
+
+    def test_osv_extracts_products_from_ecosystem(self):
+        from cve.sync import _extract_products_from_osv_affected
+
+        affected = [{"package": {"ecosystem": "PyPI", "name": "requests"}}]
+        products = _extract_products_from_osv_affected(affected)
+        assert len(products) == 1
+        assert products[0]["vendor"] == "python"
+        assert products[0]["product"] == "requests"
+
+    def test_osv_full_sync_not_implemented(self):
+        import pytest
+        from cve.sync import sync_osv
+
+        with pytest.raises(NotImplementedError):
+            sync_osv(full=True)
+
+    def test_osv_backfill_selector_respects_since_and_limit(self):
+        from db import get_cves_needing_osv_backfill, upsert_cve
+
+        # Pre-cutoff CVE with NULL cvss_v3 — excluded by date
+        upsert_cve(
+            {
+                "cve_id": "CVE-2026-91010",
+                "description": "old",
+                "cvss_v3": None,
+                "cwe_id": None,
+                "published": "2026-04-10T00:00:00Z",
+            }
+        )
+        # Post-cutoff CVE with NULL cvss_v3 — should be selected
+        upsert_cve(
+            {
+                "cve_id": "CVE-2026-91011",
+                "description": "gap CVE",
+                "cvss_v3": None,
+                "cwe_id": None,
+                "published": "2026-04-16T00:00:00Z",
+            }
+        )
+        # Post-cutoff CVE with complete data — excluded (both non-NULL)
+        upsert_cve(
+            {
+                "cve_id": "CVE-2026-91012",
+                "description": "complete",
+                "cvss_v3": 7.5,
+                "cwe_id": "CWE-79",
+                "published": "2026-04-16T00:00:00Z",
+            }
+        )
+
+        result = get_cves_needing_osv_backfill(limit=10)
+        assert "CVE-2026-91011" in result
+        assert "CVE-2026-91010" not in result
+        assert "CVE-2026-91012" not in result
+
+
 class TestOpenApiCveRoutes:
     def test_openapi_has_cve_operations(self):
         r = client.get("/openapi.json")
