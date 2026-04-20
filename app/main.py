@@ -1750,10 +1750,12 @@ except ImportError:
 # --- AI Discovery endpoints ---
 
 
+# Rate-limit: nginx `api` zone (global limit_req); no FastAPI-layer guard.
+@app.get("/mcp.json", include_in_schema=False)
 @app.get("/.well-known/mcp.json", include_in_schema=False)
 @app.get("/.well-known/mcp-server.json", include_in_schema=False)
 def mcp_server_card_alias():
-    """Aliases for MCP discovery crawlers probing non-SEP-2127 paths (e.g. NotHumanSearch)."""
+    """Aliases for MCP discovery crawlers probing non-SEP-2127 paths (e.g. NotHumanSearch, TacaraBot, AgentSEO)."""
     return mcp_server_card()
 
 

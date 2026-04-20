@@ -541,3 +541,37 @@ def test_format_error_handles_non_dict_json():
     resp = _FakeResp(502, ["unexpected", "list"])
     out = mod._format_error(resp)
     assert out == "Error 502"
+
+
+# --- /mcp.json discovery manifest (root-level alias) ---
+
+
+def test_mcp_json_manifest_returns_server_card(mcp_client):
+    """GET /mcp.json calls mcp_server_card() (same as /.well-known/mcp.json and /.well-known/mcp-server.json).
+    Discovery crawlers (NotHumanSearch, TacaraBot, AgentSEO) probe this root-level path."""
+    r = mcp_client.get("/mcp.json")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["serverInfo"]["name"] == "contrastapi"
+    assert data["transport"][0]["type"] == "streamable-http"
+    assert data["transport"][0]["url"].endswith("/mcp/")
+    assert data["capabilities"]["tools"] is True
+
+
+def test_mcp_json_equivalent_to_well_known_alias(mcp_client):
+    """GET /mcp.json, /.well-known/mcp.json, and /.well-known/mcp-server.json return identical content
+    (all three call mcp_server_card())."""
+    r1 = mcp_client.get("/mcp.json")
+    r2 = mcp_client.get("/.well-known/mcp.json")
+    r3 = mcp_client.get("/.well-known/mcp-server.json")
+    assert r1.status_code == 200
+    assert r2.status_code == 200
+    assert r3.status_code == 200
+    assert r1.json() == r2.json() == r3.json()
+
+
+def test_mcp_json_content_type_is_json(mcp_client):
+    """GET /mcp.json must advertise application/json for strict discovery crawlers."""
+    r = mcp_client.get("/mcp.json")
+    assert r.status_code == 200
+    assert "application/json" in r.headers.get("content-type", "")
