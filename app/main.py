@@ -1616,8 +1616,30 @@ try:
                 if not ip:
                     xff = (headers_map.get(b"x-forwarded-for") or b"").decode()
                     ip = xff.split(",")[0].strip() if xff else ""
-                # GET/HEAD → return health JSON for crawlers/availability checks
+                # GET/HEAD → branch on Accept header
                 if scope.get("method") in ("GET", "HEAD"):
+                    accept = headers_map.get(b"accept", b"").decode("latin-1").lower()
+                    if "text/event-stream" in accept:
+                        # SSE-expecting client (undici, EventSource): send retry directive only.
+                        # Sets reconnect window to 15s (default 3s), cutting per-agent GET surge ~80%.
+                        sse_body = b"retry: 15000\n\n"
+                        await send(
+                            {
+                                "type": "http.response.start",
+                                "status": 200,
+                                "headers": [
+                                    [b"content-type", b"text/event-stream"],
+                                    [b"cache-control", b"no-cache"],
+                                    [b"content-length", str(len(sse_body)).encode()],
+                                    [b"vary", b"Accept"],
+                                    [b"x-mcp-keepalive-interval", b"15"],
+                                ],
+                            }
+                        )
+                        await send(
+                            {"type": "http.response.body", "body": sse_body if scope.get("method") == "GET" else b""}
+                        )
+                        return
                     import json as _json
 
                     body = _json.dumps(
@@ -1637,6 +1659,7 @@ try:
                             "headers": [
                                 [b"content-type", b"application/json"],
                                 [b"content-length", str(len(body)).encode()],
+                                [b"vary", b"Accept"],
                             ],
                         }
                     )

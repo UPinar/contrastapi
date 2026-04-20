@@ -444,6 +444,7 @@ def test_mcp_get_health_shape_for_nginx_split(mcp_client):
     r = mcp_client.get("/mcp/")
     assert r.status_code == 200
     assert "content-length" in r.headers, "Response must be buffered (Content-Length absent implies streaming)"
+    assert r.headers.get("vary") == "Accept"
     data = r.json()
     assert data["name"] == "ContrastAPI MCP Server"
     assert data["transport"] == "streamable-http"
@@ -460,6 +461,29 @@ def test_mcp_get_no_trailing_slash_returns_health(mcp_client):
     data = r.json()
     assert data["name"] == "ContrastAPI MCP Server"
     assert data["tools"] == MCP_TOOL_COUNT
+
+
+def test_mcp_get_sse_accept_returns_retry_frame(mcp_client):
+    """GET /mcp/ with Accept: text/event-stream returns an SSE priming frame
+    with retry: 15000 — tells spec-compliant SSE clients (undici, EventSource)
+    to wait 15s between reconnect attempts instead of the default 3s.
+    Cuts undici-driven GET /mcp/ surge ~80%."""
+    r = mcp_client.get("/mcp/", headers={"Accept": "text/event-stream"})
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "text/event-stream"
+    assert r.headers.get("cache-control") == "no-cache"
+    assert r.headers.get("x-mcp-keepalive-interval") == "15"
+    assert r.headers.get("vary") == "Accept"
+    assert r.text == "retry: 15000\n\n"
+
+
+def test_mcp_get_sse_accept_no_trailing_slash(mcp_client):
+    """GET /mcp (no trailing slash) with SSE Accept also returns the retry frame —
+    FastAPI 307-redirects to /mcp/, TestClient follows."""
+    r = mcp_client.get("/mcp", headers={"Accept": "text/event-stream"})
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "text/event-stream"
+    assert "retry: 15000" in r.text
 
 
 # --- _format_error helper ---
