@@ -374,11 +374,27 @@ class ExploitSources(BaseModel):
     exploitdb: ExploitDbSource = Field(default_factory=ExploitDbSource)
 
 
+class Exploit(BaseModel):
+    edb_id: int
+    cve_id: str
+    date_published: str | None = None
+    author: str | None = None
+    type: str | None = None
+    platform: str | None = None
+    url: str
+    verified: bool = False
+    description: str | None = None
+
+
 class ExploitResponse(BaseModel):
+    model_config = {"extra": "ignore"}
+
     cve_id: str
     exploits_found: int = 0
     sources: ExploitSources = Field(default_factory=ExploitSources)
     has_public_exploit: bool = False
+    exploits: list[Exploit] = Field(default_factory=list)
+    verdict: Verdict | None = None
     summary: str = ""
 
 

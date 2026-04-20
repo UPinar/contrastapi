@@ -41,6 +41,7 @@ _CLEANUP_SQL = [
     "DELETE FROM sync_status",
     "DELETE FROM domain_cache",
     "DELETE FROM ip_cache",
+    "DELETE FROM exploits",
 ]
 
 

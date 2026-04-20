@@ -220,6 +220,29 @@ def init_cve_db():
             )
         """)
         con.execute("CREATE INDEX IF NOT EXISTS idx_cve_sources_first_seen ON cve_sources(first_seen_at DESC)")
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS exploits (
+                edb_id INTEGER NOT NULL,
+                cve_id TEXT NOT NULL,
+                date_published TEXT,
+                author TEXT,
+                type TEXT,
+                platform TEXT,
+                port INTEGER,
+                verified INTEGER DEFAULT 0,
+                description TEXT,
+                source_url TEXT,
+                date_added TEXT,
+                date_updated TEXT,
+                tags TEXT,
+                synced_at TEXT,
+                PRIMARY KEY (edb_id, cve_id)
+            )
+        """)
+        con.execute("CREATE INDEX IF NOT EXISTS idx_exploits_cve_id ON exploits(cve_id)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_exploits_author ON exploits(author)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_exploits_type ON exploits(type)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_exploits_verified ON exploits(verified)")
         # One-shot backfill: mark all existing CVEs as source='nvd' (guarded by empty check)
         already = con.execute("SELECT 1 FROM cve_sources LIMIT 1").fetchone()
         if not already:
@@ -1211,3 +1234,69 @@ def get_cves_needing_osv_backfill(limit: int = 500, since: str = "2026-04-15") -
             (since, limit),
         ).fetchall()
     return [r[0] for r in rows]
+
+
+def upsert_exploits(batch: list[dict]) -> int:
+    """Batch-upsert ExploitDB rows. Returns number of rows written."""
+    if not batch:
+        return 0
+    now = datetime.now(UTC).isoformat()
+    with get_cve_db() as con:
+        con.executemany(
+            """
+            INSERT INTO exploits
+                (edb_id, cve_id, date_published, author, type, platform, port,
+                 verified, description, source_url, date_added, date_updated, tags, synced_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(edb_id, cve_id) DO UPDATE SET
+                date_published = excluded.date_published,
+                author         = excluded.author,
+                type           = excluded.type,
+                platform       = excluded.platform,
+                port           = excluded.port,
+                verified       = excluded.verified,
+                description    = excluded.description,
+                source_url     = excluded.source_url,
+                date_added     = excluded.date_added,
+                date_updated   = excluded.date_updated,
+                tags           = excluded.tags,
+                synced_at      = excluded.synced_at
+            """,
+            [
+                (
+                    r["edb_id"],
+                    r["cve_id"],
+                    r.get("date_published"),
+                    r.get("author"),
+                    r.get("type"),
+                    r.get("platform"),
+                    r.get("port"),
+                    r.get("verified", 0),
+                    r.get("description"),
+                    r.get("source_url"),
+                    r.get("date_added"),
+                    r.get("date_updated"),
+                    r.get("tags", ""),
+                    now,
+                )
+                for r in batch
+            ],
+        )
+    return len(batch)
+
+
+def search_exploits_by_cve(cve_id: str, limit: int = 100) -> tuple[list[dict], bool]:
+    """Return (rows, truncated) for a CVE's ExploitDB entries, newest first.
+
+    Fetches limit+1 to detect truncation; returns only `limit` rows and a flag.
+    """
+    with get_cve_db() as con:
+        cur = con.cursor()
+        cur.row_factory = sqlite3.Row
+        rows = cur.execute(
+            "SELECT * FROM exploits WHERE cve_id = ? "
+            "ORDER BY date_published IS NULL, date_published DESC, edb_id DESC LIMIT ?",
+            (cve_id, limit + 1),
+        ).fetchall()
+        truncated = len(rows) > limit
+        return [dict(r) for r in rows[:limit]], truncated

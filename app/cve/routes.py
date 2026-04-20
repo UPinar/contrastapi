@@ -17,6 +17,7 @@ from db import (
     get_related_cves_by_product,
     save_cached_domain,
     search_cves,
+    search_exploits_by_cve,
 )
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field, StringConstraints
@@ -24,6 +25,7 @@ from schemas import (
     BulkCveResponse,
     CveResponse,
     CveSearchResponse,
+    Exploit,
     ExploitResponse,
     Verdict,
 )
@@ -312,6 +314,47 @@ def _cve_verdict(sources: list[str] | None = None, completeness: str = "complete
     )
 
 
+def _sync_age_seconds(source: str) -> int | None:
+    """Return seconds since last successful sync for a source, or None."""
+    last = get_last_successful_sync(source)
+    if not last:
+        return None
+    try:
+        age = int((datetime.now(UTC) - datetime.fromisoformat(last)).total_seconds())
+        return age if age >= 0 else None
+    except ValueError:
+        return None
+
+
+def _exploit_lookup_verdict(github_error: bool, shodan_error: bool, offline_found: bool) -> Verdict:
+    """Build a Verdict for exploit_lookup responses."""
+    sources_queried = ["github_advisory", "shodan_cvedb", "exploitdb_csv"]
+    unavailable = []
+    if github_error:
+        unavailable.append("github_advisory")
+    if shodan_error:
+        unavailable.append("shodan_cvedb")
+    exploitdb_age = _sync_age_seconds("exploitdb")
+    if exploitdb_age is not None and exploitdb_age > 7 * 86400:
+        unavailable.append("exploitdb_csv")
+
+    if not unavailable:
+        completeness = "complete"
+    elif offline_found:
+        completeness = "partial"
+    else:
+        completeness = "minimal"
+
+    return Verdict(
+        deterministic=True,
+        falsifiable_fields=["cve_id", "edb_id", "date_published", "url"],
+        data_age_seconds=exploitdb_age,
+        sources_queried=sources_queried,
+        sources_unavailable=unavailable,
+        completeness=completeness,  # type: ignore[arg-type]
+    )
+
+
 def _format_cve(row: dict, include_enrichment: bool = False) -> dict:
     """Format a raw CVE db row into API response format.
 
@@ -532,26 +575,54 @@ def exploit_lookup(cve_id: str, request: Request):
 
     github = _search_github_advisories(cve_id)
     exploitdb = _search_exploitdb(cve_id)
+    offline, offline_truncated = search_exploits_by_cve(cve_id)
 
-    exploits_found = github["count"] + exploitdb["count"]
-    has_public_exploit = github["found"] or exploitdb["found"]
+    exploits_found = len(offline) + github["count"] + exploitdb["count"]
+    has_public_exploit = len(offline) > 0 or github["found"] or exploitdb["found"]
 
     # Build summary
     parts = []
     if github["found"]:
         parts.append(f"{github['count']} GitHub advisory(ies)")
     if exploitdb["found"]:
-        parts.append(f"{exploitdb['count']} exploit(s)")
+        parts.append(f"{exploitdb['count']} Shodan reference(s)")
+    if offline:
+        parts.append(f"{len(offline)} ExploitDB entry(ies)")
     if parts:
         summary = f"{cve_id} — {exploits_found} public exploit(s) found: " + ", ".join(parts)
     else:
         summary = f"{cve_id} — no public exploits found"
+
+    structured_exploits = [
+        Exploit(
+            edb_id=row["edb_id"],
+            cve_id=row["cve_id"],
+            date_published=row.get("date_published"),
+            author=row.get("author"),
+            type=row.get("type"),
+            platform=row.get("platform"),
+            url=row.get("source_url") or f"https://www.exploit-db.com/exploits/{row['edb_id']}",
+            verified=bool(row.get("verified")),
+            description=row.get("description"),
+        )
+        for row in offline
+    ]
+
+    verdict = _exploit_lookup_verdict(
+        github_error=github.get("error") is not None,
+        shodan_error=exploitdb.get("error") is not None,
+        offline_found=len(offline) > 0,
+    )
+    if offline_truncated and verdict.completeness == "complete":
+        verdict.completeness = "partial"
 
     result = {
         "cve_id": cve_id,
         "exploits_found": exploits_found,
         "sources": {"github": github, "exploitdb": exploitdb},
         "has_public_exploit": has_public_exploit,
+        "exploits": [e.model_dump() for e in structured_exploits],
+        "verdict": verdict.model_dump(),
         "summary": summary,
     }
 

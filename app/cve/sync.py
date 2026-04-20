@@ -14,6 +14,7 @@ Designed to run via systemd timer every 2 hours.
 Crash recovery: full syncs save a checkpoint after each page. Use --resume to continue.
 """
 
+import csv
 import gzip
 import io
 import json
@@ -24,6 +25,7 @@ import sys
 import time
 import zipfile
 from datetime import UTC, datetime, timedelta
+from urllib.parse import urlparse
 
 import httpx
 from config import (
@@ -46,6 +48,7 @@ from db import (
     update_sync_status,
     upsert_cve,
     upsert_cve_if_absent,
+    upsert_exploits,
 )
 from validation import validate_cve_id
 
@@ -1143,6 +1146,124 @@ def sync_osv(full: bool = False) -> int:
         return count
 
 
+# --- ExploitDB CSV Sync ---
+
+EXPLOITDB_CSV_URL = "https://raw.githubusercontent.com/offensive-security/exploitdb/main/files_exploits.csv"
+EXPLOITDB_ALLOWED_HOSTS = frozenset({"raw.githubusercontent.com", "codeload.github.com"})
+EXPLOITDB_CHUNK_SIZE = 1000
+EXPLOITDB_MAX_BYTES = 50 * 1024 * 1024  # 50 MiB guard
+EXPLOITDB_CVE_PATTERN = re.compile(r"^CVE-(19|20)\d{2}-\d{4,7}$")
+
+
+def _safe_http_url(raw: str | None, fallback: str) -> str:
+    """Return raw URL if it is an http(s) URL, else fallback. Guards against javascript:/data:/file: schemes."""
+    if not raw:
+        return fallback
+    try:
+        scheme = urlparse(raw).scheme.lower()
+    except ValueError:
+        return fallback
+    return raw if scheme in ("http", "https") else fallback
+
+
+def _parse_exploitdb_row(row: dict) -> list[dict]:
+    """Parse one ExploitDB CSV row into one dict per CVE in the codes column."""
+    codes_str = (row.get("codes") or "").strip()
+    if not codes_str:
+        return []
+    edb_id_raw = row.get("id")
+    if not edb_id_raw or not str(edb_id_raw).strip().isdigit():
+        return []
+    edb_id = int(str(edb_id_raw).strip())
+    fallback_url = f"https://www.exploit-db.com/exploits/{edb_id}"
+    out = []
+    for raw in codes_str.split(";"):
+        cve_id = raw.strip()
+        if not EXPLOITDB_CVE_PATTERN.match(cve_id):
+            continue
+        port_raw = (row.get("port") or "").strip()
+        out.append(
+            {
+                "edb_id": edb_id,
+                "cve_id": cve_id,
+                "date_published": row.get("date_published"),
+                "author": (row.get("author") or "")[:200] or None,
+                "type": (row.get("type") or "")[:50] or None,
+                "platform": (row.get("platform") or "")[:100] or None,
+                "port": int(port_raw) if port_raw.isdigit() else None,
+                "verified": 1 if (row.get("verified") or "").strip() == "1" else 0,
+                "description": (row.get("description") or "")[:2000],
+                "source_url": _safe_http_url(row.get("source_url"), fallback_url),
+                "date_added": row.get("date_added"),
+                "date_updated": row.get("date_updated"),
+                "tags": (row.get("tags") or "")[:500],
+            }
+        )
+    return out
+
+
+def sync_exploitdb(full: bool = False) -> int:
+    """Download ExploitDB CSV and upsert into the exploits table.
+
+    Delta mode skips the download when Last-Modified matches the stored checkpoint.
+    Full mode forces a complete re-upsert regardless of checkpoint.
+    """
+    log.info("ExploitDB sync starting (full=%s)...", full)
+    update_sync_status("exploitdb", 0, "in_progress")
+    checkpoint = None if full else get_sync_checkpoint("exploitdb")
+    try:
+        head = _client.head(EXPLOITDB_CSV_URL, timeout=10, follow_redirects=True)
+        if head.url.host not in EXPLOITDB_ALLOWED_HOSTS:
+            raise ValueError(f"ExploitDB HEAD redirected to unexpected host: {head.url.host}")
+        last_mod = head.headers.get("last-modified")
+        if checkpoint and last_mod and last_mod <= checkpoint:
+            log.info("ExploitDB sync skipped — Last-Modified unchanged (%s)", last_mod)
+            update_sync_status("exploitdb", 0, "ok", checkpoint=checkpoint)
+            return 0
+
+        resp = _client.get(
+            EXPLOITDB_CSV_URL,
+            timeout=120,
+            follow_redirects=True,
+            headers={"Accept-Encoding": "identity"},
+        )
+        resp.raise_for_status()
+        if resp.url.host not in EXPLOITDB_ALLOWED_HOSTS:
+            raise ValueError(f"ExploitDB GET redirected to unexpected host: {resp.url.host}")
+        if len(resp.content) > EXPLOITDB_MAX_BYTES:
+            raise ValueError(f"CSV too large: {len(resp.content)} bytes (limit {EXPLOITDB_MAX_BYTES})")
+
+        reader = csv.DictReader(io.StringIO(resp.text))
+        batch: list[dict] = []
+        count = 0
+        skipped = 0
+
+        for row in reader:
+            parsed_rows = _parse_exploitdb_row(row)
+            if not parsed_rows:
+                skipped += 1
+                continue
+            for parsed in parsed_rows:
+                batch.append(parsed)
+                if len(batch) >= EXPLOITDB_CHUNK_SIZE:
+                    upsert_exploits(batch)
+                    count += len(batch)
+                    batch = []
+
+        if batch:
+            upsert_exploits(batch)
+            count += len(batch)
+
+        update_sync_status("exploitdb", count, "ok", checkpoint=last_mod)
+        log.info("ExploitDB sync complete: %d rows processed, %d rows skipped", count, skipped)
+        return count
+
+    except Exception as e:
+        log.exception("ExploitDB sync failed: %s", e)
+        update_sync_status("exploitdb", 0, "error")
+        return 0
+
+
 # --- Main ---
 
 
@@ -1155,6 +1276,7 @@ def sync_all(full: bool = False):
     sync_osv(full=False)
     sync_kev()
     sync_epss()
+    sync_exploitdb(full=False)
 
 
 if __name__ == "__main__":
@@ -1190,7 +1312,9 @@ if __name__ == "__main__":
             sync_kev()
         elif src == "nvd":
             sync_nvd(full=False)
+        elif src == "exploitdb":
+            sync_exploitdb(full="--full" in args)
         else:
-            print(f"Unknown source: {src}. Options: nvd, mitre, ghsa, osv, epss, kev")
+            print(f"Unknown source: {src}. Options: nvd, mitre, ghsa, osv, epss, kev, exploitdb")
     else:
         sync_all()

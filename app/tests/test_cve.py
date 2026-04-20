@@ -2243,6 +2243,259 @@ class TestExploitLookup:
         assert data["has_public_exploit"] is True
 
 
+# =========== exploit_lookup Scope B tests ===========
+
+
+class TestExploitLookupScopeB:
+    """Verdict, structured exploits[], and backward-compat tests (Scope B)."""
+
+    def _gh_ok(self, count=1):
+        resp = MagicMock()
+        resp.json.return_value = [
+            {
+                "ghsa_id": f"GHSA-{i:04d}",
+                "summary": "Advisory",
+                "severity": "high",
+                "published_at": "2024-01-01T00:00:00Z",
+                "references": [],
+            }
+            for i in range(count)
+        ]
+        resp.raise_for_status = MagicMock()
+        return resp
+
+    def _gh_err(self):
+        resp = MagicMock()
+        resp.raise_for_status.side_effect = httpx.HTTPStatusError(
+            "error", request=MagicMock(), response=MagicMock(status_code=500)
+        )
+        return resp
+
+    def _shodan_ok(self):
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.json.return_value = {"references": ["https://poc.example.com"]}
+        resp.raise_for_status = MagicMock()
+        return resp
+
+    def _shodan_404(self):
+        resp = MagicMock()
+        resp.status_code = 404
+        resp.raise_for_status = MagicMock()
+        return resp
+
+    def _offline_row(self, edb_id=1, cve_id="CVE-2024-8888"):
+        return {
+            "edb_id": edb_id,
+            "cve_id": cve_id,
+            "date_published": "2024-03-01",
+            "author": "tester",
+            "type": "remote",
+            "platform": "linux",
+            "port": None,
+            "verified": 1,
+            "description": "PoC exploit",
+            "source_url": f"https://www.exploit-db.com/exploits/{edb_id}",
+            "date_added": "2024-03-01",
+            "date_updated": "2024-03-01",
+            "tags": "",
+            "synced_at": "2024-04-01T00:00:00+00:00",
+        }
+
+    @patch("cve.routes.save_cached_domain")
+    @patch("cve.routes.get_cached_domain", return_value=None)
+    @patch("cve.routes.search_exploits_by_cve")
+    def test_exploit_offline_db_hit(self, mock_offline, mock_cache_get, mock_cache_save):
+        """Offline DB hit returned when live sources empty."""
+        mock_offline.return_value = ([self._offline_row()], False)
+
+        def mock_get(url, **kwargs):
+            if "github.com" in url:
+                resp = MagicMock()
+                resp.json.return_value = []
+                resp.raise_for_status = MagicMock()
+                return resp
+            resp = MagicMock()
+            resp.status_code = 404
+            resp.raise_for_status = MagicMock()
+            return resp
+
+        with patch("cve.routes._exploit_client.get", side_effect=mock_get):
+            r = client.get("/v1/exploit/CVE-2024-8888")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["has_public_exploit"] is True
+        assert data["exploits_found"] == 1
+        assert len(data["exploits"]) == 1
+        assert data["exploits"][0]["edb_id"] == 1
+
+    @patch("cve.routes.save_cached_domain")
+    @patch("cve.routes.get_cached_domain", return_value=None)
+    @patch("cve.routes.search_exploits_by_cve")
+    def test_exploit_mixed_sources_union(self, mock_offline, mock_cache_get, mock_cache_save):
+        """exploits[] contains offline rows; count = offline + github."""
+        mock_offline.return_value = ([self._offline_row(edb_id=10), self._offline_row(edb_id=11)], False)
+
+        with patch(
+            "cve.routes._exploit_client.get",
+            side_effect=lambda url, **kw: self._gh_ok(2) if "github.com" in url else self._shodan_404(),
+        ):
+            r = client.get("/v1/exploit/CVE-2024-8888")
+        data = r.json()
+        assert data["exploits_found"] == 4  # 2 offline + 2 github
+        assert len(data["exploits"]) == 2
+
+    @patch("cve.routes.save_cached_domain")
+    @patch("cve.routes.get_cached_domain", return_value=None)
+    @patch("cve.routes.search_exploits_by_cve")
+    @patch("cve.routes._sync_age_seconds", return_value=3600)
+    def test_exploit_verdict_complete_all_ok(self, mock_age, mock_offline, mock_cache_get, mock_cache_save):
+        """completeness=complete when offline hit and no sources unavailable."""
+        mock_offline.return_value = ([self._offline_row()], False)
+
+        with patch(
+            "cve.routes._exploit_client.get",
+            side_effect=lambda url, **kw: self._gh_ok() if "github.com" in url else self._shodan_ok(),
+        ):
+            r = client.get("/v1/exploit/CVE-2024-8888")
+        data = r.json()
+        assert data["verdict"]["completeness"] == "complete"
+        assert data["verdict"]["sources_unavailable"] == []
+
+    @patch("cve.routes.save_cached_domain")
+    @patch("cve.routes.get_cached_domain", return_value=None)
+    @patch("cve.routes.search_exploits_by_cve")
+    @patch("cve.routes._sync_age_seconds", return_value=3600)
+    def test_exploit_verdict_partial_github_down(self, mock_age, mock_offline, mock_cache_get, mock_cache_save):
+        """github_advisory in sources_unavailable when GitHub errors."""
+        mock_offline.return_value = ([], False)
+
+        with patch(
+            "cve.routes._exploit_client.get",
+            side_effect=lambda url, **kw: self._gh_err() if "github.com" in url else self._shodan_404(),
+        ):
+            r = client.get("/v1/exploit/CVE-2024-8888")
+        data = r.json()
+        assert "github_advisory" in data["verdict"]["sources_unavailable"]
+
+    @patch("cve.routes.save_cached_domain")
+    @patch("cve.routes.get_cached_domain", return_value=None)
+    @patch("cve.routes.search_exploits_by_cve")
+    @patch("cve.routes._sync_age_seconds", return_value=3600)
+    def test_exploit_verdict_partial_shodan_down(self, mock_age, mock_offline, mock_cache_get, mock_cache_save):
+        """shodan_cvedb in sources_unavailable when Shodan errors."""
+        mock_offline.return_value = ([], False)
+
+        def mock_get(url, **kwargs):
+            if "github.com" in url:
+                return self._gh_ok()
+            raise httpx.ConnectTimeout("timeout")
+
+        with patch("cve.routes._exploit_client.get", side_effect=mock_get):
+            r = client.get("/v1/exploit/CVE-2024-8888")
+        data = r.json()
+        assert "shodan_cvedb" in data["verdict"]["sources_unavailable"]
+
+    @patch("cve.routes.save_cached_domain")
+    @patch("cve.routes.get_cached_domain", return_value=None)
+    @patch("cve.routes.search_exploits_by_cve")
+    @patch("cve.routes._sync_age_seconds", return_value=3600)
+    def test_exploit_verdict_minimal_all_down(self, mock_age, mock_offline, mock_cache_get, mock_cache_save):
+        """completeness=minimal when all live sources down and no offline hit."""
+        mock_offline.return_value = ([], False)
+
+        def mock_get(url, **kwargs):
+            raise httpx.ConnectTimeout("all down")
+
+        with patch("cve.routes._exploit_client.get", side_effect=mock_get):
+            r = client.get("/v1/exploit/CVE-2024-8888")
+        data = r.json()
+        assert data["verdict"]["completeness"] == "minimal"
+
+    @patch("cve.routes.save_cached_domain")
+    @patch("cve.routes.get_cached_domain", return_value=None)
+    @patch("cve.routes.search_exploits_by_cve")
+    def test_exploit_verdict_data_age_max(self, mock_offline, mock_cache_get, mock_cache_save):
+        """data_age_seconds = max(nvd_age, exploitdb_age)."""
+        mock_offline.return_value = ([], False)
+        nvd_age = 1000
+        exploitdb_age = 5000
+
+        def _mock_age(source):
+            return nvd_age if source == "nvd" else exploitdb_age
+
+        with (
+            patch("cve.routes._sync_age_seconds", side_effect=_mock_age),
+            patch(
+                "cve.routes._exploit_client.get",
+                side_effect=lambda url, **kw: self._gh_ok() if "github.com" in url else self._shodan_404(),
+            ),
+        ):
+            r = client.get("/v1/exploit/CVE-2024-8888")
+        data = r.json()
+        assert data["verdict"]["data_age_seconds"] == 5000
+
+    @patch("cve.routes.save_cached_domain")
+    @patch("cve.routes.get_cached_domain", return_value=None)
+    @patch("cve.routes.search_exploits_by_cve")
+    def test_exploit_verdict_stale_exploitdb_7d(self, mock_offline, mock_cache_get, mock_cache_save):
+        """exploitdb_csv in sources_unavailable when last sync > 7 days ago."""
+        mock_offline.return_value = ([], False)
+        stale = 8 * 86400
+
+        def _mock_age(source):
+            return stale
+
+        with (
+            patch("cve.routes._sync_age_seconds", side_effect=_mock_age),
+            patch(
+                "cve.routes._exploit_client.get",
+                side_effect=lambda url, **kw: self._gh_ok() if "github.com" in url else self._shodan_404(),
+            ),
+        ):
+            r = client.get("/v1/exploit/CVE-2024-8888")
+        data = r.json()
+        assert "exploitdb_csv" in data["verdict"]["sources_unavailable"]
+
+    @patch("cve.routes.save_cached_domain")
+    @patch("cve.routes.get_cached_domain", return_value=None)
+    @patch("cve.routes.search_exploits_by_cve")
+    @patch("cve.routes._sync_age_seconds", return_value=3600)
+    def test_exploit_structured_shape(self, mock_age, mock_offline, mock_cache_get, mock_cache_save):
+        """Response exploits[0] has edb_id, url, verified fields."""
+        mock_offline.return_value = ([self._offline_row(edb_id=42)], False)
+
+        with patch(
+            "cve.routes._exploit_client.get",
+            side_effect=lambda url, **kw: self._gh_ok() if "github.com" in url else self._shodan_404(),
+        ):
+            r = client.get("/v1/exploit/CVE-2024-8888")
+        data = r.json()
+        exploit = data["exploits"][0]
+        assert exploit["edb_id"] == 42
+        assert "exploit-db.com" in exploit["url"]
+        assert exploit["verified"] is True
+
+    @patch("cve.routes.save_cached_domain")
+    @patch("cve.routes.get_cached_domain", return_value=None)
+    @patch("cve.routes.search_exploits_by_cve")
+    @patch("cve.routes._sync_age_seconds", return_value=3600)
+    def test_exploit_backward_compat_sources_intact(self, mock_age, mock_offline, mock_cache_get, mock_cache_save):
+        """Old sources.github and sources.exploitdb fields still present."""
+        mock_offline.return_value = ([], False)
+
+        with patch(
+            "cve.routes._exploit_client.get",
+            side_effect=lambda url, **kw: self._gh_ok() if "github.com" in url else self._shodan_404(),
+        ):
+            r = client.get("/v1/exploit/CVE-2024-8888")
+        data = r.json()
+        assert "github" in data["sources"]
+        assert "exploitdb" in data["sources"]
+        assert "count" in data["sources"]["github"]
+        assert "count" in data["sources"]["exploitdb"]
+
+
 # =========== response_model filtering tests ===========
 
 
