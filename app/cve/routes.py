@@ -85,13 +85,19 @@ def cve_leading(
     count = len(results)
     truncated = total > offset + count
     summary = f"{count} leading CVE{'s' if count != 1 else ''} returned, {total} total (indexed before NVD)"
+    verdict = _cve_verdict(sources=["mitre_cache", "ghsa_cache"], completeness="complete")
+    formatted_results = []
+    for row in results:
+        fr = _format_cve(row)
+        fr["verdict"] = verdict
+        formatted_results.append(fr)
     return {
         "count": count,
         "total": total,
         "truncated": truncated,
         "offset": offset,
         "summary": summary,
-        "results": [_format_cve(r) for r in results],
+        "results": formatted_results,
     }
 
 
@@ -231,6 +237,12 @@ def cve_search(
         }.items()
         if v is not None and v != ""
     }
+    verdict = _cve_verdict(sources=["nvd_cache"], completeness="complete")
+    formatted_results = []
+    for row in results:
+        fr = _format_cve(row)
+        fr["verdict"] = verdict
+        formatted_results.append(fr)
     next_offset = offset + count if truncated else None
     return {
         "count": count,
@@ -238,7 +250,7 @@ def cve_search(
         "truncated": truncated,
         "offset": offset,
         "summary": summary,
-        "results": [_format_cve(r) for r in results],
+        "results": formatted_results,
         "query_echo": query_echo,
         "next_offset": next_offset,
     }

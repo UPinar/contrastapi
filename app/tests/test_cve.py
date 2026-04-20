@@ -2015,6 +2015,39 @@ class TestResponseModelFiltering:
         assert set(r.json().keys()) == {"count", "total", "truncated", "offset", "summary", "results", "query_echo"}
         assert "next_offset" not in r.json(), "next_offset must be omitted when truncated=False"
 
+    def test_cve_search_results_include_verdict(self):
+        _seed_cve(cve_id="CVE-2024-V001", severity="HIGH", cvss_v3=7.5)
+        r = client.get("/v1/cves?severity=HIGH")
+        assert r.status_code == 200
+        data = r.json()
+        assert len(data["results"]) > 0
+        for item in data["results"]:
+            assert item.get("verdict") is not None
+            assert item["verdict"]["deterministic"] is True
+            assert item["verdict"]["completeness"] == "complete"
+
+    def test_cve_search_verdict_sources_queried(self):
+        _seed_cve(cve_id="CVE-2024-V002", severity="HIGH")
+        r = client.get("/v1/cves?severity=HIGH")
+        v = r.json()["results"][0]["verdict"]
+        assert "nvd_cache" in v["sources_queried"]
+
+    def test_cve_search_verdict_falsifiable_fields(self):
+        _seed_cve(cve_id="CVE-2024-V003", severity="HIGH")
+        r = client.get("/v1/cves?severity=HIGH")
+        v = r.json()["results"][0]["verdict"]
+        expected = {"cve_id", "severity", "cvss_v3", "published", "references"}
+        assert expected.issubset(set(v["falsifiable_fields"]))
+
+    def test_cve_leading_results_include_verdict(self):
+        r = client.get("/v1/cve/leading?limit=5")
+        assert r.status_code == 200
+        for item in r.json()["results"]:
+            assert item.get("verdict") is not None
+            assert item["verdict"]["deterministic"] is True
+            sources = set(item["verdict"]["sources_queried"])
+            assert sources == {"mitre_cache", "ghsa_cache"}
+
 
 # =========== Crash recovery tests ===========
 

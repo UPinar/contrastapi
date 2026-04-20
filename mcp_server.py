@@ -528,7 +528,7 @@ Common queries:
 Returns: count (returned), total (matching), truncated (true = more pages available),
 next_offset (auto-computed — use as offset for next page, null if last page),
 query_echo (echo of parameters you sent), results array.
-Default limit is 50 (max 200). For a specific CVE ID, use cve_lookup instead."""
+Default limit is 50 (max 200). For a specific CVE ID, use cve_lookup. For 5+ specific CVE IDs from these results (or elsewhere), use bulk_cve_lookup — 1 request vs N, avoids round-trip overhead."""
     params = {"limit": limit}
     if product:
         params["product"] = product
@@ -590,7 +590,7 @@ async def bulk_cve_lookup(
         ),
     ],
 ) -> str:
-    """Look up multiple CVEs in a single request — efficient for vulnerability scanning, dependency audits, and threat intelligence pipelines that need to enrich many CVE IDs at once. Each CVE returns full details (severity, CVSS breakdown, EPSS score, KEV status, description, references). Use bulk_cve_lookup instead of calling cve_lookup repeatedly when you have a list of 5+ CVEs to check. Invalid CVE IDs are returned per-item with status='invalid_format' rather than failing the whole batch. For a single CVE, use cve_lookup. Returns JSON with fields: results (array with per-item status), total, successful, failed, timed_out, partial, and summary. Read-only database lookup, free tier allows 10 IDs per request, Pro allows 50."""
+    """Look up multiple CVEs in a single request — 1 HTTP round-trip instead of N. For ≥5 CVE IDs this is typically 3-5x faster than calling cve_lookup per ID. Efficient for vulnerability scanning, dependency audits, and threat intelligence pipelines that need to enrich many CVE IDs at once. Each CVE returns full details (severity, CVSS breakdown, EPSS score, KEV status, description, references). Use bulk_cve_lookup instead of calling cve_lookup repeatedly when you have a list of 5+ CVEs to check. Invalid CVE IDs are returned per-item with status='invalid_format' rather than failing the whole batch. For a single CVE, use cve_lookup. Returns JSON with fields: results (array with per-item status), total, successful, failed, timed_out, partial, and summary. Read-only database lookup, free tier allows 10 IDs per request, Pro allows 50."""
     if not isinstance(cve_ids, list) or not cve_ids:
         return "cve_ids must be a non-empty list"
     if not all(isinstance(cid, str) for cid in cve_ids):
