@@ -2462,3 +2462,43 @@ class TestBulkCveLookup:
             json={"cve_ids": ["CVE-2024-" + "9" * 100]},
         )
         assert r.status_code == 422
+
+    @patch("cve.routes.get_cve_sources")
+    @patch("cve.routes.get_cve")
+    def test_bulk_cve_results_include_verdict(self, mock_get, mock_sources):
+        mock_get.return_value = dict(self._MOCK_CVE)
+        mock_sources.return_value = [
+            {"source": "nvd", "first_seen_at": "2024-01-01T00:00:00Z"},
+            {"source": "ghsa", "first_seen_at": "2024-01-02T00:00:00Z"},
+        ]
+        r = client.post("/v1/cves/bulk", json={"cve_ids": ["CVE-2024-3094"]})
+        assert r.status_code == 200
+        data = r.json()
+        item = data["results"][0]
+        assert item["status"] == "ok"
+        verdict = item["cve"]["verdict"]
+        assert verdict is not None
+        assert verdict["deterministic"] is True
+        assert verdict["completeness"] == "complete"
+        assert verdict["sources_queried"] == ["nvd_cache", "ghsa_cache"]
+
+    @patch("cve.routes.get_cve_sources")
+    @patch("cve.routes.get_cve")
+    def test_bulk_cve_minimal_empty_sources_returns_empty_sources_queried(self, mock_get, mock_sources):
+        stub = {k: v for k, v in self._MOCK_CVE.items() if k not in {"severity", "cvss_v3", "description"}}
+        mock_get.return_value = stub
+        mock_sources.return_value = []
+        r = client.post("/v1/cves/bulk", json={"cve_ids": ["CVE-2024-3094"]})
+        assert r.status_code == 200
+        verdict = r.json()["results"][0]["cve"]["verdict"]
+        assert verdict["completeness"] == "minimal"
+        assert verdict["sources_queried"] == []
+
+    def test_bulk_cve_invalid_format_omits_verdict(self):
+        r = client.post("/v1/cves/bulk", json={"cve_ids": ["NOT-A-CVE"]})
+        assert r.status_code == 200
+        data = r.json()
+        item = data["results"][0]
+        assert item["status"] == "invalid_format"
+        assert item.get("cve") is None
+        assert "verdict" not in item

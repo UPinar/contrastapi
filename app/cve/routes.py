@@ -116,7 +116,9 @@ def cve_lookup(cve_id: str, request: Request):
     formatted = _format_cve(result)
     is_minimal = not (result.get("severity") or result.get("cvss_v3") or result.get("description"))
     completeness = "minimal" if is_minimal else "complete"
-    sources_for_verdict = [f"{s}_cache" for s in formatted["sources"]] or ["nvd_cache"]
+    sources_for_verdict = [f"{s}_cache" for s in formatted["sources"]]
+    if not sources_for_verdict and not is_minimal:
+        sources_for_verdict = ["nvd_cache"]
     formatted["verdict"] = _cve_verdict(sources=sources_for_verdict, completeness=completeness)
     return formatted
 
@@ -271,7 +273,7 @@ def _cve_verdict(sources: list[str] | None = None, completeness: str = "complete
         deterministic=True,
         falsifiable_fields=["cve_id", "severity", "cvss_v3", "published", "references"],
         data_age_seconds=age,
-        sources_queried=sources or ["nvd_cache"],
+        sources_queried=["nvd_cache"] if sources is None else sources,
         sources_unavailable=[],
         completeness=completeness,  # type: ignore[arg-type]
     )
@@ -570,7 +572,14 @@ def bulk_cve_lookup(body: _BulkCveRequest, request: Request):
             if row is None:
                 results.append({"cve_id": cid, "status": "not_found", "cve": None, "error": f"CVE {cid} not found"})
             else:
-                results.append({"cve_id": cid, "status": "ok", "cve": _format_cve(row), "error": None})
+                formatted = _format_cve(row)
+                is_minimal = not (row.get("severity") or row.get("cvss_v3") or row.get("description"))
+                completeness = "minimal" if is_minimal else "complete"
+                sources_for_verdict = [f"{s}_cache" for s in formatted["sources"]]
+                if not sources_for_verdict and not is_minimal:
+                    sources_for_verdict = ["nvd_cache"]
+                formatted["verdict"] = _cve_verdict(sources=sources_for_verdict, completeness=completeness)
+                results.append({"cve_id": cid, "status": "ok", "cve": formatted, "error": None})
                 successful += 1
         except Exception as e:
             logger.warning("Bulk CVE lookup failed: %s", type(e).__name__)
