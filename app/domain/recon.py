@@ -578,6 +578,7 @@ DKIM_SELECTORS = [
     "mxvault",
 ]
 
+DKIM_DATE_WINDOW_DAYS = 14  # how many days back to probe date-based DKIM selectors
 
 _MAIL_PROVIDERS = {
     "google.com": "Google Workspace",
@@ -657,10 +658,10 @@ def email_security(domain: str, txt_records: list | None = None) -> dict:
     except dns.exception.DNSException:
         pass  # No DMARC record is common, not an error
 
-    # DKIM — try common selectors + date-based (YYYYMMDD for last 30 days)
+    # DKIM — try common selectors + date-based (YYYYMMDD for last DKIM_DATE_WINDOW_DAYS days)
     dkim_found = []
     today = datetime.now(UTC)
-    date_selectors = [(today - timedelta(days=i)).strftime("%Y%m%d") for i in range(30)]
+    date_selectors = [(today - timedelta(days=i)).strftime("%Y%m%d") for i in range(DKIM_DATE_WINDOW_DAYS)]
     all_selectors = list(DKIM_SELECTORS) + date_selectors
 
     def _check_dkim(selector: str) -> str | None:

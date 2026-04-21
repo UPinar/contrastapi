@@ -116,7 +116,8 @@ CACHE_MAX_BYTES = 1 * 1024 * 1024  # 1 MB per cached result
 # Timeouts
 RECON_TIMEOUT = 5
 USERNAME_LOOKUP_TIMEOUT = 5  # per-platform HTTP timeout for username checks
-CRTSH_TIMEOUT = 10
+# lowered from 10: crt.sh slow responses dominated wall time; 3s graceful fallback to wordlist subdomains
+CRTSH_TIMEOUT = 3
 CRTSH_MAX_RESULTS = 1000
 CRTSH_MAX_BYTES = 10 * 1024 * 1024  # 10 MB hard cap on crt.sh response body before JSON parse
 BULK_PER_DOMAIN_TIMEOUT = 25
