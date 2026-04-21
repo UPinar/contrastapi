@@ -254,7 +254,7 @@ async def domain_report(
         str, Field(description="Root domain to analyze, without protocol or path (e.g. 'example.com', 'shopify.com')")
     ],
 ) -> str:
-    """DOMAIN INPUT (e.g. example.com). Lightweight starting point for domain investigation — passive recon. Comprehensive domain security report combining DNS, WHOIS, SSL/TLS, subdomain discovery, email security, WAF detection, and threat reputation in a single call. Use this as the first step when investigating a domain; for deeper analysis of a specific area, follow up with the dedicated tool (ssl_check, dns_lookup, email_mx, threat_intel, etc.). Returns JSON with fields: domain, dns, reverse_dns, whois, ssl, subdomains, certificates (CT log entries), email_security (SPF/DMARC/DKIM with grade), waf (detected vendors), threat (URLhaus malware status), risk (nested: score 0-100, max_score, grade A-F, factors list with per-component breakdown), risk_score (top-level integer alias = risk.score, for backward-compat with old consumers), reputation (abuseipdb, shodan; omitted in lite mode, when IP unavailable, or when daily IP enrichment quota is exhausted), summary, and verdict (data quality metadata — includes sources_queried, sources_unavailable listing sources skipped in lite mode or, in full mode, URLhaus when its fetch errors, and completeness). Append ?lite=true to skip WHOIS, subdomains, CT logs, URLhaus, and reputation for ~10x faster response (~250ms) — use when polling or when only DNS/SSL/email/WAF needed. Read-only lookup, no authentication required."""
+    """Query DNS, WHOIS, SSL, subdomains, and threat intel for a domain in one call. Use as a starting point for domain investigations; use audit_domain for live headers + tech stack. Free: 100/hr, Pro: 1000/hr. Returns domain report with DNS records, WHOIS data, SSL cert, risk score, email config, threat status, and recommendation."""
     if err := _validate_domain(domain):
         return err
     return _fmt(await _get(f"/v1/domain/{domain}"))
@@ -267,7 +267,7 @@ async def audit_domain(
         Field(description="Root domain to audit, without protocol or path (e.g. 'example.com', 'shopify.com')"),
     ],
 ) -> str:
-    """DOMAIN INPUT (e.g. example.com). Heavier than domain_report: adds live HTTP headers + tech fingerprint on top of the full domain_report payload. Use when you need the tech stack too. Comprehensive domain audit in a single call — combines a full domain report (DNS, WHOIS, SSL, subdomains, WAF, threat intel, risk score), live HTTP security headers, and technology stack fingerprinting. Use this when you want a complete picture of a target without making multiple requests. For investigations that need only one aspect (e.g. just DNS or just SSL), use the dedicated tool instead. Returns JSON with fields: domain, report (full domain intel), technologies (detected tech stack with categories and count), live_headers (HTTP response headers from the live site), and a combined summary. Read-only orchestrated lookup, no authentication required."""
+    """Perform comprehensive domain audit: combines domain_report + live HTTP security headers + technology fingerprinting. Use when you need the full picture (recon + active checks); use domain_report for passive-only assessment. Free: 100/hr (costs 4 credits), Pro: 1000/hr. Returns {domain, report, technologies, live_headers, summary}."""
     if err := _validate_domain(domain):
         return err
     return _fmt(await _get(f"/v1/audit/{domain}"))
@@ -282,7 +282,7 @@ async def threat_report(
         ),
     ],
 ) -> str:
-    """IP INPUT (e.g. 8.8.8.8) — NOT a domain. For domains use domain_report or audit_domain. Comprehensive IP threat report in a single call — combines Shodan InternetDB enrichment (open ports, hostnames, vulnerabilities, CPEs), AbuseIPDB reputation (abuse score, country, ISP), full Shodan lookup (organization, OS, geolocation), and ASN ownership (AS number, prefix). Use this for SOC triage and threat hunting when you need a complete IP profile without making 4+ separate requests. Returns JSON with fields: ip, enrichment, abuseipdb, shodan, asn, threat_level (none/low/medium/high), and a summary. Read-only orchestrated lookup, no authentication required."""
+    """Query comprehensive threat profile for an IP: Shodan host data, AbuseIPDB reputation, ASN/geolocation, and open ports. Use for IP investigation and SOC alert triage; for domain data use domain_report. Free: 100/hr (costs 4 credits), Pro: 1000/hr. Returns {ip, enrichment, abuseipdb, shodan, asn, threat_level}."""
     if err := _validate_public_ip(ip):
         return err
     return _fmt(await _get(f"/v1/threat-report/{ip}"))
@@ -294,7 +294,7 @@ async def dns_lookup(
         str, Field(description="Root domain to query, without protocol or path (e.g. 'example.com', 'cloudflare.com')")
     ],
 ) -> str:
-    """Retrieve all DNS records for a domain including A, AAAA, MX, NS, TXT, CNAME, and SOA record types. Use this when you need to inspect mail routing (MX), verify nameserver delegation (NS), check SPF/DMARC policies (TXT), or confirm IP resolution (A/AAAA). For a broader security overview that includes DNS, use domain_report instead. Returns JSON with a records array, each containing type, value, and TTL fields. Read-only DNS query, no authentication required."""
+    """Query all DNS record types (A, AAAA, MX, NS, TXT, CNAME, SOA) for a domain. Use for mail routing inspection, nameserver verification, or SPF/DMARC checks; for full overview use domain_report. Free: 100/hr, Pro: 1000/hr. Returns {records: [{type, value, ttl}]} array."""
     if err := _validate_domain(domain):
         return err
     return _fmt(await _get(f"/v1/dns/{domain}"))
@@ -304,7 +304,7 @@ async def dns_lookup(
 async def whois_lookup(
     domain: Annotated[str, Field(description="Root domain to query WHOIS for (e.g. 'example.com', 'github.com')")],
 ) -> str:
-    """Retrieve WHOIS registration data for a domain including registrar name, registrant organization, creation date, expiry date, last updated date, and authoritative nameservers. Use this to determine domain ownership, age, or expiration status. For a full security overview that includes WHOIS, use domain_report instead. Returns JSON with fields: registrar, creation_date, expiration_date, updated_date, nameservers, status, and dnssec. Read-only WHOIS query, no authentication required."""
+    """Retrieve WHOIS registration data: registrar, registrant, creation/expiry dates, nameservers, DNSSEC status. Use to verify domain ownership, age, expiration; for full audit use domain_report. Free: 100/hr, Pro: 1000/hr. Returns {registrar, creation_date, expiration_date, updated_date, nameservers, status, dnssec}."""
     if err := _validate_domain(domain):
         return err
     return _fmt(await _get(f"/v1/whois/{domain}"))
@@ -316,7 +316,7 @@ async def ssl_check(
         str, Field(description="Domain to check SSL/TLS certificate for (e.g. 'example.com', 'api.stripe.com')")
     ],
 ) -> str:
-    """Analyze the SSL/TLS certificate and connection security of a domain by connecting to port 443 and inspecting the certificate chain, cipher suite, protocol version, and expiry date. Use this to verify certificate validity, detect expiring certificates, or audit TLS configuration strength. Returns JSON with fields: grade (A-F), protocol, cipher, issuer, subject, not_before, not_after, chain (array of certificates), and san (Subject Alternative Names). Read-only TLS handshake, no authentication required."""
+    """Analyze SSL/TLS certificate: grade (A-F), protocol version, cipher suite, chain, expiry, Subject Alternative Names. Use to audit certificate validity and detect expiring certs; for full domain audit use audit_domain. Free: 100/hr, Pro: 1000/hr. Returns {grade, protocol, cipher, issuer, subject, not_before, not_after, chain, san}."""
     if err := _validate_domain(domain):
         return err
     return _fmt(await _get(f"/v1/ssl/{domain}"))
@@ -328,7 +328,7 @@ async def subdomain_enum(
         str, Field(description="Root domain to enumerate subdomains for (e.g. 'example.com', 'tesla.com')")
     ],
 ) -> str:
-    """Discover subdomains of a domain using passive methods: Certificate Transparency log searches and DNS common-name brute-forcing. Use this to map an organization's attack surface or find forgotten/exposed services. This is a passive, non-intrusive enumeration — it does not actively probe discovered hosts. Returns JSON with a subdomains array of discovered hostnames and their resolved IP addresses. Read-only lookup, no authentication required."""
+    """Discover subdomains using passive methods: Certificate Transparency logs + DNS brute-force (no active probing). Use to map organization's attack surface; non-intrusive. Free: 100/hr, Pro: 1000/hr. Returns {subdomains: [{hostname, resolved_ips}]}."""
     if err := _validate_domain(domain):
         return err
     return _fmt(await _get(f"/v1/subdomains/{domain}"))
@@ -338,7 +338,7 @@ async def subdomain_enum(
 async def tech_fingerprint(
     domain: Annotated[str, Field(description="Domain to fingerprint (e.g. 'example.com', 'shopify.com')")],
 ) -> str:
-    """Identify the technology stack of a website by analyzing HTTP headers, HTML meta tags, and JavaScript includes. Detects CMS (WordPress, Drupal), frameworks (React, Angular), CDN providers (Cloudflare, Akamai), analytics tools, web servers, and programming languages. Use this for reconnaissance to understand what software a target runs. Returns JSON with a technologies array, each containing name, category, confidence percentage, and version (when detectable). Read-only HTTP request, no authentication required."""
+    """Detect website technology stack: CMS, frameworks, CDN, analytics tools, web servers, languages (via HTTP headers + HTML analysis). Use for passive reconnaissance; for full audit use audit_domain. Free: 100/hr, Pro: 1000/hr. Returns {technologies: [{name, category, confidence%, version}]}."""
     if err := _validate_domain(domain):
         return err
     return _fmt(await _get(f"/v1/tech/{domain}"))
@@ -350,7 +350,7 @@ async def threat_intel(
         str, Field(description="Domain to check for threats (e.g. 'suspicious-site.com', 'example.com')")
     ],
 ) -> str:
-    """Check if a domain is associated with malware distribution, botnet C2, or other malicious activity by querying URLhaus and abuse.ch threat feeds. Use this to assess whether a domain is safe to visit or interact with. For checking a specific URL (not just domain), use phishing_check instead. For file-based IOC lookups, use ioc_lookup. Returns JSON with fields: malware_urls (count of active malicious URLs), threat_tags, threat_status, and a summary assessment. Read-only threat feed query, no authentication required."""
+    """Check domain for known malware distribution, botnet C2, phishing activity via URLhaus + abuse.ch feeds. Use for threat assessment; use phishing_check for specific URLs. Free: 100/hr, Pro: 1000/hr. Returns {malware_urls, threat_tags, threat_status, summary}."""
     if err := _validate_domain(domain):
         return err
     return _fmt(await _get(f"/v1/threat/{domain}"))
@@ -360,7 +360,7 @@ async def threat_intel(
 async def wayback_lookup(
     domain: Annotated[str, Field(description="Domain to look up in web archives (e.g. 'example.com', 'archive.org')")],
 ) -> str:
-    """Retrieve historical web archive snapshots for a domain from the Wayback Machine, showing when the site was first captured, the most recent snapshot, and total snapshot count over time. Use this to investigate domain history, verify how long a site has existed, or detect changes in content over time. For a broader security overview of a domain, use domain_report instead. Returns JSON with fields: first_snapshot (date + URL), last_snapshot (date + URL), total_snapshots, and a yearly_breakdown of capture counts. Read-only query to the Internet Archive API, no authentication required."""
+    """Retrieve Wayback Machine snapshots for a domain: first capture, latest, total count, yearly breakdown. Use to investigate domain history and age; for full audit use domain_report. Free: 100/hr, Pro: 1000/hr. Returns {first_snapshot, last_snapshot, total_snapshots, yearly_breakdown}."""
     if err := _validate_domain(domain):
         return err
     return _fmt(await _get(f"/v1/archive/{domain}"))
@@ -372,7 +372,7 @@ async def scan_headers(
         str, Field(description="Domain to scan live HTTP headers for (e.g. 'example.com', 'api.github.com')")
     ],
 ) -> str:
-    """Perform a live HTTP request to a domain and analyze the security headers in the response, checking for Content-Security-Policy, Strict-Transport-Security, X-Frame-Options, X-Content-Type-Options, Permissions-Policy, and Referrer-Policy. Use this to audit a live website's header configuration. Unlike check_headers (which validates headers you already have), this tool fetches headers directly from the target. Returns JSON with fields: headers_present (list), headers_missing (list), findings (array with severity and recommendation per header), and a total score. Read-only HTTP GET request to the target domain, no authentication required."""
+    """Perform live HTTP GET and analyze security headers: CSP, HSTS, X-Frame-Options, X-Content-Type-Options, Permissions-Policy, Referrer-Policy. Use to audit live website headers; use check_headers to validate headers you already have. Free: 100/hr, Pro: 1000/hr. Returns {headers_present, headers_missing, findings, total_score}."""
     if err := _validate_domain(domain):
         return err
     return _fmt(await _get(f"/v1/scan/headers/{domain}"))
@@ -384,7 +384,7 @@ async def email_mx(
         str, Field(description="Domain to analyze email configuration for (e.g. 'example.com', 'google.com')")
     ],
 ) -> str:
-    """Analyze the email security configuration of a domain by checking MX records, SPF policy, DMARC policy, and DKIM selectors. Identifies the mail provider (Google Workspace, Microsoft 365, etc.) and grades the overall email security posture. Use this to verify email authentication setup or assess phishing risk for a domain. Returns JSON with fields: mx_records, provider, spf (record + validity), dmarc (record + policy), dkim (selector results), and grade (A-F with 0-100 score). Read-only DNS queries, no authentication required."""
+    """Analyze email security: MX records, SPF policy, DMARC policy, DKIM selectors, mail provider ID, grade (A-F). Use to verify email authentication setup and phishing risk; for full audit use domain_report. Free: 100/hr, Pro: 1000/hr. Returns {mx_records, provider, spf, dmarc, dkim, grade}."""
     if err := _validate_domain(domain):
         return err
     return _fmt(await _get(f"/v1/email/mx/{domain}"))
@@ -396,7 +396,7 @@ async def email_disposable(
         str, Field(description="Full email address to check (e.g. 'user@tempmail.com', 'test@guerrillamail.com')")
     ],
 ) -> str:
-    """Check whether an email address uses a known disposable or temporary email provider (e.g. Guerrilla Mail, Temp Mail, Mailinator). Use this for input validation to detect throwaway signups or to assess the legitimacy of a contact email. Returns JSON with fields: disposable (boolean), domain, and provider (name of the disposable service if detected). Read-only lookup against a local database of disposable domains, no authentication required."""
+    """Check if email address uses a known disposable/temporary provider (Guerrilla Mail, Temp Mail, Mailinator, etc.). Use for input validation to detect throwaway signups; for domain reputation use threat_intel. Free: 100/hr, Pro: 1000/hr. Returns {disposable, domain, provider}."""
     return _fmt(await _get(f"/v1/email/disposable/{quote(email, safe='')}"))
 
 
@@ -409,7 +409,7 @@ async def phone_lookup(
         ),
     ],
 ) -> str:
-    """Validate and analyze a phone number to determine its country, region, carrier, line type (mobile/landline/VoIP), and timezone. Use this to verify phone number legitimacy, identify the carrier or country of origin, or detect VoIP numbers that may indicate fraud. The number must include the country code prefix. Returns JSON with fields: valid (boolean), country, region, carrier, line_type, timezone, and formatted versions (national, international, E.164). Read-only lookup, no authentication required."""
+    """Validate and analyze phone number: country, region, carrier, line type (mobile/landline/VoIP), timezone, formatted versions. Use to verify phone legitimacy and detect fraud risks. Requires E.164 format (+1234567890). Free: 100/hr, Pro: 1000/hr. Returns {valid, country, region, carrier, line_type, timezone, formats}."""
     return _fmt(await _get(f"/v1/phone/{quote(number, safe='')}"))
 
 
@@ -420,7 +420,7 @@ async def phone_lookup(
 async def ip_lookup(
     ip: Annotated[str, Field(description="IPv4 or IPv6 address to investigate (e.g. '8.8.8.8', '2606:4700::1111')")],
 ) -> str:
-    """Retrieve comprehensive intelligence about an IP address including geolocation, PTR record, open ports, associated hostnames, known vulnerabilities, abuse reports, and reputation score. Use this to investigate suspicious IPs from logs, identify the owner of an IP, or assess whether an IP is malicious. For network-level info (ASN, IP ranges), use asn_lookup instead. Returns JSON with fields: ip, ptr, geo (country, city, org), ports (array), hostnames, vulns (array), reputation (score + categories), abuse_contacts. Also returns: cloud_provider (AWS/GCP/Cloudflare; omitted if not a known cloud range), tor_exit: true if IP is a Tor exit node (omitted when not), risk_score (0-100 composite — higher = riskier; always present). Read-only lookup, no authentication required."""
+    """Query comprehensive IP intelligence: geolocation, PTR record, open ports, hostnames, vulnerabilities, reputation, abuse contacts, cloud provider, Tor exit status. Use for IP investigation; for orchestrated IP+reputation use threat_report. Free: 100/hr, Pro: 1000/hr. Returns {ip, ptr, geo, ports, hostnames, vulns, reputation, risk_score}."""
     if err := _validate_ip(ip):
         return err
     return _fmt(await _get(f"/v1/ip/{ip}"))
@@ -432,7 +432,7 @@ async def asn_lookup(
         str, Field(description="Domain or IP address to look up ASN for (e.g. 'cloudflare.com', '8.8.8.8')")
     ],
 ) -> str:
-    """Look up the Autonomous System Number (ASN) for a domain or IP address, returning the AS number, organization name, and all announced IPv4/IPv6 prefixes. Use this to identify which network operator owns an IP range, or to understand the network infrastructure behind a domain. For detailed IP-level intelligence (ports, reputation), use ip_lookup instead. Returns JSON with fields: asn (number), holder (organization name), prefixes_v4 (array of CIDR blocks), and prefixes_v6. Read-only lookup, no authentication required."""
+    """Look up Autonomous System Number (ASN) for a domain or IP: AS number, organization, IPv4/IPv6 prefixes. Use to identify network operator and IP range ownership. Free: 100/hr, Pro: 1000/hr. Returns {asn, holder, prefixes_v4, prefixes_v6}."""
     if _validate_domain(target) and _validate_ip(target):
         return f"Invalid input: {target!r}. Expected a domain (example.com) or IP address (8.8.8.8)."
     return _fmt(await _get(f"/v1/asn/{target}"))
@@ -447,7 +447,7 @@ async def cve_lookup(
         str, Field(description="CVE identifier in format CVE-YYYY-NNNNN (e.g. 'CVE-2024-3094', 'CVE-2023-44487')")
     ],
 ) -> str:
-    """Retrieve detailed information about a specific CVE vulnerability including description, CVSS v3.1 base score and vector, EPSS exploitation probability score, CISA KEV (Known Exploited Vulnerabilities) status, affected products (CPE), and reference URLs. Use this when you have a specific CVE ID and need full details. To search for CVEs by product or severity, use cve_search instead. To find public exploits for a CVE, use exploit_lookup. For 5+ specific CVE IDs, use bulk_cve_lookup — 1 request vs N, avoids round-trip overhead. Returns JSON with fields: cve_id, description, cvss_score, cvss_vector, cvss_breakdown, epss (score + percentile), kev (boolean + due_date), affected_products, references, patch_available (bool), patch_url (string|null when available), and related_cves (list of {cve_id, severity, cvss_v3}, max 5, severity DESC). Read-only database lookup, no authentication required."""
+    """Retrieve detailed CVE data by ID: description, CVSS v3.1 + vector, EPSS score + percentile, CISA KEV status, affected products (CPE), references, patch availability. Use for single-CVE details; use cve_search for queries by product/severity. Free: 100/hr, Pro: 1000/hr. Returns {cve_id, description, cvss_score, cvss_vector, epss, kev, affected_products, references, patch_available, related_cves}."""
     if err := _validate_cve(cve_id):
         return err
     return _fmt(await _get(f"/v1/cve/{cve_id}"))
@@ -514,21 +514,7 @@ async def cve_search(
         ),
     ] = "",
 ) -> str:
-    """Search the CVE database with filters. Returns matching vulnerabilities with CVSS scores, EPSS exploit probability, and KEV status.
-
-Common queries:
-- Critical CVEs this week: severity=CRITICAL, published_after=<today-7d>
-- Actively exploited: kev=true
-- Most exploitable nginx CVEs: product=nginx, sort=epss_desc
-- Old nginx CVEs (2015-2018): product=nginx, published_after=2015-01-01, published_before=2018-12-31
-- High-risk CVEs (EPSS>50%): epss_min=0.5, sort=epss_desc
-- XSS CVEs: cwe_id=CWE-79
-- High-severity range: cvss_min=7.0, cvss_max=9.0
-
-Returns: count (returned), total (matching), truncated (true = more pages available),
-next_offset (auto-computed — use as offset for next page, null if last page),
-query_echo (echo of parameters you sent), results array.
-Default limit is 50 (max 200). For a specific CVE ID, use cve_lookup. For 5+ specific CVE IDs from these results (or elsewhere), use bulk_cve_lookup — 1 request vs N, avoids round-trip overhead."""
+    """Search CVE database with filters: product/vendor, severity, published date range, EPSS score, CWE, CVSS range, CISA KEV status. Use for vulnerability discovery by criteria; use cve_lookup for single CVE by ID. Free: 100/hr, Pro: 1000/hr. Returns {count, total, truncated, results, query_echo}."""
     params = {"limit": limit}
     if product:
         params["product"] = product
@@ -562,7 +548,7 @@ async def cve_leading(
     limit: Annotated[int, Field(description="Maximum results to return. Range: 1-200.", ge=1, le=200)] = 50,
     offset: Annotated[int, Field(description="Skip N results for pagination.", ge=0, le=5000)] = 0,
 ) -> str:
-    """List CVEs that ContrastAPI indexed from MITRE/GHSA BEFORE NVD has published them. These are early-warning vulnerabilities — we have the data, NVD doesn't yet. Use this to find the freshest, most actionable CVEs that other tools miss. Returns the same format as cve_search: count, total, truncated, offset, results array. Each result includes sources and first_seen_source fields showing which upstream (mitre/ghsa) first reported it."""
+    """List CVEs indexed from MITRE/GHSA BEFORE NVD publication (early-warning, freshest data). Use for threat intelligence on emerging CVEs; use cve_search for published NVD data. Free: 100/hr, Pro: 1000/hr. Returns {count, total, results, sources, first_seen_source}."""
     params: dict = {"limit": limit}
     if offset > 0:
         params["offset"] = offset
@@ -575,7 +561,7 @@ async def exploit_lookup(
         str, Field(description="CVE identifier in format CVE-YYYY-NNNNN (e.g. 'CVE-2024-3094', 'CVE-2023-44487')")
     ],
 ) -> str:
-    """Search for publicly available exploits and proof-of-concept code for a specific CVE by querying GitHub Advisory Database and ExploitDB. Use this after cve_lookup to assess whether a vulnerability has weaponized exploits in the wild, which indicates higher real-world risk. Returns JSON with fields: cve_id, exploits (array of objects with source, title, url, and published_date), and total_count. An empty exploits array means no public exploits were found. Read-only lookup, no authentication required."""
+    """Search GitHub Advisory Database + ExploitDB for public exploits/PoC for a specific CVE. Use to assess if a vulnerability has weaponized exploits in the wild; run after cve_lookup to evaluate real-world risk. Free: 100/hr, Pro: 1000/hr. Returns {cve_id, exploits: [{source, title, url, published_date}], total_count}."""
     if err := _validate_cve(cve_id):
         return err
     return _fmt(await _get(f"/v1/exploit/{cve_id}"))
@@ -590,7 +576,7 @@ async def bulk_cve_lookup(
         ),
     ],
 ) -> str:
-    """Look up multiple CVEs in a single request — 1 HTTP round-trip instead of N. For ≥5 CVE IDs this is typically 3-5x faster than calling cve_lookup per ID. Efficient for vulnerability scanning, dependency audits, and threat intelligence pipelines that need to enrich many CVE IDs at once. Each CVE returns full details (severity, CVSS breakdown, EPSS score, KEV status, description, references). Use bulk_cve_lookup instead of calling cve_lookup repeatedly when you have a list of 5+ CVEs to check. Invalid CVE IDs are returned per-item with status='invalid_format' rather than failing the whole batch. For a single CVE, use cve_lookup. Returns JSON with fields: results (array with per-item status), total, successful, failed, timed_out, partial, and summary. Read-only database lookup, free tier allows 10 IDs per request, Pro allows 50."""
+    """Batch query multiple CVEs (up to 10 free/50 pro): retrieve full CVE details for all in 1 request instead of N. Use for dependency audits or bulk vulnerability enrichment; use cve_lookup for single CVE. Free: 100/hr (1 per item), Pro: 1000/hr. Returns {results, total, successful, failed, timed_out, partial, summary}."""
     if not isinstance(cve_ids, list) or not cve_ids:
         return "cve_ids must be a non-empty list"
     if not all(isinstance(cid, str) for cid in cve_ids):
@@ -610,7 +596,7 @@ async def ioc_lookup(
         ),
     ],
 ) -> str:
-    """Enrich an Indicator of Compromise (IOC) by auto-detecting its type (IP, domain, URL, or file hash) and querying abuse.ch threat feeds: ThreatFox for malware indicators, URLhaus for malicious URLs, and Feodo for botnet C2 servers. Use this as the primary tool for threat hunting when you have a suspicious indicator but don't know its type. For malware-specific hash lookups with file metadata, use hash_lookup instead. For domain-only threat checks, use threat_intel. Returns JSON with fields: indicator, type (auto-detected), found (boolean), threat_type, malware_family, tags, confidence, source, and references. Read-only threat feed query, no authentication required."""
+    """Enrich Indicator of Compromise (IP/domain/URL/hash) by auto-detecting type and querying abuse.ch feeds (ThreatFox, URLhaus, Feodo). Use as primary IOC triage tool when type unknown; use threat_intel for domain-only, hash_lookup for hash-only. Free: 100/hr, Pro: 1000/hr. Returns {indicator, type, found, threat_type, malware_family, tags, confidence, source}."""
     return _fmt(await _get(f"/v1/ioc/{quote(indicator, safe='')}"))
 
 
@@ -623,7 +609,7 @@ async def hash_lookup(
         ),
     ],
 ) -> str:
-    """Look up a file hash in the MalwareBazaar database to check if it is a known malware sample. Returns malware family name, file type, file size, tags, first/last seen dates, and download count. Use this when you have a suspicious file hash from logs, alerts, or forensic analysis and need to determine if it is malicious. For general IOC lookups that auto-detect indicator type, use ioc_lookup instead. Returns JSON with fields: found (boolean), malware_family, file_type, file_size, tags, first_seen, last_seen, and signature. Read-only database query, no authentication required."""
+    """Query MalwareBazaar for file hash (MD5/SHA1/SHA256): malware family, file type, size, tags, first/last seen, download count. Use to check if file hash is known malware; use ioc_lookup for auto-detection of all IOC types. Free: 100/hr, Pro: 1000/hr. Returns {found, malware_family, file_type, file_size, tags, first_seen, last_seen, signature}."""
     if not _HASH_RE.match(file_hash.strip()):
         return "Invalid hash format. Expected MD5 (32), SHA-1 (40), or SHA-256 (64) hex characters."
     return _fmt(await _get(f"/v1/hash/{file_hash}"))
@@ -638,7 +624,7 @@ async def password_check(
         ),
     ],
 ) -> str:
-    """Check if a SHA-1 hash appears in the Have I Been Pwned (HIBP) breach dataset using k-anonymity (only a 5-character prefix is sent to HIBP, the full hash never leaves this tool). This is a read-only lookup — no data is stored, no files are accessed, no system state is modified. Input must be a 40-char hex SHA-1 digest. Returns JSON with fields: found (boolean) and count (number of breach appearances). A count of 0 means the hash has not been seen in any known breaches."""
+    """Check if SHA-1 hash appears in Have I Been Pwned (HIBP) breach dataset using k-anonymity (5-char prefix only, full hash never leaves tool). Use for password breach audits; read-only, no data stored. Free: 100/hr, Pro: 1000/hr. Returns {found, count}."""
     if not re.match(r"^[a-fA-F0-9]{40}$", sha1_hash.strip()):
         return "Invalid SHA-1 hash. Expected exactly 40 hexadecimal characters."
     return _fmt(await _get(f"/v1/password/{sha1_hash}"))
@@ -653,7 +639,7 @@ async def phishing_check(
         ),
     ],
 ) -> str:
-    """Check if a specific URL is a known phishing page or malware distribution URL by querying the URLhaus database. Use this when you have a full URL (not just a domain) that you suspect may be malicious — for example, from a phishing email or suspicious link. For domain-level threat assessment, use threat_intel instead. For general IOC enrichment, use ioc_lookup. Returns JSON with fields: found (boolean), threat_type (phishing/malware/none), status (online/offline), tags, date_added, and source. Read-only database query, no authentication required."""
+    """Query URLhaus for specific URL: detect if it's a known phishing page or malware distribution site, online/offline status, tags, date added. Use for URL-level threat assessment; use threat_intel for domain-level checks. Free: 100/hr, Pro: 1000/hr. Returns {found, threat_type, status, tags, date_added, source}."""
     return _fmt(await _get(f"/v1/phishing/{quote(url, safe='')}"))
 
 
@@ -666,7 +652,7 @@ async def bulk_ioc_lookup(
         ),
     ],
 ) -> str:
-    """Enrich multiple Indicators of Compromise in a single request — auto-detects each indicator type (IP/domain/URL/hash) and queries threat feeds (ThreatFox, URLhaus, Feodo) in parallel. Use this for SOC alert triage, threat hunting, or batch enrichment when you have many suspicious indicators to investigate at once. For a single indicator, use ioc_lookup. Returns JSON with fields: results (array with indicator, type, threat_level, sources), total, successful, failed, timed_out, partial (true if some indicators hit the overall timeout), and summary. Read-only threat feed query, free tier allows 10 indicators per request, Pro allows 50."""
+    """Batch query multiple IOCs (IP/domain/URL/hash, up to 10 free/50 pro) in 1 request: auto-detects type + queries abuse.ch feeds. Use for SOC alert triage or batch enrichment; use ioc_lookup for single indicator. Free: 100/hr (1 per item), Pro: 1000/hr. Returns {results, total, successful, failed, timed_out, partial, summary}."""
     if not isinstance(indicators, list) or not indicators:
         return "indicators must be a non-empty list"
     return _fmt(await _post("/v1/iocs/bulk", {"indicators": indicators}))
@@ -689,11 +675,7 @@ async def check_secrets(
         ),
     ] = "generic",
 ) -> str:
-    """Scan code for hardcoded secrets (AWS keys, API tokens, connection strings, private keys).
-
-Examples: pass a Python file to find leaked AWS_SECRET_ACCESS_KEY, or a .env snippet to find exposed tokens.
-
-Returns: total (count), by_severity (CRITICAL/HIGH/MEDIUM/LOW), findings array. Read-only, code is not stored. For injection detection, use check_injection instead."""
+    """Scan source code (or snippet) for hardcoded secrets: AWS keys, API tokens, connection strings, private keys, passwords. Supports Python, JavaScript, TypeScript, Java, Go, Ruby, Shell, Bash. Use to detect leaked credentials before commit; for injection detection use check_injection. Free: 100/hr, Pro: 1000/hr. Returns {total, by_severity, findings}. No data stored."""
     return _fmt(await _post("/v1/check/secrets", {"code": code, "language": language}))
 
 
@@ -713,11 +695,7 @@ async def check_injection(
         ),
     ] = "generic",
 ) -> str:
-    """Scan code for injection vulnerabilities: SQL injection, command injection, and path traversal.
-
-Detects unsafe patterns like string concatenation in SQL queries, unsanitized input in shell commands, and user input in file paths.
-
-Returns: total (count), by_severity (CRITICAL/HIGH/MEDIUM/LOW), findings array. Read-only, code is not stored. For hardcoded secrets, use check_secrets instead."""
+    """Scan source code for injection vulnerabilities: SQL injection, command injection, path traversal via unsafe string concatenation/unsanitized input. Supports Python, JavaScript, TypeScript, Java, Go, Ruby, Shell, Bash. Use to detect input-handling bugs; for secrets use check_secrets. Free: 100/hr, Pro: 1000/hr. Returns {total, by_severity, findings}. No data stored."""
     return _fmt(await _post("/v1/check/injection", {"code": code, "language": language}))
 
 
@@ -730,11 +708,7 @@ async def check_dependencies(
         ),
     ],
 ) -> str:
-    """Audit a list of project dependencies (npm/PyPI/Maven/RubyGems/etc.) against the CVE database for known vulnerabilities.
-
-Use this to scan a requirements.txt, package.json, pom.xml, or Gemfile.lock when you want to check many packages at once. For a single vulnerability by ID, use cve_lookup. For searching CVEs by product without version, use cve_search.
-
-Returns JSON with fields: findings (array — each with package name, version, cve_id, severity, cvss_score, description), total (count of vulnerable packages), by_severity (CRITICAL/HIGH/MEDIUM/LOW counts), summary (human-readable one-line digest). An empty findings array means no known CVEs match the provided packages+versions. Read-only lookup, no authentication required."""
+    """Audit project dependencies (npm/PyPI/Maven/RubyGems/etc.) against CVE database: find known vulnerabilities in your package list. Bulk query up to 10 free/50 pro packages. Use for dependency security scanning; use cve_lookup for single CVE. Free: 100/hr (1 per package), Pro: 1000/hr. Returns {findings, total, by_severity, summary}."""
     if not isinstance(packages, list) or not packages:
         return "packages must be a non-empty list"
     if len(packages) > 50:
@@ -764,7 +738,7 @@ async def username_lookup(
         ),
     ],
 ) -> str:
-    """Search for a username across multiple social media and developer platforms (GitHub, Reddit, X/Twitter, Instagram, LinkedIn, TikTok, Facebook, YouTube, Pinterest, Telegram, Discord, Mastodon, Keybase, HackerOne, GitLab, Medium) to check if accounts exist. Use this for OSINT investigations to map a person's online presence or verify identity claims. Returns JSON with fields: username, total_found (count), and platforms (array of objects with name, exists (boolean), url, and status_code). Read-only HTTP checks to public profile pages, no authentication required."""
+    """Search for username across 15+ social/dev platforms (GitHub, Reddit, X/Twitter, LinkedIn, Instagram, TikTok, Discord, YouTube, Keybase, HackerOne, etc.). Use for OSINT investigations and identity verification. Free: 100/hr, Pro: 1000/hr. Returns {username, total_found, platforms: [{name, exists, url, status_code}]}."""
     return _fmt(await _get(f"/v1/username/{quote(username, safe='')}"))
 
 
@@ -777,7 +751,7 @@ async def check_headers(
         ),
     ],
 ) -> str:
-    """Validate a set of HTTP security headers that you already have (e.g. copied from browser DevTools, a curl response, or an existing configuration). Checks Content-Security-Policy, Strict-Transport-Security, X-Frame-Options, X-Content-Type-Options, Permissions-Policy, and Referrer-Policy against security best practices. Unlike scan_headers (which fetches headers live from a domain), this tool analyzes headers you provide directly — useful for testing configurations before deployment or validating headers from non-public servers. Returns JSON with fields: total (finding count), by_severity (counts), and findings (array with severity, header_name, issue, and recommendation). Read-only validation, no external requests made."""
+    """Validate HTTP security headers you provide (JSON): CSP, HSTS, X-Frame-Options, X-Content-Type-Options, Permissions-Policy, Referrer-Policy against best practices. Use to test header config before deployment or validate non-public servers; use scan_headers to fetch live. Free: 100/hr, Pro: 1000/hr. Returns {total, by_severity, findings}. No external requests."""
     try:
         h = json.loads(headers)
     except json.JSONDecodeError:
