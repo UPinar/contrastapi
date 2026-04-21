@@ -8,7 +8,8 @@
 [![Python 3.12](https://img.shields.io/badge/Python-3.12-blue.svg)](https://python.org)
 [![Tests](https://img.shields.io/badge/Tests-1104_passing-brightgreen.svg)](https://github.com/UPinar/contrastapi/actions)
 [![MCP](https://img.shields.io/badge/MCP-31_tools-purple.svg)](https://modelcontextprotocol.io)
-[![Smithery](https://img.shields.io/badge/Smithery-96%2F100-orange.svg)](https://smithery.ai/servers/contrastcyber/contrastapi)
+[![Smithery](https://img.shields.io/badge/Smithery-99%2F100-orange.svg)](https://smithery.ai/servers/contrastcyber/contrastapi)
+[![contrastapi MCP server](https://glama.ai/mcp/servers/UPinar/contrastapi/badges/score.svg)](https://glama.ai/mcp/servers/UPinar/contrastapi)
 [![npm](https://img.shields.io/npm/v/contrastapi.svg)](https://www.npmjs.com/package/contrastapi)
 [![VS Code](https://img.shields.io/badge/VS_Code-Marketplace-007ACC.svg)](https://marketplace.visualstudio.com/items?itemName=ContrastAPI.contrastapi)
 
@@ -90,7 +91,7 @@ curl https://api.contrastcyber.com/v1/threat-report/8.8.8.8
 - **34 万+ CVE** 来自 NVD + MITRE cvelistV5 + GitHub Security Advisories，每 2 小时同步，整合 EPSS 漏洞利用概率 + CISA KEV 状态。`cve_lookup` 返回 `sources`、`first_seen_source`、`first_seen_at` — 智能体可检测 NVD 发布前已收录的 CVE。`cve_search` 支持 `kev`、`epss_min`、`sort` 和 `offset` 分页 — 智能体可筛选活跃利用漏洞、按利用概率排序并翻页浏览大型结果集。
 - **加权信用额度** — 简单调用 1 个信用，重度编排调用（audit、threat_report）4 个,批量调用 N 个
 - **LLM 优化摘要** — 每个响应都包含 `summary` 字段，智能体无需解析嵌套 JSON 即可推理
-- **分发渠道** — [npm SDK](https://www.npmjs.com/package/contrastapi) · [VS Code 扩展](https://marketplace.visualstudio.com/items?itemName=ContrastAPI.contrastapi) · [Smithery MCP](https://smithery.ai/servers/contrastcyber/contrastapi)（96/100 质量评分）· REST API
+- **分发渠道** — [npm SDK](https://www.npmjs.com/package/contrastapi) · [VS Code 扩展](https://marketplace.visualstudio.com/items?itemName=ContrastAPI.contrastapi) · [Smithery MCP](https://smithery.ai/servers/contrastcyber/contrastapi)（99/100 质量评分）· REST API
 
 ## 为什么选择 ContrastAPI？
 
@@ -151,7 +152,7 @@ cd app && PYTHONPATH=. python -m pytest tests/ -v
 <details>
 <summary><strong>也可通过以下渠道获取</strong></summary>
 
-- **Smithery：** [smithery.ai/servers/contrastcyber/contrastapi](https://smithery.ai/servers/contrastcyber/contrastapi)（96/100 质量评分）
+- **Smithery：** [smithery.ai/servers/contrastcyber/contrastapi](https://smithery.ai/servers/contrastcyber/contrastapi)（99/100 质量评分）
 - **npm：** [npmjs.com/package/contrastapi](https://www.npmjs.com/package/contrastapi)
 - **VS Code Marketplace：** [ContrastAPI — Security Intelligence](https://marketplace.visualstudio.com/items?itemName=ContrastAPI.contrastapi)
 - **Awesome OSINT MCP Servers：** [soxoj/awesome-osint-mcp-servers](https://github.com/soxoj/awesome-osint-mcp-servers)

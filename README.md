@@ -8,7 +8,8 @@
 [![Python 3.12](https://img.shields.io/badge/Python-3.12-blue.svg)](https://python.org)
 [![Tests](https://img.shields.io/badge/Tests-1104_passing-brightgreen.svg)](https://github.com/UPinar/contrastapi/actions)
 [![MCP](https://img.shields.io/badge/MCP-31_tools-purple.svg)](https://modelcontextprotocol.io)
-[![Smithery](https://img.shields.io/badge/Smithery-96%2F100-orange.svg)](https://smithery.ai/servers/contrastcyber/contrastapi)
+[![Smithery](https://img.shields.io/badge/Smithery-99%2F100-orange.svg)](https://smithery.ai/servers/contrastcyber/contrastapi)
+[![contrastapi MCP server](https://glama.ai/mcp/servers/UPinar/contrastapi/badges/score.svg)](https://glama.ai/mcp/servers/UPinar/contrastapi)
 [![npm](https://img.shields.io/npm/v/contrastapi.svg)](https://www.npmjs.com/package/contrastapi)
 [![VS Code](https://img.shields.io/badge/VS_Code-Marketplace-007ACC.svg)](https://marketplace.visualstudio.com/items?itemName=ContrastAPI.contrastapi)
 
@@ -88,7 +89,7 @@ More example prompts: [docs/PROMPTS.md](docs/PROMPTS.md) · [/playground](https:
 - **340K+ CVEs** from NVD + MITRE cvelistV5 + GitHub Security Advisories, enriched with EPSS + CISA KEV. `cve_lookup` exposes `sources`, `first_seen_source`, `first_seen_at` — agents detect CVEs indexed before NVD publishes. `cve_search` supports `kev`, `epss_min`, `sort`, and `offset` pagination — agents can filter to actively exploited CVEs, sort by exploit probability, and page through large result sets.
 - **Weighted credits** — 1 for simple calls, 4 for heavy orchestration (audit, threat report), N for bulk lookups
 - **LLM-optimized summaries** — every response includes a `summary` field so agents reason without parsing nested JSON
-- **Distribution** — [npm SDK](https://www.npmjs.com/package/contrastapi) · [VS Code Extension](https://marketplace.visualstudio.com/items?itemName=ContrastAPI.contrastapi) · [Smithery MCP](https://smithery.ai/servers/contrastcyber/contrastapi) (96/100 quality) · REST API
+- **Distribution** — [npm SDK](https://www.npmjs.com/package/contrastapi) · [VS Code Extension](https://marketplace.visualstudio.com/items?itemName=ContrastAPI.contrastapi) · [Smithery MCP](https://smithery.ai/servers/contrastcyber/contrastapi) (99/100 quality) · REST API
 
 ## Docs & Links
 
@@ -143,7 +144,7 @@ cd app && PYTHONPATH=. python -m pytest tests/ -v
 <details>
 <summary><strong>Also Available On</strong></summary>
 
-- **Smithery:** [smithery.ai/servers/contrastcyber/contrastapi](https://smithery.ai/servers/contrastcyber/contrastapi) (96/100 quality score)
+- **Smithery:** [smithery.ai/servers/contrastcyber/contrastapi](https://smithery.ai/servers/contrastcyber/contrastapi) (99/100 quality score)
 - **npm:** [npmjs.com/package/contrastapi](https://www.npmjs.com/package/contrastapi)
 - **VS Code Marketplace:** [ContrastAPI — Security Intelligence](https://marketplace.visualstudio.com/items?itemName=ContrastAPI.contrastapi)
 - **Awesome OSINT MCP Servers:** [soxoj/awesome-osint-mcp-servers](https://github.com/soxoj/awesome-osint-mcp-servers)
