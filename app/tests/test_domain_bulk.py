@@ -974,11 +974,12 @@ class TestAuditDomain:
 class TestThreatReport:
     """Tests for GET /v1/threat-report/{ip}"""
 
+    @patch("domain.routes.authenticate", return_value={"tier": "pro"})
     @patch("domain.routes._ripe_client")
     @patch("domain.routes.check_shodan")
     @patch("domain.routes.check_abuseipdb")
     @patch("domain.routes.ip_enrichment")
-    def test_threat_report_success(self, mock_enrich, mock_abuse, mock_shodan, mock_ripe):
+    def test_threat_report_success(self, mock_enrich, mock_abuse, mock_shodan, mock_ripe, mock_auth):
         mock_enrich.return_value = {
             "ports": [80, 443],
             "hostnames": ["dns.google"],
@@ -1015,11 +1016,12 @@ class TestThreatReport:
         body = r.json()
         assert "Private" in (body.get("detail") or body.get("error") or "")
 
+    @patch("domain.routes.authenticate", return_value={"tier": "pro"})
     @patch("domain.routes._ripe_client")
     @patch("domain.routes.check_shodan", side_effect=RuntimeError("upstream down"))
     @patch("domain.routes.check_abuseipdb")
     @patch("domain.routes.ip_enrichment")
-    def test_threat_report_partial_failure(self, mock_enrich, mock_abuse, mock_shodan, mock_ripe):
+    def test_threat_report_partial_failure(self, mock_enrich, mock_abuse, mock_shodan, mock_ripe, mock_auth):
         """Shodan failure should not crash endpoint - returns error dict."""
         mock_enrich.return_value = {"ports": [], "hostnames": [], "vulns": [], "cpes": [], "tags": []}
         mock_abuse.return_value = {"status": "ok", "abuse_score": 75}

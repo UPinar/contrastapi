@@ -19,7 +19,7 @@ import dns.resolver
 import httpcore
 import httpx
 import ratelimit
-from config import CRTSH_MAX_BYTES, CRTSH_MAX_RESULTS, CRTSH_TIMEOUT, ENRICHMENT_DAILY_LIMIT, RECON_TIMEOUT
+from config import CRTSH_MAX_BYTES, CRTSH_MAX_RESULTS, CRTSH_TIMEOUT, ENRICHMENT_DAILY_LIMIT, RECON_TIMEOUT, UPGRADE_URL
 from validation import is_private_ip
 
 logger = logging.getLogger("contrastapi")
@@ -997,7 +997,7 @@ def phone_lookup(number: str) -> dict:
 
 
 def full_domain_report(
-    domain: str, resolved_ip: str | None = None, client_ip: str | None = None, lite: bool = False
+    domain: str, resolved_ip: str | None = None, client_ip: str | None = None, lite: bool = False, tier: str = "free"
 ) -> dict:
     """Run domain intelligence checks in parallel, return combined report.
 
@@ -1055,8 +1055,9 @@ def full_domain_report(
             f_certs = pool.submit(_ct_with_crtsh)
 
             if enrich and cached_rep is None and resolved_ip:
-                f_ab = pool.submit(check_abuseipdb, resolved_ip)
-                f_sh = pool.submit(check_shodan, resolved_ip)
+                if tier == "pro":
+                    f_ab = pool.submit(check_abuseipdb, resolved_ip)
+                    f_sh = pool.submit(check_shodan, resolved_ip)
 
         report["dns"] = f_dns.result(timeout=RECON_TIMEOUT * 3)
         report["reverse_dns"] = f_rdns.result(timeout=RECON_TIMEOUT * 2)
@@ -1094,6 +1095,19 @@ def full_domain_report(
                 logger.warning("Reputation enrichment failed: %s", type(e).__name__)
                 if client_ip:
                     ratelimit.refund("enrichment", client_ip)
+        elif not lite and resolved_ip and tier != "pro":
+            report["reputation"] = {
+                "abuseipdb": {
+                    "status": "pro_only",
+                    "reason": "AbuseIPDB enrichment requires Pro tier",
+                    "upgrade_url": UPGRADE_URL,
+                },
+                "shodan": {
+                    "status": "pro_only",
+                    "reason": "Shodan enrichment requires Pro tier",
+                    "upgrade_url": UPGRADE_URL,
+                },
+            }
 
         # Email security uses DNS TXT records from dns_lookup
         txt_records = report["dns"].get("txt", [])

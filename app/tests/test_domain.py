@@ -431,8 +431,8 @@ class TestDomainRoutes:
         mock_report.assert_called_once()
         _, kwargs = mock_report.call_args
         assert kwargs["lite"] is True
-        # Cache key should be lite:example.com
-        mock_cache.assert_called_once_with("lite:example.com")
+        # Cache key is tier-prefixed (free-tier unauthenticated test client)
+        mock_cache.assert_called_once_with("free:lite:example.com")
 
     @patch("domain.routes._is_valid_format", return_value=False)
     @patch("domain.routes.validate_domain", return_value=None)
@@ -1530,12 +1530,13 @@ class TestFullDomainReport:
         m_headers,
         m_score,
     ):
-        """Reputation enrichment skipped when rate limit denies."""
+        """Free tier always gets pro_only stub regardless of quota."""
         from domain.recon import full_domain_report
 
         m_rl.check_limit.return_value = False
-        result = full_domain_report("example.com", resolved_ip="1.2.3.4", client_ip="10.0.0.1")
-        assert "reputation" not in result
+        result = full_domain_report("example.com", resolved_ip="1.2.3.4", client_ip="10.0.0.1", tier="free")
+        assert result["reputation"]["abuseipdb"]["status"] == "pro_only"
+        assert result["reputation"]["shodan"]["status"] == "pro_only"
 
     @patch("domain.scoring.score_domain", return_value={"grade": "A", "score": 90, "factors": []})
     @patch("domain.recon.fetch_live_headers", return_value={"headers": {}})
@@ -1572,11 +1573,11 @@ class TestFullDomainReport:
         m_headers,
         m_score,
     ):
-        """On reputation failure, rate limit quota is refunded."""
+        """Pro tier: on reputation failure, rate limit quota is refunded."""
         from domain.recon import full_domain_report
 
         m_rl.check_limit.return_value = True
-        result = full_domain_report("example.com", resolved_ip="1.2.3.4", client_ip="10.0.0.1")
+        result = full_domain_report("example.com", resolved_ip="1.2.3.4", client_ip="10.0.0.1", tier="pro")
         m_rl.refund.assert_called_once_with("enrichment", "10.0.0.1")
         assert "reputation" not in result
 
@@ -1910,7 +1911,7 @@ class TestDnsLookupRecordTypes:
 
 
 class TestIpRouteReputation:
-    @patch("domain.routes.authenticate", return_value={"tier": "free"})
+    @patch("domain.routes.authenticate", return_value={"tier": "pro"})
     @patch("domain.routes.save_cached_ip")
     @patch("domain.routes.get_cached_ip_with_age", return_value=None)
     @patch("domain.routes.ratelimit.check_limit", return_value=True)
@@ -1955,10 +1956,12 @@ class TestIpRouteReputation:
     )
     @patch("domain.routes.socket.gethostbyaddr", return_value=("example.com", [], []))
     def test_ip_without_reputation_limit_exceeded(self, mock_ptr, mock_enrich, mock_limit, mock_cache_get, mock_auth):
+        """Free tier always gets pro_only stub; quota limit is irrelevant."""
         r = client.get("/v1/ip/93.184.216.34")
         assert r.status_code == 200
         data = r.json()
-        assert "reputation" not in data
+        assert data["reputation"]["abuseipdb"]["status"] == "pro_only"
+        assert data["reputation"]["shodan"]["status"] == "pro_only"
         assert data["ports"] == [22, 80]
         assert "CVE-2024-1234" in data["vulns"]
 
@@ -2426,3 +2429,228 @@ class TestRatelimitRefund:
 
         ratelimit.reset()
         ratelimit.refund("test_refund", "nonexistent")  # should not raise
+
+
+# =========== Pro-tier upstream quota protection tests ===========
+
+_ENRICH_EMPTY = {"ports": [], "hostnames": [], "vulns": [], "cpes": [], "tags": [], "internetdb_status": "ok"}
+
+
+class TestProOnlyEnrichment:
+    """Upstream quota gate: live AbuseIPDB/Shodan calls only for Pro tier."""
+
+    # --- full_domain_report unit tests ---
+
+    @patch("domain.scoring.score_domain", return_value={"grade": "A", "score": 90, "factors": []})
+    @patch("domain.recon.fetch_live_headers", return_value={"headers": {}})
+    @patch("domain.recon.email_security", return_value={"grade": "A"})
+    @patch("domain.threat.check_urlhaus", return_value={"url_count": 0, "urls_online": 0})
+    @patch("domain.recon.check_ct_logs", return_value={"total_certificates": 0, "certificates": []})
+    @patch("domain.recon.enumerate_subdomains", return_value={"subdomains": [], "count": 0})
+    @patch("domain.recon._fetch_crtsh", return_value=([], None))
+    @patch("domain.recon.ssl_info", return_value={"issuer": "LE", "grade": "B"})
+    @patch("domain.recon.whois_lookup", return_value={})
+    @patch("domain.recon.reverse_dns", return_value={"ip": "1.2.3.4", "ptr": None})
+    @patch("domain.recon.dns_lookup", return_value={"a": ["1.2.3.4"]})
+    @patch("domain.recon.ratelimit")
+    @patch("db.get_cached_ip", return_value=None)
+    @patch("domain.reputation.check_shodan", side_effect=AssertionError("Shodan must not be called for free tier"))
+    @patch(
+        "domain.reputation.check_abuseipdb", side_effect=AssertionError("AbuseIPDB must not be called for free tier")
+    )
+    def test_domain_report_free_tier_enrichment_pro_only(
+        self,
+        m_ab,
+        m_sh,
+        m_cache_ip,
+        m_rl,
+        m_dns,
+        m_rdns,
+        m_whois,
+        m_ssl,
+        m_crtsh,
+        m_subs,
+        m_ct,
+        m_threat,
+        m_email,
+        m_headers,
+        m_score,
+    ):
+        """Free tier: reputation stub returned, no upstream API calls made."""
+        from domain.recon import full_domain_report
+
+        m_rl.check_limit.return_value = True
+        result = full_domain_report("example.com", resolved_ip="1.2.3.4", client_ip="10.0.0.1", tier="free")
+        assert "reputation" in result
+        assert result["reputation"]["abuseipdb"]["status"] == "pro_only"
+        assert result["reputation"]["abuseipdb"]["upgrade_url"] == "https://contrastcyber.com/pricing"
+        assert result["reputation"]["shodan"]["status"] == "pro_only"
+        assert result["reputation"]["shodan"]["upgrade_url"] == "https://contrastcyber.com/pricing"
+
+    @patch("domain.scoring.score_domain", return_value={"grade": "A", "score": 90, "factors": []})
+    @patch("domain.recon.fetch_live_headers", return_value={"headers": {}})
+    @patch("domain.recon.email_security", return_value={"grade": "A"})
+    @patch("domain.threat.check_urlhaus", return_value={"url_count": 0, "urls_online": 0})
+    @patch("domain.recon.check_ct_logs", return_value={"total_certificates": 0, "certificates": []})
+    @patch("domain.recon.enumerate_subdomains", return_value={"subdomains": [], "count": 0})
+    @patch("domain.recon._fetch_crtsh", return_value=([], None))
+    @patch("domain.recon.ssl_info", return_value={"issuer": "LE", "grade": "A"})
+    @patch("domain.recon.whois_lookup", return_value={})
+    @patch("domain.recon.reverse_dns", return_value={"ip": "1.2.3.4", "ptr": None})
+    @patch("domain.recon.dns_lookup", return_value={"a": ["1.2.3.4"]})
+    @patch("domain.recon.ratelimit")
+    @patch("db.save_cached_ip")
+    @patch("db.get_cached_ip", return_value=None)
+    @patch("domain.reputation.check_shodan", return_value={"status": "ok", "mock": True})
+    @patch("domain.reputation.check_abuseipdb", return_value={"status": "ok", "mock": True})
+    def test_domain_report_pro_tier_enrichment_called(
+        self,
+        m_ab,
+        m_sh,
+        m_cache_ip,
+        m_save_ip,
+        m_rl,
+        m_dns,
+        m_rdns,
+        m_whois,
+        m_ssl,
+        m_crtsh,
+        m_subs,
+        m_ct,
+        m_threat,
+        m_email,
+        m_headers,
+        m_score,
+    ):
+        """Pro tier: live enrichment called and response contains real data."""
+        from domain.recon import full_domain_report
+
+        m_rl.check_limit.return_value = True
+        result = full_domain_report("example.com", resolved_ip="1.2.3.4", client_ip="10.0.0.1", tier="pro")
+        m_ab.assert_called_once()
+        m_sh.assert_called_once()
+        assert result["reputation"]["abuseipdb"]["status"] == "ok"
+        assert result["reputation"]["shodan"]["status"] == "ok"
+
+    # --- /v1/ip route tests ---
+
+    @patch("domain.routes.authenticate", return_value={"tier": "free"})
+    @patch("domain.routes.get_cached_ip_with_age", return_value=None)
+    @patch("domain.routes.ratelimit.check_limit", return_value=True)
+    @patch("domain.routes.check_shodan", side_effect=AssertionError("Shodan must not be called for free tier"))
+    @patch("domain.routes.check_abuseipdb", side_effect=AssertionError("AbuseIPDB must not be called for free tier"))
+    @patch("domain.routes.ip_enrichment", return_value=_ENRICH_EMPTY)
+    @patch("domain.routes.socket.gethostbyaddr", return_value=("example.com", [], []))
+    def test_ip_lookup_free_tier_enrichment_pro_only(
+        self, mock_ptr, mock_enrich, mock_ab, mock_sh, mock_limit, mock_cache, mock_auth
+    ):
+        """Free tier /v1/ip: pro_only stub returned, no live API calls."""
+        r = client.get("/v1/ip/93.184.216.34")
+        assert r.status_code == 200
+        data = r.json()
+        assert "reputation" in data
+        assert data["reputation"]["abuseipdb"]["status"] == "pro_only"
+        assert data["reputation"]["abuseipdb"]["upgrade_url"] == "https://contrastcyber.com/pricing"
+        assert data["reputation"]["shodan"]["status"] == "pro_only"
+        assert data["reputation"]["shodan"]["upgrade_url"] == "https://contrastcyber.com/pricing"
+
+    # --- /v1/threat-report route tests ---
+
+    @patch("domain.routes.authenticate", return_value={"tier": "free"})
+    @patch("domain.routes._ripe_client")
+    @patch("domain.routes.check_shodan", side_effect=AssertionError("Shodan must not be called for free tier"))
+    @patch("domain.routes.check_abuseipdb", side_effect=AssertionError("AbuseIPDB must not be called for free tier"))
+    @patch(
+        "domain.routes.ip_enrichment", return_value={"ports": [], "hostnames": [], "vulns": [], "cpes": [], "tags": []}
+    )
+    def test_threat_report_free_tier_enrichment_pro_only(self, mock_enrich, mock_ab, mock_sh, mock_ripe, mock_auth):
+        """Free tier /v1/threat-report: pro_only stub returned, no live API calls."""
+        mock_ripe.get.side_effect = Exception("no network")
+        r = client.get("/v1/threat-report/8.8.8.8")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["abuseipdb"]["status"] == "pro_only"
+        assert data["abuseipdb"]["upgrade_url"] == "https://contrastcyber.com/pricing"
+        assert data["shodan"]["status"] == "pro_only"
+        assert data["shodan"]["upgrade_url"] == "https://contrastcyber.com/pricing"
+
+    # --- Cache bypass test ---
+
+    @patch("domain.routes.authenticate", return_value={"tier": "free"})
+    @patch("domain.routes.check_shodan", side_effect=AssertionError("Shodan must not be called — cache hit"))
+    @patch("domain.routes.check_abuseipdb", side_effect=AssertionError("AbuseIPDB must not be called — cache hit"))
+    @patch(
+        "domain.routes.get_cached_ip_with_age",
+        return_value=(
+            {"abuseipdb": {"status": "ok", "abuse_score": 0}, "shodan": {"status": "ok", "ports": [443]}},
+            3600,
+        ),
+    )
+    @patch("domain.routes.ip_enrichment", return_value=_ENRICH_EMPTY)
+    @patch("domain.routes.socket.gethostbyaddr", return_value=("example.com", [], []))
+    def test_cached_reputation_served_to_free_tier(
+        self, mock_ptr, mock_enrich, mock_cache, mock_ab, mock_sh, mock_auth
+    ):
+        """Cached reputation is served to free tier without any upstream calls."""
+        r = client.get("/v1/ip/93.184.216.34")
+        assert r.status_code == 200
+        data = r.json()
+        assert "reputation" in data
+        assert data["reputation"]["abuseipdb"]["status"] == "ok"
+        assert data["reputation"]["shodan"]["status"] == "ok"
+
+    # --- Tier-aware cache segregation (prevents cache poisoning) ---
+
+    @patch(
+        "domain.tech.detect_technologies",
+        return_value={"technologies": [], "categories": {}, "count": 0, "summary": ""},
+    )
+    @patch("domain.recon.fetch_live_headers", return_value={"headers": {}})
+    @patch("domain.routes.save_cached_domain")
+    @patch("domain.routes.get_cached_domain", return_value=None)
+    @patch("domain.routes.full_domain_report", return_value={"domain": "example.com", "summary": "ok"})
+    @patch("domain.routes.clean_domain", return_value="example.com")
+    @patch("domain.routes.authenticate", return_value={"tier": "pro", "key_hash": "h", "client_ip": "10.0.0.1"})
+    def test_audit_domain_threads_pro_tier_to_full_report(
+        self, mock_auth, mock_clean, mock_report, mock_get, mock_save, mock_headers, mock_tech
+    ):
+        """audit_domain must pass auth_ctx['tier'] into full_domain_report — Pro users get real enrichment."""
+        r = client.get("/v1/audit/example.com")
+        assert r.status_code == 200
+        # Verify tier was threaded as keyword arg
+        _, kwargs = mock_report.call_args
+        assert kwargs.get("tier") == "pro", (
+            f"audit_domain did not thread tier=pro to full_domain_report; got kwargs={kwargs}"
+        )
+        # Cache key includes tier prefix → no cross-tier poisoning
+        mock_get.assert_called_with("pro:example.com")
+        mock_save.assert_called_once()
+        saved_key, _ = mock_save.call_args[0]
+        assert saved_key == "pro:example.com", f"audit_domain save_cached_domain used tier-agnostic key: {saved_key}"
+
+    @patch("domain.routes.save_cached_domain")
+    @patch("domain.routes.get_cached_domain_with_age", return_value=None)
+    @patch("domain.routes.full_domain_report", return_value={"domain": "example.com", "summary": "ok"})
+    @patch("domain.routes._validate_and_auth")
+    def test_domain_report_cache_keys_tier_segregated(self, mock_auth, mock_report, mock_get, mock_save):
+        """Free stub must not poison Pro cache — tier prefix segregates cache keys."""
+        # Free tier request
+        mock_auth.return_value = ("example.com", "1.2.3.4", {"tier": "free", "key_hash": None, "client_ip": "10.0.0.1"})
+        r_free = client.get("/v1/domain/example.com")
+        assert r_free.status_code == 200
+        free_read_key = mock_get.call_args[0][0]
+        free_save_key = mock_save.call_args[0][0]
+        assert free_read_key == "free:example.com"
+        assert free_save_key == "free:example.com"
+
+        # Pro tier request — must check a DIFFERENT cache key, not the free one
+        mock_get.reset_mock()
+        mock_save.reset_mock()
+        mock_auth.return_value = ("example.com", "1.2.3.4", {"tier": "pro", "key_hash": "h", "client_ip": "10.0.0.2"})
+        r_pro = client.get("/v1/domain/example.com")
+        assert r_pro.status_code == 200
+        pro_read_key = mock_get.call_args[0][0]
+        pro_save_key = mock_save.call_args[0][0]
+        assert pro_read_key == "pro:example.com", f"Pro read hit free key — poisoning risk: {pro_read_key}"
+        assert pro_save_key == "pro:example.com"
+        assert pro_read_key != free_read_key

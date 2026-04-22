@@ -37,6 +37,7 @@ from config import (
     COST_THREAT_REPORT,
     ENRICHMENT_DAILY_LIMIT,
     RECON_TIMEOUT,
+    UPGRADE_URL,
 )
 from cryptography import x509
 from cryptography.x509.oid import AuthorityInformationAccessOID
@@ -276,9 +277,13 @@ def _threat_verdict(unavailable: bool = False) -> Verdict:
     )
 
 
-def _from_cache(domain: str, key: str) -> dict | None:
-    """Try to extract a section from a cached full domain report."""
-    cached = get_cached_domain(domain)
+def _from_cache(domain: str, key: str, tier: str) -> dict | None:
+    """Try to extract a section from a cached full domain report.
+
+    Matches the tier-prefixed cache keys used by domain_report/bulk/audit —
+    otherwise sub-endpoints (dns/whois/subdomains/certs) would always miss.
+    """
+    cached = get_cached_domain(f"{tier}:{domain}")
     if cached and key in cached:
         return cached[key]
     return None
@@ -301,8 +306,10 @@ def domain_report(domain: str, request: Request, lite: bool = False):
     """Full domain intelligence report with DNS, WHOIS, SSL, subdomains, WAF. Use ?lite=true for fast subset."""
     domain, resolved_ip, auth_ctx = _validate_and_auth(request, domain)
 
-    # Separate cache keys for lite vs full
-    cache_key = f"lite:{domain}" if lite else domain
+    # Separate cache keys for lite vs full, segregated by tier to prevent
+    # free-tier pro_only stubs from poisoning Pro reads (and vice versa).
+    tier = auth_ctx["tier"]
+    cache_key = f"{tier}:lite:{domain}" if lite else f"{tier}:{domain}"
     hit = get_cached_domain_with_age(cache_key)
     if hit is not None:
         cached, age = hit
@@ -310,7 +317,7 @@ def domain_report(domain: str, request: Request, lite: bool = False):
 
     client_ip = get_client_ip(request)
     try:
-        result = full_domain_report(domain, resolved_ip=resolved_ip, client_ip=client_ip, lite=lite)
+        result = full_domain_report(domain, resolved_ip=resolved_ip, client_ip=client_ip, lite=lite, tier=tier)
     except FuturesTimeoutError:
         raise HTTPException(status_code=504, detail="Domain report timed out — upstream services too slow") from None
     save_cached_domain(cache_key, result)
@@ -321,7 +328,7 @@ def domain_report(domain: str, request: Request, lite: bool = False):
 def dns_records(domain: str, request: Request):
     """DNS record lookup: A, AAAA, MX, NS, TXT, CNAME, SOA."""
     domain, resolved_ip, auth_ctx = _validate_and_auth(request, domain)
-    cached = _from_cache(domain, "dns")
+    cached = _from_cache(domain, "dns", auth_ctx["tier"])
     if cached:
         return {"domain": domain, "records": cached, "summary": _dns_summary(cached, domain)}
     records = dns_lookup(domain)
@@ -480,7 +487,7 @@ def username_endpoint(username: str, request: Request):
 def whois_endpoint(domain: str, request: Request):
     """WHOIS registration data for a domain."""
     domain, resolved_ip, auth_ctx = _validate_and_auth(request, domain)
-    cached = _from_cache(domain, "whois")
+    cached = _from_cache(domain, "whois", auth_ctx["tier"])
     if cached and "error" not in cached:
         return {"domain": domain, "whois": cached, "summary": _whois_summary(cached, domain)}
     result = whois_lookup(domain)
@@ -498,7 +505,7 @@ def whois_endpoint(domain: str, request: Request):
 def subdomains(domain: str, request: Request):
     """Subdomain enumeration via DNS brute force + certificate transparency."""
     domain, resolved_ip, auth_ctx = _validate_and_auth(request, domain)
-    cached = _from_cache(domain, "subdomains")
+    cached = _from_cache(domain, "subdomains", auth_ctx["tier"])
     if cached:
         return {"domain": domain, **cached}
     result = enumerate_subdomains(domain)
@@ -509,7 +516,7 @@ def subdomains(domain: str, request: Request):
 def certs(domain: str, request: Request):
     """Certificate transparency log lookup."""
     domain, resolved_ip, auth_ctx = _validate_and_auth(request, domain)
-    cached = _from_cache(domain, "certificates")
+    cached = _from_cache(domain, "certificates", auth_ctx["tier"])
     if cached:
         total = cached.get("total_certificates", 0)
         summary = f"{total} certificate{'s' if total != 1 else ''} in CT logs for {domain}"
@@ -711,7 +718,7 @@ def ip_lookup(ip: str, request: Request):
         raise HTTPException(status_code=400, detail="Invalid IP address")
     if is_private_ip(ip):
         raise HTTPException(status_code=400, detail="Private/reserved IP addresses are not allowed")
-    authenticate(request, "/v1/ip")
+    auth_ctx = authenticate(request, "/v1/ip")
     client_ip = get_client_ip(request)
 
     try:
@@ -737,7 +744,7 @@ def ip_lookup(ip: str, request: Request):
     if hit is not None:
         reputation, rep_age = hit
         reputation_attempted = True
-    elif ratelimit.check_limit(
+    elif auth_ctx["tier"] == "pro" and ratelimit.check_limit(
         store_name="enrichment",
         key=client_ip,
         max_requests=ENRICHMENT_DAILY_LIMIT,
@@ -758,6 +765,20 @@ def ip_lookup(ip: str, request: Request):
             reputation = {}
             reputation_failed = True
             ratelimit.refund("enrichment", client_ip)
+    elif auth_ctx["tier"] != "pro":
+        reputation = {
+            "abuseipdb": {
+                "status": "pro_only",
+                "reason": "AbuseIPDB enrichment requires Pro tier",
+                "upgrade_url": UPGRADE_URL,
+            },
+            "shodan": {
+                "status": "pro_only",
+                "reason": "Shodan enrichment requires Pro tier",
+                "upgrade_url": UPGRADE_URL,
+            },
+        }
+        reputation_attempted = True
 
     try:
         cloud_provider = check_cloud_provider(ip)
@@ -837,7 +858,7 @@ def domain_monitor(domain: str, request: Request):
     risk_grade = None
     risk_score = None
     last_full_report = None
-    cached = get_cached_domain(domain)
+    cached = get_cached_domain(f"{auth_ctx['tier']}:{domain}")
     if cached:
         last_full_report = cached.get("fetched_at")
         risk = cached.get("risk", {})
@@ -1105,7 +1126,7 @@ _bulk_pool = ThreadPoolExecutor(max_workers=5)
 _bulk_semaphore = threading.Semaphore(2)  # per-worker limit; with workers=2 actual max is 4
 
 
-def _run_single_report(raw_domain: str, client_ip: str) -> dict:
+def _run_single_report(raw_domain: str, client_ip: str, tier: str = "free") -> dict:
     """Run full_domain_report for one domain, returning a result dict."""
     domain = clean_domain(raw_domain)
     resolved_ip = validate_domain(domain) if domain else None
@@ -1117,11 +1138,12 @@ def _run_single_report(raw_domain: str, client_ip: str) -> dict:
             "error": "Invalid domain or DNS resolution failed",
         }
     try:
-        cached = get_cached_domain(domain)
+        cache_key = f"{tier}:{domain}"
+        cached = get_cached_domain(cache_key)
         if cached:
             return {"domain": domain, "status": "ok", "report": {**cached}, "error": None}
-        report = full_domain_report(domain, resolved_ip=resolved_ip, client_ip=client_ip)
-        save_cached_domain(domain, report)
+        report = full_domain_report(domain, resolved_ip=resolved_ip, client_ip=client_ip, tier=tier)
+        save_cached_domain(cache_key, report)
         return {"domain": domain, "status": "ok", "report": {**report}, "error": None}
     except Exception as e:
         logger.warning("Bulk report failed: %s", type(e).__name__)
@@ -1190,7 +1212,7 @@ def bulk_domain_report(body: _BulkRequest, request: Request):
 
     try:
         # Run reports in parallel, preserving input order
-        ordered_futures = [(_bulk_pool.submit(_run_single_report, d, client_ip), d) for d in domains]
+        ordered_futures = [(_bulk_pool.submit(_run_single_report, d, client_ip, auth_ctx["tier"]), d) for d in domains]
         results = []
         timed_out = 0
         partial = False
@@ -1266,22 +1288,24 @@ def audit_domain(domain: str, request: Request):
     from domain.recon import fetch_live_headers
     from domain.tech import detect_technologies
 
-    authenticate(request, "/v1/audit", cost=COST_AUDIT)
+    auth_ctx = authenticate(request, "/v1/audit", cost=COST_AUDIT)
 
     domain = clean_domain(domain)
     if not domain:
         raise HTTPException(status_code=400, detail="Invalid domain")
 
     client_ip = get_client_ip(request)
+    tier = auth_ctx["tier"]
+    cache_key = f"{tier}:{domain}"
 
-    cached = get_cached_domain(domain)
+    cached = get_cached_domain(cache_key)
     if cached:
         report = cached
     else:
         # Hard timeout guard — full_domain_report can hang on slow upstream
         # fail-overs (WHOIS, CT logs, subdomain enum). Cap at BULK_PER_DOMAIN_TIMEOUT.
         with ThreadPoolExecutor(max_workers=1) as _pool:
-            _fut = _pool.submit(full_domain_report, domain, client_ip=client_ip)
+            _fut = _pool.submit(full_domain_report, domain, client_ip=client_ip, tier=tier)
             try:
                 report = _fut.result(timeout=BULK_PER_DOMAIN_TIMEOUT)
             except FuturesTimeoutError:
@@ -1290,7 +1314,7 @@ def audit_domain(domain: str, request: Request):
             except Exception as e:
                 logger.warning("audit_domain: full_domain_report failed: %s", type(e).__name__)
                 raise HTTPException(status_code=502, detail="Domain audit failed") from None
-        save_cached_domain(domain, report)
+        save_cached_domain(cache_key, report)
 
     try:
         live = fetch_live_headers(domain)
@@ -1336,7 +1360,7 @@ def threat_report(ip: str, request: Request):
     and reputation across multiple sources. Designed for SOC triage and threat hunting
     where a complete IP profile is needed without making 4+ separate API calls.
     """
-    authenticate(request, "/v1/threat-report", cost=COST_THREAT_REPORT)
+    auth_ctx = authenticate(request, "/v1/threat-report", cost=COST_THREAT_REPORT)
 
     if not is_valid_ip(ip):
         raise HTTPException(status_code=400, detail="Invalid IP address")
@@ -1345,8 +1369,12 @@ def threat_report(ip: str, request: Request):
 
     with ThreadPoolExecutor(max_workers=4) as pool:
         f_enrich = pool.submit(ip_enrichment, ip)
-        f_abuse = pool.submit(check_abuseipdb, ip)
-        f_shodan = pool.submit(check_shodan, ip)
+        if auth_ctx["tier"] == "pro":
+            f_abuse = pool.submit(check_abuseipdb, ip)
+            f_shodan = pool.submit(check_shodan, ip)
+        else:
+            f_abuse = None
+            f_shodan = None
 
         try:
             enrichment = f_enrich.result(timeout=10)
@@ -1354,18 +1382,32 @@ def threat_report(ip: str, request: Request):
             logger.warning("threat_report: ip_enrichment failed: %s", type(e).__name__)
             f_enrich.cancel()
             enrichment = {"ports": [], "hostnames": [], "vulns": [], "cpes": [], "tags": []}
-        try:
-            abuseipdb = f_abuse.result(timeout=10)
-        except Exception as e:
-            logger.warning("threat_report: check_abuseipdb failed: %s", type(e).__name__)
-            f_abuse.cancel()
-            abuseipdb = {"status": "error"}
-        try:
-            shodan_data = f_shodan.result(timeout=10)
-        except Exception as e:
-            logger.warning("threat_report: check_shodan failed: %s", type(e).__name__)
-            f_shodan.cancel()
-            shodan_data = {"status": "error"}
+        if f_abuse is not None:
+            try:
+                abuseipdb = f_abuse.result(timeout=10)
+            except Exception as e:
+                logger.warning("threat_report: check_abuseipdb failed: %s", type(e).__name__)
+                f_abuse.cancel()
+                abuseipdb = {"status": "error"}
+        else:
+            abuseipdb = {
+                "status": "pro_only",
+                "reason": "AbuseIPDB enrichment requires Pro tier",
+                "upgrade_url": UPGRADE_URL,
+            }
+        if f_shodan is not None:
+            try:
+                shodan_data = f_shodan.result(timeout=10)
+            except Exception as e:
+                logger.warning("threat_report: check_shodan failed: %s", type(e).__name__)
+                f_shodan.cancel()
+                shodan_data = {"status": "error"}
+        else:
+            shodan_data = {
+                "status": "pro_only",
+                "reason": "Shodan enrichment requires Pro tier",
+                "upgrade_url": UPGRADE_URL,
+            }
 
     if not isinstance(enrichment, dict):
         enrichment = {"ports": [], "hostnames": [], "vulns": [], "cpes": [], "tags": []}

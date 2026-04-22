@@ -34,7 +34,8 @@ def test_domain_report_cached_under_500ms(client):
     """Cached response path must be fast (<0.5s, no network calls)."""
     from db import save_cached_domain
 
-    save_cached_domain("example.com", {"domain": "example.com"})
+    # Test client is unauthenticated → free tier → tier-prefixed cache key
+    save_cached_domain("free:example.com", {"domain": "example.com"})
     t0 = time.perf_counter()
     r = client.get("/v1/domain/example.com")
     elapsed = time.perf_counter() - t0
