@@ -592,3 +592,59 @@ def test_mcp_json_content_type_is_json(mcp_client):
     r = mcp_client.get("/mcp.json")
     assert r.status_code == 200
     assert "application/json" in r.headers.get("content-type", "")
+
+
+# --- _pro_only_hint / _fmt pro-gate hint injection ---
+
+
+def test_fmt_emits_pro_only_hint_for_nested_reputation():
+    mod = _load_mcp_mod()
+    data = {"ip": "8.8.8.8", "reputation": {"abuseipdb": {"status": "pro_only"}, "shodan": {"status": "pro_only"}}}
+    out = mod._fmt(data)
+    assert "Pro API key" in out
+    assert "AbuseIPDB" in out
+    assert "Shodan" in out
+    assert "contrastcyber.com/pricing" in out
+    assert "contact@contrastcyber.com" in out
+
+
+def test_fmt_emits_pro_only_hint_for_flat_threat_report():
+    mod = _load_mcp_mod()
+    data = {"ip": "8.8.8.8", "abuseipdb": {"status": "pro_only"}, "shodan": {"status": "pro_only"}}
+    out = mod._fmt(data)
+    assert "Pro API key" in out
+    assert "AbuseIPDB" in out
+    assert "Shodan" in out
+    assert "contrastcyber.com/pricing" in out
+    assert "contact@contrastcyber.com" in out
+
+
+def test_fmt_no_hint_when_enrichment_ok():
+    mod = _load_mcp_mod()
+    data = {"reputation": {"abuseipdb": {"status": "ok"}, "shodan": {"status": "ok"}}}
+    out = mod._fmt(data)
+    assert "Pro API key" not in out
+    assert "pricing" not in out
+
+
+def test_fmt_no_hint_when_no_reputation():
+    mod = _load_mcp_mod()
+    data = {"cve_id": "CVE-2021-44228", "summary": "Log4Shell"}
+    out = mod._fmt(data)
+    assert "Pro API key" not in out
+
+
+def test_fmt_partial_gating_only_abuseipdb():
+    mod = _load_mcp_mod()
+    data = {"reputation": {"abuseipdb": {"status": "pro_only"}, "shodan": {"status": "ok"}}}
+    out = mod._fmt(data)
+    assert "AbuseIPDB" in out
+    assert "Shodan" not in out
+
+
+def test_fmt_respects_response_size_limit():
+    mod = _load_mcp_mod()
+    data = {"data": "x" * 10000, "reputation": {"abuseipdb": {"status": "pro_only"}}}
+    out = mod._fmt(data)
+    assert len(out) <= mod.MAX_RESPONSE_CHARS
+    assert out.endswith("14-day trial.")

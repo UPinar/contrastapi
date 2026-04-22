@@ -79,9 +79,7 @@ def _safe_path(path: str) -> str:
         safe = safe[:query_idx]
     return _LOG_SANITIZE.sub(
         lambda m: (
-            f"/v1/{m.group(1).lower()}/{m.group(2).lower()}/***"
-            if m.group(2)
-            else f"/v1/{m.group(1).lower()}/***"
+            f"/v1/{m.group(1).lower()}/{m.group(2).lower()}/***" if m.group(2) else f"/v1/{m.group(1).lower()}/***"
         ),
         safe,
     )
@@ -197,15 +195,53 @@ async def _post(path: str, json_body: dict) -> dict | str:
 MAX_RESPONSE_CHARS = 8000
 
 
+def _pro_only_hint(data: dict) -> str | None:
+    """Detect pro_only enrichment stubs and return a user-facing upgrade hint.
+
+    Fires when free-tier tool responses include the tier-gated stub for
+    AbuseIPDB / Shodan enrichment. Handles two response shapes:
+    - nested: data["reputation"]["abuseipdb"|"shodan"].status
+    - flat (threat_report): data["abuseipdb"|"shodan"].status
+    """
+    if not isinstance(data, dict):
+        return None
+    gated = []
+    rep = data.get("reputation")
+    sources = [rep] if isinstance(rep, dict) else []
+    sources.append(data)
+    seen = set()
+    for src in sources:
+        for field in ("abuseipdb", "shodan"):
+            if field in seen:
+                continue
+            val = src.get(field)
+            if isinstance(val, dict) and val.get("status") == "pro_only":
+                gated.append(field)
+                seen.add(field)
+    if not gated:
+        return None
+    names = " + ".join(f.title() if f != "abuseipdb" else "AbuseIPDB" for f in gated)
+    return (
+        f"⚠️  {names} enrichment requires a Pro API key. "
+        f"Set CONTRASTAPI_API_KEY=cc_... (stdio) or Authorization: Bearer cc_... header (HTTP/SSE). "
+        f"Get a key at https://contrastcyber.com/pricing — or email contact@contrastcyber.com for a 14-day trial."
+    )
+
+
 def _fmt(data: dict | str) -> str:
     if isinstance(data, str):
         return data
+    hint = _pro_only_hint(data) if isinstance(data, dict) else None
+    suffix = f"\n\n{hint}" if hint else ""
+    budget = MAX_RESPONSE_CHARS - len(suffix)
     summary = data.get("summary", "") if isinstance(data, dict) else ""
     if summary:
         detail_data = {k: v for k, v in data.items() if k != "summary"}
         detail = json.dumps(detail_data, indent=2, default=str)
-        return f"{summary}\n\n{detail}"[:MAX_RESPONSE_CHARS]
-    return json.dumps(data, indent=2, default=str)[:MAX_RESPONSE_CHARS]
+        body = f"{summary}\n\n{detail}"[:budget]
+    else:
+        body = json.dumps(data, indent=2, default=str)[:budget]
+    return body + suffix
 
 
 # --- Input validation ---
@@ -490,10 +526,18 @@ async def cve_search(
         ),
     ] = "",
     kev: Annotated[
-        bool, Field(description="If true, return only CVEs in the CISA Known Exploited Vulnerabilities (KEV) catalog — these are actively exploited in the wild.")
+        bool,
+        Field(
+            description="If true, return only CVEs in the CISA Known Exploited Vulnerabilities (KEV) catalog — these are actively exploited in the wild."
+        ),
     ] = False,
     epss_min: Annotated[
-        float, Field(description="Minimum EPSS score filter (0.0-1.0). EPSS predicts exploitation probability. 0.5 = top ~5% most likely to be exploited. 0.0 = no filter.", ge=0.0, le=1.0)
+        float,
+        Field(
+            description="Minimum EPSS score filter (0.0-1.0). EPSS predicts exploitation probability. 0.5 = top ~5% most likely to be exploited. 0.0 = no filter.",
+            ge=0.0,
+            le=1.0,
+        ),
     ] = 0.0,
     sort: Annotated[
         str,
@@ -503,7 +547,9 @@ async def cve_search(
         ),
     ] = "",
     limit: Annotated[int, Field(description="Maximum results to return. Range: 1-200.", ge=1, le=200)] = 50,
-    offset: Annotated[int, Field(description="Skip N results for pagination. Use with limit to page through results.", ge=0, le=5000)] = 0,
+    offset: Annotated[
+        int, Field(description="Skip N results for pagination. Use with limit to page through results.", ge=0, le=5000)
+    ] = 0,
     cwe_id: Annotated[
         str,
         Field(
@@ -511,10 +557,20 @@ async def cve_search(
         ),
     ] = "",
     cvss_min: Annotated[
-        float, Field(description="Minimum CVSS v3 base score (0.0-10.0). Default 0.0 = no filter (sentinel, not applied). Set > 0 to filter — CVEs with null CVSS are excluded when active. Use 7.0 for high+critical, 9.0 for critical only.", ge=0.0, le=10.0)
+        float,
+        Field(
+            description="Minimum CVSS v3 base score (0.0-10.0). Default 0.0 = no filter (sentinel, not applied). Set > 0 to filter — CVEs with null CVSS are excluded when active. Use 7.0 for high+critical, 9.0 for critical only.",
+            ge=0.0,
+            le=10.0,
+        ),
     ] = 0.0,
     cvss_max: Annotated[
-        float, Field(description="Maximum CVSS v3 base score (0.0-10.0). Default 10.0 = no filter (sentinel, not applied). Set < 10.0 to filter — CVEs with null CVSS are excluded when active. Combine with cvss_min for a range.", ge=0.0, le=10.0)
+        float,
+        Field(
+            description="Maximum CVSS v3 base score (0.0-10.0). Default 10.0 = no filter (sentinel, not applied). Set < 10.0 to filter — CVEs with null CVSS are excluded when active. Combine with cvss_min for a range.",
+            ge=0.0,
+            le=10.0,
+        ),
     ] = 10.0,
     vendor: Annotated[
         str,
@@ -680,7 +736,9 @@ async def check_secrets(
         str,
         Field(
             description="Programming language of the code. Must be one of: python, javascript, typescript, java, go, ruby, shell, bash, generic. Use 'generic' if unsure.",
-            json_schema_extra={"enum": ["python", "javascript", "typescript", "java", "go", "ruby", "shell", "bash", "generic"]},
+            json_schema_extra={
+                "enum": ["python", "javascript", "typescript", "java", "go", "ruby", "shell", "bash", "generic"]
+            },
         ),
     ] = "generic",
 ) -> str:
@@ -700,7 +758,9 @@ async def check_injection(
         str,
         Field(
             description="Programming language of the code. Must be one of: python, javascript, typescript, java, go, ruby, shell, bash, generic. Use 'generic' if unsure.",
-            json_schema_extra={"enum": ["python", "javascript", "typescript", "java", "go", "ruby", "shell", "bash", "generic"]},
+            json_schema_extra={
+                "enum": ["python", "javascript", "typescript", "java", "go", "ruby", "shell", "bash", "generic"]
+            },
         ),
     ] = "generic",
 ) -> str:
@@ -724,7 +784,7 @@ async def check_dependencies(
         return "Too many packages. Maximum 50 per request (Pro tier) or 10 (free tier)."
     for pkg in packages:
         if not isinstance(pkg, dict):
-            return f"Each package must be an object like {{\"name\": \"lodash\", \"version\": \"4.17.0\"}}, got: {type(pkg).__name__}"
+            return f'Each package must be an object like {{"name": "lodash", "version": "4.17.0"}}, got: {type(pkg).__name__}'
         name = pkg.get("name")
         if not isinstance(name, str) or not name.strip():
             return "Each package must have a non-empty 'name' string field"
