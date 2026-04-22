@@ -321,7 +321,24 @@ h1 .gradient {
   font-size: 0.7rem;
   color: var(--text-dim);
   margin-inline-start: auto;
+  white-space: nowrap;
+  text-align: end;
 }
+
+.section-optional {
+  opacity: 0.6;
+  font-size: 0.75em;
+  font-weight: normal;
+}
+
+/* Paragraph links inside .page (quickstart, mcp-setup) — match setup-card link color.
+   :not(.btn-cta) preserves CTA button styling. */
+.page p a:not(.btn-cta) {
+  color: var(--primary);
+  text-decoration: none;
+  font-weight: 500;
+}
+.page p a:not(.btn-cta):hover { text-decoration: underline; }
 
 /* Code examples */
 .example-section {

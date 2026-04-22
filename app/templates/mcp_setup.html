@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>MCP Setup | ContrastAPI</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-  <link rel="stylesheet" href="/static/style.css?v=18">
+  <link rel="stylesheet" href="/static/style.css?v=26">
   <link rel="stylesheet" href="/static/css/page.css?v=3">
   <script src="/static/js/landing.js?v=1" defer></script>
 </head>
@@ -100,6 +100,41 @@ Accept: application/json, text/event-stream
  "params":{"protocolVersion":"2025-03-26",
    "capabilities":{},
    "clientInfo":{"name":"my-app","version":"1.0"}}}</code></div>
+
+    <h2><span class="num">8</span> Pro API Key <span class="section-optional">(optional)</span></h2>
+    <p>Free tier (100 req/hr) works without a key. Add a Pro key to unlock 1000 req/hr and full
+    AbuseIPDB + Shodan reputation enrichment on <code>/v1/domain/</code>, <code>/v1/ip/</code>,
+    and <code>/v1/threat-report/</code>.</p>
+
+    <p><strong>stdio transport</strong> (Claude Desktop, Cursor, VS Code, Windsurf, Cline) &mdash;
+    pass the key via mcp-remote's <code>--header</code> flag; <code>env</code> holds the raw value:</p>
+    <div class="code-block"><span class="lang">json</span><code>{
+  "mcpServers": {
+    "contrastapi": {
+      "command": "npx",
+      "args": [
+        "-y", "mcp-remote", "https://api.contrastcyber.com/mcp/",
+        "--header", "Authorization: Bearer ${CONTRASTAPI_API_KEY}"
+      ],
+      "env": { "CONTRASTAPI_API_KEY": "cc_..." }
+    }
+  }
+}</code></div>
+
+    <p><strong>HTTP transport</strong> (LM Studio, OpenClaw, generic HTTP clients) &mdash;
+    add <code>headers</code>:</p>
+    <div class="code-block"><span class="lang">json</span><code>{
+  "mcpServers": {
+    "contrastapi": {
+      "url": "https://api.contrastcyber.com/mcp/",
+      "headers": { "Authorization": "Bearer cc_..." }
+    }
+  }
+}</code></div>
+
+    <p>Get a Pro key: <a href="https://contrastcyber.com/pricing">contrastcyber.com/pricing</a>
+    &mdash; or email <a href="#" data-copy-email="contact@contrastcyber.com">contact@contrastcyber.com</a>
+    for a free 14-day trial key.</p>
 
     <div class="try-box">
       <h3>Ask your AI</h3>
