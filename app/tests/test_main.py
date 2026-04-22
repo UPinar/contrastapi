@@ -441,8 +441,74 @@ def test_pro_429_body_has_support_no_upgrade():
         body = r.json()
         assert body["tier"] == "pro"
         assert "support" in body
-        assert "support@contrastcyber.com" in body["support"]
+        assert "contact@contrastcyber.com" in body["support"]
         assert "upgrade" not in body
+    finally:
+        with get_api_db() as con:
+            con.execute("DELETE FROM api_keys WHERE key_hash = ?", (key_hash,))
+        reset("api")
+
+
+def test_free_429_upgrade_has_trial_cta():
+    """Free-tier 429 upgrade dict must include trial metadata."""
+    from ratelimit import reset
+
+    reset("api")
+    headers = {"X-Forwarded-For": "203.0.113.90"}
+    for _ in range(25):
+        client.get("/v1/threat-report/not_an_ip", headers=headers)
+    r = client.get("/v1/threat-report/not_an_ip", headers=headers)
+    assert r.status_code == 429
+    body = r.json()
+    assert "upgrade" in body
+    trial = body["upgrade"]["trial"]
+    assert trial["duration_days"] == 14
+    assert trial["contact"] == "contact@contrastcyber.com"
+    assert "message" in trial
+    assert "contact@contrastcyber.com" in trial["message"]
+    reset("api")
+
+
+def test_free_422_upgrade_has_trial_cta():
+    """Free-tier 422 upgrade dict must include trial metadata."""
+    from ratelimit import reset
+
+    reset("api")
+    headers = {"X-Forwarded-For": "203.0.113.91"}
+    r = client.post("/v1/domains/bulk", json={"domains": []}, headers=headers)
+    assert r.status_code == 422
+    body = r.json()
+    assert "upgrade" in body
+    trial = body["upgrade"]["trial"]
+    assert trial["duration_days"] == 14
+    assert trial["contact"] == "contact@contrastcyber.com"
+    assert "message" in trial
+    assert "contact@contrastcyber.com" in trial["message"]
+    reset("api")
+
+
+@patch("auth.PRO_HOURLY_LIMIT", 5)
+def test_pro_429_has_no_trial():
+    """Pro-tier 429 must not include a trial field (upgrade key is absent for Pro)."""
+    from auth import hash_key
+    from config import KEY_LENGTH, KEY_PREFIX
+    from db import get_api_db, save_api_key
+    from ratelimit import reset
+
+    reset("api")
+    test_key = KEY_PREFIX + "w" * KEY_LENGTH
+    key_hash = hash_key(test_key)
+    try:
+        save_api_key(key_hash)
+        auth_header = {"Authorization": f"Bearer {test_key}"}
+        for _ in range(5):
+            client.get("/v1/threat-report/not_an_ip", headers=auth_header)
+        r = client.get("/v1/threat-report/not_an_ip", headers=auth_header)
+        assert r.status_code == 429
+        body = r.json()
+        assert body["tier"] == "pro"
+        assert "upgrade" not in body
+        assert "trial" not in body
     finally:
         with get_api_db() as con:
             con.execute("DELETE FROM api_keys WHERE key_hash = ?", (key_hash,))

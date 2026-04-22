@@ -543,6 +543,23 @@ def test_format_error_handles_non_dict_json():
     assert out == "Error 502"
 
 
+def test_format_error_surfaces_upgrade_dict():
+    mod = _load_mcp_mod()
+    resp = _FakeResp(
+        429,
+        {
+            "error": "Rate limit",
+            "upgrade": {
+                "message": "Upgrade to Pro.",
+                "trial": {"message": "14-day trial via contact@contrastcyber.com."},
+            },
+        },
+    )
+    out = mod._format_error(resp)
+    assert "Upgrade to Pro." in out
+    assert "14-day trial" in out
+
+
 # --- /mcp.json discovery manifest (root-level alias) ---
 
 

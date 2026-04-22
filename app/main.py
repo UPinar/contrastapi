@@ -399,6 +399,11 @@ def _upgrade_cta() -> dict:
         "pro_limit": PRO_HOURLY_LIMIT,
         "url": UPGRADE_URL,
         "message": f"Designed for automation — unlock {PRO_HOURLY_LIMIT} req/hr with Pro.",
+        "trial": {
+            "duration_days": 14,
+            "contact": "contact@contrastcyber.com",
+            "message": "Researchers and bulk scanners: email contact@contrastcyber.com for a free 14-day trial key.",
+        },
     }
 
 
@@ -431,7 +436,7 @@ async def api_error_handler(request: Request, exc: StarletteHTTPException):
         else:
             content["tier"] = "pro"
             content["limit"] = PRO_HOURLY_LIMIT
-            content["support"] = "Contact support for higher limits: support@contrastcyber.com"
+            content["support"] = "Contact us for higher limits: contact@contrastcyber.com"
         resp = JSONResponse(status_code=429, content=content)
         resp.headers["Retry-After"] = str(reset_seconds)
         return resp

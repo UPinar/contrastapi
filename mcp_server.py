@@ -152,6 +152,15 @@ def _format_error(response: httpx.Response) -> str:
     hint = body.get("hint") or body.get("suggestion") or body.get("upgrade")
     if isinstance(hint, str) and hint:
         parts.append(f" — {hint[:200]}")
+    elif isinstance(hint, dict):
+        msg = hint.get("message")
+        if isinstance(msg, str) and msg:
+            parts.append(f" — {msg[:200]}")
+        trial = hint.get("trial")
+        if isinstance(trial, dict):
+            trial_msg = trial.get("message")
+            if isinstance(trial_msg, str) and trial_msg:
+                parts.append(f" ({trial_msg[:200]})")
     return "".join(parts)
 
 
