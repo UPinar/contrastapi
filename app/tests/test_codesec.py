@@ -394,7 +394,17 @@ class TestCheckHeadersFindingStructure:
     def test_finding_keys(self):
         r = check_headers({})
         f = r["findings"][0]
-        assert set(f.keys()) == {"header", "severity", "present", "description", "remediation", "reference"}
+        assert set(f.keys()) == {
+            "header",
+            "severity",
+            "present",
+            "valid",
+            "value",
+            "issues",
+            "description",
+            "remediation",
+            "reference",
+        }
 
     def test_reference_is_owasp_url(self):
         r = check_headers({})
@@ -409,6 +419,171 @@ class TestCheckHeadersFindingStructure:
         r = check_headers({"X-Powered-By": "Express", "Server": "nginx"})
         assert r["score"] == 0
         assert r["headers_present"] == []
+
+
+class TestCheckHeadersValueValidation:
+    def _finding(self, r, header):
+        return next(f for f in r["findings"] if f["header"] == header)
+
+    # XFO tests
+    def test_xfo_deny_valid(self):
+        r = check_headers({"X-Frame-Options": "DENY"})
+        finding = self._finding(r, "X-Frame-Options")
+        assert finding["valid"] is True
+        assert finding["issues"] == []
+        assert finding["value"] == "DENY"
+
+    def test_xfo_sameorigin_valid(self):
+        r = check_headers({"X-Frame-Options": "SAMEORIGIN"})
+        finding = self._finding(r, "X-Frame-Options")
+        assert finding["valid"] is True
+
+    def test_xfo_lowercase_sameorigin_valid(self):
+        r = check_headers({"X-Frame-Options": "sameorigin"})
+        finding = self._finding(r, "X-Frame-Options")
+        assert finding["valid"] is True
+
+    def test_xfo_allow_invalid(self):
+        r = check_headers({"X-Frame-Options": "ALLOW"})
+        finding = self._finding(r, "X-Frame-Options")
+        assert finding["valid"] is False
+        assert any("Invalid value 'ALLOW'" in issue for issue in finding["issues"])
+
+    def test_xfo_allow_from_invalid(self):
+        r = check_headers({"X-Frame-Options": "ALLOW-FROM https://example.com"})
+        finding = self._finding(r, "X-Frame-Options")
+        assert finding["valid"] is False
+
+    def test_xfo_empty_invalid(self):
+        r = check_headers({"X-Frame-Options": ""})
+        finding = self._finding(r, "X-Frame-Options")
+        assert finding["valid"] is False
+
+    # HSTS tests
+    def test_hsts_full_valid(self):
+        r = check_headers({"Strict-Transport-Security": "max-age=31536000; includeSubDomains; preload"})
+        finding = self._finding(r, "Strict-Transport-Security")
+        assert finding["valid"] is True
+        assert finding["issues"] == []
+
+    def test_hsts_min_valid(self):
+        r = check_headers({"Strict-Transport-Security": "max-age=15768000; includeSubDomains"})
+        finding = self._finding(r, "Strict-Transport-Security")
+        assert finding["valid"] is True
+        assert any("Missing preload" in i for i in finding["issues"])
+
+    def test_hsts_max_age_too_low_invalid(self):
+        r = check_headers({"Strict-Transport-Security": "max-age=3600; includeSubDomains"})
+        finding = self._finding(r, "Strict-Transport-Security")
+        assert finding["valid"] is False
+        assert any("15768000" in issue for issue in finding["issues"])
+
+    def test_hsts_no_max_age_invalid(self):
+        r = check_headers({"Strict-Transport-Security": "includeSubDomains"})
+        finding = self._finding(r, "Strict-Transport-Security")
+        assert finding["valid"] is False
+        assert any("Missing max-age" in issue for issue in finding["issues"])
+
+    def test_hsts_no_include_subdomains_invalid(self):
+        r = check_headers({"Strict-Transport-Security": "max-age=31536000"})
+        finding = self._finding(r, "Strict-Transport-Security")
+        assert finding["valid"] is False
+        assert any("includeSubDomains" in issue for issue in finding["issues"])
+
+    def test_hsts_max_age_at_minimum_boundary(self):
+        r = check_headers({"Strict-Transport-Security": "max-age=15768000; includeSubDomains"})
+        finding = self._finding(r, "Strict-Transport-Security")
+        assert finding["valid"] is True
+
+    def test_hsts_notincludesubdomains_does_not_pass(self):
+        r = check_headers({"Strict-Transport-Security": "max-age=31536000; notincludesubdomains"})
+        finding = self._finding(r, "Strict-Transport-Security")
+        assert finding["valid"] is False
+        assert any("includeSubDomains" in i for i in finding["issues"])
+
+    def test_hsts_nopreload_token_not_preload_token(self):
+        r = check_headers({"Strict-Transport-Security": "max-age=31536000; includeSubDomains; nopreload"})
+        finding = self._finding(r, "Strict-Transport-Security")
+        assert any("Missing preload" in i for i in finding["issues"])
+        assert finding["valid"] is True  # preload is advisory, not hard-fail
+
+    def test_hsts_quoted_max_age_accepted(self):
+        r = check_headers({"Strict-Transport-Security": 'max-age="31536000"; includeSubDomains'})
+        finding = self._finding(r, "Strict-Transport-Security")
+        assert finding["valid"] is True
+
+    def test_hsts_mismatched_trailing_quote_rejected(self):
+        r = check_headers({"Strict-Transport-Security": 'max-age=31536000"; includeSubDomains'})
+        finding = self._finding(r, "Strict-Transport-Security")
+        assert finding["valid"] is False
+        assert any("Malformed max-age" in i or "Missing max-age" in i for i in finding["issues"])
+
+    def test_hsts_mismatched_leading_quote_rejected(self):
+        r = check_headers({"Strict-Transport-Security": 'max-age="31536000; includeSubDomains'})
+        finding = self._finding(r, "Strict-Transport-Security")
+        assert finding["valid"] is False
+
+    def test_hsts_malformed_max_age_value(self):
+        r = check_headers({"Strict-Transport-Security": "max-age=abc; includeSubDomains"})
+        finding = self._finding(r, "Strict-Transport-Security")
+        assert finding["valid"] is False
+        assert any("Malformed max-age" in i for i in finding["issues"])
+
+    # CSP tests
+    def test_csp_strict_valid(self):
+        r = check_headers({"Content-Security-Policy": "default-src 'self'; script-src 'self'"})
+        finding = self._finding(r, "Content-Security-Policy")
+        assert finding["valid"] is True
+        assert finding["issues"] == []
+
+    def test_csp_wildcard_default_invalid(self):
+        r = check_headers({"Content-Security-Policy": "default-src *"})
+        finding = self._finding(r, "Content-Security-Policy")
+        assert finding["valid"] is False
+        assert any("default-src" in i and "*" in i for i in finding["issues"])
+
+    def test_csp_unsafe_inline_invalid(self):
+        r = check_headers({"Content-Security-Policy": "default-src 'self' 'unsafe-inline'"})
+        finding = self._finding(r, "Content-Security-Policy")
+        assert finding["valid"] is False
+        assert any("unsafe-inline" in i for i in finding["issues"])
+
+    def test_csp_unsafe_eval_invalid(self):
+        r = check_headers({"Content-Security-Policy": "default-src 'self' 'unsafe-eval'"})
+        finding = self._finding(r, "Content-Security-Policy")
+        assert finding["valid"] is False
+        assert any("unsafe-eval" in i for i in finding["issues"])
+
+    def test_csp_multiple_permissive_flags(self):
+        r = check_headers({"Content-Security-Policy": "default-src * 'unsafe-inline' 'unsafe-eval'"})
+        finding = self._finding(r, "Content-Security-Policy")
+        assert finding["valid"] is False
+        assert len(finding["issues"]) == 3
+
+    def test_csp_uppercase_unsafe_inline_still_detected(self):
+        r = check_headers({"Content-Security-Policy": "default-src 'self' 'UNSAFE-INLINE'"})
+        finding = self._finding(r, "Content-Security-Policy")
+        assert finding["valid"] is False
+
+    def test_csp_wildcard_non_adjacent_invalid(self):
+        r = check_headers({"Content-Security-Policy": "default-src 'self' *"})
+        finding = self._finding(r, "Content-Security-Policy")
+        assert finding["valid"] is False
+        assert any("default-src" in i and "*" in i for i in finding["issues"])
+
+    def test_csp_script_src_wildcard_invalid(self):
+        r = check_headers({"Content-Security-Policy": "default-src 'self'; script-src *"})
+        finding = self._finding(r, "Content-Security-Policy")
+        assert finding["valid"] is False
+        assert any("script-src" in i for i in finding["issues"])
+
+    def test_csp_unsafe_inline_in_report_uri_not_false_positive(self):
+        r = check_headers(
+            {"Content-Security-Policy": "default-src 'self'; report-uri https://example.com/log?tag=unsafe-inline"}
+        )
+        finding = self._finding(r, "Content-Security-Policy")
+        assert finding["valid"] is True
+        assert finding["issues"] == []
 
 
 # =========== Route tests ===========
@@ -540,10 +715,19 @@ class TestDependenciesRoute:
 
     def test_over_free_limit_422(self):
         """Free tier: >10 packages → 422 before any DB work."""
-        pkgs = [{"name": f"pkg{i}"} for i in range(11)]
-        r = client.post("/v1/check/dependencies", json={"packages": pkgs})
-        assert r.status_code == 422
-        assert "Too many packages" in r.json().get("error", "")
+        from unittest.mock import patch
+
+        with (
+            patch("ratelimit.consume_bulk", return_value=True) as mock_consume,
+            patch(
+                "codesec.routes.authenticate",
+                return_value={"tier": "free", "key_hash": None, "client_ip": "127.0.0.1"},
+            ),
+        ):
+            pkgs = [{"name": f"pkg{i}"} for i in range(11)]
+            r = client.post("/v1/check/dependencies", json={"packages": pkgs})
+            assert r.status_code == 422
+            assert "Too many packages" in r.json().get("error", "")
 
     def test_over_pydantic_max_422(self):
         """>50 packages rejected by Pydantic before auth runs."""

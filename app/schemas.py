@@ -492,6 +492,9 @@ class HeaderFinding(BaseModel):
     header: str
     severity: str
     present: bool
+    valid: bool = False
+    value: str | None = None
+    issues: list[str] = Field(default_factory=list)
     description: str = ""
     remediation: str = ""
     reference: str = ""
