@@ -895,6 +895,25 @@ class TestSslGrade:
         assert _ssl_grade("TLSv1.3", -5) == "F"
 
 
+class TestSslGradeConsistency:
+    """Lock contract: /v1/ssl/ and /v1/audit/ must return identical grade for identical (tls_version, days_remaining)."""
+
+    def test_tls13_45days_is_A(self):
+        from domain.recon import _ssl_grade
+
+        assert _ssl_grade("TLSv1.3", 45) == "A"
+
+    def test_tls11_is_F(self):
+        from domain.recon import _ssl_grade
+
+        assert _ssl_grade("TLSv1.1", 90) == "F"
+
+    def test_tls12_10days_is_C(self):
+        from domain.recon import _ssl_grade
+
+        assert _ssl_grade("TLSv1.2", 10) == "C"
+
+
 class TestEmailSecurity:
     @patch("domain.recon.dns.resolver.Resolver")
     def test_all_present(self, mock_resolver_cls):

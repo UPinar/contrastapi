@@ -45,6 +45,7 @@ from db import get_cached_domain, get_cached_domain_with_age, get_cached_ip_with
 from domain.archive import wayback_lookup
 from domain.ip_intel import check_cloud_provider, check_tor_exit, score_ip
 from domain.recon import (
+    _ssl_grade,
     _ssrf_http,
     check_ct_logs,
     check_disposable,
@@ -567,14 +568,7 @@ def ssl_certificate(domain: str, request: Request):
                 san = [v for _, v in cert.get("subjectAltName", ())]
 
                 # Grade
-                if not valid:
-                    grade = "F"
-                elif tls_version == "TLSv1.3" and days_remaining is not None and days_remaining > 90:
-                    grade = "A"
-                elif tls_version in ("TLSv1.2", "TLSv1.3") and (days_remaining is None or days_remaining > 30):
-                    grade = "B"
-                else:
-                    grade = "C"
+                grade = _ssl_grade(tls_version, days_remaining)
 
                 # Chain: leaf from handshake, intermediates via AIA caIssuers
                 chain = []
