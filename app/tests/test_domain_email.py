@@ -393,6 +393,14 @@ class TestPhoneLookup:
         assert result["country_name"] != ""
         assert result["format"]["e164"] == "+12025551234"
 
+    def test_us_country_name_is_country_not_city(self):
+        from domain.recon import phone_lookup
+
+        result = phone_lookup("+14155552671")
+        assert result["valid"] is True
+        assert result["country_code"] == "US"
+        assert result["country_name"] == "United States"
+
     def test_invalid_number(self):
         from domain.recon import phone_lookup
 

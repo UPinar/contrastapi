@@ -943,7 +943,7 @@ def phone_lookup(number: str) -> dict:
 
     # Country
     region = phonenumbers.region_code_for_number(parsed)
-    country_name = geocoder.description_for_number(parsed, "en") or ""
+    country_name = geocoder.country_name_for_number(parsed, "en") or ""
 
     # Number type
     num_type = phonenumbers.number_type(parsed)
