@@ -22,6 +22,14 @@ from fastapi import APIRouter, HTTPException, Request
 
 _reputation_pool = ThreadPoolExecutor(max_workers=3)
 _aia_pool = ThreadPoolExecutor(max_workers=2)
+# Dedicated pool for _fetch_asn_country inner fan-out (country + holder), keeps
+# _reputation_pool free for top-level submissions and avoids nested-submit
+# deadlock when many ip_lookup requests arrive concurrently.
+_ip_enrichment_pool = ThreadPoolExecutor(max_workers=4)
+# atexit runs handlers in LIFO order. _ip_enrichment_pool receives submits from
+# tasks running inside _reputation_pool (nested fan-out), so it must shut down
+# LAST — register it FIRST.
+atexit.register(_ip_enrichment_pool.shutdown, wait=False)
 atexit.register(_aia_pool.shutdown, wait=False)
 atexit.register(_reputation_pool.shutdown, wait=False)
 
@@ -245,19 +253,33 @@ def _ip_verdict(
     internetdb_failed: bool,
     reputation_attempted: bool,
     reputation_failed: bool,
+    ripe_failed: bool = False,
 ) -> Verdict:
     """Build verdict metadata for ip_lookup responses."""
-    queried = ["internetdb"]
+    queried = ["internetdb", "ripe_stat"]
     if reputation_attempted:
         queried.append("reputation")
     unavailable: list[str] = []
     if internetdb_failed:
         unavailable.append("internetdb")
+    if ripe_failed:
+        unavailable.append("ripe_stat")
     if reputation_attempted and reputation_failed:
         unavailable.append("reputation")
     return Verdict(
         deterministic=True,
-        falsifiable_fields=["ptr", "ports", "vulns", "hostnames", "cloud_provider", "tor_exit", "risk_score"],
+        falsifiable_fields=[
+            "ptr",
+            "asn",
+            "asn_name",
+            "country",
+            "ports",
+            "vulns",
+            "hostnames",
+            "cloud_provider",
+            "tor_exit",
+            "risk_score",
+        ],
         data_age_seconds=age_seconds,
         sources_queried=queried,
         sources_unavailable=unavailable,
@@ -701,6 +723,103 @@ def wayback_lookup_route(domain: str, request: Request):
     return wayback_lookup(domain)
 
 
+def _fetch_asn_country(ip: str) -> dict:
+    """Best-effort RIPE Stat ASN + country fetch for ip_lookup inline enrichment.
+
+    Returns dict with keys:
+      asn (int|None), asn_name (str), country (str), failed (bool).
+
+    `failed=True` means RIPE Stat produced no usable data (all three fields
+    empty) — callers use this to mark sources_unavailable honestly. Never
+    raises. Critical path: main thread blocks ~2.5s on network-info; on
+    success, two parallel futures run in `_ip_enrichment_pool` with 3.0s
+    timeouts (country + holder). Cache hit short-circuits to ~0ms.
+    """
+    cached = get_cached_domain(f"asn:{ip}")
+    if cached:
+        cached_asn = cached.get("asn")
+        cached_name = (cached.get("asn_name") or "")[:256]
+        cached_country = ((cached.get("country") or "").strip())[:8]
+        if cached_asn is not None or cached_name or cached_country:
+            return {
+                "asn": cached_asn,
+                "asn_name": cached_name,
+                "country": cached_country,
+                "failed": False,
+            }
+
+    asn: int | None = None
+    country = ""
+    asn_name = ""
+
+    try:
+        r = _ripe_client.get(
+            "https://stat.ripe.net/data/network-info/data.json",
+            params={"resource": ip},
+            timeout=2.5,
+        )
+        r.raise_for_status()
+        asns = r.json().get("data", {}).get("asns", [])
+        if asns and asns[0] is not None:
+            raw = str(asns[0]).strip()
+            # Strict: ASCII digits only (no +/-, no unicode). Python's
+            # str.isdigit() rejects sign prefixes; combined with isascii() it
+            # excludes unicode-digit spoofing. ASN range 0..4294967295 fits.
+            if raw.isascii() and raw.isdigit():
+                try:
+                    asn = int(raw)
+                except (ValueError, TypeError):
+                    asn = None
+    except Exception:
+        logger.debug("_fetch_asn_country network-info request failed")
+
+    def _country_call() -> str:
+        try:
+            r = _ripe_client.get(
+                "https://stat.ripe.net/data/rir-stats-country/data.json",
+                params={"resource": ip},
+                timeout=2.5,
+            )
+            r.raise_for_status()
+            located = r.json().get("data", {}).get("located_resources", [])
+            if located:
+                loc = ((located[0].get("location", "") or "").strip())[:8]
+                if loc and loc != "?":
+                    return loc
+        except Exception as e:
+            logger.debug("_fetch_asn_country rir-stats-country failed: %s", type(e).__name__)
+        return ""
+
+    def _holder_call(asn_val: int) -> str:
+        try:
+            r = _ripe_client.get(
+                "https://stat.ripe.net/data/as-overview/data.json",
+                params={"resource": f"AS{asn_val}"},
+                timeout=2.5,
+            )
+            r.raise_for_status()
+            return (r.json().get("data", {}).get("holder", "") or "")[:256]
+        except Exception as e:
+            logger.debug("_fetch_asn_country as-overview failed: %s", type(e).__name__)
+            return ""
+
+    f_country = _ip_enrichment_pool.submit(_country_call)
+    f_name = _ip_enrichment_pool.submit(_holder_call, asn) if asn else None
+
+    try:
+        country = f_country.result(timeout=3.0)
+    except Exception:
+        country = ""
+    if f_name is not None:
+        try:
+            asn_name = f_name.result(timeout=3.0)
+        except Exception:
+            asn_name = ""
+
+    failed = not (asn or asn_name or country)
+    return {"asn": asn, "asn_name": asn_name, "country": country, "failed": failed}
+
+
 @router.get("/ip/{ip}", operation_id="ip_lookup", response_model=IpLookupResponse, response_model_exclude_none=True)
 def ip_lookup(ip: str, request: Request):
     """IP intelligence — reverse DNS, open ports, vulnerabilities, hostnames (via Shodan InternetDB) + reputation."""
@@ -714,6 +833,9 @@ def ip_lookup(ip: str, request: Request):
         raise HTTPException(status_code=400, detail="Private/reserved IP addresses are not allowed")
     auth_ctx = authenticate(request, "/v1/ip")
     client_ip = get_client_ip(request)
+
+    # Kick ASN/country fetch in parallel with the rest of the critical path.
+    f_asn_country = _reputation_pool.submit(_fetch_asn_country, ip)
 
     try:
         from domain.recon import _dns_call_with_timeout
@@ -783,7 +905,22 @@ def ip_lookup(ip: str, request: Request):
     except Exception:
         tor_exit = False
 
+    try:
+        asn_data = f_asn_country.result(timeout=6.0)
+    except Exception:
+        logger.debug("_fetch_asn_country future timed out or failed")
+        asn_data = {"asn": None, "asn_name": "", "country": "", "failed": True}
+
+    asn_val = asn_data.get("asn")
+    asn_name_val = asn_data.get("asn_name") or ""
+    country_val = asn_data.get("country") or ""
+    ripe_failed = bool(asn_data.get("failed"))
+
     parts = [f"{ip} → {ptr}" if ptr else f"{ip} — no PTR record"]
+    if asn_val:
+        parts.append(f"AS{asn_val} ({asn_name_val})" if asn_name_val else f"AS{asn_val}")
+    if country_val:
+        parts.append(country_val)
     if ports:
         parts.append(f"{len(ports)} open ports")
     if vulns:
@@ -798,6 +935,9 @@ def ip_lookup(ip: str, request: Request):
     result = {
         "ip": ip,
         "ptr": ptr,
+        "asn": asn_val,
+        "asn_name": asn_name_val or None,
+        "country": country_val or None,
         **enrichment,
         "cloud_provider": cloud_provider,
         "tor_exit": tor_exit if tor_exit else None,
@@ -806,7 +946,7 @@ def ip_lookup(ip: str, request: Request):
     }
     if reputation:
         result["reputation"] = reputation
-    result["verdict"] = _ip_verdict(rep_age, internetdb_failed, reputation_attempted, reputation_failed)
+    result["verdict"] = _ip_verdict(rep_age, internetdb_failed, reputation_attempted, reputation_failed, ripe_failed)
     return result
 
 
@@ -1094,10 +1234,12 @@ def asn_lookup(target: str, request: Request):
     if warnings:
         summary += " (partial: metadata unavailable)"
 
+    # Defensive cap — asn_name also read by ip_lookup cache-hit path which caps
+    # at 256; write in the same bound so both endpoints agree on payload size.
     result = {
         "target": target,
         "asn": asn,
-        "asn_name": asn_name,
+        "asn_name": asn_name[:256],
         "ipv4_prefixes": ipv4_prefixes,
         "ipv6_prefixes": ipv6_prefixes,
         "ipv4_count": len(ipv4_prefixes),

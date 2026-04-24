@@ -51,6 +51,9 @@ class DnsResponse(BaseModel):
 class IpLookupResponse(BaseModel):
     ip: str
     ptr: str | None = None
+    asn: int | None = None
+    asn_name: str | None = Field(default=None, max_length=256)
+    country: str | None = Field(default=None, max_length=8)
     ports: list[int] = Field(default_factory=list)
     hostnames: list[str] = Field(default_factory=list)
     vulns: list[str] = Field(default_factory=list)
@@ -423,7 +426,7 @@ class AsnResponse(BaseModel):
     target: str
     resolved_ip: str | None = None
     asn: int
-    asn_name: str = ""
+    asn_name: str = Field(default="", max_length=256)
     ipv4_prefixes: list[AsnPrefix] = Field(default_factory=list)
     ipv6_prefixes: list[AsnPrefix] = Field(default_factory=list)
     ipv4_count: int = 0

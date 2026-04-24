@@ -6,6 +6,14 @@ import os
 import pytest
 from starlette.testclient import TestClient
 
+
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers",
+        "real_asn_country: bypass the autouse _fetch_asn_country mock (for unit tests of the helper itself)",
+    )
+
+
 # --- Session-scoped: set env vars + reload modules once ---
 
 
@@ -71,6 +79,30 @@ def temp_dbs():
 
     ratelimit.reset()
     yield
+
+
+@pytest.fixture(autouse=True)
+def _mock_asn_country(request):
+    """Short-circuit RIPE Stat ASN/country fetch in ip_lookup tests by default.
+
+    Tests that want to verify real integration can opt out with
+    @pytest.mark.real_asn_country. No try/except: if the patch target is
+    missing the test MUST fail loudly (silent bypass would let outbound
+    RIPE calls leak from the test suite).
+    """
+    if request.node.get_closest_marker("real_asn_country"):
+        yield
+        return
+    from unittest.mock import patch
+
+    # Default: `failed=False` — unrelated ip_lookup tests shouldn't see
+    # "ripe_stat" in sources_unavailable just because they don't care about
+    # ASN. Tests that validate failure paths patch explicitly with failed=True.
+    with patch(
+        "domain.routes._fetch_asn_country",
+        return_value={"asn": None, "asn_name": "", "country": "", "failed": False},
+    ):
+        yield
 
 
 # --- Session-scoped MCP client — shared across all MCP test modules ---

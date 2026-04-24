@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 import dns.exception
 import dns.resolver
 import httpx
+import pytest
 from fastapi.testclient import TestClient
 from main import app
 
@@ -725,6 +726,208 @@ class TestDomainRoutes:
     def test_ip_intel_cache_failure_resilient(self, mock_ptr, mock_enrich, mock_tor, mock_cloud):
         r = client.get("/v1/ip/1.2.3.4")
         assert r.status_code == 200  # must not 500
+
+    @patch(
+        "domain.routes._fetch_asn_country",
+        return_value={"asn": 13335, "asn_name": "CLOUDFLARENET", "country": "US", "failed": False},
+    )
+    @patch("domain.routes.check_cloud_provider", return_value="Cloudflare")
+    @patch("domain.routes.check_tor_exit", return_value=False)
+    @patch("domain.routes.ip_enrichment", return_value={**_enrich_empty})
+    @patch("domain.routes.socket.gethostbyaddr", return_value=("one.one.one.one", [], []))
+    def test_ip_lookup_returns_asn_country(self, mock_ptr, mock_enrich, mock_tor, mock_cloud, mock_asn):
+        r = client.get("/v1/ip/1.1.1.1")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["asn"] == 13335
+        assert data["asn_name"] == "CLOUDFLARENET"
+        assert data["country"] == "US"
+        assert "AS13335" in data["summary"]
+        assert "CLOUDFLARENET" in data["summary"]
+        assert "US" in data["summary"]
+        # Helper returned data → ripe_stat stays in queried, NOT in unavailable
+        v = data["verdict"]
+        assert "ripe_stat" in v["sources_queried"]
+        assert "ripe_stat" not in v["sources_unavailable"]
+
+    @patch(
+        "domain.routes._fetch_asn_country",
+        return_value={"asn": None, "asn_name": "", "country": "", "failed": True},
+    )
+    @patch("domain.routes.check_cloud_provider", return_value=None)
+    @patch("domain.routes.check_tor_exit", return_value=False)
+    @patch("domain.routes.ip_enrichment", return_value={**_enrich_empty})
+    @patch("domain.routes.socket.gethostbyaddr", side_effect=Exception("no PTR"))
+    def test_ip_lookup_asn_fetch_failure_graceful(self, mock_ptr, mock_enrich, mock_tor, mock_cloud, mock_asn):
+        r = client.get("/v1/ip/1.2.3.4")
+        assert r.status_code == 200
+        data = r.json()
+        assert "asn" not in data  # None excluded by exclude_none
+        assert "asn_name" not in data
+        assert "country" not in data
+        # Verdict honesty: when helper failed, ripe_stat moves to unavailable
+        v = data["verdict"]
+        assert "ripe_stat" in v["sources_unavailable"]
+        assert v["completeness"] == "partial"
+
+    @patch(
+        "domain.routes._fetch_asn_country",
+        return_value={"asn": 15169, "asn_name": "", "country": "US", "failed": False},
+    )
+    @patch("domain.routes.check_cloud_provider", return_value="GCP")
+    @patch("domain.routes.check_tor_exit", return_value=False)
+    @patch("domain.routes.ip_enrichment", return_value={**_enrich_empty})
+    @patch("domain.routes.socket.gethostbyaddr", return_value=("dns.google", [], []))
+    def test_ip_lookup_asn_name_missing_still_renders(self, mock_ptr, mock_enrich, mock_tor, mock_cloud, mock_asn):
+        r = client.get("/v1/ip/8.8.8.8")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["asn"] == 15169
+        assert "asn_name" not in data  # empty string → None → excluded
+        assert data["country"] == "US"
+        assert "AS15169" in data["summary"]
+
+    @patch(
+        "domain.routes._fetch_asn_country",
+        return_value={"asn": 13335, "asn_name": "CLOUDFLARENET", "country": "US", "failed": False},
+    )
+    @patch("domain.routes.check_cloud_provider", return_value="Cloudflare")
+    @patch("domain.routes.check_tor_exit", return_value=False)
+    @patch("domain.routes.ip_enrichment", return_value={**_enrich_empty})
+    @patch("domain.routes.socket.gethostbyaddr", return_value=("one.one.one.one", [], []))
+    def test_ip_lookup_verdict_includes_asn_fields(self, mock_ptr, mock_enrich, mock_tor, mock_cloud, mock_asn):
+        r = client.get("/v1/ip/1.1.1.1")
+        assert r.status_code == 200
+        v = r.json()["verdict"]
+        fields = v["falsifiable_fields"]
+        assert "asn" in fields
+        assert "asn_name" in fields
+        assert "country" in fields
+        assert "ripe_stat" in v["sources_queried"]
+
+
+@pytest.mark.real_asn_country
+class TestFetchAsnCountry:
+    """Unit tests for _fetch_asn_country helper — direct mocking of _ripe_client."""
+
+    def test_happy_path_all_three_fields(self):
+        from unittest.mock import MagicMock, patch
+
+        def _mock_get(url, params=None, timeout=None):
+            resp = MagicMock()
+            resp.raise_for_status = MagicMock()
+            if "network-info" in url:
+                resp.json.return_value = {"data": {"asns": ["13335"], "prefix": "1.1.1.0/24"}}
+            elif "rir-stats-country" in url:
+                resp.json.return_value = {"data": {"located_resources": [{"resource": "1.1.1.0/24", "location": "AU"}]}}
+            elif "as-overview" in url:
+                resp.json.return_value = {"data": {"holder": "CLOUDFLARENET"}}
+            return resp
+
+        with patch("domain.routes._ripe_client.get", side_effect=_mock_get):
+            from domain.routes import _fetch_asn_country
+
+            out = _fetch_asn_country("198.51.100.1")
+        assert out == {"asn": 13335, "asn_name": "CLOUDFLARENET", "country": "AU", "failed": False}
+
+    def test_network_info_failure_returns_empty(self):
+        from unittest.mock import patch
+
+        with patch("domain.routes._ripe_client.get", side_effect=Exception("network down")):
+            from domain.routes import _fetch_asn_country
+
+            out = _fetch_asn_country("198.51.100.2")
+        assert out == {"asn": None, "asn_name": "", "country": "", "failed": True}
+
+    def test_country_unknown_sentinel_treated_as_empty(self):
+        from unittest.mock import MagicMock, patch
+
+        def _mock_get(url, params=None, timeout=None):
+            resp = MagicMock()
+            resp.raise_for_status = MagicMock()
+            if "network-info" in url:
+                resp.json.return_value = {"data": {"asns": ["13335"]}}
+            elif "rir-stats-country" in url:
+                resp.json.return_value = {"data": {"located_resources": [{"location": "?"}]}}
+            elif "as-overview" in url:
+                resp.json.return_value = {"data": {"holder": "CLOUDFLARENET"}}
+            return resp
+
+        with patch("domain.routes._ripe_client.get", side_effect=_mock_get):
+            from domain.routes import _fetch_asn_country
+
+            out = _fetch_asn_country("198.51.100.3")
+        assert out["asn"] == 13335
+        assert out["asn_name"] == "CLOUDFLARENET"
+        assert out["country"] == ""  # "?" sentinel normalized
+        assert out["failed"] is False  # asn + name present → not failed
+
+    def test_partial_as_overview_failure(self):
+        from unittest.mock import MagicMock, patch
+
+        def _mock_get(url, params=None, timeout=None):
+            if "as-overview" in url:
+                raise Exception("holder lookup failed")
+            resp = MagicMock()
+            resp.raise_for_status = MagicMock()
+            if "network-info" in url:
+                resp.json.return_value = {"data": {"asns": ["13335"]}}
+            elif "rir-stats-country" in url:
+                resp.json.return_value = {"data": {"located_resources": [{"location": "AU"}]}}
+            return resp
+
+        with patch("domain.routes._ripe_client.get", side_effect=_mock_get):
+            from domain.routes import _fetch_asn_country
+
+            out = _fetch_asn_country("198.51.100.4")
+        assert out["asn"] == 13335
+        assert out["asn_name"] == ""
+        assert out["country"] == "AU"
+        assert out["failed"] is False
+
+    def test_cache_hit_short_circuits_ripe(self):
+        """When asn:{ip} cache is warm, helper skips all outbound RIPE calls."""
+        from unittest.mock import patch
+
+        from db import save_cached_domain
+
+        ip = "198.51.100.5"
+        save_cached_domain(
+            f"asn:{ip}",
+            {"asn": 64512, "asn_name": "CACHED-HOLDER", "country": "JP"},
+        )
+        with patch("domain.routes._ripe_client.get", side_effect=AssertionError("should not hit RIPE")):
+            from domain.routes import _fetch_asn_country
+
+            out = _fetch_asn_country(ip)
+        assert out["asn"] == 64512
+        assert out["asn_name"] == "CACHED-HOLDER"
+        assert out["country"] == "JP"
+        assert out["failed"] is False
+
+    def test_holder_oversized_string_truncated(self):
+        """Defensive cap: hostile/compromised RIPE response with huge holder is truncated."""
+        from unittest.mock import MagicMock, patch
+
+        huge = "X" * 5000
+
+        def _mock_get(url, params=None, timeout=None):
+            resp = MagicMock()
+            resp.raise_for_status = MagicMock()
+            if "network-info" in url:
+                resp.json.return_value = {"data": {"asns": ["13335"]}}
+            elif "rir-stats-country" in url:
+                resp.json.return_value = {"data": {"located_resources": [{"location": "AU"}]}}
+            elif "as-overview" in url:
+                resp.json.return_value = {"data": {"holder": huge}}
+            return resp
+
+        with patch("domain.routes._ripe_client.get", side_effect=_mock_get):
+            from domain.routes import _fetch_asn_country
+
+            out = _fetch_asn_country("198.51.100.6")
+        assert len(out["asn_name"]) == 256
+        assert out["asn_name"] == "X" * 256
 
 
 class TestDomainRoutesBadInput:
