@@ -35,6 +35,12 @@ logger = logging.getLogger("contrastapi")
 
 router = APIRouter(prefix="/v1", tags=["CVE Intelligence"])
 
+# Default cap on affected_products in API responses. Log4j-class CVEs can carry
+# 50+ Siemens products — the full list is available via ?include_affected_products=true.
+# TODO: consider unifying with the hardcoded 20 used for refs in cve.sync._parse_nvd_cve
+# and the 20 limit in codesec/routes.py matched_cves guard (future refactor).
+MAX_AFFECTED_PRODUCTS_DEFAULT = 20
+
 _exploit_client = httpx.Client(timeout=httpx.Timeout(5.0, connect=3.0), follow_redirects=True)
 
 _DATE_RE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
@@ -137,7 +143,14 @@ def cve_leading(
 
 
 @router.get("/cve/{cve_id}", operation_id="cve_lookup", response_model=CveResponse, response_model_exclude_none=True)
-def cve_lookup(cve_id: str, request: Request):
+def cve_lookup(
+    cve_id: str,
+    request: Request,
+    include_affected_products: bool = Query(
+        False,
+        description="Return full affected_products list (default: first 20). Use for bulk audits or dependency scans.",
+    ),
+):
     """Look up a single CVE by ID. Returns full details with EPSS score and KEV status."""
     cve_id = cve_id.strip().upper()
     _check_cve_input(cve_id)
@@ -148,7 +161,7 @@ def cve_lookup(cve_id: str, request: Request):
     if result is None:
         raise HTTPException(status_code=404, detail=f"CVE {cve_id} not found")
 
-    formatted = _format_cve(result, include_enrichment=True)
+    formatted = _format_cve(result, include_enrichment=True, include_full_products=include_affected_products)
     is_minimal = not (result.get("severity") or result.get("cvss_v3") or result.get("description"))
     completeness = "minimal" if is_minimal else "complete"
     sources_for_verdict = [f"{s}_cache" for s in formatted["sources"]]
@@ -355,17 +368,33 @@ def _exploit_lookup_verdict(github_error: bool, shodan_error: bool, offline_foun
     )
 
 
-def _format_cve(row: dict, include_enrichment: bool = False) -> dict:
+def _format_cve(row: dict, include_enrichment: bool = False, include_full_products: bool = False) -> dict:
     """Format a raw CVE db row into API response format.
 
     When include_enrichment=True (single-CVE lookup only), adds patch_available,
     patch_url, and related_cves. related_cves uses affected_products[0] only —
     multi-product CVEs are not UNIONed (simpler, 95% sufficient). Enrichment is
     gated off by default to avoid N+1 queries in search/bulk call sites.
+
+    affected_products is truncated to the first MAX_AFFECTED_PRODUCTS_DEFAULT
+    entries by default (Log4j-class CVEs can carry 50+ Siemens products and bloat
+    MCP responses). total_products always reflects the honest full count. Pass
+    include_full_products=True to return the complete list.
+
+    Naming: the internal flag is `include_full_products` (emphasis: return all of
+    them); the public API param in cve_lookup / _BulkCveRequest is
+    `include_affected_products` (emphasis: the field being expanded). Keep the
+    divergence — it matches how each audience reads the contract.
+
+    related_cves uses the RAW DB `row.get("affected_products")` regardless of
+    truncation, so enrichment is O(1) and never missed because of the cap.
     """
     sources_rows = get_cve_sources(row["cve_id"])
     source_names = [s["source"] for s in sources_rows]
     references = row.get("refs", [])
+    all_products = row.get("affected_products", []) or []
+    total_products = len(all_products)
+    products = all_products if include_full_products else all_products[:MAX_AFFECTED_PRODUCTS_DEFAULT]
     result = {
         "cve_id": row["cve_id"],
         "summary": row.get("summary") or _generate_summary(row),
@@ -382,7 +411,8 @@ def _format_cve(row: dict, include_enrichment: bool = False) -> dict:
             "in_kev": bool(row.get("in_kev")),
             "date_added": row.get("kev_date_added"),
         },
-        "affected_products": row.get("affected_products", []),
+        "affected_products": products,
+        "total_products": total_products,
         "published": row.get("published"),
         "modified": row.get("modified"),
         "references": references,
@@ -635,6 +665,10 @@ def exploit_lookup(cve_id: str, request: Request):
 
 class _BulkCveRequest(BaseModel):
     cve_ids: list[Annotated[str, StringConstraints(max_length=64)]] = Field(..., min_length=1, max_length=50)
+    include_affected_products: bool = Field(
+        False,
+        description="Return full affected_products list for each CVE (default: first 20).",
+    )
 
 
 @router.post(
@@ -698,7 +732,7 @@ def bulk_cve_lookup(body: _BulkCveRequest, request: Request):
             if row is None:
                 results.append({"cve_id": cid, "status": "not_found", "cve": None, "error": f"CVE {cid} not found"})
             else:
-                formatted = _format_cve(row)
+                formatted = _format_cve(row, include_full_products=body.include_affected_products)
                 is_minimal = not (row.get("severity") or row.get("cvss_v3") or row.get("description"))
                 completeness = "minimal" if is_minimal else "complete"
                 sources_for_verdict = [f"{s}_cache" for s in formatted["sources"]]

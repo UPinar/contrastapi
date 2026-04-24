@@ -257,6 +257,11 @@ def check_dependencies_endpoint(body: DependenciesInput, request: Request):
         )
 
     product_names = [pkg.name for pkg in packages]
+    # NOTE: version-range matching below reads affected_products from the raw DB row
+    # via search_cves_by_products_bulk — NOT from the HTTP API response — so it is not
+    # affected by the default truncation in _format_cve(). Do not rewire this path
+    # through the API without restoring full affected_products, or version matches
+    # against products 21+ will be silently missed.
     try:
         cve_groups = search_cves_by_products_bulk(product_names, limit_per_product=20)
     except Exception:

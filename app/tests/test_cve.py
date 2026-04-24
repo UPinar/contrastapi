@@ -52,6 +52,8 @@ class TestCveLookup:
         assert "summary" in data
         assert "references" in data
         assert "affected_products" in data
+        assert data["total_products"] == 1
+        assert len(data["affected_products"]) == 1
 
     def test_lookup_case_insensitive(self):
         _seed_cve()
@@ -131,6 +133,75 @@ class TestCveLookup:
         assert body["first_seen_source"] == "mitre"
         assert body["verdict"]["completeness"] == "minimal"
         assert body["verdict"]["sources_queried"] == ["mitre_cache"]
+
+    def test_cve_lookup_truncates_affected_products_to_20_by_default(self):
+        products = [{"vendor": f"v{i}", "product": f"p{i}"} for i in range(50)]
+        _seed_cve(cve_id="CVE-2024-9001", affected_products=products)
+        r = client.get("/v1/cve/CVE-2024-9001")
+        assert r.status_code == 200
+        data = r.json()
+        assert len(data["affected_products"]) == 20
+        assert data["total_products"] == 50
+        assert data["affected_products"][0]["product"] == "p0"
+        assert data["affected_products"][19]["product"] == "p19"
+
+    def test_cve_lookup_include_affected_products_returns_full_list(self):
+        products = [{"vendor": f"v{i}", "product": f"p{i}"} for i in range(50)]
+        _seed_cve(cve_id="CVE-2024-9002", affected_products=products)
+        r = client.get("/v1/cve/CVE-2024-9002?include_affected_products=true")
+        assert r.status_code == 200
+        data = r.json()
+        assert len(data["affected_products"]) == 50
+        assert data["total_products"] == 50
+
+    def test_cve_lookup_small_product_list_not_truncated(self):
+        products = [{"vendor": f"v{i}", "product": f"p{i}"} for i in range(5)]
+        _seed_cve(cve_id="CVE-2024-9003", affected_products=products)
+        r = client.get("/v1/cve/CVE-2024-9003")
+        assert r.status_code == 200
+        data = r.json()
+        assert len(data["affected_products"]) == 5
+        assert data["total_products"] == 5
+
+    def test_cve_lookup_exactly_20_products_not_truncated(self):
+        products = [{"vendor": f"v{i}", "product": f"p{i}"} for i in range(20)]
+        _seed_cve(cve_id="CVE-2024-9004", affected_products=products)
+        r = client.get("/v1/cve/CVE-2024-9004")
+        assert r.status_code == 200
+        data = r.json()
+        assert len(data["affected_products"]) == 20
+        assert data["total_products"] == 20
+
+    def test_cve_lookup_exactly_21_products_truncated_to_20(self):
+        products = [{"vendor": f"v{i}", "product": f"p{i}"} for i in range(21)]
+        _seed_cve(cve_id="CVE-2024-9005", affected_products=products)
+        r = client.get("/v1/cve/CVE-2024-9005")
+        assert r.status_code == 200
+        data = r.json()
+        assert len(data["affected_products"]) == 20
+        assert data["total_products"] == 21
+        assert data["affected_products"][19]["product"] == "p19"
+
+    def test_cve_lookup_include_affected_products_query_param_forms(self):
+        products = [{"vendor": f"v{i}", "product": f"p{i}"} for i in range(30)]
+        _seed_cve(cve_id="CVE-2024-9006", affected_products=products)
+
+        for truthy in ("true", "True", "TRUE", "1"):
+            r = client.get(f"/v1/cve/CVE-2024-9006?include_affected_products={truthy}")
+            assert r.status_code == 200, f"truthy form {truthy!r} failed"
+            assert len(r.json()["affected_products"]) == 30, f"truthy form {truthy!r} did not enable full list"
+
+        for falsy in ("false", "False", "FALSE", "0"):
+            r = client.get(f"/v1/cve/CVE-2024-9006?include_affected_products={falsy}")
+            assert r.status_code == 200, f"falsy form {falsy!r} failed"
+            assert len(r.json()["affected_products"]) == 20, f"falsy form {falsy!r} returned full list unexpectedly"
+
+        r = client.get("/v1/cve/CVE-2024-9006?include_affected_products=not-a-bool")
+        assert r.status_code == 422
+
+        r = client.get("/v1/cve/CVE-2024-9006")
+        assert r.status_code == 200
+        assert len(r.json()["affected_products"]) == 20
 
 
 class TestCveSearch:
@@ -502,6 +573,7 @@ class TestCveResponseFormat:
             "epss",
             "kev",
             "affected_products",
+            "total_products",
             "published",
             "modified",
             "references",
@@ -2872,6 +2944,35 @@ class TestBulkCveLookup:
         assert data["partial"] is True
         assert data["results"][0]["status"] == "invalid_format"
         assert data["results"][0]["error"] is not None
+
+    @patch("cve.routes.get_cve")
+    def test_bulk_cve_truncates_affected_products_by_default(self, mock_get):
+        large_cve = dict(self._MOCK_CVE)
+        large_cve["affected_products"] = [{"vendor": f"v{i}", "product": f"p{i}"} for i in range(50)]
+        mock_get.return_value = large_cve
+        r = client.post("/v1/cves/bulk", json={"cve_ids": ["CVE-2024-3094"]})
+        assert r.status_code == 200
+        data = r.json()
+        assert data["successful"] == 1
+        cve = data["results"][0]["cve"]
+        assert len(cve["affected_products"]) == 20
+        assert cve["total_products"] == 50
+
+    @patch("cve.routes.get_cve")
+    def test_bulk_cve_include_affected_products_returns_full(self, mock_get):
+        large_cve = dict(self._MOCK_CVE)
+        large_cve["affected_products"] = [{"vendor": f"v{i}", "product": f"p{i}"} for i in range(50)]
+        mock_get.return_value = large_cve
+        r = client.post(
+            "/v1/cves/bulk",
+            json={"cve_ids": ["CVE-2024-3094"], "include_affected_products": True},
+        )
+        assert r.status_code == 200
+        data = r.json()
+        assert data["successful"] == 1
+        cve = data["results"][0]["cve"]
+        assert len(cve["affected_products"]) == 50
+        assert cve["total_products"] == 50
 
     def test_bulk_cve_empty_list(self):
         r = client.post("/v1/cves/bulk", json={"cve_ids": []})

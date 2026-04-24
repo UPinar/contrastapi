@@ -325,7 +325,21 @@ class CveResponse(BaseModel):
     cwe_id: str | None = None
     epss: EpssInfo = Field(default_factory=EpssInfo)
     kev: KevInfo = Field(default_factory=KevInfo)
-    affected_products: list[dict] = Field(default_factory=list)
+    affected_products: list[dict] = Field(
+        default_factory=list,
+        description=(
+            "CPE affected products. Truncated to first 20 by default. "
+            "For GET /v1/cve/{cve_id}, use ?include_affected_products=true; "
+            'for POST /v1/cves/bulk, set body field "include_affected_products": true.'
+        ),
+    )
+    total_products: int = Field(
+        default=0,
+        description=(
+            "Honest count of all affected products in the CVE database. Always present "
+            "(emitted even when 0); matches len(affected_products) when not truncated."
+        ),
+    )
     published: str | None = None
     modified: str | None = None
     references: list[str] = Field(default_factory=list)
