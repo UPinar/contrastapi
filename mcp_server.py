@@ -465,7 +465,7 @@ async def phone_lookup(
 async def ip_lookup(
     ip: Annotated[str, Field(description="IPv4 or IPv6 address to investigate (e.g. '8.8.8.8', '2606:4700::1111')")],
 ) -> str:
-    """Query comprehensive IP intelligence: geolocation, PTR record, open ports, hostnames, vulnerabilities, reputation, abuse contacts, cloud provider, Tor exit status. Use for IP investigation; for orchestrated IP+reputation use threat_report. Free: 100/hr, Pro: 1000/hr. Returns {ip, ptr, geo, ports, hostnames, vulns, reputation, risk_score}."""
+    """Query comprehensive IP intelligence: reverse DNS, ASN + holder name + country inline (RIPE Stat, Phase 1), open ports, hostnames, vulnerabilities (Shodan InternetDB), cloud provider, Tor exit status, and reputation. Reputation: FireHOL level1 blocklist on Free tier; +AbuseIPDB + Shodan on Pro (Phase 4). Use for IP investigation; for orchestrated IP+reputation use threat_report. Free: 100/hr, Pro: 1000/hr. Returns {ip, ptr, geo, asn, asn_name, country, ports, hostnames, vulns, cloud_provider, tor_exit, reputation, risk_score, verdict}."""
     if err := _validate_ip(ip):
         return err
     return _fmt(await _get(f"/v1/ip/{ip}"))

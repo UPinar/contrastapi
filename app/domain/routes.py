@@ -730,7 +730,11 @@ def ssl_certificate(domain: DomainPath, request: Request):
 
                 cipher_dict = {}
                 if cipher_info:
-                    cipher_dict = {"name": cipher_info[0], "bits": cipher_info[2]}
+                    cipher_dict = {
+                        "name": cipher_info[0],
+                        "protocol": cipher_info[1],
+                        "bits": cipher_info[2],
+                    }
 
                 # Build summary
                 parts = [f"{domain} — {grade}"]

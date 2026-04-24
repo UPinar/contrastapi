@@ -113,6 +113,7 @@ class TestSslCertificate:
         assert data["subject"] == "example.com"
         assert data["protocol"] == "TLSv1.3"
         assert data["cipher"]["name"] == "TLS_AES_256_GCM_SHA384"
+        assert data["cipher"]["protocol"] == "TLSv1.3"
         assert data["cipher"]["bits"] == 256
         assert "example.com" in data["san"]
         assert "www.example.com" in data["san"]

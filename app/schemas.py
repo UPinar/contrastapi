@@ -600,6 +600,29 @@ class TechResponse(BaseModel):
 # === SSL Certificate ===
 
 
+class CipherInfo(BaseModel):
+    model_config = {"extra": "allow"}
+
+    name: str | None = Field(
+        default=None,
+        description=(
+            "Cipher suite name as reported by OpenSSL, e.g. 'TLS_AES_256_GCM_SHA384' (TLS 1.3) "
+            "or 'ECDHE-RSA-AES256-GCM-SHA384' (TLS 1.2). Null on handshake failure."
+        ),
+    )
+    protocol: str | None = Field(
+        default=None,
+        description=(
+            "TLS protocol version negotiated for this cipher, e.g. 'TLSv1.3', 'TLSv1.2'. "
+            "Mirrors SslResponse.protocol and is null on handshake failure."
+        ),
+    )
+    bits: int | None = Field(
+        default=None,
+        description=("Effective symmetric key length in bits (e.g. 256 for AES-256-GCM). Null on handshake failure."),
+    )
+
+
 class SslChainItem(BaseModel):
     subject: str = Field(
         default="",
@@ -669,10 +692,11 @@ class SslResponse(BaseModel):
             "'TLSv1.1', 'TLSv1'. Empty on handshake failure. Grade F is forced for TLSv1/TLSv1.1."
         ),
     )
-    cipher: dict = Field(
-        default_factory=dict,
+    cipher: CipherInfo = Field(
+        default_factory=CipherInfo,
         description=(
-            "Negotiated cipher suite dict: {name: str, version: str, bits: int}. Empty dict on handshake failure."
+            "Negotiated cipher suite with name, negotiated TLS protocol, and key length. "
+            "All fields are null on handshake failure (empty CipherInfo)."
         ),
     )
     chain: list[SslChainItem] = Field(
@@ -832,12 +856,52 @@ class BulkDomainResponse(BaseModel):
 
 
 class Verdict(BaseModel):
-    deterministic: bool
-    falsifiable_fields: list[str]
-    data_age_seconds: int | None = None
-    sources_queried: list[str] = Field(default_factory=list)
-    sources_unavailable: list[str] = Field(default_factory=list)
-    completeness: Literal["complete", "partial", "minimal"] = "complete"
+    deterministic: bool = Field(
+        description=(
+            "True when the response is fully reproducible from the listed sources "
+            "for the same input at the same moment (no randomness, no model inference). "
+            "False for endpoints that include probabilistic scoring or LLM output."
+        ),
+    )
+    falsifiable_fields: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Top-level response fields whose values a caller can independently re-derive "
+            "from the named upstream sources (e.g. 'dns', 'ssl', 'whois'). "
+            "Fields not in this list are derived/computed and cannot be directly re-verified."
+        ),
+    )
+    data_age_seconds: int | None = Field(
+        default=None,
+        description=(
+            "Seconds elapsed since the oldest cached source was fetched, or null when "
+            "every source was queried live for this request. Use to judge freshness."
+        ),
+    )
+    sources_queried: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Canonical source identifiers successfully consulted for this response "
+            "(e.g. 'ripe_stat', 'shodan_internetdb', 'firehol'). Agent-readable list, "
+            "order not significant."
+        ),
+    )
+    sources_unavailable: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Sources that were expected but not returned — either intentionally skipped "
+            "(lite mode, tier gating) or failed (quota, timeout, upstream down). "
+            "Empty list means every planned source produced data."
+        ),
+    )
+    completeness: Literal["complete", "partial", "minimal"] = Field(
+        default="complete",
+        description=(
+            "'complete' = every planned source returned data; "
+            "'partial' = at least one source in sources_unavailable failed or was skipped; "
+            "'minimal' = only the primary/required source returned, optional enrichment missing."
+        ),
+    )
 
 
 # === CVE ===
