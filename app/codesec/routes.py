@@ -2,6 +2,7 @@
 
 import threading
 from collections import Counter
+from typing import Annotated
 
 from auth import authenticate
 from codesec.headers import check_headers
@@ -9,7 +10,7 @@ from codesec.injection import detect_injection
 from codesec.secrets import detect_secrets
 from db import _normalize_product, _parse_version, search_cves_by_products_bulk
 from domain.recon import fetch_live_headers
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Path, Request
 from pydantic import BaseModel, Field
 from schemas import CheckHeadersResponse, CodeCheckResponse, DependenciesResponse, ScanHeadersResponse
 from validation import _is_valid_format, clean_domain, is_valid_ip, validate_domain
@@ -148,7 +149,19 @@ def check_injection_endpoint(body: CodeInput, request: Request):
     response_model=ScanHeadersResponse,
     response_model_exclude_none=True,
 )
-def scan_headers_endpoint(domain: str, request: Request):
+def scan_headers_endpoint(
+    domain: Annotated[
+        str,
+        Path(
+            description=(
+                "Registrable domain, e.g. 'example.com'. No scheme, no path. "
+                "Bare IPs are rejected — use /v1/ip/{ip} instead. Live HTTPS fetch is performed; "
+                "use /v1/check/headers (POST) to analyze a header dict you already have."
+            ),
+        ),
+    ],
+    request: Request,
+):
     """Fetch a domain's HTTP headers live and analyze security posture."""
     domain = clean_domain(domain)
     if not domain:

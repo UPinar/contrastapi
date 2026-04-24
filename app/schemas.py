@@ -6,32 +6,317 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, computed_field
 
-# === Domain Report ===
+# === Domain Report — nested sub-models (agent discovery) ===
+#
+# Each sub-model uses `model_config = {"extra": "allow"}` so that upstream producers
+# in app/domain/recon.py can emit additional keys without breaking the API contract
+# (forward-compat). Every field is `Type | None = None` so that FastAPI's
+# `response_model_exclude_none=True` preserves the prior wire format — absent keys
+# in producer dicts do not materialize as `null` in the serialized JSON.
+
+
+class MxDnsRecord(BaseModel):
+    """Single MX record embedded inside DomainReportResponse.dns.mx."""
+
+    priority: int | None = Field(default=None, description="MX preference (lower = higher priority).")
+    host: str | None = Field(default=None, description="MX hostname (trailing dot stripped).")
+
+
+class SoaInfo(BaseModel):
+    """SOA record embedded inside DomainDnsInfo.soa."""
+
+    mname: str | None = Field(default=None, description="Primary nameserver (SOA MNAME).")
+    rname: str | None = Field(default=None, description="Responsible party mailbox (SOA RNAME).")
+    serial: int | None = Field(default=None, description="Zone serial number.")
+
+    model_config = {"extra": "allow"}
+
+
+class DomainDnsInfo(BaseModel):
+    """DNS records per type. Keys are omitted (not null) when the lookup for that type fails."""
+
+    a: list[str] | None = Field(default=None, description="A records (IPv4 addresses).")
+    aaaa: list[str] | None = Field(default=None, description="AAAA records (IPv6 addresses).")
+    mx: list[MxDnsRecord] | None = Field(default=None, description="MX records as {priority, host} list.")
+    ns: list[str] | None = Field(default=None, description="NS records (nameserver hostnames).")
+    txt: list[str] | None = Field(default=None, description="TXT records (SPF, DMARC, verification strings, etc.).")
+    cname: list[str] | None = Field(default=None, description="CNAME records.")
+    soa: SoaInfo | None = Field(default=None, description="SOA record (zone authority).")
+
+    model_config = {"extra": "allow"}
+
+
+class ReverseDnsInfo(BaseModel):
+    ip: str | None = Field(
+        default=None, description="Resolved IPv4 for the domain. Null when DNS fails or IP is private."
+    )
+    ptr: str | None = Field(
+        default=None, description="PTR (reverse-DNS) hostname for the IP. Null when no PTR is published."
+    )
+    shared_hosting: bool | None = Field(
+        default=None,
+        description="True when PTR hostname differs from the queried domain (shared hosting signal). Absent when PTR lookup fails.",
+    )
+
+    model_config = {"extra": "allow"}
+
+
+class WhoisInfoEmbedded(BaseModel):
+    """WHOIS subset embedded in the domain report. Fields are best-effort regex extracts from the raw WHOIS text."""
+
+    registrar: str | None = Field(default=None, description="Registrar name as reported by the WHOIS server.")
+    creation_date: str | None = Field(default=None, description="Domain creation date (format depends on registrar).")
+    expiry_date: str | None = Field(default=None, description="Domain expiry date (format depends on registrar).")
+    updated_date: str | None = Field(default=None, description="Last-updated timestamp from WHOIS.")
+    name_servers: list[str] | None = Field(default=None, description="Authoritative nameservers per WHOIS.")
+    status: str | list[str] | None = Field(
+        default=None,
+        description="EPP domain status (e.g. 'clientTransferProhibited'). String or list depending on registrar.",
+    )
+    raw_length: int | None = Field(default=None, description="Byte length of raw WHOIS response (sanity indicator).")
+    error: str | None = Field(
+        default=None,
+        description="Populated when the WHOIS TCP query failed (e.g. no WHOIS server for TLD, socket timeout).",
+    )
+
+    model_config = {"extra": "allow"}
+
+
+class SslInfoEmbedded(BaseModel):
+    """SSL subset embedded in the domain report. See top-level SslResponse for live SSL endpoint shape."""
+
+    common_name: str | None = Field(default=None, description="Leaf cert Subject CN.")
+    issuer: str | None = Field(default=None, description="Leaf cert issuer organization name.")
+    not_before: str | None = Field(default=None, description="notBefore timestamp (ISO 8601 / UTC).")
+    not_after: str | None = Field(default=None, description="notAfter (expiry) timestamp (ISO 8601 / UTC).")
+    serial_number: str | None = Field(default=None, description="Hex-encoded cert serial number.")
+    version: int | str | None = Field(
+        default=None,
+        description="X.509 version as returned by the ssl module (int 3 for v3; empty string on some parse paths).",
+    )
+    tls_version: str | None = Field(
+        default=None,
+        description="Negotiated TLS protocol (e.g. 'TLSv1.3', 'TLSv1.2'). Empty on handshake failure.",
+    )
+    alpn: str | None = Field(default=None, description="Negotiated ALPN protocol (e.g. 'http/1.1', 'h2').")
+    san: list[str] | None = Field(default=None, description="Subject Alternative Names.")
+    days_remaining: int | None = Field(default=None, description="Days until expiry. Negative when already expired.")
+    grade: Literal["A", "B", "C", "F"] | None = Field(
+        default=None,
+        description="SSL grade A/B/C/F. Same ladder as SslResponse.grade (TLS version x days_remaining).",
+    )
+    error: str | None = Field(default=None, description="Populated on handshake / connection failure.")
+
+    model_config = {"extra": "allow"}
+
+
+class SubdomainsInfo(BaseModel):
+    subdomains: list[str] | None = Field(default=None, description="Sorted unique subdomain list.")
+    count: int | None = Field(default=None, description="Total subdomains discovered.")
+    sources: list[str] | None = Field(
+        default=None,
+        description="Sources that produced hits (subset of ['wordlist', 'crt_sh']).",
+    )
+    found_via_wordlist: int | None = Field(default=None, description="Count discovered via DNS brute-force wordlist.")
+    found_via_crtsh: int | None = Field(default=None, description="Count discovered via crt.sh CT log query.")
+    warnings: list[str] | None = Field(
+        default=None,
+        description="Non-fatal warnings (e.g. 'crt.sh timeout', 'result truncated').",
+    )
+    summary: str | None = Field(default=None, description="One-line human-readable summary.")
+
+    model_config = {"extra": "allow"}
+
+
+class CertificateSummary(BaseModel):
+    """Single cert entry inside CertificatesInfo.certificates."""
+
+    issuer: str | None = Field(default=None, description="Cert issuer CN or O.")
+    not_before: str | None = Field(default=None, description="notBefore timestamp.")
+    not_after: str | None = Field(default=None, description="notAfter timestamp.")
+    common_name: str | None = Field(default=None, description="Cert Subject CN.")
+
+    model_config = {"extra": "allow"}
+
+
+class CertificatesInfo(BaseModel):
+    total_certificates: int | None = Field(default=None, description="Total cert count from crt.sh (pre-dedup).")
+    certificates: list[CertificateSummary] | None = Field(
+        default=None,
+        description="Up to CT_MAX_CERTS recent unique certs (deduped by serial).",
+    )
+
+    model_config = {"extra": "allow"}
+
+
+class ThreatUrlEntry(BaseModel):
+    """Single offending URL entry inside ThreatInfo.urls."""
+
+    url: str | None = Field(default=None, description="Offending URL observed in URLhaus.")
+    status: str | None = Field(default=None, description="URLhaus status for this URL ('online', 'offline').")
+    threat: str | None = Field(default=None, description="Threat class (e.g. 'malware_download', 'phishing').")
+    date_added: str | None = Field(default=None, description="When URLhaus first saw this URL.")
+    tags: list[str] | None = Field(default=None, description="Tags assigned by URLhaus (malware family, kit, etc.).")
+
+    model_config = {"extra": "allow"}
+
+
+class ThreatInfo(BaseModel):
+    urlhaus_status: Literal["clean", "listed", "error", "skipped"] | None = Field(
+        default=None,
+        description="URLhaus lookup outcome. 'skipped' in lite mode; 'error' on API failure (treat as unavailable, not clean).",
+    )
+    url_count: int | None = Field(default=None, description="Total URLs URLhaus has seen for this domain.")
+    urls_online: int | None = Field(default=None, description="Subset of url_count currently marked online.")
+    threat_types: list[str] | None = Field(default=None, description="Deduped list of threat classes across all URLs.")
+    tags: list[str] | None = Field(default=None, description="Deduped list of tags (up to 20).")
+    urls: list[ThreatUrlEntry] | None = Field(default=None, description="Up to 20 offending URL entries.")
+
+    model_config = {"extra": "allow"}
+
+
+class EmailSecurityInfo(BaseModel):
+    spf: str | None = Field(default=None, description="SPF record string (v=spf1 ...). Null when no SPF is published.")
+    dmarc: str | None = Field(
+        default=None,
+        description="DMARC record string (v=DMARC1; p=...; ...). Null when no DMARC record is published at _dmarc.<domain>.",
+    )
+    dkim_selectors: list[str] | None = Field(
+        default=None,
+        description="DKIM selectors that responded to probing (e.g. ['google', 'selector1']). Empty when none found.",
+    )
+    grade: Literal["A", "B", "C", "F"] | None = Field(
+        default=None,
+        description="Email-auth grade: A=SPF+DMARC+DKIM, B=2 of 3, C=1 of 3, F=none.",
+    )
+    issues: list[str] | None = Field(
+        default=None, description="Human-readable issues (missing SPF, weak DMARC policy, etc.)."
+    )
+
+    model_config = {"extra": "allow"}
+
+
+class WafInfo(BaseModel):
+    detected: list[str] | None = Field(
+        default=None,
+        description="WAF product names detected from response headers (e.g. ['Cloudflare', 'AWS CloudFront']).",
+    )
+    waf_present: bool | None = Field(default=None, description="True when `detected` is non-empty.")
+
+    model_config = {"extra": "allow"}
+
+
+class RiskFactor(BaseModel):
+    name: str | None = Field(
+        default=None, description="Factor label (e.g. 'SSL/TLS', 'Email Security', 'IP Reputation')."
+    )
+    score: int | None = Field(default=None, description="Points earned by this factor (can be negative for penalties).")
+    max: int | None = Field(default=None, description="Maximum possible points for this factor.")
+    detail: str | None = Field(default=None, description="Human-readable justification for the score.")
+
+
+class RiskInfo(BaseModel):
+    score: int | None = Field(default=None, description="Cumulative risk score (0-100).")
+    max_score: int | None = Field(default=None, description="Maximum achievable score (always 100).")
+    grade: Literal["A", "B", "C", "D", "F"] | None = Field(default=None, description="Letter grade derived from score.")
+    factors: list[RiskFactor] | None = Field(
+        default=None, description="Per-factor scoring breakdown (typically 8-9 factors)."
+    )
+
+    model_config = {"extra": "allow"}
+
+
+class DomainReputationInfo(BaseModel):
+    """Reputation block inside DomainReportResponse (IP-level enrichment of the resolved A record).
+
+    Differs from IpLookupResponse.reputation: no firehol block here (FireHOL is IP-only).
+    """
+
+    abuseipdb: AbuseIpdbInfo | None = Field(
+        default=None,
+        description="AbuseIPDB enrichment for the domain's resolved IP. Pro tier only — free tier returns {status:'pro_only', reason, upgrade_url} stub.",
+    )
+    shodan: ShodanRepInfo | None = Field(
+        default=None,
+        description="Shodan enrichment for the domain's resolved IP. Pro tier only — free tier returns {status:'pro_only', reason, upgrade_url} stub.",
+    )
+
+    model_config = {"extra": "allow"}
+
+
+# === Domain Report (top-level) ===
 
 
 class DomainReportResponse(BaseModel):
-    domain: str
-    dns: dict = Field(default_factory=dict)
-    reverse_dns: dict = Field(default_factory=dict)
-    whois: dict = Field(default_factory=dict)
-    ssl: dict = Field(default_factory=dict)
-    subdomains: dict = Field(default_factory=dict)
-    certificates: dict = Field(default_factory=dict)
-    email_security: dict = Field(default_factory=dict)
-    waf: dict = Field(default_factory=dict)
-    threat: dict = Field(default_factory=dict)
-    risk: dict = Field(default_factory=dict)
+    domain: str = Field(description="Queried domain (echoed, lowercased).")
+    dns: DomainDnsInfo | None = Field(
+        default=None,
+        description="Forward DNS record set (A/AAAA/MX/NS/TXT/CNAME/SOA). Empty dict when all lookups fail.",
+    )
+    reverse_dns: ReverseDnsInfo | None = Field(
+        default=None,
+        description="Reverse-DNS resolution of the domain's primary IPv4 (PTR + shared-hosting signal).",
+    )
+    whois: WhoisInfoEmbedded | None = Field(
+        default=None,
+        description="WHOIS extract (registrar, dates, nameservers, EPP status). Skipped in lite mode. Error branch populates `error`.",
+    )
+    ssl: SslInfoEmbedded | None = Field(
+        default=None,
+        description="SSL/TLS certificate subset (CN, issuer, validity, grade). Full shape at top-level /v1/ssl/{domain}.",
+    )
+    subdomains: SubdomainsInfo | None = Field(
+        default=None,
+        description="Subdomain enumeration (wordlist + crt.sh). Skipped in lite mode (returns {subdomains:[], count:0}).",
+    )
+    certificates: CertificatesInfo | None = Field(
+        default=None,
+        description="Certificate transparency log entries from crt.sh. Skipped in lite mode.",
+    )
+    email_security: EmailSecurityInfo | None = Field(
+        default=None,
+        description="SPF/DMARC/DKIM posture of the domain (email authentication grade).",
+    )
+    waf: WafInfo | None = Field(
+        default=None,
+        description="WAF detection from live response headers (Cloudflare, AWS CloudFront, Akamai, Sucuri, etc.).",
+    )
+    threat: ThreatInfo | None = Field(
+        default=None,
+        description="URLhaus threat intelligence for the domain (malware / phishing URL listings). Skipped in lite mode.",
+    )
+    risk: RiskInfo | None = Field(
+        default=None,
+        description="Composite risk scoring (0-100) with per-factor breakdown — drives the top-level risk_score alias.",
+    )
 
     @computed_field
     @property
     def risk_score(self) -> int | None:
         """Top-level alias for risk.score — backward-compat with old docstring consumers."""
-        s = self.risk.get("score")
+        if self.risk is None:
+            return None
+        s = self.risk.score if hasattr(self.risk, "score") else None
         return s if isinstance(s, int) else None
 
-    reputation: dict | None = None
-    summary: str = ""
-    verdict: Verdict | None = None
+    reputation: DomainReputationInfo | None = Field(
+        default=None,
+        description=(
+            "IP-level reputation of the domain's resolved A record. "
+            "Absent in lite mode AND when no A record resolves. "
+            "On Free tier inner blocks carry {status:'pro_only'} stubs (agents should not treat as clean)."
+        ),
+    )
+    summary: str = Field(
+        default="", description="One-line human summary aggregating IP, grade, WAF, and subdomain count."
+    )
+    verdict: Verdict | None = Field(
+        default=None,
+        description=(
+            "Falsifiability metadata. sources_queried / sources_unavailable let agents distinguish "
+            "'no data' from 'source failed' — critical for SOC / agent chain-of-thought integrity."
+        ),
+    )
 
     model_config = {"extra": "ignore"}
 
@@ -839,15 +1124,55 @@ class CodeCheckResponse(BaseModel):
 
 
 class HeaderFinding(BaseModel):
-    header: str
-    severity: str
-    present: bool
-    valid: bool = False
-    value: str | None = None
-    issues: list[str] = Field(default_factory=list)
-    description: str = ""
-    remediation: str = ""
-    reference: str = ""
+    header: str = Field(
+        description="Canonical header name as defined by the ruleset (e.g. 'Strict-Transport-Security', 'Content-Security-Policy').",
+    )
+    severity: Literal["high", "medium", "low"] = Field(
+        description=(
+            "Impact weight assigned by the ruleset: 'high' (25 pts), 'medium' (15 pts), 'low' (10 pts). "
+            "Drives the overall score/grade — missing a 'high' header costs more than missing a 'low' one."
+        ),
+    )
+    present: bool = Field(
+        description="True when the response sent this header at all (regardless of whether the value is valid).",
+    )
+    valid: bool = Field(
+        default=False,
+        description=(
+            "Value-level validation result. True when the header is present AND its value passes the "
+            "header-specific validator (e.g. HSTS max-age >= 1 year + includeSubDomains; CSP has no "
+            "wildcard source in script-src). True also when the header is present but no validator exists "
+            "for it. False when the header is absent, or present-but-invalid. Inspect `issues` for the "
+            "specific reasons a present-but-invalid header failed."
+        ),
+    )
+    value: str | None = Field(
+        default=None,
+        description=(
+            "Raw header value as sent by the origin, when the header is present AND a validator exists for it. "
+            "Null when the header is absent, or when it's present but no validator applies to it."
+        ),
+    )
+    issues: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Machine-readable issue codes emitted by the validator for present-but-invalid headers "
+            "(e.g. 'hsts_max_age_too_short', 'csp_wildcard_script_src', 'xfo_allowall'). "
+            "Empty when the header is absent, valid, or has no validator."
+        ),
+    )
+    description: str = Field(
+        default="",
+        description="Human-readable explanation of what this header protects against.",
+    )
+    remediation: str = Field(
+        default="",
+        description="Concrete recommended header value or configuration snippet.",
+    )
+    reference: str = Field(
+        default="",
+        description="URL to authoritative spec/documentation (MDN, OWASP, RFC).",
+    )
 
 
 class ScanHeadersResponse(BaseModel):
@@ -1074,13 +1399,52 @@ class AuditResponse(BaseModel):
 
 
 class ThreatReportResponse(BaseModel):
-    ip: str
-    enrichment: dict = Field(default_factory=dict)
-    abuseipdb: dict = Field(default_factory=dict)
-    shodan: dict = Field(default_factory=dict)
-    asn: dict = Field(default_factory=dict)
-    threat_level: str = "none"
-    summary: str = ""
+    ip: str = Field(description="Queried IP address (IPv4 or IPv6, echoed back verbatim).")
+    enrichment: dict = Field(
+        default_factory=dict,
+        description=(
+            "Shodan InternetDB free-tier enrichment: {ports: list[int], hostnames: list[str], "
+            "vulns: list[str] (CVE IDs), cpes: list[str], tags: list[str]}. Available on all tiers. "
+            "Empty dict with all-empty lists on upstream failure — treat as 'no data', not 'clean'."
+        ),
+    )
+    abuseipdb: dict = Field(
+        default_factory=dict,
+        description=(
+            "AbuseIPDB abuse confidence enrichment (Pro tier only). "
+            "On Pro success: {status:'ok', abuse_score: 0-100, total_reports, country_code, isp, usage_type, is_tor}. "
+            "On Free tier: {status:'pro_only', reason, upgrade_url} stub — NOT an error. "
+            "On Pro failure: {status:'error'} or {status:'rate_limited'/'skipped'/'restricted'}."
+        ),
+    )
+    shodan: dict = Field(
+        default_factory=dict,
+        description=(
+            "Shodan full API enrichment (Pro tier only). "
+            "On Pro success: {status:'ok', os, org, isp, asn, ports, vulns, hostnames, city, country_name, last_update}. "
+            "On Free tier: {status:'pro_only', reason, upgrade_url} stub — NOT an error. "
+            "On Pro failure: {status:'error'} or {status:'rate_limited'/'skipped'/'restricted'}."
+        ),
+    )
+    asn: dict = Field(
+        default_factory=dict,
+        description=(
+            "ASN ownership from RIPE Stat network-info: {asn: int, prefix: str}. "
+            "Empty dict when RIPE has no allocation; {error:'lookup_failed'} on fetch failure."
+        ),
+    )
+    threat_level: Literal["none", "low", "medium", "high"] = Field(
+        default="none",
+        description=(
+            "Heuristic threat tier. 'high' when any vulns present OR abuse_score>=50; "
+            "'medium' when abuse_score>=25; 'low' when open ports observed; 'none' otherwise. "
+            "On Free tier threat_level is necessarily conservative — abuse_score is unknown."
+        ),
+    )
+    summary: str = Field(
+        default="",
+        description="One-line human summary combining threat_level, port count, vuln count, and abuse signal.",
+    )
 
     model_config = {"extra": "ignore"}
 

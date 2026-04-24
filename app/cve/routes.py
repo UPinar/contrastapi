@@ -19,7 +19,7 @@ from db import (
     search_cves,
     search_exploits_by_cve,
 )
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException, Path, Query, Request
 from pydantic import BaseModel, Field, StringConstraints
 from schemas import (
     BulkCveResponse,
@@ -144,7 +144,15 @@ def cve_leading(
 
 @router.get("/cve/{cve_id}", operation_id="cve_lookup", response_model=CveResponse, response_model_exclude_none=True)
 def cve_lookup(
-    cve_id: str,
+    cve_id: Annotated[
+        str,
+        Path(
+            description=(
+                "CVE identifier in canonical form 'CVE-YYYY-NNNN+' (case-insensitive; normalized to upper-case server-side). "
+                "Examples: 'CVE-2021-44228', 'CVE-2014-0160'."
+            ),
+        ),
+    ],
     request: Request,
     include_affected_products: bool = Query(
         False,
@@ -591,7 +599,18 @@ def _search_exploitdb(cve_id: str) -> dict:
 @router.get(
     "/exploit/{cve_id}", operation_id="exploit_lookup", response_model=ExploitResponse, response_model_exclude_none=True
 )
-def exploit_lookup(cve_id: str, request: Request):
+def exploit_lookup(
+    cve_id: Annotated[
+        str,
+        Path(
+            description=(
+                "CVE identifier 'CVE-YYYY-NNNN+' (case-insensitive; normalized to upper-case server-side). "
+                "Example: 'CVE-2021-44228'."
+            ),
+        ),
+    ],
+    request: Request,
+):
     """Search for public exploits and advisories related to a CVE."""
     cve_id = cve_id.strip().upper()
     _check_cve_input(cve_id)

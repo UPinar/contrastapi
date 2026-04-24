@@ -8,6 +8,7 @@ import threading
 import time as _time
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeoutError
+from typing import Annotated
 from urllib.parse import urlparse as _urlparse
 
 
@@ -18,7 +19,7 @@ class AsnUpstreamError(Exception):
         super().__init__(f"{upstream}: {reason}")
 
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Path, Query, Request
 
 _reputation_pool = ThreadPoolExecutor(max_workers=3)
 _aia_pool = ThreadPoolExecutor(max_workers=2)
@@ -99,6 +100,30 @@ from schemas import (
 from validation import _is_valid_format, clean_domain, get_client_ip, is_private_ip, is_valid_ip, validate_domain
 
 logger = logging.getLogger("contrastapi")
+
+
+# === Canonical path-param type aliases (reused across MCP-exposed routes) ===
+
+DomainPath = Annotated[
+    str,
+    Path(
+        description=(
+            "Registrable domain name, e.g. 'example.com'. No scheme, no path, no port. "
+            "Punycode (xn--*) and IDNs accepted; subdomains allowed (e.g. 'api.example.com'). "
+            "Validated by validate_domain() — wildcard '*' and raw IPs rejected."
+        ),
+    ),
+]
+
+IpPath = Annotated[
+    str,
+    Path(
+        description=(
+            "IPv4 or IPv6 address, e.g. '8.8.8.8' or '2001:4860:4860::8888'. "
+            "Private/reserved/loopback/link-local ranges are rejected with 400."
+        ),
+    ),
+]
 
 
 def _safe_rdn(s: str) -> str:
@@ -331,7 +356,19 @@ def _from_cache(domain: str, key: str, tier: str) -> dict | None:
     response_model_exclude_none=True,
     include_in_schema=False,
 )
-def domain_report(domain: str, request: Request, lite: bool = False):
+def domain_report(
+    domain: DomainPath,
+    request: Request,
+    lite: Annotated[
+        bool,
+        Query(
+            description=(
+                "Fast subset mode. When true, skips WHOIS, subdomains, CT logs, URLhaus, and reputation. "
+                "Returns in ~250ms instead of 3-10s. Use for high-volume triage."
+            ),
+        ),
+    ] = False,
+):
     """Full domain intelligence report with DNS, WHOIS, SSL, subdomains, WAF. Use ?lite=true for fast subset."""
     domain, resolved_ip, auth_ctx = _validate_and_auth(request, domain)
 
@@ -354,7 +391,7 @@ def domain_report(domain: str, request: Request, lite: bool = False):
 
 
 @router.get("/dns/{domain}", operation_id="dns_records", response_model=DnsResponse, response_model_exclude_none=True)
-def dns_records(domain: str, request: Request):
+def dns_records(domain: DomainPath, request: Request):
     """DNS record lookup: A, AAAA, MX, NS, TXT, CNAME, SOA."""
     domain, resolved_ip, auth_ctx = _validate_and_auth(request, domain)
     cached = _from_cache(domain, "dns", auth_ctx["tier"])
@@ -372,7 +409,7 @@ def dns_records(domain: str, request: Request):
     response_model=EmailMxResponse,
     response_model_exclude_none=True,
 )
-def email_mx(domain: str, request: Request):
+def email_mx(domain: DomainPath, request: Request):
     """Email MX analysis — mail provider detection, SPF/DMARC/DKIM check, security grade."""
     domain, resolved_ip, auth_ctx = _validate_and_auth(request, domain)
 
@@ -453,7 +490,19 @@ def _disposable_summary(email: str, result: dict) -> str:
     response_model=DisposableResponse,
     response_model_exclude_none=True,
 )
-def email_disposable(email: str, request: Request):
+def email_disposable(
+    email: Annotated[
+        str,
+        Path(
+            description=(
+                "Email address to check, e.g. 'user@example.com'. "
+                "The local-part is preserved in the response but only the domain is checked against "
+                "the disposable-provider database and MX records."
+            ),
+        ),
+    ],
+    request: Request,
+):
     """Check if an email uses a disposable/temporary email provider."""
     if "@" not in email:
         raise HTTPException(status_code=400, detail="Invalid email — must contain @")
@@ -490,7 +539,18 @@ def email_disposable(email: str, request: Request):
     response_model_exclude_none=True,
     include_in_schema=True,
 )
-def phone_endpoint(number: str, request: Request):
+def phone_endpoint(
+    number: Annotated[
+        str,
+        Path(
+            description=(
+                "Phone number in any format (E.164 preferred, e.g. '+14155552671'; '+' URL-encoded as '%2B'). "
+                "Max 50 chars. International prefix strongly recommended — without it, the country cannot be inferred."
+            ),
+        ),
+    ],
+    request: Request,
+):
     """Phone number validation and intelligence — format, country, type, carrier, timezone."""
     authenticate(request, request.url.path)
     result = phone_lookup(number)
@@ -504,7 +564,19 @@ def phone_endpoint(number: str, request: Request):
     response_model_exclude_none=True,
     include_in_schema=True,
 )
-def username_endpoint(username: str, request: Request):
+def username_endpoint(
+    username: Annotated[
+        str,
+        Path(
+            description=(
+                "Username to search across platforms. Validated against [a-z0-9._-]{1,39} — "
+                "lowercased server-side. Non-matching inputs return an error in the response body "
+                "(not a 400) so the agent still sees the shape."
+            ),
+        ),
+    ],
+    request: Request,
+):
     """Username OSINT — check if a username exists on 16 platforms (GitHub, Reddit, X, etc.)."""
     authenticate(request, request.url.path)
     return username_lookup(username)
@@ -513,7 +585,7 @@ def username_endpoint(username: str, request: Request):
 @router.get(
     "/whois/{domain}", operation_id="whois_lookup", response_model=WhoisResponse, response_model_exclude_none=True
 )
-def whois_endpoint(domain: str, request: Request):
+def whois_endpoint(domain: DomainPath, request: Request):
     """WHOIS registration data for a domain."""
     domain, resolved_ip, auth_ctx = _validate_and_auth(request, domain)
     cached = _from_cache(domain, "whois", auth_ctx["tier"])
@@ -531,7 +603,7 @@ def whois_endpoint(domain: str, request: Request):
     response_model=SubdomainsResponse,
     response_model_exclude_none=True,
 )
-def subdomains(domain: str, request: Request):
+def subdomains(domain: DomainPath, request: Request):
     """Subdomain enumeration via DNS brute force + certificate transparency."""
     domain, resolved_ip, auth_ctx = _validate_and_auth(request, domain)
     cached = _from_cache(domain, "subdomains", auth_ctx["tier"])
@@ -542,7 +614,7 @@ def subdomains(domain: str, request: Request):
 
 
 @router.get("/certs/{domain}", operation_id="ct_logs", response_model=CertsResponse, response_model_exclude_none=True)
-def certs(domain: str, request: Request):
+def certs(domain: DomainPath, request: Request):
     """Certificate transparency log lookup."""
     domain, resolved_ip, auth_ctx = _validate_and_auth(request, domain)
     cached = _from_cache(domain, "certificates", auth_ctx["tier"])
@@ -559,7 +631,7 @@ def certs(domain: str, request: Request):
 @router.get(
     "/ssl/{domain}", operation_id="ssl_certificate", response_model=SslResponse, response_model_exclude_none=True
 )
-def ssl_certificate(domain: str, request: Request):
+def ssl_certificate(domain: DomainPath, request: Request):
     """SSL certificate details with grade, chain, cipher, and protocol information."""
     domain, resolved_ip, auth_ctx = _validate_and_auth(request, domain)
 
@@ -703,7 +775,7 @@ def ssl_certificate(domain: str, request: Request):
 @router.get(
     "/threat/{domain}", operation_id="threat_intel", response_model=ThreatResponse, response_model_exclude_none=True
 )
-def threat_intel(domain: str, request: Request):
+def threat_intel(domain: DomainPath, request: Request):
     """Threat intelligence — check domain against URLhaus for known malware URLs."""
     domain, resolved_ip, auth_ctx = _validate_and_auth(request, domain)
     result = check_urlhaus(domain)
@@ -723,7 +795,7 @@ def threat_intel(domain: str, request: Request):
     response_model=WaybackResponse,
     response_model_exclude_none=True,
 )
-def wayback_lookup_route(domain: str, request: Request):
+def wayback_lookup_route(domain: DomainPath, request: Request):
     """Web archive lookup — historical snapshots from the Wayback Machine."""
     domain, resolved_ip, auth_ctx = _validate_and_auth(request, domain)
     return wayback_lookup(domain)
@@ -879,7 +951,7 @@ def _fetch_asn_country(ip: str) -> dict:
 
 
 @router.get("/ip/{ip}", operation_id="ip_lookup", response_model=IpLookupResponse, response_model_exclude_none=True)
-def ip_lookup(ip: str, request: Request):
+def ip_lookup(ip: IpPath, request: Request):
     """IP intelligence — reverse DNS, ASN + country (RIPE Stat), open ports, vulnerabilities, hostnames (Shodan InternetDB), cloud provider, Tor exit detection, and reputation (FireHOL level1 blocklist on Free tier; +AbuseIPDB + Shodan on Pro)."""
     if not is_valid_ip(ip):
         if "." in ip and not ip.replace(".", "").isdigit():
@@ -1032,7 +1104,7 @@ def ip_lookup(ip: str, request: Request):
 @router.get(
     "/tech/{domain}", operation_id="tech_fingerprint", response_model=TechResponse, response_model_exclude_none=True
 )
-def tech_fingerprint(domain: str, request: Request):
+def tech_fingerprint(domain: DomainPath, request: Request):
     """Technology fingerprinting — detect CMS, frameworks, servers, CDNs, analytics."""
     domain, resolved_ip, auth_ctx = _validate_and_auth(request, domain)
     page = fetch_live_page(domain)
@@ -1047,7 +1119,7 @@ def tech_fingerprint(domain: str, request: Request):
 @router.get(
     "/monitor/{domain}", operation_id="domain_monitor", response_model=MonitorResponse, response_model_exclude_none=True
 )
-def domain_monitor(domain: str, request: Request):
+def domain_monitor(domain: DomainPath, request: Request):
     """Lightweight health check — DNS up/down, SSL status, risk grade from cache. Designed for high-frequency polling."""
     domain, resolved_ip, auth_ctx = _validate_and_auth(request, domain)
 
@@ -1112,7 +1184,7 @@ def domain_monitor(domain: str, request: Request):
     response_model=VulnsResponse,
     response_model_exclude_none=True,
 )
-def domain_vulns(domain: str, request: Request):
+def domain_vulns(domain: DomainPath, request: Request):
     """Tech stack vulnerability scan — detect technologies, then look up CVEs for each."""
     domain, resolved_ip, auth_ctx = _validate_and_auth(request, domain)
 
@@ -1174,7 +1246,18 @@ def domain_vulns(domain: str, request: Request):
 
 
 @router.get("/asn/{target}", operation_id="asn_lookup", response_model=AsnResponse, response_model_exclude_none=True)
-def asn_lookup(target: str, request: Request):
+def asn_lookup(
+    target: Annotated[
+        str,
+        Path(
+            description=(
+                "ASN or IP. Accepts 'AS13335', '13335', or an IPv4/IPv6 address. "
+                "For IP input, the response resolves the containing ASN via RIPE Stat."
+            ),
+        ),
+    ],
+    request: Request,
+):
     """ASN lookup — resolve target (domain or IP) to its Autonomous System Number, holder name, and announced prefixes."""
     import ipaddress
 
@@ -1568,7 +1651,7 @@ def audit_domain(domain: str, request: Request):
     response_model=ThreatReportResponse,
     response_model_exclude_none=True,
 )
-def threat_report(ip: str, request: Request):
+def threat_report(ip: IpPath, request: Request):
     """Comprehensive IP threat report — Shodan InternetDB + AbuseIPDB + Shodan full + ASN in a single call.
 
     Aggregates open ports, vulnerabilities, abuse reports, geolocation, ASN ownership,

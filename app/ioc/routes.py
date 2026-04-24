@@ -5,6 +5,7 @@ import re
 import socket
 import time as _time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
+from typing import Annotated
 from urllib.parse import urlparse
 
 import httpx
@@ -12,7 +13,7 @@ from auth import authenticate
 from config import URLHAUS_API_KEY
 from domain.recon import _dns_call_with_timeout
 from domain.threat import check_urlhaus
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Path, Request
 from ioc.lookup import (
     detect_indicator_type,
     query_feodo,
@@ -50,7 +51,18 @@ def _ioc_verdict(queried: list[str], unavailable: list[str]) -> Verdict:
 @router.get(
     "/ioc/{indicator:path}", operation_id="ioc_lookup", response_model=IocResponse, response_model_exclude_none=True
 )
-def ioc_lookup(indicator: str, request: Request):
+def ioc_lookup(
+    indicator: Annotated[
+        str,
+        Path(
+            description=(
+                "Indicator of compromise — auto-detected type. Accepts: IP (IPv4/IPv6), domain, URL "
+                "(with scheme), or file hash (MD5/SHA1/SHA256/SHA512, hex). Max 2048 chars."
+            ),
+        ),
+    ],
+    request: Request,
+):
     """Unified IOC enrichment — auto-detects IP, domain, URL, or hash and queries threat feeds."""
     authenticate(request, "/v1/ioc")
     indicator = indicator.strip()
@@ -161,7 +173,18 @@ def ioc_lookup(indicator: str, request: Request):
 @router.get(
     "/hash/{file_hash}", operation_id="hash_lookup", response_model=HashResponse, response_model_exclude_none=True
 )
-def hash_lookup(file_hash: str, request: Request):
+def hash_lookup(
+    file_hash: Annotated[
+        str,
+        Path(
+            description=(
+                "File hash (hex, case-insensitive). Accepted lengths: MD5=32, SHA1=40, SHA256=64. "
+                "Other lengths or non-hex characters return 400."
+            ),
+        ),
+    ],
+    request: Request,
+):
     """Malware file hash reputation lookup via MalwareBazaar."""
     authenticate(request, "/v1/hash")
     file_hash = file_hash.strip().lower()
@@ -204,7 +227,18 @@ def hash_lookup(file_hash: str, request: Request):
     response_model=PasswordResponse,
     response_model_exclude_none=True,
 )
-def password_check(sha1_hash: str, request: Request):
+def password_check(
+    sha1_hash: Annotated[
+        str,
+        Path(
+            description=(
+                "Full SHA-1 hash of the password (40 hex chars, case-insensitive). "
+                "k-anonymity is applied server-side: only the first 5 chars are sent to HIBP."
+            ),
+        ),
+    ],
+    request: Request,
+):
     """Password breach check via HIBP Pwned Passwords (k-anonymity). Send full SHA1 hash, get found + breach count."""
     authenticate(request, "/v1/password")
 
@@ -251,7 +285,19 @@ def _query_urlhaus_url(url: str) -> dict:
     response_model=PhishingResponse,
     response_model_exclude_none=True,
 )
-def phishing_check(url: str, request: Request):
+def phishing_check(
+    url: Annotated[
+        str,
+        Path(
+            description=(
+                "Full URL to check (must include scheme, e.g. 'https://example.com/path'). "
+                "URL-encode any '?' or '#' chars the agent wants preserved into the path component. "
+                "Checked against URLhaus for both exact URL and host-level matches."
+            ),
+        ),
+    ],
+    request: Request,
+):
     """Check if a URL is malicious via URLhaus (host + exact URL lookup)."""
     authenticate(request, "/v1/phishing")
     url = url.strip()
