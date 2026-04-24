@@ -3,6 +3,7 @@
 import time
 from unittest.mock import MagicMock, patch
 
+import pytest
 import pytricia
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -235,6 +236,190 @@ class TestCheckTorExit:
         from domain.ip_intel import check_tor_exit
 
         assert check_tor_exit("8.8.8.8") is False
+
+
+# ── FireHOL tests ─────────────────────────────────────────────────────────────
+
+
+@pytest.mark.real_firehol
+class TestFirehol:
+    @pytest.fixture(autouse=True)
+    def _reset_firehol_cache(self):
+        from domain import ip_intel
+
+        ip_intel._firehol_cache = {
+            "v4": None,
+            "v6": None,
+            "fetched_at": 0.0,
+            "consecutive_failures": 0,
+            "last_failure_at": 0.0,
+        }
+        yield
+
+    def _stream_ctx(self, body: bytes):
+        resp = MagicMock()
+        resp.raise_for_status = MagicMock()
+        resp.headers.get = lambda k, default=None: None
+        resp.iter_bytes = lambda: iter([body])
+        ctx = MagicMock()
+        ctx.__enter__ = lambda s: resp
+        ctx.__exit__ = MagicMock(return_value=False)
+        return ctx
+
+    def test_firehol_listed_ip(self):
+        body = b"1.2.3.0/24\n"
+        with patch("domain.ip_intel._make_http_client") as mock_factory:
+            mock_client = MagicMock()
+            mock_client.stream.return_value = self._stream_ctx(body)
+            mock_factory.return_value = mock_client
+
+            from domain.ip_intel import check_firehol
+
+            result = check_firehol("1.2.3.5")
+
+        assert result == {"status": "ok", "listed": True, "lists_matched": ["firehol_level1"]}
+
+    def test_firehol_clean_ip(self):
+        body = b"1.2.3.0/24\n"
+        with patch("domain.ip_intel._make_http_client") as mock_factory:
+            mock_client = MagicMock()
+            mock_client.stream.return_value = self._stream_ctx(body)
+            mock_factory.return_value = mock_client
+
+            from domain.ip_intel import check_firehol
+
+            result = check_firehol("9.9.9.9")
+
+        assert result == {"status": "ok", "listed": False, "lists_matched": []}
+
+    def test_firehol_fetch_failure_graceful(self):
+        import httpx
+
+        with patch("domain.ip_intel._make_http_client") as mock_factory:
+            mock_client = MagicMock()
+            mock_client.stream.side_effect = httpx.TimeoutException("timeout")
+            mock_factory.return_value = mock_client
+
+            from domain.ip_intel import check_firehol
+
+            result = check_firehol("5.5.5.5")
+
+        assert result["status"] == "unavailable"
+        assert result["listed"] is False
+        assert result["lists_matched"] == []
+
+    def test_firehol_private_ip_skipped(self):
+        with patch("domain.ip_intel._make_http_client") as mock_factory:
+            mock_client = MagicMock()
+            mock_factory.return_value = mock_client
+
+            from domain.ip_intel import check_firehol
+
+            result = check_firehol("10.0.0.1")
+
+        assert result["status"] == "skipped"
+        assert result["listed"] is False
+        mock_client.stream.assert_not_called()
+
+    def test_firehol_comment_and_blank_lines_ignored(self):
+        body = b"# comment\n\n  \n1.2.3.4\n"
+        with patch("domain.ip_intel._make_http_client") as mock_factory:
+            mock_client = MagicMock()
+            mock_client.stream.return_value = self._stream_ctx(body)
+            mock_factory.return_value = mock_client
+
+            from domain.ip_intel import _refresh_firehol_cache
+
+            v4, v6 = _refresh_firehol_cache()
+
+        assert v4.get("1.2.3.4") is True
+        count = sum(1 for _ in v4)
+        assert count == 1
+
+    def test_firehol_cache_refresh_respects_ttl(self):
+        body = b"1.2.3.0/24\n"
+        with patch("domain.ip_intel._make_http_client") as mock_factory:
+            mock_client = MagicMock()
+            mock_client.stream.return_value = self._stream_ctx(body)
+            mock_factory.return_value = mock_client
+
+            with patch("domain.ip_intel.time") as mock_time:
+                mock_time.time.return_value = 0.0
+                from domain.ip_intel import _refresh_firehol_cache
+
+                _refresh_firehol_cache()
+
+                mock_client.stream.reset_mock()
+                mock_client.stream.return_value = self._stream_ctx(body)
+
+                # Simulate TTL expiry
+                from config import FIREHOL_TTL
+
+                mock_time.time.return_value = FIREHOL_TTL + 1.0
+                _refresh_firehol_cache()
+
+        assert mock_client.stream.call_count == 1
+
+    def test_firehol_ipv6_cidr_in_v6_trie(self):
+        # Use a routable (non-reserved, non-documentation) IPv6 prefix
+        body = b"2607:f8b0::/32\n"
+        with patch("domain.ip_intel._make_http_client") as mock_factory:
+            mock_client = MagicMock()
+            mock_client.stream.return_value = self._stream_ctx(body)
+            mock_factory.return_value = mock_client
+
+            from domain.ip_intel import check_firehol
+
+            result = check_firehol("2607:f8b0::1")
+
+        assert result == {"status": "ok", "listed": True, "lists_matched": ["firehol_level1"]}
+
+    def test_firehol_ipv6_clean_not_listed(self):
+        # Different v6 prefix from the listed one → must return listed=False
+        body = b"2607:f8b0::/32\n"
+        with patch("domain.ip_intel._make_http_client") as mock_factory:
+            mock_client = MagicMock()
+            mock_client.stream.return_value = self._stream_ctx(body)
+            mock_factory.return_value = mock_client
+
+            from domain.ip_intel import check_firehol
+
+            result = check_firehol("2606:4700::1")
+
+        assert result == {"status": "ok", "listed": False, "lists_matched": []}
+
+    def test_firehol_failure_backoff_suppresses_refetch(self):
+        import httpx
+        from config import FIREHOL_FAILURE_THRESHOLD
+
+        with patch("domain.ip_intel._make_http_client") as mock_factory:
+            mock_client = MagicMock()
+            mock_client.stream.side_effect = httpx.TimeoutException("timeout")
+            mock_factory.return_value = mock_client
+
+            from domain.ip_intel import _refresh_firehol_cache
+
+            for _ in range(FIREHOL_FAILURE_THRESHOLD):
+                _refresh_firehol_cache()
+            # Next call within backoff window must NOT hit upstream
+            fetches_before = mock_client.stream.call_count
+            _refresh_firehol_cache()
+            assert mock_client.stream.call_count == fetches_before
+
+    def test_firehol_malformed_line_skipped(self):
+        body = b"NOT_AN_IP\n1.2.3.4\n"
+        with patch("domain.ip_intel._make_http_client") as mock_factory:
+            mock_client = MagicMock()
+            mock_client.stream.return_value = self._stream_ctx(body)
+            mock_factory.return_value = mock_client
+
+            from domain.ip_intel import _refresh_firehol_cache
+
+            v4, _ = _refresh_firehol_cache()
+
+        count = sum(1 for _ in v4)
+        assert count == 1
+        assert v4.get("1.2.3.4") is True
 
 
 # ── score_ip tests ────────────────────────────────────────────────────────────

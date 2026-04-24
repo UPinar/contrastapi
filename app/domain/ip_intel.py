@@ -12,6 +12,11 @@ from config import (
     CF_IP_RANGES_URL,
     CLOUD_IP_MAX_BYTES,
     CLOUD_IP_TTL,
+    FIREHOL_FAILURE_BACKOFF_SEC,
+    FIREHOL_FAILURE_THRESHOLD,
+    FIREHOL_LEVEL1_URL,
+    FIREHOL_MAX_BYTES,
+    FIREHOL_TTL,
     GCP_IP_RANGES_URL,
     TOR_EXIT_LIST_URL,
     TOR_EXIT_MAX_BYTES,
@@ -26,6 +31,15 @@ _cloud_lock = threading.Lock()
 
 _tor_cache: dict = {"data": frozenset(), "fetched_at": 0.0}
 _tor_lock = threading.Lock()
+
+_firehol_cache: dict = {
+    "v4": None,
+    "v6": None,
+    "fetched_at": 0.0,
+    "consecutive_failures": 0,
+    "last_failure_at": 0.0,
+}
+_firehol_lock = threading.Lock()
 
 
 def _make_http_client():
@@ -236,6 +250,111 @@ def check_tor_exit(ip: str) -> bool:
     except Exception as e:
         logger.warning("check_tor_exit failed: %s", type(e).__name__)
         return False
+
+
+def _refresh_firehol_cache() -> tuple:
+    """Fetch FireHOL level1 netset, build PyTricia tries (v4 + v6).
+
+    Returns (v4_trie, v6_trie). On fetch failure returns previously cached
+    tries (or (None, None) on cold failure). TTL guards thrashing on success;
+    a consecutive-failure counter trips a short backoff to avoid amplifying
+    upstream outages (free tier calls this inline per request).
+
+    Line format: one CIDR or bare IP per line; '#' comments skipped; blanks
+    skipped. IPv6 CIDRs occur but are rare in level1.
+    """
+    global _firehol_cache
+    now = time.time()
+    if now - _firehol_cache["fetched_at"] < FIREHOL_TTL and _firehol_cache["fetched_at"] > 0:
+        return _firehol_cache["v4"], _firehol_cache["v6"]
+    if (
+        _firehol_cache["consecutive_failures"] >= FIREHOL_FAILURE_THRESHOLD
+        and now - _firehol_cache["last_failure_at"] < FIREHOL_FAILURE_BACKOFF_SEC
+    ):
+        return _firehol_cache.get("v4"), _firehol_cache.get("v6")
+    with _firehol_lock:
+        now = time.time()
+        if now - _firehol_cache["fetched_at"] < FIREHOL_TTL and _firehol_cache["fetched_at"] > 0:
+            return _firehol_cache["v4"], _firehol_cache["v6"]
+        if (
+            _firehol_cache["consecutive_failures"] >= FIREHOL_FAILURE_THRESHOLD
+            and now - _firehol_cache["last_failure_at"] < FIREHOL_FAILURE_BACKOFF_SEC
+        ):
+            return _firehol_cache.get("v4"), _firehol_cache.get("v6")
+        client = _make_http_client()
+        try:
+            body = _fetch_capped(client, FIREHOL_LEVEL1_URL, FIREHOL_MAX_BYTES)
+            if body is None:
+                logger.warning("FireHOL level1 exceeded cap (%d bytes)", FIREHOL_MAX_BYTES)
+                _firehol_cache["consecutive_failures"] += 1
+                _firehol_cache["last_failure_at"] = time.time()
+                return _firehol_cache.get("v4"), _firehol_cache.get("v6")
+            v4 = pytricia.PyTricia(32)
+            v6 = pytricia.PyTricia(128)
+            count_v4 = count_v6 = 0
+            for line in body.decode("utf-8", errors="replace").splitlines():
+                candidate = line.strip()
+                if not candidate or candidate.startswith("#"):
+                    continue
+                try:
+                    net = ipaddress.ip_network(candidate, strict=False)
+                except ValueError:
+                    logger.debug("skip malformed FireHOL line: %r", candidate[:64])
+                    continue
+                if net.version == 4:
+                    v4[str(net)] = True
+                    count_v4 += 1
+                else:
+                    v6[str(net)] = True
+                    count_v6 += 1
+            _firehol_cache = {
+                "v4": v4,
+                "v6": v6,
+                "fetched_at": time.time(),
+                "consecutive_failures": 0,
+                "last_failure_at": 0.0,
+            }
+            logger.info("FireHOL level1 loaded: %d v4 / %d v6 prefixes", count_v4, count_v6)
+            return v4, v6
+        except Exception as e:
+            logger.warning("FireHOL level1 fetch failed: %s", type(e).__name__)
+            _firehol_cache["consecutive_failures"] += 1
+            _firehol_cache["last_failure_at"] = time.time()
+            return _firehol_cache.get("v4"), _firehol_cache.get("v6")
+        finally:
+            client.close()
+
+
+def check_firehol(ip: str) -> dict:
+    """Check FireHOL level1 blocklist membership.
+
+    Returns one of:
+        {"status":"ok",          "listed": bool, "lists_matched": [...]}
+        {"status":"skipped",     "listed": False, "lists_matched": []}  # private/reserved
+        {"status":"unavailable", "listed": False, "lists_matched": []}  # fetch never succeeded
+    """
+    stripped = _strip_zone(ip)
+    try:
+        addr = ipaddress.ip_address(stripped)
+        if addr.is_private or addr.is_reserved or addr.is_loopback or addr.is_link_local:
+            return {"status": "skipped", "listed": False, "lists_matched": []}
+    except ValueError:
+        return {"status": "skipped", "listed": False, "lists_matched": []}
+
+    try:
+        v4, v6 = _refresh_firehol_cache()
+        trie = v6 if ":" in stripped else v4
+        if trie is None:
+            return {"status": "unavailable", "listed": False, "lists_matched": []}
+        listed = stripped in trie
+        return {
+            "status": "ok",
+            "listed": listed,
+            "lists_matched": ["firehol_level1"] if listed else [],
+        }
+    except Exception as e:
+        logger.warning("check_firehol failed: %s", type(e).__name__)
+        return {"status": "unavailable", "listed": False, "lists_matched": []}
 
 
 def score_ip(

@@ -12,6 +12,10 @@ def pytest_configure(config):
         "markers",
         "real_asn_country: bypass the autouse _fetch_asn_country mock (for unit tests of the helper itself)",
     )
+    config.addinivalue_line(
+        "markers",
+        "real_firehol: do not mock check_firehol (exercise real trie / fetch)",
+    )
 
 
 # --- Session-scoped: set env vars + reload modules once ---
@@ -103,6 +107,30 @@ def _mock_asn_country(request):
         return_value={"asn": None, "asn_name": "", "country": "", "failed": False},
     ):
         yield
+
+
+@pytest.fixture(autouse=True)
+def _mock_firehol(request):
+    """Short-circuit FireHOL fetch in route tests by default.
+
+    Patches ``domain.ip_intel.check_firehol``. This works for routes.py because
+    it imports the symbol at module scope and calls it directly. Any future
+    consumer that either imports the symbol locally (``from domain.ip_intel
+    import check_firehol`` inside a function) or patches a different path must
+    be aware that this autouse mock only intercepts the ``domain.ip_intel``
+    attribute, not re-bound names elsewhere.
+
+    Tests that want to exercise real trie lookups can opt out with
+    ``@pytest.mark.real_firehol``.
+    """
+    if request.node.get_closest_marker("real_firehol"):
+        yield
+        return
+    from unittest.mock import patch
+
+    with patch("domain.ip_intel.check_firehol") as m:
+        m.return_value = {"status": "ok", "listed": False, "lists_matched": []}
+        yield m
 
 
 # --- Session-scoped MCP client — shared across all MCP test modules ---

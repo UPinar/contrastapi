@@ -107,6 +107,13 @@ GCP_IP_RANGES_URL = "https://www.gstatic.com/ipranges/cloud.json"
 CF_IP_RANGES_URL = "https://api.cloudflare.com/client/v4/ips"
 TOR_EXIT_LIST_URL = "https://check.torproject.org/torbulkexitlist"
 
+# FireHOL level1 reputation (aggregated spam/malware/botnet blocklist, daily)
+FIREHOL_TTL = 6 * 3600  # 6 hours — upstream updates daily, 4x refresh = max 6h staleness
+FIREHOL_MAX_BYTES = 5 * 1024 * 1024
+FIREHOL_LEVEL1_URL = "https://iplists.firehol.org/files/firehol_level1.netset"
+FIREHOL_FAILURE_BACKOFF_SEC = 60  # suppress retry for 60s after consecutive failures
+FIREHOL_FAILURE_THRESHOLD = 3  # trip backoff after this many consecutive failures
+
 # IP cache TTL
 IP_CACHE_TTL = 3600  # 1 hour
 

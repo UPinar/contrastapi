@@ -51,7 +51,7 @@ from cryptography import x509
 from cryptography.x509.oid import AuthorityInformationAccessOID
 from db import get_cached_domain, get_cached_domain_with_age, get_cached_ip_with_age, save_cached_domain, save_cached_ip
 from domain.archive import wayback_lookup
-from domain.ip_intel import check_cloud_provider, check_tor_exit, score_ip
+from domain.ip_intel import check_cloud_provider, check_firehol, check_tor_exit, score_ip
 from domain.recon import (
     _ssl_grade,
     _ssrf_http,
@@ -254,9 +254,13 @@ def _ip_verdict(
     reputation_attempted: bool,
     reputation_failed: bool,
     ripe_failed: bool = False,
+    firehol_attempted: bool = False,
+    firehol_failed: bool = False,
 ) -> Verdict:
     """Build verdict metadata for ip_lookup responses."""
     queried = ["internetdb", "ripe_stat"]
+    if firehol_attempted:
+        queried.append("firehol")
     if reputation_attempted:
         queried.append("reputation")
     unavailable: list[str] = []
@@ -264,6 +268,8 @@ def _ip_verdict(
         unavailable.append("internetdb")
     if ripe_failed:
         unavailable.append("ripe_stat")
+    if firehol_attempted and firehol_failed:
+        unavailable.append("firehol")
     if reputation_attempted and reputation_failed:
         unavailable.append("reputation")
     return Verdict(
@@ -874,7 +880,7 @@ def _fetch_asn_country(ip: str) -> dict:
 
 @router.get("/ip/{ip}", operation_id="ip_lookup", response_model=IpLookupResponse, response_model_exclude_none=True)
 def ip_lookup(ip: str, request: Request):
-    """IP intelligence — reverse DNS, open ports, vulnerabilities, hostnames (via Shodan InternetDB) + reputation."""
+    """IP intelligence — reverse DNS, ASN + country (RIPE Stat), open ports, vulnerabilities, hostnames (Shodan InternetDB), cloud provider, Tor exit detection, and reputation (FireHOL level1 blocklist on Free tier; +AbuseIPDB + Shodan on Pro)."""
     if not is_valid_ip(ip):
         if "." in ip and not ip.replace(".", "").isdigit():
             raise HTTPException(
@@ -908,6 +914,8 @@ def ip_lookup(ip: str, request: Request):
     rep_age: int | None = None
     reputation_attempted = False
     reputation_failed = False
+    firehol_attempted = False
+    firehol_failed = False
     hit = get_cached_ip_with_age(ip)
     if hit is not None:
         reputation, rep_age = hit
@@ -919,13 +927,19 @@ def ip_lookup(ip: str, request: Request):
         window_seconds=86400,
     ):
         reputation_attempted = True
+        firehol_attempted = True
         try:
             f_ab = _reputation_pool.submit(check_abuseipdb, ip)
             f_sh = _reputation_pool.submit(check_shodan, ip)
+            f_fh = _ip_enrichment_pool.submit(check_firehol, ip)
+            firehol_result = f_fh.result(timeout=RECON_TIMEOUT + 2)
             reputation = {
+                "firehol": firehol_result,
                 "abuseipdb": f_ab.result(timeout=RECON_TIMEOUT + 2),
                 "shodan": f_sh.result(timeout=RECON_TIMEOUT + 2),
             }
+            if firehol_result.get("status") == "unavailable":
+                firehol_failed = True
             save_cached_ip(ip, reputation)
             rep_age = 0
         except Exception as e:
@@ -934,7 +948,10 @@ def ip_lookup(ip: str, request: Request):
             reputation_failed = True
             ratelimit.refund("enrichment", client_ip)
     elif auth_ctx["tier"] != "pro":
+        firehol_result = check_firehol(ip)
+        firehol_attempted = True
         reputation = {
+            "firehol": firehol_result,
             "abuseipdb": {
                 "status": "pro_only",
                 "reason": "AbuseIPDB enrichment requires Pro tier",
@@ -946,6 +963,8 @@ def ip_lookup(ip: str, request: Request):
                 "upgrade_url": UPGRADE_URL,
             },
         }
+        if firehol_result.get("status") == "unavailable":
+            firehol_failed = True
         reputation_attempted = True
 
     try:
@@ -998,7 +1017,15 @@ def ip_lookup(ip: str, request: Request):
     }
     if reputation:
         result["reputation"] = reputation
-    result["verdict"] = _ip_verdict(rep_age, internetdb_failed, reputation_attempted, reputation_failed, ripe_failed)
+    result["verdict"] = _ip_verdict(
+        rep_age,
+        internetdb_failed,
+        reputation_attempted,
+        reputation_failed,
+        ripe_failed,
+        firehol_attempted=firehol_attempted,
+        firehol_failed=firehol_failed,
+    )
     return result
 
 

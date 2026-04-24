@@ -2963,6 +2963,56 @@ class TestProOnlyEnrichment:
         assert data["reputation"]["abuseipdb"]["status"] == "ok"
         assert data["reputation"]["shodan"]["status"] == "ok"
 
+    @pytest.mark.real_firehol
+    @patch("domain.routes.authenticate", return_value={"tier": "free"})
+    @patch("domain.routes.get_cached_ip_with_age", return_value=None)
+    @patch("domain.routes.check_shodan", side_effect=AssertionError("Shodan must not be called for free tier"))
+    @patch("domain.routes.check_abuseipdb", side_effect=AssertionError("AbuseIPDB must not be called for free tier"))
+    @patch("domain.routes.ip_enrichment", return_value=_ENRICH_EMPTY)
+    @patch("domain.routes.socket.gethostbyaddr", return_value=("example.com", [], []))
+    @patch("domain.ip_intel.check_firehol", return_value={"status": "ok", "listed": False, "lists_matched": []})
+    def test_ip_lookup_free_tier_firehol_present(
+        self, mock_fh, mock_ptr, mock_enrich, mock_ab, mock_sh, mock_cache, mock_auth
+    ):
+        """Free tier /v1/ip: firehol key present alongside pro_only stubs."""
+        r = client.get("/v1/ip/93.184.216.34")
+        assert r.status_code == 200
+        data = r.json()
+        assert "reputation" in data
+        rep = data["reputation"]
+        assert "firehol" in rep
+        fh = rep["firehol"]
+        assert "status" in fh
+        assert "listed" in fh
+        assert "lists_matched" in fh
+        assert rep["abuseipdb"]["status"] == "pro_only"
+        assert rep["shodan"]["status"] == "pro_only"
+
+    @pytest.mark.real_firehol
+    @patch("domain.routes.authenticate", return_value={"tier": "pro"})
+    @patch("domain.routes.get_cached_ip_with_age", return_value=None)
+    @patch("domain.routes.ratelimit.check_limit", return_value=True)
+    @patch("domain.routes.save_cached_ip")
+    @patch("domain.routes.ip_enrichment", return_value=_ENRICH_EMPTY)
+    @patch("domain.routes.socket.gethostbyaddr", return_value=("example.com", [], []))
+    @patch("domain.routes.check_shodan", return_value={"status": "ok", "ports": []})
+    @patch("domain.routes.check_abuseipdb", return_value={"status": "ok", "abuse_score": 0})
+    @patch("domain.ip_intel.check_firehol", return_value={"status": "ok", "listed": False, "lists_matched": []})
+    def test_ip_lookup_pro_tier_firehol_in_parallel(
+        self, mock_fh, mock_ab, mock_sh, mock_ptr, mock_enrich, mock_save, mock_limit, mock_cache, mock_auth
+    ):
+        """Pro tier /v1/ip: firehol, abuseipdb, and shodan all render in response."""
+        r = client.get("/v1/ip/93.184.216.34")
+        assert r.status_code == 200
+        data = r.json()
+        assert "reputation" in data
+        rep = data["reputation"]
+        assert "firehol" in rep
+        assert "abuseipdb" in rep
+        assert "shodan" in rep
+        assert rep["firehol"]["status"] == "ok"
+        assert "firehol" in data["verdict"]["sources_queried"]
+
     # --- Tier-aware cache segregation (prevents cache poisoning) ---
 
     @patch(
