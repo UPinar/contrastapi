@@ -723,6 +723,40 @@ def wayback_lookup_route(domain: str, request: Request):
     return wayback_lookup(domain)
 
 
+def _ripe_country_for_ip(ip: str) -> str:
+    """Fetch RIR allocation country for `ip` via RIPE Stat. Empty on failure."""
+    try:
+        r = _ripe_client.get(
+            "https://stat.ripe.net/data/rir-stats-country/data.json",
+            params={"resource": ip},
+            timeout=2.5,
+        )
+        r.raise_for_status()
+        located = r.json().get("data", {}).get("located_resources", [])
+        if located:
+            loc = ((located[0].get("location", "") or "").strip())[:8]
+            if loc and loc != "?":
+                return loc
+    except Exception as e:
+        logger.debug("_ripe_country_for_ip rir-stats-country failed: %s", type(e).__name__)
+    return ""
+
+
+def _ripe_holder_for_asn(asn_val: int) -> str:
+    """Fetch holder (org name) for AS`asn_val` via RIPE Stat. Empty on failure."""
+    try:
+        r = _ripe_client.get(
+            "https://stat.ripe.net/data/as-overview/data.json",
+            params={"resource": f"AS{asn_val}"},
+            timeout=2.5,
+        )
+        r.raise_for_status()
+        return (r.json().get("data", {}).get("holder", "") or "")[:256]
+    except Exception as e:
+        logger.debug("_ripe_holder_for_asn as-overview failed: %s", type(e).__name__)
+        return ""
+
+
 def _fetch_asn_country(ip: str) -> dict:
     """Best-effort RIPE Stat ASN + country fetch for ip_lookup inline enrichment.
 
@@ -733,19 +767,67 @@ def _fetch_asn_country(ip: str) -> dict:
     empty) — callers use this to mark sources_unavailable honestly. Never
     raises. Critical path: main thread blocks ~2.5s on network-info; on
     success, two parallel futures run in `_ip_enrichment_pool` with 3.0s
-    timeouts (country + holder). Cache hit short-circuits to ~0ms.
+    timeouts (country + holder). Cache hit with all fields populated
+    short-circuits to ~0ms; partial cache hit (asn known but name or country
+    missing) triggers fan-out only for the missing field(s).
     """
     cached = get_cached_domain(f"asn:{ip}")
     if cached:
-        cached_asn = cached.get("asn")
+        raw_cached_asn = cached.get("asn")
+        # Defensive: cache writer (asn_lookup) normalises asn to int, but guard
+        # against corrupted/hand-written entries — only trust plain ints in the
+        # valid ASN range (0..2**32-1). `isinstance(..., int)` alone accepts
+        # bool (bool subclasses int); exclude it explicitly.
+        cached_asn: int | None = (
+            raw_cached_asn
+            if (
+                isinstance(raw_cached_asn, int)
+                and not isinstance(raw_cached_asn, bool)
+                and 0 <= raw_cached_asn <= 0xFFFFFFFF
+            )
+            else None
+        )
         cached_name = (cached.get("asn_name") or "")[:256]
         cached_country = ((cached.get("country") or "").strip())[:8]
-        if cached_asn is not None or cached_name or cached_country:
+
+        # Full cache hit — short-circuit.
+        if cached_asn is not None and cached_name and cached_country:
             return {
                 "asn": cached_asn,
                 "asn_name": cached_name,
                 "country": cached_country,
                 "failed": False,
+            }
+
+        # Partial cache hit — we have asn, fill only the missing side(s) via
+        # RIPE. Closes the stale-cache poisoning case where asn_lookup wrote
+        # {asn, asn_name=""} without country during a transient RIPE outage.
+        if cached_asn is not None:
+            f_country = _ip_enrichment_pool.submit(_ripe_country_for_ip, ip) if not cached_country else None
+            f_name = _ip_enrichment_pool.submit(_ripe_holder_for_asn, cached_asn) if not cached_name else None
+
+            country_out = cached_country
+            name_out = cached_name
+            if f_country is not None:
+                try:
+                    country_out = f_country.result(timeout=3.0)
+                except Exception:
+                    country_out = ""
+            if f_name is not None:
+                try:
+                    name_out = f_name.result(timeout=3.0)
+                except Exception:
+                    name_out = ""
+            # Same honesty rule as cache-miss path: `failed` only when NO
+            # useful field survives. asn from cache counts, so partial branch
+            # typically stays failed=False even if refills fail — consistent
+            # with cache-miss semantics where any populated field clears the
+            # flag.
+            return {
+                "asn": cached_asn,
+                "asn_name": name_out,
+                "country": country_out,
+                "failed": not (cached_asn or name_out or country_out),
             }
 
     asn: int | None = None
@@ -773,38 +855,8 @@ def _fetch_asn_country(ip: str) -> dict:
     except Exception:
         logger.debug("_fetch_asn_country network-info request failed")
 
-    def _country_call() -> str:
-        try:
-            r = _ripe_client.get(
-                "https://stat.ripe.net/data/rir-stats-country/data.json",
-                params={"resource": ip},
-                timeout=2.5,
-            )
-            r.raise_for_status()
-            located = r.json().get("data", {}).get("located_resources", [])
-            if located:
-                loc = ((located[0].get("location", "") or "").strip())[:8]
-                if loc and loc != "?":
-                    return loc
-        except Exception as e:
-            logger.debug("_fetch_asn_country rir-stats-country failed: %s", type(e).__name__)
-        return ""
-
-    def _holder_call(asn_val: int) -> str:
-        try:
-            r = _ripe_client.get(
-                "https://stat.ripe.net/data/as-overview/data.json",
-                params={"resource": f"AS{asn_val}"},
-                timeout=2.5,
-            )
-            r.raise_for_status()
-            return (r.json().get("data", {}).get("holder", "") or "")[:256]
-        except Exception as e:
-            logger.debug("_fetch_asn_country as-overview failed: %s", type(e).__name__)
-            return ""
-
-    f_country = _ip_enrichment_pool.submit(_country_call)
-    f_name = _ip_enrichment_pool.submit(_holder_call, asn) if asn else None
+    f_country = _ip_enrichment_pool.submit(_ripe_country_for_ip, ip)
+    f_name = _ip_enrichment_pool.submit(_ripe_holder_for_asn, asn) if asn else None
 
     try:
         country = f_country.result(timeout=3.0)

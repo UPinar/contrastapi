@@ -905,6 +905,148 @@ class TestFetchAsnCountry:
         assert out["country"] == "JP"
         assert out["failed"] is False
 
+    def test_partial_cache_fills_missing_country_from_ripe(self):
+        """Stale asn_lookup cache (asn + name, no country) triggers country-only RIPE fetch."""
+        from unittest.mock import MagicMock, patch
+
+        from db import save_cached_domain
+
+        ip = "198.51.100.7"
+        save_cached_domain(
+            f"asn:{ip}",
+            {"asn": 15169, "asn_name": "GOOGLE - Google LLC"},  # country missing
+        )
+
+        def _mock_get(url, params=None, timeout=None):
+            resp = MagicMock()
+            resp.raise_for_status = MagicMock()
+            if "rir-stats-country" in url:
+                resp.json.return_value = {"data": {"located_resources": [{"location": "US"}]}}
+                return resp
+            raise AssertionError(f"should not hit {url} on partial-cache-fill for missing country")
+
+        with patch("domain.routes._ripe_client.get", side_effect=_mock_get):
+            from domain.routes import _fetch_asn_country
+
+            out = _fetch_asn_country(ip)
+        assert out["asn"] == 15169
+        assert out["asn_name"] == "GOOGLE - Google LLC"
+        assert out["country"] == "US"
+        assert out["failed"] is False
+
+    def test_partial_cache_fills_missing_name_from_ripe(self):
+        """Stale cache (asn + country, empty name) triggers as-overview-only RIPE fetch."""
+        from unittest.mock import MagicMock, patch
+
+        from db import save_cached_domain
+
+        ip = "198.51.100.8"
+        save_cached_domain(
+            f"asn:{ip}",
+            {"asn": 15169, "asn_name": "", "country": "US"},  # name empty
+        )
+
+        def _mock_get(url, params=None, timeout=None):
+            resp = MagicMock()
+            resp.raise_for_status = MagicMock()
+            if "as-overview" in url:
+                resp.json.return_value = {"data": {"holder": "GOOGLE - Google LLC"}}
+                return resp
+            raise AssertionError(f"should not hit {url} on partial-cache-fill for missing name")
+
+        with patch("domain.routes._ripe_client.get", side_effect=_mock_get):
+            from domain.routes import _fetch_asn_country
+
+            out = _fetch_asn_country(ip)
+        assert out["asn"] == 15169
+        assert out["asn_name"] == "GOOGLE - Google LLC"
+        assert out["country"] == "US"
+        assert out["failed"] is False
+
+    def test_partial_cache_fills_both_missing_from_ripe(self):
+        """Cache has only asn; both name + country refetched in parallel."""
+        from unittest.mock import MagicMock, patch
+
+        from db import save_cached_domain
+
+        ip = "198.51.100.9"
+        save_cached_domain(f"asn:{ip}", {"asn": 15169})  # only asn
+
+        seen_urls = []
+
+        def _mock_get(url, params=None, timeout=None):
+            seen_urls.append(url)
+            resp = MagicMock()
+            resp.raise_for_status = MagicMock()
+            if "rir-stats-country" in url:
+                resp.json.return_value = {"data": {"located_resources": [{"location": "US"}]}}
+            elif "as-overview" in url:
+                resp.json.return_value = {"data": {"holder": "GOOGLE - Google LLC"}}
+            elif "network-info" in url:
+                raise AssertionError("network-info should not be called when asn is cached")
+            return resp
+
+        with patch("domain.routes._ripe_client.get", side_effect=_mock_get):
+            from domain.routes import _fetch_asn_country
+
+            out = _fetch_asn_country(ip)
+        assert out["asn"] == 15169
+        assert out["asn_name"] == "GOOGLE - Google LLC"
+        assert out["country"] == "US"
+        assert out["failed"] is False
+        assert any("rir-stats-country" in u for u in seen_urls)
+        assert any("as-overview" in u for u in seen_urls)
+
+    def test_partial_cache_refill_both_fail_keeps_asn_failed_false(self):
+        """When both refills fail but asn is cached, still failed=False (asn is useful data)."""
+        from unittest.mock import patch
+
+        from db import save_cached_domain
+
+        ip = "198.51.100.10"
+        save_cached_domain(f"asn:{ip}", {"asn": 15169})
+
+        with patch("domain.routes._ripe_client.get", side_effect=Exception("RIPE down")):
+            from domain.routes import _fetch_asn_country
+
+            out = _fetch_asn_country(ip)
+        assert out["asn"] == 15169
+        assert out["asn_name"] == ""
+        assert out["country"] == ""
+        # asn alone is useful — same honesty rule as cache-miss path
+        assert out["failed"] is False
+
+    def test_cache_corrupted_asn_type_ignored(self):
+        """Defensive: non-int/out-of-range cached asn is discarded, falls through."""
+        from unittest.mock import MagicMock, patch
+
+        from db import save_cached_domain
+
+        ip = "198.51.100.11"
+        # String asn (corrupted / hand-written cache entry)
+        save_cached_domain(f"asn:{ip}", {"asn": "13335", "asn_name": "X", "country": "US"})
+
+        def _mock_get(url, params=None, timeout=None):
+            resp = MagicMock()
+            resp.raise_for_status = MagicMock()
+            if "network-info" in url:
+                resp.json.return_value = {"data": {"asns": ["13335"]}}
+            elif "rir-stats-country" in url:
+                resp.json.return_value = {"data": {"located_resources": [{"location": "AU"}]}}
+            elif "as-overview" in url:
+                resp.json.return_value = {"data": {"holder": "CLOUDFLARENET"}}
+            return resp
+
+        with patch("domain.routes._ripe_client.get", side_effect=_mock_get):
+            from domain.routes import _fetch_asn_country
+
+            out = _fetch_asn_country(ip)
+        # Corrupted entry ignored → cache-miss path, fresh fetch
+        assert out["asn"] == 13335
+        assert out["asn_name"] == "CLOUDFLARENET"
+        assert out["country"] == "AU"
+        assert out["failed"] is False
+
     def test_holder_oversized_string_truncated(self):
         """Defensive cap: hostile/compromised RIPE response with huge holder is truncated."""
         from unittest.mock import MagicMock, patch
