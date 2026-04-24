@@ -610,7 +610,7 @@ class DisposableResponse(BaseModel):
 class UsernameMatch(BaseModel):
     platform: str = ""
     url: str = ""
-    status: str = ""  # "found" | "not_found" | "error"
+    status: str = ""  # "found" | "not_found" | "rate_limited" | "blocked" | "timeout" | "error"
 
 
 class UsernameLookupResponse(BaseModel):
@@ -620,6 +620,7 @@ class UsernameLookupResponse(BaseModel):
     results: list[UsernameMatch] = Field(default_factory=list)
     summary: str = ""
     error: str | None = None
+    verdict: Verdict | None = None
 
     model_config = {"extra": "ignore"}
 

@@ -116,6 +116,9 @@ CACHE_MAX_BYTES = 1 * 1024 * 1024  # 1 MB per cached result
 # Timeouts
 RECON_TIMEOUT = 5
 USERNAME_LOOKUP_TIMEOUT = 5  # per-platform HTTP timeout for username checks
+USERNAME_MAX_RETRIES = 2  # additional attempts on 403/429/timeout/5xx (first try excluded)
+USERNAME_BACKOFF_INITIAL = 1.0  # seconds before first retry
+USERNAME_BACKOFF_MULTIPLIER = 2.0  # exponential backoff factor
 # lowered from 10: crt.sh slow responses dominated wall time; 3s graceful fallback to wordlist subdomains
 CRTSH_TIMEOUT = 3
 CRTSH_MAX_RESULTS = 1000

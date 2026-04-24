@@ -1020,8 +1020,8 @@ def api_capabilities():
                         "path": "/v1/username/{username}",
                         "credit_cost": 1,
                         "blast_radius": "high",
-                        "description": "Username OSINT across 16 platforms (3-39 chars)",
-                        "response_keys": ["username", "found_count", "checked_count", "results", "summary"],
+                        "description": "Username OSINT across 16 platforms (3-39 chars). Retries on rate-limit/block; check verdict.sources_unavailable for platforms that couldn't be reached.",
+                        "response_keys": ["username", "found_count", "checked_count", "results", "summary", "verdict"],
                     },
                     {
                         "name": "wayback_lookup",
@@ -1407,7 +1407,7 @@ GET /v1/phone/{{number}} — Phone validation. Include country code (e.g. +14155
   Response keys: valid, number, format:{{e164,international,national}}, country_code, country_name, type, carrier, timezone, summary
 
 GET /v1/username/{{username}} — Username OSINT across 16 platforms (3-39 chars).
-  Response keys: username, found_count, checked_count, results:[{{platform,url,status}}], summary
+  Response keys: username, found_count, checked_count, results:[{{platform,url,status}}], summary, verdict:{{sources_queried,sources_unavailable,completeness}}
 
 GET /v1/archive/{{domain}} — Wayback Machine history.
   Response keys: domain, total_snapshots, first_seen, last_seen, years_online, snapshots, archive_url, summary

@@ -103,8 +103,9 @@ class TestUsernameLookupUnit:
         result = _check_platform("github", "https://github.com/test", "https://github.com/test", "head", None)
         assert result["status"] == "not_found"
 
+    @patch("domain.username.time.sleep")
     @patch("domain.username._client")
-    def test_403_is_error(self, mock_client):
+    def test_403_persistent_marked_blocked(self, mock_client, mock_sleep):
         from domain.username import _check_platform
 
         resp_403 = MagicMock()
@@ -112,10 +113,11 @@ class TestUsernameLookupUnit:
         mock_client.head.return_value = resp_403
 
         result = _check_platform("twitter", "https://x.com/test", "https://x.com/test", "head", None)
-        assert result["status"] == "error"
+        assert result["status"] == "blocked"
 
+    @patch("domain.username.time.sleep")
     @patch("domain.username._client")
-    def test_429_is_error(self, mock_client):
+    def test_429_persistent_marked_rate_limited(self, mock_client, mock_sleep):
         from domain.username import _check_platform
 
         resp_429 = MagicMock()
@@ -123,7 +125,7 @@ class TestUsernameLookupUnit:
         mock_client.head.return_value = resp_429
 
         result = _check_platform("github", "https://github.com/test", "https://github.com/test", "head", None)
-        assert result["status"] == "error"
+        assert result["status"] == "rate_limited"
 
     @patch("domain.username._client")
     def test_redirect_is_found(self, mock_client):
@@ -136,14 +138,15 @@ class TestUsernameLookupUnit:
         result = _check_platform("github", "https://github.com/test", "https://github.com/test", "head", None)
         assert result["status"] == "found"
 
+    @patch("domain.username.time.sleep")
     @patch("domain.username._client")
-    def test_timeout_handled(self, mock_client):
+    def test_timeout_handled(self, mock_client, mock_sleep):
         from domain.username import _check_platform
 
         mock_client.head.side_effect = httpx.TimeoutException("timeout")
 
         result = _check_platform("github", "https://github.com/test", "https://github.com/test", "head", None)
-        assert result["status"] == "error"
+        assert result["status"] == "timeout"
 
     @patch("domain.username._client")
     def test_body_indicator_not_found(self, mock_client):
@@ -262,7 +265,7 @@ class TestUsernameRoute:
         mock_lookup.return_value = {
             "username": "testuser",
             "found_count": 1,
-            "checked_count": 19,
+            "checked_count": 16,
             "results": [{"platform": "github", "url": "https://github.com/testuser", "status": "found"}],
             "summary": "testuser — found on 1/16 platforms (github)",
         }
@@ -290,7 +293,7 @@ class TestUsernameRoute:
         mock_lookup.return_value = {
             "username": "shapetest",
             "found_count": 0,
-            "checked_count": 19,
+            "checked_count": 16,
             "results": [],
             "summary": "shapetest — not found on any of 16 platforms checked",
         }
@@ -299,3 +302,112 @@ class TestUsernameRoute:
         data = r.json()
         expected_keys = {"username", "found_count", "checked_count", "results", "summary"}
         assert expected_keys.issubset(set(data.keys()))
+
+
+# =========== retry / UA rotation / verdict tests ===========
+
+
+class TestUsernameRetryAndVerdict:
+    @patch("domain.username.time.sleep")
+    @patch("domain.username._client")
+    def test_429_then_success(self, mock_client, mock_sleep):
+        from domain.username import _check_platform
+
+        resp_429 = MagicMock()
+        resp_429.status_code = 429
+        resp_200 = MagicMock()
+        resp_200.status_code = 200
+        mock_client.head.side_effect = [resp_429, resp_200]
+
+        result = _check_platform("github", "https://github.com/test", "https://github.com/test", "head", None)
+        assert result["status"] == "found"
+        assert mock_client.head.call_count == 2
+
+    @patch("domain.username.time.sleep")
+    @patch("domain.username._client")
+    def test_ua_rotates_between_retries(self, mock_client, mock_sleep):
+        from domain.username import _USER_AGENTS, _check_platform
+
+        resp_429 = MagicMock()
+        resp_429.status_code = 429
+        mock_client.head.return_value = resp_429
+
+        _check_platform("github", "https://github.com/test", "https://github.com/test", "head", None)
+
+        seen_uas = [call.kwargs["headers"]["User-Agent"] for call in mock_client.head.call_args_list]
+        assert len(seen_uas) >= 2
+        assert seen_uas[0] != seen_uas[1]
+        assert all(ua in _USER_AGENTS for ua in seen_uas)
+
+    @patch("domain.username.time.sleep")
+    @patch("domain.username._client")
+    def test_npm_gets_referer_header(self, mock_client, mock_sleep):
+        from domain.username import _check_platform
+
+        resp_200 = MagicMock()
+        resp_200.status_code = 200
+        mock_client.head.return_value = resp_200
+
+        _check_platform("npm", "https://www.npmjs.com/~test", "https://www.npmjs.com/~test", "head", None)
+
+        sent_headers = mock_client.head.call_args.kwargs["headers"]
+        assert sent_headers.get("Referer") == "https://www.npmjs.com/"
+
+    @patch("domain.username.time.sleep")
+    @patch("domain.username._client")
+    def test_other_platform_no_referer(self, mock_client, mock_sleep):
+        from domain.username import _check_platform
+
+        resp_200 = MagicMock()
+        resp_200.status_code = 200
+        mock_client.head.return_value = resp_200
+
+        _check_platform("github", "https://github.com/test", "https://github.com/test", "head", None)
+
+        sent_headers = mock_client.head.call_args.kwargs["headers"]
+        assert "Referer" not in sent_headers
+
+    @patch("domain.username.time.sleep")
+    @patch("domain.username._client")
+    def test_retry_count_respects_max(self, mock_client, mock_sleep):
+        from config import USERNAME_MAX_RETRIES
+        from domain.username import _check_platform
+
+        resp_429 = MagicMock()
+        resp_429.status_code = 429
+        mock_client.head.return_value = resp_429
+
+        _check_platform("github", "https://github.com/test", "https://github.com/test", "head", None)
+        assert mock_client.head.call_count == USERNAME_MAX_RETRIES + 1
+
+    @patch("domain.username.time.sleep")
+    @patch("domain.username._client")
+    def test_verdict_partial_when_failures(self, mock_client, mock_sleep):
+        from domain.username import PLATFORMS, username_lookup
+
+        resp_429 = MagicMock()
+        resp_429.status_code = 429
+        resp_429.text = ""
+        mock_client.head.return_value = resp_429
+        mock_client.get.return_value = resp_429
+
+        result = username_lookup("torvalds")
+        assert "verdict" in result
+        assert result["verdict"]["completeness"] == "partial"
+        assert len(result["verdict"]["sources_unavailable"]) > 0
+        assert set(result["verdict"]["sources_queried"]) == {p[0] for p in PLATFORMS}
+
+    @patch("domain.username.time.sleep")
+    @patch("domain.username._client")
+    def test_verdict_complete_when_all_resolve(self, mock_client, mock_sleep):
+        from domain.username import username_lookup
+
+        resp_404 = MagicMock()
+        resp_404.status_code = 404
+        resp_404.text = ""
+        mock_client.head.return_value = resp_404
+        mock_client.get.return_value = resp_404
+
+        result = username_lookup("neverexistsuser999xyz")
+        assert result["verdict"]["completeness"] == "complete"
+        assert result["verdict"]["sources_unavailable"] == []
