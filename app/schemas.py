@@ -48,23 +48,200 @@ class DnsResponse(BaseModel):
 # === IP Lookup ===
 
 
+class FireholInfo(BaseModel):
+    """FireHOL level1 blocklist check (Free tier and Pro)."""
+
+    status: Literal["ok", "skipped", "unavailable"] = Field(
+        description=(
+            "'ok' = trie lookup succeeded; 'skipped' = private/reserved/loopback/link-local IP, "
+            "not meaningful to check; 'unavailable' = FireHOL feed could not be fetched (be honest with agent)."
+        ),
+    )
+    listed: bool = Field(
+        default=False,
+        description="True if the IP matches any range in firehol_level1 (known-bad aggregated blocklist).",
+    )
+    lists_matched: list[str] = Field(
+        default_factory=list,
+        description="List identifiers matched. Currently ['firehol_level1'] when listed, else empty.",
+    )
+
+    model_config = {"extra": "ignore"}
+
+
+class AbuseIpdbInfo(BaseModel):
+    """AbuseIPDB reputation check (Pro tier only)."""
+
+    status: Literal["ok", "skipped", "rate_limited", "error", "pro_only"] = Field(
+        description=(
+            "'ok' = data fetched; 'skipped' = API key not configured; 'rate_limited' = AbuseIPDB "
+            "quota exceeded; 'error' = transient HTTP/network failure; 'pro_only' = returned on "
+            "Free tier as upsell hint (see upgrade_url)."
+        ),
+    )
+    abuse_score: int | None = Field(
+        default=None,
+        description="AbuseIPDB confidence-of-abuse score (0-100). Only present when status='ok'.",
+    )
+    total_reports: int | None = Field(
+        default=None,
+        description="Number of reports submitted against this IP in the last 90 days.",
+    )
+    country: str | None = Field(
+        default=None,
+        description="ISO 3166-1 alpha-2 country code from AbuseIPDB geolocation (may differ from RIPE).",
+    )
+    isp: str | None = Field(
+        default=None,
+        description="ISP name as reported by AbuseIPDB.",
+    )
+    usage_type: str | None = Field(
+        default=None,
+        description="AbuseIPDB usage classification: 'Data Center/Web Hosting/Transit', 'ISP', 'Mobile ISP', etc.",
+    )
+    is_tor: bool | None = Field(
+        default=None,
+        description="AbuseIPDB's Tor exit flag (cross-reference with top-level tor_exit field).",
+    )
+    reason: str | None = Field(
+        default=None,
+        description="Human-readable reason string. Present when status is skipped/rate_limited/error/pro_only.",
+    )
+    upgrade_url: str | None = Field(
+        default=None,
+        description="Upgrade link returned when status='pro_only'.",
+    )
+
+    model_config = {"extra": "ignore"}
+
+
+class ShodanRepInfo(BaseModel):
+    """Shodan full API enrichment (Pro tier only). Richer than InternetDB fields at top level."""
+
+    status: Literal["ok", "skipped", "restricted", "rate_limited", "error", "pro_only"] = Field(
+        description=(
+            "'ok' = data fetched; 'skipped' = API key not configured; 'restricted' = 403 "
+            "(IP not available on free Shodan tier); 'rate_limited' = 429 quota exceeded; "
+            "'error' = transient HTTP/network failure; 'pro_only' = returned on Free tier as upsell hint."
+        ),
+    )
+    os: str | None = Field(
+        default=None, description="Shodan-detected operating system (fingerprint-based, best-effort)."
+    )
+    org: str | None = Field(default=None, description="Organization name owning the IP per Shodan.")
+    isp: str | None = Field(default=None, description="ISP per Shodan (may differ from AbuseIPDB/RIPE).")
+    asn: str | None = Field(
+        default=None, description="ASN string per Shodan (e.g. 'AS13335'); may differ from top-level asn int."
+    )
+    ports: list[int] = Field(
+        default_factory=list,
+        description="Open ports observed by Shodan full scan (superset of top-level InternetDB ports).",
+    )
+    vulns: list[str] = Field(default_factory=list, description="CVE IDs Shodan has associated with banners on this IP.")
+    hostnames: list[str] = Field(default_factory=list, description="Hostnames observed pointing to this IP per Shodan.")
+    city: str | None = Field(default=None, description="City name per Shodan geolocation.")
+    country_name: str | None = Field(default=None, description="Country name per Shodan geolocation.")
+    last_update: str | None = Field(
+        default=None, description="ISO 8601 timestamp of Shodan's most recent data point for this IP."
+    )
+    reason: str | None = Field(
+        default=None,
+        description="Human-readable reason. Present when status is skipped/restricted/rate_limited/error/pro_only.",
+    )
+    upgrade_url: str | None = Field(default=None, description="Upgrade link returned when status='pro_only'.")
+
+    model_config = {"extra": "ignore"}
+
+
+class ReputationInfo(BaseModel):
+    """Multi-source IP reputation. Sources present depend on tier (Free: firehol only; Pro: all three)."""
+
+    firehol: FireholInfo | None = Field(
+        default=None,
+        description="FireHOL level1 blocklist membership. Available on Free tier.",
+    )
+    abuseipdb: AbuseIpdbInfo | None = Field(
+        default=None,
+        description="AbuseIPDB abuse confidence. Pro tier only; status='pro_only' stub on Free.",
+    )
+    shodan: ShodanRepInfo | None = Field(
+        default=None,
+        description="Shodan full API enrichment. Pro tier only; status='pro_only' stub on Free.",
+    )
+
+    model_config = {"extra": "ignore"}
+
+
 class IpLookupResponse(BaseModel):
-    ip: str
-    ptr: str | None = None
-    asn: int | None = None
-    asn_name: str | None = Field(default=None, max_length=256)
-    country: str | None = Field(default=None, max_length=8)
-    ports: list[int] = Field(default_factory=list)
-    hostnames: list[str] = Field(default_factory=list)
-    vulns: list[str] = Field(default_factory=list)
-    cpes: list[str] = Field(default_factory=list)
-    tags: list[str] = Field(default_factory=list)
-    reputation: dict | None = None
-    cloud_provider: str | None = None
-    tor_exit: bool | None = None
-    risk_score: int = 0
-    summary: str = ""
-    verdict: Verdict | None = None
+    ip: str = Field(description="Queried IP address (IPv4 or IPv6, echoed back verbatim).")
+    ptr: str | None = Field(
+        default=None,
+        description="Reverse-DNS PTR record. Null when no PTR is published.",
+    )
+    asn: int | None = Field(
+        default=None,
+        description="Autonomous System Number from RIPE Stat network-info (e.g. 13335 for Cloudflare).",
+    )
+    asn_name: str | None = Field(
+        default=None,
+        max_length=256,
+        description="Human-readable AS name from RIPE Stat as-overview (e.g. 'CLOUDFLARENET').",
+    )
+    country: str | None = Field(
+        default=None,
+        max_length=8,
+        description="ISO 3166-1 alpha-2 country code from RIPE Stat rir-stats-country (RIR-allocated).",
+    )
+    ports: list[int] = Field(
+        default_factory=list,
+        description="Open ports observed by Shodan InternetDB (free, no API key; superseded by reputation.shodan.ports on Pro).",
+    )
+    hostnames: list[str] = Field(
+        default_factory=list,
+        description="Hostnames observed pointing to this IP per Shodan InternetDB.",
+    )
+    vulns: list[str] = Field(
+        default_factory=list,
+        description="CVE IDs Shodan InternetDB has associated with banners on this IP.",
+    )
+    cpes: list[str] = Field(
+        default_factory=list,
+        description="CPE 2.3 strings for services detected on this IP per Shodan InternetDB.",
+    )
+    tags: list[str] = Field(
+        default_factory=list,
+        description="Shodan InternetDB classification tags (e.g. 'cdn', 'cloud', 'vpn', 'tor', 'self-signed').",
+    )
+    reputation: ReputationInfo | None = Field(
+        default=None,
+        description=(
+            "Multi-source reputation. Free tier: firehol populated, abuseipdb/shodan return "
+            "status='pro_only' upsell stubs. Pro tier: all three live."
+        ),
+    )
+    cloud_provider: str | None = Field(
+        default=None,
+        description="Cloud provider name when IP is in a published cloud CIDR range (aws/gcp/azure/cloudflare/etc). Null otherwise.",
+    )
+    tor_exit: bool | None = Field(
+        default=None,
+        description="True if IP appears in the Tor Project's exit node list. Null when list fetch failed.",
+    )
+    risk_score: int = Field(
+        default=0,
+        description=(
+            "Composite 0-100 risk score. Penalties: AbuseIPDB confidence (cap 60), Tor exit (+20), "
+            "open ports (+2 each, cap 10). Bonuses: known cloud provider (-10), published PTR (-5)."
+        ),
+    )
+    summary: str = Field(
+        default="",
+        description="One-line human-readable summary built from IP, PTR, ASN, country, ports, vulns.",
+    )
+    verdict: Verdict | None = Field(
+        default=None,
+        description="Falsifiability metadata: sources queried, sources unavailable, data age, completeness tier.",
+    )
 
     model_config = {"extra": "ignore"}
 
@@ -139,29 +316,102 @@ class TechResponse(BaseModel):
 
 
 class SslChainItem(BaseModel):
-    subject: str = ""
-    issuer: str = ""
-    not_after: str = ""
-    source: str = "handshake"
+    subject: str = Field(
+        default="",
+        description="Subject DN of the chain certificate, e.g. 'CN=*.example.com'.",
+    )
+    issuer: str = Field(
+        default="",
+        description="Issuer DN of the chain certificate (the CA that signed it).",
+    )
+    not_after: str = Field(
+        default="",
+        description="Certificate's expiry timestamp (ISO 8601, UTC).",
+    )
+    source: str = Field(
+        default="handshake",
+        description="How this chain entry was discovered: 'handshake' (server-sent) or 'aia_fetch' (AIA chase-up).",
+    )
 
 
 class SslResponse(BaseModel):
-    domain: str
-    valid: bool = False
-    issuer: str = ""
-    subject: str = ""
-    not_before: str = ""
-    not_after: str = ""
-    days_remaining: int | None = None
-    serial_number: str = ""
-    signature_algorithm: str | None = None
-    san: list[str] = Field(default_factory=list)
-    protocol: str = ""
-    cipher: dict = Field(default_factory=dict)
-    chain: list[SslChainItem] = Field(default_factory=list)
-    grade: str = "F"
-    warnings: list[str] = Field(default_factory=list, max_length=10)
-    summary: str = ""
+    domain: str = Field(description="Queried domain (echoed). SNI-matched against the leaf cert.")
+    valid: bool = Field(
+        default=False,
+        description=(
+            "True when TLS handshake succeeded AND cert is unexpired AND chain verified. "
+            "False on any failure (handshake error, expired, hostname mismatch, untrusted CA)."
+        ),
+    )
+    issuer: str = Field(
+        default="",
+        description="Issuer DN of the leaf cert, e.g. \"CN=Let's Encrypt R3, O=Let's Encrypt, C=US\".",
+    )
+    subject: str = Field(
+        default="",
+        description="Subject DN of the leaf cert, e.g. 'CN=example.com'.",
+    )
+    not_before: str = Field(
+        default="",
+        description="Leaf cert's notBefore timestamp (ISO 8601, UTC) — earliest valid moment.",
+    )
+    not_after: str = Field(
+        default="",
+        description="Leaf cert's notAfter timestamp (ISO 8601, UTC) — expiry moment.",
+    )
+    days_remaining: int | None = Field(
+        default=None,
+        description=(
+            "Days until leaf cert expires (negative if already expired). Null when not_after could not be parsed."
+        ),
+    )
+    serial_number: str = Field(
+        default="",
+        description="Hex-encoded leaf cert serial number.",
+    )
+    signature_algorithm: str | None = Field(
+        default=None,
+        description="Signature algorithm name, e.g. 'sha256WithRSAEncryption', 'ecdsa-with-SHA384'.",
+    )
+    san: list[str] = Field(
+        default_factory=list,
+        description="Subject Alternative Names — all DNS names the cert is valid for (including CN when distinct).",
+    )
+    protocol: str = Field(
+        default="",
+        description=(
+            "Negotiated TLS protocol version string as reported by OpenSSL: 'TLSv1.3', 'TLSv1.2', "
+            "'TLSv1.1', 'TLSv1'. Empty on handshake failure. Grade F is forced for TLSv1/TLSv1.1."
+        ),
+    )
+    cipher: dict = Field(
+        default_factory=dict,
+        description=(
+            "Negotiated cipher suite dict: {name: str, version: str, bits: int}. Empty dict on handshake failure."
+        ),
+    )
+    chain: list[SslChainItem] = Field(
+        default_factory=list,
+        description="Full cert chain from leaf upward (excluding system root). Includes AIA-fetched intermediates when needed.",
+    )
+    grade: Literal["A", "B", "C", "F"] = Field(
+        default="F",
+        description=(
+            "Overall SSL configuration grade. 'A' (TLSv1.3 + >=30 days remaining), "
+            "'B' (TLSv1.3 <30d OR TLSv1.2 healthy), 'C' (TLSv1.2 <14d OR TLSv1.3 <7d OR unknown protocol), "
+            "'F' (TLSv1/TLSv1.1 OR expired). Canonical grader is _ssl_grade() in domain/recon.py; "
+            "same helper powers /v1/domain/ ssl section (single source of truth)."
+        ),
+    )
+    warnings: list[str] = Field(
+        default_factory=list,
+        max_length=10,
+        description="Human-readable warnings: deprecated protocol, near-expiry, self-signed chain, weak signature algorithm, etc.",
+    )
+    summary: str = Field(
+        default="",
+        description="One-line human summary, e.g. 'example.com valid until 2026-07-04 (71 days) · TLSv1.3 · grade A'.",
+    )
 
 
 # === Monitor (lightweight health check) ===
@@ -309,25 +559,65 @@ class Verdict(BaseModel):
 
 
 class EpssInfo(BaseModel):
-    score: float | None = None
-    percentile: float | None = None
+    score: float | None = Field(
+        default=None,
+        description="EPSS probability (0.0-1.0) that this CVE will be exploited in the next 30 days.",
+    )
+    percentile: float | None = Field(
+        default=None,
+        description="EPSS percentile rank (0.0-100.0) relative to all scored CVEs; higher = more at-risk.",
+    )
 
 
 class KevInfo(BaseModel):
-    in_kev: bool = False
-    date_added: str | None = None
+    in_kev: bool = Field(
+        default=False,
+        description="True when CISA has confirmed this CVE is being actively exploited in the wild.",
+    )
+    date_added: str | None = Field(
+        default=None,
+        description="ISO 8601 date this CVE was added to CISA's Known Exploited Vulnerabilities catalog.",
+    )
 
 
 class CveResponse(BaseModel):
-    cve_id: str
-    summary: str | None = None
-    description: str | None = None
-    severity: str | None = None
-    cvss_v3: float | None = None
-    cvss_breakdown: dict | None = None
-    cwe_id: str | None = None
-    epss: EpssInfo = Field(default_factory=EpssInfo)
-    kev: KevInfo = Field(default_factory=KevInfo)
+    cve_id: str = Field(description="Canonical CVE identifier, e.g. 'CVE-2021-44228'.")
+    summary: str | None = Field(
+        default=None,
+        description="Human-readable one-line summary built from severity, CVSS, KEV status, and EPSS.",
+    )
+    description: str | None = Field(
+        default=None,
+        description="Full vulnerability description sourced from NVD/MITRE/GHSA.",
+    )
+    severity: str | None = Field(
+        default=None,
+        description="CVSS v3 severity label: 'critical', 'high', 'medium', 'low', or 'none'.",
+    )
+    cvss_v3: float | None = Field(
+        default=None,
+        description="CVSS v3.x base score (0.0-10.0). Null if no CVSS data available.",
+    )
+    cvss_breakdown: dict | None = Field(
+        default=None,
+        description=(
+            "Per-metric CVSS v3 breakdown (attack_vector, attack_complexity, "
+            "privileges_required, user_interaction, scope, confidentiality, integrity, "
+            "availability). Keys present only when parsed from vector string."
+        ),
+    )
+    cwe_id: str | None = Field(
+        default=None,
+        description="Primary CWE identifier, e.g. 'CWE-502'. First CWE when multiple are assigned.",
+    )
+    epss: EpssInfo = Field(
+        default_factory=EpssInfo,
+        description="Exploit Prediction Scoring System: score (0.0-1.0 probability) and percentile (0.0-100.0).",
+    )
+    kev: KevInfo = Field(
+        default_factory=KevInfo,
+        description="CISA Known Exploited Vulnerabilities catalog: in_kev flag and date_added (ISO 8601).",
+    )
     affected_products: list[dict] = Field(
         default_factory=list,
         description=(
@@ -343,16 +633,59 @@ class CveResponse(BaseModel):
             "(emitted even when 0); matches len(affected_products) when not truncated."
         ),
     )
-    published: str | None = None
-    modified: str | None = None
-    references: list[str] = Field(default_factory=list)
-    sources: list[str] = Field(default_factory=list)
-    first_seen_source: str | None = None
-    first_seen_at: str | None = None
-    verdict: Verdict | None = None
-    patch_available: bool | None = None
-    patch_url: str | None = None
-    related_cves: list[dict] | None = None
+    published: str | None = Field(
+        default=None,
+        description="ISO 8601 publication timestamp from NVD/MITRE.",
+    )
+    modified: str | None = Field(
+        default=None,
+        description="ISO 8601 last-modified timestamp; advances on NVD/MITRE revisions.",
+    )
+    references: list[str] = Field(
+        default_factory=list,
+        description="Advisory URLs (vendor bulletins, patch commits, exploit PoCs, analysis writeups).",
+    )
+    sources: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Data sources that wrote the CVE record itself: 'nvd', 'mitre', 'ghsa', 'osv'. "
+            "EPSS and KEV are tracked separately — see the top-level epss.* and kev.* fields, "
+            "not this list."
+        ),
+    )
+    first_seen_source: str | None = Field(
+        default=None,
+        description="First source that introduced this CVE into the local DB (for provenance/auditing).",
+    )
+    first_seen_at: str | None = Field(
+        default=None,
+        description="ISO 8601 timestamp when this CVE was first ingested locally.",
+    )
+    verdict: Verdict | None = Field(
+        default=None,
+        description="Falsifiability metadata: sources queried, sources unavailable, data age, completeness tier.",
+    )
+    patch_available: bool | None = Field(
+        default=None,
+        description=(
+            "True when a vendor patch URL was detected in references (allowlisted vendor patterns). "
+            "Null when enrichment was not requested."
+        ),
+    )
+    patch_url: str | None = Field(
+        default=None,
+        description=(
+            "First matched vendor patch/advisory URL (conservative: RedHat, MSRC, Apache, Ubuntu, "
+            "Debian, GitHub commits, GitLab commits). Null when no match."
+        ),
+    )
+    related_cves: list[dict] | None = Field(
+        default=None,
+        description=(
+            "Up to 5 CVEs sharing affected products, ordered by severity DESC. "
+            "Each item: {cve_id, severity, cvss_v3}. Null when enrichment was not requested."
+        ),
+    )
 
 
 # === Exploit Lookup ===
@@ -587,22 +920,65 @@ class EmailMxResponse(BaseModel):
 
 
 class PhoneFormat(BaseModel):
-    e164: str = ""
-    international: str = ""
-    national: str = ""
+    e164: str = Field(
+        default="",
+        description="E.164 canonical format, e.g. '+14155552671'. Empty when parse fails.",
+    )
+    international: str = Field(
+        default="",
+        description="Human-readable international format, e.g. '+1 415-555-2671'.",
+    )
+    national: str = Field(
+        default="",
+        description="Domestic format for the number's country, e.g. '(415) 555-2671'.",
+    )
 
 
 class PhoneLookupResponse(BaseModel):
-    valid: bool = False
-    number: str = ""
-    format: PhoneFormat | None = None
-    country_code: str = ""
-    country_name: str = ""
-    type: str = "unknown"
-    carrier: str = ""
-    timezone: list[str] = Field(default_factory=list)
-    summary: str = ""
-    error: str | None = None
+    valid: bool = Field(
+        default=False,
+        description="True only when phonenumbers.is_valid_number() passes (correct length, valid prefix for region).",
+    )
+    number: str = Field(
+        default="",
+        description="Echoed input, normalized. Prefer format.e164 for downstream lookups.",
+    )
+    format: PhoneFormat | None = Field(
+        default=None,
+        description="E.164, international, and national representations. Null when the number could not be parsed at all.",
+    )
+    country_code: str = Field(
+        default="",
+        description="ISO 3166-1 alpha-2 region code (e.g. 'US', 'TR'). Empty when region cannot be inferred.",
+    )
+    country_name: str = Field(
+        default="",
+        description="Full country name from libphonenumber geocoder. Empty when region cannot be inferred.",
+    )
+    type: str = Field(
+        default="unknown",
+        description=(
+            "Phone number type: 'mobile', 'fixed_line', 'fixed_line_or_mobile', 'voip', "
+            "'toll_free', 'premium_rate', 'shared_cost', 'personal_number', 'pager', 'uan', "
+            "or 'unknown'."
+        ),
+    )
+    carrier: str = Field(
+        default="",
+        description="Carrier/network name from libphonenumber carrier DB (best-effort, not all regions supported).",
+    )
+    timezone: list[str] = Field(
+        default_factory=list,
+        description="IANA timezone identifiers associated with the number's geography (e.g. ['America/Los_Angeles']).",
+    )
+    summary: str = Field(
+        default="",
+        description="One-line human summary, e.g. '+14155552671 United States mobile AT&T'.",
+    )
+    error: str | None = Field(
+        default=None,
+        description="Parse/validation error message. Null on successful lookups.",
+    )
 
     model_config = {"extra": "ignore"}
 
@@ -625,19 +1001,58 @@ class DisposableResponse(BaseModel):
 
 
 class UsernameMatch(BaseModel):
-    platform: str = ""
-    url: str = ""
-    status: str = ""  # "found" | "not_found" | "rate_limited" | "blocked" | "timeout" | "error"
+    platform: str = Field(
+        default="",
+        description="Platform identifier, e.g. 'github', 'twitter', 'reddit'.",
+    )
+    url: str = Field(
+        default="",
+        description="Canonical profile URL for this platform+username (may 200/redirect even when not_found).",
+    )
+    status: Literal["found", "not_found", "rate_limited", "blocked", "timeout", "error"] = Field(
+        default="error",
+        description=(
+            "Per-platform outcome. 'found'/'not_found' are terminal factual answers. "
+            "'rate_limited' (429), 'blocked' (403 — often Cloudflare/bot detection), "
+            "'timeout' (network), and 'error' (5xx/other) are unavailability states — "
+            "the platform's answer is unknown, NOT 'user does not exist'. "
+            "Agents should treat these four as sources_unavailable, not negative evidence."
+        ),
+    )
 
 
 class UsernameLookupResponse(BaseModel):
-    username: str = ""
-    found_count: int = 0
-    checked_count: int = 0
-    results: list[UsernameMatch] = Field(default_factory=list)
-    summary: str = ""
-    error: str | None = None
-    verdict: Verdict | None = None
+    username: str = Field(
+        default="",
+        description="Echoed normalized username (lowercased, validated against [a-z0-9._-]).",
+    )
+    found_count: int = Field(
+        default=0,
+        description="Number of platforms where status=='found'.",
+    )
+    checked_count: int = Field(
+        default=0,
+        description="Number of platforms actually checked (may be less than total platforms if early-exit).",
+    )
+    results: list[UsernameMatch] = Field(
+        default_factory=list,
+        description="Per-platform results, sorted: found first, then alphabetical by platform.",
+    )
+    summary: str = Field(
+        default="",
+        description="One-line human-readable summary, e.g. 'username \"x\" found on 6/20 platforms (3 unavailable)'.",
+    )
+    error: str | None = Field(
+        default=None,
+        description="Input validation error (empty username, invalid chars, too long). Null on successful lookups.",
+    )
+    verdict: Verdict | None = Field(
+        default=None,
+        description=(
+            "Falsifiability metadata. sources_unavailable lists platforms where status was "
+            "rate_limited/blocked/timeout/error so agents can distinguish 'absence' from 'unknown'."
+        ),
+    )
 
     model_config = {"extra": "ignore"}
 
