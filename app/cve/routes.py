@@ -74,6 +74,56 @@ _REDIRECT_BLOCKLIST = re.compile(
     re.IGNORECASE,
 )
 
+# Description-pattern signals that a fix shipped, even when the references list
+# carries no canonical patch URL. Conservative: each pattern requires both a
+# remediation verb AND a version-shaped token, so generic "fix" mentions don't
+# false-positive. Catches Log4Shell-class CVEs whose NVD refs are all blog
+# posts / packetstorm advisories with no GHSA / vendor-errata URL.
+#
+# Trade-off: this is a description-pattern signal, not ground truth. Pattern #3
+# can match vendor-recommended actions ("Users should upgrade to version 5.0")
+# even when the version is forward-looking. Acceptable because `patch_available`
+# is not listed in verdict.falsifiable_fields and URL-based detection takes
+# precedence; this fallback is informational. ReDoS-safe (pattern #1 lazy
+# .{0,200}? bounded; 5000-char input matches in <0.0001s per Sonnet review).
+_PATCH_DESCRIPTION_PATTERNS = (
+    # "From version 2.16.0 ... has been completely removed" / "From log4j 2.15.0, this behavior has been disabled".
+    # DOTALL is intentional: NVD descriptions occasionally span multiple sentences between the version anchor
+    # and the remediation verb, but the 200-char window keeps the match tight enough to avoid cross-paragraph drift.
+    re.compile(
+        r"\bfrom\s+(?:\w+\s+)?(?:version\s+|v)?\d+\.\d+(?:\.\d+)?[,.\s)].{0,200}?"
+        r"\b(?:disabled|removed|fixed|patched|resolved|addressed|mitigated)\b",
+        re.IGNORECASE | re.DOTALL,
+    ),
+    # "fixed in version 2.16.0" / "patched in 9.2.3"
+    re.compile(
+        r"\b(?:fixed|patched|resolved|addressed)\s+in\s+(?:version\s+|v)?\d+\.\d+(?:\.\d+)?",
+        re.IGNORECASE,
+    ),
+    # "upgrade to version 2.16.0" / "update to 9.2". Permissive: catches vendor-recommended actions
+    # ("Users should upgrade to ..."); may match forward-looking advisories. URL-based detection
+    # takes precedence in the callsite, so this is a fallback only.
+    re.compile(
+        r"\b(?:upgrade|update)\s+to\s+(?:version\s+|v)?\d+\.\d+(?:\.\d+)?",
+        re.IGNORECASE,
+    ),
+)
+
+# Cap to keep the regex match O(n) bounded even if a future upstream publishes a
+# pathologically long description (NVD's free-text field has no enforced cap).
+_PATCH_DESCRIPTION_MAX_LEN = 10_000
+
+
+def _describes_patch(description: str | None) -> bool:
+    """Detect 'a fix shipped' from the CVE description text.
+
+    Used as a fallback when references list has no canonical patch URL but the
+    description spells out the fix version (Log4Shell pattern).
+    """
+    if not description or len(description) > _PATCH_DESCRIPTION_MAX_LEN:
+        return False
+    return any(p.search(description) for p in _PATCH_DESCRIPTION_PATTERNS)
+
 
 def _extract_patch_url(references: list[str]) -> tuple[bool, str | None]:
     """Detect patch/advisory URL from references list (open-redirect-guarded)."""
@@ -645,6 +695,8 @@ def _format_cve(row: dict, include_enrichment: bool = False, include_full_produc
     }
     if include_enrichment:
         patch_available, patch_url = _extract_patch_url(references)
+        if not patch_available and _describes_patch(row.get("description")):
+            patch_available = True
         result["patch_available"] = patch_available
         result["patch_url"] = patch_url
         affected = row.get("affected_products") or []

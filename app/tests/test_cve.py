@@ -666,6 +666,77 @@ class TestCveEnrichment:
         assert data["patch_available"] is False
         assert "patch_url" not in data
 
+    def test_patch_available_log4shell_description_signal(self):
+        """Log4Shell-class CVE: no canonical patch URL in refs but description states fix shipped."""
+        _seed_cve(
+            cve_id="CVE-2024-9010",
+            description=(
+                "Apache Log4j2 2.0-beta9 through 2.15.0 JNDI features used in configuration. "
+                "From version 2.16.0 (along with 2.12.2, 2.12.3, and 2.3.1), this functionality "
+                "has been completely removed."
+            ),
+            refs=["http://packetstormsecurity.com/files/165225/Apache-Log4j2.html"],
+        )
+        data = client.get("/v1/cve/CVE-2024-9010").json()
+        assert data["patch_available"] is True
+        # Description-only signal: patch_url omitted by response_model_exclude_none (no canonical URL)
+        assert data.get("patch_url") is None
+
+    def test_patch_available_fixed_in_version_signal(self):
+        """Description says 'fixed in version X.Y.Z' → patch_available=True."""
+        _seed_cve(
+            cve_id="CVE-2024-9011",
+            description="Buffer overflow in component foo. This issue is fixed in version 9.2.3 of the library.",
+            refs=["https://example.com/blog/post"],
+        )
+        data = client.get("/v1/cve/CVE-2024-9011").json()
+        assert data["patch_available"] is True
+
+    def test_patch_available_upgrade_to_signal(self):
+        """Description says 'upgrade to version X.Y' → patch_available=True."""
+        _seed_cve(
+            cve_id="CVE-2024-9012",
+            description="Authentication bypass in xyz product. Users should upgrade to version 5.10 immediately.",
+            refs=["https://example.com/advisory"],
+        )
+        data = client.get("/v1/cve/CVE-2024-9012").json()
+        assert data["patch_available"] is True
+
+    def test_patch_available_no_fix_signal_in_description(self):
+        """Description without remediation language stays patch_available=False."""
+        _seed_cve(
+            cve_id="CVE-2024-9013",
+            description="Out-of-bounds read in foo when parsing untrusted input. No further details provided.",
+            refs=["https://nvd.nist.gov/vuln/detail/CVE-2024-9013"],
+        )
+        data = client.get("/v1/cve/CVE-2024-9013").json()
+        assert data["patch_available"] is False
+        assert "patch_url" not in data
+
+    def test_patch_available_url_takes_precedence_over_description(self):
+        """When a canonical patch URL exists, both flag and URL surface; description fallback is moot."""
+        _seed_cve(
+            cve_id="CVE-2024-9014",
+            description="Fixed in version 2.0.1 — see GHSA for details.",
+            refs=["https://github.com/advisories/GHSA-zzzz-yyyy-xxxx"],
+        )
+        data = client.get("/v1/cve/CVE-2024-9014").json()
+        assert data["patch_available"] is True
+        assert data["patch_url"] == "https://github.com/advisories/GHSA-zzzz-yyyy-xxxx"
+
+    def test_patch_available_oversized_description_skipped(self):
+        """Pathologically long description (>10k chars) is skipped to keep regex O(n) bounded."""
+        # "Fixed in version 9.9.9" buried inside a 12k-char wall of text. Detection should
+        # short-circuit before scanning, so patch_available stays False.
+        bloat = "x " * 6000  # 12000 chars
+        _seed_cve(
+            cve_id="CVE-2024-9015",
+            description=f"{bloat} Fixed in version 9.9.9 of the library.",
+            refs=["https://example.com/note"],
+        )
+        data = client.get("/v1/cve/CVE-2024-9015").json()
+        assert data["patch_available"] is False
+
     def test_related_cves_populated(self):
         _seed_cve(
             cve_id="CVE-2024-9010",
