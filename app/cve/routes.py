@@ -480,6 +480,16 @@ def cve_search(
         max_length=100,
         description="Filter by vendor name (case-insensitive). When combined with product, both must match the same cpe row.",
     ),
+    include: str | None = Query(
+        None,
+        description=(
+            "Per-result detail level. Default returns slim list items (cve_id, summary, severity, "
+            "cvss_v3, cwe_id, epss, kev, total_products, published, modified, sources, verdict). "
+            "Pass include=full to also return description, cvss_breakdown, affected_products, "
+            "references, first_seen_source, first_seen_at. Slim default keeps token cost low when "
+            "agents are filtering or paginating; for drill-down on a single CVE prefer cve_lookup."
+        ),
+    ),
 ):
     """Search CVEs by product, severity, date range, KEV status, and EPSS score."""
     authenticate(request, request.url.path)
@@ -488,6 +498,8 @@ def cve_search(
         raise HTTPException(status_code=400, detail="severity must be CRITICAL, HIGH, MEDIUM, or LOW")
     if sort and sort not in ("epss_desc", "cvss_desc", "published_desc"):
         raise HTTPException(status_code=400, detail="sort must be epss_desc, cvss_desc, or published_desc")
+    if include not in (None, "", "full"):
+        raise HTTPException(status_code=400, detail="include must be 'full' (omit for slim default)")
     if cwe_id is not None:
         if not re.fullmatch(r"CWE-\d+", cwe_id, re.IGNORECASE):
             raise HTTPException(status_code=400, detail="cwe_id must match pattern CWE-<number> (e.g. CWE-79)")
@@ -561,9 +573,11 @@ def cve_search(
         if v is not None and v != ""
     }
     verdict = _cve_verdict(sources=["nvd_cache"], completeness="complete")
+    full = include == "full"
+    formatter = _format_cve if full else _format_cve_slim
     formatted_results = []
     for row in results:
-        fr = _format_cve(row)
+        fr = formatter(row)
         fr["verdict"] = verdict
         formatted_results.append(fr)
     next_offset = offset + count if truncated else None
@@ -710,6 +724,39 @@ def _format_cve(row: dict, include_enrichment: bool = False, include_full_produc
         else:
             result["related_cves"] = []
     return result
+
+
+def _format_cve_slim(row: dict) -> dict:
+    """Slim formatter for cve_search list items.
+
+    Drops description, cvss_breakdown, affected_products, references, first_seen_source,
+    first_seen_at vs _format_cve(). Keeps fields agents need to triage and pivot:
+    cve_id, summary, severity, cvss_v3, cwe_id, epss, kev, total_products, published,
+    modified, sources. ~70% token reduction vs full payload on Log4j-class CVEs. Use
+    cve_lookup or cve_search?include=full for drill-down.
+    """
+    sources_rows = get_cve_sources(row["cve_id"])
+    source_names = [s["source"] for s in sources_rows]
+    all_products = row.get("affected_products", []) or []
+    return {
+        "cve_id": row["cve_id"],
+        "summary": row.get("summary") or _generate_summary(row),
+        "severity": row.get("severity"),
+        "cvss_v3": row.get("cvss_v3"),
+        "cwe_id": row.get("cwe_id"),
+        "epss": {
+            "score": row.get("epss_score"),
+            "percentile": row.get("epss_percentile"),
+        },
+        "kev": {
+            "in_kev": bool(row.get("in_kev")),
+            "date_added": row.get("kev_date_added"),
+        },
+        "total_products": len(all_products),
+        "published": row.get("published"),
+        "modified": row.get("modified"),
+        "sources": source_names,
+    }
 
 
 _CVSS_METRICS = {

@@ -584,6 +584,69 @@ class TestCveSearch:
         assert data["truncated"] is False
         assert "next_offset" not in data
 
+    def test_search_slim_default_drops_heavy_fields(self):
+        _seed_cve(
+            cve_id="CVE-2024-9101",
+            severity="HIGH",
+            description="A long description that should not appear in slim results.",
+            refs=["https://example.com/advisory-1", "https://example.com/advisory-2"],
+            affected_products=[{"vendor": "v", "product": f"p{i}"} for i in range(5)],
+        )
+        r = client.get("/v1/cves?severity=HIGH&limit=200")
+        assert r.status_code == 200
+        items = [c for c in r.json()["results"] if c["cve_id"] == "CVE-2024-9101"]
+        assert len(items) == 1
+        item = items[0]
+        for dropped in (
+            "description",
+            "references",
+            "affected_products",
+            "cvss_breakdown",
+            "first_seen_source",
+            "first_seen_at",
+        ):
+            assert dropped not in item, f"{dropped} should be dropped from slim cve_search result"
+        # honest count still surfaces so agents can decide to fetch full
+        assert item["total_products"] == 5
+        # core triage fields stay
+        assert item["severity"] == "HIGH"
+        assert "epss" in item and "kev" in item
+        assert "verdict" in item
+
+    def test_search_include_full_returns_full_payload(self):
+        _seed_cve(
+            cve_id="CVE-2024-9102",
+            severity="CRITICAL",
+            description="Visible only with include=full.",
+            refs=["https://example.com/full-ref"],
+            affected_products=[{"vendor": "v", "product": "p"}],
+        )
+        r = client.get("/v1/cves?severity=CRITICAL&include=full&limit=200")
+        assert r.status_code == 200
+        items = [c for c in r.json()["results"] if c["cve_id"] == "CVE-2024-9102"]
+        assert len(items) == 1
+        item = items[0]
+        assert item["description"] == "Visible only with include=full."
+        assert item["references"] == ["https://example.com/full-ref"]
+        assert item["affected_products"] == [{"vendor": "v", "product": "p"}]
+
+    def test_search_include_invalid_value_rejected(self):
+        r = client.get("/v1/cves?include=verbose")
+        assert r.status_code == 400
+        assert "include must be 'full'" in r.json()["error"]
+
+    def test_search_include_empty_treated_as_slim(self):
+        _seed_cve(
+            cve_id="CVE-2024-9103",
+            severity="LOW",
+            description="should be hidden with empty include",
+        )
+        r = client.get("/v1/cves?severity=LOW&include=&limit=200")
+        assert r.status_code == 200
+        items = [c for c in r.json()["results"] if c["cve_id"] == "CVE-2024-9103"]
+        assert items, "expected seeded CVE in results"
+        assert "description" not in items[0]
+
 
 class TestCveResponseFormat:
     def test_response_has_all_fields(self):

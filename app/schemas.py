@@ -1413,13 +1413,38 @@ class CertsResponse(BaseModel):
 # === CVE Search / Recent / KEV ===
 
 
+class CveSearchItem(BaseModel):
+    """Slim per-result shape for cve_search list items.
+
+    Default cve_search response uses this shape (description / cvss_breakdown /
+    affected_products / references / first_seen_* are dropped). Pass cve_search
+    ?include=full to get the full CveResponse shape — extra="allow" lets the
+    full-mode fields pass through without a schema fork.
+    """
+
+    model_config = {"extra": "allow"}
+
+    cve_id: str = Field(description="Canonical CVE identifier, e.g. 'CVE-2021-44228'.")
+    summary: str | None = Field(default=None, description="Human-readable one-line summary.")
+    severity: str | None = Field(default=None, description="CVSS v3 severity label.")
+    cvss_v3: float | None = Field(default=None, description="CVSS v3.x base score (0.0-10.0).")
+    cwe_id: str | None = Field(default=None, description="Primary CWE identifier.")
+    epss: EpssInfo = Field(default_factory=EpssInfo, description="EPSS score + percentile.")
+    kev: KevInfo = Field(default_factory=KevInfo, description="CISA KEV status.")
+    total_products: int = Field(default=0, description="Honest count of affected products in DB.")
+    published: str | None = Field(default=None, description="ISO 8601 publication timestamp.")
+    modified: str | None = Field(default=None, description="ISO 8601 last-modified timestamp.")
+    sources: list[str] = Field(default_factory=list, description="Source feeds for this CVE row.")
+    verdict: Verdict | None = Field(default=None, description="Falsifiability metadata.")
+
+
 class CveSearchResponse(BaseModel):
     count: int = 0
     total: int = 0
     truncated: bool = False
     offset: int = 0
     summary: str = ""
-    results: list[CveResponse] = Field(default_factory=list)
+    results: list[CveSearchItem] = Field(default_factory=list)
     query_echo: dict[str, Any] | None = None
     next_offset: int | None = None
 

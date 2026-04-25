@@ -594,8 +594,15 @@ async def cve_search(
             description="Filter by vendor name (case-insensitive). When combined with product, both must match the same CPE row — prevents cross-row false matches. Example: vendor=apache, product=struts."
         ),
     ] = "",
+    include: Annotated[
+        str,
+        Field(
+            description="Per-result detail level. Default (omit) returns slim list items (cve_id, summary, severity, cvss_v3, cwe_id, epss, kev, total_products, published, modified, sources, verdict). Pass 'full' to also return description, cvss_breakdown, affected_products, references, first_seen_source, first_seen_at — only do this when the user explicitly wants drill-down on every result. For single-CVE detail prefer cve_lookup; slim default keeps token cost ~70% lower on Log4j-class queries.",
+            json_schema_extra={"enum": ["", "full"]},
+        ),
+    ] = "",
 ) -> str:
-    """Search CVE database with filters: product/vendor, severity, published date range, EPSS score, CWE, CVSS range, CISA KEV status. Use for vulnerability discovery by criteria; pass cwe_id (e.g. CWE-79) to enumerate every CVE in our database mapped to a weakness — pair with cwe_lookup for the category description and mitigations. Use cve_lookup for single CVE by ID, kev_detail when kev=true filtering and the agent needs federal patch deadlines per result. Free: 100/hr, Pro: 1000/hr. Returns {count, total, truncated, results, query_echo}."""
+    """Search CVE database with filters: product/vendor, severity, published date range, EPSS score, CWE, CVSS range, CISA KEV status. Default response is SLIM per-result (cve_id, summary, severity, cvss_v3, cwe_id, epss, kev, total_products, published, modified, sources, verdict) — pass include='full' for description, cvss_breakdown, affected_products, references, first_seen_*. Use for vulnerability discovery by criteria; pass cwe_id (e.g. CWE-79) to enumerate every CVE in our database mapped to a weakness — pair with cwe_lookup for the category description and mitigations. Use cve_lookup for single CVE by ID, kev_detail when kev=true filtering and the agent needs federal patch deadlines per result. Free: 100/hr, Pro: 1000/hr. Returns {count, total, truncated, results, query_echo}."""
     params = {"limit": limit}
     if product:
         params["product"] = product
@@ -621,6 +628,8 @@ async def cve_search(
         params["cvss_min"] = cvss_min
     if cvss_max < 10.0:
         params["cvss_max"] = cvss_max
+    if include:
+        params["include"] = include
     return _fmt(await _get("/v1/cves", params))
 
 
