@@ -243,6 +243,23 @@ def init_cve_db():
         con.execute("CREATE INDEX IF NOT EXISTS idx_exploits_author ON exploits(author)")
         con.execute("CREATE INDEX IF NOT EXISTS idx_exploits_type ON exploits(type)")
         con.execute("CREATE INDEX IF NOT EXISTS idx_exploits_verified ON exploits(verified)")
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS kev_details (
+                cve_id TEXT PRIMARY KEY,
+                due_date TEXT,
+                required_action TEXT,
+                known_ransomware_use INTEGER DEFAULT 0,
+                vendor_project TEXT,
+                product TEXT,
+                vulnerability_name TEXT,
+                short_description TEXT,
+                notes TEXT,
+                cwes TEXT,
+                updated_at TEXT,
+                FOREIGN KEY (cve_id) REFERENCES cves(cve_id)
+            )
+        """)
+        con.execute("CREATE INDEX IF NOT EXISTS idx_kev_details_ransomware ON kev_details(known_ransomware_use)")
         # One-shot backfill: mark all existing CVEs as source='nvd' (guarded by empty check)
         already = con.execute("SELECT 1 FROM cve_sources LIMIT 1").fetchone()
         if not already:
@@ -1004,6 +1021,110 @@ def update_kev(cve_id: str, date_added: str | None) -> bool:
     with get_cve_db() as con:
         cur = con.execute("UPDATE cves SET in_kev=1, kev_date_added=? WHERE cve_id=?", (date_added, cve_id))
         return cur.rowcount > 0
+
+
+def upsert_kev_details(
+    cve_id: str,
+    *,
+    due_date: str | None = None,
+    required_action: str | None = None,
+    known_ransomware_use: bool = False,
+    vendor_project: str | None = None,
+    product: str | None = None,
+    vulnerability_name: str | None = None,
+    short_description: str | None = None,
+    notes: str | None = None,
+    cwes: list[str] | None = None,
+) -> None:
+    """Upsert full CISA KEV record details. Idempotent."""
+    now = datetime.now(UTC).isoformat()
+    cwes_json = json.dumps(cwes) if cwes else None
+    with get_cve_db() as con:
+        con.execute(
+            """
+            INSERT INTO kev_details
+                (cve_id, due_date, required_action, known_ransomware_use,
+                 vendor_project, product, vulnerability_name, short_description,
+                 notes, cwes, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(cve_id) DO UPDATE SET
+                due_date = excluded.due_date,
+                required_action = excluded.required_action,
+                known_ransomware_use = excluded.known_ransomware_use,
+                vendor_project = excluded.vendor_project,
+                product = excluded.product,
+                vulnerability_name = excluded.vulnerability_name,
+                short_description = excluded.short_description,
+                notes = excluded.notes,
+                cwes = excluded.cwes,
+                updated_at = excluded.updated_at
+            """,
+            (
+                cve_id,
+                due_date,
+                required_action,
+                1 if known_ransomware_use else 0,
+                vendor_project,
+                product,
+                vulnerability_name,
+                short_description,
+                notes,
+                cwes_json,
+                now,
+            ),
+        )
+
+
+def get_kev_details(cve_id: str) -> dict | None:
+    """Fetch CISA KEV full record. Returns None when the CVE is not in the KEV
+    catalog or the kev_details row is missing (sync race / partial write).
+
+    Uses INNER JOIN to require both rows; agents that get a 200 can trust the
+    response is fully populated for the fields CISA emits.
+    """
+    with get_cve_db() as con:
+        cur = con.cursor()
+        cur.row_factory = sqlite3.Row
+        row = cur.execute(
+            """
+            SELECT c.cve_id, c.in_kev, c.kev_date_added,
+                   k.due_date, k.required_action, k.known_ransomware_use,
+                   k.vendor_project, k.product, k.vulnerability_name,
+                   k.short_description, k.notes, k.cwes
+            FROM cves c
+            INNER JOIN kev_details k ON k.cve_id = c.cve_id
+            WHERE c.cve_id = ? AND c.in_kev = 1
+            """,
+            (cve_id,),
+        ).fetchone()
+
+    if row is None:
+        return None
+
+    cwes_raw = row["cwes"]
+    cwes: list[str] = []
+    if cwes_raw:
+        try:
+            decoded = json.loads(cwes_raw)
+            if isinstance(decoded, list):
+                cwes = [str(c) for c in decoded if c]
+        except (json.JSONDecodeError, TypeError):
+            cwes = []
+
+    return {
+        "cve_id": row["cve_id"],
+        "in_kev": True,
+        "date_added": row["kev_date_added"],
+        "due_date": row["due_date"],
+        "required_action": row["required_action"],
+        "known_ransomware_use": bool(row["known_ransomware_use"]) if row["known_ransomware_use"] is not None else False,
+        "vendor_project": row["vendor_project"],
+        "product": row["product"],
+        "vulnerability_name": row["vulnerability_name"],
+        "short_description": row["short_description"],
+        "notes": row["notes"],
+        "cwes": cwes,
+    }
 
 
 def upsert_cve_if_absent(cve_data: dict) -> bool:

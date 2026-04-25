@@ -12,6 +12,7 @@ from db import (
     get_cached_domain,
     get_cve,
     get_cve_sources,
+    get_kev_details,
     get_last_successful_sync,
     get_leading_cves,
     get_related_cves_by_product,
@@ -27,6 +28,8 @@ from schemas import (
     CveSearchResponse,
     Exploit,
     ExploitResponse,
+    KevDetailResponse,
+    PivotHint,
     Verdict,
 )
 from validation import is_valid_ip, validate_cve_id
@@ -177,6 +180,78 @@ def cve_lookup(
         sources_for_verdict = ["nvd_cache"]
     formatted["verdict"] = _cve_verdict(sources=sources_for_verdict, completeness=completeness)
     return formatted
+
+
+def _kev_pivot_hints(record: dict) -> list[PivotHint]:
+    """Build the suggested-next-call list for a KEV detail response.
+
+    Order matters: agents tend to follow the array head-first, so we surface the
+    most actionable pivot (full CVE detail) before the per-CWE category lookups.
+    """
+    cve_id = record["cve_id"]
+    hints: list[PivotHint] = [
+        PivotHint(
+            tool="cve_lookup",
+            input=cve_id,
+            reason="Full CVE details: CVSS vector, EPSS probability, affected products, references, patch URL.",
+        ),
+        PivotHint(
+            tool="exploit_lookup",
+            input=cve_id,
+            reason="Public exploits / PoC availability (GitHub Advisory + ExploitDB).",
+        ),
+    ]
+    for cwe_id in record.get("cwes") or []:
+        if not cwe_id or not str(cwe_id).startswith("CWE-"):
+            continue
+        hints.append(
+            PivotHint(
+                tool="cwe_lookup",
+                input=cwe_id,
+                reason=f"Weakness category for {cwe_id}: description, mitigations, parent/child chain.",
+            )
+        )
+    return hints
+
+
+@router.get(
+    "/kev/{cve_id}",
+    operation_id="kev_detail",
+    response_model=KevDetailResponse,
+    response_model_exclude_none=True,
+)
+def kev_detail(
+    cve_id: Annotated[
+        str,
+        Path(
+            description=(
+                "CVE identifier in canonical form 'CVE-YYYY-NNNN+' (case-insensitive; normalized "
+                "server-side). Returns 404 when the CVE is not in the CISA KEV catalog — use "
+                "cve_lookup for non-KEV CVEs."
+            ),
+        ),
+    ],
+    request: Request,
+):
+    """Look up CISA KEV (Known Exploited Vulnerabilities) full record for a CVE.
+
+    Returns federal patch deadline (due_date), CISA-specified remediation
+    (required_action), known ransomware association, vendor/product, common
+    vulnerability name (e.g. 'Log4Shell'), and CISA-reported CWE list. 404 when
+    the CVE is not in the KEV catalog; use cve_lookup for non-KEV CVEs.
+    """
+    cve_id = cve_id.strip().upper()
+    _check_cve_input(cve_id)
+
+    authenticate(request, request.url.path)
+
+    record = get_kev_details(cve_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail=f"{cve_id} is not in the CISA KEV catalog")
+
+    record["verdict"] = _cve_verdict(sources=["cisa_kev_cache"], completeness="complete")
+    record["next_calls"] = _kev_pivot_hints(record)
+    return record
 
 
 @router.get("/cves", operation_id="cve_search", response_model=CveSearchResponse, response_model_exclude_none=True)

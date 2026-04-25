@@ -49,6 +49,7 @@ from db import (
     upsert_cve,
     upsert_cve_if_absent,
     upsert_exploits,
+    upsert_kev_details,
 )
 from validation import validate_cve_id
 
@@ -901,7 +902,10 @@ def sync_epss() -> int:
 
 
 def sync_kev() -> int:
-    """Sync CISA Known Exploited Vulnerabilities. Returns count updated."""
+    """Sync CISA Known Exploited Vulnerabilities. Returns count updated.
+
+    Writes the boolean flag + date to cves and the full record to kev_details.
+    """
     log.info("KEV sync starting...")
     update_sync_status("kev", 0, "in_progress")
     count = 0
@@ -917,17 +921,37 @@ def sync_kev() -> int:
                 continue
 
             date_added = vuln.get("dateAdded")
+            short_description = vuln.get("shortDescription")
+
             # Try targeted UPDATE first; create minimal entry only if CVE not in DB
             if not update_kev(cve_id, date_added):
                 upsert_cve(
                     {
                         "cve_id": cve_id,
-                        "description": vuln.get("shortDescription"),
+                        "description": short_description,
                         "in_kev": 1,
                         "kev_date_added": date_added,
-                        "summary": f"CISA KEV: {vuln.get('shortDescription', cve_id)}",
+                        "summary": f"CISA KEV: {short_description or cve_id}",
                     }
                 )
+
+            ransomware_raw = (vuln.get("knownRansomwareCampaignUse") or "").strip().lower()
+            cwes = vuln.get("cwes") or []
+            if not isinstance(cwes, list):
+                cwes = []
+
+            upsert_kev_details(
+                cve_id,
+                due_date=vuln.get("dueDate"),
+                required_action=vuln.get("requiredAction"),
+                known_ransomware_use=(ransomware_raw == "known"),
+                vendor_project=vuln.get("vendorProject"),
+                product=vuln.get("product"),
+                vulnerability_name=vuln.get("vulnerabilityName"),
+                short_description=short_description,
+                notes=vuln.get("notes"),
+                cwes=[str(c) for c in cwes if c],
+            )
             count += 1
 
     except Exception as e:

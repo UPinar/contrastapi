@@ -852,6 +852,46 @@ class BulkDomainResponse(BaseModel):
     summary: str = ""
 
 
+# === Pivot hints (agent workflow chains) ===
+
+
+class PivotHint(BaseModel):
+    """A suggested follow-up MCP tool call. Surfaced inside response.next_calls so
+    LLM agents can chain related lookups without manual prompting. Each hint names
+    the tool, the input value to pass, and a short reason explaining why this
+    pivot adds value in the current context."""
+
+    model_config = {"extra": "allow"}
+
+    tool: Literal[
+        "cve_lookup",
+        "cve_search",
+        "cve_leading",
+        "bulk_cve_lookup",
+        "exploit_lookup",
+        "kev_detail",
+        "cwe_lookup",
+    ] = Field(
+        description=(
+            "Canonical MCP tool name to call next. Constrained to known operation_ids in "
+            "tools/list — adding a new tool here requires expanding the Literal."
+        ),
+    )
+    input: str = Field(
+        description=(
+            "Suggested input value to pass to the tool — typically a CVE ID, CWE ID, "
+            "domain, or IP. Pre-populated from the current response so the agent can "
+            "call the next tool without re-deriving the argument."
+        ),
+    )
+    reason: str = Field(
+        description=(
+            "Short rationale (one sentence) for why this follow-up call adds value, "
+            "e.g. 'Federal patch deadline + ransomware association', 'Public exploits / PoC availability'."
+        ),
+    )
+
+
 # === Verdict ===
 
 
@@ -926,6 +966,89 @@ class KevInfo(BaseModel):
     date_added: str | None = Field(
         default=None,
         description="ISO 8601 date this CVE was added to CISA's Known Exploited Vulnerabilities catalog.",
+    )
+
+
+class KevDetailResponse(BaseModel):
+    """Full CISA KEV catalog record for a single CVE.
+
+    Text fields (required_action, notes, vulnerability_name, short_description) are
+    sourced verbatim from CISA's official feed and JSON-encoded — safe for
+    JSON consumers, but downstream callers that render into HTML must apply their
+    own escaping.
+
+    `extra="allow"` is set for forward-compat (Tier 2 audit pattern, Session 171).
+    Only PivotHint objects in `next_calls` and CISA-sourced DB columns appear in extras.
+    """
+
+    model_config = {"extra": "allow"}
+
+    cve_id: str = Field(description="Canonical CVE identifier, e.g. 'CVE-2021-44228'.")
+    in_kev: bool = Field(
+        default=True,
+        description="Always True for this endpoint — 404 is returned when the CVE is not in the KEV catalog.",
+    )
+    date_added: str | None = Field(
+        default=None,
+        description="ISO 8601 date CISA added this CVE to the Known Exploited Vulnerabilities catalog.",
+    )
+    due_date: str | None = Field(
+        default=None,
+        description=(
+            "Federal patch deadline (ISO 8601). Null for older entries from before CISA enforced "
+            "remediation due dates (BOD 22-01, Nov 2021)."
+        ),
+    )
+    required_action: str | None = Field(
+        default=None,
+        description="CISA-specified remediation action text, e.g. 'Apply updates per vendor instructions'.",
+    )
+    known_ransomware_use: bool = Field(
+        default=False,
+        description=(
+            "True when CISA has linked this CVE to a known ransomware campaign. "
+            "Derived from CISA's 'knownRansomwareCampaignUse=Known' field."
+        ),
+    )
+    vendor_project: str | None = Field(
+        default=None,
+        description="Vendor or project name as published by CISA, e.g. 'Apache', 'Microsoft', 'Atlassian'.",
+    )
+    product: str | None = Field(
+        default=None,
+        description="Affected product name as published by CISA, e.g. 'Log4j2', 'Exchange Server'.",
+    )
+    vulnerability_name: str | None = Field(
+        default=None,
+        description="Short common name of the vulnerability when one is assigned, e.g. 'Log4Shell', 'ProxyShell'.",
+    )
+    short_description: str | None = Field(
+        default=None,
+        description="CISA's one-sentence summary of the vulnerability.",
+    )
+    notes: str | None = Field(
+        default=None,
+        description="Reference URLs published by CISA, separated by '; '.",
+    )
+    cwes: list[str] = Field(
+        default_factory=list,
+        max_length=100,
+        description=(
+            "CWE identifiers CISA reports for this CVE. May differ from the NVD-assigned CWE. "
+            "Call cwe_lookup with each entry to fetch weakness category, mitigations, and parent/child chain."
+        ),
+    )
+    verdict: Verdict | None = Field(
+        default=None,
+        description="Provenance + completeness metadata for this response.",
+    )
+    next_calls: list[PivotHint] | None = Field(
+        default=None,
+        description=(
+            "Suggested follow-up MCP tool calls based on this KEV record. Typical chain: "
+            "cve_lookup for full CVE details, cwe_lookup for each entry in cwes, "
+            "exploit_lookup for public PoC availability."
+        ),
     )
 
 

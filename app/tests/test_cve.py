@@ -872,6 +872,232 @@ class TestSyncKev:
         assert cve is not None
         assert cve["in_kev"] == 1
 
+    @patch("cve.sync._client")
+    def test_kev_sync_writes_full_details(self, mock_client):
+        """sync_kev() must populate kev_details with all CISA fields."""
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "vulnerabilities": [
+                {
+                    "cveID": "CVE-2021-44228",
+                    "vendorProject": "Apache",
+                    "product": "Log4j2",
+                    "vulnerabilityName": "Log4Shell",
+                    "dateAdded": "2021-12-10",
+                    "shortDescription": "Apache Log4j2 JNDI features used in configuration...",
+                    "requiredAction": "Apply updates per vendor instructions.",
+                    "dueDate": "2021-12-24",
+                    "knownRansomwareCampaignUse": "Known",
+                    "notes": "https://logging.apache.org/log4j/2.x/security.html;",
+                    "cwes": ["CWE-20", "CWE-400", "CWE-502"],
+                }
+            ]
+        }
+        mock_resp.raise_for_status.return_value = None
+        mock_client.get.return_value = mock_resp
+
+        from cve.sync import sync_kev
+        from db import get_kev_details
+
+        count = sync_kev()
+        assert count == 1
+
+        details = get_kev_details("CVE-2021-44228")
+        assert details is not None
+        assert details["in_kev"] is True
+        assert details["date_added"] == "2021-12-10"
+        assert details["due_date"] == "2021-12-24"
+        assert details["required_action"].startswith("Apply updates")
+        assert details["known_ransomware_use"] is True
+        assert details["vendor_project"] == "Apache"
+        assert details["product"] == "Log4j2"
+        assert details["vulnerability_name"] == "Log4Shell"
+        assert details["short_description"].startswith("Apache Log4j2")
+        assert details["notes"].startswith("https://logging.apache.org")
+        assert details["cwes"] == ["CWE-20", "CWE-400", "CWE-502"]
+
+    @patch("cve.sync._client")
+    def test_kev_sync_ransomware_unknown_treated_false(self, mock_client):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "vulnerabilities": [
+                {
+                    "cveID": "CVE-2024-9999",
+                    "dateAdded": "2024-09-09",
+                    "knownRansomwareCampaignUse": "Unknown",
+                }
+            ]
+        }
+        mock_resp.raise_for_status.return_value = None
+        mock_client.get.return_value = mock_resp
+
+        from cve.sync import sync_kev
+        from db import get_cve, get_kev_details
+
+        sync_kev()
+        # cves row + kev_details row must both be populated after sync
+        assert get_cve("CVE-2024-9999") is not None
+        details = get_kev_details("CVE-2024-9999")
+        assert details is not None
+        assert details["known_ransomware_use"] is False
+
+    @patch("cve.sync._client")
+    def test_kev_sync_creates_minimal_cve_when_absent(self, mock_client):
+        """update_kev() returns False for unknown CVE -> upsert_cve() seeds minimal row,
+        and kev_details upsert still runs."""
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "vulnerabilities": [
+                {
+                    "cveID": "CVE-2099-12345",
+                    "shortDescription": "Hypothetical exploited vuln.",
+                    "dateAdded": "2099-01-01",
+                    "vendorProject": "Acme",
+                    "product": "Widget",
+                    "cwes": ["CWE-89"],
+                }
+            ]
+        }
+        mock_resp.raise_for_status.return_value = None
+        mock_client.get.return_value = mock_resp
+
+        from cve.sync import sync_kev
+        from db import get_cve, get_kev_details
+
+        sync_kev()
+        cve = get_cve("CVE-2099-12345")
+        assert cve is not None
+        assert cve["in_kev"] == 1
+        details = get_kev_details("CVE-2099-12345")
+        assert details is not None
+        assert details["vendor_project"] == "Acme"
+        assert details["product"] == "Widget"
+
+    @patch("cve.sync._client")
+    def test_kev_sync_cwes_match_canonical_pattern(self, mock_client):
+        """Defensive: written CWE entries should match canonical CWE-<n> pattern."""
+        import re
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "vulnerabilities": [
+                {
+                    "cveID": "CVE-2024-3030",
+                    "dateAdded": "2024-03-01",
+                    "cwes": ["CWE-79", "CWE-352"],
+                }
+            ]
+        }
+        mock_resp.raise_for_status.return_value = None
+        mock_client.get.return_value = mock_resp
+
+        from cve.sync import sync_kev
+        from db import get_kev_details
+
+        sync_kev()
+        details = get_kev_details("CVE-2024-3030")
+        assert details is not None
+        for cwe_id in details["cwes"]:
+            assert re.fullmatch(r"CWE-\d+", cwe_id), f"unexpected cwe value: {cwe_id!r}"
+
+
+class TestKevDetailEndpoint:
+    def _seed_kev(self, cve_id: str = "CVE-2021-44228", **detail_overrides):
+        """Helper: seed cves.in_kev=1 plus a kev_details row."""
+        from db import upsert_kev_details
+
+        _seed_cve(cve_id=cve_id, in_kev=1, kev_date_added="2021-12-10")
+        details = {
+            "due_date": "2021-12-24",
+            "required_action": "Apply updates per vendor instructions.",
+            "known_ransomware_use": True,
+            "vendor_project": "Apache",
+            "product": "Log4j2",
+            "vulnerability_name": "Log4Shell",
+            "short_description": "Apache Log4j2 JNDI features...",
+            "notes": "https://logging.apache.org/log4j/2.x/security.html",
+            "cwes": ["CWE-20", "CWE-400", "CWE-502"],
+        }
+        details.update(detail_overrides)
+        upsert_kev_details(cve_id, **details)
+
+    def test_kev_detail_200(self):
+        self._seed_kev()
+        r = client.get("/v1/kev/CVE-2021-44228")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["cve_id"] == "CVE-2021-44228"
+        assert data["in_kev"] is True
+        assert data["date_added"] == "2021-12-10"
+        assert data["due_date"] == "2021-12-24"
+        assert data["known_ransomware_use"] is True
+        assert data["vendor_project"] == "Apache"
+        assert data["product"] == "Log4j2"
+        assert data["vulnerability_name"] == "Log4Shell"
+        assert data["cwes"] == ["CWE-20", "CWE-400", "CWE-502"]
+
+    def test_kev_detail_case_insensitive(self):
+        self._seed_kev()
+        r = client.get("/v1/kev/cve-2021-44228")
+        assert r.status_code == 200
+        assert r.json()["cve_id"] == "CVE-2021-44228"
+
+    def test_kev_detail_404_non_kev(self):
+        _seed_cve(cve_id="CVE-2024-7777", in_kev=0)
+        r = client.get("/v1/kev/CVE-2024-7777")
+        assert r.status_code == 404
+        assert "KEV" in r.json()["error"]
+
+    def test_kev_detail_404_unknown_cve(self):
+        r = client.get("/v1/kev/CVE-2099-99999")
+        assert r.status_code == 404
+
+    def test_kev_detail_400_invalid_format(self):
+        r = client.get("/v1/kev/not-a-cve")
+        assert r.status_code in (400, 404, 422)
+
+    def test_kev_detail_verdict_block(self):
+        self._seed_kev()
+        r = client.get("/v1/kev/CVE-2021-44228")
+        verdict = r.json()["verdict"]
+        assert verdict["deterministic"] is True
+        assert "cisa_kev_cache" in verdict["sources_queried"]
+        assert verdict["completeness"] == "complete"
+
+    def test_kev_detail_next_calls_chain(self):
+        """next_calls must surface cve_lookup + exploit_lookup + cwe_lookup per CWE."""
+        self._seed_kev()
+        r = client.get("/v1/kev/CVE-2021-44228")
+        next_calls = r.json()["next_calls"]
+        tools = [hint["tool"] for hint in next_calls]
+        assert "cve_lookup" in tools
+        assert "exploit_lookup" in tools
+        # one cwe_lookup per CWE in the seed (3 entries)
+        cwe_hints = [hint for hint in next_calls if hint["tool"] == "cwe_lookup"]
+        assert len(cwe_hints) == 3
+        assert {hint["input"] for hint in cwe_hints} == {"CWE-20", "CWE-400", "CWE-502"}
+        # cve_lookup pivot first
+        assert next_calls[0]["tool"] == "cve_lookup"
+        assert next_calls[0]["input"] == "CVE-2021-44228"
+
+    def test_kev_detail_no_cwes_omits_cwe_pivots(self):
+        self._seed_kev(cwes=[])
+        r = client.get("/v1/kev/CVE-2021-44228")
+        next_calls = r.json()["next_calls"]
+        assert all(hint["tool"] != "cwe_lookup" for hint in next_calls)
+
+    def test_kev_detail_null_due_date_legacy(self):
+        """Older KEV entries (pre-BOD 22-01) may not have a due_date."""
+        self._seed_kev(due_date=None)
+        r = client.get("/v1/kev/CVE-2021-44228")
+        assert r.status_code == 200
+        # exclude_none drops null fields
+        assert "due_date" not in r.json()
+
 
 # =========== OpenAPI spec ===========
 
