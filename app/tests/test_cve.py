@@ -1601,6 +1601,55 @@ class TestCweLookupEndpoint:
         assert len(next_calls) == 1
         assert next_calls[0]["tool"] == "cve_search"
 
+    def test_cwe_lookup_slim_default_drops_extended_and_caps_lists(self):
+        """Default response: extended_description absent, mitigations + examples capped at 3 with honest totals."""
+        many_mitigations = [f"Phase {i} — mitigation body {i}" for i in range(10)]
+        many_examples = [f"CVE-2024-{i:04d}: example {i}" for i in range(8)]
+        self._seed_cwe(cwe_id="CWE-1011", mitigations=many_mitigations, examples=many_examples)
+        r = client.get("/v1/cwe/CWE-1011")
+        assert r.status_code == 200
+        data = r.json()
+        assert "extended_description" not in data
+        assert len(data["mitigations"]) == 3
+        assert len(data["examples"]) == 3
+        assert data["total_mitigations"] == 10
+        assert data["total_examples"] == 8
+        assert data["mitigations"][0] == "Phase 0 — mitigation body 0"
+
+    def test_cwe_lookup_include_full_restores_everything(self):
+        """include=full returns extended_description and full mitigations + examples lists."""
+        many_mitigations = [f"Phase {i} — body {i}" for i in range(10)]
+        many_examples = [f"CVE-2024-{i:04d}: ex {i}" for i in range(8)]
+        self._seed_cwe(cwe_id="CWE-1012", mitigations=many_mitigations, examples=many_examples)
+        r = client.get("/v1/cwe/CWE-1012?include=full")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["extended_description"] == "Cross-site scripting vulnerabilities occur when an attacker injects."
+        assert len(data["mitigations"]) == 10
+        assert len(data["examples"]) == 8
+        assert data["total_mitigations"] == 10
+        assert data["total_examples"] == 8
+
+    def test_cwe_lookup_short_lists_not_truncated(self):
+        """When lists are already smaller than the default cap, slim returns them in full."""
+        self._seed_cwe(
+            cwe_id="CWE-1013",
+            mitigations=["only one"],
+            examples=["CVE-2024-0001: only one"],
+        )
+        r = client.get("/v1/cwe/CWE-1013")
+        data = r.json()
+        assert len(data["mitigations"]) == 1
+        assert len(data["examples"]) == 1
+        assert data["total_mitigations"] == 1
+        assert data["total_examples"] == 1
+
+    def test_cwe_lookup_include_invalid_value_rejected(self):
+        """include must be 'full' or omitted; arbitrary strings reject with 400."""
+        r = client.get("/v1/cwe/CWE-79?include=verbose")
+        assert r.status_code == 400
+        assert "include" in r.json()["error"].lower()
+
 
 # =========== OpenAPI spec ===========
 

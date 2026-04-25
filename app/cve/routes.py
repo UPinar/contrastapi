@@ -52,6 +52,13 @@ MAX_AFFECTED_PRODUCTS_DEFAULT = 20
 # first handful for triage. Full list is available via ?include_full_references=true.
 MAX_REFERENCES_DEFAULT = 10
 
+# cwe_lookup slim defaults. CWE-79 ships 12 mitigations of 500-1000 chars each
+# (~10 KB) and 12+ example CVEs — both blow MCP context. Slim default returns
+# first 3 of each + honest total_* counts; ?include=full restores the full lists
+# and extended_description.
+MAX_CWE_MITIGATIONS_DEFAULT = 3
+MAX_CWE_EXAMPLES_DEFAULT = 3
+
 _exploit_client = httpx.Client(timeout=httpx.Timeout(5.0, connect=3.0), follow_redirects=True)
 
 _DATE_RE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
@@ -416,6 +423,27 @@ def _cwe_pivot_hints(record: dict, cve_count: int) -> list[PivotHint]:
     return hints
 
 
+def _format_cwe_slim(record: dict) -> dict:
+    """Return a shallow copy of a CWE record with verbose fields capped.
+
+    Drops extended_description; truncates mitigations to MAX_CWE_MITIGATIONS_DEFAULT
+    and examples to MAX_CWE_EXAMPLES_DEFAULT. total_mitigations / total_examples are
+    always emitted with honest pre-truncation counts so agents can decide whether to
+    refetch with include=full.
+    """
+    out = dict(record)
+    mitigations = out.get("mitigations") or []
+    examples = out.get("examples") or []
+    out["total_mitigations"] = len(mitigations)
+    out["total_examples"] = len(examples)
+    out.pop("extended_description", None)
+    if len(mitigations) > MAX_CWE_MITIGATIONS_DEFAULT:
+        out["mitigations"] = mitigations[:MAX_CWE_MITIGATIONS_DEFAULT]
+    if len(examples) > MAX_CWE_EXAMPLES_DEFAULT:
+        out["examples"] = examples[:MAX_CWE_EXAMPLES_DEFAULT]
+    return out
+
+
 @router.get(
     "/cwe/{cwe_id}",
     operation_id="cwe_lookup",
@@ -434,6 +462,17 @@ def cwe_lookup(
         ),
     ],
     request: Request,
+    include: Annotated[
+        str | None,
+        Query(
+            description=(
+                f"Detail level. Default returns slim record (first {MAX_CWE_MITIGATIONS_DEFAULT} "
+                f"mitigations, first {MAX_CWE_EXAMPLES_DEFAULT} examples, no extended_description). "
+                "total_mitigations / total_examples are always honest pre-truncation counts. "
+                "Pass include=full to restore extended_description and the full mitigations + examples lists."
+            ),
+        ),
+    ] = None,
 ):
     """Look up a MITRE CWE (Common Weakness Enumeration) catalog record.
 
@@ -445,6 +484,9 @@ def cwe_lookup(
 
     authenticate(request, request.url.path)
 
+    if include not in (None, "", "full"):
+        raise HTTPException(status_code=400, detail="include must be 'full' (omit for slim default)")
+
     record = get_cwe(normalized)
     if record is None:
         raise HTTPException(
@@ -455,7 +497,12 @@ def cwe_lookup(
     record["cve_count"] = cve_count
     record["verdict"] = _cve_verdict(sources=["mitre_cwe_cache"], completeness="complete")
     record["next_calls"] = _cwe_pivot_hints(record, cve_count)
-    return record
+
+    if include == "full":
+        record["total_mitigations"] = len(record.get("mitigations") or [])
+        record["total_examples"] = len(record.get("examples") or [])
+        return record
+    return _format_cwe_slim(record)
 
 
 @router.get("/cves", operation_id="cve_search", response_model=CveSearchResponse, response_model_exclude_none=True)

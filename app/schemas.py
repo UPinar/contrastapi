@@ -1171,6 +1171,22 @@ class CweLookupResponse(BaseModel):
             "only the primary. Use cve_search?cwe=<id> for the actual list."
         ),
     )
+    total_mitigations: int | None = Field(
+        default=None,
+        description=(
+            "Honest pre-truncation count of mitigation entries from MITRE. "
+            "When the slim default is used, mitigations is capped to the first 3 — "
+            "compare to total_mitigations to decide whether to refetch with include=full."
+        ),
+    )
+    total_examples: int | None = Field(
+        default=None,
+        description=(
+            "Honest pre-truncation count of example CVEs from MITRE. "
+            "When the slim default is used, examples is capped to the first 3 — "
+            "compare to total_examples to decide whether to refetch with include=full."
+        ),
+    )
     updated_at: str | None = Field(
         default=None,
         description="ISO 8601 timestamp of the last sync from MITRE's CSV catalog.",

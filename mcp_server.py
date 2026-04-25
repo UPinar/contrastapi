@@ -736,11 +736,21 @@ async def cwe_lookup(
             description="CWE identifier — accepts 'CWE-79', 'cwe-79', or bare '79'. Common values: CWE-79 (XSS), CWE-89 (SQL injection), CWE-78 (command injection), CWE-502 (deserialization), CWE-22 (path traversal), CWE-120 (buffer overflow)."
         ),
     ],
+    include: Annotated[
+        str,
+        Field(
+            description="Detail level. Default ('') returns slim record (first 3 mitigations, first 3 examples, no extended_description). total_mitigations / total_examples are always honest pre-truncation counts. Pass 'full' to restore extended_description and the full mitigations + examples lists.",
+            json_schema_extra={"enum": ["", "full"]},
+        ),
+    ] = "",
 ) -> str:
-    """Look up MITRE CWE (Common Weakness Enumeration) catalog record from research view 1000. Returns description, abstract type (Pillar/Class/Base/Variant/Compound), status (Stable/Draft/Incomplete/Deprecated), exploit likelihood, recommended mitigations, observed example CVEs, parent_cwe (walk up the hierarchy), child_cwes (drill down to more specific weaknesses), and cve_count (LOWER BOUND — counts only CVEs whose primary CWE matches; CVEs with multiple CWEs may not be counted). Use after cve_lookup or kev_detail to understand the underlying weakness category; chain with cve_search(cwe_id=...) to enumerate all matching CVEs. Returns 404 when the CWE is not in research view 1000. Free: 100/hr, Pro: 1000/hr. Returns {cwe_id, name, description, extended_description, abstract_type, status, likelihood, mitigations, examples, parent_cwe, child_cwes, cve_count, updated_at, verdict, next_calls}."""
+    """Look up MITRE CWE (Common Weakness Enumeration) catalog record from research view 1000. Default response is SLIM (first 3 mitigations, first 3 examples, no extended_description) — pass include='full' for the verbose record. Returns description, abstract type (Pillar/Class/Base/Variant/Compound), status (Stable/Draft/Incomplete/Deprecated), exploit likelihood, recommended mitigations, observed example CVEs, parent_cwe (walk up the hierarchy), child_cwes (drill down to more specific weaknesses), and cve_count (LOWER BOUND — counts only CVEs whose primary CWE matches; CVEs with multiple CWEs may not be counted). Use after cve_lookup or kev_detail to understand the underlying weakness category; chain with cve_search(cwe_id=...) to enumerate all matching CVEs. Returns 404 when the CWE is not in research view 1000. Free: 100/hr, Pro: 1000/hr. Returns {cwe_id, name, description, abstract_type, status, likelihood, mitigations (first 3 by default), total_mitigations, examples (first 3 by default), total_examples, parent_cwe, child_cwes, cve_count, updated_at, verdict, next_calls; +extended_description on include='full'}."""
     if err := _validate_cwe(cwe_id):
         return err
-    return _fmt(await _get(f"/v1/cwe/{cwe_id}"))
+    if include not in ("", "full"):
+        return f"Invalid include: {include!r}. Use '' (slim default) or 'full'."
+    params = {"include": "full"} if include == "full" else None
+    return _fmt(await _get(f"/v1/cwe/{cwe_id}", params=params))
 
 
 # === Threat Intelligence / IOC ===
