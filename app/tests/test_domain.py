@@ -1197,6 +1197,73 @@ class TestDomainScoring:
         assert len(result["factors"]) == 9
         assert all("name" in f and "score" in f and "max" in f for f in result["factors"])
 
+    def test_ct_fetch_failure_excludes_factor_from_max(self):
+        """When crt.sh upstream fails, CT factor max=0 so domain isn't penalized."""
+        from domain.scoring import score_domain
+
+        report = {
+            "ssl": {"grade": "A"},
+            "email_security": {"spf": "v=spf1 -all", "dmarc": "v=DMARC1; p=reject", "dkim_selectors": ["google"]},
+            "waf": {"waf_present": False},
+            "dns": {"ns": ["a.ns"], "mx": [{"host": "m"}], "a": ["1.2.3.4"]},
+            "whois": {"registrar": "MarkMonitor", "creation_date": "2007-01-01"},
+            "subdomains": {"count": 6},
+            "certificates": {"total_certificates": 0, "certificates": [], "error": "crt_sh_timeout"},
+        }
+        result = score_domain(report)
+        ct_factor = next(f for f in result["factors"] if f["name"] == "Certificate Transparency")
+        assert ct_factor["max"] == 0, "CT factor must be excluded from max when fetch fails"
+        assert "CT logs unavailable" in ct_factor["detail"]
+        assert "crt_sh_timeout" in ct_factor["detail"]
+        # max_score drops from 100 to 90 (CT 10pt removed)
+        assert result["max_score"] == 90
+        # Domain with everything else ok should NOT be penalized for our outage
+        assert result["grade"] in ("A", "B"), f"got {result['grade']} score={result['score']}/{result['max_score']}"
+
+    def test_ct_zero_certs_when_fetch_succeeded_still_penalizes(self):
+        """When crt.sh fetch succeeds but returns 0 certs, CT factor still counts (0/10)."""
+        from domain.scoring import score_domain
+
+        report = {
+            "ssl": {"grade": "A"},
+            "email_security": {"spf": "v=spf1"},
+            "waf": {"waf_present": False},
+            "dns": {"a": ["1.2.3.4"]},
+            "whois": {},
+            "subdomains": {"count": 3},
+            "certificates": {"total_certificates": 0, "certificates": [], "error": None},
+        }
+        result = score_domain(report)
+        ct_factor = next(f for f in result["factors"] if f["name"] == "Certificate Transparency")
+        assert ct_factor["max"] == 10
+        assert ct_factor["detail"] == "No CT log entries"
+        assert result["max_score"] == 100
+
+
+class TestCtLogsErrorPropagation:
+    """check_ct_logs surfaces _fetch_crtsh errors so the scorer can detect them."""
+
+    def test_check_ct_logs_propagates_timeout(self):
+        from unittest.mock import patch
+
+        from domain.recon import check_ct_logs
+
+        with patch("domain.recon._fetch_crtsh", return_value=([], "crt_sh_timeout")):
+            result = check_ct_logs("example.com")
+        assert result["error"] == "crt_sh_timeout"
+        assert result["total_certificates"] == 0
+
+    def test_check_ct_logs_clears_error_on_success(self):
+        from unittest.mock import patch
+
+        from domain.recon import check_ct_logs
+
+        fake_data = [{"serial_number": "abc", "issuer_name": "X", "common_name": "example.com"}]
+        with patch("domain.recon._fetch_crtsh", return_value=(fake_data, None)):
+            result = check_ct_logs("example.com")
+        assert result["error"] is None
+        assert result["total_certificates"] == 1
+
 
 class TestSslGrade:
     def test_grade_a_tls13(self):

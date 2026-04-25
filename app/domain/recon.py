@@ -393,11 +393,21 @@ def _crtsh_subdomains(domain: str, data: list | None = None) -> tuple[list, list
 
 
 def check_ct_logs(domain: str, crtsh_data: list | None = None) -> dict:
-    """Certificate transparency log lookup via crt.sh."""
+    """Certificate transparency log lookup via crt.sh.
+
+    Returns dict with `error` field populated (e.g. "crt_sh_timeout") when the
+    upstream fetch failed — distinguishes "no certs found" from "fetch failed"
+    so the caller can mark the source unavailable instead of penalizing the
+    domain in scoring.
+    """
+    fetch_error: str | None = None
+    if crtsh_data is None:
+        data, fetch_error = _fetch_crtsh(domain)
+    else:
+        data = crtsh_data
     try:
-        data = crtsh_data if crtsh_data is not None else _fetch_crtsh(domain)[0]
         if not data:
-            return {"total_certificates": 0, "certificates": []}
+            return {"total_certificates": 0, "certificates": [], "error": fetch_error}
 
         certs = []
         seen: set[str] = set()
@@ -418,10 +428,11 @@ def check_ct_logs(domain: str, crtsh_data: list | None = None) -> dict:
         return {
             "total_certificates": len(data),
             "certificates": certs[:CT_MAX_CERTS],
+            "error": None,
         }
     except Exception as e:
-        logger.debug("CT log check failed: %s", type(e).__name__)
-        return {"total_certificates": 0, "certificates": []}
+        logger.debug("CT log parse failed: %s", type(e).__name__)
+        return {"total_certificates": 0, "certificates": [], "error": "parse_error"}
 
 
 # === WAF Detection ===

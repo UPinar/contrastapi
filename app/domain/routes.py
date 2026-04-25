@@ -257,6 +257,9 @@ def _domain_verdict(report: dict, age_seconds: int, lite: bool) -> Verdict:
         threat = report.get("threat", {}) or {}
         if threat.get("urlhaus_status") == "error":
             unavailable.append("urlhaus")
+        certs = report.get("certificates", {}) or {}
+        if certs.get("error"):
+            unavailable.append("ct_logs")
         if "reputation" in report:
             queried.append("reputation")
             # If reputation fetch failed, report["reputation"] is absent — we cannot

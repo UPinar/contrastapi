@@ -145,6 +145,14 @@ class CertificatesInfo(BaseModel):
         default=None,
         description="Up to CT_MAX_CERTS recent unique certs (deduped by serial).",
     )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Populated when the crt.sh fetch failed (e.g. 'crt_sh_timeout', "
+            "'crt_sh_rate_limited', 'crt_sh_unavailable'). Distinguishes 'no certs found' "
+            "from 'fetch failed'; risk_score skips the CT factor when this is set."
+        ),
+    )
 
     model_config = {"extra": "allow"}
 
@@ -217,7 +225,14 @@ class RiskFactor(BaseModel):
 
 class RiskInfo(BaseModel):
     score: int | None = Field(default=None, description="Cumulative risk score (0-100).")
-    max_score: int | None = Field(default=None, description="Maximum achievable score (always 100).")
+    max_score: int | None = Field(
+        default=None,
+        description=(
+            "Maximum achievable score (100 by default; drops by the corresponding factor's max "
+            "when an upstream source fails — e.g. crt.sh timeout excludes the CT factor and "
+            "max_score becomes 90, so grade is computed against the available signals)."
+        ),
+    )
     grade: Literal["A", "B", "C", "D", "F"] | None = Field(default=None, description="Letter grade derived from score.")
     factors: list[RiskFactor] | None = Field(
         default=None, description="Per-factor scoring breakdown (typically 8-9 factors)."

@@ -120,16 +120,29 @@ def score_domain(report: dict) -> dict:
     score += sub_score
     factors.append({"name": "Subdomain Exposure", "score": sub_score, "max": 10, "detail": sub_detail})
 
-    # Certificate transparency (max 10)
+    # Certificate transparency (max 10 when available, 0 when crt.sh fetch failed)
     certs = report.get("certificates", {})
-    cert_count = certs.get("total_certificates", 0)
-    if cert_count > 0:
-        score += 10
+    ct_error = certs.get("error")
+    if ct_error:
+        # Upstream fetch failed — exclude factor from max so the domain isn't penalized
+        # for an outage we caused. max_score is computed dynamically below.
         factors.append(
-            {"name": "Certificate Transparency", "score": 10, "max": 10, "detail": f"{cert_count} certificates logged"}
+            {"name": "Certificate Transparency", "score": 0, "max": 0, "detail": f"CT logs unavailable ({ct_error})"}
         )
     else:
-        factors.append({"name": "Certificate Transparency", "score": 0, "max": 10, "detail": "No CT log entries"})
+        cert_count = certs.get("total_certificates", 0)
+        if cert_count > 0:
+            score += 10
+            factors.append(
+                {
+                    "name": "Certificate Transparency",
+                    "score": 10,
+                    "max": 10,
+                    "detail": f"{cert_count} certificates logged",
+                }
+            )
+        else:
+            factors.append({"name": "Certificate Transparency", "score": 0, "max": 10, "detail": "No CT log entries"})
 
     # Threat intelligence (penalty, max -15)
     threat = report.get("threat", {})
@@ -186,12 +199,19 @@ def score_domain(report: dict) -> dict:
     else:
         factors.append({"name": "IP Reputation", "score": 0, "max": 0, "detail": "Reputation data unavailable"})
 
-    # Grade
-    grade = _score_to_grade(score)
+    # Dynamic max from positive factor caps (penalty factors have max=0, excluded).
+    # Falls to 90 when CT fetch failed; grade is computed from percentage so the
+    # domain isn't penalized for an upstream outage. The `or 100` fallback is
+    # defensive — only triggers if every positive-cap factor flips to max=0
+    # simultaneously (currently impossible: SSL/Email/WAF/DNS/WHOIS/Subdomains
+    # always emit max>0, only CT has a zero-max path).
+    max_score = sum(f["max"] for f in factors if f["max"] > 0) or 100
+    pct = round(score * 100 / max_score)
+    grade = _score_to_grade(pct)
 
     return {
         "score": score,
-        "max_score": 100,
+        "max_score": max_score,
         "grade": grade,
         "factors": factors,
     }
