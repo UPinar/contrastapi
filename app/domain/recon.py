@@ -574,6 +574,11 @@ def check_disposable(email: str, domain: str | None = None) -> dict:
 
 # === Email Security ===
 
+# DKIM tag-list separator: start-of-string, ';', or whitespace before 'p='.
+# Anchors the public-key tag so substrings like '?p=1' (vendor URL) or 'sp=' do
+# not satisfy the content check in _check_dkim.
+_DKIM_PTAG_RE = re.compile(r"(?:^|[;\s])p=")
+
 DKIM_SELECTORS = [
     "default",
     "google",
@@ -676,14 +681,37 @@ def email_security(domain: str, txt_records: list | None = None) -> dict:
     all_selectors = list(DKIM_SELECTORS) + date_selectors
 
     def _check_dkim(selector: str) -> str | None:
+        # Only treat the selector as verified when at least one TXT record at
+        # `{selector}._domainkey.{domain}` actually carries a DKIM-shaped value.
+        # RFC 6376: the public-key tag p= is required; the version tag v=DKIM1
+        # is recommended but not strictly mandatory, so p= alone is enough.
+        # Wildcards, vendor verification strings, and stale records resolve to
+        # something — without this content check they would all be reported as
+        # DKIM verified, which is the bug we are fixing. We also reject
+        # misplaced DMARC/SPF records (which carry their own p= or v= tags) so
+        # they do not slip through the substring match.
         try:
             r = dns.resolver.Resolver()
             r.timeout = 2
             r.lifetime = 3
-            r.resolve(f"{selector}._domainkey.{domain}", "TXT")
-            return selector
+            answers = r.resolve(f"{selector}._domainkey.{domain}", "TXT")
         except dns.exception.DNSException:
             return None
+        for rec in answers:
+            try:
+                value = b"".join(rec.strings).decode("utf-8", errors="replace").lower()
+            except (AttributeError, UnicodeDecodeError):
+                value = str(rec).strip('"').lower()
+            if "v=dmarc1" in value or "v=spf1" in value:
+                continue
+            if "v=dkim1" in value:
+                return selector
+            # Bare p= without a version tag — accept only when surrounded by
+            # tag-list punctuation (start, ';', or whitespace) to avoid matching
+            # query-string fragments like '?p=1' inside vendor verification URLs.
+            if _DKIM_PTAG_RE.search(value):
+                return selector
+        return None
 
     pool = ThreadPoolExecutor(max_workers=10)
     try:

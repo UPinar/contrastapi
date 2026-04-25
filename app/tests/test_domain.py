@@ -1606,14 +1606,16 @@ class TestEmailSecurity:
         # DMARC query returns result
         mock_dmarc = MagicMock()
         mock_dmarc.__iter__ = lambda s: iter([MagicMock(__str__=lambda s: '"v=DMARC1; p=reject"')])
-        # DKIM query returns result for first selector
-        mock_dkim = MagicMock()
+        # DKIM query returns a TXT answer with valid DKIM content (Bug L: content must match)
+        rec_dkim = MagicMock()
+        rec_dkim.strings = [b"v=DKIM1; k=rsa; p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQ"]
+        mock_dkim_answer = [rec_dkim]
 
         def resolve_side_effect(name, rtype):
             if "_dmarc." in name:
                 return mock_dmarc
             if "_domainkey." in name:
-                return mock_dkim
+                return mock_dkim_answer
             raise Exception("unexpected")
 
         mock_resolver.resolve.side_effect = resolve_side_effect
@@ -1660,6 +1662,13 @@ class TestDkimParallelDetection:
         rec.__iter__ = lambda s: iter([MagicMock(__str__=lambda s: '"v=DMARC1; p=reject"')])
         return rec
 
+    @staticmethod
+    def _mock_dkim_answer(txt_value: bytes = b"v=DKIM1; k=rsa; p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQ"):
+        """Mock a TXT answer that passes Bug L's DKIM content validation."""
+        rec = MagicMock()
+        rec.strings = [txt_value]
+        return [rec]
+
     @patch("domain.recon.dns.resolver.Resolver")
     def test_dkim_date_selector_found(self, mock_cls):
         from datetime import datetime, timedelta
@@ -1673,7 +1682,7 @@ class TestDkimParallelDetection:
             if "_dmarc." in name:
                 return self._mock_dmarc()
             if f"{target_selector}._domainkey." in name:
-                return MagicMock()
+                return self._mock_dkim_answer()
             if "_domainkey." in name:
                 raise dns.exception.DNSException("NXDOMAIN")
             raise dns.exception.DNSException("unexpected")
@@ -1695,7 +1704,7 @@ class TestDkimParallelDetection:
             if "_dmarc." in name:
                 return self._mock_dmarc()
             if "google._domainkey." in name:
-                return MagicMock()
+                return self._mock_dkim_answer()
             if "_domainkey." in name:
                 raise dns.exception.DNSException("NXDOMAIN")
             raise dns.exception.DNSException("unexpected")
@@ -1721,7 +1730,7 @@ class TestDkimParallelDetection:
             if "_domainkey." in name:
                 selector = name.split("._domainkey.")[0]
                 if selector in match_selectors:
-                    return MagicMock()
+                    return self._mock_dkim_answer()
                 raise dns.exception.DNSException("NXDOMAIN")
             raise dns.exception.DNSException("unexpected")
 
@@ -1795,7 +1804,7 @@ class TestDkimParallelDetection:
             if "_domainkey." in name:
                 selector = name.split("._domainkey.")[0]
                 if selector in ("default", date_sel):
-                    return MagicMock()
+                    return self._mock_dkim_answer()
                 raise dns.exception.DNSException("NXDOMAIN")
             raise dns.exception.DNSException("unexpected")
 
@@ -1824,6 +1833,12 @@ class TestDkimStatusHonesty:
         rec.__iter__ = lambda s: iter([MagicMock(__str__=lambda s: '"v=DMARC1; p=reject"')])
         return rec
 
+    @staticmethod
+    def _mock_dkim_answer(txt_value: bytes = b"v=DKIM1; k=rsa; p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQ"):
+        rec = MagicMock()
+        rec.strings = [txt_value]
+        return [rec]
+
     @patch("domain.recon.dns.resolver.Resolver")
     def test_dkim_status_verified_when_selector_found(self, mock_cls):
         mock_resolver = MagicMock()
@@ -1833,7 +1848,7 @@ class TestDkimStatusHonesty:
             if "_dmarc." in name:
                 return self._mock_dmarc()
             if "google._domainkey." in name:
-                return MagicMock()
+                return self._mock_dkim_answer()
             if "_domainkey." in name:
                 raise dns.exception.DNSException("NXDOMAIN")
             raise dns.exception.DNSException("unexpected")
@@ -1908,7 +1923,7 @@ class TestDkimStatusHonesty:
             if "_dmarc." in name:
                 raise dns.resolver.NXDOMAIN("no record")
             if "google._domainkey." in name:
-                return MagicMock()
+                return self._mock_dkim_answer()
             if "_domainkey." in name:
                 raise dns.exception.DNSException("NXDOMAIN")
             raise dns.exception.DNSException("unexpected")
@@ -1936,6 +1951,160 @@ class TestDkimStatusHonesty:
         # honest framing: not "no DKIM", but "could not find under probed selectors"
         assert "common selectors" in dkim_msgs[0]
         assert "custom" in dkim_msgs[0].lower()
+
+
+class TestDkimContentValidation:
+    """Bug L: only treat selector as verified when TXT content is DKIM-shaped.
+
+    Pin: a TXT record at `{selector}._domainkey.{domain}` that resolves but
+    carries unrelated content (vendor verification strings, wildcards) must
+    NOT be reported as DKIM verified — only DKIM-shaped values (v=DKIM1 or p=)
+    count.
+    """
+
+    _SPF_TXT = "v=spf1 -all"
+
+    def _mock_dmarc(self):
+        rec = MagicMock()
+        rec.__iter__ = lambda s: iter([MagicMock(__str__=lambda s: '"v=DMARC1; p=reject"')])
+        return rec
+
+    @staticmethod
+    def _mock_txt_answer(txt_value: bytes):
+        rec = MagicMock()
+        rec.strings = [txt_value]
+        return [rec]
+
+    @patch("domain.recon.dns.resolver.Resolver")
+    def test_dkim1_version_tag_counts_as_verified(self, mock_cls):
+        mock_resolver = MagicMock()
+        mock_cls.return_value = mock_resolver
+
+        def side_effect(name, rtype):
+            if "_dmarc." in name:
+                return self._mock_dmarc()
+            if "default._domainkey." in name:
+                return self._mock_txt_answer(b"v=DKIM1; k=rsa; p=MIGfMA0...")
+            raise dns.exception.DNSException("NXDOMAIN")
+
+        mock_resolver.resolve.side_effect = side_effect
+
+        from domain.recon import email_security
+
+        result = email_security("example.com", txt_records=[self._SPF_TXT])
+        assert "default" in result["dkim_selectors"]
+        assert result["dkim_status"] == "verified"
+
+    @patch("domain.recon.dns.resolver.Resolver")
+    def test_p_tag_only_counts_as_verified(self, mock_cls):
+        # Some DKIM records omit the v=DKIM1 tag but still carry the mandatory p= public key
+        mock_resolver = MagicMock()
+        mock_cls.return_value = mock_resolver
+
+        def side_effect(name, rtype):
+            if "_dmarc." in name:
+                return self._mock_dmarc()
+            if "default._domainkey." in name:
+                return self._mock_txt_answer(b"k=rsa; p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQ")
+            raise dns.exception.DNSException("NXDOMAIN")
+
+        mock_resolver.resolve.side_effect = side_effect
+
+        from domain.recon import email_security
+
+        result = email_security("example.com", txt_records=[self._SPF_TXT])
+        assert "default" in result["dkim_selectors"]
+        assert result["dkim_status"] == "verified"
+
+    @patch("domain.recon.dns.resolver.Resolver")
+    def test_unrelated_txt_is_not_verified(self, mock_cls):
+        # A TXT at default._domainkey that is clearly not DKIM (e.g. a vendor
+        # verification string or a stale CNAME-like record) must not count.
+        mock_resolver = MagicMock()
+        mock_cls.return_value = mock_resolver
+
+        def side_effect(name, rtype):
+            if "_dmarc." in name:
+                return self._mock_dmarc()
+            if "_domainkey." in name:
+                # Same unrelated content for every selector — wildcard scenario
+                return self._mock_txt_answer(b"google-site-verification=abc123")
+            raise dns.exception.DNSException("unexpected")
+
+        mock_resolver.resolve.side_effect = side_effect
+
+        from domain.recon import email_security
+
+        result = email_security("example.com", txt_records=[self._SPF_TXT])
+        assert result["dkim_selectors"] == []
+        assert result["dkim_status"] == "unverifiable"
+
+    @patch("domain.recon.dns.resolver.Resolver")
+    def test_misplaced_dmarc_at_domainkey_is_not_verified(self, mock_cls):
+        # If a domain misconfigures and parks a DMARC record at the DKIM name,
+        # the legacy substring check would have matched on 'p=reject'. Reject.
+        mock_resolver = MagicMock()
+        mock_cls.return_value = mock_resolver
+
+        def side_effect(name, rtype):
+            if "_dmarc." in name:
+                return self._mock_dmarc()
+            if "_domainkey." in name:
+                return self._mock_txt_answer(b"v=DMARC1; p=reject; rua=mailto:dmarc@example.com")
+            raise dns.exception.DNSException("unexpected")
+
+        mock_resolver.resolve.side_effect = side_effect
+
+        from domain.recon import email_security
+
+        result = email_security("example.com", txt_records=[self._SPF_TXT])
+        assert result["dkim_selectors"] == []
+        assert result["dkim_status"] == "unverifiable"
+
+    @patch("domain.recon.dns.resolver.Resolver")
+    def test_url_with_p_query_param_is_not_verified(self, mock_cls):
+        # Vendor verification TXT containing '?p=1' must not be matched by the
+        # bare-'p=' branch — the regex requires a tag-list boundary.
+        mock_resolver = MagicMock()
+        mock_cls.return_value = mock_resolver
+
+        def side_effect(name, rtype):
+            if "_dmarc." in name:
+                return self._mock_dmarc()
+            if "_domainkey." in name:
+                return self._mock_txt_answer(b"verification=https://example.com/?p=1")
+            raise dns.exception.DNSException("unexpected")
+
+        mock_resolver.resolve.side_effect = side_effect
+
+        from domain.recon import email_security
+
+        result = email_security("example.com", txt_records=[self._SPF_TXT])
+        assert result["dkim_selectors"] == []
+
+    @patch("domain.recon.dns.resolver.Resolver")
+    def test_mixed_records_only_dkim_counts(self, mock_cls):
+        # Multiple TXT records at the selector — only one is DKIM-shaped
+        mock_resolver = MagicMock()
+        mock_cls.return_value = mock_resolver
+
+        def side_effect(name, rtype):
+            if "_dmarc." in name:
+                return self._mock_dmarc()
+            if "default._domainkey." in name:
+                rec_junk = MagicMock()
+                rec_junk.strings = [b"some-verification-token"]
+                rec_dkim = MagicMock()
+                rec_dkim.strings = [b"v=DKIM1; k=rsa; p=MIGf"]
+                return [rec_junk, rec_dkim]
+            raise dns.exception.DNSException("NXDOMAIN")
+
+        mock_resolver.resolve.side_effect = side_effect
+
+        from domain.recon import email_security
+
+        result = email_security("example.com", txt_records=[self._SPF_TXT])
+        assert "default" in result["dkim_selectors"]
 
 
 class TestOpenApiDomainRoutes:
