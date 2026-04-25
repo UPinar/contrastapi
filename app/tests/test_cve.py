@@ -2096,7 +2096,9 @@ class TestCveLeading:
         record_cve_source("CVE-2026-SRCF1", "mitre")
         record_cve_source("CVE-2026-SRCF1", "ghsa")
 
-        r = client.get("/v1/cve/leading")
+        # first_seen_source is only emitted under ?include=full (slim default drops it
+        # for token efficiency on 50-item lists)
+        r = client.get("/v1/cve/leading?include=full")
         assert r.status_code == 200
         for cve in r.json()["results"]:
             if cve["cve_id"] == "CVE-2026-SRCF1":
@@ -2107,6 +2109,74 @@ class TestCveLeading:
                 break
         else:
             raise AssertionError("CVE-2026-SRCF1 not in leading results")
+
+    def test_leading_slim_default_drops_description_and_references(self):
+        """Default cve_leading list items omit description/cvss_breakdown/affected_products/
+        references/first_seen_source/first_seen_at to avoid 50-item token bloat."""
+        from db import record_cve_source, upsert_cve_if_absent
+
+        upsert_cve_if_absent(
+            {
+                "cve_id": "CVE-2026-SLIM1",
+                "description": "Long description that should be dropped from slim",
+                "severity": "HIGH",
+                "cvss_v3": 8.8,
+                "refs": ["https://example.com/a", "https://example.com/b"],
+                "affected_products": [{"product": "thing", "version_start": "1.0"}],
+            }
+        )
+        record_cve_source("CVE-2026-SLIM1", "mitre")
+
+        r = client.get("/v1/cve/leading")
+        assert r.status_code == 200
+        for cve in r.json()["results"]:
+            if cve["cve_id"] == "CVE-2026-SLIM1":
+                assert "description" not in cve
+                assert "references" not in cve
+                assert "affected_products" not in cve
+                assert "cvss_breakdown" not in cve
+                assert "first_seen_source" not in cve
+                assert "first_seen_at" not in cve
+                # slim still keeps these
+                assert cve.get("severity") == "HIGH"
+                assert "summary" in cve
+                assert "verdict" in cve
+                break
+        else:
+            raise AssertionError("CVE-2026-SLIM1 not in leading results")
+
+    def test_leading_include_full_restores_description_and_references(self):
+        from db import record_cve_source, upsert_cve_if_absent
+
+        upsert_cve_if_absent(
+            {
+                "cve_id": "CVE-2026-FULL1",
+                "description": "Description that should be restored under include=full",
+                "severity": "HIGH",
+                "cvss_v3": 8.8,
+                "refs": ["https://example.com/x"],
+                "affected_products": [{"product": "thing"}],
+            }
+        )
+        record_cve_source("CVE-2026-FULL1", "mitre")
+
+        r = client.get("/v1/cve/leading?include=full")
+        assert r.status_code == 200
+        for cve in r.json()["results"]:
+            if cve["cve_id"] == "CVE-2026-FULL1":
+                assert cve.get("description", "").startswith("Description that should")
+                assert cve.get("references") == ["https://example.com/x"]
+                assert cve.get("affected_products") == [{"product": "thing"}]
+                break
+        else:
+            raise AssertionError("CVE-2026-FULL1 not in leading results")
+
+    def test_leading_invalid_include_value_rejected(self):
+        r = client.get("/v1/cve/leading?include=bogus")
+        assert r.status_code == 400
+        body = r.json()
+        msg = body.get("error") or body.get("detail", "")
+        assert "include must be" in msg
 
 
 def _build_mitre_zip(records: list[dict]) -> bytes:

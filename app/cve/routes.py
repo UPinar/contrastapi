@@ -184,20 +184,34 @@ def cve_leading(
     request: Request,
     limit: int = Query(50, ge=1, le=200, description="Max results per page"),
     offset: int = Query(0, ge=0, le=5000, description="Number of results to skip (for pagination)"),
+    include: str | None = Query(
+        None,
+        description=(
+            "Per-result detail level. Default returns slim list items (cve_id, summary, severity, "
+            "cvss_v3, cwe_id, epss, kev, total_products, published, modified, sources, verdict). "
+            "Pass include=full to also return description, cvss_breakdown, affected_products, "
+            "references, first_seen_source, first_seen_at. Slim default avoids the description/"
+            "summary duplication that bloats 50-item leading lists; for drill-down prefer cve_lookup."
+        ),
+    ),
 ):
     """CVEs indexed from MITRE/GHSA before NVD has enriched them. These are
     vulnerabilities we know about that NVD hasn't published yet — our unique
     early-warning feed."""
     authenticate(request, request.url.path)
 
+    if include not in (None, "", "full"):
+        raise HTTPException(status_code=400, detail="include must be 'full' (omit for slim default)")
+
     results, total = get_leading_cves(limit=limit, offset=offset)
     count = len(results)
     truncated = total > offset + count
     summary = f"{count} leading CVE{'s' if count != 1 else ''} returned, {total} total (indexed before NVD)"
     verdict = _cve_verdict(sources=["mitre_cache", "ghsa_cache"], completeness="complete")
+    formatter = _format_cve if include == "full" else _format_cve_slim
     formatted_results = []
     for row in results:
-        fr = _format_cve(row)
+        fr = formatter(row)
         fr["verdict"] = verdict
         formatted_results.append(fr)
     return {

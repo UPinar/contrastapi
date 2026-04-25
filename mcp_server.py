@@ -683,11 +683,28 @@ async def cve_search(
 async def cve_leading(
     limit: Annotated[int, Field(description="Maximum results to return. Range: 1-200.", ge=1, le=200)] = 50,
     offset: Annotated[int, Field(description="Skip N results for pagination.", ge=0, le=5000)] = 0,
+    include: Annotated[
+        str,
+        Field(
+            description=(
+                "Per-result detail level. Default ('') returns slim list items (cve_id, summary, "
+                "severity, cvss_v3, cwe_id, epss, kev, total_products, published, modified, sources, "
+                "verdict). Pass 'full' to also return description, cvss_breakdown, affected_products, "
+                "references, first_seen_source, first_seen_at. Slim default avoids description/summary "
+                "duplication that bloats 50-item leading lists. Allowed: '' or 'full'."
+            ),
+            json_schema_extra={"enum": ["", "full"]},
+        ),
+    ] = "",
 ) -> str:
-    """List CVEs indexed from MITRE/GHSA BEFORE NVD publication (early-warning, freshest data). Use for threat intelligence on emerging CVEs; use cve_search for published NVD data. Free: 100/hr, Pro: 1000/hr. Returns {count, total, results, sources, first_seen_source}."""
+    """List CVEs indexed from MITRE/GHSA BEFORE NVD publication (early-warning, freshest data). By default each result is slim (no description, no cvss_breakdown, no affected_products list, no references) — pass include='full' for the same payload shape as cve_lookup; for drill-down on a single CVE prefer cve_lookup. Use for threat intelligence on emerging CVEs; use cve_search for published NVD data. Free: 100/hr, Pro: 1000/hr. Returns {count, total, truncated, offset, summary, results}."""
+    if include not in ("", "full"):
+        return "Invalid include. Allowed values: '' (slim default) or 'full'."
     params: dict = {"limit": limit}
     if offset > 0:
         params["offset"] = offset
+    if include == "full":
+        params["include"] = "full"
     return _fmt(await _get("/v1/cve/leading", params))
 
 
