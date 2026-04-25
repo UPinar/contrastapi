@@ -154,11 +154,6 @@ def _format_error(response: httpx.Response) -> str:
         msg = hint.get("message")
         if isinstance(msg, str) and msg:
             parts.append(f" — {msg[:200]}")
-        trial = hint.get("trial")
-        if isinstance(trial, dict):
-            trial_msg = trial.get("message")
-            if isinstance(trial_msg, str) and trial_msg:
-                parts.append(f" ({trial_msg[:200]})")
     return "".join(parts)
 
 
@@ -224,7 +219,7 @@ def _pro_only_hint(data: dict) -> str | None:
     return (
         f"⚠️  {names} enrichment requires a Pro API key. "
         f"Set CONTRASTAPI_API_KEY=cc_... (stdio) or Authorization: Bearer cc_... header (HTTP/SSE). "
-        f"Get a key at https://contrastcyber.com/pricing — or email contact@contrastcyber.com for a 14-day trial."
+        f"Get a key at https://contrastcyber.com/pricing ($7/mo) — or email contact@contrastcyber.com."
     )
 
 

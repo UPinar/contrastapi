@@ -398,12 +398,7 @@ def _upgrade_cta() -> dict:
     return {
         "pro_limit": PRO_HOURLY_LIMIT,
         "url": UPGRADE_URL,
-        "message": f"Designed for automation — unlock {PRO_HOURLY_LIMIT} req/hr with Pro.",
-        "trial": {
-            "duration_days": 14,
-            "contact": "contact@contrastcyber.com",
-            "message": "Researchers and bulk scanners: email contact@contrastcyber.com for a free 14-day trial key.",
-        },
+        "message": f"Designed for automation — unlock {PRO_HOURLY_LIMIT} req/hr with Pro ($7/mo).",
     }
 
 

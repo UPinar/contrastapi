@@ -550,14 +550,12 @@ def test_format_error_surfaces_upgrade_dict():
         {
             "error": "Rate limit",
             "upgrade": {
-                "message": "Upgrade to Pro.",
-                "trial": {"message": "14-day trial via contact@contrastcyber.com."},
+                "message": "Upgrade to Pro ($7/mo).",
             },
         },
     )
     out = mod._format_error(resp)
-    assert "Upgrade to Pro." in out
-    assert "14-day trial" in out
+    assert "Upgrade to Pro ($7/mo)." in out
 
 
 # --- /mcp.json discovery manifest (root-level alias) ---
@@ -647,4 +645,4 @@ def test_fmt_respects_response_size_limit():
     data = {"data": "x" * 10000, "reputation": {"abuseipdb": {"status": "pro_only"}}}
     out = mod._fmt(data)
     assert len(out) <= mod.MAX_RESPONSE_CHARS
-    assert out.endswith("14-day trial.")
+    assert out.endswith("contact@contrastcyber.com.")

@@ -449,8 +449,8 @@ def test_pro_429_body_has_support_no_upgrade():
         reset("api")
 
 
-def test_free_429_upgrade_has_trial_cta():
-    """Free-tier 429 upgrade dict must include trial metadata."""
+def test_free_429_upgrade_has_no_trial():
+    """Free-tier 429 upgrade dict must NOT include trial metadata (Pro $7/mo direct)."""
     from ratelimit import reset
 
     reset("api")
@@ -461,16 +461,13 @@ def test_free_429_upgrade_has_trial_cta():
     assert r.status_code == 429
     body = r.json()
     assert "upgrade" in body
-    trial = body["upgrade"]["trial"]
-    assert trial["duration_days"] == 14
-    assert trial["contact"] == "contact@contrastcyber.com"
-    assert "message" in trial
-    assert "contact@contrastcyber.com" in trial["message"]
+    assert "trial" not in body["upgrade"]
+    assert "$7/mo" in body["upgrade"]["message"]
     reset("api")
 
 
-def test_free_422_upgrade_has_trial_cta():
-    """Free-tier 422 upgrade dict must include trial metadata."""
+def test_free_422_upgrade_has_no_trial():
+    """Free-tier 422 upgrade dict must NOT include trial metadata."""
     from ratelimit import reset
 
     reset("api")
@@ -479,17 +476,14 @@ def test_free_422_upgrade_has_trial_cta():
     assert r.status_code == 422
     body = r.json()
     assert "upgrade" in body
-    trial = body["upgrade"]["trial"]
-    assert trial["duration_days"] == 14
-    assert trial["contact"] == "contact@contrastcyber.com"
-    assert "message" in trial
-    assert "contact@contrastcyber.com" in trial["message"]
+    assert "trial" not in body["upgrade"]
+    assert "$7/mo" in body["upgrade"]["message"]
     reset("api")
 
 
 @patch("auth.PRO_HOURLY_LIMIT", 5)
-def test_pro_429_has_no_trial():
-    """Pro-tier 429 must not include a trial field (upgrade key is absent for Pro)."""
+def test_pro_429_has_no_upgrade():
+    """Pro-tier 429 must not include upgrade or trial fields."""
     from auth import hash_key
     from config import KEY_LENGTH, KEY_PREFIX
     from db import get_api_db, save_api_key
