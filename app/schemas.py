@@ -1537,7 +1537,18 @@ class HeaderFinding(BaseModel):
         default=None,
         description=(
             "Raw header value as sent by the origin, when the header is present AND a validator exists for it. "
-            "Null when the header is absent, or when it's present but no validator applies to it."
+            "Null when the header is absent, or when it's present but no validator applies to it. "
+            "By default the value is capped at the first 500 chars (CSP headers can exceed 4 KB); "
+            "inspect total_value_length to see if truncation occurred and refetch with include=full to "
+            "restore the full value."
+        ),
+    )
+    total_value_length: int | None = Field(
+        default=None,
+        description=(
+            "Honest pre-truncation char length of the raw header value. Only emitted when the value was "
+            "actually truncated (raw length > 500). Null when no truncation occurred, when no validator "
+            "applies, or when the header is absent."
         ),
     )
     issues: list[str] = Field(

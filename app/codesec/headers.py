@@ -6,6 +6,12 @@ from collections.abc import Callable
 # Weight multipliers per severity
 _SEVERITY_WEIGHT = {"high": 25, "medium": 15, "low": 10}
 
+# CSP values from large sites (GitHub, Cloudflare consoles) routinely exceed 4 KB
+# verbatim — that blows past MCP token budgets when the agent only needs to see
+# directive shape. Default truncation keeps the leading window; total_value_length
+# preserves the honest pre-truncation length, ?include=full restores the full value.
+MAX_HEADER_VALUE_DEFAULT = 500
+
 # Fetch directives for CSP validation
 _FETCH_DIRECTIVES = {
     "default-src",
@@ -166,11 +172,15 @@ def _grade(score: int) -> str:
     return "F"
 
 
-def check_headers(headers: dict) -> dict:
+def check_headers(headers: dict, include_full: bool = False) -> dict:
     """Evaluate HTTP security headers and return a scored report.
 
     Args:
         headers: Dict of header name -> value pairs (case-insensitive matching).
+        include_full: When True, the raw header `value` is returned verbatim.
+            When False (default), `value` is capped at MAX_HEADER_VALUE_DEFAULT
+            chars and `total_value_length` carries the honest pre-truncation
+            length so callers can decide whether to refetch with include_full.
 
     Returns:
         Dict with score (0-100), grade (A-F), findings, summary,
@@ -203,8 +213,12 @@ def check_headers(headers: dict) -> dict:
             if validator:
                 valid, issues = validator(raw_value)
                 finding["valid"] = valid
-                finding["value"] = raw_value
                 finding["issues"] = issues
+                if include_full or len(raw_value) <= MAX_HEADER_VALUE_DEFAULT:
+                    finding["value"] = raw_value
+                else:
+                    finding["value"] = raw_value[:MAX_HEADER_VALUE_DEFAULT]
+                    finding["total_value_length"] = len(raw_value)
             else:
                 finding["valid"] = True
                 finding["value"] = None

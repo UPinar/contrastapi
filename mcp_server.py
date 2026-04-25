@@ -172,10 +172,10 @@ async def _get(path: str, params: dict | None = None) -> dict | str:
         return "Request failed"
 
 
-async def _post(path: str, json_body: dict) -> dict | str:
+async def _post(path: str, json_body: dict, params: dict | None = None) -> dict | str:
     client_ip = _log_ip()
     try:
-        resp = await _get_client().post(path, json=json_body, headers=_headers())
+        resp = await _get_client().post(path, json=json_body, params=params, headers=_headers())
         resp.raise_for_status()
         logger.info("mcp_tool POST %s %d %s", _safe_path(path), resp.status_code, client_ip)
         return resp.json()
@@ -432,11 +432,26 @@ async def scan_headers(
     domain: Annotated[
         str, Field(description="Domain to scan live HTTP headers for (e.g. 'example.com', 'api.github.com')")
     ],
+    include: Annotated[
+        str,
+        Field(
+            description=(
+                "Detail level. Default ('') returns slim findings — raw header values capped at 500 chars "
+                "with total_value_length carrying the honest pre-truncation length. Pass 'full' to restore "
+                "the full raw value (useful for inspecting full CSP directives on sites like GitHub where "
+                "the CSP header exceeds 4 KB). Allowed: '' or 'full'."
+            ),
+            json_schema_extra={"enum": ["", "full"]},
+        ),
+    ] = "",
 ) -> str:
-    """Perform live HTTP GET and analyze security headers: CSP, HSTS, X-Frame-Options, X-Content-Type-Options, Permissions-Policy, Referrer-Policy. Use to audit live website headers; use check_headers to validate headers you already have. Free: 100/hr, Pro: 1000/hr. Returns {headers_present, headers_missing, findings, total_score}."""
+    """Perform live HTTP GET and analyze security headers: CSP, HSTS, X-Frame-Options, X-Content-Type-Options, Permissions-Policy, Referrer-Policy. Use to audit live website headers; use check_headers to validate headers you already have. Free: 100/hr, Pro: 1000/hr. By default header values are truncated to 500 chars (CSP can exceed 4 KB on large sites); pass include='full' for the full raw value. Returns {headers_present, headers_missing, findings, total_score}."""
     if err := _validate_domain(domain):
         return err
-    return _fmt(await _get(f"/v1/scan/headers/{domain}"))
+    if include not in ("", "full"):
+        return "Invalid include. Allowed values: '' (slim default) or 'full'."
+    params = {"include": "full"} if include == "full" else None
+    return _fmt(await _get(f"/v1/scan/headers/{domain}", params=params))
 
 
 @mcp.tool(annotations=_RO)
@@ -923,13 +938,27 @@ async def check_headers(
             description='JSON string of HTTP header name-value pairs to validate. Example: \'{"Strict-Transport-Security": "max-age=31536000", "X-Frame-Options": "DENY"}\'. Include only security-relevant headers you want to analyze.'
         ),
     ],
+    include: Annotated[
+        str,
+        Field(
+            description=(
+                "Detail level. Default ('') returns slim findings — raw header values capped at 500 chars "
+                "with total_value_length carrying the honest pre-truncation length. Pass 'full' to restore "
+                "the full raw value. Allowed: '' or 'full'."
+            ),
+            json_schema_extra={"enum": ["", "full"]},
+        ),
+    ] = "",
 ) -> str:
-    """Validate HTTP security headers you provide (JSON): CSP, HSTS, X-Frame-Options, X-Content-Type-Options, Permissions-Policy, Referrer-Policy against best practices. Use to test header config before deployment or validate non-public servers; use scan_headers to fetch live. Free: 100/hr, Pro: 1000/hr. Returns {total, by_severity, findings}. No external requests."""
+    """Validate HTTP security headers you provide (JSON): CSP, HSTS, X-Frame-Options, X-Content-Type-Options, Permissions-Policy, Referrer-Policy against best practices. Use to test header config before deployment or validate non-public servers; use scan_headers to fetch live. Free: 100/hr, Pro: 1000/hr. By default header values are truncated to 500 chars; pass include='full' for the full raw value. Returns {total, by_severity, findings}. No external requests."""
     try:
         h = json.loads(headers)
     except json.JSONDecodeError:
         return "Invalid JSON. Provide headers as JSON object."
-    return _fmt(await _post("/v1/check/headers", {"headers": h}))
+    if include not in ("", "full"):
+        return "Invalid include. Allowed values: '' (slim default) or 'full'."
+    params = {"include": "full"} if include == "full" else None
+    return _fmt(await _post("/v1/check/headers", {"headers": h}, params=params))
 
 
 # === Prompts ===

@@ -586,6 +586,47 @@ class TestCheckHeadersValueValidation:
         assert finding["issues"] == []
 
 
+class TestCheckHeadersValueTruncation:
+    def _csp_finding(self, r):
+        return next(f for f in r["findings"] if f["header"] == "Content-Security-Policy")
+
+    def test_long_csp_truncated_by_default(self):
+        # 1200-char CSP exceeds the 500 char default cap
+        long_csp = "default-src 'self'; script-src " + ("https://cdn.example.com " * 50)
+        assert len(long_csp) > 500
+        r = check_headers({"Content-Security-Policy": long_csp})
+        f = self._csp_finding(r)
+        assert len(f["value"]) == 500
+        assert f["total_value_length"] == len(long_csp)
+
+    def test_include_full_returns_full_value(self):
+        long_csp = "default-src 'self'; script-src " + ("https://cdn.example.com " * 50)
+        r = check_headers({"Content-Security-Policy": long_csp}, include_full=True)
+        f = self._csp_finding(r)
+        assert f["value"] == long_csp
+        assert f.get("total_value_length") is None
+
+    def test_short_value_not_truncated(self):
+        r = check_headers({"Content-Security-Policy": "default-src 'self'"})
+        f = self._csp_finding(r)
+        assert f["value"] == "default-src 'self'"
+        assert f.get("total_value_length") is None
+
+    def test_scan_headers_route_include_invalid(self):
+        r = client.get("/v1/scan/headers/example.com?include=bogus")
+        assert r.status_code == 400
+        body = r.json()
+        msg = body.get("error") or body.get("detail", "")
+        assert "include must be" in msg
+
+    def test_check_headers_route_include_invalid(self):
+        r = client.post("/v1/check/headers?include=bogus", json={"headers": {}})
+        assert r.status_code == 400
+        body = r.json()
+        msg = body.get("error") or body.get("detail", "")
+        assert "include must be" in msg
+
+
 # =========== Route tests ===========
 
 

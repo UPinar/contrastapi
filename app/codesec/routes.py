@@ -10,7 +10,7 @@ from codesec.injection import detect_injection
 from codesec.secrets import detect_secrets
 from db import _normalize_product, _parse_version, search_cves_by_products_bulk
 from domain.recon import fetch_live_headers
-from fastapi import APIRouter, HTTPException, Path, Request
+from fastapi import APIRouter, HTTPException, Path, Query, Request
 from pydantic import BaseModel, Field
 from schemas import CheckHeadersResponse, CodeCheckResponse, DependenciesResponse, ScanHeadersResponse
 from validation import _is_valid_format, clean_domain, is_valid_ip, validate_domain
@@ -161,6 +161,17 @@ def scan_headers_endpoint(
         ),
     ],
     request: Request,
+    include: Annotated[
+        str | None,
+        Query(
+            description=(
+                "Detail level. Default returns slim findings (raw header values capped at 500 chars; "
+                "total_value_length carries the honest pre-truncation length when truncation occurred). "
+                "Pass include=full to restore the full raw value for every present-with-validator header "
+                "(useful for inspecting full CSP directives end-to-end)."
+            ),
+        ),
+    ] = None,
 ):
     """Fetch a domain's HTTP headers live and analyze security posture."""
     domain = clean_domain(domain)
@@ -173,6 +184,8 @@ def scan_headers_endpoint(
     if not _is_valid_format(domain):
         raise HTTPException(status_code=400, detail="Invalid domain")
     authenticate(request, request.url.path)
+    if include not in (None, "", "full"):
+        raise HTTPException(status_code=400, detail="include must be 'full' (omit for slim default)")
     resolved_ip = validate_domain(domain)
     if not resolved_ip:
         raise HTTPException(status_code=422, detail="Could not resolve this domain. DNS resolution failed.")
@@ -181,7 +194,7 @@ def scan_headers_endpoint(
     if "error" in result:
         raise HTTPException(status_code=504, detail=result["error"])
 
-    analysis = check_headers(result["headers"])
+    analysis = check_headers(result["headers"], include_full=(include == "full"))
     return {
         "domain": domain,
         "status_code": result["status_code"],
@@ -196,13 +209,28 @@ def scan_headers_endpoint(
     response_model=CheckHeadersResponse,
     response_model_exclude_none=True,
 )
-def check_headers_endpoint(body: HeadersInput, request: Request):
+def check_headers_endpoint(
+    body: HeadersInput,
+    request: Request,
+    include: Annotated[
+        str | None,
+        Query(
+            description=(
+                "Detail level. Default returns slim findings (raw header values capped at 500 chars; "
+                "total_value_length carries the honest pre-truncation length when truncation occurred). "
+                "Pass include=full to restore the full raw value for every present-with-validator header."
+            ),
+        ),
+    ] = None,
+):
     """Validate HTTP security headers (CSP, HSTS, X-Frame-Options, etc.)."""
     authenticate(request, "/v1/check/headers")
+    if include not in (None, "", "full"):
+        raise HTTPException(status_code=400, detail="include must be 'full' (omit for slim default)")
     if len(body.headers) > MAX_HEADERS:
         raise HTTPException(status_code=400, detail=f"Too many headers (max {MAX_HEADERS})")
 
-    result = check_headers(body.headers)
+    result = check_headers(body.headers, include_full=(include == "full"))
     by_severity = _severity_counts(result["findings"])
 
     return {
