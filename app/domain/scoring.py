@@ -23,8 +23,12 @@ def score_domain(report: dict) -> dict:
     else:
         factors.append({"name": "SSL/TLS", "score": 0, "max": 20, "detail": "Deprecated TLS or expired"})
 
-    # Email security (max 25)
+    # Email security (max 25 when DKIM is verifiable; max 20 when DKIM is unverifiable —
+    # custom DKIM selectors cannot be probed without prior knowledge, so we do not
+    # penalize their absence. Mirror email_mx grading honesty here so domain_report
+    # and email_mx do not disagree on the same domain.)
     email = report.get("email_security", {})
+    dkim_unverifiable = email.get("dkim_status") == "unverifiable"
     email_score = 0
     if email.get("spf"):
         email_score += 10
@@ -32,6 +36,7 @@ def score_domain(report: dict) -> dict:
         email_score += 10
     if email.get("dkim_selectors"):
         email_score += 5
+    email_max = 20 if dkim_unverifiable else 25
     score += email_score
     email_detail = []
     if email.get("spf"):
@@ -40,11 +45,13 @@ def score_domain(report: dict) -> dict:
         email_detail.append("DMARC")
     if email.get("dkim_selectors"):
         email_detail.append("DKIM")
+    elif dkim_unverifiable:
+        email_detail.append("DKIM unverifiable (custom selector)")
     factors.append(
         {
             "name": "Email Security",
             "score": email_score,
-            "max": 25,
+            "max": email_max,
             "detail": ", ".join(email_detail) if email_detail else "No email authentication records",
         }
     )

@@ -207,9 +207,22 @@ class EmailSecurityInfo(BaseModel):
         default=None,
         description="DKIM selectors that responded to probing (e.g. ['google', 'selector1']). Empty when none found.",
     )
+    dkim_status: Literal["verified", "unverifiable"] | None = Field(
+        default=None,
+        description=(
+            "Honest evidence label for DKIM. 'verified' when at least one selector responded "
+            "(see dkim_selectors). 'unverifiable' when no probed selector matched — DKIM keys "
+            "live at arbitrary operator-chosen selector names, so absence under common+date-based "
+            "probes does not prove absence. Grade does not penalize 'unverifiable'."
+        ),
+    )
     grade: Literal["A", "B", "C", "F"] | None = Field(
         default=None,
-        description="Email-auth grade: A=SPF+DMARC+DKIM, B=2 of 3, C=1 of 3, F=none.",
+        description=(
+            "Email-auth grade. When DKIM is verified: A=SPF+DMARC+DKIM, B=2 of 3, C=1 of 3. "
+            "When DKIM is unverifiable: A=SPF+DMARC, B=one of SPF/DMARC, F=neither — DKIM "
+            "absence is not penalized because it cannot be proven without selector knowledge."
+        ),
     )
     issues: list[str] | None = Field(
         default=None, description="Human-readable issues (missing SPF, weak DMARC policy, etc.)."
@@ -1651,6 +1664,14 @@ class EmailSecurityDetail(BaseModel):
     spf: str | None = None
     dmarc: str | None = None
     dkim_selectors: list[str] = Field(default_factory=list)
+    dkim_status: Literal["verified", "unverifiable"] | None = Field(
+        default=None,
+        description=(
+            "'verified' when at least one DKIM selector responded; 'unverifiable' when none "
+            "of the probed common/date-based selectors matched. Custom selectors cannot be "
+            "discovered without prior knowledge."
+        ),
+    )
     grade: str = "F"
     issues: list[str] = Field(default_factory=list)
 

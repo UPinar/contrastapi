@@ -467,7 +467,7 @@ async def email_mx(
         str, Field(description="Domain to analyze email configuration for (e.g. 'example.com', 'google.com')")
     ],
 ) -> str:
-    """Analyze email security: MX records, SPF policy, DMARC policy, DKIM selectors, mail provider ID, grade (A-F). Use to verify email authentication setup and phishing risk; for full audit use domain_report. Free: 100/hr, Pro: 1000/hr. Returns {mx_records, provider, spf, dmarc, dkim, grade}."""
+    """Analyze email security: MX records, SPF policy, DMARC policy, DKIM probe across common+date-based selectors, mail provider, grade. Use to verify email-auth setup and phishing risk; for full audit use domain_report. Free: 100/hr, Pro: 1000/hr. email_security.dkim_status reports honest evidence: 'verified' iff at least one selector responded, else 'unverifiable' (custom selectors cannot be discovered without prior knowledge). Grade: when DKIM verified, A=SPF+DMARC+DKIM/B=2of3/C=1of3; when DKIM unverifiable, A=SPF+DMARC/B=one/F=neither — DKIM absence is NOT penalized because it is unprovable in DNS. Returns {mx_records, mail_provider, email_security:{spf, dmarc, dkim_selectors, dkim_status, grade, issues}, summary}."""
     if err := _validate_domain(domain):
         return err
     return _fmt(await _get(f"/v1/email/mx/{domain}"))

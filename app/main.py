@@ -1431,7 +1431,7 @@ GET /v1/scan/headers/{{domain}} — Live HTTP security header scan.
   Response keys: domain, status_code, url, score, grade, findings, headers_present, headers_missing, summary
 
 GET /v1/email/mx/{{domain}} — Email MX analysis (provider + SPF/DMARC/DKIM).
-  Response keys: domain, mx_records, mail_provider, email_security:{{spf,dmarc,dkim_selectors,grade,issues}}, summary
+  Response keys: domain, mx_records, mail_provider, email_security:{{spf,dmarc,dkim_selectors,dkim_status,grade,issues}}, summary
 
 GET /v1/email/disposable/{{email}} — Disposable email check.
   Response keys: email, domain, disposable, provider, mx_disposable, risk_level, summary

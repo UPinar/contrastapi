@@ -501,6 +501,7 @@ def email_mx(domain: DomainPath, request: Request):
             "spf": None,
             "dmarc": None,
             "dkim_selectors": [],
+            "dkim_status": "unverifiable",
             "grade": "F",
             "issues": ["Email security check timed out"],
         }

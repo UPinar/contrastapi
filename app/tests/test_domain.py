@@ -1434,6 +1434,63 @@ class TestDomainScoring:
         # Domain with everything else ok should NOT be penalized for our outage
         assert result["grade"] in ("A", "B"), f"got {result['grade']} score={result['score']}/{result['max_score']}"
 
+    def test_email_dkim_unverifiable_excludes_5pt_from_max(self):
+        """When dkim_status=='unverifiable', email factor max drops 25→20.
+
+        Mirrors email_mx grading honesty: DKIM keys live at operator-chosen
+        selector names; absence under common/date-based probes does not prove
+        absence, so domain_report must not penalize 5 points for an unverifiable
+        signal.
+        """
+        from domain.scoring import score_domain
+
+        report = {
+            "ssl": {"grade": "A"},
+            "email_security": {
+                "spf": "v=spf1 -all",
+                "dmarc": "v=DMARC1; p=reject",
+                "dkim_selectors": [],
+                "dkim_status": "unverifiable",
+            },
+            "waf": {"waf_present": True, "detected": ["Cloudflare"]},
+            "dns": {"ns": ["a.ns"], "mx": [{"host": "m"}], "a": ["1.2.3.4"]},
+            "whois": {"registrar": "MarkMonitor", "creation_date": "2007-01-01"},
+            "subdomains": {"count": 3},
+            "certificates": {"total_certificates": 5},
+        }
+        result = score_domain(report)
+        email_factor = next(f for f in result["factors"] if f["name"] == "Email Security")
+        assert email_factor["score"] == 20  # SPF 10 + DMARC 10
+        assert email_factor["max"] == 20, "Unverifiable DKIM must not be in factor max"
+        assert "DKIM unverifiable" in email_factor["detail"]
+        # Total max_score drops by 5 (25→20 for email factor)
+        assert result["max_score"] == 95
+        # Domain is full credit on every verifiable factor → grade A
+        assert result["grade"] == "A"
+
+    def test_email_dkim_verified_keeps_25pt_max(self):
+        """When DKIM is found, email factor max stays at 25 (the legacy ceiling)."""
+        from domain.scoring import score_domain
+
+        report = {
+            "ssl": {"grade": "A"},
+            "email_security": {
+                "spf": "v=spf1 -all",
+                "dmarc": "v=DMARC1; p=reject",
+                "dkim_selectors": ["google"],
+                "dkim_status": "verified",
+            },
+            "waf": {"waf_present": False},
+            "dns": {"a": ["1.2.3.4"]},
+            "whois": {},
+            "subdomains": {"count": 3},
+            "certificates": {"total_certificates": 5},
+        }
+        result = score_domain(report)
+        email_factor = next(f for f in result["factors"] if f["name"] == "Email Security")
+        assert email_factor["score"] == 25
+        assert email_factor["max"] == 25
+
     def test_ct_zero_certs_when_fetch_succeeded_still_penalizes(self):
         """When crt.sh fetch succeeds but returns 0 certs, CT factor still counts (0/10)."""
         from domain.scoring import score_domain
@@ -1694,7 +1751,9 @@ class TestDkimParallelDetection:
 
         result = email_security("example.com", txt_records=[self._SPF_TXT])
         assert result["dkim_selectors"] == []
-        assert result["grade"] == "B"
+        assert result["dkim_status"] == "unverifiable"
+        # SPF + DMARC present, DKIM unverifiable → grade A (DKIM absence not penalized)
+        assert result["grade"] == "A"
         assert any("DKIM" in i for i in result["issues"])
 
     @patch("domain.recon.dns.resolver.Resolver")
@@ -1715,8 +1774,10 @@ class TestDkimParallelDetection:
 
         result = email_security("example.com", txt_records=[self._SPF_TXT])
         assert result["dkim_selectors"] == []
-        assert result["grade"] == "B"
-        assert any("No DKIM record found" in i for i in result["issues"])
+        assert result["dkim_status"] == "unverifiable"
+        # SPF + DMARC present, DKIM unverifiable → grade A
+        assert result["grade"] == "A"
+        assert any("DKIM not found under common selectors" in i for i in result["issues"])
 
     @patch("domain.recon.dns.resolver.Resolver")
     def test_dkim_mixed_results(self, mock_cls):
@@ -1746,6 +1807,135 @@ class TestDkimParallelDetection:
         assert "default" in result["dkim_selectors"]
         assert date_sel in result["dkim_selectors"]
         assert len(result["dkim_selectors"]) == 2
+
+
+class TestDkimStatusHonesty:
+    """DKIM cannot be falsified without selector knowledge — grade must reflect that.
+
+    Pin: when DKIM probe finds nothing, dkim_status='unverifiable' and the letter
+    grade is driven only by SPF/DMARC. Domain operators using custom selectors
+    must not be penalized for a signal we cannot prove absent.
+    """
+
+    _SPF_TXT = "v=spf1 include:_spf.google.com -all"
+
+    def _mock_dmarc(self):
+        rec = MagicMock()
+        rec.__iter__ = lambda s: iter([MagicMock(__str__=lambda s: '"v=DMARC1; p=reject"')])
+        return rec
+
+    @patch("domain.recon.dns.resolver.Resolver")
+    def test_dkim_status_verified_when_selector_found(self, mock_cls):
+        mock_resolver = MagicMock()
+        mock_cls.return_value = mock_resolver
+
+        def resolve_side_effect(name, rtype):
+            if "_dmarc." in name:
+                return self._mock_dmarc()
+            if "google._domainkey." in name:
+                return MagicMock()
+            if "_domainkey." in name:
+                raise dns.exception.DNSException("NXDOMAIN")
+            raise dns.exception.DNSException("unexpected")
+
+        mock_resolver.resolve.side_effect = resolve_side_effect
+
+        from domain.recon import email_security
+
+        result = email_security("example.com", txt_records=[self._SPF_TXT])
+        assert result["dkim_status"] == "verified"
+        assert result["grade"] == "A"
+
+    @patch("domain.recon.dns.resolver.Resolver")
+    def test_dkim_unverifiable_with_spf_dmarc_yields_grade_a(self, mock_cls):
+        # Regression: prior versions returned grade=B when DKIM was unverifiable
+        # despite SPF + DMARC being present. That penalized custom-selector domains.
+        mock_resolver = MagicMock()
+        mock_cls.return_value = mock_resolver
+
+        def resolve_side_effect(name, rtype):
+            if "_dmarc." in name:
+                return self._mock_dmarc()
+            if "_domainkey." in name:
+                raise dns.resolver.NXDOMAIN("no record")
+            raise dns.exception.DNSException("unexpected")
+
+        mock_resolver.resolve.side_effect = resolve_side_effect
+
+        from domain.recon import email_security
+
+        result = email_security("example.com", txt_records=[self._SPF_TXT])
+        assert result["dkim_status"] == "unverifiable"
+        assert result["grade"] == "A"
+
+    @patch("domain.recon.dns.resolver.Resolver")
+    def test_dkim_unverifiable_with_only_spf_yields_grade_b(self, mock_cls):
+        mock_resolver = MagicMock()
+        mock_cls.return_value = mock_resolver
+
+        def resolve_side_effect(name, rtype):
+            # No DMARC, no DKIM
+            raise dns.resolver.NXDOMAIN("no record")
+
+        mock_resolver.resolve.side_effect = resolve_side_effect
+
+        from domain.recon import email_security
+
+        result = email_security("example.com", txt_records=[self._SPF_TXT])
+        assert result["dkim_status"] == "unverifiable"
+        assert result["spf"] is not None
+        assert result["dmarc"] is None
+        assert result["grade"] == "B"
+
+    @patch("domain.recon.dns.resolver.Resolver")
+    def test_dkim_unverifiable_with_neither_spf_nor_dmarc_yields_grade_f(self, mock_cls):
+        mock_resolver = MagicMock()
+        mock_cls.return_value = mock_resolver
+        mock_resolver.resolve.side_effect = dns.resolver.NXDOMAIN("no record")
+
+        from domain.recon import email_security
+
+        result = email_security("example.com", txt_records=[])
+        assert result["dkim_status"] == "unverifiable"
+        assert result["grade"] == "F"
+
+    @patch("domain.recon.dns.resolver.Resolver")
+    def test_dkim_verified_with_only_spf_yields_grade_b(self, mock_cls):
+        mock_resolver = MagicMock()
+        mock_cls.return_value = mock_resolver
+
+        def resolve_side_effect(name, rtype):
+            if "_dmarc." in name:
+                raise dns.resolver.NXDOMAIN("no record")
+            if "google._domainkey." in name:
+                return MagicMock()
+            if "_domainkey." in name:
+                raise dns.exception.DNSException("NXDOMAIN")
+            raise dns.exception.DNSException("unexpected")
+
+        mock_resolver.resolve.side_effect = resolve_side_effect
+
+        from domain.recon import email_security
+
+        result = email_security("example.com", txt_records=[self._SPF_TXT])
+        assert result["dkim_status"] == "verified"
+        assert result["dmarc"] is None
+        assert result["grade"] == "B"
+
+    @patch("domain.recon.dns.resolver.Resolver")
+    def test_dkim_unverifiable_issue_message_is_honest(self, mock_cls):
+        mock_resolver = MagicMock()
+        mock_cls.return_value = mock_resolver
+        mock_resolver.resolve.side_effect = dns.resolver.NXDOMAIN("no record")
+
+        from domain.recon import email_security
+
+        result = email_security("example.com", txt_records=[])
+        dkim_msgs = [i for i in result["issues"] if "DKIM" in i]
+        assert len(dkim_msgs) == 1
+        # honest framing: not "no DKIM", but "could not find under probed selectors"
+        assert "common selectors" in dkim_msgs[0]
+        assert "custom" in dkim_msgs[0].lower()
 
 
 class TestOpenApiDomainRoutes:

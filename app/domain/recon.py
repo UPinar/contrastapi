@@ -705,15 +705,38 @@ def email_security(domain: str, txt_records: list | None = None) -> dict:
     if not dmarc:
         issues.append("No DMARC record — email receivers cannot verify sender authenticity")
     if not dkim_found:
-        issues.append("No DKIM record found — email content cannot be verified")
+        issues.append(
+            "DKIM not found under common selectors — domains using custom DKIM selectors "
+            "cannot be probed without prior knowledge of the selector name"
+        )
 
-    score = sum([bool(spf), bool(dmarc), bool(dkim_found)])
-    grade = "A" if score == 3 else "B" if score == 2 else "C" if score == 1 else "F"
+    # DKIM existence is unverifiable in DNS without knowing the selector name (selectors
+    # are arbitrary strings chosen by the operator). When our probe of common + recent
+    # date-based selectors comes back empty, we cannot conclude DKIM is missing — only
+    # that we did not find it. Mark this honestly and do not penalize the letter grade
+    # for an unverifiable signal. SPF and DMARC are at well-known names, so their
+    # absence IS verifiable and continues to drive the grade.
+    spf_present = bool(spf)
+    dmarc_present = bool(dmarc)
+    dkim_verified = bool(dkim_found)
+    dkim_status = "verified" if dkim_verified else "unverifiable"
+
+    if dkim_verified:
+        score = int(spf_present) + int(dmarc_present) + 1
+        grade = "A" if score == 3 else "B" if score == 2 else "C"
+    else:
+        if spf_present and dmarc_present:
+            grade = "A"
+        elif spf_present or dmarc_present:
+            grade = "B"
+        else:
+            grade = "F"
 
     return {
         "spf": spf,
         "dmarc": dmarc,
         "dkim_selectors": dkim_found,
+        "dkim_status": dkim_status,
         "grade": grade,
         "issues": issues,
     }
