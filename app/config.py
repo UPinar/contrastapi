@@ -75,6 +75,9 @@ EPSS_URL = "https://api.first.org/data/v1/epss"
 # MITRE cvelistV5 (CNA-direct upstream, typically hours ahead of NVD)
 MITRE_RELEASES_URL = "https://api.github.com/repos/CVEProject/cvelistV5/releases/latest"
 
+# MITRE CWE catalog (weekly cadence; ZIP of CSVs by view: 1000 = research, 699 = software)
+CWE_ZIP_URL = "https://cwe.mitre.org/data/csv/1000.csv.zip"
+
 # GitHub Security Advisories (leads NVD on OSS CVEs)
 GHSA_API_URL = "https://api.github.com/advisories"
 

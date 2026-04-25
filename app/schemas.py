@@ -1052,6 +1052,105 @@ class KevDetailResponse(BaseModel):
     )
 
 
+class CweLookupResponse(BaseModel):
+    """MITRE CWE catalog record (research view 1000).
+
+    Text fields are sourced verbatim from MITRE's published CSV and JSON-encoded —
+    safe for JSON consumers, but downstream callers that render into HTML must apply
+    their own escaping. `extra="allow"` is set for forward-compat (Tier 2 audit pattern,
+    Session 171).
+    """
+
+    model_config = {"extra": "allow"}
+
+    cwe_id: str = Field(description="Canonical CWE identifier, e.g. 'CWE-79', 'CWE-502'.")
+    name: str = Field(
+        description="Short human-readable weakness name, e.g. 'Improper Neutralization of Input During Web Page Generation'."
+    )
+    description: str | None = Field(
+        default=None,
+        description="MITRE one-paragraph summary of the weakness.",
+    )
+    extended_description: str | None = Field(
+        default=None,
+        description="MITRE's longer-form explanation including consequences and typical exploitation paths.",
+    )
+    abstract_type: str | None = Field(
+        default=None,
+        description=(
+            "MITRE 'Weakness Abstraction' level: 'Pillar' (most abstract), 'Class', 'Base', "
+            "'Variant' (most specific), or 'Compound'."
+        ),
+    )
+    status: str | None = Field(
+        default=None,
+        description=(
+            "Catalog lifecycle status: 'Stable', 'Draft', 'Incomplete', 'Deprecated', "
+            "or 'Obsolete'. Prefer Stable when chaining to other tools."
+        ),
+    )
+    likelihood: str | None = Field(
+        default=None,
+        description=("MITRE's 'Likelihood of Exploit' rating: 'High', 'Medium', 'Low', or null when unrated."),
+    )
+    mitigations: list[str] = Field(
+        default_factory=list,
+        max_length=30,
+        description=(
+            "Recommended mitigations as 'Phase — Description' strings, parsed from MITRE's "
+            "'Potential Mitigations' field (Architecture and Design, Implementation, etc.)."
+        ),
+    )
+    examples: list[str] = Field(
+        default_factory=list,
+        max_length=50,
+        description=(
+            "Observed example CVEs as 'CVE-x: description' strings. These are MITRE-curated "
+            "exemplars, not an exhaustive list — use cve_search?cwe= for the full list."
+        ),
+    )
+    parent_cwe: str | None = Field(
+        default=None,
+        description=(
+            "Direct parent CWE in research view 1000 (Primary ChildOf), e.g. 'CWE-707'. "
+            "Call cwe_lookup with this value to traverse up the weakness hierarchy."
+        ),
+    )
+    child_cwes: list[str] = Field(
+        default_factory=list,
+        max_length=50,
+        description=(
+            "Direct child CWEs in research view 1000 (ParentOf entries). Call cwe_lookup on "
+            "any entry to traverse down to a more specific weakness."
+        ),
+    )
+    cve_count: int = Field(
+        default=0,
+        description=(
+            "Number of CVEs in our database whose primary cwe_id equals this CWE. "
+            "Lower bound — upstream CVEs may map to multiple CWEs but our schema stores "
+            "only the primary. Use cve_search?cwe=<id> for the actual list."
+        ),
+    )
+    updated_at: str | None = Field(
+        default=None,
+        description="ISO 8601 timestamp of the last sync from MITRE's CSV catalog.",
+    )
+    verdict: Verdict | None = Field(
+        default=None,
+        description="Provenance + completeness metadata for this response.",
+    )
+    next_calls: list[PivotHint] | None = Field(
+        default=None,
+        description=(
+            "Suggested follow-up MCP tool calls based on this CWE record. Typical chain: "
+            "cve_search?cwe=<cwe_id> to enumerate CVEs that map to this weakness, "
+            "cwe_lookup on parent_cwe to walk up the hierarchy, cwe_lookup on each child "
+            "to drill down."
+        ),
+    )
+
+
 class CveResponse(BaseModel):
     cve_id: str = Field(description="Canonical CVE identifier, e.g. 'CVE-2021-44228'.")
     summary: str | None = Field(

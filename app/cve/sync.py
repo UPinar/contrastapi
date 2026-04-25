@@ -29,6 +29,7 @@ from urllib.parse import urlparse
 
 import httpx
 from config import (
+    CWE_ZIP_URL,
     GHSA_API_URL,
     KEV_URL,
     MITRE_RELEASES_URL,
@@ -48,6 +49,7 @@ from db import (
     update_sync_status,
     upsert_cve,
     upsert_cve_if_absent,
+    upsert_cwe,
     upsert_exploits,
     upsert_kev_details,
 )
@@ -964,6 +966,207 @@ def sync_kev() -> int:
     return count
 
 
+# --- CWE Sync ---
+
+CWE_ZIP_MAX_BYTES = 25 * 1024 * 1024  # 25 MB compressed cap (current ~1.5 MB)
+CWE_CSV_MAX_BYTES = 100 * 1024 * 1024  # 100 MB uncompressed cap (current ~12 MB)
+
+
+def _parse_cwe_related(raw: str | None) -> tuple[str | None, list[str]]:
+    """Parse MITRE 'Related Weaknesses' field into (parent_cwe, child_cwes).
+
+    Field format (one entry per chain, separated by '::'):
+        ::NATURE:ChildOf:CWE ID:118:VIEW ID:1000:ORDINAL:Primary::
+        ::NATURE:ParentOf:CWE ID:121:VIEW ID:1000::
+
+    Only VIEW ID 1000 (research view) is consulted. Returns the first
+    Primary ChildOf parent (fallback: first ChildOf in view 1000) plus
+    all ParentOf children.
+    """
+    if not raw:
+        return None, []
+    parent_primary: str | None = None
+    parent_fallback: str | None = None
+    children: list[str] = []
+    for entry in raw.split("::"):
+        entry = entry.strip()
+        if not entry:
+            continue
+        parts = [p.strip() for p in entry.split(":")]
+        kv = {parts[i]: parts[i + 1] for i in range(0, len(parts) - 1, 2) if parts[i]}
+        nature = kv.get("NATURE")
+        cwe_num = kv.get("CWE ID")
+        view = kv.get("VIEW ID")
+        ordinal = kv.get("ORDINAL")
+        if not (nature and cwe_num and cwe_num.isdigit() and view == "1000"):
+            continue
+        cwe_full = f"CWE-{cwe_num}"
+        if nature == "ChildOf":
+            if ordinal == "Primary" and parent_primary is None:
+                parent_primary = cwe_full
+            elif parent_fallback is None:
+                parent_fallback = cwe_full
+        elif nature == "ParentOf" and cwe_full not in children:
+            children.append(cwe_full)
+    return parent_primary or parent_fallback, children[:50]
+
+
+def _parse_cwe_mitigations(raw: str | None) -> list[str]:
+    """Parse 'Potential Mitigations' field into a list of human-readable strings.
+
+    Format: ::PHASE:Architecture and Design:DESCRIPTION:Use a vetted library...::
+    Each entry yields one combined "Phase — Description" string. Returns up to 30.
+    """
+    if not raw:
+        return []
+    out: list[str] = []
+    for entry in raw.split("::"):
+        entry = entry.strip()
+        if not entry:
+            continue
+        phase = None
+        description = None
+        # Greedy KEY:VALUE walk that tolerates colons in DESCRIPTION values
+        i = 0
+        tokens = entry.split(":")
+        while i < len(tokens) - 1:
+            key = tokens[i].strip()
+            if key == "PHASE":
+                phase = tokens[i + 1].strip()
+                i += 2
+            elif key == "DESCRIPTION":
+                # DESCRIPTION may contain colons; consume rest until next known key
+                rest = []
+                j = i + 1
+                while j < len(tokens):
+                    candidate = tokens[j].strip()
+                    if candidate in ("PHASE", "STRATEGY", "EFFECTIVENESS", "EFFECTIVENESS NOTES", "MITIGATION ID"):
+                        break
+                    rest.append(tokens[j])
+                    j += 1
+                description = ":".join(rest).strip()
+                i = j
+            else:
+                i += 1
+        if description:
+            label = f"{phase} — {description}" if phase else description
+            out.append(label[:1000])
+        if len(out) >= 30:
+            break
+    return out
+
+
+def _parse_cwe_examples(raw: str | None) -> list[str]:
+    """Parse 'Observed Examples' field into a list of "CVE-x: description" strings.
+
+    Format: ::REFERENCE:CVE-2018-1234:DESCRIPTION:Buffer overflow in...:LINK:https://...::
+    """
+    if not raw:
+        return []
+    out: list[str] = []
+    for entry in raw.split("::"):
+        entry = entry.strip()
+        if not entry:
+            continue
+        ref = None
+        description = None
+        tokens = entry.split(":")
+        i = 0
+        while i < len(tokens) - 1:
+            key = tokens[i].strip()
+            if key == "REFERENCE":
+                ref = tokens[i + 1].strip()
+                i += 2
+            elif key == "DESCRIPTION":
+                rest = []
+                j = i + 1
+                while j < len(tokens):
+                    candidate = tokens[j].strip()
+                    if candidate in ("REFERENCE", "LINK"):
+                        break
+                    rest.append(tokens[j])
+                    j += 1
+                description = ":".join(rest).strip()
+                i = j
+            else:
+                i += 1
+        if ref:
+            out.append(f"{ref}: {description}" if description else ref)
+        if len(out) >= 50:
+            break
+    return out
+
+
+def sync_cwe() -> int:
+    """Sync MITRE CWE catalog (research view 1000). Returns count upserted.
+
+    Downloads the public ZIP, extracts the CSV, parses each row into the cwes
+    table. Idempotent — runs weekly. Tolerant of malformed rows: bad rows are
+    logged and skipped.
+    """
+    log.info("CWE sync starting...")
+    update_sync_status("cwe", 0, "in_progress")
+    count = 0
+
+    try:
+        resp = _client.get(CWE_ZIP_URL, headers={"Accept": "application/zip"}, timeout=60)
+        resp.raise_for_status()
+        if len(resp.content) > CWE_ZIP_MAX_BYTES:
+            log.error("CWE ZIP exceeds %d bytes (%d) — refusing", CWE_ZIP_MAX_BYTES, len(resp.content))
+            update_sync_status("cwe", 0, "error")
+            return 0
+
+        with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
+            csv_members = [m for m in zf.namelist() if m.lower().endswith(".csv")]
+            if not csv_members:
+                log.error("CWE ZIP contains no CSV file")
+                update_sync_status("cwe", 0, "error")
+                return 0
+            member = csv_members[0]
+            info = zf.getinfo(member)
+            if info.file_size > CWE_CSV_MAX_BYTES:
+                log.error("CWE CSV uncompressed size %d exceeds %d", info.file_size, CWE_CSV_MAX_BYTES)
+                update_sync_status("cwe", 0, "error")
+                return 0
+            with zf.open(member) as fh:
+                reader = csv.DictReader(io.TextIOWrapper(fh, encoding="utf-8", errors="replace"))
+                for row in reader:
+                    cwe_num = (row.get("CWE-ID") or "").strip()
+                    name = (row.get("Name") or "").strip()
+                    if not cwe_num or not cwe_num.isdigit() or not name:
+                        continue
+                    cwe_id = f"CWE-{cwe_num}"
+                    parent_cwe, child_cwes = _parse_cwe_related(row.get("Related Weaknesses"))
+                    mitigations = _parse_cwe_mitigations(row.get("Potential Mitigations"))
+                    examples = _parse_cwe_examples(row.get("Observed Examples"))
+                    try:
+                        upsert_cwe(
+                            cwe_id,
+                            name=name[:512],
+                            description=(row.get("Description") or "").strip()[:8000] or None,
+                            extended_description=(row.get("Extended Description") or "").strip()[:16000] or None,
+                            abstract_type=(row.get("Weakness Abstraction") or "").strip() or None,
+                            status=(row.get("Status") or "").strip() or None,
+                            likelihood=(row.get("Likelihood of Exploit") or "").strip() or None,
+                            mitigations=mitigations,
+                            examples=examples,
+                            parent_cwe=parent_cwe,
+                            child_cwes=child_cwes,
+                        )
+                        count += 1
+                    except Exception as e:
+                        log.warning("CWE upsert failed for %s: %s", cwe_id, type(e).__name__)
+
+    except Exception as e:
+        log.error("CWE sync failed: %s", e)
+        update_sync_status("cwe", count, "error")
+        return count
+
+    update_sync_status("cwe", count, "ok")
+    log.info("CWE sync complete: %d entries", count)
+    return count
+
+
 # --- OSV Sync ---
 
 
@@ -1292,13 +1495,14 @@ def sync_exploitdb(full: bool = False) -> int:
 
 
 def sync_all(full: bool = False):
-    """Run all sync tasks. MITRE, GHSA, and OSV run delta-only regardless of `full`."""
+    """Run all sync tasks. MITRE, GHSA, OSV, and CWE run delta-only regardless of `full`."""
     init_all_dbs()
     sync_nvd(full=full)
     sync_mitre(full=False)
     sync_ghsa(full=False)
     sync_osv(full=False)
     sync_kev()
+    sync_cwe()
     sync_epss()
     sync_exploitdb(full=False)
 
@@ -1314,6 +1518,7 @@ if __name__ == "__main__":
         sync_ghsa(full=False)
         sync_osv(full=False)
         sync_kev()
+        sync_cwe()
         sync_epss()
     elif "--full" in args:
         sync_nvd(full=True)
@@ -1321,6 +1526,7 @@ if __name__ == "__main__":
         sync_ghsa(full=False)
         sync_osv(full=False)
         sync_kev()
+        sync_cwe()
         sync_epss()
     elif "--source" in args:
         src = args[args.index("--source") + 1] if args.index("--source") + 1 < len(args) else ""
@@ -1334,11 +1540,13 @@ if __name__ == "__main__":
             sync_epss()
         elif src == "kev":
             sync_kev()
+        elif src == "cwe":
+            sync_cwe()
         elif src == "nvd":
             sync_nvd(full=False)
         elif src == "exploitdb":
             sync_exploitdb(full="--full" in args)
         else:
-            print(f"Unknown source: {src}. Options: nvd, mitre, ghsa, osv, epss, kev, exploitdb")
+            print(f"Unknown source: {src}. Options: nvd, mitre, ghsa, osv, epss, kev, cwe, exploitdb")
     else:
         sync_all()

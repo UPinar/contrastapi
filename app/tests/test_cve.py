@@ -1099,6 +1099,272 @@ class TestKevDetailEndpoint:
         assert "due_date" not in r.json()
 
 
+class TestSyncCwe:
+    """Tests for sync_cwe() — MITRE CWE catalog ZIP/CSV parser."""
+
+    def _build_zip_with_csv(self, csv_text: str) -> bytes:
+        import io
+        import zipfile
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("1000.csv", csv_text)
+        return buf.getvalue()
+
+    def _csv_header(self) -> str:
+        return (
+            "CWE-ID,Name,Weakness Abstraction,Status,Description,Extended Description,"
+            "Related Weaknesses,Weakness Ordinalities,Applicable Platforms,Background Details,"
+            "Alternate Terms,Modes Of Introduction,Exploitation Factors,Likelihood of Exploit,"
+            "Common Consequences,Detection Methods,Potential Mitigations,Observed Examples,"
+            "Functional Areas,Affected Resources,Taxonomy Mappings,Related Attack Patterns,Notes\n"
+        )
+
+    def _csv_row(
+        self,
+        cwe_id: str,
+        name: str,
+        *,
+        abstraction: str = "Base",
+        status: str = "Stable",
+        description: str = "Test description.",
+        extended: str = "Extended.",
+        related: str = "",
+        likelihood: str = "Medium",
+        mitigations: str = "",
+        examples: str = "",
+    ) -> str:
+        cells = [
+            cwe_id,
+            name,
+            abstraction,
+            status,
+            description,
+            extended,
+            related,
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            likelihood,
+            "",
+            "",
+            mitigations,
+            examples,
+            "",
+            "",
+            "",
+            "",
+            "",
+        ]
+        return ",".join(f'"{c}"' for c in cells) + "\n"
+
+    def test_sync_cwe_writes_basic_record(self):
+        from cve.sync import sync_cwe
+        from db import get_cwe
+
+        csv_text = self._csv_header() + self._csv_row(
+            "79",
+            "Improper Neutralization of Input During Web Page Generation",
+            description="The product does not neutralize user-controllable input.",
+            likelihood="High",
+        )
+        zip_bytes = self._build_zip_with_csv(csv_text)
+
+        with patch("cve.sync._client.get") as mock_get:
+            mock_get.return_value = MagicMock(
+                content=zip_bytes,
+                raise_for_status=MagicMock(),
+            )
+            count = sync_cwe()
+
+        assert count == 1
+        record = get_cwe("CWE-79")
+        assert record is not None
+        assert record["name"].startswith("Improper Neutralization")
+        assert record["abstract_type"] == "Base"
+        assert record["status"] == "Stable"
+        assert record["likelihood"] == "High"
+
+    def test_sync_cwe_parses_related_chain(self):
+        from cve.sync import sync_cwe
+        from db import get_cwe
+
+        related = (
+            "::NATURE:ChildOf:CWE ID:707:VIEW ID:1000:ORDINAL:Primary::"
+            "::NATURE:ParentOf:CWE ID:80:VIEW ID:1000::"
+            "::NATURE:ParentOf:CWE ID:81:VIEW ID:1000::"
+        )
+        csv_text = self._csv_header() + self._csv_row("79", "XSS", related=related)
+        zip_bytes = self._build_zip_with_csv(csv_text)
+
+        with patch("cve.sync._client.get") as mock_get:
+            mock_get.return_value = MagicMock(content=zip_bytes, raise_for_status=MagicMock())
+            sync_cwe()
+
+        record = get_cwe("CWE-79")
+        assert record["parent_cwe"] == "CWE-707"
+        assert "CWE-80" in record["child_cwes"]
+        assert "CWE-81" in record["child_cwes"]
+
+    def test_sync_cwe_ignores_non_view_1000_relations(self):
+        """Relations from view 699 (software dev) must not leak into research view 1000 results."""
+        from cve.sync import sync_cwe
+        from db import get_cwe
+
+        related = "::NATURE:ChildOf:CWE ID:999:VIEW ID:699:ORDINAL:Primary::"
+        csv_text = self._csv_header() + self._csv_row("79", "XSS", related=related)
+        zip_bytes = self._build_zip_with_csv(csv_text)
+        with patch("cve.sync._client.get") as mock_get:
+            mock_get.return_value = MagicMock(content=zip_bytes, raise_for_status=MagicMock())
+            sync_cwe()
+
+        record = get_cwe("CWE-79")
+        assert record["parent_cwe"] is None
+
+    def test_sync_cwe_parses_mitigations_and_examples(self):
+        from cve.sync import sync_cwe
+        from db import get_cwe
+
+        mitigations = (
+            "::PHASE:Architecture and Design:DESCRIPTION:Use a vetted library.::"
+            "::PHASE:Implementation:DESCRIPTION:Encode all user output.::"
+        )
+        examples = (
+            "::REFERENCE:CVE-2018-1234:DESCRIPTION:Buffer overflow in foo.::"
+            "::REFERENCE:CVE-2019-5678:DESCRIPTION:XSS in bar.::"
+        )
+        csv_text = self._csv_header() + self._csv_row("79", "XSS", mitigations=mitigations, examples=examples)
+        zip_bytes = self._build_zip_with_csv(csv_text)
+        with patch("cve.sync._client.get") as mock_get:
+            mock_get.return_value = MagicMock(content=zip_bytes, raise_for_status=MagicMock())
+            sync_cwe()
+
+        record = get_cwe("CWE-79")
+        assert len(record["mitigations"]) == 2
+        assert any("vetted library" in m for m in record["mitigations"])
+        assert any("Architecture and Design" in m for m in record["mitigations"])
+        assert len(record["examples"]) == 2
+        assert any("CVE-2018-1234" in e for e in record["examples"])
+
+    def test_sync_cwe_skips_malformed_rows(self):
+        """Empty CWE-ID or empty Name → row skipped, not raised."""
+        from cve.sync import sync_cwe
+
+        csv_text = self._csv_header() + ',"",Base,Stable,desc,ext,,,,,,,,Medium,,,,,,,,,\n'
+        csv_text += self._csv_row("79", "Valid")
+        zip_bytes = self._build_zip_with_csv(csv_text)
+        with patch("cve.sync._client.get") as mock_get:
+            mock_get.return_value = MagicMock(content=zip_bytes, raise_for_status=MagicMock())
+            count = sync_cwe()
+        assert count == 1
+
+    def test_sync_cwe_oversize_zip_refused(self):
+        from cve.sync import sync_cwe
+
+        oversized = b"\x00" * (26 * 1024 * 1024)
+        with patch("cve.sync._client.get") as mock_get:
+            mock_get.return_value = MagicMock(content=oversized, raise_for_status=MagicMock())
+            count = sync_cwe()
+        assert count == 0
+
+
+class TestCweLookupEndpoint:
+    def _seed_cwe(self, cwe_id: str = "CWE-79", **overrides):
+        from db import upsert_cwe
+
+        defaults = {
+            "name": "Improper Neutralization of Input During Web Page Generation ('Cross-site Scripting')",
+            "description": "The product does not neutralize or incorrectly neutralizes user-controllable input.",
+            "extended_description": "Cross-site scripting vulnerabilities occur when an attacker injects.",
+            "abstract_type": "Base",
+            "status": "Stable",
+            "likelihood": "High",
+            "mitigations": ["Architecture and Design — Use a vetted library."],
+            "examples": ["CVE-2018-1234: XSS in widget."],
+            "parent_cwe": "CWE-707",
+            "child_cwes": ["CWE-80", "CWE-81"],
+        }
+        defaults.update(overrides)
+        upsert_cwe(cwe_id, **defaults)
+
+    def test_cwe_lookup_200(self):
+        self._seed_cwe()
+        r = client.get("/v1/cwe/CWE-79")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["cwe_id"] == "CWE-79"
+        assert data["abstract_type"] == "Base"
+        assert data["status"] == "Stable"
+        assert data["likelihood"] == "High"
+        assert data["parent_cwe"] == "CWE-707"
+        assert data["child_cwes"] == ["CWE-80", "CWE-81"]
+
+    def test_cwe_lookup_normalizes_lowercase(self):
+        self._seed_cwe()
+        r = client.get("/v1/cwe/cwe-79")
+        assert r.status_code == 200
+        assert r.json()["cwe_id"] == "CWE-79"
+
+    def test_cwe_lookup_normalizes_bare_digits(self):
+        self._seed_cwe()
+        r = client.get("/v1/cwe/79")
+        assert r.status_code == 200
+        assert r.json()["cwe_id"] == "CWE-79"
+
+    def test_cwe_lookup_404_unknown(self):
+        r = client.get("/v1/cwe/CWE-999999")
+        assert r.status_code == 404
+
+    def test_cwe_lookup_400_invalid_format(self):
+        r = client.get("/v1/cwe/not-a-cwe")
+        assert r.status_code in (400, 404, 422)
+
+    def test_cwe_lookup_cve_count_lower_bound(self):
+        self._seed_cwe()
+        _seed_cve(cve_id="CVE-2024-0001", cwe_id="CWE-79")
+        _seed_cve(cve_id="CVE-2024-0002", cwe_id="CWE-79")
+        _seed_cve(cve_id="CVE-2024-0003", cwe_id="CWE-89")
+        r = client.get("/v1/cwe/CWE-79")
+        assert r.json()["cve_count"] == 2
+
+    def test_cwe_lookup_verdict_block(self):
+        self._seed_cwe()
+        r = client.get("/v1/cwe/CWE-79")
+        verdict = r.json()["verdict"]
+        assert verdict["deterministic"] is True
+        assert "mitre_cwe_cache" in verdict["sources_queried"]
+
+    def test_cwe_lookup_next_calls_chain(self):
+        """next_calls must include cve_search (when CVEs exist), parent walk, and child drill-down."""
+        self._seed_cwe()
+        _seed_cve(cve_id="CVE-2024-0099", cwe_id="CWE-79")
+        r = client.get("/v1/cwe/CWE-79")
+        next_calls = r.json()["next_calls"]
+        tools_inputs = [(hint["tool"], hint["input"]) for hint in next_calls]
+        assert ("cve_search", "CWE-79") in tools_inputs
+        assert ("cwe_lookup", "CWE-707") in tools_inputs
+        assert ("cwe_lookup", "CWE-80") in tools_inputs
+        assert ("cwe_lookup", "CWE-81") in tools_inputs
+
+    def test_cwe_lookup_no_cves_omits_cve_search_pivot(self):
+        self._seed_cwe(cwe_id="CWE-2222", parent_cwe=None, child_cwes=[])
+        r = client.get("/v1/cwe/CWE-2222")
+        next_calls = r.json().get("next_calls") or []
+        assert all(hint["tool"] != "cve_search" for hint in next_calls)
+
+    def test_cwe_lookup_no_parent_no_children_minimal_pivots(self):
+        """A pillar-level CWE with no parent and no children but matched CVEs gets only cve_search hint."""
+        self._seed_cwe(cwe_id="CWE-3333", parent_cwe=None, child_cwes=[])
+        _seed_cve(cve_id="CVE-2024-XXXX", cwe_id="CWE-3333")
+        r = client.get("/v1/cwe/CWE-3333")
+        next_calls = r.json()["next_calls"]
+        assert len(next_calls) == 1
+        assert next_calls[0]["tool"] == "cve_search"
+
+
 # =========== OpenAPI spec ===========
 
 

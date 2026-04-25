@@ -260,6 +260,23 @@ def init_cve_db():
             )
         """)
         con.execute("CREATE INDEX IF NOT EXISTS idx_kev_details_ransomware ON kev_details(known_ransomware_use)")
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS cwes (
+                cwe_id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT,
+                extended_description TEXT,
+                abstract_type TEXT,
+                status TEXT,
+                likelihood TEXT,
+                mitigations TEXT,
+                examples TEXT,
+                parent_cwe TEXT,
+                child_cwes TEXT,
+                updated_at TEXT
+            )
+        """)
+        con.execute("CREATE INDEX IF NOT EXISTS idx_cwes_parent ON cwes(parent_cwe)")
         # One-shot backfill: mark all existing CVEs as source='nvd' (guarded by empty check)
         already = con.execute("SELECT 1 FROM cve_sources LIMIT 1").fetchone()
         if not already:
@@ -1125,6 +1142,127 @@ def get_kev_details(cve_id: str) -> dict | None:
         "notes": row["notes"],
         "cwes": cwes,
     }
+
+
+def upsert_cwe(
+    cwe_id: str,
+    *,
+    name: str,
+    description: str | None = None,
+    extended_description: str | None = None,
+    abstract_type: str | None = None,
+    status: str | None = None,
+    likelihood: str | None = None,
+    mitigations: list[str] | None = None,
+    examples: list[str] | None = None,
+    parent_cwe: str | None = None,
+    child_cwes: list[str] | None = None,
+) -> None:
+    """Idempotent UPSERT into cwes table. Lists are JSON-encoded."""
+    mitigations_json = json.dumps(mitigations) if mitigations else None
+    examples_json = json.dumps(examples) if examples else None
+    child_cwes_json = json.dumps(child_cwes) if child_cwes else None
+    now = datetime.now(UTC).isoformat()
+    with get_cve_db() as con:
+        con.execute(
+            """
+            INSERT INTO cwes (
+                cwe_id, name, description, extended_description, abstract_type,
+                status, likelihood, mitigations, examples, parent_cwe, child_cwes,
+                updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(cwe_id) DO UPDATE SET
+                name = excluded.name,
+                description = excluded.description,
+                extended_description = excluded.extended_description,
+                abstract_type = excluded.abstract_type,
+                status = excluded.status,
+                likelihood = excluded.likelihood,
+                mitigations = excluded.mitigations,
+                examples = excluded.examples,
+                parent_cwe = excluded.parent_cwe,
+                child_cwes = excluded.child_cwes,
+                updated_at = excluded.updated_at
+            """,
+            (
+                cwe_id,
+                name,
+                description,
+                extended_description,
+                abstract_type,
+                status,
+                likelihood,
+                mitigations_json,
+                examples_json,
+                parent_cwe,
+                child_cwes_json,
+                now,
+            ),
+        )
+
+
+def get_cwe(cwe_id: str) -> dict | None:
+    """Fetch CWE record. Returns None when not found.
+
+    Lists (mitigations, examples, child_cwes) are JSON-decoded; malformed JSON
+    degrades to empty list rather than raising.
+    """
+    with get_cve_db() as con:
+        cur = con.cursor()
+        cur.row_factory = sqlite3.Row
+        row = cur.execute(
+            """
+            SELECT cwe_id, name, description, extended_description, abstract_type,
+                   status, likelihood, mitigations, examples, parent_cwe, child_cwes,
+                   updated_at
+            FROM cwes WHERE cwe_id = ?
+            """,
+            (cwe_id,),
+        ).fetchone()
+
+    if row is None:
+        return None
+
+    def _decode_list(raw: str | None) -> list[str]:
+        if not raw:
+            return []
+        try:
+            decoded = json.loads(raw)
+            if isinstance(decoded, list):
+                return [str(x) for x in decoded if x]
+        except (json.JSONDecodeError, TypeError):
+            pass
+        return []
+
+    return {
+        "cwe_id": row["cwe_id"],
+        "name": row["name"],
+        "description": row["description"],
+        "extended_description": row["extended_description"],
+        "abstract_type": row["abstract_type"],
+        "status": row["status"],
+        "likelihood": row["likelihood"],
+        "mitigations": _decode_list(row["mitigations"]),
+        "examples": _decode_list(row["examples"]),
+        "parent_cwe": row["parent_cwe"],
+        "child_cwes": _decode_list(row["child_cwes"]),
+        "updated_at": row["updated_at"],
+    }
+
+
+def count_cves_for_cwe(cwe_id: str) -> int:
+    """Return number of CVEs whose cwe_id equals the given CWE.
+
+    Uses an exact match on the cves.cwe_id column. CVEs may map to multiple
+    CWEs upstream, but our schema stores only the primary; this count is a
+    lower bound when the column is sparse.
+    """
+    with get_cve_db() as con:
+        row = con.execute(
+            "SELECT COUNT(*) FROM cves WHERE cwe_id = ?",
+            (cwe_id,),
+        ).fetchone()
+    return int(row[0]) if row else 0
 
 
 def upsert_cve_if_absent(cve_data: dict) -> bool:

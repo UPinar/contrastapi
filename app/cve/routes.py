@@ -9,9 +9,11 @@ from urllib.parse import unquote
 import httpx
 from auth import authenticate
 from db import (
+    count_cves_for_cwe,
     get_cached_domain,
     get_cve,
     get_cve_sources,
+    get_cwe,
     get_kev_details,
     get_last_successful_sync,
     get_leading_cves,
@@ -26,6 +28,7 @@ from schemas import (
     BulkCveResponse,
     CveResponse,
     CveSearchResponse,
+    CweLookupResponse,
     Exploit,
     ExploitResponse,
     KevDetailResponse,
@@ -251,6 +254,105 @@ def kev_detail(
 
     record["verdict"] = _cve_verdict(sources=["cisa_kev_cache"], completeness="complete")
     record["next_calls"] = _kev_pivot_hints(record)
+    return record
+
+
+_CWE_RE = re.compile(r"^CWE-(\d{1,6})$")
+
+
+def _normalize_cwe(raw: str) -> str:
+    """Normalize user input to canonical 'CWE-<digits>' form.
+
+    Accepts: 'CWE-79', 'cwe-79', 'CWE 79', '79'. Raises HTTPException(400)
+    on anything that doesn't yield 1-6 digits after stripping.
+    """
+    s = (raw or "").strip().upper().replace(" ", "")
+    if not s.startswith("CWE-"):
+        if s.startswith("CWE"):
+            s = "CWE-" + s[3:]
+        elif s.isdigit():
+            s = f"CWE-{s}"
+    if not _CWE_RE.match(s):
+        raise HTTPException(status_code=400, detail="Invalid CWE format. Expected 'CWE-<digits>' (e.g. 'CWE-79').")
+    return s
+
+
+def _cwe_pivot_hints(record: dict, cve_count: int) -> list[PivotHint]:
+    """Build the suggested-next-call list for a CWE lookup response.
+
+    Order: cve_search (broadest exploration), parent walk, then children for drill-down.
+    """
+    cwe_id = record["cwe_id"]
+    hints: list[PivotHint] = []
+    if cve_count > 0:
+        hints.append(
+            PivotHint(
+                tool="cve_search",
+                input=cwe_id,
+                reason=f"Enumerate the {cve_count} CVE(s) in our database mapped to this weakness (pass as cwe filter).",
+            )
+        )
+    parent = record.get("parent_cwe")
+    if parent and isinstance(parent, str) and parent.startswith("CWE-"):
+        hints.append(
+            PivotHint(
+                tool="cwe_lookup",
+                input=parent,
+                reason=f"Walk up the weakness hierarchy: parent of {cwe_id} is {parent}.",
+            )
+        )
+    for child in (record.get("child_cwes") or [])[:10]:
+        if not child or not str(child).startswith("CWE-"):
+            continue
+        hints.append(
+            PivotHint(
+                tool="cwe_lookup",
+                input=child,
+                reason=f"Drill down to a more specific weakness: {child} is a child of {cwe_id}.",
+            )
+        )
+    return hints
+
+
+@router.get(
+    "/cwe/{cwe_id}",
+    operation_id="cwe_lookup",
+    response_model=CweLookupResponse,
+    response_model_exclude_none=True,
+)
+def cwe_lookup(
+    cwe_id: Annotated[
+        str,
+        Path(
+            description=(
+                "CWE identifier in canonical form 'CWE-<digits>'. Tolerant of 'cwe-79', "
+                "'CWE 79', or bare '79'. Returns 404 when the CWE is not in MITRE's "
+                "research view 1000."
+            ),
+        ),
+    ],
+    request: Request,
+):
+    """Look up a MITRE CWE (Common Weakness Enumeration) catalog record.
+
+    Returns description, abstract type, status, likelihood of exploit, recommended
+    mitigations, observed example CVEs, and parent/child weakness chain. Use this
+    after cve_lookup or kev_detail to understand the underlying weakness category.
+    """
+    normalized = _normalize_cwe(cwe_id)
+
+    authenticate(request, request.url.path)
+
+    record = get_cwe(normalized)
+    if record is None:
+        raise HTTPException(
+            status_code=404, detail=f"{normalized} is not in the MITRE CWE catalog (research view 1000)"
+        )
+
+    cve_count = count_cves_for_cwe(normalized)
+    record["cve_count"] = cve_count
+    record["verdict"] = _cve_verdict(sources=["mitre_cwe_cache"], completeness="complete")
+    record["next_calls"] = _cwe_pivot_hints(record, cve_count)
     return record
 
 
