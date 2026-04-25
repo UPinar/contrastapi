@@ -343,7 +343,7 @@ async def threat_report(
         ),
     ],
 ) -> str:
-    """Query comprehensive threat profile for an IP: Shodan host data, AbuseIPDB reputation, ASN/geolocation, and open ports. Use for IP investigation and SOC alert triage; for domain data use domain_report. Free: 100/hr (costs 4 credits), Pro: 1000/hr. Returns {ip, enrichment, abuseipdb, shodan, asn, threat_level}."""
+    """Query comprehensive threat profile for an IP: Shodan host data, AbuseIPDB reputation, ASN/geolocation, and open ports. Use for IP investigation and SOC alert triage; for domain data use domain_report. Note: nested asn block always returns at most 50 IPv4/IPv6 prefixes — call asn_lookup with include_full_prefixes=True for the full announced-prefixes list. Free: 100/hr (costs 4 credits), Pro: 1000/hr. Returns {ip, enrichment, abuseipdb, shodan, asn, threat_level}."""
     if err := _validate_public_ip(ip):
         return err
     return _fmt(await _get(f"/v1/threat-report/{ip}"))
@@ -492,11 +492,18 @@ async def asn_lookup(
     target: Annotated[
         str, Field(description="Domain or IP address to look up ASN for (e.g. 'cloudflare.com', '8.8.8.8')")
     ],
+    include_full_prefixes: Annotated[
+        bool,
+        Field(
+            description="Return the full announced-prefixes list (default: False, returns first 50). ipv4_count and ipv6_count are always honest pre-truncation totals. Set True for network mapping or BGP route audits — Cloudflare AS13335 announces 2500+ prefixes."
+        ),
+    ] = False,
 ) -> str:
-    """Look up Autonomous System Number (ASN) for a domain or IP: AS number, organization, IPv4/IPv6 prefixes. Use to identify network operator and IP range ownership. Free: 100/hr, Pro: 1000/hr. Returns {asn, holder, prefixes_v4, prefixes_v6}."""
+    """Look up Autonomous System Number (ASN) for a domain or IP: AS number, organization, IPv4/IPv6 prefixes. Use to identify network operator and IP range ownership. Default returns first 50 prefixes per family — set include_full_prefixes=True for full list. Free: 100/hr, Pro: 1000/hr. Returns {asn, asn_name, ipv4_prefixes, ipv6_prefixes, ipv4_count, ipv6_count}."""
     if _validate_domain(target) and _validate_ip(target):
         return f"Invalid input: {target!r}. Expected a domain (example.com) or IP address (8.8.8.8)."
-    return _fmt(await _get(f"/v1/asn/{target}"))
+    params = {"include_full_prefixes": "true"} if include_full_prefixes else None
+    return _fmt(await _get(f"/v1/asn/{target}", params=params))
 
 
 # === CVE Intelligence ===

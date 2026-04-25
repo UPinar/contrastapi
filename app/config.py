@@ -9,6 +9,11 @@ VERSION = "1.12.0"
 MCP_TOOL_COUNT = 33
 ENDPOINT_COUNT = "40+"
 
+# asn_lookup: prefix list cap to keep MCP responses within token budget.
+# Cloudflare AS13335 announces 2500+ IPv4 prefixes; full list blows past
+# context. Cache stores full set, response truncates per request.
+MAX_ASN_PREFIXES_DEFAULT = 50
+
 BASE_DIR = Path(__file__).parent
 
 # Database paths

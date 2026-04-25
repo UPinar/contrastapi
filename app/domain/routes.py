@@ -45,6 +45,7 @@ from config import (
     COST_AUDIT,
     COST_THREAT_REPORT,
     ENRICHMENT_DAILY_LIMIT,
+    MAX_ASN_PREFIXES_DEFAULT,
     RECON_TIMEOUT,
     UPGRADE_URL,
 )
@@ -1315,6 +1316,24 @@ def domain_vulns(domain: DomainPath, request: Request):
     }
 
 
+def _truncate_asn_prefixes(result: dict, include_full: bool) -> dict:
+    """Return a shallow copy of an asn_lookup result with prefix lists truncated.
+
+    Cache stores full prefixes; responses truncate to MAX_ASN_PREFIXES_DEFAULT
+    unless include_full is True. ipv4_count/ipv6_count remain honest pre-truncation.
+    """
+    if include_full:
+        return result
+    out = dict(result)
+    v4 = out.get("ipv4_prefixes")
+    v6 = out.get("ipv6_prefixes")
+    if isinstance(v4, list) and len(v4) > MAX_ASN_PREFIXES_DEFAULT:
+        out["ipv4_prefixes"] = v4[:MAX_ASN_PREFIXES_DEFAULT]
+    if isinstance(v6, list) and len(v6) > MAX_ASN_PREFIXES_DEFAULT:
+        out["ipv6_prefixes"] = v6[:MAX_ASN_PREFIXES_DEFAULT]
+    return out
+
+
 @router.get("/asn/{target}", operation_id="asn_lookup", response_model=AsnResponse, response_model_exclude_none=True)
 def asn_lookup(
     target: Annotated[
@@ -1327,6 +1346,16 @@ def asn_lookup(
         ),
     ],
     request: Request,
+    include_full_prefixes: Annotated[
+        bool,
+        Query(
+            description=(
+                f"Return the full announced-prefixes list (default: false, returns first {MAX_ASN_PREFIXES_DEFAULT}). "
+                "ipv4_count and ipv6_count are always honest pre-truncation totals. "
+                "Set true for network mapping or BGP route audits."
+            ),
+        ),
+    ] = False,
 ):
     """ASN lookup — resolve target (domain or IP) to its Autonomous System Number, holder name, and announced prefixes."""
     import ipaddress
@@ -1359,7 +1388,7 @@ def asn_lookup(
             result["resolved_ip"] = resolved_ip
         elif "resolved_ip" in result:
             del result["resolved_ip"]
-        return result
+        return _truncate_asn_prefixes(result, include_full_prefixes)
 
     # Fetch ASN from RIPE Stat
     try:
@@ -1483,7 +1512,7 @@ def asn_lookup(
         result["resolved_ip"] = resolved_ip
 
     save_cached_domain(cache_key, result)
-    return {**result}
+    return _truncate_asn_prefixes({**result}, include_full_prefixes)
 
 
 class _BulkRequest(BaseModel):
@@ -1789,7 +1818,7 @@ def threat_report(ip: IpPath, request: Request):
         cache_key = f"asn:{ip}"
         cached_asn = get_cached_domain(cache_key)
         if cached_asn:
-            asn_data = cached_asn
+            asn_data = _truncate_asn_prefixes(cached_asn, include_full=False)
         else:
             r = _ripe_client.get(
                 "https://stat.ripe.net/data/network-info/data.json",
