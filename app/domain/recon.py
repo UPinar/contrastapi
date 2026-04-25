@@ -278,7 +278,7 @@ def enumerate_subdomains(domain: str, crtsh_data: list | None = None) -> dict:
             if result:
                 found_wordlist.add(result)
 
-    found_crtsh, crtsh_warnings = _crtsh_subdomains(domain, crtsh_data)
+    found_crtsh, crtsh_warnings, crtsh_status = _crtsh_subdomains(domain, crtsh_data)
     warnings.extend(crtsh_warnings)
 
     all_found = sorted(found_wordlist | set(found_crtsh))
@@ -294,6 +294,10 @@ def enumerate_subdomains(domain: str, crtsh_data: list | None = None) -> dict:
         summary += f" ({len(found_wordlist)} via wordlist, {len(found_crtsh)} via CT logs)"
     elif found_crtsh:
         summary += " (all via CT logs)"
+    if crtsh_status != "ok" and not found_crtsh:
+        # Be explicit in the human summary so agents reading it know the count
+        # is wordlist-only, not the full picture.
+        summary += f" (CT logs {crtsh_status})"
     if warnings:
         summary += f" [{'; '.join(warnings)}]"
 
@@ -303,6 +307,7 @@ def enumerate_subdomains(domain: str, crtsh_data: list | None = None) -> dict:
         "sources": sources,
         "found_via_wordlist": len(found_wordlist),
         "found_via_crtsh": len(found_crtsh),
+        "crtsh_status": crtsh_status,
         "warnings": warnings,
         "summary": summary,
     }
@@ -355,19 +360,35 @@ def _fetch_crtsh(query: str) -> tuple[list, str | None]:
     return (data, None)
 
 
-def _crtsh_subdomains(domain: str, data: list | None = None) -> tuple[list, list]:
+_CRTSH_STATUS_BY_ERROR = {
+    "crt_sh_timeout": "timeout",
+    "crt_sh_rate_limited": "rate_limited",
+    "crt_sh_unavailable": "unavailable",
+    "crt_sh_error": "error",
+    "parse_error": "error",
+}
+
+
+def _crtsh_subdomains(domain: str, data: list | None = None) -> tuple[list, list, str]:
     """Extract subdomain names from crt.sh data.
 
     Returns:
-        (subdomains, warnings) tuple
+        (subdomains, warnings, status) — status is one of "ok" / "timeout" /
+        "rate_limited" / "unavailable" / "error". The third return value lets
+        callers distinguish "CT lookup confirmed empty" from "CT lookup failed";
+        the legacy (subs, warnings) shape conflated the two and downstream tools
+        could not tell the difference between an actually-tiny domain and a
+        crt.sh outage.
     """
     warnings: list[str] = []
+    status = "ok"
     if data is None:
         data, fetch_error = _fetch_crtsh(f"%.{domain}")
         if fetch_error:
             warnings.append(fetch_error)
+            status = _CRTSH_STATUS_BY_ERROR.get(fetch_error, "error")
         if not data:
-            return ([], warnings)
+            return ([], warnings, status)
 
     subs: set[str] = set()
     parse_errors = 0
@@ -386,7 +407,7 @@ def _crtsh_subdomains(domain: str, data: list | None = None) -> tuple[list, list
     if parse_errors > 0:
         warnings.append(f"parse_error: {parse_errors} entries")
 
-    return (sorted(subs)[:50], warnings)
+    return (sorted(subs)[:50], warnings, status)
 
 
 # === CT Logs ===

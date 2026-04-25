@@ -396,7 +396,7 @@ async def subdomain_enum(
         str, Field(description="Root domain to enumerate subdomains for (e.g. 'example.com', 'tesla.com')")
     ],
 ) -> str:
-    """Discover subdomains using passive methods: Certificate Transparency logs + DNS brute-force (no active probing). Use to map organization's attack surface; non-intrusive. Free: 100/hr, Pro: 1000/hr. Returns {subdomains: [{hostname, resolved_ips}]}."""
+    """Discover subdomains using passive methods: Certificate Transparency logs + DNS brute-force (no active probing). Use to map organization's attack surface; non-intrusive. Free: 100/hr, Pro: 1000/hr. Returns {domain, count, subdomains, sources, found_via_wordlist, found_via_crtsh, crtsh_status, warnings, summary}. Always check crtsh_status: 'ok' means the CT lookup completed (so a low count is real); 'timeout' / 'rate_limited' / 'unavailable' / 'error' means CT logs did not respond and the count is wordlist-only — the actual attack surface is likely larger, retry later or surface the limitation to the user."""
     if err := _validate_domain(domain):
         return err
     return _fmt(await _get(f"/v1/subdomains/{domain}"))

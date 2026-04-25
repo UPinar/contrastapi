@@ -101,7 +101,7 @@ class TestCrtshSubdomains:
             {"name_value": "www.example.com"},
             {"name_value": "mail.example.com\napi.example.com"},
         ]
-        subs, warnings = _crtsh_subdomains("example.com", data)
+        subs, warnings, _status = _crtsh_subdomains("example.com", data)
         assert "www.example.com" in subs
         assert "api.example.com" in subs
 
@@ -109,27 +109,27 @@ class TestCrtshSubdomains:
         from domain.recon import _crtsh_subdomains
 
         data = [{"name_value": "*.example.com"}]
-        subs, warnings = _crtsh_subdomains("example.com", data)
+        subs, warnings, _status = _crtsh_subdomains("example.com", data)
         assert len(subs) == 0
 
     def test_filters_other_domains(self):
         from domain.recon import _crtsh_subdomains
 
         data = [{"name_value": "sub.other.com"}]
-        subs, warnings = _crtsh_subdomains("example.com", data)
+        subs, warnings, _status = _crtsh_subdomains("example.com", data)
         assert len(subs) == 0
 
     def test_limits_to_50(self):
         from domain.recon import _crtsh_subdomains
 
         data = [{"name_value": f"sub{i}.example.com"} for i in range(100)]
-        subs, warnings = _crtsh_subdomains("example.com", data)
+        subs, warnings, _status = _crtsh_subdomains("example.com", data)
         assert len(subs) <= 50
 
     def test_empty_data(self):
         from domain.recon import _crtsh_subdomains
 
-        subs, warnings = _crtsh_subdomains("example.com", [])
+        subs, warnings, _status = _crtsh_subdomains("example.com", [])
         assert subs == []
 
 
@@ -179,6 +179,8 @@ class TestFetchCrtsh:
         assert result["warnings"] == ["crt_sh_timeout"]
         assert result["sources"] == []
         assert result["subdomains"] == []
+        assert result["crtsh_status"] == "timeout"
+        assert "CT logs timeout" in result["summary"]
 
     def test_enumerate_subdomains_no_crtsh_results(self):
         from domain.recon import enumerate_subdomains
@@ -187,12 +189,15 @@ class TestFetchCrtsh:
             with patch("domain.recon.socket.gethostbyname", side_effect=socket.gaierror):
                 result = enumerate_subdomains("example.com")
         assert result["warnings"] == []
+        # Bug N: confirmed-empty path emits crtsh_status='ok' so agents can trust the count
+        assert result["crtsh_status"] == "ok"
+        assert "CT logs" not in result["summary"] or "via CT logs" in result["summary"]
 
     def test_crtsh_wildcard_dedup(self):
         from domain.recon import _crtsh_subdomains
 
         data = [{"name_value": "*.api.example.com\napi.example.com"}]
-        subs, warnings = _crtsh_subdomains("example.com", data)
+        subs, warnings, _status = _crtsh_subdomains("example.com", data)
         assert subs.count("api.example.com") == 1
         assert warnings == []
 
@@ -206,6 +211,75 @@ class TestFetchCrtsh:
             with patch("domain.recon.socket.gethostbyname", side_effect=socket.gaierror):
                 result = enumerate_subdomains("example.com")
         assert len(result["subdomains"]) <= 50
+
+
+class TestSubdomainEnumCrtshStatus:
+    """Bug N: count + found_via_crtsh=0 was ambiguous between 'CT confirmed empty'
+    and 'CT lookup failed'. crtsh_status now disambiguates."""
+
+    @pytest.mark.parametrize(
+        "fetch_error,expected_status",
+        [
+            ("crt_sh_timeout", "timeout"),
+            ("crt_sh_rate_limited", "rate_limited"),
+            ("crt_sh_unavailable", "unavailable"),
+            ("crt_sh_error", "error"),
+            ("parse_error", "error"),
+        ],
+    )
+    def test_status_maps_fetch_error(self, fetch_error, expected_status):
+        from domain.recon import enumerate_subdomains
+
+        with patch("domain.recon._fetch_crtsh", return_value=([], fetch_error)):
+            with patch("domain.recon.socket.gethostbyname", side_effect=socket.gaierror):
+                result = enumerate_subdomains("example.com")
+        assert result["crtsh_status"] == expected_status
+        assert fetch_error in result["warnings"]
+
+    def test_status_ok_when_crtsh_data_supplied_directly(self):
+        # full_domain_report fetches once and passes data in — that path skips
+        # the fetch and must report status='ok' regardless of empty/non-empty.
+        from domain.recon import enumerate_subdomains
+
+        with patch("domain.recon.socket.gethostbyname", side_effect=socket.gaierror):
+            result = enumerate_subdomains("example.com", crtsh_data=[])
+        assert result["crtsh_status"] == "ok"
+
+    def test_status_ok_with_real_crtsh_results(self):
+        from domain.recon import enumerate_subdomains
+
+        data = [{"name_value": "api.example.com\nweb.example.com"}]
+        with patch("domain.recon._fetch_crtsh", return_value=(data, None)):
+            with patch("domain.recon.socket.gethostbyname", side_effect=socket.gaierror):
+                result = enumerate_subdomains("example.com")
+        assert result["crtsh_status"] == "ok"
+        assert result["found_via_crtsh"] >= 1
+
+    def test_route_emits_crtsh_status(self):
+        from unittest.mock import patch as _patch
+
+        with _patch("domain.routes.authenticate"):
+            with _patch(
+                "domain.routes.enumerate_subdomains",
+                return_value={
+                    "subdomains": [],
+                    "count": 0,
+                    "sources": [],
+                    "found_via_wordlist": 0,
+                    "found_via_crtsh": 0,
+                    "crtsh_status": "timeout",
+                    "warnings": ["crt_sh_timeout"],
+                    "summary": "0 subdomain(s) found for example.com (CT logs timeout)",
+                },
+            ):
+                with _patch(
+                    "domain.routes._validate_and_auth", return_value=("example.com", "1.2.3.4", {"tier": "free"})
+                ):
+                    with _patch("domain.routes._from_cache", return_value=None):
+                        r = client.get("/v1/subdomains/example.com")
+                        assert r.status_code == 200
+                        data = r.json()
+                        assert data["crtsh_status"] == "timeout"
 
 
 # --- detect_waf ---

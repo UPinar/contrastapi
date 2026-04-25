@@ -970,6 +970,7 @@ class TestResponseModelFiltering:
             "warnings",
             "found_via_wordlist",
             "found_via_crtsh",
+            "crtsh_status",
         }
 
     @patch("domain.routes._from_cache", return_value=None)

@@ -1491,6 +1491,16 @@ class SubdomainsResponse(BaseModel):
     warnings: list[str] = Field(default_factory=list)
     found_via_wordlist: int = 0
     found_via_crtsh: int = 0
+    crtsh_status: Literal["ok", "timeout", "rate_limited", "unavailable", "error"] = Field(
+        default="ok",
+        description=(
+            "Status of the crt.sh certificate-transparency lookup that feeds found_via_crtsh. "
+            "'ok' means the upstream responded — found_via_crtsh=0 with status='ok' is a real "
+            "empty result. Anything else means the upstream did not deliver (timeout / "
+            "rate_limited / unavailable / error); count and subdomains are then wordlist-only "
+            "and an unknown number of CT-log subdomains may be missing."
+        ),
+    )
 
     model_config = {"extra": "ignore"}
 
