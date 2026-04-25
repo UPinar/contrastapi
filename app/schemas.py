@@ -1239,7 +1239,19 @@ class CveResponse(BaseModel):
     )
     references: list[str] = Field(
         default_factory=list,
-        description="Advisory URLs (vendor bulletins, patch commits, exploit PoCs, analysis writeups).",
+        description=(
+            "Advisory URLs (vendor bulletins, patch commits, exploit PoCs, analysis writeups). "
+            "Truncated to first 10 by default. For GET /v1/cve/{cve_id}, use ?include_full_references=true; "
+            'for POST /v1/cves/bulk, set body field "include_full_references": true. Patch URL detection '
+            "always runs against the full list — patch_url/patch_available are unaffected by the cap."
+        ),
+    )
+    total_references: int = Field(
+        default=0,
+        description=(
+            "Honest count of all references in the CVE database. Always present (emitted even when 0); "
+            "matches len(references) when not truncated."
+        ),
     )
     sources: list[str] = Field(
         default_factory=list,

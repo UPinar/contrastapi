@@ -230,6 +230,65 @@ class TestCveLookup:
         assert r.status_code == 200
         assert len(r.json()["affected_products"]) == 20
 
+    def test_cve_lookup_truncates_references_to_10_by_default(self):
+        refs = [f"https://example.com/advisory-{i}" for i in range(25)]
+        _seed_cve(cve_id="CVE-2024-9201", refs=refs)
+        r = client.get("/v1/cve/CVE-2024-9201")
+        assert r.status_code == 200
+        data = r.json()
+        assert len(data["references"]) == 10
+        assert data["total_references"] == 25
+        assert data["references"][0] == "https://example.com/advisory-0"
+        assert data["references"][9] == "https://example.com/advisory-9"
+
+    def test_cve_lookup_include_full_references_returns_full_list(self):
+        refs = [f"https://example.com/advisory-{i}" for i in range(25)]
+        _seed_cve(cve_id="CVE-2024-9202", refs=refs)
+        r = client.get("/v1/cve/CVE-2024-9202?include_full_references=true")
+        assert r.status_code == 200
+        data = r.json()
+        assert len(data["references"]) == 25
+        assert data["total_references"] == 25
+
+    def test_cve_lookup_short_references_not_truncated(self):
+        refs = [f"https://example.com/advisory-{i}" for i in range(3)]
+        _seed_cve(cve_id="CVE-2024-9203", refs=refs)
+        r = client.get("/v1/cve/CVE-2024-9203")
+        assert r.status_code == 200
+        data = r.json()
+        assert len(data["references"]) == 3
+        assert data["total_references"] == 3
+
+    def test_cve_lookup_exactly_10_refs_not_truncated(self):
+        refs = [f"https://example.com/advisory-{i}" for i in range(10)]
+        _seed_cve(cve_id="CVE-2024-9204", refs=refs)
+        r = client.get("/v1/cve/CVE-2024-9204")
+        assert r.status_code == 200
+        data = r.json()
+        assert len(data["references"]) == 10
+        assert data["total_references"] == 10
+
+    def test_cve_lookup_patch_url_detected_beyond_default_cap(self):
+        # patch URL at index 15 (well past the 10-ref cap) must still surface.
+        refs = [f"https://example.com/noise-{i}" for i in range(15)]
+        refs.append("https://github.com/advisories/GHSA-aaaa-bbbb-cccc")
+        _seed_cve(cve_id="CVE-2024-9205", refs=refs)
+        r = client.get("/v1/cve/CVE-2024-9205")
+        assert r.status_code == 200
+        data = r.json()
+        assert len(data["references"]) == 10
+        assert data["total_references"] == 16
+        assert data["patch_available"] is True
+        assert data["patch_url"] == "https://github.com/advisories/GHSA-aaaa-bbbb-cccc"
+
+    def test_cve_lookup_total_references_zero_when_no_refs(self):
+        _seed_cve(cve_id="CVE-2024-9206", refs=[])
+        r = client.get("/v1/cve/CVE-2024-9206")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["references"] == [] or "references" not in data
+        assert data["total_references"] == 0
+
 
 class TestCveSearch:
     def test_search_by_severity(self):
@@ -647,6 +706,19 @@ class TestCveSearch:
         assert items, "expected seeded CVE in results"
         assert "description" not in items[0]
 
+    def test_search_include_full_inherits_references_cap(self):
+        # cve_search?include=full reuses _format_cve, so the 10-ref cap applies there too.
+        # Documents the inherited behavior — full refs require cve_lookup?include_full_references=true.
+        refs = [f"https://example.com/r-{i}" for i in range(25)]
+        _seed_cve(cve_id="CVE-2024-9104", severity="HIGH", refs=refs)
+        r = client.get("/v1/cves?severity=HIGH&include=full&limit=200")
+        assert r.status_code == 200
+        items = [c for c in r.json()["results"] if c["cve_id"] == "CVE-2024-9104"]
+        assert items, "expected seeded CVE in results"
+        item = items[0]
+        assert len(item["references"]) == 10
+        assert item["total_references"] == 25
+
 
 class TestCveResponseFormat:
     def test_response_has_all_fields(self):
@@ -679,6 +751,8 @@ class TestCveResponseFormat:
         expected_keys.add("related_cves")
         # next_calls always present on single-CVE lookup (at minimum exploit_lookup)
         expected_keys.add("next_calls")
+        # total_references always present on cve_lookup (default 0 when no refs)
+        expected_keys.add("total_references")
         # patch_url only present when a patch URL exists (excluded by response_model_exclude_none=True)
         assert expected_keys == set(data.keys())
 
@@ -3642,6 +3716,31 @@ class TestBulkCveLookup:
         cve = data["results"][0]["cve"]
         assert len(cve["affected_products"]) == 50
         assert cve["total_products"] == 50
+
+    @patch("cve.routes.get_cve")
+    def test_bulk_cve_truncates_references_to_10_by_default(self, mock_get):
+        big = dict(self._MOCK_CVE)
+        big["refs"] = [f"https://example.com/r-{i}" for i in range(25)]
+        mock_get.return_value = big
+        r = client.post("/v1/cves/bulk", json={"cve_ids": ["CVE-2024-3094"]})
+        assert r.status_code == 200
+        cve = r.json()["results"][0]["cve"]
+        assert len(cve["references"]) == 10
+        assert cve["total_references"] == 25
+
+    @patch("cve.routes.get_cve")
+    def test_bulk_cve_include_full_references_returns_full(self, mock_get):
+        big = dict(self._MOCK_CVE)
+        big["refs"] = [f"https://example.com/r-{i}" for i in range(25)]
+        mock_get.return_value = big
+        r = client.post(
+            "/v1/cves/bulk",
+            json={"cve_ids": ["CVE-2024-3094"], "include_full_references": True},
+        )
+        assert r.status_code == 200
+        cve = r.json()["results"][0]["cve"]
+        assert len(cve["references"]) == 25
+        assert cve["total_references"] == 25
 
     def test_bulk_cve_empty_list(self):
         r = client.post("/v1/cves/bulk", json={"cve_ids": []})

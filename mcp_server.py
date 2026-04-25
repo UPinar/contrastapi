@@ -506,12 +506,22 @@ async def cve_lookup(
             description="Return the full affected_products list (default: False, returns first 20). Set True for bulk audits or dependency scanning of Log4j-class CVEs with 50+ products."
         ),
     ] = False,
+    include_full_references: Annotated[
+        bool,
+        Field(
+            description="Return the full references list (default: False, returns first 10). total_references is always emitted with the honest count; patch URL detection always runs against the full list, so patch_url/patch_available are unaffected by the cap. Set True only when you need the complete advisory URL set (older + high-profile CVEs accumulate 30-60+)."
+        ),
+    ] = False,
 ) -> str:
-    """Retrieve detailed CVE data by ID: description, CVSS v3.1 + vector, EPSS score + percentile, CISA KEV status, affected products (CPE), references, patch availability, related CVEs. By default affected_products is truncated to the first 20 entries; total_products reports the honest full count. Pass include_affected_products=true for the complete list (needed for bulk audits / dependency scanners; Log4j-class CVEs can carry 50+ products). Use for single-CVE details; use cve_search for queries by product/severity. Response carries next_calls — chain with kev_detail when kev.in_kev=true for the CISA federal patch deadline + required action, with cwe_lookup on cwe_id for the weakness category, and with exploit_lookup for public PoC availability. Free: 100/hr, Pro: 1000/hr. Returns {cve_id, description, cvss_score, cvss_vector, epss, kev, affected_products (first 20 by default), total_products, references, patch_available, related_cves, verdict, next_calls}."""
+    """Retrieve detailed CVE data by ID: description, CVSS v3.1 + vector, EPSS score + percentile, CISA KEV status, affected products (CPE), references, patch availability, related CVEs. By default affected_products is truncated to the first 20 entries (total_products reports the honest count) and references to the first 10 (total_references reports the honest count). Pass include_affected_products=true and/or include_full_references=true for the complete lists (needed for bulk audits / dependency scanners; Log4j-class CVEs can carry 50+ products and 30+ refs). Use for single-CVE details; use cve_search for queries by product/severity. Response carries next_calls — chain with kev_detail when kev.in_kev=true for the CISA federal patch deadline + required action, with cwe_lookup on cwe_id for the weakness category, and with exploit_lookup for public PoC availability. Free: 100/hr, Pro: 1000/hr. Returns {cve_id, description, cvss_score, cvss_vector, epss, kev, affected_products (first 20 by default), total_products, references (first 10 by default), total_references, patch_available, related_cves, verdict, next_calls}."""
     if err := _validate_cve(cve_id):
         return err
-    params = {"include_affected_products": "true"} if include_affected_products else None
-    return _fmt(await _get(f"/v1/cve/{cve_id}", params=params))
+    params = {}
+    if include_affected_products:
+        params["include_affected_products"] = "true"
+    if include_full_references:
+        params["include_full_references"] = "true"
+    return _fmt(await _get(f"/v1/cve/{cve_id}", params=params or None))
 
 
 @mcp.tool(annotations=_RO)
@@ -671,13 +681,23 @@ async def bulk_cve_lookup(
             description="Return the full affected_products list for each CVE in the batch (default: False, each CVE returns first 20). Set True for bulk dependency audits."
         ),
     ] = False,
+    include_full_references: Annotated[
+        bool,
+        Field(
+            description="Return the full references list for each CVE in the batch (default: False, each CVE returns first 10). total_references is always emitted. Set True only when you need every advisory URL for every CVE in the batch."
+        ),
+    ] = False,
 ) -> str:
-    """Batch query multiple CVEs (up to 10 free/50 pro): retrieve full CVE details for all in 1 request instead of N. By default each CVE's affected_products is truncated to the first 20 entries (total_products reports honest count); pass include_affected_products=true to return full lists. Use for dependency audits or bulk vulnerability enrichment; use cve_lookup for single CVE. Each successful item carries next_calls — chain with kev_detail (when kev.in_kev=true), cwe_lookup (when cwe_id is present), or exploit_lookup. Free: 100/hr (1 per item), Pro: 1000/hr. Returns {results, total, successful, failed, timed_out, partial, summary}."""
+    """Batch query multiple CVEs (up to 10 free/50 pro): retrieve full CVE details for all in 1 request instead of N. By default each CVE's affected_products is truncated to the first 20 entries (total_products reports honest count) and references to the first 10 (total_references reports honest count); pass include_affected_products=true / include_full_references=true to return full lists. Use for dependency audits or bulk vulnerability enrichment; use cve_lookup for single CVE. Each successful item carries next_calls — chain with kev_detail (when kev.in_kev=true), cwe_lookup (when cwe_id is present), or exploit_lookup. Free: 100/hr (1 per item), Pro: 1000/hr. Returns {results, total, successful, failed, timed_out, partial, summary}."""
     if not isinstance(cve_ids, list) or not cve_ids:
         return "cve_ids must be a non-empty list"
     if not all(isinstance(cid, str) for cid in cve_ids):
         return "All cve_ids must be strings"
-    body = {"cve_ids": cve_ids, "include_affected_products": include_affected_products}
+    body = {
+        "cve_ids": cve_ids,
+        "include_affected_products": include_affected_products,
+        "include_full_references": include_full_references,
+    }
     return _fmt(await _post("/v1/cves/bulk", body))
 
 

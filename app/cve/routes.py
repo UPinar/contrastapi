@@ -47,6 +47,11 @@ router = APIRouter(prefix="/v1", tags=["CVE Intelligence"])
 # and the 20 limit in codesec/routes.py matched_cves guard (future refactor).
 MAX_AFFECTED_PRODUCTS_DEFAULT = 20
 
+# Default cap on references in API responses. Older CVEs and high-profile bugs
+# (Log4Shell, Heartbleed) can carry 30-60+ advisory URLs; agents only need the
+# first handful for triage. Full list is available via ?include_full_references=true.
+MAX_REFERENCES_DEFAULT = 10
+
 _exploit_client = httpx.Client(timeout=httpx.Timeout(5.0, connect=3.0), follow_redirects=True)
 
 _DATE_RE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
@@ -214,6 +219,10 @@ def cve_lookup(
         False,
         description="Return full affected_products list (default: first 20). Use for bulk audits or dependency scans.",
     ),
+    include_full_references: bool = Query(
+        False,
+        description="Return full references list (default: first 10). total_references is always emitted with the honest count. Patch URL detection always runs against the full list, so patch_url/patch_available are unaffected by the cap.",
+    ),
 ):
     """Look up a single CVE by ID. Returns full details with EPSS score and KEV status."""
     cve_id = cve_id.strip().upper()
@@ -225,7 +234,12 @@ def cve_lookup(
     if result is None:
         raise HTTPException(status_code=404, detail=f"CVE {cve_id} not found")
 
-    formatted = _format_cve(result, include_enrichment=True, include_full_products=include_affected_products)
+    formatted = _format_cve(
+        result,
+        include_enrichment=True,
+        include_full_products=include_affected_products,
+        include_full_references=include_full_references,
+    )
     is_minimal = not (result.get("severity") or result.get("cvss_v3") or result.get("description"))
     completeness = "minimal" if is_minimal else "complete"
     sources_for_verdict = [f"{s}_cache" for s in formatted["sources"]]
@@ -655,7 +669,12 @@ def _exploit_lookup_verdict(github_error: bool, shodan_error: bool, offline_foun
     )
 
 
-def _format_cve(row: dict, include_enrichment: bool = False, include_full_products: bool = False) -> dict:
+def _format_cve(
+    row: dict,
+    include_enrichment: bool = False,
+    include_full_products: bool = False,
+    include_full_references: bool = False,
+) -> dict:
     """Format a raw CVE db row into API response format.
 
     When include_enrichment=True (single-CVE lookup only), adds patch_available,
@@ -668,17 +687,27 @@ def _format_cve(row: dict, include_enrichment: bool = False, include_full_produc
     MCP responses). total_products always reflects the honest full count. Pass
     include_full_products=True to return the complete list.
 
+    references is truncated to the first MAX_REFERENCES_DEFAULT entries by default
+    (older + high-profile CVEs accumulate 30-60+ advisory URLs and agents only need
+    a handful for triage). total_references is the honest full count. Pass
+    include_full_references=True to return the complete list. Patch URL detection
+    runs against the FULL list before truncation, so the patch_url field is never
+    missed because of the cap.
+
     Naming: the internal flag is `include_full_products` (emphasis: return all of
     them); the public API param in cve_lookup / _BulkCveRequest is
     `include_affected_products` (emphasis: the field being expanded). Keep the
-    divergence — it matches how each audience reads the contract.
+    divergence — it matches how each audience reads the contract. Same for
+    references.
 
     related_cves uses the RAW DB `row.get("affected_products")` regardless of
     truncation, so enrichment is O(1) and never missed because of the cap.
     """
     sources_rows = get_cve_sources(row["cve_id"])
     source_names = [s["source"] for s in sources_rows]
-    references = row.get("refs", [])
+    all_references = row.get("refs", []) or []
+    total_references = len(all_references)
+    references = all_references if include_full_references else all_references[:MAX_REFERENCES_DEFAULT]
     all_products = row.get("affected_products", []) or []
     total_products = len(all_products)
     products = all_products if include_full_products else all_products[:MAX_AFFECTED_PRODUCTS_DEFAULT]
@@ -703,12 +732,13 @@ def _format_cve(row: dict, include_enrichment: bool = False, include_full_produc
         "published": row.get("published"),
         "modified": row.get("modified"),
         "references": references,
+        "total_references": total_references,
         "sources": source_names,
         "first_seen_source": source_names[0] if source_names else None,
         "first_seen_at": sources_rows[0]["first_seen_at"] if sources_rows else None,
     }
     if include_enrichment:
-        patch_available, patch_url = _extract_patch_url(references)
+        patch_available, patch_url = _extract_patch_url(all_references)
         if not patch_available and _describes_patch(row.get("description")):
             patch_available = True
         result["patch_available"] = patch_available
@@ -1002,6 +1032,10 @@ class _BulkCveRequest(BaseModel):
         False,
         description="Return full affected_products list for each CVE (default: first 20).",
     )
+    include_full_references: bool = Field(
+        False,
+        description="Return full references list for each CVE (default: first 10). total_references is always emitted.",
+    )
 
 
 @router.post(
@@ -1065,7 +1099,11 @@ def bulk_cve_lookup(body: _BulkCveRequest, request: Request):
             if row is None:
                 results.append({"cve_id": cid, "status": "not_found", "cve": None, "error": f"CVE {cid} not found"})
             else:
-                formatted = _format_cve(row, include_full_products=body.include_affected_products)
+                formatted = _format_cve(
+                    row,
+                    include_full_products=body.include_affected_products,
+                    include_full_references=body.include_full_references,
+                )
                 is_minimal = not (row.get("severity") or row.get("cvss_v3") or row.get("description"))
                 completeness = "minimal" if is_minimal else "complete"
                 sources_for_verdict = [f"{s}_cache" for s in formatted["sources"]]
