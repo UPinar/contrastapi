@@ -1443,7 +1443,8 @@ GET /v1/username/{{username}} — Username OSINT across 16 platforms (3-39 chars
   Response keys: username, found_count, checked_count, results:[{{platform,url,status}}], summary, verdict:{{sources_queried,sources_unavailable,completeness}}
 
 GET /v1/archive/{{domain}} — Wayback Machine history.
-  Response keys: domain, total_snapshots, first_seen, last_seen, years_online, snapshots, archive_url, summary
+  Response keys: domain, status, total_snapshots, first_seen, last_seen, years_online, snapshots, archive_url, summary, warnings.
+  status='unavailable' (cdx_timeout/cdx_rate_limited/cdx_unavailable/cdx_error/cdx_parse_error/cdx_body_too_large) → total_snapshots OMITTED (unknown, not zero).
 
 ## Threat Intelligence / IOC
 

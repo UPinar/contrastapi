@@ -145,6 +145,10 @@ WAYBACK_CDX_TIMEOUT = 20
 WAYBACK_CDX_MAX_RESULTS = 10000
 WAYBACK_CDX_MAX_BYTES = 50 * 1024 * 1024  # 50 MB body cap
 WAYBACK_CACHE_TTL = 86400  # 24h — wayback history is very stable
+# Short TTL for upstream-failure responses (Bug I): a 1-second CDX hiccup must not
+# poison the cache for 24h. 5 min absorbs retry bursts while letting transient
+# outages recover quickly.
+WAYBACK_CACHE_TTL_UNAVAILABLE = 300
 WAYBACK_CACHE_MAX = 500  # LRU cap on in-memory cache
 BULK_OVERALL_TIMEOUT = 120  # hard cap for entire bulk request; partial results returned on expiry
 

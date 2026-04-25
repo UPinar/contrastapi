@@ -9,6 +9,7 @@ import httpx
 from config import (
     WAYBACK_CACHE_MAX,
     WAYBACK_CACHE_TTL,
+    WAYBACK_CACHE_TTL_UNAVAILABLE,
     WAYBACK_CDX_MAX_BYTES,
     WAYBACK_CDX_MAX_RESULTS,
     WAYBACK_CDX_TIMEOUT,
@@ -74,8 +75,10 @@ def _fetch_cdx(domain: str) -> tuple[list | None, str | None]:
 
 
 def _empty_response(domain: str, warnings: list[str]) -> dict:
+    """CDX returned a parseable response with zero snapshots — confirmed empty."""
     return {
         "domain": domain,
+        "status": "ok",
         "total_snapshots": 0,
         "first_seen": None,
         "last_seen": None,
@@ -84,6 +87,31 @@ def _empty_response(domain: str, warnings: list[str]) -> dict:
         "archive_url": f"https://web.archive.org/web/*/{domain}",
         "summary": f"{domain} — no archived snapshots found",
         "warnings": warnings,
+    }
+
+
+def _unavailable_response(domain: str, error: str) -> dict:
+    """CDX request failed (timeout/5xx/rate-limit/parse) — snapshot count is UNKNOWN.
+
+    total_snapshots is intentionally None (dropped from the wire when
+    response_model_exclude_none=True). Returning 0 here would falsely imply the
+    domain has no archived history, which is the bug we are fixing — many
+    domains time out the CDX endpoint precisely because they have huge histories.
+    """
+    return {
+        "domain": domain,
+        "status": "unavailable",
+        "total_snapshots": None,
+        "first_seen": None,
+        "last_seen": None,
+        "years_online": None,
+        "snapshots": [],
+        "archive_url": f"https://web.archive.org/web/*/{domain}",
+        "summary": (
+            f"{domain} — Wayback CDX unavailable ({error}). Snapshot count is unknown; "
+            f"try https://web.archive.org/web/*/{domain} manually."
+        ),
+        "warnings": [error],
     }
 
 
@@ -121,6 +149,7 @@ def _build_response(domain: str, rows: list, warnings: list[str]) -> dict:
 
     return {
         "domain": domain,
+        "status": "ok",
         "total_snapshots": total,
         "first_seen": first_seen,
         "last_seen": last_seen,
@@ -136,15 +165,24 @@ def wayback_lookup(domain: str) -> dict:
     now = time.time()
     with _wayback_cache_lock:
         cached = _wayback_cache.get(domain)
-        if cached and (now - cached[1]) < WAYBACK_CACHE_TTL:
-            return cached[0]
+        if cached:
+            cached_result, cached_at = cached
+            # status='unavailable' entries get a much shorter TTL so a transient
+            # CDX hiccup does not poison the cache for 24h.
+            ttl = WAYBACK_CACHE_TTL_UNAVAILABLE if cached_result.get("status") == "unavailable" else WAYBACK_CACHE_TTL
+            if (now - cached_at) < ttl:
+                return cached_result
 
     warnings: list[str] = []
     rows, err = _fetch_cdx(domain)
 
     if err:
-        warnings.append(err)
-        result = _empty_response(domain, warnings)
+        # Distinguish upstream failure from confirmed-empty: previously both paths
+        # set total_snapshots=0 and returned "no archived snapshots found", which
+        # silently lied about domains that actually have huge archives but timed
+        # out the CDX endpoint. _unavailable_response makes total_snapshots None
+        # and the summary explicitly says the count is unknown.
+        result = _unavailable_response(domain, err)
     elif not rows or len(rows) < 2:
         result = _empty_response(domain, warnings)
     else:

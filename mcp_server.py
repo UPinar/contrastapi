@@ -428,7 +428,7 @@ async def threat_intel(
 async def wayback_lookup(
     domain: Annotated[str, Field(description="Domain to look up in web archives (e.g. 'example.com', 'archive.org')")],
 ) -> str:
-    """Retrieve Wayback Machine snapshots for a domain: first capture, latest, total count, yearly breakdown. Use to investigate domain history and age; for full audit use domain_report. Free: 100/hr, Pro: 1000/hr. Returns {first_snapshot, last_snapshot, total_snapshots, yearly_breakdown}."""
+    """Retrieve Wayback Machine snapshots for a domain: first capture, latest, total count, snapshot list. Use to investigate domain history and age; for full audit use domain_report. Free: 100/hr, Pro: 1000/hr. status='ok' means the count is authoritative (even when 0 → confirmed no archives). status='unavailable' means CDX timed out/rate-limited/5xx — total_snapshots is OMITTED (unknown, NOT zero) and the agent should NOT report "no snapshots"; the warnings[] array carries the cdx_* error code (cdx_timeout/cdx_rate_limited/cdx_unavailable/cdx_error/cdx_parse_error/cdx_body_too_large). Heavy domains (kernel.org, microsoft.com, archive.org itself) frequently time out the CDX endpoint despite having millions of snapshots — fall back to archive_url for manual inspection. Returns {domain, status, total_snapshots, first_seen, last_seen, years_online, snapshots, archive_url, summary, warnings}."""
     if err := _validate_domain(domain):
         return err
     return _fmt(await _get(f"/v1/archive/{domain}"))

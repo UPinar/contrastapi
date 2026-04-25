@@ -621,10 +621,28 @@ class WaybackSnapshot(BaseModel):
 
 class WaybackResponse(BaseModel):
     domain: str
-    total_snapshots: int = 0
+    status: Literal["ok", "unavailable"] = Field(
+        default="ok",
+        description=(
+            "'ok' when the CDX request returned a parseable response (even if zero snapshots); "
+            "'unavailable' when CDX timed out, rate-limited, 5xx-failed, or returned malformed "
+            "data. On 'unavailable' total_snapshots is omitted (unknown) — DO NOT interpret "
+            "absence as zero. See warnings[] for the specific cdx_* error code."
+        ),
+    )
+    total_snapshots: int | None = Field(
+        default=None,
+        description=(
+            "Snapshot count when status='ok'. Omitted (null) when status='unavailable' — the "
+            "count is unknown, NOT zero. Use the archive_url to check manually in that case."
+        ),
+    )
     first_seen: str | None = None
     last_seen: str | None = None
-    years_online: int = 0
+    years_online: int | None = Field(
+        default=None,
+        description="Years between first_seen and last_seen. Omitted when status='unavailable'.",
+    )
     snapshots: list[WaybackSnapshot] = Field(default_factory=list)
     archive_url: str = ""
     summary: str = ""

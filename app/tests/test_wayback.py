@@ -96,9 +96,15 @@ class TestWaybackLookup:
         from domain.archive import wayback_lookup
 
         result = wayback_lookup("slow-domain.com")
-        assert result["total_snapshots"] == 0
+        # Bug I: timeout MUST NOT be reported as "no archived snapshots".
+        # total_snapshots is None (unknown), status='unavailable', honest summary.
+        assert result["status"] == "unavailable"
+        assert result["total_snapshots"] is None
         assert result["first_seen"] is None
-        assert "no archived snapshots" in result["summary"]
+        assert "no archived snapshots" not in result["summary"]
+        assert "unavailable" in result["summary"]
+        assert "cdx_timeout" in result["summary"]
+        assert "unknown" in result["summary"]
         assert "web.archive.org" in result["archive_url"]
         assert result.get("warnings") == ["cdx_timeout"]
 
@@ -112,7 +118,8 @@ class TestWaybackLookup:
         from domain.archive import wayback_lookup
 
         result = wayback_lookup("example.com")
-        assert result["total_snapshots"] == 0
+        assert result["status"] == "unavailable"
+        assert result["total_snapshots"] is None
         assert result.get("warnings") == ["cdx_unavailable"]
 
     @patch("domain.archive._client")
@@ -125,7 +132,8 @@ class TestWaybackLookup:
         from domain.archive import wayback_lookup
 
         result = wayback_lookup("example.com")
-        assert result["total_snapshots"] == 0
+        assert result["status"] == "unavailable"
+        assert result["total_snapshots"] is None
         assert result.get("warnings") == ["cdx_error"]
 
     @patch("domain.archive._client")
@@ -189,7 +197,8 @@ class TestWaybackLookup:
         from domain.archive import wayback_lookup
 
         result = wayback_lookup("ratelimited.com")
-        assert result["total_snapshots"] == 0
+        assert result["status"] == "unavailable"
+        assert result["total_snapshots"] is None
         assert result.get("warnings") == ["cdx_rate_limited"]
 
     @patch("domain.archive._client")
@@ -202,7 +211,8 @@ class TestWaybackLookup:
         from domain.archive import wayback_lookup
 
         result = wayback_lookup("unavailable.com")
-        assert result["total_snapshots"] == 0
+        assert result["status"] == "unavailable"
+        assert result["total_snapshots"] is None
         assert result.get("warnings") == ["cdx_unavailable"]
 
     @patch("domain.archive._client")
@@ -217,7 +227,8 @@ class TestWaybackLookup:
         from domain.archive import wayback_lookup
 
         result = wayback_lookup("bigarchive.com")
-        assert result["total_snapshots"] == 0
+        assert result["status"] == "unavailable"
+        assert result["total_snapshots"] is None
         assert result.get("warnings") == ["cdx_body_too_large"]
 
     @patch("domain.archive._client")
@@ -271,8 +282,145 @@ class TestWaybackLookup:
         from domain.archive import wayback_lookup
 
         result = wayback_lookup("parseerror.com")
-        assert result["total_snapshots"] == 0
+        assert result["status"] == "unavailable"
+        assert result["total_snapshots"] is None
         assert result.get("warnings") == ["cdx_parse_error"]
+
+
+class TestWaybackUnavailableHonesty:
+    """Bug I — Wayback CDX failure must not be reported as 'no snapshots'.
+
+    Heavy domains (kernel.org, archive.org, microsoft.com) routinely time out
+    the CDX endpoint despite holding millions of snapshots. The previous
+    contract emitted total_snapshots=0 + summary 'no archived snapshots
+    found' on every error path, silently lying about archive presence.
+
+    Pin: status='unavailable' + total_snapshots is None + summary tells the
+    agent the count is unknown and points at archive_url for manual check.
+    """
+
+    @patch("domain.archive._client")
+    def test_unavailable_summary_is_honest(self, mock_client):
+        mock_client.get.side_effect = httpx.ReadTimeout("timed out")
+
+        from domain.archive import wayback_lookup
+
+        result = wayback_lookup("kernel-like.com")
+        # Honest framing: no false "0 snapshots" claim
+        assert "no archived snapshots" not in result["summary"]
+        assert "Wayback CDX unavailable" in result["summary"]
+        assert "unknown" in result["summary"]
+        # Manual fallback URL surfaced for the agent
+        assert result["archive_url"] in result["summary"]
+
+    @patch("domain.archive._client")
+    def test_unavailable_omits_count_fields(self, mock_client):
+        mock_client.get.side_effect = httpx.ReadTimeout("timed out")
+
+        from domain.archive import wayback_lookup
+
+        result = wayback_lookup("slow.com")
+        assert result["total_snapshots"] is None
+        assert result["years_online"] is None
+        assert result["snapshots"] == []
+
+    @patch("domain.archive._client")
+    @patch("domain.routes.validate_domain", return_value="93.184.216.34")
+    def test_route_drops_null_total_via_exclude_none(self, _mock_validate, mock_client):
+        """response_model_exclude_none=True must drop total_snapshots from the wire."""
+        mock_resp = MagicMock()
+        mock_resp.status_code = 429
+        mock_resp.content = b"x"
+        mock_client.get.return_value = mock_resp
+
+        resp = client.get("/v1/archive/ratelimited-route.com")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "unavailable"
+        # total_snapshots and years_online must NOT appear on the wire — agents
+        # that key on .total_snapshots will get a KeyError and know to check status.
+        assert "total_snapshots" not in body
+        assert "years_online" not in body
+        assert body["warnings"] == ["cdx_rate_limited"]
+
+    @patch("domain.archive._client")
+    def test_unavailable_uses_short_ttl(self, mock_client):
+        """Bug I: a transient CDX hiccup must not poison the cache for 24h.
+
+        Pin: status='unavailable' entries respect WAYBACK_CACHE_TTL_UNAVAILABLE
+        (5 min) instead of the long 24h TTL used for confirmed responses.
+        """
+        from domain.archive import _wayback_cache, wayback_lookup
+
+        # First call: simulate timeout → cache stores 'unavailable'
+        mock_client.get.side_effect = httpx.ReadTimeout("timed out")
+        first = wayback_lookup("flapping.example.com")
+        assert first["status"] == "unavailable"
+        assert mock_client.get.call_count == 1
+
+        # Manually age the cache entry past the short TTL (300s) but well under
+        # the long TTL (86400s). The next call MUST re-fetch, not serve stale.
+        with patch("domain.archive.time.time") as mock_time:
+            cached_at = _wayback_cache["flapping.example.com"][1]
+            mock_time.return_value = cached_at + 400  # 6m40s — past 5m short TTL
+
+            mock_client.get.side_effect = None
+            mock_resp = MagicMock()
+            mock_resp.status_code = 200
+            mock_resp.json.return_value = CDX_RESPONSE
+            mock_resp.raise_for_status = MagicMock()
+            mock_resp.content = b"x"
+            mock_client.get.return_value = mock_resp
+
+            second = wayback_lookup("flapping.example.com")
+
+        assert second["status"] == "ok"
+        assert second["total_snapshots"] == 3
+        assert mock_client.get.call_count == 2  # re-fetched, not served from stale cache
+
+    @patch("domain.archive._client")
+    def test_ok_response_keeps_long_ttl(self, mock_client):
+        """Pin: 'ok' responses still get the 24h TTL — short TTL is unavailable-only."""
+        from domain.archive import _wayback_cache, wayback_lookup
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = CDX_RESPONSE
+        mock_resp.raise_for_status = MagicMock()
+        mock_resp.content = b"x"
+        mock_client.get.return_value = mock_resp
+
+        first = wayback_lookup("stable.example.com")
+        assert first["status"] == "ok"
+        assert mock_client.get.call_count == 1
+
+        # 1 hour later — well past short TTL but well within long TTL
+        with patch("domain.archive.time.time") as mock_time:
+            cached_at = _wayback_cache["stable.example.com"][1]
+            mock_time.return_value = cached_at + 3600
+
+            second = wayback_lookup("stable.example.com")
+
+        assert second == first
+        assert mock_client.get.call_count == 1  # served from cache
+
+    @patch("domain.archive._client")
+    @patch("domain.routes.validate_domain", return_value="93.184.216.34")
+    def test_ok_zero_snapshots_still_emits_count(self, _mock_validate, mock_client):
+        """Confirmed-empty (rows fetched, length<2) keeps total_snapshots=0 on the wire."""
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = []
+        mock_resp.raise_for_status = MagicMock()
+        mock_resp.content = b"x"
+        mock_client.get.return_value = mock_resp
+
+        resp = client.get("/v1/archive/empty-confirmed.com")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "ok"
+        assert body["total_snapshots"] == 0
+        assert "no archived snapshots" in body["summary"]
 
 
 # =========== route tests ===========
