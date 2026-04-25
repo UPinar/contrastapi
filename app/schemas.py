@@ -1286,22 +1286,22 @@ class GithubExploitSource(BaseModel):
     error: str | None = None
 
 
-class ExploitDbItem(BaseModel):
+class ShodanRefItem(BaseModel):
     id: str = ""
     description: str = ""
     source: str = ""
 
 
-class ExploitDbSource(BaseModel):
+class ShodanRefSource(BaseModel):
     found: bool = False
     count: int = 0
-    results: list[ExploitDbItem] = Field(default_factory=list)
+    results: list[ShodanRefItem] = Field(default_factory=list)
     error: str | None = None
 
 
 class ExploitSources(BaseModel):
     github: GithubExploitSource = Field(default_factory=GithubExploitSource)
-    exploitdb: ExploitDbSource = Field(default_factory=ExploitDbSource)
+    shodan_refs: ShodanRefSource = Field(default_factory=ShodanRefSource)
 
 
 class Exploit(BaseModel):

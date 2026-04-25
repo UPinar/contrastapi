@@ -779,8 +779,8 @@ def _search_github_advisories(cve_id: str) -> dict:
         return {"found": False, "count": 0, "advisories": [], "error": "upstream error"}
 
 
-def _search_exploitdb(cve_id: str) -> dict:
-    """Search Shodan CVEDB for exploit/vuln info related to a CVE."""
+def _search_shodan_refs(cve_id: str) -> dict:
+    """Fetch Shodan CVEDB references for a CVE (NOT ExploitDB — those come from the offline CSV)."""
     try:
         resp = _exploit_client.get(
             f"https://cvedb.shodan.io/cve/{cve_id}",
@@ -801,13 +801,13 @@ def _search_exploitdb(cve_id: str) -> dict:
             )
         return {"found": len(results) > 0, "count": len(results), "results": results}
     except httpx.TimeoutException:
-        logger.warning("ExploitDB/Shodan search timed out")
+        logger.warning("Shodan CVEDB search timed out")
         return {"found": False, "count": 0, "results": [], "error": "upstream timeout"}
     except httpx.HTTPStatusError as e:
-        logger.warning("ExploitDB/Shodan search failed: HTTP %d", e.response.status_code)
+        logger.warning("Shodan CVEDB search failed: HTTP %d", e.response.status_code)
         return {"found": False, "count": 0, "results": [], "error": "upstream error"}
     except Exception as e:
-        logger.warning("ExploitDB/Shodan search failed: %s", type(e).__name__)
+        logger.warning("Shodan CVEDB search failed: %s", type(e).__name__)
         return {"found": False, "count": 0, "results": [], "error": "upstream error"}
 
 
@@ -838,18 +838,18 @@ def exploit_lookup(
         return {**cached}
 
     github = _search_github_advisories(cve_id)
-    exploitdb = _search_exploitdb(cve_id)
+    shodan_refs = _search_shodan_refs(cve_id)
     offline, offline_truncated = search_exploits_by_cve(cve_id)
 
-    exploits_found = len(offline) + github["count"] + exploitdb["count"]
-    has_public_exploit = len(offline) > 0 or github["found"] or exploitdb["found"]
+    exploits_found = len(offline) + github["count"] + shodan_refs["count"]
+    has_public_exploit = len(offline) > 0 or github["found"] or shodan_refs["found"]
 
     # Build summary
     parts = []
     if github["found"]:
         parts.append(f"{github['count']} GitHub advisory(ies)")
-    if exploitdb["found"]:
-        parts.append(f"{exploitdb['count']} Shodan reference(s)")
+    if shodan_refs["found"]:
+        parts.append(f"{shodan_refs['count']} Shodan reference(s)")
     if offline:
         parts.append(f"{len(offline)} ExploitDB entry(ies)")
     if parts:
@@ -874,7 +874,7 @@ def exploit_lookup(
 
     verdict = _exploit_lookup_verdict(
         github_error=github.get("error") is not None,
-        shodan_error=exploitdb.get("error") is not None,
+        shodan_error=shodan_refs.get("error") is not None,
         offline_found=len(offline) > 0,
     )
     if offline_truncated and verdict.completeness == "complete":
@@ -883,7 +883,7 @@ def exploit_lookup(
     result = {
         "cve_id": cve_id,
         "exploits_found": exploits_found,
-        "sources": {"github": github, "exploitdb": exploitdb},
+        "sources": {"github": github, "shodan_refs": shodan_refs},
         "has_public_exploit": has_public_exploit,
         "exploits": [e.model_dump() for e in structured_exploits],
         "verdict": verdict.model_dump(),

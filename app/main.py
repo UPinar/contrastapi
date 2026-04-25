@@ -1383,8 +1383,8 @@ GET /v1/cve/{{cve_id}} — Full CVE details with EPSS + KEV + CVSS breakdown.
 GET /v1/cves?product=&severity=&published_after=&published_before=&limit= — Search CVEs by product/severity/date range (YYYY-MM-DD bounds).
   Response keys: count, summary, results
 
-GET /v1/exploit/{{cve_id}} — Public exploits (GitHub Advisory + ExploitDB).
-  Response keys: cve_id, exploits_found, sources:{{github:{{found,count,advisories}},exploitdb:{{found,count,results}}}}, has_public_exploit, summary
+GET /v1/exploit/{{cve_id}} — Public exploits (GitHub Advisory + Shodan CVEDB refs + ExploitDB CSV).
+  Response keys: cve_id, exploits_found, sources:{{github:{{found,count,advisories}},shodan_refs:{{found,count,results}}}}, exploits:[{{edb_id,...}}], has_public_exploit, summary
 
 POST /v1/cves/bulk — Bulk CVE lookup. Body: {{"cve_ids":["CVE-2024-1234",...]}} (max 10 free, 50 pro).
   Response keys: results:[{{cve_id,status,cve,error}}], total, successful, failed, summary

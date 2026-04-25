@@ -642,7 +642,7 @@ async def exploit_lookup(
         str, Field(description="CVE identifier in format CVE-YYYY-NNNNN (e.g. 'CVE-2024-3094', 'CVE-2023-44487')")
     ],
 ) -> str:
-    """Search GitHub Advisory Database + ExploitDB for public exploits/PoC for a specific CVE. Use to assess if a vulnerability has weaponized exploits in the wild; run after cve_lookup to evaluate real-world risk. When the CVE is also in CISA KEV (kev.in_kev=true on cve_lookup), pair with kev_detail for federal patch deadline; pair with cwe_lookup on cwe_id for the underlying weakness category and mitigations. Free: 100/hr, Pro: 1000/hr. Returns {cve_id, exploits: [{source, title, url, published_date}], total_count}."""
+    """Search public exploits/PoC for a specific CVE across three sources: (1) GitHub Advisory Database (sources.github.advisories[]), (2) Shodan CVEDB references (sources.shodan_refs.results[] — packetstorm/seclists/vendor URLs cited by Shodan), (3) ExploitDB CSV mirror (exploits[] array, with edb_id + author + verified flag — these are the actual ExploitDB entries). Use to assess if a vulnerability has weaponized exploits in the wild; run after cve_lookup to evaluate real-world risk. When the CVE is also in CISA KEV (kev.in_kev=true on cve_lookup), pair with kev_detail for federal patch deadline; pair with cwe_lookup on cwe_id for the underlying weakness category and mitigations. Free: 100/hr, Pro: 1000/hr. Returns {cve_id, exploits_found, has_public_exploit, sources: {github, shodan_refs}, exploits: [{edb_id, cve_id, date_published, author, type, platform, url, verified, description}], verdict}."""
     if err := _validate_cve(cve_id):
         return err
     return _fmt(await _get(f"/v1/exploit/{cve_id}"))

@@ -2757,8 +2757,8 @@ class TestExploitLookup:
         assert data["sources"]["github"]["found"] is True
         assert data["sources"]["github"]["count"] == 1
         assert data["sources"]["github"]["advisories"][0]["ghsa_id"] == "GHSA-xxxx-yyyy-zzzz"
-        assert data["sources"]["exploitdb"]["found"] is True
-        assert data["sources"]["exploitdb"]["count"] == 2
+        assert data["sources"]["shodan_refs"]["found"] is True
+        assert data["sources"]["shodan_refs"]["count"] == 2
 
     @patch("cve.routes.save_cached_domain")
     @patch("cve.routes.get_cached_domain", return_value=None)
@@ -2787,8 +2787,8 @@ class TestExploitLookup:
 
     @patch("cve.routes.save_cached_domain")
     @patch("cve.routes.get_cached_domain", return_value=None)
-    def test_exploit_exploitdb_fails_gracefully(self, mock_cache_get, mock_cache_save):
-        """ExploitDB timeout should not prevent GitHub results from returning."""
+    def test_exploit_shodan_refs_fails_gracefully(self, mock_cache_get, mock_cache_save):
+        """Shodan CVEDB timeout should not prevent GitHub results from returning."""
         gh_resp = MagicMock()
         gh_resp.json.return_value = [
             {
@@ -2811,7 +2811,7 @@ class TestExploitLookup:
         assert r.status_code == 200
         data = r.json()
         assert data["sources"]["github"]["found"] is True
-        assert data["sources"]["exploitdb"]["found"] is False
+        assert data["sources"]["shodan_refs"]["found"] is False
         assert data["has_public_exploit"] is True
 
     def test_exploit_invalid_cve_id(self):
@@ -2824,7 +2824,7 @@ class TestExploitLookup:
             "exploits_found": 1,
             "sources": {
                 "github": {"found": True, "count": 1, "advisories": []},
-                "exploitdb": {"found": False, "count": 0, "results": []},
+                "shodan_refs": {"found": False, "count": 0, "results": []},
             },
             "has_public_exploit": True,
             "summary": "CVE-2024-1111 — 1 public exploit(s) found",
@@ -3073,8 +3073,8 @@ class TestExploitLookupScopeB:
     @patch("cve.routes.get_cached_domain", return_value=None)
     @patch("cve.routes.search_exploits_by_cve")
     @patch("cve.routes._sync_age_seconds", return_value=3600)
-    def test_exploit_backward_compat_sources_intact(self, mock_age, mock_offline, mock_cache_get, mock_cache_save):
-        """Old sources.github and sources.exploitdb fields still present."""
+    def test_exploit_sources_shape(self, mock_age, mock_offline, mock_cache_get, mock_cache_save):
+        """sources dict has github + shodan_refs keys with count field."""
         mock_offline.return_value = ([], False)
 
         with patch(
@@ -3084,9 +3084,10 @@ class TestExploitLookupScopeB:
             r = client.get("/v1/exploit/CVE-2024-8888")
         data = r.json()
         assert "github" in data["sources"]
-        assert "exploitdb" in data["sources"]
+        assert "shodan_refs" in data["sources"]
+        assert "exploitdb" not in data["sources"]
         assert "count" in data["sources"]["github"]
-        assert "count" in data["sources"]["exploitdb"]
+        assert "count" in data["sources"]["shodan_refs"]
 
 
 # =========== response_model filtering tests ===========
