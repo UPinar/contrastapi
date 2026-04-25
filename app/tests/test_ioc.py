@@ -421,6 +421,57 @@ def test_ioc_lookup_verdict_partial_on_source_failure(client):
     assert "threatfox" in v["sources_unavailable"]
 
 
+# --- Per-type source coverage (Bug #8: docstring honesty) ---
+
+
+def test_ioc_lookup_hash_queries_only_threatfox(client):
+    """Hash IOCs only run ThreatFox — Feodo and URLhaus do not index hashes."""
+    with (
+        patch("ioc.routes.query_threatfox", return_value={"found": False}) as tf,
+        patch("ioc.routes.query_feodo", return_value={"found": False}) as feodo,
+        patch("ioc.routes.check_urlhaus", return_value={"url_count": 0, "urls_online": 0}) as urlhaus,
+    ):
+        resp = client.get("/v1/ioc/" + "a" * 64)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["type"] == "hash"
+    queried = set(body["verdict"]["sources_queried"])
+    assert queried == {"threatfox"}, f"hash should only query threatfox, got {queried}"
+    assert tf.called
+    assert not feodo.called
+    assert not urlhaus.called
+    assert set(body["sources"].keys()) == {"threatfox"}
+
+
+def test_ioc_lookup_ip_queries_threatfox_feodo_urlhaus(client):
+    """IP IOCs run ThreatFox + Feodo + URLhaus."""
+    with (
+        patch("ioc.routes.query_threatfox", return_value={"found": False}),
+        patch("ioc.routes.query_feodo", return_value={"found": False}),
+        patch("ioc.routes.check_urlhaus", return_value={"url_count": 0, "urls_online": 0}),
+    ):
+        resp = client.get("/v1/ioc/8.8.8.8")
+    assert resp.status_code == 200
+    body = resp.json()
+    queried = set(body["verdict"]["sources_queried"])
+    assert queried == {"threatfox", "feodo", "urlhaus"}, f"IP should query all 3, got {queried}"
+
+
+def test_ioc_lookup_domain_queries_threatfox_and_urlhaus_no_feodo(client):
+    """Domain IOCs run ThreatFox + URLhaus — Feodo is IP-only."""
+    with (
+        patch("ioc.routes.query_threatfox", return_value={"found": False}),
+        patch("ioc.routes.query_feodo", return_value={"found": False}) as feodo,
+        patch("ioc.routes.check_urlhaus", return_value={"url_count": 0, "urls_online": 0}),
+    ):
+        resp = client.get("/v1/ioc/evil.com")
+    assert resp.status_code == 200
+    body = resp.json()
+    queried = set(body["verdict"]["sources_queried"])
+    assert queried == {"threatfox", "urlhaus"}, f"domain should query 2, got {queried}"
+    assert not feodo.called
+
+
 # --- /v1/hash/{hash} ---
 
 

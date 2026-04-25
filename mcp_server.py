@@ -411,7 +411,7 @@ async def threat_intel(
         str, Field(description="Domain to check for threats (e.g. 'suspicious-site.com', 'example.com')")
     ],
 ) -> str:
-    """Check domain for known malware distribution, botnet C2, phishing activity via URLhaus + abuse.ch feeds. Use for threat assessment; use phishing_check for specific URLs. Free: 100/hr, Pro: 1000/hr. Returns {malware_urls, threat_tags, threat_status, summary}."""
+    """Check domain against abuse.ch URLhaus for known malware-distribution URLs (single source — for multi-feed correlation use ioc_lookup which adds ThreatFox and, for IPs, Feodo Tracker). Use for fast domain-level threat assessment; use phishing_check for specific URLs. Free: 100/hr, Pro: 1000/hr. Returns {malware_urls, threat_tags, threat_status, summary}."""
     if err := _validate_domain(domain):
         return err
     return _fmt(await _get(f"/v1/threat/{domain}"))
@@ -748,7 +748,7 @@ async def ioc_lookup(
         ),
     ],
 ) -> str:
-    """Enrich Indicator of Compromise (IP/domain/URL/hash) by auto-detecting type and querying abuse.ch feeds (ThreatFox, URLhaus, Feodo). Use as primary IOC triage tool when type unknown; use threat_intel for domain-only, hash_lookup for hash-only. Free: 100/hr, Pro: 1000/hr. Returns {indicator, type, found, threat_type, malware_family, tags, confidence, source}."""
+    """Enrich Indicator of Compromise (IP/domain/URL/hash) by auto-detecting type and querying abuse.ch feeds. Per-type source coverage: hash → ThreatFox only (Feodo and URLhaus do not index hashes); IP → ThreatFox + Feodo Tracker + URLhaus; domain / URL → ThreatFox + URLhaus. verdict.sources_queried lists what actually ran; verdict.sources_unavailable lists what failed (timeout / upstream error). Use as primary IOC triage tool when type unknown; use threat_intel for domain-only, hash_lookup for richer MalwareBazaar hash data. Free: 100/hr, Pro: 1000/hr. Returns {indicator, type, threat_level, sources, summary, verdict}."""
     return _fmt(await _get(f"/v1/ioc/{quote(indicator, safe='')}"))
 
 
@@ -804,7 +804,7 @@ async def bulk_ioc_lookup(
         ),
     ],
 ) -> str:
-    """Batch query multiple IOCs (IP/domain/URL/hash, up to 10 free/50 pro) in 1 request: auto-detects type + queries abuse.ch feeds. Use for SOC alert triage or batch enrichment; use ioc_lookup for single indicator. Free: 100/hr (1 per item), Pro: 1000/hr. Returns {results, total, successful, failed, timed_out, partial, summary}."""
+    """Batch query multiple IOCs (IP/domain/URL/hash, up to 10 free/50 pro) in 1 request: auto-detects type + queries abuse.ch feeds per-indicator. Per-type source coverage matches ioc_lookup: hash → ThreatFox only; IP → ThreatFox + Feodo + URLhaus; domain / URL → ThreatFox + URLhaus. Each result item carries its own verdict.sources_queried / sources_unavailable so partial failures are visible per indicator. Use for SOC alert triage or batch enrichment; use ioc_lookup for single indicator. Free: 100/hr (1 per item), Pro: 1000/hr. Returns {results, total, successful, failed, timed_out, partial, summary}."""
     if not isinstance(indicators, list) or not indicators:
         return "indicators must be a non-empty list"
     return _fmt(await _post("/v1/iocs/bulk", {"indicators": indicators}))

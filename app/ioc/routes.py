@@ -63,7 +63,11 @@ def ioc_lookup(
     ],
     request: Request,
 ):
-    """Unified IOC enrichment — auto-detects IP, domain, URL, or hash and queries threat feeds."""
+    """Unified IOC enrichment — auto-detects type and queries abuse.ch feeds.
+
+    Source coverage by type: hash → ThreatFox only; IP → ThreatFox + Feodo + URLhaus;
+    domain / URL → ThreatFox + URLhaus. Feodo and URLhaus do not index hashes.
+    """
     authenticate(request, "/v1/ioc")
     indicator = indicator.strip()
     if not indicator or len(indicator) > 2048:
