@@ -1675,7 +1675,21 @@ def bulk_domain_report(body: _BulkRequest, request: Request):
     response_model=AuditResponse,
     response_model_exclude_none=True,
 )
-def audit_domain(domain: str, request: Request):
+def audit_domain(
+    domain: str,
+    request: Request,
+    include_all_txt: Annotated[
+        bool,
+        Query(
+            description=(
+                "Return every TXT record under report.dns.txt (default: only SPF, DMARC, DKIM, "
+                "MTA-STS, TLS-RPT). report.dns.total_txt_records is always emitted with the honest "
+                "pre-filter count. Mirrors /v1/domain/{domain}'s include_all_txt — default keeps "
+                "the audit response slim by stripping vendor verification strings."
+            ),
+        ),
+    ] = False,
+):
     """Comprehensive domain audit — full intelligence report + technology fingerprint + live HTTP headers in a single call.
 
     Aggregates DNS, SSL, WHOIS, subdomains, threat intelligence, technology detection,
@@ -1712,6 +1726,12 @@ def audit_domain(domain: str, request: Request):
                 logger.warning("audit_domain: full_domain_report failed: %s", type(e).__name__)
                 raise HTTPException(status_code=502, detail="Domain audit failed") from None
         save_cached_domain(cache_key, report)
+
+    # Apply the TXT filter AFTER caching the unfiltered report so the cache stays
+    # canonical and ?include_all_txt=true on a subsequent request can serve the
+    # full TXT list without a re-fetch. _apply_txt_filter shallow-copies the dns
+    # block, so this does not mutate the cached entry.
+    report = _apply_txt_filter(report, include_all_txt)
 
     try:
         live = fetch_live_headers(domain)

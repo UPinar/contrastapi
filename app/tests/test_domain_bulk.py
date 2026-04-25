@@ -1218,3 +1218,93 @@ class TestAuditDomainEdgeCases:
         # Type guard should reset to empty dict
         assert data["live_headers"] == {}
         assert data["technologies"]["count"] == 0
+
+
+class TestAuditDomainTxtFilter:
+    """audit_domain must apply the same dns.txt filter as /v1/domain/{domain}.
+
+    The cached report may contain vendor verification strings (google-site-verification,
+    facebook-domain-verification, ms=...) that bloat the audit response without security
+    signal. Default response strips them; ?include_all_txt=true restores the full list.
+    """
+
+    _TXT_REPORT = {
+        "domain": "example.com",
+        "dns": {
+            "a": ["93.184.216.34"],
+            "txt": [
+                "v=spf1 include:_spf.google.com ~all",
+                "v=DMARC1; p=reject; rua=mailto:dmarc@example.com",
+                "google-site-verification=abc123xyz",
+                "MS=ms123456",
+                "facebook-domain-verification=zzzz",
+                "v=DKIM1; k=rsa; p=MIGfMA0GCSqGSIb3DQEBAQUAA4GN",
+                "atlassian-domain-verification=foobar",
+                "stripe-verification=zzz",
+            ],
+        },
+        "summary": "example.com - healthy",
+    }
+
+    @patch("domain.tech.detect_technologies")
+    @patch("domain.recon.fetch_live_headers")
+    @patch("domain.routes.get_cached_domain")
+    @patch("domain.routes.clean_domain", return_value="example.com")
+    def test_audit_domain_txt_filter_default(self, mock_clean, mock_get, mock_live, mock_tech):
+        # Cached object — audit must not mutate it
+        cached_obj = {**self._TXT_REPORT, "dns": dict(self._TXT_REPORT["dns"])}
+        cached_obj["dns"]["txt"] = list(self._TXT_REPORT["dns"]["txt"])
+        mock_get.return_value = cached_obj
+        mock_live.return_value = {"headers": {}}
+        mock_tech.return_value = {"technologies": [], "categories": {}, "count": 0, "summary": ""}
+
+        r = client.get("/v1/audit/example.com")
+        assert r.status_code == 200
+        dns = r.json()["report"]["dns"]
+        assert dns["total_txt_records"] == 8
+        kept = dns["txt"]
+        assert len(kept) == 3
+        assert any(t.startswith("v=spf1") for t in kept)
+        assert any(t.startswith("v=DMARC1") for t in kept)
+        assert any(t.startswith("v=DKIM1") for t in kept)
+        for v in kept:
+            assert "google-site-verification" not in v
+            assert "facebook-domain-verification" not in v
+
+    @patch("domain.tech.detect_technologies")
+    @patch("domain.recon.fetch_live_headers")
+    @patch("domain.routes.get_cached_domain")
+    @patch("domain.routes.clean_domain", return_value="example.com")
+    def test_audit_domain_txt_include_all(self, mock_clean, mock_get, mock_live, mock_tech):
+        cached_obj = {**self._TXT_REPORT, "dns": dict(self._TXT_REPORT["dns"])}
+        cached_obj["dns"]["txt"] = list(self._TXT_REPORT["dns"]["txt"])
+        mock_get.return_value = cached_obj
+        mock_live.return_value = {"headers": {}}
+        mock_tech.return_value = {"technologies": [], "categories": {}, "count": 0, "summary": ""}
+
+        r = client.get("/v1/audit/example.com?include_all_txt=true")
+        assert r.status_code == 200
+        dns = r.json()["report"]["dns"]
+        assert dns["total_txt_records"] == 8
+        assert len(dns["txt"]) == 8
+
+    @patch("domain.tech.detect_technologies")
+    @patch("domain.recon.fetch_live_headers")
+    @patch("domain.routes.get_cached_domain")
+    @patch("domain.routes.clean_domain", return_value="example.com")
+    def test_audit_domain_txt_filter_does_not_mutate_cache(self, mock_clean, mock_get, mock_live, mock_tech):
+        # Two back-to-back calls hitting the same cached object — second call must
+        # see the original 8-entry list (i.e. filter must not mutate cache).
+        cached_obj = {**self._TXT_REPORT, "dns": dict(self._TXT_REPORT["dns"])}
+        cached_obj["dns"]["txt"] = list(self._TXT_REPORT["dns"]["txt"])
+        mock_get.return_value = cached_obj
+        mock_live.return_value = {"headers": {}}
+        mock_tech.return_value = {"technologies": [], "categories": {}, "count": 0, "summary": ""}
+
+        r1 = client.get("/v1/audit/example.com")
+        assert r1.status_code == 200
+        assert len(r1.json()["report"]["dns"]["txt"]) == 3
+
+        r2 = client.get("/v1/audit/example.com?include_all_txt=true")
+        assert r2.status_code == 200
+        assert len(r2.json()["report"]["dns"]["txt"]) == 8
