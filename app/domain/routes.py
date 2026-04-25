@@ -957,7 +957,7 @@ def _fetch_asn_country(ip: str) -> dict:
     return {"asn": asn, "asn_name": asn_name, "country": country, "failed": failed}
 
 
-@router.get("/ip/{ip}", operation_id="ip_lookup", response_model=IpLookupResponse, response_model_exclude_none=True)
+@router.get("/ip/{ip}", operation_id="ip_lookup", response_model=IpLookupResponse, response_model_exclude_none=False)
 def ip_lookup(ip: IpPath, request: Request):
     """IP intelligence — reverse DNS, ASN + country (RIPE Stat), open ports, vulnerabilities, hostnames (Shodan InternetDB), cloud provider, Tor exit detection, and reputation (FireHOL level1 blocklist on Free tier; +AbuseIPDB + Shodan on Pro)."""
     if not is_valid_ip(ip):
@@ -1047,10 +1047,6 @@ def ip_lookup(ip: IpPath, request: Request):
         reputation_attempted = True
 
     try:
-        cloud_provider = check_cloud_provider(ip)
-    except Exception:
-        cloud_provider = None
-    try:
         tor_exit = check_tor_exit(ip)
     except Exception:
         tor_exit = False
@@ -1065,6 +1061,13 @@ def ip_lookup(ip: IpPath, request: Request):
     asn_name_val = asn_data.get("asn_name") or ""
     country_val = asn_data.get("country") or ""
     ripe_failed = bool(asn_data.get("failed"))
+
+    # cloud_provider after asn so the ASN-map fallback can fire when the IP isn't
+    # in a published CIDR range (e.g. 8.8.8.8 → AS15169 → "Google").
+    try:
+        cloud_provider = check_cloud_provider(ip, asn=asn_val)
+    except Exception:
+        cloud_provider = None
 
     parts = [f"{ip} → {ptr}" if ptr else f"{ip} — no PTR record"]
     if asn_val:
@@ -1090,7 +1093,7 @@ def ip_lookup(ip: IpPath, request: Request):
         "country": country_val or None,
         **enrichment,
         "cloud_provider": cloud_provider,
-        "tor_exit": tor_exit if tor_exit else None,
+        "tor_exit": tor_exit,
         "risk_score": score_ip(reputation or None, ports, ptr, cloud_provider, tor_exit),
         "summary": ". ".join(parts),
     }

@@ -600,7 +600,7 @@ class TestDomainRoutes:
         v = body["verdict"]
         assert v["deterministic"] is True
         assert set(v["falsifiable_fields"]) >= {"ptr", "ports", "vulns"}
-        if "data_age_seconds" in v:
+        if v.get("data_age_seconds") is not None:
             assert isinstance(v["data_age_seconds"], int)
             assert v["data_age_seconds"] >= 0
 
@@ -649,7 +649,8 @@ class TestDomainRoutes:
         assert r.status_code == 200
         data = r.json()
         assert data["cloud_provider"] == "AWS"
-        assert "tor_exit" not in data  # False → None → excluded
+        # tor_exit is always present as a bool (response_model_exclude_none=False on /ip/{ip})
+        assert data["tor_exit"] is False
 
     @patch("domain.routes.check_cloud_provider", return_value=None)
     @patch("domain.routes.check_tor_exit", return_value=False)
@@ -659,7 +660,8 @@ class TestDomainRoutes:
         r = client.get("/v1/ip/1.2.3.4")
         assert r.status_code == 200
         data = r.json()
-        assert "cloud_provider" not in data
+        # cloud_provider is always present (null when neither CIDR nor ASN map matches)
+        assert data["cloud_provider"] is None
 
     @patch("domain.routes.check_cloud_provider", return_value=None)
     @patch("domain.routes.check_tor_exit", return_value=True)
@@ -762,9 +764,11 @@ class TestDomainRoutes:
         r = client.get("/v1/ip/1.2.3.4")
         assert r.status_code == 200
         data = r.json()
-        assert "asn" not in data  # None excluded by exclude_none
-        assert "asn_name" not in data
-        assert "country" not in data
+        # /ip/{ip} now emits null-explicit (response_model_exclude_none=False) so agents
+        # can disambiguate "field absent" from "fetch failed". Verdict carries the why.
+        assert data["asn"] is None
+        assert data["asn_name"] is None
+        assert data["country"] is None
         # Verdict honesty: when helper failed, ripe_stat moves to unavailable
         v = data["verdict"]
         assert "ripe_stat" in v["sources_unavailable"]
@@ -783,7 +787,8 @@ class TestDomainRoutes:
         assert r.status_code == 200
         data = r.json()
         assert data["asn"] == 15169
-        assert "asn_name" not in data  # empty string → None → excluded
+        # Empty asn_name → None — explicitly emitted now (was excluded by exclude_none=True before Bug #4)
+        assert data["asn_name"] is None
         assert data["country"] == "US"
         assert "AS15169" in data["summary"]
 
@@ -804,6 +809,72 @@ class TestDomainRoutes:
         assert "asn_name" in fields
         assert "country" in fields
         assert "ripe_stat" in v["sources_queried"]
+
+    def test_check_cloud_provider_asn_map_fallback_google(self):
+        """8.8.8.8 isn't in the GCP CIDR list but AS15169 is in the ASN map → 'Google'."""
+        from unittest.mock import patch
+
+        from domain.ip_intel import check_cloud_provider
+
+        # Force CIDR lookup to return None (mimic GCP range list missing 8.8.8.8)
+        with patch("domain.ip_intel._refresh_cloud_cache", return_value=(None, None)):
+            assert check_cloud_provider("8.8.8.8", asn=15169) == "Google"
+            assert check_cloud_provider("104.16.1.1", asn=13335) == "Cloudflare"
+            assert check_cloud_provider("1.2.3.4", asn=99999) is None  # unknown ASN
+            assert check_cloud_provider("1.2.3.4", asn=None) is None  # no ASN provided
+
+    def test_check_cloud_provider_cidr_takes_precedence_over_asn(self):
+        """CIDR lookup is authoritative; ASN map only fires when CIDR misses."""
+        from unittest.mock import MagicMock, patch
+
+        from domain.ip_intel import check_cloud_provider
+
+        fake_v4 = MagicMock()
+        fake_v4.get.return_value = "AWS"  # CIDR says AWS
+        with patch("domain.ip_intel._refresh_cloud_cache", return_value=(fake_v4, None)):
+            # Even with asn=15169 (Google in map), CIDR's AWS wins
+            assert check_cloud_provider("3.5.140.2", asn=15169) == "AWS"
+
+    @patch(
+        "domain.routes._fetch_asn_country",
+        return_value={"asn": 15169, "asn_name": "GOOGLE - Google LLC", "country": "US", "failed": False},
+    )
+    @patch("domain.routes.check_tor_exit", return_value=False)
+    @patch("domain.routes.ip_enrichment", return_value={**_enrich_empty})
+    @patch("domain.routes.socket.gethostbyaddr", return_value=("dns.google", [], []))
+    def test_ip_lookup_asn_map_resolves_google_for_8888(self, mock_ptr, mock_enrich, mock_tor, mock_asn):
+        """End-to-end: 8.8.8.8 resolves cloud_provider='Google' via ASN-map fallback (Bug #4 audit fix)."""
+        # Don't mock check_cloud_provider — let the real implementation use the ASN
+        with patch("domain.ip_intel._refresh_cloud_cache", return_value=(None, None)):
+            r = client.get("/v1/ip/8.8.8.8")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["asn"] == 15169
+        assert data["cloud_provider"] == "Google"
+        assert data["tor_exit"] is False  # always present, never null
+
+    @patch(
+        "domain.routes._fetch_asn_country",
+        return_value={"asn": 15169, "asn_name": "GOOGLE - Google LLC", "country": "US", "failed": False},
+    )
+    @patch("domain.routes.check_tor_exit", return_value=False)
+    @patch("domain.routes.ip_enrichment", return_value={**_enrich_empty})
+    @patch("domain.routes.socket.gethostbyaddr", return_value=("ec2-3-5-140-2.amazonaws.com", [], []))
+    def test_ip_lookup_cidr_match_overrides_asn_map(self, mock_ptr, mock_enrich, mock_tor, mock_asn):
+        """End-to-end CIDR precedence: even when ASN says Google, a CIDR hit (e.g. AWS) wins.
+
+        Locks in the ordering invariant — a future refactor that swaps the order would fail this test.
+        """
+        from unittest.mock import MagicMock
+
+        fake_v4 = MagicMock()
+        fake_v4.get.return_value = "AWS"  # CIDR trie says AWS
+        with patch("domain.ip_intel._refresh_cloud_cache", return_value=(fake_v4, None)):
+            r = client.get("/v1/ip/3.5.140.2")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["asn"] == 15169  # asn from RIPE mock — Google
+        assert data["cloud_provider"] == "AWS"  # but CIDR wins → AWS
 
 
 @pytest.mark.real_asn_country

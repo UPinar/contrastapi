@@ -228,18 +228,58 @@ def _strip_zone(ip: str) -> str:
     return ip.split("%", 1)[0] if "%" in ip else ip
 
 
-def check_cloud_provider(ip: str) -> str | None:
-    """Return cloud provider name if IP belongs to a known cloud range, else None."""
+# ASN-to-provider fallback map — used when an IP isn't in the published cloud
+# CIDR ranges (AWS/GCP/Cloudflare) but the ASN is unambiguously owned by a
+# known provider. Covers Google's anycast DNS infra (8.8.8.8 / AS15169) which
+# isn't in the GCP cloud range list, plus other major hosters.
+#
+# Selection criteria: tier-1 cloud / DNS / hosting operators whose ASN ownership
+# is unambiguous and stable. Source: IANA RIR allocations + vendor docs.
+# Last audit: 2026-04-25. ASN reassignments are rare but possible (M&A, RIR
+# transfers); revisit quarterly. ASN comes from RIPE Stat (authoritative BGP
+# origin) — if BGP is hijacked, cloud_provider will reflect the attacker's
+# advertised ASN, not the true operator. Acceptable: we report current BGP
+# state, and the verdict block carries source provenance.
+_ASN_TO_CLOUD_PROVIDER: dict[int, str] = {
+    15169: "Google",
+    396982: "Google",
+    16509: "AWS",
+    14618: "AWS",
+    8075: "Microsoft",
+    13335: "Cloudflare",
+    14061: "DigitalOcean",
+    24940: "Hetzner",
+    16276: "OVH",
+    63949: "Linode",
+    20473: "Vultr",
+}
+
+
+def check_cloud_provider(ip: str, asn: int | None = None) -> str | None:
+    """Return cloud provider name if IP is in a known cloud CIDR range OR its
+    ASN is in the static map; else None.
+
+    The CIDR-based lookup (AWS/GCP/Cloudflare) is authoritative when it matches.
+    The ASN map is a fallback for providers whose anycast / public-service IPs
+    sit outside their published cloud ranges (e.g. 8.8.8.8 is AS15169 Google
+    but not in the GCP IP range list).
+    """
     try:
-        ip = _strip_zone(ip)
+        ip_clean = _strip_zone(ip)
         v4, v6 = _refresh_cloud_cache()
-        trie = v6 if ":" in ip else v4
-        if trie is None:
-            return None
-        return trie.get(ip)
+        trie = v6 if ":" in ip_clean else v4
+        if trie is not None:
+            cidr_match = trie.get(ip_clean)
+            if cidr_match:
+                return cidr_match
     except Exception as e:
-        logger.warning("check_cloud_provider failed: %s", type(e).__name__)
-        return None
+        logger.warning("check_cloud_provider CIDR lookup failed: %s", type(e).__name__)
+    # bool⊂int in Python; reject bool. Also reject zero/negative ASNs (real
+    # ASNs are positive 32-bit ints) so a corrupt upstream value can't hit
+    # the dict and silently miss without log signal.
+    if isinstance(asn, int) and not isinstance(asn, bool) and asn > 0:
+        return _ASN_TO_CLOUD_PROVIDER.get(asn)
+    return None
 
 
 def check_tor_exit(ip: str) -> bool:

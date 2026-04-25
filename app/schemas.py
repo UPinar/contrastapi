@@ -521,11 +521,21 @@ class IpLookupResponse(BaseModel):
     )
     cloud_provider: str | None = Field(
         default=None,
-        description="Cloud provider name when IP is in a published cloud CIDR range (aws/gcp/azure/cloudflare/etc). Null otherwise.",
+        description=(
+            "Cloud provider name resolved via two-tier detection: (1) published cloud CIDR ranges "
+            "(AWS/GCP/Cloudflare), (2) ASN-to-provider map fallback for anycast/public-service IPs "
+            "outside published ranges (e.g. 8.8.8.8 → AS15169 → 'Google'). Null when neither matches. "
+            "Always present in response (route emits null-explicit so agents can disambiguate "
+            "'not detected' from 'field absent')."
+        ),
     )
-    tor_exit: bool | None = Field(
-        default=None,
-        description="True if IP appears in the Tor Project's exit node list. Null when list fetch failed.",
+    tor_exit: bool = Field(
+        default=False,
+        description=(
+            "True if IP appears in the Tor Project's exit node list. False when not listed or when "
+            "the upstream list fetch failed (check verdict.sources_unavailable for 'tor' to "
+            "distinguish). Always present in response — never null."
+        ),
     )
     risk_score: int = Field(
         default=0,
