@@ -877,6 +877,149 @@ class TestDomainRoutes:
         assert data["cloud_provider"] == "AWS"  # but CIDR wins → AWS
 
 
+class TestDomainReportTxtFilter:
+    _TXT_REPORT = {
+        "domain": "example.com",
+        "dns": {
+            "a": ["93.184.216.34"],
+            "ns": ["a.iana-servers.net"],
+            "txt": [
+                "v=spf1 include:_spf.google.com ~all",
+                "v=DMARC1; p=reject; rua=mailto:dmarc@example.com",
+                "google-site-verification=abc123xyz",
+                "MS=ms123456",
+                "facebook-domain-verification=zzzz",
+                "v=DKIM1; k=rsa; p=MIGfMA0GCSqGSIb3DQEBAQUAA4GN",
+                "atlassian-domain-verification=foobar",
+                "stripe-verification=zzz",
+            ],
+        },
+        "whois": MOCK_WHOIS_RESULT,
+        "ssl": {"issuer": "DigiCert", "common_name": "example.com"},
+        "subdomains": MOCK_SUBDOMAIN_RESULT,
+        "certificates": MOCK_CT_RESULT,
+        "threat": {
+            "urlhaus_status": "clean",
+            "url_count": 0,
+            "urls_online": 0,
+            "threat_types": [],
+            "tags": [],
+            "urls": [],
+        },
+        "waf": {"detected": [], "waf_present": False},
+        "risk": {"score": 85, "max_score": 100, "grade": "B", "factors": []},
+        "summary": "example.com",
+    }
+
+    def test_is_security_txt_record_classifier(self):
+        from domain.routes import _is_security_txt_record
+
+        for keep in (
+            "v=spf1 include:_spf.google.com ~all",
+            "v=DMARC1; p=reject;",
+            "v=DKIM1; k=rsa; p=...",
+            "v=STSv1; id=20240101;",
+            "v=TLSRPTv1; rua=mailto:tlsrpt@example.com",
+            "  V=SPF1 -all  ",  # case + whitespace tolerant
+        ):
+            assert _is_security_txt_record(keep), f"expected security record kept: {keep!r}"
+        for drop in (
+            "google-site-verification=abc123",
+            "MS=ms123456",
+            "facebook-domain-verification=foo",
+            "atlassian-domain-verification=bar",
+            "stripe-verification=zzz",
+            "",
+            None,
+            12345,
+        ):
+            assert not _is_security_txt_record(drop), f"expected non-security record dropped: {drop!r}"
+
+    @patch("domain.routes.full_domain_report")
+    @patch("domain.routes.validate_domain", return_value="93.184.216.34")
+    @patch("domain.routes.get_cached_domain_with_age")
+    def test_domain_report_txt_filter_default(self, mock_cache, mock_validate, mock_report):
+        mock_cache.return_value = (self._TXT_REPORT, 60)
+        r = client.get("/v1/domain/example.com")
+        assert r.status_code == 200
+        dns = r.json()["dns"]
+        assert dns["total_txt_records"] == 8
+        kept = dns["txt"]
+        assert len(kept) == 3
+        assert any(t.startswith("v=spf1") for t in kept)
+        assert any(t.startswith("v=DMARC1") for t in kept)
+        assert any(t.startswith("v=DKIM1") for t in kept)
+        for v in kept:
+            assert "google-site-verification" not in v
+            assert "facebook-domain-verification" not in v
+
+    @patch("domain.routes.full_domain_report")
+    @patch("domain.routes.validate_domain", return_value="93.184.216.34")
+    @patch("domain.routes.get_cached_domain_with_age")
+    def test_domain_report_txt_include_all(self, mock_cache, mock_validate, mock_report):
+        mock_cache.return_value = (self._TXT_REPORT, 60)
+        r = client.get("/v1/domain/example.com?include_all_txt=true")
+        assert r.status_code == 200
+        dns = r.json()["dns"]
+        assert dns["total_txt_records"] == 8
+        assert len(dns["txt"]) == 8
+
+    @patch("domain.routes.full_domain_report")
+    @patch("domain.routes.validate_domain", return_value="93.184.216.34")
+    @patch("domain.routes.get_cached_domain_with_age")
+    def test_domain_report_txt_filter_does_not_mutate_cache(self, mock_cache, mock_validate, mock_report):
+        # Two calls back-to-back hitting the same cached object — second call must
+        # see the original 8-entry list (i.e. filter must copy, not mutate).
+        cached_obj = {**self._TXT_REPORT, "dns": dict(self._TXT_REPORT["dns"])}
+        cached_obj["dns"]["txt"] = list(self._TXT_REPORT["dns"]["txt"])
+        mock_cache.return_value = (cached_obj, 60)
+
+        r1 = client.get("/v1/domain/example.com")
+        assert r1.status_code == 200
+        assert len(r1.json()["dns"]["txt"]) == 3
+
+        r2 = client.get("/v1/domain/example.com?include_all_txt=true")
+        assert r2.status_code == 200
+        assert len(r2.json()["dns"]["txt"]) == 8
+
+    @patch("domain.routes.full_domain_report")
+    @patch("domain.routes.validate_domain", return_value="93.184.216.34")
+    @patch("domain.routes.get_cached_domain_with_age")
+    def test_domain_report_txt_filter_no_txt_section(self, mock_cache, mock_validate, mock_report):
+        no_txt = {**self._TXT_REPORT, "dns": {"a": ["93.184.216.34"]}}
+        mock_cache.return_value = (no_txt, 60)
+        r = client.get("/v1/domain/example.com")
+        assert r.status_code == 200
+        dns = r.json()["dns"]
+        assert "txt" not in dns
+        assert "total_txt_records" not in dns
+
+    @patch("domain.routes.full_domain_report")
+    @patch("domain.routes.validate_domain", return_value="93.184.216.34")
+    @patch("domain.routes.get_cached_domain_with_age")
+    def test_domain_report_txt_filter_empty_txt(self, mock_cache, mock_validate, mock_report):
+        empty_txt = {**self._TXT_REPORT, "dns": {"a": ["93.184.216.34"], "txt": []}}
+        mock_cache.return_value = (empty_txt, 60)
+        r = client.get("/v1/domain/example.com")
+        assert r.status_code == 200
+        dns = r.json()["dns"]
+        assert dns["total_txt_records"] == 0
+        assert dns.get("txt") in (None, [])
+
+    @patch(
+        "domain.routes.dns_lookup",
+        return_value={"a": ["1.2.3.4"], "txt": ["google-site-verification=xyz", "v=spf1 -all"]},
+    )
+    @patch("domain.routes.validate_domain", return_value="1.2.3.4")
+    @patch("domain.routes._from_cache", return_value=None)
+    def test_dns_records_endpoint_keeps_all_txt(self, mock_cache, mock_validate, mock_dns):
+        # /v1/dns/{domain} is the explicit raw-DNS endpoint — filter must NOT apply.
+        r = client.get("/v1/dns/example.com")
+        assert r.status_code == 200
+        records = r.json()["records"]
+        assert len(records["txt"]) == 2
+
+
 @pytest.mark.real_asn_country
 class TestFetchAsnCountry:
     """Unit tests for _fetch_asn_country helper — direct mocking of _ripe_client."""

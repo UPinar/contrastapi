@@ -248,6 +248,51 @@ def _whois_summary(whois: dict, domain: str) -> str:
     return " — ".join(parts)
 
 
+def _is_security_txt_record(value: str) -> bool:
+    """True for SPF / DMARC / DKIM / MTA-STS / TLS-RPT / DNSSEC verification TXT values.
+
+    Filters out vendor verification strings (google-site-verification, ms=,
+    facebook-domain-verification, etc.) and arbitrary marketing TXT records that
+    bloat domain_report responses without security signal.
+    """
+    if not isinstance(value, str):
+        return False
+    v = value.strip().lower()
+    if v.startswith("v=spf"):
+        return True
+    if v.startswith("v=dmarc"):
+        return True
+    if v.startswith("v=dkim"):
+        return True
+    if v.startswith("v=stsv"):
+        return True
+    return v.startswith("v=tlsrptv")
+
+
+def _apply_txt_filter(report: dict, include_all_txt: bool) -> dict:
+    """Return a shallow-copied report with dns.txt filtered to security records.
+
+    Sets dns.total_txt_records to the honest pre-filter count. Caller must pass a
+    fresh dict (from cache or full_domain_report) — this function copies the dns
+    sub-dict so mutating the returned report does not poison the cache. When
+    include_all_txt=True the txt list is left untouched but total_txt_records is
+    still surfaced.
+    """
+    dns_block = report.get("dns")
+    if not isinstance(dns_block, dict):
+        return report
+    txt = dns_block.get("txt")
+    if not isinstance(txt, list):
+        return report
+    new_dns = dict(dns_block)
+    new_dns["total_txt_records"] = len(txt)
+    if not include_all_txt:
+        new_dns["txt"] = [t for t in txt if _is_security_txt_record(t)]
+    new_report = dict(report)
+    new_report["dns"] = new_dns
+    return new_report
+
+
 def _domain_verdict(report: dict, age_seconds: int, lite: bool) -> Verdict:
     """Build verdict metadata for domain_report responses."""
     queried = ["dns", "ssl"]
@@ -371,6 +416,19 @@ def domain_report(
             ),
         ),
     ] = False,
+    include_all_txt: Annotated[
+        bool,
+        Query(
+            description=(
+                "Return every TXT record (default: only SPF, DMARC, DKIM, MTA-STS, TLS-RPT). "
+                "total_txt_records under dns.* is always emitted with the honest pre-filter count. "
+                "Default filter strips vendor verification strings (google-site-verification, ms=, "
+                "facebook-domain-verification, etc.) that bloat reports without security signal. "
+                "Pass include_all_txt=true only when you need the raw TXT inventory — for SPF/DMARC "
+                "auditing the default is sufficient."
+            ),
+        ),
+    ] = False,
 ):
     """Full domain intelligence report with DNS, WHOIS, SSL, subdomains, WAF. Use ?lite=true for fast subset."""
     domain, resolved_ip, auth_ctx = _validate_and_auth(request, domain)
@@ -382,7 +440,8 @@ def domain_report(
     hit = get_cached_domain_with_age(cache_key)
     if hit is not None:
         cached, age = hit
-        return {**cached, "verdict": _domain_verdict(cached, age, lite=lite)}
+        emitted = _apply_txt_filter(cached, include_all_txt)
+        return {**emitted, "verdict": _domain_verdict(emitted, age, lite=lite)}
 
     client_ip = get_client_ip(request)
     try:
@@ -390,7 +449,8 @@ def domain_report(
     except FuturesTimeoutError:
         raise HTTPException(status_code=504, detail="Domain report timed out — upstream services too slow") from None
     save_cached_domain(cache_key, result)
-    return {**result, "verdict": _domain_verdict(result, 0, lite=lite)}
+    emitted = _apply_txt_filter(result, include_all_txt)
+    return {**emitted, "verdict": _domain_verdict(emitted, 0, lite=lite)}
 
 
 @router.get("/dns/{domain}", operation_id="dns_records", response_model=DnsResponse, response_model_exclude_none=True)

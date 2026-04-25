@@ -39,7 +39,21 @@ class DomainDnsInfo(BaseModel):
     aaaa: list[str] | None = Field(default=None, description="AAAA records (IPv6 addresses).")
     mx: list[MxDnsRecord] | None = Field(default=None, description="MX records as {priority, host} list.")
     ns: list[str] | None = Field(default=None, description="NS records (nameserver hostnames).")
-    txt: list[str] | None = Field(default=None, description="TXT records (SPF, DMARC, verification strings, etc.).")
+    txt: list[str] | None = Field(
+        default=None,
+        description=(
+            "TXT records. By default in domain_report, filtered to security-relevant entries "
+            "(SPF v=spf, DMARC v=DMARC, DKIM v=DKIM, MTA-STS v=STSv, TLS-RPT v=TLSRPTv). "
+            "Pass ?include_all_txt=true to return every TXT including vendor verification strings."
+        ),
+    )
+    total_txt_records: int | None = Field(
+        default=None,
+        description=(
+            "Honest pre-filter TXT record count (always emitted on domain_report). Equals len(txt) when "
+            "include_all_txt=true. Null on /v1/dns/{domain} where TXT is not filtered."
+        ),
+    )
     cname: list[str] | None = Field(default=None, description="CNAME records.")
     soa: SoaInfo | None = Field(default=None, description="SOA record (zone authority).")
 

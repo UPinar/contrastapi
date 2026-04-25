@@ -307,11 +307,18 @@ async def domain_report(
     domain: Annotated[
         str, Field(description="Root domain to analyze, without protocol or path (e.g. 'example.com', 'shopify.com')")
     ],
+    include_all_txt: Annotated[
+        bool,
+        Field(
+            description="Return every TXT record (default: False, only SPF/DMARC/DKIM/MTA-STS/TLS-RPT kept). dns.total_txt_records is always emitted with the honest pre-filter count. Default filter strips vendor verification strings (google-site-verification, ms=, facebook-domain-verification, etc.) that bloat the response without security signal. Set True only when you need the raw TXT inventory."
+        ),
+    ] = False,
 ) -> str:
-    """Query DNS, WHOIS, SSL, subdomains, and threat intel for a domain in one call. Use as a starting point for domain investigations; use audit_domain for live headers + tech stack. Free: 100/hr, Pro: 1000/hr. Returns domain report with DNS records, WHOIS data, SSL cert, risk score, email config, threat status, and recommendation."""
+    """Query DNS, WHOIS, SSL, subdomains, and threat intel for a domain in one call. By default dns.txt is filtered to security-relevant entries (SPF, DMARC, DKIM, MTA-STS, TLS-RPT) and dns.total_txt_records reports the honest pre-filter count; pass include_all_txt=true for the raw TXT list. Use as a starting point for domain investigations; use audit_domain for live headers + tech stack. Free: 100/hr, Pro: 1000/hr. Returns domain report with DNS records, WHOIS data, SSL cert, risk score, email config, threat status, and recommendation."""
     if err := _validate_domain(domain):
         return err
-    return _fmt(await _get(f"/v1/domain/{domain}"))
+    params = {"include_all_txt": "true"} if include_all_txt else None
+    return _fmt(await _get(f"/v1/domain/{domain}", params))
 
 
 @mcp.tool(annotations=_RO)
