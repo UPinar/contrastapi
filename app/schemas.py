@@ -1757,9 +1757,23 @@ class PhoneLookupResponse(BaseModel):
             "or 'unknown'."
         ),
     )
-    carrier: str = Field(
-        default="",
-        description="Carrier/network name from libphonenumber carrier DB (best-effort, not all regions supported).",
+    carrier: str | None = Field(
+        default=None,
+        description=(
+            "Carrier/network name from libphonenumber carrier DB. Excluded from the wire "
+            "(response_model_exclude_none=True) when no carrier mapping exists for the region — "
+            "inspect carrier_status to distinguish 'known' vs 'unsupported_region' (US/CA/GB and "
+            "other MNP-restricted regions are commonly unsupported)."
+        ),
+    )
+    carrier_status: Literal["known", "unsupported_region"] | None = Field(
+        default=None,
+        description=(
+            "'known' when libphonenumber returned a carrier name; 'unsupported_region' when the "
+            "carrier DB has no mapping for this region (do not treat the absent carrier field as "
+            "evidence the number lacks a carrier — it just means we cannot identify it). Null on "
+            "invalid/unparseable input."
+        ),
     )
     timezone: list[str] = Field(
         default_factory=list,

@@ -492,7 +492,7 @@ async def phone_lookup(
         ),
     ],
 ) -> str:
-    """Validate and analyze phone number: country, region, carrier, line type (mobile/landline/VoIP), timezone, formatted versions. Use to verify phone legitimacy and detect fraud risks. Requires E.164 format (+1234567890). Free: 100/hr, Pro: 1000/hr. Returns {valid, country, region, carrier, line_type, timezone, formats}."""
+    """Validate and analyze phone number: country, region, carrier, line type (mobile/landline/VoIP), timezone, formatted versions. Use to verify phone legitimacy and detect fraud risks. Requires E.164 format (+1234567890). Free: 100/hr, Pro: 1000/hr. Returns {valid, country, region, carrier, carrier_status, line_type, timezone, formats}. carrier is omitted from the wire when libphonenumber has no mapping for the region (US/CA/GB and other MNP-restricted regions); always read carrier_status — 'known' means carrier is present, 'unsupported_region' means we cannot identify the carrier (do not infer the number lacks one)."""
     return _fmt(await _get(f"/v1/phone/{quote(number, safe='')}"))
 
 

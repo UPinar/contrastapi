@@ -1023,8 +1023,12 @@ def phone_lookup(number: str) -> dict:
     }
     type_str = type_map.get(num_type, "unknown")
 
-    # Carrier
+    # Carrier — libphonenumber's carrier DB is regional; US/CA/GB return empty
+    # because mobile-number-portability rules forbid carrier inference. Distinguish
+    # "no carrier mapping for this region" (unsupported_region) from a real carrier
+    # name so agents do not interpret an empty string as the carrier's actual name.
     carrier_name = carrier.name_for_number(parsed, "en") or ""
+    carrier_status = "known" if carrier_name else "unsupported_region"
 
     # Timezone
     tz_list = list(timezone.time_zones_for_number(parsed))
@@ -1049,7 +1053,8 @@ def phone_lookup(number: str) -> dict:
         "country_code": region or "",
         "country_name": country_name,
         "type": type_str,
-        "carrier": carrier_name,
+        "carrier": carrier_name or None,
+        "carrier_status": carrier_status,
         "timezone": tz_list,
         "summary": summary,
     }

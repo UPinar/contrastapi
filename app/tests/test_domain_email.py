@@ -438,6 +438,48 @@ class TestPhoneLookup:
         assert "TR" in result["summary"] or "Turkey" in result["summary"] or "+90" in result["summary"]
 
 
+class TestPhoneCarrierHonesty:
+    """Bug M: empty carrier string masked 'unsupported region' as 'no carrier'."""
+
+    def test_tr_number_carrier_known(self):
+        # libphonenumber's carrier DB covers Turkey
+        from domain.recon import phone_lookup
+
+        result = phone_lookup("+905321234567")
+        assert result["valid"] is True
+        assert result["carrier_status"] == "known"
+        assert result["carrier"] is not None
+        assert result["carrier"] != ""
+
+    def test_us_number_carrier_unsupported(self):
+        # US/CA libphonenumber returns "" (MNP rules block carrier inference)
+        from domain.recon import phone_lookup
+
+        result = phone_lookup("+14155552671")
+        assert result["valid"] is True
+        assert result["carrier_status"] == "unsupported_region"
+        assert result["carrier"] is None
+
+    def test_route_drops_carrier_when_unsupported(self):
+        # response_model_exclude_none=True → carrier key absent from JSON for US
+        with patch("domain.routes.authenticate"):
+            r = client.get("/v1/phone/%2B14155552671")
+            assert r.status_code == 200
+            data = r.json()
+            assert data["valid"] is True
+            assert data["carrier_status"] == "unsupported_region"
+            assert "carrier" not in data, "carrier must be omitted when unsupported_region"
+
+    def test_route_emits_carrier_when_known(self):
+        with patch("domain.routes.authenticate"):
+            r = client.get("/v1/phone/%2B905321234567")
+            assert r.status_code == 200
+            data = r.json()
+            assert data["valid"] is True
+            assert data["carrier_status"] == "known"
+            assert data.get("carrier")  # truthy, non-empty
+
+
 class TestPhoneRoute:
     @patch("domain.routes.authenticate")
     def test_phone_valid(self, mock_auth):
@@ -456,7 +498,9 @@ class TestPhoneRoute:
 
     @patch("domain.routes.authenticate")
     def test_phone_response_shape(self, mock_auth):
-        r = client.get("/v1/phone/%2B12025551234")
+        # Use a TR number — libphonenumber's carrier DB covers it, so the carrier
+        # field is present. US/CA omit `carrier` per Bug M (unsupported_region).
+        r = client.get("/v1/phone/%2B905321234567")
         assert r.status_code == 200
         data = r.json()
         expected_keys = {
@@ -467,6 +511,7 @@ class TestPhoneRoute:
             "country_name",
             "type",
             "carrier",
+            "carrier_status",
             "timezone",
             "summary",
         }
