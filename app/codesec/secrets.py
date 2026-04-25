@@ -2,7 +2,13 @@
 
 import re
 
-from codesec.utils import MAX_FINDINGS, MAX_LINES, is_comment, safe_line, safe_scan_line
+from codesec.utils import MAX_FINDINGS, MAX_LINES, _safe_scan_line_with_spans, is_comment, safe_line
+
+# Generic catch-all rule that matches any quoted assignment to a credential-shaped
+# identifier. When it overlaps a more-specific rule (e.g. AWS Access Key, GitHub
+# Token), the specific finding is more actionable, so we suppress this one to avoid
+# duplicate findings on the same secret.
+_GENERIC_RULE = "Password Assignment"
 
 # (name, pattern, severity, description, remediation)
 _SECRET_RULES = [
@@ -147,7 +153,11 @@ def detect_secrets(code: str, language: str = "generic") -> list[dict]:
             continue
         line = safe_line(line)
 
-        for rule_name, severity, match_text, description, remediation in safe_scan_line(_SECRET_RULES, line):
+        raw = _safe_scan_line_with_spans(_SECRET_RULES, line)
+        specific_spans = [(s, e) for name, _sev, _m, _d, _r, s, e in raw if name != _GENERIC_RULE]
+        for rule_name, severity, match_text, description, remediation, start, end in raw:
+            if rule_name == _GENERIC_RULE and any(s < end and start < e for s, e in specific_spans):
+                continue
             findings.append(
                 {
                     "type": rule_name,

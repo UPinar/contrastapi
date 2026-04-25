@@ -99,6 +99,52 @@ class TestDetectSecretsPassword:
         assert not any(f["type"] == "Password Assignment" for f in r)
 
 
+class TestSecretsOverlapDedupe:
+    """Bug K: Password Assignment shadows specific rules — drop overlap to avoid duplicate findings."""
+
+    def test_aws_access_key_in_password_assignment_drops_generic(self):
+        r = detect_secrets('password = "AKIAIOSFODNN7EXAMPLE"')
+        types = [f["type"] for f in r]
+        assert "AWS Access Key" in types
+        assert "Password Assignment" not in types
+        assert len(r) == 1
+
+    def test_github_token_in_api_key_assignment_drops_generic(self):
+        token = "ghp_" + "A" * 36
+        r = detect_secrets(f'api_key = "{token}"')
+        types = [f["type"] for f in r]
+        assert "GitHub Token" in types
+        assert "Password Assignment" not in types
+
+    def test_jwt_in_password_assignment_drops_generic(self):
+        jwt = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"  # gitleaks:allow
+        r = detect_secrets(f'auth_token = "{jwt}"')
+        types = [f["type"] for f in r]
+        assert "JWT Token" in types
+        assert "Password Assignment" not in types
+
+    def test_password_kept_when_no_specific_overlap(self):
+        r = detect_secrets('password = "super_secret_123"')
+        types = [f["type"] for f in r]
+        assert "Password Assignment" in types
+
+    def test_password_kept_when_specific_match_does_not_overlap(self):
+        # Password Assignment on left, AWS Access Key in a separate string on the right
+        r = detect_secrets('password = "abcdef"; var = "AKIAIOSFODNN7EXAMPLE"')
+        types = [f["type"] for f in r]
+        assert "AWS Access Key" in types
+        assert "Password Assignment" in types
+
+    def test_overlap_dedupe_per_line_not_global(self):
+        code = 'password = "AKIAIOSFODNN7EXAMPLE"\npassword = "qwerty12345"'
+        r = detect_secrets(code)
+        # line 1: AWS Access Key wins; line 2: only Password Assignment fires
+        line_types = {(f["line"], f["type"]) for f in r}
+        assert (1, "AWS Access Key") in line_types
+        assert (1, "Password Assignment") not in line_types
+        assert (2, "Password Assignment") in line_types
+
+
 class TestDetectSecretsDBConn:
     def test_postgres_connection_string(self):
         r = detect_secrets('db = "postgres://admin:pass123@db.example.com/mydb"')
@@ -1227,7 +1273,7 @@ class TestReDoSProtectionIntegration:
     def test_secrets_timeout_graceful(self):
         """detect_secrets returns partial results on timeout."""
         code = 'key = "AKIAIOSFODNN7EXAMPLE"\nHANG\nsk_live_abcdefghijklmnopqrstuvwx'
-        with patch("codesec.secrets.safe_scan_line") as mock_ssl:
+        with patch("codesec.secrets._safe_scan_line_with_spans") as mock_ssl:
 
             def selective_timeout(rules, text):
                 if "HANG" in text:
@@ -1235,7 +1281,7 @@ class TestReDoSProtectionIntegration:
                 results = []
                 for rule_name, pattern, severity, desc, fix in rules:
                     for m in pattern.finditer(text):
-                        results.append((rule_name, severity, m.group(), desc, fix))
+                        results.append((rule_name, severity, m.group(), desc, fix, m.start(), m.end()))
                 return results
 
             mock_ssl.side_effect = selective_timeout

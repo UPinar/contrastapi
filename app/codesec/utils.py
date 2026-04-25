@@ -51,25 +51,22 @@ def safe_line(line: str) -> str:
     return line
 
 
-def _scan_line(rules: list[Rule], text: str) -> list[tuple[str, str, str, str, str]]:
+def _scan_line(rules: list[Rule], text: str) -> list[tuple[str, str, str, str, str, int, int]]:
     """Run all rules against a single line. Runs inside thread pool."""
     results = []
     for rule_name, pattern, severity, description, remediation in rules:
         for m in pattern.finditer(text):
-            results.append((rule_name, severity, m.group(), description, remediation))
+            results.append((rule_name, severity, m.group(), description, remediation, m.start(), m.end()))
     return results
 
 
-def safe_scan_line(
+def _safe_scan_line_with_spans(
     rules: list[Rule], text: str, timeout: float = REGEX_TIMEOUT_SECONDS
-) -> list[tuple[str, str, str, str, str]]:
-    """Run all rules against a single line with timeout protection.
+) -> list[tuple[str, str, str, str, str, int, int]]:
+    """Span-aware variant. Returns 7-tuples (..., start, end) for overlap dedupe.
 
-    Batches all pattern matches for one line into a single thread-pool task
-    to minimize submissions (N lines, not N*rules).
-
-    Returns list of (rule_name, severity, match_text, description, remediation)
-    tuples, or empty list if the line scan exceeds the timeout.
+    Used by callers that need to suppress generic catch-all rules whose match
+    span is fully contained within a more-specific rule's span on the same line.
     """
     future = _regex_executor.submit(_scan_line, rules, text)
     try:
@@ -83,3 +80,17 @@ def safe_scan_line(
         )
         future.cancel()
         return []
+
+
+def safe_scan_line(
+    rules: list[Rule], text: str, timeout: float = REGEX_TIMEOUT_SECONDS
+) -> list[tuple[str, str, str, str, str]]:
+    """Run all rules against a single line with timeout protection.
+
+    Batches all pattern matches for one line into a single thread-pool task
+    to minimize submissions (N lines, not N*rules).
+
+    Returns list of (rule_name, severity, match_text, description, remediation)
+    tuples, or empty list if the line scan exceeds the timeout.
+    """
+    return [t[:5] for t in _safe_scan_line_with_spans(rules, text, timeout)]
