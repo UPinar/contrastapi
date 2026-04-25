@@ -137,8 +137,21 @@ def dns_lookup(domain: str) -> dict:
         try:
             answers = resolver.resolve(domain, rtype)
             if rtype == "MX":
+                # RFC 7505 null MX (priority=0, exchange='.') and malformed
+                # records both rstrip to host='' here. Emitting them as
+                # {priority: N, host: ''} is meaningless to downstream consumers
+                # (mail_provider detection, disposable-MX scan, audit_domain
+                # summary) and used to leak a phantom MX into responses. Filter
+                # them out — the resulting empty mx list is an honest signal
+                # that the domain does not accept mail.
+                # Order matters: strip() first so a stray '. ' (whitespace-padded
+                # null MX) collapses to '.' before rstrip drops the trailing dot.
+                # Otherwise rstrip would skip the dot (trailing char is space)
+                # and the record would survive with host='.'.
                 records[rtype.lower()] = [
-                    {"priority": r.preference, "host": str(r.exchange).rstrip(".")} for r in answers
+                    {"priority": r.preference, "host": host}
+                    for r in answers
+                    if (host := str(r.exchange).strip().rstrip("."))
                 ]
             elif rtype == "SOA":
                 soa = answers[0]

@@ -2940,6 +2940,83 @@ class TestDnsLookupRecordTypes:
         assert result["mx"][0]["host"] == "mail.example.com"
 
     @patch("domain.recon.dns.resolver.Resolver")
+    def test_null_mx_filtered(self, mock_resolver_cls):
+        # Bug O: RFC 7505 null MX (priority=0, exchange='.') used to leak as
+        # {priority: 0, host: ''} into the wire. Drop it — empty mx list is
+        # the honest signal that the domain does not accept mail.
+        from domain.recon import dns_lookup
+
+        mock_resolver = MagicMock()
+        mock_resolver_cls.return_value = mock_resolver
+
+        null_mx = MagicMock()
+        null_mx.preference = 0
+        null_mx.exchange = MagicMock()
+        null_mx.exchange.__str__ = lambda s: "."
+
+        def resolve_side(domain, rtype):
+            if rtype == "MX":
+                return [null_mx]
+            raise dns.resolver.NoAnswer()
+
+        mock_resolver.resolve.side_effect = resolve_side
+        result = dns_lookup("example.com")
+        assert result.get("mx") == []
+        assert all(r["host"] for r in result.get("mx", []))
+
+    @patch("domain.recon.dns.resolver.Resolver")
+    def test_padded_null_mx_filtered(self, mock_resolver_cls):
+        # Edge case from R1 review: "  .  " (whitespace-padded null MX).
+        # rstrip-then-strip would leak host='.', strip-then-rstrip filters it.
+        from domain.recon import dns_lookup
+
+        mock_resolver = MagicMock()
+        mock_resolver_cls.return_value = mock_resolver
+
+        padded = MagicMock()
+        padded.preference = 0
+        padded.exchange = MagicMock()
+        padded.exchange.__str__ = lambda s: "  .  "
+
+        def resolve_side(domain, rtype):
+            if rtype == "MX":
+                return [padded]
+            raise dns.resolver.NoAnswer()
+
+        mock_resolver.resolve.side_effect = resolve_side
+        result = dns_lookup("example.com")
+        assert result.get("mx") == []
+
+    @patch("domain.recon.dns.resolver.Resolver")
+    def test_malformed_mx_empty_host_filtered(self, mock_resolver_cls):
+        # Whitespace-only / malformed exchange must also be filtered.
+        from domain.recon import dns_lookup
+
+        mock_resolver = MagicMock()
+        mock_resolver_cls.return_value = mock_resolver
+
+        bad_mx = MagicMock()
+        bad_mx.preference = 5
+        bad_mx.exchange = MagicMock()
+        bad_mx.exchange.__str__ = lambda s: "  "
+
+        good_mx = MagicMock()
+        good_mx.preference = 10
+        good_mx.exchange = MagicMock()
+        good_mx.exchange.__str__ = lambda s: "mail.example.com."
+
+        def resolve_side(domain, rtype):
+            if rtype == "MX":
+                return [bad_mx, good_mx]
+            raise dns.resolver.NoAnswer()
+
+        mock_resolver.resolve.side_effect = resolve_side
+        result = dns_lookup("example.com")
+        # Only the well-formed record survives
+        assert len(result["mx"]) == 1
+        assert result["mx"][0]["host"] == "mail.example.com"
+
+    @patch("domain.recon.dns.resolver.Resolver")
     def test_soa_fields(self, mock_resolver_cls):
         from domain.recon import dns_lookup
 
