@@ -863,6 +863,89 @@ class TestDependenciesRoute:
             # All 4 collapse to 1 → count=1 path, consume_bulk NOT called
             mock_consume.assert_not_called()
 
+    def test_fixed_in_emitted_when_version_end_known(self):
+        """Bug J: matched product's version_end becomes fixed_in + specific upgrade copy."""
+        from db import upsert_cve
+
+        upsert_cve(
+            {
+                "cve_id": "CVE-2099-FIXJ1",
+                "description": "Bug J test",
+                "severity": "HIGH",
+                "published": "2099-01-01T00:00:00Z",
+                "affected_products": [
+                    {"vendor": "acme", "product": "widget-fixj1", "version_start": "1.0.0", "version_end": "1.5.0"}
+                ],
+            }
+        )
+
+        r = client.post(
+            "/v1/check/dependencies",
+            json={"packages": [{"name": "widget-fixj1", "version": "1.2.3"}]},
+        )
+        assert r.status_code == 200
+        findings = [f for f in r.json()["findings"] if f["cve_id"] == "CVE-2099-FIXJ1"]
+        assert findings, "expected the seeded CVE to match"
+        f = findings[0]
+        assert f["fixed_in"] == "1.5.0"
+        assert "Upgrade widget-fixj1 to 1.5.0 or later" in f["remediation"]
+        assert "(current: 1.2.3)" in f["remediation"]
+        assert "CVE-2099-FIXJ1" in f["remediation"]
+
+    def test_fixed_in_omitted_when_no_version_supplied(self):
+        """No input version → no range match → fixed_in must be excluded from wire."""
+        from db import upsert_cve
+
+        upsert_cve(
+            {
+                "cve_id": "CVE-2099-FIXJ2",
+                "description": "Bug J test no-version",
+                "severity": "MEDIUM",
+                "published": "2099-01-01T00:00:00Z",
+                "affected_products": [
+                    {"vendor": "acme", "product": "widget-fixj2", "version_start": "1.0.0", "version_end": "1.5.0"}
+                ],
+            }
+        )
+
+        r = client.post(
+            "/v1/check/dependencies",
+            json={"packages": [{"name": "widget-fixj2"}]},
+        )
+        assert r.status_code == 200
+        findings = [f for f in r.json()["findings"] if f["cve_id"] == "CVE-2099-FIXJ2"]
+        assert findings
+        f = findings[0]
+        assert "fixed_in" not in f, "response_model_exclude_none=True must drop fixed_in when None"
+        assert "Check if widget-fixj2 current is affected" in f["remediation"]
+
+    def test_fixed_in_omitted_when_range_open_ended(self):
+        """Match with empty version_end (open-ended high) → fixed_in stays None."""
+        from db import upsert_cve
+
+        upsert_cve(
+            {
+                "cve_id": "CVE-2099-FIXJ3",
+                "description": "Bug J test open range",
+                "severity": "LOW",
+                "published": "2099-01-01T00:00:00Z",
+                "affected_products": [
+                    {"vendor": "acme", "product": "widget-fixj3", "version_start": "1.0.0", "version_end": ""}
+                ],
+            }
+        )
+
+        r = client.post(
+            "/v1/check/dependencies",
+            json={"packages": [{"name": "widget-fixj3", "version": "1.2.3"}]},
+        )
+        assert r.status_code == 200
+        findings = [f for f in r.json()["findings"] if f["cve_id"] == "CVE-2099-FIXJ3"]
+        assert findings
+        f = findings[0]
+        assert "fixed_in" not in f
+        assert "Check if widget-fixj3 1.2.3 is affected" in f["remediation"]
+
     def test_maven_artifactid_alias_finds_cves(self):
         """Regression: posting a Maven artifactId (log4j-core) must resolve to
         NVD canonical name (log4j) via PRODUCT_ALIAS and return the CVE.

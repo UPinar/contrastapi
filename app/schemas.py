@@ -1660,6 +1660,14 @@ class DepFinding(BaseModel):
     description: str = ""
     epss_score: float | None = None
     in_kev: bool = False
+    fixed_in: str | None = Field(
+        default=None,
+        description=(
+            "First patched release per NVD/MITRE version range data (CVE affected_products[].version_end). "
+            "Excluded from the wire (response_model_exclude_none=True) when the matched range is open-ended "
+            "or no input version was supplied — in those cases inspect remediation copy."
+        ),
+    )
     remediation: str = ""
 
 

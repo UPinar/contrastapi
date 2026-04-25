@@ -313,8 +313,9 @@ def check_dependencies_endpoint(body: DependenciesInput, request: Request):
         pkg_name_norm = _normalize_product(pkg.name).strip().lower()
         cves = cve_groups.get(pkg_name_norm, [])
         parsed_ver = _parse_version(pkg.version) if pkg.version else None
-        matched_cves = []
+        matched_cves: list[tuple[dict, str | None]] = []
         for cve in cves:
+            fix_version: str | None = None
             if parsed_ver:
                 matched = False
                 for prod in cve.get("affected_products", []):
@@ -330,14 +331,27 @@ def check_dependencies_endpoint(body: DependenciesInput, request: Request):
                     except TypeError:
                         continue
                     matched = True
+                    # version_end is the first patched release per NVD/MITRE semantics.
+                    # Open-ended ranges (no upper bound) leave fix_version None and the
+                    # generic remediation copy is emitted instead.
+                    fix_version = ve or None
                     break
                 if not matched and cve.get("affected_products"):
                     continue
-            matched_cves.append(cve)
+            matched_cves.append((cve, fix_version))
             if len(matched_cves) >= 20:
                 break
-        for cve in matched_cves:
+        for cve, fix_version in matched_cves:
             severity = (cve.get("severity") or "unknown").lower()
+            if fix_version:
+                remediation = (
+                    f"Upgrade {pkg.name} to {fix_version} or later "
+                    f"(current: {pkg.version or 'unknown'}) to patch {cve['cve_id']}"
+                )
+            else:
+                remediation = (
+                    f"Check if {pkg.name} {pkg.version or 'current'} is affected by {cve['cve_id']} and upgrade if so"
+                )
             findings.append(
                 {
                     "package": pkg.name,
@@ -348,7 +362,8 @@ def check_dependencies_endpoint(body: DependenciesInput, request: Request):
                     "description": cve.get("description", "")[:300],
                     "epss_score": cve.get("epss_score"),
                     "in_kev": bool(cve.get("in_kev")),
-                    "remediation": f"Check if {pkg.name} {pkg.version or 'current'} is affected by {cve['cve_id']} and upgrade if so",
+                    "fixed_in": fix_version,
+                    "remediation": remediation,
                 }
             )
 
