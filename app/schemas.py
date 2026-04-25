@@ -859,15 +859,39 @@ class UrlhausUrlDetail(BaseModel):
     found: bool = False
     threat: str | None = None
     tags: list[str] = Field(default_factory=list)
+    status: str | None = Field(
+        default=None,
+        description=(
+            "URLhaus url_status for the exact URL match: 'online' (active threat), "
+            "'offline' (historical, threat may be cleaned up), or 'unknown'. Null when "
+            "the URL was not found."
+        ),
+    )
 
 
 class PhishingResponse(BaseModel):
     url: str
     host: str
     is_malicious: bool = False
+    is_stale: bool = Field(
+        default=False,
+        description=(
+            "True when the only URLhaus evidence is historical (host has url_count > 0 "
+            "but urls_online == 0, OR exact URL match has status == 'offline'). The host "
+            "or URL was once flagged but no live malware is currently being served — useful "
+            "for distinguishing past compromise from active threat."
+        ),
+    )
     urlhaus_host: UrlhausHostDetail = Field(default_factory=UrlhausHostDetail)
     urlhaus_url: UrlhausUrlDetail = Field(default_factory=UrlhausUrlDetail)
-    threat_level: str = "none"
+    threat_level: Literal["none", "low", "medium", "high"] = Field(
+        default="none",
+        description=(
+            "Aggregate severity. 'high' = exact URL active AND host has live malware URLs. "
+            "'medium' = exactly one of those active. 'low' = only stale historical evidence "
+            "(is_stale=True). 'none' = no URLhaus listing for either."
+        ),
+    )
     summary: str = ""
 
 

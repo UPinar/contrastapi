@@ -823,7 +823,7 @@ async def phishing_check(
         ),
     ],
 ) -> str:
-    """Query URLhaus for specific URL: detect if it's a known phishing page or malware distribution site, online/offline status, tags, date added. Use for URL-level threat assessment; use threat_intel for domain-level checks. Free: 100/hr, Pro: 1000/hr. Returns {found, threat_type, status, tags, date_added, source}."""
+    """Query URLhaus for a specific URL and its host. is_malicious is True only when there is ACTIVE evidence — exact URL match with url_status='online' (or unknown) OR host has urls_online > 0. URLhaus retains historical records forever, so a host can have url_count > 0 with urls_online == 0; in that case is_malicious=False, is_stale=True, threat_level='low'. Use for URL-level threat assessment; use threat_intel for domain-level checks. Free: 100/hr, Pro: 1000/hr. Returns {url, host, is_malicious, is_stale, urlhaus_host:{found,urls_online,url_count}, urlhaus_url:{found,threat,tags,status}, threat_level, summary}."""
     return _fmt(await _get(f"/v1/phishing/{quote(url, safe='')}"))
 
 

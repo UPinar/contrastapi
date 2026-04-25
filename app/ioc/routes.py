@@ -272,15 +272,18 @@ def _query_urlhaus_url(url: str) -> dict:
         resp.raise_for_status()
         data = resp.json()
         if data.get("query_status") != "ok":
-            return {"found": False, "threat": None, "tags": []}
+            return {"found": False, "threat": None, "tags": [], "status": None}
+        raw_status = (data.get("url_status") or "").strip().lower()
+        normalized_status = raw_status if raw_status in {"online", "offline"} else "unknown"
         return {
             "found": True,
             "threat": data.get("threat") or "unknown",
             "tags": data.get("tags") or [],
+            "status": normalized_status,
         }
     except Exception as e:
         logger.warning("URLhaus URL check failed: %s", type(e).__name__)
-        return {"found": False, "threat": None, "tags": []}
+        return {"found": False, "threat": None, "tags": [], "status": None}
 
 
 @router.get(
@@ -338,24 +341,43 @@ def phishing_check(
     # URLhaus exact URL lookup
     urlhaus_url = _query_urlhaus_url(url)
 
-    is_malicious = urlhaus_url["found"] or urlhaus_host["found"]
+    # Distinguish active (live serving malware) from stale (historical only) findings.
+    # URLhaus keeps host records forever; urls_online == 0 means every malware URL on
+    # that host is now offline, so the host is not currently a live threat. Same for
+    # an exact URL match with url_status == "offline". Only "online" or "unknown"
+    # status counts as active (conservative — upstream sometimes omits status).
+    url_active = urlhaus_url["found"] and urlhaus_url.get("status") in (None, "online", "unknown")
+    host_active = urlhaus_host["urls_online"] > 0
+    any_evidence = urlhaus_url["found"] or urlhaus_host["found"]
 
-    # Determine threat level
-    if urlhaus_url["found"] and urlhaus_host["found"]:
+    is_malicious = url_active or host_active
+    is_stale = any_evidence and not is_malicious
+
+    if url_active and host_active:
         threat_level = "high"
-    elif urlhaus_url["found"] or urlhaus_host["found"]:
+    elif url_active or host_active:
         threat_level = "medium"
+    elif is_stale:
+        threat_level = "low"
     else:
         threat_level = "none"
 
     # Build summary
     parts = []
     if urlhaus_url["found"]:
-        parts.append(f"exact URL listed ({urlhaus_url['threat']})")
+        if url_active:
+            parts.append(f"exact URL listed ({urlhaus_url['threat']})")
+        else:
+            parts.append(f"exact URL listed but offline ({urlhaus_url['threat']})")
     if urlhaus_host["found"]:
-        parts.append(f"host has {urlhaus_host['url_count']} malware URLs ({urlhaus_host['urls_online']} online)")
-    if parts:
+        if host_active:
+            parts.append(f"host has {urlhaus_host['url_count']} malware URLs ({urlhaus_host['urls_online']} online)")
+        else:
+            parts.append(f"host has {urlhaus_host['url_count']} historical malware URLs (0 online)")
+    if is_malicious:
         summary = f"{url} — malicious: " + ", ".join(parts)
+    elif is_stale:
+        summary = f"{url} — stale historical evidence only: " + ", ".join(parts)
     else:
         summary = f"{url} — not found in threat databases"
 
@@ -363,6 +385,7 @@ def phishing_check(
         "url": url,
         "host": host,
         "is_malicious": is_malicious,
+        "is_stale": is_stale,
         "urlhaus_host": urlhaus_host,
         "urlhaus_url": urlhaus_url,
         "threat_level": threat_level,

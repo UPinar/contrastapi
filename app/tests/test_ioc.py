@@ -707,6 +707,92 @@ def test_phishing_urlhaus_url_timeout(client):
     assert data["threat_level"] == "none"
 
 
+def test_phishing_stale_host_only(client):
+    """Host has historical url_count > 0 but urls_online == 0 → is_malicious=False, is_stale=True, low."""
+    url_resp = MagicMock()
+    url_resp.json.return_value = {"query_status": "no_results"}
+    url_resp.raise_for_status = MagicMock()
+    with (
+        patch("ioc.routes._phish_client.post", return_value=url_resp),
+        patch("ioc.routes.check_urlhaus", return_value={"url_count": 5, "urls_online": 0}),
+    ):
+        resp = client.get("/v1/phishing/https://past-incident.example.com/page")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["is_malicious"] is False
+    assert data["is_stale"] is True
+    assert data["urlhaus_host"]["found"] is True
+    assert data["urlhaus_host"]["url_count"] == 5
+    assert data["urlhaus_host"]["urls_online"] == 0
+    assert data["threat_level"] == "low"
+    assert "stale historical evidence only" in data["summary"]
+
+
+def test_phishing_stale_url_offline(client):
+    """Exact URL listed but url_status == 'offline' → is_malicious=False, is_stale=True, low."""
+    url_resp = MagicMock()
+    url_resp.json.return_value = {
+        "query_status": "ok",
+        "url_status": "offline",
+        "threat": "malware_download",
+        "tags": ["elf"],
+    }
+    url_resp.raise_for_status = MagicMock()
+    with (
+        patch("ioc.routes._phish_client.post", return_value=url_resp),
+        patch("ioc.routes.check_urlhaus", return_value={"url_count": 0, "urls_online": 0}),
+    ):
+        resp = client.get("/v1/phishing/https://taken-down.example.com/old.exe")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["is_malicious"] is False
+    assert data["is_stale"] is True
+    assert data["urlhaus_url"]["found"] is True
+    assert data["urlhaus_url"]["status"] == "offline"
+    assert data["threat_level"] == "low"
+    assert "stale historical evidence only" in data["summary"]
+
+
+def test_phishing_active_url_offline_host_stale_medium(client):
+    """Exact URL active (online) + host has stale-only evidence → is_malicious=True, threat_level='medium'."""
+    url_resp = MagicMock()
+    url_resp.json.return_value = {
+        "query_status": "ok",
+        "url_status": "online",
+        "threat": "phishing",
+        "tags": ["phish"],
+    }
+    url_resp.raise_for_status = MagicMock()
+    with (
+        patch("ioc.routes._phish_client.post", return_value=url_resp),
+        patch("ioc.routes.check_urlhaus", return_value={"url_count": 3, "urls_online": 0}),
+    ):
+        resp = client.get("/v1/phishing/https://compromised.example.com/login")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["is_malicious"] is True
+    assert data["is_stale"] is False
+    assert data["urlhaus_url"]["status"] == "online"
+    assert data["threat_level"] == "medium"  # url active, host stale → only one active dimension
+
+
+def test_phishing_url_status_missing_treated_as_active(client):
+    """URLhaus omits url_status → treat as active (conservative), is_malicious=True."""
+    url_resp = MagicMock()
+    url_resp.json.return_value = {"query_status": "ok", "threat": "phishing", "tags": []}
+    url_resp.raise_for_status = MagicMock()
+    with (
+        patch("ioc.routes._phish_client.post", return_value=url_resp),
+        patch("ioc.routes.check_urlhaus", return_value={"url_count": 0, "urls_online": 0}),
+    ):
+        resp = client.get("/v1/phishing/https://no-status.example.com/page")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["is_malicious"] is True
+    assert data["urlhaus_url"]["status"] == "unknown"
+    assert data["threat_level"] == "medium"
+
+
 def test_threat_endpoint_clean(client):
     """Threat intel for a clean domain returns 200 with expected fields."""
     with (
