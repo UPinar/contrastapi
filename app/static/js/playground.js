@@ -50,6 +50,8 @@
     'cve_search': 'QUERY',
     'bulk_cve': 'POST_BULK_CVE',
     'exploit': '/v1/exploit/',
+    'kev': '/v1/kev/',
+    'cwe': '/v1/cwe/',
     'threat_report': '/v1/threat-report/',
     'ioc': '/v1/ioc/',
     'bulk_ioc': 'POST_BULK_IOC',

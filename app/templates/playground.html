@@ -622,6 +622,66 @@
       </div>
     </div>
 
+    <div class="pg-card" id="ep-kev">
+      <div class="pg-card-header">
+        <span class="method get">GET</span>
+        <span class="name">/v1/kev/{cve_id}</span>
+        <span class="desc">CISA KEV detail — federal patch deadline, required action, ransomware association, CWE list</span>
+      </div>
+      <div class="pg-card-body">
+        <div class="pg-inputs">
+          <label>cve_id</label>
+          <input type="text" id="input-kev" value="CVE-2021-44228" placeholder="CVE-YYYY-NNNNN">
+          <button class="btn-run" data-tool="kev">Run &rarr;</button>
+        </div>
+        <div class="pg-response" id="resp-kev">
+          <pre>{
+  <span class="key">"cve_id"</span>: <span class="str">"CVE-2021-44228"</span>,
+  <span class="key">"vendor_project"</span>: <span class="str">"Apache"</span>,
+  <span class="key">"product"</span>: <span class="str">"Log4j2"</span>,
+  <span class="key">"vulnerability_name"</span>: <span class="str">"Apache Log4j2 Remote Code Execution Vulnerability"</span>,
+  <span class="key">"date_added"</span>: <span class="str">"2021-12-10"</span>,
+  <span class="key">"due_date"</span>: <span class="str">"2021-12-24"</span>,
+  <span class="key">"required_action"</span>: <span class="str">"Apply updates per vendor instructions."</span>,
+  <span class="key">"known_ransomware_use"</span>: <span class="bool">true</span>,
+  <span class="key">"cwes"</span>: [<span class="str">"CWE-20"</span>, <span class="str">"CWE-400"</span>, <span class="str">"CWE-502"</span>],
+  <span class="key">"next_calls"</span>: [
+    {<span class="key">"tool"</span>: <span class="str">"cve_lookup"</span>, <span class="key">"input"</span>: <span class="str">"CVE-2021-44228"</span>},
+    {<span class="key">"tool"</span>: <span class="str">"cwe_lookup"</span>, <span class="key">"input"</span>: <span class="str">"CWE-502"</span>}
+  ]
+}</pre>
+        </div>
+      </div>
+    </div>
+
+    <div class="pg-card" id="ep-cwe">
+      <div class="pg-card-header">
+        <span class="method get">GET</span>
+        <span class="name">/v1/cwe/{cwe_id}</span>
+        <span class="desc">MITRE CWE catalog (research view 1000) — description, mitigations, parent/child weakness chain, CVE count</span>
+      </div>
+      <div class="pg-card-body">
+        <div class="pg-inputs">
+          <label>cwe_id</label>
+          <input type="text" id="input-cwe" value="CWE-79" placeholder="CWE-79 or 79">
+          <button class="btn-run" data-tool="cwe">Run &rarr;</button>
+        </div>
+        <div class="pg-response" id="resp-cwe">
+          <pre>{
+  <span class="key">"cwe_id"</span>: <span class="str">"CWE-79"</span>,
+  <span class="key">"name"</span>: <span class="str">"Improper Neutralization of Input During Web Page Generation ('Cross-site Scripting')"</span>,
+  <span class="key">"abstract_type"</span>: <span class="str">"Base"</span>,
+  <span class="key">"status"</span>: <span class="str">"Stable"</span>,
+  <span class="key">"likelihood"</span>: <span class="str">"High"</span>,
+  <span class="key">"parent_cwe"</span>: <span class="str">"CWE-74"</span>,
+  <span class="key">"child_cwes"</span>: [<span class="str">"CWE-80"</span>, <span class="str">"CWE-81"</span>, <span class="str">"CWE-83"</span>],
+  <span class="key">"mitigations"</span>: [<span class="str">"PHASE: Architecture and Design DESCRIPTION: Use a vetted library or framework..."</span>],
+  <span class="key">"cve_count"</span>: <span class="num">43011</span>
+}</pre>
+        </div>
+      </div>
+    </div>
+
     <h2 class="section-title">Threat Intelligence</h2>
 
     <div class="pg-card" id="ep-threat_report">

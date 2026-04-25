@@ -2,7 +2,7 @@
   "name": "contrastapi",
   "displayName": "ContrastAPI Security Tools",
   "version": "0.3.0",
-  "description": "31 security research tools (CVE + EPSS/KEV, domain audit, IP threat intel, dependency scan, IOC enrichment, SSL/DNS checks) over remote MCP. Free tier: 100 credits/hour.",
+  "description": "33 security research tools (CVE + EPSS/KEV, MITRE CWE catalog, KEV detail, domain audit, IP threat intel, dependency scan, IOC enrichment, SSL/DNS checks) over remote MCP. Free tier: 100 credits/hour.",
   "author": {
     "name": "ContrastCyber",
     "email": "uygrpinar@gmail.com",

@@ -115,6 +115,33 @@ class TestCveLookup:
         assert body["verdict"]["sources_queried"] == ["mitre_cache", "nvd_cache"]
         assert body["verdict"]["completeness"] == "complete"
 
+    def test_lookup_next_calls_chain(self):
+        """Single-CVE response embeds exploit_lookup + kev_detail (in_kev) + cwe_lookup pivots."""
+        _seed_cve()
+        r = client.get("/v1/cve/CVE-2024-1234")
+        assert r.status_code == 200
+        next_calls = r.json()["next_calls"]
+        tools = [hint["tool"] for hint in next_calls]
+        assert tools[0] == "exploit_lookup"
+        assert "kev_detail" in tools
+        assert "cwe_lookup" in tools
+        cwe_hint = next(h for h in next_calls if h["tool"] == "cwe_lookup")
+        assert cwe_hint["input"] == "CWE-120"
+        kev_hint = next(h for h in next_calls if h["tool"] == "kev_detail")
+        assert kev_hint["input"] == "CVE-2024-1234"
+
+    def test_lookup_next_calls_omits_kev_when_not_in_kev(self):
+        _seed_cve(cve_id="CVE-2024-7777", in_kev=0, kev_date_added=None)
+        r = client.get("/v1/cve/CVE-2024-7777")
+        next_calls = r.json()["next_calls"]
+        assert all(h["tool"] != "kev_detail" for h in next_calls)
+
+    def test_lookup_next_calls_omits_cwe_when_no_cwe_id(self):
+        _seed_cve(cve_id="CVE-2024-7778", cwe_id=None, in_kev=0, kev_date_added=None)
+        r = client.get("/v1/cve/CVE-2024-7778")
+        next_calls = r.json()["next_calls"]
+        assert [h["tool"] for h in next_calls] == ["exploit_lookup"]
+
     def test_cve_lookup_minimal_completeness(self):
         from db import get_cve_db, record_cve_source
 
@@ -587,6 +614,8 @@ class TestCveResponseFormat:
         # enrichment fields always present on single-CVE lookup
         expected_keys.add("patch_available")
         expected_keys.add("related_cves")
+        # next_calls always present on single-CVE lookup (at minimum exploit_lookup)
+        expected_keys.add("next_calls")
         # patch_url only present when a patch URL exists (excluded by response_model_exclude_none=True)
         assert expected_keys == set(data.keys())
 
@@ -3405,6 +3434,19 @@ class TestBulkCveLookup:
         assert data["successful"] == 2
         assert data["failed"] == 0
         assert len(data["results"]) == 2
+
+    @patch("cve.routes.get_cve")
+    def test_bulk_cve_items_carry_next_calls(self, mock_get):
+        mock_get.return_value = dict(self._MOCK_CVE)
+        r = client.post("/v1/cves/bulk", json={"cve_ids": ["CVE-2024-3094"]})
+        assert r.status_code == 200
+        item = r.json()["results"][0]
+        assert item["status"] == "ok"
+        next_calls = item["cve"]["next_calls"]
+        tools = [hint["tool"] for hint in next_calls]
+        assert "exploit_lookup" in tools
+        assert "kev_detail" in tools
+        assert "cwe_lookup" in tools
 
     @patch("cve.routes.get_cve", return_value=None)
     def test_bulk_cve_not_found(self, mock_get):

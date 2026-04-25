@@ -182,7 +182,45 @@ def cve_lookup(
     if not sources_for_verdict and not is_minimal:
         sources_for_verdict = ["nvd_cache"]
     formatted["verdict"] = _cve_verdict(sources=sources_for_verdict, completeness=completeness)
+    formatted["next_calls"] = _cve_pivot_hints(formatted)
     return formatted
+
+
+def _cve_pivot_hints(record: dict) -> list[PivotHint]:
+    """Build the suggested-next-call list for a CVE response (single + bulk items).
+
+    Always emits exploit_lookup (every CVE could have public PoC). Adds kev_detail
+    when kev.in_kev=True, and cwe_lookup when cwe_id is a canonical 'CWE-...' string.
+    Intentionally NOT emitted on cve_search / cve_leading list items — agents pivot
+    by calling cve_lookup on the result they care about, which then surfaces hints.
+    """
+    cve_id = record["cve_id"]
+    hints: list[PivotHint] = [
+        PivotHint(
+            tool="exploit_lookup",
+            input=cve_id,
+            reason="Public exploits / PoC availability (GitHub Advisory + ExploitDB).",
+        )
+    ]
+    kev = record.get("kev") or {}
+    if isinstance(kev, dict) and kev.get("in_kev"):
+        hints.append(
+            PivotHint(
+                tool="kev_detail",
+                input=cve_id,
+                reason="CISA KEV record: federal patch deadline, required action, ransomware association.",
+            )
+        )
+    cwe_id = record.get("cwe_id")
+    if cwe_id and isinstance(cwe_id, str) and cwe_id.startswith("CWE-"):
+        hints.append(
+            PivotHint(
+                tool="cwe_lookup",
+                input=cwe_id,
+                reason=f"Weakness category for {cwe_id}: description, mitigations, parent/child chain.",
+            )
+        )
+    return hints
 
 
 def _kev_pivot_hints(record: dict) -> list[PivotHint]:
@@ -935,6 +973,7 @@ def bulk_cve_lookup(body: _BulkCveRequest, request: Request):
                 if not sources_for_verdict and not is_minimal:
                     sources_for_verdict = ["nvd_cache"]
                 formatted["verdict"] = _cve_verdict(sources=sources_for_verdict, completeness=completeness)
+                formatted["next_calls"] = _cve_pivot_hints(formatted)
                 results.append({"cve_id": cid, "status": "ok", "cve": formatted, "error": None})
                 successful += 1
         except Exception as e:

@@ -171,6 +171,16 @@
         <span class="endpoint-path">/v1/exploit/{cve_id}</span>
         <span class="endpoint-desc">Public exploits &amp; advisories</span>
       </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/kev/{cve_id}</span>
+        <span class="endpoint-desc">CISA KEV detail (federal patch deadline, ransomware, CWE list)</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/cwe/{cwe_id}</span>
+        <span class="endpoint-desc">MITRE CWE catalog (description, mitigations, parent/child chain)</span>
+      </div>
     </div>
 
     <h2 class="section-title">Threat Intelligence</h2>

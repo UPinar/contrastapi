@@ -285,6 +285,20 @@ def _validate_cve(cve_id: str) -> str | None:
     return None
 
 
+_CWE_RE = re.compile(r"^(?:CWE[- ]?)?\d{1,6}$", re.IGNORECASE)
+
+
+def _validate_cwe(cwe_id: str) -> str | None:
+    """Return error message if CWE ID is invalid, else None.
+
+    Server normalizes 'CWE-79', 'cwe-79', 'CWE 79', and bare '79' to canonical
+    form, so accept any of those.
+    """
+    if not _CWE_RE.match((cwe_id or "").strip()):
+        return f"Invalid CWE ID: {cwe_id!r}. Expected format: CWE-79 (or just '79')"
+    return None
+
+
 # === Domain Intelligence ===
 
 
@@ -493,7 +507,7 @@ async def cve_lookup(
         ),
     ] = False,
 ) -> str:
-    """Retrieve detailed CVE data by ID: description, CVSS v3.1 + vector, EPSS score + percentile, CISA KEV status, affected products (CPE), references, patch availability, related CVEs. By default affected_products is truncated to the first 20 entries; total_products reports the honest full count. Pass include_affected_products=true for the complete list (needed for bulk audits / dependency scanners; Log4j-class CVEs can carry 50+ products). Use for single-CVE details; use cve_search for queries by product/severity. Free: 100/hr, Pro: 1000/hr. Returns {cve_id, description, cvss_score, cvss_vector, epss, kev, affected_products (first 20 by default), total_products, references, patch_available, related_cves}."""
+    """Retrieve detailed CVE data by ID: description, CVSS v3.1 + vector, EPSS score + percentile, CISA KEV status, affected products (CPE), references, patch availability, related CVEs. By default affected_products is truncated to the first 20 entries; total_products reports the honest full count. Pass include_affected_products=true for the complete list (needed for bulk audits / dependency scanners; Log4j-class CVEs can carry 50+ products). Use for single-CVE details; use cve_search for queries by product/severity. Response carries next_calls — chain with kev_detail when kev.in_kev=true for the CISA federal patch deadline + required action, with cwe_lookup on cwe_id for the weakness category, and with exploit_lookup for public PoC availability. Free: 100/hr, Pro: 1000/hr. Returns {cve_id, description, cvss_score, cvss_vector, epss, kev, affected_products (first 20 by default), total_products, references, patch_available, related_cves, verdict, next_calls}."""
     if err := _validate_cve(cve_id):
         return err
     params = {"include_affected_products": "true"} if include_affected_products else None
@@ -581,7 +595,7 @@ async def cve_search(
         ),
     ] = "",
 ) -> str:
-    """Search CVE database with filters: product/vendor, severity, published date range, EPSS score, CWE, CVSS range, CISA KEV status. Use for vulnerability discovery by criteria; use cve_lookup for single CVE by ID. Free: 100/hr, Pro: 1000/hr. Returns {count, total, truncated, results, query_echo}."""
+    """Search CVE database with filters: product/vendor, severity, published date range, EPSS score, CWE, CVSS range, CISA KEV status. Use for vulnerability discovery by criteria; pass cwe_id (e.g. CWE-79) to enumerate every CVE in our database mapped to a weakness — pair with cwe_lookup for the category description and mitigations. Use cve_lookup for single CVE by ID, kev_detail when kev=true filtering and the agent needs federal patch deadlines per result. Free: 100/hr, Pro: 1000/hr. Returns {count, total, truncated, results, query_echo}."""
     params = {"limit": limit}
     if product:
         params["product"] = product
@@ -628,7 +642,7 @@ async def exploit_lookup(
         str, Field(description="CVE identifier in format CVE-YYYY-NNNNN (e.g. 'CVE-2024-3094', 'CVE-2023-44487')")
     ],
 ) -> str:
-    """Search GitHub Advisory Database + ExploitDB for public exploits/PoC for a specific CVE. Use to assess if a vulnerability has weaponized exploits in the wild; run after cve_lookup to evaluate real-world risk. Free: 100/hr, Pro: 1000/hr. Returns {cve_id, exploits: [{source, title, url, published_date}], total_count}."""
+    """Search GitHub Advisory Database + ExploitDB for public exploits/PoC for a specific CVE. Use to assess if a vulnerability has weaponized exploits in the wild; run after cve_lookup to evaluate real-world risk. When the CVE is also in CISA KEV (kev.in_kev=true on cve_lookup), pair with kev_detail for federal patch deadline; pair with cwe_lookup on cwe_id for the underlying weakness category and mitigations. Free: 100/hr, Pro: 1000/hr. Returns {cve_id, exploits: [{source, title, url, published_date}], total_count}."""
     if err := _validate_cve(cve_id):
         return err
     return _fmt(await _get(f"/v1/exploit/{cve_id}"))
@@ -649,13 +663,41 @@ async def bulk_cve_lookup(
         ),
     ] = False,
 ) -> str:
-    """Batch query multiple CVEs (up to 10 free/50 pro): retrieve full CVE details for all in 1 request instead of N. By default each CVE's affected_products is truncated to the first 20 entries (total_products reports honest count); pass include_affected_products=true to return full lists. Use for dependency audits or bulk vulnerability enrichment; use cve_lookup for single CVE. Free: 100/hr (1 per item), Pro: 1000/hr. Returns {results, total, successful, failed, timed_out, partial, summary}."""
+    """Batch query multiple CVEs (up to 10 free/50 pro): retrieve full CVE details for all in 1 request instead of N. By default each CVE's affected_products is truncated to the first 20 entries (total_products reports honest count); pass include_affected_products=true to return full lists. Use for dependency audits or bulk vulnerability enrichment; use cve_lookup for single CVE. Each successful item carries next_calls — chain with kev_detail (when kev.in_kev=true), cwe_lookup (when cwe_id is present), or exploit_lookup. Free: 100/hr (1 per item), Pro: 1000/hr. Returns {results, total, successful, failed, timed_out, partial, summary}."""
     if not isinstance(cve_ids, list) or not cve_ids:
         return "cve_ids must be a non-empty list"
     if not all(isinstance(cid, str) for cid in cve_ids):
         return "All cve_ids must be strings"
     body = {"cve_ids": cve_ids, "include_affected_products": include_affected_products}
     return _fmt(await _post("/v1/cves/bulk", body))
+
+
+@mcp.tool(annotations=_RO)
+async def kev_detail(
+    cve_id: Annotated[
+        str,
+        Field(description="CVE identifier in format CVE-YYYY-NNNNN (e.g. 'CVE-2021-44228', 'CVE-2024-3094')"),
+    ],
+) -> str:
+    """Look up CISA KEV (Known Exploited Vulnerabilities) full record for a CVE. Returns federal patch deadline (due_date), CISA-specified required_action remediation, known ransomware association, vendor/product, the CISA-given common name (e.g. 'Log4Shell'), and CISA-reported CWE list. Returns 404 when the CVE is not in the KEV catalog — use cve_lookup for non-KEV CVEs. Best follow-up after cve_lookup or cve_search(kev=true) when an in_kev=true CVE is identified; chain with cwe_lookup on each returned CWE to investigate the weakness category. Free: 100/hr, Pro: 1000/hr. Returns {cve_id, vendor_project, product, vulnerability_name, date_added, due_date, required_action, known_ransomware_use, notes, cwes, verdict, next_calls}."""
+    if err := _validate_cve(cve_id):
+        return err
+    return _fmt(await _get(f"/v1/kev/{cve_id}"))
+
+
+@mcp.tool(annotations=_RO)
+async def cwe_lookup(
+    cwe_id: Annotated[
+        str,
+        Field(
+            description="CWE identifier — accepts 'CWE-79', 'cwe-79', or bare '79'. Common values: CWE-79 (XSS), CWE-89 (SQL injection), CWE-78 (command injection), CWE-502 (deserialization), CWE-22 (path traversal), CWE-120 (buffer overflow)."
+        ),
+    ],
+) -> str:
+    """Look up MITRE CWE (Common Weakness Enumeration) catalog record from research view 1000. Returns description, abstract type (Pillar/Class/Base/Variant/Compound), status (Stable/Draft/Incomplete/Deprecated), exploit likelihood, recommended mitigations, observed example CVEs, parent_cwe (walk up the hierarchy), child_cwes (drill down to more specific weaknesses), and cve_count (LOWER BOUND — counts only CVEs whose primary CWE matches; CVEs with multiple CWEs may not be counted). Use after cve_lookup or kev_detail to understand the underlying weakness category; chain with cve_search(cwe_id=...) to enumerate all matching CVEs. Returns 404 when the CWE is not in research view 1000. Free: 100/hr, Pro: 1000/hr. Returns {cwe_id, name, description, extended_description, abstract_type, status, likelihood, mitigations, examples, parent_cwe, child_cwes, cve_count, updated_at, verdict, next_calls}."""
+    if err := _validate_cwe(cwe_id):
+        return err
+    return _fmt(await _get(f"/v1/cwe/{cwe_id}"))
 
 
 # === Threat Intelligence / IOC ===

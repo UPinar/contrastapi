@@ -7,7 +7,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Python 3.12](https://img.shields.io/badge/Python-3.12-blue.svg)](https://python.org)
 [![Tests](https://img.shields.io/badge/Tests-1104_passing-brightgreen.svg)](https://github.com/UPinar/contrastapi/actions)
-[![MCP](https://img.shields.io/badge/MCP-31_tools-purple.svg)](https://modelcontextprotocol.io)
+[![MCP](https://img.shields.io/badge/MCP-33_tools-purple.svg)](https://modelcontextprotocol.io)
 [![smithery badge](https://smithery.ai/badge/contrastcyber/contrastapi)](https://smithery.ai/servers/contrastcyber/contrastapi)
 [![contrastapi MCP server](https://glama.ai/mcp/servers/UPinar/contrastapi/badges/score.svg)](https://glama.ai/mcp/servers/UPinar/contrastapi)
 [![npm](https://img.shields.io/npm/v/contrastapi.svg)](https://www.npmjs.com/package/contrastapi)
@@ -85,7 +85,7 @@ More example prompts: [docs/PROMPTS.md](docs/PROMPTS.md) · [/playground](https:
 
 ## What's Inside
 
-- **31 MCP tools** across 6 categories — full list: **[docs/ENDPOINTS.md](docs/ENDPOINTS.md)**
+- **33 MCP tools** across 6 categories — full list: **[docs/ENDPOINTS.md](docs/ENDPOINTS.md)**
 - **340K+ CVEs** from NVD + MITRE cvelistV5 + GitHub Security Advisories, enriched with EPSS + CISA KEV. `cve_lookup` exposes `sources`, `first_seen_source`, `first_seen_at` — agents detect CVEs indexed before NVD publishes. `cve_search` supports `kev`, `epss_min`, `sort`, and `offset` pagination — agents can filter to actively exploited CVEs, sort by exploit probability, and page through large result sets.
 - **Weighted credits** — 1 for simple calls, 4 for heavy orchestration (audit, threat report), N for bulk lookups
 - **LLM-optimized summaries** — every response includes a `summary` field so agents reason without parsing nested JSON

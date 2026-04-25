@@ -3,7 +3,7 @@
   "maintainers": ["UPinar"],
   "name": "contrastapi",
   "display_name": "ContrastAPI — Security Intelligence",
-  "description": "Security intelligence MCP server for AI agents. CVE lookup with EPSS/KEV enrichment, domain reconnaissance (DNS, WHOIS, SSL, subdomains, WAF detection), IOC/threat intel, email/phone/username OSINT, and code security checks. 31 tools, no API key required.",
+  "description": "Security intelligence MCP server for AI agents. CVE lookup with EPSS/KEV enrichment, domain reconnaissance (DNS, WHOIS, SSL, subdomains, WAF detection), IOC/threat intel, email/phone/username OSINT, and code security checks. 33 tools, no API key required.",
   "url": "https://api.contrastcyber.com/mcp/",
   "category": "Security",
   "tags": ["security", "cybersecurity", "cve", "domain", "vulnerability", "reconnaissance", "osint", "threat-intel", "mcp"],

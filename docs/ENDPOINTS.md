@@ -41,6 +41,8 @@ GET  /v1/cve/{cve_id}             CVE details + EPSS + KEV  (affected_products t
 GET  /v1/cves?product=&severity=&kev=&epss_min=&sort=&offset=  Search CVEs (with pagination)
 GET  /v1/exploit/{cve_id}         Public exploit search (GitHub Advisory + Shodan)
 POST /v1/cves/bulk                Bulk CVE lookup (10 free, 50 pro)  [cost: N per item]  (body supports include_affected_products: bool)
+GET  /v1/kev/{cve_id}             CISA KEV detail (federal patch deadline, required action, ransomware association, CWE list)
+GET  /v1/cwe/{cwe_id}             MITRE CWE catalog (research view 1000) — description, mitigations, parent/child weakness chain, CVE count
 ```
 
 `total_products` is always emitted on CVE responses (even when `0`) and reflects the true count of affected products in the CVE database — independent of whether `affected_products` was truncated. The opt-in `include_affected_products=true` is available on both free and pro tiers; full-list requests on Log4j-class CVEs (50+ products) can return ~25 KB per item, so bulk callers should prefer the default for summary scans and opt in only for dependency audits.

@@ -1257,6 +1257,15 @@ class CveResponse(BaseModel):
             "Each item: {cve_id, severity, cvss_v3}. Null when enrichment was not requested."
         ),
     )
+    next_calls: list[PivotHint] | None = Field(
+        default=None,
+        description=(
+            "Suggested follow-up MCP tool calls. Always includes exploit_lookup; adds "
+            "kev_detail when kev.in_kev=true and cwe_lookup when cwe_id is set. Emitted "
+            "on single-CVE lookups (cve_lookup) and bulk lookup items, NOT on cve_search "
+            "/ cve_leading list rows — agents pivot via cve_lookup on the chosen result."
+        ),
+    )
 
 
 # === Exploit Lookup ===

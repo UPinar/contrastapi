@@ -227,6 +227,16 @@ await api.cve.lookup("CVE-2024-3094");</pre>
         <span class="endpoint-path">/v1/exploit/{cve_id}</span>
         <span class="endpoint-desc">公开漏洞利用和安全公告</span>
       </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/kev/{cve_id}</span>
+        <span class="endpoint-desc">CISA KEV 详情（联邦修补截止日期、勒索软件关联、CWE 列表）</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/cwe/{cwe_id}</span>
+        <span class="endpoint-desc">MITRE CWE 目录（描述、缓解措施、父/子弱点链）</span>
+      </div>
     </div>
 
     <h2 class="section-title">威胁情报</h2>
