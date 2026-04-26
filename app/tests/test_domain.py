@@ -1843,8 +1843,10 @@ class TestEmailSecurity:
         mock_resolver_cls.return_value = mock_resolver
 
         # DMARC query returns result
+        dmarc_rec = MagicMock()
+        dmarc_rec.strings = (b"v=DMARC1; p=reject",)
         mock_dmarc = MagicMock()
-        mock_dmarc.__iter__ = lambda s: iter([MagicMock(__str__=lambda s: '"v=DMARC1; p=reject"')])
+        mock_dmarc.__iter__ = lambda s: iter([dmarc_rec])
         # DKIM query returns a TXT answer with valid DKIM content (Bug L: content must match)
         rec_dkim = MagicMock()
         rec_dkim.strings = [b"v=DKIM1; k=rsa; p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQ"]
@@ -1897,8 +1899,10 @@ class TestDkimParallelDetection:
     _SPF_TXT = "v=spf1 include:_spf.google.com -all"
 
     def _mock_dmarc(self):
+        inner = MagicMock()
+        inner.strings = (b"v=DMARC1; p=reject",)
         rec = MagicMock()
-        rec.__iter__ = lambda s: iter([MagicMock(__str__=lambda s: '"v=DMARC1; p=reject"')])
+        rec.__iter__ = lambda s: iter([inner])
         return rec
 
     @staticmethod
@@ -2068,8 +2072,10 @@ class TestDkimStatusHonesty:
     _SPF_TXT = "v=spf1 include:_spf.google.com -all"
 
     def _mock_dmarc(self):
+        inner = MagicMock()
+        inner.strings = (b"v=DMARC1; p=reject",)
         rec = MagicMock()
-        rec.__iter__ = lambda s: iter([MagicMock(__str__=lambda s: '"v=DMARC1; p=reject"')])
+        rec.__iter__ = lambda s: iter([inner])
         return rec
 
     @staticmethod
@@ -2204,8 +2210,10 @@ class TestDkimContentValidation:
     _SPF_TXT = "v=spf1 -all"
 
     def _mock_dmarc(self):
+        inner = MagicMock()
+        inner.strings = (b"v=DMARC1; p=reject",)
         rec = MagicMock()
-        rec.__iter__ = lambda s: iter([MagicMock(__str__=lambda s: '"v=DMARC1; p=reject"')])
+        rec.__iter__ = lambda s: iter([inner])
         return rec
 
     @staticmethod
@@ -3214,7 +3222,7 @@ class TestDnsLookupRecordTypes:
         mock_resolver_cls.return_value = mock_resolver
 
         mock_txt = MagicMock()
-        mock_txt.__str__ = lambda s: '"v=spf1 include:_spf.google.com -all"'
+        mock_txt.strings = (b"v=spf1 include:_spf.google.com -all",)
 
         def resolve_side(domain, rtype):
             if rtype == "TXT":
@@ -3225,6 +3233,28 @@ class TestDnsLookupRecordTypes:
         result = dns_lookup("example.com")
         assert "txt" in result
         assert result["txt"][0] == "v=spf1 include:_spf.google.com -all"
+
+    @patch("domain.recon.dns.resolver.Resolver")
+    def test_txt_multistring_chunks_reassembled(self, mock_resolver_cls):
+        """RFC 7208: TXT records >255 bytes split into chunks must be joined,
+        not left as separate quoted strings. Bug B1: github.com SPF returned
+        'ip4:62.253.2" "27.114' instead of 'ip4:62.253.227.114'."""
+        from domain.recon import dns_lookup
+
+        mock_resolver = MagicMock()
+        mock_resolver_cls.return_value = mock_resolver
+
+        mock_txt = MagicMock()
+        mock_txt.strings = (b"v=spf1 ip4:62.253.2", b"27.114 -all")
+
+        def resolve_side(domain, rtype):
+            if rtype == "TXT":
+                return [mock_txt]
+            raise dns.resolver.NoAnswer()
+
+        mock_resolver.resolve.side_effect = resolve_side
+        result = dns_lookup("example.com")
+        assert result["txt"][0] == "v=spf1 ip4:62.253.227.114 -all"
 
 
 # =========== routes.py IP endpoint reputation tests ===========

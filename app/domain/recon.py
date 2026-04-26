@@ -160,6 +160,8 @@ def dns_lookup(domain: str) -> dict:
                     "rname": str(soa.rname).rstrip("."),
                     "serial": soa.serial,
                 }
+            elif rtype == "TXT":
+                records["txt"] = [b"".join(r.strings).decode("utf-8", errors="replace") for r in answers]
             else:
                 records[rtype.lower()] = [str(r).strip('"') for r in answers]
         except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN, dns.resolver.NoNameservers, dns.exception.Timeout):
@@ -701,7 +703,7 @@ def email_security(domain: str, txt_records: list | None = None) -> dict:
     try:
         answers = resolver.resolve(f"_dmarc.{domain}", "TXT")
         for r in answers:
-            val = str(r).strip('"')
+            val = b"".join(r.strings).decode("utf-8", errors="replace")
             if val.lower().startswith("v=dmarc1"):
                 dmarc = val
                 break
@@ -735,7 +737,9 @@ def email_security(domain: str, txt_records: list | None = None) -> dict:
             try:
                 value = b"".join(rec.strings).decode("utf-8", errors="replace").lower()
             except (AttributeError, UnicodeDecodeError):
-                value = str(rec).strip('"').lower()
+                # rec.strings is the canonical TXT idiom; str(rec) on multi-string
+                # TXT yields '"chunk1" "chunk2"' which corrupts DKIM tag parsing.
+                value = str(rec).replace('" "', "").strip('"').lower()
             if "v=dmarc1" in value or "v=spf1" in value:
                 continue
             if "v=dkim1" in value:
