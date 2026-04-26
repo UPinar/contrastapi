@@ -1401,21 +1401,55 @@ def domain_vulns(domain: DomainPath, request: Request):
     if "error" in page:
         raise HTTPException(status_code=504, detail=page["error"])
 
-    from db import search_cves_by_product
+    from db import normalize_product, parse_version, search_cves_by_products_bulk
     from domain.tech import detect_technologies
 
     tech_result = detect_technologies(page["headers"], page.get("html"))
     technologies = tech_result.get("technologies", [])
 
+    # Cap defensive bounds against malicious upstream HTML (header injection, meta-tag
+    # spam): truncate tech name (256), version (128), and total product count (500 —
+    # the bulk function's hard limit; trim here so we never raise instead of degrading).
+    MAX_TECHS = 500
+    product_names = [(t["name"] or "")[:256] for t in technologies[:MAX_TECHS] if t.get("name")]
+    bulk = search_cves_by_products_bulk(product_names, limit_per_product=10) if product_names else {}
+
     vulnerabilities = []
     total_cves = 0
     techs_with_cves = 0
 
-    for tech in technologies:
-        name = tech["name"]
+    for tech in technologies[:MAX_TECHS]:
+        name = (tech["name"] or "")[:256]
         version = tech.get("version")
+        if version and len(version) > 128:
+            version = None
         limit = 10 if version else 5
-        cves = search_cves_by_product(name, version=version, limit=limit)
+        key = (normalize_product(name) or name).strip().lower()
+        raw = bulk.get(key, [])
+
+        parsed_ver = parse_version(version) if version else None
+        filtered = []
+        for cve in raw:
+            if parsed_ver:
+                matched = False
+                for prod in cve.get("affected_products", []):
+                    if key not in (prod.get("product") or "").lower():
+                        continue
+                    vs, ve = prod.get("version_start"), prod.get("version_end")
+                    try:
+                        if vs and parsed_ver < parse_version(vs):
+                            continue
+                        if ve and parsed_ver >= parse_version(ve):
+                            continue
+                    except TypeError:
+                        continue
+                    matched = True
+                    break
+                if not matched and cve.get("affected_products"):
+                    continue
+            filtered.append(cve)
+            if len(filtered) >= limit:
+                break
 
         cve_items = [
             {
@@ -1425,7 +1459,7 @@ def domain_vulns(domain: DomainPath, request: Request):
                 "epss_score": c.get("epss_score"),
                 "in_kev": bool(c.get("in_kev")),
             }
-            for c in cves
+            for c in filtered
         ]
         if cve_items:
             techs_with_cves += 1

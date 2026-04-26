@@ -276,7 +276,7 @@ class TestMonitorRoute:
 
 
 class TestVulnsRoute:
-    @patch("db.search_cves_by_product", return_value=[])
+    @patch("db.search_cves_by_products_bulk", return_value={})
     @patch("domain.routes.fetch_live_page")
     @patch("domain.routes._validate_and_auth")
     def test_vulns_200_no_cves(self, mock_validate, mock_page, mock_search):
@@ -295,7 +295,7 @@ class TestVulnsRoute:
         assert "No known CVEs" in data["summary"]
         assert "vulnerabilities" in data
 
-    @patch("db.search_cves_by_product")
+    @patch("db.search_cves_by_products_bulk")
     @patch("domain.routes.fetch_live_page")
     @patch("domain.routes._validate_and_auth")
     def test_vulns_200_with_cves(self, mock_validate, mock_page, mock_search):
@@ -305,15 +305,18 @@ class TestVulnsRoute:
             "html": "",
             "status_code": 200,
         }
-        mock_search.return_value = [
-            {"cve_id": "CVE-2024-1234", "severity": "HIGH", "cvss_v3": 8.1, "epss_score": 0.5, "in_kev": True},
-        ]
+        mock_search.return_value = {
+            "apache": [
+                {"cve_id": "CVE-2024-1234", "severity": "HIGH", "cvss_v3": 8.1, "epss_score": 0.5, "in_kev": True},
+            ]
+        }
         r = client.get("/v1/domain/vuln.com/vulns")
         assert r.status_code == 200
         data = r.json()
         assert data["total_cves"] >= 1
         assert len(data["vulnerabilities"]) >= 1
         assert "CVE" in data["summary"]
+        assert mock_search.call_count == 1
 
     @patch("domain.routes.fetch_live_page")
     @patch("domain.routes._validate_and_auth")
@@ -322,3 +325,58 @@ class TestVulnsRoute:
         mock_page.return_value = {"error": "Connection refused"}
         r = client.get("/v1/domain/down.com/vulns")
         assert r.status_code == 504
+
+    @patch("db.search_cves_by_products_bulk")
+    @patch("domain.routes.fetch_live_page")
+    @patch("domain.routes._validate_and_auth")
+    def test_vulns_bulk_called_once_with_all_techs(self, mock_validate, mock_page, mock_search):
+        """Multi-tech response must trigger exactly ONE bulk DB call (not N+1)."""
+        mock_validate.return_value = ("multi.com", "1.2.3.4", {"tier": "free"})
+        mock_page.return_value = {
+            "headers": {"server": "nginx/1.24.0", "x-powered-by": "PHP/8.1.0"},
+            "html": "",
+            "status_code": 200,
+        }
+        mock_search.return_value = {}
+        r = client.get("/v1/domain/multi.com/vulns")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["technologies_scanned"] >= 2
+        assert mock_search.call_count == 1
+        called_with = mock_search.call_args[0][0]
+        assert "Nginx" in called_with
+        assert "PHP" in called_with
+
+    @patch("domain.tech.detect_technologies")
+    @patch("db.search_cves_by_products_bulk")
+    @patch("domain.routes.fetch_live_page")
+    @patch("domain.routes._validate_and_auth")
+    def test_vulns_version_filter_uses_normalized_key(self, mock_validate, mock_page, mock_search, mock_detect):
+        """Regression: aliased Maven artifactId (e.g., log4j-core) must still match
+        version-filtered CVEs whose affected_products use the NVD canonical name (log4j).
+        The substring check must use the normalized key, not the raw tech name."""
+        mock_validate.return_value = ("alias.com", "1.2.3.4", {"tier": "free"})
+        mock_page.return_value = {"headers": {}, "html": "", "status_code": 200}
+        mock_detect.return_value = {
+            "technologies": [{"name": "log4j-core", "version": "2.14.0"}],
+        }
+        # bulk returns under canonical key "log4j" (normalized from "log4j-core")
+        mock_search.return_value = {
+            "log4j": [
+                {
+                    "cve_id": "CVE-2021-44228",
+                    "severity": "CRITICAL",
+                    "cvss_v3": 10.0,
+                    "epss_score": 0.97,
+                    "in_kev": True,
+                    "affected_products": [
+                        {"product": "log4j", "version_start": "2.0", "version_end": "2.15.0"},
+                    ],
+                },
+            ]
+        }
+        r = client.get("/v1/domain/alias.com/vulns")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["total_cves"] == 1, f"alias collision: log4j CVE dropped — {data}"
+        assert data["vulnerabilities"][0]["cves"][0]["cve_id"] == "CVE-2021-44228"

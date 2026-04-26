@@ -55,6 +55,10 @@ def _normalize_product(name: str | None) -> str | None:
     return PRODUCT_ALIAS.get(name.strip().lower(), name)
 
 
+# Public aliases for cross-module use (callers should not depend on _-prefixed names).
+normalize_product = _normalize_product
+
+
 # Resolve HMAC key once at import time (config.py guarantees non-empty fallback)
 _hmac_key = HASH_SECRET.encode()
 
@@ -874,6 +878,9 @@ def _parse_version(v: str) -> tuple:
         except ValueError:
             parts.append(p)
     return tuple(parts)
+
+
+parse_version = _parse_version
 
 
 def get_related_cves_by_product(
