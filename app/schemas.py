@@ -359,6 +359,15 @@ class DomainReportResponse(BaseModel):
             "'no data' from 'source failed' — critical for SOC / agent chain-of-thought integrity."
         ),
     )
+    next_calls: list[PivotHint] | None = Field(
+        default=None,
+        description=(
+            "Suggested follow-up MCP tool calls. Conditional on what the report surfaced — "
+            "subdomain_enum (always — attack-surface map), ssl_check (when an A record resolves), "
+            "tech_fingerprint (when an A record resolves). Agents should chain these without "
+            "re-prompting the user."
+        ),
+    )
 
     model_config = {"extra": "ignore"}
 
@@ -578,6 +587,15 @@ class IpLookupResponse(BaseModel):
     verdict: Verdict | None = Field(
         default=None,
         description="Falsifiability metadata: sources queried, sources unavailable, data age, completeness tier.",
+    )
+    next_calls: list[PivotHint] | None = Field(
+        default=None,
+        description=(
+            "Suggested follow-up MCP tool calls. Conditional cascade: asn_lookup (whenever asn is "
+            "populated — CIDR detail), ioc_lookup (when reputation.firehol.listed=True or "
+            "abuseipdb confidence>50 — threat indicator drill-down), threat_report (Pro tier only — "
+            "orchestrated Shodan + AbuseIPDB profile)."
+        ),
     )
 
     model_config = {"extra": "ignore"}
@@ -965,6 +983,14 @@ class PivotHint(BaseModel):
         "exploit_lookup",
         "kev_detail",
         "cwe_lookup",
+        "subdomain_enum",
+        "ssl_check",
+        "tech_fingerprint",
+        "asn_lookup",
+        "ioc_lookup",
+        "threat_report",
+        "audit_domain",
+        "domain_report",
     ] = Field(
         description=(
             "Canonical MCP tool name to call next. Constrained to known operation_ids in "
@@ -982,6 +1008,28 @@ class PivotHint(BaseModel):
         description=(
             "Short rationale (one sentence) for why this follow-up call adds value, "
             "e.g. 'Federal patch deadline + ransomware association', 'Public exploits / PoC availability'."
+        ),
+    )
+
+
+class SearchHint(BaseModel):
+    """Footer hint emitted on list responses (cve_search, cve_leading) to point
+    LLM agents at the natural drill-down tool. Distinct from PivotHint: there is
+    no `input` field because the hint is global to the list — the agent picks a
+    result of interest and passes its ID to the named tool."""
+
+    model_config = {"extra": "allow"}
+
+    tool: Literal["cve_lookup"] = Field(
+        description=(
+            "Drill-down tool to call with any result ID from the list. Constrained to "
+            "cve_lookup today; expand the Literal as new list endpoints get list-level hints."
+        ),
+    )
+    reason: str = Field(
+        description=(
+            "Short rationale explaining what the drill-down tool adds beyond the slim list "
+            "items (e.g. full description, affected_products, references, exploit/KEV/CWE pivots)."
         ),
     )
 
@@ -1448,6 +1496,16 @@ class ExploitResponse(BaseModel):
     exploits: list[Exploit] = Field(default_factory=list)
     verdict: Verdict | None = None
     summary: str = ""
+    next_calls: list[PivotHint] | None = Field(
+        default=None,
+        description=(
+            "Suggested follow-up MCP tool calls. Always emits a single pivot — cve_lookup — "
+            "for full CVE context (CVSS, EPSS, KEV status, CWE chain). Agent then chains "
+            "cve_lookup's own next_calls (kev_detail when in_kev, cwe_lookup when cwe_id set). "
+            "exploit_lookup itself does not carry kev/cwe schema, so blind emission of those "
+            "pivots is intentionally avoided — would risk 404 / missing-input wasted calls."
+        ),
+    )
 
 
 # === ASN Lookup ===
@@ -1499,6 +1557,14 @@ class SubdomainsResponse(BaseModel):
             "empty result. Anything else means the upstream did not deliver (timeout / "
             "rate_limited / unavailable / error); count and subdomains are then wordlist-only "
             "and an unknown number of CT-log subdomains may be missing."
+        ),
+    )
+    next_calls: list[PivotHint] | None = Field(
+        default=None,
+        description=(
+            "Suggested follow-up MCP tool calls. Capped at 5 ssl_check pivots (one per first-five "
+            "subdomain) — large result sets stay token-cheap, agents pick up the cert-grade triage "
+            "without fanning out 100+ hints. Omitted entirely when subdomains is empty."
         ),
     )
 
@@ -1554,6 +1620,7 @@ class CveSearchResponse(BaseModel):
     results: list[CveSearchItem] = Field(default_factory=list)
     query_echo: dict[str, Any] | None = None
     next_offset: int | None = None
+    hint: SearchHint | None = None
 
 
 # === Code Security ===
@@ -1884,6 +1951,14 @@ class AuditResponse(BaseModel):
     technologies: dict = Field(default_factory=dict)
     live_headers: dict = Field(default_factory=dict)
     summary: str = ""
+    next_calls: list[PivotHint] | None = Field(
+        default=None,
+        description=(
+            "Suggested follow-up MCP tool calls. audit_domain already bundles tech_fingerprint + "
+            "live_headers, so cascade emits subdomain_enum (always — broader attack surface) and "
+            "ssl_check (when an A record resolves) for the residual recon depth."
+        ),
+    )
 
     model_config = {"extra": "ignore"}
 

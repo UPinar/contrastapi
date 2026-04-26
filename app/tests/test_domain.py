@@ -579,6 +579,37 @@ class TestDomainRoutes:
         assert set(v["sources_unavailable"]) == {"whois", "subdomains", "ct_logs", "urlhaus", "reputation"}
         assert v["completeness"] == "complete"
 
+    @patch("domain.routes.full_domain_report", return_value=MOCK_FULL_REPORT)
+    @patch("domain.routes.validate_domain", return_value="93.184.216.34")
+    @patch("domain.routes.get_cached_domain_with_age", return_value=None)
+    def test_domain_report_next_calls_full_chain(self, mock_cache, mock_validate, mock_report):
+        """Cascade: domain has A record → subdomain_enum + ssl_check + tech_fingerprint."""
+        r = client.get("/v1/domain/example.com")
+        assert r.status_code == 200
+        next_calls = r.json().get("next_calls")
+        assert next_calls is not None
+        tools = [hint["tool"] for hint in next_calls]
+        assert tools == ["subdomain_enum", "ssl_check", "tech_fingerprint"]
+        for hint in next_calls:
+            assert hint["input"] == "example.com"
+            assert hint["reason"]
+
+    def test_domain_pivot_hints_no_a_record_drops_ssl_and_tech(self):
+        from domain.routes import _domain_pivot_hints
+
+        # Domain with DNS block but no A/AAAA → only subdomain_enum
+        report = {"dns": {"mx": [{"exchange": "mx.example.com"}]}}
+        hints = _domain_pivot_hints(report, "example.com")
+        tools = [h.tool for h in hints]
+        assert tools == ["subdomain_enum"]
+
+    def test_domain_pivot_hints_nxdomain_returns_empty(self):
+        from domain.routes import _domain_pivot_hints
+
+        # NXDOMAIN: no dns block at all → no hints (don't waste agent calls)
+        hints = _domain_pivot_hints({}, "nonexistent.invalid")
+        assert hints == []
+
     @patch("domain.routes.dns_lookup", return_value=MOCK_DNS_RESULT)
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     def test_dns_records_200(self, mock_validate, mock_dns):
@@ -949,6 +980,140 @@ class TestDomainRoutes:
         data = r.json()
         assert data["asn"] == 15169  # asn from RIPE mock — Google
         assert data["cloud_provider"] == "AWS"  # but CIDR wins → AWS
+
+
+class TestIpLookupPivotHints:
+    """Phase 3 cascade: ip_lookup conditional next_calls."""
+
+    def test_ip_pivot_asn_only_when_clean(self):
+        """asn populated, no firehol/abuseipdb hit, free tier → just asn_lookup."""
+        from domain.routes import _ip_pivot_hints
+
+        hints = _ip_pivot_hints("8.8.8.8", asn=15169, reputation={"firehol": {"listed": False}}, tier="free")
+        tools = [h.tool for h in hints]
+        assert tools == ["asn_lookup"]
+        assert hints[0].input == "8.8.8.8"
+        assert "AS15169" in hints[0].reason
+
+    def test_ip_pivot_firehol_listed_adds_ioc(self):
+        from domain.routes import _ip_pivot_hints
+
+        hints = _ip_pivot_hints("1.2.3.4", asn=12345, reputation={"firehol": {"listed": True}}, tier="free")
+        tools = [h.tool for h in hints]
+        assert "ioc_lookup" in tools
+        assert "asn_lookup" in tools
+
+    def test_ip_pivot_abuseipdb_high_score_adds_ioc(self):
+        from domain.routes import _ip_pivot_hints
+
+        rep = {"firehol": {"listed": False}, "abuseipdb": {"abuse_confidence_score": 75, "status": "ok"}}
+        hints = _ip_pivot_hints("1.2.3.4", asn=12345, reputation=rep, tier="free")
+        tools = [h.tool for h in hints]
+        assert "ioc_lookup" in tools
+
+    def test_ip_pivot_abuseipdb_low_score_no_ioc(self):
+        from domain.routes import _ip_pivot_hints
+
+        rep = {"firehol": {"listed": False}, "abuseipdb": {"abuse_confidence_score": 30, "status": "ok"}}
+        hints = _ip_pivot_hints("1.2.3.4", asn=12345, reputation=rep, tier="free")
+        tools = [h.tool for h in hints]
+        assert "ioc_lookup" not in tools
+
+    def test_ip_pivot_pro_adds_threat_report(self):
+        from domain.routes import _ip_pivot_hints
+
+        hints = _ip_pivot_hints("1.2.3.4", asn=12345, reputation={"firehol": {"listed": False}}, tier="pro")
+        tools = [h.tool for h in hints]
+        assert "threat_report" in tools
+
+    def test_ip_pivot_no_asn_no_hint_no_threat(self):
+        """No ASN, no rep hits, free tier → empty list (no garbage hints)."""
+        from domain.routes import _ip_pivot_hints
+
+        hints = _ip_pivot_hints("0.0.0.1", asn=None, reputation={}, tier="free")
+        assert hints == []
+
+    def test_ip_pivot_abuseipdb_pro_only_stub_ignored(self):
+        """Free-tier reputation has abuseipdb={status:'pro_only'} stub — must not trigger ioc_lookup."""
+        from domain.routes import _ip_pivot_hints
+
+        rep = {"firehol": {"listed": False}, "abuseipdb": {"status": "pro_only"}}
+        hints = _ip_pivot_hints("1.2.3.4", asn=12345, reputation=rep, tier="free")
+        tools = [h.tool for h in hints]
+        assert "ioc_lookup" not in tools
+
+
+class TestSubdomainPivotHints:
+    """Phase 4 cascade: subdomain_enum next_calls capped ssl_check pivots."""
+
+    def test_subdomain_pivot_emits_ssl_check_per_subdomain_capped_at_5(self):
+        from domain.routes import _SUBDOMAIN_PIVOT_CAP, _subdomain_pivot_hints
+
+        subs = [f"sub{i}.example.com" for i in range(15)]
+        hints = _subdomain_pivot_hints(subs)
+        assert len(hints) == _SUBDOMAIN_PIVOT_CAP == 5
+        assert all(h.tool == "ssl_check" for h in hints)
+        assert [h.input for h in hints] == subs[:5]
+
+    def test_subdomain_pivot_under_cap_emits_all(self):
+        from domain.routes import _subdomain_pivot_hints
+
+        subs = ["www.example.com", "api.example.com"]
+        hints = _subdomain_pivot_hints(subs)
+        assert [h.input for h in hints] == subs
+
+    def test_subdomain_pivot_empty_returns_empty_list(self):
+        from domain.routes import _subdomain_pivot_hints
+
+        assert _subdomain_pivot_hints([]) == []
+        assert _subdomain_pivot_hints(None) == []  # robust against missing key
+
+    def test_subdomain_pivot_rejects_control_chars_from_ct_logs(self):
+        """CT-log SANs are third-party data — a maliciously-issued cert can carry
+        newline / tab / 0x7f in name_value. Reject anything that fails RFC 1123
+        hostname charset before it reaches PivotHint.reason (where downstream
+        renderers could mis-render control bytes as injection)."""
+        from domain.routes import _subdomain_pivot_hints
+
+        malicious = [
+            "api.example.com",  # legit
+            "admin.example.com\nphish.example.com",  # CRLF injection attempt
+            "tab\tsub.example.com",  # tab
+            "del\x7fsub.example.com",  # DEL
+            "lf\nsub.example.com",  # bare LF
+            "ok.example.com",  # legit
+        ]
+        hints = _subdomain_pivot_hints(malicious)
+        inputs = [h.input for h in hints]
+        assert inputs == ["api.example.com", "ok.example.com"]
+        for h in hints:
+            assert "\n" not in h.reason
+            assert "\t" not in h.reason
+            assert "\x7f" not in h.reason
+
+    @patch(
+        "domain.routes.enumerate_subdomains",
+        return_value={
+            "subdomains": [f"s{i}.example.com" for i in range(8)],
+            "count": 8,
+            "summary": "8 subdomains",
+            "found_via_wordlist": 4,
+            "found_via_crtsh": 4,
+            "sources": ["wordlist", "crtsh"],
+            "warnings": [],
+            "crtsh_status": "ok",
+        },
+    )
+    @patch("domain.routes.validate_domain", return_value="93.184.216.34")
+    def test_subdomains_endpoint_emits_capped_next_calls(self, mock_validate, mock_enum):
+        r = client.get("/v1/subdomains/example.com")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["count"] == 8
+        next_calls = data.get("next_calls")
+        assert next_calls is not None
+        assert len(next_calls) == 5
+        assert all(hint["tool"] == "ssl_check" for hint in next_calls)
 
 
 class TestDomainReportTxtFilter:

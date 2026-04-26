@@ -33,6 +33,7 @@ from schemas import (
     ExploitResponse,
     KevDetailResponse,
     PivotHint,
+    SearchHint,
     Verdict,
 )
 from validation import is_valid_ip, validate_cve_id
@@ -221,6 +222,7 @@ def cve_leading(
         "offset": offset,
         "summary": summary,
         "results": formatted_results,
+        "hint": _cve_list_hint(count),
     }
 
 
@@ -269,6 +271,54 @@ def cve_lookup(
     formatted["verdict"] = _cve_verdict(sources=sources_for_verdict, completeness=completeness)
     formatted["next_calls"] = _cve_pivot_hints(formatted)
     return formatted
+
+
+def _cve_list_hint(count: int) -> SearchHint | None:
+    """Build a global footer hint for CVE list responses (cve_search, cve_leading).
+
+    Slim list items omit description / affected_products / references / cvss_breakdown
+    to keep tokens low when agents paginate. The hint reminds the agent that
+    cve_lookup on any returned cve_id surfaces the full detail plus exploit/KEV/CWE
+    pivots — without per-item next_calls bloat (3 hints x 50 items would dominate
+    the response). Suppressed when count==0 (nothing to drill into).
+    """
+    if count <= 0:
+        return None
+    return SearchHint(
+        tool="cve_lookup",
+        reason=(
+            "Call cve_lookup with any cve_id above for full description, affected_products, "
+            "references, and chained pivots (exploit_lookup, kev_detail, cwe_lookup)."
+        ),
+    )
+
+
+def _exploit_pivot_hints(cve_id: str) -> list[PivotHint]:
+    """Build the suggested-next-call list for an exploit_lookup response.
+
+    ExploitResponse carries no kev/cwe metadata, so we cannot conditionally emit
+    kev_detail/cwe_lookup without risking 404 / missing-input wasted calls. Instead
+    we surface a single pivot — cve_lookup — which itself emits kev_detail (when
+    in_kev) and cwe_lookup (when cwe_id is present), so the chain stays full-fidelity
+    without depending on schema fields exploit_lookup does not own.
+
+    Defensively re-validates cve_id even though the route already does — keeps the
+    helper safe to call from refactors / tests / future code paths that may not
+    pass the route guard. Returns [] on invalid IDs rather than emitting a hint
+    that would steer the agent to a guaranteed 400/404.
+    """
+    if not cve_id or not validate_cve_id(cve_id):
+        return []
+    return [
+        PivotHint(
+            tool="cve_lookup",
+            input=cve_id,
+            reason=(
+                "Full CVE context: CVSS / EPSS / KEV status / CWE chain. cve_lookup's own "
+                "next_calls then surfaces kev_detail (when in_kev) and cwe_lookup (when cwe_id is set)."
+            ),
+        )
+    ]
 
 
 def _cve_pivot_hints(record: dict) -> list[PivotHint]:
@@ -665,6 +715,7 @@ def cve_search(
         "results": formatted_results,
         "query_echo": query_echo,
         "next_offset": next_offset,
+        "hint": _cve_list_hint(count),
     }
 
 
@@ -1078,6 +1129,7 @@ def exploit_lookup(
         "exploits": [e.model_dump() for e in structured_exploits],
         "verdict": verdict.model_dump(),
         "summary": summary,
+        "next_calls": [h.model_dump() for h in _exploit_pivot_hints(cve_id)],
     }
 
     save_cached_domain(cache_key, result)

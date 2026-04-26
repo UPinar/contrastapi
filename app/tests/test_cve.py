@@ -719,6 +719,57 @@ class TestCveSearch:
         assert len(item["references"]) == 10
         assert item["total_references"] == 25
 
+    def test_search_global_hint_present_when_results_exist(self):
+        _seed_cve(cve_id="CVE-2024-7700", severity="HIGH")
+        r = client.get("/v1/cves?severity=HIGH&limit=5")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["count"] >= 1
+        hint = data["hint"]
+        assert hint is not None
+        assert hint["tool"] == "cve_lookup"
+        assert "drill" in hint["reason"].lower() or "cve_lookup" in hint["reason"].lower()
+        assert "input" not in hint  # global hint, no specific cve_id
+
+    def test_search_no_hint_on_empty_results(self):
+        r = client.get("/v1/cves?product=nonexistentproduct999")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["count"] == 0
+        assert data.get("hint") is None
+
+
+class TestExploitPivotHints:
+    """Phase 6 cascade: exploit_lookup self-cascade."""
+
+    def test_exploit_pivot_emits_single_cve_lookup(self):
+        from cve.routes import _exploit_pivot_hints
+
+        hints = _exploit_pivot_hints("CVE-2024-3094")
+        assert len(hints) == 1
+        assert hints[0].tool == "cve_lookup"
+        assert hints[0].input == "CVE-2024-3094"
+        assert "kev_detail" in hints[0].reason  # documented chain to kev/cwe via cve_lookup
+
+    def test_exploit_pivot_no_blind_kev_or_cwe(self):
+        """ExploitResponse has no in_kev / cwe_id schema — must NOT emit kev_detail/cwe_lookup
+        directly (would risk 404 / missing-input wasted calls)."""
+        from cve.routes import _exploit_pivot_hints
+
+        hints = _exploit_pivot_hints("CVE-2024-3094")
+        tools = [h.tool for h in hints]
+        assert "kev_detail" not in tools
+        assert "cwe_lookup" not in tools
+
+    def test_exploit_pivot_rejects_invalid_cve_id(self):
+        """Helper must validate input — refactor / test paths that bypass route guard
+        should not produce hints steering agents to guaranteed 400/404 lookups."""
+        from cve.routes import _exploit_pivot_hints
+
+        assert _exploit_pivot_hints("") == []
+        assert _exploit_pivot_hints("not-a-cve") == []
+        assert _exploit_pivot_hints("CVE-bad") == []
+
 
 class TestCveResponseFormat:
     def test_response_has_all_fields(self):
@@ -2178,6 +2229,30 @@ class TestCveLeading:
         msg = body.get("error") or body.get("detail", "")
         assert "include must be" in msg
 
+    def test_leading_global_hint_present_when_results_exist(self):
+        from db import record_cve_source, upsert_cve_if_absent
+
+        upsert_cve_if_absent({"cve_id": "CVE-2026-HINT1", "description": "hint test", "severity": "HIGH"})
+        record_cve_source("CVE-2026-HINT1", "mitre")
+
+        r = client.get("/v1/cve/leading?limit=10")
+        assert r.status_code == 200
+        data = r.json()
+        if data["count"] >= 1:
+            hint = data["hint"]
+            assert hint is not None
+            assert hint["tool"] == "cve_lookup"
+            assert "input" not in hint  # global hint, not per-item
+
+    def test_leading_no_hint_on_empty_results(self):
+        # Direct unit assert on the helper — endpoint never naturally returns 0 in shared DB,
+        # and offset>5000 is rejected. Helper must short-circuit on count<=0.
+        from cve.routes import _cve_list_hint
+
+        assert _cve_list_hint(0) is None
+        assert _cve_list_hint(-1) is None
+        assert _cve_list_hint(1) is not None
+
 
 def _build_mitre_zip(records: list[dict]) -> bytes:
     """Build an in-memory zip that mimics a cvelistV5 deltaCves.zip asset."""
@@ -3086,6 +3161,11 @@ class TestExploitLookup:
         assert data["sources"]["github"]["advisories"][0]["ghsa_id"] == "GHSA-xxxx-yyyy-zzzz"
         assert data["sources"]["shodan_refs"]["found"] is True
         assert data["sources"]["shodan_refs"]["count"] == 2
+        # Cascade: single cve_lookup pivot — kev/cwe deferred to cve_lookup's own next_calls
+        next_calls = data["next_calls"]
+        assert len(next_calls) == 1
+        assert next_calls[0]["tool"] == "cve_lookup"
+        assert next_calls[0]["input"] == "CVE-2024-9999"
 
     @patch("cve.routes.save_cached_domain")
     @patch("cve.routes.get_cached_domain", return_value=None)
@@ -3451,7 +3531,16 @@ class TestResponseModelFiltering:
         _seed_cve(cve_id="CVE-2024-9910", severity="HIGH")
         r = client.get("/v1/cves?severity=HIGH")
         assert r.status_code == 200
-        assert set(r.json().keys()) == {"count", "total", "truncated", "offset", "summary", "results", "query_echo"}
+        assert set(r.json().keys()) == {
+            "count",
+            "total",
+            "truncated",
+            "offset",
+            "summary",
+            "results",
+            "query_echo",
+            "hint",
+        }
         assert "next_offset" not in r.json(), "next_offset must be omitted when truncated=False"
 
     def test_cve_search_results_include_verdict(self):

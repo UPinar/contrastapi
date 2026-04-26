@@ -971,6 +971,7 @@ class TestResponseModelFiltering:
             "found_via_wordlist",
             "found_via_crtsh",
             "crtsh_status",
+            "next_calls",
         }
 
     @patch("domain.routes._from_cache", return_value=None)
@@ -1058,6 +1059,27 @@ class TestAuditDomain:
             r = client.get("/v1/audit/cached.com")
             mock_full.assert_not_called()
         assert r.status_code == 200
+
+    @patch("domain.tech.detect_technologies")
+    @patch("domain.recon.fetch_live_headers")
+    @patch("domain.routes.save_cached_domain")
+    @patch("domain.routes.get_cached_domain", return_value=None)
+    @patch("domain.routes.full_domain_report")
+    @patch("domain.routes.clean_domain", return_value="example.com")
+    def test_audit_next_calls_subdomain_and_ssl(
+        self, mock_clean, mock_report, mock_get, mock_save, mock_live, mock_tech
+    ):
+        """Cascade: audit emits subdomain_enum + ssl_check (skips tech_fingerprint — already inline)."""
+        mock_report.return_value = dict(self._MOCK_REPORT)
+        mock_live.return_value = dict(self._MOCK_LIVE)
+        mock_tech.return_value = {"technologies": [], "categories": {}, "count": 0, "summary": ""}
+        r = client.get("/v1/audit/example.com")
+        assert r.status_code == 200
+        next_calls = r.json().get("next_calls")
+        assert next_calls is not None
+        tools = [hint["tool"] for hint in next_calls]
+        assert tools == ["subdomain_enum", "ssl_check"]
+        assert "tech_fingerprint" not in tools  # already inline as `technologies`
 
 
 # =========== /v1/threat-report/{ip} tests ===========

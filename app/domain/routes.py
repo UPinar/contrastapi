@@ -2,6 +2,7 @@
 
 import atexit
 import logging
+import re
 import socket
 import ssl as _ssl
 import threading
@@ -87,6 +88,7 @@ from schemas import (
     IpLookupResponse,
     MonitorResponse,
     PhoneLookupResponse,
+    PivotHint,
     SslResponse,
     SubdomainsResponse,
     TechResponse,
@@ -392,6 +394,94 @@ def _from_cache(domain: str, key: str, tier: str) -> dict | None:
     return None
 
 
+def _ip_pivot_hints(ip: str, asn: int | None, reputation: dict, tier: str) -> list[PivotHint]:
+    """Build cascade hints for an ip_lookup response.
+
+    Conditional emission:
+    - asn_lookup: whenever asn is populated (RIPE returned a number) — gives CIDR detail.
+    - ioc_lookup: when firehol.listed=True OR abuseipdb confidence>50 — threat-indicator drill.
+    - threat_report: Pro tier only — orchestrated Shodan + AbuseIPDB; free-tier upgrade-CTA noise
+      lives elsewhere, don't shove it into a pivot hint.
+    """
+    hints: list[PivotHint] = []
+    if asn:
+        hints.append(
+            PivotHint(
+                tool="asn_lookup",
+                input=ip,
+                reason=f"AS{asn} infrastructure: announced IPv4/IPv6 CIDR prefixes, network size, BGP routes.",
+            )
+        )
+
+    firehol_listed = isinstance(reputation, dict) and reputation.get("firehol", {}).get("listed") is True
+    abuse_score = 0
+    if isinstance(reputation, dict):
+        abuse = reputation.get("abuseipdb") or {}
+        if isinstance(abuse, dict) and abuse.get("status") not in ("pro_only", "error", "unavailable"):
+            try:
+                abuse_score = int(abuse.get("abuse_confidence_score") or 0)
+            except (TypeError, ValueError):
+                abuse_score = 0
+    if firehol_listed or abuse_score > 50:
+        trigger = "FireHOL-listed" if firehol_listed else f"AbuseIPDB confidence {abuse_score}"
+        hints.append(
+            PivotHint(
+                tool="ioc_lookup",
+                input=ip,
+                reason=f"{trigger} — query ThreatFox / Feodo Tracker / URLhaus for active threat status.",
+            )
+        )
+
+    if tier == "pro":
+        hints.append(
+            PivotHint(
+                tool="threat_report",
+                input=ip,
+                reason="Pro orchestrated profile: Shodan host, AbuseIPDB reports, open ports, known vulns.",
+            )
+        )
+    return hints
+
+
+def _domain_pivot_hints(report: dict, domain: str) -> list[PivotHint]:
+    """Build cascade hints for a full domain report.
+
+    subdomain_enum is always emitted — attack-surface mapping is a near-universal
+    next step on any recon. ssl_check + tech_fingerprint are conditional on the
+    domain having a resolvable A record (otherwise they would just 404 / NXDOMAIN
+    and waste an agent call). When the domain has no DNS at all (NXDOMAIN), no
+    pivots are returned.
+    """
+    dns_block = report.get("dns") or {}
+    has_a = bool(dns_block.get("a") or dns_block.get("aaaa"))
+    if not has_a and not dns_block:
+        return []
+
+    hints: list[PivotHint] = [
+        PivotHint(
+            tool="subdomain_enum",
+            input=domain,
+            reason="Map attack surface — enumerate subdomains via crt.sh CT logs + DNS wordlist (passive).",
+        )
+    ]
+    if has_a:
+        hints.append(
+            PivotHint(
+                tool="ssl_check",
+                input=domain,
+                reason="Inspect TLS certificate: grade, protocol, cipher, expiry, AIA chain, OCSP status.",
+            )
+        )
+        hints.append(
+            PivotHint(
+                tool="tech_fingerprint",
+                input=domain,
+                reason="Detect website tech stack (CMS, framework, CDN, analytics, web server) from live headers.",
+            )
+        )
+    return hints
+
+
 @router.get(
     "/domain/{domain}",
     operation_id="domain_report",
@@ -442,7 +532,11 @@ def domain_report(
     if hit is not None:
         cached, age = hit
         emitted = _apply_txt_filter(cached, include_all_txt)
-        return {**emitted, "verdict": _domain_verdict(emitted, age, lite=lite)}
+        return {
+            **emitted,
+            "verdict": _domain_verdict(emitted, age, lite=lite),
+            "next_calls": _domain_pivot_hints(emitted, domain) or None,
+        }
 
     client_ip = get_client_ip(request)
     try:
@@ -451,7 +545,11 @@ def domain_report(
         raise HTTPException(status_code=504, detail="Domain report timed out — upstream services too slow") from None
     save_cached_domain(cache_key, result)
     emitted = _apply_txt_filter(result, include_all_txt)
-    return {**emitted, "verdict": _domain_verdict(emitted, 0, lite=lite)}
+    return {
+        **emitted,
+        "verdict": _domain_verdict(emitted, 0, lite=lite),
+        "next_calls": _domain_pivot_hints(emitted, domain) or None,
+    }
 
 
 @router.get("/dns/{domain}", operation_id="dns_records", response_model=DnsResponse, response_model_exclude_none=True)
@@ -662,6 +760,40 @@ def whois_endpoint(domain: DomainPath, request: Request):
     return {"domain": domain, "whois": result, "summary": _whois_summary(result, domain)}
 
 
+_SUBDOMAIN_PIVOT_CAP = 5
+# RFC 1123 hostname charset — letters/digits/hyphen/dot only. CT-log SANs are
+# third-party data and have been observed carrying literal newlines / control
+# chars; rejecting non-conforming labels at the hint boundary prevents control
+# bytes from reaching PivotHint.reason where downstream renderers (docs, MCP UI)
+# could mis-render them as injection vectors.
+_HOSTNAME_RE = re.compile(r"^[a-zA-Z0-9.-]{1,253}$")
+
+
+def _subdomain_pivot_hints(subdomains: list[str] | None) -> list[PivotHint]:
+    """Build ssl_check pivot hints for the first N RFC-1123-valid subdomains.
+
+    Cap=5 keeps the response token-cheap on large enumerations (Cloudflare-class
+    domains can return 1000+ subdomains; 1000 hints would dominate the payload).
+    Subdomains failing hostname-charset validation are dropped — CT logs deliver
+    third-party-controlled strings and a maliciously-issued cert SAN can carry
+    control chars (newline / tab / 0x7f) that would otherwise reach the hint
+    reason field. The cap is intentional — agents triage the head of the list
+    and re-call subdomain_enum or ssl_check on tail entries by name.
+    """
+    if not subdomains:
+        return []
+    safe = [s for s in subdomains if isinstance(s, str) and _HOSTNAME_RE.match(s)]
+    head = safe[:_SUBDOMAIN_PIVOT_CAP]
+    return [
+        PivotHint(
+            tool="ssl_check",
+            input=sub,
+            reason=f"Inspect TLS posture of discovered subdomain {sub} (grade, expiry, cipher).",
+        )
+        for sub in head
+    ]
+
+
 @router.get(
     "/subdomains/{domain}",
     operation_id="subdomain_enum",
@@ -673,9 +805,11 @@ def subdomains(domain: DomainPath, request: Request):
     domain, resolved_ip, auth_ctx = _validate_and_auth(request, domain)
     cached = _from_cache(domain, "subdomains", auth_ctx["tier"])
     if cached:
-        return {"domain": domain, **cached}
+        sub_list = cached.get("subdomains") or []
+        return {"domain": domain, **cached, "next_calls": _subdomain_pivot_hints(sub_list) or None}
     result = enumerate_subdomains(domain)
-    return {"domain": domain, **result}
+    sub_list = result.get("subdomains") or []
+    return {"domain": domain, **result, "next_calls": _subdomain_pivot_hints(sub_list) or None}
 
 
 @router.get("/certs/{domain}", operation_id="ct_logs", response_model=CertsResponse, response_model_exclude_none=True)
@@ -1170,6 +1304,9 @@ def ip_lookup(ip: IpPath, request: Request):
         firehol_attempted=firehol_attempted,
         firehol_failed=firehol_failed,
     )
+    pivot_hints = _ip_pivot_hints(ip, asn_val, reputation, auth_ctx["tier"])
+    if pivot_hints:
+        result["next_calls"] = pivot_hints
     return result
 
 
@@ -1756,12 +1893,35 @@ def audit_domain(
         summary_parts.append(f"{tech['count']} technologies detected")
     summary = " · ".join(summary_parts) if summary_parts else f"Audit completed for {domain}"
 
+    # Audit already bundles tech_fingerprint + live_headers — emit subdomain_enum
+    # (always) + ssl_check (when an A record resolves), skip tech_fingerprint.
+    audit_hints: list[PivotHint] = []
+    dns_block = report.get("dns") or {}
+    has_a = bool(dns_block.get("a") or dns_block.get("aaaa"))
+    if dns_block or has_a:
+        audit_hints.append(
+            PivotHint(
+                tool="subdomain_enum",
+                input=domain,
+                reason="Map attack surface — enumerate subdomains via crt.sh CT logs + DNS wordlist (passive).",
+            )
+        )
+        if has_a:
+            audit_hints.append(
+                PivotHint(
+                    tool="ssl_check",
+                    input=domain,
+                    reason="Inspect TLS certificate: grade, protocol, cipher, expiry, AIA chain, OCSP status.",
+                )
+            )
+
     return {
         "domain": domain,
         "report": report,
         "technologies": tech,
         "live_headers": headers,
         "summary": summary,
+        "next_calls": audit_hints or None,
     }
 
 

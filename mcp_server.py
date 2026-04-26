@@ -314,7 +314,7 @@ async def domain_report(
         ),
     ] = False,
 ) -> str:
-    """Query DNS, WHOIS, SSL, subdomains, and threat intel for a domain in one call. By default dns.txt is filtered to security-relevant entries (SPF, DMARC, DKIM, MTA-STS, TLS-RPT) and dns.total_txt_records reports the honest pre-filter count; pass include_all_txt=true for the raw TXT list. Use as a starting point for domain investigations; use audit_domain for live headers + tech stack. Free: 100/hr, Pro: 1000/hr. Returns domain report with DNS records, WHOIS data, SSL cert, risk score, email config, threat status, and recommendation."""
+    """Query DNS, WHOIS, SSL, subdomains, and threat intel for a domain in one call. By default dns.txt is filtered to security-relevant entries (SPF, DMARC, DKIM, MTA-STS, TLS-RPT) and dns.total_txt_records reports the honest pre-filter count; pass include_all_txt=true for the raw TXT list. Use as a starting point for domain investigations; use audit_domain for live headers + tech stack. Response carries next_calls — chain with subdomain_enum (always emitted), ssl_check + tech_fingerprint (when an A record resolves) for the standard recon depth without re-prompting. Free: 100/hr, Pro: 1000/hr. Returns domain report with DNS records, WHOIS data, SSL cert, risk score, email config, threat status, recommendation, and next_calls."""
     if err := _validate_domain(domain):
         return err
     params = {"include_all_txt": "true"} if include_all_txt else None
@@ -334,7 +334,7 @@ async def audit_domain(
         ),
     ] = False,
 ) -> str:
-    """Perform comprehensive domain audit: combines domain_report + live HTTP security headers + technology fingerprinting. By default report.dns.txt is filtered to security-relevant entries (SPF, DMARC, DKIM, MTA-STS, TLS-RPT) and report.dns.total_txt_records reports the honest pre-filter count; pass include_all_txt=true for the raw TXT list. Use when you need the full picture (recon + active checks); use domain_report for passive-only assessment. Free: 100/hr (costs 4 credits), Pro: 1000/hr. Returns {domain, report, technologies, live_headers, summary}."""
+    """Perform comprehensive domain audit: combines domain_report + live HTTP security headers + technology fingerprinting. By default report.dns.txt is filtered to security-relevant entries (SPF, DMARC, DKIM, MTA-STS, TLS-RPT) and report.dns.total_txt_records reports the honest pre-filter count; pass include_all_txt=true for the raw TXT list. Use when you need the full picture (recon + active checks); use domain_report for passive-only assessment. Response carries next_calls — chain with subdomain_enum (always emitted) and ssl_check (when an A record resolves) for the residual recon depth (tech_fingerprint already inline as `technologies`). Free: 100/hr (costs 4 credits), Pro: 1000/hr. Returns {domain, report, technologies, live_headers, summary, next_calls}."""
     if err := _validate_domain(domain):
         return err
     params = {"include_all_txt": "true"} if include_all_txt else None
@@ -396,7 +396,7 @@ async def subdomain_enum(
         str, Field(description="Root domain to enumerate subdomains for (e.g. 'example.com', 'tesla.com')")
     ],
 ) -> str:
-    """Discover subdomains using passive methods: Certificate Transparency logs + DNS brute-force (no active probing). Use to map organization's attack surface; non-intrusive. Free: 100/hr, Pro: 1000/hr. Returns {domain, count, subdomains, sources, found_via_wordlist, found_via_crtsh, crtsh_status, warnings, summary}. Always check crtsh_status: 'ok' means the CT lookup completed (so a low count is real); 'timeout' / 'rate_limited' / 'unavailable' / 'error' means CT logs did not respond and the count is wordlist-only — the actual attack surface is likely larger, retry later or surface the limitation to the user."""
+    """Discover subdomains using passive methods: Certificate Transparency logs + DNS brute-force (no active probing). Use to map organization's attack surface; non-intrusive. Response carries next_calls — capped at 5 ssl_check hints (one per first-five subdomain) so triage scales to large enumerations without token bloat; pull tail entries by name when needed. Free: 100/hr, Pro: 1000/hr. Returns {domain, count, subdomains, sources, found_via_wordlist, found_via_crtsh, crtsh_status, warnings, summary, next_calls}. Always check crtsh_status: 'ok' means the CT lookup completed (so a low count is real); 'timeout' / 'rate_limited' / 'unavailable' / 'error' means CT logs did not respond and the count is wordlist-only — the actual attack surface is likely larger, retry later or surface the limitation to the user."""
     if err := _validate_domain(domain):
         return err
     return _fmt(await _get(f"/v1/subdomains/{domain}"))
@@ -479,7 +479,7 @@ async def email_disposable(
         str, Field(description="Full email address to check (e.g. 'user@tempmail.com', 'test@guerrillamail.com')")
     ],
 ) -> str:
-    """Check if email address uses a known disposable/temporary provider (Guerrilla Mail, Temp Mail, Mailinator, etc.). Use for input validation to detect throwaway signups; for domain reputation use threat_intel. Free: 100/hr, Pro: 1000/hr. Returns {disposable, domain, provider}."""
+    """Check if email address uses a known disposable/temporary provider (Guerrilla Mail, Temp Mail, Mailinator, etc.). Use for input validation to detect throwaway signups; for domain reputation use threat_intel. Companion email-investigation tools: email_mx (deliverability + MX trust), domain_report on the email's domain (full recon), threat_intel (malware-distribution signal on the domain). Free: 100/hr, Pro: 1000/hr. Returns {disposable, domain, provider}."""
     return _fmt(await _get(f"/v1/email/disposable/{quote(email, safe='')}"))
 
 
@@ -492,7 +492,7 @@ async def phone_lookup(
         ),
     ],
 ) -> str:
-    """Validate and analyze phone number: country, region, carrier, line type (mobile/landline/VoIP), timezone, formatted versions. Use to verify phone legitimacy and detect fraud risks. Requires E.164 format (+1234567890). Free: 100/hr, Pro: 1000/hr. Returns {valid, country, region, carrier, carrier_status, line_type, timezone, formats}. carrier is omitted from the wire when libphonenumber has no mapping for the region (US/CA/GB and other MNP-restricted regions); always read carrier_status — 'known' means carrier is present, 'unsupported_region' means we cannot identify the carrier (do not infer the number lacks one)."""
+    """Validate and analyze phone number: country, region, carrier, line type (mobile/landline/VoIP), timezone, formatted versions. Use to verify phone legitimacy and detect fraud risks. Requires E.164 format (+1234567890). Companion OSINT identity-investigation tools: username_lookup (social-platform handle correlation), email_disposable (throwaway-mail signal on associated email). Free: 100/hr, Pro: 1000/hr. Returns {valid, country, region, carrier, carrier_status, line_type, timezone, formats}. carrier is omitted from the wire when libphonenumber has no mapping for the region (US/CA/GB and other MNP-restricted regions); always read carrier_status — 'known' means carrier is present, 'unsupported_region' means we cannot identify the carrier (do not infer the number lacks one)."""
     return _fmt(await _get(f"/v1/phone/{quote(number, safe='')}"))
 
 
@@ -503,7 +503,7 @@ async def phone_lookup(
 async def ip_lookup(
     ip: Annotated[str, Field(description="IPv4 or IPv6 address to investigate (e.g. '8.8.8.8', '2606:4700::1111')")],
 ) -> str:
-    """Query comprehensive IP intelligence: reverse DNS, ASN + holder name + country inline (RIPE Stat, Phase 1), open ports, hostnames, vulnerabilities (Shodan InternetDB), cloud provider, Tor exit status, and reputation. cloud_provider uses two-tier detection: published cloud CIDR ranges (AWS/GCP/Cloudflare) first, then an ASN-to-provider fallback map for anycast/public-service IPs outside published ranges (e.g. 8.8.8.8 → AS15169 → 'Google'). Reputation: FireHOL level1 blocklist on Free tier; +AbuseIPDB + Shodan on Pro (Phase 4). Use for IP investigation; for orchestrated IP+reputation use threat_report. Response is null-explicit: every field is always present (cloud_provider=null when neither tier matches; tor_exit=false when not listed or upstream fetch failed — check verdict.sources_unavailable to disambiguate fetch failure from genuine absence). Free: 100/hr, Pro: 1000/hr. Returns {ip, ptr, geo, asn, asn_name, country, ports, hostnames, vulns, cloud_provider, tor_exit, reputation, risk_score, verdict}."""
+    """Query comprehensive IP intelligence: reverse DNS, ASN + holder name + country inline (RIPE Stat, Phase 1), open ports, hostnames, vulnerabilities (Shodan InternetDB), cloud provider, Tor exit status, and reputation. cloud_provider uses two-tier detection: published cloud CIDR ranges (AWS/GCP/Cloudflare) first, then an ASN-to-provider fallback map for anycast/public-service IPs outside published ranges (e.g. 8.8.8.8 → AS15169 → 'Google'). Reputation: FireHOL level1 blocklist on Free tier; +AbuseIPDB + Shodan on Pro (Phase 4). Use for IP investigation; for orchestrated IP+reputation use threat_report. Response is null-explicit: every field is always present (cloud_provider=null when neither tier matches; tor_exit=false when not listed or upstream fetch failed — check verdict.sources_unavailable to disambiguate fetch failure from genuine absence). Response carries next_calls (conditional) — asn_lookup when ASN is populated, ioc_lookup when reputation is FireHOL-listed or AbuseIPDB confidence>50, threat_report on Pro tier for orchestrated profile. Free: 100/hr, Pro: 1000/hr. Returns {ip, ptr, geo, asn, asn_name, country, ports, hostnames, vulns, cloud_provider, tor_exit, reputation, risk_score, verdict, next_calls}."""
     if err := _validate_ip(ip):
         return err
     return _fmt(await _get(f"/v1/ip/{ip}"))
@@ -648,7 +648,7 @@ async def cve_search(
         ),
     ] = "",
 ) -> str:
-    """Search CVE database with filters: product/vendor, severity, published date range, EPSS score, CWE, CVSS range, CISA KEV status. Default response is SLIM per-result (cve_id, summary, severity, cvss_v3, cwe_id, epss, kev, total_products, published, modified, sources, verdict) — pass include='full' for description, cvss_breakdown, affected_products, references, first_seen_*. Use for vulnerability discovery by criteria; pass cwe_id (e.g. CWE-79) to enumerate every CVE in our database mapped to a weakness — pair with cwe_lookup for the category description and mitigations. Use cve_lookup for single CVE by ID, kev_detail when kev=true filtering and the agent needs federal patch deadlines per result. Free: 100/hr, Pro: 1000/hr. Returns {count, total, truncated, results, query_echo}."""
+    """Search CVE database with filters: product/vendor, severity, published date range, EPSS score, CWE, CVSS range, CISA KEV status. Default response is SLIM per-result (cve_id, summary, severity, cvss_v3, cwe_id, epss, kev, total_products, published, modified, sources, verdict) — pass include='full' for description, cvss_breakdown, affected_products, references, first_seen_*. Use for vulnerability discovery by criteria; pass cwe_id (e.g. CWE-79) to enumerate every CVE in our database mapped to a weakness — pair with cwe_lookup for the category description and mitigations. Use cve_lookup for single CVE by ID, kev_detail when kev=true filtering and the agent needs federal patch deadlines per result. Response carries a global hint pointing at cve_lookup — drill into any returned cve_id for full detail and chained pivots (exploit_lookup, kev_detail, cwe_lookup). Free: 100/hr, Pro: 1000/hr. Returns {count, total, truncated, results, query_echo, hint}."""
     params = {"limit": limit}
     if product:
         params["product"] = product
@@ -697,7 +697,7 @@ async def cve_leading(
         ),
     ] = "",
 ) -> str:
-    """List CVEs indexed from MITRE/GHSA BEFORE NVD publication (early-warning, freshest data). By default each result is slim (no description, no cvss_breakdown, no affected_products list, no references) — pass include='full' for the same payload shape as cve_lookup; for drill-down on a single CVE prefer cve_lookup. Use for threat intelligence on emerging CVEs; use cve_search for published NVD data. Free: 100/hr, Pro: 1000/hr. Returns {count, total, truncated, offset, summary, results}."""
+    """List CVEs indexed from MITRE/GHSA BEFORE NVD publication (early-warning, freshest data). By default each result is slim (no description, no cvss_breakdown, no affected_products list, no references) — pass include='full' for the same payload shape as cve_lookup; for drill-down on a single CVE prefer cve_lookup. Use for threat intelligence on emerging CVEs; use cve_search for published NVD data. Response carries a global hint pointing at cve_lookup — drill into any returned cve_id for full detail and chained pivots (exploit_lookup, kev_detail, cwe_lookup). Free: 100/hr, Pro: 1000/hr. Returns {count, total, truncated, offset, summary, results, hint}."""
     if include not in ("", "full"):
         return "Invalid include. Allowed values: '' (slim default) or 'full'."
     params: dict = {"limit": limit}
@@ -714,7 +714,7 @@ async def exploit_lookup(
         str, Field(description="CVE identifier in format CVE-YYYY-NNNNN (e.g. 'CVE-2024-3094', 'CVE-2023-44487')")
     ],
 ) -> str:
-    """Search public exploits/PoC for a specific CVE across three sources: (1) GitHub Advisory Database (sources.github.advisories[]), (2) Shodan CVEDB references (sources.shodan_refs.results[] — packetstorm/seclists/vendor URLs cited by Shodan), (3) ExploitDB CSV mirror (exploits[] array, with edb_id + author + verified flag — these are the actual ExploitDB entries). Use to assess if a vulnerability has weaponized exploits in the wild; run after cve_lookup to evaluate real-world risk. When the CVE is also in CISA KEV (kev.in_kev=true on cve_lookup), pair with kev_detail for federal patch deadline; pair with cwe_lookup on cwe_id for the underlying weakness category and mitigations. Free: 100/hr, Pro: 1000/hr. Returns {cve_id, exploits_found, has_public_exploit, sources: {github, shodan_refs}, exploits: [{edb_id, cve_id, date_published, author, type, platform, url, verified, description}], verdict}."""
+    """Search public exploits/PoC for a specific CVE across three sources: (1) GitHub Advisory Database (sources.github.advisories[]), (2) Shodan CVEDB references (sources.shodan_refs.results[] — packetstorm/seclists/vendor URLs cited by Shodan), (3) ExploitDB CSV mirror (exploits[] array, with edb_id + author + verified flag — these are the actual ExploitDB entries). Use to assess if a vulnerability has weaponized exploits in the wild; run after cve_lookup to evaluate real-world risk. When the CVE is also in CISA KEV (kev.in_kev=true on cve_lookup), pair with kev_detail for federal patch deadline; pair with cwe_lookup on cwe_id for the underlying weakness category and mitigations. Response carries next_calls — single cve_lookup pivot for full context (KEV status, CWE chain, CVSS, EPSS); cve_lookup's own next_calls then surface kev_detail and cwe_lookup automatically (this endpoint has no in_kev/cwe_id schema, so blind emission of those pivots is intentionally avoided). Free: 100/hr, Pro: 1000/hr. Returns {cve_id, exploits_found, has_public_exploit, sources: {github, shodan_refs}, exploits: [{edb_id, cve_id, date_published, author, type, platform, url, verified, description}], verdict, next_calls}."""
     if err := _validate_cve(cve_id):
         return err
     return _fmt(await _get(f"/v1/exploit/{cve_id}"))
@@ -817,7 +817,7 @@ async def hash_lookup(
         ),
     ],
 ) -> str:
-    """Query MalwareBazaar for file hash (MD5/SHA1/SHA256): malware family, file type, size, tags, first/last seen, download count. Use to check if file hash is known malware; use ioc_lookup for auto-detection of all IOC types. Free: 100/hr, Pro: 1000/hr. Returns {found, malware_family, file_type, file_size, tags, first_seen, last_seen, signature}."""
+    """Query MalwareBazaar for file hash (MD5/SHA1/SHA256): malware family, file type, size, tags, first/last seen, download count. Use to check if file hash is known malware; use ioc_lookup for auto-detection of all IOC types. Companion malware-investigation tools: ioc_lookup (multi-source: ThreatFox + Feodo Tracker + URLhaus), threat_intel (domain-level URLhaus check), exploit_lookup (link a known CVE to PoC code if the hash maps to an exploit binary). Free: 100/hr, Pro: 1000/hr. Returns {found, malware_family, file_type, file_size, tags, first_seen, last_seen, signature}."""
     if not _HASH_RE.match(file_hash.strip()):
         return "Invalid hash format. Expected MD5 (32), SHA-1 (40), or SHA-256 (64) hex characters."
     return _fmt(await _get(f"/v1/hash/{file_hash}"))
@@ -832,7 +832,7 @@ async def password_check(
         ),
     ],
 ) -> str:
-    """Check if SHA-1 hash appears in Have I Been Pwned (HIBP) breach dataset using k-anonymity (5-char prefix only, full hash never leaves tool). Use for password breach audits; read-only, no data stored. Free: 100/hr, Pro: 1000/hr. Returns {found, count}."""
+    """Check if SHA-1 hash appears in Have I Been Pwned (HIBP) breach dataset using k-anonymity (5-char prefix only, full hash never leaves tool). Use for password breach audits; read-only, no data stored. Companion OSINT investigation tools: hash_lookup (file-hash malware family lookup, different namespace), email_disposable (throwaway-mail signal on associated accounts), username_lookup (social-platform exposure on associated handles). Free: 100/hr, Pro: 1000/hr. Returns {found, count}."""
     if not re.match(r"^[a-fA-F0-9]{40}$", sha1_hash.strip()):
         return "Invalid SHA-1 hash. Expected exactly 40 hexadecimal characters."
     return _fmt(await _get(f"/v1/password/{sha1_hash}"))
@@ -847,7 +847,7 @@ async def phishing_check(
         ),
     ],
 ) -> str:
-    """Query URLhaus for a specific URL and its host. is_malicious is True only when there is ACTIVE evidence — exact URL match with url_status='online' (or unknown) OR host has urls_online > 0. URLhaus retains historical records forever, so a host can have url_count > 0 with urls_online == 0; in that case is_malicious=False, is_stale=True, threat_level='low'. Use for URL-level threat assessment; use threat_intel for domain-level checks. Free: 100/hr, Pro: 1000/hr. Returns {url, host, is_malicious, is_stale, urlhaus_host:{found,urls_online,url_count}, urlhaus_url:{found,threat,tags,status}, threat_level, summary}."""
+    """Query URLhaus for a specific URL and its host. is_malicious is True only when there is ACTIVE evidence — exact URL match with url_status='online' (or unknown) OR host has urls_online > 0. URLhaus retains historical records forever, so a host can have url_count > 0 with urls_online == 0; in that case is_malicious=False, is_stale=True, threat_level='low'. Use for URL-level threat assessment; use threat_intel for domain-level checks. Companion threat-investigation tools: ioc_lookup (multi-source IOC: ThreatFox + URLhaus + Feodo Tracker, auto-detect type), hash_lookup (file-hash malware family, MalwareBazaar), threat_intel (domain-level URLhaus only). Free: 100/hr, Pro: 1000/hr. Returns {url, host, is_malicious, is_stale, urlhaus_host:{found,urls_online,url_count}, urlhaus_url:{found,threat,tags,status}, threat_level, summary}."""
     return _fmt(await _get(f"/v1/phishing/{quote(url, safe='')}"))
 
 
@@ -907,7 +907,7 @@ async def check_injection(
         ),
     ] = "generic",
 ) -> str:
-    """Scan source code for injection vulnerabilities: SQL injection, command injection, path traversal via unsafe string concatenation/unsanitized input. Supports Python, JavaScript, TypeScript, Java, Go, Ruby, Shell, Bash. Use to detect input-handling bugs; for secrets use check_secrets. Free: 100/hr, Pro: 1000/hr. Returns {total, by_severity, findings}. No data stored."""
+    """Scan source code for injection vulnerabilities: SQL injection, command injection, path traversal via unsafe string concatenation/unsanitized input. Supports Python, JavaScript, TypeScript, Java, Go, Ruby, Shell, Bash. Use to detect input-handling bugs; for secrets use check_secrets. Companion code-security tools: check_secrets (hard-coded credential detection), check_dependencies (known-CVE vulnerability audit), check_headers (live HTTP security-header validation), scan_headers (live HTTP scan via domain). Free: 100/hr, Pro: 1000/hr. Returns {total, by_severity, findings}. No data stored."""
     return _fmt(await _post("/v1/check/injection", {"code": code, "language": language}))
 
 
