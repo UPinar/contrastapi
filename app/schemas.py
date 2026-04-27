@@ -1611,7 +1611,7 @@ class SubdomainsResponse(BaseModel):
     next_calls: list[PivotHint] | None = Field(
         default=None,
         description=(
-            "Suggested follow-up MCP tool calls. Capped at 5 ssl_check pivots (one per first-five "
+            "Suggested follow-up MCP tool calls. Capped at 10 ssl_check pivots (one per first-ten "
             "subdomain) — large result sets stay token-cheap, agents pick up the cert-grade triage "
             "without fanning out 100+ hints. Omitted entirely when subdomains is empty."
         ),

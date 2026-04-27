@@ -1159,14 +1159,14 @@ class TestIpLookupPivotHints:
 class TestSubdomainPivotHints:
     """Phase 4 cascade: subdomain_enum next_calls capped ssl_check pivots."""
 
-    def test_subdomain_pivot_emits_ssl_check_per_subdomain_capped_at_5(self):
+    def test_subdomain_pivot_emits_ssl_check_per_subdomain_capped_at_10(self):
         from domain.routes import _SUBDOMAIN_PIVOT_CAP, _subdomain_pivot_hints
 
         subs = [f"sub{i}.example.com" for i in range(15)]
         hints = _subdomain_pivot_hints(subs)
-        assert len(hints) == _SUBDOMAIN_PIVOT_CAP == 5
+        assert len(hints) == _SUBDOMAIN_PIVOT_CAP == 10
         assert all(h.tool == "ssl_check" for h in hints)
-        assert [h.input for h in hints] == subs[:5]
+        assert [h.input for h in hints] == subs[:10]
 
     def test_subdomain_pivot_under_cap_emits_all(self):
         from domain.routes import _subdomain_pivot_hints
@@ -1225,8 +1225,32 @@ class TestSubdomainPivotHints:
         assert data["count"] == 8
         next_calls = data.get("next_calls")
         assert next_calls is not None
-        assert len(next_calls) == 5
+        # Cap=10 (Action #12), 8 subdomains → all emit (no truncation).
+        assert len(next_calls) == 8
         assert all(hint["tool"] == "ssl_check" for hint in next_calls)
+
+    @patch(
+        "domain.routes.enumerate_subdomains",
+        return_value={
+            "subdomains": [f"s{i}.example.com" for i in range(15)],
+            "count": 15,
+            "summary": "15 subdomains",
+            "found_via_wordlist": 5,
+            "found_via_crtsh": 10,
+            "sources": ["wordlist", "crtsh"],
+            "warnings": [],
+            "crtsh_status": "ok",
+        },
+    )
+    @patch("domain.routes.validate_domain", return_value="93.184.216.34")
+    def test_subdomains_endpoint_cap_truncates_oversize_at_10(self, mock_validate, mock_enum):
+        """Cap=10 (Action #12) — 15 subdomains → exactly 10 ssl_check pivots emitted."""
+        r = client.get("/v1/subdomains/example.com")
+        assert r.status_code == 200
+        next_calls = r.json().get("next_calls") or []
+        assert len(next_calls) == 10
+        # Head-of-list ordering preserved.
+        assert [h["input"] for h in next_calls] == [f"s{i}.example.com" for i in range(10)]
 
     @patch(
         "domain.routes.enumerate_subdomains",

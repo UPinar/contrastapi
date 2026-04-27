@@ -806,7 +806,7 @@ def whois_endpoint(domain: DomainPath, request: Request):
     return {"domain": domain, "whois": result, "summary": _whois_summary(result, domain)}
 
 
-_SUBDOMAIN_PIVOT_CAP = 5
+_SUBDOMAIN_PIVOT_CAP = 10
 # RFC 1123 hostname charset — letters/digits/hyphen/dot only. CT-log SANs are
 # third-party data and have been observed carrying literal newlines / control
 # chars; rejecting non-conforming labels at the hint boundary prevents control
@@ -818,8 +818,10 @@ _HOSTNAME_RE = re.compile(r"^[a-zA-Z0-9.-]{1,253}$")
 def _subdomain_pivot_hints(subdomains: list[str] | None) -> list[PivotHint]:
     """Build ssl_check pivot hints for the first N RFC-1123-valid subdomains.
 
-    Cap=5 keeps the response token-cheap on large enumerations (Cloudflare-class
+    Cap=10 keeps the response token-cheap on large enumerations (Cloudflare-class
     domains can return 1000+ subdomains; 1000 hints would dominate the payload).
+    Bumped from 5 → 10 (Action #12) — agents batch ssl_check easily and the head
+    of the list is the high-value triage zone.
     Subdomains failing hostname-charset validation are dropped — CT logs deliver
     third-party-controlled strings and a maliciously-issued cert SAN can carry
     control chars (newline / tab / 0x7f) that would otherwise reach the hint
