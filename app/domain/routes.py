@@ -1578,6 +1578,14 @@ def asn_lookup(
             result["resolved_ip"] = resolved_ip
         elif "resolved_ip" in result:
             del result["resolved_ip"]
+        # Cache entries written before Bug I1 carry [{"prefix": str}] wrappers;
+        # the new response_model expects list[str] and would 500 on those for
+        # the full TTL after deploy. Coerce here so old entries serve cleanly
+        # until they expire and get rewritten in the new shape.
+        for key in ("ipv4_prefixes", "ipv6_prefixes"):
+            seq = result.get(key) or []
+            if seq and isinstance(seq[0], dict):
+                result[key] = [p.get("prefix", "") for p in seq if p.get("prefix")]
         return _truncate_asn_prefixes(result, include_full_prefixes)
 
     # Fetch ASN from RIPE Stat
@@ -1629,8 +1637,8 @@ def asn_lookup(
             )
             r.raise_for_status()
             prefixes = r.json().get("data", {}).get("prefixes", [])
-            v4 = []
-            v6 = []
+            v4: list[str] = []
+            v6: list[str] = []
             for p in prefixes:
                 prefix = p.get("prefix", "")
                 if not prefix:
@@ -1638,9 +1646,9 @@ def asn_lookup(
                 try:
                     net = ipaddress.ip_network(prefix, strict=False)
                     if net.version == 4:
-                        v4.append({"prefix": prefix})
+                        v4.append(prefix)
                     else:
-                        v6.append({"prefix": prefix})
+                        v6.append(prefix)
                 except ValueError:
                     continue
             return v4, v6
@@ -1709,6 +1717,7 @@ def asn_lookup(
     # so the next request re-hits RIPE. Partial success (e.g. holder OK,
     # prefixes failed) is still cacheable: at least one piece of metadata
     # made it through and is worth preserving.
+    #
     both_metadata_futures_failed = bool(warnings) and not asn_name and not ipv4_prefixes and not ipv6_prefixes
     if not both_metadata_futures_failed:
         save_cached_domain(cache_key, result)

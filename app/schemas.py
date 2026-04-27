@@ -1521,17 +1521,18 @@ class ExploitResponse(BaseModel):
 # === ASN Lookup ===
 
 
-class AsnPrefix(BaseModel):
-    prefix: str
-
-
 class AsnResponse(BaseModel):
     target: str
     resolved_ip: str | None = None
     asn: int
     asn_name: str = Field(default="", max_length=256)
-    ipv4_prefixes: list[AsnPrefix] = Field(default_factory=list)
-    ipv6_prefixes: list[AsnPrefix] = Field(default_factory=list)
+    # Bug I1: prefix lists used to wrap each entry in {"prefix": "x.x.x.x/y"}
+    # — pure overhead with one key. Flat list[str] of CIDR strings halves the
+    # byte size on AS-rich responses (Cloudflare AS13335 carries ~2500
+    # prefixes; the wrapper alone added ~25 KB). Schema-breaking change
+    # — ship in v1.15.0.
+    ipv4_prefixes: list[str] = Field(default_factory=list)
+    ipv6_prefixes: list[str] = Field(default_factory=list)
     ipv4_count: int = 0
     ipv6_count: int = 0
     summary: str = ""

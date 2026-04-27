@@ -815,7 +815,7 @@ class TestAsnRoute:
             "target": "1.1.1.1",
             "asn": 13335,
             "asn_name": "CLOUDFLARENET",
-            "ipv4_prefixes": [{"prefix": "1.1.1.0/24"}],
+            "ipv4_prefixes": ["1.1.1.0/24"],
             "ipv6_prefixes": [],
             "ipv4_count": 1,
             "ipv6_count": 0,
@@ -834,7 +834,7 @@ class TestAsnRoute:
         """Cache returns 100 prefixes; response truncates to 50 and ipv4_count stays honest."""
         from config import MAX_ASN_PREFIXES_DEFAULT
 
-        big_v4 = [{"prefix": f"10.{i}.0.0/24"} for i in range(100)]
+        big_v4 = [f"10.{i}.0.0/24" for i in range(100)]
         cached_data = {
             "target": "1.1.1.1",
             "asn": 13335,
@@ -852,12 +852,12 @@ class TestAsnRoute:
             data = r.json()
             assert len(data["ipv4_prefixes"]) == MAX_ASN_PREFIXES_DEFAULT
             assert data["ipv4_count"] == 100  # honest pre-truncation
-            assert data["ipv4_prefixes"][0]["prefix"] == "10.0.0.0/24"
+            assert data["ipv4_prefixes"][0] == "10.0.0.0/24"
 
     @patch("domain.routes.authenticate", return_value={"tier": "free"})
     def test_asn_include_full_prefixes_returns_full(self, mock_auth):
         """include_full_prefixes=true returns the full cached list, ipv4_count unchanged."""
-        big_v4 = [{"prefix": f"10.{i}.0.0/24"} for i in range(100)]
+        big_v4 = [f"10.{i}.0.0/24" for i in range(100)]
         cached_data = {
             "target": "1.1.1.1",
             "asn": 13335,
@@ -879,7 +879,7 @@ class TestAsnRoute:
     @patch("domain.routes.authenticate", return_value={"tier": "free"})
     def test_asn_short_list_not_truncated(self, mock_auth):
         """5 prefixes < default cap: response equals cache."""
-        small = [{"prefix": f"1.1.{i}.0/24"} for i in range(5)]
+        small = [f"1.1.{i}.0/24" for i in range(5)]
         cached_data = {
             "target": "1.1.1.1",
             "asn": 13335,
@@ -899,7 +899,7 @@ class TestAsnRoute:
     @patch("domain.routes.authenticate", return_value={"tier": "free"})
     def test_asn_truncation_does_not_mutate_cache(self, mock_auth):
         """Two consecutive calls (default + include_full) share one cache entry — no mutation."""
-        big_v4 = [{"prefix": f"10.{i}.0.0/24"} for i in range(100)]
+        big_v4 = [f"10.{i}.0.0/24" for i in range(100)]
         cached_data = {
             "target": "1.1.1.1",
             "asn": 13335,
@@ -918,6 +918,56 @@ class TestAsnRoute:
             assert len(r2.json()["ipv4_prefixes"]) == 100
             # Cache itself untouched
             assert len(cached_data["ipv4_prefixes"]) == 100
+
+    @patch("domain.routes.authenticate", return_value={"tier": "free"})
+    def test_asn_lookup_coerces_legacy_wrapper_cache_entries(self, mock_auth):
+        """Bug I1 cache backward-compat: pre-1.15.0 entries hold
+        [{'prefix': str}] wrappers. The cache-hit path must coerce them
+        back to flat strings before the response_model rejects them with a
+        500. Without this every cached AS lookup would 500 for the full TTL
+        post-deploy."""
+        legacy_cache = {
+            "target": "1.1.1.1",
+            "asn": 13335,
+            "asn_name": "CLOUDFLARENET",
+            "ipv4_prefixes": [{"prefix": "1.1.1.0/24"}, {"prefix": "1.0.0.0/24"}],
+            "ipv6_prefixes": [{"prefix": "2606:4700::/32"}],
+            "ipv4_count": 2,
+            "ipv6_count": 1,
+            "summary": "AS13335",
+            "warnings": [],
+        }
+        with patch("domain.routes.get_cached_domain", return_value=legacy_cache):
+            r = client.get("/v1/asn/1.1.1.1")
+            assert r.status_code == 200
+            data = r.json()
+            assert data["ipv4_prefixes"] == ["1.1.1.0/24", "1.0.0.0/24"]
+            assert data["ipv6_prefixes"] == ["2606:4700::/32"]
+            assert all(isinstance(p, str) for p in data["ipv4_prefixes"])
+
+    @patch("domain.routes.authenticate", return_value={"tier": "free"})
+    def test_asn_prefix_format_is_flat_string_list(self, mock_auth):
+        """Bug I1: prefixes are now plain CIDR strings, not {'prefix': str} wrappers.
+        Halves the byte size on AS-rich responses (CF AS13335 ~2500 prefixes)."""
+        cached_data = {
+            "target": "1.1.1.1",
+            "asn": 13335,
+            "asn_name": "CLOUDFLARENET",
+            "ipv4_prefixes": ["1.1.1.0/24", "1.0.0.0/24"],
+            "ipv6_prefixes": ["2606:4700::/32"],
+            "ipv4_count": 2,
+            "ipv6_count": 1,
+            "summary": "AS13335",
+            "warnings": [],
+        }
+        with patch("domain.routes.get_cached_domain", return_value=cached_data):
+            r = client.get("/v1/asn/1.1.1.1")
+            assert r.status_code == 200
+            data = r.json()
+            assert data["ipv4_prefixes"] == ["1.1.1.0/24", "1.0.0.0/24"]
+            assert data["ipv6_prefixes"] == ["2606:4700::/32"]
+            # Each entry is a plain string, not a dict
+            assert all(isinstance(p, str) for p in data["ipv4_prefixes"])
 
 
 # =========== response_model filtering tests ===========
