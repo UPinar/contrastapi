@@ -736,6 +736,53 @@ class TestDomainRoutes:
         assert "internetdb" in v["sources_unavailable"]
         assert v["completeness"] == "partial"
 
+    @patch(
+        "domain.routes.ip_enrichment",
+        return_value={"ports": [], "hostnames": [], "vulns": [], "cpes": [], "tags": [], "internetdb_status": "ok"},
+    )
+    @patch("domain.routes.socket.gethostbyaddr", side_effect=Exception("no PTR"))
+    def test_ip_lookup_verdict_includes_tor_when_cache_ok(self, mock_ptr, mock_enrich):
+        """NEW-B: tor source is always queried; with a healthy cache it must
+        appear in sources_queried and never in sources_unavailable."""
+        with patch("domain.routes.tor_cache_status", return_value="ok"):
+            r = client.get("/v1/ip/93.184.216.34")
+        assert r.status_code == 200
+        v = r.json()["verdict"]
+        assert "tor" in v["sources_queried"]
+        assert "tor" not in v["sources_unavailable"]
+
+    @patch(
+        "domain.routes.ip_enrichment",
+        return_value={"ports": [], "hostnames": [], "vulns": [], "cpes": [], "tags": [], "internetdb_status": "ok"},
+    )
+    @patch("domain.routes.socket.gethostbyaddr", side_effect=Exception("no PTR"))
+    def test_ip_lookup_verdict_marks_tor_unavailable_when_fetch_failed(self, mock_ptr, mock_enrich):
+        """NEW-B: a silent Tor list fetch failure must surface in the verdict
+        — agents can then treat tor_exit=false as 'unknown' instead of
+        'definitively not a Tor exit'."""
+        with patch("domain.routes.tor_cache_status", return_value="failed"):
+            r = client.get("/v1/ip/93.184.216.34")
+        assert r.status_code == 200
+        v = r.json()["verdict"]
+        assert "tor" in v["sources_queried"]
+        assert "tor" in v["sources_unavailable"]
+        assert v["completeness"] == "partial"
+
+    @patch(
+        "domain.routes.ip_enrichment",
+        return_value={"ports": [], "hostnames": [], "vulns": [], "cpes": [], "tags": [], "internetdb_status": "ok"},
+    )
+    @patch("domain.routes.socket.gethostbyaddr", side_effect=Exception("no PTR"))
+    def test_ip_lookup_verdict_marks_tor_unavailable_on_initial_status(self, mock_ptr, mock_enrich):
+        """First-request-after-restart: tor cache is still 'initial' (never
+        refreshed). Mark as unavailable so the response does not pretend
+        the Tor list answered."""
+        with patch("domain.routes.tor_cache_status", return_value="initial"):
+            r = client.get("/v1/ip/93.184.216.34")
+        assert r.status_code == 200
+        v = r.json()["verdict"]
+        assert "tor" in v["sources_unavailable"]
+
     _enrich_empty = {
         "ports": [],
         "hostnames": [],

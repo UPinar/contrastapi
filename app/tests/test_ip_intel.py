@@ -125,7 +125,12 @@ class TestRefreshTorCache:
     def setup_method(self):
         import domain.ip_intel as m
 
-        m._tor_cache = {"data": frozenset(), "fetched_at": 0.0}
+        m._tor_cache = {
+            "data": frozenset(),
+            "fetched_at": 0.0,
+            "fetch_status": "initial",
+            "line_count": 0,
+        }
 
     def test_parses_plaintext(self):
         tor_text = "1.2.3.4\n5.6.7.8\n# comment\n\n9.9.9.9\n"
@@ -156,7 +161,12 @@ class TestRefreshTorCache:
     def test_ttl_hit_skips_fetch(self):
         import domain.ip_intel as m
 
-        m._tor_cache = {"data": frozenset({"1.2.3.4"}), "fetched_at": time.time()}
+        m._tor_cache = {
+            "data": frozenset({"1.2.3.4"}),
+            "fetched_at": time.time(),
+            "fetch_status": "ok",
+            "line_count": 1,
+        }
 
         with patch("domain.ip_intel._make_http_client") as mock_factory:
             from domain.ip_intel import _refresh_tor_cache
@@ -165,6 +175,71 @@ class TestRefreshTorCache:
             mock_factory.assert_not_called()
 
         assert "1.2.3.4" in result
+
+    def test_success_sets_status_ok(self):
+        """NEW-B: a successful fetch records fetch_status='ok' and line_count
+        so the verdict layer can surface 'tor' as queried (not unavailable)."""
+        body = b"1.2.3.4\n5.6.7.8\n"
+        resp = MagicMock()
+        resp.raise_for_status = MagicMock()
+        resp.headers.get = lambda k, default=None: None
+        resp.iter_bytes = lambda: iter([body])
+        ctx = MagicMock()
+        ctx.__enter__ = lambda s: resp
+        ctx.__exit__ = MagicMock(return_value=False)
+
+        with patch("domain.ip_intel._make_http_client") as mock_factory:
+            mock_factory.return_value = MagicMock(stream=MagicMock(return_value=ctx))
+            from domain.ip_intel import _refresh_tor_cache, tor_cache_status
+
+            _refresh_tor_cache()
+            assert tor_cache_status() == "ok"
+            import domain.ip_intel as m
+
+            assert m._tor_cache["line_count"] == 2
+
+    def test_fetch_exception_sets_status_failed(self):
+        """NEW-B: timeout / network error → fetch_status='failed' so the
+        verdict layer adds 'tor' to sources_unavailable, turning the silent
+        false-negative into honest signal."""
+        with patch("domain.ip_intel._make_http_client") as mock_factory:
+            mock_client = MagicMock()
+            mock_client.stream.side_effect = Exception("boom")
+            mock_factory.return_value = mock_client
+
+            from domain.ip_intel import _refresh_tor_cache, tor_cache_status
+
+            result = _refresh_tor_cache()
+            assert result == frozenset()
+            assert tor_cache_status() == "failed"
+
+    def test_body_capped_sets_status_capped(self):
+        """NEW-B: when _fetch_capped returns None (cap exceeded) the cache
+        records 'capped' status — not 'ok' just because the in-memory frozenset
+        happens to be empty."""
+        resp = MagicMock()
+        resp.raise_for_status = MagicMock()
+        # Force the cap branch by claiming a too-large content-length.
+        resp.headers.get = lambda k, default=None: "999999999" if k == "content-length" else default
+        resp.iter_bytes = lambda: iter([])
+        ctx = MagicMock()
+        ctx.__enter__ = lambda s: resp
+        ctx.__exit__ = MagicMock(return_value=False)
+
+        with patch("domain.ip_intel._make_http_client") as mock_factory:
+            mock_factory.return_value = MagicMock(stream=MagicMock(return_value=ctx))
+            from domain.ip_intel import _refresh_tor_cache, tor_cache_status
+
+            _refresh_tor_cache()
+            assert tor_cache_status() == "capped"
+
+    def test_initial_status_before_first_fetch(self):
+        """tor_cache_status() returns 'initial' until the first refresh runs.
+        Lets the verdict layer flag 'tor' as unavailable on the very first
+        request after a service restart."""
+        from domain.ip_intel import tor_cache_status
+
+        assert tor_cache_status() == "initial"
 
 
 # ── lookup tests ──────────────────────────────────────────────────────────────
@@ -217,12 +292,22 @@ class TestCheckTorExit:
     def setup_method(self):
         import domain.ip_intel as m
 
-        m._tor_cache = {"data": frozenset(), "fetched_at": 0.0}
+        m._tor_cache = {
+            "data": frozenset(),
+            "fetched_at": 0.0,
+            "fetch_status": "initial",
+            "line_count": 0,
+        }
 
     def test_ip_in_exit_set(self):
         import domain.ip_intel as m
 
-        m._tor_cache = {"data": frozenset({"5.9.32.230"}), "fetched_at": time.time()}
+        m._tor_cache = {
+            "data": frozenset({"5.9.32.230"}),
+            "fetched_at": time.time(),
+            "fetch_status": "ok",
+            "line_count": 1,
+        }
 
         from domain.ip_intel import check_tor_exit
 
@@ -231,7 +316,12 @@ class TestCheckTorExit:
     def test_ip_not_in_exit_set(self):
         import domain.ip_intel as m
 
-        m._tor_cache = {"data": frozenset({"5.9.32.230"}), "fetched_at": time.time()}
+        m._tor_cache = {
+            "data": frozenset({"5.9.32.230"}),
+            "fetched_at": time.time(),
+            "fetch_status": "ok",
+            "line_count": 1,
+        }
 
         from domain.ip_intel import check_tor_exit
 

@@ -61,7 +61,7 @@ from db import (
     save_cached_ip,
 )
 from domain.archive import wayback_lookup
-from domain.ip_intel import check_cloud_provider, check_firehol, check_tor_exit, score_ip
+from domain.ip_intel import check_cloud_provider, check_firehol, check_tor_exit, score_ip, tor_cache_status
 from domain.recon import (
     _ssl_grade,
     _ssrf_http,
@@ -339,9 +339,16 @@ def _ip_verdict(
     ripe_failed: bool = False,
     firehol_attempted: bool = False,
     firehol_failed: bool = False,
+    tor_status: str = "ok",
 ) -> Verdict:
-    """Build verdict metadata for ip_lookup responses."""
-    queried = ["internetdb", "ripe_stat"]
+    """Build verdict metadata for ip_lookup responses.
+
+    `tor_status` mirrors `_tor_cache["fetch_status"]` so a downstream agent
+    can tell `tor_exit=false because not in list` from `tor_exit=false
+    because we never got the list` (Bug NEW-B). Anything other than "ok"
+    surfaces "tor" in sources_unavailable.
+    """
+    queried = ["internetdb", "ripe_stat", "tor"]
     if firehol_attempted:
         queried.append("firehol")
     if reputation_attempted:
@@ -351,6 +358,8 @@ def _ip_verdict(
         unavailable.append("internetdb")
     if ripe_failed:
         unavailable.append("ripe_stat")
+    if tor_status != "ok":
+        unavailable.append("tor")
     if firehol_attempted and firehol_failed:
         unavailable.append("firehol")
     if reputation_attempted and reputation_failed:
@@ -1253,6 +1262,7 @@ def ip_lookup(ip: IpPath, request: Request):
         tor_exit = check_tor_exit(ip)
     except Exception:
         tor_exit = False
+    tor_status = tor_cache_status()
 
     try:
         asn_data = f_asn_country.result(timeout=6.0)
@@ -1310,6 +1320,7 @@ def ip_lookup(ip: IpPath, request: Request):
         ripe_failed,
         firehol_attempted=firehol_attempted,
         firehol_failed=firehol_failed,
+        tor_status=tor_status,
     )
     pivot_hints = _ip_pivot_hints(ip, asn_val, reputation, auth_ctx["tier"])
     if pivot_hints:

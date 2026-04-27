@@ -29,7 +29,17 @@ logger = logging.getLogger("contrastapi")
 _cloud_cache: dict = {"v4": None, "v6": None, "fetched_at": 0.0}
 _cloud_lock = threading.Lock()
 
-_tor_cache: dict = {"data": frozenset(), "fetched_at": 0.0}
+_tor_cache: dict = {
+    "data": frozenset(),
+    "fetched_at": 0.0,
+    # Honesty metadata for the verdict layer (Bug NEW-B): without this every
+    # `tor_exit=false` was indistinguishable from "fetch failed, list is
+    # empty" — a known-Tor-exit IP would silently report tor_exit=false and
+    # the agent had no way to tell. fetch_status is one of:
+    # "initial" | "ok" | "failed" | "capped".
+    "fetch_status": "initial",
+    "line_count": 0,
+}
 _tor_lock = threading.Lock()
 
 _firehol_cache: dict = {
@@ -199,6 +209,13 @@ def _refresh_tor_cache() -> frozenset:
             body = _fetch_capped(client, TOR_EXIT_LIST_URL, TOR_EXIT_MAX_BYTES)
             if body is None:
                 logger.warning("Tor exit list exceeded cap (%d bytes)", TOR_EXIT_MAX_BYTES)
+                _tor_cache = {
+                    **_tor_cache,
+                    "fetch_status": "capped",
+                    # bump fetched_at so we honour the TTL — otherwise every
+                    # request hammers the upstream while it is misbehaving.
+                    "fetched_at": time.time(),
+                }
                 return _tor_cache.get("data", frozenset())
             ips_set: set[str] = set()
             for line in body.decode("utf-8", errors="replace").splitlines():
@@ -212,14 +229,41 @@ def _refresh_tor_cache() -> frozenset:
                     continue
                 ips_set.add(candidate)
             ips = frozenset(ips_set)
-            _tor_cache = {"data": ips, "fetched_at": time.time()}
+            _tor_cache = {
+                "data": ips,
+                "fetched_at": time.time(),
+                "fetch_status": "ok",
+                "line_count": len(ips),
+            }
             logger.info("Tor exit list loaded: %d IPs", len(ips))
             return ips
         except Exception as e:
             logger.warning("Tor exit list fetch failed: %s", type(e).__name__)
+            _tor_cache = {
+                **_tor_cache,
+                "fetch_status": "failed",
+                "fetched_at": time.time(),
+            }
             return _tor_cache.get("data", frozenset())
         finally:
             client.close()
+
+
+def tor_cache_status() -> str:
+    """Expose `_tor_cache["fetch_status"]` for the verdict layer.
+
+    Returns one of "initial" | "ok" | "failed" | "capped". The route handler
+    uses this to add "tor" to verdict.sources_unavailable when the upstream
+    list is missing — so a downstream agent can tell `tor_exit=false because
+    not in list` from `tor_exit=false because we never got the list`.
+
+    Holds `_tor_lock` to keep the read consistent with the dict-replace
+    pattern used by `_refresh_tor_cache`. CPython's GIL makes a single
+    `dict.get` atomic, but reading without the lock would still let a status
+    appear stale across a concurrent refresh on a non-GIL runtime.
+    """
+    with _tor_lock:
+        return _tor_cache.get("fetch_status", "initial")
 
 
 def _strip_zone(ip: str) -> str:
