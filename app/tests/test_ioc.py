@@ -527,6 +527,37 @@ def test_ioc_lookup_domain_queries_threatfox_and_urlhaus_no_feodo(client):
     assert not feodo.called
 
 
+def test_ioc_lookup_second_call_served_from_cache(client):
+    """Second call for same indicator must skip all upstream feeds."""
+    with (
+        patch("ioc.routes.query_threatfox", return_value={"found": False}) as tf,
+        patch("ioc.routes.query_feodo", return_value={"found": False}),
+        patch("ioc.routes.check_urlhaus", return_value={"url_count": 0, "urls_online": 0}),
+        patch("ioc.routes.check_tor_exit", return_value=False),
+        patch("ioc.routes.tor_cache_status", return_value="ok"),
+    ):
+        r1 = client.get("/v1/ioc/8.8.8.8")
+        r2 = client.get("/v1/ioc/8.8.8.8")
+    assert r1.status_code == 200
+    assert r2.status_code == 200
+    assert r1.json() == r2.json()
+    assert tf.call_count == 1, "ThreatFox must only fire on cold call"
+
+
+def test_ioc_lookup_cache_segregates_by_indicator(client):
+    """Distinct indicators must produce distinct cache entries."""
+    with (
+        patch("ioc.routes.query_threatfox", return_value={"found": False}) as tf,
+        patch("ioc.routes.query_feodo", return_value={"found": False}),
+        patch("ioc.routes.check_urlhaus", return_value={"url_count": 0, "urls_online": 0}),
+        patch("ioc.routes.check_tor_exit", return_value=False),
+        patch("ioc.routes.tor_cache_status", return_value="ok"),
+    ):
+        client.get("/v1/ioc/8.8.8.8")
+        client.get("/v1/ioc/1.1.1.1")
+    assert tf.call_count == 2
+
+
 # --- /v1/hash/{hash} ---
 
 

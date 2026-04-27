@@ -11,6 +11,7 @@ from urllib.parse import urlparse
 import httpx
 from auth import authenticate
 from config import URLHAUS_API_KEY
+from db import get_cached_domain, save_cached_domain
 from domain.ip_intel import check_tor_exit, tor_cache_status
 from domain.recon import _dns_call_with_timeout
 from domain.threat import check_urlhaus
@@ -81,6 +82,15 @@ def ioc_lookup(
         raise HTTPException(
             status_code=400, detail="Could not detect indicator type. Provide an IP, domain, URL, or file hash."
         )
+
+    # Cache full response for ≤1h. Threat-feed pulls (ThreatFox/Feodo/URLhaus)
+    # cost 2-10s each in the cold path; the same IOC re-queried within the hour
+    # returns identical content. Key is lowercased so case-variant hashes/IPs
+    # share a slot. Tor cache lookup (free, in-memory) is bundled in cache too.
+    cache_key = f"ioc:{indicator.lower()}"
+    cached = get_cached_domain(cache_key)
+    if cached:
+        return {**cached}
 
     sources = {}
     threat_parts = []
@@ -186,14 +196,16 @@ def ioc_lookup(
     else:
         summary = f"{indicator} — no threats found across {len(sources)} sources"
 
-    return {
+    response = {
         "indicator": indicator,
         "type": ioc_type,
         "threat_level": threat_level,
         "sources": sources,
         "summary": summary,
-        "verdict": _ioc_verdict(queried_sources, unavailable_sources),
+        "verdict": _ioc_verdict(queried_sources, unavailable_sources).model_dump(),
     }
+    save_cached_domain(cache_key, response)
+    return response
 
 
 @router.get(
