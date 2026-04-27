@@ -26,6 +26,45 @@ logger = logging.getLogger("contrastapi")
 
 USER_AGENT = "contrastapi/1.0"
 
+
+# Unicode bidirectional / format control codepoints that are >U+0020 yet still
+# unsafe to emit verbatim — Trojan Source (CVE-2021-42574) and DKIM/DMARC
+# spoofing both abuse these to reverse the visual rendering order of an
+# untrusted DNS / crt.sh string. Literal lookup is faster than
+# unicodedata.category here because it runs in the request hot path.
+_BIDI_CONTROL_CHARS = frozenset(
+    {
+        "‪",  # LRE
+        "‫",  # RLE
+        "‬",  # PDF
+        "‭",  # LRO
+        "‮",  # RLO
+        "⁦",  # LRI
+        "⁧",  # RLI
+        "⁨",  # FSI
+        "⁩",  # PDI
+    }
+)
+
+
+def _strip_control_chars(s: str) -> str:
+    """Drop ASCII control + DEL + Unicode bidi/format controls + replacement
+    char so untrusted-source strings (DNS TXT, crt.sh subject names, DKIM/
+    DMARC tags) cannot smuggle `\\x00`, `\\x7f`, RTL overrides, or U+FFFD
+    passthrough into wire payloads.
+
+    Single canonical helper for: TXT chunk reassembly, _crtsh_subdomains
+    `name_value` parsing, DMARC TXT, DKIM TXT fallback. errors='replace'
+    upstream produces U+FFFD which we also drop here so a single bad UTF-8
+    sequence does not stay in the response. Bidi controls (U+202A-U+202E,
+    U+2066-U+2069) are >U+0020 - without the explicit set check they would
+    pass the `c >= " "` guard and survive into the response, leaking a
+    Trojan-Source-style display attack to anyone reading the JSON in a
+    bidi-aware terminal or UI.
+    """
+    return "".join(c for c in s if c >= " " and c != "\x7f" and c != "�" and c not in _BIDI_CONTROL_CHARS)
+
+
 # Module-level client for simple HTTP calls (connection pooling)
 _http = httpx.Client(
     timeout=httpx.Timeout(RECON_TIMEOUT, connect=5.0),
@@ -161,7 +200,9 @@ def dns_lookup(domain: str) -> dict:
                     "serial": soa.serial,
                 }
             elif rtype == "TXT":
-                records["txt"] = [b"".join(r.strings).decode("utf-8", errors="replace") for r in answers]
+                records["txt"] = [
+                    _strip_control_chars(b"".join(r.strings).decode("utf-8", errors="replace")) for r in answers
+                ]
             else:
                 records[rtype.lower()] = [str(r).strip('"') for r in answers]
         except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN, dns.resolver.NoNameservers, dns.exception.Timeout):
@@ -411,7 +452,7 @@ def _crtsh_subdomains(domain: str, data: list | None = None) -> tuple[list, list
         try:
             name = entry.get("name_value", "")
             for n in name.split("\n"):
-                n = n.strip().lower()
+                n = _strip_control_chars(n).strip().lower()
                 if "*" in n:
                     n = n.replace("*.", "")
                 if n.endswith(f".{domain}") and n != domain:
@@ -428,22 +469,40 @@ def _crtsh_subdomains(domain: str, data: list | None = None) -> tuple[list, list
 # === CT Logs ===
 
 
-def check_ct_logs(domain: str, crtsh_data: list | None = None) -> dict:
+def check_ct_logs(domain: str, crtsh_data: list | None = None, crtsh_error: str | None = None) -> dict:
     """Certificate transparency log lookup via crt.sh.
 
     Returns dict with `error` field populated (e.g. "crt_sh_timeout") when the
     upstream fetch failed — distinguishes "no certs found" from "fetch failed"
     so the caller can mark the source unavailable instead of penalizing the
-    domain in scoring.
+    domain in scoring. `crtsh_status` mirrors the Literal taxonomy used by
+    `_crtsh_subdomains` so both halves of the recon report agree on whether
+    crt.sh delivered.
+
+    The optional `crtsh_error` argument lets full_domain_report's pre-fetched
+    crt.sh path propagate fetch failures without re-fetching: when the caller
+    already paid the round-trip cost via _fetch_crtsh, it can pass the error
+    string through so the certificates branch is just as honest as the
+    subdomains branch (Bug B3 — previously `error` was always None on this
+    path even when crt.sh had failed).
     """
-    fetch_error: str | None = None
+    fetch_error: str | None = crtsh_error
     if crtsh_data is None:
         data, fetch_error = _fetch_crtsh(domain)
     else:
         data = crtsh_data
+    # Pattern parity with _crtsh_subdomains: an unrecognised error string is
+    # surfaced as 'error' rather than masquerading as 'ok' — the latter would
+    # let new upstream failure modes silently look like clean empty results.
+    status = _CRTSH_STATUS_BY_ERROR.get(fetch_error, "error") if fetch_error else "ok"
     try:
         if not data:
-            return {"total_certificates": 0, "certificates": [], "error": fetch_error}
+            return {
+                "total_certificates": 0,
+                "certificates": [],
+                "error": fetch_error,
+                "crtsh_status": status,
+            }
 
         certs = []
         seen: set[str] = set()
@@ -465,10 +524,16 @@ def check_ct_logs(domain: str, crtsh_data: list | None = None) -> dict:
             "total_certificates": len(data),
             "certificates": certs[:CT_MAX_CERTS],
             "error": None,
+            "crtsh_status": status,
         }
     except Exception as e:
         logger.debug("CT log parse failed: %s", type(e).__name__)
-        return {"total_certificates": 0, "certificates": [], "error": "parse_error"}
+        return {
+            "total_certificates": 0,
+            "certificates": [],
+            "error": "parse_error",
+            "crtsh_status": "error",
+        }
 
 
 # === WAF Detection ===
@@ -703,7 +768,7 @@ def email_security(domain: str, txt_records: list | None = None) -> dict:
     try:
         answers = resolver.resolve(f"_dmarc.{domain}", "TXT")
         for r in answers:
-            val = b"".join(r.strings).decode("utf-8", errors="replace")
+            val = _strip_control_chars(b"".join(r.strings).decode("utf-8", errors="replace"))
             if val.lower().startswith("v=dmarc1"):
                 dmarc = val
                 break
@@ -735,11 +800,11 @@ def email_security(domain: str, txt_records: list | None = None) -> dict:
             return None
         for rec in answers:
             try:
-                value = b"".join(rec.strings).decode("utf-8", errors="replace").lower()
+                value = _strip_control_chars(b"".join(rec.strings).decode("utf-8", errors="replace")).lower()
             except (AttributeError, UnicodeDecodeError):
                 # rec.strings is the canonical TXT idiom; str(rec) on multi-string
                 # TXT yields '"chunk1" "chunk2"' which corrupts DKIM tag parsing.
-                value = str(rec).replace('" "', "").strip('"').lower()
+                value = _strip_control_chars(str(rec).replace('" "', "").strip('"')).lower()
             if "v=dmarc1" in value or "v=spf1" in value:
                 continue
             if "v=dkim1" in value:
@@ -1154,8 +1219,8 @@ def full_domain_report(
             f_subs = pool.submit(_subs_with_crtsh)
 
             def _ct_with_crtsh():
-                data, _ = f_crtsh.result(timeout=CRTSH_TIMEOUT + 2)
-                return check_ct_logs(domain, data)
+                data, fetch_error = f_crtsh.result(timeout=CRTSH_TIMEOUT + 2)
+                return check_ct_logs(domain, data, crtsh_error=fetch_error)
 
             f_certs = pool.submit(_ct_with_crtsh)
 

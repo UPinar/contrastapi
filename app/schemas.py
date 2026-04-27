@@ -167,6 +167,16 @@ class CertificatesInfo(BaseModel):
             "from 'fetch failed'; risk_score skips the CT factor when this is set."
         ),
     )
+    crtsh_status: Literal["ok", "timeout", "rate_limited", "unavailable", "error"] | None = Field(
+        default=None,
+        description=(
+            "Status of the crt.sh fetch behind certificates. Mirrors subdomains.crtsh_status "
+            "so both halves of a domain_report agree on whether CT logs delivered. 'ok' means "
+            "the upstream responded — total_certificates=0 with status='ok' is a real empty "
+            "result. Anything else (timeout / rate_limited / unavailable / error) means the "
+            "upstream did not deliver and the cert list may be missing entries."
+        ),
+    )
 
     model_config = {"extra": "allow"}
 

@@ -1750,6 +1750,59 @@ class TestDomainScoring:
         assert result["max_score"] == 100
 
 
+class TestStripControlChars:
+    """Single canonical helper that drops ASCII control + DEL + Unicode
+    replacement char from untrusted upstream strings (DNS TXT / DKIM /
+    DMARC / crt.sh). Replaces four ad-hoc errors='replace' passthrough
+    sites that previously let `\\x00`, `\\x7f`, RTL overrides, and
+    U+FFFD into wire payloads."""
+
+    def test_strips_null_byte(self):
+        from domain.recon import _strip_control_chars
+
+        assert _strip_control_chars("v=spf1\x00 -all") == "v=spf1 -all"
+
+    def test_strips_del_byte(self):
+        from domain.recon import _strip_control_chars
+
+        assert _strip_control_chars("foo\x7fbar") == "foobar"
+
+    def test_strips_rtl_override_via_replacement_char(self):
+        from domain.recon import _strip_control_chars
+
+        # RTL override is U+202E in source; after errors='replace' UTF-8
+        # decode it can show up as the U+FFFD replacement character.
+        assert _strip_control_chars("subdomain�.example.com") == "subdomain.example.com"
+
+    def test_strips_unicode_bidi_controls(self):
+        """Trojan-Source class — bidi controls are >U+0020 so the simple
+        `c >= ' '` guard would let them through. Each must be filtered."""
+        from domain.recon import _strip_control_chars
+
+        # U+202A LRE, U+202B RLE, U+202C PDF, U+202D LRO, U+202E RLO,
+        # U+2066 LRI, U+2067 RLI, U+2068 FSI, U+2069 PDI.
+        for codepoint in (0x202A, 0x202B, 0x202C, 0x202D, 0x202E, 0x2066, 0x2067, 0x2068, 0x2069):
+            payload = f"v=DKIM1; p=AAA{chr(codepoint)}BBB"
+            cleaned = _strip_control_chars(payload)
+            assert chr(codepoint) not in cleaned, f"bidi U+{codepoint:04X} survived"
+            assert cleaned == "v=DKIM1; p=AAABBB"
+
+    def test_preserves_printable_unicode(self):
+        from domain.recon import _strip_control_chars
+
+        assert _strip_control_chars("v=DKIM1; p=ABCD/EFG+1234=") == "v=DKIM1; p=ABCD/EFG+1234="
+
+    def test_strips_tab_and_lf(self):
+        from domain.recon import _strip_control_chars
+
+        assert _strip_control_chars("a\tb\nc") == "abc"
+
+    def test_empty_string(self):
+        from domain.recon import _strip_control_chars
+
+        assert _strip_control_chars("") == ""
+
+
 class TestCtLogsErrorPropagation:
     """check_ct_logs surfaces _fetch_crtsh errors so the scorer can detect them."""
 
@@ -1762,6 +1815,7 @@ class TestCtLogsErrorPropagation:
             result = check_ct_logs("example.com")
         assert result["error"] == "crt_sh_timeout"
         assert result["total_certificates"] == 0
+        assert result["crtsh_status"] == "timeout"
 
     def test_check_ct_logs_clears_error_on_success(self):
         from unittest.mock import patch
@@ -1773,6 +1827,43 @@ class TestCtLogsErrorPropagation:
             result = check_ct_logs("example.com")
         assert result["error"] is None
         assert result["total_certificates"] == 1
+        assert result["crtsh_status"] == "ok"
+
+    def test_check_ct_logs_pre_fetched_error_propagates(self):
+        """Bug B3: full_domain_report passes pre-fetched data + crtsh_error so the
+        certificates branch is as honest as the subdomains branch — previously
+        `error` was always None on this path even when crt.sh had failed."""
+        from domain.recon import check_ct_logs
+
+        result = check_ct_logs("example.com", crtsh_data=[], crtsh_error="crt_sh_unavailable")
+        assert result["error"] == "crt_sh_unavailable"
+        assert result["crtsh_status"] == "unavailable"
+        assert result["total_certificates"] == 0
+
+    def test_check_ct_logs_pre_fetched_data_no_error_is_ok(self):
+        from domain.recon import check_ct_logs
+
+        fake_data = [{"serial_number": "x", "issuer_name": "Y", "common_name": "example.com"}]
+        result = check_ct_logs("example.com", crtsh_data=fake_data, crtsh_error=None)
+        assert result["error"] is None
+        assert result["crtsh_status"] == "ok"
+        assert result["total_certificates"] == 1
+
+    def test_check_ct_logs_status_mirrors_subdomains_for_each_error(self):
+        """Pattern parity: every _fetch_crtsh error string maps to the same
+        Literal in CertificatesInfo.crtsh_status as in SubdomainsInfo.crtsh_status."""
+        from domain.recon import check_ct_logs
+
+        cases = {
+            "crt_sh_timeout": "timeout",
+            "crt_sh_rate_limited": "rate_limited",
+            "crt_sh_unavailable": "unavailable",
+            "crt_sh_error": "error",
+            "parse_error": "error",
+        }
+        for fetch_error, expected_status in cases.items():
+            result = check_ct_logs("example.com", crtsh_data=[], crtsh_error=fetch_error)
+            assert result["crtsh_status"] == expected_status, fetch_error
 
 
 class TestSslGrade:
