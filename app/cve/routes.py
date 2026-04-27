@@ -18,6 +18,7 @@ from db import (
     get_last_successful_sync,
     get_leading_cves,
     get_related_cves_by_product,
+    hash_client_ip,
     save_cached_domain,
     search_cves,
     search_exploits_by_cve,
@@ -1185,7 +1186,7 @@ def bulk_cve_lookup(body: _BulkCveRequest, request: Request):
         store_key = f"pro:{hash_key(raw_key)}"
         limit = PRO_HOURLY_LIMIT
     else:
-        store_key = f"free:{client_ip}"
+        store_key = f"free:{hash_client_ip(client_ip)}"
         limit = FREE_HOURLY_LIMIT
 
     if count > 1 and not ratelimit.consume_bulk("api", store_key, count - 1, limit):

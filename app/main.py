@@ -40,6 +40,7 @@ from db import (
     get_sync_status,
     get_total_requests,
     has_pending_key,
+    hash_client_ip,
     init_all_dbs,
 )
 from fastapi import FastAPI, HTTPException, Request
@@ -514,7 +515,7 @@ def welcome_page(request: Request, order_id: str = ""):
 
     # Rate limit: 5 req/min per IP
     client_ip = get_client_ip(request)
-    if not check_limit("welcome", client_ip, max_requests=5, window_seconds=60):
+    if not check_limit("welcome", hash_client_ip(client_ip), max_requests=5, window_seconds=60):
         raise HTTPException(status_code=429, detail="Too many requests")
 
     api_key = get_and_clear_pending_key(order_id)
@@ -560,7 +561,7 @@ def check_key_ready(request: Request, order_id: str = ""):
         raise HTTPException(status_code=400, detail="Invalid order_id format") from None
 
     client_ip = get_client_ip(request)
-    if not check_limit("check_key", client_ip, max_requests=10, window_seconds=60):
+    if not check_limit("check_key", hash_client_ip(client_ip), max_requests=10, window_seconds=60):
         raise HTTPException(status_code=429, detail="Too many requests")
 
     return {"ready": has_pending_key(order_id)}

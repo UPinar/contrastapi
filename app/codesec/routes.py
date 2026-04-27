@@ -8,7 +8,7 @@ from auth import authenticate
 from codesec.headers import check_headers
 from codesec.injection import detect_injection
 from codesec.secrets import detect_secrets
-from db import _normalize_product, _parse_version, search_cves_by_products_bulk
+from db import _normalize_product, _parse_version, hash_client_ip, search_cves_by_products_bulk
 from domain.recon import fetch_live_headers
 from fastapi import APIRouter, HTTPException, Path, Query, Request
 from pydantic import BaseModel, Field
@@ -288,7 +288,7 @@ def check_dependencies_endpoint(body: DependenciesInput, request: Request):
         store_key = f"pro:{hash_key(raw_key)}"
         limit = PRO_HOURLY_LIMIT
     else:
-        store_key = f"free:{get_client_ip(request)}"
+        store_key = f"free:{hash_client_ip(get_client_ip(request))}"
         limit = FREE_HOURLY_LIMIT
 
     if count > 1 and not ratelimit.consume_bulk("api", store_key, count - 1, limit):

@@ -1112,7 +1112,7 @@ def full_domain_report(
     """
     report = {"domain": domain}
 
-    from db import get_cached_ip, save_cached_ip
+    from db import get_cached_ip, hash_client_ip, save_cached_ip
     from domain.reputation import check_abuseipdb, check_shodan
     from domain.threat import check_urlhaus
 
@@ -1125,7 +1125,7 @@ def full_domain_report(
             enrich = True  # cache hit, no quota consumed
         elif client_ip and ratelimit.check_limit(
             store_name="enrichment",
-            key=client_ip,
+            key=hash_client_ip(client_ip),
             max_requests=ENRICHMENT_DAILY_LIMIT,
             window_seconds=86400,
         ):

@@ -479,6 +479,7 @@ def bulk_ioc_lookup(body: _BulkIocRequest, request: Request):
     import ratelimit
     from auth import extract_key, hash_key
     from config import FREE_BULK_LIMIT, FREE_HOURLY_LIMIT, PRO_BULK_LIMIT, PRO_HOURLY_LIMIT
+    from db import hash_client_ip
     from validation import get_client_ip
 
     auth_ctx = authenticate(request, "/v1/iocs/bulk")
@@ -502,7 +503,7 @@ def bulk_ioc_lookup(body: _BulkIocRequest, request: Request):
         store_key = f"pro:{hash_key(raw_key)}"
         limit = PRO_HOURLY_LIMIT
     else:
-        store_key = f"free:{client_ip}"
+        store_key = f"free:{hash_client_ip(client_ip)}"
         limit = FREE_HOURLY_LIMIT
 
     if count > 1 and not ratelimit.consume_bulk("api", store_key, count - 1, limit):

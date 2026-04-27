@@ -52,7 +52,14 @@ from config import (
 )
 from cryptography import x509
 from cryptography.x509.oid import AuthorityInformationAccessOID
-from db import get_cached_domain, get_cached_domain_with_age, get_cached_ip_with_age, save_cached_domain, save_cached_ip
+from db import (
+    get_cached_domain,
+    get_cached_domain_with_age,
+    get_cached_ip_with_age,
+    hash_client_ip,
+    save_cached_domain,
+    save_cached_ip,
+)
 from domain.archive import wayback_lookup
 from domain.ip_intel import check_cloud_provider, check_firehol, check_tor_exit, score_ip
 from domain.recon import (
@@ -1197,7 +1204,7 @@ def ip_lookup(ip: IpPath, request: Request):
         reputation_attempted = True
     elif auth_ctx["tier"] == "pro" and ratelimit.check_limit(
         store_name="enrichment",
-        key=client_ip,
+        key=hash_client_ip(client_ip),
         max_requests=ENRICHMENT_DAILY_LIMIT,
         window_seconds=86400,
     ):
@@ -1762,7 +1769,7 @@ def bulk_domain_report(body: _BulkRequest, request: Request):
     else:
         from config import FREE_HOURLY_LIMIT
 
-        store_key = f"free:{client_ip}"
+        store_key = f"free:{hash_client_ip(client_ip)}"
         limit = FREE_HOURLY_LIMIT
 
     # Atomic check-and-consume: authenticate() already consumed 1, we need (count - 1) more

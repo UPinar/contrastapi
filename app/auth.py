@@ -9,7 +9,7 @@ import hashlib
 import secrets
 
 from config import FREE_HOURLY_LIMIT, KEY_LENGTH, KEY_PREFIX, PRO_HOURLY_LIMIT
-from db import get_api_key, log_usage, touch_api_key
+from db import get_api_key, hash_client_ip, log_usage, touch_api_key
 from fastapi import HTTPException, Request
 from ratelimit import consume_credits, get_reset_time
 
@@ -101,10 +101,11 @@ def authenticate(request: Request, endpoint: str, cost: int = 1) -> dict:
         request.state.ratelimit_tier = "pro"
         return {"tier": "pro", "key_hash": kh, "client_ip": client_ip}
 
-    # Keyless — IP rate limit (sliding window)
+    # Keyless — IP rate limit (sliding window). Hash IP to keep rate_limits
+    # table privacy-safe (raw IP would otherwise sit on disk for up to 1h).
     limit = FREE_HOURLY_LIMIT
     advertised_limit = limit
-    store_key = f"free:{client_ip}"
+    store_key = f"free:{hash_client_ip(client_ip)}"
 
     if not localhost:
         allowed, remaining = consume_credits("api", store_key, cost, limit)
