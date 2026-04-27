@@ -509,6 +509,29 @@ class TestDomainRoutes:
         # Cache key is tier-prefixed (free-tier unauthenticated test client)
         mock_cache.assert_called_once_with("free:lite:example.com")
 
+    @patch("domain.routes.full_domain_report", return_value=MOCK_FULL_REPORT)
+    @patch("domain.routes.validate_domain", return_value="93.184.216.34")
+    def test_domain_report_lite_and_full_use_distinct_cache_keys(self, mock_validate, mock_report):
+        """Regression for B4: a lite-cached entry must NOT be served to a full
+        request and vice versa. The two modes have different response shapes
+        (full includes WHOIS / subdomains / CT logs / URLhaus / reputation
+        that lite skips); cross-serving would silently downgrade a full
+        consumer to lite-shape data."""
+        from unittest.mock import patch as _patch
+
+        keys_seen: list[str] = []
+
+        def fake_get(key: str):
+            keys_seen.append(key)
+            return None
+
+        with _patch("domain.routes.get_cached_domain_with_age", side_effect=fake_get):
+            client.get("/v1/domain/example.com?lite=true")
+            client.get("/v1/domain/example.com")
+        assert keys_seen == ["free:lite:example.com", "free:example.com"]
+        # full_domain_report fired twice (no cross-mode cache reuse)
+        assert mock_report.call_count == 2
+
     @patch("domain.routes._is_valid_format", return_value=False)
     @patch("domain.routes.validate_domain", return_value=None)
     @patch("domain.routes.get_cached_domain_with_age", return_value=None)
