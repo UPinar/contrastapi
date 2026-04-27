@@ -655,6 +655,18 @@ class TestDomainRoutes:
         data = r.json()
         assert data["total_certificates"] == 1
 
+    @patch("domain.routes.check_ct_logs", return_value=MOCK_CT_RESULT)
+    @patch("domain.routes.validate_domain", return_value="93.184.216.34")
+    def test_certs_second_call_served_from_cache(self, mock_validate, mock_ct):
+        # Cold call writes to dedicated `certificates:{domain}` cache.
+        r1 = client.get("/v1/certs/example.com")
+        assert r1.status_code == 200
+        # Hot call must NOT re-invoke check_ct_logs (CT log fetch can take 10s+).
+        r2 = client.get("/v1/certs/example.com")
+        assert r2.status_code == 200
+        assert r2.json()["total_certificates"] == 1
+        assert mock_ct.call_count == 1
+
     @patch(
         "domain.routes.ip_enrichment",
         return_value={
@@ -1161,6 +1173,31 @@ class TestSubdomainPivotHints:
         assert next_calls is not None
         assert len(next_calls) == 5
         assert all(hint["tool"] == "ssl_check" for hint in next_calls)
+
+    @patch(
+        "domain.routes.enumerate_subdomains",
+        return_value={
+            "subdomains": ["api.example.com"],
+            "count": 1,
+            "summary": "1 subdomain",
+            "found_via_wordlist": 1,
+            "found_via_crtsh": 0,
+            "sources": ["wordlist"],
+            "warnings": [],
+            "crtsh_status": "ok",
+        },
+    )
+    @patch("domain.routes.validate_domain", return_value="93.184.216.34")
+    def test_subdomains_second_call_served_from_cache(self, mock_validate, mock_enum):
+        # Cold call writes to dedicated `subdomains:{domain}` cache.
+        r1 = client.get("/v1/subdomains/example.com")
+        assert r1.status_code == 200
+        # Hot call must NOT re-invoke enumerate_subdomains (which is the expensive
+        # DNS-brute + crt.sh path; CT logs alone can take 10s).
+        r2 = client.get("/v1/subdomains/example.com")
+        assert r2.status_code == 200
+        assert r2.json()["count"] == 1
+        assert mock_enum.call_count == 1
 
 
 class TestDomainReportTxtFilter:

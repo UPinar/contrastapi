@@ -849,11 +849,15 @@ def _subdomain_pivot_hints(subdomains: list[str] | None) -> list[PivotHint]:
 def subdomains(domain: DomainPath, request: Request):
     """Subdomain enumeration via DNS brute force + certificate transparency."""
     domain, resolved_ip, auth_ctx = _validate_and_auth(request, domain)
-    cached = _from_cache(domain, "subdomains", auth_ctx["tier"])
+    # Tier-agnostic: DNS+CT data is the same regardless of caller, flat key maximises hits.
+    cached = get_cached_domain(f"subdomains:{domain}")
+    if cached is None:
+        cached = _from_cache(domain, "subdomains", auth_ctx["tier"])
     if cached:
         sub_list = cached.get("subdomains") or []
         return {"domain": domain, **cached, "next_calls": _subdomain_pivot_hints(sub_list) or None}
     result = enumerate_subdomains(domain)
+    save_cached_domain(f"subdomains:{domain}", result)
     sub_list = result.get("subdomains") or []
     return {"domain": domain, **result, "next_calls": _subdomain_pivot_hints(sub_list) or None}
 
@@ -862,12 +866,16 @@ def subdomains(domain: DomainPath, request: Request):
 def certs(domain: DomainPath, request: Request):
     """Certificate transparency log lookup."""
     domain, resolved_ip, auth_ctx = _validate_and_auth(request, domain)
-    cached = _from_cache(domain, "certificates", auth_ctx["tier"])
+    # Tier-agnostic: CT log data is the same regardless of caller, flat key maximises hits.
+    cached = get_cached_domain(f"certificates:{domain}")
+    if cached is None:
+        cached = _from_cache(domain, "certificates", auth_ctx["tier"])
     if cached:
         total = cached.get("total_certificates", 0)
         summary = f"{total} certificate{'s' if total != 1 else ''} in CT logs for {domain}"
         return {"domain": domain, **cached, "summary": summary}
     result = check_ct_logs(domain)
+    save_cached_domain(f"certificates:{domain}", result)
     total = result.get("total_certificates", 0)
     summary = f"{total} certificate{'s' if total != 1 else ''} in CT logs for {domain}"
     return {"domain": domain, **result, "summary": summary}
