@@ -1537,6 +1537,14 @@ class AsnResponse(BaseModel):
     ipv6_count: int = 0
     summary: str = ""
     warnings: list[str] = Field(default_factory=list)
+    # Bug I2: every other live-fetch tool emits a verdict block (sources_queried
+    # / sources_unavailable / completeness / falsifiable_fields). Pattern parity
+    # — agents can now treat asn_lookup the same way they treat ip_lookup or
+    # threat_report when checking source provenance.
+    verdict: Verdict | None = Field(
+        default=None,
+        description="Source provenance for the ASN response (RIPE Stat sub-endpoints).",
+    )
 
 
 # === WHOIS ===

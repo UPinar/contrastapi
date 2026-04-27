@@ -385,6 +385,36 @@ def _ip_verdict(
     )
 
 
+def _asn_verdict(warnings: list[str], age_seconds: int | None) -> Verdict:
+    """Build verdict metadata for asn_lookup responses (Bug I2 — pattern parity
+    with ip_lookup / threat_report).
+
+    Maps the route's `warnings` list (e.g. 'as-overview: timeout',
+    'announced-prefixes: timeout') back into the canonical sub-source name
+    so agents can tell *which* RIPE Stat sub-endpoint failed instead of
+    parsing the human-readable warning string.
+    """
+    queried = ["ripe_stat:network-info", "ripe_stat:as-overview", "ripe_stat:announced-prefixes"]
+    unavailable: list[str] = []
+    # Prefix-match (not substring) so a warning whose `:reason` half happens
+    # to contain the literal text "announced-prefixes" cannot forge a
+    # sources_unavailable entry. Both upstream tags are produced by our own
+    # AsnUpstreamError, but anchoring on the prefix is the safer pattern.
+    for w in warnings:
+        if w.startswith("as-overview:"):
+            unavailable.append("ripe_stat:as-overview")
+        elif w.startswith("announced-prefixes:"):
+            unavailable.append("ripe_stat:announced-prefixes")
+    return Verdict(
+        deterministic=True,
+        falsifiable_fields=["asn", "asn_name", "ipv4_prefixes", "ipv6_prefixes"],
+        data_age_seconds=age_seconds,
+        sources_queried=queried,
+        sources_unavailable=unavailable,
+        completeness="partial" if unavailable else "complete",
+    )
+
+
 def _threat_verdict(unavailable: bool = False) -> Verdict:
     """Build verdict metadata for threat_intel responses (live URLhaus query, age=0)."""
     unavailable_list = ["urlhaus"] if unavailable else []
@@ -1586,6 +1616,11 @@ def asn_lookup(
             seq = result.get(key) or []
             if seq and isinstance(seq[0], dict):
                 result[key] = [p.get("prefix", "") for p in seq if p.get("prefix")]
+        # Rebuild the verdict from cached warnings — older cache entries
+        # written before Bug I2 do not carry one, and even fresh entries
+        # should report data_age_seconds=None on a cache hit (we do not
+        # track exact age in the asn cache).
+        result["verdict"] = _asn_verdict(cached.get("warnings") or [], age_seconds=None)
         return _truncate_asn_prefixes(result, include_full_prefixes)
 
     # Fetch ASN from RIPE Stat
@@ -1718,10 +1753,15 @@ def asn_lookup(
     # prefixes failed) is still cacheable: at least one piece of metadata
     # made it through and is worth preserving.
     #
+    # The verdict is built *after* the cache write so we never persist a
+    # Pydantic model into the JSON cache (json.dumps would TypeError) and
+    # so the cache-hit path can rebuild a fresh verdict with
+    # data_age_seconds=None instead of forwarding a stale age=0.
     both_metadata_futures_failed = bool(warnings) and not asn_name and not ipv4_prefixes and not ipv6_prefixes
     if not both_metadata_futures_failed:
         save_cached_domain(cache_key, result)
-    return _truncate_asn_prefixes({**result}, include_full_prefixes)
+    out = {**result, "verdict": _asn_verdict(warnings, age_seconds=0)}
+    return _truncate_asn_prefixes(out, include_full_prefixes)
 
 
 class _BulkRequest(BaseModel):

@@ -919,6 +919,134 @@ class TestAsnRoute:
             # Cache itself untouched
             assert len(cached_data["ipv4_prefixes"]) == 100
 
+    @patch("domain.routes.save_cached_domain")
+    @patch("domain.routes.get_cached_domain", return_value=None)
+    @patch("domain.routes.authenticate", return_value={"tier": "free"})
+    def test_asn_lookup_verdict_complete_on_clean_success(self, mock_auth, mock_cache_get, mock_cache_save):
+        """Bug I2: asn_lookup now emits a verdict block. On clean success
+        every RIPE Stat sub-endpoint is in sources_queried and none in
+        sources_unavailable; completeness='complete'."""
+
+        def mock_get(url, **kwargs):
+            resp = MagicMock()
+            resp.status_code = 200
+            resp.raise_for_status = MagicMock()
+            if "network-info" in url:
+                resp.json.return_value = MOCK_RIPE_NETWORK_INFO
+            elif "as-overview" in url:
+                resp.json.return_value = MOCK_RIPE_OVERVIEW
+            elif "announced-prefixes" in url:
+                resp.json.return_value = MOCK_RIPE_PREFIXES
+            return resp
+
+        with patch("domain.routes._ripe_client.get", side_effect=mock_get):
+            r = client.get("/v1/asn/1.1.1.1")
+            assert r.status_code == 200
+            v = r.json()["verdict"]
+            assert v["deterministic"] is True
+            assert "ripe_stat:network-info" in v["sources_queried"]
+            assert "ripe_stat:as-overview" in v["sources_queried"]
+            assert "ripe_stat:announced-prefixes" in v["sources_queried"]
+            assert v["sources_unavailable"] == []
+            assert v["completeness"] == "complete"
+            assert v["data_age_seconds"] == 0  # fresh fetch
+
+    @patch("domain.routes.save_cached_domain")
+    @patch("domain.routes.get_cached_domain", return_value=None)
+    @patch("domain.routes.authenticate", return_value={"tier": "free"})
+    def test_asn_lookup_verdict_partial_on_overview_timeout(self, mock_auth, mock_cache_get, mock_cache_save):
+        """as-overview fails → ripe_stat:as-overview in sources_unavailable,
+        completeness='partial'. The other sub-endpoints stay in queried."""
+
+        def mock_get(url, **kwargs):
+            if "as-overview" in url:
+                raise httpx.TimeoutException("timeout")
+            resp = MagicMock()
+            resp.status_code = 200
+            resp.raise_for_status = MagicMock()
+            if "network-info" in url:
+                resp.json.return_value = MOCK_RIPE_NETWORK_INFO
+            elif "announced-prefixes" in url:
+                resp.json.return_value = MOCK_RIPE_PREFIXES
+            return resp
+
+        with patch("domain.routes._ripe_client.get", side_effect=mock_get):
+            r = client.get("/v1/asn/1.1.1.1")
+            assert r.status_code == 200
+            v = r.json()["verdict"]
+            assert "ripe_stat:as-overview" in v["sources_unavailable"]
+            assert "ripe_stat:announced-prefixes" not in v["sources_unavailable"]
+            assert v["completeness"] == "partial"
+
+    @patch("domain.routes.save_cached_domain")
+    @patch("domain.routes.get_cached_domain", return_value=None)
+    @patch("domain.routes.authenticate", return_value={"tier": "free"})
+    def test_asn_lookup_does_not_persist_pydantic_verdict_to_cache(self, mock_auth, mock_cache_get, mock_cache_save):
+        """The verdict is a Pydantic model — calling json.dumps on the
+        cache payload would TypeError if we ever stored it. Verify the
+        write payload is plain JSON and contains no 'verdict' key."""
+
+        def mock_get(url, **kwargs):
+            resp = MagicMock()
+            resp.status_code = 200
+            resp.raise_for_status = MagicMock()
+            if "network-info" in url:
+                resp.json.return_value = MOCK_RIPE_NETWORK_INFO
+            elif "as-overview" in url:
+                resp.json.return_value = MOCK_RIPE_OVERVIEW
+            elif "announced-prefixes" in url:
+                resp.json.return_value = MOCK_RIPE_PREFIXES
+            return resp
+
+        with patch("domain.routes._ripe_client.get", side_effect=mock_get):
+            r = client.get("/v1/asn/1.1.1.1")
+            assert r.status_code == 200
+            mock_cache_save.assert_called_once()
+            _, written_payload = mock_cache_save.call_args[0]
+            assert "verdict" not in written_payload
+            # And the response itself still carries the verdict.
+            assert "verdict" in r.json()
+
+    def test_asn_verdict_substring_injection_does_not_forge_unavailable(self):
+        """CRITICAL fix: warning strings are matched by prefix anchor
+        (`startswith('as-overview:')`), not naive substring `in`. A
+        warning whose `:reason` half happens to mention 'as-overview'
+        cannot forge a sources_unavailable entry."""
+        from domain.routes import _asn_verdict
+
+        # Substring of upstream tag inside the reason — must NOT trigger
+        # the unavailable mapping.
+        v = _asn_verdict(["custom: SomeError mentioning as-overview internals"], age_seconds=0)
+        assert "ripe_stat:as-overview" not in v.sources_unavailable
+        # Real upstream prefix DOES trigger.
+        v2 = _asn_verdict(["as-overview: timeout"], age_seconds=0)
+        assert "ripe_stat:as-overview" in v2.sources_unavailable
+
+    @patch("domain.routes.authenticate", return_value={"tier": "free"})
+    def test_asn_lookup_verdict_rebuilt_from_cached_warnings(self, mock_auth):
+        """Cache-hit path rebuilds the verdict from cached warnings — older
+        entries written before I2 do not carry one. data_age_seconds=None
+        because the asn cache does not track per-entry age."""
+        cached_data = {
+            "target": "1.1.1.1",
+            "asn": 13335,
+            "asn_name": "CLOUDFLARENET",
+            "ipv4_prefixes": ["1.1.1.0/24"],
+            "ipv6_prefixes": [],
+            "ipv4_count": 1,
+            "ipv6_count": 0,
+            "summary": "AS13335",
+            "warnings": ["announced-prefixes: timeout"],
+        }
+        with patch("domain.routes.get_cached_domain", return_value=cached_data):
+            r = client.get("/v1/asn/1.1.1.1")
+            assert r.status_code == 200
+            v = r.json()["verdict"]
+            assert "ripe_stat:announced-prefixes" in v["sources_unavailable"]
+            assert v["completeness"] == "partial"
+            # data_age_seconds=None is dropped by response_model_exclude_none
+            assert "data_age_seconds" not in v
+
     @patch("domain.routes.authenticate", return_value={"tier": "free"})
     def test_asn_lookup_coerces_legacy_wrapper_cache_entries(self, mock_auth):
         """Bug I1 cache backward-compat: pre-1.15.0 entries hold
