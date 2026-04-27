@@ -3497,6 +3497,40 @@ class TestExploitLookupScopeB:
         assert "count" in data["sources"]["shodan_refs"]
 
 
+class TestExploitLookupParallelism:
+    """GitHub Advisory + Shodan CVEDB fan-out must run in parallel, not serial."""
+
+    @patch("cve.routes.search_exploits_by_cve", return_value=([], False))
+    @patch("cve.routes.get_cached_domain", return_value=None)
+    @patch("cve.routes.save_cached_domain")
+    @patch("cve.routes._search_shodan_refs")
+    @patch("cve.routes._search_github_advisories")
+    def test_github_and_shodan_run_concurrently(self, mock_gh, mock_shodan, mock_save, mock_cache, mock_offline):
+        import time
+
+        def slow_gh(_cve):
+            time.sleep(0.2)
+            return {"found": False, "count": 0, "advisories": []}
+
+        def slow_shodan(_cve):
+            time.sleep(0.2)
+            return {"found": False, "count": 0, "results": []}
+
+        mock_gh.side_effect = slow_gh
+        mock_shodan.side_effect = slow_shodan
+
+        start = time.monotonic()
+        r = client.get("/v1/exploit/CVE-2024-8888")
+        elapsed = time.monotonic() - start
+
+        assert r.status_code == 200
+        # Serial would be ~0.4s; parallel must complete in well under 0.35s.
+        # Generous tolerance for thread-pool warmup + sqlite + response build.
+        assert elapsed < 0.35, f"exploit_lookup ran serially: {elapsed:.3f}s"
+        assert mock_gh.call_count == 1
+        assert mock_shodan.call_count == 1
+
+
 # =========== response_model filtering tests ===========
 
 

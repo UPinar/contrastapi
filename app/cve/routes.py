@@ -1,7 +1,9 @@
 """CVE Intelligence API routes — /v1/cve/*, /v1/cves/*, /v1/exploit/*"""
 
+import atexit
 import logging
 import re
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from typing import Annotated
 from urllib.parse import unquote
@@ -62,6 +64,11 @@ MAX_CWE_MITIGATIONS_DEFAULT = 3
 MAX_CWE_EXAMPLES_DEFAULT = 3
 
 _exploit_client = httpx.Client(timeout=httpx.Timeout(5.0, connect=3.0), follow_redirects=True)
+
+# Two outbound HTTP fan-outs for exploit_lookup (GitHub Advisory + Shodan CVEDB).
+# 2 workers is sufficient — there are only ever 2 submitters per request.
+_exploit_pool = ThreadPoolExecutor(max_workers=2)
+atexit.register(_exploit_pool.shutdown, wait=False)
 
 _DATE_RE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
 _MIN_DATE = "1970-01-01"
@@ -1079,9 +1086,13 @@ def exploit_lookup(
     if cached:
         return {**cached}
 
-    github = _search_github_advisories(cve_id)
-    shodan_refs = _search_shodan_refs(cve_id)
+    # GitHub Advisory + Shodan CVEDB are independent HTTP fan-outs; run in parallel.
+    # Local SQLite (search_exploits_by_cve) stays on the main thread — no IO wait.
+    f_github = _exploit_pool.submit(_search_github_advisories, cve_id)
+    f_shodan = _exploit_pool.submit(_search_shodan_refs, cve_id)
     offline, offline_truncated = search_exploits_by_cve(cve_id)
+    github = f_github.result()
+    shodan_refs = f_shodan.result()
 
     exploits_found = len(offline) + github["count"] + shodan_refs["count"]
     has_public_exploit = len(offline) > 0 or github["found"] or shodan_refs["found"]
