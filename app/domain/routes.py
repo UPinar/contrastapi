@@ -1217,10 +1217,12 @@ def ip_lookup(ip: IpPath, request: Request):
     f_asn_country = _reputation_pool.submit(_fetch_asn_country, ip)
 
     try:
-        from domain.recon import _dns_call_with_timeout
+        from domain.recon import _dns_call_with_timeout, _strip_control_chars
 
         addr_result, addr_err = _dns_call_with_timeout(socket.gethostbyaddr, ip)
-        ptr = addr_result[0] if addr_result and not addr_err else None
+        # Reverse DNS is owner-controlled; strip control / bidi chars before
+        # echoing into the JSON response (Trojan Source CVE-2021-42574 class).
+        ptr = _strip_control_chars(addr_result[0]) if addr_result and not addr_err else None
     except (socket.herror, socket.gaierror, OSError):
         ptr = None
 
@@ -2111,21 +2113,61 @@ def threat_report(ip: IpPath, request: Request):
         cached_asn = get_cached_domain(cache_key)
         if cached_asn:
             asn_data = _truncate_asn_prefixes(cached_asn, include_full=False)
-        else:
-            r = _ripe_client.get(
-                "https://stat.ripe.net/data/network-info/data.json",
-                params={"resource": ip},
-                timeout=5.0,
-            )
-            r.raise_for_status()
-            data = r.json().get("data", {})
-            asns = data.get("asns", [])
-            if asns and asns[0]:
-                asn_data = {"asn": int(asns[0]), "prefix": data.get("prefix", "")}
-                save_cached_domain(cache_key, asn_data)
+        # Use the shared _fetch_asn_country helper that ip_lookup runs so
+        # threat_report sees the same asn_name + country enrichment instead
+        # of reinventing a network-info-only fetch (Bug I3 — passive intel
+        # parity with ip_lookup).
+        country_payload = _fetch_asn_country(ip)
+        if country_payload.get("asn") and not asn_data.get("asn"):
+            asn_data["asn"] = country_payload["asn"]
+        if country_payload.get("asn_name") and not asn_data.get("asn_name"):
+            asn_data["asn_name"] = country_payload["asn_name"]
+        if country_payload.get("country") and not asn_data.get("country"):
+            asn_data["country"] = country_payload["country"]
+        if country_payload.get("failed") and not asn_data:
+            asn_data = {"error": "lookup_failed"}
     except Exception as e:
         logger.warning("threat_report: ASN lookup failed: %s", type(e).__name__)
         asn_data = {"error": "lookup_failed"}
+
+    # Bug I3: threat_report (Pro, 4-credit) used to return strictly LESS
+    # passive intel than ip_lookup (1-credit) — no PTR, asn_name, country,
+    # cloud_provider, tor_exit, firehol, risk_score, or verdict. Bring it up
+    # to ip_lookup parity by embedding the cheap-to-fetch passive fields here
+    # so SOC triage callers do not need a second ip_lookup call to fill in
+    # the basics.
+    from domain.recon import _dns_call_with_timeout, _strip_control_chars
+
+    try:
+        ptr_result, _ = _dns_call_with_timeout(socket.gethostbyaddr, ip)
+        # Reverse DNS is owner-controlled; strip control / bidi chars before
+        # echoing into the JSON response (same pattern as DNS TXT / DKIM).
+        ptr = _strip_control_chars(ptr_result[0]) if ptr_result else None
+    except Exception:
+        ptr = None
+
+    asn_name = ""
+    country = ""
+    if isinstance(asn_data, dict):
+        asn_name = asn_data.get("asn_name") or ""
+        country = asn_data.get("country") or ""
+
+    try:
+        tor_exit = check_tor_exit(ip)
+    except Exception:
+        tor_exit = False
+    tor_status = tor_cache_status()
+
+    asn_val = asn_data.get("asn") if isinstance(asn_data, dict) else None
+    try:
+        cloud_provider = check_cloud_provider(ip, asn=asn_val)
+    except Exception:
+        cloud_provider = None
+
+    try:
+        firehol = check_firehol(ip)
+    except Exception:
+        firehol = {"status": "unavailable"}
 
     threat_level = "none"
     raw_score = abuseipdb.get("abuse_score")
@@ -2148,12 +2190,60 @@ def threat_report(ip: IpPath, request: Request):
     summary_parts.append(f"threat level: {threat_level}")
     summary = " · ".join(summary_parts)
 
+    # Build the same shape ip_lookup uses for risk + reputation so a
+    # downstream score_ip call agrees with whatever ip_lookup would emit.
+    rep_for_score = {
+        "firehol": firehol,
+        "abuseipdb": abuseipdb if abuseipdb.get("status") not in ("pro_only", "error") else None,
+    }
+    rep_for_score = {k: v for k, v in rep_for_score.items() if v is not None}
+    risk = score_ip(rep_for_score or None, enrichment.get("ports") or [], ptr, cloud_provider, tor_exit)
+
     return {
         "ip": ip,
+        "ptr": ptr,
+        "asn_name": asn_name or None,
+        "country": country or None,
+        "cloud_provider": cloud_provider,
+        "tor_exit": tor_exit,
+        "firehol": firehol,
+        "risk_score": risk,
         "enrichment": enrichment,
         "abuseipdb": abuseipdb,
         "shodan": shodan_data,
         "asn": asn_data,
         "threat_level": threat_level,
         "summary": summary,
+        "verdict": Verdict(
+            deterministic=True,
+            falsifiable_fields=[
+                "ptr",
+                "asn",
+                "asn_name",
+                "country",
+                "cloud_provider",
+                "tor_exit",
+                "firehol",
+                "enrichment",
+                "abuseipdb",
+                "shodan",
+                "risk_score",
+            ],
+            data_age_seconds=0,
+            sources_queried=[
+                "ripe_stat",
+                "internetdb",
+                "tor",
+                "firehol",
+                *(("abuseipdb", "shodan") if auth_ctx["tier"] == "pro" else ()),
+            ],
+            sources_unavailable=[
+                *(["abuseipdb"] if auth_ctx["tier"] != "pro" else []),
+                *(["shodan"] if auth_ctx["tier"] != "pro" else []),
+                *(["tor"] if tor_status != "ok" else []),
+                *(["firehol"] if firehol.get("status") == "unavailable" else []),
+                *(["asn"] if isinstance(asn_data, dict) and asn_data.get("error") == "lookup_failed" else []),
+            ],
+            completeness="partial" if auth_ctx["tier"] != "pro" else "complete",
+        ),
     }

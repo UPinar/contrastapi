@@ -1329,7 +1329,27 @@ class TestThreatReport:
     @patch("domain.routes.check_shodan")
     @patch("domain.routes.check_abuseipdb")
     @patch("domain.routes.ip_enrichment")
-    def test_threat_report_success(self, mock_enrich, mock_abuse, mock_shodan, mock_ripe, mock_auth):
+    @patch(
+        "domain.routes._fetch_asn_country",
+        return_value={"asn": 15169, "asn_name": "GOOGLE", "country": "US", "failed": False},
+    )
+    @patch("domain.routes.check_firehol", return_value={"status": "ok", "listed": False, "lists_matched": []})
+    @patch("domain.routes.check_cloud_provider", return_value="Google")
+    @patch("domain.routes.check_tor_exit", return_value=False)
+    @patch("domain.routes.tor_cache_status", return_value="ok")
+    def test_threat_report_success(
+        self,
+        mock_tor_status,
+        mock_tor,
+        mock_cloud,
+        mock_firehol,
+        mock_country,
+        mock_enrich,
+        mock_abuse,
+        mock_shodan,
+        mock_ripe,
+        mock_auth,
+    ):
         mock_enrich.return_value = {
             "ports": [80, 443],
             "hostnames": ["dns.google"],
@@ -1355,6 +1375,14 @@ class TestThreatReport:
         assert data["asn"]["asn"] == 15169
         assert data["threat_level"] == "low"
         assert "AS15169" in data["summary"]
+        # Bug I3 — passive intel parity with ip_lookup
+        assert data["asn_name"] == "GOOGLE"
+        assert data["country"] == "US"
+        assert data["cloud_provider"] == "Google"
+        assert data["tor_exit"] is False
+        assert data["firehol"]["status"] == "ok"
+        assert "verdict" in data
+        assert "ripe_stat" in data["verdict"]["sources_queried"]
 
     def test_threat_report_invalid_ip(self):
         r = client.get("/v1/threat-report/not-an-ip")
@@ -1391,7 +1419,11 @@ class TestThreatReport:
     @patch("domain.routes.check_shodan")
     @patch("domain.routes.check_abuseipdb")
     @patch("domain.routes.ip_enrichment")
-    def test_threat_report_asn_failure(self, mock_enrich, mock_abuse, mock_shodan, mock_ripe):
+    @patch(
+        "domain.routes._fetch_asn_country",
+        return_value={"asn": None, "asn_name": "", "country": "", "failed": True},
+    )
+    def test_threat_report_asn_failure(self, mock_country, mock_enrich, mock_abuse, mock_shodan, mock_ripe):
         """RIPE failure should not crash - asn_data has error key."""
         mock_enrich.return_value = {"ports": [], "hostnames": [], "vulns": [], "cpes": [], "tags": []}
         mock_abuse.return_value = {"status": "ok"}

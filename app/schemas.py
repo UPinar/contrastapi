@@ -2032,6 +2032,30 @@ class ThreatReportResponse(BaseModel):
         default="",
         description="One-line human summary combining threat_level, port count, vuln count, and abuse signal.",
     )
+    # Bug I3: passive intel parity with ip_lookup. threat_report (Pro,
+    # 4-credit) used to omit fields that the cheaper ip_lookup (1-credit)
+    # already returned, so SOC triage callers needed a second hop just to
+    # see PTR / asn_name / country / cloud / Tor / FireHOL / risk_score.
+    ptr: str | None = Field(default=None, description="Reverse DNS PTR for the IP, or null when unresolvable.")
+    asn_name: str | None = Field(default=None, description="ASN holder name from RIPE Stat as-overview, or null.")
+    country: str | None = Field(default=None, description="Country code from RIPE Stat rir-stats-country, or null.")
+    cloud_provider: str | None = Field(
+        default=None,
+        description="Cloud / hosting provider name when the IP sits in a known CIDR or maps to a tier-1 ASN.",
+    )
+    tor_exit: bool = Field(
+        default=False,
+        description="True if IP appears in the Tor Project bulk exit list (verdict.sources_unavailable['tor'] when fetch failed).",
+    )
+    firehol: dict | None = Field(
+        default=None,
+        description="FireHOL Level1 listing status: {status, listed, lists_matched}. Available on all tiers.",
+    )
+    risk_score: int = Field(default=0, description="Composite 0-100 score consistent with ip_lookup.risk_score.")
+    verdict: Verdict | None = Field(
+        default=None,
+        description="Source provenance — Pro tier marks the AbuseIPDB/Shodan slots in queried; Free tier marks them unavailable.",
+    )
 
     model_config = {"extra": "ignore"}
 
