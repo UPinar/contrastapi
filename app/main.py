@@ -1816,7 +1816,7 @@ def mcp_server_card():
                 "fingerprinting, orchestrated audit + threat reports, bulk lookups, code "
                 "security checks."
             ),
-            "version": "1.0.0",
+            "version": VERSION,
             "homepage": "https://github.com/UPinar/contrastapi",
             "repository": "https://github.com/UPinar/contrastapi",
         },
