@@ -3,7 +3,7 @@
 import re
 from unittest.mock import MagicMock, patch
 
-from codesec.headers import check_headers
+from codesec.headers import MAX_HEADER_VALUE_DEFAULT, check_headers
 from codesec.injection import detect_injection
 from codesec.secrets import detect_secrets
 from codesec.utils import MAX_FINDINGS, MAX_LINE_LENGTH, MAX_LINES, REGEX_TIMEOUT_SECONDS, safe_scan_line
@@ -671,6 +671,47 @@ class TestCheckHeadersValueTruncation:
         body = r.json()
         msg = body.get("error") or body.get("detail", "")
         assert "include must be" in msg
+
+
+class TestCheckHeadersValueAlwaysEmittedWhenPresent:
+    """Bug B5: validator-less headers (XCTO/Referrer-Policy/Permissions-Policy)
+    must surface the raw value when present — previously value was None and
+    dropped by response_model_exclude_none, which lied about what was set."""
+
+    def _finding(self, r, header):
+        return next(f for f in r["findings"] if f["header"] == header)
+
+    def test_xcto_value_emitted_when_present(self):
+        r = check_headers({"X-Content-Type-Options": "nosniff"})
+        f = self._finding(r, "X-Content-Type-Options")
+        assert f["present"] is True
+        assert f["value"] == "nosniff"
+
+    def test_referrer_policy_value_emitted_when_present(self):
+        r = check_headers({"Referrer-Policy": "no-referrer"})
+        f = self._finding(r, "Referrer-Policy")
+        assert f["present"] is True
+        assert f["value"] == "no-referrer"
+
+    def test_permissions_policy_value_emitted_when_present(self):
+        r = check_headers({"Permissions-Policy": "camera=(), microphone=()"})
+        f = self._finding(r, "Permissions-Policy")
+        assert f["present"] is True
+        assert f["value"] == "camera=(), microphone=()"
+
+    def test_validator_less_value_truncated_when_oversized(self):
+        long_val = "x" * 1000
+        r = check_headers({"Permissions-Policy": long_val})
+        f = self._finding(r, "Permissions-Policy")
+        assert len(f["value"]) == MAX_HEADER_VALUE_DEFAULT
+        assert f["total_value_length"] == 1000
+
+    def test_validator_less_value_full_when_include_full(self):
+        long_val = "x" * 1000
+        r = check_headers({"Permissions-Policy": long_val}, include_full=True)
+        f = self._finding(r, "Permissions-Policy")
+        assert f["value"] == long_val
+        assert f.get("total_value_length") is None
 
 
 # =========== Route tests ===========

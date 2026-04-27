@@ -214,15 +214,14 @@ def check_headers(headers: dict, include_full: bool = False) -> dict:
                 valid, issues = validator(raw_value)
                 finding["valid"] = valid
                 finding["issues"] = issues
-                if include_full or len(raw_value) <= MAX_HEADER_VALUE_DEFAULT:
-                    finding["value"] = raw_value
-                else:
-                    finding["value"] = raw_value[:MAX_HEADER_VALUE_DEFAULT]
-                    finding["total_value_length"] = len(raw_value)
             else:
                 finding["valid"] = True
-                finding["value"] = None
                 finding["issues"] = []
+            if include_full or len(raw_value) <= MAX_HEADER_VALUE_DEFAULT:
+                finding["value"] = raw_value
+            else:
+                finding["value"] = raw_value[:MAX_HEADER_VALUE_DEFAULT]
+                finding["total_value_length"] = len(raw_value)
             earned += _SEVERITY_WEIGHT[severity]
             present.append(header_name)
         else:
