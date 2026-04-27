@@ -11,6 +11,7 @@ from urllib.parse import urlparse
 import httpx
 from auth import authenticate
 from config import URLHAUS_API_KEY
+from domain.ip_intel import check_tor_exit, tor_cache_status
 from domain.recon import _dns_call_with_timeout
 from domain.threat import check_urlhaus
 from fastapi import APIRouter, HTTPException, Path, Request
@@ -107,10 +108,16 @@ def ioc_lookup(
             urlhaus_target = host
 
     # Fire all lookups in parallel
-    with ThreadPoolExecutor(max_workers=3) as pool:
+    with ThreadPoolExecutor(max_workers=4) as pool:
         f_tf = pool.submit(query_threatfox, indicator)
         f_feodo = pool.submit(query_feodo, indicator) if ioc_type == "ip" else None
         f_urlhaus = pool.submit(check_urlhaus, urlhaus_target) if urlhaus_target else None
+        # Bug I5: ioc_lookup on an IP indicator now also asks the local Tor
+        # cache (free, in-memory, no upstream request). ip_lookup of the same
+        # IP already exposed tor_exit; without this hop a SOC agent triaging
+        # an IP IOC had to make a second ip_lookup call just to learn the
+        # IP was a Tor exit.
+        f_tor = pool.submit(check_tor_exit, indicator) if ioc_type == "ip" else None
 
         queried_sources.append("threatfox")
         try:
@@ -149,6 +156,21 @@ def ioc_lookup(
             }
             if sources["urlhaus"]["found"]:
                 threat_parts.append(f"{urlhaus['url_count']} malware URLs via URLhaus")
+
+        if f_tor is not None:
+            queried_sources.append("tor")
+            tor_state = tor_cache_status()
+            try:
+                tor_listed = bool(f_tor.result(timeout=2))
+            except Exception:
+                logger.debug("Tor list lookup failed")
+                tor_listed = False
+                tor_state = "failed"
+            if tor_state != "ok":
+                unavailable_sources.append("tor")
+            sources["tor"] = {"listed": tor_listed, "fetch_status": tor_state}
+            if tor_listed:
+                threat_parts.append("known Tor exit node")
 
     # Determine threat level
     found_count = sum(1 for s in sources.values() if s.get("found"))

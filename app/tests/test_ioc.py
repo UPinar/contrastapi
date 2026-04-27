@@ -443,18 +443,73 @@ def test_ioc_lookup_hash_queries_only_threatfox(client):
     assert set(body["sources"].keys()) == {"threatfox"}
 
 
-def test_ioc_lookup_ip_queries_threatfox_feodo_urlhaus(client):
-    """IP IOCs run ThreatFox + Feodo + URLhaus."""
+def test_ioc_lookup_ip_queries_threatfox_feodo_urlhaus_tor(client):
+    """IP IOCs run ThreatFox + Feodo + URLhaus + Tor exit cache (Bug I5).
+    The local Tor cache is a free in-memory check that ip_lookup already
+    consults — adding it here closes the asymmetry where a SOC agent
+    triaging an IP IOC could not see Tor membership without a second
+    ip_lookup call."""
     with (
         patch("ioc.routes.query_threatfox", return_value={"found": False}),
         patch("ioc.routes.query_feodo", return_value={"found": False}),
         patch("ioc.routes.check_urlhaus", return_value={"url_count": 0, "urls_online": 0}),
+        patch("ioc.routes.check_tor_exit", return_value=False),
+        patch("ioc.routes.tor_cache_status", return_value="ok"),
     ):
         resp = client.get("/v1/ioc/8.8.8.8")
     assert resp.status_code == 200
     body = resp.json()
     queried = set(body["verdict"]["sources_queried"])
-    assert queried == {"threatfox", "feodo", "urlhaus"}, f"IP should query all 3, got {queried}"
+    assert queried == {"threatfox", "feodo", "urlhaus", "tor"}, f"IP should query all 4, got {queried}"
+    assert body["sources"]["tor"]["listed"] is False
+    assert body["sources"]["tor"]["fetch_status"] == "ok"
+
+
+def test_ioc_lookup_ip_tor_listed_surfaces_in_summary(client):
+    """When the IP is in the Tor exit list, summary mentions it."""
+    with (
+        patch("ioc.routes.query_threatfox", return_value={"found": False}),
+        patch("ioc.routes.query_feodo", return_value={"found": False}),
+        patch("ioc.routes.check_urlhaus", return_value={"url_count": 0, "urls_online": 0}),
+        patch("ioc.routes.check_tor_exit", return_value=True),
+        patch("ioc.routes.tor_cache_status", return_value="ok"),
+    ):
+        resp = client.get("/v1/ioc/185.220.101.1")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["sources"]["tor"]["listed"] is True
+    assert "Tor exit node" in body["summary"]
+
+
+def test_ioc_lookup_ip_tor_fetch_failed_marks_unavailable(client):
+    """If the Tor list fetch was failed/initial, the verdict marks 'tor'
+    as unavailable so an agent can tell `listed=false because not in list`
+    from `listed=false because we never got the list`."""
+    with (
+        patch("ioc.routes.query_threatfox", return_value={"found": False}),
+        patch("ioc.routes.query_feodo", return_value={"found": False}),
+        patch("ioc.routes.check_urlhaus", return_value={"url_count": 0, "urls_online": 0}),
+        patch("ioc.routes.check_tor_exit", return_value=False),
+        patch("ioc.routes.tor_cache_status", return_value="failed"),
+    ):
+        resp = client.get("/v1/ioc/8.8.8.8")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert "tor" in body["verdict"]["sources_unavailable"]
+
+
+def test_ioc_lookup_domain_does_not_query_tor(client):
+    """Domain IOCs do not run the Tor cache lookup (IP-only signal)."""
+    with (
+        patch("ioc.routes.query_threatfox", return_value={"found": False}),
+        patch("ioc.routes.check_urlhaus", return_value={"url_count": 0, "urls_online": 0}),
+        patch("ioc.routes.check_tor_exit") as mock_tor,
+    ):
+        resp = client.get("/v1/ioc/evil.com")
+    assert resp.status_code == 200
+    queried = set(resp.json()["verdict"]["sources_queried"])
+    assert "tor" not in queried
+    assert not mock_tor.called
 
 
 def test_ioc_lookup_domain_queries_threatfox_and_urlhaus_no_feodo(client):
