@@ -3497,6 +3497,40 @@ class TestExploitLookupScopeB:
         assert "count" in data["sources"]["shodan_refs"]
 
 
+class TestExploitLookupVerdictHonesty:
+    """Cache poisoning prevention: when an upstream source errors, the cached
+    verdict must NOT report completeness=complete (it would otherwise serve a
+    'no exploits found' answer for 1h TTL based on partial data)."""
+
+    @patch("cve.routes.search_exploits_by_cve", return_value=([], False))
+    @patch("cve.routes.get_cached_domain", return_value=None)
+    @patch("cve.routes.save_cached_domain")
+    @patch("cve.routes._search_shodan_refs")
+    @patch("cve.routes._search_github_advisories")
+    def test_github_error_downgrades_completeness(self, mock_gh, mock_shodan, mock_save, mock_cache, mock_offline):
+        mock_gh.return_value = {"found": False, "count": 0, "advisories": [], "error": "upstream timeout"}
+        mock_shodan.return_value = {"found": False, "count": 0, "results": []}
+        r = client.get("/v1/exploit/CVE-2024-8888")
+        assert r.status_code == 200
+        verdict = r.json()["verdict"]
+        assert verdict["completeness"] != "complete"
+        assert "github_advisory" in verdict["sources_unavailable"]
+
+    @patch("cve.routes.search_exploits_by_cve", return_value=([], False))
+    @patch("cve.routes.get_cached_domain", return_value=None)
+    @patch("cve.routes.save_cached_domain")
+    @patch("cve.routes._search_shodan_refs")
+    @patch("cve.routes._search_github_advisories")
+    def test_shodan_error_downgrades_completeness(self, mock_gh, mock_shodan, mock_save, mock_cache, mock_offline):
+        mock_gh.return_value = {"found": False, "count": 0, "advisories": []}
+        mock_shodan.return_value = {"found": False, "count": 0, "results": [], "error": "upstream timeout"}
+        r = client.get("/v1/exploit/CVE-2024-8888")
+        assert r.status_code == 200
+        verdict = r.json()["verdict"]
+        assert verdict["completeness"] != "complete"
+        assert "shodan_cvedb" in verdict["sources_unavailable"]
+
+
 class TestExploitLookupParallelism:
     """GitHub Advisory + Shodan CVEDB fan-out must run in parallel, not serial."""
 
