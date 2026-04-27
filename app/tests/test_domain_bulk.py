@@ -750,6 +750,64 @@ class TestAsnRoute:
         assert r.status_code == 400
         assert "Private" in r.json()["error"] or "private" in r.json()["error"].lower()
 
+    @patch("domain.routes.save_cached_domain")
+    @patch("domain.routes.get_cached_domain", return_value=None)
+    @patch("domain.routes.authenticate", return_value={"tier": "free"})
+    def test_asn_lookup_skips_cache_when_both_metadata_futures_failed(self, mock_auth, mock_cache_get, mock_cache_save):
+        """Bug NEW-A: when both as-overview and announced-prefixes fail at write
+        time, asn_name='' and prefix lists are empty. Caching that empty
+        payload poisons the entry for the full TTL — every later request
+        sees AS<num> with no holder name. Skip the write so the next caller
+        can re-hit RIPE."""
+
+        def mock_get(url, **kwargs):
+            if "network-info" in url:
+                resp = MagicMock()
+                resp.status_code = 200
+                resp.raise_for_status = MagicMock()
+                resp.json.return_value = MOCK_RIPE_NETWORK_INFO
+                return resp
+            # both metadata calls fail
+            raise httpx.TimeoutException("timeout")
+
+        with patch("domain.routes._ripe_client.get", side_effect=mock_get):
+            r = client.get("/v1/asn/1.1.1.1")
+            assert r.status_code == 200
+            data = r.json()
+            assert data["asn"] == 13335
+            assert data["asn_name"] == ""
+            assert data["ipv4_prefixes"] == []
+            assert data["ipv6_prefixes"] == []
+            mock_cache_save.assert_not_called()
+
+    @patch("domain.routes.save_cached_domain")
+    @patch("domain.routes.get_cached_domain", return_value=None)
+    @patch("domain.routes.authenticate", return_value={"tier": "free"})
+    def test_asn_lookup_caches_when_only_one_metadata_future_failed(self, mock_auth, mock_cache_get, mock_cache_save):
+        """Partial success is still cacheable — only the empty-and-empty
+        case poisons. as-overview succeeded → asn_name='CLOUDFLARENET',
+        prefixes failed → write the holder so the next caller has it."""
+
+        def mock_get(url, **kwargs):
+            resp = MagicMock()
+            resp.status_code = 200
+            resp.raise_for_status = MagicMock()
+            if "network-info" in url:
+                resp.json.return_value = MOCK_RIPE_NETWORK_INFO
+            elif "as-overview" in url:
+                resp.json.return_value = MOCK_RIPE_OVERVIEW
+            elif "announced-prefixes" in url:
+                raise httpx.TimeoutException("timeout")
+            return resp
+
+        with patch("domain.routes._ripe_client.get", side_effect=mock_get):
+            r = client.get("/v1/asn/1.1.1.1")
+            assert r.status_code == 200
+            data = r.json()
+            assert data["asn_name"] == "CLOUDFLARENET"
+            assert data["ipv4_prefixes"] == []
+            mock_cache_save.assert_called_once()
+
     @patch("domain.routes.authenticate", return_value={"tier": "free"})
     def test_asn_cached_result(self, mock_auth):
         """Cached ASN result should be returned successfully."""

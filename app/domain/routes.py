@@ -1690,7 +1690,17 @@ def asn_lookup(
     if resolved_ip:
         result["resolved_ip"] = resolved_ip
 
-    save_cached_domain(cache_key, result)
+    # Empty-cache poisoning guard (Bug NEW-A): when both RIPE futures fail at
+    # write time we end up with asn populated (network-info gave us a number)
+    # but asn_name="" and both prefix lists []. Caching that for the full TTL
+    # keeps serving the empty payload forever — any future caller sees
+    # AS<num> with no holder name. Skip the write in that two-failure case
+    # so the next request re-hits RIPE. Partial success (e.g. holder OK,
+    # prefixes failed) is still cacheable: at least one piece of metadata
+    # made it through and is worth preserving.
+    both_metadata_futures_failed = bool(warnings) and not asn_name and not ipv4_prefixes and not ipv6_prefixes
+    if not both_metadata_futures_failed:
+        save_cached_domain(cache_key, result)
     return _truncate_asn_prefixes({**result}, include_full_prefixes)
 
 
