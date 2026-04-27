@@ -499,6 +499,21 @@ class ShodanRepInfo(BaseModel):
     model_config = {"extra": "ignore"}
 
 
+class ReputationUpgradeHint(BaseModel):
+    """Compact pointer that replaces the verbose pro_only sub-stubs for Free tier.
+
+    Bug I4: previously the abuseipdb/shodan slots carried full Pydantic models
+    with every field null + a status='pro_only' marker — ~150 tokens of pure
+    negative space per Free-tier ip_lookup response. The verdict block already
+    lists those sources in sources_unavailable on Free; this hint just points
+    callers at the upgrade page in one line.
+    """
+
+    pro_only_sources: list[str] = Field(default_factory=list)
+    upgrade_url: str | None = Field(default=None)
+    reason: str | None = Field(default=None)
+
+
 class ReputationInfo(BaseModel):
     """Multi-source IP reputation. Sources present depend on tier (Free: firehol only; Pro: all three)."""
 
@@ -508,11 +523,16 @@ class ReputationInfo(BaseModel):
     )
     abuseipdb: AbuseIpdbInfo | None = Field(
         default=None,
-        description="AbuseIPDB abuse confidence. Pro tier only; status='pro_only' stub on Free.",
+        description="AbuseIPDB abuse confidence. Pro tier only — omitted from the response on Free.",
     )
     shodan: ShodanRepInfo | None = Field(
         default=None,
-        description="Shodan full API enrichment. Pro tier only; status='pro_only' stub on Free.",
+        description="Shodan full API enrichment. Pro tier only — omitted from the response on Free.",
+    )
+    # Bug I4: free tier replaces abuseipdb/shodan stubs with this single hint.
+    upgrade: ReputationUpgradeHint | None = Field(
+        default=None,
+        description="Free-tier-only pointer to the Pro-only sources that were skipped.",
     )
 
     model_config = {"extra": "ignore"}

@@ -3444,12 +3444,15 @@ class TestIpRouteReputation:
     )
     @patch("domain.routes.socket.gethostbyaddr", return_value=("example.com", [], []))
     def test_ip_without_reputation_limit_exceeded(self, mock_ptr, mock_enrich, mock_limit, mock_cache_get, mock_auth):
-        """Free tier always gets pro_only stub; quota limit is irrelevant."""
+        """Free tier returns the compact upgrade hint (Bug I4); no live API calls."""
         r = client.get("/v1/ip/93.184.216.34")
         assert r.status_code == 200
         data = r.json()
-        assert data["reputation"]["abuseipdb"]["status"] == "pro_only"
-        assert data["reputation"]["shodan"]["status"] == "pro_only"
+        rep = data["reputation"]
+        assert rep.get("abuseipdb") is None
+        assert rep.get("shodan") is None
+        assert "abuseipdb" in rep["upgrade"]["pro_only_sources"]
+        assert "shodan" in rep["upgrade"]["pro_only_sources"]
         assert data["ports"] == [22, 80]
         assert "CVE-2024-1234" in data["vulns"]
 
@@ -4032,15 +4035,23 @@ class TestProOnlyEnrichment:
     def test_ip_lookup_free_tier_enrichment_pro_only(
         self, mock_ptr, mock_enrich, mock_ab, mock_sh, mock_limit, mock_cache, mock_auth
     ):
-        """Free tier /v1/ip: pro_only stub returned, no live API calls."""
+        """Bug I4: free tier /v1/ip drops the verbose abuseipdb / shodan
+        pro_only sub-stubs (~150 token of null space) and replaces them
+        with one compact upgrade hint. Verdict still lists the missing
+        sources in sources_unavailable."""
         r = client.get("/v1/ip/93.184.216.34")
         assert r.status_code == 200
         data = r.json()
         assert "reputation" in data
-        assert data["reputation"]["abuseipdb"]["status"] == "pro_only"
-        assert data["reputation"]["abuseipdb"]["upgrade_url"] == "https://contrastcyber.com/pricing"
-        assert data["reputation"]["shodan"]["status"] == "pro_only"
-        assert data["reputation"]["shodan"]["upgrade_url"] == "https://contrastcyber.com/pricing"
+        rep = data["reputation"]
+        # Old pro_only stubs are gone — abuseipdb and shodan dropped from the wire.
+        assert rep.get("abuseipdb") is None
+        assert rep.get("shodan") is None
+        # Compact replacement carries the upgrade hint instead.
+        upgrade = rep["upgrade"]
+        assert "abuseipdb" in upgrade["pro_only_sources"]
+        assert "shodan" in upgrade["pro_only_sources"]
+        assert upgrade["upgrade_url"] == "https://contrastcyber.com/pricing"
 
     # --- /v1/threat-report route tests ---
 
@@ -4109,8 +4120,11 @@ class TestProOnlyEnrichment:
         assert "status" in fh
         assert "listed" in fh
         assert "lists_matched" in fh
-        assert rep["abuseipdb"]["status"] == "pro_only"
-        assert rep["shodan"]["status"] == "pro_only"
+        # Bug I4 — pro_only stubs dropped; upgrade hint replaces them.
+        assert rep.get("abuseipdb") is None
+        assert rep.get("shodan") is None
+        assert "abuseipdb" in rep["upgrade"]["pro_only_sources"]
+        assert "shodan" in rep["upgrade"]["pro_only_sources"]
 
     @pytest.mark.real_firehol
     @patch("domain.routes.authenticate", return_value={"tier": "pro"})

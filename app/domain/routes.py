@@ -1273,17 +1273,17 @@ def ip_lookup(ip: IpPath, request: Request):
     elif auth_ctx["tier"] != "pro":
         firehol_result = check_firehol(ip)
         firehol_attempted = True
+        # Bug I4: free tier used to ship two ~13-field pro_only stubs
+        # (abuseipdb + shodan, every property null) — ~150 token of pure
+        # negative space telling the agent "Pro only". The verdict block
+        # already lists abuseipdb / shodan in sources_unavailable on free
+        # tier, the response now carries a single compact upgrade hint.
         reputation = {
             "firehol": firehol_result,
-            "abuseipdb": {
-                "status": "pro_only",
-                "reason": "AbuseIPDB enrichment requires Pro tier",
+            "upgrade": {
+                "pro_only_sources": ["abuseipdb", "shodan"],
                 "upgrade_url": UPGRADE_URL,
-            },
-            "shodan": {
-                "status": "pro_only",
-                "reason": "Shodan enrichment requires Pro tier",
-                "upgrade_url": UPGRADE_URL,
+                "reason": "AbuseIPDB and Shodan enrichment require the Pro tier",
             },
         }
         if firehol_result.get("status") == "unavailable":
