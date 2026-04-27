@@ -1,6 +1,8 @@
 """CVE Intelligence API routes — /v1/cve/*, /v1/cves/*, /v1/exploit/*"""
 
 import atexit
+import hashlib
+import json
 import logging
 import re
 from concurrent.futures import ThreadPoolExecutor
@@ -652,6 +654,36 @@ def cve_search(
     if after_date and before_date and after_date > before_date:
         raise HTTPException(status_code=400, detail="published_after must be <= published_before")
 
+    # Top-traffic tool (~1k calls/mo). Cache full response by query-tuple — same
+    # filters return identical results until NVD sync runs (DOMAIN_CACHE_TTL=1h).
+    # verdict.data_age_seconds is frozen at cache-write; max staleness ≤ TTL.
+    # Key uses canonical JSON + sha256 (16 hex chars) so free-text product/vendor
+    # cannot collide via delimiter injection.
+    _key_payload = json.dumps(
+        {
+            "product": (product or "").lower(),
+            "vendor": (vendor or "").lower(),
+            "severity": (severity or "").upper(),
+            "cwe_id": (cwe_id or "").upper(),
+            "published_after": published_after or "",
+            "published_before": published_before or "",
+            "kev": bool(kev),
+            "epss_min": epss_min,
+            "cvss_min": cvss_min,
+            "cvss_max": cvss_max,
+            "sort": sort or "",
+            "limit": limit,
+            "offset": offset,
+            "include": "full" if include == "full" else "slim",
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    cache_key = "cve_search:" + hashlib.sha256(_key_payload.encode()).hexdigest()[:16]
+    cached = get_cached_domain(cache_key)
+    if cached:
+        return {**cached}
+
     results, total = search_cves(
         product=product,
         severity=severity,
@@ -713,7 +745,8 @@ def cve_search(
         }.items()
         if v is not None and v != ""
     }
-    verdict = _cve_verdict(sources=["nvd_cache"], completeness="complete")
+    # model_dump() so the dict is JSON-serializable for save_cached_domain.
+    verdict = _cve_verdict(sources=["nvd_cache"], completeness="complete").model_dump()
     full = include == "full"
     formatter = _format_cve if full else _format_cve_slim
     formatted_results = []
@@ -722,7 +755,8 @@ def cve_search(
         fr["verdict"] = verdict
         formatted_results.append(fr)
     next_offset = offset + count if truncated else None
-    return {
+    hint = _cve_list_hint(count)
+    response = {
         "count": count,
         "total": total,
         "truncated": truncated,
@@ -731,8 +765,10 @@ def cve_search(
         "results": formatted_results,
         "query_echo": query_echo,
         "next_offset": next_offset,
-        "hint": _cve_list_hint(count),
+        "hint": hint.model_dump() if hint else None,
     }
+    save_cached_domain(cache_key, response)
+    return response
 
 
 def _cve_verdict(sources: list[str] | None = None, completeness: str = "complete") -> Verdict:

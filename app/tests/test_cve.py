@@ -767,6 +767,49 @@ class TestCveSearch:
         assert data["count"] == 0
         assert data.get("hint") is None
 
+    def test_cve_search_second_call_served_from_cache(self):
+        # Cold call hits search_cves SQL; hot call must short-circuit before
+        # the SQL fires. Spy on cve.routes.search_cves to assert call_count==1.
+        # Also spy on save_cached_domain to confirm the cache was actually
+        # written (silent CACHE_MAX_BYTES rejection would still pass call_count
+        # but produce a perpetual cold path).
+        from unittest.mock import patch as _patch
+
+        _seed_cve(cve_id="CVE-2024-CACHE1", severity="HIGH")
+        with (
+            _patch("cve.routes.search_cves", wraps=__import__("db").search_cves) as spy,
+            _patch("cve.routes.save_cached_domain", wraps=__import__("db").save_cached_domain) as save_spy,
+        ):
+            r1 = client.get("/v1/cves?severity=HIGH&limit=5")
+            assert r1.status_code == 200
+            r2 = client.get("/v1/cves?severity=HIGH&limit=5")
+            assert r2.status_code == 200
+            assert r1.json() == r2.json()
+            assert spy.call_count == 1
+            assert save_spy.call_count == 1, "cache write must fire on cold call"
+
+    def test_cve_search_cache_segregates_by_query(self):
+        # Distinct filters must produce distinct cache entries — a HIGH-severity
+        # cached response must not be served for a CRITICAL-severity request.
+        from unittest.mock import patch as _patch
+
+        _seed_cve(cve_id="CVE-2024-CACHE2", severity="CRITICAL")
+        with _patch("cve.routes.search_cves", wraps=__import__("db").search_cves) as spy:
+            client.get("/v1/cves?severity=HIGH&limit=5")
+            client.get("/v1/cves?severity=CRITICAL&limit=5")
+            assert spy.call_count == 2
+
+    def test_cve_search_cache_segregates_by_include_flag(self):
+        # ?include=full returns extra fields (description/affected_products/...);
+        # slim default must not be served for a full request.
+        from unittest.mock import patch as _patch
+
+        _seed_cve(cve_id="CVE-2024-CACHE3", severity="HIGH")
+        with _patch("cve.routes.search_cves", wraps=__import__("db").search_cves) as spy:
+            client.get("/v1/cves?severity=HIGH&limit=5")
+            client.get("/v1/cves?severity=HIGH&limit=5&include=full")
+            assert spy.call_count == 2
+
 
 class TestExploitPivotHints:
     """Phase 6 cascade: exploit_lookup self-cascade."""
