@@ -261,6 +261,13 @@ def cve_lookup(
 
     authenticate(request, request.url.path)
 
+    # Cache key embeds the two opt-in flags that change response shape.
+    # 4 variants per CVE; the (False, False) default dominates in practice.
+    cache_key = f"cve_lookup:{cve_id}:{int(include_affected_products)}{int(include_full_references)}"
+    cached = get_cached_domain(cache_key)
+    if cached:
+        return {**cached}
+
     result = get_cve(cve_id)
     if result is None:
         raise HTTPException(status_code=404, detail=f"CVE {cve_id} not found")
@@ -276,8 +283,9 @@ def cve_lookup(
     sources_for_verdict = [f"{s}_cache" for s in formatted["sources"]]
     if not sources_for_verdict and not is_minimal:
         sources_for_verdict = ["nvd_cache"]
-    formatted["verdict"] = _cve_verdict(sources=sources_for_verdict, completeness=completeness)
-    formatted["next_calls"] = _cve_pivot_hints(formatted)
+    formatted["verdict"] = _cve_verdict(sources=sources_for_verdict, completeness=completeness).model_dump()
+    formatted["next_calls"] = [h.model_dump() for h in _cve_pivot_hints(formatted)]
+    save_cached_domain(cache_key, formatted)
     return formatted
 
 

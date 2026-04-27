@@ -289,6 +289,35 @@ class TestCveLookup:
         assert data["references"] == [] or "references" not in data
         assert data["total_references"] == 0
 
+    def test_cve_lookup_second_call_served_from_cache(self):
+        # Cold call hits the SQL hydration path (get_cve + get_cve_sources +
+        # get_related_cves_by_product) and writes the formatted dict to cache.
+        # Hot call must short-circuit before any of those queries fire — assert
+        # via patch.spy on get_cve.
+        from unittest.mock import patch as _patch
+
+        _seed_cve(cve_id="CVE-2024-7777")
+        with _patch("cve.routes.get_cve", wraps=__import__("db").get_cve) as spy:
+            r1 = client.get("/v1/cve/CVE-2024-7777")
+            assert r1.status_code == 200
+            r2 = client.get("/v1/cve/CVE-2024-7777")
+            assert r2.status_code == 200
+            assert r1.json() == r2.json()
+            # First call hits get_cve once, second call must NOT.
+            assert spy.call_count == 1
+
+    def test_cve_lookup_cache_segregates_by_include_flags(self):
+        # ?include_full_references=true must not serve a cached default-shape
+        # response and vice versa. Two cold calls with different flags should
+        # both invoke get_cve (no cross-shape pollution).
+        from unittest.mock import patch as _patch
+
+        _seed_cve(cve_id="CVE-2024-7778")
+        with _patch("cve.routes.get_cve", wraps=__import__("db").get_cve) as spy:
+            client.get("/v1/cve/CVE-2024-7778")
+            client.get("/v1/cve/CVE-2024-7778?include_full_references=true")
+            assert spy.call_count == 2
+
 
 class TestCveSearch:
     def test_search_by_severity(self):
