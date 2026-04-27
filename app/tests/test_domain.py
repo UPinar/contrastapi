@@ -997,6 +997,37 @@ class TestDomainRoutes:
         assert "country" in fields
         assert "ripe_stat" in v["sources_queried"]
 
+    @patch(
+        "domain.routes._fetch_asn_country",
+        return_value={"asn": 15169, "asn_name": "GOOGLE", "country": "US", "failed": False},
+    )
+    @patch("domain.routes.check_cloud_provider", return_value="Google")
+    @patch("domain.routes.check_tor_exit", return_value=False)
+    @patch("domain.routes.ip_enrichment", return_value={**_enrich_empty})
+    @patch("domain.routes.socket.gethostbyaddr", return_value=("dns.google", [], []))
+    def test_ip_lookup_ipv6_enrichment_path(self, mock_ptr, mock_enrich, mock_tor, mock_cloud, mock_asn):
+        """B6 verify: IPv6 input traverses the same enrichment pipeline as IPv4
+        — _fetch_asn_country, check_cloud_provider, check_tor_exit, and
+        ip_enrichment all receive the IPv6 string unmodified, and asn/asn_name/
+        country surface in the response. RIPE Stat (network-info, rir-stats-
+        country, as-overview) accepts IPv6 resources upstream."""
+        r = client.get("/v1/ip/2001:4860:4860::8888")
+        assert r.status_code == 200
+        data = r.json()
+        # IPv6 echoed back (no IPv4 conversion / IPv6-mapped surprise)
+        assert data["ip"] == "2001:4860:4860::8888"
+        # ASN enrichment surfaces in the response
+        assert data["asn"] == 15169
+        assert data["asn_name"] == "GOOGLE"
+        assert data["country"] == "US"
+        # Helpers were called with the IPv6 string verbatim
+        mock_asn.assert_called_once_with("2001:4860:4860::8888")
+        mock_cloud.assert_called_once()
+        cloud_args, _ = mock_cloud.call_args
+        assert cloud_args[0] == "2001:4860:4860::8888"
+        mock_tor.assert_called_once_with("2001:4860:4860::8888")
+        mock_enrich.assert_called_once_with("2001:4860:4860::8888")
+
     def test_check_cloud_provider_asn_map_fallback_google(self):
         """8.8.8.8 isn't in the GCP CIDR list but AS15169 is in the ASN map → 'Google'."""
         from unittest.mock import patch
