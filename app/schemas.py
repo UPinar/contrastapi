@@ -1017,6 +1017,7 @@ class PivotHint(BaseModel):
         "ssl_check",
         "tech_fingerprint",
         "asn_lookup",
+        "ip_lookup",
         "ioc_lookup",
         "threat_report",
         "audit_domain",
@@ -1564,6 +1565,15 @@ class AsnResponse(BaseModel):
     verdict: Verdict | None = Field(
         default=None,
         description="Source provenance for the ASN response (RIPE Stat sub-endpoints).",
+    )
+    next_calls: list[PivotHint] | None = Field(
+        default=None,
+        description=(
+            "Suggested follow-up MCP tool calls. Emitted when the input was a domain "
+            "and resolution produced an IP — agents are pointed at ip_lookup on the "
+            "resolved IP to pull cloud / Tor / threat-intel context that asn_lookup "
+            "deliberately does not duplicate."
+        ),
     )
 
 

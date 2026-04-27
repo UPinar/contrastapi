@@ -654,6 +654,61 @@ class TestAsnRoute:
             assert data["target"] == "example.com"
             assert data["resolved_ip"] == "1.1.1.1"
             assert data["asn"] == 13335
+            # Domain input → ip_lookup pivot hint pre-populated with resolved IP.
+            assert data.get("next_calls"), "domain input must emit ip_lookup pivot"
+            assert any(h["tool"] == "ip_lookup" and h["input"] == "1.1.1.1" for h in data["next_calls"])
+
+    @patch("domain.routes.save_cached_domain")
+    @patch("domain.routes.get_cached_domain", return_value=None)
+    @patch("domain.routes.authenticate", return_value={"tier": "free"})
+    def test_asn_with_ip_input_emits_no_pivot(self, mock_auth, mock_cache_get, mock_cache_save):
+        """IP input → no ip_lookup pivot (agent already has the IP)."""
+
+        def mock_get(url, **kwargs):
+            resp = MagicMock()
+            resp.status_code = 200
+            resp.raise_for_status = MagicMock()
+            if "network-info" in url:
+                resp.json.return_value = MOCK_RIPE_NETWORK_INFO
+            elif "as-overview" in url:
+                resp.json.return_value = MOCK_RIPE_OVERVIEW
+            elif "announced-prefixes" in url:
+                resp.json.return_value = MOCK_RIPE_PREFIXES
+            return resp
+
+        with patch("domain.routes._ripe_client.get", side_effect=mock_get):
+            r = client.get("/v1/asn/1.1.1.1")
+            assert r.status_code == 200
+            data = r.json()
+            # response_model_exclude_none=True drops next_calls when None.
+            assert "next_calls" not in data
+
+    @patch("domain.routes.authenticate", return_value={"tier": "free"})
+    def test_asn_cached_domain_input_still_emits_pivot(self, mock_auth):
+        """Cache-hit path must also surface the ip_lookup pivot (regression: Action #11)."""
+        cached_data = {
+            "target": "1.1.1.1",
+            "asn": 13335,
+            "asn_name": "CLOUDFLARENET",
+            "ipv4_prefixes": ["1.1.1.0/24"],
+            "ipv6_prefixes": [],
+            "ipv4_count": 1,
+            "ipv6_count": 0,
+            "summary": "AS13335 (CLOUDFLARENET). 1 IPv4 and 0 IPv6 prefixes",
+            "warnings": [],
+        }
+        with (
+            patch("domain.routes.is_valid_ip", return_value=False),
+            patch("domain.routes.clean_domain", return_value="example.com"),
+            patch("domain.routes.quick_dns_a", return_value=["1.1.1.1"]),
+            patch("domain.routes.get_cached_domain", return_value=cached_data),
+        ):
+            r = client.get("/v1/asn/example.com")
+            assert r.status_code == 200
+            data = r.json()
+            assert data["resolved_ip"] == "1.1.1.1"
+            assert data.get("next_calls")
+            assert any(h["tool"] == "ip_lookup" and h["input"] == "1.1.1.1" for h in data["next_calls"])
 
     @patch("domain.routes.save_cached_domain")
     @patch("domain.routes.get_cached_domain", return_value=None)

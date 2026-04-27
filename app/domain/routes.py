@@ -840,6 +840,29 @@ def _subdomain_pivot_hints(subdomains: list[str] | None) -> list[PivotHint]:
     ]
 
 
+def _asn_pivot_hints(resolved_ip: str | None) -> list[PivotHint]:
+    """Emit an ip_lookup pivot when asn_lookup was given a domain that resolved to an IP.
+
+    asn_lookup deliberately returns only ASN/holder/prefix data even when the
+    target was a domain — cloud-provider, Tor-exit, FireHOL and reputation
+    enrichment live in ip_lookup. Without this hint the agent has to guess that
+    a follow-up lookup exists. No hint when the input was already an IP (the
+    agent has no new information to act on) or when resolution failed.
+    """
+    if not resolved_ip or not isinstance(resolved_ip, str):
+        return []
+    return [
+        PivotHint(
+            tool="ip_lookup",
+            input=resolved_ip,
+            reason=(
+                "Pull cloud-provider / Tor-exit / FireHOL reputation context for the "
+                "resolved IP — asn_lookup intentionally omits these to stay focused."
+            ),
+        )
+    ]
+
+
 @router.get(
     "/subdomains/{domain}",
     operation_id="subdomain_enum",
@@ -1631,6 +1654,7 @@ def asn_lookup(
         # should report data_age_seconds=None on a cache hit (we do not
         # track exact age in the asn cache).
         result["verdict"] = _asn_verdict(cached.get("warnings") or [], age_seconds=None)
+        result["next_calls"] = _asn_pivot_hints(resolved_ip) or None
         return _truncate_asn_prefixes(result, include_full_prefixes)
 
     # Fetch ASN from RIPE Stat
@@ -1770,7 +1794,11 @@ def asn_lookup(
     both_metadata_futures_failed = bool(warnings) and not asn_name and not ipv4_prefixes and not ipv6_prefixes
     if not both_metadata_futures_failed:
         save_cached_domain(cache_key, result)
-    out = {**result, "verdict": _asn_verdict(warnings, age_seconds=0)}
+    out = {
+        **result,
+        "verdict": _asn_verdict(warnings, age_seconds=0),
+        "next_calls": _asn_pivot_hints(resolved_ip) or None,
+    }
     return _truncate_asn_prefixes(out, include_full_prefixes)
 
 
