@@ -1256,7 +1256,7 @@ def _fetch_asn_country(ip: str) -> dict:
 
 @router.get("/ip/{ip}", operation_id="ip_lookup", response_model=IpLookupResponse, response_model_exclude_none=False)
 def ip_lookup(ip: IpPath, request: Request):
-    """IP intelligence — reverse DNS, ASN + country (RIPE Stat), open ports, vulnerabilities, hostnames (Shodan InternetDB), cloud provider, Tor exit detection, and reputation (FireHOL level1 blocklist on Free tier; +AbuseIPDB + Shodan on Pro)."""
+    """IP intelligence — reverse DNS, ASN + country (RIPE Stat), open ports, vulnerabilities, hostnames (Shodan InternetDB), cloud provider + is_datacenter flag, Tor exit detection, severity_label, and reputation (FireHOL level1 blocklist on Free tier; +AbuseIPDB + Shodan on Pro)."""
     if not is_valid_ip(ip):
         if "." in ip and not ip.replace(".", "").isdigit():
             raise HTTPException(

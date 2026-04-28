@@ -2470,7 +2470,15 @@ class ThreatReportResponse(BaseModel):
         default=None,
         description="FireHOL Level1 listing status: {status, listed, lists_matched}. Available on all tiers.",
     )
-    risk_score: int = Field(default=0, description="Composite 0-100 score consistent with ip_lookup.risk_score.")
+    risk_score: int = Field(
+        default=0,
+        description=(
+            "Composite 0-100 score (parity with ip_lookup.risk_score). v1.17.0 additive "
+            "components: ports (10 * min(count, 5) = 0-50), tor_exit (+30), firehol.listed "
+            "(+20), AbuseIPDB confidence (round(15 * score / 100) = 0-15), is_datacenter "
+            "(+10), known vulns (5 * min(count, 4) = 0-20). Use severity_label for thresholding."
+        ),
+    )
     severity_label: Literal["low", "medium", "high", "critical"] = Field(
         default="low",
         description=(
