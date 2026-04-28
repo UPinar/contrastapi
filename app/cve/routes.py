@@ -1072,6 +1072,24 @@ def _search_github_advisories(cve_id: str) -> dict:
         return {"found": False, "count": 0, "advisories": [], "error": "upstream error"}
 
 
+_EDB_URL_RE = re.compile(r"exploit-db\.com/exploits/(\d+)", re.IGNORECASE)
+
+
+def _shodan_edb_ids(shodan_refs: dict) -> set[str]:
+    """Extract EDB-IDs from Shodan CVEDB reference URLs (description field carries the URL)."""
+    ids: set[str] = set()
+    for ref in shodan_refs.get("results", []) or []:
+        if not isinstance(ref, dict):
+            continue
+        url = ref.get("description")
+        if not isinstance(url, str):
+            continue
+        m = _EDB_URL_RE.search(url)
+        if m:
+            ids.add(m.group(1))
+    return ids
+
+
 def _search_shodan_refs(cve_id: str) -> dict:
     """Fetch Shodan CVEDB references for a CVE (NOT ExploitDB — those come from the offline CSV)."""
     try:
@@ -1138,15 +1156,28 @@ def exploit_lookup(
     github = f_github.result()
     shodan_refs = f_shodan.result()
 
-    exploits_found = len(offline) + github["count"] + shodan_refs["count"]
+    # EDB-ID dedup: ExploitDB CSV mirror and Shodan CVEDB sometimes list the same exploit
+    # twice (Shodan refs include exploit-db.com URLs). Strip overlap from Shodan count.
+    offline_edb_ids = {str(row["edb_id"]) for row in offline if row.get("edb_id") is not None}
+    shodan_edb_overlap = offline_edb_ids & _shodan_edb_ids(shodan_refs)
+    if len(shodan_edb_overlap) > shodan_refs["count"]:
+        logger.warning(
+            "EDB dedup overlap exceeds Shodan count for %s: overlap=%d shodan_count=%d",
+            cve_id,
+            len(shodan_edb_overlap),
+            shodan_refs["count"],
+        )
+    shodan_unique_count = max(0, shodan_refs["count"] - len(shodan_edb_overlap))
+
+    exploits_found = len(offline) + github["count"] + shodan_unique_count
     has_public_exploit = len(offline) > 0 or github["found"] or shodan_refs["found"]
 
     # Build summary
     parts = []
     if github["found"]:
         parts.append(f"{github['count']} GitHub advisory(ies)")
-    if shodan_refs["found"]:
-        parts.append(f"{shodan_refs['count']} Shodan reference(s)")
+    if shodan_refs["found"] and shodan_unique_count > 0:
+        parts.append(f"{shodan_unique_count} Shodan reference(s)")
     if offline:
         parts.append(f"{len(offline)} ExploitDB entry(ies)")
     if parts:

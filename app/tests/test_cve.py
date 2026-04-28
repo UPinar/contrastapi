@@ -843,6 +843,35 @@ class TestExploitPivotHints:
         assert _exploit_pivot_hints("CVE-bad") == []
 
 
+class TestShodanEdbDedup:
+    """exploit_lookup must not double-count when a Shodan ref URL points to an EDB-ID
+    already present in the offline ExploitDB CSV mirror."""
+
+    def test_shodan_edb_ids_extracts_from_description(self):
+        from cve.routes import _shodan_edb_ids
+
+        refs = {
+            "results": [
+                {"description": "https://www.exploit-db.com/exploits/50592"},
+                {"description": "https://www.exploit-db.com/exploits/12345"},
+                {"description": "https://example.com/other"},
+            ]
+        }
+        assert _shodan_edb_ids(refs) == {"50592", "12345"}
+
+    def test_shodan_edb_ids_handles_empty_and_malformed(self):
+        from cve.routes import _shodan_edb_ids
+
+        assert _shodan_edb_ids({}) == set()
+        assert _shodan_edb_ids({"results": []}) == set()
+        assert _shodan_edb_ids({"results": [None, {}, {"description": None}]}) == set()
+        # Defense-in-depth: non-string description (int / list / dict) must not raise
+        assert (
+            _shodan_edb_ids({"results": [{"description": 123}, {"description": []}, {"description": {"url": "x"}}]})
+            == set()
+        )
+
+
 class TestCveResponseFormat:
     def test_response_has_all_fields(self):
         _seed_cve()

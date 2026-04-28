@@ -37,6 +37,10 @@ router = APIRouter(prefix="/v1", tags=["Threat Intelligence"])
 _HEX_RE = re.compile(r"^[0-9a-fA-F]+$")
 _HASH_LENS = {32: "md5", 40: "sha1", 64: "sha256"}
 
+# ThreatFox honeypot/demo entries carry these tags; cap their threat_level to avoid
+# false escalation when an agent triages benign sample IOCs (e.g. example.com).
+_TEST_IOC_TAGS: frozenset[str] = frozenset({"test", "example", "demo", "sandbox", "appleseed"})
+
 
 def _ioc_verdict(queried: list[str], unavailable: list[str]) -> Verdict:
     """Build verdict metadata for ioc_lookup responses (live threat-feed queries, age=0)."""
@@ -190,6 +194,12 @@ def ioc_lookup(
         threat_level = "medium"
     else:
         threat_level = "none"
+
+    # Cap test/demo entries: ThreatFox honeypot tags should not trigger high/medium.
+    tf_tags = {(t or "").lower().strip() for t in (sources.get("threatfox", {}).get("tags") or [])}
+    if tf_tags & _TEST_IOC_TAGS and threat_level in ("high", "medium"):
+        threat_level = "low"
+        threat_parts.append("(capped — ThreatFox test/demo tag)")
 
     if threat_parts:
         summary = f"{indicator} flagged as malicious: " + ", ".join(threat_parts)

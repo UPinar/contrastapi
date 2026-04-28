@@ -317,6 +317,46 @@ def test_ioc_url_ssrf_localhost(client):
     assert resp.status_code == 400
 
 
+def test_ioc_threatfox_test_tag_caps_to_low(client):
+    """ThreatFox honeypot tags (test/example/demo) must cap threat_level to 'low'
+    even when multiple sources report found=True (false-positive guard)."""
+    with (
+        patch(
+            "ioc.routes.query_threatfox",
+            return_value={"found": True, "malware": "Sample", "threat_type": "test", "tags": ["test", "appleseed"]},
+        ),
+        patch("ioc.routes.check_urlhaus", return_value={"urlhaus_status": "online", "url_count": 1, "urls_online": 1}),
+    ):
+        resp = client.get("/v1/ioc/example.com")
+    assert resp.status_code == 200
+    data = resp.json()
+    # Without cap this would be 'high' (2 sources found). Test tag forces 'low'.
+    assert data["threat_level"] == "low"
+    assert "capped" in data["summary"].lower()
+
+
+def test_ioc_real_malware_tags_unchanged(client):
+    """Regression guard: real malware tags (banker, trojan) must NOT trigger the cap;
+    threat_level should remain 'high' when 2+ sources hit."""
+    with (
+        patch(
+            "ioc.routes.query_threatfox",
+            return_value={
+                "found": True,
+                "malware": "Emotet",
+                "threat_type": "botnet_cc",
+                "tags": ["banker", "trojan"],
+            },
+        ),
+        patch("ioc.routes.check_urlhaus", return_value={"urlhaus_status": "online", "url_count": 5, "urls_online": 3}),
+    ):
+        resp = client.get("/v1/ioc/badactor.example")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["threat_level"] == "high"
+    assert "capped" not in data["summary"].lower()
+
+
 def test_ioc_url_ssrf_metadata(client):
     """URL IOC with cloud metadata IP should be rejected with 400."""
     resp = client.get("/v1/ioc/http://169.254.169.254/latest/meta-data")
