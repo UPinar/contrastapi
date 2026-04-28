@@ -1016,6 +1016,32 @@ class TestDomainRoutes:
 
     @patch("domain.routes.check_cloud_provider", return_value=None)
     @patch("domain.routes.check_tor_exit", return_value=False)
+    @patch("domain.routes.ip_enrichment", return_value={**_enrich_empty})
+    @patch("domain.routes.socket.gethostbyaddr", side_effect=Exception("no PTR"))
+    def test_ip_verdict_falsifiable_includes_is_datacenter(self, mock_ptr, mock_enrich, mock_tor, mock_cloud):
+        # Phase 6 (v1.17.0): is_datacenter is now a top-level response field
+        # and must be advertised in verdict.falsifiable_fields so agents can
+        # audit drift instead of inferring datacenter status from cloud_provider.
+        r = client.get("/v1/ip/1.2.3.4")
+        assert r.status_code == 200
+        fields = r.json()["verdict"]["falsifiable_fields"]
+        assert "is_datacenter" in fields
+
+    @patch("domain.routes.check_cloud_provider", return_value=None)
+    @patch("domain.routes.check_tor_exit", return_value=False)
+    @patch("domain.routes.ip_enrichment", return_value={**_enrich_empty})
+    @patch("domain.routes.socket.gethostbyaddr", side_effect=Exception("no PTR"))
+    def test_ip_verdict_falsifiable_includes_firehol(self, mock_ptr, mock_enrich, mock_tor, mock_cloud):
+        # Phase 6: firehol surfaces under reputation but the verdict block is
+        # the contract that lists every field an agent may audit. Pre-1.17 the
+        # entry was missing even though Free tier always emits firehol data.
+        r = client.get("/v1/ip/1.2.3.4")
+        assert r.status_code == 200
+        fields = r.json()["verdict"]["falsifiable_fields"]
+        assert "firehol" in fields
+
+    @patch("domain.routes.check_cloud_provider", return_value=None)
+    @patch("domain.routes.check_tor_exit", return_value=False)
     @patch(
         "domain.routes.ip_enrichment",
         return_value={
