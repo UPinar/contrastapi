@@ -2471,6 +2471,15 @@ class ThreatReportResponse(BaseModel):
         description="FireHOL Level1 listing status: {status, listed, lists_matched}. Available on all tiers.",
     )
     risk_score: int = Field(default=0, description="Composite 0-100 score consistent with ip_lookup.risk_score.")
+    severity_label: Literal["low", "medium", "high", "critical"] = Field(
+        default="low",
+        description=(
+            "Coarse risk band derived from risk_score (parity with ip_lookup.severity_label). "
+            "Pre-1.17 the route emitted this field and advertised it in verdict.falsifiable_fields "
+            "but the schema didn't declare it, so Pydantic silently dropped it from the wire. "
+            "Same thresholds: >=75 critical, >=50 high, >=25 medium, else low."
+        ),
+    )
     verdict: Verdict | None = Field(
         default=None,
         description="Source provenance — Pro tier marks the AbuseIPDB/Shodan slots in queried; Free tier marks them unavailable.",

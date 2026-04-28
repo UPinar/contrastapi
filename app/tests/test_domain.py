@@ -4363,6 +4363,13 @@ class TestProOnlyEnrichment:
         assert data["abuseipdb"]["upgrade_url"] == "https://contrastcyber.com/pricing"
         assert data["shodan"]["status"] == "pro_only"
         assert data["shodan"]["upgrade_url"] == "https://contrastcyber.com/pricing"
+        # v1.17.0 schema fix: severity_label + is_datacenter must reach the wire
+        # (pre-1.17 the route built them but Pydantic dropped severity_label
+        # because ThreatReportResponse hadn't declared the field).
+        assert "severity_label" in data
+        assert data["severity_label"] in ("low", "medium", "high", "critical")
+        assert "is_datacenter" in data
+        assert isinstance(data["is_datacenter"], bool)
 
     # --- Cache bypass test ---
 
