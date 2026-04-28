@@ -53,6 +53,7 @@ from config import (
 from cryptography import x509
 from cryptography.x509.oid import AuthorityInformationAccessOID
 from db import (
+    enrich_cves_by_ids,
     get_cached_domain,
     get_cached_domain_with_age,
     get_cached_ip_with_age,
@@ -63,8 +64,10 @@ from db import (
 from domain.archive import wayback_lookup
 from domain.ip_intel import check_cloud_provider, check_firehol, check_tor_exit, score_ip, tor_cache_status
 from domain.recon import (
+    _dns_call_with_timeout,
     _ssl_grade,
     _ssrf_http,
+    _strip_control_chars,
     check_ct_logs,
     check_disposable,
     detect_mail_provider,
@@ -144,6 +147,14 @@ def _safe_rdn(s: str) -> str:
 def _safe_url(url: str) -> str:
     """Strip CRLF / control chars from URLs before logging or returning in responses."""
     return "".join(c for c in url if c >= " " and c != "\x7f")[:2048]
+
+
+def _clean_shodan_str_list(items) -> list[str]:
+    """Trojan-Source guard: strip bidi / control chars from a Shodan-supplied
+    str-array (vulns, hostnames, cpes, tags) before it flows into the JSON
+    response. Non-strings are silently dropped (defensive — upstream contract
+    violation, must not crash the request)."""
+    return [_strip_control_chars(v) for v in (items or []) if isinstance(v, str)]
 
 
 def _fetch_intermediate(url):
@@ -1250,8 +1261,6 @@ def ip_lookup(ip: IpPath, request: Request):
     f_asn_country = _reputation_pool.submit(_fetch_asn_country, ip)
 
     try:
-        from domain.recon import _dns_call_with_timeout, _strip_control_chars
-
         addr_result, addr_err = _dns_call_with_timeout(socket.gethostbyaddr, ip)
         # Reverse DNS is owner-controlled; strip control / bidi chars before
         # echoing into the JSON response (Trojan Source CVE-2021-42574 class).
@@ -1262,7 +1271,21 @@ def ip_lookup(ip: IpPath, request: Request):
     enrichment = ip_enrichment(ip)
     internetdb_failed = enrichment.pop("internetdb_status", "ok") == "error"
     ports = enrichment.get("ports", [])
-    vulns = enrichment.get("vulns", [])
+    # Shodan InternetDB is upstream-controlled — a poisoned feed could smuggle
+    # Trojan-Source bidi overrides into any of the free-text fields that flow
+    # into the JSON response (vulns, hostnames, cpes, tags). Strip bidi /
+    # control chars on every str-array field before any of them reach the
+    # wire (or, for vulns, the cve.db lookup).
+    enrichment["hostnames"] = _clean_shodan_str_list(enrichment.get("hostnames"))
+    enrichment["cpes"] = _clean_shodan_str_list(enrichment.get("cpes"))
+    enrichment["tags"] = _clean_shodan_str_list(enrichment.get("tags"))
+    # Phase 2 IP enrichment (v1.16.0 BREAKING): replace the flat list[str] of
+    # CVE IDs from Shodan InternetDB with severity-aware list[VulnInfo] so
+    # agents can triage without a fan-out cve_lookup per CVE. See
+    # db.enrich_cves_by_ids docstring for the unknown-CVE contract.
+    raw_vulns = _clean_shodan_str_list(enrichment.get("vulns"))
+    vulns = enrich_cves_by_ids(raw_vulns)
+    enrichment["vulns"] = vulns
     hostnames = enrichment.get("hostnames", [])
 
     # Reputation enrichment (rate-limited per client IP)
@@ -2140,6 +2163,15 @@ def threat_report(ip: IpPath, request: Request):
 
     if not isinstance(enrichment, dict):
         enrichment = {"ports": [], "hostnames": [], "vulns": [], "cpes": [], "tags": []}
+    # Trojan-Source guard parity with ip_lookup: strip bidi / control chars
+    # from every Shodan-supplied str-array before enrichment + serialization.
+    enrichment["hostnames"] = _clean_shodan_str_list(enrichment.get("hostnames"))
+    enrichment["cpes"] = _clean_shodan_str_list(enrichment.get("cpes"))
+    enrichment["tags"] = _clean_shodan_str_list(enrichment.get("tags"))
+    # Phase 2 IP enrichment parity: threat_report.enrichment.vulns ships the
+    # same severity-aware list[VulnInfo] shape as ip_lookup.vulns (v1.16.0
+    # BREAKING). Pre-1.16 this was list[str].
+    enrichment["vulns"] = enrich_cves_by_ids(_clean_shodan_str_list(enrichment.get("vulns")))
     if not isinstance(abuseipdb, dict):
         abuseipdb = {"status": "error"}
     if not isinstance(shodan_data, dict):
@@ -2174,8 +2206,6 @@ def threat_report(ip: IpPath, request: Request):
     # to ip_lookup parity by embedding the cheap-to-fetch passive fields here
     # so SOC triage callers do not need a second ip_lookup call to fill in
     # the basics.
-    from domain.recon import _dns_call_with_timeout, _strip_control_chars
-
     try:
         ptr_result, _ = _dns_call_with_timeout(socket.gethostbyaddr, ip)
         # Reverse DNS is owner-controlled; strip control / bidi chars before
@@ -2223,7 +2253,12 @@ def threat_report(ip: IpPath, request: Request):
     if enrichment.get("ports"):
         summary_parts.append(f"{len(enrichment['ports'])} open ports")
     if enrichment.get("vulns") or shodan_data.get("vulns"):
-        all_vulns = set(enrichment.get("vulns", [])) | set(shodan_data.get("vulns", []))
+        # enrichment.vulns is now list[VulnInfo dict] (v1.16.0); shodan_data.vulns
+        # is still raw list[str] from the Pro Shodan API. Extract IDs for the
+        # summary count so the dedupe still works across both shapes.
+        enrichment_ids = {v["cve_id"] for v in enrichment.get("vulns", []) if isinstance(v, dict)}
+        shodan_ids = set(shodan_data.get("vulns", []) or [])
+        all_vulns = enrichment_ids | shodan_ids
         summary_parts.append(f"{len(all_vulns)} known vulns")
     summary_parts.append(f"threat level: {threat_level}")
     summary = " · ".join(summary_parts)

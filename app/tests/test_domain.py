@@ -896,6 +896,136 @@ class TestDomainRoutes:
         # tor_exit=True → at least 20 penalty
         assert data["risk_score"] >= 20
 
+    # --- Phase 2 IP enrichment (v1.16.0) ---
+    # /v1/ip/{ip}.vulns ships severity-aware list[VulnInfo] instead of flat
+    # list[str] of CVE IDs. Three contracts under test: known-CVE enrichment,
+    # unknown-CVE honesty (UNKNOWN/null, not absent), Shodan input order
+    # preservation.
+
+    @patch("domain.routes.check_cloud_provider", return_value=None)
+    @patch("domain.routes.check_tor_exit", return_value=False)
+    @patch(
+        "domain.routes.ip_enrichment",
+        return_value={
+            "ports": [80],
+            "hostnames": [],
+            "vulns": ["CVE-2099-IP-CRIT", "CVE-2099-IP-HIGH"],
+            "cpes": [],
+            "tags": [],
+            "internetdb_status": "ok",
+        },
+    )
+    @patch("domain.routes.socket.gethostbyaddr", side_effect=Exception("no PTR"))
+    def test_ip_lookup_vulns_enriched_with_severity(self, mock_ptr, mock_enrich, mock_tor, mock_cloud):
+        from db import upsert_cve
+
+        upsert_cve(
+            {"cve_id": "CVE-2099-IP-CRIT", "severity": "CRITICAL", "cvss_v3": 9.8, "published": "2099-01-01T00:00:00Z"}
+        )
+        upsert_cve(
+            {"cve_id": "CVE-2099-IP-HIGH", "severity": "HIGH", "cvss_v3": 7.5, "published": "2099-01-01T00:00:00Z"}
+        )
+
+        r = client.get("/v1/ip/1.2.3.4")
+        assert r.status_code == 200
+        vulns = r.json()["vulns"]
+        assert len(vulns) == 2
+        assert all(isinstance(v, dict) for v in vulns), "Phase 2: vulns must be list[VulnInfo], not list[str]"
+        assert {v["cve_id"] for v in vulns} == {"CVE-2099-IP-CRIT", "CVE-2099-IP-HIGH"}
+        crit = next(v for v in vulns if v["cve_id"] == "CVE-2099-IP-CRIT")
+        assert crit["severity"] == "CRITICAL"
+        assert crit["cvss_v3"] == 9.8
+
+    @patch("domain.routes.check_cloud_provider", return_value=None)
+    @patch("domain.routes.check_tor_exit", return_value=False)
+    @patch(
+        "domain.routes.ip_enrichment",
+        return_value={
+            "ports": [80],
+            "hostnames": [],
+            "vulns": ["CVE-9999-NOT-IN-DB"],
+            "cpes": [],
+            "tags": [],
+            "internetdb_status": "ok",
+        },
+    )
+    @patch("domain.routes.socket.gethostbyaddr", side_effect=Exception("no PTR"))
+    def test_ip_lookup_unknown_cve_marked_unknown(self, mock_ptr, mock_enrich, mock_tor, mock_cloud):
+        r = client.get("/v1/ip/1.2.3.4")
+        assert r.status_code == 200
+        vulns = r.json()["vulns"]
+        assert len(vulns) == 1
+        # Honesty: ID kept, severity='UNKNOWN', cvss_v3=null. Agent must NOT
+        # infer 'benign' from absence of a database row.
+        assert vulns[0]["cve_id"] == "CVE-9999-NOT-IN-DB"
+        assert vulns[0]["severity"] == "UNKNOWN"
+        assert vulns[0]["cvss_v3"] is None
+
+    @patch("domain.routes.check_cloud_provider", return_value=None)
+    @patch("domain.routes.check_tor_exit", return_value=False)
+    @patch(
+        "domain.routes.ip_enrichment",
+        return_value={
+            "ports": [80],
+            # Trojan-Source guard: simulated poisoned Shodan feed slipping
+            # bidi format chars (U+202E RLO + U+2066 LRI) + NULL into every
+            # str-array. All four (vulns, hostnames, cpes, tags) must be
+            # echoed clean — agents may render any of these in a bidi-aware
+            # terminal / UI.
+            "vulns": ["CVE-2099-IP-BIDI‮⁦suffix\x00"],
+            "hostnames": ["evil.example‮com"],
+            "cpes": ["cpe:2.3:a:bad:thing‮suffix:1.0"],
+            "tags": ["cdn‮"],
+            "internetdb_status": "ok",
+        },
+    )
+    @patch("domain.routes.socket.gethostbyaddr", side_effect=Exception("no PTR"))
+    def test_ip_lookup_vulns_strips_bidi_controls(self, mock_ptr, mock_enrich, mock_tor, mock_cloud):
+        r = client.get("/v1/ip/1.2.3.4")
+        assert r.status_code == 200
+        body = r.json()
+
+        # vulns: enriched + cleaned.
+        assert len(body["vulns"]) == 1
+        cid = body["vulns"][0]["cve_id"]
+        assert "‮" not in cid and "⁦" not in cid and "\x00" not in cid
+        assert "suffix" in cid  # plain-text payload preserved.
+
+        # hostnames / cpes / tags also stripped (sister-field parity).
+        for field in ("hostnames", "cpes", "tags"):
+            for val in body.get(field, []):
+                assert "‮" not in val and "⁦" not in val, f"{field} leaked bidi"
+
+    @patch("domain.routes.check_cloud_provider", return_value=None)
+    @patch("domain.routes.check_tor_exit", return_value=False)
+    @patch(
+        "domain.routes.ip_enrichment",
+        return_value={
+            "ports": [80],
+            "hostnames": [],
+            "vulns": ["CVE-2099-IP-ORDER-2", "CVE-2099-IP-ORDER-1", "CVE-9999-IP-UNKNOWN"],
+            "cpes": [],
+            "tags": [],
+            "internetdb_status": "ok",
+        },
+    )
+    @patch("domain.routes.socket.gethostbyaddr", side_effect=Exception("no PTR"))
+    def test_ip_lookup_vulns_preserves_shodan_order(self, mock_ptr, mock_enrich, mock_tor, mock_cloud):
+        from db import upsert_cve
+
+        upsert_cve(
+            {"cve_id": "CVE-2099-IP-ORDER-1", "severity": "LOW", "cvss_v3": 3.1, "published": "2099-01-01T00:00:00Z"}
+        )
+        upsert_cve(
+            {"cve_id": "CVE-2099-IP-ORDER-2", "severity": "MEDIUM", "cvss_v3": 5.4, "published": "2099-01-01T00:00:00Z"}
+        )
+
+        r = client.get("/v1/ip/1.2.3.4")
+        assert r.status_code == 200
+        # Shodan ranks confidence — preserve input order, do not sort by severity.
+        order = [v["cve_id"] for v in r.json()["vulns"]]
+        assert order == ["CVE-2099-IP-ORDER-2", "CVE-2099-IP-ORDER-1", "CVE-9999-IP-UNKNOWN"]
+
     @patch("domain.routes.check_cloud_provider", return_value="AWS")
     @patch("domain.routes.check_tor_exit", return_value=False)
     @patch("domain.routes.ip_enrichment", return_value={**_enrich_empty})
@@ -3569,7 +3699,9 @@ class TestIpRouteReputation:
         assert "abuseipdb" in rep["upgrade"]["pro_only_sources"]
         assert "shodan" in rep["upgrade"]["pro_only_sources"]
         assert data["ports"] == [22, 80]
-        assert "CVE-2024-1234" in data["vulns"]
+        # v1.16.0 Phase 2: vulns is list[VulnInfo dict], not list[str]. ID
+        # preserved + severity emitted (UNKNOWN if not in cve.db).
+        assert "CVE-2024-1234" in {v["cve_id"] for v in data["vulns"]}
 
     @patch("domain.routes.authenticate", return_value={"tier": "free"})
     @patch("domain.routes.check_abuseipdb")

@@ -925,6 +925,68 @@ def get_related_cves_by_product(
         return [{"cve_id": r["cve_id"], "severity": r["severity"], "cvss_v3": r["cvss_v3"]} for r in rows]
 
 
+def enrich_cves_by_ids(cve_ids: list[str]) -> list[dict]:
+    """Look up severity + cvss_v3 for a batch of CVE IDs in a single query.
+
+    Used by /v1/ip and /v1/threat_report to convert ham CVE-ID lists from
+    Shodan InternetDB into severity-aware triage payloads (Phase 2 IP
+    enrichment). Unknown CVEs are returned as severity='UNKNOWN', cvss_v3=None
+    so the agent can still see the CVE ID without inferring it is benign.
+
+    Returned ordering: input list order preserved (deterministic output for
+    the agent — Shodan's ordering is meaningful, do not re-sort here).
+
+    Defense in depth: each emitted cve_id is run through
+    `_strip_control_chars` before being placed in the output dict. Callers
+    are expected to pre-clean their input (Trojan-Source guard at the
+    request boundary), but this helper also re-cleans on the way out so a
+    forgetful future caller cannot leak bidi overrides into the response.
+    Per-item cap: CVE IDs longer than 64 chars are truncated to bound the
+    cost of the strip pass + JSON serialization on poisoned upstream input.
+    """
+    if not cve_ids:
+        return []
+    # Late import to avoid a domain.recon ↔ db circular at module load.
+    from domain.recon import _strip_control_chars
+
+    def _safe(cid: str) -> str:
+        # Per-item length bound (real CVE IDs are ~15 chars; 64 is generous).
+        return _strip_control_chars(cid)[:64]
+
+    # Defensive cap: Shodan can return tens of vulns per IP, but absurd lists
+    # (1000+) blow up SQL parameter limits and waste tokens. Cap at 100;
+    # callers can fan out if they really need more.
+    cve_ids = cve_ids[:100]
+    placeholders = ",".join("?" * len(cve_ids))
+    sql = f"""
+        SELECT cve_id, severity, cvss_v3
+        FROM cves
+        WHERE cve_id IN ({placeholders})
+    """
+    with get_cve_db() as con:
+        cur = con.cursor()
+        cur.row_factory = sqlite3.Row
+        rows = cur.execute(sql, tuple(cve_ids)).fetchall()
+    found = {r["cve_id"]: {"severity": r["severity"], "cvss_v3": r["cvss_v3"]} for r in rows}
+    out: list[dict] = []
+    for cve_id in cve_ids:
+        clean = _safe(cve_id)
+        # Look up using the original (caller-supplied) ID so a pre-cleaned
+        # caller still hits the same row; emit the re-cleaned form on output.
+        hit = found.get(cve_id)
+        if hit:
+            out.append(
+                {
+                    "cve_id": clean,
+                    "severity": (hit["severity"] or "UNKNOWN").upper(),
+                    "cvss_v3": hit["cvss_v3"],
+                }
+            )
+        else:
+            out.append({"cve_id": clean, "severity": "UNKNOWN", "cvss_v3": None})
+    return out
+
+
 def search_cves_by_product(product: str, version: str | None = None, limit: int = 20) -> list[dict]:
     """Search CVEs via cve_products table with optional version range check."""
     product = _normalize_product(product)

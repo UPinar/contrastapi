@@ -173,6 +173,46 @@ def test_search_cves_by_severity():
     assert all(r["severity"] == "CRITICAL" for r in results)
 
 
+def test_enrich_cves_by_ids_empty_input():
+    from db import enrich_cves_by_ids
+
+    assert enrich_cves_by_ids([]) == []
+
+
+def test_enrich_cves_by_ids_known_and_unknown():
+    from db import enrich_cves_by_ids, upsert_cve
+
+    upsert_cve(
+        {
+            "cve_id": "CVE-2099-0001",
+            "severity": "CRITICAL",
+            "cvss_v3": 9.8,
+            "published": "2099-01-01T00:00:00Z",
+        }
+    )
+    upsert_cve(
+        {
+            "cve_id": "CVE-2099-0002",
+            "severity": "high",  # lower-case in source row
+            "cvss_v3": 7.5,
+            "published": "2099-01-01T00:00:00Z",
+        }
+    )
+
+    out = enrich_cves_by_ids(["CVE-2099-0001", "CVE-9999-NOPE", "CVE-2099-0002"])
+
+    # Input order preserved (Shodan ordering is meaningful).
+    assert [v["cve_id"] for v in out] == ["CVE-2099-0001", "CVE-9999-NOPE", "CVE-2099-0002"]
+    # Known row enrichment.
+    assert out[0]["severity"] == "CRITICAL"
+    assert out[0]["cvss_v3"] == 9.8
+    # Unknown CVE keeps the ID but emits UNKNOWN/None — agent must not infer benign.
+    assert out[1]["severity"] == "UNKNOWN"
+    assert out[1]["cvss_v3"] is None
+    # Severity normalised to upper-case.
+    assert out[2]["severity"] == "HIGH"
+
+
 def test_search_cves_by_product():
     from db import search_cves, upsert_cve
 

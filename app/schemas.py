@@ -499,6 +499,35 @@ class ShodanRepInfo(BaseModel):
     model_config = {"extra": "ignore"}
 
 
+class VulnInfo(BaseModel):
+    """Severity-enriched CVE entry attached to /v1/ip and /v1/threat_report.
+
+    Phase 2 IP enrichment (v1.16.0 BREAKING): Shodan InternetDB returns a flat
+    list of CVE IDs with no severity context, forcing agents to fan out
+    cve_lookup calls for triage. We resolve severity + cvss_v3 against the
+    local cve.db in a single SQL batch so the agent can prioritise without
+    extra round-trips. Unknown CVEs are emitted with severity='UNKNOWN' /
+    cvss_v3=null so the ID is preserved (the agent must not infer 'benign'
+    from the absence of a row).
+    """
+
+    cve_id: str = Field(description="CVE identifier (e.g. 'CVE-2021-44228').")
+    severity: Literal["CRITICAL", "HIGH", "MEDIUM", "LOW", "UNKNOWN"] = Field(
+        description=(
+            "NVD CVSS v3 severity bucket from local cve.db. 'UNKNOWN' when the CVE "
+            "is not in our database (NVD may not have classified it yet, or the ID "
+            "is reserved). Treat UNKNOWN as 'do not assume benign — call cve_lookup "
+            "for fresh upstream data.'"
+        ),
+    )
+    cvss_v3: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=10.0,
+        description="CVSS v3 base score (0.0-10.0). Null when severity='UNKNOWN' or NVD has no v3 score.",
+    )
+
+
 class ReputationUpgradeHint(BaseModel):
     """Compact pointer that replaces the verbose pro_only sub-stubs for Free tier.
 
@@ -566,9 +595,15 @@ class IpLookupResponse(BaseModel):
         default_factory=list,
         description="Hostnames observed pointing to this IP per Shodan InternetDB.",
     )
-    vulns: list[str] = Field(
+    vulns: list[VulnInfo] = Field(
         default_factory=list,
-        description="CVE IDs Shodan InternetDB has associated with banners on this IP.",
+        description=(
+            "CVEs Shodan InternetDB has associated with banners on this IP, enriched "
+            "with severity + cvss_v3 from local cve.db (Phase 2 IP enrichment, v1.16.0 "
+            "BREAKING). Pre-1.16 this was a flat list[str] of CVE IDs. Order is "
+            "preserved from Shodan (meaningful — Shodan ranks confidence). Unknown "
+            "CVEs emit severity='UNKNOWN'; do NOT infer 'benign' from UNKNOWN."
+        ),
     )
     cpes: list[str] = Field(
         default_factory=list,
@@ -2021,7 +2056,9 @@ class ThreatReportResponse(BaseModel):
         default_factory=dict,
         description=(
             "Shodan InternetDB free-tier enrichment: {ports: list[int], hostnames: list[str], "
-            "vulns: list[str] (CVE IDs), cpes: list[str], tags: list[str]}. Available on all tiers. "
+            "vulns: list[VulnInfo] ({cve_id, severity, cvss_v3} dicts — see VulnInfo schema; "
+            "Phase 2 v1.16.0 BREAKING — pre-1.16 this was list[str] of CVE IDs), "
+            "cpes: list[str], tags: list[str]}. Available on all tiers. "
             "Empty dict with all-empty lists on upstream failure — treat as 'no data', not 'clean'."
         ),
     )
