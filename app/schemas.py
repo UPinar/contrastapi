@@ -1022,6 +1022,7 @@ class PivotHint(BaseModel):
         "threat_report",
         "audit_domain",
         "domain_report",
+        "email_leaks_lookup",
     ] = Field(
         description=(
             "Canonical MCP tool name to call next. Constrained to known operation_ids in "
@@ -1929,6 +1930,81 @@ class DisposableResponse(BaseModel):
     risk_level: str = "low"
     mx_records: list[MxRecord] = Field(default_factory=list)
     summary: str = ""
+
+
+# === Email Leaks Lookup ===
+
+
+class LeakSource(BaseModel):
+    """A single paste/leak record returned by an upstream feed.
+
+    Pulsedive is the only feed wired today; HIBP paste API is deferred until a
+    paid HIBP key is justified by Pro tier traffic. The `source` Literal will
+    grow as additional feeds are added — agents must match all variants, not
+    rely on a fixed value.
+    """
+
+    source: Literal["pulsedive"] = Field(
+        description="Upstream feed that produced this record. Today only 'pulsedive'.",
+    )
+    source_id: str | None = Field(
+        default=None,
+        description="Source-specific identifier (e.g. Pulsedive indicator IID). Null when the source does not expose one.",
+    )
+    title: str | None = Field(
+        default=None,
+        description="Human-readable name for the paste / threat record (e.g. paste title or campaign name).",
+    )
+    first_seen: str | None = Field(
+        default=None,
+        description="ISO-8601 timestamp when the source first observed this leak. Null when the feed does not publish one.",
+    )
+    last_seen: str | None = Field(
+        default=None,
+        description="ISO-8601 timestamp when the source most recently observed activity. Null when not reported.",
+    )
+    risk: str | None = Field(
+        default=None,
+        description="Severity label assigned by the source (e.g. 'critical', 'high', 'medium', 'low', 'unknown'). Free-form per feed.",
+    )
+    url: str | None = Field(
+        default=None,
+        description="Public URL for the paste or threat-intel record when the source publishes one. Sanitized to drop control/CRLF chars.",
+    )
+
+    model_config = {"extra": "ignore"}
+
+
+class LeakLookupResponse(BaseModel):
+    email: str = Field(
+        description="Echoed input email (lowercased) so the caller can correlate response with request.",
+    )
+    found: bool = Field(
+        default=False,
+        description="True when at least one source returned a leak record. False when every queried source produced nothing.",
+    )
+    total_leaks: int = Field(
+        default=0,
+        description="Honest count of leak records returned (length of `leaks`). Always present even when found=False.",
+    )
+    leaks: list[LeakSource] = Field(
+        default_factory=list,
+        description="Aggregated leak records across queried sources. Empty when none found OR every source was unavailable (inspect verdict.sources_unavailable to disambiguate).",
+    )
+    summary: str = Field(
+        default="",
+        description="One-line human summary, e.g. 'No leaks detected (pulsedive)' or '2 leak records — most recent 2026-04-12 (pulsedive)'.",
+    )
+    verdict: Verdict | None = Field(
+        default=None,
+        description="Source provenance — `sources_queried` lists feeds that responded, `sources_unavailable` lists timeouts/429/restricted.",
+    )
+    next_calls: list[PivotHint] | None = Field(
+        default=None,
+        description="Suggested follow-up MCP tool calls. Emitted when the email's domain warrants a domain_report or email_mx pivot.",
+    )
+
+    model_config = {"extra": "ignore"}
 
 
 # === Username Lookup ===
