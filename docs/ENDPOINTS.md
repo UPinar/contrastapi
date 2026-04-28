@@ -28,10 +28,20 @@ POST /v1/domains/bulk             Bulk domain scan (10 free, 50 pro)
 ## IP & Network
 
 ```
-GET /v1/ip/{ip}                   IP intel + reputation + cloud/Tor detection + risk score
-GET /v1/threat-report/{ip}        Orchestrated threat report (Shodan + AbuseIPDB + ASN)  [cost: 4]
-GET /v1/asn/{target}              ASN lookup (AS number or IP)
+GET /v1/ip/{ip}                   IP intel — PTR, ASN+name+country (inline), open ports, hostnames,
+                                  severity-aware vulns (cve_id+severity+cvss_v3, v1.16.0 BREAKING),
+                                  cloud provider, Tor exit, FireHOL reputation (free), AbuseIPDB+Shodan (pro),
+                                  composite risk_score (0-100) + severity_label (low/medium/high/critical)
+GET /v1/threat-report/{ip}        Orchestrated IP profile — InternetDB enrichment + AbuseIPDB + Shodan + ASN
+                                  with full ip_lookup parity (PTR, ASN+name+country, cloud, Tor, FireHOL,
+                                  risk_score). Severity-aware vulns shape matches /v1/ip.  [cost: 4]
+GET /v1/asn/{target}              ASN lookup (AS number or IP) — IPv4/IPv6 prefixes, holder name
 ```
+
+**Schema notes:**
+- `vulns` is `list[{cve_id, severity, cvss_v3}]` — `severity='UNKNOWN'` means the CVE is not in our local cve.db (do not infer "benign").
+- `cloud_provider` uses two-tier detection: published cloud CIDRs first, then ASN-to-provider fallback (e.g. `8.8.8.8 → AS15169 → 'Google'`).
+- `tor_exit=false` is null-explicit — check `verdict.sources_unavailable` for `'tor'` to disambiguate "not listed" from "fetch failed".
 
 ## CVE Intelligence
 
@@ -132,6 +142,22 @@ All endpoints return JSON with a consistent envelope. Example (`GET /v1/cve/CVE-
 ```
 
 The `summary` field is **LLM-optimized** — AI agents can reason about the result without parsing nested JSON.
+
+### Verdict & next_calls
+
+Most response models include two MCP-friendly metadata blocks:
+
+- **`verdict`** — Falsifiability metadata: `{deterministic, falsifiable_fields, sources_queried, sources_unavailable, completeness, data_age_seconds}`. Lets agents distinguish "no data" from "source failed" — critical for chain-of-thought integrity.
+- **`next_calls`** — Conditional pivot hints suggesting follow-up MCP tools (e.g. `kev_detail` when `kev.in_kev=true`, `exploit_lookup` when `cwe_id` is set, `asn_lookup` when an ASN is populated).
+
+### Typed sub-models
+
+All nested fields use typed Pydantic sub-models (no opaque dicts). Notable shapes:
+
+- `IpEnrichmentInfo` — Shodan InternetDB block on `/v1/threat-report` (mirrors top-level `/v1/ip` enrichment).
+- `IocSourcesInfo` — `{threatfox, feodo, urlhaus, tor}` per-source results (which keys are present depends on indicator type — see `/v1/ioc`).
+- `AbuseIpdbInfo` / `ShodanRepInfo` — Pro-tier reputation blocks. On Free tier these emit `{status:'pro_only', reason, upgrade_url}` upsell stubs (NOT errors).
+- `VulnInfo` — `{cve_id, severity, cvss_v3}` shape used by `vulns` arrays in `/v1/ip` and `/v1/threat-report` (Phase 2 IP enrichment, v1.16.0 BREAKING).
 
 ## OpenAPI Spec
 

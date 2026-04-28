@@ -32,21 +32,57 @@ MAX_HEADERS = 50
 
 
 class CodeInput(BaseModel):
-    code: str
-    language: str = "generic"
+    code: str = Field(
+        ...,
+        description=(
+            "Source code snippet to scan. Plain text; no length cap, but each scanner has its "
+            "own per-line caps (ReDoS protection). Submit only code you have authorization to "
+            "share — content is processed in-memory and not persisted."
+        ),
+    )
+    language: str = Field(
+        default="generic",
+        description=(
+            "Source language hint for comment-stripping and rule selection. Allowed: "
+            "generic, python, javascript, typescript, java, go, ruby, shell, bash. "
+            "Use 'generic' if unknown — falls back to language-agnostic patterns."
+        ),
+    )
 
 
 class HeadersInput(BaseModel):
-    headers: dict[str, str]
+    headers: dict[str, str] = Field(
+        ...,
+        description=(
+            "HTTP response header name-value pairs to validate against best practices. "
+            f"Maximum {MAX_HEADERS} headers per request. Header names are case-insensitive; "
+            "include only security-relevant headers (CSP, HSTS, X-Frame-Options, etc.) — "
+            "non-security headers are ignored."
+        ),
+    )
 
 
 class PackageItem(BaseModel):
-    name: str = Field(..., min_length=1, max_length=200)
-    version: str | None = Field(default=None, max_length=100)
+    name: str = Field(
+        ...,
+        min_length=1,
+        max_length=200,
+        description="Package name as published in its ecosystem registry (e.g. 'requests', 'lodash', 'log4j-core').",
+    )
+    version: str | None = Field(
+        default=None,
+        max_length=100,
+        description="Optional exact version string. Omit to check the package itself for advisories without version filtering.",
+    )
 
 
 class DependenciesInput(BaseModel):
-    packages: list[PackageItem] = Field(..., min_length=1, max_length=50)
+    packages: list[PackageItem] = Field(
+        ...,
+        min_length=1,
+        max_length=50,
+        description="List of package name+version pairs to check against known vulnerability advisories. Max 50 per request.",
+    )
 
 
 # --- Helpers ---

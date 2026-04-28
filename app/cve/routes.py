@@ -1227,7 +1227,16 @@ def exploit_lookup(
 
 
 class _BulkCveRequest(BaseModel):
-    cve_ids: list[Annotated[str, StringConstraints(max_length=64)]] = Field(..., min_length=1, max_length=50)
+    cve_ids: list[Annotated[str, StringConstraints(max_length=64)]] = Field(
+        ...,
+        min_length=1,
+        max_length=50,
+        description=(
+            "List of CVE identifiers in canonical form 'CVE-YYYY-NNNN+' (case-insensitive; "
+            "normalized to upper-case + de-duplicated server-side). Each CVE counts as 1 "
+            "request toward the rate limit. Max 10 (free) / 50 (pro) per call."
+        ),
+    )
     include_affected_products: bool = Field(
         False,
         description="Return full affected_products list for each CVE (default: first 20).",

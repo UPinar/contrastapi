@@ -444,7 +444,16 @@ _BULK_IOC_OVERALL_TIMEOUT = 120
 
 
 class _BulkIocRequest(BaseModel):
-    indicators: list[str] = Field(..., min_length=1, max_length=50)
+    indicators: list[str] = Field(
+        ...,
+        min_length=1,
+        max_length=50,
+        description=(
+            "List of indicators of compromise — each is auto-detected per-item (IP / domain / "
+            "URL / file hash MD5/SHA1/SHA256/SHA512). Mixed types in one batch are supported. "
+            "Each indicator counts as 1 request toward the rate limit. Max 10 (free) / 50 (pro)."
+        ),
+    )
 
 
 def _run_single_ioc(indicator: str) -> dict:

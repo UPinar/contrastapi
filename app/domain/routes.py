@@ -1838,7 +1838,16 @@ def asn_lookup(
 
 
 class _BulkRequest(BaseModel):
-    domains: list[str] = Field(..., min_length=1, max_length=50)
+    domains: list[str] = Field(
+        ...,
+        min_length=1,
+        max_length=50,
+        description=(
+            "List of registrable domain names to report on (e.g. ['example.com', 'api.example.com']). "
+            "No scheme, no path, no port. Punycode/IDN accepted; subdomains allowed. Each domain "
+            "counts as 1 request toward the rate limit (4 credits per domain)."
+        ),
+    )
 
 
 _bulk_pool = ThreadPoolExecutor(max_workers=5)

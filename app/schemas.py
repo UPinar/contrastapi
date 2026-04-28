@@ -386,9 +386,17 @@ class DomainReportResponse(BaseModel):
 
 
 class DnsResponse(BaseModel):
-    domain: str
-    records: dict
-    summary: str | None = None
+    domain: str = Field(description="Queried domain (lowercased, no scheme).")
+    records: DomainDnsInfo = Field(
+        description=(
+            "DNS records keyed by type (a, aaaa, mx, ns, txt, cname, soa). Keys are omitted "
+            "(not null) when the lookup for that type fails. Same shape as DomainReportResponse.dns."
+        ),
+    )
+    summary: str | None = Field(
+        default=None,
+        description="One-line human-readable record summary (e.g. 'A, MX, TXT records for example.com').",
+    )
 
 
 # === IP Lookup ===
@@ -526,6 +534,46 @@ class VulnInfo(BaseModel):
         le=10.0,
         description="CVSS v3 base score (0.0-10.0). Null when severity='UNKNOWN' or NVD has no v3 score.",
     )
+
+
+class IpEnrichmentInfo(BaseModel):
+    """Shodan InternetDB enrichment subset (free, no API key) embedded in /v1/threat_report.
+
+    Mirrors the {ports, hostnames, vulns, cpes, tags} block at the top of ip_lookup,
+    plus an internetdb_status field that surfaces the upstream fetch outcome —
+    extracted as a sub-model so MCP clients see a typed schema instead of an opaque dict slot.
+    """
+
+    ports: list[int] = Field(
+        default_factory=list,
+        description="Open ports observed by Shodan InternetDB. Empty on upstream failure (treat as 'no data', not 'closed').",
+    )
+    hostnames: list[str] = Field(
+        default_factory=list,
+        description="Hostnames Shodan InternetDB has observed pointing to this IP.",
+    )
+    vulns: list[VulnInfo] = Field(
+        default_factory=list,
+        description=(
+            "CVEs Shodan InternetDB has associated with banners on this IP, enriched with "
+            "severity + cvss_v3 from local cve.db (Phase 2 IP enrichment, v1.16.0 BREAKING). "
+            "Pre-1.16 this was a flat list[str] of CVE IDs. Unknown CVEs emit severity='UNKNOWN'."
+        ),
+    )
+    cpes: list[str] = Field(
+        default_factory=list,
+        description="CPE 2.3 strings for services detected on this IP per Shodan InternetDB.",
+    )
+    tags: list[str] = Field(
+        default_factory=list,
+        description="Shodan InternetDB classification tags (e.g. 'cdn', 'cloud', 'vpn', 'tor', 'self-signed').",
+    )
+    internetdb_status: Literal["ok", "error"] | None = Field(
+        default=None,
+        description="Outcome of the InternetDB fetch. 'error' indicates upstream failure; absent on cached/legacy paths.",
+    )
+
+    model_config = {"extra": "ignore"}
 
 
 class ReputationUpgradeHint(BaseModel):
@@ -929,13 +977,128 @@ class VulnsResponse(BaseModel):
 # === IOC Enrichment ===
 
 
+class ThreatFoxSource(BaseModel):
+    """ThreatFox abuse.ch source entry inside IocResponse.sources.threatfox."""
+
+    found: bool = Field(description="True when ThreatFox returned at least one IOC entry for the indicator.")
+    malware: str | None = Field(
+        default=None, description="Malware family name (e.g. 'Cobalt Strike'). Null when found=False."
+    )
+    threat_type: str | None = Field(
+        default=None,
+        description="Threat classification (e.g. 'botnet_cc', 'payload_delivery'). Null when found=False.",
+    )
+    confidence: int | None = Field(
+        default=None,
+        description="ThreatFox confidence score (0-100). Null when found=False or not provided upstream.",
+    )
+    tags: list[str] = Field(
+        default_factory=list, description="ThreatFox tags. May include 'test'/'demo' for honeypot entries."
+    )
+    first_seen: str | None = Field(
+        default=None,
+        description="ISO timestamp of first ThreatFox observation. Null when found=False.",
+    )
+    ioc_count: int | None = Field(
+        default=None,
+        description="Total ThreatFox IOC entries matching this indicator. Null when found=False.",
+    )
+    error: str | None = Field(
+        default=None,
+        description="'upstream timeout' or 'upstream error' when ThreatFox query failed; absent on success.",
+    )
+
+    model_config = {"extra": "ignore"}
+
+
+class FeodoSource(BaseModel):
+    """Feodo Tracker C2 blocklist entry inside IocResponse.sources.feodo (IP only)."""
+
+    found: bool = Field(description="True when the IP appears on the Feodo Tracker C2 blocklist.")
+    malware: str | None = Field(
+        default=None, description="Malware family attributed by Feodo (e.g. 'Emotet'). Null when found=False."
+    )
+    first_seen: str | None = Field(
+        default=None,
+        description="ISO timestamp of first Feodo observation. Null when found=False.",
+    )
+    last_online: str | None = Field(
+        default=None,
+        description="ISO timestamp the C2 was last seen online. Null when found=False.",
+    )
+    status: str | None = Field(
+        default=None,
+        description="C2 lifecycle status per Feodo (e.g. 'online', 'offline'). Null when found=False.",
+    )
+
+    model_config = {"extra": "ignore"}
+
+
+class UrlhausSource(BaseModel):
+    """URLhaus abuse.ch source entry inside IocResponse.sources.urlhaus."""
+
+    found: bool = Field(description="True when URLhaus has at least one URL for the indicator.")
+    urls_online: int = Field(default=0, description="Subset of URLhaus URLs currently marked online.")
+
+    model_config = {"extra": "ignore"}
+
+
+class TorSource(BaseModel):
+    """Tor exit list entry inside IocResponse.sources.tor (IP only)."""
+
+    listed: bool = Field(description="True when the IP appears in the Tor Project's bulk exit list.")
+    fetch_status: Literal["initial", "ok", "failed", "capped"] = Field(
+        description=(
+            "Cache state of the Tor exit list snapshot used for the lookup. "
+            "'initial' = no refresh has run yet; 'ok' = fresh fetch; 'failed' = upstream "
+            "fetch failed (treat listed=False as 'unknown', not 'safe'); 'capped' = upstream "
+            "response exceeded the size cap and was rejected."
+        ),
+    )
+
+    model_config = {"extra": "ignore"}
+
+
+class IocSourcesInfo(BaseModel):
+    """Per-source lookup results inside IocResponse. Keys present depend on indicator type.
+
+    - hash → only `threatfox` (Feodo and URLhaus do not index hashes).
+    - ip → `threatfox` + `feodo` + `urlhaus` + `tor`.
+    - domain / url → `threatfox` + `urlhaus`.
+    """
+
+    threatfox: ThreatFoxSource | None = Field(default=None, description="ThreatFox lookup result. Always queried.")
+    feodo: FeodoSource | None = Field(
+        default=None, description="Feodo Tracker C2 blocklist lookup. IP indicators only."
+    )
+    urlhaus: UrlhausSource | None = Field(default=None, description="URLhaus URL/host match. IP/domain/URL indicators.")
+    tor: TorSource | None = Field(default=None, description="Tor exit list membership. IP indicators only.")
+
+    model_config = {"extra": "ignore"}
+
+
 class IocResponse(BaseModel):
-    indicator: str
-    type: str
-    threat_level: str = "none"
-    sources: dict = Field(default_factory=dict)
-    summary: str = ""
-    verdict: Verdict | None = None
+    indicator: str = Field(description="Echoed input indicator (sanitized; control chars stripped).")
+    type: Literal["ip", "domain", "url", "hash", "unknown"] = Field(
+        description="Auto-detected indicator type. 'unknown' is rejected at route level (400).",
+    )
+    threat_level: Literal["none", "low", "medium", "high"] = Field(
+        default="none",
+        description=(
+            "Heuristic threat tier from cross-source agreement. 'high' = >=2 sources flagged; "
+            "'medium' = 1 source flagged; 'none' = no source flagged. 'low' is a soft cap applied "
+            "when the only flag came from a ThreatFox test/demo honeypot tag."
+        ),
+    )
+    sources: IocSourcesInfo = Field(
+        default_factory=IocSourcesInfo,
+        description="Per-source lookup results. See IocSourcesInfo for which sources apply per indicator type.",
+    )
+    summary: str = Field(default="", description="One-line human summary aggregating threat indicators across sources.")
+    verdict: Verdict | None = Field(
+        default=None,
+        description="Falsifiability metadata. sources_unavailable lists feeds that timed out or errored.",
+    )
 
     model_config = {"extra": "ignore"}
 
@@ -960,10 +1123,24 @@ class HashResponse(BaseModel):
 
 
 class PasswordResponse(BaseModel):
-    hash_prefix: str
-    found: bool = False
-    breach_count: int = 0
-    summary: str = ""
+    hash_prefix: str = Field(
+        description=(
+            "First 5 chars of the SHA-1 hash (the only data sent upstream — k-anonymity). "
+            "The full hash never leaves the server."
+        ),
+    )
+    found: bool = Field(
+        default=False,
+        description="True when the full SHA-1 was matched in HIBP's breach corpus.",
+    )
+    breach_count: int = Field(
+        default=0,
+        description="Number of breach corpora that contained this password. 0 when found=False.",
+    )
+    summary: str = Field(
+        default="",
+        description="One-line human-readable result (e.g. 'This password appeared in 12,345 data breaches').",
+    )
 
     model_config = {"extra": "ignore"}
 
@@ -1021,20 +1198,32 @@ class PhishingResponse(BaseModel):
 
 
 class BulkDomainItem(BaseModel):
-    domain: str
-    status: str = "ok"
-    report: dict | None = None
-    error: str | None = None
+    domain: str = Field(description="Echoed input domain (lowercased).")
+    status: Literal["ok", "error"] = Field(
+        default="ok",
+        description="Per-item outcome. 'ok' = report populated; 'error' = error populated (timeout / lookup failed / invalid).",
+    )
+    report: DomainReportResponse | None = Field(
+        default=None,
+        description="Full domain intelligence report when status='ok'. Same shape as /v1/domain/{domain}.",
+    )
+    error: str | None = Field(
+        default=None,
+        description="Human-readable error message when status='error' (timeout, validation failure, upstream error).",
+    )
 
 
 class BulkDomainResponse(BaseModel):
-    results: list[BulkDomainItem] = Field(default_factory=list)
-    total: int = 0
-    successful: int = 0
-    failed: int = 0
-    timed_out: int = 0
-    partial: bool = False
-    summary: str = ""
+    results: list[BulkDomainItem] = Field(
+        default_factory=list,
+        description="Per-domain outcome list, preserving the input order.",
+    )
+    total: int = Field(default=0, description="Total number of input domains processed (== len(results)).")
+    successful: int = Field(default=0, description="Count of items with status='ok'.")
+    failed: int = Field(default=0, description="Count of items with status='error' from non-timeout failures.")
+    timed_out: int = Field(default=0, description="Count of items that hit the per-domain or overall timeout.")
+    partial: bool = Field(default=False, description="True when at least one item failed or timed out.")
+    summary: str = Field(default="", description="One-line aggregate summary (e.g. '8/10 domains succeeded').")
 
 
 # === Pivot hints (agent workflow chains) ===
@@ -1624,9 +1813,18 @@ class AsnResponse(BaseModel):
 
 
 class WhoisResponse(BaseModel):
-    domain: str
-    whois: dict
-    summary: str = ""
+    domain: str = Field(description="Queried domain (lowercased, no scheme).")
+    whois: WhoisInfoEmbedded = Field(
+        description=(
+            "WHOIS extract — registrar, dates, nameservers, EPP status. Same shape as "
+            "DomainReportResponse.whois. Populates `error` when the WHOIS query failed "
+            "(no WHOIS server for TLD, socket timeout, etc.)."
+        ),
+    )
+    summary: str = Field(
+        default="",
+        description="One-line human-readable summary (registrar + expiry hint).",
+    )
 
 
 # === Subdomains ===
@@ -1704,34 +1902,74 @@ class CveSearchItem(BaseModel):
 
 
 class CveSearchResponse(BaseModel):
-    count: int = 0
-    total: int = 0
-    truncated: bool = False
-    offset: int = 0
-    summary: str = ""
-    results: list[CveSearchItem] = Field(default_factory=list)
-    query_echo: dict[str, Any] | None = None
-    next_offset: int | None = None
-    hint: SearchHint | None = None
+    count: int = Field(default=0, description="Number of CVEs in this page (== len(results)). Capped by `limit`.")
+    total: int = Field(
+        default=0,
+        description="Total CVE matches in the database for the query — the honest pre-pagination count.",
+    )
+    truncated: bool = Field(
+        default=False,
+        description="True when total > offset + count (more pages available — use next_offset).",
+    )
+    offset: int = Field(default=0, description="Offset of the first item in this page (echoed from input).")
+    summary: str = Field(
+        default="",
+        description="One-line summary like '50 CVEs returned, 1234 total (product=nginx, severity=HIGH)'.",
+    )
+    results: list[CveSearchItem] = Field(default_factory=list, description="Per-CVE slim records — see CveSearchItem.")
+    query_echo: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "Echoed search filters with empty values stripped. Keys: product, vendor, severity, "
+            "cwe_id, published_after, published_before, kev, epss_min, sort, limit, offset. "
+            "Useful for verifying the parsed query matched the intent."
+        ),
+    )
+    next_offset: int | None = Field(
+        default=None,
+        description="Offset to pass on the next page. Null when truncated=False (no more results).",
+    )
+    hint: SearchHint | None = Field(
+        default=None,
+        description="Pivot/refine hint emitted when the query returned 0 results or is overly broad.",
+    )
 
 
 # === Code Security ===
 
 
 class CodeFinding(BaseModel):
-    type: str = ""
-    severity: str = "medium"
-    line: int | None = None
-    match: str | None = None
-    description: str = ""
-    remediation: str = ""
+    type: str = Field(
+        default="",
+        description="Rule identifier that fired (e.g. 'aws_secret_key', 'sql_injection'). Stable across releases.",
+    )
+    severity: Literal["critical", "high", "medium", "low"] = Field(
+        default="medium",
+        description="Impact bucket assigned by the rule. 'critical'/'high' are typically actionable; 'low' is advisory.",
+    )
+    line: int | None = Field(
+        default=None,
+        description="1-indexed line number in the submitted code where the rule matched. Null if line cannot be determined.",
+    )
+    match: str | None = Field(
+        default=None,
+        description="Snippet of the matching text (truncated for ReDoS safety). Null when the rule does not capture text.",
+    )
+    description: str = Field(default="", description="Human-readable explanation of what the rule detects.")
+    remediation: str = Field(default="", description="Actionable fix or mitigation guidance.")
 
 
 class CodeCheckResponse(BaseModel):
-    findings: list[CodeFinding] = Field(default_factory=list)
-    total: int = 0
-    by_severity: dict[str, int] = Field(default_factory=dict)
-    summary: str = ""
+    findings: list[CodeFinding] = Field(
+        default_factory=list,
+        description="Per-rule findings emitted by the scanner. Empty when the code is clean.",
+    )
+    total: int = Field(default=0, description="Total number of findings (== len(findings)).")
+    by_severity: dict[str, int] = Field(
+        default_factory=dict,
+        description="Finding counts bucketed by severity, e.g. {'critical': 1, 'high': 2, 'medium': 0, 'low': 1}.",
+    )
+    summary: str = Field(default="", description="One-line summary aggregating finding counts by severity.")
 
 
 class HeaderFinding(BaseModel):
@@ -1798,26 +2036,59 @@ class HeaderFinding(BaseModel):
 
 
 class ScanHeadersResponse(BaseModel):
-    domain: str
-    status_code: int = 0
-    url: str = ""
-    score: int = 0
-    grade: str = "F"
-    findings: list[HeaderFinding] = Field(default_factory=list)
-    summary: str = ""
-    headers_present: list[str] = Field(default_factory=list)
-    headers_missing: list[str] = Field(default_factory=list)
+    domain: str = Field(description="Queried domain (lowercased, no scheme).")
+    status_code: int = Field(
+        default=0, description="HTTP status code returned by the live origin during the header probe."
+    )
+    url: str = Field(default="", description="Final URL the probe landed on (after redirects).")
+    score: int = Field(
+        default=0, description="Aggregate header-posture score (0-100) summed from per-finding severity weights."
+    )
+    grade: Literal["A", "B", "C", "D", "F"] = Field(
+        default="F",
+        description="Letter grade derived from score: A=90+, B=75+, C=60+, D=40+, else F.",
+    )
+    findings: list[HeaderFinding] = Field(
+        default_factory=list,
+        description="Per-header validation findings — one entry per header in the ruleset (present or missing).",
+    )
+    summary: str = Field(default="", description="One-line human-readable summary of grade + key gaps.")
+    headers_present: list[str] = Field(
+        default_factory=list,
+        description="Names of security-relevant headers the origin actually sent.",
+    )
+    headers_missing: list[str] = Field(
+        default_factory=list,
+        description="Names of security-relevant headers the origin did NOT send.",
+    )
 
 
 class CheckHeadersResponse(BaseModel):
-    findings: list[HeaderFinding] = Field(default_factory=list)
-    total: int = 0
-    by_severity: dict[str, int] = Field(default_factory=dict)
-    summary: str = ""
-    score: int = 0
-    grade: str = "F"
-    headers_present: list[str] = Field(default_factory=list)
-    headers_missing: list[str] = Field(default_factory=list)
+    findings: list[HeaderFinding] = Field(
+        default_factory=list,
+        description="Per-header validation findings — one entry per header you submitted that the validator recognized.",
+    )
+    total: int = Field(default=0, description="Total number of findings emitted (== len(findings)).")
+    by_severity: dict[str, int] = Field(
+        default_factory=dict,
+        description="Finding counts bucketed by severity, e.g. {'high': 2, 'medium': 1, 'low': 0}.",
+    )
+    summary: str = Field(default="", description="One-line human-readable summary of grade + key issues.")
+    score: int = Field(
+        default=0, description="Aggregate header-posture score (0-100) computed from per-finding severity weights."
+    )
+    grade: Literal["A", "B", "C", "D", "F"] = Field(
+        default="F",
+        description="Letter grade derived from score: A=90+, B=75+, C=60+, D=40+, else F.",
+    )
+    headers_present: list[str] = Field(
+        default_factory=list,
+        description="Header names from the submitted set that the validator recognized as present.",
+    )
+    headers_missing: list[str] = Field(
+        default_factory=list,
+        description="Header names the ruleset expects but were not present in the submitted set.",
+    )
 
 
 class DepFinding(BaseModel):
@@ -1964,14 +2235,33 @@ class PhoneLookupResponse(BaseModel):
 
 
 class DisposableResponse(BaseModel):
-    email: str
-    domain: str
-    disposable: bool = False
-    provider: str | None = None
-    mx_disposable: bool = False
-    risk_level: str = "low"
-    mx_records: list[MxRecord] = Field(default_factory=list)
-    summary: str = ""
+    email: str = Field(description="Echoed input email (local-part preserved; domain lowercased).")
+    domain: str = Field(description="Lowercased domain extracted from the email's right-of-@.")
+    disposable: bool = Field(
+        default=False, description="True when the domain matches the disposable-provider database."
+    )
+    provider: str | None = Field(
+        default=None,
+        description="Disposable-provider name when known (e.g. 'mailinator', 'tempmail.com'). Null when not disposable.",
+    )
+    mx_disposable: bool = Field(
+        default=False,
+        description="True when the domain's MX records point to a known disposable mail host (catches custom domains fronting disposable backends).",
+    )
+    risk_level: Literal["low", "medium", "high"] = Field(
+        default="low",
+        description=(
+            "Combined risk band. 'high' = domain is on the disposable list; 'medium' = MX points to a "
+            "disposable backend but the domain itself is not listed; 'low' = neither match (legitimate)."
+        ),
+    )
+    mx_records: list[MxRecord] = Field(
+        default_factory=list,
+        description="Resolved MX records for the email's domain (priority + host).",
+    )
+    summary: str = Field(
+        default="", description="One-line human-readable summary including risk_level + provider hint."
+    )
 
 
 # === Username Lookup ===
@@ -2037,12 +2327,47 @@ class UsernameLookupResponse(BaseModel):
 # === Audit (orchestrated domain intel) ===
 
 
+class AuditTechInfo(BaseModel):
+    """Technology fingerprint subset embedded in /v1/audit (no domain echo — outer AuditResponse carries it)."""
+
+    technologies: list[TechItem] = Field(
+        default_factory=list,
+        description="Detected technologies (name + category) inferred from response headers (e.g. Server, X-Powered-By).",
+    )
+    categories: dict[str, list[str]] = Field(
+        default_factory=dict,
+        description="Technologies grouped by category (e.g. {'cdn': ['Cloudflare'], 'webserver': ['nginx']}).",
+    )
+    count: int = Field(default=0, description="Total number of detected technologies (== sum of categories).")
+    summary: str = Field(default="", description="One-line summary of the detected stack.")
+
+    model_config = {"extra": "ignore"}
+
+
 class AuditResponse(BaseModel):
-    domain: str
-    report: dict = Field(default_factory=dict)
-    technologies: dict = Field(default_factory=dict)
-    live_headers: dict = Field(default_factory=dict)
-    summary: str = ""
+    domain: str = Field(description="Queried domain (lowercased, no scheme).")
+    report: DomainReportResponse | None = Field(
+        default=None,
+        description=(
+            "Full domain intelligence report — same shape as /v1/domain/{domain}. Contains DNS, "
+            "WHOIS, SSL, subdomains, threat intel, reputation, and verdict. See DomainReportResponse."
+        ),
+    )
+    technologies: AuditTechInfo = Field(
+        default_factory=AuditTechInfo,
+        description="Technology fingerprint detected from live response headers. See AuditTechInfo.",
+    )
+    live_headers: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Filtered HTTP response headers from the origin (lowercased keys). Sensitive headers "
+            "(Set-Cookie, Authorization, etc.) are stripped before serialization."
+        ),
+    )
+    summary: str = Field(
+        default="",
+        description="One-line audit summary combining domain report summary + technology count.",
+    )
     next_calls: list[PivotHint] | None = Field(
         default=None,
         description=(
@@ -2060,32 +2385,29 @@ class AuditResponse(BaseModel):
 
 class ThreatReportResponse(BaseModel):
     ip: str = Field(description="Queried IP address (IPv4 or IPv6, echoed back verbatim).")
-    enrichment: dict = Field(
-        default_factory=dict,
+    enrichment: IpEnrichmentInfo = Field(
+        default_factory=IpEnrichmentInfo,
         description=(
-            "Shodan InternetDB free-tier enrichment: {ports: list[int], hostnames: list[str], "
-            "vulns: list[VulnInfo] ({cve_id, severity, cvss_v3} dicts — see VulnInfo schema; "
-            "Phase 2 v1.16.0 BREAKING — pre-1.16 this was list[str] of CVE IDs), "
-            "cpes: list[str], tags: list[str]}. Available on all tiers. "
-            "Empty dict with all-empty lists on upstream failure — treat as 'no data', not 'clean'."
+            "Shodan InternetDB free-tier enrichment (ports, hostnames, vulns, cpes, tags). "
+            "Available on all tiers. See IpEnrichmentInfo for the exact field shape. "
+            "Returned with all-empty lists on upstream failure — treat as 'no data', not 'clean'."
         ),
     )
-    abuseipdb: dict = Field(
-        default_factory=dict,
+    abuseipdb: AbuseIpdbInfo = Field(
+        default_factory=lambda: AbuseIpdbInfo(status="error"),
         description=(
-            "AbuseIPDB abuse confidence enrichment (Pro tier only). "
-            "On Pro success: {status:'ok', abuse_score: 0-100, total_reports, country_code, isp, usage_type, is_tor}. "
-            "On Free tier: {status:'pro_only', reason, upgrade_url} stub — NOT an error. "
-            "On Pro failure: {status:'error'} or {status:'rate_limited'/'skipped'/'restricted'}."
+            "AbuseIPDB abuse-confidence enrichment. Pro tier returns live data; Free tier "
+            "returns a {status:'pro_only', reason, upgrade_url} upsell stub (NOT an error). "
+            "Pro failure paths emit status='error' / 'rate_limited' / 'skipped'. See AbuseIpdbInfo."
         ),
     )
-    shodan: dict = Field(
-        default_factory=dict,
+    shodan: ShodanRepInfo = Field(
+        default_factory=lambda: ShodanRepInfo(status="error"),
         description=(
-            "Shodan full API enrichment (Pro tier only). "
-            "On Pro success: {status:'ok', os, org, isp, asn, ports, vulns, hostnames, city, country_name, last_update}. "
-            "On Free tier: {status:'pro_only', reason, upgrade_url} stub — NOT an error. "
-            "On Pro failure: {status:'error'} or {status:'rate_limited'/'skipped'/'restricted'}."
+            "Shodan full-API enrichment (richer than the InternetDB enrichment block). "
+            "Pro tier returns live data; Free tier returns a {status:'pro_only', reason, "
+            "upgrade_url} upsell stub. Pro failure paths emit status='error' / 'rate_limited' "
+            "/ 'restricted' / 'skipped'. See ShodanRepInfo."
         ),
     )
     asn: dict = Field(
@@ -2139,37 +2461,70 @@ class ThreatReportResponse(BaseModel):
 
 
 class BulkCveItem(BaseModel):
-    cve_id: str
-    status: str = "ok"
-    cve: dict | None = None
-    error: str | None = None
+    cve_id: str = Field(description="Echoed input CVE identifier (upper-cased + de-duplicated).")
+    status: Literal["ok", "error", "not_found", "invalid_format"] = Field(
+        default="ok",
+        description=(
+            "Per-item outcome. 'ok' = cve populated; 'not_found' = CVE not in local cve.db (likely "
+            "reserved or post-cutoff); 'invalid_format' = ID failed CVE-YYYY-NNNN+ regex; "
+            "'error' = lookup failed (transient)."
+        ),
+    )
+    cve: CveResponse | None = Field(
+        default=None,
+        description="Full CVE record when status='ok'. Same shape as /v1/cve/{cve_id}.",
+    )
+    error: str | None = Field(
+        default=None,
+        description="Human-readable error message when status is 'error' or 'not_found'.",
+    )
 
 
 class BulkCveResponse(BaseModel):
-    results: list[BulkCveItem] = Field(default_factory=list)
-    total: int = 0
-    successful: int = 0
-    failed: int = 0
-    timed_out: int = 0
-    partial: bool = False
-    summary: str = ""
+    results: list[BulkCveItem] = Field(
+        default_factory=list,
+        description="Per-CVE outcome list, preserving input order after upper-case de-duplication.",
+    )
+    total: int = Field(default=0, description="Total number of unique CVE IDs processed (== len(results)).")
+    successful: int = Field(default=0, description="Count of items with status='ok'.")
+    failed: int = Field(default=0, description="Count of items with status='error' (transient lookup failure).")
+    timed_out: int = Field(default=0, description="Count of items that hit the per-CVE or overall timeout.")
+    partial: bool = Field(default=False, description="True when at least one item failed, timed out, or was not_found.")
+    summary: str = Field(default="", description="One-line aggregate summary (e.g. '45/50 CVEs found').")
 
 
 # === Bulk IOC ===
 
 
 class BulkIocItem(BaseModel):
-    indicator: str
-    status: str = "ok"
-    ioc: dict | None = None
-    error: str | None = None
+    indicator: str = Field(description="Echoed input indicator (sanitized; type auto-detected per-item).")
+    status: Literal["ok", "error"] = Field(
+        default="ok",
+        description="Per-item outcome. 'ok' = ioc populated; 'error' = lookup failed / invalid / timeout.",
+    )
+    ioc: dict | None = Field(
+        default=None,
+        description=(
+            "Slim IOC enrichment when status='ok' — keys: type, threat_level, sources. "
+            "Bulk endpoint omits indicator/summary/verdict (use /v1/ioc/{indicator} for the "
+            "full IocResponse shape). Per-source dicts may carry richer fields than the single "
+            "endpoint (raw urlhaus dict instead of {found, urls_online})."
+        ),
+    )
+    error: str | None = Field(
+        default=None,
+        description="Human-readable error message when status='error' (timeout, invalid indicator, upstream error).",
+    )
 
 
 class BulkIocResponse(BaseModel):
-    results: list[BulkIocItem] = Field(default_factory=list)
-    total: int = 0
-    successful: int = 0
-    failed: int = 0
-    timed_out: int = 0
-    partial: bool = False
-    summary: str = ""
+    results: list[BulkIocItem] = Field(
+        default_factory=list,
+        description="Per-indicator outcome list, preserving input order.",
+    )
+    total: int = Field(default=0, description="Total number of input indicators processed (== len(results)).")
+    successful: int = Field(default=0, description="Count of items with status='ok'.")
+    failed: int = Field(default=0, description="Count of items with status='error' from non-timeout failures.")
+    timed_out: int = Field(default=0, description="Count of items that hit the per-IOC or overall timeout.")
+    partial: bool = Field(default=False, description="True when at least one item failed or timed out.")
+    summary: str = Field(default="", description="One-line aggregate summary (e.g. '12/15 indicators enriched').")

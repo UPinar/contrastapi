@@ -25,6 +25,8 @@ Copy-paste these into Claude Desktop, Cursor, VS Code, or any MCP-enabled agent 
 - *"What's the EPSS score for CVE-2023-4863?"*
 - *"Check these CVEs in bulk: CVE-2024-3094, CVE-2021-44228, CVE-2023-4863"*
 - *"Show me CVEs that were indexed before NVD — what's leading right now?"*
+- *"Pull the CISA KEV record for CVE-2021-44228 — what's the federal patch deadline and required action?"*
+- *"Look up CWE-79 — describe the weakness, list common mitigations, and tell me how many CVEs are mapped to it"*
 
 ## IP & Network
 
@@ -32,6 +34,8 @@ Copy-paste these into Claude Desktop, Cursor, VS Code, or any MCP-enabled agent 
 - *"Generate a threat report for 8.8.8.8 — include Shodan, AbuseIPDB, and ASN data"*
 - *"What ASN does 1.1.1.1 belong to?"*
 - *"Check these IPs in bulk: 8.8.8.8, 1.1.1.1, 9.9.9.9"*
+- *"Triage 45.33.32.156 — list any CRITICAL or HIGH severity vulns with CVSS scores; skip UNKNOWN unless that's all there is"*
+- *"Look up this IP and tell me if it's a Tor exit, a known cloud provider, or hosting any actively-exploited CVEs"*
 
 ## Threat Intelligence / IOC
 
@@ -71,5 +75,11 @@ Agents can chain tools naturally. Example single-prompt workflows:
   → Agent runs `check_dependencies` → chains `cve_lookup` + `epss` → sorts
 - *"List leading CVEs and check if any have public exploits"*
   → Agent runs `cve_leading` → loops `exploit_lookup` for each → flags actionable ones
+- *"Pivot from a CVE: pull CWE category, CISA KEV deadline, and any public exploits"*
+  → Agent runs `cve_lookup` → reads `next_calls` → chains `cwe_lookup` (weakness pattern) + `kev_detail` (federal deadline) + `exploit_lookup` (PoC availability)
+- *"Triage this IP for SOC: enrich it, then deep-dive any CRITICAL/HIGH vulns"*
+  → Agent runs `ip_lookup` → filters `vulns[]` where `severity in ('CRITICAL','HIGH')` → chains `cve_lookup` for each → optionally `kev_detail` if `kev.in_kev=true`
 
 The `summary` field in every response lets the agent reason about results without parsing nested JSON — cuts token usage and improves chaining quality.
+
+The `next_calls` field in most responses surfaces conditional pivot hints (e.g. "chain `kev_detail` because kev.in_kev=true") so agents don't have to guess the next step.
