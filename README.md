@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/upinar-contrastapi-badge.png)](https://mseep.ai/app/upinar-contrastapi)
+
 # ContrastAPI — 33 Security Tools for AI Agents
 
 <p align="center">
