@@ -700,8 +700,11 @@ class IpLookupResponse(BaseModel):
     risk_score: int = Field(
         default=0,
         description=(
-            "Composite 0-100 risk score. Penalties: AbuseIPDB confidence (cap 60), Tor exit (+20), "
-            "open ports (+2 each, cap 10). Bonuses: known cloud provider (-10), published PTR (-5)."
+            "Composite 0-100 risk score (v1.17.0 formula). Additive components: ports "
+            "(10 * min(count, 5) = 0-50), tor_exit (+30), firehol.listed (+20), AbuseIPDB "
+            "confidence (round(15 * score / 100) = 0-15), is_datacenter (+10), known vulns "
+            "(5 * min(count, 4) = 0-20). Datacenter membership now adds risk (was a -10 "
+            "trust bonus pre-1.17). Use severity_label for thresholding."
         ),
     )
     severity_label: Literal["low", "medium", "high", "critical"] = Field(

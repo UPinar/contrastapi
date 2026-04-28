@@ -545,10 +545,10 @@ class TestIsDatacenter:
 
 
 class TestScoreIp:
-    def _score(self, reputation=None, ports=None, ptr=None, cloud=None, tor=False):
+    def _score(self, reputation=None, ports=None, ptr=None, cloud=None, tor=False, **kw):
         from domain.ip_intel import score_ip
 
-        return score_ip(reputation, ports or [], ptr, cloud, tor)
+        return score_ip(reputation, ports or [], ptr, cloud, tor, **kw)
 
     def test_no_reputation(self):
         score = self._score(reputation=None)
@@ -560,15 +560,17 @@ class TestScoreIp:
         assert score >= 90
 
     def test_clamps_low(self):
+        # cloud_provider / ptr inert in v1.17.0 formula; clean residential IP → 0
         score = self._score(reputation={"abuseipdb": {"abuse_score": 0}}, cloud="GCP", ptr="dns.google")
         assert score == 0
 
     def test_high_risk_tor_abuse(self):
+        # Tor (+30) + AbuseIPDB 90 (round(15 * 0.9) = 14) = 44
         rep = {"abuseipdb": {"abuse_score": 90}}
         score = self._score(reputation=rep, tor=True)
-        assert score >= 70
+        assert score >= 40
 
-    def test_low_risk_clean_cloud_ptr(self):
+    def test_low_risk_clean_residential(self):
         rep = {"abuseipdb": {"abuse_score": 0}}
         score = self._score(reputation=rep, cloud="GCP", ptr="dns.google")
         assert score <= 15
@@ -578,16 +580,102 @@ class TestScoreIp:
         score_tor = self._score(tor=True)
         assert score_tor > score_no_tor
 
-    def test_cloud_bonus_applied(self):
-        # use tor=True to create baseline risk so cloud bonus is visible
-        score_no_cloud = self._score(tor=True)
-        score_cloud = self._score(tor=True, cloud="AWS")
-        assert score_cloud < score_no_cloud
+    def test_datacenter_penalty_applied(self):
+        # v1.17.0: is_datacenter is now a +10 risk component (was -10 trust bonus
+        # pre-1.17). Cloud-provider arg is inert; route the signal via the new kwarg.
+        score_residential = self._score(tor=True, is_datacenter=False)
+        score_datacenter = self._score(tor=True, is_datacenter=True)
+        assert score_datacenter > score_residential
+        assert score_datacenter - score_residential == 10
 
     def test_none_abuse_score(self):
         rep = {"abuseipdb": {"abuse_score": None}}
         score = self._score(reputation=rep)
         assert 0 <= score <= 100
+
+
+class TestScoreIpPhase5:
+    """v1.17.0 formula: firehol / vulns / is_datacenter components added."""
+
+    def _score(self, **kw):
+        from domain.ip_intel import score_ip
+
+        kw.setdefault("reputation", None)
+        kw.setdefault("ports", [])
+        kw.setdefault("ptr", None)
+        kw.setdefault("cloud_provider", None)
+        kw.setdefault("tor_exit", False)
+        return score_ip(**kw)
+
+    def test_firehol_listed_penalty(self):
+        baseline = self._score()
+        listed = self._score(firehol={"status": "ok", "listed": True})
+        assert listed - baseline == 20
+
+    def test_firehol_not_listed_no_penalty(self):
+        baseline = self._score()
+        clean = self._score(firehol={"status": "ok", "listed": False})
+        assert clean == baseline
+
+    def test_vulns_count_component(self):
+        # Phase 2: vulns is list[VulnInfo dict]; only count matters here.
+        baseline = self._score()
+        two_vulns = self._score(vulns=[{"cve_id": "CVE-1"}, {"cve_id": "CVE-2"}])
+        assert two_vulns - baseline == 10
+
+    def test_vulns_count_capped_at_4(self):
+        baseline = self._score()
+        ten_vulns = self._score(vulns=[{"cve_id": f"CVE-{i}"} for i in range(10)])
+        assert ten_vulns - baseline == 20  # 5 * min(10, 4) = 20
+
+    def test_is_datacenter_penalty(self):
+        baseline = self._score()
+        datacenter = self._score(is_datacenter=True)
+        assert datacenter - baseline == 10
+
+    def test_ports_capped_at_5(self):
+        baseline = self._score()
+        many_ports = self._score(ports=list(range(20)))
+        assert many_ports - baseline == 50  # 10 * min(20, 5) = 50
+
+    def test_abuse_score_15_max_component(self):
+        baseline = self._score()
+        max_abuse = self._score(reputation={"abuseipdb": {"abuse_score": 100}})
+        assert max_abuse - baseline == 15  # round(15 * 100/100) = 15
+
+    def test_clean_cloudflare_ip_low(self):
+        # 1.1.1.1 — datacenter, no abuse, no firehol, no vulns, no tor, no ports observed.
+        # v1.17.0: was 0 pre-refactor, now 10 (datacenter penalty alone).
+        score = self._score(
+            reputation={"abuseipdb": {"abuse_score": 0}},
+            ports=[],
+            is_datacenter=True,
+            firehol={"status": "ok", "listed": False},
+            vulns=[],
+        )
+        assert score == 10
+
+    def test_severity_label_remains_low_at_boundary(self):
+        # v1.17.0 drift sanity: 1.1.1.1 stays "low" (severity boundary @ 25).
+        from domain.ip_intel import severity_label
+
+        assert severity_label(10) == "low"
+        assert severity_label(24) == "low"
+
+    def test_vulns_string_input_treated_as_empty(self):
+        # Defense-in-depth: a poisoned upstream (or future caller) handing us
+        # `vulns="CVE-2023-1234"` must not silently inflate the component via
+        # len() on a string (would yield 13 → +20 instead of the intended 0).
+        baseline = self._score()
+        assert self._score(vulns="CVE-2023-1234") == baseline
+
+    def test_ports_non_list_treated_as_empty(self):
+        baseline = self._score()
+        assert self._score(ports="80,443,22") == baseline
+
+    def test_firehol_non_dict_treated_as_unlisted(self):
+        baseline = self._score()
+        assert self._score(firehol="listed") == baseline
 
 
 class TestSeverityLabel:

@@ -1009,8 +1009,8 @@ class TestDomainRoutes:
         # severity_label must be present and a valid bucket.
         assert "severity_label" in data
         assert data["severity_label"] in ("low", "medium", "high", "critical")
-        # tor_exit alone gives +20 penalty (no abuse / no firehol) → still <25 → low.
-        assert data["severity_label"] == "low"
+        # v1.17.0: tor_exit alone gives +30 component (was +20 pre-refactor) → 30 → medium.
+        assert data["severity_label"] == "medium"
         # falsifiable_fields advertises severity_label (verdict honesty).
         assert "severity_label" in data["verdict"]["falsifiable_fields"]
 

@@ -479,22 +479,62 @@ def score_ip(
     ptr: str | None,
     cloud_provider: str | None,
     tor_exit: bool,
+    vulns: list | None = None,
+    is_datacenter: bool = False,
+    firehol: dict | None = None,
 ) -> int:
-    """Compute 0-100 composite risk score. Higher = riskier."""
+    """Compute 0-100 composite risk score. Higher = riskier.
+
+    Phase 5 refactor (v1.17.0): formula re-grounded around six additive
+    components — ports, tor_exit, firehol.listed, abuseipdb confidence,
+    is_datacenter, and known-vuln count. Datacenter membership flipped
+    sign vs the pre-1.17 formula (was -10 trust bonus, now +10 risk
+    penalty — bug-bounty / SOC perspective: datacenter = scriptable
+    target, not "trusted infrastructure").
+
+    `ptr` and `cloud_provider` parameters are retained for backward
+    compatibility with legacy callers but no longer influence the score
+    (cloud_provider is subsumed by `is_datacenter`).
+
+    Component weights (max 100):
+        ports         : 10 * min(len(ports), 5)              [0-50]
+        tor_exit      : 30 if tor_exit else 0                [0 or 30]
+        firehol.listed: 20 if listed else 0                  [0 or 20]
+        abuse_score   : round(15 * abuse_score / 100)        [0-15]
+        is_datacenter : 10 if is_datacenter else 0           [0 or 10]
+        vulns         : 5 * min(len(vulns), 4)               [0-20]
+    """
+    del ptr, cloud_provider  # Phase 5: retained in signature, inert in formula.
+
+    # Defensive type narrowing — every component parameter flows from upstream
+    # (Shodan, RIPE, FireHOL fetcher) so the score must not turn into garbage
+    # if a poisoned cache or future caller hands us a bare string. `len()` on
+    # a str succeeds silently and would inflate the component fivefold.
+    if not isinstance(ports, list):
+        ports = []
+    if not isinstance(vulns, list):
+        vulns = []
+    if not isinstance(firehol, dict):
+        firehol = None
+
     abuse_score = 0
     if reputation:
         try:
             abuse_score = int(reputation.get("abuseipdb", {}).get("abuse_score", 0) or 0)
         except (TypeError, ValueError):
             abuse_score = 0
+    abuse_score = max(0, min(abuse_score, 100))
 
-    penalty_abuse = min(abuse_score, 60)
-    penalty_tor = 20 if tor_exit else 0
-    penalty_ports = min(len(ports) * 2, 10) if ports else 0
-    bonus_cloud = 10 if cloud_provider else 0
-    bonus_ptr = 5 if ptr else 0
+    firehol_listed = bool(firehol and firehol.get("listed"))
 
-    score = penalty_abuse + penalty_tor + penalty_ports - bonus_cloud - bonus_ptr
+    component_ports = 10 * min(len(ports), 5)
+    component_tor = 30 if tor_exit else 0
+    component_firehol = 20 if firehol_listed else 0
+    component_abuse = round(15 * abuse_score / 100)
+    component_dc = 10 if is_datacenter else 0
+    component_vulns = 5 * min(len(vulns), 4)
+
+    score = component_ports + component_tor + component_firehol + component_abuse + component_dc + component_vulns
     return max(0, min(100, score))
 
 

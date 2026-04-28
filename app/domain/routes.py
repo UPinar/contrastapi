@@ -1397,7 +1397,17 @@ def ip_lookup(ip: IpPath, request: Request):
     if tor_exit:
         parts.append("Tor exit node")
 
-    _risk = score_ip(reputation or None, ports, ptr, cloud_provider, tor_exit)
+    firehol_for_score = reputation.get("firehol") if reputation else None
+    _risk = score_ip(
+        reputation or None,
+        ports,
+        ptr,
+        cloud_provider,
+        tor_exit,
+        vulns=vulns,
+        is_datacenter=is_datacenter_flag,
+        firehol=firehol_for_score,
+    )
     result = {
         "ip": ip,
         "ptr": ptr,
@@ -2295,7 +2305,16 @@ def threat_report(ip: IpPath, request: Request):
         "abuseipdb": abuseipdb if abuseipdb.get("status") not in ("pro_only", "error") else None,
     }
     rep_for_score = {k: v for k, v in rep_for_score.items() if v is not None}
-    risk = score_ip(rep_for_score or None, enrichment.get("ports") or [], ptr, cloud_provider, tor_exit)
+    risk = score_ip(
+        rep_for_score or None,
+        enrichment.get("ports") or [],
+        ptr,
+        cloud_provider,
+        tor_exit,
+        vulns=enrichment.get("vulns"),
+        is_datacenter=is_datacenter_flag,
+        firehol=firehol if isinstance(firehol, dict) else None,
+    )
 
     return {
         "ip": ip,
