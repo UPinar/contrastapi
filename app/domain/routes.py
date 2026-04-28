@@ -66,6 +66,7 @@ from domain.ip_intel import (
     check_cloud_provider,
     check_firehol,
     check_tor_exit,
+    is_datacenter,
     score_ip,
     severity_label,
     tor_cache_status,
@@ -1378,6 +1379,8 @@ def ip_lookup(ip: IpPath, request: Request):
     except Exception:
         cloud_provider = None
 
+    is_datacenter_flag = is_datacenter(ip, asn=asn_val, cloud_provider=cloud_provider)
+
     parts = [f"{ip} → {ptr}" if ptr else f"{ip} — no PTR record"]
     if asn_val:
         parts.append(f"AS{asn_val} ({asn_name_val})" if asn_name_val else f"AS{asn_val}")
@@ -1403,6 +1406,7 @@ def ip_lookup(ip: IpPath, request: Request):
         "country": country_val or None,
         **enrichment,
         "cloud_provider": cloud_provider,
+        "is_datacenter": is_datacenter_flag,
         "tor_exit": tor_exit,
         "risk_score": _risk,
         "severity_label": severity_label(_risk),
@@ -2251,6 +2255,8 @@ def threat_report(ip: IpPath, request: Request):
     except Exception:
         cloud_provider = None
 
+    is_datacenter_flag = is_datacenter(ip, asn=asn_val, cloud_provider=cloud_provider)
+
     try:
         firehol = check_firehol(ip)
     except Exception:
@@ -2297,6 +2303,7 @@ def threat_report(ip: IpPath, request: Request):
         "asn_name": asn_name or None,
         "country": country or None,
         "cloud_provider": cloud_provider,
+        "is_datacenter": is_datacenter_flag,
         "tor_exit": tor_exit,
         "firehol": firehol,
         "risk_score": risk,

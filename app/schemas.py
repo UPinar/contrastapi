@@ -678,6 +678,17 @@ class IpLookupResponse(BaseModel):
             "'not detected' from 'field absent')."
         ),
     )
+    is_datacenter: bool = Field(
+        default=False,
+        description=(
+            "True if IP is hosted on a known datacenter / cloud provider. Detection: (1) "
+            "cloud_provider populated (CIDR or ASN map hit covering AWS/GCP/Cloudflare/"
+            "DigitalOcean/Hetzner/OVH/Linode/Vultr/Microsoft Azure), (2) ASN in tier-1 "
+            "datacenter set (adds Oracle/Alibaba/Tencent on top of the cloud_provider map). "
+            "Use for Nuclei matchers + bug-bounty triage where datacenter targets warrant "
+            "different scan policy than residential IPs. Always present — never null."
+        ),
+    )
     tor_exit: bool = Field(
         default=False,
         description=(
@@ -2439,6 +2450,14 @@ class ThreatReportResponse(BaseModel):
     cloud_provider: str | None = Field(
         default=None,
         description="Cloud / hosting provider name when the IP sits in a known CIDR or maps to a tier-1 ASN.",
+    )
+    is_datacenter: bool = Field(
+        default=False,
+        description=(
+            "True if IP is hosted on a known datacenter / cloud provider (parity with "
+            "ip_lookup.is_datacenter). Same two-tier detection — cloud_provider hit OR "
+            "tier-1 datacenter ASN. Always present — never null."
+        ),
     )
     tor_exit: bool = Field(
         default=False,

@@ -298,6 +298,17 @@ _ASN_TO_CLOUD_PROVIDER: dict[int, str] = {
     20473: "Vultr",
 }
 
+# Phase 3: superset of _ASN_TO_CLOUD_PROVIDER plus tier-1 datacenter ASNs whose
+# IPs aren't always exposed via published cloud CIDR ranges (Oracle/Alibaba/
+# Tencent are common bug-bounty / SOC triage targets but rarely appear in
+# AWS/GCP/Cloudflare CIDR feeds).
+_DATACENTER_ASNS: set[int] = {
+    *_ASN_TO_CLOUD_PROVIDER.keys(),
+    31898,  # Oracle Cloud
+    45102,  # Alibaba Cloud
+    132203,  # Tencent Cloud
+}
+
 
 def check_cloud_provider(ip: str, asn: int | None = None) -> str | None:
     """Return cloud provider name if IP is in a known cloud CIDR range OR its
@@ -439,6 +450,27 @@ def check_firehol(ip: str) -> dict:
     except Exception as e:
         logger.warning("check_firehol failed: %s", type(e).__name__)
         return {"status": "unavailable", "listed": False, "lists_matched": []}
+
+
+def is_datacenter(ip: str, asn: int | None = None, cloud_provider: str | None = None) -> bool:
+    """Return True if IP is hosted on a known datacenter / cloud provider.
+
+    Two-tier short-circuit detection:
+    1. cloud_provider populated by check_cloud_provider() (CIDR or ASN map hit)
+    2. asn falls in _DATACENTER_ASNS (covers Oracle/Alibaba/Tencent that the
+       cloud-provider map intentionally excludes because their public CIDR
+       feeds are unreliable, but whose ASNs are unambiguous datacenter origin).
+
+    `ip` is currently informational (logging hooks); IPv6 is supported because
+    decisions hinge on `cloud_provider` and `asn`, both IP-family agnostic.
+    `bool` is also `int` in Python — the `not isinstance(asn, bool)` guard
+    keeps `asn=True` (a bug, not a real ASN) from sneaking past the check.
+    """
+    if cloud_provider is not None:
+        return True
+    if isinstance(asn, int) and not isinstance(asn, bool) and asn > 0:
+        return asn in _DATACENTER_ASNS
+    return False
 
 
 def score_ip(

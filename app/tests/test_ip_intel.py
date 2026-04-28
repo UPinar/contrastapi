@@ -515,6 +515,35 @@ class TestFirehol:
 # ── score_ip tests ────────────────────────────────────────────────────────────
 
 
+class TestIsDatacenter:
+    """Phase 3: is_datacenter helper for two-tier datacenter detection."""
+
+    def test_returns_true_for_cloudflare_asn(self):
+        from domain.ip_intel import is_datacenter
+
+        # 1.1.1.1 → AS13335 (Cloudflare) is in _ASN_TO_CLOUD_PROVIDER, so even
+        # without an explicit cloud_provider arg the ASN check should hit.
+        assert is_datacenter("1.1.1.1", asn=13335, cloud_provider=None) is True
+
+    def test_returns_true_when_cloud_provider_set(self):
+        from domain.ip_intel import is_datacenter
+
+        # cloud_provider non-None short-circuits regardless of ASN value
+        # (covers IPs whose CIDR resolves but RIPE Stat ASN lookup failed).
+        assert is_datacenter("9.9.9.9", asn=None, cloud_provider="AWS") is True
+        assert is_datacenter("203.0.113.1", asn=99999, cloud_provider="GCP") is True
+
+    def test_returns_false_for_residential_asn(self):
+        from domain.ip_intel import is_datacenter
+
+        # Random non-datacenter ASN with no cloud_provider hit → residential.
+        # asn=0 / negative / bool guards keep junk inputs from passing.
+        assert is_datacenter("203.0.113.1", asn=12345, cloud_provider=None) is False
+        assert is_datacenter("203.0.113.1", asn=0, cloud_provider=None) is False
+        assert is_datacenter("203.0.113.1", asn=None, cloud_provider=None) is False
+        assert is_datacenter("203.0.113.1", asn=True, cloud_provider=None) is False
+
+
 class TestScoreIp:
     def _score(self, reputation=None, ports=None, ptr=None, cloud=None, tor=False):
         from domain.ip_intel import score_ip
