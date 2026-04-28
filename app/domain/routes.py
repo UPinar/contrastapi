@@ -62,7 +62,14 @@ from db import (
     save_cached_ip,
 )
 from domain.archive import wayback_lookup
-from domain.ip_intel import check_cloud_provider, check_firehol, check_tor_exit, score_ip, tor_cache_status
+from domain.ip_intel import (
+    check_cloud_provider,
+    check_firehol,
+    check_tor_exit,
+    score_ip,
+    severity_label,
+    tor_cache_status,
+)
 from domain.recon import (
     _dns_call_with_timeout,
     _ssl_grade,
@@ -388,6 +395,7 @@ def _ip_verdict(
             "cloud_provider",
             "tor_exit",
             "risk_score",
+            "severity_label",
         ],
         data_age_seconds=age_seconds,
         sources_queried=queried,
@@ -1386,6 +1394,7 @@ def ip_lookup(ip: IpPath, request: Request):
     if tor_exit:
         parts.append("Tor exit node")
 
+    _risk = score_ip(reputation or None, ports, ptr, cloud_provider, tor_exit)
     result = {
         "ip": ip,
         "ptr": ptr,
@@ -1395,7 +1404,8 @@ def ip_lookup(ip: IpPath, request: Request):
         **enrichment,
         "cloud_provider": cloud_provider,
         "tor_exit": tor_exit,
-        "risk_score": score_ip(reputation or None, ports, ptr, cloud_provider, tor_exit),
+        "risk_score": _risk,
+        "severity_label": severity_label(_risk),
         "summary": ". ".join(parts),
     }
     if reputation:
@@ -2281,6 +2291,7 @@ def threat_report(ip: IpPath, request: Request):
         "tor_exit": tor_exit,
         "firehol": firehol,
         "risk_score": risk,
+        "severity_label": severity_label(risk),
         "enrichment": enrichment,
         "abuseipdb": abuseipdb,
         "shodan": shodan_data,
@@ -2301,6 +2312,7 @@ def threat_report(ip: IpPath, request: Request):
                 "abuseipdb",
                 "shodan",
                 "risk_score",
+                "severity_label",
             ],
             data_age_seconds=0,
             sources_queried=[

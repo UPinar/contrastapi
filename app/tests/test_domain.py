@@ -996,6 +996,24 @@ class TestDomainRoutes:
             for val in body.get(field, []):
                 assert "‮" not in val and "⁦" not in val, f"{field} leaked bidi"
 
+    # --- Phase 5 mini (v1.16.1) — severity_label inline ---
+
+    @patch("domain.routes.check_cloud_provider", return_value=None)
+    @patch("domain.routes.check_tor_exit", return_value=True)
+    @patch("domain.routes.ip_enrichment", return_value={**_enrich_empty})
+    @patch("domain.routes.socket.gethostbyaddr", side_effect=Exception("no PTR"))
+    def test_ip_lookup_severity_label_emitted(self, mock_ptr, mock_enrich, mock_tor, mock_cloud):
+        r = client.get("/v1/ip/1.2.3.4")
+        assert r.status_code == 200
+        data = r.json()
+        # severity_label must be present and a valid bucket.
+        assert "severity_label" in data
+        assert data["severity_label"] in ("low", "medium", "high", "critical")
+        # tor_exit alone gives +20 penalty (no abuse / no firehol) → still <25 → low.
+        assert data["severity_label"] == "low"
+        # falsifiable_fields advertises severity_label (verdict honesty).
+        assert "severity_label" in data["verdict"]["falsifiable_fields"]
+
     @patch("domain.routes.check_cloud_provider", return_value=None)
     @patch("domain.routes.check_tor_exit", return_value=False)
     @patch(

@@ -464,3 +464,17 @@ def score_ip(
 
     score = penalty_abuse + penalty_tor + penalty_ports - bonus_cloud - bonus_ptr
     return max(0, min(100, score))
+
+
+def severity_label(score: int) -> str:
+    """Coarse-grained risk band for `risk_score` (0-100). Lets Nuclei
+    template matchers + MCP agent triage on a 4-bucket label without
+    re-implementing the threshold logic. Plan §Phase 5 boundaries:
+    >=75 critical, >=50 high, >=25 medium, else low."""
+    if score >= 75:
+        return "critical"
+    if score >= 50:
+        return "high"
+    if score >= 25:
+        return "medium"
+    return "low"

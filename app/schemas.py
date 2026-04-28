@@ -645,6 +645,14 @@ class IpLookupResponse(BaseModel):
             "open ports (+2 each, cap 10). Bonuses: known cloud provider (-10), published PTR (-5)."
         ),
     )
+    severity_label: Literal["low", "medium", "high", "critical"] = Field(
+        default="low",
+        description=(
+            "Coarse risk band derived from risk_score (>=75 critical, >=50 high, >=25 medium, "
+            "else low). Use this for Nuclei matchers and MCP agent triage when you don't want "
+            "to re-implement the threshold logic; risk_score is the canonical numeric source."
+        ),
+    )
     summary: str = Field(
         default="",
         description="One-line human-readable summary built from IP, PTR, ASN, country, ports, vulns.",

@@ -559,3 +559,31 @@ class TestScoreIp:
         rep = {"abuseipdb": {"abuse_score": None}}
         score = self._score(reputation=rep)
         assert 0 <= score <= 100
+
+
+class TestSeverityLabel:
+    """Phase 5 mini (v1.16.1): risk_score → 4-bucket label for Nuclei + MCP triage."""
+
+    def test_low_below_25(self):
+        from domain.ip_intel import severity_label
+
+        assert severity_label(0) == "low"
+        assert severity_label(24) == "low"
+
+    def test_medium_25_to_49(self):
+        from domain.ip_intel import severity_label
+
+        assert severity_label(25) == "medium"
+        assert severity_label(49) == "medium"
+
+    def test_high_50_to_74(self):
+        from domain.ip_intel import severity_label
+
+        assert severity_label(50) == "high"
+        assert severity_label(74) == "high"
+
+    def test_critical_75_plus(self):
+        from domain.ip_intel import severity_label
+
+        assert severity_label(75) == "critical"
+        assert severity_label(100) == "critical"
