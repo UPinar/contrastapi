@@ -885,7 +885,7 @@ async def check_secrets(
         ),
     ] = "generic",
 ) -> str:
-    """Scan source code (or snippet) for hardcoded secrets: AWS keys, API tokens, connection strings, private keys, passwords. Supports Python, JavaScript, TypeScript, Java, Go, Ruby, Shell, Bash. Use to detect leaked credentials before commit; for injection detection use check_injection. Free: 100/hr, Pro: 1000/hr. Returns {total, by_severity, findings}. No data stored. The generic 'Password Assignment' rule is suppressed when its match span overlaps a more-specific rule (AWS Access Key, GitHub Token, JWT, etc.) on the same line — you get one specific finding per leaked secret, not two."""
+    """Scan source code (or snippet) for hardcoded secrets — cloud provider keys, API tokens, connection strings, private keys, passwords. Supports Python, JavaScript, TypeScript, Java, Go, Ruby, Shell, Bash. Use to detect leaked credentials before commit; for injection detection use check_injection. Free: 100/hr, Pro: 1000/hr. Returns {total, by_severity, findings}. No data stored. The generic password-assignment rule is suppressed when a more-specific credential rule fires on the same line — one targeted finding per leaked secret, not two."""
     return _fmt(await _post("/v1/check/secrets", {"code": code, "language": language}))
 
 
