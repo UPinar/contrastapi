@@ -1,7 +1,7 @@
 # CLAUDE.md — ContrastAPI
 
 ## Project
-Security intelligence API. 33 MCP tools, 40+ endpoints: CVE/EPSS/KEV, MITRE CWE catalog, KEV detail, domain recon, IOC/threat intel, OSINT, code security.
+Security intelligence API. 41 MCP tools, 40+ endpoints: CVE/EPSS/KEV, MITRE CWE catalog, KEV detail, domain recon, IOC/threat intel, OSINT, code security, MITRE ATLAS (AI/ML attack catalog), MITRE D3FEND (defense technique catalog mapped to ATT&CK).
 Live: api.contrastcyber.com | GitHub: UPinar/contrastapi
 
 ## Quick Reference

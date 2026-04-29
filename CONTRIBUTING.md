@@ -1,6 +1,6 @@
 # Contributing to ContrastAPI
 
-Thanks for your interest in contributing! ContrastAPI is a security intelligence API with 33 MCP tools and 40+ endpoints.
+Thanks for your interest in contributing! ContrastAPI is a security intelligence API with 41 MCP tools and 40+ endpoints.
 
 ## Quick Start
 
@@ -32,7 +32,13 @@ app/
 ├── codesec/           # Secret scanning, injection detection, headers
 │   ├── routes.py      # Code security endpoints
 │   └── utils.py       # Shared helpers (ReDoS-safe)
-├── mcp/               # MCP server (33 tools)
+├── atlas/             # MITRE ATLAS catalog (AI/ML attack techniques + case studies)
+│   ├── routes.py      # ATLAS endpoints
+│   └── sync.py        # ATLAS YAML sync
+├── d3fend/            # MITRE D3FEND catalog (defense techniques mapped to ATT&CK)
+│   ├── routes.py      # D3FEND endpoints
+│   └── sync.py        # D3FEND mappings sync
+├── mcp/               # MCP server (41 tools)
 │   └── server.py      # Tool definitions + handlers
 ├── templates/         # HTML templates (landing, docs, quickstart)
 ├── static/            # CSS, JS, images
