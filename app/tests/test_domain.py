@@ -2,6 +2,7 @@
 
 import json
 import socket
+import ssl
 from datetime import UTC
 from unittest.mock import MagicMock, patch
 
@@ -3290,35 +3291,88 @@ class TestFullDomainReport:
 # =========== ssl_info unit tests ===========
 
 
+def _build_ssl_test_cert(
+    common_name: str = "example.com",
+    san: list[str] | None = None,
+    days_until_expiry: int = 365,
+    issuer_org: str = "Let's Encrypt",
+) -> bytes:
+    """Build a self-signed cert and return DER bytes (used by ssl_info tests)."""
+    import datetime as _dt
+
+    from cryptography import x509 as _x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from cryptography.x509.oid import NameOID
+
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    now = _dt.datetime.now(_dt.UTC)
+    san_names = san if san is not None else [common_name, f"www.{common_name}"]
+    cert = (
+        _x509.CertificateBuilder()
+        .subject_name(_x509.Name([_x509.NameAttribute(NameOID.COMMON_NAME, common_name)]))
+        .issuer_name(_x509.Name([_x509.NameAttribute(NameOID.ORGANIZATION_NAME, issuer_org)]))
+        .public_key(key.public_key())
+        .serial_number(_x509.random_serial_number())
+        .not_valid_before(now - _dt.timedelta(days=30))
+        .not_valid_after(now + _dt.timedelta(days=days_until_expiry))
+        .add_extension(
+            _x509.SubjectAlternativeName([_x509.DNSName(name) for name in san_names]),
+            critical=False,
+        )
+        .sign(key, hashes.SHA256())
+    )
+    return cert.public_bytes(serialization.Encoding.DER)
+
+
+def _make_ssl_mock_ssock(
+    cert_der: bytes,
+    tls_version: str = "TLSv1.3",
+    alpn: str = "h2",
+):
+    """Build a mock TLS-wrapped socket that returns the given DER on getpeercert(binary_form=True)."""
+    mock_ssock = MagicMock()
+    mock_ssock.getpeercert.side_effect = lambda binary_form=False: cert_der if binary_form else {}
+    mock_ssock.selected_alpn_protocol.return_value = alpn
+    mock_ssock.version.return_value = tls_version
+    mock_ssock.__enter__ = lambda s: s
+    mock_ssock.__exit__ = MagicMock(return_value=False)
+    return mock_ssock
+
+
+def _make_ssl_verified_ctx(mock_ssock):
+    """Verified context that returns a passing mock ssock (cert_valid path)."""
+    ctx = MagicMock()
+    ctx.wrap_socket.return_value = mock_ssock
+    return ctx
+
+
+def _make_ssl_failing_ctx(verify_message: str):
+    """Verified context that raises SSLCertVerificationError on wrap_socket (invalid cert path)."""
+    ctx = MagicMock()
+    err = ssl.SSLCertVerificationError(verify_message)
+    err.verify_message = verify_message
+    ctx.wrap_socket.side_effect = err
+    return ctx
+
+
 class TestSslInfo:
+    def _patch_socket(self, mock_conn):
+        mock_sock = MagicMock()
+        mock_sock.__enter__ = lambda s: s
+        mock_sock.__exit__ = MagicMock(return_value=False)
+        mock_conn.return_value = mock_sock
+        return mock_sock
+
     @patch("domain.recon.ssl.create_default_context")
     @patch("domain.recon.socket.create_connection")
     def test_successful_cert_parsing(self, mock_conn, mock_ctx):
         from domain.recon import ssl_info
 
-        mock_ssock = MagicMock()
-        mock_ssock.getpeercert.return_value = {
-            "subject": ((("commonName", "example.com"),),),
-            "issuer": ((("organizationName", "Let's Encrypt"),),),
-            "notAfter": "Dec 31 23:59:59 2026 GMT",
-            "notBefore": "Jan 01 00:00:00 2026 GMT",
-            "serialNumber": "ABCDEF",
-            "version": 3,
-            "subjectAltName": (("DNS", "example.com"), ("DNS", "www.example.com")),
-        }
-        mock_ssock.selected_alpn_protocol.return_value = "h2"
-        mock_ssock.version.return_value = "TLSv1.3"
-        mock_ssock.__enter__ = lambda s: s
-        mock_ssock.__exit__ = MagicMock(return_value=False)
-
-        mock_sock = MagicMock()
-        mock_sock.__enter__ = lambda s: s
-        mock_sock.__exit__ = MagicMock(return_value=False)
-        mock_conn.return_value = mock_sock
-
-        mock_ctx_inst = MagicMock()
-        mock_ctx.return_value = mock_ctx_inst
-        mock_ctx_inst.wrap_socket.return_value = mock_ssock
+        self._patch_socket(mock_conn)
+        cert_der = _build_ssl_test_cert(common_name="example.com")
+        mock_ssock = _make_ssl_mock_ssock(cert_der)
+        mock_ctx.return_value = _make_ssl_verified_ctx(mock_ssock)
 
         result = ssl_info("example.com", resolved_ip="1.2.3.4")
         assert result["common_name"] == "example.com"
@@ -3327,47 +3381,182 @@ class TestSslInfo:
         assert result["alpn"] == "h2"
         assert "www.example.com" in result["san"]
         assert result["grade"] == "A"
+        assert result["cert_valid"] is True
+        assert result["validation_errors"] == []
+        assert "error" not in result
 
     @patch("domain.recon.ssl.create_default_context")
     @patch("domain.recon.socket.create_connection")
     def test_expired_cert_grade_f(self, mock_conn, mock_ctx):
         from domain.recon import ssl_info
 
-        mock_ssock = MagicMock()
-        mock_ssock.getpeercert.return_value = {
-            "subject": ((("commonName", "expired.com"),),),
-            "issuer": ((("organizationName", "LE"),),),
-            "notAfter": "Jan 01 00:00:00 2020 GMT",
-            "notBefore": "Jan 01 00:00:00 2019 GMT",
-            "serialNumber": "123",
-            "version": 3,
-            "subjectAltName": (),
-        }
-        mock_ssock.selected_alpn_protocol.return_value = None
-        mock_ssock.version.return_value = "TLSv1.3"
-        mock_ssock.__enter__ = lambda s: s
-        mock_ssock.__exit__ = MagicMock(return_value=False)
-
-        mock_sock = MagicMock()
-        mock_sock.__enter__ = lambda s: s
-        mock_sock.__exit__ = MagicMock(return_value=False)
-        mock_conn.return_value = mock_sock
-
-        mock_ctx_inst = MagicMock()
-        mock_ctx.return_value = mock_ctx_inst
-        mock_ctx_inst.wrap_socket.return_value = mock_ssock
+        self._patch_socket(mock_conn)
+        cert_der = _build_ssl_test_cert(common_name="expired.com", days_until_expiry=-30)
+        mock_ssock = _make_ssl_mock_ssock(cert_der)
+        # First call (verified) raises with "has expired" message; second call (unverified) succeeds
+        mock_ctx.side_effect = [
+            _make_ssl_failing_ctx("certificate has expired"),
+            _make_ssl_verified_ctx(mock_ssock),
+        ]
 
         result = ssl_info("expired.com")
         assert result["grade"] == "F"
         assert result["days_remaining"] < 0
+        assert result["cert_valid"] is False
+        assert "expired" in result["validation_errors"]
+        # cert details still populated even though invalid
+        assert result["common_name"] == "expired.com"
+        assert "error" not in result
+
+    @patch("domain.recon.ssl.create_default_context")
+    @patch("domain.recon.socket.create_connection")
+    def test_self_signed_cert_grade_d(self, mock_conn, mock_ctx):
+        from domain.recon import ssl_info
+
+        self._patch_socket(mock_conn)
+        cert_der = _build_ssl_test_cert(common_name="self-signed.test")
+        mock_ssock = _make_ssl_mock_ssock(cert_der)
+        mock_ctx.side_effect = [
+            _make_ssl_failing_ctx("self signed certificate"),
+            _make_ssl_verified_ctx(mock_ssock),
+        ]
+
+        result = ssl_info("self-signed.test")
+        assert result["grade"] == "D"
+        assert result["cert_valid"] is False
+        assert "self_signed" in result["validation_errors"]
+        # cert still readable
+        assert result["common_name"] == "self-signed.test"
+
+    @patch("domain.recon.ssl.create_default_context")
+    @patch("domain.recon.socket.create_connection")
+    def test_untrusted_root_grade_d(self, mock_conn, mock_ctx):
+        from domain.recon import ssl_info
+
+        self._patch_socket(mock_conn)
+        cert_der = _build_ssl_test_cert(common_name="custom-ca.test")
+        mock_ssock = _make_ssl_mock_ssock(cert_der)
+        mock_ctx.side_effect = [
+            _make_ssl_failing_ctx("unable to get local issuer certificate"),
+            _make_ssl_verified_ctx(mock_ssock),
+        ]
+
+        result = ssl_info("custom-ca.test")
+        assert result["grade"] == "D"
+        assert result["cert_valid"] is False
+        assert "untrusted_root" in result["validation_errors"]
+
+    @patch("domain.recon.ssl.create_default_context")
+    @patch("domain.recon.socket.create_connection")
+    def test_hostname_mismatch_grade_d(self, mock_conn, mock_ctx):
+        from domain.recon import ssl_info
+
+        self._patch_socket(mock_conn)
+        # Cert is for example.com but we ask for wrong.test
+        cert_der = _build_ssl_test_cert(common_name="example.com", san=["example.com"])
+        mock_ssock = _make_ssl_mock_ssock(cert_der)
+        mock_ctx.side_effect = [
+            _make_ssl_failing_ctx("hostname 'wrong.test' doesn't match 'example.com'"),
+            _make_ssl_verified_ctx(mock_ssock),
+        ]
+
+        result = ssl_info("wrong.test")
+        assert result["grade"] == "D"
+        assert result["cert_valid"] is False
+        assert "hostname_mismatch" in result["validation_errors"]
 
     @patch("domain.recon.socket.create_connection", side_effect=ConnectionRefusedError("refused"))
-    def test_connection_failure_fallback(self, mock_conn):
+    def test_connection_refused_returns_error(self, mock_conn):
         from domain.recon import ssl_info
 
         result = ssl_info("unreachable.test")
         assert result["error"] == "SSL lookup failed"
         assert result["grade"] == "F"
+        assert result["cert_valid"] is False
+        assert result["validation_errors"] == []
+
+    @patch("domain.recon.socket.create_connection", side_effect=TimeoutError("timeout"))
+    def test_timeout_returns_error(self, mock_conn):
+        from domain.recon import ssl_info
+
+        result = ssl_info("slow.test")
+        assert result["error"] == "SSL lookup failed"
+        assert result["grade"] == "F"
+        assert result["cert_valid"] is False
+
+    @patch("domain.recon.ssl.create_default_context")
+    @patch("domain.recon.socket.create_connection")
+    def test_wildcard_san_match(self, mock_conn, mock_ctx):
+        """Sanity: wildcard SAN matches a single subdomain label (RFC 6125)."""
+        from domain.recon import _hostname_matches
+
+        assert _hostname_matches(["*.example.com"], "", "api.example.com") is True
+        assert _hostname_matches(["*.example.com"], "", "deep.api.example.com") is False
+        assert _hostname_matches(["*.example.com"], "", "example.com") is False
+        assert _hostname_matches([], "example.com", "example.com") is True
+
+    def test_parse_cert_strips_bidi_controls(self):
+        """Trojan-Source guard: cert CN/issuer with U+202E (RLO) must be stripped before return.
+
+        Note: cryptography rejects Unicode in DNSName (must be A-label IDN), so SAN bidi
+        attack vector is blocked at cert build time. CN and issuer org-name are RFC 4514
+        UTF-8 free-form fields where bidi controls can survive into JSON.
+        """
+        import datetime as _dt
+
+        from cryptography import x509 as _x509
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        from cryptography.x509.oid import NameOID
+        from domain.recon import _parse_cert_der
+
+        key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        now = _dt.datetime.now(_dt.UTC)
+        cn = "evil‮com.example"  # RLO embedded
+        issuer_name = "T‪rust CA"  # LRE embedded
+        cert = (
+            _x509.CertificateBuilder()
+            .subject_name(_x509.Name([_x509.NameAttribute(NameOID.COMMON_NAME, cn)]))
+            .issuer_name(_x509.Name([_x509.NameAttribute(NameOID.ORGANIZATION_NAME, issuer_name)]))
+            .public_key(key.public_key())
+            .serial_number(_x509.random_serial_number())
+            .not_valid_before(now - _dt.timedelta(days=1))
+            .not_valid_after(now + _dt.timedelta(days=30))
+            .add_extension(_x509.SubjectAlternativeName([_x509.DNSName("example.com")]), critical=False)
+            .sign(key, hashes.SHA256())
+        )
+        parsed = _parse_cert_der(cert.public_bytes(serialization.Encoding.DER))
+        assert parsed is not None
+        assert "‮" not in parsed["common_name"]
+        assert "‪" not in parsed["issuer"]
+
+    def test_parse_cert_san_list_capped(self):
+        """Defense: SAN list is capped at 100 entries to bound response size."""
+        import datetime as _dt
+
+        from cryptography import x509 as _x509
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        from cryptography.x509.oid import NameOID
+        from domain.recon import _parse_cert_der
+
+        key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        now = _dt.datetime.now(_dt.UTC)
+        san_names = [_x509.DNSName(f"sub{i}.example.com") for i in range(250)]
+        cert = (
+            _x509.CertificateBuilder()
+            .subject_name(_x509.Name([_x509.NameAttribute(NameOID.COMMON_NAME, "example.com")]))
+            .issuer_name(_x509.Name([_x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Test CA")]))
+            .public_key(key.public_key())
+            .serial_number(_x509.random_serial_number())
+            .not_valid_before(now - _dt.timedelta(days=1))
+            .not_valid_after(now + _dt.timedelta(days=30))
+            .add_extension(_x509.SubjectAlternativeName(san_names), critical=False)
+            .sign(key, hashes.SHA256())
+        )
+        parsed = _parse_cert_der(cert.public_bytes(serialization.Encoding.DER))
+        assert parsed is not None
+        assert len(parsed["san"]) == 100
 
 
 # =========== /v1/scan/headers/{domain} route tests ===========

@@ -18,7 +18,10 @@ MOCK_WHOIS_RESULT = {"registrar": "Test Registrar", "creation_date": "2020-01-01
 MOCK_CT_RESULT = {"total_certificates": 1, "certificates": [{"issuer": "LE", "common_name": "example.com"}]}
 
 
-def _build_test_cert(include_aia_url: str | None = None) -> tuple[bytes, bytes]:
+def _build_test_cert(
+    include_aia_url: str | None = None,
+    days_until_expiry: int = 365,
+) -> tuple[bytes, bytes]:
     """Return (der_bytes, pem_bytes) for a self-signed leaf cert."""
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     now = datetime.datetime.now(datetime.UTC)
@@ -28,8 +31,8 @@ def _build_test_cert(include_aia_url: str | None = None) -> tuple[bytes, bytes]:
         .issuer_name(x509.Name([x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Let's Encrypt")]))
         .public_key(key.public_key())
         .serial_number(x509.random_serial_number())
-        .not_valid_before(now)
-        .not_valid_after(now + datetime.timedelta(days=365))
+        .not_valid_before(now - datetime.timedelta(days=30))
+        .not_valid_after(now + datetime.timedelta(days=days_until_expiry))
         .add_extension(
             x509.SubjectAlternativeName([x509.DNSName("example.com"), x509.DNSName("www.example.com")]),
             critical=False,
@@ -58,6 +61,7 @@ def _build_test_cert(include_aia_url: str | None = None) -> tuple[bytes, bytes]:
 _LEAF_DER, _LEAF_PEM = _build_test_cert()
 _LEAF_AIA_DER, _LEAF_AIA_PEM = _build_test_cert(include_aia_url="http://ca.example.com/intermediate.crt")
 _INTER_DER, _INTER_PEM = _build_test_cert()  # reuse as a stand-in intermediate
+_LEAF_EXPIRED_DER, _LEAF_EXPIRED_PEM = _build_test_cert(days_until_expiry=-30)
 
 
 # =========== /v1/ssl/{domain} tests ===========
@@ -118,8 +122,10 @@ class TestSslCertificate:
         assert "example.com" in data["san"]
         assert "www.example.com" in data["san"]
         assert data["grade"] in ("A", "B")
-        assert data["serial_number"] == "0123456789ABCDEF"
+        # serial_number now parsed from real DER; assert it's a non-empty hex string
+        assert data["serial_number"] and all(c in "0123456789ABCDEF" for c in data["serial_number"])
         assert data["warnings"] == []
+        assert data["validation_errors"] == []
         assert len(data["chain"]) == 1
         assert data["chain"][0]["source"] == "handshake"
 
@@ -128,9 +134,8 @@ class TestSslCertificate:
     @patch("domain.routes._validate_and_auth")
     def test_ssl_expired_cert(self, mock_validate, mock_cache_get, mock_cache_save):
         mock_validate.return_value = ("expired.com", "1.2.3.4", {"tier": "free"})
-        expired_cert = dict(self._MOCK_CERT)
-        expired_cert["notAfter"] = "Jan  1 00:00:00 2020 GMT"
-        mock_ssock = self._make_mock_ssock(cert=expired_cert)
+        # Real expired DER triggers our independent expiry check (cert_valid=False, grade F)
+        mock_ssock = self._make_mock_ssock(leaf_der=_LEAF_EXPIRED_DER)
         mock_sock = MagicMock()
         mock_sock.__enter__ = MagicMock(return_value=mock_sock)
         mock_sock.__exit__ = MagicMock(return_value=False)
@@ -144,7 +149,8 @@ class TestSslCertificate:
         data = r.json()
         assert data["valid"] is False
         assert data["grade"] == "F"
-        assert "EXPIRED" in data["summary"]
+        assert "expired" in data["validation_errors"]
+        assert "INVALID: expired" in data["summary"]
 
     @patch("domain.routes.get_cached_domain", return_value=None)
     @patch("domain.routes._validate_and_auth")

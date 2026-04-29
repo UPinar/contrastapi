@@ -72,7 +72,10 @@ from domain.ip_intel import (
     tor_cache_status,
 )
 from domain.recon import (
+    _classify_ssl_verify_error,
     _dns_call_with_timeout,
+    _hostname_matches,
+    _parse_cert_der,
     _ssl_grade,
     _ssrf_http,
     _strip_control_chars,
@@ -148,8 +151,15 @@ IpPath = Annotated[
 
 
 def _safe_rdn(s: str) -> str:
-    """Strip control chars from RFC 4514 DN strings to prevent log/response injection."""
-    return "".join(c for c in s if c >= " " and c != "\x7f")[:512]
+    """Strip ASCII control + Unicode bidi/format controls from RFC 4514 DN strings.
+
+    Cert subject/issuer come from a remote-controlled X.509 blob and may carry
+    Unicode bidi overrides (U+202A-U+202E, U+2066-U+2069). Without bidi stripping
+    they survive into JSON responses and reverse the visual rendering order in
+    bidi-aware terminals/UIs (Trojan-Source CVE-2021-42574). _strip_control_chars
+    is the canonical helper, capped at 512 here for DN length.
+    """
+    return _strip_control_chars(s)[:512]
 
 
 def _safe_url(url: str) -> str:
@@ -940,140 +950,158 @@ def ssl_certificate(domain: DomainPath, request: Request):
     if cached:
         return {**cached}
 
+    connect_host = resolved_ip or domain
+    cert_der: bytes | None = None
+    cipher_info: tuple | None = None
+    tls_version: str = ""
+    chain_verified = False
+    validation_errors: list[str] = []
+
+    # Pass 1: verified context — happy path
     try:
         ctx = _ssl.create_default_context()
-        connect_host = resolved_ip or domain
         with socket.create_connection((connect_host, 443), timeout=5) as sock:
             with ctx.wrap_socket(sock, server_hostname=domain) as ssock:
-                cert = ssock.getpeercert()
+                cert_der = ssock.getpeercert(binary_form=True)
                 tls_version = ssock.version() or "unknown"
-                cipher_info = ssock.cipher()  # (name, protocol, bits)
-
-                subject_dict = dict(x[0] for x in cert.get("subject", ()))
-                issuer_dict = dict(x[0] for x in cert.get("issuer", ()))
-
-                not_before = cert.get("notBefore", "")
-                not_after = cert.get("notAfter", "")
-                days_remaining = None
-                valid = True
-                if not_after:
-                    try:
-                        expiry_ts = _ssl.cert_time_to_seconds(not_after)
-                        days_remaining = int((expiry_ts - _time.time()) / 86400)
-                        if days_remaining < 0:
-                            valid = False
-                    except (ValueError, OverflowError):
-                        pass
-
-                san = [v for _, v in cert.get("subjectAltName", ())]
-
-                # Grade
-                grade = _ssl_grade(tls_version, days_remaining)
-
-                # Chain: leaf from handshake, intermediates via AIA caIssuers
-                chain = []
-                warnings = []
-                leaf_cert = None
-                try:
-                    der = ssock.getpeercert(binary_form=True)
-                    leaf_cert = x509.load_der_x509_certificate(der)
-                    chain.append(
-                        {
-                            "subject": _safe_rdn(leaf_cert.subject.rfc4514_string()),
-                            "issuer": _safe_rdn(leaf_cert.issuer.rfc4514_string()),
-                            "not_after": leaf_cert.not_valid_after_utc.replace(tzinfo=None).isoformat(),
-                            "source": "handshake",
-                        }
-                    )
-                except (ValueError, TypeError, AttributeError) as e:
-                    warnings.append(f"leaf cert parse failed: {type(e).__name__}")
-                    leaf_cert = None
-
-                if leaf_cert is not None:
-                    # Collect AIA caIssuers URLs (http/https only, cap at 2)
-                    aia_urls: list[str] = []
-                    try:
-                        aia = leaf_cert.extensions.get_extension_for_class(x509.AuthorityInformationAccess)
-                        for desc in aia.value:
-                            if desc.access_method == AuthorityInformationAccessOID.CA_ISSUERS:
-                                url = desc.access_location.value
-                                if not isinstance(url, str) or len(url) > 2048:
-                                    continue
-                                if _urlparse(url).scheme in ("http", "https"):
-                                    aia_urls.append(url)
-                                if len(aia_urls) >= 2:
-                                    break
-                    except x509.ExtensionNotFound:
-                        pass
-
-                    if aia_urls:
-                        futures = {_aia_pool.submit(_fetch_intermediate, u): u for u in aia_urls}
-                        for fut, url in futures.items():
-                            try:
-                                ic = fut.result(timeout=7)
-                                chain.append(
-                                    {
-                                        "subject": _safe_rdn(ic.subject.rfc4514_string()),
-                                        "issuer": _safe_rdn(ic.issuer.rfc4514_string()),
-                                        "not_after": ic.not_valid_after_utc.replace(tzinfo=None).isoformat(),
-                                        "source": "aia_fetch",
-                                    }
-                                )
-                            except _httpx.TimeoutException:
-                                warnings.append(f"AIA fetch timeout: {_safe_url(url)}")
-                            except _httpx.HTTPError:
-                                warnings.append(f"AIA fetch error: {_safe_url(url)}")
-                            except (ValueError, TypeError):
-                                warnings.append(f"AIA parse failed: {_safe_url(url)}")
-                            except Exception:
-                                warnings.append(f"AIA fetch error: {_safe_url(url)}")
-
-                cipher_dict = {}
-                if cipher_info:
-                    cipher_dict = {
-                        "name": cipher_info[0],
-                        "protocol": cipher_info[1],
-                        "bits": cipher_info[2],
-                    }
-
-                # Build summary
-                parts = [f"{domain} — {grade}"]
-                parts.append(f"{tls_version}, {issuer_dict.get('organizationName', 'unknown issuer')}")
-                if days_remaining is not None:
-                    parts.append(f"{days_remaining} days remaining")
-                if not valid:
-                    parts.append("EXPIRED")
-                if warnings:
-                    parts.append("(partial: chain incomplete)")
-
-                result = {
-                    "domain": domain,
-                    "valid": valid,
-                    "issuer": issuer_dict.get("organizationName", ""),
-                    "subject": subject_dict.get("commonName", ""),
-                    "not_before": not_before,
-                    "not_after": not_after,
-                    "days_remaining": days_remaining,
-                    "serial_number": cert.get("serialNumber", ""),
-                    "signature_algorithm": None,
-                    "san": san,
-                    "protocol": tls_version,
-                    "cipher": cipher_dict,
-                    "chain": chain,
-                    "grade": grade,
-                    "warnings": warnings,
-                    "summary": ". ".join(parts),
-                }
-
-                save_cached_domain(f"ssl:{domain}", result)
-                return {**result}
-
-    except (socket.timeout, ConnectionRefusedError, OSError) as e:
+                cipher_info = ssock.cipher()
+                chain_verified = True
+    except _ssl.SSLCertVerificationError as e:
+        verify_msg = getattr(e, "verify_message", "") or str(e)
+        validation_errors = _classify_ssl_verify_error(verify_msg)
+    except (socket.timeout, ConnectionRefusedError, ConnectionResetError, OSError, _ssl.SSLError) as e:
         logger.warning("SSL connection failed: %s", type(e).__name__)
         raise HTTPException(status_code=504, detail=f"Could not establish SSL connection to {domain}") from None
-    except Exception as e:
-        logger.warning("SSL inspection failed: %s", type(e).__name__)
-        raise HTTPException(status_code=504, detail=f"SSL inspection failed for {domain}") from None
+
+    # Pass 2: if verification failed, retry unverified to fetch cert + cipher
+    if cert_der is None:
+        try:
+            unverified = _ssl.create_default_context()
+            unverified.check_hostname = False
+            unverified.verify_mode = _ssl.CERT_NONE
+            with socket.create_connection((connect_host, 443), timeout=5) as sock:
+                with unverified.wrap_socket(sock, server_hostname=domain) as ssock:
+                    cert_der = ssock.getpeercert(binary_form=True)
+                    tls_version = ssock.version() or "unknown"
+                    cipher_info = ssock.cipher()
+        except Exception as e:
+            logger.warning("SSL unverified retry failed: %s", type(e).__name__)
+            raise HTTPException(status_code=504, detail=f"SSL inspection failed for {domain}") from None
+
+    parsed = _parse_cert_der(cert_der) if cert_der else None
+    if parsed is None:
+        raise HTTPException(status_code=504, detail=f"SSL cert parse failed for {domain}") from None
+
+    # Independent expiry check
+    if parsed["days_remaining"] is not None and parsed["days_remaining"] < 0 and "expired" not in validation_errors:
+        validation_errors.append("expired")
+
+    # Independent hostname check (only when chain wasn't already verified)
+    if not chain_verified and "hostname_mismatch" not in validation_errors:
+        if not _hostname_matches(parsed["san"], parsed["common_name"], domain):
+            validation_errors.append("hostname_mismatch")
+
+    cert_valid = chain_verified and not validation_errors
+    grade = _ssl_grade(tls_version, parsed["days_remaining"], cert_valid, validation_errors)
+
+    # Chain enrichment via AIA (best-effort, on parsed leaf)
+    chain: list[dict] = []
+    warnings: list[str] = []
+    try:
+        leaf_cert = x509.load_der_x509_certificate(cert_der)
+        chain.append(
+            {
+                "subject": _safe_rdn(leaf_cert.subject.rfc4514_string()),
+                "issuer": _safe_rdn(leaf_cert.issuer.rfc4514_string()),
+                "not_after": leaf_cert.not_valid_after_utc.replace(tzinfo=None).isoformat(),
+                "source": "handshake",
+            }
+        )
+    except (ValueError, TypeError, AttributeError) as e:
+        warnings.append(f"leaf cert parse failed: {type(e).__name__}")
+        leaf_cert = None
+
+    if leaf_cert is not None:
+        aia_urls: list[str] = []
+        try:
+            aia = leaf_cert.extensions.get_extension_for_class(x509.AuthorityInformationAccess)
+            for desc in aia.value:
+                if desc.access_method == AuthorityInformationAccessOID.CA_ISSUERS:
+                    url = desc.access_location.value
+                    if not isinstance(url, str) or len(url) > 2048:
+                        continue
+                    if _urlparse(url).scheme in ("http", "https"):
+                        aia_urls.append(url)
+                    if len(aia_urls) >= 2:
+                        break
+        except x509.ExtensionNotFound:
+            pass
+
+        if aia_urls:
+            futures = {_aia_pool.submit(_fetch_intermediate, u): u for u in aia_urls}
+            for fut, url in futures.items():
+                try:
+                    ic = fut.result(timeout=7)
+                    chain.append(
+                        {
+                            "subject": _safe_rdn(ic.subject.rfc4514_string()),
+                            "issuer": _safe_rdn(ic.issuer.rfc4514_string()),
+                            "not_after": ic.not_valid_after_utc.replace(tzinfo=None).isoformat(),
+                            "source": "aia_fetch",
+                        }
+                    )
+                except _httpx.TimeoutException:
+                    warnings.append(f"AIA fetch timeout: {_safe_url(url)}")
+                except _httpx.HTTPError:
+                    warnings.append(f"AIA fetch error: {_safe_url(url)}")
+                except (ValueError, TypeError):
+                    warnings.append(f"AIA parse failed: {_safe_url(url)}")
+                except Exception:
+                    warnings.append(f"AIA fetch error: {_safe_url(url)}")
+
+    cipher_dict = {}
+    if cipher_info:
+        cipher_dict = {
+            "name": cipher_info[0],
+            "protocol": cipher_info[1],
+            "bits": cipher_info[2],
+        }
+
+    # Surface validation issues as human-readable warnings too
+    for tag in validation_errors:
+        warnings.append(f"cert {tag.replace('_', ' ')}")
+
+    parts = [f"{domain} — {grade}"]
+    parts.append(f"{tls_version}, {parsed['issuer'] or 'unknown issuer'}")
+    if parsed["days_remaining"] is not None:
+        parts.append(f"{parsed['days_remaining']} days remaining")
+    if validation_errors:
+        parts.append(f"INVALID: {', '.join(validation_errors)}")
+    if any("AIA" in w for w in warnings):
+        parts.append("(partial: chain incomplete)")
+
+    result = {
+        "domain": domain,
+        "valid": cert_valid,
+        "issuer": parsed["issuer"],
+        "subject": parsed["common_name"],
+        "not_before": parsed["not_before"],
+        "not_after": parsed["not_after"],
+        "days_remaining": parsed["days_remaining"],
+        "serial_number": parsed["serial_number"],
+        "signature_algorithm": None,
+        "san": parsed["san"],
+        "protocol": tls_version,
+        "cipher": cipher_dict,
+        "chain": chain,
+        "grade": grade,
+        "validation_errors": validation_errors,
+        "warnings": warnings[:10],
+        "summary": ". ".join(parts),
+    }
+
+    save_cached_domain(f"ssl:{domain}", result)
+    return {**result}
 
 
 @router.get(

@@ -384,7 +384,7 @@ async def ssl_check(
         str, Field(description="Domain to check SSL/TLS certificate for (e.g. 'example.com', 'api.stripe.com')")
     ],
 ) -> str:
-    """Analyze SSL/TLS certificate: grade (A-F), protocol version, cipher suite, chain, expiry, Subject Alternative Names. Use to audit certificate validity and detect expiring certs; for full domain audit use audit_domain. Free: 100/hr, Pro: 1000/hr. Returns {grade, protocol, cipher, issuer, subject, not_before, not_after, chain, san}."""
+    """Analyze SSL/TLS certificate: grade (A/B/C/D/F), protocol version, cipher suite, chain, expiry, Subject Alternative Names, and structured validation findings. Invalid certs (expired, self-signed, hostname mismatch, untrusted root) are reported as findings via valid=false + validation_errors[] rather than as endpoint failures, so an unreachable cert still returns useful intel. Grade D = cert readable but invalid; F = expired, legacy TLS, or probe failure. Use to audit certificate validity and detect expiring certs; for full domain audit use audit_domain. Free: 100/hr, Pro: 1000/hr. Returns {grade, valid, validation_errors, protocol, cipher, issuer, subject, not_before, not_after, days_remaining, chain, san, warnings}."""
     if err := _validate_domain(domain):
         return err
     return _fmt(await _get(f"/v1/ssl/{domain}"))

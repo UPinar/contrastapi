@@ -20,6 +20,8 @@ import httpcore
 import httpx
 import ratelimit
 from config import CRTSH_MAX_BYTES, CRTSH_MAX_RESULTS, CRTSH_TIMEOUT, ENRICHMENT_DAILY_LIMIT, RECON_TIMEOUT, UPGRADE_URL
+from cryptography import x509
+from cryptography.x509.oid import ExtensionOID, NameOID
 from validation import is_private_ip
 
 logger = logging.getLogger("contrastapi")
@@ -555,54 +557,231 @@ def detect_waf(headers: dict) -> dict:
 # === SSL Info ===
 
 
+_VALID_VALIDATION_TAGS = {"expired", "self_signed", "hostname_mismatch", "untrusted_root", "chain_incomplete"}
+
+
+def _classify_ssl_verify_error(verify_message: str) -> list[str]:
+    """Map OpenSSL verify error message to canonical validation_errors tags."""
+    msg = (verify_message or "").lower()
+    if "self signed" in msg or "self-signed" in msg:
+        return ["self_signed"]
+    if "has expired" in msg or "certificate has expired" in msg or "cert has expired" in msg:
+        return ["expired"]
+    if "unable to get local issuer" in msg or "unable to get issuer" in msg:
+        return ["untrusted_root"]
+    if "hostname mismatch" in msg or "doesn't match" in msg or "name does not match" in msg:
+        return ["hostname_mismatch"]
+    return ["chain_incomplete"]
+
+
+_SAN_LIST_CAP = 100
+
+
+def _parse_cert_der(cert_der: bytes) -> dict | None:
+    """Parse DER-encoded cert into stable dict; returns None on parse failure.
+
+    Cert subject/issuer/SAN strings come from a remote-controlled X.509 blob
+    and may carry Unicode bidi controls (Trojan-Source CVE-2021-42574). All
+    user-visible string fields are passed through _strip_control_chars before
+    return. SAN list is capped at _SAN_LIST_CAP entries to bound response size.
+    """
+    try:
+        cert = x509.load_der_x509_certificate(cert_der)
+
+        common_name = ""
+        for attr in cert.subject:
+            if attr.oid == NameOID.COMMON_NAME:
+                common_name = _strip_control_chars(str(attr.value))
+                break
+
+        issuer = ""
+        for attr in cert.issuer:
+            if attr.oid == NameOID.ORGANIZATION_NAME:
+                issuer = _strip_control_chars(str(attr.value))
+                break
+        if not issuer:
+            for attr in cert.issuer:
+                if attr.oid == NameOID.COMMON_NAME:
+                    issuer = _strip_control_chars(str(attr.value))
+                    break
+
+        try:
+            not_before_dt = cert.not_valid_before_utc
+            not_after_dt = cert.not_valid_after_utc
+        except AttributeError:
+            not_before_dt = cert.not_valid_before.replace(tzinfo=UTC)
+            not_after_dt = cert.not_valid_after.replace(tzinfo=UTC)
+
+        not_before = not_before_dt.strftime("%b %d %H:%M:%S %Y GMT")
+        not_after = not_after_dt.strftime("%b %d %H:%M:%S %Y GMT")
+        days_remaining = int((not_after_dt - datetime.now(UTC)).total_seconds() / 86400)
+
+        try:
+            serial = format(cert.serial_number, "X")
+        except Exception:
+            serial = ""
+
+        try:
+            version = cert.version.value + 1
+        except Exception:
+            version = 3
+
+        try:
+            san_ext = cert.extensions.get_extension_for_oid(ExtensionOID.SUBJECT_ALTERNATIVE_NAME)
+            raw_san = san_ext.value.get_values_for_type(x509.DNSName)
+            san_list = [_strip_control_chars(str(name)) for name in raw_san[:_SAN_LIST_CAP]]
+        except x509.ExtensionNotFound:
+            san_list = []
+
+        return {
+            "common_name": common_name,
+            "issuer": issuer,
+            "not_before": not_before,
+            "not_after": not_after,
+            "serial_number": serial,
+            "version": version,
+            "san": san_list,
+            "days_remaining": days_remaining,
+        }
+    except Exception as e:
+        logger.warning("cert parse failed: %s", type(e).__name__)
+        return None
+
+
+def _hostname_matches(san_list: list[str], common_name: str, hostname: str) -> bool:
+    """Match hostname against cert SAN/CN with single-label wildcard support (RFC 6125)."""
+    candidates = list(san_list) if san_list else []
+    if not candidates and common_name:
+        candidates = [common_name]
+    hostname = hostname.lower().strip(".")
+    for pattern in candidates:
+        pattern = pattern.lower().strip(".")
+        if pattern == hostname:
+            return True
+        if pattern.startswith("*."):
+            suffix = pattern[2:]
+            if "." not in hostname:
+                continue
+            host_first, host_rest = hostname.split(".", 1)
+            if host_first and host_rest == suffix:
+                return True
+    return False
+
+
 def ssl_info(domain: str, resolved_ip: str | None = None) -> dict:
-    """Get SSL certificate details with grade and TLS version."""
+    """Get SSL certificate details, TLS version, and validation findings.
+
+    Cert validation issues (expired, self-signed, hostname mismatch, untrusted root)
+    are reported as findings via cert_valid=False + validation_errors[].
+    Only true probe failures (timeout, connection refused, no port 443) return error.
+    """
+    connect_host = resolved_ip or domain
+    validation_errors: list[str] = []
+    cert_der: bytes | None = None
+    tls_version: str = ""
+    alpn: str | None = None
+    chain_verified = False
+
+    # Pass 1: verified context (chain + hostname check by OpenSSL)
     try:
         ctx = ssl.create_default_context()
-        connect_host = resolved_ip or domain
         with socket.create_connection((connect_host, 443), timeout=RECON_TIMEOUT) as sock:
             with ctx.wrap_socket(sock, server_hostname=domain) as ssock:
-                cert = ssock.getpeercert()
+                cert_der = ssock.getpeercert(binary_form=True)
                 alpn = ssock.selected_alpn_protocol()
                 tls_version = ssock.version() or "unknown"
-                subject = dict(x[0] for x in cert.get("subject", ()))
-                issuer = dict(x[0] for x in cert.get("issuer", ()))
-
-                not_after = cert.get("notAfter", "")
-                days_remaining = None
-                if not_after:
-                    try:
-                        expiry_ts = ssl.cert_time_to_seconds(not_after)
-                        days_remaining = int((expiry_ts - time.time()) / 86400)
-                    except (ValueError, OverflowError):
-                        pass
-
-                grade = _ssl_grade(tls_version, days_remaining)
-
-                return {
-                    "common_name": subject.get("commonName", ""),
-                    "issuer": issuer.get("organizationName", ""),
-                    "not_before": cert.get("notBefore", ""),
-                    "not_after": not_after,
-                    "serial_number": cert.get("serialNumber", ""),
-                    "version": cert.get("version", ""),
-                    "tls_version": tls_version,
-                    "alpn": alpn or "http/1.1",
-                    "san": [v for _, v in cert.get("subjectAltName", ())],
-                    "days_remaining": days_remaining,
-                    "grade": grade,
-                }
+                chain_verified = True
+    except ssl.SSLCertVerificationError as e:
+        verify_msg = getattr(e, "verify_message", "") or str(e)
+        validation_errors = _classify_ssl_verify_error(verify_msg)
+    except (TimeoutError, socket.timeout, ConnectionRefusedError, ConnectionResetError, OSError, ssl.SSLError) as e:
+        logger.warning("ssl_info failed: %s", type(e).__name__)
+        return {"error": "SSL lookup failed", "grade": "F", "cert_valid": False, "validation_errors": []}
     except Exception as e:
         logger.warning("ssl_info failed: %s", type(e).__name__)
-        return {"error": "SSL lookup failed", "grade": "F"}
+        return {"error": "SSL lookup failed", "grade": "F", "cert_valid": False, "validation_errors": []}
+
+    # Pass 2: if verification failed, retry unverified to fetch cert details
+    if cert_der is None:
+        try:
+            unverified = ssl.create_default_context()
+            unverified.check_hostname = False
+            unverified.verify_mode = ssl.CERT_NONE
+            with socket.create_connection((connect_host, 443), timeout=RECON_TIMEOUT) as sock:
+                with unverified.wrap_socket(sock, server_hostname=domain) as ssock:
+                    cert_der = ssock.getpeercert(binary_form=True)
+                    alpn = ssock.selected_alpn_protocol()
+                    tls_version = ssock.version() or "unknown"
+        except Exception as e:
+            logger.warning("ssl_info unverified retry failed: %s", type(e).__name__)
+            return {
+                "error": "SSL lookup failed",
+                "grade": "F",
+                "cert_valid": False,
+                "validation_errors": validation_errors,
+            }
+
+    parsed = _parse_cert_der(cert_der) if cert_der else None
+    if parsed is None:
+        return {
+            "error": "SSL cert parse failed",
+            "grade": "F",
+            "cert_valid": False,
+            "validation_errors": validation_errors,
+        }
+
+    # Independent expiry check (catches edge: not_after < now even if openssl chain still trusted)
+    if parsed["days_remaining"] is not None and parsed["days_remaining"] < 0 and "expired" not in validation_errors:
+        validation_errors.append("expired")
+
+    # Hostname check independent of chain — only when chain wasn't already verified by OpenSSL
+    if not chain_verified and "hostname_mismatch" not in validation_errors:
+        if not _hostname_matches(parsed["san"], parsed["common_name"], domain):
+            validation_errors.append("hostname_mismatch")
+
+    cert_valid = chain_verified and not validation_errors
+    grade = _ssl_grade(tls_version, parsed["days_remaining"], cert_valid, validation_errors)
+
+    return {
+        "common_name": parsed["common_name"],
+        "issuer": parsed["issuer"],
+        "not_before": parsed["not_before"],
+        "not_after": parsed["not_after"],
+        "serial_number": parsed["serial_number"],
+        "version": parsed["version"],
+        "tls_version": tls_version,
+        "alpn": alpn or "http/1.1",
+        "san": parsed["san"],
+        "days_remaining": parsed["days_remaining"],
+        "grade": grade,
+        "cert_valid": cert_valid,
+        "validation_errors": validation_errors,
+    }
 
 
-def _ssl_grade(tls_version: str, days_remaining: int | None) -> str:
-    """Grade SSL configuration A-F."""
-    if days_remaining is not None and days_remaining < 0:
-        return "F"
+def _ssl_grade(
+    tls_version: str,
+    days_remaining: int | None,
+    cert_valid: bool = True,
+    validation_errors: list[str] | None = None,
+) -> str:
+    """Grade SSL configuration A/B/C/D/F.
+
+    A/B/C: cert_valid AND modern TLS.
+    D: cert readable but invalid (hostname_mismatch / untrusted_root / self_signed / chain_incomplete).
+    F: probe failure, expired, OR legacy TLS (TLSv1/TLSv1.1).
+    """
+    validation_errors = validation_errors or []
+    # F precedence: legacy TLS or expired cert is most severe
     if tls_version in ("TLSv1", "TLSv1.1"):
         return "F"
+    if "expired" in validation_errors:
+        return "F"
+    if days_remaining is not None and days_remaining < 0:
+        return "F"
+    # D: cert readable but failed non-expiry validation
+    if not cert_valid:
+        return "D"
     if tls_version == "TLSv1.2":
         if days_remaining is not None and days_remaining < 14:
             return "C"

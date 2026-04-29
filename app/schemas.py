@@ -115,11 +115,22 @@ class SslInfoEmbedded(BaseModel):
     alpn: str | None = Field(default=None, description="Negotiated ALPN protocol (e.g. 'http/1.1', 'h2').")
     san: list[str] | None = Field(default=None, description="Subject Alternative Names.")
     days_remaining: int | None = Field(default=None, description="Days until expiry. Negative when already expired.")
-    grade: Literal["A", "B", "C", "F"] | None = Field(
+    grade: Literal["A", "B", "C", "D", "F"] | None = Field(
         default=None,
-        description="SSL grade A/B/C/F. Same ladder as SslResponse.grade (TLS version x days_remaining).",
+        description="SSL grade. A/B/C: cert_valid AND TLS modern. D: cert readable but invalid (self-signed, hostname mismatch, untrusted root). F: probe failure, expired, or legacy TLS.",
     )
-    error: str | None = Field(default=None, description="Populated on handshake / connection failure.")
+    cert_valid: bool | None = Field(
+        default=None,
+        description="True only when chain verified AND hostname matches AND not expired. False when cert is readable but fails one or more validation checks (see validation_errors).",
+    )
+    validation_errors: list[str] | None = Field(
+        default=None,
+        description="Canonical validation failure tags when cert_valid is False. Values: 'expired', 'self_signed', 'hostname_mismatch', 'untrusted_root', 'chain_incomplete'. Empty/null when cert_valid is True.",
+    )
+    error: str | None = Field(
+        default=None,
+        description="Populated only on probe failure (timeout, connection refused, no port 443). Cert validation issues are NOT errors here — see cert_valid + validation_errors instead.",
+    )
 
     model_config = {"extra": "allow"}
 
@@ -926,13 +937,23 @@ class SslResponse(BaseModel):
         default_factory=list,
         description="Full cert chain from leaf upward (excluding system root). Includes AIA-fetched intermediates when needed.",
     )
-    grade: Literal["A", "B", "C", "F"] = Field(
+    grade: Literal["A", "B", "C", "D", "F"] = Field(
         default="F",
         description=(
-            "Overall SSL configuration grade. 'A' (TLSv1.3 + >=30 days remaining), "
-            "'B' (TLSv1.3 <30d OR TLSv1.2 healthy), 'C' (TLSv1.2 <14d OR TLSv1.3 <7d OR unknown protocol), "
-            "'F' (TLSv1/TLSv1.1 OR expired). Canonical grader is _ssl_grade() in domain/recon.py; "
+            "Overall SSL configuration grade. 'A' (cert_valid + TLSv1.3 + >=30 days remaining), "
+            "'B' (cert_valid + (TLSv1.3 <30d OR TLSv1.2 healthy)), 'C' (cert_valid + (TLSv1.2 <14d OR TLSv1.3 <7d OR unknown protocol)), "
+            "'D' (cert readable but invalid: hostname_mismatch / untrusted_root / self_signed), "
+            "'F' (probe failure, expired, OR TLSv1/TLSv1.1). Canonical grader is _ssl_grade() in domain/recon.py; "
             "same helper powers /v1/domain/ ssl section (single source of truth)."
+        ),
+    )
+    validation_errors: list[str] = Field(
+        default_factory=list,
+        max_length=10,
+        description=(
+            "Canonical cert validation failure tags when cert is readable but invalid. "
+            "Values: 'expired', 'self_signed', 'hostname_mismatch', 'untrusted_root', 'chain_incomplete'. "
+            "Empty when cert validates cleanly. See also: 'valid' (boolean overall) and 'warnings' (human-readable)."
         ),
     )
     warnings: list[str] = Field(
