@@ -37,6 +37,7 @@ _CASE_STUDY_RE = re.compile(r"^AML\.CS\d{4}$")
 _TACTIC_RE = re.compile(r"^AML\.TA\d{4}$")
 
 _PIVOT_CAP = 5
+_SEARCH_DESCRIPTION_PREVIEW = 240  # chars; full text via _lookup drill or include=full
 
 
 def _validate_technique_id(value: str) -> str:
@@ -143,6 +144,17 @@ def atlas_technique_search(
         ),
     ] = None,
     limit: Annotated[int, Query(ge=1, le=200, description="Max results to return.")] = 50,
+    include: Annotated[
+        str | None,
+        Query(
+            description=(
+                f"Detail level. Default returns slim records (description truncated to "
+                f"{_SEARCH_DESCRIPTION_PREVIEW} chars; drill via atlas_technique_lookup for full text). "
+                "Pass include=full for the verbose description on every row — large catalogs "
+                "(167 techniques) can return ~100KB at full."
+            ),
+        ),
+    ] = None,
 ):
     """Search the MITRE ATLAS technique catalog by keyword, tactic, or maturity.
 
@@ -151,6 +163,8 @@ def atlas_technique_search(
     full description, ATT&CK bridge, and next_calls pivot hints.
     """
     authenticate(request, request.url.path)
+    if include not in (None, "", "full"):
+        raise HTTPException(status_code=400, detail="include must be 'full' (omit for slim default)")
 
     if keyword is not None:
         stripped = keyword.strip()
@@ -182,6 +196,12 @@ def atlas_technique_search(
         maturity=maturity or None,
         limit=limit,
     )
+
+    if include != "full":
+        for r in rows:
+            desc = r.get("description")
+            if desc and len(desc) > _SEARCH_DESCRIPTION_PREVIEW:
+                r["description"] = desc[:_SEARCH_DESCRIPTION_PREVIEW] + "..."
 
     next_calls: list[PivotHint] | None = None
     if rows:
@@ -224,6 +244,16 @@ def atlas_case_study_search(
         ),
     ] = None,
     limit: Annotated[int, Query(ge=1, le=200, description="Max results to return.")] = 50,
+    include: Annotated[
+        str | None,
+        Query(
+            description=(
+                f"Detail level. Default returns slim records (description truncated to "
+                f"{_SEARCH_DESCRIPTION_PREVIEW} chars). Pass include=full for the verbose "
+                "summary on every row."
+            ),
+        ),
+    ] = None,
 ):
     """Search ATLAS case studies by keyword or referenced technique.
 
@@ -232,6 +262,8 @@ def atlas_case_study_search(
     atlas_case_study_lookup for the full procedure list.
     """
     authenticate(request, request.url.path)
+    if include not in (None, "", "full"):
+        raise HTTPException(status_code=400, detail="include must be 'full' (omit for slim default)")
 
     if keyword is not None:
         stripped = keyword.strip()
@@ -255,6 +287,12 @@ def atlas_case_study_search(
         technique_id=technique_id or None,
         limit=limit,
     )
+
+    if include != "full":
+        for r in rows:
+            desc = r.get("description")
+            if desc and len(desc) > _SEARCH_DESCRIPTION_PREVIEW:
+                r["description"] = desc[:_SEARCH_DESCRIPTION_PREVIEW] + "..."
 
     next_calls: list[PivotHint] | None = None
     if rows:

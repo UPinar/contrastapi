@@ -2818,9 +2818,17 @@ class D3fendForAttackResponse(BaseModel):
     model_config = {"extra": "allow"}
 
     attack_technique_id: str = Field(description="The ATT&CK T-code that was queried, e.g. 'T1059'.")
-    total: int = Field(default=0, description="Number of D3FEND defenses that mitigate this technique.")
+    total: int = Field(
+        default=0,
+        description="Honest pre-truncation count of D3FEND defenses that mitigate this technique.",
+    )
+    truncated: bool = Field(
+        default=False,
+        description="True when defenses[] was capped at `limit`. Inspect `total` for the full count and re-call with a higher `limit` if needed.",
+    )
     defenses: list[D3fendDefenseForAttackItem] = Field(
-        default_factory=list, description="D3FEND defenses mapped to this ATT&CK technique."
+        default_factory=list,
+        description="D3FEND defenses mapped to this ATT&CK technique (capped at request `limit`, default 30).",
     )
     coverage_by_tactic: dict[str, int] = Field(
         default_factory=dict,

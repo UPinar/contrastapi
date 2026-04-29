@@ -40,6 +40,7 @@ _VALID_TACTICS = {"Model", "Harden", "Detect", "Isolate", "Deceive", "Evict", "R
 
 _PIVOT_CAP = 5
 _UNDEFENDED_PIVOT_CAP = 3
+_FOR_ATTACK_DEFAULT_LIMIT = 30  # popular ATT&CK T-codes can map to 30+ defenses
 
 
 def _validate_defense_id(value: str) -> str:
@@ -215,6 +216,18 @@ def d3fend_defense_for_attack(
             ),
         ),
     ],
+    limit: Annotated[
+        int,
+        Query(
+            ge=1,
+            le=200,
+            description=(
+                f"Cap on `defenses` array length. Default {_FOR_ATTACK_DEFAULT_LIMIT}; "
+                "popular T-codes (e.g. T1059, T1078) map to 30-50+ D3FEND techniques. "
+                "`total` and `coverage_by_tactic` always reflect the honest pre-truncation counts."
+            ),
+        ),
+    ] = _FOR_ATTACK_DEFAULT_LIMIT,
 ):
     """Reverse lookup: given an ATT&CK T-code, list every D3FEND defense that mitigates it.
 
@@ -222,6 +235,10 @@ def d3fend_defense_for_attack(
     defensive playbook. Pair with cve_lookup or atlas_technique_lookup output —
     when those carry an ATT&CK id, call this tool to surface the mitigations.
     Returns 200 with empty defenses on no match (the gap itself is signal).
+
+    `defenses` is capped at `limit` (default 30) for token efficiency; `total`
+    is the honest count and `coverage_by_tactic` aggregates ALL matching
+    defenses, not just the truncated slice.
     """
     normalized = _validate_attack_technique(attack_technique_id)
     authenticate(request, request.url.path)
@@ -237,12 +254,17 @@ def d3fend_defense_for_attack(
         seen.setdefault(t, set()).add(d["defense_id"])
     coverage_by_tactic = {t: len(s) for t, s in seen.items()}
 
+    total = len(defenses)
+    truncated = total > limit
+    capped_defenses = defenses[:limit]
+
     return {
         "attack_technique_id": normalized,
-        "total": len(defenses),
-        "defenses": defenses,
+        "total": total,
+        "truncated": truncated,
+        "defenses": capped_defenses,
         "coverage_by_tactic": coverage_by_tactic,
-        "next_calls": _d3fend_for_attack_pivot_hints(normalized) if defenses else None,
+        "next_calls": _d3fend_for_attack_pivot_hints(normalized) if capped_defenses else None,
     }
 
 

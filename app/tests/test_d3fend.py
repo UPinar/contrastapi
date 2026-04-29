@@ -212,3 +212,63 @@ def test_d3fend_coverage_filters_invalid_tcodes():
     assert r.status_code == 200
     body = r.json()
     assert set(body["queried_techniques"]) == {"T1059", "T1550.001"}
+
+
+# --- Reverse lookup limit cap (v1.19.1 token efficiency) ---
+
+
+def _seed_many_defenses_for_attack(t_code: str, n: int):
+    """Seed n defenses all mapped to one ATT&CK T-code."""
+    from db import upsert_d3fend_attack_mappings, upsert_d3fend_defense
+
+    mappings = []
+    for i in range(n):
+        did = f"FakeDefense{i:03d}"
+        upsert_d3fend_defense(
+            did,
+            label=f"Fake Defense {i}",
+            uri=f"http://d3fend.mitre.org/ontologies/d3fend.owl#{did}",
+            parent_label="Fake Parent",
+            description=None,
+            tactic="Harden",
+            artifact="Process",
+        )
+        mappings.append(
+            {
+                "defense_id": did,
+                "attack_technique_id": t_code,
+                "attack_label": "Fake",
+                "attack_tactic": "Fake",
+            }
+        )
+    upsert_d3fend_attack_mappings(mappings)
+
+
+def test_d3fend_for_attack_default_limit_caps_at_30():
+    _seed_many_defenses_for_attack("T2222", 50)
+    r = client.get("/v1/d3fend/attack/T2222")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["total"] == 50
+    assert body["truncated"] is True
+    assert len(body["defenses"]) == 30
+    # coverage_by_tactic reflects FULL set (all 50 are Harden)
+    assert body["coverage_by_tactic"] == {"Harden": 50}
+
+
+def test_d3fend_for_attack_explicit_higher_limit():
+    _seed_many_defenses_for_attack("T3333", 50)
+    r = client.get("/v1/d3fend/attack/T3333", params={"limit": 100})
+    body = r.json()
+    assert body["total"] == 50
+    assert body["truncated"] is False
+    assert len(body["defenses"]) == 50
+
+
+def test_d3fend_for_attack_no_truncation_when_few_defenses():
+    _seed_d3fend()
+    r = client.get("/v1/d3fend/attack/T1059")
+    body = r.json()
+    assert body["truncated"] is False
+    assert body["total"] == 1
+    assert len(body["defenses"]) == 1

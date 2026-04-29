@@ -872,12 +872,21 @@ async def atlas_technique_search(
         ),
     ] = "",
     limit: Annotated[int, Field(description="Max results to return. Range: 1-200.", ge=1, le=200)] = 50,
+    include: Annotated[
+        str,
+        Field(
+            description="Detail level. Default ('') returns slim records (description truncated to 240 chars; drill via atlas_technique_lookup for full text). Pass 'full' for full description on every row — large catalogs (167 techniques) can return ~100KB at full.",
+            json_schema_extra={"enum": ["", "full"]},
+        ),
+    ] = "",
 ) -> str:
-    """Search the MITRE ATLAS catalog of AI/ML attack techniques by keyword, tactic, or maturity. Use this to discover techniques matching a threat-model question, e.g. 'what techniques target LLM serving infrastructure?'. Drill into atlas_technique_lookup with any returned technique_id for the full description, ATT&CK bridge, and pivot hints. For broader cross-referencing: when a result has attack_reference_id, that bridges to D3FEND mitigations via d3fend_defense_for_attack. Free: 100/hr, Pro: 1000/hr. Returns {query (echoed filters), total, results [{technique_id, name, description, tactics, maturity, attack_reference_id, subtechnique_of}], next_calls}."""
+    """Search the MITRE ATLAS catalog of AI/ML attack techniques by keyword, tactic, or maturity. Default response is SLIM (description truncated to 240 chars per row); pass include='full' for the verbose record. Use this to discover techniques matching a threat-model question, e.g. 'what techniques target LLM serving infrastructure?'. Drill into atlas_technique_lookup with any returned technique_id for the full description, ATT&CK bridge, and pivot hints. For broader cross-referencing: when a result has attack_reference_id, that bridges to D3FEND mitigations via d3fend_defense_for_attack. Free: 100/hr, Pro: 1000/hr. Returns {query (echoed filters), total, results [{technique_id, name, description (truncated by default), tactics, maturity, attack_reference_id, subtechnique_of}], next_calls}."""
     if tactic and (err := _validate_atlas_tactic(tactic)):
         return err
     if maturity and maturity not in ("demonstrated", "feasible", "realized"):
         return f"Invalid maturity: {maturity!r}. Use 'demonstrated', 'feasible', or 'realized'."
+    if include not in ("", "full"):
+        return f"Invalid include: {include!r}. Use '' (slim default) or 'full'."
     params: dict = {"limit": limit}
     if keyword:
         params["keyword"] = keyword
@@ -885,6 +894,8 @@ async def atlas_technique_search(
         params["tactic"] = tactic.upper()
     if maturity:
         params["maturity"] = maturity
+    if include == "full":
+        params["include"] = "full"
     return _fmt(await _get("/v1/atlas/techniques", params=params))
 
 
@@ -916,15 +927,26 @@ async def atlas_case_study_search(
         ),
     ] = "",
     limit: Annotated[int, Field(description="Max results to return. Range: 1-200.", ge=1, le=200)] = 50,
+    include: Annotated[
+        str,
+        Field(
+            description="Detail level. Default ('') returns slim records (description truncated to 240 chars). Pass 'full' for full description on every row.",
+            json_schema_extra={"enum": ["", "full"]},
+        ),
+    ] = "",
 ) -> str:
-    """Search ATLAS case studies (real-world AI/ML attack incidents) by keyword or referenced technique. Useful when the user has a technique in hand and wants to see incidents that exercised it, or when searching by attack-class keyword. Returns slim records — drill via atlas_case_study_lookup for the full procedure list. Free: 100/hr, Pro: 1000/hr. Returns {query, total, results [{case_study_id, name, description, techniques_used}], next_calls}."""
+    """Search ATLAS case studies (real-world AI/ML attack incidents) by keyword or referenced technique. Default response is SLIM (description truncated to 240 chars per row); pass include='full' for the verbose summary. Useful when the user has a technique in hand and wants to see incidents that exercised it. Drill via atlas_case_study_lookup for the full procedure list. Free: 100/hr, Pro: 1000/hr. Returns {query, total, results [{case_study_id, name, description (truncated by default), techniques_used}], next_calls}."""
     if technique_id and (err := _validate_atlas_technique(technique_id)):
         return err
+    if include not in ("", "full"):
+        return f"Invalid include: {include!r}. Use '' (slim default) or 'full'."
     params: dict = {"limit": limit}
     if keyword:
         params["keyword"] = keyword
     if technique_id:
         params["technique_id"] = technique_id.upper()
+    if include == "full":
+        params["include"] = "full"
     return _fmt(await _get("/v1/atlas/case-studies", params=params))
 
 
@@ -992,11 +1014,19 @@ async def d3fend_defense_for_attack(
             description="ATT&CK technique id matching 'T####' or 'T####.###' (e.g. 'T1059', 'T1550.001'). Use this to bridge from CVE/ATLAS findings to D3FEND mitigations."
         ),
     ],
+    limit: Annotated[
+        int,
+        Field(
+            description="Cap on `defenses` array length. Default 30; popular T-codes (T1059, T1078) map to 30-50+ defenses. `total` and `coverage_by_tactic` always reflect the honest pre-truncation count.",
+            ge=1,
+            le=200,
+        ),
+    ] = 30,
 ) -> str:
-    """Reverse lookup: given an ATT&CK T-code, return ALL D3FEND defenses that mitigate it. This is the bridge from offensive intelligence (ATT&CK / ATLAS / CVE) to defensive playbook. Pair with cve_lookup or atlas_technique_lookup output — when those carry an ATT&CK id, call this tool to surface the mitigations. Returns 200 with empty defenses list when the T-code has no D3FEND mapping (the gap is itself a signal). Free: 100/hr, Pro: 1000/hr. Returns {attack_technique_id, total, defenses [{defense_id, label, uri, parent_label, tactic, artifact, attack_label, attack_tactic}], coverage_by_tactic, next_calls}."""
+    """Reverse lookup: given an ATT&CK T-code, return D3FEND defenses that mitigate it. This is the bridge from offensive intelligence (ATT&CK / ATLAS / CVE) to defensive playbook. Pair with cve_lookup or atlas_technique_lookup output — when those carry an ATT&CK id, call this tool to surface the mitigations. `defenses` is capped at `limit` (default 30) for token efficiency; `total` is the honest pre-truncation count and `truncated=true` flags when the cap was hit. `coverage_by_tactic` always aggregates the FULL set, not the slice. Returns 200 with empty defenses list when the T-code has no D3FEND mapping (the gap is itself a signal). Free: 100/hr, Pro: 1000/hr. Returns {attack_technique_id, total, truncated, defenses [{defense_id, label, uri, parent_label, tactic, artifact, attack_label, attack_tactic}], coverage_by_tactic, next_calls}."""
     if err := _validate_attack_technique(attack_technique_id):
         return err
-    return _fmt(await _get(f"/v1/d3fend/attack/{attack_technique_id.strip().upper()}"))
+    return _fmt(await _get(f"/v1/d3fend/attack/{attack_technique_id.strip().upper()}", params={"limit": limit}))
 
 
 @mcp.tool(annotations=_RO)

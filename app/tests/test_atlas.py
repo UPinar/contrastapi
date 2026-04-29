@@ -191,3 +191,62 @@ def test_atlas_case_study_search_by_keyword():
 def test_atlas_case_study_search_invalid_technique_id_400():
     r = client.get("/v1/atlas/case-studies", params={"technique_id": "bad"})
     assert r.status_code == 400
+
+
+# --- Slim/full description toggle (v1.19.1 token efficiency) ---
+
+
+def _seed_long_description():
+    """Seed a technique with a long description to exercise the truncation path."""
+    from db import upsert_atlas_technique
+
+    long = "X" * 1000
+    upsert_atlas_technique(
+        "AML.T7777",
+        name="Long Desc Technique",
+        description=long,
+        tactics=["AML.TA0002"],
+        maturity="demonstrated",
+        attack_reference_id=None,
+        attack_reference_url=None,
+    )
+
+
+def test_atlas_technique_search_slim_truncates_description():
+    _seed_long_description()
+    r = client.get("/v1/atlas/techniques", params={"keyword": "long desc"})
+    assert r.status_code == 200
+    row = next(x for x in r.json()["results"] if x["technique_id"] == "AML.T7777")
+    assert row["description"].endswith("...")
+    assert len(row["description"]) <= 250  # 240 + "..."
+
+
+def test_atlas_technique_search_include_full_keeps_description():
+    _seed_long_description()
+    r = client.get("/v1/atlas/techniques", params={"keyword": "long desc", "include": "full"})
+    assert r.status_code == 200
+    row = next(x for x in r.json()["results"] if x["technique_id"] == "AML.T7777")
+    assert len(row["description"]) == 1000
+    assert not row["description"].endswith("...")
+
+
+def test_atlas_technique_search_invalid_include_400():
+    r = client.get("/v1/atlas/techniques", params={"include": "bogus"})
+    assert r.status_code == 400
+
+
+def test_atlas_case_study_search_slim_truncates_description():
+    from db import upsert_atlas_case_study
+
+    long = "Y" * 1000
+    upsert_atlas_case_study(
+        "AML.CS7777",
+        name="Long Desc Case",
+        description=long,
+        techniques_used=["AML.T0000"],
+    )
+    r = client.get("/v1/atlas/case-studies", params={"keyword": "long desc"})
+    assert r.status_code == 200
+    row = next(x for x in r.json()["results"] if x["case_study_id"] == "AML.CS7777")
+    assert row["description"].endswith("...")
+    assert len(row["description"]) <= 250
