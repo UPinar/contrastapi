@@ -1496,6 +1496,9 @@ def sync_exploitdb(full: bool = False) -> int:
 
 def sync_all(full: bool = False):
     """Run all sync tasks. MITRE, GHSA, OSV, and CWE run delta-only regardless of `full`."""
+    from atlas.sync import sync_atlas
+    from d3fend.sync import sync_d3fend
+
     init_all_dbs()
     sync_nvd(full=full)
     sync_mitre(full=False)
@@ -1505,6 +1508,8 @@ def sync_all(full: bool = False):
     sync_cwe()
     sync_epss()
     sync_exploitdb(full=False)
+    sync_atlas()
+    sync_d3fend()
 
 
 if __name__ == "__main__":
@@ -1546,7 +1551,15 @@ if __name__ == "__main__":
             sync_nvd(full=False)
         elif src == "exploitdb":
             sync_exploitdb(full="--full" in args)
+        elif src == "atlas":
+            from atlas.sync import sync_atlas
+
+            sync_atlas()
+        elif src == "d3fend":
+            from d3fend.sync import sync_d3fend
+
+            sync_d3fend()
         else:
-            print(f"Unknown source: {src}. Options: nvd, mitre, ghsa, osv, epss, kev, cwe, exploitdb")
+            print(f"Unknown source: {src}. Options: nvd, mitre, ghsa, osv, epss, kev, cwe, exploitdb, atlas, d3fend")
     else:
         sync_all()

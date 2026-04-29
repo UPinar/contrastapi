@@ -1192,6 +1192,61 @@ def api_capabilities():
                     },
                 ],
             },
+            "atlas": {
+                "description": "MITRE ATLAS — AI/ML adversarial attack catalog (techniques + case studies)",
+                "tools": [
+                    {
+                        "name": "atlas_technique_lookup",
+                        "method": "GET",
+                        "path": "/v1/atlas/{technique_id}",
+                        "credit_cost": 1,
+                        "blast_radius": "zero",
+                        "description": "Lookup ATLAS technique by id (AML.T#### or AML.T####.###)",
+                        "response_keys": [
+                            "technique_id",
+                            "name",
+                            "description",
+                            "tactics",
+                            "maturity",
+                            "attack_reference_id",
+                            "next_calls",
+                        ],
+                    },
+                    {
+                        "name": "atlas_technique_search",
+                        "method": "GET",
+                        "path": "/v1/atlas/techniques",
+                        "credit_cost": 1,
+                        "blast_radius": "zero",
+                        "description": "Search ATLAS technique catalog by keyword, tactic, or maturity",
+                        "response_keys": ["query", "total", "results", "next_calls"],
+                    },
+                    {
+                        "name": "atlas_case_study_lookup",
+                        "method": "GET",
+                        "path": "/v1/atlas/case-studies/{case_study_id}",
+                        "credit_cost": 1,
+                        "blast_radius": "zero",
+                        "description": "Lookup ATLAS case study (real-world AI/ML incident) by id",
+                        "response_keys": [
+                            "case_study_id",
+                            "name",
+                            "description",
+                            "techniques_used",
+                            "next_calls",
+                        ],
+                    },
+                    {
+                        "name": "atlas_case_study_search",
+                        "method": "GET",
+                        "path": "/v1/atlas/case-studies",
+                        "credit_cost": 1,
+                        "blast_radius": "zero",
+                        "description": "Search ATLAS case studies by keyword or referenced technique",
+                        "response_keys": ["query", "total", "results", "next_calls"],
+                    },
+                ],
+            },
             "meta": {
                 "description": "API status, usage statistics, capabilities",
                 "tools": [
@@ -1519,6 +1574,10 @@ app.include_router(codesec_router)
 from ioc.routes import router as ioc_router
 
 app.include_router(ioc_router)
+
+from atlas.routes import router as atlas_router
+
+app.include_router(atlas_router)
 
 from datetime import UTC
 

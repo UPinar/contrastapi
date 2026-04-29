@@ -54,6 +54,10 @@ _CLEANUP_SQL = [
     "DELETE FROM domain_cache",
     "DELETE FROM ip_cache",
     "DELETE FROM exploits",
+    "DELETE FROM atlas_techniques",
+    "DELETE FROM atlas_case_studies",
+    "DELETE FROM d3fend_defenses",
+    "DELETE FROM d3fend_attack_mappings",
 ]
 
 

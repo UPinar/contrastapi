@@ -1289,6 +1289,14 @@ class PivotHint(BaseModel):
         "threat_report",
         "audit_domain",
         "domain_report",
+        "atlas_technique_lookup",
+        "atlas_technique_search",
+        "atlas_case_study_lookup",
+        "atlas_case_study_search",
+        "d3fend_defense_lookup",
+        "d3fend_defense_search",
+        "d3fend_defense_for_attack",
+        "d3fend_attack_coverage",
     ] = Field(
         description=(
             "Canonical MCP tool name to call next. Constrained to known operation_ids in "
@@ -2588,3 +2596,126 @@ class BulkIocResponse(BaseModel):
     timed_out: int = Field(default=0, description="Count of items that hit the per-IOC or overall timeout.")
     partial: bool = Field(default=False, description="True when at least one item failed or timed out.")
     summary: str = Field(default="", description="One-line aggregate summary (e.g. '12/15 indicators enriched').")
+
+
+# === MITRE ATLAS (AI/ML attack catalog) ===
+
+
+class AtlasTechniqueResponse(BaseModel):
+    """MITRE ATLAS technique record (AI/ML attack catalog).
+
+    ATLAS catalogues adversarial techniques targeting AI/ML systems (LLM prompt
+    injection, model poisoning, evasion). About 80% of techniques have no ATT&CK
+    bridge — ATLAS is the canonical reference for AI/ML-specific TTPs.
+    """
+
+    model_config = {"extra": "allow"}
+
+    technique_id: str = Field(description="Canonical ATLAS technique id, e.g. 'AML.T0000', 'AML.T0000.000'.")
+    name: str = Field(description="Human-readable technique name, e.g. 'Search Open Technical Databases'.")
+    description: str | None = Field(
+        default=None,
+        description="Full technique description as published by MITRE ATLAS. May be multi-paragraph.",
+    )
+    tactics: list[str] = Field(
+        default_factory=list,
+        description="ATLAS tactic ids that this technique belongs to, e.g. ['AML.TA0002'] (Reconnaissance).",
+    )
+    maturity: str | None = Field(
+        default=None,
+        description="MITRE ATLAS maturity classification: 'demonstrated' (observed in real attacks) or 'feasible' (theoretical).",
+    )
+    attack_reference_id: str | None = Field(
+        default=None,
+        description=(
+            "Bridged ATT&CK technique id when ATLAS cites a parallel enterprise TTP, e.g. 'T1596'. "
+            "About 20% of ATLAS techniques carry an ATT&CK reference; use this to pivot to D3FEND defenses."
+        ),
+    )
+    attack_reference_url: str | None = Field(
+        default=None,
+        description="Canonical ATT&CK URL for the bridged technique, e.g. 'https://attack.mitre.org/techniques/T1596/'.",
+    )
+    subtechnique_of: str | None = Field(
+        default=None,
+        description="Parent technique id when this is a sub-technique, e.g. 'AML.T0000' for 'AML.T0000.000'.",
+    )
+    created_date: str | None = Field(
+        default=None,
+        description="ISO-8601 date the technique was first published in ATLAS.",
+    )
+    modified_date: str | None = Field(
+        default=None,
+        description="ISO-8601 date of the most recent ATLAS update for this technique.",
+    )
+    next_calls: list[PivotHint] | None = Field(
+        default=None,
+        description=(
+            "Suggested follow-up MCP tool calls. Typical chain: atlas_case_study_search to find "
+            "real-world incidents using this technique, d3fend_defense_for_attack when "
+            "attack_reference_id is set to surface mitigations."
+        ),
+    )
+
+
+class AtlasTechniqueListItem(BaseModel):
+    """Slim ATLAS technique row for search results."""
+
+    model_config = {"extra": "allow"}
+
+    technique_id: str = Field(description="Canonical ATLAS technique id.")
+    name: str = Field(description="Human-readable technique name.")
+    description: str | None = Field(
+        default=None, description="Full description; consider drilling into atlas_technique_lookup for context."
+    )
+    tactics: list[str] = Field(default_factory=list, description="ATLAS tactic ids covering this technique.")
+    maturity: str | None = Field(default=None, description="'demonstrated' or 'feasible'.")
+    attack_reference_id: str | None = Field(default=None, description="Bridged ATT&CK id or null.")
+    subtechnique_of: str | None = Field(default=None, description="Parent technique id when applicable.")
+
+
+class AtlasTechniqueSearchResponse(BaseModel):
+    """List response for atlas_technique_search."""
+
+    model_config = {"extra": "allow"}
+
+    query: dict = Field(default_factory=dict, description="Echo of the input filters (keyword/tactic/maturity).")
+    total: int = Field(default=0, description="Number of techniques returned (capped at 200).")
+    results: list[AtlasTechniqueListItem] = Field(default_factory=list, description="Matching ATLAS techniques.")
+    next_calls: list[PivotHint] | None = Field(
+        default=None,
+        description="Suggested next call: atlas_technique_lookup on the top hit for full description + bridges.",
+    )
+
+
+class AtlasCaseStudyResponse(BaseModel):
+    """MITRE ATLAS case study record — real-world AI/ML incidents."""
+
+    model_config = {"extra": "allow"}
+
+    case_study_id: str = Field(description="Canonical ATLAS case study id, e.g. 'AML.CS0000'.")
+    name: str = Field(description="Short title of the incident, e.g. 'Evasion of Deep Learning Detector'.")
+    description: str | None = Field(
+        default=None, description="Narrative summary of the incident as published by MITRE ATLAS."
+    )
+    techniques_used: list[str] = Field(
+        default_factory=list,
+        description="ATLAS technique ids used in this incident's procedure, in observed order.",
+    )
+    next_calls: list[PivotHint] | None = Field(
+        default=None,
+        description="Suggested next calls: atlas_technique_lookup for each technique in techniques_used (cap 5).",
+    )
+
+
+class AtlasCaseStudySearchResponse(BaseModel):
+    """List response for atlas_case_study_search."""
+
+    model_config = {"extra": "allow"}
+
+    query: dict = Field(default_factory=dict, description="Echo of input filters (keyword/technique_id).")
+    total: int = Field(default=0, description="Number of case studies returned (capped at 200).")
+    results: list[AtlasCaseStudyResponse] = Field(default_factory=list, description="Matching case studies.")
+    next_calls: list[PivotHint] | None = Field(
+        default=None, description="Suggested next call: atlas_case_study_lookup on the top hit."
+    )

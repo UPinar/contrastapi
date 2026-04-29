@@ -290,6 +290,57 @@ def init_cve_db():
             )
         """)
         con.execute("CREATE INDEX IF NOT EXISTS idx_cwes_parent ON cwes(parent_cwe)")
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS atlas_techniques (
+                technique_id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT,
+                tactics TEXT,
+                maturity TEXT,
+                attack_reference_id TEXT,
+                attack_reference_url TEXT,
+                subtechnique_of TEXT,
+                created_date TEXT,
+                modified_date TEXT,
+                updated_at TEXT
+            )
+        """)
+        con.execute("CREATE INDEX IF NOT EXISTS idx_atlas_attack_ref ON atlas_techniques(attack_reference_id)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_atlas_subtech ON atlas_techniques(subtechnique_of)")
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS atlas_case_studies (
+                case_study_id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT,
+                techniques_used TEXT,
+                updated_at TEXT
+            )
+        """)
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS d3fend_defenses (
+                defense_id TEXT PRIMARY KEY,
+                label TEXT NOT NULL,
+                uri TEXT NOT NULL,
+                parent_label TEXT,
+                description TEXT,
+                tactic TEXT NOT NULL,
+                artifact TEXT,
+                updated_at TEXT
+            )
+        """)
+        con.execute("CREATE INDEX IF NOT EXISTS idx_d3fend_tactic ON d3fend_defenses(tactic)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_d3fend_parent ON d3fend_defenses(parent_label)")
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS d3fend_attack_mappings (
+                defense_id TEXT NOT NULL,
+                attack_technique_id TEXT NOT NULL,
+                attack_label TEXT,
+                attack_tactic TEXT,
+                PRIMARY KEY (defense_id, attack_technique_id)
+            )
+        """)
+        con.execute("CREATE INDEX IF NOT EXISTS idx_d3fend_attack_id ON d3fend_attack_mappings(attack_technique_id)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_d3fend_def_id ON d3fend_attack_mappings(defense_id)")
         # One-shot backfill: mark all existing CVEs as source='nvd' (guarded by empty check)
         already = con.execute("SELECT 1 FROM cve_sources LIMIT 1").fetchone()
         if not already:
@@ -1318,17 +1369,6 @@ def get_cwe(cwe_id: str) -> dict | None:
     if row is None:
         return None
 
-    def _decode_list(raw: str | None) -> list[str]:
-        if not raw:
-            return []
-        try:
-            decoded = json.loads(raw)
-            if isinstance(decoded, list):
-                return [str(x) for x in decoded if x]
-        except (json.JSONDecodeError, TypeError):
-            pass
-        return []
-
     return {
         "cwe_id": row["cwe_id"],
         "name": row["name"],
@@ -1337,10 +1377,10 @@ def get_cwe(cwe_id: str) -> dict | None:
         "abstract_type": row["abstract_type"],
         "status": row["status"],
         "likelihood": row["likelihood"],
-        "mitigations": _decode_list(row["mitigations"]),
-        "examples": _decode_list(row["examples"]),
+        "mitigations": _decode_json_list(row["mitigations"]),
+        "examples": _decode_json_list(row["examples"]),
         "parent_cwe": row["parent_cwe"],
-        "child_cwes": _decode_list(row["child_cwes"]),
+        "child_cwes": _decode_json_list(row["child_cwes"]),
         "updated_at": row["updated_at"],
     }
 
@@ -1654,3 +1694,430 @@ def search_exploits_by_cve(cve_id: str, limit: int = 100) -> tuple[list[dict], b
         ).fetchall()
         truncated = len(rows) > limit
         return [dict(r) for r in rows[:limit]], truncated
+
+
+# --- ATLAS helpers ---
+
+
+def upsert_atlas_technique(
+    technique_id: str,
+    *,
+    name: str,
+    description: str | None = None,
+    tactics: list[str] | None = None,
+    maturity: str | None = None,
+    attack_reference_id: str | None = None,
+    attack_reference_url: str | None = None,
+    subtechnique_of: str | None = None,
+    created_date: str | None = None,
+    modified_date: str | None = None,
+) -> None:
+    """Idempotent UPSERT into atlas_techniques."""
+    tactics_json = json.dumps(tactics) if tactics else None
+    now = datetime.now(UTC).isoformat()
+    with get_cve_db() as con:
+        con.execute(
+            """
+            INSERT INTO atlas_techniques (
+                technique_id, name, description, tactics, maturity,
+                attack_reference_id, attack_reference_url, subtechnique_of,
+                created_date, modified_date, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(technique_id) DO UPDATE SET
+                name = excluded.name,
+                description = excluded.description,
+                tactics = excluded.tactics,
+                maturity = excluded.maturity,
+                attack_reference_id = excluded.attack_reference_id,
+                attack_reference_url = excluded.attack_reference_url,
+                subtechnique_of = excluded.subtechnique_of,
+                created_date = excluded.created_date,
+                modified_date = excluded.modified_date,
+                updated_at = excluded.updated_at
+            """,
+            (
+                technique_id,
+                name,
+                description,
+                tactics_json,
+                maturity,
+                attack_reference_id,
+                attack_reference_url,
+                subtechnique_of,
+                created_date,
+                modified_date,
+                now,
+            ),
+        )
+
+
+def upsert_atlas_case_study(
+    case_study_id: str,
+    *,
+    name: str,
+    description: str | None = None,
+    techniques_used: list[str] | None = None,
+) -> None:
+    """Idempotent UPSERT into atlas_case_studies."""
+    techniques_json = json.dumps(techniques_used) if techniques_used else None
+    now = datetime.now(UTC).isoformat()
+    with get_cve_db() as con:
+        con.execute(
+            """
+            INSERT INTO atlas_case_studies (case_study_id, name, description, techniques_used, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(case_study_id) DO UPDATE SET
+                name = excluded.name,
+                description = excluded.description,
+                techniques_used = excluded.techniques_used,
+                updated_at = excluded.updated_at
+            """,
+            (case_study_id, name, description, techniques_json, now),
+        )
+
+
+def _decode_json_list(raw: str | None) -> list[str]:
+    if not raw:
+        return []
+    try:
+        decoded = json.loads(raw)
+        if isinstance(decoded, list):
+            return [str(x) for x in decoded if x]
+    except (json.JSONDecodeError, TypeError):
+        pass
+    return []
+
+
+def _escape_like(s: str) -> str:
+    """Escape LIKE metacharacters (%, _, \\). Pair with `ESCAPE '\\'` clause."""
+    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def get_atlas_technique(technique_id: str) -> dict | None:
+    """Fetch ATLAS technique by id (e.g., 'AML.T0000'). Returns None when not found."""
+    with get_cve_db() as con:
+        cur = con.cursor()
+        cur.row_factory = sqlite3.Row
+        row = cur.execute(
+            "SELECT * FROM atlas_techniques WHERE technique_id = ?",
+            (technique_id,),
+        ).fetchone()
+    if row is None:
+        return None
+    return {
+        "technique_id": row["technique_id"],
+        "name": row["name"],
+        "description": row["description"],
+        "tactics": _decode_json_list(row["tactics"]),
+        "maturity": row["maturity"],
+        "attack_reference_id": row["attack_reference_id"],
+        "attack_reference_url": row["attack_reference_url"],
+        "subtechnique_of": row["subtechnique_of"],
+        "created_date": row["created_date"],
+        "modified_date": row["modified_date"],
+        "updated_at": row["updated_at"],
+    }
+
+
+def search_atlas_techniques(
+    keyword: str | None = None,
+    tactic: str | None = None,
+    maturity: str | None = None,
+    limit: int = 50,
+) -> list[dict]:
+    """Search ATLAS techniques. tactics column is JSON; LIKE-match for tactic filter."""
+    clauses = []
+    params: list = []
+    if keyword:
+        clauses.append("(LOWER(name) LIKE ? ESCAPE '\\' OR LOWER(description) LIKE ? ESCAPE '\\')")
+        kw = f"%{_escape_like(keyword.lower())}%"
+        params.extend([kw, kw])
+    if tactic:
+        clauses.append("tactics LIKE ? ESCAPE '\\'")
+        params.append(f'%"{_escape_like(tactic)}"%')
+    if maturity:
+        clauses.append("maturity = ?")
+        params.append(maturity)
+    where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+    params.append(min(max(limit, 1), 200))
+    with get_cve_db() as con:
+        cur = con.cursor()
+        cur.row_factory = sqlite3.Row
+        rows = cur.execute(
+            f"SELECT * FROM atlas_techniques{where} ORDER BY technique_id LIMIT ?",
+            params,
+        ).fetchall()
+    out = []
+    for row in rows:
+        out.append(
+            {
+                "technique_id": row["technique_id"],
+                "name": row["name"],
+                "description": row["description"],
+                "tactics": _decode_json_list(row["tactics"]),
+                "maturity": row["maturity"],
+                "attack_reference_id": row["attack_reference_id"],
+                "subtechnique_of": row["subtechnique_of"],
+            }
+        )
+    return out
+
+
+def get_atlas_case_study(case_study_id: str) -> dict | None:
+    """Fetch ATLAS case study by id. Returns None when not found."""
+    with get_cve_db() as con:
+        cur = con.cursor()
+        cur.row_factory = sqlite3.Row
+        row = cur.execute(
+            "SELECT * FROM atlas_case_studies WHERE case_study_id = ?",
+            (case_study_id,),
+        ).fetchone()
+    if row is None:
+        return None
+    return {
+        "case_study_id": row["case_study_id"],
+        "name": row["name"],
+        "description": row["description"],
+        "techniques_used": _decode_json_list(row["techniques_used"]),
+        "updated_at": row["updated_at"],
+    }
+
+
+def search_atlas_case_studies(
+    keyword: str | None = None,
+    technique_id: str | None = None,
+    limit: int = 50,
+) -> list[dict]:
+    """Search ATLAS case studies by keyword or by referenced technique."""
+    clauses = []
+    params: list = []
+    if keyword:
+        clauses.append("(LOWER(name) LIKE ? ESCAPE '\\' OR LOWER(description) LIKE ? ESCAPE '\\')")
+        kw = f"%{_escape_like(keyword.lower())}%"
+        params.extend([kw, kw])
+    if technique_id:
+        clauses.append("techniques_used LIKE ? ESCAPE '\\'")
+        params.append(f'%"{_escape_like(technique_id)}"%')
+    where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+    params.append(min(max(limit, 1), 200))
+    with get_cve_db() as con:
+        cur = con.cursor()
+        cur.row_factory = sqlite3.Row
+        rows = cur.execute(
+            f"SELECT * FROM atlas_case_studies{where} ORDER BY case_study_id LIMIT ?",
+            params,
+        ).fetchall()
+    return [
+        {
+            "case_study_id": r["case_study_id"],
+            "name": r["name"],
+            "description": r["description"],
+            "techniques_used": _decode_json_list(r["techniques_used"]),
+        }
+        for r in rows
+    ]
+
+
+# --- D3FEND helpers ---
+
+
+def upsert_d3fend_defense(
+    defense_id: str,
+    *,
+    label: str,
+    uri: str,
+    parent_label: str | None = None,
+    description: str | None = None,
+    tactic: str,
+    artifact: str | None = None,
+) -> None:
+    """Idempotent UPSERT into d3fend_defenses."""
+    now = datetime.now(UTC).isoformat()
+    with get_cve_db() as con:
+        con.execute(
+            """
+            INSERT INTO d3fend_defenses (
+                defense_id, label, uri, parent_label, description, tactic, artifact, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(defense_id) DO UPDATE SET
+                label = excluded.label,
+                uri = excluded.uri,
+                parent_label = excluded.parent_label,
+                description = excluded.description,
+                tactic = excluded.tactic,
+                artifact = excluded.artifact,
+                updated_at = excluded.updated_at
+            """,
+            (defense_id, label, uri, parent_label, description, tactic, artifact, now),
+        )
+
+
+def upsert_d3fend_attack_mappings(batch: list[dict]) -> int:
+    """Batch-upsert (defense_id, attack_technique_id) join rows.
+
+    Each dict must have: defense_id, attack_technique_id. Optional: attack_label, attack_tactic.
+    Returns number of rows written.
+    """
+    if not batch:
+        return 0
+    with get_cve_db() as con:
+        con.executemany(
+            """
+            INSERT INTO d3fend_attack_mappings (defense_id, attack_technique_id, attack_label, attack_tactic)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(defense_id, attack_technique_id) DO UPDATE SET
+                attack_label = excluded.attack_label,
+                attack_tactic = excluded.attack_tactic
+            """,
+            [
+                (
+                    r["defense_id"],
+                    r["attack_technique_id"],
+                    r.get("attack_label"),
+                    r.get("attack_tactic"),
+                )
+                for r in batch
+            ],
+        )
+    return len(batch)
+
+
+def get_d3fend_defense(defense_id: str) -> dict | None:
+    """Fetch D3FEND defense by slug id (e.g., 'TokenBinding'). Returns None when not found.
+
+    Includes attack_techniques list (joined from d3fend_attack_mappings).
+    """
+    with get_cve_db() as con:
+        cur = con.cursor()
+        cur.row_factory = sqlite3.Row
+        row = cur.execute(
+            "SELECT * FROM d3fend_defenses WHERE defense_id = ?",
+            (defense_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        attacks = cur.execute(
+            "SELECT attack_technique_id FROM d3fend_attack_mappings WHERE defense_id = ? ORDER BY attack_technique_id",
+            (defense_id,),
+        ).fetchall()
+    return {
+        "defense_id": row["defense_id"],
+        "label": row["label"],
+        "uri": row["uri"],
+        "parent_label": row["parent_label"],
+        "description": row["description"],
+        "tactic": row["tactic"],
+        "artifact": row["artifact"],
+        "attack_techniques": [a["attack_technique_id"] for a in attacks],
+        "updated_at": row["updated_at"],
+    }
+
+
+def search_d3fend_defenses(
+    keyword: str | None = None,
+    tactic: str | None = None,
+    artifact: str | None = None,
+    limit: int = 50,
+) -> list[dict]:
+    """Search D3FEND defenses by keyword (label/description), tactic, or artifact."""
+    clauses = []
+    params: list = []
+    if keyword:
+        clauses.append(
+            "(LOWER(label) LIKE ? ESCAPE '\\' OR LOWER(description) LIKE ? ESCAPE '\\' "
+            "OR LOWER(parent_label) LIKE ? ESCAPE '\\')"
+        )
+        kw = f"%{_escape_like(keyword.lower())}%"
+        params.extend([kw, kw, kw])
+    if tactic:
+        clauses.append("tactic = ?")
+        params.append(tactic)
+    if artifact:
+        clauses.append("LOWER(artifact) = ?")
+        params.append(artifact.lower())
+    where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+    params.append(min(max(limit, 1), 200))
+    with get_cve_db() as con:
+        cur = con.cursor()
+        cur.row_factory = sqlite3.Row
+        rows = cur.execute(
+            f"SELECT * FROM d3fend_defenses{where} ORDER BY label LIMIT ?",
+            params,
+        ).fetchall()
+    return [
+        {
+            "defense_id": r["defense_id"],
+            "label": r["label"],
+            "uri": r["uri"],
+            "parent_label": r["parent_label"],
+            "tactic": r["tactic"],
+            "artifact": r["artifact"],
+        }
+        for r in rows
+    ]
+
+
+def get_d3fend_defenses_for_attack(attack_technique_id: str) -> list[dict]:
+    """Reverse lookup: given an ATT&CK T-code, return all D3FEND defenses that mitigate it."""
+    with get_cve_db() as con:
+        cur = con.cursor()
+        cur.row_factory = sqlite3.Row
+        rows = cur.execute(
+            """
+            SELECT d.defense_id, d.label, d.uri, d.parent_label, d.tactic, d.artifact, m.attack_label, m.attack_tactic
+            FROM d3fend_attack_mappings m
+            JOIN d3fend_defenses d ON d.defense_id = m.defense_id
+            WHERE m.attack_technique_id = ?
+            ORDER BY d.label
+            """,
+            (attack_technique_id,),
+        ).fetchall()
+    return [
+        {
+            "defense_id": r["defense_id"],
+            "label": r["label"],
+            "uri": r["uri"],
+            "parent_label": r["parent_label"],
+            "tactic": r["tactic"],
+            "artifact": r["artifact"],
+            "attack_label": r["attack_label"],
+            "attack_tactic": r["attack_tactic"],
+        }
+        for r in rows
+    ]
+
+
+D3FEND_COVERAGE_MAX_IDS = 500
+
+
+def get_d3fend_coverage(attack_technique_ids: list[str]) -> dict:
+    """Batch coverage breakdown: for given ATT&CK T-codes, count defenses per tactic + list undefended."""
+    if not attack_technique_ids:
+        return {"coverage_by_tactic": {}, "defended_techniques": [], "undefended_techniques": []}
+    if len(attack_technique_ids) > D3FEND_COVERAGE_MAX_IDS:
+        attack_technique_ids = attack_technique_ids[:D3FEND_COVERAGE_MAX_IDS]
+    placeholders = ",".join("?" * len(attack_technique_ids))
+    with get_cve_db() as con:
+        cur = con.cursor()
+        cur.row_factory = sqlite3.Row
+        tactic_rows = cur.execute(
+            f"""
+            SELECT d.tactic AS tactic, COUNT(DISTINCT d.defense_id) AS cnt
+            FROM d3fend_attack_mappings m
+            JOIN d3fend_defenses d ON d.defense_id = m.defense_id
+            WHERE m.attack_technique_id IN ({placeholders})
+            GROUP BY d.tactic
+            """,
+            attack_technique_ids,
+        ).fetchall()
+        defended_rows = cur.execute(
+            f"SELECT DISTINCT attack_technique_id FROM d3fend_attack_mappings WHERE attack_technique_id IN ({placeholders})",
+            attack_technique_ids,
+        ).fetchall()
+    defended = {r["attack_technique_id"] for r in defended_rows}
+    undefended = [t for t in attack_technique_ids if t not in defended]
+    return {
+        "coverage_by_tactic": {r["tactic"]: int(r["cnt"]) for r in tactic_rows},
+        "defended_techniques": sorted(defended),
+        "undefended_techniques": undefended,
+    }

@@ -299,6 +299,29 @@ def _validate_cwe(cwe_id: str) -> str | None:
     return None
 
 
+_ATLAS_TECHNIQUE_RE = re.compile(r"^AML\.T\d{4}(?:\.\d{3})?$", re.IGNORECASE)
+_ATLAS_CASE_STUDY_RE = re.compile(r"^AML\.CS\d{4}$", re.IGNORECASE)
+_ATLAS_TACTIC_RE = re.compile(r"^AML\.TA\d{4}$", re.IGNORECASE)
+
+
+def _validate_atlas_technique(value: str) -> str | None:
+    if not _ATLAS_TECHNIQUE_RE.match((value or "").strip()):
+        return f"Invalid ATLAS technique id: {value!r}. Expected 'AML.T####' or 'AML.T####.###' (e.g. AML.T0000, AML.T0000.000)"
+    return None
+
+
+def _validate_atlas_case_study(value: str) -> str | None:
+    if not _ATLAS_CASE_STUDY_RE.match((value or "").strip()):
+        return f"Invalid ATLAS case study id: {value!r}. Expected 'AML.CS####' (e.g. AML.CS0000)"
+    return None
+
+
+def _validate_atlas_tactic(value: str) -> str | None:
+    if not _ATLAS_TACTIC_RE.match((value or "").strip()):
+        return f"Invalid ATLAS tactic id: {value!r}. Expected 'AML.TA####' (e.g. AML.TA0002)"
+    return None
+
+
 # === Domain Intelligence ===
 
 
@@ -790,6 +813,102 @@ async def cwe_lookup(
         return f"Invalid include: {include!r}. Use '' (slim default) or 'full'."
     params = {"include": "full"} if include == "full" else None
     return _fmt(await _get(f"/v1/cwe/{cwe_id}", params=params))
+
+
+# === MITRE ATLAS (AI/ML attack catalog) ===
+
+
+@mcp.tool(annotations=_RO)
+async def atlas_technique_lookup(
+    technique_id: Annotated[
+        str,
+        Field(
+            description="MITRE ATLAS technique id, format 'AML.T####' or 'AML.T####.###' for sub-techniques (e.g. 'AML.T0000', 'AML.T0051' LLM Prompt Injection, 'AML.T0000.000')."
+        ),
+    ],
+) -> str:
+    """Look up a MITRE ATLAS technique — the AI/ML adversarial attack catalog. ATLAS catalogues TTPs targeting machine learning systems: prompt injection, model evasion, training data poisoning, model theft, etc. Roughly 80% of ATLAS techniques are AI/ML-specific (no ATT&CK bridge); 20% mirror an enterprise ATT&CK technique via attack_reference_id — use that to pivot to D3FEND defenses (d3fend_defense_for_attack) and CVE search. Use this tool when the user asks about AI/ML threats, LLM red-teaming, or adversarial ML. Returns 404 when the id is not in the synced ATLAS catalog. Free: 100/hr, Pro: 1000/hr. Returns {technique_id, name, description, tactics, maturity (demonstrated|feasible), attack_reference_id, attack_reference_url, subtechnique_of, created_date, modified_date, next_calls}."""
+    if err := _validate_atlas_technique(technique_id):
+        return err
+    return _fmt(await _get(f"/v1/atlas/{technique_id.strip().upper()}"))
+
+
+@mcp.tool(annotations=_RO)
+async def atlas_technique_search(
+    keyword: Annotated[
+        str,
+        Field(
+            description="Substring match against technique name + description (case-insensitive). Min 2 chars. Example: 'prompt injection', 'model evasion', 'poisoning'. Omit to list all."
+        ),
+    ] = "",
+    tactic: Annotated[
+        str,
+        Field(
+            description="Filter by ATLAS tactic id, format 'AML.TA####'. Examples: 'AML.TA0002' (Reconnaissance), 'AML.TA0007' (ML Attack Staging). Omit for all tactics."
+        ),
+    ] = "",
+    maturity: Annotated[
+        str,
+        Field(
+            description="Filter by maturity: 'demonstrated' (observed in real attacks) or 'feasible' (theoretical). Omit for both.",
+            json_schema_extra={"enum": ["", "demonstrated", "feasible"]},
+        ),
+    ] = "",
+    limit: Annotated[int, Field(description="Max results to return. Range: 1-200.", ge=1, le=200)] = 50,
+) -> str:
+    """Search the MITRE ATLAS catalog of AI/ML attack techniques by keyword, tactic, or maturity. Use this to discover techniques matching a threat-model question, e.g. 'what techniques target LLM serving infrastructure?'. Drill into atlas_technique_lookup with any returned technique_id for the full description, ATT&CK bridge, and pivot hints. For broader cross-referencing: when a result has attack_reference_id, that bridges to D3FEND mitigations via d3fend_defense_for_attack. Free: 100/hr, Pro: 1000/hr. Returns {query (echoed filters), total, results [{technique_id, name, description, tactics, maturity, attack_reference_id, subtechnique_of}], next_calls}."""
+    if tactic and (err := _validate_atlas_tactic(tactic)):
+        return err
+    if maturity and maturity not in ("demonstrated", "feasible"):
+        return f"Invalid maturity: {maturity!r}. Use 'demonstrated' or 'feasible'."
+    params: dict = {"limit": limit}
+    if keyword:
+        params["keyword"] = keyword
+    if tactic:
+        params["tactic"] = tactic.upper()
+    if maturity:
+        params["maturity"] = maturity
+    return _fmt(await _get("/v1/atlas/techniques", params=params))
+
+
+@mcp.tool(annotations=_RO)
+async def atlas_case_study_lookup(
+    case_study_id: Annotated[
+        str,
+        Field(description="MITRE ATLAS case study id, format 'AML.CS####' (e.g. 'AML.CS0000', 'AML.CS0014')."),
+    ],
+) -> str:
+    """Look up a MITRE ATLAS case study — a documented real-world AI/ML attack incident. Each case study links a sequence of ATLAS techniques (techniques_used) to the incident. Use this after atlas_technique_search to find which incidents have exercised a given technique. Drill into each id in techniques_used via atlas_technique_lookup for technique-level detail. Returns 404 when the id is not in the synced catalog. Free: 100/hr, Pro: 1000/hr. Returns {case_study_id, name, description, techniques_used, next_calls}."""
+    if err := _validate_atlas_case_study(case_study_id):
+        return err
+    return _fmt(await _get(f"/v1/atlas/case-studies/{case_study_id.strip().upper()}"))
+
+
+@mcp.tool(annotations=_RO)
+async def atlas_case_study_search(
+    keyword: Annotated[
+        str,
+        Field(
+            description="Substring match against case study name + description (case-insensitive). Min 2 chars. Example: 'evasion', 'data poisoning'. Omit to list all."
+        ),
+    ] = "",
+    technique_id: Annotated[
+        str,
+        Field(
+            description="Filter to case studies that include this ATLAS technique id, format 'AML.T####' or 'AML.T####.###' (e.g. 'AML.T0051'). Omit for any technique."
+        ),
+    ] = "",
+    limit: Annotated[int, Field(description="Max results to return. Range: 1-200.", ge=1, le=200)] = 50,
+) -> str:
+    """Search ATLAS case studies (real-world AI/ML attack incidents) by keyword or referenced technique. Useful when the user has a technique in hand and wants to see incidents that exercised it, or when searching by attack-class keyword. Returns slim records — drill via atlas_case_study_lookup for the full procedure list. Free: 100/hr, Pro: 1000/hr. Returns {query, total, results [{case_study_id, name, description, techniques_used}], next_calls}."""
+    if technique_id and (err := _validate_atlas_technique(technique_id)):
+        return err
+    params: dict = {"limit": limit}
+    if keyword:
+        params["keyword"] = keyword
+    if technique_id:
+        params["technique_id"] = technique_id.upper()
+    return _fmt(await _get("/v1/atlas/case-studies", params=params))
 
 
 # === Threat Intelligence / IOC ===
