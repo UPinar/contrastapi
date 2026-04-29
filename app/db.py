@@ -15,7 +15,16 @@ import threading
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 
-from config import API_DB_PATH, CACHE_DB_PATH, CACHE_MAX_BYTES, CVE_DB_PATH, DOMAIN_CACHE_TTL, HASH_SECRET, IP_CACHE_TTL
+from config import (
+    API_DB_PATH,
+    CACHE_DB_PATH,
+    CACHE_MAX_BYTES,
+    CVE_DB_PATH,
+    DOMAIN_CACHE_TTL,
+    HASH_SECRET,
+    IP_CACHE_TTL,
+    VERSION,
+)
 
 logger = logging.getLogger("contrastapi")
 
@@ -618,10 +627,20 @@ def maintenance() -> dict:
     return stats
 
 
+def _versioned(key: str) -> str:
+    """Prefix cache keys with the running VERSION so a release auto-invalidates stale
+    response shapes. Old entries without the version prefix become orphans and expire
+    naturally via TTL — maintenance() will purge them. Eliminates the post-deploy
+    "stale cache returns old fields/tags" debugging trap.
+    """
+    return f"{VERSION}:{key}"
+
+
 def get_cached_domain(domain: str) -> dict | None:
     """Get cached domain result if not expired."""
+    key = _versioned(domain)
     with get_cache_db() as con:
-        row = con.execute("SELECT result_json, fetched_at FROM domain_cache WHERE domain = ?", (domain,)).fetchone()
+        row = con.execute("SELECT result_json, fetched_at FROM domain_cache WHERE domain = ?", (key,)).fetchone()
         if row is None:
             return None
         fetched = datetime.fromisoformat(row[1])
@@ -633,8 +652,11 @@ def get_cached_domain(domain: str) -> dict | None:
 
 def get_cached_domain_with_age(key: str) -> tuple[dict, int] | None:
     """Get cached domain result + age in seconds. Returns None if missing/expired."""
+    versioned_key = _versioned(key)
     with get_cache_db() as con:
-        row = con.execute("SELECT result_json, fetched_at FROM domain_cache WHERE domain = ?", (key,)).fetchone()
+        row = con.execute(
+            "SELECT result_json, fetched_at FROM domain_cache WHERE domain = ?", (versioned_key,)
+        ).fetchone()
         if row is None or row[1] is None:
             return None
         try:
@@ -651,6 +673,7 @@ def get_cached_domain_with_age(key: str) -> tuple[dict, int] | None:
 
 
 def save_cached_domain(domain: str, result: dict) -> None:
+    key = _versioned(domain)
     now = datetime.now(UTC).isoformat()
     result_str = json.dumps(result)
     if len(result_str) > CACHE_MAX_BYTES:
@@ -659,7 +682,7 @@ def save_cached_domain(domain: str, result: dict) -> None:
     with get_cache_db() as con:
         con.execute(
             "INSERT OR REPLACE INTO domain_cache (domain, result_json, fetched_at) VALUES (?, ?, ?)",
-            (domain, result_str, now),
+            (key, result_str, now),
         )
 
 
@@ -668,8 +691,9 @@ def save_cached_domain(domain: str, result: dict) -> None:
 
 def get_cached_ip(ip: str) -> dict | None:
     """Get cached IP reputation result if not expired."""
+    key = _versioned(ip)
     with get_cache_db() as con:
-        row = con.execute("SELECT result_json, fetched_at FROM ip_cache WHERE ip = ?", (ip,)).fetchone()
+        row = con.execute("SELECT result_json, fetched_at FROM ip_cache WHERE ip = ?", (key,)).fetchone()
         if row is None:
             return None
         fetched = datetime.fromisoformat(row[1])
@@ -681,8 +705,9 @@ def get_cached_ip(ip: str) -> dict | None:
 
 def get_cached_ip_with_age(ip: str) -> tuple[dict, int] | None:
     """Get cached IP reputation result + age in seconds. Returns None if missing/expired."""
+    key = _versioned(ip)
     with get_cache_db() as con:
-        row = con.execute("SELECT result_json, fetched_at FROM ip_cache WHERE ip = ?", (ip,)).fetchone()
+        row = con.execute("SELECT result_json, fetched_at FROM ip_cache WHERE ip = ?", (key,)).fetchone()
         if row is None or row[1] is None:
             return None
         try:
@@ -699,6 +724,7 @@ def get_cached_ip_with_age(ip: str) -> tuple[dict, int] | None:
 
 
 def save_cached_ip(ip: str, result: dict) -> None:
+    key = _versioned(ip)
     now = datetime.now(UTC).isoformat()
     result_str = json.dumps(result)
     if len(result_str) > CACHE_MAX_BYTES:
@@ -706,7 +732,7 @@ def save_cached_ip(ip: str, result: dict) -> None:
         return
     with get_cache_db() as con:
         con.execute(
-            "INSERT OR REPLACE INTO ip_cache (ip, result_json, fetched_at) VALUES (?, ?, ?)", (ip, result_str, now)
+            "INSERT OR REPLACE INTO ip_cache (ip, result_json, fetched_at) VALUES (?, ?, ?)", (key, result_str, now)
         )
 
 

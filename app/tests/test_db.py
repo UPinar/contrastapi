@@ -103,13 +103,17 @@ def test_cache_miss():
 
 
 def test_cache_expired(monkeypatch):
+    from config import VERSION
     from db import get_cache_db, get_cached_domain, save_cached_domain
 
     save_cached_domain("expired.com", {"data": True})
-    # Manually set fetched_at to 25 hours ago
+    # Manually set fetched_at to 25 hours ago (VERSION-prefixed key matches save layer)
     old_time = (datetime.now(UTC) - timedelta(hours=25)).isoformat()
     with get_cache_db() as con:
-        con.execute("UPDATE domain_cache SET fetched_at = ? WHERE domain = ?", (old_time, "expired.com"))
+        con.execute(
+            "UPDATE domain_cache SET fetched_at = ? WHERE domain = ?",
+            (old_time, f"{VERSION}:expired.com"),
+        )
     assert get_cached_domain("expired.com") is None
 
 
@@ -544,11 +548,12 @@ class TestDomainCacheTTL:
     """Verify domain cache entries expire after DOMAIN_CACHE_TTL (24h)."""
 
     def _backdate_domain(self, domain: str, seconds_ago: int):
+        from config import VERSION
         from db import get_cache_db
 
         ts = (datetime.now(UTC) - timedelta(seconds=seconds_ago)).isoformat()
         with get_cache_db() as con:
-            con.execute("UPDATE domain_cache SET fetched_at = ? WHERE domain = ?", (ts, domain))
+            con.execute("UPDATE domain_cache SET fetched_at = ? WHERE domain = ?", (ts, f"{VERSION}:{domain}"))
 
     def test_fresh_entry_is_hit(self):
         from db import get_cached_domain, save_cached_domain
@@ -594,11 +599,12 @@ class TestIPCacheTTL:
     """Verify IP cache entries expire after IP_CACHE_TTL (4h = 14400s)."""
 
     def _backdate_ip(self, ip: str, seconds_ago: int):
+        from config import VERSION
         from db import get_cache_db
 
         ts = (datetime.now(UTC) - timedelta(seconds=seconds_ago)).isoformat()
         with get_cache_db() as con:
-            con.execute("UPDATE ip_cache SET fetched_at = ? WHERE ip = ?", (ts, ip))
+            con.execute("UPDATE ip_cache SET fetched_at = ? WHERE ip = ?", (ts, f"{VERSION}:{ip}"))
 
     def test_fresh_ip_is_hit(self):
         from db import get_cached_ip, save_cached_ip
@@ -695,6 +701,7 @@ class TestMaintenanceCachePurge:
         assert get_cached_ip("10.0.0.3") is not None
 
     def test_mixed_expired_and_fresh(self):
+        from config import VERSION
         from db import get_cache_db, get_cached_domain, get_cached_ip, maintenance, save_cached_domain, save_cached_ip
 
         save_cached_domain("expired.com", {"x": 1})
@@ -704,8 +711,14 @@ class TestMaintenanceCachePurge:
         expired_domain = (datetime.now(UTC) - timedelta(seconds=DOMAIN_CACHE_TTL + 1)).isoformat()
         expired_ip = (datetime.now(UTC) - timedelta(seconds=IP_CACHE_TTL + 1)).isoformat()
         with get_cache_db() as con:
-            con.execute("UPDATE domain_cache SET fetched_at = ? WHERE domain = ?", (expired_domain, "expired.com"))
-            con.execute("UPDATE ip_cache SET fetched_at = ? WHERE ip = ?", (expired_ip, "10.1.1.1"))
+            con.execute(
+                "UPDATE domain_cache SET fetched_at = ? WHERE domain = ?",
+                (expired_domain, f"{VERSION}:expired.com"),
+            )
+            con.execute(
+                "UPDATE ip_cache SET fetched_at = ? WHERE ip = ?",
+                (expired_ip, f"{VERSION}:10.1.1.1"),
+            )
         result = maintenance()
         assert result["cache_purged"] >= 1
         assert result["ip_cache_purged"] >= 1
@@ -748,3 +761,85 @@ class TestCacheSizeLimit:
         normal = {"data": "x" * 1000}
         save_cached_ip("2.2.2.2", normal)
         assert get_cached_ip("2.2.2.2") is not None
+
+
+# --- Cache key versioning (release auto-invalidation) ---
+
+
+class TestCacheKeyVersioning:
+    """Verify cache keys are transparently prefixed with VERSION so a release
+    auto-invalidates stale entries written under a previous version."""
+
+    def test_domain_cache_versioned_under_the_hood(self):
+        """Saving under domain 'foo.com' must store under 'VERSION:foo.com' in the table."""
+        import sqlite3
+
+        from config import CACHE_DB_PATH, VERSION
+        from db import save_cached_domain
+
+        save_cached_domain("versioncheck.com", {"x": 1})
+        with sqlite3.connect(CACHE_DB_PATH) as con:
+            row = con.execute(
+                "SELECT domain FROM domain_cache WHERE domain = ?",
+                (f"{VERSION}:versioncheck.com",),
+            ).fetchone()
+            assert row is not None
+            assert row[0] == f"{VERSION}:versioncheck.com"
+            unversioned = con.execute(
+                "SELECT domain FROM domain_cache WHERE domain = ?", ("versioncheck.com",)
+            ).fetchone()
+            assert unversioned is None
+
+    def test_old_unversioned_entry_invisible(self):
+        """An entry saved with the bare key (simulating a previous-release write)
+        must NOT be returned by get_cached_domain — the new code only looks under
+        the versioned key, so stale shape can never leak across a release."""
+        import sqlite3
+        from datetime import UTC, datetime
+
+        from config import CACHE_DB_PATH
+        from db import get_cached_domain
+
+        with sqlite3.connect(CACHE_DB_PATH) as con:
+            con.execute(
+                "INSERT OR REPLACE INTO domain_cache (domain, result_json, fetched_at) VALUES (?, ?, ?)",
+                ("legacy.com", '{"old_shape": true}', datetime.now(UTC).isoformat()),
+            )
+        # Reading via the API must miss (key the API uses is VERSION-prefixed)
+        assert get_cached_domain("legacy.com") is None
+
+    def test_ip_cache_versioned_under_the_hood(self):
+        import sqlite3
+
+        from config import CACHE_DB_PATH, VERSION
+        from db import save_cached_ip
+
+        save_cached_ip("9.9.9.9", {"x": 1})
+        with sqlite3.connect(CACHE_DB_PATH) as con:
+            row = con.execute("SELECT ip FROM ip_cache WHERE ip = ?", (f"{VERSION}:9.9.9.9",)).fetchone()
+            assert row is not None
+            assert row[0] == f"{VERSION}:9.9.9.9"
+
+    def test_domain_cache_with_age_versioned(self):
+        """get_cached_domain_with_age must look under the VERSION-prefixed key (read-side parity
+        with get_cached_domain). Without this, orchestrator would still see stale entries on release."""
+        from db import get_cached_domain_with_age, save_cached_domain
+
+        save_cached_domain("withage.com", {"x": 1})
+        result = get_cached_domain_with_age("withage.com")
+        assert result is not None
+        payload, age = result
+        assert payload == {"x": 1}
+        assert age >= 0
+
+    def test_ip_cache_with_age_versioned(self):
+        """get_cached_ip_with_age must look under the VERSION-prefixed key (read-side parity
+        with get_cached_ip)."""
+        from db import get_cached_ip_with_age, save_cached_ip
+
+        save_cached_ip("1.1.1.2", {"x": 1})
+        result = get_cached_ip_with_age("1.1.1.2")
+        assert result is not None
+        payload, age = result
+        assert payload == {"x": 1}
+        assert age >= 0
