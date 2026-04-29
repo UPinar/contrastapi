@@ -55,7 +55,7 @@ def test_capabilities_structure():
     r = client.get("/v1/capabilities")
     data = r.json()
     cats = data["categories"]
-    assert set(cats.keys()) == {"cve", "domain", "ioc", "code_security", "atlas", "meta"}
+    assert set(cats.keys()) == {"cve", "domain", "ioc", "code_security", "atlas", "d3fend", "meta"}
     mcp_tools = [t for cat in cats.values() for t in cat["tools"] if t.get("name") is not None]
     assert len(mcp_tools) == MCP_TOOL_COUNT
 

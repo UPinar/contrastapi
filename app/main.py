@@ -1192,6 +1192,70 @@ def api_capabilities():
                     },
                 ],
             },
+            "d3fend": {
+                "description": "MITRE D3FEND — defense technique catalog mapped to ATT&CK (149 defenses, ~3k mappings)",
+                "tools": [
+                    {
+                        "name": "d3fend_defense_lookup",
+                        "method": "GET",
+                        "path": "/v1/d3fend/{defense_id}",
+                        "credit_cost": 1,
+                        "blast_radius": "zero",
+                        "description": "Lookup D3FEND defense by slug (e.g. TokenBinding) — returns tactic, artifact, mapped ATT&CK T-codes",
+                        "response_keys": [
+                            "defense_id",
+                            "label",
+                            "uri",
+                            "parent_label",
+                            "tactic",
+                            "artifact",
+                            "attack_techniques",
+                            "next_calls",
+                        ],
+                    },
+                    {
+                        "name": "d3fend_defense_search",
+                        "method": "GET",
+                        "path": "/v1/d3fend/defenses",
+                        "credit_cost": 1,
+                        "blast_radius": "zero",
+                        "description": "Search D3FEND defenses by keyword, tactic, or targeted artifact",
+                        "response_keys": ["query", "total", "results", "next_calls"],
+                    },
+                    {
+                        "name": "d3fend_defense_for_attack",
+                        "method": "GET",
+                        "path": "/v1/d3fend/attack/{attack_technique_id}",
+                        "credit_cost": 1,
+                        "blast_radius": "zero",
+                        "description": "Reverse lookup: given an ATT&CK T-code, return all D3FEND defenses that mitigate it",
+                        "response_keys": [
+                            "attack_technique_id",
+                            "total",
+                            "defenses",
+                            "coverage_by_tactic",
+                            "next_calls",
+                        ],
+                    },
+                    {
+                        "name": "d3fend_attack_coverage",
+                        "method": "POST",
+                        "path": "/v1/d3fend/coverage",
+                        "credit_cost": 1,
+                        "credit_cost_note": "1 credit per request (not per T-code)",
+                        "blast_radius": "zero",
+                        "description": "Batch coverage breakdown: count defenses per tactic + identify undefended ATT&CK techniques",
+                        "body": {"attack_technique_ids": "list[str] (max 500)"},
+                        "response_keys": [
+                            "queried_techniques",
+                            "coverage_by_tactic",
+                            "defended_techniques",
+                            "undefended_techniques",
+                            "next_calls",
+                        ],
+                    },
+                ],
+            },
             "atlas": {
                 "description": "MITRE ATLAS — AI/ML adversarial attack catalog (techniques + case studies)",
                 "tools": [
@@ -1578,6 +1642,10 @@ app.include_router(ioc_router)
 from atlas.routes import router as atlas_router
 
 app.include_router(atlas_router)
+
+from d3fend.routes import router as d3fend_router
+
+app.include_router(d3fend_router)
 
 from datetime import UTC
 

@@ -322,6 +322,23 @@ def _validate_atlas_tactic(value: str) -> str | None:
     return None
 
 
+_D3FEND_DEFENSE_RE = re.compile(r"^[A-Za-z][A-Za-z0-9]{0,63}$")
+_ATTACK_TECHNIQUE_RE = re.compile(r"^T\d{4}(?:\.\d{3})?$", re.IGNORECASE)
+_D3FEND_TACTICS = {"Model", "Harden", "Detect", "Isolate", "Deceive", "Evict", "Restore"}
+
+
+def _validate_d3fend_defense(value: str) -> str | None:
+    if not _D3FEND_DEFENSE_RE.match((value or "").strip()):
+        return f"Invalid D3FEND defense_id: {value!r}. Expected CamelCase slug (e.g. 'TokenBinding')"
+    return None
+
+
+def _validate_attack_technique(value: str) -> str | None:
+    if not _ATTACK_TECHNIQUE_RE.match((value or "").strip()):
+        return f"Invalid ATT&CK technique id: {value!r}. Expected 'T####' or 'T####.###' (e.g. T1059, T1550.001)"
+    return None
+
+
 # === Domain Intelligence ===
 
 
@@ -909,6 +926,95 @@ async def atlas_case_study_search(
     if technique_id:
         params["technique_id"] = technique_id.upper()
     return _fmt(await _get("/v1/atlas/case-studies", params=params))
+
+
+# === MITRE D3FEND (defense technique catalog) ===
+
+
+@mcp.tool(annotations=_RO)
+async def d3fend_defense_lookup(
+    defense_id: Annotated[
+        str,
+        Field(
+            description="D3FEND defense slug from the ontology URI fragment (CamelCase), e.g. 'TokenBinding', 'FileHashing', 'CertificatePinning'."
+        ),
+    ],
+) -> str:
+    """Look up a MITRE D3FEND defense technique. D3FEND is the canonical defensive counterpart to ATT&CK — each defense is classified into one of 7 tactics (Model/Harden/Detect/Isolate/Deceive/Evict/Restore) and may target a specific digital artifact (e.g. 'Access Token'). Response includes attack_techniques: the list of ATT&CK T-codes this defense mitigates. Use after d3fend_defense_search for the full record + ATT&CK chain. Returns 404 when the slug is not in the synced D3FEND catalog. Free: 100/hr, Pro: 1000/hr. Returns {defense_id, label, uri, parent_label, description, tactic, artifact, attack_techniques, next_calls}."""
+    if err := _validate_d3fend_defense(defense_id):
+        return err
+    return _fmt(await _get(f"/v1/d3fend/{defense_id.strip()}"))
+
+
+@mcp.tool(annotations=_RO)
+async def d3fend_defense_search(
+    keyword: Annotated[
+        str,
+        Field(
+            description="Substring match against defense label, description, or parent_label (case-insensitive). Min 2 chars. Example: 'token', 'hashing', 'sandbox'. Omit to list all."
+        ),
+    ] = "",
+    tactic: Annotated[
+        str,
+        Field(
+            description="Filter by D3FEND tactic. One of: Model, Harden, Detect, Isolate, Deceive, Evict, Restore. Omit for all tactics.",
+            json_schema_extra={
+                "enum": ["", "Model", "Harden", "Detect", "Isolate", "Deceive", "Evict", "Restore"]
+            },
+        ),
+    ] = "",
+    artifact: Annotated[
+        str,
+        Field(
+            description="Filter by exact targeted digital artifact (case-insensitive), e.g. 'Access Token', 'File', 'Process'. Omit for any artifact."
+        ),
+    ] = "",
+    limit: Annotated[int, Field(description="Max results to return. Range: 1-200.", ge=1, le=200)] = 50,
+) -> str:
+    """Search the MITRE D3FEND catalog of defensive techniques by keyword, tactic, or targeted artifact. Use to discover defenses applicable to a given threat model — e.g. 'what defenses harden access tokens?' (tactic=Harden + artifact='Access Token'). Drill into d3fend_defense_lookup with any returned defense_id for the ATT&CK technique mappings. Free: 100/hr, Pro: 1000/hr. Returns {query, total, results [{defense_id, label, uri, parent_label, tactic, artifact}], next_calls}."""
+    if tactic and tactic not in _D3FEND_TACTICS:
+        return f"Invalid tactic: {tactic!r}. Use one of {sorted(_D3FEND_TACTICS)}."
+    params: dict = {"limit": limit}
+    if keyword:
+        params["keyword"] = keyword
+    if tactic:
+        params["tactic"] = tactic
+    if artifact:
+        params["artifact"] = artifact
+    return _fmt(await _get("/v1/d3fend/defenses", params=params))
+
+
+@mcp.tool(annotations=_RO)
+async def d3fend_defense_for_attack(
+    attack_technique_id: Annotated[
+        str,
+        Field(
+            description="ATT&CK technique id matching 'T####' or 'T####.###' (e.g. 'T1059', 'T1550.001'). Use this to bridge from CVE/ATLAS findings to D3FEND mitigations."
+        ),
+    ],
+) -> str:
+    """Reverse lookup: given an ATT&CK T-code, return ALL D3FEND defenses that mitigate it. This is the bridge from offensive intelligence (ATT&CK / ATLAS / CVE) to defensive playbook. Pair with cve_lookup or atlas_technique_lookup output — when those carry an ATT&CK id, call this tool to surface the mitigations. Returns 200 with empty defenses list when the T-code has no D3FEND mapping (the gap is itself a signal). Free: 100/hr, Pro: 1000/hr. Returns {attack_technique_id, total, defenses [{defense_id, label, uri, parent_label, tactic, artifact, attack_label, attack_tactic}], coverage_by_tactic, next_calls}."""
+    if err := _validate_attack_technique(attack_technique_id):
+        return err
+    return _fmt(await _get(f"/v1/d3fend/attack/{attack_technique_id.strip().upper()}"))
+
+
+@mcp.tool(annotations=_RO)
+async def d3fend_attack_coverage(
+    attack_technique_ids: Annotated[
+        list[str],
+        Field(
+            description="List of ATT&CK technique ids (T#### or T####.###) to assess. Capped at 500 — extra entries are dropped server-side. Example: ['T1059', 'T1550.001', 'T1190', 'T9999'].",
+            max_length=500,
+        ),
+    ],
+) -> str:
+    """Batch coverage breakdown: given a list of ATT&CK T-codes, return distinct defense counts per D3FEND tactic + identify which techniques have NO D3FEND mapping (undefended_techniques). Use to assess the defensive posture of an entire attack campaign or threat model in one call. defended_techniques is the subset with at least one D3FEND defense; undefended_techniques are gaps worth flagging. Pair with cve_search per gap to identify exploit availability. Free: 100/hr, Pro: 1000/hr. Returns {queried_techniques, coverage_by_tactic, defended_techniques, undefended_techniques, next_calls}."""
+    if not attack_technique_ids:
+        return "Provide at least one ATT&CK technique id."
+    if len(attack_technique_ids) > 500:
+        return "Too many ids — max 500. Truncate input client-side."
+    return _fmt(await _post("/v1/d3fend/coverage", {"attack_technique_ids": attack_technique_ids}))
 
 
 # === Threat Intelligence / IOC ===
