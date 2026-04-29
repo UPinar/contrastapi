@@ -28,11 +28,25 @@ declare function ContrastAPI(options?: {
   cve: {
     lookup(cveId: string): Promise<any>;
     search(params?: { product?: string; severity?: string; days?: number; limit?: number }): Promise<any>;
-    recent(params?: { hours?: number; limit?: number }): Promise<any>;
-    kev(params?: { limit?: number }): Promise<any>;
-    epss(cveId: string): Promise<any>;
+    leading(params?: { limit?: number; offset?: number; include?: string }): Promise<any>;
+    kev(cveId: string): Promise<any>;
     exploit(cveId: string): Promise<any>;
     bulk(cveIds: string[]): Promise<any>;
+  };
+  cwe: {
+    lookup(cweId: string): Promise<any>;
+  };
+  atlas: {
+    technique(techniqueId: string): Promise<any>;
+    techniqueSearch(params?: { q?: string; tactic?: string; maturity?: string; limit?: number; offset?: number; include?: string }): Promise<any>;
+    caseStudy(caseStudyId: string): Promise<any>;
+    caseStudySearch(params?: { q?: string; target_type?: string; limit?: number; offset?: number; include?: string }): Promise<any>;
+  };
+  d3fend: {
+    defense(defenseId: string): Promise<any>;
+    defenseSearch(params?: { q?: string; tactic?: string; kind?: string; limit?: number; offset?: number }): Promise<any>;
+    defenseForAttack(attackTechniqueId: string): Promise<any>;
+    coverage(attackTechniqueIds: string[]): Promise<any>;
   };
   ioc: {
     lookup(indicator: string): Promise<any>;

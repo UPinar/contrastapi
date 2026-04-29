@@ -83,13 +83,33 @@ api.asn.lookup("google.com")               // ASN lookup
 
 ### CVE Intelligence
 ```javascript
-api.cve.lookup("CVE-2024-3094")            // Single CVE
+api.cve.lookup("CVE-2024-3094")            // Single CVE — full record
 api.cve.search({product: "apache", severity: "critical"})
-api.cve.recent()                           // Recently published
-api.cve.kev()                              // Known exploited (CISA KEV)
-api.cve.epss("CVE-2024-3094")              // EPSS score
-api.cve.exploit("CVE-2024-3094")           // Public exploits
+api.cve.leading({limit: 50})               // Fresh CVEs from MITRE/GHSA before NVD enrichment
+api.cve.kev("CVE-2021-44228")              // CISA KEV detail (404 if not in catalog)
+api.cve.exploit("CVE-2024-3094")           // Public exploits + advisories
 api.cve.bulk(["CVE-2024-3094", "CVE-2021-44228"])  // Bulk CVE lookup — N credits
+```
+
+### CWE (MITRE Weakness Catalog)
+```javascript
+api.cwe.lookup("CWE-79")                   // CWE detail (description, mitigations, CVE count)
+```
+
+### MITRE ATLAS (AI/ML Attack Catalog)
+```javascript
+api.atlas.technique("AML.T0043")           // ATLAS technique detail
+api.atlas.techniqueSearch({tactic: "ML Attack Staging", limit: 20})
+api.atlas.caseStudy("AML.CS0000")          // Case study detail
+api.atlas.caseStudySearch({q: "GPT", limit: 10})
+```
+
+### MITRE D3FEND (Defense Technique Catalog)
+```javascript
+api.d3fend.defense("D3-FA")                // Defense technique detail
+api.d3fend.defenseSearch({tactic: "DETECT", limit: 20})
+api.d3fend.defenseForAttack("T1059")        // Defenses mapped to ATT&CK technique
+api.d3fend.coverage(["T1059", "T1078", "T1190"])  // Batch coverage analysis
 ```
 
 ### Threat Intelligence

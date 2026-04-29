@@ -136,12 +136,75 @@ function ContrastAPI(options = {}) {
         if (params.limit) q.set("limit", params.limit);
         return get(`/v1/cves?${q}`);
       },
+      leading: (params = {}) => {
+        const q = new URLSearchParams();
+        if (params.limit) q.set("limit", params.limit);
+        if (params.offset) q.set("offset", params.offset);
+        if (params.include) q.set("include", params.include);
+        const qs = q.toString();
+        return get(`/v1/cve/leading${qs ? "?" + qs : ""}`);
+      },
+      kev: (cveId) => get(`/v1/kev/${enc(cveId)}`),
       exploit: (cveId) => get(`/v1/exploit/${enc(cveId)}`),
       bulk: (cveIds) => {
         if (!Array.isArray(cveIds) || !cveIds.every(c => typeof c === "string")) {
           throw new Error("cveIds must be an array of strings");
         }
         return post("/v1/cves/bulk", { cve_ids: cveIds });
+      },
+    },
+
+    // --- CWE (MITRE Common Weakness Enumeration) ---
+    cwe: {
+      lookup: (cweId) => get(`/v1/cwe/${enc(cweId)}`),
+    },
+
+    // --- MITRE ATLAS (AI/ML attack catalog) ---
+    atlas: {
+      technique: (techniqueId) => get(`/v1/atlas/${enc(techniqueId)}`),
+      techniqueSearch: (params = {}) => {
+        const q = new URLSearchParams();
+        if (params.q) q.set("q", params.q);
+        if (params.tactic) q.set("tactic", params.tactic);
+        if (params.maturity) q.set("maturity", params.maturity);
+        if (params.limit) q.set("limit", params.limit);
+        if (params.offset) q.set("offset", params.offset);
+        if (params.include) q.set("include", params.include);
+        const qs = q.toString();
+        return get(`/v1/atlas/techniques${qs ? "?" + qs : ""}`);
+      },
+      caseStudy: (caseStudyId) => get(`/v1/atlas/case-studies/${enc(caseStudyId)}`),
+      caseStudySearch: (params = {}) => {
+        const q = new URLSearchParams();
+        if (params.q) q.set("q", params.q);
+        if (params.target_type) q.set("target_type", params.target_type);
+        if (params.limit) q.set("limit", params.limit);
+        if (params.offset) q.set("offset", params.offset);
+        if (params.include) q.set("include", params.include);
+        const qs = q.toString();
+        return get(`/v1/atlas/case-studies${qs ? "?" + qs : ""}`);
+      },
+    },
+
+    // --- MITRE D3FEND (defense technique catalog) ---
+    d3fend: {
+      defense: (defenseId) => get(`/v1/d3fend/${enc(defenseId)}`),
+      defenseSearch: (params = {}) => {
+        const q = new URLSearchParams();
+        if (params.q) q.set("q", params.q);
+        if (params.tactic) q.set("tactic", params.tactic);
+        if (params.kind) q.set("kind", params.kind);
+        if (params.limit) q.set("limit", params.limit);
+        if (params.offset) q.set("offset", params.offset);
+        const qs = q.toString();
+        return get(`/v1/d3fend/defenses${qs ? "?" + qs : ""}`);
+      },
+      defenseForAttack: (attackTechniqueId) => get(`/v1/d3fend/attack/${enc(attackTechniqueId)}`),
+      coverage: (attackTechniqueIds) => {
+        if (!Array.isArray(attackTechniqueIds) || !attackTechniqueIds.every(c => typeof c === "string")) {
+          throw new Error("attackTechniqueIds must be an array of strings");
+        }
+        return post("/v1/d3fend/coverage", { attack_technique_ids: attackTechniqueIds });
       },
     },
 
