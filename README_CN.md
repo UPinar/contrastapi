@@ -36,10 +36,15 @@
 
 ```bash
 curl https://api.contrastcyber.com/v1/cve/CVE-2021-44228
-curl https://api.contrastcyber.com/v1/audit/example.com
+curl https://api.contrastcyber.com/v1/atlas/AML.T0051            # MITRE ATLAS — LLM 提示注入
+curl https://api.contrastcyber.com/v1/d3fend/attack/T1059        # D3FEND 针对 ATT&CK T1059 的防御技术
 ```
 
-或者直接问智能体：*"CVE-2024-3094 是否已被野外利用？查 EPSS 和 KEV，然后查它对应的 CWE 弱点类别。"*
+或者直接问智能体：
+
+- *"CVE-2024-3094 是否已被野外利用？查 EPSS 和 KEV，然后查它对应的 CWE 弱点类别。"*
+- *"在 MITRE ATLAS 中解释 LLM 提示注入，并桥接到对应的 D3FEND 防御技术。"*
+- *"在这些 ATT&CK 技术中 [T1059, T1190, T1550.001, T9999]，哪些没有 D3FEND 缓解？"*
 
 ## 文档
 

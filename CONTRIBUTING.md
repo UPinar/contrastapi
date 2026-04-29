@@ -1,6 +1,6 @@
 # Contributing to ContrastAPI
 
-Thanks for your interest in contributing! ContrastAPI is a security intelligence API with 41 MCP tools and 40+ endpoints.
+Thanks for your interest in contributing! ContrastAPI is a security intelligence API with 41 MCP tools and 50+ endpoints.
 
 ## Quick Start
 

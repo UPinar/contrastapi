@@ -61,6 +61,24 @@ Copy-paste these into Claude Desktop, Cursor, VS Code, or any MCP-enabled agent 
 - *"Find accounts for username 'johndoe' across platforms"*
 - *"Check the email security grade for example.com (SPF/DMARC/DKIM)"*
 
+## MITRE ATLAS (AI/ML attacks)
+
+- *"What is AML.T0051? Explain LLM Prompt Injection in MITRE ATLAS"*
+- *"Find ATLAS techniques about training data poisoning"*
+- *"Search ATLAS for techniques targeting LLM agents and AI tools"*
+- *"List demonstrated AI/ML attacks (maturity=demonstrated) related to model evasion"*
+- *"Show me real-world ATLAS case studies of deep learning evasion"*
+- *"Look up case study AML.CS0000 and walk me through the attack chain"*
+
+## MITRE D3FEND (defense techniques)
+
+- *"What D3FEND defenses mitigate ATT&CK T1059 (Command and Scripting Interpreter)?"*
+- *"Look up D3FEND TokenBinding — what does it harden, and which ATT&CK T-codes does it cover?"*
+- *"Find D3FEND defenses that target Access Tokens"*
+- *"Search D3FEND for Detect-tactic defenses against file-based attacks"*
+- *"For these ATT&CK techniques, tell me which have NO D3FEND mapping: T1059, T1190, T1550.001, T9999"*
+- *"Audit D3FEND coverage across this campaign's TTPs and flag the gaps"*
+
 ## Chained Workflows
 
 Agents can chain tools naturally. Example single-prompt workflows:
@@ -79,6 +97,8 @@ Agents can chain tools naturally. Example single-prompt workflows:
   → Agent runs `cve_lookup` → reads `next_calls` → chains `cwe_lookup` (weakness pattern) + `kev_detail` (federal deadline) + `exploit_lookup` (PoC availability)
 - *"Triage this IP for SOC: enrich it, then deep-dive any CRITICAL/HIGH vulns"*
   → Agent runs `ip_lookup` → filters `vulns[]` where `severity in ('CRITICAL','HIGH')` → chains `cve_lookup` for each → optionally `kev_detail` if `kev.in_kev=true`
+- *"Bridge an AI/ML technique to the defense: look up an ATLAS technique with an ATT&CK reference, then list mitigating D3FEND defenses"*
+  → Agent runs `atlas_technique_lookup` → reads `attack_reference_id` → chains `d3fend_defense_for_attack` → optionally `cve_search` for known exploits of that ATT&CK TTP
 
 The `summary` field in every response lets the agent reason about results without parsing nested JSON — cuts token usage and improves chaining quality.
 

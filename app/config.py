@@ -7,7 +7,7 @@ from pathlib import Path
 
 VERSION = "1.19.0"
 MCP_TOOL_COUNT = 41
-ENDPOINT_COUNT = "40+"
+ENDPOINT_COUNT = "50+"
 
 # asn_lookup: prefix list cap to keep MCP responses within token budget.
 # Cloudflare AS13335 announces 2500+ IPv4 prefixes; full list blows past

@@ -34,10 +34,15 @@ Restart your agent. Other clients (Node SDK, cURL, VS Code): **[mcp-setup](https
 
 ```bash
 curl https://api.contrastcyber.com/v1/cve/CVE-2021-44228
-curl https://api.contrastcyber.com/v1/audit/example.com
+curl https://api.contrastcyber.com/v1/atlas/AML.T0051            # MITRE ATLAS — LLM Prompt Injection
+curl https://api.contrastcyber.com/v1/d3fend/attack/T1059        # D3FEND defenses for ATT&CK T1059
 ```
 
-Or ask your agent: *"Is CVE-2024-3094 exploited in the wild? Check EPSS + KEV, then look up the underlying CWE."*
+Or ask your agent:
+
+- *"Is CVE-2024-3094 exploited in the wild? Check EPSS + KEV, then look up the underlying CWE."*
+- *"Explain LLM Prompt Injection in MITRE ATLAS and bridge it to D3FEND defenses."*
+- *"For these ATT&CK techniques [T1059, T1190, T1550.001, T9999], which have NO D3FEND mitigation?"*
 
 ## Links
 
