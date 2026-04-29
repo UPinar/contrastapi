@@ -3446,6 +3446,18 @@ class TestSslInfo:
         assert result["cert_valid"] is False
         assert "untrusted_root" in result["validation_errors"]
 
+    def test_classify_self_signed_in_chain_is_untrusted_root(self):
+        """OpenSSL verify_code 19 ('self signed certificate in certificate chain') is an
+        untrusted_root (root in chain not in trust store), NOT a leaf self_signed."""
+        from domain.recon import _classify_ssl_verify_error
+
+        # verify_code 19 — chain contains self-signed root (untrusted-root.badssl.com case)
+        assert _classify_ssl_verify_error("self signed certificate in certificate chain") == ["untrusted_root"]
+        # verify_code 18 — leaf itself is self-signed (self-signed.badssl.com case)
+        assert _classify_ssl_verify_error("self signed certificate") == ["self_signed"]
+        # verify_code 20 — issuer not locally available
+        assert _classify_ssl_verify_error("unable to get local issuer certificate") == ["untrusted_root"]
+
     @patch("domain.recon.ssl.create_default_context")
     @patch("domain.recon.socket.create_connection")
     def test_hostname_mismatch_grade_d(self, mock_conn, mock_ctx):

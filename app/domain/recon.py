@@ -561,14 +561,22 @@ _VALID_VALIDATION_TAGS = {"expired", "self_signed", "hostname_mismatch", "untrus
 
 
 def _classify_ssl_verify_error(verify_message: str) -> list[str]:
-    """Map OpenSSL verify error message to canonical validation_errors tags."""
+    """Map OpenSSL verify error message to canonical validation_errors tags.
+
+    Precedence matters: "self signed certificate in certificate chain" (verify_code 19)
+    means an intermediate/root in the chain is self-signed and not in our trust store —
+    that's "untrusted_root", NOT a leaf "self_signed". Plain "self signed certificate"
+    (verify_code 18) means the leaf itself is self-signed.
+    """
     msg = (verify_message or "").lower()
+    if ("self signed" in msg or "self-signed" in msg) and ("chain" in msg or "in certificate" in msg):
+        return ["untrusted_root"]
+    if "unable to get local issuer" in msg or "unable to get issuer" in msg:
+        return ["untrusted_root"]
     if "self signed" in msg or "self-signed" in msg:
         return ["self_signed"]
     if "has expired" in msg or "certificate has expired" in msg or "cert has expired" in msg:
         return ["expired"]
-    if "unable to get local issuer" in msg or "unable to get issuer" in msg:
-        return ["untrusted_root"]
     if "hostname mismatch" in msg or "doesn't match" in msg or "name does not match" in msg:
         return ["hostname_mismatch"]
     return ["chain_incomplete"]
