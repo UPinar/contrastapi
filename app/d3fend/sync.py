@@ -16,6 +16,7 @@ from db import (
     upsert_d3fend_attack_mappings,
     upsert_d3fend_defense,
 )
+from domain.recon import _strip_control_chars
 
 log = logging.getLogger("contrastapi")
 
@@ -51,12 +52,16 @@ def _slug_from_uri(uri: str | None) -> str | None:
 
 
 def _binding_value(binding: dict, key: str) -> str | None:
-    """Extract `value` field from a SPARQL JSON binding cell. None on missing or non-string."""
+    """Extract `value` field from a SPARQL JSON binding cell. None on missing or non-string.
+
+    Applies `_strip_control_chars` to defend against Trojan-Source bidi/RTL
+    injection in upstream MITRE D3FEND fields.
+    """
     cell = binding.get(key)
     if isinstance(cell, dict):
         v = cell.get("value")
         if isinstance(v, str):
-            return v
+            return _strip_control_chars(v)
     return None
 
 

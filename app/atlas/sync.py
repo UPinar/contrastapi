@@ -10,6 +10,7 @@ import logging
 import httpx
 import yaml
 from db import update_sync_status, upsert_atlas_case_study, upsert_atlas_technique
+from domain.recon import _strip_control_chars
 
 log = logging.getLogger("contrastapi")
 
@@ -30,6 +31,13 @@ def _stringify_date(value) -> str | None:
     if value is None:
         return None
     return str(value)
+
+
+def _clean(s) -> str | None:
+    """Strip control + Unicode bidi chars from upstream-derived strings (Trojan-Source guard)."""
+    if s is None:
+        return None
+    return _strip_control_chars(str(s))
 
 
 def sync_atlas() -> int:
@@ -73,13 +81,13 @@ def sync_atlas() -> int:
                 try:
                     upsert_atlas_technique(
                         technique_id,
-                        name=str(name)[:512],
-                        description=(tech.get("description") or "").strip()[:16000] or None,
-                        tactics=[str(t) for t in tactics if t],
-                        maturity=tech.get("maturity"),
-                        attack_reference_id=attack_id,
-                        attack_reference_url=attack_url,
-                        subtechnique_of=tech.get("subtechnique-of"),
+                        name=_clean(name)[:512],
+                        description=(_clean(tech.get("description")) or "").strip()[:16000] or None,
+                        tactics=[_clean(t) for t in tactics if t],
+                        maturity=_clean(tech.get("maturity")),
+                        attack_reference_id=_clean(attack_id),
+                        attack_reference_url=_clean(attack_url),
+                        subtechnique_of=_clean(tech.get("subtechnique-of")),
                         created_date=_stringify_date(tech.get("created_date")),
                         modified_date=_stringify_date(tech.get("modified_date")),
                     )
@@ -101,12 +109,12 @@ def sync_atlas() -> int:
                     if isinstance(step, dict):
                         tid = step.get("technique")
                         if isinstance(tid, str) and tid:
-                            techniques_used.append(tid)
+                            techniques_used.append(_clean(tid))
             try:
                 upsert_atlas_case_study(
                     case_study_id,
-                    name=str(name)[:512],
-                    description=(cs.get("summary") or cs.get("description") or "").strip()[:16000] or None,
+                    name=_clean(name)[:512],
+                    description=(_clean(cs.get("summary") or cs.get("description")) or "").strip()[:16000] or None,
                     techniques_used=list(dict.fromkeys(techniques_used)),
                 )
                 case_study_count += 1

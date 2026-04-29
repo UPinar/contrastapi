@@ -867,8 +867,8 @@ async def atlas_technique_search(
     maturity: Annotated[
         str,
         Field(
-            description="Filter by maturity: 'demonstrated' (observed in real attacks) or 'feasible' (theoretical). Omit for both.",
-            json_schema_extra={"enum": ["", "demonstrated", "feasible"]},
+            description="Filter by maturity: 'demonstrated' (observed in real attacks), 'feasible' (theoretical), or 'realized' (newer ATLAS classification, treat similar to demonstrated). Omit for all.",
+            json_schema_extra={"enum": ["", "demonstrated", "feasible", "realized"]},
         ),
     ] = "",
     limit: Annotated[int, Field(description="Max results to return. Range: 1-200.", ge=1, le=200)] = 50,
@@ -876,8 +876,8 @@ async def atlas_technique_search(
     """Search the MITRE ATLAS catalog of AI/ML attack techniques by keyword, tactic, or maturity. Use this to discover techniques matching a threat-model question, e.g. 'what techniques target LLM serving infrastructure?'. Drill into atlas_technique_lookup with any returned technique_id for the full description, ATT&CK bridge, and pivot hints. For broader cross-referencing: when a result has attack_reference_id, that bridges to D3FEND mitigations via d3fend_defense_for_attack. Free: 100/hr, Pro: 1000/hr. Returns {query (echoed filters), total, results [{technique_id, name, description, tactics, maturity, attack_reference_id, subtechnique_of}], next_calls}."""
     if tactic and (err := _validate_atlas_tactic(tactic)):
         return err
-    if maturity and maturity not in ("demonstrated", "feasible"):
-        return f"Invalid maturity: {maturity!r}. Use 'demonstrated' or 'feasible'."
+    if maturity and maturity not in ("demonstrated", "feasible", "realized"):
+        return f"Invalid maturity: {maturity!r}. Use 'demonstrated', 'feasible', or 'realized'."
     params: dict = {"limit": limit}
     if keyword:
         params["keyword"] = keyword

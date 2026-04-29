@@ -170,10 +170,10 @@ def atlas_technique_search(
             )
     if maturity is not None:
         maturity = maturity.strip().lower()
-        if maturity and maturity not in ("demonstrated", "feasible"):
+        if maturity and maturity not in ("demonstrated", "feasible", "realized"):
             raise HTTPException(
                 status_code=400,
-                detail="maturity must be 'demonstrated' or 'feasible'",
+                detail="maturity must be 'demonstrated', 'feasible', or 'realized'",
             )
 
     rows = search_atlas_techniques(
