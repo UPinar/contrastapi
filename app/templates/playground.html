@@ -682,6 +682,281 @@
       </div>
     </div>
 
+    <h2 class="section-title">MITRE ATLAS (AI/ML Threats)</h2>
+
+    <div class="pg-card" id="ep-atlas_lookup">
+      <div class="pg-card-header">
+        <span class="method get">GET</span>
+        <span class="name">/v1/atlas/{technique_id}</span>
+        <span class="desc">ATLAS technique lookup — adversarial ML/LLM attack catalog (167 techniques)</span>
+      </div>
+      <div class="pg-card-body">
+        <div class="pg-inputs">
+          <label>technique_id</label>
+          <input type="text" id="input-atlas_lookup" value="AML.T0051" placeholder="AML.T0051 or AML.T0043.000">
+          <button class="btn-run" data-tool="atlas_lookup">Run &rarr;</button>
+        </div>
+        <div class="pg-response" id="resp-atlas_lookup">
+          <pre>{
+  <span class="key">"technique_id"</span>: <span class="str">"AML.T0051"</span>,
+  <span class="key">"name"</span>: <span class="str">"LLM Prompt Injection"</span>,
+  <span class="key">"tactics"</span>: [<span class="str">"AML.TA0011"</span>],
+  <span class="key">"maturity"</span>: <span class="str">"realized"</span>,
+  <span class="key">"attack_reference_id"</span>: <span class="bool">null</span>,
+  <span class="key">"description"</span>: <span class="str">"An adversary may craft malicious prompts as inputs to an LLM..."</span>,
+  <span class="key">"next_calls"</span>: [
+    {<span class="key">"tool"</span>: <span class="str">"atlas_case_study_search"</span>, <span class="key">"input"</span>: <span class="str">"prompt injection"</span>}
+  ]
+}</pre>
+        </div>
+      </div>
+    </div>
+
+    <div class="pg-card" id="ep-atlas_search">
+      <div class="pg-card-header">
+        <span class="method get">GET</span>
+        <span class="name">/v1/atlas/techniques</span>
+        <span class="desc">Search ATLAS techniques — by keyword, tactic, or maturity</span>
+      </div>
+      <div class="pg-card-body">
+        <div class="pg-inputs pg-inputs-col">
+          <div class="pg-inputs-row">
+            <label>keyword</label>
+            <input type="text" id="input-atlas_search-keyword" value="prompt injection" placeholder="≥2 chars" class="pg-input-grow">
+          </div>
+          <div class="pg-inputs-row">
+            <label>tactic</label>
+            <input type="text" id="input-atlas_search-tactic" value="" placeholder="AML.TA0011 (optional)" class="pg-input-grow">
+          </div>
+          <div class="pg-inputs-row">
+            <label>maturity</label>
+            <select id="input-atlas_search-maturity">
+              <option value="" selected>Any</option>
+              <option value="demonstrated">demonstrated</option>
+              <option value="feasible">feasible</option>
+              <option value="realized">realized</option>
+            </select>
+          </div>
+          <div class="pg-inputs-row">
+            <label>include</label>
+            <select id="input-atlas_search-include">
+              <option value="" selected>slim (default, 240-char preview)</option>
+              <option value="full">full descriptions</option>
+            </select>
+          </div>
+          <div class="pg-inputs-row">
+            <label>limit</label>
+            <input type="number" id="input-atlas_search-limit" value="5" min="1" max="50" class="pg-input-narrow">
+            <button class="btn-run" data-tool="atlas_search">Run &rarr;</button>
+          </div>
+        </div>
+        <div class="pg-response" id="resp-atlas_search">
+          <pre>{
+  <span class="key">"total"</span>: <span class="num">2</span>,
+  <span class="key">"techniques"</span>: [
+    {
+      <span class="key">"technique_id"</span>: <span class="str">"AML.T0051"</span>,
+      <span class="key">"name"</span>: <span class="str">"LLM Prompt Injection"</span>,
+      <span class="key">"tactics"</span>: [<span class="str">"AML.TA0011"</span>],
+      <span class="key">"maturity"</span>: <span class="str">"realized"</span>
+    }
+  ]
+}</pre>
+        </div>
+      </div>
+    </div>
+
+    <div class="pg-card" id="ep-atlas_case_study">
+      <div class="pg-card-header">
+        <span class="method get">GET</span>
+        <span class="name">/v1/atlas/case-studies/{case_study_id}</span>
+        <span class="desc">Real-world ML attack case study (57 entries)</span>
+      </div>
+      <div class="pg-card-body">
+        <div class="pg-inputs">
+          <label>case_study_id</label>
+          <input type="text" id="input-atlas_case_study" value="AML.CS0009" placeholder="AML.CS0009">
+          <button class="btn-run" data-tool="atlas_case_study">Run &rarr;</button>
+        </div>
+        <div class="pg-response" id="resp-atlas_case_study">
+          <pre>{
+  <span class="key">"case_study_id"</span>: <span class="str">"AML.CS0009"</span>,
+  <span class="key">"name"</span>: <span class="str">"ChatGPT Plugin Privacy Leak"</span>,
+  <span class="key">"techniques_used"</span>: [<span class="str">"AML.T0051"</span>, <span class="str">"AML.T0054"</span>],
+  <span class="key">"description"</span>: <span class="str">"A researcher demonstrated indirect prompt injection..."</span>
+}</pre>
+        </div>
+      </div>
+    </div>
+
+    <div class="pg-card" id="ep-atlas_case_search">
+      <div class="pg-card-header">
+        <span class="method get">GET</span>
+        <span class="name">/v1/atlas/case-studies</span>
+        <span class="desc">Search ATLAS case studies by keyword</span>
+      </div>
+      <div class="pg-card-body">
+        <div class="pg-inputs pg-inputs-col">
+          <div class="pg-inputs-row">
+            <label>keyword</label>
+            <input type="text" id="input-atlas_case_search-keyword" value="ChatGPT" placeholder="≥2 chars" class="pg-input-grow">
+          </div>
+          <div class="pg-inputs-row">
+            <label>limit</label>
+            <input type="number" id="input-atlas_case_search-limit" value="5" min="1" max="50" class="pg-input-narrow">
+            <button class="btn-run" data-tool="atlas_case_search">Run &rarr;</button>
+          </div>
+        </div>
+        <div class="pg-response" id="resp-atlas_case_search">
+          <pre>{
+  <span class="key">"total"</span>: <span class="num">3</span>,
+  <span class="key">"case_studies"</span>: [
+    {
+      <span class="key">"case_study_id"</span>: <span class="str">"AML.CS0009"</span>,
+      <span class="key">"name"</span>: <span class="str">"ChatGPT Plugin Privacy Leak"</span>
+    }
+  ]
+}</pre>
+        </div>
+      </div>
+    </div>
+
+    <h2 class="section-title">MITRE D3FEND (Defense Mapping)</h2>
+
+    <div class="pg-card" id="ep-d3fend_lookup">
+      <div class="pg-card-header">
+        <span class="method get">GET</span>
+        <span class="name">/v1/d3fend/{defense_id}</span>
+        <span class="desc">Defense technique lookup — 149 defenses mapped to ATT&amp;CK</span>
+      </div>
+      <div class="pg-card-body">
+        <div class="pg-inputs">
+          <label>defense_id</label>
+          <input type="text" id="input-d3fend_lookup" value="TokenBinding" placeholder="TokenBinding or D3-TB">
+          <button class="btn-run" data-tool="d3fend_lookup">Run &rarr;</button>
+        </div>
+        <div class="pg-response" id="resp-d3fend_lookup">
+          <pre>{
+  <span class="key">"defense_id"</span>: <span class="str">"TokenBinding"</span>,
+  <span class="key">"label"</span>: <span class="str">"Token Binding"</span>,
+  <span class="key">"tactic"</span>: <span class="str">"Harden"</span>,
+  <span class="key">"parent_label"</span>: <span class="str">"Credential Hardening"</span>,
+  <span class="key">"attack_techniques"</span>: [<span class="str">"T1550.001"</span>, <span class="str">"T1539"</span>],
+  <span class="key">"description"</span>: <span class="str">"Cryptographically binds tokens to a specific TLS session..."</span>
+}</pre>
+        </div>
+      </div>
+    </div>
+
+    <div class="pg-card" id="ep-d3fend_search">
+      <div class="pg-card-header">
+        <span class="method get">GET</span>
+        <span class="name">/v1/d3fend/defenses</span>
+        <span class="desc">Search D3FEND defenses by keyword or tactic (7 tactics)</span>
+      </div>
+      <div class="pg-card-body">
+        <div class="pg-inputs pg-inputs-col">
+          <div class="pg-inputs-row">
+            <label>keyword</label>
+            <input type="text" id="input-d3fend_search-keyword" value="token" placeholder="≥2 chars" class="pg-input-grow">
+          </div>
+          <div class="pg-inputs-row">
+            <label>tactic</label>
+            <select id="input-d3fend_search-tactic">
+              <option value="" selected>Any</option>
+              <option value="Harden">Harden</option>
+              <option value="Detect">Detect</option>
+              <option value="Isolate">Isolate</option>
+              <option value="Deceive">Deceive</option>
+              <option value="Evict">Evict</option>
+              <option value="Restore">Restore</option>
+              <option value="Model">Model</option>
+            </select>
+          </div>
+          <div class="pg-inputs-row">
+            <label>limit</label>
+            <input type="number" id="input-d3fend_search-limit" value="5" min="1" max="50" class="pg-input-narrow">
+            <button class="btn-run" data-tool="d3fend_search">Run &rarr;</button>
+          </div>
+        </div>
+        <div class="pg-response" id="resp-d3fend_search">
+          <pre>{
+  <span class="key">"total"</span>: <span class="num">3</span>,
+  <span class="key">"defenses"</span>: [
+    {
+      <span class="key">"defense_id"</span>: <span class="str">"TokenBinding"</span>,
+      <span class="key">"label"</span>: <span class="str">"Token Binding"</span>,
+      <span class="key">"tactic"</span>: <span class="str">"Harden"</span>
+    }
+  ]
+}</pre>
+        </div>
+      </div>
+    </div>
+
+    <div class="pg-card" id="ep-d3fend_for_attack">
+      <div class="pg-card-header">
+        <span class="method get">GET</span>
+        <span class="name">/v1/d3fend/attack/{attack_technique_id}</span>
+        <span class="desc">Reverse lookup — defenses for an ATT&amp;CK technique (e.g. T1059)</span>
+      </div>
+      <div class="pg-card-body">
+        <div class="pg-inputs pg-inputs-col">
+          <div class="pg-inputs-row">
+            <label>attack_id</label>
+            <input type="text" id="input-d3fend_for_attack-id" value="T1059" placeholder="T1059 or T1059.001" class="pg-input-grow">
+          </div>
+          <div class="pg-inputs-row">
+            <label>limit</label>
+            <input type="number" id="input-d3fend_for_attack-limit" value="10" min="1" max="100" class="pg-input-narrow">
+            <button class="btn-run" data-tool="d3fend_for_attack">Run &rarr;</button>
+          </div>
+        </div>
+        <div class="pg-response" id="resp-d3fend_for_attack">
+          <pre>{
+  <span class="key">"attack_technique_id"</span>: <span class="str">"T1059"</span>,
+  <span class="key">"total"</span>: <span class="num">15</span>,
+  <span class="key">"truncated"</span>: <span class="bool">true</span>,
+  <span class="key">"coverage_by_tactic"</span>: {<span class="key">"Harden"</span>: <span class="num">4</span>, <span class="key">"Detect"</span>: <span class="num">8</span>, <span class="key">"Isolate"</span>: <span class="num">3</span>},
+  <span class="key">"defenses"</span>: [
+    {<span class="key">"defense_id"</span>: <span class="str">"ContentFiltering"</span>, <span class="key">"label"</span>: <span class="str">"Content Filtering"</span>, <span class="key">"tactic"</span>: <span class="str">"Harden"</span>}
+  ]
+}</pre>
+        </div>
+      </div>
+    </div>
+
+    <div class="pg-card" id="ep-d3fend_coverage">
+      <div class="pg-card-header">
+        <span class="method post">POST</span>
+        <span class="name">/v1/d3fend/coverage</span>
+        <span class="desc">Batch coverage map — defenses across multiple ATT&amp;CK techniques</span>
+      </div>
+      <div class="pg-card-body">
+        <div class="pg-inputs pg-inputs-col">
+          <div class="pg-inputs-row">
+            <label for="input-d3fend_coverage">attack_ids (one per line)</label>
+            <button class="btn-run" data-tool="d3fend_coverage">Run &rarr;</button>
+          </div>
+          <textarea id="input-d3fend_coverage" rows="4" class="pg-textarea">T1059
+T1190
+T1078</textarea>
+        </div>
+        <div class="pg-response" id="resp-d3fend_coverage">
+          <pre>{
+  <span class="key">"queried_techniques"</span>: [<span class="str">"T1059"</span>, <span class="str">"T1190"</span>, <span class="str">"T1078"</span>],
+  <span class="key">"defended_techniques"</span>: [<span class="str">"T1059"</span>, <span class="str">"T1190"</span>],
+  <span class="key">"undefended_techniques"</span>: [<span class="str">"T1078"</span>],
+  <span class="key">"coverage_by_tactic"</span>: {
+    <span class="key">"Harden"</span>: <span class="num">7</span>,
+    <span class="key">"Detect"</span>: <span class="num">12</span>,
+    <span class="key">"Isolate"</span>: <span class="num">4</span>
+  }
+}</pre>
+        </div>
+      </div>
+    </div>
+
     <h2 class="section-title">Threat Intelligence</h2>
 
     <div class="pg-card" id="ep-threat_report">

@@ -52,6 +52,14 @@
     'exploit': '/v1/exploit/',
     'kev': '/v1/kev/',
     'cwe': '/v1/cwe/',
+    'atlas_lookup': '/v1/atlas/',
+    'atlas_search': 'QUERY_ATLAS',
+    'atlas_case_study': '/v1/atlas/case-studies/',
+    'atlas_case_search': 'QUERY_ATLAS_CASE',
+    'd3fend_lookup': '/v1/d3fend/',
+    'd3fend_search': 'QUERY_D3FEND',
+    'd3fend_for_attack': 'QUERY_D3FEND_FOR_ATTACK',
+    'd3fend_coverage': 'POST_D3FEND_COVERAGE',
     'threat_report': '/v1/threat-report/',
     'ioc': '/v1/ioc/',
     'bulk_ioc': 'POST_BULK_IOC',
@@ -92,6 +100,56 @@
       var offsetVal = document.getElementById('input-cve_search-offset').value.trim();
       if (offsetVal && offsetVal !== '0') searchParams.offset = offsetVal;
       url = '/v1/cves?' + new URLSearchParams(searchParams).toString();
+    } else if (id === 'atlas_search') {
+      var atlasParams = {
+        limit: document.getElementById('input-atlas_search-limit').value.trim() || '5'
+      };
+      var atlasKw = document.getElementById('input-atlas_search-keyword').value.trim();
+      if (atlasKw) atlasParams.keyword = atlasKw;
+      var atlasTactic = document.getElementById('input-atlas_search-tactic').value.trim();
+      if (atlasTactic) atlasParams.tactic = atlasTactic;
+      var atlasMaturity = document.getElementById('input-atlas_search-maturity').value;
+      if (atlasMaturity) atlasParams.maturity = atlasMaturity;
+      var atlasInclude = document.getElementById('input-atlas_search-include').value;
+      if (atlasInclude) atlasParams.include = atlasInclude;
+      url = '/v1/atlas/techniques?' + new URLSearchParams(atlasParams).toString();
+    } else if (id === 'atlas_case_search') {
+      var atlasCaseParams = {
+        limit: document.getElementById('input-atlas_case_search-limit').value.trim() || '5'
+      };
+      var atlasCaseKw = document.getElementById('input-atlas_case_search-keyword').value.trim();
+      if (atlasCaseKw) atlasCaseParams.keyword = atlasCaseKw;
+      url = '/v1/atlas/case-studies?' + new URLSearchParams(atlasCaseParams).toString();
+    } else if (id === 'd3fend_search') {
+      var d3Params = {
+        limit: document.getElementById('input-d3fend_search-limit').value.trim() || '5'
+      };
+      var d3Kw = document.getElementById('input-d3fend_search-keyword').value.trim();
+      if (d3Kw) d3Params.keyword = d3Kw;
+      var d3Tactic = document.getElementById('input-d3fend_search-tactic').value;
+      if (d3Tactic) d3Params.tactic = d3Tactic;
+      url = '/v1/d3fend/defenses?' + new URLSearchParams(d3Params).toString();
+    } else if (id === 'd3fend_for_attack') {
+      var d3AttackId = document.getElementById('input-d3fend_for_attack-id').value.trim();
+      if (!d3AttackId) {
+        resp.innerHTML = '<span class="pg-error">Please enter an ATT&CK technique ID</span>';
+        return;
+      }
+      var d3LimitVal = document.getElementById('input-d3fend_for_attack-limit').value.trim();
+      var d3qs = d3LimitVal ? ('?limit=' + encodeURIComponent(d3LimitVal)) : '';
+      url = '/v1/d3fend/attack/' + encodeURIComponent(d3AttackId) + d3qs;
+    } else if (ENDPOINTS[id] === 'POST_D3FEND_COVERAGE') {
+      var rawCov = document.getElementById('input-d3fend_coverage').value.trim();
+      if (!rawCov) {
+        resp.innerHTML = '<span class="pg-error">Please enter at least one ATT&CK ID</span>';
+        return;
+      }
+      bulkItems = rawCov.split(/[,\n]+/).map(function(s) { return s.trim(); }).filter(Boolean);
+      if (bulkItems.length === 0) {
+        resp.innerHTML = '<span class="pg-error">Please enter at least one ATT&CK ID</span>';
+        return;
+      }
+      url = '/v1/d3fend/coverage';
     } else if (ENDPOINTS[id] === 'POST_BULK_CVE' || ENDPOINTS[id] === 'POST_BULK_IOC') {
       var rawBulk = document.getElementById('input-' + id).value.trim();
       if (!rawBulk) {
@@ -167,6 +225,10 @@
         fetchOpts.method = 'POST';
         fetchOpts.headers = { 'Content-Type': 'application/json' };
         fetchOpts.body = JSON.stringify({ packages: bulkItems });
+      } else if (ENDPOINTS[id] === 'POST_D3FEND_COVERAGE') {
+        fetchOpts.method = 'POST';
+        fetchOpts.headers = { 'Content-Type': 'application/json' };
+        fetchOpts.body = JSON.stringify({ attack_technique_ids: bulkItems });
       }
       var res = await fetch(url, fetchOpts);
       clearTimeout(timer);

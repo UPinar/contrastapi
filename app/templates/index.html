@@ -4,16 +4,16 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ContrastAPI — Security Intelligence API</title>
-  <meta name="description" content="Security intelligence API and MCP server with {{ tool_count }} tools. CVE lookup, domain recon, threat intel, code security. Free, no API key required.">
+  <meta name="description" content="Security intelligence API and MCP server with {{ tool_count }} tools. CVE lookup, domain recon, threat intel, MITRE ATLAS (AI/ML attacks), D3FEND defenses, code security. Free, no API key required.">
   <meta property="og:title" content="ContrastAPI — {{ tool_count }} Security Tools for AI Agents">
-  <meta property="og:description" content="Free security intelligence API and MCP server. {{ tool_count }} tools: CVE, domain recon, IOC, exploit search, code security. No signup required.">
+  <meta property="og:description" content="Free security intelligence API and MCP server. {{ tool_count }} tools: CVE, domain recon, IOC, MITRE ATLAS, D3FEND, code security. No signup required.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://api.contrastcyber.com">
   <meta property="og:image" content="https://api.contrastcyber.com/static/og-image.png">
   <meta property="og:site_name" content="ContrastAPI">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="ContrastAPI — {{ tool_count }} Security Tools for AI Agents">
-  <meta name="twitter:description" content="Free security MCP server. {{ tool_count }} tools: CVE, domain recon, IOC, exploit search, code security. No signup.">
+  <meta name="twitter:description" content="Free security MCP server. {{ tool_count }} tools: CVE, domain recon, IOC, MITRE ATLAS, D3FEND, code security. No signup.">
   <meta name="twitter:image" content="https://api.contrastcyber.com/static/og-image.png">
   <meta name="msvalidate.01" content="FF2D74F962D3EB9B4CD7B81481A4C873">
   <link rel="canonical" href="https://api.contrastcyber.com/">
@@ -53,7 +53,7 @@
   <section class="hero">
     <div class="pill">{{ tool_count }} TOOLS · {{ endpoint_count }} ENDPOINTS · MCP SERVER</div>
     <h1>{{ tool_count }} security tools,<br><span class="gradient">one JSON config.</span></h1>
-    <p class="subtitle">CVE + EPSS + KEV lookup, domain recon, IP threat reports, IOC enrichment, and code security. Structured JSON with LLM-optimized summaries. Works with Claude Desktop, Cursor, VS Code, and any MCP client.</p>
+    <p class="subtitle">CVE + EPSS + KEV lookup, domain recon, IP threat reports, IOC enrichment, MITRE ATLAS (AI/ML attacks), D3FEND defenses, and code security. Structured JSON with LLM-optimized summaries. Works with Claude Desktop, Cursor, VS Code, and any MCP client.</p>
     <div class="cta-group">
       <a href="#setup" class="btn-cta">Install in 30 seconds →</a>
       <a href="/playground" class="btn-cta-secondary">Try Playground</a>
@@ -70,8 +70,8 @@
   <!-- Trust Strip -->
   <section class="trust-strip" aria-label="Trust signals">
     <div class="trust-strip-inner">
-      <span><strong>1104</strong> tests passing</span>
-      <span><strong>96/100</strong> on <a href="https://smithery.ai/servers/contrastcyber/contrastapi" target="_blank" rel="noopener">Smithery</a></span>
+      <span><strong>1544</strong> tests passing</span>
+      <span><strong>99/100</strong> on <a href="https://smithery.ai/servers/contrastcyber/contrastapi" target="_blank" rel="noopener">Smithery</a></span>
       <span><strong>{{ tool_count }}</strong> MCP tools, <strong>{{ endpoint_count }}</strong> endpoints</span>
       <span><a href="https://www.npmjs.com/package/contrastapi" target="_blank" rel="noopener">npm</a> · <a href="https://marketplace.visualstudio.com/items?itemName=ContrastAPI.contrastapi" target="_blank" rel="noopener">VS Code</a></span>
       <span>MIT licensed · Free forever</span>
@@ -180,6 +180,54 @@
         <span class="method get">GET</span>
         <span class="endpoint-path">/v1/cwe/{cwe_id}</span>
         <span class="endpoint-desc">MITRE CWE catalog (description, mitigations, parent/child chain)</span>
+      </div>
+    </div>
+
+    <h2 class="section-title">MITRE ATLAS (AI/ML Threats)</h2>
+    <div class="endpoint-group">
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/atlas/{technique_id}</span>
+        <span class="endpoint-desc">ATLAS technique lookup (e.g. AML.T0051 LLM Prompt Injection)</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/atlas/techniques?keyword=&tactic=&maturity=</span>
+        <span class="endpoint-desc">Search ATLAS techniques (167 entries)</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/atlas/case-studies/{case_study_id}</span>
+        <span class="endpoint-desc">Real-world ML attack case study (e.g. AML.CS0009 ChatGPT Plugins)</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/atlas/case-studies?keyword=</span>
+        <span class="endpoint-desc">Search ATLAS case studies (57 entries)</span>
+      </div>
+    </div>
+
+    <h2 class="section-title">MITRE D3FEND (Defense Mapping)</h2>
+    <div class="endpoint-group">
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/d3fend/{defense_id}</span>
+        <span class="endpoint-desc">Defense technique lookup (e.g. TokenBinding) with mapped ATT&amp;CK techniques</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/d3fend/defenses?keyword=&tactic=</span>
+        <span class="endpoint-desc">Search D3FEND defenses (149 entries, 7 tactics)</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/d3fend/attack/{attack_technique_id}</span>
+        <span class="endpoint-desc">Reverse lookup: defenses for an ATT&amp;CK technique (e.g. T1059)</span>
+      </div>
+      <div class="endpoint">
+        <span class="method post">POST</span>
+        <span class="endpoint-path">/v1/d3fend/coverage</span>
+        <span class="endpoint-desc">Batch coverage map for a list of ATT&amp;CK technique IDs</span>
       </div>
     </div>
 
