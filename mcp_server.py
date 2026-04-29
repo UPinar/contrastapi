@@ -1021,7 +1021,7 @@ async def d3fend_defense_for_attack(
             ge=1,
             le=200,
         ),
-    ] = 30,
+    ] = 30,  # keep in sync with app/d3fend/routes.py:_FOR_ATTACK_DEFAULT_LIMIT
 ) -> str:
     """Reverse lookup: given an ATT&CK T-code, return D3FEND defenses that mitigate it. This is the bridge from offensive intelligence (ATT&CK / ATLAS / CVE) to defensive playbook. Pair with cve_lookup or atlas_technique_lookup output — when those carry an ATT&CK id, call this tool to surface the mitigations. `defenses` is capped at `limit` (default 30) for token efficiency; `total` is the honest pre-truncation count and `truncated=true` flags when the cap was hit. `coverage_by_tactic` always aggregates the FULL set, not the slice. Returns 200 with empty defenses list when the T-code has no D3FEND mapping (the gap is itself a signal). Free: 100/hr, Pro: 1000/hr. Returns {attack_technique_id, total, truncated, defenses [{defense_id, label, uri, parent_label, tactic, artifact, attack_label, attack_tactic}], coverage_by_tactic, next_calls}."""
     if err := _validate_attack_technique(attack_technique_id):
