@@ -88,7 +88,8 @@ def test_d3fend_defense_lookup_pivot_hints():
     r = client.get("/v1/d3fend/TokenBinding")
     tools = {h["tool"] for h in r.json().get("next_calls") or []}
     assert "atlas_technique_search" in tools
-    assert "cve_search" in tools
+    # cve_search does not accept ATT&CK T-codes; pivot removed in v1.19.2.
+    assert "cve_search" not in tools
 
 
 # --- d3fend_defense_search ---
@@ -166,6 +167,15 @@ def test_d3fend_for_attack_coverage_by_tactic():
     body = r.json()
     # TokenBinding=Harden, FileHashing=Detect → one of each
     assert body["coverage_by_tactic"] == {"Harden": 1, "Detect": 1}
+
+
+def test_d3fend_for_attack_emits_no_broken_pivots():
+    """v1.19.2: cve_search/atlas_technique_search both reject ATT&CK T-codes; verify happy-path emits no pivot."""
+    _seed_d3fend()
+    r = client.get("/v1/d3fend/attack/T1550.001")
+    body = r.json()
+    assert body["total"] >= 1  # happy path: defenses present
+    assert body.get("next_calls") in (None, [])
 
 
 # --- d3fend_attack_coverage (POST batch) ---

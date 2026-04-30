@@ -80,13 +80,6 @@ def _atlas_technique_pivot_hints(record: dict) -> list[PivotHint]:
                 reason="Bridge: this ATLAS technique mirrors an ATT&CK TTP — surface D3FEND mitigations.",
             )
         )
-        hints.append(
-            PivotHint(
-                tool="cve_search",
-                input=attack_id,
-                reason="Cross-reference CVEs that exploit the bridged ATT&CK technique.",
-            )
-        )
     parent = record.get("subtechnique_of")
     if parent:
         hints.append(

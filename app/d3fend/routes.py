@@ -74,30 +74,14 @@ def _d3fend_defense_pivot_hints(record: dict) -> list[PivotHint]:
                 reason="Find AI/ML attack techniques relevant to this defense.",
             )
         )
-    for tcode in (record.get("attack_techniques") or [])[:_PIVOT_CAP]:
-        hints.append(
-            PivotHint(
-                tool="cve_search",
-                input=tcode,
-                reason="Cross-reference CVEs that exploit this ATT&CK technique.",
-            )
-        )
     return hints[:_PIVOT_CAP]
 
 
-def _d3fend_for_attack_pivot_hints(attack_id: str) -> list[PivotHint]:
-    return [
-        PivotHint(
-            tool="cve_search",
-            input=attack_id,
-            reason="Look up CVEs that exploit this ATT&CK technique.",
-        ),
-        PivotHint(
-            tool="atlas_technique_search",
-            input=attack_id,
-            reason="Bridge to ATLAS — find AI/ML techniques that mirror this ATT&CK TTP.",
-        ),
-    ]
+def _d3fend_for_attack_pivot_hints(_attack_id: str) -> list[PivotHint]:
+    # No automatic pivots: cve_search/atlas_technique_search both reject ATT&CK
+    # T-codes as input. Caller can use the returned defense_id list to drill
+    # via d3fend_defense_lookup directly.
+    return []
 
 
 def _d3fend_coverage_pivot_hints(undefended: list[str]) -> list[PivotHint]:
@@ -264,7 +248,7 @@ def d3fend_defense_for_attack(
         "truncated": truncated,
         "defenses": capped_defenses,
         "coverage_by_tactic": coverage_by_tactic,
-        "next_calls": _d3fend_for_attack_pivot_hints(normalized) if capped_defenses else None,
+        "next_calls": _d3fend_for_attack_pivot_hints(normalized) or None,
     }
 
 

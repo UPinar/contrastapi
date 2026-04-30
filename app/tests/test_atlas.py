@@ -66,14 +66,15 @@ def test_atlas_technique_lookup_400_invalid_format():
 
 
 def test_atlas_technique_lookup_pivot_hints():
-    """attack_reference_id present → next_calls includes d3fend_defense_for_attack + cve_search."""
+    """attack_reference_id present → next_calls bridges to D3FEND + ATLAS case studies."""
     _seed_atlas()
     r = client.get("/v1/atlas/AML.T0000")
     assert r.status_code == 200
     tools = {h["tool"] for h in r.json().get("next_calls") or []}
     assert "d3fend_defense_for_attack" in tools
-    assert "cve_search" in tools
     assert "atlas_case_study_search" in tools
+    # cve_search does not accept ATT&CK T-codes; pivot removed in v1.19.2.
+    assert "cve_search" not in tools
 
 
 def test_atlas_technique_lookup_subtechnique_pivots_to_parent():
