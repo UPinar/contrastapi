@@ -68,6 +68,7 @@ _REVERSE_LOOKUP_CAP = 3  # top N attack_techniques to reverse-pivot from defense
 
 def _d3fend_defense_pivot_hints(record: dict) -> list[PivotHint]:
     hints: list[PivotHint] = []
+    self_id = record.get("defense_id")
     label = record.get("label")
     if label:
         hints.append(
@@ -78,12 +79,13 @@ def _d3fend_defense_pivot_hints(record: dict) -> list[PivotHint]:
             )
         )
     artifact = record.get("artifact")
-    if artifact:
+    if artifact and self_id:
         hints.append(
             PivotHint(
                 tool="d3fend_defense_search",
                 input=artifact,
-                reason=f"Find sibling defenses targeting the same artifact ({artifact!r}).",
+                reason=f"Find sibling defenses targeting the same artifact ({artifact!r}), excluding self.",
+                params={"exclude_id": self_id},
             )
         )
     for tcode in (record.get("attack_techniques") or [])[:_REVERSE_LOOKUP_CAP]:
@@ -91,7 +93,8 @@ def _d3fend_defense_pivot_hints(record: dict) -> list[PivotHint]:
             PivotHint(
                 tool="d3fend_defense_for_attack",
                 input=tcode,
-                reason="See other defenses that also mitigate this ATT&CK technique.",
+                reason="See other defenses that also mitigate this ATT&CK technique (excluding self).",
+                params={"exclude_id": self_id} if self_id else None,
             )
         )
     return hints[:_PIVOT_CAP]
@@ -159,14 +162,47 @@ def d3fend_defense_search(
         ),
     ] = None,
     limit: Annotated[int, Query(ge=1, le=200, description="Max results to return.")] = 50,
+    include: Annotated[
+        str | None,
+        Query(
+            description=(
+                "Detail level. Default returns slim rows (drops the deterministic ontology `uri` "
+                "field — saves ~60 chars/row, ~30% on popular T-code drills). Pass include=full to "
+                "get the `uri` back. The slug `defense_id` is always returned and uniquely identifies "
+                "the defense; `uri` is reconstructible from it."
+            ),
+        ),
+    ] = None,
+    exclude_id: Annotated[
+        str | None,
+        Query(
+            description=(
+                "Optional D3FEND defense slug to exclude from results (CamelCase, e.g. 'TokenBinding'). "
+                "Useful when paired with an artifact filter to fetch siblings without the originating "
+                "defense itself (chained from d3fend_defense_lookup's next_calls)."
+            ),
+        ),
+    ] = None,
 ):
     """Search MITRE D3FEND defenses by keyword, tactic, or targeted artifact.
 
     Use this to discover defensive techniques relevant to a threat model. Drill
     via d3fend_defense_lookup with the returned defense_id for the full record
     + the list of ATT&CK T-codes the defense mitigates.
+
+    Default response is SLIM (drops `uri` from each row). Pass `include=full`
+    for the verbose record on every row.
     """
     authenticate(request, request.url.path)
+    if include not in (None, "", "full"):
+        raise HTTPException(status_code=400, detail="include must be 'full' (omit for slim default)")
+    if exclude_id is not None:
+        exclude_id = exclude_id.strip()
+        if exclude_id and not _DEFENSE_ID_RE.match(exclude_id):
+            raise HTTPException(
+                status_code=400,
+                detail="exclude_id must be a CamelCase D3FEND defense slug (e.g. 'TokenBinding')",
+            )
 
     if keyword is not None:
         stripped = keyword.strip()
@@ -194,6 +230,13 @@ def d3fend_defense_search(
         artifact=artifact or None,
         limit=limit,
     )
+
+    if exclude_id:
+        rows = [r for r in rows if r.get("defense_id") != exclude_id]
+
+    if include != "full":
+        for r in rows:
+            r.pop("uri", None)
 
     next_calls: list[PivotHint] | None = None
     if rows:
@@ -242,6 +285,25 @@ def d3fend_defense_for_attack(
             ),
         ),
     ] = _FOR_ATTACK_DEFAULT_LIMIT,
+    include: Annotated[
+        str | None,
+        Query(
+            description=(
+                "Detail level. Default returns slim rows (drops the deterministic ontology `uri` "
+                "field — popular T-codes with 15+ defenses save ~900 chars). Pass include=full to "
+                "get `uri` back on every row. The slug `defense_id` is always returned."
+            ),
+        ),
+    ] = None,
+    exclude_id: Annotated[
+        str | None,
+        Query(
+            description=(
+                "Optional D3FEND defense slug to exclude from results. Used by chain pivots from "
+                "d3fend_defense_lookup so the agent does not see itself in the 'see also' list."
+            ),
+        ),
+    ] = None,
 ):
     """Reverse lookup: given an ATT&CK T-code, list every D3FEND defense that mitigates it.
 
@@ -255,11 +317,25 @@ def d3fend_defense_for_attack(
     defenses, not just the truncated slice. `next_calls` emits a single
     drill hint into the top defense via d3fend_defense_lookup; empty defense
     list emits no pivot (the gap is the signal).
+
+    Default response is SLIM (drops `uri` from each row). Pass `include=full`
+    for the verbose record.
     """
     normalized = _validate_attack_technique(attack_technique_id)
     authenticate(request, request.url.path)
+    if include not in (None, "", "full"):
+        raise HTTPException(status_code=400, detail="include must be 'full' (omit for slim default)")
+    if exclude_id is not None:
+        exclude_id = exclude_id.strip()
+        if exclude_id and not _DEFENSE_ID_RE.match(exclude_id):
+            raise HTTPException(
+                status_code=400,
+                detail="exclude_id must be a CamelCase D3FEND defense slug (e.g. 'TokenBinding')",
+            )
 
     defenses = get_d3fend_defenses_for_attack(normalized)
+    if exclude_id:
+        defenses = [d for d in defenses if d.get("defense_id") != exclude_id]
 
     coverage_by_tactic: dict[str, int] = {}
     seen: dict[str, set] = {}
@@ -273,6 +349,10 @@ def d3fend_defense_for_attack(
     total = len(defenses)
     truncated = total > limit
     capped_defenses = defenses[:limit]
+
+    if include != "full":
+        for d in capped_defenses:
+            d.pop("uri", None)
 
     return {
         "attack_technique_id": normalized,

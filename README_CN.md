@@ -1,15 +1,15 @@
-# ContrastAPI — 为 AI 智能体打造的 41 个安全工具
+# ContrastAPI — 为 AI 智能体打造的 42 个安全工具
 
 <p align="center">
   <img src="app/static/banner.png" alt="ContrastAPI Banner" width="100%">
 </p>
 
-[![MCP](https://img.shields.io/badge/MCP-41_tools-purple.svg)](https://modelcontextprotocol.io)
+[![MCP](https://img.shields.io/badge/MCP-42_tools-purple.svg)](https://modelcontextprotocol.io)
 [![smithery badge](https://smithery.ai/badge/contrastcyber/contrastapi)](https://smithery.ai/servers/contrastcyber/contrastapi)
 [![contrastapi MCP server](https://glama.ai/mcp/servers/UPinar/contrastapi/badges/score.svg)](https://glama.ai/mcp/servers/UPinar/contrastapi)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-**面向 AI 智能体的安全情报 MCP 服务器。** CVE/KEV/CWE 查询（含 EPSS）、域名审计、IP 威胁报告、IOC 增强、代码安全检查、**MITRE ATLAS（AI/ML 攻击）+ D3FEND（防御技术）**。**41 个工具，免费使用，无需 API 密钥，每小时 100 信用额度。**
+**面向 AI 智能体的安全情报 MCP 服务器。** CVE/KEV/CWE 查询（含 EPSS）、域名审计、IP 威胁报告、IOC 增强、代码安全检查、**MITRE ATLAS（AI/ML 攻击）+ D3FEND（防御技术）**。**42 个工具，免费使用，无需 API 密钥，每小时 100 信用额度。**
 
 [English](README.md) · **在线服务：** [api.contrastcyber.com](https://api.contrastcyber.com)
 

@@ -1,15 +1,15 @@
-# ContrastAPI — 41 Security Tools for AI Agents
+# ContrastAPI — 42 Security Tools for AI Agents
 
 <p align="center">
   <img src="app/static/banner.png" alt="ContrastAPI Banner" width="100%">
 </p>
 
-[![MCP](https://img.shields.io/badge/MCP-41_tools-purple.svg)](https://modelcontextprotocol.io)
+[![MCP](https://img.shields.io/badge/MCP-42_tools-purple.svg)](https://modelcontextprotocol.io)
 [![smithery badge](https://smithery.ai/badge/contrastcyber/contrastapi)](https://smithery.ai/servers/contrastcyber/contrastapi)
 [![contrastapi MCP server](https://glama.ai/mcp/servers/UPinar/contrastapi/badges/score.svg)](https://glama.ai/mcp/servers/UPinar/contrastapi)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-**Security intelligence MCP server for AI agents.** CVE/KEV/CWE lookup with EPSS, domain audit, IP threat reports, IOC enrichment, code security, **MITRE ATLAS (AI/ML attacks) + D3FEND (defenses)**. **41 tools, free, no API key, 100 credits/hour.**
+**Security intelligence MCP server for AI agents.** CVE/KEV/CWE lookup with EPSS, domain audit, IP threat reports, IOC enrichment, code security, **MITRE ATLAS (AI/ML attacks) + D3FEND (defenses)**. **42 tools, free, no API key, 100 credits/hour.**
 
 [中文](README_CN.md) · **Live:** [api.contrastcyber.com](https://api.contrastcyber.com)
 

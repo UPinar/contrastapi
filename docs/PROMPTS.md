@@ -99,6 +99,10 @@ Agents can chain tools naturally. Example single-prompt workflows:
   → Agent runs `ip_lookup` → filters `vulns[]` where `severity in ('CRITICAL','HIGH')` → chains `cve_lookup` for each → optionally `kev_detail` if `kev.in_kev=true`
 - *"Bridge an AI/ML technique to the defense: look up an ATLAS technique with an ATT&CK reference, then list mitigating D3FEND defenses"*
   → Agent runs `atlas_technique_lookup` → reads `attack_reference_id` → chains `d3fend_defense_for_attack` → optionally `cve_search` for known exploits of that ATT&CK TTP
+- *"Pull the 'Evasion of Deep Learning Detector' ATLAS case study and drill into every technique it used"*
+  → Agent runs `atlas_case_study_lookup` → reads `techniques_used` (often 5-10 ids) → chains `bulk_atlas_technique_lookup` with the full list (one call instead of N) → for each technique with `attack_reference_id` set, chains `d3fend_defense_for_attack` for mitigations
+- *"Red-team an LLM serving stack: list the AI/ML attack surface for prompt injection, find sibling techniques in the same tactic, and surface defenses"*
+  → Agent runs `atlas_technique_lookup(AML.T0051)` → reads `next_calls` → chains `atlas_technique_search(tactic=AML.TA0005, exclude_id=AML.T0051)` for siblings → for each sibling with an ATT&CK bridge, chains `d3fend_defense_for_attack(exclude_id=...)` so the same defense is not echoed back
 
 The `summary` field in every response lets the agent reason about results without parsing nested JSON — cuts token usage and improves chaining quality.
 

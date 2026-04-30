@@ -20,11 +20,13 @@ from db import (
     search_atlas_techniques,
 )
 from fastapi import APIRouter, HTTPException, Path, Query, Request
+from pydantic import BaseModel, Field
 from schemas import (
     AtlasCaseStudyResponse,
     AtlasCaseStudySearchResponse,
     AtlasTechniqueResponse,
     AtlasTechniqueSearchResponse,
+    BulkAtlasTechniqueResponse,
     PivotHint,
 )
 
@@ -38,6 +40,36 @@ _TACTIC_RE = re.compile(r"^AML\.TA\d{4}$")
 
 _PIVOT_CAP = 5
 _SEARCH_DESCRIPTION_PREVIEW = 240  # chars; full text via _lookup drill or include=full
+
+
+def _inherit_tactics_from_parent(record: dict, _cache: dict | None = None) -> dict:
+    """Backfill `tactics` from the parent technique when this is a sub-technique with empty tactics.
+
+    ATLAS upstream does not propagate tactics down to sub-techniques (e.g. AML.T0051.002
+    has tactics:[] while parent AML.T0051 carries ['AML.TA0005']). We fill from the parent
+    and flag with `inherited_tactics=True` so callers can distinguish source.
+
+    `_cache` is an optional per-call dict keyed by parent_id so repeat lookups within
+    a single search response do only one DB hit per parent.
+    """
+    if record.get("tactics"):
+        return record
+    parent_id = record.get("subtechnique_of")
+    if not parent_id:
+        return record
+    if _cache is not None and parent_id in _cache:
+        parent = _cache[parent_id]
+    else:
+        parent = get_atlas_technique(parent_id)
+        if _cache is not None:
+            _cache[parent_id] = parent
+    if not parent:
+        return record
+    parent_tactics = parent.get("tactics") or []
+    if parent_tactics:
+        record["tactics"] = list(parent_tactics)
+        record["inherited_tactics"] = True
+    return record
 
 
 def _validate_technique_id(value: str) -> str:
@@ -90,28 +122,35 @@ def _atlas_technique_pivot_hints(record: dict) -> list[PivotHint]:
             )
         )
     tactics = record.get("tactics") or []
-    if tactics:
+    if tactics and technique_id:
         hints.append(
             PivotHint(
                 tool="atlas_technique_search",
                 input=tactics[0],
-                reason=f"Find sibling techniques in the same ATLAS tactic ({tactics[0]}).",
+                reason=f"Find sibling techniques in the same ATLAS tactic ({tactics[0]}), excluding self.",
+                params={"exclude_id": technique_id},
             )
         )
     return hints[:_PIVOT_CAP]
 
 
 def _atlas_case_study_pivot_hints(record: dict) -> list[PivotHint]:
-    hints: list[PivotHint] = []
-    for tid in (record.get("techniques_used") or [])[:_PIVOT_CAP]:
-        hints.append(
-            PivotHint(
-                tool="atlas_technique_lookup",
-                input=tid,
-                reason="Look up the ATLAS technique used in this incident.",
-            )
+    techniques = record.get("techniques_used") or []
+    if not techniques:
+        return []
+    # v1.20.0: collapse N atlas_technique_lookup hints (~700 bytes for 5) into a single
+    # bulk_atlas_technique_lookup hint that drills into ALL techniques in one call.
+    # The full list lives in techniques_used so the agent has the array it needs.
+    return [
+        PivotHint(
+            tool="bulk_atlas_technique_lookup",
+            input=",".join(techniques),
+            reason=(
+                f"Drill into all {len(techniques)} ATLAS technique(s) used in this incident in a "
+                "single call. The full id list is in techniques_used."
+            ),
         )
-    return hints
+    ]
 
 
 # --- Search routes (registered before catch-all) ---
@@ -157,6 +196,17 @@ def atlas_technique_search(
             ),
         ),
     ] = None,
+    exclude_id: Annotated[
+        str | None,
+        Query(
+            description=(
+                "Optional ATLAS technique id to exclude from the results, format 'AML.T####' or "
+                "'AML.T####.###'. Useful when paired with a tactic filter to fetch siblings without "
+                "the originating technique itself (e.g. when atlas_technique_lookup's next_calls hint "
+                "leads here)."
+            ),
+        ),
+    ] = None,
 ):
     """Search the MITRE ATLAS technique catalog by keyword, tactic, or maturity.
 
@@ -167,6 +217,13 @@ def atlas_technique_search(
     authenticate(request, request.url.path)
     if include not in (None, "", "full"):
         raise HTTPException(status_code=400, detail="include must be 'full' (omit for slim default)")
+    if exclude_id is not None:
+        exclude_id = exclude_id.strip().upper()
+        if exclude_id and not _TECHNIQUE_RE.match(exclude_id):
+            raise HTTPException(
+                status_code=400,
+                detail="exclude_id must match 'AML.T####' or 'AML.T####.###'",
+            )
 
     if keyword is not None:
         stripped = keyword.strip()
@@ -198,6 +255,13 @@ def atlas_technique_search(
         maturity=maturity or None,
         limit=limit,
     )
+
+    if exclude_id:
+        rows = [r for r in rows if r.get("technique_id") != exclude_id]
+
+    parent_cache: dict = {}
+    for r in rows:
+        _inherit_tactics_from_parent(r, _cache=parent_cache)
 
     if include != "full":
         for r in rows:
@@ -331,22 +395,184 @@ def atlas_case_study_lookup(
             ),
         ),
     ],
+    include: Annotated[
+        str | None,
+        Query(
+            description=(
+                f"Detail level. Default returns slim (description truncated to "
+                f"{_SEARCH_DESCRIPTION_PREVIEW} chars). Pass include=full for the verbose "
+                "incident summary; case-study descriptions can run 1-3KB."
+            ),
+        ),
+    ] = None,
 ):
     """Look up a MITRE ATLAS case study — a real-world AI/ML attack incident.
 
     Each case study links a sequence of ATLAS techniques (techniques_used) to a
-    documented incident. Use atlas_technique_lookup on each id to expand into
+    documented incident. Use atlas_technique_lookup on each id (or
+    bulk_atlas_technique_lookup for the whole list) to expand into
     technique-level detail.
+
+    Default response is SLIM (description truncated). Pass include=full for
+    the verbose narrative.
     """
     normalized = _validate_case_study_id(case_study_id)
     authenticate(request, request.url.path)
+    if include not in (None, "", "full"):
+        raise HTTPException(status_code=400, detail="include must be 'full' (omit for slim default)")
 
     record = get_atlas_case_study(normalized)
     if record is None:
         raise HTTPException(status_code=404, detail=f"{normalized} is not in the MITRE ATLAS case study catalog")
 
+    if include != "full":
+        desc = record.get("description")
+        if desc and len(desc) > _SEARCH_DESCRIPTION_PREVIEW:
+            record["description"] = desc[:_SEARCH_DESCRIPTION_PREVIEW] + "..."
+
     record["next_calls"] = _atlas_case_study_pivot_hints(record)
     return record
+
+
+# --- Bulk technique lookup (POST, registered before catch-all GET /{technique_id}) ---
+
+
+_BULK_ATLAS_MAX_IDS = 50
+
+
+class _BulkAtlasTechniqueRequest(BaseModel):
+    technique_ids: list[str] = Field(
+        default_factory=list,
+        description=(
+            "List of ATLAS technique ids in canonical form 'AML.T####' or 'AML.T####.###' "
+            "(case-insensitive; normalized to upper-case + de-duplicated server-side). "
+            f"Truncated to {_BULK_ATLAS_MAX_IDS} entries before lookup."
+        ),
+        max_length=_BULK_ATLAS_MAX_IDS,
+    )
+
+
+@router.post(
+    "/techniques/bulk",
+    operation_id="bulk_atlas_technique_lookup",
+    response_model=BulkAtlasTechniqueResponse,
+    response_model_exclude_none=True,
+)
+def bulk_atlas_technique_lookup(request: Request, body: _BulkAtlasTechniqueRequest):
+    """Bulk ATLAS technique lookup — up to 10 (free) / 50 (pro) technique ids in one call.
+
+    Designed as the natural follow-up to atlas_case_study_lookup (which carries
+    a list of techniques_used) — drill into all techniques in a single request
+    instead of N separate atlas_technique_lookup calls. Each entry's record is
+    the same shape as /v1/atlas/{technique_id}, including parent-tactics
+    inheritance for sub-techniques (inherited_tactics flag set when applicable).
+
+    Rate-limit accounting matches bulk_cve_lookup: each id consumes 1 unit of
+    the per-hour quota.
+    """
+    import ratelimit
+    from auth import extract_key, hash_key
+    from config import FREE_BULK_LIMIT, FREE_HOURLY_LIMIT, PRO_BULK_LIMIT, PRO_HOURLY_LIMIT
+    from db import hash_client_ip
+    from validation import get_client_ip
+
+    auth_ctx = authenticate(request, request.url.path)
+    client_ip = get_client_ip(request)
+
+    # Normalize, de-dup preserving order, cap.
+    seen: dict[str, None] = {}
+    for raw in body.technique_ids:
+        if not isinstance(raw, str):
+            continue
+        v = raw.strip().upper()
+        if v and v not in seen:
+            seen[v] = None
+        if len(seen) >= _BULK_ATLAS_MAX_IDS:
+            break
+    ids = list(seen.keys())
+    count = len(ids)
+
+    if count == 0:
+        return {
+            "results": [],
+            "total": 0,
+            "successful": 0,
+            "failed": 0,
+            "partial": False,
+            "summary": "0/0 techniques found",
+        }
+
+    # Tier-aware bulk cap: free=10, pro=50. (Pydantic max_length=50 already
+    # caps the absolute upper bound; this enforces the free-tier ceiling.)
+    bulk_cap = PRO_BULK_LIMIT if auth_ctx["tier"] == "pro" else FREE_BULK_LIMIT
+    if count > bulk_cap:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Too many technique IDs. Limit: {bulk_cap} (your tier: {auth_ctx['tier']})",
+        )
+
+    # Per-id quota consumption (mirror bulk_cve_lookup). The first id is already
+    # accounted for by the middleware that ran on this request; consume count-1.
+    raw_key = extract_key(request)
+    if raw_key:
+        store_key = f"pro:{hash_key(raw_key)}"
+        hourly_limit = PRO_HOURLY_LIMIT
+    else:
+        store_key = f"free:{hash_client_ip(client_ip)}"
+        hourly_limit = FREE_HOURLY_LIMIT
+
+    if count > 1 and not ratelimit.consume_bulk("api", store_key, count - 1, hourly_limit):
+        raise HTTPException(
+            status_code=429,
+            detail=f"Insufficient rate limit quota for {count} technique IDs.",
+        )
+
+    parent_cache: dict = {}
+    results = []
+    successful = 0
+    for tid in ids:
+        if not _TECHNIQUE_RE.match(tid):
+            results.append(
+                {
+                    "technique_id": tid,
+                    "status": "invalid_format",
+                    "technique": None,
+                    "error": (f"Invalid ATLAS technique id format: {tid!r}. Expected 'AML.T####' or 'AML.T####.###'."),
+                }
+            )
+            continue
+        record = get_atlas_technique(tid)
+        if record is None:
+            results.append(
+                {
+                    "technique_id": tid,
+                    "status": "not_found",
+                    "technique": None,
+                    "error": f"{tid} is not in the MITRE ATLAS catalog",
+                }
+            )
+            continue
+        _inherit_tactics_from_parent(record, _cache=parent_cache)
+        record["next_calls"] = _atlas_technique_pivot_hints(record)
+        results.append(
+            {
+                "technique_id": tid,
+                "status": "ok",
+                "technique": record,
+                "error": None,
+            }
+        )
+        successful += 1
+
+    failed = len(results) - successful
+    return {
+        "results": results,
+        "total": len(results),
+        "successful": successful,
+        "failed": failed,
+        "partial": failed > 0,
+        "summary": f"{successful}/{len(results)} techniques found",
+    }
 
 
 # --- Catch-all technique lookup (registered LAST) ---
@@ -385,5 +611,6 @@ def atlas_technique_lookup(
     if record is None:
         raise HTTPException(status_code=404, detail=f"{normalized} is not in the MITRE ATLAS catalog")
 
+    _inherit_tactics_from_parent(record)
     record["next_calls"] = _atlas_technique_pivot_hints(record)
     return record

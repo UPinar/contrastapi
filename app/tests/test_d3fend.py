@@ -315,3 +315,163 @@ def test_d3fend_for_attack_no_truncation_when_few_defenses():
     assert body["truncated"] is False
     assert body["total"] == 1
     assert len(body["defenses"]) == 1
+
+
+# --- v1.20.0 Tier 2 #3: URI slim default + include='full' opt-in ---
+
+
+def test_d3fend_defense_search_slim_default_drops_uri():
+    """Default response omits the deterministic ontology `uri` field on every row."""
+    _seed_d3fend()
+    r = client.get("/v1/d3fend/defenses", params={"keyword": "token"})
+    assert r.status_code == 200
+    rows = r.json()["results"]
+    assert rows, "expected at least one row"
+    for row in rows:
+        assert "uri" not in row, f"slim default must drop uri, got: {row}"
+        # defense_id is the canonical handle and must remain
+        assert row.get("defense_id")
+
+
+def test_d3fend_defense_search_include_full_returns_uri():
+    """include=full restores the `uri` field on every row."""
+    _seed_d3fend()
+    r = client.get("/v1/d3fend/defenses", params={"keyword": "token", "include": "full"})
+    assert r.status_code == 200
+    rows = r.json()["results"]
+    assert rows
+    for row in rows:
+        assert row.get("uri", "").startswith("http://d3fend.mitre.org/")
+
+
+def test_d3fend_defense_search_include_invalid_400():
+    r = client.get("/v1/d3fend/defenses", params={"include": "verbose"})
+    assert r.status_code == 400
+
+
+def test_d3fend_for_attack_slim_default_drops_uri():
+    """Reverse-lookup default response omits `uri` on every defense row."""
+    _seed_d3fend()
+    r = client.get("/v1/d3fend/attack/T1550.001")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["defenses"], "expected at least one defense"
+    for d in body["defenses"]:
+        assert "uri" not in d
+        assert d.get("defense_id")
+
+
+def test_d3fend_for_attack_include_full_returns_uri():
+    _seed_d3fend()
+    r = client.get("/v1/d3fend/attack/T1550.001", params={"include": "full"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["defenses"]
+    for d in body["defenses"]:
+        assert d.get("uri", "").startswith("http://d3fend.mitre.org/")
+
+
+def test_d3fend_for_attack_include_invalid_400():
+    r = client.get("/v1/d3fend/attack/T1059", params={"include": "verbose"})
+    assert r.status_code == 400
+
+
+# --- v1.20.0 Tier 3 #8: exclude_id sibling-search self-skip ---
+
+
+def test_d3fend_defense_search_exclude_id_drops_self():
+    _seed_d3fend()
+    r = client.get(
+        "/v1/d3fend/defenses",
+        params={"artifact": "Access Token", "exclude_id": "TokenBinding"},
+    )
+    assert r.status_code == 200
+    ids = {row["defense_id"] for row in r.json()["results"]}
+    assert "TokenBinding" not in ids
+
+
+def test_d3fend_defense_search_exclude_id_invalid_400():
+    r = client.get("/v1/d3fend/defenses", params={"exclude_id": "with spaces"})
+    assert r.status_code == 400
+
+
+def test_d3fend_for_attack_exclude_id_drops_self():
+    """T1550.001 maps to TokenBinding + FileHashing; exclude_id=TokenBinding leaves FileHashing only."""
+    _seed_d3fend()
+    r = client.get("/v1/d3fend/attack/T1550.001", params={"exclude_id": "TokenBinding"})
+    assert r.status_code == 200
+    body = r.json()
+    ids = {d["defense_id"] for d in body["defenses"]}
+    assert ids == {"FileHashing"}
+    # `total` reflects honest pre-truncation count BUT exclusion happens after the DB
+    # query and before truncation, so the total here is post-exclusion (1 row).
+    assert body["total"] == 1
+
+
+def test_d3fend_defense_lookup_pivot_emits_exclude_id_params():
+    """v1.20.0: pivot generator emits params={'exclude_id': self_id} so chained
+    sibling-search and reverse-lookup hints don't echo the originating defense back."""
+    _seed_d3fend()
+    r = client.get("/v1/d3fend/TokenBinding")
+    body = r.json()
+    hints = body.get("next_calls") or []
+    sibling = next((h for h in hints if h["tool"] == "d3fend_defense_search"), None)
+    assert sibling is not None
+    assert sibling.get("params", {}).get("exclude_id") == "TokenBinding"
+    # Reverse-lookup hints (one per attack_techniques entry) also carry the exclusion.
+    for h in hints:
+        if h["tool"] == "d3fend_defense_for_attack":
+            assert h.get("params", {}).get("exclude_id") == "TokenBinding"
+
+
+# --- v1.20.0 Tier 3 #9: prod-realistic D3FEND fixture parity ---
+
+
+def _seed_d3fend_prod_realistic():
+    """Seed with slugs that exist in the actual production D3FEND catalog
+    (verified during Session 198 prod smoke). Demonstrates that the route
+    handles real upstream slugs identically to the synthetic FileHashing seed."""
+    from db import upsert_d3fend_attack_mappings, upsert_d3fend_defense
+
+    real_slugs = [
+        ("AccessModeling", "Access Modeling", "Model"),
+        ("ContentFiltering", "Content Filtering", "Harden"),
+        ("CertificatePinning", "Certificate Pinning", "Harden"),
+    ]
+    for slug, label, tactic in real_slugs:
+        upsert_d3fend_defense(
+            slug,
+            label=label,
+            uri=f"http://d3fend.mitre.org/ontologies/d3fend.owl#{slug}",
+            parent_label="Realistic Parent",
+            description=None,
+            tactic=tactic,
+            artifact="Network Traffic",
+        )
+    upsert_d3fend_attack_mappings(
+        [
+            {
+                "defense_id": "ContentFiltering",
+                "attack_technique_id": "T1071",
+                "attack_label": "Application Layer Protocol",
+                "attack_tactic": "Command and Control",
+            },
+        ]
+    )
+
+
+def test_d3fend_lookup_with_prod_realistic_slug():
+    _seed_d3fend_prod_realistic()
+    r = client.get("/v1/d3fend/CertificatePinning")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["defense_id"] == "CertificatePinning"
+    assert body["tactic"] == "Harden"
+
+
+def test_d3fend_search_prod_realistic_artifact():
+    _seed_d3fend_prod_realistic()
+    r = client.get("/v1/d3fend/defenses", params={"artifact": "Network Traffic"})
+    assert r.status_code == 200
+    ids = {row["defense_id"] for row in r.json()["results"]}
+    assert {"AccessModeling", "ContentFiltering", "CertificatePinning"}.issubset(ids)

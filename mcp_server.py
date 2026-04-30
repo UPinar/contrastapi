@@ -844,10 +844,28 @@ async def atlas_technique_lookup(
         ),
     ],
 ) -> str:
-    """Look up a MITRE ATLAS technique — the AI/ML adversarial attack catalog. ATLAS catalogues TTPs targeting machine learning systems: prompt injection, model evasion, training data poisoning, model theft, etc. Roughly 80% of ATLAS techniques are AI/ML-specific (no ATT&CK bridge); 20% mirror an enterprise ATT&CK technique via attack_reference_id — use that to pivot to D3FEND defenses (d3fend_defense_for_attack) and CVE search. Use this tool when the user asks about AI/ML threats, LLM red-teaming, or adversarial ML. Returns 404 when the id is not in the synced ATLAS catalog. Free: 100/hr, Pro: 1000/hr. Returns {technique_id, name, description, tactics, maturity (demonstrated|feasible), attack_reference_id, attack_reference_url, subtechnique_of, created_date, modified_date, next_calls}."""
+    """Look up a MITRE ATLAS technique — the AI/ML adversarial attack catalog. ATLAS catalogues TTPs targeting machine learning systems: prompt injection, model evasion, training data poisoning, model theft, etc. Roughly 80% of ATLAS techniques are AI/ML-specific (no ATT&CK bridge); 20% mirror an enterprise ATT&CK technique via attack_reference_id — use that to pivot to D3FEND defenses (d3fend_defense_for_attack) and CVE search. Sub-techniques inherit `tactics` from the parent (inherited_tactics=true flag) when ATLAS upstream leaves them empty. Use this tool when the user asks about AI/ML threats, LLM red-teaming, or adversarial ML; for multiple techniques in one call (e.g. drilling into a case study's techniques_used), prefer bulk_atlas_technique_lookup. Returns 404 when the id is not in the synced ATLAS catalog. Free: 100/hr, Pro: 1000/hr. Returns {technique_id, name, description, tactics, inherited_tactics, maturity (demonstrated|feasible|realized), attack_reference_id, attack_reference_url, subtechnique_of, created_date, modified_date, next_calls}."""
     if err := _validate_atlas_technique(technique_id):
         return err
     return _fmt(await _get(f"/v1/atlas/{technique_id.strip().upper()}"))
+
+
+@mcp.tool(annotations=_RO)
+async def bulk_atlas_technique_lookup(
+    technique_ids: Annotated[
+        list[str],
+        Field(
+            description="List of MITRE ATLAS technique ids in format 'AML.T####' or 'AML.T####.###' (e.g. ['AML.T0051', 'AML.T0043', 'AML.T0000.000']). Up to 50 per call. Case-insensitive; normalized + de-duplicated server-side. Each id counts as 1 request toward the rate limit.",
+            max_length=50,
+        ),
+    ],
+) -> str:
+    """Bulk ATLAS technique lookup — retrieve full records for up to 50 techniques in a single request instead of N separate atlas_technique_lookup calls. Designed as the natural follow-up to atlas_case_study_lookup, whose techniques_used array can be passed directly. Each item is the same shape as atlas_technique_lookup, including parent-tactics inheritance for sub-techniques (inherited_tactics=true flag) and per-item next_calls (D3FEND bridge when attack_reference_id present, sibling-technique search by tactic, parent lookup for sub-techniques). Free: 100/hr (1 per item), Pro: 1000/hr. Returns {results [{technique_id, status (ok|not_found|invalid_format), technique, error}], total, successful, failed, partial, summary}."""
+    if not isinstance(technique_ids, list) or not technique_ids:
+        return "technique_ids must be a non-empty list"
+    if not all(isinstance(tid, str) for tid in technique_ids):
+        return "All technique_ids must be strings"
+    return _fmt(await _post("/v1/atlas/techniques/bulk", {"technique_ids": technique_ids}))
 
 
 @mcp.tool(annotations=_RO)
@@ -879,14 +897,22 @@ async def atlas_technique_search(
             json_schema_extra={"enum": ["", "full"]},
         ),
     ] = "",
+    exclude_id: Annotated[
+        str,
+        Field(
+            description="Optional ATLAS technique id to exclude from results, format 'AML.T####' or 'AML.T####.###'. Useful when chaining from atlas_technique_lookup to fetch siblings without echoing self in the same-tactic search."
+        ),
+    ] = "",
 ) -> str:
-    """Search the MITRE ATLAS catalog of AI/ML attack techniques by keyword, tactic, or maturity. Default response is SLIM (description truncated to 240 chars per row); pass include='full' for the verbose record. Use this to discover techniques matching a threat-model question, e.g. 'what techniques target LLM serving infrastructure?'. Drill into atlas_technique_lookup with any returned technique_id for the full description, ATT&CK bridge, and pivot hints. For broader cross-referencing: when a result has attack_reference_id, that bridges to D3FEND mitigations via d3fend_defense_for_attack. Free: 100/hr, Pro: 1000/hr. Returns {query (echoed filters), total, results [{technique_id, name, description (truncated by default), tactics, maturity, attack_reference_id, subtechnique_of}], next_calls}."""
+    """Search the MITRE ATLAS catalog of AI/ML attack techniques by keyword, tactic, or maturity. Default response is SLIM (description truncated to 240 chars per row); pass include='full' for the verbose record. Pass exclude_id when chaining from atlas_technique_lookup to skip self in sibling-tactic searches. Use this to discover techniques matching a threat-model question, e.g. 'what techniques target LLM serving infrastructure?'. Drill into atlas_technique_lookup with any returned technique_id for the full description, ATT&CK bridge, and pivot hints. For broader cross-referencing: when a result has attack_reference_id, that bridges to D3FEND mitigations via d3fend_defense_for_attack. Free: 100/hr, Pro: 1000/hr. Returns {query (echoed filters), total, results [{technique_id, name, description (truncated by default), tactics, inherited_tactics, maturity, attack_reference_id, subtechnique_of}], next_calls}."""
     if tactic and (err := _validate_atlas_tactic(tactic)):
         return err
     if maturity and maturity not in ("demonstrated", "feasible", "realized"):
         return f"Invalid maturity: {maturity!r}. Use 'demonstrated', 'feasible', or 'realized'."
     if include not in ("", "full"):
         return f"Invalid include: {include!r}. Use '' (slim default) or 'full'."
+    if exclude_id and (err := _validate_atlas_technique(exclude_id)):
+        return err
     params: dict = {"limit": limit}
     if keyword:
         params["keyword"] = keyword
@@ -894,6 +920,8 @@ async def atlas_technique_search(
         params["tactic"] = tactic.upper()
     if maturity:
         params["maturity"] = maturity
+    if exclude_id:
+        params["exclude_id"] = exclude_id.strip().upper()
     if include == "full":
         params["include"] = "full"
     return _fmt(await _get("/v1/atlas/techniques", params=params))
@@ -905,11 +933,23 @@ async def atlas_case_study_lookup(
         str,
         Field(description="MITRE ATLAS case study id, format 'AML.CS####' (e.g. 'AML.CS0000', 'AML.CS0014')."),
     ],
+    include: Annotated[
+        str,
+        Field(
+            description="Detail level. Default (omit/empty) returns slim (description truncated to 240 chars). Pass 'full' for the verbose narrative — case-study descriptions can run 1-3KB.",
+            json_schema_extra={"enum": ["", "full"]},
+        ),
+    ] = "",
 ) -> str:
-    """Look up a MITRE ATLAS case study — a documented real-world AI/ML attack incident. Each case study links a sequence of ATLAS techniques (techniques_used) to the incident. Use this after atlas_technique_search to find which incidents have exercised a given technique. Drill into each id in techniques_used via atlas_technique_lookup for technique-level detail. Returns 404 when the id is not in the synced catalog. Free: 100/hr, Pro: 1000/hr. Returns {case_study_id, name, description, techniques_used, next_calls}."""
+    """Look up a MITRE ATLAS case study — a documented real-world AI/ML attack incident. Each case study links a sequence of ATLAS techniques (techniques_used) to the incident. Default response is SLIM (description truncated to 240 chars); pass include='full' for the verbose narrative. Use this after atlas_technique_search to find which incidents have exercised a given technique. Drill into the full techniques_used array via bulk_atlas_technique_lookup in a single call (next_calls emits exactly that hint). Returns 404 when the id is not in the synced catalog. Free: 100/hr, Pro: 1000/hr. Returns {case_study_id, name, description, techniques_used, next_calls}."""
     if err := _validate_atlas_case_study(case_study_id):
         return err
-    return _fmt(await _get(f"/v1/atlas/case-studies/{case_study_id.strip().upper()}"))
+    if include not in ("", "full"):
+        return f"Invalid include: {include!r}. Use '' (slim default) or 'full'."
+    params: dict = {}
+    if include == "full":
+        params["include"] = "full"
+    return _fmt(await _get(f"/v1/atlas/case-studies/{case_study_id.strip().upper()}", params=params or None))
 
 
 @mcp.tool(annotations=_RO)
@@ -980,9 +1020,7 @@ async def d3fend_defense_search(
         str,
         Field(
             description="Filter by D3FEND tactic. One of: Model, Harden, Detect, Isolate, Deceive, Evict, Restore. Omit for all tactics.",
-            json_schema_extra={
-                "enum": ["", "Model", "Harden", "Detect", "Isolate", "Deceive", "Evict", "Restore"]
-            },
+            json_schema_extra={"enum": ["", "Model", "Harden", "Detect", "Isolate", "Deceive", "Evict", "Restore"]},
         ),
     ] = "",
     artifact: Annotated[
@@ -992,8 +1030,21 @@ async def d3fend_defense_search(
         ),
     ] = "",
     limit: Annotated[int, Field(description="Max results to return. Range: 1-200.", ge=1, le=200)] = 50,
+    include: Annotated[
+        str,
+        Field(
+            description="Detail level. Default (omit/empty) returns slim rows (drops the deterministic ontology `uri` field, ~60 chars/row saved). Pass 'full' to get `uri` back on every row. The slug `defense_id` is always returned and uniquely identifies the defense.",
+            json_schema_extra={"enum": ["", "full"]},
+        ),
+    ] = "",
+    exclude_id: Annotated[
+        str,
+        Field(
+            description="Optional D3FEND defense slug (CamelCase, e.g. 'TokenBinding') to omit from results. Useful when chaining from d3fend_defense_lookup so the originating defense is not echoed back in its own siblings list. Omit when not needed."
+        ),
+    ] = "",
 ) -> str:
-    """Search the MITRE D3FEND catalog of defensive techniques by keyword, tactic, or targeted artifact. Use to discover defenses applicable to a given threat model — e.g. 'what defenses harden access tokens?' (tactic=Harden + artifact='Access Token'). Drill into d3fend_defense_lookup with any returned defense_id for the ATT&CK technique mappings. Free: 100/hr, Pro: 1000/hr. Returns {query, total, results [{defense_id, label, uri, parent_label, tactic, artifact}], next_calls}."""
+    """Search the MITRE D3FEND catalog of defensive techniques by keyword, tactic, or targeted artifact. Default response is SLIM (drops `uri` from each row — saves ~60 chars/row, ~30% on popular drills); pass include='full' for the verbose record. Pass exclude_id when chaining from d3fend_defense_lookup to skip self in sibling-artifact searches. Use to discover defenses applicable to a given threat model — e.g. 'what defenses harden access tokens?' (tactic=Harden + artifact='Access Token'). Drill into d3fend_defense_lookup with any returned defense_id for the ATT&CK technique mappings. Free: 100/hr, Pro: 1000/hr. Returns {query, total, results [{defense_id, label, uri (only when include=full), parent_label, tactic, artifact}], next_calls}."""
     if tactic and tactic not in _D3FEND_TACTICS:
         return f"Invalid tactic: {tactic!r}. Use one of {sorted(_D3FEND_TACTICS)}."
     params: dict = {"limit": limit}
@@ -1003,6 +1054,10 @@ async def d3fend_defense_search(
         params["tactic"] = tactic
     if artifact:
         params["artifact"] = artifact
+    if include == "full":
+        params["include"] = "full"
+    if exclude_id:
+        params["exclude_id"] = exclude_id
     return _fmt(await _get("/v1/d3fend/defenses", params=params))
 
 
@@ -1022,11 +1077,29 @@ async def d3fend_defense_for_attack(
             le=200,
         ),
     ] = 30,  # keep in sync with app/d3fend/routes.py:_FOR_ATTACK_DEFAULT_LIMIT
+    include: Annotated[
+        str,
+        Field(
+            description="Detail level. Default (omit/empty) returns slim rows (drops the deterministic ontology `uri` — popular T-codes with 15+ defenses save ~900 chars). Pass 'full' to get `uri` back on every row.",
+            json_schema_extra={"enum": ["", "full"]},
+        ),
+    ] = "",
+    exclude_id: Annotated[
+        str,
+        Field(
+            description="Optional D3FEND defense slug to omit from the defenses list. Used when chaining from d3fend_defense_lookup so the originating defense is not echoed back in its own 'see also' results."
+        ),
+    ] = "",
 ) -> str:
-    """Reverse lookup: given an ATT&CK T-code, return D3FEND defenses that mitigate it. This is the bridge from offensive intelligence (ATT&CK / ATLAS / CVE) to defensive playbook. Pair with cve_lookup or atlas_technique_lookup output — when those carry an ATT&CK id, call this tool to surface the mitigations. `defenses` is capped at `limit` (default 30) for token efficiency; `total` is the honest pre-truncation count and `truncated=true` flags when the cap was hit. `coverage_by_tactic` always aggregates the FULL set, not the slice. Returns 200 with empty defenses list when the T-code has no D3FEND mapping (the gap is itself a signal). Free: 100/hr, Pro: 1000/hr. Returns {attack_technique_id, total, truncated, defenses [{defense_id, label, uri, parent_label, tactic, artifact, attack_label, attack_tactic}], coverage_by_tactic, next_calls}."""
+    """Reverse lookup: given an ATT&CK T-code, return D3FEND defenses that mitigate it. This is the bridge from offensive intelligence (ATT&CK / ATLAS / CVE) to defensive playbook. Pair with cve_lookup or atlas_technique_lookup output — when those carry an ATT&CK id, call this tool to surface the mitigations. `defenses` is capped at `limit` (default 30) for token efficiency; `total` is the honest pre-truncation count and `truncated=true` flags when the cap was hit. `coverage_by_tactic` always aggregates the FULL set, not the slice. Default response is SLIM (drops `uri` from each row); pass include='full' for the verbose record. Pass exclude_id when drilling from d3fend_defense_lookup to skip self in the 'see also' list. Returns 200 with empty defenses list when the T-code has no D3FEND mapping (the gap is itself a signal). Free: 100/hr, Pro: 1000/hr. Returns {attack_technique_id, total, truncated, defenses [{defense_id, label, uri (only when include=full), parent_label, tactic, artifact, attack_label, attack_tactic}], coverage_by_tactic, next_calls}."""
     if err := _validate_attack_technique(attack_technique_id):
         return err
-    return _fmt(await _get(f"/v1/d3fend/attack/{attack_technique_id.strip().upper()}", params={"limit": limit}))
+    params: dict = {"limit": limit}
+    if include == "full":
+        params["include"] = "full"
+    if exclude_id:
+        params["exclude_id"] = exclude_id
+    return _fmt(await _get(f"/v1/d3fend/attack/{attack_technique_id.strip().upper()}", params=params))
 
 
 @mcp.tool(annotations=_RO)

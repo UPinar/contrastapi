@@ -1286,6 +1286,22 @@ def api_capabilities():
                         "response_keys": ["query", "total", "results", "next_calls"],
                     },
                     {
+                        "name": "bulk_atlas_technique_lookup",
+                        "method": "POST",
+                        "path": "/v1/atlas/techniques/bulk",
+                        "credit_cost": 1,
+                        "blast_radius": "zero",
+                        "description": "Bulk lookup up to 50 ATLAS technique ids in one request (drill case study techniques_used in one call)",
+                        "response_keys": [
+                            "results",
+                            "total",
+                            "successful",
+                            "failed",
+                            "partial",
+                            "summary",
+                        ],
+                    },
+                    {
                         "name": "atlas_case_study_lookup",
                         "method": "GET",
                         "path": "/v1/atlas/case-studies/{case_study_id}",
@@ -1441,7 +1457,7 @@ phone_lookup, username_lookup, wayback_lookup, ip_lookup, asn_lookup, threat_rep
 cve_lookup, cve_search, cve_leading, exploit_lookup, bulk_cve_lookup, kev_detail, cwe_lookup,
 ioc_lookup, hash_lookup, password_check, phishing_check, bulk_ioc_lookup,
 check_secrets, check_injection, check_dependencies, check_headers,
-atlas_technique_lookup, atlas_technique_search, atlas_case_study_lookup, atlas_case_study_search,
+atlas_technique_lookup, atlas_technique_search, bulk_atlas_technique_lookup, atlas_case_study_lookup, atlas_case_study_search,
 d3fend_defense_lookup, d3fend_defense_search, d3fend_defense_for_attack, d3fend_attack_coverage.
 
 ### HTTP Transport (remote)

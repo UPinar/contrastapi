@@ -91,18 +91,19 @@ POST /v1/check/dependencies       Check packages for known CVEs
 ## MITRE ATLAS (AI/ML attack catalog)
 
 ```
-GET /v1/atlas/{technique_id}                Lookup ATLAS technique (AML.T#### or AML.T####.###)
-GET /v1/atlas/techniques?keyword=&tactic=&maturity=    Search techniques (keyword / AML.TA tactic / demonstrated|feasible|realized)
-GET /v1/atlas/case-studies/{case_study_id}  Lookup ATLAS case study (AML.CS####)
-GET /v1/atlas/case-studies?keyword=&technique_id=      Search case studies (keyword / referenced AML.T technique)
+GET  /v1/atlas/{technique_id}                Lookup ATLAS technique (AML.T#### or AML.T####.###); sub-techniques inherit parent tactics (inherited_tactics flag)
+GET  /v1/atlas/techniques?keyword=&tactic=&maturity=&exclude_id=    Search techniques (keyword / AML.TA tactic / demonstrated|feasible|realized / optional self-exclude)
+POST /v1/atlas/techniques/bulk               Bulk lookup up to 50 ATLAS technique ids in one call (drill case-study techniques_used in a single request)
+GET  /v1/atlas/case-studies/{case_study_id}  Lookup ATLAS case study (AML.CS####); ?include=full for verbose narrative
+GET  /v1/atlas/case-studies?keyword=&technique_id=      Search case studies (keyword / referenced AML.T technique)
 ```
 
 ## MITRE D3FEND (defense technique catalog)
 
 ```
-GET  /v1/d3fend/{defense_id}                 Lookup D3FEND defense by slug (e.g. TokenBinding, FileHashing) — returns tactic, artifact, mapped ATT&CK T-codes
-GET  /v1/d3fend/defenses?keyword=&tactic=&artifact=    Search defenses (keyword / 7 D3FEND tactics / targeted artifact)
-GET  /v1/d3fend/attack/{attack_technique_id} Reverse: ATT&CK T-code -> mitigating D3FEND defenses (returns 200 with empty list when no mapping; gap is signal)
+GET  /v1/d3fend/{defense_id}                 Lookup D3FEND defense by slug (e.g. TokenBinding, ContentFiltering) — returns tactic, artifact, mapped ATT&CK T-codes
+GET  /v1/d3fend/defenses?keyword=&tactic=&artifact=&include=&exclude_id=  Search defenses (keyword / 7 D3FEND tactics / targeted artifact / slim-default uri-drop / optional self-exclude)
+GET  /v1/d3fend/attack/{attack_technique_id} Reverse: ATT&CK T-code -> mitigating D3FEND defenses (?include=full for uri; ?exclude_id= for self-skip; returns 200 with empty list when no mapping; gap is signal)
 POST /v1/d3fend/coverage                     Batch coverage breakdown for a list of ATT&CK T-codes (max 500); identifies undefended techniques
 ```
 

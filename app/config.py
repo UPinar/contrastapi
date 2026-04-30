@@ -5,8 +5,8 @@ import os
 import socket
 from pathlib import Path
 
-VERSION = "1.19.3"
-MCP_TOOL_COUNT = 41
+VERSION = "1.20.0"
+MCP_TOOL_COUNT = 42
 ENDPOINT_COUNT = "50+"
 
 # asn_lookup: prefix list cap to keep MCP responses within token budget.

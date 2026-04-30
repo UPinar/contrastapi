@@ -1291,6 +1291,7 @@ class PivotHint(BaseModel):
         "domain_report",
         "atlas_technique_lookup",
         "atlas_technique_search",
+        "bulk_atlas_technique_lookup",
         "atlas_case_study_lookup",
         "atlas_case_study_search",
         "d3fend_defense_lookup",
@@ -1314,6 +1315,14 @@ class PivotHint(BaseModel):
         description=(
             "Short rationale (one sentence) for why this follow-up call adds value, "
             "e.g. 'Federal patch deadline + ransomware association', 'Public exploits / PoC availability'."
+        ),
+    )
+    params: dict[str, str] | None = Field(
+        default=None,
+        description=(
+            "Optional extra kwargs to pass alongside `input`. Used by pivot generators when the next "
+            "call benefits from a secondary parameter, e.g. {'exclude_id': 'AML.T0051'} to skip the "
+            "originating technique from a sibling-tactic search. Omitted when no extra args are needed."
         ),
     )
 
@@ -2619,7 +2628,18 @@ class AtlasTechniqueResponse(BaseModel):
     )
     tactics: list[str] = Field(
         default_factory=list,
-        description="ATLAS tactic ids that this technique belongs to, e.g. ['AML.TA0002'] (Reconnaissance).",
+        description=(
+            "ATLAS tactic ids that this technique belongs to, e.g. ['AML.TA0002'] (Reconnaissance). "
+            "Sub-techniques have empty tactics in upstream ATLAS; we backfill from the parent and "
+            "set inherited_tactics=true when this happens."
+        ),
+    )
+    inherited_tactics: bool | None = Field(
+        default=None,
+        description=(
+            "True when `tactics` was inherited from the parent technique (this is a sub-technique). "
+            "Omitted when tactics are native to the record."
+        ),
     )
     maturity: str | None = Field(
         default=None,
@@ -2668,7 +2688,16 @@ class AtlasTechniqueListItem(BaseModel):
     description: str | None = Field(
         default=None, description="Full description; consider drilling into atlas_technique_lookup for context."
     )
-    tactics: list[str] = Field(default_factory=list, description="ATLAS tactic ids covering this technique.")
+    tactics: list[str] = Field(
+        default_factory=list,
+        description=(
+            "ATLAS tactic ids covering this technique. Sub-techniques inherit from parent; see inherited_tactics."
+        ),
+    )
+    inherited_tactics: bool | None = Field(
+        default=None,
+        description="True when tactics were inherited from the parent technique. Omitted when native.",
+    )
     maturity: str | None = Field(default=None, description="'demonstrated' or 'feasible'.")
     attack_reference_id: str | None = Field(default=None, description="Bridged ATT&CK id or null.")
     subtechnique_of: str | None = Field(default=None, description="Parent technique id when applicable.")
@@ -2686,6 +2715,43 @@ class AtlasTechniqueSearchResponse(BaseModel):
         default=None,
         description="Suggested next call: atlas_technique_lookup on the top hit for full description + bridges.",
     )
+
+
+class BulkAtlasTechniqueItem(BaseModel):
+    """One ATLAS technique outcome inside a bulk_atlas_technique_lookup response."""
+
+    model_config = {"extra": "allow"}
+
+    technique_id: str = Field(description="Echoed input ATLAS technique id (upper-cased + de-duplicated).")
+    status: Literal["ok", "not_found", "invalid_format"] = Field(
+        default="ok",
+        description=(
+            "Per-item outcome. 'ok' = technique populated; 'not_found' = id not in synced ATLAS catalog; "
+            "'invalid_format' = id failed AML.T#### / AML.T####.### regex."
+        ),
+    )
+    technique: AtlasTechniqueResponse | None = Field(
+        default=None,
+        description="Full ATLAS technique record when status='ok'. Same shape as /v1/atlas/{technique_id}.",
+    )
+    error: str | None = Field(
+        default=None,
+        description="Human-readable error message when status is 'not_found' or 'invalid_format'.",
+    )
+
+
+class BulkAtlasTechniqueResponse(BaseModel):
+    model_config = {"extra": "allow"}
+
+    results: list[BulkAtlasTechniqueItem] = Field(
+        default_factory=list,
+        description="Per-technique outcome list, preserving input order after upper-case de-duplication.",
+    )
+    total: int = Field(default=0, description="Total number of unique technique IDs processed (== len(results)).")
+    successful: int = Field(default=0, description="Count of items with status='ok'.")
+    failed: int = Field(default=0, description="Count of items with status='not_found' or 'invalid_format'.")
+    partial: bool = Field(default=False, description="True when at least one item was not_found or invalid_format.")
+    summary: str = Field(default="", description="One-line aggregate summary (e.g. '4/5 techniques found').")
 
 
 class AtlasCaseStudyResponse(BaseModel):
@@ -2778,7 +2844,10 @@ class D3fendDefenseListItem(BaseModel):
 
     defense_id: str = Field(description="D3FEND defense slug.")
     label: str = Field(description="Human-readable defense name.")
-    uri: str = Field(description="Full D3FEND ontology URI.")
+    uri: str | None = Field(
+        default=None,
+        description="Full D3FEND ontology URI. Omitted in slim default; pass include=full to get it back.",
+    )
     parent_label: str | None = Field(default=None, description="Parent defense category.")
     tactic: str = Field(description="D3FEND tactic.")
     artifact: str | None = Field(default=None, description="Targeted digital artifact.")
@@ -2804,7 +2873,10 @@ class D3fendDefenseForAttackItem(BaseModel):
 
     defense_id: str = Field(description="D3FEND defense slug.")
     label: str = Field(description="Human-readable defense name.")
-    uri: str = Field(description="Full D3FEND ontology URI.")
+    uri: str | None = Field(
+        default=None,
+        description="Full D3FEND ontology URI. Omitted in slim default; pass include=full to get it back.",
+    )
     parent_label: str | None = Field(default=None, description="Parent defense category.")
     tactic: str = Field(description="D3FEND tactic — one of Model/Harden/Detect/Isolate/Deceive/Evict/Restore.")
     artifact: str | None = Field(default=None, description="Targeted digital artifact.")
