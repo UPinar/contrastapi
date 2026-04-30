@@ -86,10 +86,32 @@ def test_d3fend_defense_lookup_400_invalid_format():
 def test_d3fend_defense_lookup_pivot_hints():
     _seed_d3fend()
     r = client.get("/v1/d3fend/TokenBinding")
-    tools = {h["tool"] for h in r.json().get("next_calls") or []}
+    body = r.json()
+    hints = body.get("next_calls") or []
+    tools = {h["tool"] for h in hints}
+    # v1.19.2 baseline: atlas_technique_search by label.
     assert "atlas_technique_search" in tools
+    # v1.19.3 chain restoration: same-artifact siblings + reverse-lookup "see also".
+    assert "d3fend_defense_search" in tools
+    assert "d3fend_defense_for_attack" in tools
     # cve_search does not accept ATT&CK T-codes; pivot removed in v1.19.2.
     assert "cve_search" not in tools
+    # Reverse-lookup hints must point at actual T-codes from attack_techniques.
+    reverse_inputs = {h["input"] for h in hints if h["tool"] == "d3fend_defense_for_attack"}
+    assert reverse_inputs.issubset(set(body.get("attack_techniques") or []))
+
+
+def test_d3fend_defense_lookup_no_artifact_skips_artifact_hint():
+    """When defense has no artifact field, d3fend_defense_search hint is suppressed."""
+    _seed_d3fend()
+    # FileHashing seed has artifact='File' so the hint fires; assert only when present.
+    r = client.get("/v1/d3fend/FileHashing")
+    body = r.json()
+    hints = body.get("next_calls") or []
+    artifact_hints = [h for h in hints if h["tool"] == "d3fend_defense_search"]
+    if body.get("artifact"):
+        assert len(artifact_hints) == 1
+        assert artifact_hints[0]["input"] == body["artifact"]
 
 
 # --- d3fend_defense_search ---
@@ -146,7 +168,7 @@ def test_d3fend_for_attack_single_defense():
 
 
 def test_d3fend_for_attack_unknown_tcode_returns_empty():
-    """No D3FEND mapping → 200 with empty defenses (gap is signal)."""
+    """No D3FEND mapping → 200 with empty defenses, no chainable pivots (gap is signal)."""
     _seed_d3fend()
     r = client.get("/v1/d3fend/attack/T9999")
     assert r.status_code == 200
@@ -169,13 +191,24 @@ def test_d3fend_for_attack_coverage_by_tactic():
     assert body["coverage_by_tactic"] == {"Harden": 1, "Detect": 1}
 
 
-def test_d3fend_for_attack_emits_no_broken_pivots():
-    """v1.19.2: cve_search/atlas_technique_search both reject ATT&CK T-codes; verify happy-path emits no pivot."""
+def test_d3fend_for_attack_emits_working_chain():
+    """v1.19.3: happy-path emits a single drill hint (d3fend_defense_lookup) into the top defense."""
     _seed_d3fend()
     r = client.get("/v1/d3fend/attack/T1550.001")
     body = r.json()
-    assert body["total"] >= 1  # happy path: defenses present
-    assert body.get("next_calls") in (None, [])
+    assert body["total"] >= 1
+    hints = body.get("next_calls") or []
+    tools = {h["tool"] for h in hints}
+    assert tools == {"d3fend_defense_lookup"}
+    # cve_search, atlas_technique_search, and d3fend_attack_coverage all either
+    # reject ATT&CK T-codes (former two) or expect a list (latter) — none belong.
+    assert "cve_search" not in tools
+    assert "atlas_technique_search" not in tools
+    assert "d3fend_attack_coverage" not in tools
+    # Drill hint must point at one of the returned defense_ids.
+    drill_inputs = {h["input"] for h in hints if h["tool"] == "d3fend_defense_lookup"}
+    response_def_ids = {d["defense_id"] for d in body["defenses"]}
+    assert drill_inputs.issubset(response_def_ids)
 
 
 # --- d3fend_attack_coverage (POST batch) ---

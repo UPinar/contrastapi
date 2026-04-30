@@ -89,6 +89,15 @@ def _atlas_technique_pivot_hints(record: dict) -> list[PivotHint]:
                 reason="Look up the parent technique for broader context.",
             )
         )
+    tactics = record.get("tactics") or []
+    if tactics:
+        hints.append(
+            PivotHint(
+                tool="atlas_technique_search",
+                input=tactics[0],
+                reason=f"Find sibling techniques in the same ATLAS tactic ({tactics[0]}).",
+            )
+        )
     return hints[:_PIVOT_CAP]
 
 

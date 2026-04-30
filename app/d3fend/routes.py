@@ -63,6 +63,9 @@ def _validate_attack_technique(value: str) -> str:
     return v
 
 
+_REVERSE_LOOKUP_CAP = 3  # top N attack_techniques to reverse-pivot from defense_lookup
+
+
 def _d3fend_defense_pivot_hints(record: dict) -> list[PivotHint]:
     hints: list[PivotHint] = []
     label = record.get("label")
@@ -74,14 +77,41 @@ def _d3fend_defense_pivot_hints(record: dict) -> list[PivotHint]:
                 reason="Find AI/ML attack techniques relevant to this defense.",
             )
         )
+    artifact = record.get("artifact")
+    if artifact:
+        hints.append(
+            PivotHint(
+                tool="d3fend_defense_search",
+                input=artifact,
+                reason=f"Find sibling defenses targeting the same artifact ({artifact!r}).",
+            )
+        )
+    for tcode in (record.get("attack_techniques") or [])[:_REVERSE_LOOKUP_CAP]:
+        hints.append(
+            PivotHint(
+                tool="d3fend_defense_for_attack",
+                input=tcode,
+                reason="See other defenses that also mitigate this ATT&CK technique.",
+            )
+        )
     return hints[:_PIVOT_CAP]
 
 
-def _d3fend_for_attack_pivot_hints(_attack_id: str) -> list[PivotHint]:
-    # No automatic pivots: cve_search/atlas_technique_search both reject ATT&CK
-    # T-codes as input. Caller can use the returned defense_id list to drill
-    # via d3fend_defense_lookup directly.
-    return []
+def _d3fend_for_attack_pivot_hints(_attack_id: str, defenses: list[dict]) -> list[PivotHint]:
+    # Empty defenses → no drill possible; the gap itself is the signal.
+    # d3fend_attack_coverage takes a LIST of T-codes (POST body), not a single
+    # value, and for a single T-code it just echoes the coverage_by_tactic
+    # already in this response — no value-add. Skip it.
+    if not defenses:
+        return []
+    top = defenses[0]
+    return [
+        PivotHint(
+            tool="d3fend_defense_lookup",
+            input=top["defense_id"],
+            reason=f"Drill into the top defense ({top.get('label') or top['defense_id']!r}) for the full record.",
+        )
+    ]
 
 
 def _d3fend_coverage_pivot_hints(undefended: list[str]) -> list[PivotHint]:
@@ -222,7 +252,9 @@ def d3fend_defense_for_attack(
 
     `defenses` is capped at `limit` (default 30) for token efficiency; `total`
     is the honest count and `coverage_by_tactic` aggregates ALL matching
-    defenses, not just the truncated slice.
+    defenses, not just the truncated slice. `next_calls` emits a single
+    drill hint into the top defense via d3fend_defense_lookup; empty defense
+    list emits no pivot (the gap is the signal).
     """
     normalized = _validate_attack_technique(attack_technique_id)
     authenticate(request, request.url.path)
@@ -248,7 +280,7 @@ def d3fend_defense_for_attack(
         "truncated": truncated,
         "defenses": capped_defenses,
         "coverage_by_tactic": coverage_by_tactic,
-        "next_calls": _d3fend_for_attack_pivot_hints(normalized) or None,
+        "next_calls": _d3fend_for_attack_pivot_hints(normalized, capped_defenses),
     }
 
 
