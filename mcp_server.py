@@ -296,6 +296,9 @@ def _http_error_to_app_exception(resp: httpx.Response) -> AppException:
             retry = int(resp.headers.get("retry-after", "60"))
         except (TypeError, ValueError):
             retry = 60
+        # Cap at 1h — agents that respect retry_after literally must not get
+        # tricked into multi-year backoffs by a hostile/buggy upstream header.
+        retry = max(0, min(retry, 3600))
         return RateLimitExceededException(detail, retry_after=retry, upgrade_url=upgrade)
     if status == 401:
         return AuthRequiredException(detail)
@@ -370,13 +373,25 @@ def _require_ip(ip: str) -> str:
 
 
 def _require_public_ip(ip: str) -> str:
-    """Validate IP and reject private/reserved ranges. Raises InvalidIpException."""
+    """Validate IP and reject private/reserved ranges. Raises InvalidIpException.
+
+    Mirrors `app/validation.py:is_private_ip()` SSRF guard: rejects unspecified
+    (0.0.0.0, ::) in addition to private / loopback / reserved / link-local /
+    multicast — keeps MCP-layer validation in lockstep with the HTTP layer.
+    """
     ip = (ip or "").strip()
     try:
         addr = ipaddress.ip_address(ip)
     except ValueError as e:
         raise InvalidIpException(f"Invalid IP address: {ip!r}. Expected IPv4 (1.2.3.4) or IPv6.") from e
-    if addr.is_private or addr.is_loopback or addr.is_reserved or addr.is_link_local or addr.is_multicast:
+    if (
+        addr.is_private
+        or addr.is_loopback
+        or addr.is_reserved
+        or addr.is_link_local
+        or addr.is_multicast
+        or addr.is_unspecified
+    ):
         raise InvalidIpException(f"Private/reserved IP addresses are not allowed: {ip!r}")
     return ip
 
