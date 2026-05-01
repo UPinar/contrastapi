@@ -5,10 +5,10 @@ import os
 import socket
 from pathlib import Path
 
-VERSION = "1.22.1"
+VERSION = "1.22.2"
 MCP_TOOL_COUNT = 42
 ENDPOINT_COUNT = "50+"
-TEST_COUNT = 1592
+TEST_COUNT = 1603
 # Catalog row counts surfaced on landing/playground. Bump after `python -m cve.sync
 # --source atlas` (ATLAS upstream cadence ~6 months) or `--source d3fend` (yearly).
 ATLAS_TECHNIQUE_COUNT = 167

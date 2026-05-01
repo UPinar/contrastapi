@@ -306,7 +306,7 @@ class TestDisposableRoute:
     def test_empty_local_part(self):
         r = client.get("/v1/email/disposable/@tempmail.com")
         assert r.status_code == 400
-        assert "local-part" in r.json()["error"]
+        assert "local-part" in r.json()["error"]["message"]
 
     def test_multiple_at_signs(self):
         """Multiple @ — rsplit takes last part as domain."""
@@ -318,7 +318,7 @@ class TestDisposableRoute:
         long_local = "a" * 255
         r = client.get(f"/v1/email/disposable/{long_local}@example.com")
         assert r.status_code == 400
-        assert "local-part" in r.json()["error"]
+        assert "local-part" in r.json()["error"]["message"]
 
     @patch("domain.routes.get_cached_domain")
     def test_cached_returns_correct_email(self, mock_cache):

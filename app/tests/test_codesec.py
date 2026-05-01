@@ -662,15 +662,15 @@ class TestCheckHeadersValueTruncation:
         r = client.get("/v1/scan/headers/example.com?include=bogus")
         assert r.status_code == 400
         body = r.json()
-        msg = body.get("error") or body.get("detail", "")
-        assert "include must be" in msg
+        assert "include must be" in body["error"]["message"]
+        assert body["error"]["code"] == "invalid_argument"
 
     def test_check_headers_route_include_invalid(self):
         r = client.post("/v1/check/headers?include=bogus", json={"headers": {}})
         assert r.status_code == 400
         body = r.json()
-        msg = body.get("error") or body.get("detail", "")
-        assert "include must be" in msg
+        assert "include must be" in body["error"]["message"]
+        assert body["error"]["code"] == "invalid_argument"
 
 
 class TestCheckHeadersValueAlwaysEmittedWhenPresent:
@@ -855,7 +855,7 @@ class TestDependenciesRoute:
             pkgs = [{"name": f"pkg{i}"} for i in range(11)]
             r = client.post("/v1/check/dependencies", json={"packages": pkgs})
             assert r.status_code == 422
-            assert "Too many packages" in r.json().get("error", "")
+            assert "Too many packages" in r.json()["error"]["message"]
 
     def test_over_pydantic_max_422(self):
         """>50 packages rejected by Pydantic before auth runs."""
@@ -1093,13 +1093,13 @@ class TestCodeSizeLimit:
         oversized = "a" * (500 * 1024 + 1)
         r = client.post("/v1/check/secrets", json={"code": oversized})
         assert r.status_code == 400
-        assert "500KB" in r.json()["error"]
+        assert "500KB" in r.json()["error"]["message"]
 
     def test_injection_rejects_oversized_code(self):
         oversized = "a" * (500 * 1024 + 1)
         r = client.post("/v1/check/injection", json={"code": oversized})
         assert r.status_code == 400
-        assert "500KB" in r.json()["error"]
+        assert "500KB" in r.json()["error"]["message"]
 
     def test_secrets_accepts_under_limit(self):
         code = "x = 1\n" * 100
@@ -1421,9 +1421,7 @@ class TestScanConcurrency:
         try:
             r = client.post("/v1/check/injection", json={"code": 'eval("x")'})
             assert r.status_code == 503
-            body = r.json()
-            msg = body.get("detail", body.get("error", "")).lower()
-            assert "concurrent" in msg
+            assert "concurrent" in r.json()["error"]["message"].lower()
         finally:
             for _ in acquired:
                 _scan_semaphore.release()

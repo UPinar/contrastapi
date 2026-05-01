@@ -407,11 +407,59 @@ def _upgrade_cta() -> dict:
     }
 
 
+# v1.22.2 — HTTP error envelopes mirror MCP `ErrorDetail` shape
+# (`{"error": {"code", "message", "retry_after_seconds", "upgrade_url",
+# "docs_url"}}`). Top-level extension fields (`hint`, `tier`, `limit`,
+# `upgrade`, `field`, `received`, `suggestion`, `support`, `reset_in`) keep
+# their pre-1.22.2 names so existing consumers continue parsing them.
+_STATUS_TO_ERROR_CODE: dict[int, str] = {
+    400: "invalid_argument",
+    401: "auth_required",
+    403: "tier_limit",
+    404: "not_found",
+    405: "invalid_argument",
+    422: "invalid_argument",
+    429: "rate_limit_exceeded",
+    500: "internal_error",
+    502: "upstream_error",
+    504: "upstream_timeout",
+}
+_DOCS_URL = "https://github.com/UPinar/contrastapi/blob/main/docs/ENDPOINTS.md"
+# ErrorDetail.message has max_length=500 (schemas.py); HTTPException.detail is
+# free-form so guard at the wire boundary, mirroring MCP's `mcp_tool_safe`.
+_ERROR_MESSAGE_MAX_LEN = 500
+# Mirror mcp_server.py's retry-after cap: 3600s prevents hostile upstream from
+# pinning a client into multi-hour backoff.
+_RETRY_AFTER_MAX_SECONDS = 3600
+
+
+def _error_envelope(
+    *,
+    code: str,
+    message: str,
+    retry_after_seconds: int | None = None,
+    upgrade_url: str | None = None,
+    docs_url: str | None = None,
+) -> dict:
+    body: dict = {"code": code, "message": message[:_ERROR_MESSAGE_MAX_LEN]}
+    if retry_after_seconds is not None:
+        body["retry_after_seconds"] = max(0, min(retry_after_seconds, _RETRY_AFTER_MAX_SECONDS))
+    if upgrade_url is not None:
+        body["upgrade_url"] = upgrade_url
+    if docs_url is not None:
+        body["docs_url"] = docs_url
+    return body
+
+
 @app.exception_handler(StarletteHTTPException)
 async def api_error_handler(request: Request, exc: StarletteHTTPException):
     """All errors return JSON with helpful hints."""
-    content = {"error": exc.detail}
+    code = _STATUS_TO_ERROR_CODE.get(exc.status_code, "upstream_error")
+    message = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
     path = request.url.path
+
+    error_kwargs: dict = {"code": code, "message": message}
+    content: dict = {}
 
     if exc.status_code == 404:
         for prefix, hint in ENDPOINT_HINTS:
@@ -426,6 +474,7 @@ async def api_error_handler(request: Request, exc: StarletteHTTPException):
 
     if exc.status_code == 429:
         reset_seconds = getattr(request.state, "ratelimit_reset", 0)
+        error_kwargs["retry_after_seconds"] = reset_seconds
         content["error_code"] = "rate_limit"
         content["reset_in"] = reset_seconds
         is_free = extract_key(request) is None
@@ -433,14 +482,17 @@ async def api_error_handler(request: Request, exc: StarletteHTTPException):
             content["tier"] = "free"
             content["limit"] = FREE_HOURLY_LIMIT
             content["upgrade"] = _upgrade_cta()
+            error_kwargs["upgrade_url"] = UPGRADE_URL
         else:
             content["tier"] = "pro"
             content["limit"] = PRO_HOURLY_LIMIT
             content["support"] = "Contact us for higher limits: contact@contrastcyber.com"
+        content["error"] = _error_envelope(**error_kwargs)
         resp = JSONResponse(status_code=429, content=content)
         resp.headers["Retry-After"] = str(reset_seconds)
         return resp
 
+    content["error"] = _error_envelope(**error_kwargs)
     return JSONResponse(status_code=exc.status_code, content=content)
 
 
@@ -450,18 +502,22 @@ async def validation_error_handler(request: Request, exc: RequestValidationError
     loc = err.get("loc", ())
     field = loc[-1] if loc else None
     received = err.get("input")
-    reason = err.get("msg", "Validation failed").removeprefix("Value error, ")
+    reason = err.get("msg", "Validation failed").removeprefix("Value error, ")[:_ERROR_MESSAGE_MAX_LEN]
     path = request.url.path
     suggestion = ENDPOINT_HINT_DEFAULT
     for prefix, hint in ENDPOINT_HINTS:
         if path.startswith(prefix):
             suggestion = hint
             break
-    content = {
-        "error": "Validation failed",
+    content: dict = {
+        "error": _error_envelope(
+            code="invalid_argument",
+            message=reason,
+            docs_url=_DOCS_URL,
+        ),
         "reason": reason,
         "suggestion": suggestion,
-        "docs": "https://github.com/UPinar/contrastapi/blob/main/docs/ENDPOINTS.md",
+        "docs": _DOCS_URL,
     }
     if field:
         content["field"] = field
@@ -469,6 +525,7 @@ async def validation_error_handler(request: Request, exc: RequestValidationError
         content["received"] = received
     if extract_key(request) is None:
         content["upgrade"] = _upgrade_cta()
+        content["error"]["upgrade_url"] = UPGRADE_URL
     return JSONResponse(status_code=422, content=content)
 
 
@@ -481,7 +538,10 @@ async def generic_error_handler(request: Request, exc: Exception):
         _sanitize_path(request.url.path),
         type(exc).__name__,
     )
-    return JSONResponse(status_code=500, content={"error": "Internal server error"})
+    return JSONResponse(
+        status_code=500,
+        content={"error": _error_envelope(code="internal_error", message="Internal server error")},
+    )
 
 
 # --- Landing page ---

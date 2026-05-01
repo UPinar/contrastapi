@@ -1918,7 +1918,7 @@ class TestDomainRoutesBadInput:
     def test_domain_dns_failure_422(self, mock_validate, mock_format):
         r = client.get("/v1/domain/motomax.com.tr")
         assert r.status_code == 422
-        assert "Could not resolve" in r.json()["error"]
+        assert "Could not resolve" in r.json()["error"]["message"]
 
 
 class TestIpEnrichment:

@@ -402,9 +402,7 @@ class TestCveSearch:
     def test_search_bad_date_format(self):
         r = client.get("/v1/cves?published_after=not-a-date")
         assert r.status_code == 400
-        body = r.json()
-        msg = body.get("detail") or body.get("error") or ""
-        assert "YYYY-MM-DD" in msg
+        assert "YYYY-MM-DD" in r.json()["error"]["message"]
 
     def test_search_inverted_range_rejected(self):
         r = client.get("/v1/cves?published_after=2020-01-01&published_before=2015-01-01")
@@ -721,7 +719,7 @@ class TestCveSearch:
     def test_search_include_invalid_value_rejected(self):
         r = client.get("/v1/cves?include=verbose")
         assert r.status_code == 400
-        assert "include must be 'full'" in r.json()["error"]
+        assert "include must be 'full'" in r.json()["error"]["message"]
 
     def test_search_include_empty_treated_as_slim(self):
         _seed_cve(
@@ -1439,7 +1437,7 @@ class TestKevDetailEndpoint:
         _seed_cve(cve_id="CVE-2024-7777", in_kev=0)
         r = client.get("/v1/kev/CVE-2024-7777")
         assert r.status_code == 404
-        assert "KEV" in r.json()["error"]
+        assert "KEV" in r.json()["error"]["message"]
 
     def test_kev_detail_404_unknown_cve(self):
         r = client.get("/v1/kev/CVE-2099-99999")
@@ -1800,7 +1798,7 @@ class TestCweLookupEndpoint:
         """include must be 'full' or omitted; arbitrary strings reject with 400."""
         r = client.get("/v1/cwe/CWE-79?include=verbose")
         assert r.status_code == 400
-        assert "include" in r.json()["error"].lower()
+        assert "include" in r.json()["error"]["message"].lower()
 
 
 # =========== OpenAPI spec ===========
@@ -2326,9 +2324,7 @@ class TestCveLeading:
     def test_leading_invalid_include_value_rejected(self):
         r = client.get("/v1/cve/leading?include=bogus")
         assert r.status_code == 400
-        body = r.json()
-        msg = body.get("error") or body.get("detail", "")
-        assert "include must be" in msg
+        assert "include must be" in r.json()["error"]["message"]
 
     def test_leading_global_hint_present_when_results_exist(self):
         from db import record_cve_source, upsert_cve_if_absent
@@ -4133,9 +4129,8 @@ class TestBulkCveLookup:
         ids = [f"CVE-2024-{i:05d}" for i in range(11)]
         r = client.post("/v1/cves/bulk", json={"cve_ids": ids})
         assert r.status_code == 422
-        body = r.json()
-        detail = body.get("detail") or body.get("error") or ""
-        assert "Limit: 10" in detail or "Too many" in detail, f"Expected limit error message, got: {detail}"
+        msg = r.json()["error"]["message"]
+        assert "Limit: 10" in msg or "Too many" in msg, f"Expected limit error message, got: {msg}"
 
     def test_bulk_cve_over_max_limit(self):
         ids = [f"CVE-2024-{i:05d}" for i in range(51)]

@@ -393,7 +393,7 @@ def test_ioc_ip_private_rejected(client):
     """Private IP as IOC indicator should be rejected with 400."""
     resp = client.get("/v1/ioc/192.168.1.1")
     assert resp.status_code == 400
-    assert "Private" in resp.json().get("detail", resp.json().get("error", ""))
+    assert "Private" in resp.json()["error"]["message"]
 
 
 def test_ioc_ip_loopback_rejected(client):

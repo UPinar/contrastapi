@@ -424,7 +424,7 @@ class TestBulkDomainReport:
         """Free tier should reject more than 10 domains."""
         r = client.post("/v1/domains/bulk", json={"domains": [f"d{i}.com" for i in range(11)]})
         assert r.status_code == 422
-        assert "Limit: 10" in r.json().get("detail", r.json().get("error", ""))
+        assert "Limit: 10" in r.json()["error"]["message"]
 
     @patch("domain.routes.save_cached_domain")
     @patch("domain.routes.get_cached_domain", return_value=None)
@@ -517,9 +517,7 @@ class TestBulkDomainReport:
         try:
             r = client.post("/v1/domains/bulk", json={"domains": ["a.com"]})
             assert r.status_code == 503
-            body = r.json()
-            msg = body.get("detail", body.get("error", ""))
-            assert "concurrent" in msg.lower()
+            assert "concurrent" in r.json()["error"]["message"].lower()
         finally:
             _bulk_semaphore.release()
             _bulk_semaphore.release()
@@ -809,7 +807,8 @@ class TestAsnRoute:
         """Private IP should be rejected with 400."""
         r = client.get("/v1/asn/192.168.1.1")
         assert r.status_code == 400
-        assert "Private" in r.json()["error"] or "private" in r.json()["error"].lower()
+        msg = r.json()["error"]["message"]
+        assert "Private" in msg or "private" in msg.lower()
 
     @patch("domain.routes.save_cached_domain")
     @patch("domain.routes.get_cached_domain", return_value=None)
@@ -1452,8 +1451,7 @@ class TestThreatReport:
     def test_threat_report_private_ip(self):
         r = client.get("/v1/threat-report/192.168.1.1")
         assert r.status_code == 400
-        body = r.json()
-        assert "Private" in (body.get("detail") or body.get("error") or "")
+        assert "Private" in r.json()["error"]["message"]
 
     @patch("domain.routes.authenticate", return_value={"tier": "pro"})
     @patch("domain.routes._ripe_client")
