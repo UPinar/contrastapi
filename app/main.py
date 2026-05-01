@@ -2097,7 +2097,7 @@ def ai_plugin():
             "url": "https://api.contrastcyber.com/openapi.json",
         },
         "logo_url": "https://api.contrastcyber.com/static/logo.png",
-        "contact_email": "info@contrastcyber.com",
+        "contact_email": "contact@contrastcyber.com",
         "legal_info_url": "https://contrastcyber.com",
     }
 

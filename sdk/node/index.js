@@ -112,6 +112,8 @@ function ContrastAPI(options = {}) {
         return post("/v1/domains/bulk", { domains });
       },
       audit: (domain) => get(`/v1/audit/${enc(domain)}`),
+      // v1.4.0: Wayback Machine archive lookup (parity with Python SDK).
+      wayback: (domain) => get(`/v1/archive/${enc(domain)}`),
     },
 
     // --- IP Intelligence ---
@@ -163,26 +165,44 @@ function ContrastAPI(options = {}) {
     atlas: {
       technique: (techniqueId) => get(`/v1/atlas/${enc(techniqueId)}`),
       techniqueSearch: (params = {}) => {
-        const q = new URLSearchParams();
-        if (params.q) q.set("q", params.q);
-        if (params.tactic) q.set("tactic", params.tactic);
-        if (params.maturity) q.set("maturity", params.maturity);
-        if (params.limit) q.set("limit", params.limit);
-        if (params.offset) q.set("offset", params.offset);
-        if (params.include) q.set("include", params.include);
-        const qs = q.toString();
-        return get(`/v1/atlas/techniques${qs ? "?" + qs : ""}`);
+        // v1.4.0: server param is `keyword`; SDK accepts `keyword=` or back-compat `q=`.
+        // Passing both raises (matches Python SDK behaviour).
+        if (params.keyword !== undefined && params.q !== undefined) {
+          throw new Error("Pass only one of `keyword` or `q` (q is a back-compat alias)");
+        }
+        const kw = params.keyword !== undefined ? params.keyword : params.q;
+        const qs = new URLSearchParams();
+        if (kw) qs.set("keyword", kw);
+        if (params.tactic) qs.set("tactic", params.tactic);
+        if (params.maturity) qs.set("maturity", params.maturity);
+        if (params.limit) qs.set("limit", params.limit);
+        if (params.offset) qs.set("offset", params.offset);
+        if (params.include) qs.set("include", params.include);
+        if (params.exclude_id) qs.set("exclude_id", params.exclude_id);
+        const out = qs.toString();
+        return get(`/v1/atlas/techniques${out ? "?" + out : ""}`);
+      },
+      // v1.4.0: bulk technique drill — parity with Python SDK and v1.20.0 server endpoint.
+      bulkTechniqueLookup: (techniqueIds) => {
+        if (!Array.isArray(techniqueIds) || !techniqueIds.every(t => typeof t === "string")) {
+          throw new Error("techniqueIds must be an array of strings");
+        }
+        return post("/v1/atlas/techniques/bulk", { technique_ids: techniqueIds });
       },
       caseStudy: (caseStudyId) => get(`/v1/atlas/case-studies/${enc(caseStudyId)}`),
       caseStudySearch: (params = {}) => {
-        const q = new URLSearchParams();
-        if (params.q) q.set("q", params.q);
-        if (params.target_type) q.set("target_type", params.target_type);
-        if (params.limit) q.set("limit", params.limit);
-        if (params.offset) q.set("offset", params.offset);
-        if (params.include) q.set("include", params.include);
-        const qs = q.toString();
-        return get(`/v1/atlas/case-studies${qs ? "?" + qs : ""}`);
+        if (params.keyword !== undefined && params.q !== undefined) {
+          throw new Error("Pass only one of `keyword` or `q` (q is a back-compat alias)");
+        }
+        const kw = params.keyword !== undefined ? params.keyword : params.q;
+        const qs = new URLSearchParams();
+        if (kw) qs.set("keyword", kw);
+        if (params.target_type) qs.set("target_type", params.target_type);
+        if (params.limit) qs.set("limit", params.limit);
+        if (params.offset) qs.set("offset", params.offset);
+        if (params.include) qs.set("include", params.include);
+        const out = qs.toString();
+        return get(`/v1/atlas/case-studies${out ? "?" + out : ""}`);
       },
     },
 
@@ -190,16 +210,30 @@ function ContrastAPI(options = {}) {
     d3fend: {
       defense: (defenseId) => get(`/v1/d3fend/${enc(defenseId)}`),
       defenseSearch: (params = {}) => {
-        const q = new URLSearchParams();
-        if (params.q) q.set("q", params.q);
-        if (params.tactic) q.set("tactic", params.tactic);
-        if (params.kind) q.set("kind", params.kind);
-        if (params.limit) q.set("limit", params.limit);
-        if (params.offset) q.set("offset", params.offset);
-        const qs = q.toString();
-        return get(`/v1/d3fend/defenses${qs ? "?" + qs : ""}`);
+        // v1.4.0: server param is `keyword`; `kind` removed (server doesn't accept it).
+        if (params.keyword !== undefined && params.q !== undefined) {
+          throw new Error("Pass only one of `keyword` or `q` (q is a back-compat alias)");
+        }
+        const kw = params.keyword !== undefined ? params.keyword : params.q;
+        const qs = new URLSearchParams();
+        if (kw) qs.set("keyword", kw);
+        if (params.tactic) qs.set("tactic", params.tactic);
+        if (params.artifact) qs.set("artifact", params.artifact);
+        if (params.limit) qs.set("limit", params.limit);
+        if (params.offset) qs.set("offset", params.offset);
+        if (params.include) qs.set("include", params.include);
+        if (params.exclude_id) qs.set("exclude_id", params.exclude_id);
+        const out = qs.toString();
+        return get(`/v1/d3fend/defenses${out ? "?" + out : ""}`);
       },
-      defenseForAttack: (attackTechniqueId) => get(`/v1/d3fend/attack/${enc(attackTechniqueId)}`),
+      defenseForAttack: (attackTechniqueId, params = {}) => {
+        // v1.4.0: server accepts include + exclude_id query params.
+        const qs = new URLSearchParams();
+        if (params.include) qs.set("include", params.include);
+        if (params.exclude_id) qs.set("exclude_id", params.exclude_id);
+        const out = qs.toString();
+        return get(`/v1/d3fend/attack/${enc(attackTechniqueId)}${out ? "?" + out : ""}`);
+      },
       coverage: (attackTechniqueIds) => {
         if (!Array.isArray(attackTechniqueIds) || !attackTechniqueIds.every(c => typeof c === "string")) {
           throw new Error("attackTechniqueIds must be an array of strings");
@@ -235,6 +269,11 @@ function ContrastAPI(options = {}) {
     // --- Password ---
     password: {
       check: (sha1Hash) => get(`/v1/password/${enc(sha1Hash)}`),
+    },
+
+    // --- Username (v1.4.0: parity with Python SDK; new endpoint coverage) ---
+    username: {
+      lookup: (username) => get(`/v1/username/${enc(username)}`),
     },
 
     // --- Code Security ---

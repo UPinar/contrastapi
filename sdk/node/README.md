@@ -99,18 +99,27 @@ api.cwe.lookup("CWE-79")                   // CWE detail (description, mitigatio
 ### MITRE ATLAS (AI/ML Attack Catalog)
 ```javascript
 api.atlas.technique("AML.T0043")           // ATLAS technique detail
-api.atlas.techniqueSearch({tactic: "ML Attack Staging", limit: 20})
+api.atlas.techniqueSearch({keyword: "prompt", tactic: "AML.TA0011", limit: 20})
+api.atlas.bulkTechniqueLookup(["AML.T0051", "AML.T0043"])  // v1.4.0: bulk drill
 api.atlas.caseStudy("AML.CS0000")          // Case study detail
-api.atlas.caseStudySearch({q: "GPT", limit: 10})
+api.atlas.caseStudySearch({keyword: "GPT", limit: 10})
 ```
+
+> **v1.4.0 note:** server param renamed from `q` → `keyword`. `q` is still
+> accepted as a back-compat alias on `techniqueSearch` and `caseStudySearch`,
+> but passing both at once throws. Prefer `keyword`.
 
 ### MITRE D3FEND (Defense Technique Catalog)
 ```javascript
-api.d3fend.defense("D3-FA")                // Defense technique detail
-api.d3fend.defenseSearch({tactic: "DETECT", limit: 20})
-api.d3fend.defenseForAttack("T1059")        // Defenses mapped to ATT&CK technique
-api.d3fend.coverage(["T1059", "T1078", "T1190"])  // Batch coverage analysis
+api.d3fend.defense("CertificatePinning")           // Defense technique detail
+api.d3fend.defenseSearch({keyword: "encryption", tactic: "Harden", limit: 20})
+api.d3fend.defenseForAttack("T1059", {include: "full"})  // v1.4.0: include + exclude_id supported
+api.d3fend.coverage(["T1059", "T1078", "T1190"])   // Batch coverage analysis
 ```
+
+> **v1.4.0 note:** `kind` parameter dropped from `defenseSearch` (server doesn't
+> accept it — silently ignored before, removed for clarity). `defenseForAttack`
+> now accepts an optional `{ include, exclude_id }` second argument.
 
 ### Threat Intelligence
 ```javascript
@@ -120,16 +129,22 @@ api.ioc.phishing("https://evil.com/login") // Phishing check
 api.ioc.bulk(["8.8.8.8", "evil.com"])      // Bulk IOC lookup — N credits
 ```
 
-### Email & Phone
+### Email & Phone & Username
 ```javascript
-api.email.mx("example.com")               // MX + SPF/DMARC/DKIM
+api.email.mx("example.com")                // MX + SPF/DMARC/DKIM
 api.email.disposable("user@tempmail.com")  // Disposable email check
 api.phone.lookup("+1234567890")            // Phone validation
+api.username.lookup("octocat")             // v1.4.0: cross-platform username lookup
 ```
 
 ### Password
 ```javascript
-api.password.check("5baa61e4...")           // HIBP breach check (SHA1)
+api.password.check("5baa61e4...")          // HIBP breach check (SHA1)
+```
+
+### Wayback Archive (v1.4.0)
+```javascript
+api.domain.wayback("example.com")          // CDX snapshot history
 ```
 
 ### Code Security
@@ -156,6 +171,21 @@ try {
   console.log(err.status);    // 404
   console.log(err.message);   // "CVE not found"
 }
+```
+
+## TypeScript
+
+Full typings ship in `index.d.ts`. As of v1.4.0 every namespace method declares
+a concrete return type (e.g. `Promise<CveResponse>` instead of `Promise<any>`),
+so IDEs autocomplete on response keys and TypeScript catches typos at compile
+time.
+
+```typescript
+import ContrastAPI, { CveResponse, AuditResponse } from "contrastapi";
+
+const api = ContrastAPI();
+const cve: CveResponse = await api.cve.lookup("CVE-2021-44228");
+console.log(cve.kev?.in_kev);   // boolean | undefined
 ```
 
 ## License
