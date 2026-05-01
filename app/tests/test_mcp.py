@@ -611,31 +611,47 @@ def test_mcp_tool_safe_catches_app_exception(mcp_client):
     assert "Invalid CVE" in sc["error"]["message"]
 
 
-def test_mcp_tool_safe_catches_pydantic_validation_error(mcp_client, monkeypatch):
+def test_mcp_tool_safe_catches_pydantic_validation_error(mcp_client, monkeypatch, caplog):
     """Upstream returns a body that does not match the response schema → ErrorResponse,
-    not a Pydantic stack trace on the wire. Message is fixed-length, no upstream content."""
+    not a Pydantic stack trace on the wire. Message is fixed-length, no upstream content
+    leaks to wire OR to logs (regression guard for the v1.22 round-2 log-injection fix)."""
+    import logging
+
     import main
 
     mod = main._mcp_mod
 
     async def mock_aget(path, params=None):
-        return {"completely": "wrong", "shape": "for cve"}
+        # Distinctive marker keys/values; if any of these reach logs we have a
+        # log-injection regression (raw ValidationError leaked into logger.warning).
+        return {"completely": "wrong-leaky-marker", "shape": "for cve-leaky-marker"}
 
     monkeypatch.setattr(mod, "_aget", mock_aget)
-    r = mcp_client.post(
-        "/mcp/",
-        headers=MCP_HEADERS,
-        json={
-            "jsonrpc": "2.0",
-            "id": 81,
-            "method": "tools/call",
-            "params": {"name": "cve_lookup", "arguments": {"cve_id": "CVE-2024-0001"}},
-        },
-    )
+    with caplog.at_level(logging.WARNING, logger="contrastapi.mcp"):
+        r = mcp_client.post(
+            "/mcp/",
+            headers=MCP_HEADERS,
+            json={
+                "jsonrpc": "2.0",
+                "id": 81,
+                "method": "tools/call",
+                "params": {"name": "cve_lookup", "arguments": {"cve_id": "CVE-2024-0001"}},
+            },
+        )
     assert r.status_code == 200
     sc = r.json()["result"]["structuredContent"]["result"]
     assert sc["error"]["code"] == "upstream_error"
     assert sc["error"]["message"] == "Upstream response validation failed"
+    # Wire response carries NO upstream-controlled keys / values.
+    body_text = r.text
+    assert "leaky-marker" not in body_text, "upstream payload leaked to MCP wire"
+    assert "completely" not in body_text, "upstream key leaked to MCP wire"
+    # Logs carry the tool name only — no Pydantic ValidationError content.
+    full_log = caplog.text
+    assert "leaky-marker" not in full_log, "upstream payload leaked into log line"
+    assert "completely" not in full_log, "upstream key leaked into log line"
+    # Sanity: the warning DID fire and identifies which tool failed.
+    assert any("cve_lookup" in r.message for r in caplog.records), "expected schema-validation warning for cve_lookup"
 
 
 # --- v1.22.0 outputSchema invariant: every tool emits anyOf success+error ---
@@ -717,3 +733,92 @@ def test_bulk_ioc_lookup_rejects_oversized_list(mcp_client):
     sc = r.json()["result"]["structuredContent"]["result"]
     assert sc["error"]["code"] == "invalid_argument"
     assert "max 50" in sc["error"]["message"]
+
+
+def test_bulk_atlas_technique_lookup_rejects_oversized_list(mcp_client):
+    """Parity guard for the third bulk tool. NOTE: bulk_atlas_technique_lookup
+    declares Field(max_length=50) on the technique_ids parameter, so FastMCP
+    rejects oversized input at the schema layer BEFORE the body's defensive
+    `if len(...) > 50` check ever runs — wire shape is `isError: true` with a
+    text-only content block (not the structured ErrorResponse path the
+    cve/ioc bulk variants take). Both layers are valid defense; this test
+    pins the schema-layer rejection so a future drop of max_length wouldn't
+    silently accept oversized input."""
+    r = mcp_client.post(
+        "/mcp/",
+        headers=MCP_HEADERS,
+        json={
+            "jsonrpc": "2.0",
+            "id": 102,
+            "method": "tools/call",
+            "params": {
+                "name": "bulk_atlas_technique_lookup",
+                "arguments": {"technique_ids": ["AML.T0051"] * 51},
+            },
+        },
+    )
+    assert r.status_code == 200
+    result = r.json()["result"]
+    assert result.get("isError") is True, "expected schema-layer rejection (isError=true)"
+    text = result["content"][0]["text"]
+    assert "too_long" in text or "at most 50" in text, f"expected schema-layer cap message, got: {text!r}"
+
+
+# --- v1.22.0 regression guards for review-flagged invariants ---
+
+
+def test_asn_lookup_error_preserves_original_user_input(mcp_client):
+    """Round-1 fix: when neither validator accepts the target, the InvalidArgumentException
+    message echoes the user's literal input (after .strip()) — NOT the partially-normalized
+    form a failed validator would produce. Catches regressions that re-shadow `target` before
+    the exception path runs."""
+    r = mcp_client.post(
+        "/mcp/",
+        headers=MCP_HEADERS,
+        json={
+            "jsonrpc": "2.0",
+            "id": 110,
+            "method": "tools/call",
+            "params": {"name": "asn_lookup", "arguments": {"target": "NOT_A_THING.@@@"}},
+        },
+    )
+    assert r.status_code == 200
+    sc = r.json()["result"]["structuredContent"]["result"]
+    assert sc["error"]["code"] == "invalid_argument"
+    # The literal user input must appear verbatim in the error message.
+    assert "NOT_A_THING.@@@" in sc["error"]["message"], (
+        f"original user input lost in error message: {sc['error']['message']!r}"
+    )
+
+
+def test_error_detail_message_max_length_enforced():
+    """ErrorDetail.message has max_length=500 (Pydantic constraint). Regression guard:
+    if a future patch drops the constraint, an oversized AppException message could
+    bloat the wire / re-trigger ValidationError inside the mcp_tool_safe handler."""
+    import pytest as _pytest
+    from pydantic import ValidationError as _VE
+
+    from app.schemas import ErrorDetail
+
+    # 500-char message OK, 501-char rejected.
+    ErrorDetail(code="upstream_error", message="x" * 500)
+    with _pytest.raises(_VE):
+        ErrorDetail(code="upstream_error", message="x" * 501)
+
+
+def test_pivot_hint_tool_literal_covers_full_catalog():
+    """PivotHint.tool is a Literal[...] of every legitimate MCP tool name. If a new
+    tool is added to mcp_server.py without expanding the Literal, any pivot-hint
+    generator that names that tool will raise ValidationError at runtime, silently
+    breaking next_calls emission. This test fails loudly on drift."""
+    import typing
+
+    from config import MCP_TOOL_COUNT
+
+    from app.schemas import PivotHint
+
+    literal_args = typing.get_args(PivotHint.model_fields["tool"].annotation)
+    assert len(literal_args) == MCP_TOOL_COUNT, (
+        f"PivotHint.tool Literal has {len(literal_args)} entries but config.MCP_TOOL_COUNT "
+        f"is {MCP_TOOL_COUNT}. Run /toolup or expand the Literal in app/schemas.py."
+    )
