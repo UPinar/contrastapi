@@ -789,6 +789,22 @@ footer p { color: var(--text-dim); }
   margin: 0 0 0.6rem;
   line-height: 1.5;
 }
+.setup-card-badge {
+  font-size: 0.62rem;
+  color: var(--text-muted);
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  margin-left: 0.4rem;
+  text-transform: uppercase;
+}
+.setup-card-tag {
+  font-size: 0.6rem;
+  color: var(--accent, #16a34a);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  margin-left: 0.3rem;
+  vertical-align: middle;
+}
 
 /* GitHub CTA */
 .github-cta {

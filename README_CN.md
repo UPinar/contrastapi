@@ -30,7 +30,16 @@
 }
 ```
 
-重启智能体即可。其他客户端（Node SDK、cURL、VS Code）：**[mcp-setup](https://api.contrastcyber.com/mcp-setup)** · **[quickstart](https://api.contrastcyber.com/quickstart)**
+重启智能体即可。其他客户端（Python SDK、Node SDK、cURL、VS Code）：**[mcp-setup](https://api.contrastcyber.com/mcp-setup)** · **[quickstart](https://api.contrastcyber.com/quickstart)**
+
+## SDK
+
+```bash
+pip install contrastapi      # Python 3.10+ — 同步 + 异步、类型化响应、快捷助手
+npm install contrastapi      # Node 14+ — 具体 TypeScript 类型、14 个命名空间
+```
+
+两个 SDK 均覆盖全部 50+ HTTP 端点 / 42 个 MCP 工具（CVE/KEV/CWE、ATLAS、D3FEND、域名、IP、IOC、代码安全等），响应结构与服务端完全一致，并提供与 v1.22.2+ 错误信封对应的类型化异常层级。
 
 ## 立即试用
 

@@ -28,7 +28,16 @@
 }
 ```
 
-Restart your agent. Other clients (Node SDK, cURL, VS Code): **[mcp-setup](https://api.contrastcyber.com/mcp-setup)** · **[quickstart](https://api.contrastcyber.com/quickstart)**
+Restart your agent. Other clients (Python SDK, Node SDK, cURL, VS Code): **[mcp-setup](https://api.contrastcyber.com/mcp-setup)** · **[quickstart](https://api.contrastcyber.com/quickstart)**
+
+## SDKs
+
+```bash
+pip install contrastapi      # Python 3.10+ — sync + async, typed responses, shortcut helpers
+npm install contrastapi      # Node 14+ — concrete TypeScript types, 14 namespaces
+```
+
+Both SDKs cover all 50+ HTTP endpoints / 42 MCP tools (CVE/KEV/CWE, ATLAS, D3FEND, domain, IP, IOC, code-security, etc.) with the same wire-exact response shapes and a typed exception hierarchy mirroring the v1.22.2+ error envelope.
 
 ## Try it
 

@@ -98,12 +98,14 @@
         <a href="/mcp-setup">完整 MCP 指南 →</a>
       </div>
       <div class="setup-card">
-        <h3>2. Node.js SDK</h3>
-        <pre>npm install contrastapi</pre>
-        <pre>const api = require("contrastapi")();
-await api.domain.audit("example.com");
-await api.cve.lookup("CVE-2024-3094");</pre>
-        <a href="https://www.npmjs.com/package/contrastapi" target="_blank" rel="noopener">在 npm 查看 →</a>
+        <h3>2. SDK <span class="setup-card-badge">Python · Node</span></h3>
+        <pre>pip install contrastapi      <span class="setup-card-tag">新</span>
+npm install contrastapi      </pre>
+        <pre>from contrastapi import ContrastAPI
+c = ContrastAPI()
+c.cve.lookup("CVE-2024-3094")
+c.atlas.bulk_technique_lookup(["AML.T0051"])</pre>
+        <a href="https://pypi.org/project/contrastapi/" target="_blank" rel="noopener">PyPI →</a> · <a href="https://www.npmjs.com/package/contrastapi" target="_blank" rel="noopener">npm →</a>
       </div>
       <div class="setup-card">
         <h3>3. cURL</h3>
