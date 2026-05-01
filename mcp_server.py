@@ -18,6 +18,7 @@ HTTP usage: POST https://api.contrastcyber.com/mcp
 """
 
 import contextvars
+import functools
 import ipaddress
 import json
 import logging
@@ -32,13 +33,43 @@ from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import ToolAnnotations
 from pydantic import Field
 
-# Shared annotations — all tools are read-only API lookups
-_RO = ToolAnnotations(
+from app.exceptions import (
+    AppException,
+    AuthRequiredException,
+    InvalidArgumentException,
+    InvalidCveIdException,
+    InvalidDomainException,
+    InvalidHashException,
+    InvalidIpException,
+    NotFoundException,
+    RateLimitExceededException,
+    TierLimitException,
+    UpstreamErrorException,
+    UpstreamTimeoutException,
+)
+from app.schemas import ErrorResponse
+
+# Shared annotations — all tools are read-only API lookups.
+# v1.22.0 splits the legacy `_RO` (open-world default) into closed/open world
+# variants so agents can reason about latency and retry semantics:
+#   _RO_CLOSED_WORLD — local DB lookups (CVE/CWE/ATLAS/D3FEND catalog, codesec
+#                      regex), deterministic, no external network.
+#   _RO_OPEN_WORLD  — live external fetches (DNS/WHOIS/SSL, Shodan/AbuseIPDB,
+#                      crt.sh, etc.), may time out or rate-limit.
+# `_RO` retained as an alias for legacy callsites until Commit C swaps them.
+_RO_CLOSED_WORLD = ToolAnnotations(
+    readOnlyHint=True,
+    destructiveHint=False,
+    idempotentHint=True,
+    openWorldHint=False,
+)
+_RO_OPEN_WORLD = ToolAnnotations(
     readOnlyHint=True,
     destructiveHint=False,
     idempotentHint=True,
     openWorldHint=True,
 )
+_RO = _RO_OPEN_WORLD  # legacy alias — Commit C migrates per-tool
 
 logger = logging.getLogger("contrastapi.mcp")
 
@@ -205,6 +236,238 @@ def _fmt(data: dict | str) -> str:
         detail = json.dumps(detail_data, indent=2, default=str)
         return f"{summary}\n\n{detail}"[:MAX_RESPONSE_CHARS]
     return json.dumps(data, indent=2, default=str)[:MAX_RESPONSE_CHARS]
+
+
+# === v1.22.0 raise-pattern infrastructure ====================================
+#
+# Coexists with the legacy `_get`/`_post`/`_validate_*` helpers above. Commit C
+# swaps every tool body to the new helpers and deletes the legacy ones; until
+# then both surfaces are live so the suite stays green at every commit boundary.
+
+
+def _extract_upstream_message(resp: httpx.Response) -> str:
+    """Pull a useful, length-capped error message out of an upstream JSON body.
+
+    Mirrors the field-priority of legacy `_format_error` but returns a single
+    string suitable for `ErrorDetail.message` (which itself enforces
+    max_length=500). Falls back to bare 'Error <status>' on parse failure.
+    """
+    status = resp.status_code
+    try:
+        body = resp.json()
+    except (ValueError, json.JSONDecodeError):
+        return f"Error {status}"
+    if not isinstance(body, dict):
+        return f"Error {status}"
+    msg = body.get("error") or body.get("detail") or body.get("message")
+    if isinstance(msg, str) and msg:
+        return msg[:500]
+    hint = body.get("hint") or body.get("suggestion") or body.get("upgrade")
+    if isinstance(hint, str) and hint:
+        return hint[:500]
+    if isinstance(hint, dict):
+        inner = hint.get("message")
+        if isinstance(inner, str) and inner:
+            return inner[:500]
+    return f"Error {status}"
+
+
+def _http_error_to_app_exception(resp: httpx.Response) -> AppException:
+    """Map an upstream `httpx.Response` to the appropriate `AppException` subclass.
+
+    Status -> exception:
+      400, 422  -> InvalidArgumentException
+      401       -> AuthRequiredException
+      403       -> TierLimitException (carries upgrade_url)
+      404       -> NotFoundException
+      429       -> RateLimitExceededException (carries retry_after + upgrade_url)
+      504       -> UpstreamTimeoutException
+      anything else -> UpstreamErrorException
+
+    Centralizing the mapping means tool bodies never branch on status code.
+    """
+    status = resp.status_code
+    detail = _extract_upstream_message(resp)
+    upgrade = "https://contrastcyber.com/pricing"
+    if status == 404:
+        return NotFoundException(detail)
+    if status == 429:
+        try:
+            retry = int(resp.headers.get("retry-after", "60"))
+        except (TypeError, ValueError):
+            retry = 60
+        return RateLimitExceededException(detail, retry_after=retry, upgrade_url=upgrade)
+    if status == 401:
+        return AuthRequiredException(detail)
+    if status == 403:
+        return TierLimitException(detail, upgrade_url=upgrade)
+    if status == 504:
+        return UpstreamTimeoutException(detail)
+    if status in (400, 422):
+        return InvalidArgumentException(detail)
+    return UpstreamErrorException(detail)
+
+
+async def _aget(path: str, params: dict | None = None) -> dict:
+    """v1.22 raise-pattern GET. Returns the JSON dict on success; raises an
+    `AppException` subclass on any failure (mapping in `_http_error_to_app_exception`).
+    Network/timeout failures collapse to `UpstreamTimeoutException`.
+    """
+    client_ip = _log_ip()
+    try:
+        resp = await _get_client().get(path, params=params, headers=_headers())
+        resp.raise_for_status()
+        logger.info("mcp_tool GET %s %d %s", _safe_path(path), resp.status_code, client_ip)
+        return resp.json()
+    except httpx.HTTPStatusError as e:
+        logger.info("mcp_tool GET %s %d %s", _safe_path(path), e.response.status_code, client_ip)
+        raise _http_error_to_app_exception(e.response) from e
+    except httpx.HTTPError as e:
+        logger.info("mcp_tool GET %s err %s", _safe_path(path), client_ip)
+        raise UpstreamTimeoutException("Request failed") from e
+
+
+async def _apost(path: str, json_body: dict, params: dict | None = None) -> dict:
+    """v1.22 raise-pattern POST. See `_aget`."""
+    client_ip = _log_ip()
+    try:
+        resp = await _get_client().post(path, json=json_body, params=params, headers=_headers())
+        resp.raise_for_status()
+        logger.info("mcp_tool POST %s %d %s", _safe_path(path), resp.status_code, client_ip)
+        return resp.json()
+    except httpx.HTTPStatusError as e:
+        logger.info("mcp_tool POST %s %d %s", _safe_path(path), e.response.status_code, client_ip)
+        raise _http_error_to_app_exception(e.response) from e
+    except httpx.HTTPError as e:
+        logger.info("mcp_tool POST %s err %s", _safe_path(path), client_ip)
+        raise UpstreamTimeoutException("Request failed") from e
+
+
+# --- Raise-pattern input validators (v1.22.0) ---
+#
+# Mirror the legacy `_validate_*` helpers above but raise an
+# `InvalidArgumentException` subclass on bad input and return the normalized
+# value on success. Tool bodies in Commit C use these directly, so the body
+# can be a single line: `return CveResponse(**await _aget(f"/v1/cve/{_require_cve(cve_id)}"))`.
+
+
+def _require_domain(domain: str) -> str:
+    """Validate + normalize. Raises InvalidDomainException on bad input."""
+    domain = (domain or "").strip().lower().rstrip(".")
+    if not _DOMAIN_RE.match(domain):
+        raise InvalidDomainException(f"Invalid domain format: {domain!r}. Expected format: example.com")
+    return domain
+
+
+def _require_ip(ip: str) -> str:
+    """Validate any IP (public or private). Raises InvalidIpException on bad input."""
+    ip = (ip or "").strip()
+    try:
+        ipaddress.ip_address(ip)
+    except ValueError as e:
+        raise InvalidIpException(f"Invalid IP address: {ip!r}. Expected IPv4 (1.2.3.4) or IPv6.") from e
+    return ip
+
+
+def _require_public_ip(ip: str) -> str:
+    """Validate IP and reject private/reserved ranges. Raises InvalidIpException."""
+    ip = (ip or "").strip()
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError as e:
+        raise InvalidIpException(f"Invalid IP address: {ip!r}. Expected IPv4 (1.2.3.4) or IPv6.") from e
+    if addr.is_private or addr.is_loopback or addr.is_reserved or addr.is_link_local or addr.is_multicast:
+        raise InvalidIpException(f"Private/reserved IP addresses are not allowed: {ip!r}")
+    return ip
+
+
+def _require_cve(cve_id: str) -> str:
+    cve_id = (cve_id or "").strip()
+    if not _CVE_RE.match(cve_id):
+        raise InvalidCveIdException(f"Invalid CVE ID: {cve_id!r}. Expected format: CVE-2024-1234")
+    return cve_id.upper()
+
+
+def _require_cwe(cwe_id: str) -> str:
+    cwe_id = (cwe_id or "").strip()
+    if not _CWE_RE.match(cwe_id):
+        raise InvalidArgumentException(f"Invalid CWE ID: {cwe_id!r}. Expected format: CWE-79 (or just '79')")
+    return cwe_id
+
+
+def _require_hash(file_hash: str) -> str:
+    file_hash = (file_hash or "").strip()
+    if not _HASH_RE.match(file_hash):
+        raise InvalidHashException(
+            f"Invalid hash: {file_hash!r}. Expected MD5 (32 hex), SHA-1 (40 hex), or SHA-256 (64 hex)."
+        )
+    return file_hash.lower()
+
+
+def _require_atlas_technique(value: str) -> str:
+    value = (value or "").strip()
+    if not _ATLAS_TECHNIQUE_RE.match(value):
+        raise InvalidArgumentException(
+            f"Invalid ATLAS technique id: {value!r}. Expected 'AML.T####' or 'AML.T####.###' (e.g. AML.T0000)"
+        )
+    return value.upper()
+
+
+def _require_atlas_case_study(value: str) -> str:
+    value = (value or "").strip()
+    if not _ATLAS_CASE_STUDY_RE.match(value):
+        raise InvalidArgumentException(
+            f"Invalid ATLAS case study id: {value!r}. Expected 'AML.CS####' (e.g. AML.CS0000)"
+        )
+    return value.upper()
+
+
+def _require_atlas_tactic(value: str) -> str:
+    value = (value or "").strip()
+    if not _ATLAS_TACTIC_RE.match(value):
+        raise InvalidArgumentException(f"Invalid ATLAS tactic id: {value!r}. Expected 'AML.TA####' (e.g. AML.TA0002)")
+    return value.upper()
+
+
+def _require_d3fend_defense(value: str) -> str:
+    value = (value or "").strip()
+    if not _D3FEND_DEFENSE_RE.match(value):
+        raise InvalidArgumentException(
+            f"Invalid D3FEND defense_id: {value!r}. Expected CamelCase slug (e.g. 'TokenBinding')"
+        )
+    return value
+
+
+def _require_attack_technique(value: str) -> str:
+    value = (value or "").strip()
+    if not _ATTACK_TECHNIQUE_RE.match(value):
+        raise InvalidArgumentException(
+            f"Invalid ATT&CK technique id: {value!r}. Expected 'T####' or 'T####.###' (e.g. T1059, T1550.001)"
+        )
+    return value.upper()
+
+
+def mcp_tool_safe(*, annotations: ToolAnnotations):
+    """v1.22.0 tool decorator. Wraps `@mcp.tool` so AppException raised anywhere
+    in the body is caught and returned as a structured `ErrorResponse`. Enables
+    single-line tool bodies in Commit C.
+
+    Sets `structured_output=True` so FastMCP emits both `content[0].text` (JSON)
+    and `structuredContent` (dict) on success — matching MCP 1.0 spec for tools
+    whose output is a Pydantic model union.
+    """
+
+    def decorator(fn):
+        @functools.wraps(fn)
+        async def wrapped(*args, **kwargs):
+            try:
+                return await fn(*args, **kwargs)
+            except AppException as e:
+                return ErrorResponse(error=e.to_error_detail())
+
+        return mcp.tool(annotations=annotations, structured_output=True)(wrapped)
+
+    return decorator
 
 
 # --- Input validation ---
