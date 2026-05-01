@@ -822,3 +822,53 @@ def test_pivot_hint_tool_literal_covers_full_catalog():
         f"PivotHint.tool Literal has {len(literal_args)} entries but config.MCP_TOOL_COUNT "
         f"is {MCP_TOOL_COUNT}. Run /toolup or expand the Literal in app/schemas.py."
     )
+
+
+def test_http_error_to_app_exception_caps_retry_after_at_3600():
+    """B-hotfix invariant: a hostile/buggy upstream returning Retry-After: 999999999999
+    must NOT propagate verbatim into ErrorDetail.retry_after_seconds (would trick
+    agents that respect the value literally into multi-year backoffs). Cap is 3600s
+    (1h); negatives clamp to 0. In-range values pass through."""
+    import httpx
+
+    from app.exceptions import RateLimitExceededException
+    from mcp_server import _http_error_to_app_exception
+
+    def mock_resp(status, headers=None):
+        req = httpx.Request("GET", "http://x")
+        return httpx.Response(status, json={"error": "rate limited"}, headers=headers or {}, request=req)
+
+    cases = [
+        ({"retry-after": "999999999999"}, 3600),  # absurd upstream → capped
+        ({"retry-after": "120"}, 120),  # in range → unchanged
+        ({"retry-after": "-50"}, 0),  # negative → clamped
+        ({"retry-after": "garbage"}, 60),  # parse failure → default 60
+        ({}, 60),  # header absent → default 60
+    ]
+    for headers, expected in cases:
+        exc = _http_error_to_app_exception(mock_resp(429, headers))
+        assert isinstance(exc, RateLimitExceededException), f"headers={headers!r} unexpected type"
+        assert exc.retry_after == expected, f"headers={headers!r} expected {expected} got {exc.retry_after}"
+
+
+def test_require_public_ip_rejects_unspecified_addresses():
+    """B-hotfix SSRF guard parity: `_require_public_ip` must reject 0.0.0.0 and ::
+    (unspecified) in addition to private/loopback/reserved/link-local/multicast.
+    Used by threat_report which feeds the IP into Shodan + AbuseIPDB; an unspecified
+    IP routes to the local interface in many backends — open SSRF if accepted."""
+    from app.exceptions import InvalidIpException
+    from mcp_server import _require_public_ip
+
+    # Reject — unspecified
+    for ip in ("0.0.0.0", "::"):
+        with pytest.raises(InvalidIpException):
+            _require_public_ip(ip)
+
+    # Reject — already-covered guards (sanity that we didn't break them)
+    for ip in ("127.0.0.1", "10.0.0.1", "192.168.1.1", "169.254.1.1"):
+        with pytest.raises(InvalidIpException):
+            _require_public_ip(ip)
+
+    # Accept — global routables
+    for ip in ("8.8.8.8", "1.1.1.1", "2606:4700::1111"):
+        assert _require_public_ip(ip) == ip
