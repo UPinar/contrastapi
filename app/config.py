@@ -5,7 +5,7 @@ import os
 import socket
 from pathlib import Path
 
-VERSION = "1.22.0"
+VERSION = "1.22.1"
 MCP_TOOL_COUNT = 42
 ENDPOINT_COUNT = "50+"
 TEST_COUNT = 1592

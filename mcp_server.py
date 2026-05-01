@@ -23,17 +23,29 @@ import ipaddress
 import json
 import logging
 import os
+import pathlib
 import re
+import sys
 from typing import Annotated
 from urllib.parse import quote
 
-import httpx
-from mcp.server.fastmcp import FastMCP
-from mcp.server.transport_security import TransportSecuritySettings
-from mcp.types import ToolAnnotations
-from pydantic import Field, ValidationError
+# v1.22.1 — when main.py loads this file via importlib.util.spec_from_file_location,
+# the spec loader does NOT add the parent directory to sys.path the way `python
+# mcp_server.py` would. Without this, `from app.exceptions import ...` below
+# raises ModuleNotFoundError, main.py silently catches it, and the MCP route is
+# never mounted (production /mcp/ → 404). Adding the repo root explicitly makes
+# the `app.*` package importable in BOTH execution contexts (pytest + spec load).
+_REPO_ROOT = str(pathlib.Path(__file__).parent)
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
 
-from app.exceptions import (
+import httpx  # noqa: E402  (must follow sys.path patch above)
+from mcp.server.fastmcp import FastMCP  # noqa: E402
+from mcp.server.transport_security import TransportSecuritySettings  # noqa: E402
+from mcp.types import ToolAnnotations  # noqa: E402
+from pydantic import Field, ValidationError  # noqa: E402
+
+from app.exceptions import (  # noqa: E402
     AppException,
     AuthRequiredException,
     InvalidArgumentException,
@@ -47,7 +59,7 @@ from app.exceptions import (
     UpstreamErrorException,
     UpstreamTimeoutException,
 )
-from app.schemas import (
+from app.schemas import (  # noqa: E402
     AsnResponse,
     AtlasCaseStudyResponse,
     AtlasCaseStudySearchResponse,
