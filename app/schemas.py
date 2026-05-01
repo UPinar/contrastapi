@@ -353,10 +353,16 @@ class DomainReportResponse(BaseModel):
         description="Composite risk scoring (0-100) with per-factor breakdown — drives the top-level risk_score alias.",
     )
 
-    @computed_field
+    @computed_field(
+        description=(
+            "DEPRECATED — use `risk.score` instead. Top-level alias for risk.score, "
+            "retained for backward compatibility. Will be removed in v2.0.0 "
+            "(Sunset: 2026-09-01). Routes that emit DomainReportResponse return "
+            "RFC 8594 `Deprecation: true` + `Sunset` headers."
+        )
+    )
     @property
     def risk_score(self) -> int | None:
-        """Top-level alias for risk.score — backward-compat with old docstring consumers."""
         if self.risk is None:
             return None
         s = self.risk.score if hasattr(self.risk, "score") else None

@@ -38,6 +38,37 @@ def test_tool_selection_guide_file_exists():
     assert "v1.21.0" in text
 
 
+def test_landing_renders_dynamic_test_count():
+    """v1.21.1: landing pulls TEST_COUNT from config.py (no hardcoded 1544)."""
+    from config import TEST_COUNT
+
+    r = client.get("/")
+    assert r.status_code == 200
+    assert f"<strong>{TEST_COUNT}</strong> tests passing" in r.text
+
+
+def test_landing_renders_dynamic_catalog_counts():
+    """v1.21.1: landing pulls ATLAS/D3FEND counts from config.py (no hardcoded 167/57/149)."""
+    from config import ATLAS_CASE_STUDY_COUNT, ATLAS_TECHNIQUE_COUNT, D3FEND_DEFENSE_COUNT
+
+    r = client.get("/")
+    assert r.status_code == 200
+    assert f"Search ATLAS techniques ({ATLAS_TECHNIQUE_COUNT} entries)" in r.text
+    assert f"Search ATLAS case studies ({ATLAS_CASE_STUDY_COUNT} entries)" in r.text
+    assert f"Search D3FEND defenses ({D3FEND_DEFENSE_COUNT} entries" in r.text
+
+
+def test_playground_renders_dynamic_catalog_counts():
+    """v1.21.1: playground pulls catalog counts from config.py."""
+    from config import ATLAS_CASE_STUDY_COUNT, ATLAS_TECHNIQUE_COUNT, D3FEND_DEFENSE_COUNT
+
+    r = client.get("/playground")
+    assert r.status_code == 200
+    assert f"({ATLAS_TECHNIQUE_COUNT} techniques)" in r.text
+    assert f"({ATLAS_CASE_STUDY_COUNT} entries)" in r.text
+    assert f"{D3FEND_DEFENSE_COUNT} defenses" in r.text
+
+
 # --- Status endpoint ---
 
 

@@ -190,53 +190,21 @@ async def _post(path: str, json_body: dict, params: dict | None = None) -> dict 
 MAX_RESPONSE_CHARS = 8000
 
 
-def _pro_only_hint(data: dict) -> str | None:
-    """Detect pro_only enrichment stubs and return a user-facing upgrade hint.
-
-    Fires when free-tier tool responses include the tier-gated stub for
-    AbuseIPDB / Shodan enrichment. Handles two response shapes:
-    - nested: data["reputation"]["abuseipdb"|"shodan"].status
-    - flat (threat_report): data["abuseipdb"|"shodan"].status
-    """
-    if not isinstance(data, dict):
-        return None
-    gated = []
-    rep = data.get("reputation")
-    sources = [rep] if isinstance(rep, dict) else []
-    sources.append(data)
-    seen = set()
-    for src in sources:
-        for field in ("abuseipdb", "shodan"):
-            if field in seen:
-                continue
-            val = src.get(field)
-            if isinstance(val, dict) and val.get("status") == "pro_only":
-                gated.append(field)
-                seen.add(field)
-    if not gated:
-        return None
-    names = " + ".join(f.title() if f != "abuseipdb" else "AbuseIPDB" for f in gated)
-    return (
-        f"⚠️  {names} enrichment requires a Pro API key. "
-        f"Set CONTRASTAPI_API_KEY=cc_... (stdio) or Authorization: Bearer cc_... header (HTTP/SSE). "
-        f"Get a key at https://contrastcyber.com/pricing ($7/mo) — or email contact@contrastcyber.com."
-    )
-
-
 def _fmt(data: dict | str) -> str:
+    # Pro-tier upsell is now surfaced solely via the structured
+    # `reputation.upgrade.{pro_only_sources, upgrade_url, reason}` field on Free-tier
+    # responses (see schemas.ReputationUpgradeHint). Removed the plain-text suffix
+    # banner in v1.21.1 — agents that parse JSON natively get the same signal
+    # without prefix noise; agents that need a human-readable hint can render the
+    # structured field themselves.
     if isinstance(data, str):
         return data
-    hint = _pro_only_hint(data) if isinstance(data, dict) else None
-    suffix = f"\n\n{hint}" if hint else ""
-    budget = MAX_RESPONSE_CHARS - len(suffix)
     summary = data.get("summary", "") if isinstance(data, dict) else ""
     if summary:
         detail_data = {k: v for k, v in data.items() if k != "summary"}
         detail = json.dumps(detail_data, indent=2, default=str)
-        body = f"{summary}\n\n{detail}"[:budget]
-    else:
-        body = json.dumps(data, indent=2, default=str)[:budget]
-    return body + suffix
+        return f"{summary}\n\n{detail}"[:MAX_RESPONSE_CHARS]
+    return json.dumps(data, indent=2, default=str)[:MAX_RESPONSE_CHARS]
 
 
 # --- Input validation ---

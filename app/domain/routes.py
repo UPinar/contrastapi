@@ -20,7 +20,7 @@ class AsnUpstreamError(Exception):
         super().__init__(f"{upstream}: {reason}")
 
 
-from fastapi import APIRouter, HTTPException, Path, Query, Request
+from fastapi import APIRouter, HTTPException, Path, Query, Request, Response
 
 _reputation_pool = ThreadPoolExecutor(max_workers=3)
 _aia_pool = ThreadPoolExecutor(max_workers=2)
@@ -576,6 +576,7 @@ def _domain_pivot_hints(report: dict, domain: str) -> list[PivotHint]:
 def domain_report(
     domain: DomainPath,
     request: Request,
+    response: Response,
     lite: Annotated[
         bool,
         Query(
@@ -600,6 +601,11 @@ def domain_report(
     ] = False,
 ):
     """Full domain intelligence report with DNS, WHOIS, SSL, subdomains, WAF. Use ?lite=true for fast subset."""
+    # RFC 8594 — top-level risk_score alias is deprecated; clients should read risk.score instead.
+    # Field still emitted for back-compat through v1.x; will be removed in v2.0.0.
+    response.headers["Deprecation"] = "true"
+    response.headers["Sunset"] = "Wed, 01 Sep 2026 00:00:00 GMT"
+    response.headers["Link"] = '<https://github.com/UPinar/contrastapi/releases>; rel="deprecation"'
     domain, resolved_ip, auth_ctx = _validate_and_auth(request, domain)
 
     # Separate cache keys for lite vs full, segregated by tier to prevent

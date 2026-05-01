@@ -486,6 +486,30 @@ class TestDomainRoutes:
         assert isinstance(data["risk_score"], int)
         assert data["risk_score"] == data["risk"]["score"]
 
+    @patch("domain.routes.full_domain_report", return_value=MOCK_FULL_REPORT)
+    @patch("domain.routes.validate_domain", return_value="93.184.216.34")
+    @patch("domain.routes.get_cached_domain_with_age", return_value=None)
+    def test_domain_report_emits_rfc8594_deprecation_headers(self, mock_cache, mock_validate, mock_report):
+        """v1.21.1: top-level risk_score alias is deprecated; route emits Deprecation/Sunset."""
+        r = client.get("/v1/domain/example.com")
+        assert r.status_code == 200
+        assert r.headers.get("Deprecation") == "true"
+        assert r.headers.get("Sunset") == "Wed, 01 Sep 2026 00:00:00 GMT"
+        assert "deprecation" in r.headers.get("Link", "")
+        # Link must resolve — pointing to GitHub releases (which lists v1.21.1 deprecation note)
+        assert "github.com/UPinar/contrastapi/releases" in r.headers.get("Link", "")
+
+    @patch("domain.routes.full_domain_report")
+    @patch("domain.routes.validate_domain", return_value="93.184.216.34")
+    @patch("domain.routes.get_cached_domain_with_age", return_value=(MOCK_FULL_REPORT, 1800))
+    def test_domain_report_emits_deprecation_headers_on_cache_hit(self, mock_cache, mock_validate, mock_report):
+        """v1.21.1: deprecation headers must fire on BOTH cache-miss AND cache-hit paths."""
+        r = client.get("/v1/domain/example.com")
+        assert r.status_code == 200
+        assert mock_report.call_count == 0  # confirms cache-hit path
+        assert r.headers.get("Deprecation") == "true"
+        assert r.headers.get("Sunset") == "Wed, 01 Sep 2026 00:00:00 GMT"
+
     @patch("domain.routes.full_domain_report")
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     @patch("domain.routes.get_cached_domain_with_age", return_value=(MOCK_FULL_REPORT, 3600))

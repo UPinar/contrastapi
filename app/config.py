@@ -5,9 +5,15 @@ import os
 import socket
 from pathlib import Path
 
-VERSION = "1.21.0"
+VERSION = "1.21.1"
 MCP_TOOL_COUNT = 42
 ENDPOINT_COUNT = "50+"
+TEST_COUNT = 1587
+# Catalog row counts surfaced on landing/playground. Bump after `python -m cve.sync
+# --source atlas` (ATLAS upstream cadence ~6 months) or `--source d3fend` (yearly).
+ATLAS_TECHNIQUE_COUNT = 167
+ATLAS_CASE_STUDY_COUNT = 57
+D3FEND_DEFENSE_COUNT = 149
 
 # asn_lookup: prefix list cap to keep MCP responses within token budget.
 # Cloudflare AS13335 announces 2500+ IPv4 prefixes; full list blows past

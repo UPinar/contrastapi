@@ -26,11 +26,15 @@ from pathlib import Path
 
 from auth import extract_key
 from config import (
+    ATLAS_CASE_STUDY_COUNT,
+    ATLAS_TECHNIQUE_COUNT,
     BASE_DIR,
+    D3FEND_DEFENSE_COUNT,
     ENDPOINT_COUNT,
     FREE_HOURLY_LIMIT,
     MCP_TOOL_COUNT,
     PRO_HOURLY_LIMIT,
+    TEST_COUNT,
     UPGRADE_URL,
     VERSION,
 )
@@ -487,7 +491,17 @@ async def generic_error_handler(request: Request, exc: Exception):
 def landing_page(request: Request):
     total = get_total_requests()
     return templates.TemplateResponse(
-        request, "index.html", {"total_requests": total, "tool_count": MCP_TOOL_COUNT, "endpoint_count": ENDPOINT_COUNT}
+        request,
+        "index.html",
+        {
+            "total_requests": total,
+            "tool_count": MCP_TOOL_COUNT,
+            "endpoint_count": ENDPOINT_COUNT,
+            "test_count": TEST_COUNT,
+            "atlas_technique_count": ATLAS_TECHNIQUE_COUNT,
+            "atlas_case_study_count": ATLAS_CASE_STUDY_COUNT,
+            "d3fend_defense_count": D3FEND_DEFENSE_COUNT,
+        },
     )
 
 
@@ -498,7 +512,15 @@ def landing_page_cn(request: Request):
     return templates.TemplateResponse(
         request,
         "index_cn.html",
-        {"total_requests": total, "tool_count": MCP_TOOL_COUNT, "endpoint_count": ENDPOINT_COUNT},
+        {
+            "total_requests": total,
+            "tool_count": MCP_TOOL_COUNT,
+            "endpoint_count": ENDPOINT_COUNT,
+            "test_count": TEST_COUNT,
+            "atlas_technique_count": ATLAS_TECHNIQUE_COUNT,
+            "atlas_case_study_count": ATLAS_CASE_STUDY_COUNT,
+            "d3fend_defense_count": D3FEND_DEFENSE_COUNT,
+        },
     )
 
 
@@ -579,7 +601,15 @@ def mcp_setup(request: Request):
 
 @app.get("/playground", response_class=HTMLResponse, include_in_schema=False)
 def playground(request: Request):
-    return templates.TemplateResponse(request, "playground.html")
+    return templates.TemplateResponse(
+        request,
+        "playground.html",
+        {
+            "atlas_technique_count": ATLAS_TECHNIQUE_COUNT,
+            "atlas_case_study_count": ATLAS_CASE_STUDY_COUNT,
+            "d3fend_defense_count": D3FEND_DEFENSE_COUNT,
+        },
+    )
 
 
 @app.get("/docs", include_in_schema=False)
