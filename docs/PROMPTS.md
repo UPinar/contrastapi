@@ -107,3 +107,33 @@ Agents can chain tools naturally. Example single-prompt workflows:
 The `summary` field in every response lets the agent reason about results without parsing nested JSON — cuts token usage and improves chaining quality.
 
 The `next_calls` field in most responses surfaces conditional pivot hints (e.g. "chain `kev_detail` because kev.in_kev=true") so agents don't have to guess the next step.
+
+## /contrast-triage (v1.23.0)
+
+The `contrast_triage` Prompt is a slash-command shortcut that picks a tool chain by perspective (red / blue) and auto-detects the target type (CVE / ATLAS / ATT&CK / CWE / hash / IP / domain). Use it to skip the planning step on common triage workflows.
+
+- `/contrast-triage 8.8.8.8 blue` — defensive IP triage (threat_report → ioc_lookup → ip_lookup)
+- `/contrast-triage example.com red` — offensive domain recon (subdomain_enum → domain_report → tech_fingerprint → ssl_check → wayback_lookup)
+- `/contrast-triage CVE-2021-44228 red` — exploit-availability check (cve_lookup → exploit_lookup → kev_detail → cve_search)
+- `/contrast-triage CVE-2021-44228 blue` — patch-urgency triage (cve_lookup → kev_detail → cwe_lookup → d3fend_defense_for_attack)
+- `/contrast-triage AML.T0051 red` — ATLAS technique recon (atlas_technique_lookup → atlas_case_study_search → cve_search)
+- `/contrast-triage AML.T0051 blue` — ATLAS defensive mapping (atlas_technique_lookup → d3fend_defense_for_attack → d3fend_attack_coverage)
+- `/contrast-triage T1059 blue` — ATT&CK defensive playbook (d3fend_defense_for_attack → d3fend_attack_coverage)
+- `/contrast-triage CWE-79 blue` — weakness-class hardening (cwe_lookup → cve_search → d3fend_defense_search)
+- `/contrast-triage 44d88612fea8a8f36de82e1278abb02f red` — malware hash drill (hash_lookup → ioc_lookup → threat_intel)
+
+`perspective` defaults to `blue` — invoke without a value when you want defensive triage.
+
+## MCP Resources (v1.23.0)
+
+Agents that support `resources/read` can browse ATLAS / D3FEND / CWE catalogs without burning a tool slot:
+
+- `atlas://catalog` — all 167 techniques (id+name+tactics) + 57 case studies (id+name)
+- `atlas://technique/{id}` — full record for one technique (e.g. `atlas://technique/AML.T0051`)
+- `atlas://case-study/{id}` — full case study (e.g. `atlas://case-study/AML.CS0000`)
+- `d3fend://catalog` — 149 defenses (id+label+tactic+artifact)
+- `d3fend://defense/{id}` — full record (e.g. `d3fend://defense/TokenBinding`)
+- `cwe://catalog` — slim listing of all CWEs (id+name+abstract_type)
+- `cwe://weakness/{id}` — full record (e.g. `cwe://weakness/CWE-79` or `cwe://weakness/79`)
+
+Catalog reads are local DB lookups — no rate limit, no upstream API call. Use them for browse-style queries and reach for the tools (`atlas_technique_search`, `d3fend_defense_search`, etc.) when you need filtering / pivots.

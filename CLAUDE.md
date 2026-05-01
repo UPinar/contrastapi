@@ -1,7 +1,7 @@
 # CLAUDE.md — ContrastAPI
 
 ## Project
-Security intelligence API. 42 MCP tools, 50+ endpoints: CVE/EPSS/KEV, MITRE CWE catalog, KEV detail, domain recon, IOC/threat intel, OSINT, code security, MITRE ATLAS (AI/ML attack catalog + bulk technique drill), MITRE D3FEND (defense technique catalog mapped to ATT&CK).
+Security intelligence API. 42 MCP tools, 7 MCP Resources (ATLAS+D3FEND+CWE catalog browsing), 3 MCP Prompts (incl. contrast_triage red/blue conditional), 50+ endpoints: CVE/EPSS/KEV, MITRE CWE catalog, KEV detail, domain recon, IOC/threat intel, OSINT, code security, MITRE ATLAS (AI/ML attack catalog + bulk technique drill), MITRE D3FEND (defense technique catalog mapped to ATT&CK).
 Live: api.contrastcyber.com | GitHub: UPinar/contrastapi
 
 ## Quick Reference
@@ -10,7 +10,7 @@ Live: api.contrastcyber.com | GitHub: UPinar/contrastapi
 - **Server path:** `/opt/contrastapi/`
 - **DB:** `/var/lib/contrastapi/api.db`, `cve.db`, `domain_cache.db`
 - **CVE sync:** `cd app && python -m cve.sync` (delta) or `--full` (initial)
-- **1104 tests, 95% coverage**
+- **1666 tests, 95% coverage**
 
 ## Architecture
 - `app/main.py` — FastAPI app, middleware, meta endpoints, lifespan (periodic maintenance)

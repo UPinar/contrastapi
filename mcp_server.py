@@ -26,7 +26,7 @@ import os
 import pathlib
 import re
 import sys
-from typing import Annotated
+from typing import Annotated, Literal
 from urllib.parse import quote
 
 # v1.22.1 — when main.py loads this file via importlib.util.spec_from_file_location,
@@ -482,6 +482,61 @@ _ATLAS_TACTIC_RE = re.compile(r"^AML\.TA\d{4}$", re.IGNORECASE)
 _D3FEND_DEFENSE_RE = re.compile(r"^[A-Za-z][A-Za-z0-9]{0,63}$")
 _ATTACK_TECHNIQUE_RE = re.compile(r"^T\d{4}(?:\.\d{3})?$", re.IGNORECASE)
 _D3FEND_TACTICS = {"Model", "Harden", "Detect", "Isolate", "Deceive", "Evict", "Restore"}
+
+
+# v1.23.0 — target-type auto-detection for contrast_triage prompt.
+# Order matters: most-specific patterns first so an ATLAS sub-technique like
+# "AML.T0000.000" cannot be misclassified as an ATT&CK T-code (which it isn't).
+TargetType = Literal[
+    "cve",
+    "atlas_technique",
+    "attack_technique",
+    "cwe",
+    "hash",
+    "ip",
+    "domain",
+    "unknown",
+]
+
+
+def _detect_target_type(target: str) -> TargetType:
+    """Classify a triage target string by format.
+
+    Used by `contrast_triage` Prompt to pick the right tool chain.
+    Domains and IPs share dotted notation; resolution order:
+      1. CVE-YYYY-NNNN
+      2. ATLAS technique (AML.T#### or AML.T####.###)
+      3. ATT&CK T-code (T#### / T####.###)
+      4. CWE-#### (or bare 'CWE-79')
+      5. Hash (32/40/64 hex)
+      6. IP (ipaddress.ip_address — covers IPv4 + IPv6)
+      7. Domain (FQDN regex)
+    Returns 'unknown' when nothing matches.
+    """
+    s = (target or "").strip()
+    if not s:
+        return "unknown"
+    if _CVE_RE.match(s):
+        return "cve"
+    if _ATLAS_TECHNIQUE_RE.match(s):
+        return "atlas_technique"
+    if _ATTACK_TECHNIQUE_RE.match(s):
+        return "attack_technique"
+    if "CWE" in s.upper() and _CWE_RE.match(s):
+        # _CWE_RE alone would also match a bare digit string ("79"), which is
+        # ambiguous — could be an ASN, port, or IP octet. Triage classifies as
+        # CWE only when the 'CWE' prefix is explicit.
+        return "cwe"
+    if _HASH_RE.match(s):
+        return "hash"
+    try:
+        ipaddress.ip_address(s)
+        return "ip"
+    except ValueError:
+        pass
+    if _DOMAIN_RE.match(s):
+        return "domain"
+    return "unknown"
 
 
 # === Domain Intelligence ===
@@ -1445,6 +1500,185 @@ async def check_headers(
     return CheckHeadersResponse(**await _apost("/v1/check/headers", {"headers": h}, params=params))
 
 
+# === Resources ===
+#
+# v1.23.0 — MCP Resources expose ATLAS / D3FEND / CWE catalogs as readable URIs.
+# Resources differ from tools: they are pure local-DB lookups (no upstream API,
+# no rate limit, no auth) so a client can browse the catalog without burning
+# the agent's tool budget. Catalog summaries are slim (id + name + key fields)
+# so even the 944-row CWE table fits in a single read.
+
+
+def _resource_not_found(kind: str, ident: str) -> ValueError:
+    """FastMCP surfaces ValueError from a resource as a not-found error.
+
+    Centralized here so the message format stays consistent across all four
+    detail-resource handlers and so it never embeds raw user input verbatim
+    (the validator-normalized id is used). The id is hard-capped at 100 chars
+    to mirror the v1.22.0 ErrorDetail.message length-cap discipline — a
+    future validator that loosens its regex must not be able to smuggle a
+    multi-KB string through this error sink unbounded.
+    """
+    return ValueError(f"{kind} not found: {ident[:100]}")
+
+
+@mcp.resource(
+    uri="atlas://technique/{technique_id}",
+    name="atlas_technique",
+    description="ATLAS technique by id (e.g. atlas://technique/AML.T0000). Returns full record including tactics, maturity, attack reference.",
+    mime_type="application/json",
+)
+def atlas_technique_resource(technique_id: str) -> str:
+    """Read an ATLAS technique. Validates id format; raises if not in catalog."""
+    from app.db import get_atlas_technique
+
+    normalized = _require_atlas_technique(technique_id)
+    record = get_atlas_technique(normalized)
+    if record is None:
+        raise _resource_not_found("ATLAS technique", normalized)
+    return json.dumps(record, default=str, ensure_ascii=False)
+
+
+@mcp.resource(
+    uri="atlas://case-study/{case_study_id}",
+    name="atlas_case_study",
+    description="ATLAS case study by id (e.g. atlas://case-study/AML.CS0000). Returns name, description, techniques_used.",
+    mime_type="application/json",
+)
+def atlas_case_study_resource(case_study_id: str) -> str:
+    from app.db import get_atlas_case_study
+
+    normalized = _require_atlas_case_study(case_study_id)
+    record = get_atlas_case_study(normalized)
+    if record is None:
+        raise _resource_not_found("ATLAS case study", normalized)
+    return json.dumps(record, default=str, ensure_ascii=False)
+
+
+@mcp.resource(
+    uri="atlas://catalog",
+    name="atlas_catalog",
+    description="ATLAS catalog summary: all techniques (id+name+tactics) and case studies (id+name).",
+    mime_type="application/json",
+)
+def atlas_catalog_resource() -> str:
+    from app.db import (
+        CATALOG_LISTING_MAX,
+        count_atlas_case_studies,
+        count_atlas_techniques,
+        search_atlas_case_studies,
+        search_atlas_techniques,
+    )
+
+    techniques = search_atlas_techniques(limit=CATALOG_LISTING_MAX)
+    case_studies = search_atlas_case_studies(limit=CATALOG_LISTING_MAX)
+    total_t = count_atlas_techniques()
+    total_c = count_atlas_case_studies()
+    payload = {
+        "techniques": [
+            {
+                "technique_id": t["technique_id"],
+                "name": t["name"],
+                "tactics": t["tactics"],
+                "subtechnique_of": t["subtechnique_of"],
+            }
+            for t in techniques
+        ],
+        "case_studies": [{"case_study_id": c["case_study_id"], "name": c["name"]} for c in case_studies],
+        "totals": {"techniques": total_t, "case_studies": total_c},
+        # Honest truncation flag: search_* clamps internally to 200 today; if upstream
+        # catalog grows past that, surface the gap so clients can paginate via the
+        # search tool instead of relying on the catalog being complete.
+        "truncated": len(techniques) < total_t or len(case_studies) < total_c,
+    }
+    return json.dumps(payload, default=str, ensure_ascii=False)
+
+
+@mcp.resource(
+    uri="d3fend://defense/{defense_id}",
+    name="d3fend_defense",
+    description="D3FEND defense by CamelCase slug (e.g. d3fend://defense/TokenBinding). Returns label, tactic, artifact, attack_techniques mapped.",
+    mime_type="application/json",
+)
+def d3fend_defense_resource(defense_id: str) -> str:
+    from app.db import get_d3fend_defense
+
+    normalized = _require_d3fend_defense(defense_id)
+    record = get_d3fend_defense(normalized)
+    if record is None:
+        raise _resource_not_found("D3FEND defense", normalized)
+    return json.dumps(record, default=str, ensure_ascii=False)
+
+
+@mcp.resource(
+    uri="d3fend://catalog",
+    name="d3fend_catalog",
+    description="D3FEND catalog summary: all defenses (id+label+tactic+artifact).",
+    mime_type="application/json",
+)
+def d3fend_catalog_resource() -> str:
+    from app.db import CATALOG_LISTING_MAX, count_d3fend_defenses, search_d3fend_defenses
+
+    defenses = search_d3fend_defenses(limit=CATALOG_LISTING_MAX)
+    total = count_d3fend_defenses()
+    payload = {
+        "defenses": [
+            {
+                "defense_id": d["defense_id"],
+                "label": d["label"],
+                "tactic": d["tactic"],
+                "artifact": d["artifact"],
+                "parent_label": d["parent_label"],
+            }
+            for d in defenses
+        ],
+        "totals": {"defenses": total},
+        "truncated": len(defenses) < total,
+    }
+    return json.dumps(payload, default=str, ensure_ascii=False)
+
+
+@mcp.resource(
+    uri="cwe://weakness/{cwe_id}",
+    name="cwe_weakness",
+    description="CWE weakness by id (e.g. cwe://weakness/CWE-79 or cwe://weakness/79). Returns name, description, mitigations, examples, parent/child links.",
+    mime_type="application/json",
+)
+def cwe_weakness_resource(cwe_id: str) -> str:
+    from app.db import get_cwe
+
+    normalized = _require_cwe(cwe_id)
+    if not normalized.upper().startswith("CWE-"):
+        normalized = f"CWE-{normalized}"
+    record = get_cwe(normalized)
+    if record is None:
+        raise _resource_not_found("CWE", normalized)
+    return json.dumps(record, default=str, ensure_ascii=False)
+
+
+@mcp.resource(
+    uri="cwe://catalog",
+    name="cwe_catalog",
+    description="CWE catalog summary: all weaknesses (id+name+abstract_type). Slim by design — fetch cwe://weakness/{id} for full description+mitigations.",
+    mime_type="application/json",
+)
+def cwe_catalog_resource() -> str:
+    from app.db import CATALOG_LISTING_MAX, count_cwes, list_cwes_summary
+
+    weaknesses = list_cwes_summary(limit=CATALOG_LISTING_MAX)
+    total = count_cwes()
+    payload = {
+        "weaknesses": weaknesses,
+        "totals": {"weaknesses": total},
+        "truncated": len(weaknesses) < total,
+        "note": (
+            "Slim view (cwe_id + name + abstract_type only). "
+            "Read cwe://weakness/{id} for description, mitigations, examples."
+        ),
+    }
+    return json.dumps(payload, default=str, ensure_ascii=False)
+
+
 # === Prompts ===
 
 
@@ -1472,6 +1706,173 @@ def vulnerability_check(
 1. Run cve_search with product="{product}" and published_after set to 90 days ago (YYYY-MM-DD)
 2. For any CRITICAL or HIGH CVEs found, run exploit_lookup to check for public exploits
 3. Summarize: total CVEs, severity breakdown, exploitable ones, and patch recommendations."""
+
+
+# v1.23.0 — contrast_triage: conditional workflow Prompt.
+#
+# Branches on `perspective` (red = offensive recon, blue = defensive triage)
+# and on auto-detected target type. The Prompt body is plain text (the agent
+# reads it as instructions); chains reuse existing tool names so the same
+# agent that listed `tools/list` can execute the chain without indirection.
+
+_TRIAGE_RED_CHAINS = {
+    "ip": (
+        "1. ip_lookup({target}) — geolocation, ASN, reverse DNS\n"
+        "2. threat_report({target}) — IOC + reputation + cloud/Tor/VPN detection\n"
+        "3. asn_lookup using the ASN from step 1 — sibling-IP attack surface\n"
+        "4. wayback_lookup against any domain reverse-DNS surfaces — historical paths\n"
+        "5. Summarize: open services, exposed metadata, lateral pivot opportunities."
+    ),
+    "domain": (
+        "1. subdomain_enum({target}) — full subdomain inventory\n"
+        "2. domain_report({target}) — DNS, WHOIS, SSL, threat status\n"
+        "3. tech_fingerprint({target}) — stack identification (CMS, framework, CDN)\n"
+        "4. ssl_check({target}) — cert chain, weak ciphers, expiry\n"
+        "5. wayback_lookup({target}) — historical paths and forgotten endpoints\n"
+        "6. check_secrets / check_injection on any in-scope source code if available\n"
+        "7. Summarize: attack surface map, weak SSL config, leaked paths."
+    ),
+    "cve": (
+        "1. cve_lookup({target}) — base record + CVSS + EPSS\n"
+        "2. exploit_lookup({target}) — public PoC / weaponized exploits\n"
+        "3. kev_detail({target}) — federal urgency (CISA KEV catalog)\n"
+        "4. cve_search with affected product/vendor — sibling CVEs in same product\n"
+        "5. Summarize: weaponization status, available exploits, target product fleet."
+    ),
+    "atlas_technique": (
+        "1. atlas_technique_lookup({target}) — full record + ATT&CK mapping\n"
+        "2. atlas_case_study_search by technique — real-world AI/ML incidents\n"
+        "3. If attack_reference_id present, cve_search vendor/product or attack_reference_id literal — corroborating CVEs\n"
+        "4. atlas_technique_search by inherited tactic — sibling techniques (lateral plays)\n"
+        "5. Summarize: how this technique has been used in the wild, paired tactics."
+    ),
+    "attack_technique": (
+        "1. atlas_technique_search filter by attack_reference_id={target} — ATLAS techniques mapped to this T-code\n"
+        "2. cve_search by ATT&CK technique — corroborating CVEs / vendor advisories\n"
+        "3. exploit_lookup against any CVE found — weaponization\n"
+        "4. Summarize: AI/ML mappings, exploit availability."
+    ),
+    "cwe": (
+        "1. cwe_lookup({target}) — name, description, mitigations\n"
+        "2. cve_search filter by CWE — recent CVEs with this weakness\n"
+        "3. exploit_lookup on any HIGH/CRITICAL CVE — exploitation patterns\n"
+        "4. Summarize: real-world exploitation footprint of this weakness class."
+    ),
+    "hash": (
+        "1. hash_lookup({target}) — known-bad lookup (MalwareBazaar, ThreatFox)\n"
+        "2. ioc_lookup({target}) — multi-source IOC enrichment\n"
+        "3. threat_intel({target}) — additional threat-feed context\n"
+        "4. Summarize: malware family, first seen, observed C2 infrastructure."
+    ),
+}
+
+_TRIAGE_BLUE_CHAINS = {
+    "ip": (
+        "1. threat_report({target}) — IOC + reputation + Tor/VPN/cloud flags\n"
+        "2. ioc_lookup({target}) — multi-source verdict for triage decision\n"
+        "3. ip_lookup({target}) — context (ASN, geolocation, reverse DNS)\n"
+        "4. If reputation is poor: block at perimeter; chain asn_lookup to surface sibling-IP risk and consider ASN-level controls.\n"
+        "5. Summarize: verdict, recommended action (allow / monitor / block)."
+    ),
+    "domain": (
+        "1. domain_report({target}) — passive DNS+WHOIS+SSL+threat overview\n"
+        "2. phishing_check({target}) — phishing-pattern heuristics\n"
+        "3. ioc_lookup({target}) — known-bad domain lookup\n"
+        "4. email_mx({target}) — SPF/DMARC/DKIM posture (impersonation risk)\n"
+        "5. Summarize: trust verdict, mitigations to apply (block / DMARC enforce / monitor)."
+    ),
+    "cve": (
+        "1. cve_lookup({target}) — full CVSS, EPSS, fixed versions\n"
+        "2. kev_detail({target}) — federal exploitation status, due date\n"
+        "3. cwe_lookup using the cwes[] list from step 1 — mitigation patterns\n"
+        "4. d3fend_defense_for_attack with each ATT&CK technique mapped (cve.attack_techniques) — concrete defenses\n"
+        "5. Summarize: patch urgency, available mitigations, defensive posture."
+    ),
+    "atlas_technique": (
+        "1. atlas_technique_lookup({target}) — record + attack_reference_id\n"
+        "2. If attack_reference_id present: d3fend_defense_for_attack(attack_reference_id) — concrete defenses\n"
+        "3. d3fend_attack_coverage with the attack_reference_id — defense breadth by tactic\n"
+        "4. atlas_case_study_search by technique — incident lessons\n"
+        "5. Summarize: defenses to apply, gaps in coverage."
+    ),
+    "attack_technique": (
+        "1. d3fend_defense_for_attack({target}) — defenses for this T-code\n"
+        "2. d3fend_attack_coverage([{target}]) — coverage breakdown by tactic\n"
+        "3. atlas_technique_search filter attack_reference_id={target} — AI/ML angle if any\n"
+        "4. Summarize: defensive playbook, remaining gaps."
+    ),
+    "cwe": (
+        "1. cwe_lookup({target}) — mitigations, examples\n"
+        "2. cve_search by CWE — affected products in scope\n"
+        "3. d3fend_defense_search with relevant artifact (e.g. 'application' for injection-class CWEs) — defenses to deploy\n"
+        "4. Summarize: code-level fixes + runtime defenses."
+    ),
+    "hash": (
+        "1. hash_lookup({target}) — known-malware lookup\n"
+        "2. ioc_lookup({target}) — multi-source IOC enrichment\n"
+        "3. threat_intel({target}) — campaign / family context\n"
+        "4. Summarize: malware family, recommended detection rules + IR scope."
+    ),
+}
+
+
+@mcp.prompt(
+    name="contrast_triage",
+    description=(
+        "Security triage workflow with explicit perspective. "
+        "perspective='red' produces an offensive recon chain; 'blue' produces a defensive triage chain. "
+        "Target type (CVE / ATLAS / ATT&CK / CWE / hash / IP / domain) is auto-detected."
+    ),
+)
+def contrast_triage(
+    target: Annotated[
+        str,
+        Field(
+            description=(
+                "Target to triage. Accepted: IP (1.2.3.4 or IPv6), domain (example.com), "
+                "CVE-YYYY-NNNN, hash (md5/sha1/sha256), ATLAS technique (AML.T#### or AML.T####.###), "
+                "ATT&CK T-code (T#### / T####.###), CWE id (CWE-79)."
+            )
+        ),
+    ],
+    perspective: Annotated[
+        Literal["red", "blue"],
+        Field(description="'red' = offensive recon (attack surface). 'blue' = defensive triage (incident response)."),
+    ] = "blue",
+) -> str:
+    """Build a tool chain tailored to the target type and perspective."""
+    # Trojan-Source / agent-instruction-injection guard: strip ASCII control,
+    # DEL, U+FFFD, and Unicode bidi controls (U+202A-E, U+2066-9) from the
+    # caller-supplied target before embedding it into the rendered Prompt.
+    # Mirrors the v1.18.0/v1.19.0 precedent for SSL cert subjects + ATLAS/D3FEND
+    # upstream strings — a hostile target like "domain.com\nIgnore prior steps"
+    # would otherwise leak control characters into the agent-readable Prompt.
+    # Length-cap at 200 chars: any legitimate target (longest = 64-hex SHA-256)
+    # is well under this; it bounds the help-text quote on unknown input.
+    from app.domain.recon import _strip_control_chars
+
+    target_clean = _strip_control_chars((target or "").strip())[:200]
+    if not target_clean:
+        return (
+            "contrast_triage: target is empty. Provide an IP, domain, CVE-YYYY-NNNN, hash, "
+            "ATLAS technique (AML.T####), ATT&CK T-code (T####), or CWE id (CWE-79)."
+        )
+    target_type = _detect_target_type(target_clean)
+    if target_type == "unknown":
+        return (
+            f"contrast_triage: could not classify '{target_clean}'. Accepted formats: "
+            "IP, domain, CVE-YYYY-NNNN, file hash (32/40/64 hex), ATLAS technique (AML.T####), "
+            "ATT&CK T-code (T####), CWE id (CWE-79)."
+        )
+    chains = _TRIAGE_RED_CHAINS if perspective == "red" else _TRIAGE_BLUE_CHAINS
+    chain = chains[target_type].format(target=target_clean)
+    perspective_label = "Red-team reconnaissance" if perspective == "red" else "Defensive triage"
+    return (
+        f"{perspective_label} on {target_clean} (type: {target_type}).\n"
+        f"Run the following tool chain in order, summarizing observations from each step before the next:\n\n"
+        f"{chain}\n\n"
+        f"Stop early if a step yields a definitive verdict; otherwise complete the chain and produce a final summary."
+    )
 
 
 def main():

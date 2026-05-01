@@ -1,4 +1,4 @@
-# ContrastAPI — 42 Security Tools for AI Agents
+# ContrastAPI — 42 Security Tools + 7 MCP Resources for AI Agents
 
 <p align="center">
   <img src="app/static/banner.png" alt="ContrastAPI Banner" width="100%">
@@ -9,7 +9,7 @@
 [![contrastapi MCP server](https://glama.ai/mcp/servers/UPinar/contrastapi/badges/score.svg)](https://glama.ai/mcp/servers/UPinar/contrastapi)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-**Security intelligence MCP server for AI agents.** CVE/KEV/CWE lookup with EPSS, domain audit, IP threat reports, IOC enrichment, code security, **MITRE ATLAS (AI/ML attacks) + D3FEND (defenses)**. **42 tools, free, no API key, 100 credits/hour.**
+**Security intelligence MCP server for AI agents.** CVE/KEV/CWE lookup with EPSS, domain audit, IP threat reports, IOC enrichment, code security, **MITRE ATLAS (AI/ML attacks) + D3FEND (defenses)**. **42 tools + 7 Resources (ATLAS+D3FEND+CWE catalog browsing) + conditional triage Prompt, free, no API key, 100 credits/hour.**
 
 [中文](README_CN.md) · **Live:** [api.contrastcyber.com](https://api.contrastcyber.com)
 
@@ -37,7 +37,7 @@ pip install contrastapi      # Python 3.10+ — sync + async, typed responses, s
 npm install contrastapi      # Node 14+ — concrete TypeScript types, 14 namespaces
 ```
 
-Both SDKs cover all 50+ HTTP endpoints / 42 MCP tools (CVE/KEV/CWE, ATLAS, D3FEND, domain, IP, IOC, code-security, etc.) with the same wire-exact response shapes and a typed exception hierarchy mirroring the v1.22.2+ error envelope.
+Both SDKs cover all 50+ HTTP endpoints / 42 MCP tools (CVE/KEV/CWE, ATLAS, D3FEND, domain, IP, IOC, code-security, etc.) with the same wire-exact response shapes and a typed exception hierarchy mirroring the v1.22.2+ error envelope. v1.23.0 adds MCP Resources (ATLAS+D3FEND+CWE catalog browsing — see [docs/resources.md](docs/resources.md)) and a conditional triage Prompt (see [docs/PROMPTS.md#contrast-triage-v1230](docs/PROMPTS.md)).
 
 ## Try it
 
@@ -64,7 +64,7 @@ Or ask your agent:
 git clone https://github.com/UPinar/contrastapi.git
 cd contrastapi && python3 -m venv venv && venv/bin/pip install -r requirements.txt
 cd app && ../venv/bin/uvicorn main:app --port 8002
-cd app && python -m pytest tests/ -q  # 1263 tests
+cd app && python -m pytest tests/ -q  # 1666 tests
 ```
 
 Python 3.12 · FastAPI · uvicorn · `mcp-python-sdk` Streamable HTTP at `/mcp` · SQLite WAL · dnspython with SSRF-safe backend.

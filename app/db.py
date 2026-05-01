@@ -2121,3 +2121,58 @@ def get_d3fend_coverage(attack_technique_ids: list[str]) -> dict:
         "defended_techniques": sorted(defended),
         "undefended_techniques": undefended,
     }
+
+
+# === v1.23.0 catalog browsing helpers (feeds MCP Resources) ====================
+#
+# Resources surface ATLAS / D3FEND / CWE catalogs as `*://catalog` URIs so MCP
+# clients can browse without a tool call. Listings are slim summaries (id+name
+# +key fields) so a 944-row CWE catalog fits in a single resource read.
+
+
+CATALOG_LISTING_MAX = 1000  # hard cap on rows returned per catalog request
+
+
+def count_atlas_techniques() -> int:
+    """Row count for atlas_techniques. Cheap COUNT(*) — backs catalog `total`."""
+    with get_cve_db() as con:
+        return int(con.execute("SELECT COUNT(*) FROM atlas_techniques").fetchone()[0])
+
+
+def count_atlas_case_studies() -> int:
+    with get_cve_db() as con:
+        return int(con.execute("SELECT COUNT(*) FROM atlas_case_studies").fetchone()[0])
+
+
+def count_d3fend_defenses() -> int:
+    with get_cve_db() as con:
+        return int(con.execute("SELECT COUNT(*) FROM d3fend_defenses").fetchone()[0])
+
+
+def count_cwes() -> int:
+    with get_cve_db() as con:
+        return int(con.execute("SELECT COUNT(*) FROM cwes").fetchone()[0])
+
+
+def list_cwes_summary(limit: int = CATALOG_LISTING_MAX) -> list[dict]:
+    """Slim CWE listing for catalog browsing: cwe_id + name + abstract_type only.
+
+    Description and the long `extended_description` are excluded — clients
+    looking up a single CWE should hit `cwe://weakness/{id}` for the full row.
+    """
+    limit = max(1, min(int(limit), CATALOG_LISTING_MAX))
+    with get_cve_db() as con:
+        cur = con.cursor()
+        cur.row_factory = sqlite3.Row
+        rows = cur.execute(
+            "SELECT cwe_id, name, abstract_type FROM cwes ORDER BY CAST(SUBSTR(cwe_id, 5) AS INTEGER) LIMIT ?",
+            (limit,),
+        ).fetchall()
+    return [
+        {
+            "cwe_id": r["cwe_id"],
+            "name": r["name"],
+            "abstract_type": r["abstract_type"],
+        }
+        for r in rows
+    ]
