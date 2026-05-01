@@ -32,6 +32,8 @@ from config import (
     D3FEND_DEFENSE_COUNT,
     ENDPOINT_COUNT,
     FREE_HOURLY_LIMIT,
+    MCP_PROMPT_COUNT,
+    MCP_RESOURCE_COUNT,
     MCP_TOOL_COUNT,
     PRO_HOURLY_LIMIT,
     TEST_COUNT,
@@ -556,6 +558,8 @@ def landing_page(request: Request):
         {
             "total_requests": total,
             "tool_count": MCP_TOOL_COUNT,
+            "resource_count": MCP_RESOURCE_COUNT,
+            "prompt_count": MCP_PROMPT_COUNT,
             "endpoint_count": ENDPOINT_COUNT,
             "test_count": TEST_COUNT,
             "atlas_technique_count": ATLAS_TECHNIQUE_COUNT,
@@ -575,6 +579,8 @@ def landing_page_cn(request: Request):
         {
             "total_requests": total,
             "tool_count": MCP_TOOL_COUNT,
+            "resource_count": MCP_RESOURCE_COUNT,
+            "prompt_count": MCP_PROMPT_COUNT,
             "endpoint_count": ENDPOINT_COUNT,
             "test_count": TEST_COUNT,
             "atlas_technique_count": ATLAS_TECHNIQUE_COUNT,
@@ -651,12 +657,28 @@ def check_key_ready(request: Request, order_id: str = ""):
 
 @app.get("/quickstart", response_class=HTMLResponse, include_in_schema=False)
 def quickstart(request: Request):
-    return templates.TemplateResponse(request, "quickstart.html")
+    return templates.TemplateResponse(
+        request,
+        "quickstart.html",
+        {
+            "tool_count": MCP_TOOL_COUNT,
+            "resource_count": MCP_RESOURCE_COUNT,
+            "prompt_count": MCP_PROMPT_COUNT,
+        },
+    )
 
 
 @app.get("/mcp-setup", response_class=HTMLResponse, include_in_schema=False)
 def mcp_setup(request: Request):
-    return templates.TemplateResponse(request, "mcp_setup.html")
+    return templates.TemplateResponse(
+        request,
+        "mcp_setup.html",
+        {
+            "tool_count": MCP_TOOL_COUNT,
+            "resource_count": MCP_RESOURCE_COUNT,
+            "prompt_count": MCP_PROMPT_COUNT,
+        },
+    )
 
 
 @app.get("/playground", response_class=HTMLResponse, include_in_schema=False)

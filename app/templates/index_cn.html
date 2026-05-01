@@ -21,7 +21,7 @@
   <link rel="alternate" hreflang="en" href="https://api.contrastcyber.com/">
   <link rel="alternate" hreflang="zh" href="https://api.contrastcyber.com/cn/">
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-  <link rel="stylesheet" href="/static/style.css?v=26">
+  <link rel="stylesheet" href="/static/style.css?v=27">
   <script src="/static/js/landing.js?v=2" defer></script>
   <link rel="alternate" type="text/plain" href="/llms.txt" title="LLM Discovery">
   <link rel="alternate" type="application/json" href="/openapi.json" title="OpenAPI Spec">
@@ -53,7 +53,7 @@
   {% include "nav_cn.html" %}
 
   <section class="hero">
-    <div class="pill">{{ tool_count }} 个工具 · {{ endpoint_count }} 接口 · MCP 服务器</div>
+    <div class="pill">{{ tool_count }} 个工具 · {{ resource_count }} 资源 · {{ endpoint_count }} 接口 · MCP 服务器</div>
     <h1>{{ tool_count }} 个安全工具，<br><span class="gradient">一份 JSON 配置。</span></h1>
     <p class="subtitle">CVE + EPSS + KEV 查询、域名侦察、IP 威胁报告、IOC 增强，以及代码安全扫描。结构化 JSON + LLM 优化摘要。支持 Claude Desktop、Cursor、VS Code，以及任何 MCP 兼容客户端（含 DeepSeek、Qwen）。</p>
     <div class="cta-group">
@@ -74,7 +74,7 @@
     <div class="trust-strip-inner">
       <span><strong>{{ test_count }}</strong> 项测试通过</span>
       <span><a href="https://smithery.ai/servers/contrastcyber/contrastapi" target="_blank" rel="noopener">Smithery</a> <strong>99/100</strong></span>
-      <span><strong>{{ tool_count }}</strong> 个 MCP 工具，<strong>{{ endpoint_count }}</strong> 接口</span>
+      <span><strong>{{ tool_count }}</strong> 工具 · <strong>{{ resource_count }}</strong> 资源 · <strong>{{ endpoint_count }}</strong> 接口</span>
       <span><a href="https://pypi.org/project/contrastapi/" target="_blank" rel="noopener">PyPI</a> · <a href="https://www.npmjs.com/package/contrastapi" target="_blank" rel="noopener">npm</a> · <a href="https://marketplace.visualstudio.com/items?itemName=ContrastAPI.contrastapi" target="_blank" rel="noopener">VS Code</a></span>
       <span>MIT 许可 · 永久免费</span>
     </div>
@@ -438,9 +438,6 @@ c.atlas.bulk_technique_lookup(["AML.T0051"])</pre>
 
   <footer>
     <div class="footer-links">
-      <a href="https://github.com/UPinar/contrastapi/blob/main/docs/tool-selection-guide.md">工具选择指南</a>
-      <a href="https://github.com/UPinar/contrastapi/blob/main/docs/ENDPOINTS.md">接口</a>
-      <a href="https://github.com/UPinar/contrastapi/blob/main/docs/PROMPTS.md">提示</a>
       <a href="https://contrastcyber.com/terms">条款</a>
       <a href="https://contrastcyber.com/privacy">隐私</a>
       <a href="#" data-copy-email="contact@contrastcyber.com">联系我们</a>

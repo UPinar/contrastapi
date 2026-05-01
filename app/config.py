@@ -7,6 +7,8 @@ from pathlib import Path
 
 VERSION = "1.23.0"
 MCP_TOOL_COUNT = 42
+MCP_RESOURCE_COUNT = 7  # v1.23.0: atlas+d3fend+cwe (4 templates + 3 catalogs)
+MCP_PROMPT_COUNT = 3  # v1.23.0: security_audit, vulnerability_check, contrast_triage
 ENDPOINT_COUNT = "50+"
 TEST_COUNT = 1666
 # Catalog row counts surfaced on landing/playground. Bump after `python -m cve.sync

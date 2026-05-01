@@ -339,6 +339,16 @@ h1 .gradient {
   font-weight: 500;
 }
 .page p a:not(.btn-cta):hover { text-decoration: underline; }
+.page p a:not(.btn-cta):visited { color: var(--primary); }
+
+/* v1.23.0 docs strip on /quickstart + /mcp-setup — :visited override needed
+   because the UA visited stylesheet would otherwise paint the link purple. */
+.docs-strip a, .docs-strip a:visited {
+  color: var(--primary);
+  text-decoration: none;
+  font-weight: 500;
+}
+.docs-strip a:hover { text-decoration: underline; }
 
 /* Code examples */
 .example-section {

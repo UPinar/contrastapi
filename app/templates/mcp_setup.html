@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>MCP Setup | ContrastAPI</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-  <link rel="stylesheet" href="/static/style.css?v=26">
+  <link rel="stylesheet" href="/static/style.css?v=27">
   <link rel="stylesheet" href="/static/css/page.css?v=3">
   <script src="/static/js/landing.js?v=1" defer></script>
 </head>
@@ -16,7 +16,18 @@
 
   <div class="page">
     <h1>MCP <span>Setup</span></h1>
-    <p class="subtitle">Give your AI agent 29 security tools. One config, zero signup.</p>
+    <p class="subtitle">Give your AI agent {{ tool_count }} security tools, {{ resource_count }} catalog resources, and a triage prompt. One config, zero signup.</p>
+
+    <div class="docs-strip" style="margin: 8px 0 24px; font-size: 0.95em; color: #888;">
+      <strong>Docs:</strong>
+      <a href="https://github.com/UPinar/contrastapi/blob/main/docs/tool-selection-guide.md">Tool Selection Guide</a>
+      &middot;
+      <a href="https://github.com/UPinar/contrastapi/blob/main/docs/ENDPOINTS.md">Endpoints</a>
+      &middot;
+      <a href="https://github.com/UPinar/contrastapi/blob/main/docs/PROMPTS.md">Prompts</a>
+      &middot;
+      <a href="https://github.com/UPinar/contrastapi/blob/main/docs/resources.md">Resources</a>
+    </div>
 
     <h2><span class="num">1</span> Claude Desktop</h2>
     <p>Edit <code>~/.claude/claude_desktop_config.json</code>:</p>

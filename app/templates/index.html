@@ -20,7 +20,7 @@
   <link rel="alternate" hreflang="en" href="https://api.contrastcyber.com/">
   <link rel="alternate" hreflang="zh" href="https://api.contrastcyber.com/cn/">
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-  <link rel="stylesheet" href="/static/style.css?v=26">
+  <link rel="stylesheet" href="/static/style.css?v=27">
   <script src="/static/js/landing.js?v=2" defer></script>
   <link rel="alternate" type="text/plain" href="/llms.txt" title="LLM Discovery">
   <link rel="alternate" type="application/json" href="/openapi.json" title="OpenAPI Spec">
@@ -51,7 +51,7 @@
   {% include "nav.html" %}
 
   <section class="hero">
-    <div class="pill">{{ tool_count }} TOOLS · {{ endpoint_count }} ENDPOINTS · MCP SERVER</div>
+    <div class="pill">{{ tool_count }} TOOLS · {{ resource_count }} RESOURCES · {{ endpoint_count }} ENDPOINTS · MCP SERVER</div>
     <h1>{{ tool_count }} security tools,<br><span class="gradient">one JSON config.</span></h1>
     <p class="subtitle">CVE + EPSS + KEV lookup, domain recon, IP threat reports, IOC enrichment, MITRE ATLAS (AI/ML attacks), D3FEND defenses, and code security. Structured JSON with LLM-optimized summaries. Works with Claude Desktop, Cursor, VS Code, and any MCP client.</p>
     <div class="cta-group">
@@ -72,7 +72,7 @@
     <div class="trust-strip-inner">
       <span><strong>{{ test_count }}</strong> tests passing</span>
       <span><strong>99/100</strong> on <a href="https://smithery.ai/servers/contrastcyber/contrastapi" target="_blank" rel="noopener">Smithery</a></span>
-      <span><strong>{{ tool_count }}</strong> MCP tools, <strong>{{ endpoint_count }}</strong> endpoints</span>
+      <span><strong>{{ tool_count }}</strong> tools · <strong>{{ resource_count }}</strong> resources · <strong>{{ endpoint_count }}</strong> endpoints</span>
       <span><a href="https://pypi.org/project/contrastapi/" target="_blank" rel="noopener">PyPI</a> · <a href="https://www.npmjs.com/package/contrastapi" target="_blank" rel="noopener">npm</a> · <a href="https://marketplace.visualstudio.com/items?itemName=ContrastAPI.contrastapi" target="_blank" rel="noopener">VS Code</a></span>
       <span>MIT licensed · Free forever</span>
     </div>
@@ -486,9 +486,6 @@ c.atlas.bulk_technique_lookup(["AML.T0051"])</pre>
 
   <footer>
     <div class="footer-links">
-      <a href="https://github.com/UPinar/contrastapi/blob/main/docs/tool-selection-guide.md">Tool Selection Guide</a>
-      <a href="https://github.com/UPinar/contrastapi/blob/main/docs/ENDPOINTS.md">Endpoints</a>
-      <a href="https://github.com/UPinar/contrastapi/blob/main/docs/PROMPTS.md">Prompts</a>
       <a href="https://contrastcyber.com/terms">Terms</a>
       <a href="https://contrastcyber.com/privacy">Privacy</a>
       <a href="#" data-copy-email="contact@contrastcyber.com">Contact</a>

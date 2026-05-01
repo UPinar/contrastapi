@@ -17,11 +17,16 @@ def test_landing_page_200():
     assert "ContrastAPI" in r.text
 
 
-def test_landing_links_to_tool_selection_guide():
-    """v1.21.0: landing footer links to docs/tool-selection-guide.md."""
-    r = client.get("/")
-    assert r.status_code == 200
-    assert "tool-selection-guide.md" in r.text
+def test_setup_pages_link_to_tool_selection_guide():
+    """v1.23.0: docs strip moved off the landing footer (visual cleanup) and onto
+    /quickstart + /mcp-setup so the doc links live alongside the install steps."""
+    for path in ("/quickstart", "/mcp-setup"):
+        r = client.get(path)
+        assert r.status_code == 200, path
+        assert "tool-selection-guide.md" in r.text, f"{path} missing tool-selection-guide link"
+        assert "ENDPOINTS.md" in r.text, f"{path} missing endpoints link"
+        assert "PROMPTS.md" in r.text, f"{path} missing prompts link"
+        assert "resources.md" in r.text, f"{path} missing resources link"
 
 
 def test_tool_selection_guide_file_exists():
