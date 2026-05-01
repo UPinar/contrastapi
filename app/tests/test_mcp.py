@@ -141,19 +141,15 @@ def test_mcp_tool_has_input_schema(mcp_client):
 
 
 def test_mcp_tool_call_cve_lookup(mcp_client, monkeypatch):
-    """tools/call should invoke the tool and return content."""
-    import importlib.util
+    """tools/call invokes the tool and returns both text + structuredContent (v1.22.0)."""
+    import main
 
-    spec = importlib.util.spec_from_file_location(
-        "mcp_server_test", str(__import__("config").BASE_DIR.parent / "mcp_server.py")
-    )
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
+    mod = main._mcp_mod
 
-    async def mock_get(path, params=None):
-        return {"summary": "HIGH — Test CVE for unit test"}
+    async def mock_aget(path, params=None):
+        return {"cve_id": "CVE-2024-0001", "summary": "HIGH — Test CVE for unit test"}
 
-    monkeypatch.setattr(mod, "_get", mock_get)
+    monkeypatch.setattr(mod, "_aget", mock_aget)
 
     r = mcp_client.post(
         "/mcp/",
@@ -168,8 +164,16 @@ def test_mcp_tool_call_cve_lookup(mcp_client, monkeypatch):
     assert r.status_code == 200
     data = r.json()
     assert data["id"] == 10
-    # Tool returns content (may be error if mock didn't attach to right module)
+    # v1.22.0 contract: success path emits both content[0].text (JSON) AND structuredContent (dict).
     assert "content" in data["result"]
+    assert "structuredContent" in data["result"]
+    sc = data["result"]["structuredContent"]["result"]
+    assert sc["cve_id"] == "CVE-2024-0001"
+    # text content is the JSON-serialised model (round-trips to the same dict).
+    import json as _json
+
+    parsed = _json.loads(data["result"]["content"][0]["text"])
+    assert parsed["cve_id"] == "CVE-2024-0001"
 
 
 def test_mcp_tool_call_nonexistent_tool(mcp_client):
@@ -193,18 +197,14 @@ def test_mcp_tool_call_nonexistent_tool(mcp_client):
 
 
 def test_mcp_tool_call_audit_domain(mcp_client, monkeypatch):
-    import importlib.util
+    import main
 
-    spec = importlib.util.spec_from_file_location(
-        "mcp_server_test", str(__import__("config").BASE_DIR.parent / "mcp_server.py")
-    )
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
+    mod = main._mcp_mod
 
-    async def mock_get(path, params=None):
-        return {"summary": "audit ok"}
+    async def mock_aget(path, params=None):
+        return {"domain": "example.com", "summary": "audit ok"}
 
-    monkeypatch.setattr(mod, "_get", mock_get)
+    monkeypatch.setattr(mod, "_aget", mock_aget)
     r = mcp_client.post(
         "/mcp/",
         headers=MCP_HEADERS,
@@ -216,10 +216,13 @@ def test_mcp_tool_call_audit_domain(mcp_client, monkeypatch):
         },
     )
     assert r.status_code == 200
-    assert "content" in r.json()["result"]
+    data = r.json()
+    assert "structuredContent" in data["result"]
+    assert data["result"]["structuredContent"]["result"]["domain"] == "example.com"
 
 
 def test_mcp_tool_call_audit_domain_invalid(mcp_client):
+    """v1.22.0: validation errors surface as ErrorResponse with code='invalid_argument'."""
     r = mcp_client.post(
         "/mcp/",
         headers=MCP_HEADERS,
@@ -231,24 +234,20 @@ def test_mcp_tool_call_audit_domain_invalid(mcp_client):
         },
     )
     assert r.status_code == 200
-    # Validation error returns a string, not an exception
-    text = str(r.json()["result"]["content"])
-    assert "Invalid domain" in text
+    sc = r.json()["result"]["structuredContent"]["result"]
+    assert sc["error"]["code"] == "invalid_argument"
+    assert "Invalid domain" in sc["error"]["message"]
 
 
 def test_mcp_tool_call_threat_report(mcp_client, monkeypatch):
-    import importlib.util
+    import main
 
-    spec = importlib.util.spec_from_file_location(
-        "mcp_server_test", str(__import__("config").BASE_DIR.parent / "mcp_server.py")
-    )
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
+    mod = main._mcp_mod
 
-    async def mock_get(path, params=None):
-        return {"summary": "threat ok"}
+    async def mock_aget(path, params=None):
+        return {"ip": "8.8.8.8", "summary": "threat ok"}
 
-    monkeypatch.setattr(mod, "_get", mock_get)
+    monkeypatch.setattr(mod, "_aget", mock_aget)
     r = mcp_client.post(
         "/mcp/",
         headers=MCP_HEADERS,
@@ -260,7 +259,9 @@ def test_mcp_tool_call_threat_report(mcp_client, monkeypatch):
         },
     )
     assert r.status_code == 200
-    assert "content" in r.json()["result"]
+    data = r.json()
+    assert "structuredContent" in data["result"]
+    assert data["result"]["structuredContent"]["result"]["ip"] == "8.8.8.8"
 
 
 def test_mcp_tool_call_threat_report_invalid_ip(mcp_client):
@@ -275,23 +276,20 @@ def test_mcp_tool_call_threat_report_invalid_ip(mcp_client):
         },
     )
     assert r.status_code == 200
-    text = str(r.json()["result"]["content"])
-    assert "Invalid IP" in text
+    sc = r.json()["result"]["structuredContent"]["result"]
+    assert sc["error"]["code"] == "invalid_argument"
+    assert "Invalid IP" in sc["error"]["message"]
 
 
 def test_mcp_tool_call_bulk_cve_lookup(mcp_client, monkeypatch):
-    import importlib.util
+    import main
 
-    spec = importlib.util.spec_from_file_location(
-        "mcp_server_test", str(__import__("config").BASE_DIR.parent / "mcp_server.py")
-    )
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
+    mod = main._mcp_mod
 
-    async def mock_post(path, json_body):
-        return {"summary": "bulk cve ok", "total": 2, "successful": 2, "failed": 0}
+    async def mock_apost(path, json_body, params=None):
+        return {"total": 2, "successful": 2, "failed": 0, "summary": "bulk cve ok"}
 
-    monkeypatch.setattr(mod, "_post", mock_post)
+    monkeypatch.setattr(mod, "_apost", mock_apost)
     r = mcp_client.post(
         "/mcp/",
         headers=MCP_HEADERS,
@@ -306,7 +304,9 @@ def test_mcp_tool_call_bulk_cve_lookup(mcp_client, monkeypatch):
         },
     )
     assert r.status_code == 200
-    assert "content" in r.json()["result"]
+    data = r.json()
+    assert "structuredContent" in data["result"]
+    assert data["result"]["structuredContent"]["result"]["total"] == 2
 
 
 def test_mcp_tool_call_bulk_cve_lookup_empty(mcp_client):
@@ -321,23 +321,20 @@ def test_mcp_tool_call_bulk_cve_lookup_empty(mcp_client):
         },
     )
     assert r.status_code == 200
-    text = str(r.json()["result"]["content"])
-    assert "non-empty list" in text
+    sc = r.json()["result"]["structuredContent"]["result"]
+    assert sc["error"]["code"] == "invalid_argument"
+    assert "non-empty list" in sc["error"]["message"]
 
 
 def test_mcp_tool_call_bulk_ioc_lookup(mcp_client, monkeypatch):
-    import importlib.util
+    import main
 
-    spec = importlib.util.spec_from_file_location(
-        "mcp_server_test", str(__import__("config").BASE_DIR.parent / "mcp_server.py")
-    )
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
+    mod = main._mcp_mod
 
-    async def mock_post(path, json_body):
-        return {"summary": "bulk ioc ok", "total": 2}
+    async def mock_apost(path, json_body, params=None):
+        return {"total": 2, "successful": 2, "failed": 0}
 
-    monkeypatch.setattr(mod, "_post", mock_post)
+    monkeypatch.setattr(mod, "_apost", mock_apost)
     r = mcp_client.post(
         "/mcp/",
         headers=MCP_HEADERS,
@@ -352,7 +349,9 @@ def test_mcp_tool_call_bulk_ioc_lookup(mcp_client, monkeypatch):
         },
     )
     assert r.status_code == 200
-    assert "content" in r.json()["result"]
+    data = r.json()
+    assert "structuredContent" in data["result"]
+    assert data["result"]["structuredContent"]["result"]["total"] == 2
 
 
 def test_mcp_tool_call_bulk_ioc_lookup_empty(mcp_client):
@@ -367,8 +366,9 @@ def test_mcp_tool_call_bulk_ioc_lookup_empty(mcp_client):
         },
     )
     assert r.status_code == 200
-    text = str(r.json()["result"]["content"])
-    assert "non-empty list" in text
+    sc = r.json()["result"]["structuredContent"]["result"]
+    assert sc["error"]["code"] == "invalid_argument"
+    assert "non-empty list" in sc["error"]["message"]
 
 
 # --- Docs mention MCP ---
@@ -486,78 +486,6 @@ def test_mcp_get_sse_accept_no_trailing_slash(mcp_client):
     assert "retry: 15000" in r.text
 
 
-# --- _format_error helper ---
-
-
-def _load_mcp_mod():
-    import importlib.util
-
-    spec = importlib.util.spec_from_file_location(
-        "mcp_server_test_fmterr", str(__import__("config").BASE_DIR.parent / "mcp_server.py")
-    )
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
-
-
-class _FakeResp:
-    def __init__(self, status_code, body):
-        self.status_code = status_code
-        self._body = body
-
-    def json(self):
-        if isinstance(self._body, Exception):
-            raise self._body
-        return self._body
-
-
-def test_format_error_preserves_detail_and_hint():
-    mod = _load_mcp_mod()
-    resp = _FakeResp(429, {"error": "Too many requests", "tier": "free", "upgrade": "Get 1000/hr at /pricing"})
-    out = mod._format_error(resp)
-    assert "429" in out
-    assert "Too many requests" in out
-    assert "/pricing" in out
-
-
-def test_format_error_includes_field_and_reason():
-    mod = _load_mcp_mod()
-    resp = _FakeResp(422, {"error": "Validation failed", "reason": "must be IPv4", "field": "ip"})
-    out = mod._format_error(resp)
-    assert "422" in out
-    assert "must be IPv4" in out
-    assert "ip" in out
-
-
-def test_format_error_falls_back_on_non_json_body():
-    mod = _load_mcp_mod()
-    resp = _FakeResp(500, ValueError("not json"))
-    out = mod._format_error(resp)
-    assert out == "Error 500"
-
-
-def test_format_error_handles_non_dict_json():
-    mod = _load_mcp_mod()
-    resp = _FakeResp(502, ["unexpected", "list"])
-    out = mod._format_error(resp)
-    assert out == "Error 502"
-
-
-def test_format_error_surfaces_upgrade_dict():
-    mod = _load_mcp_mod()
-    resp = _FakeResp(
-        429,
-        {
-            "error": "Rate limit",
-            "upgrade": {
-                "message": "Upgrade to Pro ($7/mo).",
-            },
-        },
-    )
-    out = mod._format_error(resp)
-    assert "Upgrade to Pro ($7/mo)." in out
-
-
 # --- /mcp.json discovery manifest (root-level alias) ---
 
 
@@ -592,62 +520,200 @@ def test_mcp_json_content_type_is_json(mcp_client):
     assert "application/json" in r.headers.get("content-type", "")
 
 
-# --- _fmt: v1.21.1 plain-text Pro banner removal ---
-# Pro-tier upsell now lives only in the structured `reputation.upgrade.{...}` field.
-# _fmt no longer appends a "⚠️  AbuseIPDB + Shodan enrichment requires a Pro API key..." suffix.
+# --- v1.22.0 exception hierarchy round-trip ---
 
 
-def test_fmt_omits_plain_text_pro_banner_for_nested_reputation():
-    mod = _load_mcp_mod()
-    data = {"ip": "8.8.8.8", "reputation": {"abuseipdb": {"status": "pro_only"}, "shodan": {"status": "pro_only"}}}
-    out = mod._fmt(data)
-    assert "Pro API key" not in out
-    assert "contact@contrastcyber.com" not in out
-    assert "⚠️" not in out
+def test_app_exception_to_error_detail_round_trip():
+    """Each AppException subclass converts to ErrorDetail with the right code."""
+    from app.exceptions import (
+        AuthRequiredException,
+        InvalidArgumentException,
+        InvalidCveIdException,
+        InvalidDomainException,
+        InvalidHashException,
+        InvalidIpException,
+        NotFoundException,
+        RateLimitExceededException,
+        TierLimitException,
+        UpstreamErrorException,
+        UpstreamTimeoutException,
+    )
+
+    cases = [
+        (InvalidArgumentException("bad arg"), "invalid_argument", 400),
+        (InvalidCveIdException("bad cve"), "invalid_argument", 400),
+        (InvalidDomainException("bad domain"), "invalid_argument", 400),
+        (InvalidIpException("bad ip"), "invalid_argument", 400),
+        (InvalidHashException("bad hash"), "invalid_argument", 400),
+        (NotFoundException("missing"), "not_found", 404),
+        (RateLimitExceededException("slow down"), "rate_limit_exceeded", 429),
+        (AuthRequiredException("login"), "auth_required", 401),
+        (TierLimitException("upgrade"), "tier_limit", 403),
+        (UpstreamTimeoutException("slow upstream"), "upstream_timeout", 504),
+        (UpstreamErrorException("upstream broke"), "upstream_error", 502),
+    ]
+    for exc, expected_code, expected_status in cases:
+        assert exc.code == expected_code, f"{type(exc).__name__}: code mismatch"
+        assert exc.status_code == expected_status, f"{type(exc).__name__}: status mismatch"
+        detail = exc.to_error_detail()
+        assert detail.code == expected_code
+        assert detail.message == exc.message
 
 
-def test_fmt_omits_plain_text_pro_banner_for_flat_threat_report():
-    mod = _load_mcp_mod()
-    data = {"ip": "8.8.8.8", "abuseipdb": {"status": "pro_only"}, "shodan": {"status": "pro_only"}}
-    out = mod._fmt(data)
-    assert "Pro API key" not in out
-    assert "⚠️" not in out
+def test_rate_limit_exception_carries_retry_and_upgrade():
+    from app.exceptions import RateLimitExceededException
+
+    exc = RateLimitExceededException(
+        "rate limited",
+        retry_after=60,
+        upgrade_url="https://contrastcyber.com/pricing",
+    )
+    detail = exc.to_error_detail()
+    assert detail.retry_after_seconds == 60
+    assert detail.upgrade_url == "https://contrastcyber.com/pricing"
 
 
-def test_fmt_preserves_structured_upgrade_field():
-    mod = _load_mcp_mod()
-    data = {
-        "ip": "8.8.8.8",
-        "reputation": {
-            "upgrade": {
-                "pro_only_sources": ["abuseipdb", "shodan"],
-                "upgrade_url": "https://contrastcyber.com/pricing",
-                "reason": "Free tier",
-            }
+def test_tier_limit_exception_carries_upgrade_url():
+    from app.exceptions import TierLimitException
+
+    exc = TierLimitException("Pro feature", upgrade_url="https://contrastcyber.com/pricing")
+    detail = exc.to_error_detail()
+    assert detail.code == "tier_limit"
+    assert detail.upgrade_url == "https://contrastcyber.com/pricing"
+
+
+def test_app_exception_keyword_only_kwargs_enforced():
+    """retry_after / upgrade_url / docs_url MUST be passed by keyword."""
+    from app.exceptions import RateLimitExceededException
+
+    with pytest.raises(TypeError):
+        RateLimitExceededException("rate limited", 60)
+
+
+# --- v1.22.0 mcp_tool_safe wrapper behaviour ---
+
+
+def test_mcp_tool_safe_catches_app_exception(mcp_client):
+    """validation error in a tool body becomes an ErrorResponse on the wire."""
+    r = mcp_client.post(
+        "/mcp/",
+        headers=MCP_HEADERS,
+        json={
+            "jsonrpc": "2.0",
+            "id": 80,
+            "method": "tools/call",
+            "params": {"name": "cve_lookup", "arguments": {"cve_id": "not-a-cve"}},
         },
-    }
-    out = mod._fmt(data)
-    assert "contrastcyber.com/pricing" in out
-    assert "abuseipdb" in out
-    assert "shodan" in out
+    )
+    assert r.status_code == 200
+    sc = r.json()["result"]["structuredContent"]["result"]
+    assert sc["error"]["code"] == "invalid_argument"
+    assert "Invalid CVE" in sc["error"]["message"]
 
 
-def test_fmt_no_banner_when_enrichment_ok():
-    mod = _load_mcp_mod()
-    data = {"reputation": {"abuseipdb": {"status": "ok"}, "shodan": {"status": "ok"}}}
-    out = mod._fmt(data)
-    assert "Pro API key" not in out
+def test_mcp_tool_safe_catches_pydantic_validation_error(mcp_client, monkeypatch):
+    """Upstream returns a body that does not match the response schema → ErrorResponse,
+    not a Pydantic stack trace on the wire. Message is fixed-length, no upstream content."""
+    import main
+
+    mod = main._mcp_mod
+
+    async def mock_aget(path, params=None):
+        return {"completely": "wrong", "shape": "for cve"}
+
+    monkeypatch.setattr(mod, "_aget", mock_aget)
+    r = mcp_client.post(
+        "/mcp/",
+        headers=MCP_HEADERS,
+        json={
+            "jsonrpc": "2.0",
+            "id": 81,
+            "method": "tools/call",
+            "params": {"name": "cve_lookup", "arguments": {"cve_id": "CVE-2024-0001"}},
+        },
+    )
+    assert r.status_code == 200
+    sc = r.json()["result"]["structuredContent"]["result"]
+    assert sc["error"]["code"] == "upstream_error"
+    assert sc["error"]["message"] == "Upstream response validation failed"
 
 
-def test_fmt_no_banner_when_no_reputation():
-    mod = _load_mcp_mod()
-    data = {"cve_id": "CVE-2021-44228", "summary": "Log4Shell"}
-    out = mod._fmt(data)
-    assert "Pro API key" not in out
+# --- v1.22.0 outputSchema invariant: every tool emits anyOf success+error ---
 
 
-def test_fmt_respects_response_size_limit():
-    mod = _load_mcp_mod()
-    data = {"data": "x" * 10000, "reputation": {"abuseipdb": {"status": "pro_only"}}}
-    out = mod._fmt(data)
-    assert len(out) <= mod.MAX_RESPONSE_CHARS
+def test_every_tool_outputschema_is_anyof_union(mcp_client):
+    """Each of the 42 tools should declare an outputSchema whose top-level shape
+    is a Union of its specific response model and ErrorResponse, so MCP clients
+    can validate either arm structurally."""
+    from config import MCP_TOOL_COUNT
+
+    r = mcp_client.post(
+        "/mcp/",
+        headers=MCP_HEADERS,
+        json={"jsonrpc": "2.0", "id": 90, "method": "tools/list", "params": {}},
+    )
+    tools = r.json()["result"]["tools"]
+    assert len(tools) == MCP_TOOL_COUNT
+    missing = []
+    not_anyof = []
+    for t in tools:
+        out = t.get("outputSchema") or {}
+        if not out:
+            missing.append(t["name"])
+            continue
+        defs = out.get("$defs") or {}
+        if "ErrorResponse" not in defs and "ErrorResponse" not in str(out):
+            not_anyof.append(t["name"])
+    assert not missing, f"tools missing outputSchema: {missing}"
+    assert not not_anyof, f"tools without ErrorResponse arm in outputSchema: {not_anyof}"
+
+
+def test_closed_vs_open_world_split(mcp_client):
+    """Plan §Annotation split: 22 closed-world (local DB) + 20 open-world (live) = 42."""
+    r = mcp_client.post(
+        "/mcp/",
+        headers=MCP_HEADERS,
+        json={"jsonrpc": "2.0", "id": 91, "method": "tools/list", "params": {}},
+    )
+    tools = r.json()["result"]["tools"]
+    closed = [t["name"] for t in tools if (t.get("annotations") or {}).get("openWorldHint") is False]
+    open_ = [t["name"] for t in tools if (t.get("annotations") or {}).get("openWorldHint") is True]
+    assert len(closed) == 22, f"expected 22 closed-world tools, got {len(closed)}: {closed}"
+    assert len(open_) == 20, f"expected 20 open-world tools, got {len(open_)}: {open_}"
+
+
+# --- v1.22.0 bulk length cap (defense-in-depth alongside Pydantic max_length=50) ---
+
+
+def test_bulk_cve_lookup_rejects_oversized_list(mcp_client):
+    r = mcp_client.post(
+        "/mcp/",
+        headers=MCP_HEADERS,
+        json={
+            "jsonrpc": "2.0",
+            "id": 100,
+            "method": "tools/call",
+            "params": {"name": "bulk_cve_lookup", "arguments": {"cve_ids": ["CVE-2024-0001"] * 51}},
+        },
+    )
+    assert r.status_code == 200
+    sc = r.json()["result"]["structuredContent"]["result"]
+    assert sc["error"]["code"] == "invalid_argument"
+    assert "max 50" in sc["error"]["message"]
+
+
+def test_bulk_ioc_lookup_rejects_oversized_list(mcp_client):
+    r = mcp_client.post(
+        "/mcp/",
+        headers=MCP_HEADERS,
+        json={
+            "jsonrpc": "2.0",
+            "id": 101,
+            "method": "tools/call",
+            "params": {"name": "bulk_ioc_lookup", "arguments": {"indicators": ["8.8.8.8"] * 51}},
+        },
+    )
+    assert r.status_code == 200
+    sc = r.json()["result"]["structuredContent"]["result"]
+    assert sc["error"]["code"] == "invalid_argument"
+    assert "max 50" in sc["error"]["message"]

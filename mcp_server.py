@@ -31,7 +31,7 @@ import httpx
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import ToolAnnotations
-from pydantic import Field
+from pydantic import Field, ValidationError
 
 from app.exceptions import (
     AppException,
@@ -47,7 +47,49 @@ from app.exceptions import (
     UpstreamErrorException,
     UpstreamTimeoutException,
 )
-from app.schemas import ErrorResponse
+from app.schemas import (
+    AsnResponse,
+    AtlasCaseStudyResponse,
+    AtlasCaseStudySearchResponse,
+    AtlasTechniqueResponse,
+    AtlasTechniqueSearchResponse,
+    AuditResponse,
+    BulkAtlasTechniqueResponse,
+    BulkCveResponse,
+    BulkIocResponse,
+    CheckHeadersResponse,
+    CodeCheckResponse,
+    CveResponse,
+    CveSearchResponse,
+    CweLookupResponse,
+    D3fendCoverageResponse,
+    D3fendDefenseResponse,
+    D3fendDefenseSearchResponse,
+    D3fendForAttackResponse,
+    DependenciesResponse,
+    DisposableResponse,
+    DnsResponse,
+    DomainReportResponse,
+    EmailMxResponse,
+    ErrorResponse,
+    ExploitResponse,
+    HashResponse,
+    IocResponse,
+    IpLookupResponse,
+    KevDetailResponse,
+    PasswordResponse,
+    PhishingResponse,
+    PhoneLookupResponse,
+    ScanHeadersResponse,
+    SslResponse,
+    SubdomainsResponse,
+    TechResponse,
+    ThreatReportResponse,
+    ThreatResponse,
+    UsernameLookupResponse,
+    WaybackResponse,
+    WhoisResponse,
+)
 
 # Shared annotations — all tools are read-only API lookups.
 # v1.22.0 splits the legacy `_RO` (open-world default) into closed/open world
@@ -69,8 +111,6 @@ _RO_OPEN_WORLD = ToolAnnotations(
     idempotentHint=True,
     openWorldHint=True,
 )
-_RO = _RO_OPEN_WORLD  # legacy alias — Commit C migrates per-tool
-
 logger = logging.getLogger("contrastapi.mcp")
 
 # Carries the real client IP from MCP HTTP handler to internal API calls,
@@ -152,90 +192,6 @@ def _get_client() -> httpx.AsyncClient:
 def _log_ip() -> str:
     """Return sanitized client IP for logging."""
     return _safe_ip(_client_ip_var.get()) or "unknown"
-
-
-def _format_error(response: httpx.Response) -> str:
-    """Extract useful error fields from API JSON body; fall back to status code.
-
-    Preserves detail so the AI agent sees *why* the call failed (rate-limit tier,
-    validation field, upgrade CTA) instead of a bare `Error 429`.
-    """
-    status = response.status_code
-    try:
-        body = response.json()
-    except (ValueError, json.JSONDecodeError):
-        return f"Error {status}"
-    if not isinstance(body, dict):
-        return f"Error {status}"
-
-    parts = [f"Error {status}"]
-    msg = body.get("error") or body.get("detail") or body.get("message")
-    if isinstance(msg, str) and msg:
-        parts.append(f": {msg[:500]}")
-    reason = body.get("reason")
-    if isinstance(reason, str) and reason:
-        parts.append(f" ({reason[:200]})")
-    field = body.get("field")
-    if isinstance(field, str) and field:
-        parts.append(f" [field: {field}]")
-    hint = body.get("hint") or body.get("suggestion") or body.get("upgrade")
-    if isinstance(hint, str) and hint:
-        parts.append(f" — {hint[:200]}")
-    elif isinstance(hint, dict):
-        msg = hint.get("message")
-        if isinstance(msg, str) and msg:
-            parts.append(f" — {msg[:200]}")
-    return "".join(parts)
-
-
-async def _get(path: str, params: dict | None = None) -> dict | str:
-    client_ip = _log_ip()
-    try:
-        resp = await _get_client().get(path, params=params, headers=_headers())
-        resp.raise_for_status()
-        logger.info("mcp_tool GET %s %d %s", _safe_path(path), resp.status_code, client_ip)
-        return resp.json()
-    except httpx.HTTPStatusError as e:
-        logger.info("mcp_tool GET %s %d %s", _safe_path(path), e.response.status_code, client_ip)
-        return _format_error(e.response)
-    except httpx.HTTPError:
-        logger.info("mcp_tool GET %s err %s", _safe_path(path), client_ip)
-        return "Request failed"
-
-
-async def _post(path: str, json_body: dict, params: dict | None = None) -> dict | str:
-    client_ip = _log_ip()
-    try:
-        resp = await _get_client().post(path, json=json_body, params=params, headers=_headers())
-        resp.raise_for_status()
-        logger.info("mcp_tool POST %s %d %s", _safe_path(path), resp.status_code, client_ip)
-        return resp.json()
-    except httpx.HTTPStatusError as e:
-        logger.info("mcp_tool POST %s %d %s", _safe_path(path), e.response.status_code, client_ip)
-        return _format_error(e.response)
-    except httpx.HTTPError:
-        logger.info("mcp_tool POST %s err %s", _safe_path(path), client_ip)
-        return "Request failed"
-
-
-MAX_RESPONSE_CHARS = 8000
-
-
-def _fmt(data: dict | str) -> str:
-    # Pro-tier upsell is now surfaced solely via the structured
-    # `reputation.upgrade.{pro_only_sources, upgrade_url, reason}` field on Free-tier
-    # responses (see schemas.ReputationUpgradeHint). Removed the plain-text suffix
-    # banner in v1.21.1 — agents that parse JSON natively get the same signal
-    # without prefix noise; agents that need a human-readable hint can render the
-    # structured field themselves.
-    if isinstance(data, str):
-        return data
-    summary = data.get("summary", "") if isinstance(data, dict) else ""
-    if summary:
-        detail_data = {k: v for k, v in data.items() if k != "summary"}
-        detail = json.dumps(detail_data, indent=2, default=str)
-        return f"{summary}\n\n{detail}"[:MAX_RESPONSE_CHARS]
-    return json.dumps(data, indent=2, default=str)[:MAX_RESPONSE_CHARS]
 
 
 # === v1.22.0 raise-pattern infrastructure ====================================
@@ -463,9 +419,10 @@ def _require_attack_technique(value: str) -> str:
 
 
 def mcp_tool_safe(*, annotations: ToolAnnotations):
-    """v1.22.0 tool decorator. Wraps `@mcp.tool` so AppException raised anywhere
-    in the body is caught and returned as a structured `ErrorResponse`. Enables
-    single-line tool bodies in Commit C.
+    """v1.22.0 tool decorator. Wraps `@mcp.tool` so AppException (and Pydantic
+    ValidationError raised when the upstream response body does not match the
+    declared response model) is caught and returned as a structured
+    `ErrorResponse`. Enables single-line tool bodies in Commit C.
 
     Sets `structured_output=True` so FastMCP emits both `content[0].text` (JSON)
     and `structuredContent` (dict) on success — matching MCP 1.0 spec for tools
@@ -479,6 +436,17 @@ def mcp_tool_safe(*, annotations: ToolAnnotations):
                 return await fn(*args, **kwargs)
             except AppException as e:
                 return ErrorResponse(error=e.to_error_detail())
+            except ValidationError:
+                # Upstream returned a body that does not match our Pydantic schema
+                # (cache poisoning / sync drift / partial JSON). Surface as
+                # UpstreamErrorException with a fixed-length, sanitized message —
+                # the raw ValidationError carries upstream-controlled values that
+                # we MUST NOT log verbatim (CRLF injection into plain-text sinks)
+                # nor ship to the MCP wire (would re-trigger ErrorDetail.message
+                # max_length=500 if oversized, raising a second unhandled error).
+                logger.warning("mcp_tool %s upstream response failed schema validation", fn.__name__)
+                exc = UpstreamErrorException("Upstream response validation failed")
+                return ErrorResponse(error=exc.to_error_detail())
 
         return mcp.tool(annotations=annotations, structured_output=True)(wrapped)
 
@@ -491,58 +459,7 @@ _CVE_RE = re.compile(r"^CVE-\d{4}-\d{4,}$", re.IGNORECASE)
 _HASH_RE = re.compile(r"^[a-fA-F0-9]{32}$|^[a-fA-F0-9]{40}$|^[a-fA-F0-9]{64}$")
 
 
-def _validate_domain(domain: str) -> str | None:
-    """Return error message if domain is invalid, else None."""
-    domain = domain.strip().lower().rstrip(".")
-    if not _DOMAIN_RE.match(domain):
-        return f"Invalid domain format: {domain!r}. Expected format: example.com"
-    return None
-
-
-def _validate_ip(ip: str) -> str | None:
-    """Return error message if IP is invalid, else None."""
-    try:
-        ipaddress.ip_address(ip.strip())
-        return None
-    except ValueError:
-        return f"Invalid IP address: {ip!r}. Expected IPv4 (1.2.3.4) or IPv6."
-
-
-def _validate_public_ip(ip: str) -> str | None:
-    """Return error message if IP is invalid OR private/reserved, else None.
-
-    Used by tools that hit external services (Shodan, AbuseIPDB) where private IPs
-    are pointless and could enable SSRF-like probing. Defense-in-depth — backend
-    also rejects private IPs, but failing fast at the MCP layer avoids wasted requests.
-    """
-    try:
-        addr = ipaddress.ip_address(ip.strip())
-    except ValueError:
-        return f"Invalid IP address: {ip!r}. Expected IPv4 (1.2.3.4) or IPv6."
-    if addr.is_private or addr.is_loopback or addr.is_reserved or addr.is_link_local or addr.is_multicast:
-        return f"Private/reserved IP addresses are not allowed: {ip!r}"
-    return None
-
-
-def _validate_cve(cve_id: str) -> str | None:
-    """Return error message if CVE ID is invalid, else None."""
-    if not _CVE_RE.match(cve_id.strip()):
-        return f"Invalid CVE ID: {cve_id!r}. Expected format: CVE-2024-1234"
-    return None
-
-
 _CWE_RE = re.compile(r"^(?:CWE[- ]?)?\d{1,6}$", re.IGNORECASE)
-
-
-def _validate_cwe(cwe_id: str) -> str | None:
-    """Return error message if CWE ID is invalid, else None.
-
-    Server normalizes 'CWE-79', 'cwe-79', 'CWE 79', and bare '79' to canonical
-    form, so accept any of those.
-    """
-    if not _CWE_RE.match((cwe_id or "").strip()):
-        return f"Invalid CWE ID: {cwe_id!r}. Expected format: CWE-79 (or just '79')"
-    return None
 
 
 _ATLAS_TECHNIQUE_RE = re.compile(r"^AML\.T\d{4}(?:\.\d{3})?$", re.IGNORECASE)
@@ -550,45 +467,15 @@ _ATLAS_CASE_STUDY_RE = re.compile(r"^AML\.CS\d{4}$", re.IGNORECASE)
 _ATLAS_TACTIC_RE = re.compile(r"^AML\.TA\d{4}$", re.IGNORECASE)
 
 
-def _validate_atlas_technique(value: str) -> str | None:
-    if not _ATLAS_TECHNIQUE_RE.match((value or "").strip()):
-        return f"Invalid ATLAS technique id: {value!r}. Expected 'AML.T####' or 'AML.T####.###' (e.g. AML.T0000, AML.T0000.000)"
-    return None
-
-
-def _validate_atlas_case_study(value: str) -> str | None:
-    if not _ATLAS_CASE_STUDY_RE.match((value or "").strip()):
-        return f"Invalid ATLAS case study id: {value!r}. Expected 'AML.CS####' (e.g. AML.CS0000)"
-    return None
-
-
-def _validate_atlas_tactic(value: str) -> str | None:
-    if not _ATLAS_TACTIC_RE.match((value or "").strip()):
-        return f"Invalid ATLAS tactic id: {value!r}. Expected 'AML.TA####' (e.g. AML.TA0002)"
-    return None
-
-
 _D3FEND_DEFENSE_RE = re.compile(r"^[A-Za-z][A-Za-z0-9]{0,63}$")
 _ATTACK_TECHNIQUE_RE = re.compile(r"^T\d{4}(?:\.\d{3})?$", re.IGNORECASE)
 _D3FEND_TACTICS = {"Model", "Harden", "Detect", "Isolate", "Deceive", "Evict", "Restore"}
 
 
-def _validate_d3fend_defense(value: str) -> str | None:
-    if not _D3FEND_DEFENSE_RE.match((value or "").strip()):
-        return f"Invalid D3FEND defense_id: {value!r}. Expected CamelCase slug (e.g. 'TokenBinding')"
-    return None
-
-
-def _validate_attack_technique(value: str) -> str | None:
-    if not _ATTACK_TECHNIQUE_RE.match((value or "").strip()):
-        return f"Invalid ATT&CK technique id: {value!r}. Expected 'T####' or 'T####.###' (e.g. T1059, T1550.001)"
-    return None
-
-
 # === Domain Intelligence ===
 
 
-@mcp.tool(annotations=_RO)
+@mcp_tool_safe(annotations=_RO_OPEN_WORLD)
 async def domain_report(
     domain: Annotated[
         str, Field(description="Root domain to analyze, without protocol or path (e.g. 'example.com', 'shopify.com')")
@@ -599,15 +486,13 @@ async def domain_report(
             description="Return every TXT record (default: False, only SPF/DMARC/DKIM/MTA-STS/TLS-RPT kept). dns.total_txt_records is always emitted with the honest pre-filter count. Default filter strips vendor verification strings (google-site-verification, ms=, facebook-domain-verification, etc.) that bloat the response without security signal. Set True only when you need the raw TXT inventory."
         ),
     ] = False,
-) -> str:
+) -> DomainReportResponse | ErrorResponse:
     """Query DNS, WHOIS, SSL, subdomains, and threat intel for a domain in one call. By default dns.txt is filtered to security-relevant entries (SPF, DMARC, DKIM, MTA-STS, TLS-RPT) and dns.total_txt_records reports the honest pre-filter count; pass include_all_txt=true for the raw TXT list. Use as a starting point for domain investigations; use audit_domain for live headers + tech stack. Response carries next_calls — chain with subdomain_enum (always emitted), ssl_check + tech_fingerprint (when an A record resolves) for the standard recon depth without re-prompting. Free: 100/hr, Pro: 1000/hr. Returns domain report with DNS records, WHOIS data, SSL cert, risk score, email config, threat status, recommendation, and next_calls."""
-    if err := _validate_domain(domain):
-        return err
     params = {"include_all_txt": "true"} if include_all_txt else None
-    return _fmt(await _get(f"/v1/domain/{domain}", params))
+    return DomainReportResponse(**await _aget(f"/v1/domain/{_require_domain(domain)}", params=params))
 
 
-@mcp.tool(annotations=_RO)
+@mcp_tool_safe(annotations=_RO_OPEN_WORLD)
 async def audit_domain(
     domain: Annotated[
         str,
@@ -619,15 +504,13 @@ async def audit_domain(
             description="Return every TXT record under report.dns.txt (default: False, only SPF/DMARC/DKIM/MTA-STS/TLS-RPT kept). report.dns.total_txt_records is always emitted with the honest pre-filter count. Default filter strips vendor verification strings (google-site-verification, ms=, facebook-domain-verification, etc.) that bloat the response without security signal. Set True only when you need the raw TXT inventory."
         ),
     ] = False,
-) -> str:
+) -> AuditResponse | ErrorResponse:
     """Perform comprehensive domain audit: combines domain_report + live HTTP security headers + technology fingerprinting. By default report.dns.txt is filtered to security-relevant entries (SPF, DMARC, DKIM, MTA-STS, TLS-RPT) and report.dns.total_txt_records reports the honest pre-filter count; pass include_all_txt=true for the raw TXT list. Use when you need the full picture (recon + active checks); use domain_report for passive-only assessment. Response carries next_calls — chain with subdomain_enum (always emitted) and ssl_check (when an A record resolves) for the residual recon depth (tech_fingerprint already inline as `technologies`). Free: 100/hr (costs 4 credits), Pro: 1000/hr. Returns {domain, report, technologies, live_headers, summary, next_calls}."""
-    if err := _validate_domain(domain):
-        return err
     params = {"include_all_txt": "true"} if include_all_txt else None
-    return _fmt(await _get(f"/v1/audit/{domain}", params))
+    return AuditResponse(**await _aget(f"/v1/audit/{_require_domain(domain)}", params=params))
 
 
-@mcp.tool(annotations=_RO)
+@mcp_tool_safe(annotations=_RO_OPEN_WORLD)
 async def threat_report(
     ip: Annotated[
         str,
@@ -635,92 +518,76 @@ async def threat_report(
             description="Public IPv4 or IPv6 address to investigate (e.g. '8.8.8.8', '1.1.1.1'). Private/reserved IPs are rejected."
         ),
     ],
-) -> str:
+) -> ThreatReportResponse | ErrorResponse:
     """Query comprehensive threat profile for an IP: Shodan host data, AbuseIPDB reputation, ASN/geolocation, and open ports. Use for IP investigation and SOC alert triage; for domain data use domain_report. Note: nested asn block always returns at most 50 IPv4/IPv6 prefixes — call asn_lookup with include_full_prefixes=True for the full announced-prefixes list. enrichment.vulns is severity-aware list[VulnInfo] (cve_id + severity + cvss_v3) — Phase 2 v1.16.0 BREAKING; pre-1.16 it was list[str] of CVE IDs. Free: 100/hr (costs 4 credits), Pro: 1000/hr. Returns {ip, enrichment, abuseipdb, shodan, asn, threat_level}."""
-    if err := _validate_public_ip(ip):
-        return err
-    return _fmt(await _get(f"/v1/threat-report/{ip}"))
+    return ThreatReportResponse(**await _aget(f"/v1/threat-report/{_require_public_ip(ip)}"))
 
 
-@mcp.tool(annotations=_RO)
+@mcp_tool_safe(annotations=_RO_OPEN_WORLD)
 async def dns_lookup(
     domain: Annotated[
         str, Field(description="Root domain to query, without protocol or path (e.g. 'example.com', 'cloudflare.com')")
     ],
-) -> str:
+) -> DnsResponse | ErrorResponse:
     """Query all DNS record types (A, AAAA, MX, NS, TXT, CNAME, SOA) for a domain. Use for mail routing inspection, nameserver verification, or SPF/DMARC checks; for full overview use domain_report. Free: 100/hr, Pro: 1000/hr. Returns {records: [{type, value, ttl}]} array."""
-    if err := _validate_domain(domain):
-        return err
-    return _fmt(await _get(f"/v1/dns/{domain}"))
+    return DnsResponse(**await _aget(f"/v1/dns/{_require_domain(domain)}"))
 
 
-@mcp.tool(annotations=_RO)
+@mcp_tool_safe(annotations=_RO_OPEN_WORLD)
 async def whois_lookup(
     domain: Annotated[str, Field(description="Root domain to query WHOIS for (e.g. 'example.com', 'github.com')")],
-) -> str:
+) -> WhoisResponse | ErrorResponse:
     """Retrieve WHOIS registration data: registrar, registrant, creation/expiry dates, nameservers, DNSSEC status. Use to verify domain ownership, age, expiration; for full audit use domain_report. Free: 100/hr, Pro: 1000/hr. Returns {registrar, creation_date, expiration_date, updated_date, nameservers, status, dnssec}."""
-    if err := _validate_domain(domain):
-        return err
-    return _fmt(await _get(f"/v1/whois/{domain}"))
+    return WhoisResponse(**await _aget(f"/v1/whois/{_require_domain(domain)}"))
 
 
-@mcp.tool(annotations=_RO)
+@mcp_tool_safe(annotations=_RO_OPEN_WORLD)
 async def ssl_check(
     domain: Annotated[
         str, Field(description="Domain to check SSL/TLS certificate for (e.g. 'example.com', 'api.stripe.com')")
     ],
-) -> str:
+) -> SslResponse | ErrorResponse:
     """Analyze SSL/TLS certificate: grade (A/B/C/D/F), protocol version, cipher suite, chain, expiry, Subject Alternative Names, and structured validation findings. Invalid certs (expired, self-signed, hostname mismatch, untrusted root) are reported as findings via valid=false + validation_errors[] rather than as endpoint failures, so an unreachable cert still returns useful intel. Grade D = cert readable but invalid; F = expired, legacy TLS, or probe failure. Use to audit certificate validity and detect expiring certs; for full domain audit use audit_domain. Free: 100/hr, Pro: 1000/hr. Returns {grade, valid, validation_errors, protocol, cipher, issuer, subject, not_before, not_after, days_remaining, chain, san, warnings}."""
-    if err := _validate_domain(domain):
-        return err
-    return _fmt(await _get(f"/v1/ssl/{domain}"))
+    return SslResponse(**await _aget(f"/v1/ssl/{_require_domain(domain)}"))
 
 
-@mcp.tool(annotations=_RO)
+@mcp_tool_safe(annotations=_RO_OPEN_WORLD)
 async def subdomain_enum(
     domain: Annotated[
         str, Field(description="Root domain to enumerate subdomains for (e.g. 'example.com', 'tesla.com')")
     ],
-) -> str:
+) -> SubdomainsResponse | ErrorResponse:
     """Discover subdomains using passive methods: Certificate Transparency logs + DNS brute-force (no active probing). Use to map organization's attack surface; non-intrusive. Response carries next_calls — capped at 5 ssl_check hints (one per first-five subdomain) so triage scales to large enumerations without token bloat; pull tail entries by name when needed. Free: 100/hr, Pro: 1000/hr. Returns {domain, count, subdomains, sources, found_via_wordlist, found_via_crtsh, crtsh_status, warnings, summary, next_calls}. Always check crtsh_status: 'ok' means the CT lookup completed (so a low count is real); 'timeout' / 'rate_limited' / 'unavailable' / 'error' means CT logs did not respond and the count is wordlist-only — the actual attack surface is likely larger, retry later or surface the limitation to the user."""
-    if err := _validate_domain(domain):
-        return err
-    return _fmt(await _get(f"/v1/subdomains/{domain}"))
+    return SubdomainsResponse(**await _aget(f"/v1/subdomains/{_require_domain(domain)}"))
 
 
-@mcp.tool(annotations=_RO)
+@mcp_tool_safe(annotations=_RO_OPEN_WORLD)
 async def tech_fingerprint(
     domain: Annotated[str, Field(description="Domain to fingerprint (e.g. 'example.com', 'shopify.com')")],
-) -> str:
+) -> TechResponse | ErrorResponse:
     """Detect website technology stack: CMS, frameworks, CDN, analytics tools, web servers, languages (via HTTP headers + HTML analysis). Use for passive reconnaissance; for full audit use audit_domain. Free: 100/hr, Pro: 1000/hr. Returns {technologies: [{name, category, confidence%, version}]}."""
-    if err := _validate_domain(domain):
-        return err
-    return _fmt(await _get(f"/v1/tech/{domain}"))
+    return TechResponse(**await _aget(f"/v1/tech/{_require_domain(domain)}"))
 
 
-@mcp.tool(annotations=_RO)
+@mcp_tool_safe(annotations=_RO_OPEN_WORLD)
 async def threat_intel(
     domain: Annotated[
         str, Field(description="Domain to check for threats (e.g. 'suspicious-site.com', 'example.com')")
     ],
-) -> str:
+) -> ThreatResponse | ErrorResponse:
     """Check domain against abuse.ch URLhaus for known malware-distribution URLs (single source — for multi-feed correlation use ioc_lookup which adds ThreatFox and, for IPs, Feodo Tracker). Use for fast domain-level threat assessment; use phishing_check for specific URLs. Free: 100/hr, Pro: 1000/hr. Returns {malware_urls, threat_tags, threat_status, summary}."""
-    if err := _validate_domain(domain):
-        return err
-    return _fmt(await _get(f"/v1/threat/{domain}"))
+    return ThreatResponse(**await _aget(f"/v1/threat/{_require_domain(domain)}"))
 
 
-@mcp.tool(annotations=_RO)
+@mcp_tool_safe(annotations=_RO_OPEN_WORLD)
 async def wayback_lookup(
     domain: Annotated[str, Field(description="Domain to look up in web archives (e.g. 'example.com', 'archive.org')")],
-) -> str:
+) -> WaybackResponse | ErrorResponse:
     """Retrieve Wayback Machine snapshots for a domain: first capture, latest, total count, snapshot list. Use to investigate domain history and age; for full audit use domain_report. Free: 100/hr, Pro: 1000/hr. status='ok' means the count is authoritative (even when 0 → confirmed no archives). status='unavailable' means CDX timed out/rate-limited/5xx — total_snapshots is OMITTED (unknown, NOT zero) and the agent should NOT report "no snapshots"; the warnings[] array carries the cdx_* error code (cdx_timeout/cdx_rate_limited/cdx_unavailable/cdx_error/cdx_parse_error/cdx_body_too_large). Heavy domains (kernel.org, microsoft.com, archive.org itself) frequently time out the CDX endpoint despite having millions of snapshots — fall back to archive_url for manual inspection. Returns {domain, status, total_snapshots, first_seen, last_seen, years_online, snapshots, archive_url, summary, warnings}."""
-    if err := _validate_domain(domain):
-        return err
-    return _fmt(await _get(f"/v1/archive/{domain}"))
+    return WaybackResponse(**await _aget(f"/v1/archive/{_require_domain(domain)}"))
 
 
-@mcp.tool(annotations=_RO)
+@mcp_tool_safe(annotations=_RO_OPEN_WORLD)
 async def scan_headers(
     domain: Annotated[
         str, Field(description="Domain to scan live HTTP headers for (e.g. 'example.com', 'api.github.com')")
@@ -737,39 +604,35 @@ async def scan_headers(
             json_schema_extra={"enum": ["", "full"]},
         ),
     ] = "",
-) -> str:
+) -> ScanHeadersResponse | ErrorResponse:
     """Perform live HTTP GET and analyze security headers: CSP, HSTS, X-Frame-Options, X-Content-Type-Options, Permissions-Policy, Referrer-Policy. Use to audit live website headers; use check_headers to validate headers you already have. Free: 100/hr, Pro: 1000/hr. By default header values are truncated to 500 chars (CSP can exceed 4 KB on large sites); pass include='full' for the full raw value. Returns {headers_present, headers_missing, findings, total_score}."""
-    if err := _validate_domain(domain):
-        return err
     if include not in ("", "full"):
-        return "Invalid include. Allowed values: '' (slim default) or 'full'."
+        raise InvalidArgumentException("Invalid include. Allowed values: '' (slim default) or 'full'.")
     params = {"include": "full"} if include == "full" else None
-    return _fmt(await _get(f"/v1/scan/headers/{domain}", params=params))
+    return ScanHeadersResponse(**await _aget(f"/v1/scan/headers/{_require_domain(domain)}", params=params))
 
 
-@mcp.tool(annotations=_RO)
+@mcp_tool_safe(annotations=_RO_OPEN_WORLD)
 async def email_mx(
     domain: Annotated[
         str, Field(description="Domain to analyze email configuration for (e.g. 'example.com', 'google.com')")
     ],
-) -> str:
+) -> EmailMxResponse | ErrorResponse:
     """Analyze email security: MX records, SPF policy, DMARC policy, DKIM probe across common+date-based selectors, mail provider, grade. Use to verify email-auth setup and phishing risk; for full audit use domain_report. Free: 100/hr, Pro: 1000/hr. email_security.dkim_status reports honest evidence: 'verified' iff at least one selector responded, else 'unverifiable' (custom selectors cannot be discovered without prior knowledge). Grade: when DKIM verified, A=SPF+DMARC+DKIM/B=2of3/C=1of3; when DKIM unverifiable, A=SPF+DMARC/B=one/F=neither — DKIM absence is NOT penalized because it is unprovable in DNS. Returns {mx_records, mail_provider, email_security:{spf, dmarc, dkim_selectors, dkim_status, grade, issues}, summary}."""
-    if err := _validate_domain(domain):
-        return err
-    return _fmt(await _get(f"/v1/email/mx/{domain}"))
+    return EmailMxResponse(**await _aget(f"/v1/email/mx/{_require_domain(domain)}"))
 
 
-@mcp.tool(annotations=_RO)
+@mcp_tool_safe(annotations=_RO_OPEN_WORLD)
 async def email_disposable(
     email: Annotated[
         str, Field(description="Full email address to check (e.g. 'user@tempmail.com', 'test@guerrillamail.com')")
     ],
-) -> str:
+) -> DisposableResponse | ErrorResponse:
     """Check if email address uses a known disposable/temporary provider (Guerrilla Mail, Temp Mail, Mailinator, etc.). Use for input validation to detect throwaway signups; for domain reputation use threat_intel. Companion email-investigation tools: email_mx (deliverability + MX trust), domain_report on the email's domain (full recon), threat_intel (malware-distribution signal on the domain). Free: 100/hr, Pro: 1000/hr. Returns {disposable, domain, provider}."""
-    return _fmt(await _get(f"/v1/email/disposable/{quote(email, safe='')}"))
+    return DisposableResponse(**await _aget(f"/v1/email/disposable/{quote(email, safe='')}"))
 
 
-@mcp.tool(annotations=_RO)
+@mcp_tool_safe(annotations=_RO_OPEN_WORLD)
 async def phone_lookup(
     number: Annotated[
         str,
@@ -777,25 +640,23 @@ async def phone_lookup(
             description="Phone number in E.164 format: + followed by country code and number, no spaces or dashes. Examples: '+14155552671' (US), '+905551234567' (TR), '+442071234567' (UK). Wrong: '0555-123-4567', '(415) 555-2671'"
         ),
     ],
-) -> str:
+) -> PhoneLookupResponse | ErrorResponse:
     """Validate and analyze phone number: country, region, carrier, line type (mobile/landline/VoIP), timezone, formatted versions. Use to verify phone legitimacy and detect fraud risks. Requires E.164 format (+1234567890). Companion OSINT identity-investigation tools: username_lookup (social-platform handle correlation), email_disposable (throwaway-mail signal on associated email). Free: 100/hr, Pro: 1000/hr. Returns {valid, country, region, carrier, carrier_status, line_type, timezone, formats}. carrier is omitted from the wire when libphonenumber has no mapping for the region (US/CA/GB and other MNP-restricted regions); always read carrier_status — 'known' means carrier is present, 'unsupported_region' means we cannot identify the carrier (do not infer the number lacks one)."""
-    return _fmt(await _get(f"/v1/phone/{quote(number, safe='')}"))
+    return PhoneLookupResponse(**await _aget(f"/v1/phone/{quote(number, safe='')}"))
 
 
 # === IP Intelligence ===
 
 
-@mcp.tool(annotations=_RO)
+@mcp_tool_safe(annotations=_RO_OPEN_WORLD)
 async def ip_lookup(
     ip: Annotated[str, Field(description="IPv4 or IPv6 address to investigate (e.g. '8.8.8.8', '2606:4700::1111')")],
-) -> str:
+) -> IpLookupResponse | ErrorResponse:
     """Query comprehensive IP intelligence: reverse DNS, ASN + holder name + country inline (RIPE Stat, Phase 1), open ports, hostnames, vulnerabilities (Shodan InternetDB enriched with severity + cvss_v3 from local cve.db — Phase 2 v1.16.0 BREAKING; vulns is now list[VulnInfo] {cve_id, severity, cvss_v3} dicts, pre-1.16 it was list[str] of CVE IDs; unknown CVEs emit severity='UNKNOWN' / cvss_v3=null — do NOT infer benign), cloud provider, Tor exit status, and reputation. cloud_provider uses two-tier detection: published cloud CIDR ranges (AWS/GCP/Cloudflare) first, then an ASN-to-provider fallback map for anycast/public-service IPs outside published ranges (e.g. 8.8.8.8 → AS15169 → 'Google'). Reputation: FireHOL level1 blocklist on Free tier; +AbuseIPDB + Shodan on Pro (Phase 4). Use for IP investigation; for orchestrated IP+reputation use threat_report. Response is null-explicit: every field is always present (cloud_provider=null when neither tier matches; tor_exit=false when not listed or upstream fetch failed — check verdict.sources_unavailable to disambiguate fetch failure from genuine absence). Response carries next_calls (conditional) — asn_lookup when ASN is populated, ioc_lookup when reputation is FireHOL-listed or AbuseIPDB confidence>50, threat_report on Pro tier for orchestrated profile. Free: 100/hr, Pro: 1000/hr. Returns {ip, ptr, geo, asn, asn_name, country, ports, hostnames, vulns, cloud_provider, tor_exit, reputation, risk_score, verdict, next_calls}."""
-    if err := _validate_ip(ip):
-        return err
-    return _fmt(await _get(f"/v1/ip/{ip}"))
+    return IpLookupResponse(**await _aget(f"/v1/ip/{_require_ip(ip)}"))
 
 
-@mcp.tool(annotations=_RO)
+@mcp_tool_safe(annotations=_RO_CLOSED_WORLD)
 async def asn_lookup(
     target: Annotated[
         str, Field(description="Domain or IP address to look up ASN for (e.g. 'cloudflare.com', '8.8.8.8')")
@@ -806,18 +667,29 @@ async def asn_lookup(
             description="Return the full announced-prefixes list (default: False, returns first 50). ipv4_count and ipv6_count are always honest pre-truncation totals. Set True for network mapping or BGP route audits — Cloudflare AS13335 announces 2500+ prefixes."
         ),
     ] = False,
-) -> str:
+) -> AsnResponse | ErrorResponse:
     """Look up Autonomous System Number (ASN) for a domain or IP: AS number, organization, IPv4/IPv6 prefixes. Use to identify network operator and IP range ownership. Default returns first 50 prefixes per family — set include_full_prefixes=True for full list. Free: 100/hr, Pro: 1000/hr. Returns {asn, asn_name, ipv4_prefixes, ipv6_prefixes, ipv4_count, ipv6_count}."""
-    if _validate_domain(target) and _validate_ip(target):
-        return f"Invalid input: {target!r}. Expected a domain (example.com) or IP address (8.8.8.8)."
+    original = (target or "").strip()
+    # asn accepts EITHER a domain OR an IP; try each and only fail if both reject.
+    # `original` is preserved so the error message reflects what the user actually
+    # sent, not the partially-normalized form from a failed validator.
+    try:
+        target = _require_domain(original)
+    except InvalidDomainException:
+        try:
+            target = _require_ip(original)
+        except InvalidIpException as e:
+            raise InvalidArgumentException(
+                f"Invalid input: {original!r}. Expected a domain (example.com) or IP address (8.8.8.8).",
+            ) from e
     params = {"include_full_prefixes": "true"} if include_full_prefixes else None
-    return _fmt(await _get(f"/v1/asn/{target}", params=params))
+    return AsnResponse(**await _aget(f"/v1/asn/{target}", params=params))
 
 
 # === CVE Intelligence ===
 
 
-@mcp.tool(annotations=_RO)
+@mcp_tool_safe(annotations=_RO_CLOSED_WORLD)
 async def cve_lookup(
     cve_id: Annotated[
         str, Field(description="CVE identifier in format CVE-YYYY-NNNNN (e.g. 'CVE-2024-3094', 'CVE-2023-44487')")
@@ -834,19 +706,17 @@ async def cve_lookup(
             description="Return the full references list (default: False, returns first 10). total_references is always emitted with the honest count; patch URL detection always runs against the full list, so patch_url/patch_available are unaffected by the cap. Set True only when you need the complete advisory URL set (older + high-profile CVEs accumulate 30-60+)."
         ),
     ] = False,
-) -> str:
+) -> CveResponse | ErrorResponse:
     """Retrieve detailed CVE data by ID: description, CVSS v3.1 + vector, EPSS score + percentile, CISA KEV status, affected products (CPE), references, patch availability, related CVEs. By default affected_products is truncated to the first 20 entries (total_products reports the honest count) and references to the first 10 (total_references reports the honest count). Pass include_affected_products=true and/or include_full_references=true for the complete lists (needed for bulk audits / dependency scanners; Log4j-class CVEs can carry 50+ products and 30+ refs). Use for single-CVE details; use cve_search for queries by product/severity. Response carries next_calls — chain with kev_detail when kev.in_kev=true for the CISA federal patch deadline + required action, with cwe_lookup on cwe_id for the weakness category, and with exploit_lookup for public PoC availability. Free: 100/hr, Pro: 1000/hr. Returns {cve_id, description, cvss_score, cvss_vector, epss, kev, affected_products (first 20 by default), total_products, references (first 10 by default), total_references, patch_available, related_cves, verdict, next_calls}."""
-    if err := _validate_cve(cve_id):
-        return err
-    params = {}
+    params: dict = {}
     if include_affected_products:
         params["include_affected_products"] = "true"
     if include_full_references:
         params["include_full_references"] = "true"
-    return _fmt(await _get(f"/v1/cve/{cve_id}", params=params or None))
+    return CveResponse(**await _aget(f"/v1/cve/{_require_cve(cve_id)}", params=params or None))
 
 
-@mcp.tool(annotations=_RO)
+@mcp_tool_safe(annotations=_RO_CLOSED_WORLD)
 async def cve_search(
     product: Annotated[
         str,
@@ -933,9 +803,9 @@ async def cve_search(
             json_schema_extra={"enum": ["", "full"]},
         ),
     ] = "",
-) -> str:
+) -> CveSearchResponse | ErrorResponse:
     """Search CVE database with filters: product/vendor, severity, published date range, EPSS score, CWE, CVSS range, CISA KEV status. Default response is SLIM per-result (cve_id, summary, severity, cvss_v3, cwe_id, epss, kev, total_products, published, modified, sources, verdict) — pass include='full' for description, cvss_breakdown, affected_products, references, first_seen_*. Use for vulnerability discovery by criteria; pass cwe_id (e.g. CWE-79) to enumerate every CVE in our database mapped to a weakness — pair with cwe_lookup for the category description and mitigations. Use cve_lookup for single CVE by ID, kev_detail when kev=true filtering and the agent needs federal patch deadlines per result. Response carries a global hint pointing at cve_lookup — drill into any returned cve_id for full detail and chained pivots (exploit_lookup, kev_detail, cwe_lookup). Free: 100/hr, Pro: 1000/hr. Returns {count, total, truncated, results, query_echo, hint}."""
-    params = {"limit": limit}
+    params: dict = {"limit": limit}
     if product:
         params["product"] = product
     if vendor:
@@ -962,10 +832,10 @@ async def cve_search(
         params["cvss_max"] = cvss_max
     if include:
         params["include"] = include
-    return _fmt(await _get("/v1/cves", params))
+    return CveSearchResponse(**await _aget("/v1/cves", params=params))
 
 
-@mcp.tool(annotations=_RO)
+@mcp_tool_safe(annotations=_RO_CLOSED_WORLD)
 async def cve_leading(
     limit: Annotated[int, Field(description="Maximum results to return. Range: 1-200.", ge=1, le=200)] = 50,
     offset: Annotated[int, Field(description="Skip N results for pagination.", ge=0, le=5000)] = 0,
@@ -982,31 +852,29 @@ async def cve_leading(
             json_schema_extra={"enum": ["", "full"]},
         ),
     ] = "",
-) -> str:
+) -> CveSearchResponse | ErrorResponse:
     """List CVEs indexed from MITRE/GHSA BEFORE NVD publication (early-warning, freshest data). By default each result is slim (no description, no cvss_breakdown, no affected_products list, no references) — pass include='full' for the same payload shape as cve_lookup; for drill-down on a single CVE prefer cve_lookup. Use for threat intelligence on emerging CVEs; use cve_search for published NVD data. Response carries a global hint pointing at cve_lookup — drill into any returned cve_id for full detail and chained pivots (exploit_lookup, kev_detail, cwe_lookup). Free: 100/hr, Pro: 1000/hr. Returns {count, total, truncated, offset, summary, results, hint}."""
     if include not in ("", "full"):
-        return "Invalid include. Allowed values: '' (slim default) or 'full'."
+        raise InvalidArgumentException("Invalid include. Allowed values: '' (slim default) or 'full'.")
     params: dict = {"limit": limit}
     if offset > 0:
         params["offset"] = offset
     if include == "full":
         params["include"] = "full"
-    return _fmt(await _get("/v1/cve/leading", params))
+    return CveSearchResponse(**await _aget("/v1/cve/leading", params=params))
 
 
-@mcp.tool(annotations=_RO)
+@mcp_tool_safe(annotations=_RO_CLOSED_WORLD)
 async def exploit_lookup(
     cve_id: Annotated[
         str, Field(description="CVE identifier in format CVE-YYYY-NNNNN (e.g. 'CVE-2024-3094', 'CVE-2023-44487')")
     ],
-) -> str:
+) -> ExploitResponse | ErrorResponse:
     """Search public exploits/PoC for a specific CVE across three sources: (1) GitHub Advisory Database (sources.github.advisories[]), (2) Shodan CVEDB references (sources.shodan_refs.results[] — packetstorm/seclists/vendor URLs cited by Shodan), (3) ExploitDB CSV mirror (exploits[] array, with edb_id + author + verified flag — these are the actual ExploitDB entries). Use to assess if a vulnerability has weaponized exploits in the wild; run after cve_lookup to evaluate real-world risk. When the CVE is also in CISA KEV (kev.in_kev=true on cve_lookup), pair with kev_detail for federal patch deadline; pair with cwe_lookup on cwe_id for the underlying weakness category and mitigations. Response carries next_calls — single cve_lookup pivot for full context (KEV status, CWE chain, CVSS, EPSS); cve_lookup's own next_calls then surface kev_detail and cwe_lookup automatically (this endpoint has no in_kev/cwe_id schema, so blind emission of those pivots is intentionally avoided). Free: 100/hr, Pro: 1000/hr. Returns {cve_id, exploits_found, has_public_exploit, sources: {github, shodan_refs}, exploits: [{edb_id, cve_id, date_published, author, type, platform, url, verified, description}], verdict, next_calls}."""
-    if err := _validate_cve(cve_id):
-        return err
-    return _fmt(await _get(f"/v1/exploit/{cve_id}"))
+    return ExploitResponse(**await _aget(f"/v1/exploit/{_require_cve(cve_id)}"))
 
 
-@mcp.tool(annotations=_RO)
+@mcp_tool_safe(annotations=_RO_CLOSED_WORLD)
 async def bulk_cve_lookup(
     cve_ids: Annotated[
         list[str],
@@ -1026,34 +894,34 @@ async def bulk_cve_lookup(
             description="Return the full references list for each CVE in the batch (default: False, each CVE returns first 10). total_references is always emitted. Set True only when you need every advisory URL for every CVE in the batch."
         ),
     ] = False,
-) -> str:
+) -> BulkCveResponse | ErrorResponse:
     """Batch query multiple CVEs (up to 10 free/50 pro): retrieve full CVE details for all in 1 request instead of N. By default each CVE's affected_products is truncated to the first 20 entries (total_products reports honest count) and references to the first 10 (total_references reports honest count); pass include_affected_products=true / include_full_references=true to return full lists. Use for dependency audits or bulk vulnerability enrichment; use cve_lookup for single CVE. Each successful item carries next_calls — chain with kev_detail (when kev.in_kev=true), cwe_lookup (when cwe_id is present), or exploit_lookup. Free: 100/hr (1 per item), Pro: 1000/hr. Returns {results, total, successful, failed, timed_out, partial, summary}."""
     if not isinstance(cve_ids, list) or not cve_ids:
-        return "cve_ids must be a non-empty list"
+        raise InvalidArgumentException("cve_ids must be a non-empty list")
+    if len(cve_ids) > 50:
+        raise InvalidArgumentException("Too many cve_ids — max 50 per request (Pro tier) or 10 (free tier).")
     if not all(isinstance(cid, str) for cid in cve_ids):
-        return "All cve_ids must be strings"
+        raise InvalidArgumentException("All cve_ids must be strings")
     body = {
         "cve_ids": cve_ids,
         "include_affected_products": include_affected_products,
         "include_full_references": include_full_references,
     }
-    return _fmt(await _post("/v1/cves/bulk", body))
+    return BulkCveResponse(**await _apost("/v1/cves/bulk", body))
 
 
-@mcp.tool(annotations=_RO)
+@mcp_tool_safe(annotations=_RO_CLOSED_WORLD)
 async def kev_detail(
     cve_id: Annotated[
         str,
         Field(description="CVE identifier in format CVE-YYYY-NNNNN (e.g. 'CVE-2021-44228', 'CVE-2024-3094')"),
     ],
-) -> str:
+) -> KevDetailResponse | ErrorResponse:
     """Look up CISA KEV (Known Exploited Vulnerabilities) full record for a CVE. Returns federal patch deadline (due_date), CISA-specified required_action remediation, known ransomware association, vendor/product, the CISA-given common name (e.g. 'Log4Shell'), and CISA-reported CWE list. Returns 404 when the CVE is not in the KEV catalog — use cve_lookup for non-KEV CVEs. Best follow-up after cve_lookup or cve_search(kev=true) when an in_kev=true CVE is identified; chain with cwe_lookup on each returned CWE to investigate the weakness category. Free: 100/hr, Pro: 1000/hr. Returns {cve_id, vendor_project, product, vulnerability_name, date_added, due_date, required_action, known_ransomware_use, notes, cwes, verdict, next_calls}."""
-    if err := _validate_cve(cve_id):
-        return err
-    return _fmt(await _get(f"/v1/kev/{cve_id}"))
+    return KevDetailResponse(**await _aget(f"/v1/kev/{_require_cve(cve_id)}"))
 
 
-@mcp.tool(annotations=_RO)
+@mcp_tool_safe(annotations=_RO_CLOSED_WORLD)
 async def cwe_lookup(
     cwe_id: Annotated[
         str,
@@ -1068,20 +936,19 @@ async def cwe_lookup(
             json_schema_extra={"enum": ["", "full"]},
         ),
     ] = "",
-) -> str:
+) -> CweLookupResponse | ErrorResponse:
     """Look up MITRE CWE (Common Weakness Enumeration) catalog record from research view 1000. Default response is SLIM (first 3 mitigations, first 3 examples, no extended_description) — pass include='full' for the verbose record. Returns description, abstract type (Pillar/Class/Base/Variant/Compound), status (Stable/Draft/Incomplete/Deprecated), exploit likelihood, recommended mitigations, observed example CVEs, parent_cwe (walk up the hierarchy), child_cwes (drill down to more specific weaknesses), and cve_count (LOWER BOUND — counts only CVEs whose primary CWE matches; CVEs with multiple CWEs may not be counted). Use after cve_lookup or kev_detail to understand the underlying weakness category; chain with cve_search(cwe_id=...) to enumerate all matching CVEs. Returns 404 when the CWE is not in research view 1000. Free: 100/hr, Pro: 1000/hr. Returns {cwe_id, name, description, abstract_type, status, likelihood, mitigations (first 3 by default), total_mitigations, examples (first 3 by default), total_examples, parent_cwe, child_cwes, cve_count, updated_at, verdict, next_calls; +extended_description on include='full'}."""
-    if err := _validate_cwe(cwe_id):
-        return err
+    cwe_id = _require_cwe(cwe_id)
     if include not in ("", "full"):
-        return f"Invalid include: {include!r}. Use '' (slim default) or 'full'."
+        raise InvalidArgumentException(f"Invalid include: {include!r}. Use '' (slim default) or 'full'.")
     params = {"include": "full"} if include == "full" else None
-    return _fmt(await _get(f"/v1/cwe/{cwe_id}", params=params))
+    return CweLookupResponse(**await _aget(f"/v1/cwe/{cwe_id}", params=params))
 
 
 # === MITRE ATLAS (AI/ML attack catalog) ===
 
 
-@mcp.tool(annotations=_RO)
+@mcp_tool_safe(annotations=_RO_CLOSED_WORLD)
 async def atlas_technique_lookup(
     technique_id: Annotated[
         str,
@@ -1089,14 +956,12 @@ async def atlas_technique_lookup(
             description="MITRE ATLAS technique id, format 'AML.T####' or 'AML.T####.###' for sub-techniques (e.g. 'AML.T0000', 'AML.T0051' LLM Prompt Injection, 'AML.T0000.000')."
         ),
     ],
-) -> str:
+) -> AtlasTechniqueResponse | ErrorResponse:
     """Look up a MITRE ATLAS technique — the AI/ML adversarial attack catalog. ATLAS catalogues TTPs targeting machine learning systems: prompt injection, model evasion, training data poisoning, model theft, etc. Roughly 80% of ATLAS techniques are AI/ML-specific (no ATT&CK bridge); 20% mirror an enterprise ATT&CK technique via attack_reference_id — use that to pivot to D3FEND defenses (d3fend_defense_for_attack) and CVE search. Sub-techniques inherit `tactics` from the parent (inherited_tactics=true flag) when ATLAS upstream leaves them empty. Use this tool when the user asks about AI/ML threats, LLM red-teaming, or adversarial ML; for multiple techniques in one call (e.g. drilling into a case study's techniques_used), prefer bulk_atlas_technique_lookup. Returns 404 when the id is not in the synced ATLAS catalog. Free: 100/hr, Pro: 1000/hr. Returns {technique_id, name, description, tactics, inherited_tactics, maturity (demonstrated|feasible|realized), attack_reference_id, attack_reference_url, subtechnique_of, created_date, modified_date, next_calls}."""
-    if err := _validate_atlas_technique(technique_id):
-        return err
-    return _fmt(await _get(f"/v1/atlas/{technique_id.strip().upper()}"))
+    return AtlasTechniqueResponse(**await _aget(f"/v1/atlas/{_require_atlas_technique(technique_id)}"))
 
 
-@mcp.tool(annotations=_RO)
+@mcp_tool_safe(annotations=_RO_CLOSED_WORLD)
 async def bulk_atlas_technique_lookup(
     technique_ids: Annotated[
         list[str],
@@ -1105,16 +970,18 @@ async def bulk_atlas_technique_lookup(
             max_length=50,
         ),
     ],
-) -> str:
+) -> BulkAtlasTechniqueResponse | ErrorResponse:
     """Bulk ATLAS technique lookup — retrieve full records for up to 50 techniques in a single request instead of N separate atlas_technique_lookup calls. Designed as the natural follow-up to atlas_case_study_lookup, whose techniques_used array can be passed directly. Each item is the same shape as atlas_technique_lookup, including parent-tactics inheritance for sub-techniques (inherited_tactics=true flag) and per-item next_calls (D3FEND bridge when attack_reference_id present, sibling-technique search by tactic, parent lookup for sub-techniques). Free: 100/hr (1 per item), Pro: 1000/hr. Returns {results [{technique_id, status (ok|not_found|invalid_format), technique, error}], total, successful, failed, partial, summary}."""
     if not isinstance(technique_ids, list) or not technique_ids:
-        return "technique_ids must be a non-empty list"
+        raise InvalidArgumentException("technique_ids must be a non-empty list")
+    if len(technique_ids) > 50:
+        raise InvalidArgumentException("Too many technique_ids — max 50 per request (Pro tier) or 10 (free tier).")
     if not all(isinstance(tid, str) for tid in technique_ids):
-        return "All technique_ids must be strings"
-    return _fmt(await _post("/v1/atlas/techniques/bulk", {"technique_ids": technique_ids}))
+        raise InvalidArgumentException("All technique_ids must be strings")
+    return BulkAtlasTechniqueResponse(**await _apost("/v1/atlas/techniques/bulk", {"technique_ids": technique_ids}))
 
 
-@mcp.tool(annotations=_RO)
+@mcp_tool_safe(annotations=_RO_CLOSED_WORLD)
 async def atlas_technique_search(
     keyword: Annotated[
         str,
@@ -1149,31 +1016,29 @@ async def atlas_technique_search(
             description="Optional ATLAS technique id to exclude from results, format 'AML.T####' or 'AML.T####.###'. Useful when chaining from atlas_technique_lookup to fetch siblings without echoing self in the same-tactic search."
         ),
     ] = "",
-) -> str:
+) -> AtlasTechniqueSearchResponse | ErrorResponse:
     """Search the MITRE ATLAS catalog of AI/ML attack techniques by keyword, tactic, or maturity. Default response is SLIM (description truncated to 240 chars per row); pass include='full' for the verbose record. Pass exclude_id when chaining from atlas_technique_lookup to skip self in sibling-tactic searches. Use this to discover techniques matching a threat-model question, e.g. 'what techniques target LLM serving infrastructure?'. Drill into atlas_technique_lookup with any returned technique_id for the full description, ATT&CK bridge, and pivot hints. For broader cross-referencing: when a result has attack_reference_id, that bridges to D3FEND mitigations via d3fend_defense_for_attack. Free: 100/hr, Pro: 1000/hr. Returns {query (echoed filters), total, results [{technique_id, name, description (truncated by default), tactics, inherited_tactics, maturity, attack_reference_id, subtechnique_of}], next_calls}."""
-    if tactic and (err := _validate_atlas_tactic(tactic)):
-        return err
     if maturity and maturity not in ("demonstrated", "feasible", "realized"):
-        return f"Invalid maturity: {maturity!r}. Use 'demonstrated', 'feasible', or 'realized'."
+        raise InvalidArgumentException(
+            f"Invalid maturity: {maturity!r}. Use 'demonstrated', 'feasible', or 'realized'."
+        )
     if include not in ("", "full"):
-        return f"Invalid include: {include!r}. Use '' (slim default) or 'full'."
-    if exclude_id and (err := _validate_atlas_technique(exclude_id)):
-        return err
+        raise InvalidArgumentException(f"Invalid include: {include!r}. Use '' (slim default) or 'full'.")
     params: dict = {"limit": limit}
     if keyword:
         params["keyword"] = keyword
     if tactic:
-        params["tactic"] = tactic.upper()
+        params["tactic"] = _require_atlas_tactic(tactic)
     if maturity:
         params["maturity"] = maturity
     if exclude_id:
-        params["exclude_id"] = exclude_id.strip().upper()
+        params["exclude_id"] = _require_atlas_technique(exclude_id)
     if include == "full":
         params["include"] = "full"
-    return _fmt(await _get("/v1/atlas/techniques", params=params))
+    return AtlasTechniqueSearchResponse(**await _aget("/v1/atlas/techniques", params=params))
 
 
-@mcp.tool(annotations=_RO)
+@mcp_tool_safe(annotations=_RO_CLOSED_WORLD)
 async def atlas_case_study_lookup(
     case_study_id: Annotated[
         str,
@@ -1186,19 +1051,22 @@ async def atlas_case_study_lookup(
             json_schema_extra={"enum": ["", "full"]},
         ),
     ] = "",
-) -> str:
+) -> AtlasCaseStudyResponse | ErrorResponse:
     """Look up a MITRE ATLAS case study — a documented real-world AI/ML attack incident. Each case study links a sequence of ATLAS techniques (techniques_used) to the incident. Default response is SLIM (description truncated to 240 chars); pass include='full' for the verbose narrative. Use this after atlas_technique_search to find which incidents have exercised a given technique. Drill into the full techniques_used array via bulk_atlas_technique_lookup in a single call (next_calls emits exactly that hint). Returns 404 when the id is not in the synced catalog. Free: 100/hr, Pro: 1000/hr. Returns {case_study_id, name, description, techniques_used, next_calls}."""
-    if err := _validate_atlas_case_study(case_study_id):
-        return err
     if include not in ("", "full"):
-        return f"Invalid include: {include!r}. Use '' (slim default) or 'full'."
+        raise InvalidArgumentException(f"Invalid include: {include!r}. Use '' (slim default) or 'full'.")
     params: dict = {}
     if include == "full":
         params["include"] = "full"
-    return _fmt(await _get(f"/v1/atlas/case-studies/{case_study_id.strip().upper()}", params=params or None))
+    return AtlasCaseStudyResponse(
+        **await _aget(
+            f"/v1/atlas/case-studies/{_require_atlas_case_study(case_study_id)}",
+            params=params or None,
+        )
+    )
 
 
-@mcp.tool(annotations=_RO)
+@mcp_tool_safe(annotations=_RO_CLOSED_WORLD)
 async def atlas_case_study_search(
     keyword: Annotated[
         str,
@@ -1220,26 +1088,24 @@ async def atlas_case_study_search(
             json_schema_extra={"enum": ["", "full"]},
         ),
     ] = "",
-) -> str:
+) -> AtlasCaseStudySearchResponse | ErrorResponse:
     """Search ATLAS case studies (real-world AI/ML attack incidents) by keyword or referenced technique. Default response is SLIM (description truncated to 240 chars per row); pass include='full' for the verbose summary. Useful when the user has a technique in hand and wants to see incidents that exercised it. Drill via atlas_case_study_lookup for the full procedure list. Free: 100/hr, Pro: 1000/hr. Returns {query, total, results [{case_study_id, name, description (truncated by default), techniques_used}], next_calls}."""
-    if technique_id and (err := _validate_atlas_technique(technique_id)):
-        return err
     if include not in ("", "full"):
-        return f"Invalid include: {include!r}. Use '' (slim default) or 'full'."
+        raise InvalidArgumentException(f"Invalid include: {include!r}. Use '' (slim default) or 'full'.")
     params: dict = {"limit": limit}
     if keyword:
         params["keyword"] = keyword
     if technique_id:
-        params["technique_id"] = technique_id.upper()
+        params["technique_id"] = _require_atlas_technique(technique_id)
     if include == "full":
         params["include"] = "full"
-    return _fmt(await _get("/v1/atlas/case-studies", params=params))
+    return AtlasCaseStudySearchResponse(**await _aget("/v1/atlas/case-studies", params=params))
 
 
 # === MITRE D3FEND (defense technique catalog) ===
 
 
-@mcp.tool(annotations=_RO)
+@mcp_tool_safe(annotations=_RO_CLOSED_WORLD)
 async def d3fend_defense_lookup(
     defense_id: Annotated[
         str,
@@ -1247,14 +1113,12 @@ async def d3fend_defense_lookup(
             description="D3FEND defense slug from the ontology URI fragment (CamelCase), e.g. 'TokenBinding', 'FileHashing', 'CertificatePinning'."
         ),
     ],
-) -> str:
+) -> D3fendDefenseResponse | ErrorResponse:
     """Look up a MITRE D3FEND defense technique. D3FEND is the canonical defensive counterpart to ATT&CK — each defense is classified into one of 7 tactics (Model/Harden/Detect/Isolate/Deceive/Evict/Restore) and may target a specific digital artifact (e.g. 'Access Token'). Response includes attack_techniques: the list of ATT&CK T-codes this defense mitigates. Use after d3fend_defense_search for the full record + ATT&CK chain. Returns 404 when the slug is not in the synced D3FEND catalog. Free: 100/hr, Pro: 1000/hr. Returns {defense_id, label, uri, parent_label, description, tactic, artifact, attack_techniques, next_calls}."""
-    if err := _validate_d3fend_defense(defense_id):
-        return err
-    return _fmt(await _get(f"/v1/d3fend/{defense_id.strip()}"))
+    return D3fendDefenseResponse(**await _aget(f"/v1/d3fend/{_require_d3fend_defense(defense_id)}"))
 
 
-@mcp.tool(annotations=_RO)
+@mcp_tool_safe(annotations=_RO_CLOSED_WORLD)
 async def d3fend_defense_search(
     keyword: Annotated[
         str,
@@ -1289,10 +1153,12 @@ async def d3fend_defense_search(
             description="Optional D3FEND defense slug (CamelCase, e.g. 'TokenBinding') to omit from results. Useful when chaining from d3fend_defense_lookup so the originating defense is not echoed back in its own siblings list. Omit when not needed."
         ),
     ] = "",
-) -> str:
+) -> D3fendDefenseSearchResponse | ErrorResponse:
     """Search the MITRE D3FEND catalog of defensive techniques by keyword, tactic, or targeted artifact. Default response is SLIM (drops `uri` from each row — saves ~60 chars/row, ~30% on popular drills); pass include='full' for the verbose record. Pass exclude_id when chaining from d3fend_defense_lookup to skip self in sibling-artifact searches. Use to discover defenses applicable to a given threat model — e.g. 'what defenses harden access tokens?' (tactic=Harden + artifact='Access Token'). Drill into d3fend_defense_lookup with any returned defense_id for the ATT&CK technique mappings. Free: 100/hr, Pro: 1000/hr. Returns {query, total, results [{defense_id, label, uri (only when include=full), parent_label, tactic, artifact}], next_calls}."""
     if tactic and tactic not in _D3FEND_TACTICS:
-        return f"Invalid tactic: {tactic!r}. Use one of {sorted(_D3FEND_TACTICS)}."
+        raise InvalidArgumentException(f"Invalid tactic: {tactic!r}. Use one of {sorted(_D3FEND_TACTICS)}.")
+    if include not in ("", "full"):
+        raise InvalidArgumentException(f"Invalid include: {include!r}. Use '' (slim default) or 'full'.")
     params: dict = {"limit": limit}
     if keyword:
         params["keyword"] = keyword
@@ -1304,10 +1170,10 @@ async def d3fend_defense_search(
         params["include"] = "full"
     if exclude_id:
         params["exclude_id"] = exclude_id
-    return _fmt(await _get("/v1/d3fend/defenses", params=params))
+    return D3fendDefenseSearchResponse(**await _aget("/v1/d3fend/defenses", params=params))
 
 
-@mcp.tool(annotations=_RO)
+@mcp_tool_safe(annotations=_RO_CLOSED_WORLD)
 async def d3fend_defense_for_attack(
     attack_technique_id: Annotated[
         str,
@@ -1336,19 +1202,24 @@ async def d3fend_defense_for_attack(
             description="Optional D3FEND defense slug to omit from the defenses list. Used when chaining from d3fend_defense_lookup so the originating defense is not echoed back in its own 'see also' results."
         ),
     ] = "",
-) -> str:
+) -> D3fendForAttackResponse | ErrorResponse:
     """Reverse lookup: given an ATT&CK T-code, return D3FEND defenses that mitigate it. This is the bridge from offensive intelligence (ATT&CK / ATLAS / CVE) to defensive playbook. Pair with cve_lookup or atlas_technique_lookup output — when those carry an ATT&CK id, call this tool to surface the mitigations. `defenses` is capped at `limit` (default 30) for token efficiency; `total` is the honest pre-truncation count and `truncated=true` flags when the cap was hit. `coverage_by_tactic` always aggregates the FULL set, not the slice. Default response is SLIM (drops `uri` from each row); pass include='full' for the verbose record. Pass exclude_id when drilling from d3fend_defense_lookup to skip self in the 'see also' list. Returns 200 with empty defenses list when the T-code has no D3FEND mapping (the gap is itself a signal). Free: 100/hr, Pro: 1000/hr. Returns {attack_technique_id, total, truncated, defenses [{defense_id, label, uri (only when include=full), parent_label, tactic, artifact, attack_label, attack_tactic}], coverage_by_tactic, next_calls}."""
-    if err := _validate_attack_technique(attack_technique_id):
-        return err
+    if include not in ("", "full"):
+        raise InvalidArgumentException(f"Invalid include: {include!r}. Use '' (slim default) or 'full'.")
     params: dict = {"limit": limit}
     if include == "full":
         params["include"] = "full"
     if exclude_id:
         params["exclude_id"] = exclude_id
-    return _fmt(await _get(f"/v1/d3fend/attack/{attack_technique_id.strip().upper()}", params=params))
+    return D3fendForAttackResponse(
+        **await _aget(
+            f"/v1/d3fend/attack/{_require_attack_technique(attack_technique_id)}",
+            params=params,
+        )
+    )
 
 
-@mcp.tool(annotations=_RO)
+@mcp_tool_safe(annotations=_RO_CLOSED_WORLD)
 async def d3fend_attack_coverage(
     attack_technique_ids: Annotated[
         list[str],
@@ -1357,19 +1228,19 @@ async def d3fend_attack_coverage(
             max_length=500,
         ),
     ],
-) -> str:
+) -> D3fendCoverageResponse | ErrorResponse:
     """Batch coverage breakdown: given a list of ATT&CK T-codes, return distinct defense counts per D3FEND tactic + identify which techniques have NO D3FEND mapping (undefended_techniques). Use to assess the defensive posture of an entire attack campaign or threat model in one call. defended_techniques is the subset with at least one D3FEND defense; undefended_techniques are gaps worth flagging. Pair with cve_search per gap to identify exploit availability. Free: 100/hr, Pro: 1000/hr. Returns {queried_techniques, coverage_by_tactic, defended_techniques, undefended_techniques, next_calls}."""
     if not attack_technique_ids:
-        return "Provide at least one ATT&CK technique id."
+        raise InvalidArgumentException("Provide at least one ATT&CK technique id.")
     if len(attack_technique_ids) > 500:
-        return "Too many ids — max 500. Truncate input client-side."
-    return _fmt(await _post("/v1/d3fend/coverage", {"attack_technique_ids": attack_technique_ids}))
+        raise InvalidArgumentException("Too many ids — max 500. Truncate input client-side.")
+    return D3fendCoverageResponse(**await _apost("/v1/d3fend/coverage", {"attack_technique_ids": attack_technique_ids}))
 
 
 # === Threat Intelligence / IOC ===
 
 
-@mcp.tool(annotations=_RO)
+@mcp_tool_safe(annotations=_RO_OPEN_WORLD)
 async def ioc_lookup(
     indicator: Annotated[
         str,
@@ -1377,12 +1248,12 @@ async def ioc_lookup(
             description="Indicator of Compromise: IP address, domain, full URL, or file hash in MD5/SHA1/SHA256 format (e.g. '8.8.8.8', 'evil.com', 'https://evil.com/malware.exe', 'd41d8cd98f00b204e9800998ecf8427e')"
         ),
     ],
-) -> str:
+) -> IocResponse | ErrorResponse:
     """Enrich Indicator of Compromise (IP/domain/URL/hash) by auto-detecting type and querying abuse.ch feeds. Per-type source coverage: hash → ThreatFox only (Feodo and URLhaus do not index hashes); IP → ThreatFox + Feodo Tracker + URLhaus; domain / URL → ThreatFox + URLhaus. verdict.sources_queried lists what actually ran; verdict.sources_unavailable lists what failed (timeout / upstream error). Use as primary IOC triage tool when type unknown; use threat_intel for domain-only, hash_lookup for richer MalwareBazaar hash data. Free: 100/hr, Pro: 1000/hr. Returns {indicator, type, threat_level, sources, summary, verdict}."""
-    return _fmt(await _get(f"/v1/ioc/{quote(indicator, safe='')}"))
+    return IocResponse(**await _aget(f"/v1/ioc/{quote(indicator, safe='')}"))
 
 
-@mcp.tool(annotations=_RO)
+@mcp_tool_safe(annotations=_RO_OPEN_WORLD)
 async def hash_lookup(
     file_hash: Annotated[
         str,
@@ -1390,14 +1261,12 @@ async def hash_lookup(
             description="File hash to look up. Accepts MD5 (32 chars), SHA-1 (40 chars), or SHA-256 (64 chars). Lowercase hex only, no spaces. Example: 'd41d8cd98f00b204e9800998ecf8427e'"
         ),
     ],
-) -> str:
+) -> HashResponse | ErrorResponse:
     """Query MalwareBazaar for file hash (MD5/SHA1/SHA256): malware family, file type, size, tags, first/last seen, download count. Use to check if file hash is known malware; use ioc_lookup for auto-detection of all IOC types. Companion malware-investigation tools: ioc_lookup (multi-source: ThreatFox + Feodo Tracker + URLhaus), threat_intel (domain-level URLhaus check), exploit_lookup (link a known CVE to PoC code if the hash maps to an exploit binary). Free: 100/hr, Pro: 1000/hr. Returns {found, malware_family, file_type, file_size, tags, first_seen, last_seen, signature}."""
-    if not _HASH_RE.match(file_hash.strip()):
-        return "Invalid hash format. Expected MD5 (32), SHA-1 (40), or SHA-256 (64) hex characters."
-    return _fmt(await _get(f"/v1/hash/{file_hash}"))
+    return HashResponse(**await _aget(f"/v1/hash/{_require_hash(file_hash)}"))
 
 
-@mcp.tool(annotations=_RO)
+@mcp_tool_safe(annotations=_RO_OPEN_WORLD)
 async def password_check(
     sha1_hash: Annotated[
         str,
@@ -1405,14 +1274,15 @@ async def password_check(
             description="Full SHA-1 hash of the password as 40 lowercase hexadecimal characters (e.g. '5baa61e4c9b93f3f0682250b6cf8331b7ee68fd8' for 'password')"
         ),
     ],
-) -> str:
+) -> PasswordResponse | ErrorResponse:
     """Check if SHA-1 hash appears in Have I Been Pwned (HIBP) breach dataset using k-anonymity (5-char prefix only, full hash never leaves tool). Use for password breach audits; read-only, no data stored. Companion OSINT investigation tools: hash_lookup (file-hash malware family lookup, different namespace), email_disposable (throwaway-mail signal on associated accounts), username_lookup (social-platform exposure on associated handles). Free: 100/hr, Pro: 1000/hr. Returns {found, count}."""
-    if not re.match(r"^[a-fA-F0-9]{40}$", sha1_hash.strip()):
-        return "Invalid SHA-1 hash. Expected exactly 40 hexadecimal characters."
-    return _fmt(await _get(f"/v1/password/{sha1_hash}"))
+    sha1 = (sha1_hash or "").strip()
+    if not re.match(r"^[a-fA-F0-9]{40}$", sha1):
+        raise InvalidArgumentException("Invalid SHA-1 hash. Expected exactly 40 hexadecimal characters.")
+    return PasswordResponse(**await _aget(f"/v1/password/{sha1}"))
 
 
-@mcp.tool(annotations=_RO)
+@mcp_tool_safe(annotations=_RO_OPEN_WORLD)
 async def phishing_check(
     url: Annotated[
         str,
@@ -1420,12 +1290,12 @@ async def phishing_check(
             description="Full URL to check, including protocol (e.g. 'https://suspicious-login.com/verify', 'http://evil.com/payload.exe')"
         ),
     ],
-) -> str:
+) -> PhishingResponse | ErrorResponse:
     """Query URLhaus for a specific URL and its host. is_malicious is True only when there is ACTIVE evidence — exact URL match with url_status='online' (or unknown) OR host has urls_online > 0. URLhaus retains historical records forever, so a host can have url_count > 0 with urls_online == 0; in that case is_malicious=False, is_stale=True, threat_level='low'. Use for URL-level threat assessment; use threat_intel for domain-level checks. Companion threat-investigation tools: ioc_lookup (multi-source IOC: ThreatFox + URLhaus + Feodo Tracker, auto-detect type), hash_lookup (file-hash malware family, MalwareBazaar), threat_intel (domain-level URLhaus only). Free: 100/hr, Pro: 1000/hr. Returns {url, host, is_malicious, is_stale, urlhaus_host:{found,urls_online,url_count}, urlhaus_url:{found,threat,tags,status}, threat_level, summary}."""
-    return _fmt(await _get(f"/v1/phishing/{quote(url, safe='')}"))
+    return PhishingResponse(**await _aget(f"/v1/phishing/{quote(url, safe='')}"))
 
 
-@mcp.tool(annotations=_RO)
+@mcp_tool_safe(annotations=_RO_CLOSED_WORLD)
 async def bulk_ioc_lookup(
     indicators: Annotated[
         list[str],
@@ -1433,17 +1303,19 @@ async def bulk_ioc_lookup(
             description="List of indicators of compromise: IP addresses, domains, URLs, or file hashes (e.g. ['8.8.8.8', 'evil.com', 'd41d8cd98f00b204e9800998ecf8427e']). Maximum 10 per request for free tier, 50 for Pro. Each indicator type is auto-detected."
         ),
     ],
-) -> str:
+) -> BulkIocResponse | ErrorResponse:
     """Batch query multiple IOCs (IP/domain/URL/hash, up to 10 free/50 pro) in 1 request: auto-detects type + queries abuse.ch feeds per-indicator. Per-type source coverage matches ioc_lookup: hash → ThreatFox only; IP → ThreatFox + Feodo + URLhaus; domain / URL → ThreatFox + URLhaus. Each result item carries its own verdict.sources_queried / sources_unavailable so partial failures are visible per indicator. Use for SOC alert triage or batch enrichment; use ioc_lookup for single indicator. Free: 100/hr (1 per item), Pro: 1000/hr. Returns {results, total, successful, failed, timed_out, partial, summary}."""
     if not isinstance(indicators, list) or not indicators:
-        return "indicators must be a non-empty list"
-    return _fmt(await _post("/v1/iocs/bulk", {"indicators": indicators}))
+        raise InvalidArgumentException("indicators must be a non-empty list")
+    if len(indicators) > 50:
+        raise InvalidArgumentException("Too many indicators — max 50 per request (Pro tier) or 10 (free tier).")
+    return BulkIocResponse(**await _apost("/v1/iocs/bulk", {"indicators": indicators}))
 
 
 # === Code Security ===
 
 
-@mcp.tool(annotations=_RO)
+@mcp_tool_safe(annotations=_RO_CLOSED_WORLD)
 async def check_secrets(
     code: Annotated[
         str,
@@ -1458,12 +1330,12 @@ async def check_secrets(
             },
         ),
     ] = "generic",
-) -> str:
+) -> CodeCheckResponse | ErrorResponse:
     """Scan source code (or snippet) for hardcoded secrets — cloud provider keys, API tokens, connection strings, private keys, passwords. Supports Python, JavaScript, TypeScript, Java, Go, Ruby, Shell, Bash. Use to detect leaked credentials before commit; for injection detection use check_injection. Free: 100/hr, Pro: 1000/hr. Returns {total, by_severity, findings}. No data stored. The generic password-assignment rule is suppressed when a more-specific credential rule fires on the same line — one targeted finding per leaked secret, not two."""
-    return _fmt(await _post("/v1/check/secrets", {"code": code, "language": language}))
+    return CodeCheckResponse(**await _apost("/v1/check/secrets", {"code": code, "language": language}))
 
 
-@mcp.tool(annotations=_RO)
+@mcp_tool_safe(annotations=_RO_CLOSED_WORLD)
 async def check_injection(
     code: Annotated[
         str,
@@ -1480,12 +1352,12 @@ async def check_injection(
             },
         ),
     ] = "generic",
-) -> str:
+) -> CodeCheckResponse | ErrorResponse:
     """Scan source code for injection vulnerabilities: SQL injection, command injection, path traversal via unsafe string concatenation/unsanitized input. Supports Python, JavaScript, TypeScript, Java, Go, Ruby, Shell, Bash. Use to detect input-handling bugs; for secrets use check_secrets. Companion code-security tools: check_secrets (hard-coded credential detection), check_dependencies (known-CVE vulnerability audit), check_headers (live HTTP security-header validation), scan_headers (live HTTP scan via domain). Free: 100/hr, Pro: 1000/hr. Returns {total, by_severity, findings}. No data stored."""
-    return _fmt(await _post("/v1/check/injection", {"code": code, "language": language}))
+    return CodeCheckResponse(**await _apost("/v1/check/injection", {"code": code, "language": language}))
 
 
-@mcp.tool(annotations=_RO)
+@mcp_tool_safe(annotations=_RO_CLOSED_WORLD)
 async def check_dependencies(
     packages: Annotated[
         list[dict],
@@ -1493,29 +1365,31 @@ async def check_dependencies(
             description="List of dependency packages to audit. Each item is an object with 'name' (required, max 200 chars, e.g. 'lodash', 'django', 'log4j-core') and optional 'version' (max 100 chars, e.g. '4.17.0', '2.14.1'). Only 'name' and 'version' fields are used; extra fields are ignored. Example: [{\"name\": \"lodash\", \"version\": \"4.17.0\"}, {\"name\": \"django\"}]. Maximum 10 per request for free tier, 50 for Pro."
         ),
     ],
-) -> str:
+) -> DependenciesResponse | ErrorResponse:
     """Audit project dependencies (npm/PyPI/Maven/RubyGems/etc.) against CVE database: find known vulnerabilities in your package list. Bulk query up to 10 free/50 pro packages. Use for dependency security scanning; use cve_lookup for single CVE. Free: 100/hr (1 per package), Pro: 1000/hr. Returns {findings, total, by_severity, summary}. Each finding includes fixed_in (first patched version per NVD/MITRE version range) when a version range matched — omitted from wire when the range is open-ended or no input version was supplied; remediation copy then says 'Check if ... is affected ... and upgrade if so' instead of 'Upgrade to X.Y.Z or later'."""
     if not isinstance(packages, list) or not packages:
-        return "packages must be a non-empty list"
+        raise InvalidArgumentException("packages must be a non-empty list")
     if len(packages) > 50:
-        return "Too many packages. Maximum 50 per request (Pro tier) or 10 (free tier)."
+        raise InvalidArgumentException("Too many packages. Maximum 50 per request (Pro tier) or 10 (free tier).")
     for pkg in packages:
         if not isinstance(pkg, dict):
-            return f'Each package must be an object like {{"name": "lodash", "version": "4.17.0"}}, got: {type(pkg).__name__}'
+            raise InvalidArgumentException(
+                f'Each package must be an object like {{"name": "lodash", "version": "4.17.0"}}, got: {type(pkg).__name__}'
+            )
         name = pkg.get("name")
         if not isinstance(name, str) or not name.strip():
-            return "Each package must have a non-empty 'name' string field"
+            raise InvalidArgumentException("Each package must have a non-empty 'name' string field")
         if len(name) > 200:
-            return "'name' must be at most 200 characters"
+            raise InvalidArgumentException("'name' must be at most 200 characters")
         version = pkg.get("version")
         if version is not None and not isinstance(version, str):
-            return f"'version' must be a string or null, got: {type(version).__name__}"
+            raise InvalidArgumentException(f"'version' must be a string or null, got: {type(version).__name__}")
         if isinstance(version, str) and len(version) > 100:
-            return "'version' must be at most 100 characters"
-    return _fmt(await _post("/v1/check/dependencies", {"packages": packages}))
+            raise InvalidArgumentException("'version' must be at most 100 characters")
+    return DependenciesResponse(**await _apost("/v1/check/dependencies", {"packages": packages}))
 
 
-@mcp.tool(annotations=_RO)
+@mcp_tool_safe(annotations=_RO_OPEN_WORLD)
 async def username_lookup(
     username: Annotated[
         str,
@@ -1523,12 +1397,12 @@ async def username_lookup(
             description="Username string to search across platforms, without @ prefix (e.g. 'torvalds', 'johndoe', 'elonmusk')"
         ),
     ],
-) -> str:
+) -> UsernameLookupResponse | ErrorResponse:
     """Search for username across 15+ social/dev platforms (GitHub, Reddit, X/Twitter, LinkedIn, Instagram, TikTok, Discord, YouTube, Keybase, HackerOne, etc.). Use for OSINT investigations and identity verification. Free: 100/hr, Pro: 1000/hr. Returns {username, total_found, platforms: [{name, exists, url, status_code}]}."""
-    return _fmt(await _get(f"/v1/username/{quote(username, safe='')}"))
+    return UsernameLookupResponse(**await _aget(f"/v1/username/{quote(username, safe='')}"))
 
 
-@mcp.tool(annotations=_RO)
+@mcp_tool_safe(annotations=_RO_CLOSED_WORLD)
 async def check_headers(
     headers: Annotated[
         str,
@@ -1547,16 +1421,16 @@ async def check_headers(
             json_schema_extra={"enum": ["", "full"]},
         ),
     ] = "",
-) -> str:
+) -> CheckHeadersResponse | ErrorResponse:
     """Validate HTTP security headers you provide (JSON): CSP, HSTS, X-Frame-Options, X-Content-Type-Options, Permissions-Policy, Referrer-Policy against best practices. Use to test header config before deployment or validate non-public servers; use scan_headers to fetch live. Free: 100/hr, Pro: 1000/hr. By default header values are truncated to 500 chars; pass include='full' for the full raw value. Returns {total, by_severity, findings}. No external requests."""
     try:
         h = json.loads(headers)
-    except json.JSONDecodeError:
-        return "Invalid JSON. Provide headers as JSON object."
+    except json.JSONDecodeError as e:
+        raise InvalidArgumentException("Invalid JSON. Provide headers as JSON object.") from e
     if include not in ("", "full"):
-        return "Invalid include. Allowed values: '' (slim default) or 'full'."
+        raise InvalidArgumentException("Invalid include. Allowed values: '' (slim default) or 'full'.")
     params = {"include": "full"} if include == "full" else None
-    return _fmt(await _post("/v1/check/headers", {"headers": h}, params=params))
+    return CheckHeadersResponse(**await _apost("/v1/check/headers", {"headers": h}, params=params))
 
 
 # === Prompts ===
