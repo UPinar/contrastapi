@@ -6,6 +6,84 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, computed_field
 
+# === MCP wire envelope (v1.22.0+) ===
+#
+# Every MCP tool returns either a SpecificResponse (subclass of
+# BaseSuccessResponse, carrying tool-specific fields plus shared
+# verdict/next_calls) or an ErrorResponse (envelope around ErrorDetail).
+# FastMCP serializes both to `content[0].text` (JSON) and `structuredContent`
+# (dict) so MCP clients see typed schemas via tools/list outputSchema.
+
+
+class ErrorDetail(BaseModel):
+    """Structured failure body. Codes mirror app/exceptions.AppException
+    subclasses; agent retry / upgrade decisions key off `code`, not `message`.
+    """
+
+    code: Literal[
+        "invalid_argument",
+        "not_found",
+        "rate_limit_exceeded",
+        "auth_required",
+        "tier_limit",
+        "upstream_timeout",
+        "upstream_error",
+        "internal_error",
+    ] = Field(description="Stable machine-readable failure category. Agents key retry/upgrade decisions off this.")
+    message: str = Field(
+        max_length=500,
+        description="Human-readable detail. Free text — never parse. Capped at 500 chars to prevent oversized upstream errors from bloating responses.",
+    )
+    retry_after_seconds: int | None = Field(
+        default=None,
+        description="When code='rate_limit_exceeded', the minimum seconds to wait before retrying.",
+    )
+    upgrade_url: str | None = Field(
+        default=None,
+        description="Pricing/upgrade URL when code='tier_limit' or 'rate_limit_exceeded' on the Free tier.",
+    )
+    docs_url: str | None = Field(
+        default=None,
+        description="Documentation pointer (e.g. tool input contract) when code='invalid_argument'.",
+    )
+
+
+class ErrorResponse(BaseModel):
+    """MCP error envelope. Tool return type is always
+    `SpecificResponse | ErrorResponse` — Union flag tells the agent which arm
+    arrived without parsing the inner body.
+    """
+
+    error: ErrorDetail
+
+
+class BaseSuccessResponse(BaseModel):
+    """Common base for every MCP tool success response.
+
+    Carries shared fields (`verdict`, `next_calls`) that nearly every tool
+    surfaces. Subclasses extend with endpoint-specific data. Subclass
+    `model_config` overrides this base when set; otherwise extras are dropped
+    (Pydantic default), matching pre-v1.22 behaviour for response models that
+    did not declare their own model_config.
+    """
+
+    verdict: Verdict | None = Field(
+        default=None,
+        description=(
+            "Falsifiability metadata: sources_queried, sources_unavailable, "
+            "completeness, deterministic flag. Lets agents distinguish 'no data' "
+            "from 'source failed' without re-running the call."
+        ),
+    )
+    next_calls: list[PivotHint] | None = Field(
+        default=None,
+        description=(
+            "Suggested follow-up MCP tool calls. Ordered by relevance; agents "
+            "should chain these without re-prompting the user."
+        ),
+    )
+
+
 # === Domain Report — nested sub-models (agent discovery) ===
 #
 # Each sub-model uses `model_config = {"extra": "allow"}` so that upstream producers
@@ -310,7 +388,7 @@ class DomainReputationInfo(BaseModel):
 # === Domain Report (top-level) ===
 
 
-class DomainReportResponse(BaseModel):
+class DomainReportResponse(BaseSuccessResponse):
     domain: str = Field(description="Queried domain (echoed, lowercased).")
     dns: DomainDnsInfo | None = Field(
         default=None,
@@ -379,22 +457,6 @@ class DomainReportResponse(BaseModel):
     summary: str = Field(
         default="", description="One-line human summary aggregating IP, grade, WAF, and subdomain count."
     )
-    verdict: Verdict | None = Field(
-        default=None,
-        description=(
-            "Falsifiability metadata. sources_queried / sources_unavailable let agents distinguish "
-            "'no data' from 'source failed' — critical for SOC / agent chain-of-thought integrity."
-        ),
-    )
-    next_calls: list[PivotHint] | None = Field(
-        default=None,
-        description=(
-            "Suggested follow-up MCP tool calls. Conditional on what the report surfaced — "
-            "subdomain_enum (always — attack-surface map), ssl_check (when an A record resolves), "
-            "tech_fingerprint (when an A record resolves). Agents should chain these without "
-            "re-prompting the user."
-        ),
-    )
 
     model_config = {"extra": "ignore"}
 
@@ -402,7 +464,7 @@ class DomainReportResponse(BaseModel):
 # === DNS ===
 
 
-class DnsResponse(BaseModel):
+class DnsResponse(BaseSuccessResponse):
     domain: str = Field(description="Queried domain (lowercased, no scheme).")
     records: DomainDnsInfo = Field(
         description=(
@@ -632,7 +694,7 @@ class ReputationInfo(BaseModel):
     model_config = {"extra": "ignore"}
 
 
-class IpLookupResponse(BaseModel):
+class IpLookupResponse(BaseSuccessResponse):
     ip: str = Field(description="Queried IP address (IPv4 or IPv6, echoed back verbatim).")
     ptr: str | None = Field(
         default=None,
@@ -736,19 +798,6 @@ class IpLookupResponse(BaseModel):
         default="",
         description="One-line human-readable summary built from IP, PTR, ASN, country, ports, vulns.",
     )
-    verdict: Verdict | None = Field(
-        default=None,
-        description="Falsifiability metadata: sources queried, sources unavailable, data age, completeness tier.",
-    )
-    next_calls: list[PivotHint] | None = Field(
-        default=None,
-        description=(
-            "Suggested follow-up MCP tool calls. Conditional cascade: asn_lookup (whenever asn is "
-            "populated — CIDR detail), ioc_lookup (when reputation.firehol.listed=True or "
-            "abuseipdb confidence>50 — threat indicator drill-down), threat_report (Pro tier only — "
-            "orchestrated Shodan + AbuseIPDB profile)."
-        ),
-    )
 
     model_config = {"extra": "ignore"}
 
@@ -764,7 +813,7 @@ class ThreatUrl(BaseModel):
     tags: list[str] = Field(default_factory=list)
 
 
-class ThreatResponse(BaseModel):
+class ThreatResponse(BaseSuccessResponse):
     domain: str
     urlhaus_status: str
     urls_online: int = 0
@@ -773,7 +822,6 @@ class ThreatResponse(BaseModel):
     tags: list[str] = Field(default_factory=list)
     urls: list[ThreatUrl] = Field(default_factory=list)
     summary: str = ""
-    verdict: Verdict | None = None
 
     model_config = {"extra": "ignore"}
 
@@ -789,7 +837,7 @@ class WaybackSnapshot(BaseModel):
     url: str
 
 
-class WaybackResponse(BaseModel):
+class WaybackResponse(BaseSuccessResponse):
     domain: str
     status: Literal["ok", "unavailable"] = Field(
         default="ok",
@@ -829,7 +877,7 @@ class TechItem(BaseModel):
     version: str | None = None
 
 
-class TechResponse(BaseModel):
+class TechResponse(BaseSuccessResponse):
     domain: str
     technologies: list[TechItem] = Field(default_factory=list)
     categories: dict[str, list[str]] = Field(default_factory=dict)
@@ -882,7 +930,7 @@ class SslChainItem(BaseModel):
     )
 
 
-class SslResponse(BaseModel):
+class SslResponse(BaseSuccessResponse):
     domain: str = Field(description="Queried domain (echoed). SNI-matched against the leaf cert.")
     valid: bool = Field(
         default=False,
@@ -976,7 +1024,7 @@ class SslResponse(BaseModel):
 # === Monitor (lightweight health check) ===
 
 
-class MonitorResponse(BaseModel):
+class MonitorResponse(BaseSuccessResponse):
     domain: str
     is_up: bool
     ssl_days_remaining: int | None = None
@@ -1007,7 +1055,7 @@ class TechVulnItem(BaseModel):
     cves: list[CveVulnItem] = Field(default_factory=list)
 
 
-class VulnsResponse(BaseModel):
+class VulnsResponse(BaseSuccessResponse):
     domain: str
     technologies_scanned: int = 0
     total_cves: int = 0
@@ -1118,7 +1166,7 @@ class IocSourcesInfo(BaseModel):
     model_config = {"extra": "ignore"}
 
 
-class IocResponse(BaseModel):
+class IocResponse(BaseSuccessResponse):
     indicator: str = Field(description="Echoed input indicator (sanitized; control chars stripped).")
     type: Literal["ip", "domain", "url", "hash", "unknown"] = Field(
         description="Auto-detected indicator type. 'unknown' is rejected at route level (400).",
@@ -1136,10 +1184,6 @@ class IocResponse(BaseModel):
         description="Per-source lookup results. See IocSourcesInfo for which sources apply per indicator type.",
     )
     summary: str = Field(default="", description="One-line human summary aggregating threat indicators across sources.")
-    verdict: Verdict | None = Field(
-        default=None,
-        description="Falsifiability metadata. sources_unavailable lists feeds that timed out or errored.",
-    )
 
     model_config = {"extra": "ignore"}
 
@@ -1147,7 +1191,7 @@ class IocResponse(BaseModel):
 # === Malware Hash ===
 
 
-class HashResponse(BaseModel):
+class HashResponse(BaseSuccessResponse):
     hash: str
     hash_type: str
     found: bool = False
@@ -1163,7 +1207,7 @@ class HashResponse(BaseModel):
 # === Password Breach Check ===
 
 
-class PasswordResponse(BaseModel):
+class PasswordResponse(BaseSuccessResponse):
     hash_prefix: str = Field(
         description=(
             "First 5 chars of the SHA-1 hash (the only data sent upstream — k-anonymity). "
@@ -1209,7 +1253,7 @@ class UrlhausUrlDetail(BaseModel):
     )
 
 
-class PhishingResponse(BaseModel):
+class PhishingResponse(BaseSuccessResponse):
     url: str
     host: str
     is_malicious: bool = False
@@ -1254,7 +1298,7 @@ class BulkDomainItem(BaseModel):
     )
 
 
-class BulkDomainResponse(BaseModel):
+class BulkDomainResponse(BaseSuccessResponse):
     results: list[BulkDomainItem] = Field(
         default_factory=list,
         description="Per-domain outcome list, preserving the input order.",
@@ -1292,9 +1336,26 @@ class PivotHint(BaseModel):
         "asn_lookup",
         "ip_lookup",
         "ioc_lookup",
+        "bulk_ioc_lookup",
+        "hash_lookup",
+        "threat_intel",
         "threat_report",
         "audit_domain",
         "domain_report",
+        "dns_lookup",
+        "whois_lookup",
+        "wayback_lookup",
+        "scan_headers",
+        "check_headers",
+        "check_secrets",
+        "check_injection",
+        "check_dependencies",
+        "email_mx",
+        "email_disposable",
+        "phone_lookup",
+        "username_lookup",
+        "password_check",
+        "phishing_check",
         "atlas_technique_lookup",
         "atlas_technique_search",
         "bulk_atlas_technique_lookup",
@@ -1432,7 +1493,7 @@ class KevInfo(BaseModel):
     )
 
 
-class KevDetailResponse(BaseModel):
+class KevDetailResponse(BaseSuccessResponse):
     """Full CISA KEV catalog record for a single CVE.
 
     Text fields (required_action, notes, vulnerability_name, short_description) are
@@ -1501,21 +1562,9 @@ class KevDetailResponse(BaseModel):
             "Call cwe_lookup with each entry to fetch weakness category, mitigations, and parent/child chain."
         ),
     )
-    verdict: Verdict | None = Field(
-        default=None,
-        description="Provenance + completeness metadata for this response.",
-    )
-    next_calls: list[PivotHint] | None = Field(
-        default=None,
-        description=(
-            "Suggested follow-up MCP tool calls based on this KEV record. Typical chain: "
-            "cve_lookup for full CVE details, cwe_lookup for each entry in cwes, "
-            "exploit_lookup for public PoC availability."
-        ),
-    )
 
 
-class CweLookupResponse(BaseModel):
+class CweLookupResponse(BaseSuccessResponse):
     """MITRE CWE catalog record (research view 1000).
 
     Text fields are sourced verbatim from MITRE's published CSV and JSON-encoded —
@@ -1615,22 +1664,9 @@ class CweLookupResponse(BaseModel):
         default=None,
         description="ISO 8601 timestamp of the last sync from MITRE's CSV catalog.",
     )
-    verdict: Verdict | None = Field(
-        default=None,
-        description="Provenance + completeness metadata for this response.",
-    )
-    next_calls: list[PivotHint] | None = Field(
-        default=None,
-        description=(
-            "Suggested follow-up MCP tool calls based on this CWE record. Typical chain: "
-            "cve_search?cwe=<cwe_id> to enumerate CVEs that map to this weakness, "
-            "cwe_lookup on parent_cwe to walk up the hierarchy, cwe_lookup on each child "
-            "to drill down."
-        ),
-    )
 
 
-class CveResponse(BaseModel):
+class CveResponse(BaseSuccessResponse):
     cve_id: str = Field(description="Canonical CVE identifier, e.g. 'CVE-2021-44228'.")
     summary: str | None = Field(
         default=None,
@@ -1723,10 +1759,6 @@ class CveResponse(BaseModel):
         default=None,
         description="ISO 8601 timestamp when this CVE was first ingested locally.",
     )
-    verdict: Verdict | None = Field(
-        default=None,
-        description="Falsifiability metadata: sources queried, sources unavailable, data age, completeness tier.",
-    )
     patch_available: bool | None = Field(
         default=None,
         description=(
@@ -1746,15 +1778,6 @@ class CveResponse(BaseModel):
         description=(
             "Up to 5 CVEs sharing affected products, ordered by severity DESC. "
             "Each item: {cve_id, severity, cvss_v3}. Null when enrichment was not requested."
-        ),
-    )
-    next_calls: list[PivotHint] | None = Field(
-        default=None,
-        description=(
-            "Suggested follow-up MCP tool calls. Always includes exploit_lookup; adds "
-            "kev_detail when kev.in_kev=true and cwe_lookup when cwe_id is set. Emitted "
-            "on single-CVE lookups (cve_lookup) and bulk lookup items, NOT on cve_search "
-            "/ cve_leading list rows — agents pivot via cve_lookup on the chosen result."
         ),
     )
 
@@ -1807,7 +1830,7 @@ class Exploit(BaseModel):
     description: str | None = None
 
 
-class ExploitResponse(BaseModel):
+class ExploitResponse(BaseSuccessResponse):
     model_config = {"extra": "ignore"}
 
     cve_id: str
@@ -1815,24 +1838,13 @@ class ExploitResponse(BaseModel):
     sources: ExploitSources = Field(default_factory=ExploitSources)
     has_public_exploit: bool = False
     exploits: list[Exploit] = Field(default_factory=list)
-    verdict: Verdict | None = None
     summary: str = ""
-    next_calls: list[PivotHint] | None = Field(
-        default=None,
-        description=(
-            "Suggested follow-up MCP tool calls. Always emits a single pivot — cve_lookup — "
-            "for full CVE context (CVSS, EPSS, KEV status, CWE chain). Agent then chains "
-            "cve_lookup's own next_calls (kev_detail when in_kev, cwe_lookup when cwe_id set). "
-            "exploit_lookup itself does not carry kev/cwe schema, so blind emission of those "
-            "pivots is intentionally avoided — would risk 404 / missing-input wasted calls."
-        ),
-    )
 
 
 # === ASN Lookup ===
 
 
-class AsnResponse(BaseModel):
+class AsnResponse(BaseSuccessResponse):
     target: str
     resolved_ip: str | None = None
     asn: int
@@ -1852,25 +1864,12 @@ class AsnResponse(BaseModel):
     # / sources_unavailable / completeness / falsifiable_fields). Pattern parity
     # — agents can now treat asn_lookup the same way they treat ip_lookup or
     # threat_report when checking source provenance.
-    verdict: Verdict | None = Field(
-        default=None,
-        description="Source provenance for the ASN response (RIPE Stat sub-endpoints).",
-    )
-    next_calls: list[PivotHint] | None = Field(
-        default=None,
-        description=(
-            "Suggested follow-up MCP tool calls. Emitted when the input was a domain "
-            "and resolution produced an IP — agents are pointed at ip_lookup on the "
-            "resolved IP to pull cloud / Tor / threat-intel context that asn_lookup "
-            "deliberately does not duplicate."
-        ),
-    )
 
 
 # === WHOIS ===
 
 
-class WhoisResponse(BaseModel):
+class WhoisResponse(BaseSuccessResponse):
     domain: str = Field(description="Queried domain (lowercased, no scheme).")
     whois: WhoisInfoEmbedded = Field(
         description=(
@@ -1888,7 +1887,7 @@ class WhoisResponse(BaseModel):
 # === Subdomains ===
 
 
-class SubdomainsResponse(BaseModel):
+class SubdomainsResponse(BaseSuccessResponse):
     domain: str
     count: int = 0
     subdomains: list[str] = Field(default_factory=list)
@@ -1907,14 +1906,6 @@ class SubdomainsResponse(BaseModel):
             "and an unknown number of CT-log subdomains may be missing."
         ),
     )
-    next_calls: list[PivotHint] | None = Field(
-        default=None,
-        description=(
-            "Suggested follow-up MCP tool calls. Capped at 10 ssl_check pivots (one per first-ten "
-            "subdomain) — large result sets stay token-cheap, agents pick up the cert-grade triage "
-            "without fanning out 100+ hints. Omitted entirely when subdomains is empty."
-        ),
-    )
 
     model_config = {"extra": "ignore"}
 
@@ -1922,7 +1913,7 @@ class SubdomainsResponse(BaseModel):
 # === Certificate Transparency ===
 
 
-class CertsResponse(BaseModel):
+class CertsResponse(BaseSuccessResponse):
     domain: str
     total_certificates: int = 0
     certificates: list[dict] = Field(default_factory=list)
@@ -1959,7 +1950,7 @@ class CveSearchItem(BaseModel):
     verdict: Verdict | None = Field(default=None, description="Falsifiability metadata.")
 
 
-class CveSearchResponse(BaseModel):
+class CveSearchResponse(BaseSuccessResponse):
     count: int = Field(default=0, description="Number of CVEs in this page (== len(results)). Capped by `limit`.")
     total: int = Field(
         default=0,
@@ -2017,7 +2008,7 @@ class CodeFinding(BaseModel):
     remediation: str = Field(default="", description="Actionable fix or mitigation guidance.")
 
 
-class CodeCheckResponse(BaseModel):
+class CodeCheckResponse(BaseSuccessResponse):
     findings: list[CodeFinding] = Field(
         default_factory=list,
         description="Per-rule findings emitted by the scanner. Empty when the code is clean.",
@@ -2093,7 +2084,7 @@ class HeaderFinding(BaseModel):
     )
 
 
-class ScanHeadersResponse(BaseModel):
+class ScanHeadersResponse(BaseSuccessResponse):
     domain: str = Field(description="Queried domain (lowercased, no scheme).")
     status_code: int = Field(
         default=0, description="HTTP status code returned by the live origin during the header probe."
@@ -2121,7 +2112,7 @@ class ScanHeadersResponse(BaseModel):
     )
 
 
-class CheckHeadersResponse(BaseModel):
+class CheckHeadersResponse(BaseSuccessResponse):
     findings: list[HeaderFinding] = Field(
         default_factory=list,
         description="Per-header validation findings — one entry per header you submitted that the validator recognized.",
@@ -2169,7 +2160,7 @@ class DepFinding(BaseModel):
     remediation: str = ""
 
 
-class DependenciesResponse(BaseModel):
+class DependenciesResponse(BaseSuccessResponse):
     findings: list[DepFinding] = Field(default_factory=list)
     total: int = 0
     by_severity: dict[str, int] = Field(default_factory=dict)
@@ -2200,7 +2191,7 @@ class EmailSecurityDetail(BaseModel):
     issues: list[str] = Field(default_factory=list)
 
 
-class EmailMxResponse(BaseModel):
+class EmailMxResponse(BaseSuccessResponse):
     domain: str
     mx_records: list[MxRecord] = Field(default_factory=list)
     mail_provider: str | None = None
@@ -2226,7 +2217,7 @@ class PhoneFormat(BaseModel):
     )
 
 
-class PhoneLookupResponse(BaseModel):
+class PhoneLookupResponse(BaseSuccessResponse):
     valid: bool = Field(
         default=False,
         description="True only when phonenumbers.is_valid_number() passes (correct length, valid prefix for region).",
@@ -2292,7 +2283,7 @@ class PhoneLookupResponse(BaseModel):
 # === Disposable Email ===
 
 
-class DisposableResponse(BaseModel):
+class DisposableResponse(BaseSuccessResponse):
     email: str = Field(description="Echoed input email (local-part preserved; domain lowercased).")
     domain: str = Field(description="Lowercased domain extracted from the email's right-of-@.")
     disposable: bool = Field(
@@ -2346,7 +2337,7 @@ class UsernameMatch(BaseModel):
     )
 
 
-class UsernameLookupResponse(BaseModel):
+class UsernameLookupResponse(BaseSuccessResponse):
     username: str = Field(
         default="",
         description="Echoed normalized username (lowercased, validated against [a-z0-9._-]).",
@@ -2370,13 +2361,6 @@ class UsernameLookupResponse(BaseModel):
     error: str | None = Field(
         default=None,
         description="Input validation error (empty username, invalid chars, too long). Null on successful lookups.",
-    )
-    verdict: Verdict | None = Field(
-        default=None,
-        description=(
-            "Falsifiability metadata. sources_unavailable lists platforms where status was "
-            "rate_limited/blocked/timeout/error so agents can distinguish 'absence' from 'unknown'."
-        ),
     )
 
     model_config = {"extra": "ignore"}
@@ -2402,7 +2386,7 @@ class AuditTechInfo(BaseModel):
     model_config = {"extra": "ignore"}
 
 
-class AuditResponse(BaseModel):
+class AuditResponse(BaseSuccessResponse):
     domain: str = Field(description="Queried domain (lowercased, no scheme).")
     report: DomainReportResponse | None = Field(
         default=None,
@@ -2426,14 +2410,6 @@ class AuditResponse(BaseModel):
         default="",
         description="One-line audit summary combining domain report summary + technology count.",
     )
-    next_calls: list[PivotHint] | None = Field(
-        default=None,
-        description=(
-            "Suggested follow-up MCP tool calls. audit_domain already bundles tech_fingerprint + "
-            "live_headers, so cascade emits subdomain_enum (always — broader attack surface) and "
-            "ssl_check (when an A record resolves) for the residual recon depth."
-        ),
-    )
 
     model_config = {"extra": "ignore"}
 
@@ -2441,7 +2417,7 @@ class AuditResponse(BaseModel):
 # === Threat Report (orchestrated IP intel) ===
 
 
-class ThreatReportResponse(BaseModel):
+class ThreatReportResponse(BaseSuccessResponse):
     ip: str = Field(description="Queried IP address (IPv4 or IPv6, echoed back verbatim).")
     enrichment: IpEnrichmentInfo = Field(
         default_factory=IpEnrichmentInfo,
@@ -2532,10 +2508,6 @@ class ThreatReportResponse(BaseModel):
             "Same thresholds: >=75 critical, >=50 high, >=25 medium, else low."
         ),
     )
-    verdict: Verdict | None = Field(
-        default=None,
-        description="Source provenance — Pro tier marks the AbuseIPDB/Shodan slots in queried; Free tier marks them unavailable.",
-    )
 
     model_config = {"extra": "ignore"}
 
@@ -2563,7 +2535,7 @@ class BulkCveItem(BaseModel):
     )
 
 
-class BulkCveResponse(BaseModel):
+class BulkCveResponse(BaseSuccessResponse):
     results: list[BulkCveItem] = Field(
         default_factory=list,
         description="Per-CVE outcome list, preserving input order after upper-case de-duplication.",
@@ -2607,7 +2579,7 @@ class BulkIocItem(BaseModel):
     )
 
 
-class BulkIocResponse(BaseModel):
+class BulkIocResponse(BaseSuccessResponse):
     results: list[BulkIocItem] = Field(
         default_factory=list,
         description="Per-indicator outcome list, preserving input order.",
@@ -2631,7 +2603,7 @@ class BulkIocResponse(BaseModel):
 # === MITRE ATLAS (AI/ML attack catalog) ===
 
 
-class AtlasTechniqueResponse(BaseModel):
+class AtlasTechniqueResponse(BaseSuccessResponse):
     """MITRE ATLAS technique record (AI/ML attack catalog).
 
     ATLAS catalogues adversarial techniques targeting AI/ML systems (LLM prompt
@@ -2689,14 +2661,6 @@ class AtlasTechniqueResponse(BaseModel):
         default=None,
         description="ISO-8601 date of the most recent ATLAS update for this technique.",
     )
-    next_calls: list[PivotHint] | None = Field(
-        default=None,
-        description=(
-            "Suggested follow-up MCP tool calls. Typical chain: atlas_case_study_search to find "
-            "real-world incidents using this technique, d3fend_defense_for_attack when "
-            "attack_reference_id is set to surface mitigations."
-        ),
-    )
 
 
 class AtlasTechniqueListItem(BaseModel):
@@ -2724,7 +2688,7 @@ class AtlasTechniqueListItem(BaseModel):
     subtechnique_of: str | None = Field(default=None, description="Parent technique id when applicable.")
 
 
-class AtlasTechniqueSearchResponse(BaseModel):
+class AtlasTechniqueSearchResponse(BaseSuccessResponse):
     """List response for atlas_technique_search."""
 
     model_config = {"extra": "allow"}
@@ -2732,10 +2696,6 @@ class AtlasTechniqueSearchResponse(BaseModel):
     query: dict = Field(default_factory=dict, description="Echo of the input filters (keyword/tactic/maturity).")
     total: int = Field(default=0, description="Number of techniques returned (capped at 200).")
     results: list[AtlasTechniqueListItem] = Field(default_factory=list, description="Matching ATLAS techniques.")
-    next_calls: list[PivotHint] | None = Field(
-        default=None,
-        description="Suggested next call: atlas_technique_lookup on the top hit for full description + bridges.",
-    )
 
 
 class BulkAtlasTechniqueItem(BaseModel):
@@ -2763,7 +2723,7 @@ class BulkAtlasTechniqueItem(BaseModel):
     )
 
 
-class BulkAtlasTechniqueResponse(BaseModel):
+class BulkAtlasTechniqueResponse(BaseSuccessResponse):
     model_config = {"extra": "allow"}
 
     results: list[BulkAtlasTechniqueItem] = Field(
@@ -2777,7 +2737,7 @@ class BulkAtlasTechniqueResponse(BaseModel):
     summary: str = Field(default="", description="One-line aggregate summary (e.g. '4/5 techniques found').")
 
 
-class AtlasCaseStudyResponse(BaseModel):
+class AtlasCaseStudyResponse(BaseSuccessResponse):
     """MITRE ATLAS case study record — real-world AI/ML incidents."""
 
     model_config = {"extra": "allow"}
@@ -2791,13 +2751,9 @@ class AtlasCaseStudyResponse(BaseModel):
         default_factory=list,
         description="ATLAS technique ids used in this incident's procedure, in observed order.",
     )
-    next_calls: list[PivotHint] | None = Field(
-        default=None,
-        description="Suggested next calls: atlas_technique_lookup for each technique in techniques_used (cap 5).",
-    )
 
 
-class AtlasCaseStudySearchResponse(BaseModel):
+class AtlasCaseStudySearchResponse(BaseSuccessResponse):
     """List response for atlas_case_study_search."""
 
     model_config = {"extra": "allow"}
@@ -2805,15 +2761,12 @@ class AtlasCaseStudySearchResponse(BaseModel):
     query: dict = Field(default_factory=dict, description="Echo of input filters (keyword/technique_id).")
     total: int = Field(default=0, description="Number of case studies returned (capped at 200).")
     results: list[AtlasCaseStudyResponse] = Field(default_factory=list, description="Matching case studies.")
-    next_calls: list[PivotHint] | None = Field(
-        default=None, description="Suggested next call: atlas_case_study_lookup on the top hit."
-    )
 
 
 # === MITRE D3FEND (defense technique catalog) ===
 
 
-class D3fendDefenseResponse(BaseModel):
+class D3fendDefenseResponse(BaseSuccessResponse):
     """MITRE D3FEND defense technique record.
 
     D3FEND catalogues defensive techniques against ATT&CK TTPs. Each defense is
@@ -2850,14 +2803,6 @@ class D3fendDefenseResponse(BaseModel):
         default_factory=list,
         description="ATT&CK T-codes this defense mitigates, e.g. ['T1550.001', 'T1539']. Drill via cve_search or d3fend_defense_for_attack to bridge.",
     )
-    next_calls: list[PivotHint] | None = Field(
-        default=None,
-        description=(
-            "Suggested follow-up MCP tool calls. Typical chain: cve_search on each "
-            "attack_techniques entry (cap 5) for known exploits, atlas_technique_search "
-            "with the defense label to find AI/ML attacks this defense addresses."
-        ),
-    )
 
 
 class D3fendDefenseListItem(BaseModel):
@@ -2876,7 +2821,7 @@ class D3fendDefenseListItem(BaseModel):
     artifact: str | None = Field(default=None, description="Targeted digital artifact.")
 
 
-class D3fendDefenseSearchResponse(BaseModel):
+class D3fendDefenseSearchResponse(BaseSuccessResponse):
     """List response for d3fend_defense_search."""
 
     model_config = {"extra": "allow"}
@@ -2884,9 +2829,6 @@ class D3fendDefenseSearchResponse(BaseModel):
     query: dict = Field(default_factory=dict, description="Echo of input filters (keyword/tactic/artifact).")
     total: int = Field(default=0, description="Number of defenses returned (capped at 200).")
     results: list[D3fendDefenseListItem] = Field(default_factory=list, description="Matching D3FEND defenses.")
-    next_calls: list[PivotHint] | None = Field(
-        default=None, description="Suggested next call: d3fend_defense_lookup on the top hit."
-    )
 
 
 class D3fendDefenseForAttackItem(BaseModel):
@@ -2907,7 +2849,7 @@ class D3fendDefenseForAttackItem(BaseModel):
     attack_tactic: str | None = Field(default=None, description="ATT&CK tactic the technique sits under.")
 
 
-class D3fendForAttackResponse(BaseModel):
+class D3fendForAttackResponse(BaseSuccessResponse):
     """Reverse lookup response: given an ATT&CK T-code, list mitigating D3FEND defenses."""
 
     model_config = {"extra": "allow"}
@@ -2929,13 +2871,9 @@ class D3fendForAttackResponse(BaseModel):
         default_factory=dict,
         description="Defense count per D3FEND tactic for this single technique, e.g. {'Harden': 3, 'Detect': 5}.",
     )
-    next_calls: list[PivotHint] | None = Field(
-        default=None,
-        description="Suggested next calls: cve_search and atlas_technique_search keyed on the ATT&CK id.",
-    )
 
 
-class D3fendCoverageResponse(BaseModel):
+class D3fendCoverageResponse(BaseSuccessResponse):
     """Batch coverage breakdown for a list of ATT&CK T-codes."""
 
     model_config = {"extra": "allow"}
@@ -2958,8 +2896,4 @@ class D3fendCoverageResponse(BaseModel):
     undefended_techniques: list[str] = Field(
         default_factory=list,
         description="Subset of queried techniques with NO D3FEND mapping — gap candidates.",
-    )
-    next_calls: list[PivotHint] | None = Field(
-        default=None,
-        description="Suggested next calls: d3fend_defense_for_attack on each undefended T-code (cap 3) to confirm gaps.",
     )
