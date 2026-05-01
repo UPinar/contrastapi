@@ -4120,8 +4120,14 @@ class TestBulkCveLookup:
         assert cve["total_references"] == 25
 
     def test_bulk_cve_empty_list(self):
+        """v1.21.0 parity: empty list → 200 + empty results (matches bulk_atlas + bulk_ioc)."""
         r = client.post("/v1/cves/bulk", json={"cve_ids": []})
-        assert r.status_code == 422
+        assert r.status_code == 200
+        data = r.json()
+        assert data["total"] == 0
+        assert data["results"] == []
+        assert data["successful"] == 0
+        assert data["partial"] is False
 
     def test_bulk_cve_over_free_limit(self):
         ids = [f"CVE-2024-{i:05d}" for i in range(11)]

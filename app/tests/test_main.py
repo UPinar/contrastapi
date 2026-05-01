@@ -17,6 +17,27 @@ def test_landing_page_200():
     assert "ContrastAPI" in r.text
 
 
+def test_landing_links_to_tool_selection_guide():
+    """v1.21.0: landing footer links to docs/tool-selection-guide.md."""
+    r = client.get("/")
+    assert r.status_code == 200
+    assert "tool-selection-guide.md" in r.text
+
+
+def test_tool_selection_guide_file_exists():
+    """v1.21.0: docs/tool-selection-guide.md is checked into the repo."""
+    from pathlib import Path
+
+    guide = Path(__file__).parent.parent.parent / "docs" / "tool-selection-guide.md"
+    assert guide.exists(), f"Missing {guide}"
+    text = guide.read_text()
+    # Sanity-check: guide covers the 4 decision-tree scenarios
+    assert "Is this domain" in text
+    assert "Tell me about a CVE" in text
+    assert "ATLAS" in text
+    assert "v1.21.0" in text
+
+
 # --- Status endpoint ---
 
 

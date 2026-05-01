@@ -1228,13 +1228,13 @@ def exploit_lookup(
 
 class _BulkCveRequest(BaseModel):
     cve_ids: list[Annotated[str, StringConstraints(max_length=64)]] = Field(
-        ...,
-        min_length=1,
+        default_factory=list,
         max_length=50,
         description=(
             "List of CVE identifiers in canonical form 'CVE-YYYY-NNNN+' (case-insensitive; "
             "normalized to upper-case + de-duplicated server-side). Each CVE counts as 1 "
-            "request toward the rate limit. Max 10 (free) / 50 (pro) per call."
+            "request toward the rate limit. Max 10 (free) / 50 (pro) per call. v1.21.0+: "
+            "empty list returns 200 + empty results (parity with bulk_atlas + bulk_ioc)."
         ),
     )
     include_affected_products: bool = Field(
@@ -1269,7 +1269,18 @@ def bulk_cve_lookup(body: _BulkCveRequest, request: Request):
     count = len(cve_ids)
 
     if count == 0:
-        raise HTTPException(status_code=400, detail="cve_ids must contain at least one valid CVE ID")
+        # v1.21.0 parity with bulk_atlas_technique_lookup + bulk_ioc_lookup: empty list → 200 +
+        # empty results (not 400). Consistent with the "all bulk endpoints behave identically
+        # on edge cases" contract; caller already paid 1 quota via authenticate().
+        return {
+            "results": [],
+            "total": 0,
+            "successful": 0,
+            "failed": 0,
+            "timed_out": 0,
+            "partial": False,
+            "summary": "0/0 CVEs found",
+        }
     if count > bulk_limit:
         raise HTTPException(
             status_code=422,

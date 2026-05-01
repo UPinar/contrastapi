@@ -2575,9 +2575,16 @@ class BulkCveResponse(BaseModel):
 
 class BulkIocItem(BaseModel):
     indicator: str = Field(description="Echoed input indicator (sanitized; type auto-detected per-item).")
-    status: Literal["ok", "error"] = Field(
+    status: Literal["ok", "error", "not_found", "invalid_format"] = Field(
         default="ok",
-        description="Per-item outcome. 'ok' = ioc populated; 'error' = lookup failed / invalid / timeout.",
+        description=(
+            "Per-item outcome (v1.21.0+ unified across bulk_cve/bulk_ioc/bulk_atlas): 'ok' = ioc "
+            "populated; 'invalid_format' = indicator failed validation (empty / unknown type / "
+            "private IP); 'error' = transient lookup failure (timeout / upstream error); "
+            "'not_found' is reserved for parity with bulk_cve_lookup — IOC queries always reach "
+            "upstream feeds, so this value is rarely emitted (treat as semantic equivalent of 'ok' "
+            "with threat_level='none' and empty sources)."
+        ),
     )
     ioc: dict | None = Field(
         default=None,
@@ -2603,7 +2610,15 @@ class BulkIocResponse(BaseModel):
     successful: int = Field(default=0, description="Count of items with status='ok'.")
     failed: int = Field(default=0, description="Count of items with status='error' from non-timeout failures.")
     timed_out: int = Field(default=0, description="Count of items that hit the per-IOC or overall timeout.")
-    partial: bool = Field(default=False, description="True when at least one item failed or timed out.")
+    invalid: int = Field(
+        default=0,
+        description=(
+            "Count of items with status='invalid_format' (validation rejection: empty / unknown "
+            "type / private IP). Distinct from `failed` which counts only transient errors. "
+            "`successful + failed + timed_out + invalid == total` always holds."
+        ),
+    )
+    partial: bool = Field(default=False, description="True when at least one item failed, timed out, or was invalid.")
     summary: str = Field(default="", description="One-line aggregate summary (e.g. '12/15 indicators enriched').")
 
 
@@ -2723,11 +2738,13 @@ class BulkAtlasTechniqueItem(BaseModel):
     model_config = {"extra": "allow"}
 
     technique_id: str = Field(description="Echoed input ATLAS technique id (upper-cased + de-duplicated).")
-    status: Literal["ok", "not_found", "invalid_format"] = Field(
+    status: Literal["ok", "error", "not_found", "invalid_format"] = Field(
         default="ok",
         description=(
-            "Per-item outcome. 'ok' = technique populated; 'not_found' = id not in synced ATLAS catalog; "
-            "'invalid_format' = id failed AML.T#### / AML.T####.### regex."
+            "Per-item outcome (v1.21.0+ unified across bulk_cve/bulk_ioc/bulk_atlas): 'ok' = "
+            "technique populated; 'not_found' = id not in synced ATLAS catalog; 'invalid_format' = "
+            "id failed AML.T#### / AML.T####.### regex; 'error' = transient lookup failure (DB I/O "
+            "exception) — rare, server-side fallback only."
         ),
     )
     technique: AtlasTechniqueResponse | None = Field(

@@ -541,7 +541,21 @@ def bulk_atlas_technique_lookup(request: Request, body: _BulkAtlasTechniqueReque
                 }
             )
             continue
-        record = get_atlas_technique(tid)
+        # v1.21.0: per-id error path (DB I/O exception). Schema defines 'error' alongside
+        # 'ok'/'not_found'/'invalid_format' for parity with bulk_cve_lookup + bulk_ioc_lookup.
+        try:
+            record = get_atlas_technique(tid)
+        except Exception as e:
+            logger.warning("Bulk ATLAS technique lookup failed for %s: %s", tid, type(e).__name__)
+            results.append(
+                {
+                    "technique_id": tid,
+                    "status": "error",
+                    "technique": None,
+                    "error": "Lookup failed (transient)",
+                }
+            )
+            continue
         if record is None:
             results.append(
                 {

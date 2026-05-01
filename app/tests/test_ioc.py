@@ -982,8 +982,14 @@ class TestBulkIocLookup:
         assert data["partial"] is False
 
     def test_bulk_ioc_empty_list(self, client):
+        """v1.21.0 parity: empty list → 200 + empty results (matches bulk_atlas + bulk_cve)."""
         r = client.post("/v1/iocs/bulk", json={"indicators": []})
-        assert r.status_code == 422
+        assert r.status_code == 200
+        data = r.json()
+        assert data["total"] == 0
+        assert data["results"] == []
+        assert data["successful"] == 0
+        assert data["partial"] is False
 
     def test_bulk_ioc_over_free_limit(self, client):
         r = client.post("/v1/iocs/bulk", json={"indicators": [f"8.8.8.{i}" for i in range(11)]})
@@ -995,20 +1001,49 @@ class TestBulkIocLookup:
 
     @patch("ioc.routes.detect_indicator_type", return_value="unknown")
     def test_bulk_ioc_unknown_type(self, mock_detect, client):
+        """v1.21.0: validation rejection → status='invalid_format' (was 'error')."""
         r = client.post("/v1/iocs/bulk", json={"indicators": ["???"]})
         assert r.status_code == 200
         data = r.json()
         assert data["successful"] == 0
-        assert data["results"][0]["status"] == "error"
+        assert data["results"][0]["status"] == "invalid_format"
         assert "Unknown" in data["results"][0]["error"]
 
     @patch("ioc.routes.detect_indicator_type", return_value="ip")
     def test_bulk_ioc_private_ip(self, mock_detect, client):
+        """v1.21.0: private IP rejection → status='invalid_format'."""
         r = client.post("/v1/iocs/bulk", json={"indicators": ["192.168.1.1"]})
         assert r.status_code == 200
         data = r.json()
         assert data["successful"] == 0
+        assert data["results"][0]["status"] == "invalid_format"
         assert "Private" in data["results"][0]["error"]
+
+    def test_bulk_ioc_summary_counts_invalid_separately(self, client):
+        """v1.21.0: summary counts 'invalid' alongside 'failed'/'timed_out'."""
+        # 1 invalid (private IP via real detector) — status='invalid_format', not 'failed'
+        r = client.post("/v1/iocs/bulk", json={"indicators": ["10.0.0.1"]})
+        assert r.status_code == 200
+        data = r.json()
+        # Real detector classifies 10.0.0.1 as private IP
+        assert data["results"][0]["status"] == "invalid_format"
+        assert "invalid" in data["summary"].lower()
+
+    def test_bulk_ioc_response_exposes_invalid_count(self, client):
+        """v1.21.0 round-2 review fix: BulkIocResponse.invalid is a separate counter
+        (was missing — invalid_format items had no quantitative field). Invariant:
+        successful + failed + timed_out + invalid == total."""
+        r = client.post("/v1/iocs/bulk", json={"indicators": ["10.0.0.1", "192.168.1.1"]})
+        assert r.status_code == 200
+        data = r.json()
+        assert "invalid" in data
+        assert data["invalid"] == 2
+        assert data["successful"] == 0
+        assert data["failed"] == 0
+        assert data["timed_out"] == 0
+        assert data["successful"] + data["failed"] + data["timed_out"] + data["invalid"] == data["total"]
+        # partial flag now also fires when there are invalid items
+        assert data["partial"] is True
 
     @patch("ratelimit.consume_bulk", return_value=False)
     @patch("ioc.routes.authenticate", return_value={"tier": "free", "key_hash": None, "client_ip": "127.0.0.1"})

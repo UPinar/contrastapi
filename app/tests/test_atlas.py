@@ -422,6 +422,54 @@ def test_bulk_atlas_technique_lookup_dedup_preserves_first_occurrence():
     assert ids_in_order == ["AML.T0000", "AML.T0000.000"]
 
 
+# --- v1.21.0 Bulk parity: error path + 4-state status enum ---
+
+
+def test_bulk_atlas_technique_lookup_error_path_on_db_exception(monkeypatch):
+    """v1.21.0: transient DB exception → status='error' (parity with bulk_cve + bulk_ioc)."""
+    _seed_atlas()
+    # Patch get_atlas_technique to raise on a specific id
+    import atlas.routes as atlas_routes
+
+    original = atlas_routes.get_atlas_technique
+
+    def flaky(tid):
+        if tid == "AML.T0000":
+            raise RuntimeError("simulated DB I/O error")
+        return original(tid)
+
+    monkeypatch.setattr(atlas_routes, "get_atlas_technique", flaky)
+
+    r = client.post(
+        "/v1/atlas/techniques/bulk",
+        json={"technique_ids": ["AML.T0000", "AML.T0000.000"]},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    by_id = {item["technique_id"]: item for item in body["results"]}
+    assert by_id["AML.T0000"]["status"] == "error"
+    assert "transient" in by_id["AML.T0000"]["error"].lower()
+    # The other id still resolves OK — failure is per-item, not per-batch.
+    assert by_id["AML.T0000.000"]["status"] == "ok"
+    assert body["successful"] == 1
+    assert body["failed"] == 1
+    assert body["partial"] is True
+
+
+def test_bulk_endpoints_share_4_state_status_enum():
+    """v1.21.0: BulkCveItem + BulkIocItem + BulkAtlasTechniqueItem hepsi {ok, error, not_found, invalid_format}."""
+    from typing import get_args
+
+    from schemas import BulkAtlasTechniqueItem, BulkCveItem, BulkIocItem
+
+    expected = {"ok", "error", "not_found", "invalid_format"}
+    for cls in (BulkCveItem, BulkIocItem, BulkAtlasTechniqueItem):
+        status_field = cls.model_fields["status"]
+        # Pydantic Literal types: get_args returns the tuple of allowed values
+        states = set(get_args(status_field.annotation))
+        assert states == expected, f"{cls.__name__}.status states {states} != {expected}"
+
+
 # --- v1.20.0 Tier 3 #8: exclude_id sibling-tactic self-skip ---
 
 

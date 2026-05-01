@@ -445,8 +445,7 @@ _BULK_IOC_OVERALL_TIMEOUT = 120
 
 class _BulkIocRequest(BaseModel):
     indicators: list[str] = Field(
-        ...,
-        min_length=1,
+        default_factory=list,
         max_length=50,
         description=(
             "List of indicators of compromise — each is auto-detected per-item (IP / domain / "
@@ -460,7 +459,7 @@ def _run_single_ioc(indicator: str) -> dict:
     """Lookup a single IOC via threatfox + feodo (if IP) + urlhaus."""
     indicator = indicator.strip()
     if not indicator:
-        return {"indicator": indicator, "status": "error", "ioc": None, "error": "Empty indicator"}
+        return {"indicator": indicator, "status": "invalid_format", "ioc": None, "error": "Empty indicator"}
     # Strip control chars (newlines, tabs, bidi overrides, etc.) — str.isprintable()
     # returns False for \n, \r, \t and Unicode control chars but True for normal space.
     indicator = "".join(c for c in indicator if c.isprintable())
@@ -468,10 +467,10 @@ def _run_single_ioc(indicator: str) -> dict:
 
     ioc_type = detect_indicator_type(indicator)
     if ioc_type == "unknown":
-        return {"indicator": indicator, "status": "error", "ioc": None, "error": "Unknown indicator type"}
+        return {"indicator": indicator, "status": "invalid_format", "ioc": None, "error": "Unknown indicator type"}
 
     if ioc_type == "ip" and is_private_ip(indicator):
-        return {"indicator": indicator, "status": "error", "ioc": None, "error": "Private IP not allowed"}
+        return {"indicator": indicator, "status": "invalid_format", "ioc": None, "error": "Private IP not allowed"}
 
     # Determine target for urlhaus host lookup (mirror single /v1/ioc behavior)
     urlhaus_target = None
@@ -481,7 +480,14 @@ def _run_single_ioc(indicator: str) -> dict:
         host = urlparse(indicator).hostname
         if host:
             if is_valid_ip(host) and is_private_ip(host):
-                return {"indicator": indicator, "status": "error", "ioc": None, "error": "Private IP not allowed"}
+                # v1.21.0: parity with direct private-IP path (line ~474) — validation rejection
+                # is invalid_format, not transient error.
+                return {
+                    "indicator": indicator,
+                    "status": "invalid_format",
+                    "ioc": None,
+                    "error": "Private IP not allowed",
+                }
             urlhaus_target = host
 
     sources = {}
@@ -513,6 +519,10 @@ def _run_single_ioc(indicator: str) -> dict:
         except Exception:
             pass
 
+    # Sub-tech to honest reflect "all sources reachable but no findings": still status='ok',
+    # threat_level='none'. 'not_found' is reserved in schema for parity but not emitted here —
+    # IOC lookups always traverse upstream feeds, distinct from CVE catalog lookups where
+    # 'not_found' carries a distinct meaning ("not in our DB").
     return {
         "indicator": indicator,
         "status": "ok",
@@ -544,7 +554,18 @@ def bulk_ioc_lookup(body: _BulkIocRequest, request: Request):
     count = len(indicators)
 
     if count == 0:
-        raise HTTPException(status_code=400, detail="indicators must contain at least one value")
+        # v1.21.0 parity with bulk_atlas_technique_lookup: empty list → 200 + empty results
+        # (not 400). Caller has already paid 1 quota unit via authenticate(); shape is consistent.
+        return {
+            "results": [],
+            "total": 0,
+            "successful": 0,
+            "failed": 0,
+            "timed_out": 0,
+            "invalid": 0,
+            "partial": False,
+            "summary": "0/0 indicators processed",
+        }
     if count > bulk_limit:
         raise HTTPException(
             status_code=422,
@@ -597,14 +618,20 @@ def bulk_ioc_lookup(body: _BulkIocRequest, request: Request):
                 results.append({"indicator": ind, "status": "error", "ioc": None, "error": "Lookup failed"})
 
     successful = sum(1 for r in results if r["status"] == "ok")
-    failed = count - successful - timed_out
+    invalid = sum(1 for r in results if r["status"] == "invalid_format")
+    # `failed` per BulkIocResponse schema = transient errors only (timeout drained, exception).
+    # invalid_format is a separate per-item category (validation rejection). `failed` excludes
+    # both 'ok' and 'invalid_format'.
+    failed = count - successful - timed_out - invalid
 
     if partial:
         summary = f"{successful}/{count} indicators processed (partial — overall timeout)"
-    elif failed == 0 and timed_out == 0:
+    elif failed == 0 and timed_out == 0 and invalid == 0:
         summary = f"All {count} indicators processed"
     else:
         parts = [f"{successful}/{count} processed"]
+        if invalid:
+            parts.append(f"{invalid} invalid")
         if failed:
             parts.append(f"{failed} failed")
         if timed_out:
@@ -617,6 +644,7 @@ def bulk_ioc_lookup(body: _BulkIocRequest, request: Request):
         "successful": successful,
         "failed": failed,
         "timed_out": timed_out,
-        "partial": partial,
+        "invalid": invalid,
+        "partial": partial or invalid > 0,
         "summary": summary,
     }
