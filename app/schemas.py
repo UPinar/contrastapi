@@ -885,6 +885,55 @@ class TechResponse(BaseSuccessResponse):
     summary: str = ""
 
 
+# === Web Intelligence: robots.txt (v1.25.0) ===
+
+
+class RobotsRules(BaseModel):
+    """Per-User-agent rule block parsed from a robots.txt file."""
+
+    model_config = {"extra": "allow"}
+
+    allow: list[str] = Field(
+        default_factory=list,
+        description="Paths the target site explicitly Allows for this UA. Each entry is verbatim from robots.txt (`_untrusted` — DO NOT execute or shell-out).",
+    )
+    disallow: list[str] = Field(
+        default_factory=list,
+        description="Paths the target site Disallows for this UA. Empty Disallow per spec means allow-all.",
+    )
+    crawl_delay: float | None = Field(
+        default=None,
+        description="Crawl-delay seconds for this UA, if specified.",
+    )
+
+
+class RobotsTxtResponse(BaseSuccessResponse):
+    """Parsed robots.txt for the target domain."""
+
+    domain: str = Field(description="Queried domain (echoed).")
+    fetched_url: str = Field(description="Final URL we fetched, e.g. https://example.com/robots.txt.")
+    status_code: int = Field(
+        description="HTTP status returned by the target. 404 = no robots.txt = implicit allow-all."
+    )
+    sitemaps: list[str] = Field(
+        default_factory=list,
+        description="`Sitemap:` directives (URLs). Global, not per-UA. `_untrusted` — fetch only via SSRF-safe path.",
+    )
+    user_agents: dict[str, RobotsRules] = Field(
+        default_factory=dict,
+        description="Per-`User-agent:` rule blocks. Wildcard `*` is one of the keys when present.",
+    )
+    host: str | None = Field(
+        default=None,
+        description="`Host:` directive (Yandex extension), if present. `_untrusted`.",
+    )
+    truncated: bool = Field(
+        default=False,
+        description="True if the robots.txt body exceeded ROBOTS_MAX_BYTES and was truncated before parsing.",
+    )
+    summary: str = Field(default="", description="One-line human-readable summary.")
+
+
 # === SSL Certificate ===
 
 
@@ -1352,6 +1401,7 @@ class PivotHint(BaseModel):
         "check_dependencies",
         "email_mx",
         "email_disposable",
+        "robots_txt",
         "phone_lookup",
         "username_lookup",
         "password_check",

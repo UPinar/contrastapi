@@ -6,7 +6,7 @@ import socket
 from pathlib import Path
 
 VERSION = "1.24.2"
-MCP_TOOL_COUNT = 42
+MCP_TOOL_COUNT = 43  # v1.25.0 Batch 2: +robots_txt
 MCP_RESOURCE_COUNT = 7  # v1.23.0: atlas+d3fend+cwe (4 templates + 3 catalogs)
 MCP_PROMPT_COUNT = 3  # v1.23.0: security_audit, vulnerability_check, contrast_triage
 ENDPOINT_COUNT = "50+"
@@ -58,6 +58,12 @@ ENRICHMENT_DAILY_LIMIT = 10  # enriched scans per IP per day (protects external 
 TARGET_THROTTLE_PER_MIN = 60
 TARGET_THROTTLE_DAILY_ALERT = 500  # Telegram fires once/day when an eTLD+1 crosses
 BOT_USER_AGENT = f"ContrastAPI/{VERSION} (+https://contrastcyber.com/bot)"
+
+# robots.txt fetcher — max body size before truncation (well above 99% of real
+# files; Google itself stops parsing past 500KB but caps at 1MB).
+ROBOTS_MAX_BYTES = 512 * 1024
+ROBOTS_TIMEOUT = 5  # seconds — separate from RECON_TIMEOUT so robots fetch can be tuned independently
+ROBOTS_CACHE_TTL = 3600  # 1 hour — robots.txt is fairly stable but not static
 
 # Endpoint credit costs — based on upstream API calls per request.
 # Default is 1 (single upstream). Orchestration endpoints cost more because

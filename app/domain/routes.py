@@ -110,6 +110,7 @@ from schemas import (
     MonitorResponse,
     PhoneLookupResponse,
     PivotHint,
+    RobotsTxtResponse,
     SslResponse,
     SubdomainsResponse,
     TechResponse,
@@ -777,6 +778,62 @@ def email_disposable(
 
     save_cached_domain(cache_key, result)
     return {**result}
+
+
+@router.get(
+    "/robots/{domain}",
+    operation_id="robots_txt",
+    response_model=RobotsTxtResponse,
+    response_model_exclude_none=True,
+)
+def robots_txt_endpoint(domain: DomainPath, request: Request):
+    """Fetch + parse the target domain's robots.txt file.
+
+    Returns sitemaps, per-User-agent allow/disallow rules, crawl-delay, and the
+    Host directive. Status 404 from the target = no robots.txt = implicit
+    allow-all (RFC 9309 §2.4); the response carries `status_code: 404`,
+    `user_agents: {}`, and an empty `sitemaps`/`host`.
+
+    Per-target eTLD+1 throttle (60 req/min): a single Pro key cannot weaponise
+    the API against one site by spamming this endpoint; subdomain rotation
+    collapses to the same eTLD+1 bucket.
+    """
+    from target_throttle import consume_target_throttle
+
+    cleaned, _resolved_ip, _auth = _validate_and_auth(request, domain)
+
+    allowed, retry_after = consume_target_throttle(cleaned)
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Target throttle: {cleaned} exceeded the per-domain limit. retry_after={retry_after}s",
+            headers={"Retry-After": str(retry_after)},
+        )
+
+    cache_key = f"robots:{cleaned}"
+    cached = get_cached_domain(cache_key)
+    if cached:
+        return cached
+
+    from domain.robots import fetch_robots_txt
+
+    try:
+        result = fetch_robots_txt(cleaned)
+    except Exception as exc:
+        logger.info("robots.txt fetch failed for %s: %s", cleaned, exc)
+        raise HTTPException(status_code=502, detail=f"robots.txt fetch failed: {type(exc).__name__}") from exc
+
+    ua_count = len(result["user_agents"])
+    sm_count = len(result["sitemaps"])
+    if result["status_code"] == 404:
+        result["summary"] = f"{cleaned} — no robots.txt (implicit allow-all)"
+    elif result["status_code"] != 200:
+        result["summary"] = f"{cleaned} — HTTP {result['status_code']} fetching robots.txt"
+    else:
+        result["summary"] = f"{cleaned} — {ua_count} UA blocks, {sm_count} sitemaps"
+
+    save_cached_domain(cache_key, result)
+    return result
 
 
 @router.get(

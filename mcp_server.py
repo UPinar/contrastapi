@@ -92,6 +92,7 @@ from app.schemas import (  # noqa: E402
     PasswordResponse,
     PhishingResponse,
     PhoneLookupResponse,
+    RobotsTxtResponse,
     ScanHeadersResponse,
     SslResponse,
     SubdomainsResponse,
@@ -714,6 +715,19 @@ async def email_disposable(
 ) -> DisposableResponse | ErrorResponse:
     """Check if email address uses a known disposable/temporary provider (Guerrilla Mail, Temp Mail, Mailinator, etc.). Use for input validation to detect throwaway signups; for domain reputation use threat_intel. Companion email-investigation tools: email_mx (deliverability + MX trust), domain_report on the email's domain (full recon), threat_intel (malware-distribution signal on the domain). Free: 100/hr, Pro: 1000/hr. Returns {disposable, domain, provider}."""
     return DisposableResponse(**await _aget(f"/v1/email/disposable/{quote(email, safe='')}"))
+
+
+@mcp_tool_safe(annotations=_RO_OPEN_WORLD)
+async def robots_txt(
+    domain: Annotated[
+        str,
+        Field(
+            description="Registrable domain to fetch robots.txt for (e.g. 'example.com', 'github.com'). No scheme, no path, no port. Subdomains accepted; the bot fetches https://<domain>/robots.txt with HTTP fallback."
+        ),
+    ],
+) -> RobotsTxtResponse | ErrorResponse:
+    """Fetch + parse the target domain's robots.txt — sitemaps, per-User-agent allow/disallow rules, crawl-delay, Host directive. Use BEFORE crawling/scraping a target site (seo_audit, brand_assets, redirect_chain) to honour the site's published rules. status_code=404 means no robots.txt exists = implicit allow-all per RFC 9309 §2.4. ContrastAPI fetches with `User-agent: ContrastAPI/<version> (+https://contrastcyber.com/bot)` so site operators can identify + opt out via robots.txt; we honour `Disallow: /` for our UA in seo_audit and brand_assets. Per-target eTLD+1 throttle (60 req/min) prevents weaponising this endpoint against a single site; subdomain rotation collapses to the same bucket. Free: 100/hr, Pro: 1000/hr. Returns {domain, fetched_url, status_code, sitemaps, user_agents:{ua:{allow,disallow,crawl_delay}}, host, truncated, summary}. Returns 502 ErrorResponse if the target rejected the connection (DNS/TCP/TLS failure); the agent should NOT assume "no robots" in that case — it's an upstream-failure signal."""
+    return RobotsTxtResponse(**await _aget(f"/v1/robots/{_require_domain(domain)}"))
 
 
 @mcp_tool_safe(annotations=_RO_OPEN_WORLD)
