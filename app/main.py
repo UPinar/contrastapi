@@ -186,6 +186,21 @@ app = FastAPI(
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=BASE_DIR / "templates")
 
+# CORS — narrowly scoped to the billing endpoints called from the marketing
+# site (contrastcyber.com). The rest of the API is consumed by server-side
+# clients (curl, SDKs, MCP clients) that do not send an Origin header.
+from fastapi.middleware.cors import CORSMiddleware
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["https://contrastcyber.com"],
+    allow_origin_regex=r"^https://([a-z0-9-]+\.)?contrastcyber\.com$",
+    allow_credentials=False,
+    allow_methods=["POST", "GET", "OPTIONS"],
+    allow_headers=["Content-Type"],
+    max_age=600,
+)
+
 
 # --- In-memory metrics ---
 
