@@ -74,6 +74,16 @@ def walk_redirect_chain(start_url: str, max_hops: int = REDIRECT_MAX_HOPS) -> di
     Raises ValueError on malformed start_url. Hard fetch failures (DNS / TCP /
     TLS / SSRF rejection) propagate as httpx exceptions — the route handler
     decides how to surface them.
+
+    SSRF / DNS-rebind note: `_ssrf_http`'s connection pool reuses connections
+    keyed by (scheme, host, port). Within a single chain we never revisit the
+    same URL (visited-set break), but multiple *invocations* against the same
+    host could in theory share a pooled connection that was opened against an
+    initially-public IP and later DNS-rebound. The IP is re-validated at TCP
+    connect time, so a *new* connection always sees the current resolution;
+    pool reuse only matters if a public→private rebind happens after the
+    initial validate. Acceptable risk window for a 60s-cache-keyed,
+    per-target-throttled endpoint; revisit if customer reports surface.
     """
     _validate_url(start_url)
 

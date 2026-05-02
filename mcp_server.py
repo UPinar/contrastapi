@@ -743,8 +743,12 @@ async def redirect_chain(
     """Walk an HTTP redirect chain hop-by-hop, returning per-hop {url, status_code, location, latency_ms}. Use to deobfuscate URL shorteners (bit.ly / t.co / lnkd.in), audit suspicious links from phishing investigations, or trace marketing tracking redirects. SSRF-guarded: each redirect target's resolved IP is re-validated before connecting (private IPs and non-HTTP schemes rejected). Up to 10 hops; loop_detected=true if a hop would revisit a previously-seen URL (we abort before the duplicate fetch); truncated=true if the chain still had a 30x at hop 10. Per-target eTLD+1 throttle (60 req/min) consumed once for the start host AND once per new host reached — a chain across 11 unrelated domains cannot bypass the cap. Free: 100/hr, Pro: 1000/hr. Returns {start_url, final_url, hops, hop_count, final_status, loop_detected, truncated, summary}. Returns 502 ErrorResponse on hard fetch failure (timeout / TLS / connect); 429 with Retry-After if a hop's eTLD+1 throttle is exceeded mid-chain."""
     from urllib.parse import quote
 
-    # Preserve URL-syntax characters so the path-param decode round-trips.
-    _url_safe = ":/?#[]@!$&'()*+,;="
+    # Percent-encode `?` and `#` so the API's query parser can't swallow them
+    # — keeping them in `safe` would strip a URL like
+    # `https://bit.ly/x?utm_source=a` down to `https://bit.ly/x` before the
+    # handler ever sees the full URL. Other URL-syntax characters stay raw
+    # so the path-param decode round-trips.
+    _url_safe = ":/@!$&'()*+,;=[]"
     return RedirectChainResponse(**await _aget(f"/v1/redirect/{quote(url, safe=_url_safe)}"))
 
 

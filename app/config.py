@@ -69,9 +69,10 @@ ROBOTS_CACHE_TTL = 3600  # 1 hour — robots.txt is fairly stable but not static
 # guard at every redirect target, AND so that target_throttle gets a chance to
 # fire on each cross-host hop (a chain across 11 unrelated domains can't
 # slip through with one throttle slot).
+# Cache TTL is currently the shared DOMAIN_CACHE_TTL=1h via save_cached_domain;
+# per-key TTL override is parked for v1.26+.
 REDIRECT_MAX_HOPS = 10
 REDIRECT_TIMEOUT = 5  # seconds per hop
-REDIRECT_CACHE_TTL = 600  # 10 min — chains are less stable than robots.txt
 
 # Endpoint credit costs — based on upstream API calls per request.
 # Default is 1 (single upstream). Orchestration endpoints cost more because

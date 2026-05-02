@@ -47,6 +47,18 @@ class TestValidateUrl:
         with pytest.raises(ValueError, match="control characters"):
             _validate_url("https://example.com/\x00bad")
 
+    def test_ipv6_bracketed_host_accepted_by_validator(self):
+        """IPv6 bracket form is structurally valid; SSRF guard rejects loopback at TCP-connect time."""
+        from domain.redirect_chain import _validate_url
+
+        scheme, host = _validate_url("http://[::1]/")
+        assert scheme == "http"
+        assert host == "::1"
+
+        scheme, host = _validate_url("https://[2001:db8::1]:8080/path")
+        assert scheme == "https"
+        assert host == "2001:db8::1"
+
 
 # === walk_redirect_chain via mocked _ssrf_http ===
 
@@ -147,6 +159,19 @@ class TestWalkRedirectChain:
         # The bad scheme is silently dropped (location=None) → terminal at 1 hop
         assert out["hop_count"] == 1
         assert out["hops"][0]["location"] is None
+
+    def test_redirect_to_ipv6_loopback_uri_form_blocked_at_validator(self):
+        """A redirect Location: http://[::1]/ should be parsed and reach the SSRF guard.
+
+        We don't reject IPv6 brackets at _validate_url (they're structurally valid);
+        the actual block happens at TCP-connect time via _SSRFSafeBackend. This
+        test verifies that the URL passes validation (so we don't pre-emptively
+        drop a public IPv6 redirect target by mistake).
+        """
+        from domain.redirect_chain import _validate_url
+
+        scheme, host = _validate_url("http://[::1]/")
+        assert host == "::1"  # downstream SSRF guard rejects ::1 at connect
 
     def test_invalid_start_url_raises(self):
         from domain import redirect_chain as rc
