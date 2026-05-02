@@ -26,7 +26,7 @@ from collections import OrderedDict
 from datetime import UTC, datetime, timedelta
 
 from auth import generate_key, hash_key
-from config import NOWPAYMENTS_API_KEY, NOWPAYMENTS_IPN_SECRET
+from config import NOWPAYMENTS_API_KEY, NOWPAYMENTS_IPN_SECRET, VERSION
 from db import get_key_by_order_id, save_api_key, save_pending_key
 from fastapi import APIRouter, HTTPException, Request
 from webhooks import _notify_telegram
@@ -95,6 +95,8 @@ def _create_nowpayments_invoice(api_key: str) -> dict:
         "cancel_url": CANCEL_URL,
     }
     body = json.dumps(payload).encode()
+    # Identify ourselves: NOWPayments anti-bot filter rejects the default
+    # "Python-urllib/X.Y" User-Agent with a 403, even when the API key is valid.
     req = urllib.request.Request(
         f"{NOWPAYMENTS_API_BASE}/invoice",
         data=body,
@@ -102,6 +104,7 @@ def _create_nowpayments_invoice(api_key: str) -> dict:
         headers={
             "X-API-Key": api_key,
             "Content-Type": "application/json",
+            "User-Agent": f"ContrastAPI/{VERSION} (+https://contrastcyber.com)",
         },
     )
     try:

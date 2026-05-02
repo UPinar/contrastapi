@@ -111,13 +111,19 @@ def test_checkout_success_returns_invoice_url(client):
     fake_response.__exit__.return_value = False
     with (
         patch("crypto_billing.NOWPAYMENTS_API_KEY", API_KEY),
-        patch("crypto_billing.urllib.request.urlopen", return_value=fake_response),
+        patch("crypto_billing.urllib.request.urlopen", return_value=fake_response) as mock_open,
     ):
         resp = client.post("/v1/billing/crypto/checkout")
     assert resp.status_code == 200
     body = resp.json()
     assert body["invoice_id"] == "5228306332"
     assert body["invoice_url"].startswith("https://nowpayments.io/")
+    # Regression: NOWPayments' Cloudflare layer 403's the default Python-urllib UA
+    # with error code 1010. Ensure we send a self-identifying User-Agent.
+    sent_request = mock_open.call_args[0][0]
+    ua = sent_request.headers.get("User-agent")
+    assert ua is not None, "Outbound request must set a User-Agent"
+    assert "ContrastAPI" in ua
 
 
 def test_checkout_provider_unreachable_returns_502(client):
