@@ -176,6 +176,65 @@ def test_mcp_tool_call_cve_lookup(mcp_client, monkeypatch):
     assert parsed["cve_id"] == "CVE-2024-0001"
 
 
+def test_mcp_tool_call_whois_lookup_docstring_parity(mcp_client, monkeypatch):
+    """whois_lookup docstring 'Returns {...}' field list must match actual response shape.
+
+    Regression guard for schema/response drift: pre-fix, the docstring claimed
+    expiration_date + dnssec — both wrong. Real fields are expiry_date + name_servers
+    + raw_length, no dnssec. See WhoisInfoEmbedded in app/schemas.py.
+    """
+    import main
+
+    mod = main._mcp_mod
+
+    async def mock_aget(path, params=None):
+        return {
+            "domain": "example.com",
+            "whois": {
+                "registrar": "Test Registrar",
+                "creation_date": "2020-01-01",
+                "expiry_date": "2030-01-01",
+                "updated_date": "2024-01-01",
+                "name_servers": ["a.iana-servers.net"],
+                "status": ["clientTransferProhibited"],
+                "raw_length": 500,
+                "error": None,
+            },
+            "summary": "example.com — Test Registrar — expires 2030-01-01",
+        }
+
+    monkeypatch.setattr(mod, "_aget", mock_aget)
+
+    listing = mcp_client.post(
+        "/mcp/",
+        headers=MCP_HEADERS,
+        json={"jsonrpc": "2.0", "id": 50, "method": "tools/list", "params": {}},
+    ).json()
+    whois_tool = next(t for t in listing["result"]["tools"] if t["name"] == "whois_lookup")
+    desc = whois_tool["description"]
+    assert "expiry_date" in desc, "docstring must advertise the real field name"
+    assert "expiration_date" not in desc, "stale field name must not reappear"
+    assert "dnssec" not in desc.lower(), "dnssec is not implemented; do not advertise it"
+
+    r = mcp_client.post(
+        "/mcp/",
+        headers=MCP_HEADERS,
+        json={
+            "jsonrpc": "2.0",
+            "id": 51,
+            "method": "tools/call",
+            "params": {"name": "whois_lookup", "arguments": {"domain": "example.com"}},
+        },
+    )
+    assert r.status_code == 200
+    sc = r.json()["result"]["structuredContent"]["result"]
+    whois = sc["whois"]
+    assert "expiry_date" in whois
+    assert "expiration_date" not in whois
+    assert "dnssec" not in whois
+    assert whois["expiry_date"] == "2030-01-01"
+
+
 def test_mcp_tool_call_nonexistent_tool(mcp_client):
     """Calling a non-existent tool should return isError=true."""
     r = mcp_client.post(

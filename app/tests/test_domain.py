@@ -418,7 +418,15 @@ class TestReverseDns:
 # =========== routes.py integration tests (mocked) ===========
 
 MOCK_DNS_RESULT = {"a": ["93.184.216.34"], "ns": ["a.iana-servers.net"]}
-MOCK_WHOIS_RESULT = {"registrar": "Test Registrar", "creation_date": "2020-01-01", "raw_length": 500}
+MOCK_WHOIS_RESULT = {
+    "registrar": "Test Registrar",
+    "creation_date": "2020-01-01",
+    "expiry_date": "2030-01-01",
+    "updated_date": "2024-01-01",
+    "name_servers": ["a.iana-servers.net", "b.iana-servers.net"],
+    "status": ["clientTransferProhibited"],
+    "raw_length": 500,
+}
 MOCK_SUBDOMAIN_RESULT = {"subdomains": ["www.example.com"], "count": 1}
 MOCK_CT_RESULT = {"total_certificates": 1, "certificates": [{"issuer": "LE", "common_name": "example.com"}]}
 MOCK_FULL_REPORT = {
@@ -680,6 +688,13 @@ class TestDomainRoutes:
         assert r.status_code == 200
         data = r.json()
         assert "whois" in data
+        whois = data["whois"]
+        assert "expiry_date" in whois
+        assert "expiration_date" not in whois
+        assert "dnssec" not in whois
+        assert whois["expiry_date"] == "2030-01-01"
+        assert "name_servers" in whois
+        assert whois["registrar"] == "Test Registrar"
 
     @patch("domain.routes.whois_lookup", return_value={"error": "No WHOIS server"})
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")

@@ -626,7 +626,7 @@ async def dns_lookup(
 async def whois_lookup(
     domain: Annotated[str, Field(description="Root domain to query WHOIS for (e.g. 'example.com', 'github.com')")],
 ) -> WhoisResponse | ErrorResponse:
-    """Retrieve WHOIS registration data: registrar, registrant, creation/expiry dates, nameservers, DNSSEC status. Use to verify domain ownership, age, expiration; for full audit use domain_report. Free: 100/hr, Pro: 1000/hr. Returns {registrar, creation_date, expiration_date, updated_date, nameservers, status, dnssec}."""
+    """Retrieve WHOIS registration data: registrar, creation/expiry dates, nameservers, status. Use to verify domain ownership, age, expiration; for full audit use domain_report. Free: 100/hr, Pro: 1000/hr. Returns {domain, whois: {registrar, creation_date, expiry_date, updated_date, name_servers, status, raw_length, error}, summary}."""
     return WhoisResponse(**await _aget(f"/v1/whois/{_require_domain(domain)}"))
 
 
