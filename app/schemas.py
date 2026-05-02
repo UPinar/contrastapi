@@ -1069,6 +1069,86 @@ class BrandAssetsResponse(BaseSuccessResponse):
     summary: str = Field(default="", description="One-line human-readable summary.")
 
 
+# === Web Intelligence: seo_audit (v1.25.0) ===
+
+
+class SeoAuditResponse(BaseSuccessResponse):
+    """One-page SEO audit of a domain's homepage with a 0-100 composite score.
+
+    Strictly homepage-only (path `/`); we do NOT crawl the site. Same
+    ethical floor as `brand_assets`: target's robots.txt is honoured
+    (Disallow `/` for our UA → 403, no fetch). All target-derived
+    string/list fields are `_untrusted` (DO NOT execute or shell-out —
+    the page author controls these contents).
+
+    Score (0-100) is the sum of 10 audit rules, each worth 0-10 points.
+    `missing_signals` lists the rule-IDs that did NOT fire so agents
+    can surface concrete fixes ("title_missing", "h1_multiple", etc.).
+    """
+
+    domain: str = Field(description="Queried domain (echoed).")
+    fetched_url: str = Field(description="Final URL we fetched (post-redirects).")
+    status_code: int = Field(description="HTTP status returned by the homepage fetch.")
+
+    title_untrusted: str | None = Field(
+        default=None,
+        description="`<title>` text, control-char stripped, capped at 300 chars. `_untrusted`.",
+    )
+    meta_description_untrusted: str | None = Field(
+        default=None,
+        description="`<meta name='description'>` content, capped at 500 chars. `_untrusted`.",
+    )
+    canonical_url: str | None = Field(
+        default=None,
+        description="`<link rel='canonical'>` href, resolved to an absolute URL.",
+    )
+    h1_untrusted: list[str] = Field(
+        default_factory=list,
+        description="Text of each `<h1>` (capped at 20 entries, 300 chars each). `_untrusted`.",
+    )
+    h1_count: int = Field(default=0, description="Total number of `<h1>` tags found (NOT capped — for scoring).")
+    h2_count: int = Field(default=0, description="`<h2>` tag count, capped at 200.")
+    h3_count: int = Field(default=0, description="`<h3>` tag count, capped at 200.")
+
+    images_total: int = Field(default=0, description="Total `<img>` tags on the page (parser bound: 1000).")
+    images_missing_alt: int = Field(
+        default=0,
+        description="Number of `<img>` tags with no `alt` attribute OR an empty/whitespace `alt`. Counts toward the score's accessibility rule.",
+    )
+
+    internal_link_count: int = Field(
+        default=0,
+        description="`<a href>` count where the target host shares the registrable domain. Cheap eTLD-aware compare; not perfect on suffixes like .co.uk.",
+    )
+    external_link_count: int = Field(
+        default=0,
+        description="`<a href>` count to a different registrable domain. Excludes mailto:, tel:, javascript:, in-page anchors.",
+    )
+
+    og_tags: dict[str, str] = Field(
+        default_factory=dict,
+        description="`<meta property='og:*'>` map, capped at 50 entries. Values capped at 500 chars each. All `_untrusted`.",
+    )
+    json_ld_present: bool = Field(
+        default=False,
+        description="True if at least one `<script type='application/ld+json'>` block exists (parser does NOT validate the JSON, only counts tag presence — score considers tag presence sufficient for structured-data signal).",
+    )
+
+    score: int = Field(
+        description="Composite 0-100 SEO score: 10 rules x 10 points each (title present, title length, meta description present, meta description length, single H1, canonical, >=3 OG tags, JSON-LD present, image alt coverage proportional, HTTPS).",
+    )
+    missing_signals: list[str] = Field(
+        default_factory=list,
+        description="Rule-IDs that did NOT contribute their points. Subset of: title_missing, title_length_off, meta_description_missing, meta_description_length_off, h1_missing, h1_multiple, canonical_missing, og_tags_sparse, json_ld_missing, images_missing_alt, not_https.",
+    )
+
+    cache_respected: bool = Field(
+        default=True,
+        description="True if we wrote the result to our cache. False when the target sent `Cache-Control: no-store` or `private` and we honoured it.",
+    )
+    summary: str = Field(default="", description="One-line human-readable summary.")
+
+
 # === SSL Certificate ===
 
 
@@ -1540,6 +1620,7 @@ class PivotHint(BaseModel):
         "robots_txt",
         "redirect_chain",
         "brand_assets",
+        "seo_audit",
         "phone_lookup",
         "username_lookup",
         "password_check",

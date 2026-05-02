@@ -114,6 +114,7 @@ from schemas import (
     PivotHint,
     RedirectChainResponse,
     RobotsTxtResponse,
+    SeoAuditResponse,
     SslResponse,
     SubdomainsResponse,
     TechResponse,
@@ -1171,6 +1172,105 @@ def brand_assets_endpoint(domain: DomainPath, request: Request):
         "theme_color": assets["theme_color"],
         "site_name_untrusted": assets["site_name"],
         "logo_url_untrusted": assets["logo_url"],
+        "cache_respected": cache_respected,
+        "summary": summary,
+    }
+
+    if cache_respected:
+        save_cached_domain(cache_key, result)
+    return result
+
+
+@router.get(
+    "/seo/{domain}",
+    operation_id="seo_audit",
+    response_model=SeoAuditResponse,
+    response_model_exclude_none=True,
+)
+def seo_audit_endpoint(domain: DomainPath, request: Request):
+    """Audit a domain's homepage for SEO health and emit a 0-100 composite score.
+
+    10 audit rules (each 0-10 pts): title present, title length 30-60,
+    meta description present, meta description length 50-160, exactly
+    one H1, canonical link, ≥3 OG tags, JSON-LD present, image alt-text
+    coverage proportional, HTTPS. `missing_signals` lists rules that did
+    not contribute so the agent has a concrete fix list.
+
+    Same ethical floor as `brand_assets`: target's robots.txt is
+    honoured (Disallow `/` for our UA → 403, no fetch); per-target
+    eTLD+1 throttle (60 req/min) consumed BEFORE the cache lookup;
+    `Cache-Control: no-store`/`private` from the target skips the
+    cache write (cache_respected=false flags it).
+    """
+    from target_throttle import consume_target_throttle
+
+    cleaned, _resolved_ip, _auth = _validate_and_auth(request, domain)
+
+    allowed, retry_after = consume_target_throttle(cleaned)
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Target throttle: {cleaned} exceeded the per-domain limit. retry_after={retry_after}s",
+            headers={"Retry-After": str(retry_after)},
+        )
+
+    cache_key = f"seo:{cleaned}"
+    cached = get_cached_domain(cache_key)
+    if cached:
+        return cached
+
+    from domain.brand_assets import fetch_homepage_html, homepage_allowed
+    from domain.robots import _exception_kind, fetch_robots_txt
+    from domain.seo_audit import _extract_seo, _score
+
+    # Robots respect — same fail-open posture as brand_assets: a transient
+    # robots.txt outage must not poison every seo_audit call.
+    robots_payload = get_cached_domain(f"robots:{cleaned}")
+    if robots_payload is None:
+        try:
+            robots_payload = fetch_robots_txt(cleaned)
+            sc = robots_payload.get("status_code", 0)
+            if not (500 <= sc < 600):
+                save_cached_domain(f"robots:{cleaned}", robots_payload)
+        except Exception as exc:
+            logger.debug("seo_audit: robots.txt fetch failed (allow-fail-open) %s [%s]", cleaned, _exception_kind(exc))
+            robots_payload = {"user_agents": {}, "sitemaps": [], "host": None}
+
+    allowed_path, blocking_pat = homepage_allowed(robots_payload)
+    if not allowed_path:
+        raise HTTPException(
+            status_code=403,
+            detail=f"robots_txt_disallow: target site forbids '{blocking_pat}' for ContrastAPI; we will not fetch /",
+        )
+
+    try:
+        page = fetch_homepage_html(cleaned)
+    except Exception as exc:
+        kind = _exception_kind(exc)
+        logger.info("seo_audit fetch failed for %s [%s]: %s", cleaned, kind, exc)
+        raise HTTPException(
+            status_code=502,
+            detail=f"seo_audit fetch failed: {kind}",
+        ) from exc
+
+    parsed = _extract_seo(page["html"], page["url"])
+    score, missing = _score(parsed, page["url"])
+
+    cc = page["cache_control"]
+    cache_respected = not any(token in cc for token in ("no-store", "private"))
+
+    summary_parts: list[str] = [f"{cleaned} score={score}/100"]
+    if missing:
+        summary_parts.append(f"missing:{','.join(missing[:5])}{'...' if len(missing) > 5 else ''}")
+    summary = " — ".join(summary_parts)
+
+    result = {
+        "domain": cleaned,
+        "fetched_url": page["url"],
+        "status_code": page["status_code"],
+        **parsed,
+        "score": score,
+        "missing_signals": missing,
         "cache_respected": cache_respected,
         "summary": summary,
     }
