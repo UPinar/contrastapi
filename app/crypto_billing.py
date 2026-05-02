@@ -35,7 +35,6 @@ logger = logging.getLogger("contrastapi")
 
 NOWPAYMENTS_API_BASE = "https://api.nowpayments.io/v1"
 PRO_PRICE_USD = 7.00
-PRO_PAY_CURRENCY = "usdttrc20"
 PRO_VALIDITY_DAYS = 30
 INVOICE_CREATE_TIMEOUT = 10
 SUCCESS_URL = "https://contrastcyber.com/welcome"
@@ -84,11 +83,17 @@ def verify_ipn_signature(body_bytes: bytes, signature: str, secret: str) -> bool
 
 
 def _create_nowpayments_invoice(api_key: str) -> dict:
-    """POST to NOWPayments /v1/invoice. Returns parsed JSON or raises HTTPException."""
+    """POST to NOWPayments /v1/invoice. Returns parsed JSON or raises HTTPException.
+
+    No `pay_currency` is set: the NOWPayments hosted page lets the customer
+    pick from any coin enabled on the account. This avoids hard failures when
+    the per-coin minimum (e.g. ~11 USDT TRC20 at current rates) exceeds our
+    $7/mo price; cheaper coins (BTC sats, TRX, DOGE) clear the minimum and
+    auto-convert to the USDT TRC20 payout wallet.
+    """
     payload = {
         "price_amount": PRO_PRICE_USD,
         "price_currency": "usd",
-        "pay_currency": PRO_PAY_CURRENCY,
         "order_description": ORDER_DESCRIPTION,
         "ipn_callback_url": "https://api.contrastcyber.com/v1/billing/crypto/webhook",
         "success_url": SUCCESS_URL,
