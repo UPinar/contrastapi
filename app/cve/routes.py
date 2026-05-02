@@ -1321,6 +1321,7 @@ def bulk_cve_lookup(body: _BulkCveRequest, request: Request):
             else:
                 formatted = _format_cve(
                     row,
+                    include_enrichment=True,
                     include_full_products=body.include_affected_products,
                     include_full_references=body.include_full_references,
                 )

@@ -4157,6 +4157,63 @@ class TestBulkCveLookup:
         data = r.json()
         assert data["total"] == 1
 
+    def test_bulk_cve_patch_available_enriched(self):
+        """Bulk path must populate patch_available like single cve_lookup (parity guard)."""
+        _seed_cve(
+            cve_id="CVE-2024-9101",
+            refs=["https://github.com/advisories/GHSA-bulk-1111-test"],
+        )
+        r = client.post("/v1/cves/bulk", json={"cve_ids": ["CVE-2024-9101"]})
+        assert r.status_code == 200
+        cve = r.json()["results"][0]["cve"]
+        assert cve["patch_available"] is True
+        assert cve["patch_url"] == "https://github.com/advisories/GHSA-bulk-1111-test"
+
+    def test_bulk_cve_related_cves_enriched(self):
+        """Bulk path must populate related_cves like single cve_lookup (parity guard)."""
+        _seed_cve(
+            cve_id="CVE-2024-9201",
+            severity="HIGH",
+            cvss_v3=8.0,
+            affected_products=[{"vendor": "acme", "product": "bulkparityprod"}],
+        )
+        _seed_cve(
+            cve_id="CVE-2024-9202",
+            severity="CRITICAL",
+            cvss_v3=9.5,
+            affected_products=[{"vendor": "acme", "product": "bulkparityprod"}],
+        )
+        r = client.post("/v1/cves/bulk", json={"cve_ids": ["CVE-2024-9201"]})
+        assert r.status_code == 200
+        cve = r.json()["results"][0]["cve"]
+        assert cve["related_cves"], "bulk should return related_cves, not null"
+        cve_ids = [r["cve_id"] for r in cve["related_cves"]]
+        assert "CVE-2024-9202" in cve_ids
+        assert "CVE-2024-9201" not in cve_ids  # excludes self
+
+    def test_bulk_cve_parity_with_single_lookup(self):
+        """Same CVE through /v1/cve/{id} and /v1/cves/bulk must yield equivalent enrichment."""
+        _seed_cve(
+            cve_id="CVE-2024-9301",
+            severity="CRITICAL",
+            cvss_v3=9.8,
+            affected_products=[{"vendor": "acme", "product": "parityprod"}],
+            refs=["https://github.com/advisories/GHSA-parity-2222-test"],
+        )
+        _seed_cve(
+            cve_id="CVE-2024-9302",
+            severity="HIGH",
+            cvss_v3=7.5,
+            affected_products=[{"vendor": "acme", "product": "parityprod"}],
+        )
+        single = client.get("/v1/cve/CVE-2024-9301").json()
+        bulk = client.post("/v1/cves/bulk", json={"cve_ids": ["CVE-2024-9301"]}).json()
+        bulk_cve = bulk["results"][0]["cve"]
+        for field in ("patch_available", "patch_url", "related_cves"):
+            assert single.get(field) == bulk_cve.get(field), (
+                f"{field} drift: single={single.get(field)!r} bulk={bulk_cve.get(field)!r}"
+            )
+
     def test_bulk_cve_format_edge_cases(self):
         """Various malformed CVE IDs should return 200 with per-item invalid_format."""
         bad_ids = [
