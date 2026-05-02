@@ -82,8 +82,10 @@ def walk_redirect_chain(start_url: str, max_hops: int = REDIRECT_MAX_HOPS) -> di
     initially-public IP and later DNS-rebound. The IP is re-validated at TCP
     connect time, so a *new* connection always sees the current resolution;
     pool reuse only matters if a public→private rebind happens after the
-    initial validate. Acceptable risk window for a 60s-cache-keyed,
-    per-target-throttled endpoint; revisit if customer reports surface.
+    initial validate AND the keep-alive socket is still open. httpx's default
+    keep-alive idle is ~5s, so the practical rebind window is small.
+    Acceptable risk for a per-target-throttled (60/min/eTLD+1) endpoint
+    backed by a 1h domain cache; revisit if customer reports surface.
     """
     _validate_url(start_url)
 
