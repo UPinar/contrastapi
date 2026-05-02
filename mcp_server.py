@@ -961,12 +961,12 @@ async def cve_search(
     include: Annotated[
         str,
         Field(
-            description="Per-result detail level. Default (omit) returns slim list items (cve_id, summary, severity, cvss_v3, cwe_id, epss, kev, total_products, published, modified, sources, verdict). Pass 'full' to also return description, cvss_breakdown, affected_products, references, first_seen_source, first_seen_at — only do this when the user explicitly wants drill-down on every result. For single-CVE detail prefer cve_lookup; slim default keeps token cost ~70% lower on Log4j-class queries.",
+            description="Per-result detail level. Default (omit) returns slim list items (cve_id, summary, severity, cvss_v3, cwe_id, epss, kev, total_products, published, modified, sources). Pass 'full' to also return description, cvss_breakdown, affected_products, references, first_seen_source, first_seen_at — only do this when the user explicitly wants drill-down on every result. For single-CVE detail prefer cve_lookup; slim default keeps token cost ~70% lower on Log4j-class queries. Note: verdict is at the response root, not per-row (was deduplicated to save ~40% payload).",
             json_schema_extra={"enum": ["", "full"]},
         ),
     ] = "",
 ) -> CveSearchResponse | ErrorResponse:
-    """Search CVE database with filters: product/vendor, severity, published date range, EPSS score, CWE, CVSS range, CISA KEV status. Default response is SLIM per-result (cve_id, summary, severity, cvss_v3, cwe_id, epss, kev, total_products, published, modified, sources, verdict) — pass include='full' for description, cvss_breakdown, affected_products, references, first_seen_*. Use for vulnerability discovery by criteria; pass cwe_id (e.g. CWE-79) to enumerate every CVE in our database mapped to a weakness — pair with cwe_lookup for the category description and mitigations. Use cve_lookup for single CVE by ID, kev_detail when kev=true filtering and the agent needs federal patch deadlines per result. Response carries a global hint pointing at cve_lookup — drill into any returned cve_id for full detail and chained pivots (exploit_lookup, kev_detail, cwe_lookup). Free: 100/hr, Pro: 1000/hr. Returns {count, total, truncated, results, query_echo, hint}."""
+    """Search CVE database with filters: product/vendor, severity, published date range, EPSS score, CWE, CVSS range, CISA KEV status. Default response is SLIM per-result (cve_id, summary, severity, cvss_v3, cwe_id, epss, kev, total_products, published, modified, sources) — pass include='full' for description, cvss_breakdown, affected_products, references, first_seen_*. Verdict (sources_queried, falsifiable_fields, completeness, data_age) is at the response root — applies to the whole batch, not per-row. Use for vulnerability discovery by criteria; pass cwe_id (e.g. CWE-79) to enumerate every CVE in our database mapped to a weakness — pair with cwe_lookup for the category description and mitigations. Use cve_lookup for single CVE by ID, kev_detail when kev=true filtering and the agent needs federal patch deadlines per result. Response carries a global hint pointing at cve_lookup — drill into any returned cve_id for full detail and chained pivots (exploit_lookup, kev_detail, cwe_lookup). Free: 100/hr, Pro: 1000/hr. Returns {count, total, truncated, offset, summary, results, query_echo, next_offset, verdict, hint}."""
     params: dict = {"limit": limit}
     if product:
         params["product"] = product
@@ -1006,16 +1006,17 @@ async def cve_leading(
         Field(
             description=(
                 "Per-result detail level. Default ('') returns slim list items (cve_id, summary, "
-                "severity, cvss_v3, cwe_id, epss, kev, total_products, published, modified, sources, "
-                "verdict). Pass 'full' to also return description, cvss_breakdown, affected_products, "
+                "severity, cvss_v3, cwe_id, epss, kev, total_products, published, modified, sources). "
+                "Pass 'full' to also return description, cvss_breakdown, affected_products, "
                 "references, first_seen_source, first_seen_at. Slim default avoids description/summary "
-                "duplication that bloats 50-item leading lists. Allowed: '' or 'full'."
+                "duplication that bloats 50-item leading lists. Verdict is at the response root, not "
+                "per-row (deduplicated for ~40% payload savings). Allowed: '' or 'full'."
             ),
             json_schema_extra={"enum": ["", "full"]},
         ),
     ] = "",
 ) -> CveSearchResponse | ErrorResponse:
-    """List CVEs indexed from MITRE/GHSA BEFORE NVD publication (early-warning, freshest data). By default each result is slim (no description, no cvss_breakdown, no affected_products list, no references) — pass include='full' for the same payload shape as cve_lookup; for drill-down on a single CVE prefer cve_lookup. Use for threat intelligence on emerging CVEs; use cve_search for published NVD data. Response carries a global hint pointing at cve_lookup — drill into any returned cve_id for full detail and chained pivots (exploit_lookup, kev_detail, cwe_lookup). Free: 100/hr, Pro: 1000/hr. Returns {count, total, truncated, offset, summary, results, hint}."""
+    """List CVEs indexed from MITRE/GHSA BEFORE NVD publication (early-warning, freshest data). By default each result is slim (no description, no cvss_breakdown, no affected_products list, no references) — pass include='full' for the same payload shape as cve_lookup; for drill-down on a single CVE prefer cve_lookup. Use for threat intelligence on emerging CVEs; use cve_search for published NVD data. Verdict (sources_queried, falsifiable_fields, completeness, data_age) is at the response root — applies to the whole batch, not per-row. Response carries a global hint pointing at cve_lookup — drill into any returned cve_id for full detail and chained pivots (exploit_lookup, kev_detail, cwe_lookup). Free: 100/hr, Pro: 1000/hr. Returns {count, total, truncated, offset, summary, results, verdict, hint}."""
     if include not in ("", "full"):
         raise InvalidArgumentException("Invalid include. Allowed values: '' (slim default) or 'full'.")
     params: dict = {"limit": limit}

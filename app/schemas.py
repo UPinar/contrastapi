@@ -2217,7 +2217,6 @@ class CveSearchItem(BaseModel):
     published: str | None = Field(default=None, description="ISO 8601 publication timestamp.")
     modified: str | None = Field(default=None, description="ISO 8601 last-modified timestamp.")
     sources: list[str] = Field(default_factory=list, description="Source feeds for this CVE row.")
-    verdict: Verdict | None = Field(default=None, description="Falsifiability metadata.")
 
 
 class CveSearchResponse(BaseSuccessResponse):

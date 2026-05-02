@@ -697,7 +697,8 @@ class TestCveSearch:
         # core triage fields stay
         assert item["severity"] == "HIGH"
         assert "epss" in item and "kev" in item
-        assert "verdict" in item
+        # verdict is response-level (post v1.25.x bloat fix), not per-row
+        assert "verdict" in r.json()
 
     def test_search_include_full_returns_full_payload(self):
         _seed_cve(
@@ -2290,10 +2291,11 @@ class TestCveLeading:
                 # slim still keeps these
                 assert cve.get("severity") == "HIGH"
                 assert "summary" in cve
-                assert "verdict" in cve
+                # verdict is response-level (post v1.25.x bloat fix), not per-item
                 break
         else:
             raise AssertionError("CVE-2026-SLIM1 not in leading results")
+        assert "verdict" in r.json(), "verdict must be at response root"
 
     def test_leading_include_full_restores_description_and_references(self):
         from db import record_cve_source, upsert_cve_if_absent
@@ -3704,42 +3706,59 @@ class TestResponseModelFiltering:
             "summary",
             "results",
             "query_echo",
+            "verdict",
             "hint",
         }
         assert "next_offset" not in r.json(), "next_offset must be omitted when truncated=False"
 
-    def test_cve_search_results_include_verdict(self):
+    def test_cve_search_response_includes_verdict(self):
+        """Verdict is response-level (not per-row) — see v1.25.x verdict bloat fix."""
         _seed_cve(cve_id="CVE-2024-V001", severity="HIGH", cvss_v3=7.5)
         r = client.get("/v1/cves?severity=HIGH")
         assert r.status_code == 200
         data = r.json()
         assert len(data["results"]) > 0
-        for item in data["results"]:
-            assert item.get("verdict") is not None
-            assert item["verdict"]["deterministic"] is True
-            assert item["verdict"]["completeness"] == "complete"
+        verdict = data.get("verdict")
+        assert verdict is not None, "verdict must be at response root, not on each item"
+        assert verdict["deterministic"] is True
+        assert verdict["completeness"] == "complete"
+
+    def test_cve_search_no_per_item_verdict(self):
+        """Regression guard: per-item verdict was a bloat (~40% payload), kept top-level only."""
+        _seed_cve(cve_id="CVE-2024-V001b", severity="HIGH")
+        r = client.get("/v1/cves?severity=HIGH")
+        for item in r.json()["results"]:
+            assert "verdict" not in item, f"per-item verdict bloat regression: {item}"
 
     def test_cve_search_verdict_sources_queried(self):
         _seed_cve(cve_id="CVE-2024-V002", severity="HIGH")
         r = client.get("/v1/cves?severity=HIGH")
-        v = r.json()["results"][0]["verdict"]
+        v = r.json()["verdict"]
         assert "nvd_cache" in v["sources_queried"]
 
     def test_cve_search_verdict_falsifiable_fields(self):
         _seed_cve(cve_id="CVE-2024-V003", severity="HIGH")
         r = client.get("/v1/cves?severity=HIGH")
-        v = r.json()["results"][0]["verdict"]
+        v = r.json()["verdict"]
         expected = {"cve_id", "severity", "cvss_v3", "published", "references"}
         assert expected.issubset(set(v["falsifiable_fields"]))
 
-    def test_cve_leading_results_include_verdict(self):
+    def test_cve_leading_response_includes_verdict(self):
+        """Verdict is response-level (not per-row) — see v1.25.x verdict bloat fix."""
         r = client.get("/v1/cve/leading?limit=5")
         assert r.status_code == 200
+        data = r.json()
+        verdict = data.get("verdict")
+        assert verdict is not None, "verdict must be at response root, not on each item"
+        assert verdict["deterministic"] is True
+        sources = set(verdict["sources_queried"])
+        assert sources == {"mitre_cache", "ghsa_cache"}
+
+    def test_cve_leading_no_per_item_verdict(self):
+        """Regression guard against per-item verdict bloat returning."""
+        r = client.get("/v1/cve/leading?limit=5")
         for item in r.json()["results"]:
-            assert item.get("verdict") is not None
-            assert item["verdict"]["deterministic"] is True
-            sources = set(item["verdict"]["sources_queried"])
-            assert sources == {"mitre_cache", "ghsa_cache"}
+            assert "verdict" not in item, f"per-item verdict bloat regression: {item}"
 
 
 # =========== Crash recovery tests ===========

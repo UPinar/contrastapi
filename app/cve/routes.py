@@ -220,11 +220,7 @@ def cve_leading(
     summary = f"{count} leading CVE{'s' if count != 1 else ''} returned, {total} total (indexed before NVD)"
     verdict = _cve_verdict(sources=["mitre_cache", "ghsa_cache"], completeness="complete")
     formatter = _format_cve if include == "full" else _format_cve_slim
-    formatted_results = []
-    for row in results:
-        fr = formatter(row)
-        fr["verdict"] = verdict
-        formatted_results.append(fr)
+    formatted_results = [formatter(row) for row in results]
     return {
         "count": count,
         "total": total,
@@ -232,6 +228,7 @@ def cve_leading(
         "offset": offset,
         "summary": summary,
         "results": formatted_results,
+        "verdict": verdict.model_dump(),
         "hint": _cve_list_hint(count),
     }
 
@@ -749,11 +746,7 @@ def cve_search(
     verdict = _cve_verdict(sources=["nvd_cache"], completeness="complete").model_dump()
     full = include == "full"
     formatter = _format_cve if full else _format_cve_slim
-    formatted_results = []
-    for row in results:
-        fr = formatter(row)
-        fr["verdict"] = verdict
-        formatted_results.append(fr)
+    formatted_results = [formatter(row) for row in results]
     next_offset = offset + count if truncated else None
     hint = _cve_list_hint(count)
     response = {
@@ -765,6 +758,7 @@ def cve_search(
         "results": formatted_results,
         "query_echo": query_echo,
         "next_offset": next_offset,
+        "verdict": verdict,
         "hint": hint.model_dump() if hint else None,
     }
     save_cached_domain(cache_key, response)
