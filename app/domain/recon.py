@@ -19,14 +19,24 @@ import dns.resolver
 import httpcore
 import httpx
 import ratelimit
-from config import CRTSH_MAX_BYTES, CRTSH_MAX_RESULTS, CRTSH_TIMEOUT, ENRICHMENT_DAILY_LIMIT, RECON_TIMEOUT, UPGRADE_URL
+from config import (
+    BOT_USER_AGENT,
+    CRTSH_MAX_BYTES,
+    CRTSH_MAX_RESULTS,
+    CRTSH_TIMEOUT,
+    ENRICHMENT_DAILY_LIMIT,
+    RECON_TIMEOUT,
+    UPGRADE_URL,
+)
 from cryptography import x509
 from cryptography.x509.oid import ExtensionOID, NameOID
 from validation import is_private_ip
 
 logger = logging.getLogger("contrastapi")
 
-USER_AGENT = "contrastapi/1.0"
+# Self-identifying UA so target site operators can recognise + contact us.
+# Version-pinned to app.config.VERSION; landing at /bot lists abuse contact.
+USER_AGENT = BOT_USER_AGENT
 
 
 # Unicode bidirectional / format control codepoints that are >U+0020 yet still

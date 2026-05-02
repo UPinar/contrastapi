@@ -51,6 +51,14 @@ FREE_BULK_LIMIT = 10  # max domains per bulk request (free)
 PRO_BULK_LIMIT = 50  # max domains per bulk request (pro)
 ENRICHMENT_DAILY_LIMIT = 10  # enriched scans per IP per day (protects external API quotas)
 
+# v1.25.0 web-intel etik guardrail stack
+# Per-target eTLD+1 throttle: paying customers can't weaponise our infra against
+# a single target site. Subdomain rotation (a1.victim.com / a2.victim.com) maps
+# to the same eTLD+1 bucket so the cap can't be cheaply bypassed.
+TARGET_THROTTLE_PER_MIN = 60
+TARGET_THROTTLE_DAILY_ALERT = 500  # Telegram fires once/day when an eTLD+1 crosses
+BOT_USER_AGENT = f"ContrastAPI/{VERSION} (+https://contrastcyber.com/bot)"
+
 # Endpoint credit costs — based on upstream API calls per request.
 # Default is 1 (single upstream). Orchestration endpoints cost more because
 # they aggregate multiple sources. Transparent pricing, surfaced via X-RateLimit-Cost header.

@@ -11,4 +11,5 @@ cryptography==47.0.0
 cvss==3.6
 mcp==1.27.0
 PyYAML>=6.0
+tldextract>=5.0
 

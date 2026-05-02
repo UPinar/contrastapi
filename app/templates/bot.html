@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ContrastAPI Bot — Webmaster Information</title>
+  <meta name="robots" content="noindex, nofollow">
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <link rel="stylesheet" href="/static/style.css?v=22">
+</head>
+<body>
+  <div class="glow"></div>
+
+  <div class="welcome-container" style="max-width:780px">
+    <h1>Contrast<span class="welcome-brand-api">API</span> Bot</h1>
+
+    <p>
+      You probably arrived here because you saw
+      <code>ContrastAPI/{{ version }} (+https://contrastcyber.com/bot)</code>
+      in your server access log.
+    </p>
+
+    <h2>Who we are</h2>
+    <p>
+      ContrastAPI is a security-intelligence API consumed by AI coding agents
+      (Claude Code, Cursor, Cline, Windsurf) and human security analysts.
+      When an end-user asks our customers' agents to look up information
+      <em>about your site</em>, our infrastructure issues a small number of
+      passive HTTP requests on their behalf — typically reading
+      <code>robots.txt</code>, following a redirect chain, or fetching public
+      meta tags from your homepage.
+    </p>
+
+    <h2>What we don't do</h2>
+    <ul>
+      <li>We do not crawl your site recursively.</li>
+      <li>We do not bypass <code>robots.txt</code>.</li>
+      <li>We do not attempt SMTP <code>RCPT TO</code> probes for email verification.</li>
+      <li>We do not solicit POST/PUT/DELETE — read-only requests only.</li>
+      <li>We do not exceed {{ throttle_per_min }} requests per 60 seconds against any single registered domain (eTLD+1), counting all subdomains together.</li>
+    </ul>
+
+    <h2>How to opt out</h2>
+    <p>
+      Add the following to your <code>robots.txt</code>:
+    </p>
+    <pre><code>User-agent: ContrastAPI
+Disallow: /</code></pre>
+    <p>
+      We honour this for endpoints that fetch your HTML
+      (<code>seo_audit</code>, <code>brand_assets</code>). We can also block
+      your domain at our edge — contact us with the registered domain.
+    </p>
+
+    <h2>Abuse contact</h2>
+    <p>
+      If you believe ContrastAPI is hitting your site abusively, email
+      <span class="copy-support" data-copy-email="contact@contrastcyber.com">contact@contrastcyber.com</span>
+      with the registered domain and a short window of access-log lines.
+      We respond within 24h on weekdays.
+    </p>
+
+    <a href="/" class="back-link">&larr; ContrastAPI home</a>
+  </div>
+</body>
+</html>

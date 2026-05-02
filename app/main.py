@@ -36,6 +36,7 @@ from config import (
     MCP_RESOURCE_COUNT,
     MCP_TOOL_COUNT,
     PRO_HOURLY_LIMIT,
+    TARGET_THROTTLE_PER_MIN,
     TEST_COUNT,
     UPGRADE_URL,
     VERSION,
@@ -580,6 +581,18 @@ def landing_page(request: Request):
             "atlas_technique_count": ATLAS_TECHNIQUE_COUNT,
             "atlas_case_study_count": ATLAS_CASE_STUDY_COUNT,
             "d3fend_defense_count": D3FEND_DEFENSE_COUNT,
+        },
+    )
+
+
+@app.get("/bot", response_class=HTMLResponse, include_in_schema=False)
+def bot_landing(request: Request):
+    return templates.TemplateResponse(
+        request,
+        "bot.html",
+        {
+            "version": VERSION,
+            "throttle_per_min": TARGET_THROTTLE_PER_MIN,
         },
     )
 
