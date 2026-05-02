@@ -5,6 +5,7 @@ Full list of 55+ REST endpoints. Base URL: `https://api.contrastcyber.com`
 - **Free tier:** 100 credits/hour, no API key required
 - **Pro tier:** 1,000 credits/hour ([Get API Key](https://contrastcyber.com/pricing))
 - **Credit costs:** most endpoints cost 1 credit; see [Credit Costs](#credit-costs) below
+- **Burst gate:** an additional per-IP burst limit (~10 concurrent for `/v1/cve/*` and `/v1/check/*`, 100 for `POST /mcp/`) returns HTTP 429 immediately when exceeded. Full table + best practices: [RATE_LIMITS.md](RATE_LIMITS.md).
 
 ## Domain Intelligence
 
