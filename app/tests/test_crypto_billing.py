@@ -3,12 +3,18 @@
 import hashlib
 import hmac
 import json
+import uuid
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 IPN_SECRET = "test_ipn_secret_xyz"
 API_KEY = "test_nowpayments_api_key"
+
+
+def _uuid() -> str:
+    """Fresh UUID per test — keeps DB rows from colliding across tests."""
+    return str(uuid.uuid4())
 
 
 def _canonical_sign(payload: dict, secret: str = IPN_SECRET) -> tuple[bytes, str]:
@@ -118,12 +124,22 @@ def test_checkout_success_returns_invoice_url(client):
     body = resp.json()
     assert body["invoice_id"] == "5228306332"
     assert body["invoice_url"].startswith("https://nowpayments.io/")
+    # `order_id` is our locally-generated UUID, returned to the caller so the
+    # browser can later read it back from the welcome page redirect.
+    uuid.UUID(body["order_id"])  # raises if not a valid UUID
+
     # Regression: NOWPayments' Cloudflare layer 403's the default Python-urllib UA
     # with error code 1010. Ensure we send a self-identifying User-Agent.
     sent_request = mock_open.call_args[0][0]
     ua = sent_request.headers.get("User-agent")
     assert ua is not None, "Outbound request must set a User-Agent"
     assert "ContrastAPI" in ua
+
+    # Outbound /invoice payload must carry `order_id` (echoed in IPN) AND
+    # embed it in `success_url` (welcome page reads ?order_id=<uuid>).
+    sent_payload = json.loads(sent_request.data)
+    assert sent_payload["order_id"] == body["order_id"]
+    assert sent_payload["success_url"] == f"https://api.contrastcyber.com/welcome?order_id={body['order_id']}"
 
 
 def test_checkout_provider_unreachable_returns_502(client):
@@ -170,7 +186,7 @@ def test_checkout_provider_missing_invoice_url_returns_502(client):
 
 
 def test_ipn_invalid_signature_returns_403(client):
-    body = json.dumps({"invoice_id": "ipn1", "payment_status": "finished"}).encode()
+    body = json.dumps({"invoice_id": "ipn1", "order_id": _uuid(), "payment_status": "finished"}).encode()
     with patch("crypto_billing.NOWPAYMENTS_IPN_SECRET", IPN_SECRET):
         resp = client.post(
             "/v1/billing/crypto/webhook",
@@ -192,7 +208,32 @@ def test_ipn_oversized_body_returns_413(client):
 
 
 def test_ipn_missing_invoice_id_returns_400(client):
-    body, sig = _canonical_sign({"payment_status": "finished"})
+    body, sig = _canonical_sign({"order_id": _uuid(), "payment_status": "finished"})
+    with patch("crypto_billing.NOWPAYMENTS_IPN_SECRET", IPN_SECRET):
+        resp = client.post(
+            "/v1/billing/crypto/webhook",
+            content=body,
+            headers={"x-nowpayments-sig": sig},
+        )
+    assert resp.status_code == 400
+
+
+def test_ipn_missing_order_id_returns_400(client):
+    body, sig = _canonical_sign({"invoice_id": "ipn1", "payment_status": "finished"})
+    with patch("crypto_billing.NOWPAYMENTS_IPN_SECRET", IPN_SECRET):
+        resp = client.post(
+            "/v1/billing/crypto/webhook",
+            content=body,
+            headers={"x-nowpayments-sig": sig},
+        )
+    assert resp.status_code == 400
+    assert "order_id" in resp.json().get("error", {}).get("message", "").lower() or "order_id" in resp.text.lower()
+
+
+def test_ipn_invalid_order_id_format_returns_400(client):
+    """A non-UUID order_id (e.g. NOWPayments' numeric invoice_id mistakenly
+    echoed) must be rejected — the welcome page validator demands UUIDs."""
+    body, sig = _canonical_sign({"invoice_id": "ipn1", "order_id": "5228306332", "payment_status": "finished"})
     with patch("crypto_billing.NOWPAYMENTS_IPN_SECRET", IPN_SECRET):
         resp = client.post(
             "/v1/billing/crypto/webhook",
@@ -203,7 +244,8 @@ def test_ipn_missing_invoice_id_returns_400(client):
 
 
 def test_ipn_pending_status_ignored(client):
-    body, sig = _canonical_sign({"invoice_id": "pending_inv", "payment_status": "pending"})
+    order_id = _uuid()
+    body, sig = _canonical_sign({"invoice_id": "pending_inv", "order_id": order_id, "payment_status": "pending"})
     with patch("crypto_billing.NOWPAYMENTS_IPN_SECRET", IPN_SECRET):
         resp = client.post(
             "/v1/billing/crypto/webhook",
@@ -218,12 +260,13 @@ def test_ipn_pending_status_ignored(client):
     # No key should have been created
     from db import get_key_by_order_id
 
-    assert get_key_by_order_id("pending_inv") is None
+    assert get_key_by_order_id(order_id) is None
 
 
 def test_ipn_finished_provisions_key(client):
     invoice = "crypto_inv_001"
-    body, sig = _canonical_sign({"invoice_id": invoice, "payment_status": "finished"})
+    order_id = _uuid()
+    body, sig = _canonical_sign({"invoice_id": invoice, "order_id": order_id, "payment_status": "finished"})
     with (
         patch("crypto_billing.NOWPAYMENTS_IPN_SECRET", IPN_SECRET),
         patch("crypto_billing._notify_telegram") as mock_tg,
@@ -237,6 +280,7 @@ def test_ipn_finished_provisions_key(client):
     data = resp.json()
     assert data["status"] == "provisioned"
     assert data["invoice_id"] == invoice
+    assert data["order_id"] == order_id
     # Raw key NEVER in the IPN HTTP response
     assert "api_key" not in data
     # Response advertises the 30-day expiry to the IPN sender (audit + sanity)
@@ -245,9 +289,9 @@ def test_ipn_finished_provisions_key(client):
 
     from db import get_key_by_order_id
 
-    row = get_key_by_order_id(invoice)
+    row = get_key_by_order_id(order_id)
     assert row is not None
-    assert row["order_id"] == invoice
+    assert row["order_id"] == order_id
     # Expiry is populated on a crypto-provisioned key (~30 days out)
     assert row["expires_at"] is not None
     from datetime import UTC, datetime
@@ -259,7 +303,8 @@ def test_ipn_finished_provisions_key(client):
 
 def test_ipn_replay_same_invoice_returns_already_processed(client):
     invoice = "crypto_inv_replay"
-    body, sig = _canonical_sign({"invoice_id": invoice, "payment_status": "finished"})
+    order_id = _uuid()
+    body, sig = _canonical_sign({"invoice_id": invoice, "order_id": order_id, "payment_status": "finished"})
     with (
         patch("crypto_billing.NOWPAYMENTS_IPN_SECRET", IPN_SECRET),
         patch("crypto_billing._notify_telegram"),
@@ -283,7 +328,8 @@ def test_ipn_replay_same_invoice_returns_already_processed(client):
 def test_ipn_idempotent_when_key_already_exists(client):
     """Cold-cache path: replay store cleared but key already in DB."""
     invoice = "crypto_inv_idem"
-    body, sig = _canonical_sign({"invoice_id": invoice, "payment_status": "finished"})
+    order_id = _uuid()
+    body, sig = _canonical_sign({"invoice_id": invoice, "order_id": order_id, "payment_status": "finished"})
     with (
         patch("crypto_billing.NOWPAYMENTS_IPN_SECRET", IPN_SECRET),
         patch("crypto_billing._notify_telegram"),
@@ -308,7 +354,8 @@ def test_ipn_idempotent_when_key_already_exists(client):
 
 
 def test_ipn_failed_status_ignored(client):
-    body, sig = _canonical_sign({"invoice_id": "failed_inv", "payment_status": "failed"})
+    order_id = _uuid()
+    body, sig = _canonical_sign({"invoice_id": "failed_inv", "order_id": order_id, "payment_status": "failed"})
     with patch("crypto_billing.NOWPAYMENTS_IPN_SECRET", IPN_SECRET):
         resp = client.post(
             "/v1/billing/crypto/webhook",
@@ -320,7 +367,7 @@ def test_ipn_failed_status_ignored(client):
 
     from db import get_key_by_order_id
 
-    assert get_key_by_order_id("failed_inv") is None
+    assert get_key_by_order_id(order_id) is None
 
 
 @pytest.mark.parametrize(
@@ -334,7 +381,8 @@ def test_ipn_non_terminal_states_are_no_ops(client, status):
     finished, failed, refunded, expired. Only `finished` provisions a key.
     """
     invoice_id = f"state_{status}_inv"
-    body, sig = _canonical_sign({"invoice_id": invoice_id, "payment_status": status})
+    order_id = _uuid()
+    body, sig = _canonical_sign({"invoice_id": invoice_id, "order_id": order_id, "payment_status": status})
     with patch("crypto_billing.NOWPAYMENTS_IPN_SECRET", IPN_SECRET):
         resp = client.post(
             "/v1/billing/crypto/webhook",
@@ -346,7 +394,7 @@ def test_ipn_non_terminal_states_are_no_ops(client, status):
 
     from db import get_key_by_order_id
 
-    assert get_key_by_order_id(invoice_id) is None
+    assert get_key_by_order_id(order_id) is None
 
 
 def test_ipn_pending_then_finished_provisions_key(client):
@@ -355,8 +403,13 @@ def test_ipn_pending_then_finished_provisions_key(client):
     otherwise the later "finished" event is dropped and no key is provisioned.
     """
     invoice = "lifecycle_inv_001"
-    pending_body, pending_sig = _canonical_sign({"invoice_id": invoice, "payment_status": "confirming"})
-    finished_body, finished_sig = _canonical_sign({"invoice_id": invoice, "payment_status": "finished"})
+    order_id = _uuid()
+    pending_body, pending_sig = _canonical_sign(
+        {"invoice_id": invoice, "order_id": order_id, "payment_status": "confirming"}
+    )
+    finished_body, finished_sig = _canonical_sign(
+        {"invoice_id": invoice, "order_id": order_id, "payment_status": "finished"}
+    )
     with (
         patch("crypto_billing.NOWPAYMENTS_IPN_SECRET", IPN_SECRET),
         patch("crypto_billing._notify_telegram"),
@@ -376,17 +429,20 @@ def test_ipn_pending_then_finished_provisions_key(client):
     assert r2.status_code == 200
     assert r2.json()["status"] == "provisioned"
     assert r2.json()["invoice_id"] == invoice
+    assert r2.json()["order_id"] == order_id
 
     from db import get_key_by_order_id
 
-    row = get_key_by_order_id(invoice)
+    row = get_key_by_order_id(order_id)
     assert row is not None
     assert row["expires_at"] is not None
 
 
 def test_ipn_payment_id_fallback_when_invoice_id_absent(client):
-    """If only `payment_id` is present, it is used as the order key."""
-    body, sig = _canonical_sign({"payment_id": "pay_fallback_001", "payment_status": "finished"})
+    """If only `payment_id` is present, it stands in for the missing
+    invoice_id (replay-cache key); `order_id` is still required separately."""
+    order_id = _uuid()
+    body, sig = _canonical_sign({"payment_id": "pay_fallback_001", "order_id": order_id, "payment_status": "finished"})
     with (
         patch("crypto_billing.NOWPAYMENTS_IPN_SECRET", IPN_SECRET),
         patch("crypto_billing._notify_telegram"),
@@ -399,10 +455,173 @@ def test_ipn_payment_id_fallback_when_invoice_id_absent(client):
     assert resp.status_code == 200
     assert resp.json()["status"] == "provisioned"
     assert resp.json()["invoice_id"] == "pay_fallback_001"
+    assert resp.json()["order_id"] == order_id
 
     from db import get_key_by_order_id
 
-    assert get_key_by_order_id("pay_fallback_001") is not None
+    assert get_key_by_order_id(order_id) is not None
+
+
+def test_ipn_concurrent_insert_race_returns_already_provisioned(client, caplog):
+    """Two concurrent IPNs that both pass the in-memory replay cache must not
+    crash with a 500 on the second INSERT. The unique index on order_id catches
+    the loser; we treat that as idempotent (already_provisioned)."""
+    import logging
+    from unittest.mock import patch as _patch
+
+    invoice = "race_inv_001"
+    order_id = _uuid()
+    body, sig = _canonical_sign({"invoice_id": invoice, "order_id": order_id, "payment_status": "finished"})
+
+    # Fresh process state so the replay cache miss matches the race scenario.
+    from crypto_billing import _processed_invoices
+
+    _processed_invoices.clear()
+
+    from db import save_api_key_with_pending as real_save_atomic
+
+    save_call_count = {"n": 0}
+
+    def racing_save(key_hash, raw_key, order_id, expires_at):
+        save_call_count["n"] += 1
+        if save_call_count["n"] == 1:
+            # First call: actually insert (the "winning" worker)
+            real_save_atomic(key_hash, raw_key, order_id=order_id, expires_at=expires_at)
+            return
+        # Second call: simulate the racing worker hitting the unique index
+        import sqlite3 as _sq
+
+        raise _sq.IntegrityError("UNIQUE constraint failed: api_keys.order_id")
+
+    # The cold-cache idempotency check (`get_key_by_order_id` → already
+    # provisioned) catches sequential replays cleanly. To force the actual
+    # INSERT race we also stub that lookup to return None on the second call,
+    # mimicking two workers that both passed the idempotency check before
+    # either INSERT landed.
+    lookup_call_count = {"n": 0}
+
+    def racing_lookup(_order_id):
+        lookup_call_count["n"] += 1
+        return None
+
+    with (
+        _patch("crypto_billing.NOWPAYMENTS_IPN_SECRET", IPN_SECRET),
+        _patch("crypto_billing._notify_telegram"),
+        _patch("crypto_billing.save_api_key_with_pending", side_effect=racing_save),
+        _patch("crypto_billing.get_key_by_order_id", side_effect=racing_lookup),
+        caplog.at_level(logging.INFO, logger="contrastapi"),
+    ):
+        r1 = client.post(
+            "/v1/billing/crypto/webhook",
+            content=body,
+            headers={"x-nowpayments-sig": sig},
+        )
+        # Replay cache prevents the second IPN from racing for the same
+        # invoice_id, so to reach the INSERT path we clear it between calls.
+        _processed_invoices.clear()
+        r2 = client.post(
+            "/v1/billing/crypto/webhook",
+            content=body,
+            headers={"x-nowpayments-sig": sig},
+        )
+
+    assert r1.status_code == 200
+    assert r1.json()["status"] == "provisioned"
+    assert r2.status_code == 200
+    assert r2.json()["status"] == "already_provisioned"
+    assert r2.json()["order_id"] == order_id
+    # Race log line is emitted at INFO so ops can audit it
+    assert "concurrent-insert lost race" in caplog.text
+
+
+def test_ipn_signature_failure_logs_client_ip(client, caplog):
+    """fail2ban needs the (CF-restored) source IP on each forged-IPN attempt."""
+    import logging
+
+    body = json.dumps({"invoice_id": "ipn_forge", "order_id": _uuid(), "payment_status": "finished"}).encode()
+    with (
+        patch("crypto_billing.NOWPAYMENTS_IPN_SECRET", IPN_SECRET),
+        caplog.at_level(logging.WARNING, logger="contrastapi"),
+    ):
+        resp = client.post(
+            "/v1/billing/crypto/webhook",
+            content=body,
+            headers={"x-nowpayments-sig": "deadbeef"},
+        )
+    assert resp.status_code == 403
+    assert "signature verification failed from " in caplog.text
+
+
+def test_save_api_key_with_pending_writes_both_columns_atomically():
+    """Single INSERT must populate both `key_hash` and `pending_key` so the
+    welcome-page polling loop never sees a row with NULL pending_key. Two-statement
+    INSERT-then-UPDATE breaks this invariant if the UPDATE fails (disk full, etc.).
+    """
+    from auth import generate_key, hash_key
+    from db import get_api_db, save_api_key_with_pending
+
+    raw = generate_key()
+    kh = hash_key(raw)
+    order_id = _uuid()
+    save_api_key_with_pending(kh, raw, order_id=order_id, expires_at=None)
+
+    with get_api_db() as con:
+        row = con.execute(
+            "SELECT pending_key, pending_key_created_at, key_hash, expires_at FROM api_keys WHERE order_id = ?",
+            (order_id,),
+        ).fetchone()
+    assert row is not None
+    assert row[0] == raw  # pending_key populated
+    assert row[1] is not None  # pending_key_created_at populated
+    assert row[2] == kh
+    assert row[3] is None
+
+
+def test_e2e_checkout_to_welcome_returns_raw_key(client):
+    """End-to-end happy path: checkout -> IPN finished -> /welcome serves raw key.
+
+    Regression for the host+order_id integration class of bugs that broke
+    the original wiring (SUCCESS_URL pointing at landing host with no route,
+    welcome page demanding UUID order_id but webhook persisting numeric
+    invoice_id, etc.). If any layer drifts again, this test fails.
+    """
+    fake_response = MagicMock()
+    fake_response.read.return_value = json.dumps(
+        {"id": 9999000111, "invoice_url": "https://nowpayments.io/payment/?iid=9999000111"}
+    ).encode()
+    fake_response.__enter__.return_value = fake_response
+    fake_response.__exit__.return_value = False
+    with (
+        patch("crypto_billing.NOWPAYMENTS_API_KEY", API_KEY),
+        patch("crypto_billing.urllib.request.urlopen", return_value=fake_response),
+    ):
+        checkout = client.post("/v1/billing/crypto/checkout")
+    assert checkout.status_code == 200
+    order_id = checkout.json()["order_id"]
+    invoice_id = checkout.json()["invoice_id"]
+
+    body, sig = _canonical_sign({"invoice_id": invoice_id, "order_id": order_id, "payment_status": "finished"})
+    with (
+        patch("crypto_billing.NOWPAYMENTS_IPN_SECRET", IPN_SECRET),
+        patch("crypto_billing._notify_telegram"),
+    ):
+        ipn = client.post(
+            "/v1/billing/crypto/webhook",
+            content=body,
+            headers={"x-nowpayments-sig": sig},
+        )
+    assert ipn.status_code == 200
+    assert ipn.json()["status"] == "provisioned"
+
+    welcome = client.get(f"/welcome?order_id={order_id}")
+    assert welcome.status_code == 200
+    # Raw key (cc_*) is rendered into the page exactly once
+    assert 'id="api-key">cc_' in welcome.text
+
+    # Second visit: pending key already consumed, page shows "already claimed"
+    welcome2 = client.get(f"/welcome?order_id={order_id}")
+    assert welcome2.status_code == 200
+    assert "already been claimed" in welcome2.text
 
 
 # --- Expiry enforcement ----------------------------------------------------

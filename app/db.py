@@ -441,6 +441,34 @@ def save_pending_key(order_id: str, raw_key: str) -> None:
         )
 
 
+def save_api_key_with_pending(
+    key_hash: str,
+    raw_key: str,
+    order_id: str,
+    expires_at: str | None = None,
+) -> None:
+    """Atomically insert a new API key row WITH its one-time pending raw key.
+
+    Single INSERT (one transaction) — guarantees we never end up with an
+    api_keys row whose pending_key is NULL because a follow-up UPDATE crashed
+    between two statements. The welcome-page polling flow assumes that an
+    existing api_keys row implies pending_key is either populated or already
+    consumed; the previous two-statement pattern violated that invariant on
+    `save_pending_key` failure (disk full, lock contention, process kill).
+
+    UNIQUE constraint on order_id is enforced; caller catches IntegrityError
+    for the concurrent-IPN race path.
+    """
+    now = datetime.now(UTC).isoformat()
+    with get_api_db() as con:
+        con.execute(
+            "INSERT INTO api_keys "
+            "(key_hash, order_id, created_at, expires_at, pending_key, pending_key_created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (key_hash, order_id, now, expires_at, raw_key, now),
+        )
+
+
 def has_pending_key(order_id: str) -> bool:
     """Check if a pending key exists for the order (without revealing or clearing it)."""
     with get_api_db() as con:
