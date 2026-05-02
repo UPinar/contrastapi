@@ -20,6 +20,7 @@ from __future__ import annotations
 import logging
 from urllib.parse import urljoin, urlparse
 
+import tldextract
 from bs4 import BeautifulSoup
 from domain.brand_assets import (
     _abs_url,
@@ -27,6 +28,12 @@ from domain.brand_assets import (
     fetch_homepage_html,  # noqa: F401 — re-exported for test patching
     homepage_allowed,  # noqa: F401 — re-exported for the route handler's import path
 )
+
+# Bundled PSL — lookups are pure CPU; tldextract.extract() is hot-pathed across
+# every <a href> on the page (up to _MAX_LINKS_COUNTED=2000) so we cache the
+# constructor too. `suffix_list_urls=()` disables the network refresh path —
+# we accept the bundled snapshot's freshness for the lifetime of the process.
+_psl = tldextract.TLDExtract(suffix_list_urls=())
 
 logger = logging.getLogger("contrastapi")
 
@@ -44,19 +51,17 @@ _MAX_META_DESC_LEN = 500  # raw cap on description BEFORE the score check
 
 
 def _same_registrable(host_a: str, host_b: str) -> bool:
-    """Cheap eTLD-aware comparison for internal/external link split.
+    """PSL-aware comparison for internal/external link split.
 
-    We don't pull tldextract here for two reasons: (1) the throttle
-    layer already runs eTLD+1 logic at the route level, and (2) we
-    want to keep `seo_audit` free of network calls during scoring (the
-    Public Suffix List bundled with tldextract loads at import time and
-    is fine, but the function is hot-pathed across thousands of links
-    on long pages).
+    Uses `tldextract` against the bundled Public Suffix List so multi-
+    label suffixes (`.co.uk`, `.edu.au`, `.gov.tr`) classify correctly:
+    `bbc.co.uk` and `theguardian.co.uk` are NOT the same registrable
+    (an earlier last-2-labels heuristic got this wrong and was caught
+    in the v1.25.0 Batch 6 round-1 review).
 
-    Falls back to last-2-labels match when both hosts share at least
-    two labels — wrong for `.co.uk` etc. but OK for the rough split
-    we surface here. The exact internal/external boundary is a
-    judgement call no SEO tool gets right 100% anyway.
+    Returns True iff the registrable domain (eTLD+1) matches; subdomain
+    differences (`blog.example.com` vs `www.example.com`) collapse to
+    `example.com` and count as same-site.
     """
     if not host_a or not host_b:
         return False
@@ -64,12 +69,12 @@ def _same_registrable(host_a: str, host_b: str) -> bool:
     b = host_b.lower().strip(".")
     if a == b:
         return True
-    if a.endswith("." + b) or b.endswith("." + a):
-        return True
-    a_parts = a.split(".")
-    b_parts = b.split(".")
-    if len(a_parts) >= 2 and len(b_parts) >= 2:
-        return a_parts[-2:] == b_parts[-2:]
+    reg_a = _psl(a).top_domain_under_public_suffix
+    reg_b = _psl(b).top_domain_under_public_suffix
+    if reg_a and reg_b:
+        return reg_a == reg_b
+    # Hosts that don't have a PSL match (raw IPs, internal hostnames
+    # without a public suffix) fall back to literal equality only.
     return False
 
 
@@ -158,7 +163,11 @@ def _extract_seo(html: str, base_url: str) -> dict:
     # --- Open Graph tags (og:*) ---
     og_tags: dict[str, str] = {}
     for meta in soup.find_all("meta", limit=300):
-        prop = meta.get("property") or ""
+        # Strip BIDI / RTL overrides from the property NAME too — round-1
+        # review caught this gap. A target emitting `og:[U+202E]title`
+        # would otherwise inject a printable bidi-control char into a
+        # response dict KEY, which is supposed to be a stable identifier.
+        prop = _strip_control_chars(meta.get("property") or "").strip()
         if not prop.startswith("og:"):
             continue
         if len(og_tags) >= _MAX_OG_TAGS:

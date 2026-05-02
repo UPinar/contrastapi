@@ -40,6 +40,29 @@ class TestSameRegistrable:
 
         assert _same_registrable("Example.COM", "example.com") is True
 
+    def test_psl_co_uk_distinct_registrables(self):
+        """Two distinct UK companies on `.co.uk` MUST split as external —
+        the round-1 review caught a last-2-labels false positive that
+        merged them ('co.uk' shared) and inflated internal_link_count
+        for any UK-domain audit."""
+        from domain.seo_audit import _same_registrable
+
+        assert _same_registrable("bbc.co.uk", "theguardian.co.uk") is False
+        assert _same_registrable("www.bbc.co.uk", "bbc.co.uk") is True
+        assert _same_registrable("news.bbc.co.uk", "sport.bbc.co.uk") is True
+
+    def test_psl_edu_au_distinct(self):
+        from domain.seo_audit import _same_registrable
+
+        assert _same_registrable("anu.edu.au", "sydney.edu.au") is False
+
+    def test_psl_long_suffix_gov_uk(self):
+        from domain.seo_audit import _same_registrable
+
+        # `gov.uk` is a public suffix → service.gov.uk and another.gov.uk
+        # are distinct registrables, NOT siblings.
+        assert _same_registrable("service.gov.uk", "another.gov.uk") is False
+
 
 # === _extract_seo (pure parser) ===
 
@@ -157,6 +180,19 @@ class TestExtractSeo:
         out = _extract_seo(html, "https://x.com/")
         assert len(out["og_tags"]["og:title"]) == 500
 
+    def test_og_tag_key_bidi_stripped(self):
+        """A malicious target embedding U+202E (RTL override) in the
+        property name MUST NOT inject the bidi char into our dict key.
+        Round-1 security review caught this gap — keys must pass
+        through `_strip_control_chars` just like values."""
+        from domain.seo_audit import _extract_seo
+
+        html = '<meta property="og:‮title" content="x">'
+        out = _extract_seo(html, "https://x.com/")
+        # The bidi char must be absent from every key
+        for key in out["og_tags"]:
+            assert "‮" not in key
+
     def test_control_chars_stripped_from_title(self):
         from domain.seo_audit import _extract_seo
 
@@ -233,6 +269,56 @@ class TestScore:
         score, missing = _score(_extract_seo(html, "https://example.com/"), "https://example.com/")
         assert score == 100
         assert "images_missing_alt" not in missing
+
+    def test_title_length_boundaries(self):
+        """30-60 char window is inclusive on both ends — verify the
+        edges (29/30/60/61) so a future refactor that flips `<=` to `<`
+        is caught immediately."""
+        from domain.seo_audit import _score
+
+        for n, should_credit in ((29, False), (30, True), (60, True), (61, False)):
+            parsed = {"title_untrusted": "x" * n, "h1_count": 0}
+            score, missing = _score(parsed, "https://x.com/")
+            if should_credit:
+                assert "title_length_off" not in missing, f"len={n} should credit"
+            else:
+                assert "title_length_off" in missing, f"len={n} should NOT credit"
+
+    def test_meta_description_length_boundaries(self):
+        """50-160 char window is inclusive — same boundary discipline
+        as title."""
+        from domain.seo_audit import _score
+
+        for n, should_credit in ((49, False), (50, True), (160, True), (161, False)):
+            parsed = {"meta_description_untrusted": "x" * n, "h1_count": 0}
+            score, missing = _score(parsed, "https://x.com/")
+            if should_credit:
+                assert "meta_description_length_off" not in missing, f"len={n} should credit"
+            else:
+                assert "meta_description_length_off" in missing, f"len={n} should NOT credit"
+
+    def test_alt_coverage_rounding_4_images_1_missing(self):
+        """4 images, 1 missing alt → coverage = 0.75 → round(7.5) = 8
+        on Python's banker's rounding (8 is even, would round to 8 only
+        for 7.5; round(7.5) actually = 8 because the int 8 is even).
+        Lock the actual contribution number so future changes to the
+        formula are caught."""
+        from domain.seo_audit import _score
+
+        parsed = {
+            "title_untrusted": "X" * 45,  # full credit on title (10) + length (10)
+            "meta_description_untrusted": "y" * 100,  # full credit (10+10)
+            "h1_count": 1,  # full credit (10)
+            "canonical_url": "https://x.com/",  # full credit (10)
+            "og_tags": {"og:a": "1", "og:b": "2", "og:c": "3"},  # full credit (10)
+            "json_ld_present": True,  # full credit (10)
+            "images_total": 4,
+            "images_missing_alt": 1,  # coverage 0.75 → 8 pts (round(7.5)=8)
+        }
+        score, missing = _score(parsed, "https://x.com/")
+        # 80 (other 8 rules) + 8 (alt) + 10 (https) = 98
+        assert score == 98
+        assert "images_missing_alt" in missing
 
     def test_images_partial_alt_proportional(self):
         from domain.seo_audit import _extract_seo, _score
