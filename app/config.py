@@ -5,12 +5,12 @@ import os
 import socket
 from pathlib import Path
 
-VERSION = "1.25.0"
+VERSION = "1.26.0"
 MCP_TOOL_COUNT = 47  # v1.25.0: +robots_txt +redirect_chain +email_verify +brand_assets +seo_audit
 MCP_RESOURCE_COUNT = 7  # v1.23.0: atlas+d3fend+cwe (4 templates + 3 catalogs)
 MCP_PROMPT_COUNT = 3  # v1.23.0: security_audit, vulnerability_check, contrast_triage
 ENDPOINT_COUNT = "55+"
-TEST_COUNT = 1886
+TEST_COUNT = 1904
 # Catalog row counts surfaced on landing/playground. Bump after `python -m cve.sync
 # --source atlas` (ATLAS upstream cadence ~6 months) or `--source d3fend` (yearly).
 ATLAS_TECHNIQUE_COUNT = 167
