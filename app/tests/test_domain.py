@@ -4801,3 +4801,74 @@ class TestProOnlyEnrichment:
         assert pro_read_key == "pro:example.com", f"Pro read hit free key — poisoning risk: {pro_read_key}"
         assert pro_save_key == "pro:example.com"
         assert pro_read_key != free_read_key
+
+
+# =========== /v1/domain behavioral throttle + hard timeout tests ===========
+
+
+class TestDomainBurstThrottleAndTimeout:
+    """v1.25.x: Free tier domain_report has a 5-req/60s burst throttle (catches
+    UA-rotating bot fleets) and an 8s hard ceiling on full_domain_report (caps
+    workers tied up by slow upstream fail-overs)."""
+
+    @patch("domain.routes.full_domain_report", return_value=MOCK_FULL_REPORT)
+    @patch("domain.routes.validate_domain", return_value="93.184.216.34")
+    @patch("domain.routes.get_cached_domain_with_age", return_value=None)
+    @patch("domain.routes.save_cached_domain")
+    def test_burst_throttle_free_tier_429_after_limit(self, mock_save, mock_cache, mock_validate, mock_report):
+        """6th request from same client within 60s window → 429 (Free tier)."""
+        for i in range(5):
+            r = client.get(f"/v1/domain/example{i}.com")
+            assert r.status_code == 200, f"request {i + 1} should succeed"
+        r6 = client.get("/v1/domain/example5.com")
+        assert r6.status_code == 429
+        body = r6.json()
+        # Detail message names the limit + window so client can react
+        assert "5" in str(body) and "60" in str(body)
+
+    @patch("domain.routes.full_domain_report", return_value=MOCK_FULL_REPORT)
+    @patch("domain.routes._validate_and_auth")
+    @patch("domain.routes.get_cached_domain_with_age", return_value=None)
+    @patch("domain.routes.save_cached_domain")
+    def test_burst_throttle_pro_tier_exempt(self, mock_save, mock_cache, mock_auth, mock_report):
+        """Pro tier bypasses behavioral throttle — explicit paid quota."""
+        mock_auth.return_value = (
+            "example.com",
+            "93.184.216.34",
+            {"tier": "pro", "key_hash": "h", "client_ip": "10.0.0.1"},
+        )
+        for i in range(8):
+            r = client.get(f"/v1/domain/example{i}.com")
+            assert r.status_code == 200, f"Pro tier request {i + 1} unexpectedly throttled"
+
+    @patch("domain.routes.full_domain_report", return_value=MOCK_FULL_REPORT)
+    @patch("domain.routes.validate_domain", return_value="93.184.216.34")
+    @patch("domain.routes.get_cached_domain_with_age", return_value=(MOCK_FULL_REPORT, 30))
+    def test_burst_throttle_consumes_quota_on_cache_hit(self, mock_cache, mock_validate, mock_report):
+        """Cache hits MUST consume burst quota — otherwise repeated cached-domain
+        queries (UA-rotating bot pattern that lands on a popular domain) bypass
+        the throttle entirely."""
+        for i in range(5):
+            r = client.get("/v1/domain/example.com")
+            assert r.status_code == 200, f"request {i + 1} should succeed"
+        # full_domain_report never called (all cache hits) yet 6th still 429
+        assert mock_report.call_count == 0
+        r6 = client.get("/v1/domain/example.com")
+        assert r6.status_code == 429
+
+    @patch("domain.routes.DOMAIN_HARD_TIMEOUT", 0.1)
+    @patch("domain.routes.validate_domain", return_value="93.184.216.34")
+    @patch("domain.routes.get_cached_domain_with_age", return_value=None)
+    def test_hard_timeout_returns_504(self, mock_cache, mock_validate):
+        """full_domain_report exceeding DOMAIN_HARD_TIMEOUT → 504 (worker freed)."""
+        import time as _time
+
+        def slow_report(*args, **kwargs):
+            _time.sleep(0.5)
+            return MOCK_FULL_REPORT
+
+        with patch("domain.routes.full_domain_report", side_effect=slow_report):
+            r = client.get("/v1/domain/example.com")
+        assert r.status_code == 504
+        # v1.22.2 error envelope: {"error": {"code": ..., "message": ...}}
+        assert "timed out" in str(r.json()).lower()

@@ -5,12 +5,12 @@ import os
 import socket
 from pathlib import Path
 
-VERSION = "1.26.0"
+VERSION = "1.26.1"
 MCP_TOOL_COUNT = 47  # v1.25.0: +robots_txt +redirect_chain +email_verify +brand_assets +seo_audit
 MCP_RESOURCE_COUNT = 7  # v1.23.0: atlas+d3fend+cwe (4 templates + 3 catalogs)
 MCP_PROMPT_COUNT = 3  # v1.23.0: security_audit, vulnerability_check, contrast_triage
 ENDPOINT_COUNT = "55+"
-TEST_COUNT = 1904
+TEST_COUNT = 1908
 # Catalog row counts surfaced on landing/playground. Bump after `python -m cve.sync
 # --source atlas` (ATLAS upstream cadence ~6 months) or `--source d3fend` (yearly).
 ATLAS_TECHNIQUE_COUNT = 167
@@ -180,6 +180,18 @@ CRTSH_TIMEOUT = 3
 CRTSH_MAX_RESULTS = 1000
 CRTSH_MAX_BYTES = 10 * 1024 * 1024  # 10 MB hard cap on crt.sh response body before JSON parse
 BULK_PER_DOMAIN_TIMEOUT = 25
+# Hard ceiling for /v1/domain/{domain} single-domain report. Lower than
+# BULK_PER_DOMAIN_TIMEOUT because slow upstream fail-overs (WHOIS, CT logs,
+# subdomain enum) tied up workers during bot-fuzz bursts (Session 202, 1 May
+# 2026). Cap at 8s — typical full report completes in 2-5s; >8s indicates a
+# stuck upstream.
+DOMAIN_HARD_TIMEOUT = 8
+# Behavioral burst throttle for /v1/domain/{domain} — Free tier only. Catches
+# UA-rotating bot fleets that bypass nginx UA blocklist by querying many
+# distinct domains rapidly. Pro tier explicitly pays for higher quota and is
+# not throttled here.
+DOMAIN_BURST_LIMIT = 5
+DOMAIN_BURST_WINDOW = 60
 
 # Wayback Machine CDX API limits
 WAYBACK_CDX_TIMEOUT = 20

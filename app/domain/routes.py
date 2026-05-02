@@ -45,6 +45,9 @@ from config import (
     BULK_PER_DOMAIN_TIMEOUT,
     COST_AUDIT,
     COST_THREAT_REPORT,
+    DOMAIN_BURST_LIMIT,
+    DOMAIN_BURST_WINDOW,
+    DOMAIN_HARD_TIMEOUT,
     ENRICHMENT_DAILY_LIMIT,
     MAX_ASN_PREFIXES_DEFAULT,
     RECON_TIMEOUT,
@@ -612,10 +615,29 @@ def domain_report(
     response.headers["Sunset"] = "Wed, 01 Sep 2026 00:00:00 GMT"
     response.headers["Link"] = '<https://github.com/UPinar/contrastapi/releases>; rel="deprecation"'
     domain, resolved_ip, auth_ctx = _validate_and_auth(request, domain)
+    tier = auth_ctx["tier"]
+    client_ip = get_client_ip(request)
+
+    # Behavioral burst throttle (Free tier only). UA-rotating bot fleets
+    # bypass the nginx UA blocklist by querying many distinct domains rapidly;
+    # this catches the pattern at the application layer regardless of UA.
+    if tier == "free" and client_ip:
+        if not ratelimit.check_limit(
+            "domain_burst",
+            hash_client_ip(client_ip),
+            max_requests=DOMAIN_BURST_LIMIT,
+            window_seconds=DOMAIN_BURST_WINDOW,
+        ):
+            raise HTTPException(
+                status_code=429,
+                detail=(
+                    f"Too many domain queries — max {DOMAIN_BURST_LIMIT} per "
+                    f"{DOMAIN_BURST_WINDOW}s per client. Pro tier removes this throttle."
+                ),
+            )
 
     # Separate cache keys for lite vs full, segregated by tier to prevent
     # free-tier pro_only stubs from poisoning Pro reads (and vice versa).
-    tier = auth_ctx["tier"]
     cache_key = f"{tier}:lite:{domain}" if lite else f"{tier}:{domain}"
     hit = get_cached_domain_with_age(cache_key)
     if hit is not None:
@@ -627,11 +649,24 @@ def domain_report(
             "next_calls": _domain_pivot_hints(emitted, domain) or None,
         }
 
-    client_ip = get_client_ip(request)
+    # Hard timeout guard — full_domain_report can hang on slow upstream
+    # fail-overs (WHOIS, CT logs, subdomain enum). shutdown(wait=False,
+    # cancel_futures=True) prevents worker starvation under sustained 504
+    # bursts: the bare context manager would shutdown(wait=True) and BLOCK
+    # the request on the timed-out background thread (mirror email_mx).
+    _pool = ThreadPoolExecutor(max_workers=1)
     try:
-        result = full_domain_report(domain, resolved_ip=resolved_ip, client_ip=client_ip, lite=lite, tier=tier)
-    except FuturesTimeoutError:
-        raise HTTPException(status_code=504, detail="Domain report timed out — upstream services too slow") from None
+        _fut = _pool.submit(
+            full_domain_report, domain, resolved_ip=resolved_ip, client_ip=client_ip, lite=lite, tier=tier
+        )
+        try:
+            result = _fut.result(timeout=DOMAIN_HARD_TIMEOUT)
+        except FuturesTimeoutError:
+            raise HTTPException(
+                status_code=504, detail="Domain report timed out — upstream services too slow"
+            ) from None
+    finally:
+        _pool.shutdown(wait=False, cancel_futures=True)
     save_cached_domain(cache_key, result)
     emitted = _apply_txt_filter(result, include_all_txt)
     return {
