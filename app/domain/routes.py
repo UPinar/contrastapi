@@ -110,6 +110,7 @@ from schemas import (
     MonitorResponse,
     PhoneLookupResponse,
     PivotHint,
+    RedirectChainResponse,
     RobotsTxtResponse,
     SslResponse,
     SubdomainsResponse,
@@ -845,6 +846,88 @@ def robots_txt_endpoint(domain: DomainPath, request: Request):
         result["summary"] = f"{cleaned} — HTTP {sc} fetching robots.txt"
     else:
         result["summary"] = f"{cleaned} — {ua_count} UA blocks, {sm_count} sitemaps"
+
+    save_cached_domain(cache_key, result)
+    return result
+
+
+@router.get(
+    "/redirect/{url:path}",
+    operation_id="redirect_chain",
+    response_model=RedirectChainResponse,
+    response_model_exclude_none=True,
+)
+def redirect_chain_endpoint(url: str, request: Request):
+    """Walk a URL's HTTP redirect chain hop-by-hop, returning each (status, Location, latency).
+
+    Up to 10 hops; SSRF-safe (private IPs and non-HTTP schemes rejected at every
+    hop, not just the start). Per-target eTLD+1 throttle (60 req/min) is consumed
+    once for the start URL and once for every *new* host reached in the chain —
+    a chain across 11 unrelated domains can't bypass the cap.
+
+    Pass the URL inline in the path (greedy-matched), e.g.
+    GET /v1/redirect/https://bit.ly/3xyz — FastAPI accepts the literal `://`.
+    """
+    from urllib.parse import urlparse as _urlparse_local
+
+    from domain.redirect_chain import (
+        TargetThrottleHopExceeded,
+        _validate_url,
+        walk_redirect_chain,
+    )
+    from target_throttle import consume_target_throttle
+
+    # Validate input URL upfront so we get a clean 400 (not 502) on garbage.
+    try:
+        _validate_url(url)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    # Authenticate (consumes 1 API credit) and apply the *start* host's throttle.
+    authenticate(request, request.url.path)
+    start_host = (_urlparse_local(url).hostname or "").lower()
+    if start_host:
+        allowed, retry = consume_target_throttle(start_host)
+        if not allowed:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Target throttle: {start_host} exceeded the per-domain limit. retry_after={retry}s",
+                headers={"Retry-After": str(retry)},
+            )
+
+    cache_key = f"redirect:{url}"
+    cached = get_cached_domain(cache_key)
+    if cached:
+        return cached
+
+    try:
+        result = walk_redirect_chain(url)
+    except TargetThrottleHopExceeded as exc:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Target throttle: hop host {exc.host} exceeded the per-domain limit. retry_after={exc.retry_after}s",
+            headers={"Retry-After": str(exc.retry_after)},
+        ) from exc
+    except ValueError as exc:
+        # Mid-chain malformed Location — still return what we walked so far would
+        # be nicer, but `walk_redirect_chain` already records hops up to the
+        # bad target and just sets `location=None`, so a ValueError here means
+        # the *start* URL was invalid (caught above) — defensive fallback.
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        from domain.robots import _exception_kind
+
+        kind = _exception_kind(exc)
+        logger.info("redirect_chain fetch failed for %s [%s]: %s", url, kind, exc)
+        raise HTTPException(status_code=502, detail=f"redirect_chain fetch failed: {kind}") from exc
+
+    hop_count = result["hop_count"]
+    if result["loop_detected"]:
+        result["summary"] = f"{hop_count}-hop chain — loop detected (would revisit a previous URL)"
+    elif result["truncated"]:
+        result["summary"] = f"chain truncated at {hop_count} hops without reaching a terminal response"
+    else:
+        result["summary"] = f"{hop_count}-hop chain — final {result['final_status']} at {result['final_url']}"
 
     save_cached_domain(cache_key, result)
     return result

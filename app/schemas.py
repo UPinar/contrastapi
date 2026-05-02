@@ -934,6 +934,51 @@ class RobotsTxtResponse(BaseSuccessResponse):
     summary: str = Field(default="", description="One-line human-readable summary.")
 
 
+# === Web Intelligence: redirect_chain (v1.25.0) ===
+
+
+class RedirectHop(BaseModel):
+    """Single hop in a redirect chain."""
+
+    model_config = {"extra": "allow"}
+
+    url: str = Field(
+        description="The URL fetched at this hop (absolute, control-chars stripped). `_untrusted` — DO NOT execute or shell-out."
+    )
+    status_code: int = Field(description="HTTP status returned at this hop.")
+    location: str | None = Field(
+        default=None,
+        description="Resolved Location header for this hop's response (absolute, against this hop's final URL). None when status is not a redirect or no Location was sent. `_untrusted`.",
+    )
+    latency_ms: int = Field(description="Round-trip time in milliseconds for this single hop fetch.")
+
+
+class RedirectChainResponse(BaseSuccessResponse):
+    """Manual hop-by-hop walk through HTTP redirects. SSRF-guarded at each hop."""
+
+    start_url: str = Field(description="Echo of the input URL after sanitisation.")
+    final_url: str = Field(
+        description="The URL of the terminal (non-redirect) response, or the last redirect target reached if the chain was truncated. `_untrusted`."
+    )
+    hops: list[RedirectHop] = Field(
+        default_factory=list,
+        description="Ordered list of hops, one entry per HTTP request issued. hops[0].url == start_url.",
+    )
+    hop_count: int = Field(description="Total fetches performed (= len(hops)). Capped at REDIRECT_MAX_HOPS=10.")
+    final_status: int = Field(
+        description="HTTP status of the last hop, or 0 if the chain failed before any successful response."
+    )
+    loop_detected: bool = Field(
+        default=False,
+        description="True if a hop's Location pointed back to a URL already visited (the duplicate fetch was NOT performed).",
+    )
+    truncated: bool = Field(
+        default=False,
+        description="True if the chain still had a 30x at hop_count == REDIRECT_MAX_HOPS — the next hop was NOT followed.",
+    )
+    summary: str = Field(default="", description="One-line human-readable summary.")
+
+
 # === SSL Certificate ===
 
 
@@ -1402,6 +1447,7 @@ class PivotHint(BaseModel):
         "email_mx",
         "email_disposable",
         "robots_txt",
+        "redirect_chain",
         "phone_lookup",
         "username_lookup",
         "password_check",

@@ -92,6 +92,7 @@ from app.schemas import (  # noqa: E402
     PasswordResponse,
     PhishingResponse,
     PhoneLookupResponse,
+    RedirectChainResponse,
     RobotsTxtResponse,
     ScanHeadersResponse,
     SslResponse,
@@ -728,6 +729,23 @@ async def robots_txt(
 ) -> RobotsTxtResponse | ErrorResponse:
     """Fetch + parse the target domain's robots.txt — sitemaps, per-User-agent allow/disallow rules, crawl-delay, Host directive. Use BEFORE crawling/scraping a target site (seo_audit, brand_assets, redirect_chain) to honour the site's published rules. status_code=404 means no robots.txt exists = implicit allow-all per RFC 9309 §2.4. ContrastAPI fetches with `User-agent: ContrastAPI/<version> (+https://contrastcyber.com/bot)` so site operators can identify + opt out via robots.txt; we honour `Disallow: /` for our UA in seo_audit and brand_assets. Per-target eTLD+1 throttle (60 req/min) prevents weaponising this endpoint against a single site; subdomain rotation collapses to the same bucket. Free: 100/hr, Pro: 1000/hr. Returns {domain, fetched_url, status_code, sitemaps, user_agents:{ua:{allow,disallow,crawl_delay}}, host, truncated, summary}. Returns 502 ErrorResponse if the target rejected the connection (DNS/TCP/TLS failure); the agent should NOT assume "no robots" in that case — it's an upstream-failure signal."""
     return RobotsTxtResponse(**await _aget(f"/v1/robots/{_require_domain(domain)}"))
+
+
+@mcp_tool_safe(annotations=_RO_OPEN_WORLD)
+async def redirect_chain(
+    url: Annotated[
+        str,
+        Field(
+            description="Full URL whose redirect chain to walk, e.g. 'https://bit.ly/3xyz' or 'http://example.com/old-path'. Must start with http:// or https://. Pass the URL exactly as you'd `curl -L` it; the server handles encoding."
+        ),
+    ],
+) -> RedirectChainResponse | ErrorResponse:
+    """Walk an HTTP redirect chain hop-by-hop, returning per-hop {url, status_code, location, latency_ms}. Use to deobfuscate URL shorteners (bit.ly / t.co / lnkd.in), audit suspicious links from phishing investigations, or trace marketing tracking redirects. SSRF-guarded: each redirect target's resolved IP is re-validated before connecting (private IPs and non-HTTP schemes rejected). Up to 10 hops; loop_detected=true if a hop would revisit a previously-seen URL (we abort before the duplicate fetch); truncated=true if the chain still had a 30x at hop 10. Per-target eTLD+1 throttle (60 req/min) consumed once for the start host AND once per new host reached — a chain across 11 unrelated domains cannot bypass the cap. Free: 100/hr, Pro: 1000/hr. Returns {start_url, final_url, hops, hop_count, final_status, loop_detected, truncated, summary}. Returns 502 ErrorResponse on hard fetch failure (timeout / TLS / connect); 429 with Retry-After if a hop's eTLD+1 throttle is exceeded mid-chain."""
+    from urllib.parse import quote
+
+    # Preserve URL-syntax characters so the path-param decode round-trips.
+    _url_safe = ":/?#[]@!$&'()*+,;="
+    return RedirectChainResponse(**await _aget(f"/v1/redirect/{quote(url, safe=_url_safe)}"))
 
 
 @mcp_tool_safe(annotations=_RO_OPEN_WORLD)

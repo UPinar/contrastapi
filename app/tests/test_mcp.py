@@ -695,7 +695,7 @@ def test_closed_vs_open_world_split(mcp_client):
     closed = [t["name"] for t in tools if (t.get("annotations") or {}).get("openWorldHint") is False]
     open_ = [t["name"] for t in tools if (t.get("annotations") or {}).get("openWorldHint") is True]
     assert len(closed) == 22, f"expected 22 closed-world tools, got {len(closed)}: {closed}"
-    assert len(open_) == 21, f"expected 21 open-world tools, got {len(open_)}: {open_}"
+    assert len(open_) == 22, f"expected 22 open-world tools, got {len(open_)}: {open_}"
 
 
 # --- v1.22.0 bulk length cap (defense-in-depth alongside Pydantic max_length=50) ---

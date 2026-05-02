@@ -6,7 +6,7 @@ import socket
 from pathlib import Path
 
 VERSION = "1.24.2"
-MCP_TOOL_COUNT = 43  # v1.25.0 Batch 2: +robots_txt
+MCP_TOOL_COUNT = 44  # v1.25.0 Batch 3: +robots_txt +redirect_chain
 MCP_RESOURCE_COUNT = 7  # v1.23.0: atlas+d3fend+cwe (4 templates + 3 catalogs)
 MCP_PROMPT_COUNT = 3  # v1.23.0: security_audit, vulnerability_check, contrast_triage
 ENDPOINT_COUNT = "50+"
@@ -64,6 +64,14 @@ BOT_USER_AGENT = f"ContrastAPI/{VERSION} (+https://contrastcyber.com/bot)"
 ROBOTS_MAX_BYTES = 512 * 1024
 ROBOTS_TIMEOUT = 5  # seconds — separate from RECON_TIMEOUT so robots fetch can be tuned independently
 ROBOTS_CACHE_TTL = 3600  # 1 hour — robots.txt is fairly stable but not static
+
+# redirect_chain endpoint — manual hop-by-hop walk so we can re-validate the SSRF
+# guard at every redirect target, AND so that target_throttle gets a chance to
+# fire on each cross-host hop (a chain across 11 unrelated domains can't
+# slip through with one throttle slot).
+REDIRECT_MAX_HOPS = 10
+REDIRECT_TIMEOUT = 5  # seconds per hop
+REDIRECT_CACHE_TTL = 600  # 10 min — chains are less stable than robots.txt
 
 # Endpoint credit costs — based on upstream API calls per request.
 # Default is 1 (single upstream). Orchestration endpoints cost more because
