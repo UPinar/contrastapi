@@ -281,15 +281,22 @@ h1 .gradient {
 }
 
 .endpoint {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 0.75rem;
+  row-gap: 0.25rem;
   padding: 0.75rem 1rem;
   border-radius: 0.5rem;
   border: 1px solid var(--border-dim);
   background: var(--bg-card);
   transition: border-color 0.2s, background 0.2s;
+  align-items: start;
 }
+.endpoint .method { align-self: center; grid-row: 1 / span 2; }
+.endpoint .endpoint-path { grid-column: 2; grid-row: 1; min-width: 0; }
+.endpoint .endpoint-desc { grid-column: 2; grid-row: 2; padding-inline-start: 0; }
+/* Solo path (no description) — center the path vertically next to method. */
+.endpoint .endpoint-path:only-of-type { grid-row: 1 / span 2; align-self: center; }
 
 .endpoint:hover {
   border-color: var(--border);
@@ -313,16 +320,28 @@ h1 .gradient {
   font-size: 0.8rem;
   color: var(--text);
   font-weight: 500;
-  min-width: 0;
   overflow-wrap: anywhere;
+  word-break: break-all;
+  line-height: 1.5;
+}
+
+/* Rule-list variant (e.g. /bot "What we don't do") — same card chrome,
+   but the text is a sentence, not a path, so word-break:break-all would
+   chop mid-word. Let it wrap on natural word boundaries instead. */
+.endpoint-group.rules .endpoint-path {
+  overflow-wrap: normal;
+  word-break: normal;
+  color: var(--text-dim);
+  font-weight: 400;
 }
 
 .endpoint-desc {
   font-size: 0.7rem;
   color: var(--text-dim);
-  margin-inline-start: auto;
-  white-space: nowrap;
-  text-align: end;
+  flex-basis: 100%;
+  padding-inline-start: 3.5rem;  /* aligns under path: method min-width + gap */
+  margin: 0;
+  line-height: 1.5;
 }
 
 .section-optional {

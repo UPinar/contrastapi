@@ -1,6 +1,6 @@
 # ContrastAPI Endpoints
 
-Full list of 50+ REST endpoints. Base URL: `https://api.contrastcyber.com`
+Full list of 55+ REST endpoints. Base URL: `https://api.contrastcyber.com`
 
 - **Free tier:** 100 credits/hour, no API key required
 - **Pro tier:** 1,000 credits/hour ([Get API Key](https://contrastcyber.com/pricing))
@@ -75,9 +75,28 @@ POST /v1/iocs/bulk                Bulk IOC enrichment (10 free, 50 pro)  [cost: 
 ```
 GET /v1/email/mx/{domain}         Mail provider detection + email security grade
 GET /v1/email/disposable/{email}  Disposable/temporary email check
+GET /v1/email/verify/{email}      Combined: syntax + MX + disposable + role + free-provider (no SMTP probe)  [v1.25.0]
 GET /v1/phone/{number}            Phone number OSINT (carrier, type, country)
 GET /v1/username/{username}       Username OSINT (16 platforms, account discovery)
 ```
+
+## Web Intelligence (v1.25.0)
+
+Single-page audits with explicit ethical floor: per-target eTLD+1 throttle (60/min), self-identifying UA (`ContrastAPI/<version> (+https://api.contrastcyber.com/bot)`), robots.txt respected, Cache-Control honoured, no SMTP probing.
+
+```
+GET /v1/robots/{domain}           Parsed robots.txt — sitemaps, per-UA allow/disallow, crawl-delay (RFC 9309)
+GET /v1/redirect/{url:path}       Walk URL redirect chain hop-by-hop, SSRF-guarded at every hop
+GET /v1/brand/{domain}            Public brand assets from homepage <head>: favicon, og:image, theme-color, og:site_name, JSON-LD logo  [cost: 2]
+GET /v1/seo/{domain}              One-page SEO audit + 0-100 composite score (10 rules) + missing_signals  [cost: 2]
+```
+
+**Ethics & guardrails:**
+- robots.txt is honoured — `Disallow: /` for our UA OR `*` returns 403 `error.code = robots_txt_disallow` and we DO NOT fetch.
+- `Cache-Control: no-store`/`private` from the target skips our cache write (`cache_respected=false` flags it).
+- Per-target throttle uses eTLD+1 — subdomain rotation (`a1.victim.com` / `a2.victim.com`) collapses to the same bucket.
+- All target-derived strings are control-char stripped (Trojan-Source / RTL bidi guard) and flagged `_untrusted` in the schema (DO NOT execute or shell-out).
+- `email_verify` deliberately does NOT do SMTP RCPT TO probing — Hunter.io / NeverBounce-style mailbox enumeration is an ethical grey area we declined.
 
 ## Code Security
 
@@ -125,6 +144,8 @@ Most endpoints consume **1 credit** per call. Aggregating endpoints that fan out
 | Most endpoints | 1 | Single upstream call or cache hit |
 | `GET /v1/audit/{domain}` | 4 | Full report + tech fingerprint + live headers (parallel fan-out) |
 | `GET /v1/threat-report/{ip}` | 4 | Shodan + AbuseIPDB + ASN aggregated |
+| `GET /v1/brand/{domain}` | 2 | Homepage fetch + robots.txt fetch (parallel) + BS4 parse |
+| `GET /v1/seo/{domain}` | 2 | Homepage fetch + robots.txt fetch (parallel) + 10-rule scorer |
 | `POST /v1/cves/bulk` | N | One credit per CVE ID in the batch |
 | `POST /v1/iocs/bulk` | N | One credit per indicator in the batch |
 

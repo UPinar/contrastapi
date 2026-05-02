@@ -7,21 +7,24 @@
   <meta name="robots" content="noindex, nofollow">
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
   <link rel="stylesheet" href="/static/style.css?v=22">
+  <script src="/static/js/landing.js?v=2" defer></script>
 </head>
 <body>
-  <div class="glow"></div>
+  {% include "nav.html" %}
 
-  <div class="welcome-container" style="max-width:780px">
-    <h1>Contrast<span class="welcome-brand-api">API</span> Bot</h1>
-
-    <p>
+  <section class="hero">
+    <div class="pill">WEBMASTER INFORMATION · CONTRASTAPI/{{ version }}</div>
+    <h1>ContrastAPI <span class="gradient">Bot</span></h1>
+    <p class="subtitle">
       You probably arrived here because you saw
       <code>ContrastAPI/{{ version }} (+https://contrastcyber.com/bot)</code>
-      in your server access log.
+      in your server access log. Here is who we are and how to opt out.
     </p>
+  </section>
 
-    <h2>Who we are</h2>
-    <p>
+  <section class="endpoints">
+    <h2 class="section-title">Who we are</h2>
+    <p class="endpoints-lede">
       ContrastAPI is a security-intelligence API consumed by AI coding agents
       (Claude Code, Cursor, Cline, Windsurf) and human security analysts.
       When an end-user asks our customers' agents to look up information
@@ -31,36 +34,56 @@
       meta tags from your homepage.
     </p>
 
-    <h2>What we don't do</h2>
-    <ul>
-      <li>We do not crawl your site recursively.</li>
-      <li>We do not bypass <code>robots.txt</code>.</li>
-      <li>We do not attempt SMTP <code>RCPT TO</code> probes for email verification.</li>
-      <li>We do not solicit POST/PUT/DELETE — read-only requests only.</li>
-      <li>We do not exceed {{ throttle_per_min }} requests per 60 seconds against any single registered domain (eTLD+1), counting all subdomains together.</li>
-    </ul>
+    <h2 class="section-title">What we don't do</h2>
+    <div class="endpoint-group rules">
+      <div class="endpoint">
+        <span class="method get">RULE</span>
+        <span class="endpoint-path">We do not crawl your site recursively.</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">RULE</span>
+        <span class="endpoint-path">We do not bypass <code>robots.txt</code>.</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">RULE</span>
+        <span class="endpoint-path">We do not attempt SMTP <code>RCPT TO</code> probes for email verification.</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">RULE</span>
+        <span class="endpoint-path">We do not solicit POST/PUT/DELETE — read-only requests only.</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">RULE</span>
+        <span class="endpoint-path">We do not exceed {{ throttle_per_min }} requests per 60 seconds against any single registered domain (eTLD+1), counting all subdomains together.</span>
+      </div>
+    </div>
 
-    <h2>How to opt out</h2>
-    <p>
-      Add the following to your <code>robots.txt</code>:
-    </p>
-    <pre><code>User-agent: ContrastAPI
+    <h2 class="section-title">How to opt out</h2>
+    <p class="endpoints-lede">Add the following to your <code>robots.txt</code>:</p>
+    <pre class="hero-curl"><code>User-agent: ContrastAPI
 Disallow: /</code></pre>
-    <p>
+    <p class="endpoints-lede">
       We honour this for endpoints that fetch your HTML
       (<code>seo_audit</code>, <code>brand_assets</code>). We can also block
       your domain at our edge — contact us with the registered domain.
     </p>
 
-    <h2>Abuse contact</h2>
-    <p>
+    <h2 class="section-title">Abuse contact</h2>
+    <p class="endpoints-lede">
       If you believe ContrastAPI is hitting your site abusively, email
-      <span class="copy-support" data-copy-email="contact@contrastcyber.com">contact@contrastcyber.com</span>
-      with the registered domain and a short window of access-log lines.
-      We respond within 24h on weekdays.
+      contact@contrastcyber.com with the registered domain and a short
+      window of access-log lines. We respond within 24h on weekdays.
     </p>
+  </section>
 
-    <a href="/" class="back-link">&larr; ContrastAPI home</a>
-  </div>
+  <footer>
+    <div class="footer-links">
+      <a href="https://contrastcyber.com/terms">Terms</a>
+      <a href="https://contrastcyber.com/privacy">Privacy</a>
+      <a href="#" data-copy-email="contact@contrastcyber.com">Contact</a>
+      <a href="https://github.com/UPinar/contrastapi">GitHub</a>
+    </div>
+    <p>&copy; 2026 ContrastCyber</p>
+  </footer>
 </body>
 </html>

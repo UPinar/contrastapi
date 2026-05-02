@@ -161,8 +161,30 @@ MCP server framework for AI agent tool integration.
 | Function / Class | Signature | What it does | Used in |
 |-----------------|-----------|--------------|---------|
 | `FastMCP()` | `FastMCP(name, instructions, stateless_http=True)` | Creates MCP server with tool registry | mcp_server.py |
-| `@mcp.tool()` | `@mcp.tool() async def my_tool(param: str) -> str` | Registers function as MCP tool (42 tools) | mcp_server.py |
+| `@mcp.tool()` | `@mcp.tool() async def my_tool(param: str) -> str` | Registers function as MCP tool (47 tools) | mcp_server.py |
 | `TransportSecuritySettings` | `TransportSecuritySettings(enable_dns_rebinding_protection=False)` | Configures transport security for public API | mcp_server.py |
+
+---
+
+## v1.25.0 Web Intelligence
+
+### tldextract >=5.0
+Public Suffix List-aware domain parser. Bundled PSL snapshot — no network refresh on the hot path.
+
+| Function / Class | Signature | What it does | Used in |
+|-----------------|-----------|--------------|---------|
+| `tldextract.TLDExtract()` | `TLDExtract(suffix_list_urls=())` | Constructs an extractor with bundled PSL (network refresh disabled) | target_throttle.py, domain/seo_audit.py |
+| `extract(host)` | `extract('news.bbc.co.uk') -> ExtractResult` | Splits a hostname into subdomain / domain / suffix using PSL | target_throttle.py (eTLD+1 buckets), seo_audit._same_registrable |
+| `.top_domain_under_public_suffix` | `result.top_domain_under_public_suffix -> 'bbc.co.uk'` | Registrable domain (eTLD+1); correct for multi-label suffixes (.co.uk, .edu.au, .gov.uk) where last-2-labels heuristic fails | target_throttle, seo_audit |
+
+### beautifulsoup4 >=4.12
+Lenient HTML parser for homepage scraping (brand_assets + seo_audit).
+
+| Function / Class | Signature | What it does | Used in |
+|-----------------|-----------|--------------|---------|
+| `BeautifulSoup()` | `BeautifulSoup(html, "html.parser")` | Parses HTML with the stdlib parser (no lxml C dep) | domain/brand_assets.py, domain/seo_audit.py |
+| `.find()` / `.find_all()` | `soup.find_all("meta", attrs={"property":"og:image"}, limit=20)` | DOM lookup with limit=N to bound traversal cost | brand_assets, seo_audit |
+| `tag.get(attr)` | `tag.get("content")` | Safe attribute access (returns None if missing) | brand_assets, seo_audit |
 
 ---
 

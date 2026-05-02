@@ -203,9 +203,43 @@ Accept: application/json, text/event-stream
 
       <h4>Contact Validation / OSINT</h4>
       <ul>
+        <li><em>"Verify admin@example.com — is it syntax-valid, does the domain accept mail, and is it a role address?"</em></li>
         <li><em>"Is user@example.com a disposable email?"</em></li>
+        <li><em>"Is jane@gmail.com a personal address (free provider) or could it be a corporate one?"</em></li>
         <li><em>"Look up this phone number: +1-555-0123"</em></li>
         <li><em>"Find accounts for username 'johndoe' across platforms"</em></li>
+      </ul>
+
+      <h4>Web Intelligence (v1.25.0)</h4>
+      <ul>
+        <li><em>"Get the parsed robots.txt for github.com — what paths does it disallow for our UA?"</em></li>
+        <li><em>"Walk the redirect chain for https://bit.ly/3xyz and tell me where it actually lands"</em></li>
+        <li><em>"Pull brand assets for stripe.com — favicon, og:image, theme color, JSON-LD logo"</em></li>
+        <li><em>"Run a one-page SEO audit on example.com and list the missing_signals"</em></li>
+        <li><em>"Audit the SEO of my homepage and rank what needs fixing first"</em></li>
+      </ul>
+
+      <h4>MITRE ATLAS (AI/ML Threats)</h4>
+      <ul>
+        <li><em>"Look up MITRE ATLAS technique AML.T0051 (LLM Prompt Injection) and explain how it bridges to ATT&amp;CK"</em></li>
+        <li><em>"Find ATLAS techniques about prompt injection or jailbreaks"</em></li>
+        <li><em>"Show me real-world ML attack case studies — anything involving ChatGPT plugins?"</em></li>
+        <li><em>"Drill these ATLAS techniques in bulk: AML.T0051, AML.T0043, AML.T0061"</em></li>
+      </ul>
+
+      <h4>MITRE D3FEND (Defense Mapping)</h4>
+      <ul>
+        <li><em>"What D3FEND defenses mitigate ATT&amp;CK T1059 (command/scripting)?"</em></li>
+        <li><em>"Look up D3FEND TokenBinding — which ATT&amp;CK techniques does it mitigate?"</em></li>
+        <li><em>"For these ATT&amp;CK techniques [T1059, T1190, T1550.001, T9999], which have NO D3FEND mitigation?"</em></li>
+        <li><em>"Find D3FEND Harden defenses targeting Access Tokens"</em></li>
+      </ul>
+
+      <h4>CWE / KEV</h4>
+      <ul>
+        <li><em>"Look up CWE-79 (XSS) — description, mitigations, parent/child weakness chain"</em></li>
+        <li><em>"What's the CISA KEV federal patch deadline for CVE-2021-44228?"</em></li>
+        <li><em>"Is this CVE ransomware-associated per the KEV catalog?"</em></li>
       </ul>
 
       <h4>Chained Workflows</h4>
@@ -214,6 +248,9 @@ Accept: application/json, text/event-stream
         <li><em>"Find all subdomains of example.com, check the SSL on each, and report any expiring in the next 30 days"</em></li>
         <li><em>"Enrich these 20 IPs and tell me which ones are in AbuseIPDB's high-risk bucket"</em></li>
         <li><em>"List leading CVEs and check if any have public exploits"</em></li>
+        <li><em>"Verify these 50 emails from a lead-list dump — flag disposable, role, and free-provider addresses"</em></li>
+        <li><em>"Score the SEO of these 5 prospect homepages and rank them by missing_signals count"</em></li>
+        <li><em>"Run /contrast-triage on AML.T0051 from the blue-team perspective"</em></li>
       </ul>
     </div>
 

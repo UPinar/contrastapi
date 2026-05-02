@@ -1,15 +1,15 @@
-# ContrastAPI — 为 AI 智能体打造的 42 个安全工具 + 7 个 MCP 资源
+# ContrastAPI — 为 AI 智能体打造的 47 个安全工具 + 7 个 MCP 资源
 
 <p align="center">
   <img src="app/static/banner.png" alt="ContrastAPI Banner" width="100%">
 </p>
 
-[![MCP](https://img.shields.io/badge/MCP-42_tools-purple.svg)](https://modelcontextprotocol.io)
+[![MCP](https://img.shields.io/badge/MCP-47_tools-purple.svg)](https://modelcontextprotocol.io)
 [![smithery badge](https://smithery.ai/badge/contrastcyber/contrastapi)](https://smithery.ai/servers/contrastcyber/contrastapi)
 [![contrastapi MCP server](https://glama.ai/mcp/servers/UPinar/contrastapi/badges/score.svg)](https://glama.ai/mcp/servers/UPinar/contrastapi)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-**面向 AI 智能体的安全情报 MCP 服务器。** CVE/KEV/CWE 查询（含 EPSS）、域名审计、IP 威胁报告、IOC 增强、代码安全检查、**MITRE ATLAS（AI/ML 攻击）+ D3FEND（防御技术）**。**42 个工具 + 7 个 MCP 资源（ATLAS+D3FEND+CWE 目录浏览）+ 条件式分诊 Prompt，免费使用，无需 API 密钥，每小时 100 信用额度。**
+**面向 AI 智能体的安全情报 MCP 服务器。** CVE/KEV/CWE 查询（含 EPSS）、域名审计、IP 威胁报告、IOC 增强、代码安全检查、**MITRE ATLAS（AI/ML 攻击）+ D3FEND（防御技术）**、**网站情报（robots.txt 解析、重定向链、邮箱校验、品牌资源、SEO 审计 — v1.25.0）**。**47 个工具 + 7 个 MCP 资源（ATLAS+D3FEND+CWE 目录浏览）+ 条件式分诊 Prompt，免费使用，无需 API 密钥，每小时 100 信用额度。**
 
 [English](README.md) · **在线服务：** [api.contrastcyber.com](https://api.contrastcyber.com)
 
@@ -39,7 +39,7 @@ pip install contrastapi      # Python 3.10+ — 同步 + 异步、类型化响�
 npm install contrastapi      # Node 14+ — 具体 TypeScript 类型、14 个命名空间
 ```
 
-两个 SDK 均覆盖全部 50+ HTTP 端点 / 42 个 MCP 工具（CVE/KEV/CWE、ATLAS、D3FEND、域名、IP、IOC、代码安全等），响应结构与服务端完全一致，并提供与 v1.22.2+ 错误信封对应的类型化异常层级。v1.23.0 新增 MCP 资源（ATLAS+D3FEND+CWE 目录浏览，详见 [docs/resources.md](docs/resources.md)）和条件式分诊 Prompt（详见 [docs/PROMPTS.md#contrast-triage-v1230](docs/PROMPTS.md)）。
+两个 SDK 均覆盖全部 55+ HTTP 端点 / 47 个 MCP 工具（CVE/KEV/CWE、ATLAS、D3FEND、域名、IP、IOC、代码安全、网站情报等），响应结构与服务端完全一致，并提供与 v1.22.2+ 错误信封对应的类型化异常层级。v1.23.0 新增 MCP 资源（ATLAS+D3FEND+CWE 目录浏览，详见 [docs/resources.md](docs/resources.md)）和条件式分诊 Prompt（详见 [docs/PROMPTS.md#contrast-triage-v1230](docs/PROMPTS.md)）。v1.25.0 新增 5 个网站情报工具（`robots_txt`、`redirect_chain`、`email_verify`、`brand_assets`、`seo_audit`），并明确声明伦理底线（按目标 eTLD+1 限速、遵守 robots.txt、不进行 SMTP 探测）。
 
 ## 立即试用
 
@@ -66,7 +66,7 @@ curl https://api.contrastcyber.com/v1/d3fend/attack/T1059        # D3FEND 针对
 git clone https://github.com/UPinar/contrastapi.git
 cd contrastapi && python3 -m venv venv && venv/bin/pip install -r requirements.txt
 cd app && ../venv/bin/uvicorn main:app --port 8002
-cd app && python -m pytest tests/ -q  # 1666 个测试
+cd app && python -m pytest tests/ -q  # 1886 个测试
 ```
 
 Python 3.12 · FastAPI · uvicorn · `mcp-python-sdk` Streamable HTTP 挂载于 `/mcp` · SQLite WAL · dnspython + SSRF 安全后端。

@@ -658,7 +658,7 @@ def test_mcp_tool_safe_catches_pydantic_validation_error(mcp_client, monkeypatch
 
 
 def test_every_tool_outputschema_is_anyof_union(mcp_client):
-    """Each of the 42 tools should declare an outputSchema whose top-level shape
+    """Each of the 47 tools should declare an outputSchema whose top-level shape
     is a Union of its specific response model and ErrorResponse, so MCP clients
     can validate either arm structurally."""
     from config import MCP_TOOL_COUNT
@@ -685,7 +685,7 @@ def test_every_tool_outputschema_is_anyof_union(mcp_client):
 
 
 def test_closed_vs_open_world_split(mcp_client):
-    """Plan §Annotation split: 22 closed-world (local DB) + 20 open-world (live) = 42."""
+    """Plan §Annotation split: 22 closed-world (local DB) + 25 open-world (live) = 47."""
     r = mcp_client.post(
         "/mcp/",
         headers=MCP_HEADERS,

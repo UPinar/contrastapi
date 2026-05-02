@@ -135,11 +135,26 @@ Use `exclude_id=` on search/reverse-lookup endpoints to skip the originating rec
 |---|---:|---|
 | `audit_domain` | 4 | recon + 3 active calls |
 | `threat_report` | 4 | IP + AbuseIPDB + Shodan + ASN |
+| `brand_assets`, `seo_audit` | 2 | homepage fetch + robots.txt fetch + parse |
 | Most catalog lookups (`cve_lookup`, `cwe_lookup`, `kev_detail`, ATLAS, D3FEND) | 1 | DB read |
+| Web-intel singles (`robots_txt`, `redirect_chain`, `email_verify`) | 1 | one fetch + parse |
 | Search/listing tools | 1 | DB query |
 | `password_check` | 1 | HIBP k-anonymity |
 
 Free tier: 100 credits/hour (no API key). Pro: 1000/hr ($7/mo at https://contrastcyber.com/pricing).
+
+---
+
+## v1.25.0 Web Intelligence chains
+
+Five new tools shipped in v1.25.0 share a per-target eTLD+1 throttle (60/min) and a strict ethical floor — robots.txt is honoured (Disallow `/` for our UA → 403 `error.code = robots_txt_disallow`, no fetch), Cache-Control `no-store`/`private` skips our cache write, all target-derived strings are stripped of control chars and flagged `_untrusted`. Common chain patterns:
+
+| Goal | Chain |
+|---|---|
+| Deobfuscate a phishing-suspect link | `redirect_chain(url)` → final host → `domain_report(host)` → `phishing_check(final_url)` |
+| Lead enrichment from email | `email_verify(email)` (replaces `email_mx` + `email_disposable`) → `domain_report(domain)` → `brand_assets(domain)` |
+| SEO pre-pitch audit | `seo_audit(domain)` → `missing_signals` map → follow-up with the customer |
+| Crawl-courtesy pre-flight | `robots_txt(domain)` BEFORE `seo_audit` / `brand_assets` to honour user-agent rules at the call site (server enforces it anyway, but client-side awareness saves a 403 round-trip) |
 
 ---
 
@@ -150,7 +165,8 @@ Free tier: 100 credits/hour (no API key). Pro: 1000/hr ($7/mo at https://contras
 - **Don't loop tool calls when bulk exists** — burns quota for no gain.
 - **`include=full` opt-in** for verbose output (CWE, ATLAS search, ATLAS case_study, D3FEND search, D3FEND for_attack) — slim default saves ~30-80% tokens.
 - **`exclude_id`** on ATLAS/D3FEND search + D3FEND for_attack — used by `next_calls` to skip self in sibling/reverse-lookup chains.
+- **`email_verify` is one call, not three** — combines `email_mx` + `email_disposable` + role/free-provider classification. Use it instead of chaining the older two.
 
 ---
 
-**Last updated:** v1.21.0 (1 May 2026).
+**Last updated:** v1.25.0 (2 May 2026).
