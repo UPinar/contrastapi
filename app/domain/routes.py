@@ -815,20 +815,34 @@ def robots_txt_endpoint(domain: DomainPath, request: Request):
     if cached:
         return cached
 
-    from domain.robots import fetch_robots_txt
+    from domain.robots import _exception_kind, fetch_robots_txt
 
     try:
         result = fetch_robots_txt(cleaned)
     except Exception as exc:
-        logger.info("robots.txt fetch failed for %s: %s", cleaned, exc)
-        raise HTTPException(status_code=502, detail=f"robots.txt fetch failed: {type(exc).__name__}") from exc
+        kind = _exception_kind(exc)
+        logger.info("robots.txt fetch failed for %s [%s]: %s", cleaned, kind, exc)
+        raise HTTPException(
+            status_code=502,
+            detail=f"robots.txt fetch failed: {kind}",
+        ) from exc
+
+    # RFC 9309 §2.4: 5xx is a temporary failure. Don't cache the empty rule
+    # set for a full hour — that would let seo_audit/brand_assets misread an
+    # outage as "no robots, allow-all". Surface as 502 instead.
+    sc = result["status_code"]
+    if 500 <= sc < 600:
+        raise HTTPException(
+            status_code=502,
+            detail=f"robots.txt upstream {sc} (transient — RFC 9309 §2.4)",
+        )
 
     ua_count = len(result["user_agents"])
     sm_count = len(result["sitemaps"])
-    if result["status_code"] == 404:
+    if sc == 404:
         result["summary"] = f"{cleaned} — no robots.txt (implicit allow-all)"
-    elif result["status_code"] != 200:
-        result["summary"] = f"{cleaned} — HTTP {result['status_code']} fetching robots.txt"
+    elif sc != 200:
+        result["summary"] = f"{cleaned} — HTTP {sc} fetching robots.txt"
     else:
         result["summary"] = f"{cleaned} — {ua_count} UA blocks, {sm_count} sitemaps"
 

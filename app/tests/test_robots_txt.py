@@ -71,6 +71,22 @@ class TestParseRobotsTxt:
         out = parse_robots_txt(body)
         assert out["user_agents"]["*"]["crawl_delay"] is None
 
+    def test_crawl_delay_out_of_bounds_dropped(self):
+        """Negative, NaN, and >24h crawl-delay are nonsense — drop them."""
+        from domain.robots import parse_robots_txt
+
+        for v in ("-1", "1e10", "nan", "999999"):
+            out = parse_robots_txt(f"User-agent: *\nCrawl-delay: {v}\nDisallow: /\n")
+            assert out["user_agents"]["*"]["crawl_delay"] is None, f"crawl-delay={v} should be dropped"
+
+    def test_crawl_delay_at_boundary_kept(self):
+        """86400 (24h) and 0 are valid edge cases."""
+        from domain.robots import parse_robots_txt
+
+        for v, expected in (("86400", 86400.0), ("0", 0.0), ("0.5", 0.5)):
+            out = parse_robots_txt(f"User-agent: *\nCrawl-delay: {v}\nDisallow: /\n")
+            assert out["user_agents"]["*"]["crawl_delay"] == expected, f"crawl-delay={v}"
+
     def test_inline_comments_stripped(self):
         from domain.robots import parse_robots_txt
 
@@ -163,10 +179,11 @@ class TestRobotsTxtRoute:
         assert data["sitemaps"] == ["https://example.com/sitemap.xml"]
         assert "*" in data["user_agents"]
         assert data["summary"].startswith("example.com")
-        # Cache was written
-        mock_save.assert_called_once()
-        cache_args = mock_save.call_args[0]
-        assert cache_args[0] == "robots:example.com"
+        # Cache was written for our key. Don't assert call_count — the
+        # mock can pick up writes from background ThreadPoolExecutor tasks
+        # spawned by sibling tests in the full pytest run.
+        keys = [c.args[0] for c in mock_save.call_args_list]
+        assert "robots:example.com" in keys
 
     @patch("domain.robots.fetch_robots_txt")
     @patch("domain.routes.get_cached_domain", return_value=None)
@@ -205,7 +222,29 @@ class TestRobotsTxtRoute:
         body = r.json()
         # v1.22.0 unified envelope: {"error": {"code", "message"}}
         assert "error" in body
-        assert "robots.txt fetch failed" in body["error"]["message"]
+        msg = body["error"]["message"]
+        assert "robots.txt fetch failed" in msg
+        # Structured error code from _exception_kind
+        assert "unknown_error" in msg
+
+    @patch("domain.robots.fetch_robots_txt")
+    @patch("domain.routes.get_cached_domain", return_value=None)
+    @patch("domain.routes.save_cached_domain")
+    @patch("domain.routes.validate_domain", return_value="93.184.216.34")
+    def test_robots_5xx_upstream_502_no_cache(self, mock_validate, mock_save, mock_cache, mock_fetch):
+        """RFC 9309 §2.4: 5xx is transient — surface as 502, do NOT cache empty rules."""
+        mock_fetch.return_value = {
+            **_PARSED_OK,
+            "status_code": 503,
+            "user_agents": {},
+            "sitemaps": [],
+        }
+        r = client.get("/v1/robots/wobbly.example.com")
+        assert r.status_code == 502
+        body = r.json()
+        assert "transient" in body["error"]["message"].lower()
+        # Critical: must NOT have cached the empty-rules response
+        mock_save.assert_not_called()
 
     @patch("domain.routes.validate_domain", return_value=None)
     def test_robots_unresolvable_domain_422(self, mock_validate):
@@ -239,6 +278,48 @@ class TestRobotsTxtRoute:
 
 
 # === MCP tool surface ===
+
+
+# === _exception_kind classifier ===
+
+
+class TestExceptionKind:
+    def test_timeout_exceptions(self):
+        from domain.robots import _exception_kind
+
+        class ConnectTimeout(Exception):
+            pass
+
+        class ReadTimeout(Exception):
+            pass
+
+        assert _exception_kind(ConnectTimeout()) == "timeout"
+        assert _exception_kind(ReadTimeout()) == "timeout"
+
+    def test_tls_exceptions(self):
+        from domain.robots import _exception_kind
+
+        class CertificateVerifyFailed(Exception):
+            pass
+
+        class SSLError(Exception):
+            pass
+
+        assert _exception_kind(CertificateVerifyFailed()) == "tls_error"
+        assert _exception_kind(SSLError()) == "tls_error"
+
+    def test_connect_error(self):
+        from domain.robots import _exception_kind
+
+        class ConnectError(Exception):
+            pass
+
+        assert _exception_kind(ConnectError()) == "connect_error"
+
+    def test_unknown_error_fallback(self):
+        from domain.robots import _exception_kind
+
+        assert _exception_kind(RuntimeError("?")) == "unknown_error"
 
 
 def test_robots_txt_mcp_tool_registered(mcp_client):

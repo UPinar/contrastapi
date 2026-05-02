@@ -94,6 +94,11 @@ def parse_robots_txt(body: str) -> dict:
                 cd = float(value)
             except (TypeError, ValueError):
                 continue
+            # Spec is silent on bounds; Google ignores Crawl-delay altogether
+            # and most crawlers cap at sane values. Drop nonsense (negative,
+            # NaN, > 24h) to avoid misleading agents into "wait 10 billion s".
+            if cd != cd or cd < 0 or cd > 86400:
+                continue
             for ua in current_uas:
                 _block(ua)["crawl_delay"] = cd
             group_has_rules = True
@@ -134,8 +139,12 @@ def fetch_robots_txt(domain: str) -> dict:
             with _ssrf_http.stream("GET", url, timeout=ROBOTS_TIMEOUT, follow_redirects=True) as resp:
                 fetched_url = str(resp.url)
                 status_code = resp.status_code
-                # Read up to ROBOTS_MAX_BYTES — guards against multi-MB
-                # robots.txt files that some CDNs return as a soft-404 HTML page.
+                # iter_bytes() returns RAW bytes (httpx does NOT auto-decompress
+                # gzip/br on this path — only on iter_text/.text). The
+                # ROBOTS_MAX_BYTES cap therefore bounds compressed-on-wire
+                # bytes, which is what we want as a DoS guard against
+                # decompression bombs. DO NOT switch to iter_text() without
+                # adding a separate decompressed-size cap.
                 buf = bytearray()
                 for chunk in resp.iter_bytes():
                     buf += chunk
@@ -187,3 +196,22 @@ def _is_same_or_subdomain(candidate: str, base: str) -> bool:
     candidate = candidate.lower().strip(".")
     base = base.lower().strip(".")
     return candidate == base or candidate.endswith("." + base)
+
+
+def _exception_kind(exc: BaseException) -> str:
+    """Map an httpx fetch exception to a coarse, agent-friendly category.
+
+    Lets MCP agents distinguish transient failures (timeout, connect_reset)
+    from permanent ones (tls_error, dns_failure) without parsing raw class
+    names that may shift between httpx versions.
+    """
+    name = type(exc).__name__
+    if "Timeout" in name:
+        return "timeout"
+    if "TLS" in name or "SSL" in name or "Certificate" in name:
+        return "tls_error"
+    if "ConnectError" in name or "Connect" in name:
+        return "connect_error"
+    if "Read" in name or "Stream" in name:
+        return "read_error"
+    return "unknown_error"
