@@ -94,7 +94,10 @@ FREE_PROVIDERS = frozenset(
 # Pragmatic syntax check. NOT a full RFC 5322 parser (those exist as
 # 800-line libs); this rejects the obvious garbage and lets the MX/DNS
 # resolution decide deliverability. Allowed local-part chars are the
-# unquoted superset from RFC 5321 §4.1.2 (Atom). Min TLD length is 2.
+# unquoted superset from RFC 5321 §4.1.2 (Atom). The domain must have at
+# least one dot; we don't enforce ICANN's 2-char TLD policy at the regex
+# level (single-char TLDs don't exist in the public root anyway, and a
+# strict cap would reject future puny-TLDs like `xn--abc`).
 _EMAIL_RE = re.compile(
     r"^[A-Za-z0-9._%+\-!#$&'*/=?^`{|}~]+"
     r"@"

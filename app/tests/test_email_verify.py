@@ -203,6 +203,43 @@ class TestEmailVerifyRoute:
         assert data["mx_records"] == []
         assert "does not resolve" in data["summary"]
 
+    @patch("domain.routes.dns_lookup")
+    @patch("domain.routes.check_disposable")
+    @patch("domain.routes.save_cached_domain")
+    @patch("domain.routes.validate_domain", return_value="93.184.216.34")
+    def test_verify_cache_hit_recomputes_role_per_email(self, mock_validate, mock_save, mock_disp, mock_dns):
+        """Cache stores domain-level facets only; per-email facets (role, syntax)
+        must be recomputed from the live local-part on cache hit."""
+        cached_payload = {
+            "domain": "corp.com",
+            "mx_records": [{"priority": 10, "host": "mx.corp.com."}],
+            "disposable": False,
+            "disposable_provider": None,
+            "free_provider": False,
+        }
+        with patch("domain.routes.get_cached_domain", return_value=cached_payload):
+            r1 = client.get("/v1/email/verify/admin@corp.com")
+            r2 = client.get("/v1/email/verify/jane.doe@corp.com")
+        assert r1.status_code == 200
+        assert r2.status_code == 200
+        d1, d2 = r1.json(), r2.json()
+        # Both share the cached domain-level data
+        assert d1["mx_records"] == d2["mx_records"] == [{"priority": 10, "host": "mx.corp.com."}]
+        assert d1["disposable"] is False
+        # But role classification is different per email
+        assert d1["role_address"] is True
+        assert d1["role_type"] == "admin"
+        assert d2["role_address"] is False
+        # role_type=None is excluded by response_model_exclude_none=True
+        assert "role_type" not in d2 or d2["role_type"] is None
+        # Cache hit short-circuits — the upstream resolvers should NOT be called
+        mock_validate.assert_not_called()
+        mock_dns.assert_not_called()
+        mock_disp.assert_not_called()
+        # And the cache write path is NOT re-triggered for our email_verify key
+        keys_written = [c.args[0] for c in mock_save.call_args_list]
+        assert "email_verify:corp.com" not in keys_written
+
     def test_verify_no_smtp_probe_documented_in_response_model(self):
         """EmailVerifyResponse docstring must explicitly state we do not probe SMTP."""
         from schemas import EmailVerifyResponse
