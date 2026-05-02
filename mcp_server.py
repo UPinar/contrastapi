@@ -618,7 +618,7 @@ async def dns_lookup(
         str, Field(description="Root domain to query, without protocol or path (e.g. 'example.com', 'cloudflare.com')")
     ],
 ) -> DnsResponse | ErrorResponse:
-    """Query all DNS record types (A, AAAA, MX, NS, TXT, CNAME, SOA) for a domain. Use for mail routing inspection, nameserver verification, or SPF/DMARC checks; for full overview use domain_report. Free: 100/hr, Pro: 1000/hr. Returns {records: [{type, value, ttl}]} array."""
+    """Query all DNS record types (A, AAAA, MX, NS, TXT, CNAME, SOA) for a domain. Use for mail routing inspection, nameserver verification, or SPF/DMARC checks; for full overview use domain_report. TXT records are returned raw (no filter) — `total_txt_records` always carries the honest count (use domain_report for the security-only filtered TXT view). Free: 100/hr, Pro: 1000/hr. Returns {domain, records: {a, aaaa, mx, ns, txt, total_txt_records, cname, soa}, summary}."""
     return DnsResponse(**await _aget(f"/v1/dns/{_require_domain(domain)}"))
 
 

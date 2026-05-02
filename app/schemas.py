@@ -128,8 +128,9 @@ class DomainDnsInfo(BaseModel):
     total_txt_records: int | None = Field(
         default=None,
         description=(
-            "Honest pre-filter TXT record count (always emitted on domain_report). Equals len(txt) when "
-            "include_all_txt=true. Null on /v1/dns/{domain} where TXT is not filtered."
+            "Honest pre-filter TXT record count. Always emitted (domain_report, audit_domain, /v1/dns). "
+            "Equals len(txt) when include_all_txt=true or on /v1/dns/{domain} (raw, unfiltered). "
+            "0 when no TXT records exist. Null only when the field is absent (older cached entries)."
         ),
     )
     cname: list[str] | None = Field(default=None, description="CNAME records.")

@@ -391,6 +391,44 @@ class TestDnsLookup:
         result = dns_lookup("example.com")
         assert "a" in result
 
+    @patch("domain.recon.dns.resolver.Resolver")
+    def test_total_txt_records_matches_txt_length(self, mock_resolver_cls):
+        """dns_lookup() always emits total_txt_records — honest count of TXT answers."""
+        import dns.resolver
+        from domain.recon import dns_lookup
+
+        mock_resolver = MagicMock()
+        mock_resolver_cls.return_value = mock_resolver
+
+        rec1 = MagicMock()
+        rec1.strings = [b"v=spf1 -all"]
+        rec2 = MagicMock()
+        rec2.strings = [b"google-site-verification=abc"]
+
+        def resolve_side_effect(name, rtype):
+            if rtype == "TXT":
+                return [rec1, rec2]
+            raise dns.resolver.NoAnswer()
+
+        mock_resolver.resolve.side_effect = resolve_side_effect
+        result = dns_lookup("example.com")
+        assert len(result["txt"]) == 2
+        assert result["total_txt_records"] == 2
+
+    @patch("domain.recon.dns.resolver.Resolver")
+    def test_total_txt_records_zero_when_no_txt(self, mock_resolver_cls):
+        """No TXT records → total_txt_records=0, not null (regression guard)."""
+        import dns.resolver
+        from domain.recon import dns_lookup
+
+        mock_resolver = MagicMock()
+        mock_resolver_cls.return_value = mock_resolver
+        mock_resolver.resolve.side_effect = dns.resolver.NoAnswer()
+
+        result = dns_lookup("example.com")
+        assert result.get("txt") in (None, [])
+        assert result["total_txt_records"] == 0
+
 
 # --- reverse_dns (mocked) ---
 
@@ -1623,7 +1661,11 @@ class TestDomainReportTxtFilter:
 
     @patch(
         "domain.routes.dns_lookup",
-        return_value={"a": ["1.2.3.4"], "txt": ["google-site-verification=xyz", "v=spf1 -all"]},
+        return_value={
+            "a": ["1.2.3.4"],
+            "txt": ["google-site-verification=xyz", "v=spf1 -all"],
+            "total_txt_records": 2,
+        },
     )
     @patch("domain.routes.validate_domain", return_value="1.2.3.4")
     @patch("domain.routes._from_cache", return_value=None)
@@ -1633,6 +1675,21 @@ class TestDomainReportTxtFilter:
         assert r.status_code == 200
         records = r.json()["records"]
         assert len(records["txt"]) == 2
+        assert records["total_txt_records"] == 2
+
+    @patch(
+        "domain.routes.dns_lookup",
+        return_value={"a": ["1.2.3.4"], "total_txt_records": 0},
+    )
+    @patch("domain.routes.validate_domain", return_value="1.2.3.4")
+    @patch("domain.routes._from_cache", return_value=None)
+    def test_dns_records_endpoint_no_txt_emits_zero(self, mock_cache, mock_validate, mock_dns):
+        # Honest count: 0 when no TXT records exist — never null on cache miss.
+        r = client.get("/v1/dns/example.com")
+        assert r.status_code == 200
+        records = r.json()["records"]
+        assert records["total_txt_records"] == 0
+        assert records.get("txt") in (None, [])
 
 
 @pytest.mark.real_asn_country

@@ -37,7 +37,7 @@ NOWPAYMENTS_API_BASE = "https://api.nowpayments.io/v1"
 PRO_PRICE_USD = 7.00
 PRO_VALIDITY_DAYS = 30
 INVOICE_CREATE_TIMEOUT = 10
-SUCCESS_URL = "https://contrastcyber.com/welcome"
+SUCCESS_URL = "https://api.contrastcyber.com/welcome"
 CANCEL_URL = "https://contrastcyber.com/pricing"
 ORDER_DESCRIPTION = "ContrastAPI Pro 30-day key"
 

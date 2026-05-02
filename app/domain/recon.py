@@ -219,6 +219,7 @@ def dns_lookup(domain: str) -> dict:
                 records[rtype.lower()] = [str(r).strip('"') for r in answers]
         except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN, dns.resolver.NoNameservers, dns.exception.Timeout):
             pass
+    records["total_txt_records"] = len(records.get("txt") or [])
     return records
 
 
