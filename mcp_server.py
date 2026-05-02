@@ -139,6 +139,23 @@ mcp = FastMCP(
         enable_dns_rebinding_protection=False,  # nginx handles this
     ),
 )
+# FastMCP doesn't accept a `version` kwarg, so the lowlevel Server falls back
+# to the installed `mcp` package version (currently 1.27.0) for serverInfo.
+# Pin it to OUR application version so MCP clients and indexers can tell which
+# release of ContrastAPI they're talking to. We poke the private `_mcp_server`
+# attribute because FastMCP does not expose a setter; if a future SDK upgrade
+# renames or restructures it, log the failure (don't block startup) so we can
+# notice the silent revert to the package version.
+try:
+    from app.config import VERSION as _APP_VERSION
+
+    mcp._mcp_server.version = _APP_VERSION
+except Exception as _ver_pin_exc:  # pragma: no cover - metadata, never block startup
+    logger.warning(
+        "Failed to pin MCP serverInfo.version to app.config.VERSION (%s); "
+        "serverInfo will fall back to the installed mcp package version.",
+        _ver_pin_exc,
+    )
 
 # Use local API if running on the server, otherwise use public API
 API_BASE = os.environ.get("CONTRASTAPI_URL", "http://localhost:8002")
