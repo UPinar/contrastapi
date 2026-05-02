@@ -80,6 +80,36 @@
 
   <!-- Endpoints -->
   <section class="endpoints">
+    <h2 class="section-title">Web Intelligence <span class="setup-card-badge">v1.25.0</span></h2>
+    <p class="endpoints-lede">Single-page audits with explicit ethical floor: per-target eTLD+1 throttle (60/min), self-identifying <a href="/bot">UA</a>, robots.txt respected, Cache-Control honoured, no SMTP probing.</p>
+    <div class="endpoint-group">
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/robots/{domain}</span>
+        <span class="endpoint-desc">Parsed robots.txt — sitemaps, per-UA allow/disallow, crawl-delay (RFC 9309)</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/redirect/{url:path}</span>
+        <span class="endpoint-desc">Walk a URL's redirect chain hop-by-hop, SSRF-guarded at every hop</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/email/verify/{email}</span>
+        <span class="endpoint-desc">Combined email validation: syntax + MX + disposable + role + free-provider (no SMTP probe)</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/brand/{domain}</span>
+        <span class="endpoint-desc">Public brand assets from homepage &lt;head&gt;: favicon, og:image, theme-color, JSON-LD logo</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/seo/{domain}</span>
+        <span class="endpoint-desc">One-page SEO audit + 0-100 composite score (10 rules) + concrete missing_signals</span>
+      </div>
+    </div>
+
     <h2 class="section-title">Domain Intelligence</h2>
     <div class="endpoint-group">
       <div class="endpoint">
@@ -369,13 +399,13 @@
       </div>
       <div class="setup-card">
         <h3>2. SDKs <span class="setup-card-badge">Python · Node</span></h3>
-        <pre>pip install contrastapi      <span class="setup-card-tag">NEW</span>
-npm install contrastapi      </pre>
+        <pre>pip install contrastapi
+npm install contrastapi</pre>
         <pre>from contrastapi import ContrastAPI
 c = ContrastAPI()
 c.cve.lookup("CVE-2024-3094")
 c.atlas.bulk_technique_lookup(["AML.T0051"])</pre>
-        <a href="https://pypi.org/project/contrastapi/" target="_blank" rel="noopener">PyPI →</a> · <a href="https://www.npmjs.com/package/contrastapi" target="_blank" rel="noopener">npm →</a>
+        <span style="white-space:nowrap"><a href="https://pypi.org/project/contrastapi/" target="_blank" rel="noopener">PyPI →</a> · <a href="https://www.npmjs.com/package/contrastapi" target="_blank" rel="noopener">npm →</a></span>
       </div>
       <div class="setup-card">
         <h3>3. cURL</h3>

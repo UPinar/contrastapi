@@ -348,6 +348,121 @@
       </div>
     </div>
 
+    <div class="pg-card" id="ep-email_verify">
+      <div class="pg-card-header">
+        <span class="method get">GET</span>
+        <span class="name">/v1/email/verify/{email}</span>
+        <span class="desc">Combined email validation: syntax + MX + disposable + role + free-provider (no SMTP probe)</span>
+      </div>
+      <div class="pg-card-body">
+        <div class="pg-inputs">
+          <label>email</label>
+          <input type="text" id="input-email_verify" value="admin@gmail.com" placeholder="user@example.com">
+          <button class="btn-run" data-tool="email_verify">Run &rarr;</button>
+        </div>
+        <div class="pg-response" id="resp-email_verify">
+          <pre>{
+  <span class="key">"email"</span>: <span class="str">"admin@gmail.com"</span>,
+  <span class="key">"syntax_valid"</span>: <span class="bool">true</span>,
+  <span class="key">"role_address"</span>: <span class="bool">true</span>,
+  <span class="key">"free_provider"</span>: <span class="bool">true</span>
+}</pre>
+        </div>
+      </div>
+    </div>
+
+    <div class="pg-card" id="ep-robots_txt">
+      <div class="pg-card-header">
+        <span class="method get">GET</span>
+        <span class="name">/v1/robots/{domain}</span>
+        <span class="desc">Parsed robots.txt — sitemaps, per-UA allow/disallow, crawl-delay (RFC 9309)</span>
+      </div>
+      <div class="pg-card-body">
+        <div class="pg-inputs">
+          <label>domain</label>
+          <input type="text" id="input-robots_txt" value="github.com" placeholder="example.com">
+          <button class="btn-run" data-tool="robots_txt">Run &rarr;</button>
+        </div>
+        <div class="pg-response" id="resp-robots_txt">
+          <pre>{
+  <span class="key">"domain"</span>: <span class="str">"github.com"</span>,
+  <span class="key">"status_code"</span>: <span class="num">200</span>,
+  <span class="key">"sitemaps"</span>: [<span class="str">"https://github.com/sitemap.xml"</span>],
+  <span class="key">"user_agents"</span>: { <span class="str">"*"</span>: { ... } }
+}</pre>
+        </div>
+      </div>
+    </div>
+
+    <div class="pg-card" id="ep-redirect_chain">
+      <div class="pg-card-header">
+        <span class="method get">GET</span>
+        <span class="name">/v1/redirect/{url:path}</span>
+        <span class="desc">Walk a URL's redirect chain hop-by-hop, SSRF-guarded at every hop</span>
+      </div>
+      <div class="pg-card-body">
+        <div class="pg-inputs">
+          <label>url</label>
+          <input type="text" id="input-redirect_chain" value="https://bit.ly/3xyz" placeholder="https://...">
+          <button class="btn-run" data-tool="redirect_chain">Run &rarr;</button>
+        </div>
+        <div class="pg-response" id="resp-redirect_chain">
+          <pre>{
+  <span class="key">"start_url"</span>: <span class="str">"https://bit.ly/3xyz"</span>,
+  <span class="key">"final_url"</span>: <span class="str">"https://example.com/"</span>,
+  <span class="key">"hop_count"</span>: <span class="num">2</span>,
+  <span class="key">"loop_detected"</span>: <span class="bool">false</span>
+}</pre>
+        </div>
+      </div>
+    </div>
+
+    <div class="pg-card" id="ep-brand_assets">
+      <div class="pg-card-header">
+        <span class="method get">GET</span>
+        <span class="name">/v1/brand/{domain}</span>
+        <span class="desc">Public brand assets from homepage &lt;head&gt;: favicon, og:image, theme-color, JSON-LD logo</span>
+      </div>
+      <div class="pg-card-body">
+        <div class="pg-inputs">
+          <label>domain</label>
+          <input type="text" id="input-brand_assets" value="stripe.com" placeholder="example.com">
+          <button class="btn-run" data-tool="brand_assets">Run &rarr;</button>
+        </div>
+        <div class="pg-response" id="resp-brand_assets">
+          <pre>{
+  <span class="key">"domain"</span>: <span class="str">"stripe.com"</span>,
+  <span class="key">"favicon_url_untrusted"</span>: <span class="str">"https://stripe.com/favicon.ico"</span>,
+  <span class="key">"og_image_url_untrusted"</span>: <span class="str">"https://stripe.com/og.png"</span>,
+  <span class="key">"site_name_untrusted"</span>: <span class="str">"Stripe"</span>
+}</pre>
+        </div>
+      </div>
+    </div>
+
+    <div class="pg-card" id="ep-seo_audit">
+      <div class="pg-card-header">
+        <span class="method get">GET</span>
+        <span class="name">/v1/seo/{domain}</span>
+        <span class="desc">One-page SEO audit + 0-100 composite score (10 rules) + concrete missing_signals</span>
+      </div>
+      <div class="pg-card-body">
+        <div class="pg-inputs">
+          <label>domain</label>
+          <input type="text" id="input-seo_audit" value="example.com" placeholder="example.com">
+          <button class="btn-run" data-tool="seo_audit">Run &rarr;</button>
+        </div>
+        <div class="pg-response" id="resp-seo_audit">
+          <pre>{
+  <span class="key">"domain"</span>: <span class="str">"example.com"</span>,
+  <span class="key">"score"</span>: <span class="num">85</span>,
+  <span class="key">"h1_count"</span>: <span class="num">1</span>,
+  <span class="key">"missing_signals"</span>: [<span class="str">"meta_description_length_off"</span>]
+}</pre>
+        </div>
+      </div>
+    </div>
+
     <div class="pg-card" id="ep-phone">
       <div class="pg-card-header">
         <span class="method get">GET</span>

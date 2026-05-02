@@ -80,64 +80,38 @@
     </div>
   </section>
 
-  <!-- 30 秒配置 -->
-  <section id="setup" class="endpoints setup-section" aria-labelledby="setup-title">
-    <h2 id="setup-title" class="section-title">30 秒配置</h2>
-    <div class="setup-cards">
-      <div class="setup-card">
-        <h3>1. MCP（Claude / Cursor / VS Code）</h3>
-        <pre>{
-  "mcpServers": {
-    "contrastapi": {
-      "command": "npx",
-      "args": ["-y", "mcp-remote",
-        "https://api.contrastcyber.com/mcp/"]
-    }
-  }
-}</pre>
-        <a href="/mcp-setup">完整 MCP 指南 →</a>
-      </div>
-      <div class="setup-card">
-        <h3>2. SDK <span class="setup-card-badge">Python · Node</span></h3>
-        <pre>pip install contrastapi      <span class="setup-card-tag">新</span>
-npm install contrastapi      </pre>
-        <pre>from contrastapi import ContrastAPI
-c = ContrastAPI()
-c.cve.lookup("CVE-2024-3094")
-c.atlas.bulk_technique_lookup(["AML.T0051"])</pre>
-        <a href="https://pypi.org/project/contrastapi/" target="_blank" rel="noopener">PyPI →</a> · <a href="https://www.npmjs.com/package/contrastapi" target="_blank" rel="noopener">npm →</a>
-      </div>
-      <div class="setup-card">
-        <h3>3. cURL</h3>
-        <div class="copy-wrap"><pre>curl https://api.contrastcyber.com\
-  /v1/audit/example.com</pre><button type="button" class="copy-btn" aria-label="复制命令"><svg class="icon-copy" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><svg class="icon-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg></button></div>
-        <div class="copy-wrap"><pre>curl https://api.contrastcyber.com\
-  /v1/cve/CVE-2024-3094</pre><button type="button" class="copy-btn" aria-label="复制命令"><svg class="icon-copy" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><svg class="icon-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg></button></div>
-        <a href="/quickstart">快速入门指南 →</a>
-      </div>
-      <div class="setup-card">
-        <h3>4. VS Code 扩展</h3>
-        <pre>code --install-extension \
-  ContrastAPI.contrastapi</pre>
-        <p class="setup-card-note">{{ tool_count }} 个命令 · 侧边栏树 · 右键菜单 · 无需 API 密钥</p>
-        <a href="https://marketplace.visualstudio.com/items?itemName=ContrastAPI.contrastapi" target="_blank" rel="noopener">Marketplace →</a>
-      </div>
-    </div>
-  </section>
-
-  <!-- GitHub CTA -->
-  <section class="github-cta" aria-label="GitHub">
-    <div class="github-cta-inner">
-    <p class="github-cta-text">开源项目，MIT 许可证，公开构建。</p>
-    <a href="https://github.com/UPinar/contrastapi" class="btn-github" target="_blank" rel="noopener">
-      <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
-      在 GitHub 上加星
-    </a>
-    </div>
-  </section>
-
   <!-- 接口列表 -->
   <section class="endpoints">
+    <h2 class="section-title">网站情报 <span class="setup-card-badge">v1.25.0</span></h2>
+    <p class="endpoints-lede">单页面审计，明确的伦理底线：每目标 eTLD+1 限速（60/分钟）、自我标识 <a href="/bot">UA</a>、遵守 robots.txt、尊重 Cache-Control、不进行 SMTP 探测。</p>
+    <div class="endpoint-group">
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/robots/{domain}</span>
+        <span class="endpoint-desc">解析 robots.txt — sitemaps、按 UA 的 allow/disallow、crawl-delay（RFC 9309）</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/redirect/{url:path}</span>
+        <span class="endpoint-desc">逐跳跟踪 URL 重定向链，每跳 SSRF 防护</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/email/verify/{email}</span>
+        <span class="endpoint-desc">邮箱综合校验：语法 + MX + 一次性 + 角色 + 免费提供商（不进行 SMTP 探测）</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/brand/{domain}</span>
+        <span class="endpoint-desc">从首页 &lt;head&gt; 抓取公开品牌资源：favicon、og:image、theme-color、JSON-LD logo</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/seo/{domain}</span>
+        <span class="endpoint-desc">单页 SEO 审计 + 0-100 综合分数（10 项规则）+ 具体的 missing_signals</span>
+      </div>
+    </div>
+
     <h2 class="section-title">域名情报</h2>
     <div class="endpoint-group">
       <div class="endpoint">
@@ -241,6 +215,59 @@ c.atlas.bulk_technique_lookup(["AML.T0051"])</pre>
       </div>
     </div>
 
+    <h2 class="section-title">MITRE ATLAS（AI/ML 威胁）</h2>
+    <div class="endpoint-group">
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/atlas/{technique_id}</span>
+        <span class="endpoint-desc">ATLAS 技术查询（例如 AML.T0051 LLM 提示词注入）</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/atlas/techniques?keyword=&tactic=&maturity=</span>
+        <span class="endpoint-desc">搜索 ATLAS 技术（{{ atlas_technique_count }} 条）</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/atlas/case-studies/{case_study_id}</span>
+        <span class="endpoint-desc">真实 ML 攻击案例（例如 AML.CS0009 ChatGPT 插件）</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/atlas/case-studies?keyword=</span>
+        <span class="endpoint-desc">搜索 ATLAS 案例（{{ atlas_case_study_count }} 条）</span>
+      </div>
+      <div class="endpoint">
+        <span class="method post">POST</span>
+        <span class="endpoint-path">/v1/atlas/techniques/bulk</span>
+        <span class="endpoint-desc">批量技术深挖（每次最多 50 个 ID）</span>
+      </div>
+    </div>
+
+    <h2 class="section-title">MITRE D3FEND（防御映射）</h2>
+    <div class="endpoint-group">
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/d3fend/{defense_id}</span>
+        <span class="endpoint-desc">防御技术查询（例如 TokenBinding），含映射的 ATT&amp;CK 技术</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/d3fend/defenses?keyword=&tactic=</span>
+        <span class="endpoint-desc">搜索 D3FEND 防御（{{ d3fend_defense_count }} 条，7 个战术）</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/d3fend/attack/{attack_technique_id}</span>
+        <span class="endpoint-desc">反向查询：某个 ATT&amp;CK 技术对应的防御（例如 T1059）</span>
+      </div>
+      <div class="endpoint">
+        <span class="method post">POST</span>
+        <span class="endpoint-path">/v1/d3fend/coverage</span>
+        <span class="endpoint-desc">批量覆盖图：给定 ATT&amp;CK 技术 ID 列表</span>
+      </div>
+    </div>
+
     <h2 class="section-title">威胁情报</h2>
     <div class="endpoint-group">
       <div class="endpoint">
@@ -340,6 +367,62 @@ c.atlas.bulk_technique_lookup(["AML.T0051"])</pre>
         <span class="method get">GET</span>
         <span class="endpoint-path">/metrics</span>
         <span class="endpoint-desc">Prometheus 指标</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- GitHub CTA -->
+  <section class="github-cta" aria-label="GitHub">
+    <div class="github-cta-inner">
+    <p class="github-cta-text">开源项目，MIT 许可证，公开构建。</p>
+    <a href="https://github.com/UPinar/contrastapi" class="btn-github" target="_blank" rel="noopener">
+      <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      在 GitHub 上加星
+    </a>
+    </div>
+  </section>
+
+  <!-- 30 秒配置 -->
+  <section id="setup" class="endpoints setup-section" aria-labelledby="setup-title">
+    <h2 id="setup-title" class="section-title">30 秒配置</h2>
+    <div class="setup-cards">
+      <div class="setup-card">
+        <h3>1. MCP（Claude / Cursor / VS Code）</h3>
+        <pre>{
+  "mcpServers": {
+    "contrastapi": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote",
+        "https://api.contrastcyber.com/mcp/"]
+    }
+  }
+}</pre>
+        <a href="/mcp-setup">完整 MCP 指南 →</a>
+      </div>
+      <div class="setup-card">
+        <h3>2. SDK <span class="setup-card-badge">Python · Node</span></h3>
+        <pre>pip install contrastapi
+npm install contrastapi</pre>
+        <pre>from contrastapi import ContrastAPI
+c = ContrastAPI()
+c.cve.lookup("CVE-2024-3094")
+c.atlas.bulk_technique_lookup(["AML.T0051"])</pre>
+        <span style="white-space:nowrap"><a href="https://pypi.org/project/contrastapi/" target="_blank" rel="noopener">PyPI →</a> · <a href="https://www.npmjs.com/package/contrastapi" target="_blank" rel="noopener">npm →</a></span>
+      </div>
+      <div class="setup-card">
+        <h3>3. cURL</h3>
+        <div class="copy-wrap"><pre>curl https://api.contrastcyber.com\
+  /v1/audit/example.com</pre><button type="button" class="copy-btn" aria-label="复制命令"><svg class="icon-copy" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><svg class="icon-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg></button></div>
+        <div class="copy-wrap"><pre>curl https://api.contrastcyber.com\
+  /v1/cve/CVE-2024-3094</pre><button type="button" class="copy-btn" aria-label="复制命令"><svg class="icon-copy" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><svg class="icon-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg></button></div>
+        <a href="/quickstart">快速入门指南 →</a>
+      </div>
+      <div class="setup-card">
+        <h3>4. VS Code 扩展</h3>
+        <pre>code --install-extension \
+  ContrastAPI.contrastapi</pre>
+        <p class="setup-card-note">{{ tool_count }} 个命令 · 侧边栏树 · 右键菜单 · 无需 API 密钥</p>
+        <a href="https://marketplace.visualstudio.com/items?itemName=ContrastAPI.contrastapi" target="_blank" rel="noopener">Marketplace →</a>
       </div>
     </div>
   </section>
