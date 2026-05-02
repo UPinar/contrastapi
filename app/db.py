@@ -154,6 +154,10 @@ def init_api_db():
         cols = {r[1] for r in con.execute("PRAGMA table_info(api_keys)").fetchall()}
         if "pending_key_created_at" not in cols:
             con.execute("ALTER TABLE api_keys ADD COLUMN pending_key_created_at TEXT")
+        # Migration: add expires_at for one-time crypto keys (NULL = no expiry,
+        # used by Lemon Squeezy subscriptions which deactivate via webhook)
+        if "expires_at" not in cols:
+            con.execute("ALTER TABLE api_keys ADD COLUMN expires_at TEXT")
         con.execute("""
             CREATE TABLE IF NOT EXISTS api_usage (
                 id INTEGER PRIMARY KEY,
@@ -380,17 +384,36 @@ def init_all_dbs():
 # --- API key operations ---
 
 
-def save_api_key(key_hash: str, order_id: str | None = None) -> None:
+def save_api_key(key_hash: str, order_id: str | None = None, expires_at: str | None = None) -> None:
+    """Insert a new API key row.
+
+    expires_at: ISO-8601 UTC timestamp at which the key stops authorising
+    requests. NULL = no expiry (used by Lemon Squeezy subscriptions which
+    deactivate via the cancel/expire webhook). Crypto one-time invoices set
+    this to (now + 30 days).
+    """
     now = datetime.now(UTC).isoformat()
     with get_api_db() as con:
-        con.execute("INSERT INTO api_keys (key_hash, order_id, created_at) VALUES (?, ?, ?)", (key_hash, order_id, now))
+        con.execute(
+            "INSERT INTO api_keys (key_hash, order_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
+            (key_hash, order_id, now, expires_at),
+        )
 
 
 def get_api_key(key_hash: str) -> dict | None:
+    """Return the row for an active, non-expired key.
+
+    A key with expires_at IS NULL never expires (subscription model).
+    A key with expires_at <= now is treated as inactive (one-time payment lapsed).
+    """
+    now = datetime.now(UTC).isoformat()
     with get_api_db() as con:
         cur = con.cursor()
         cur.row_factory = sqlite3.Row
-        row = cur.execute("SELECT * FROM api_keys WHERE key_hash = ? AND active = 1", (key_hash,)).fetchone()
+        row = cur.execute(
+            "SELECT * FROM api_keys WHERE key_hash = ? AND active = 1 AND (expires_at IS NULL OR expires_at > ?)",
+            (key_hash, now),
+        ).fetchone()
         return dict(row) if row else None
 
 

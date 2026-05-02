@@ -98,6 +98,10 @@ GHSA_API_URL = "https://api.github.com/advisories"
 LEMONSQUEEZY_WEBHOOK_SECRET = os.environ.get("LEMONSQUEEZY_WEBHOOK_SECRET", "")
 LEMONSQUEEZY_API_KEY = os.environ.get("LEMONSQUEEZY_API_KEY", "")
 
+# NOWPayments (crypto payment provider — RU/CN/IR fallback when card is restricted)
+NOWPAYMENTS_API_KEY = os.environ.get("NOWPAYMENTS_API_KEY", "")
+NOWPAYMENTS_IPN_SECRET = os.environ.get("NOWPAYMENTS_IPN_SECRET", "")
+
 # External API keys (reputation/enrichment)
 ABUSEIPDB_API_KEY = os.environ.get("ABUSEIPDB_API_KEY", "")
 SHODAN_API_KEY = os.environ.get("SHODAN_API_KEY", "")

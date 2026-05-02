@@ -1780,9 +1780,11 @@ app.include_router(d3fend_router)
 
 from datetime import UTC
 
+from crypto_billing import router as crypto_billing_router
 from webhooks import router as webhooks_router
 
 app.include_router(webhooks_router)
+app.include_router(crypto_billing_router)
 
 
 @app.get("/mcp/debug", include_in_schema=False)
