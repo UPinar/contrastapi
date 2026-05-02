@@ -1935,51 +1935,53 @@ try:
                 if not ip:
                     xff = (headers_map.get(b"x-forwarded-for") or b"").decode()
                     ip = xff.split(",")[0].strip() if xff else ""
-                # App-layer rate-limit gate. Without this, /mcp/ bypasses the
-                # tier ceilings the /v1/* routers enforce (Free 100/hr,
-                # Pro 1000/hr) — only the nginx mcp_get/mcp_post zones apply,
-                # which sit at ~21,600 req/hr/IP. authenticate() reads the
-                # Authorization header (Pro key) or hashes the client IP
-                # (Free) and consumes one credit per HTTP request; raises 429
-                # when the bucket empties. Translate the HTTPException back
-                # into a JSON-RPC error so MCP clients see a structured fail.
-                # Placed before the GET/HEAD short-circuits so SSE listen and
-                # info GETs are gated too — otherwise a client could spam GETs
-                # without burning the bucket.
-                _gate_req = _MCPStarletteRequest(scope)
-                try:
-                    _mcp_authenticate(_gate_req, "/mcp/", cost=1)
-                except HTTPException as _gate_exc:
-                    _err_payload = {
-                        "jsonrpc": "2.0",
-                        "error": {
-                            "code": -32000 if _gate_exc.status_code == 429 else -32001,
-                            "message": _gate_exc.detail if isinstance(_gate_exc.detail, str) else "Rate limit exceeded",
-                        },
-                        "id": None,
-                    }
-                    _err_body = _mcp_json.dumps(_err_payload).encode()
-                    _err_headers = [
-                        [b"content-type", b"application/json"],
-                        [b"content-length", str(len(_err_body)).encode()],
-                    ]
-                    if _gate_exc.status_code == 429:
-                        # auth.py:113 sets request.state.ratelimit_reset to the
-                        # absolute epoch the bucket frees up. Translate to a
-                        # delta seconds value for the Retry-After header so the
-                        # client backs off the actual wait, not a hardcoded 60s.
-                        _reset_at = getattr(_gate_req.state, "ratelimit_reset", 0) or 0
-                        _retry_after = max(1, int(_reset_at - time.time())) if _reset_at else 60
-                        _err_headers.append([b"retry-after", str(_retry_after).encode()])
-                    await send(
-                        {
-                            "type": "http.response.start",
-                            "status": _gate_exc.status_code,
-                            "headers": _err_headers,
+                # App-layer rate-limit gate — POST only. POST carries the
+                # JSON-RPC tool-call payload; that is what consumes Free
+                # 100/hr or Pro 1000/hr. GET /mcp/ is the SSE listen loop
+                # and the discovery info endpoint — both return a fixed
+                # 14-byte "retry: 15000" or a small JSON blob, no DB / no
+                # tool execution. Gating GET would 429 a normal MCP client
+                # within ~25 minutes (240 reconnects/hr at 15s retry) before
+                # it ever invokes a tool. nginx mcp_get zone (3,600 req/hr/IP)
+                # still caps GET-flood abuse at the edge.
+                if scope.get("method") == "POST":
+                    _gate_req = _MCPStarletteRequest(scope)
+                    try:
+                        _mcp_authenticate(_gate_req, "/mcp/", cost=1)
+                    except HTTPException as _gate_exc:
+                        _err_payload = {
+                            "jsonrpc": "2.0",
+                            "error": {
+                                "code": -32000 if _gate_exc.status_code == 429 else -32001,
+                                "message": _gate_exc.detail
+                                if isinstance(_gate_exc.detail, str)
+                                else "Rate limit exceeded",
+                            },
+                            "id": None,
                         }
-                    )
-                    await send({"type": "http.response.body", "body": _err_body})
-                    return
+                        _err_body = _mcp_json.dumps(_err_payload).encode()
+                        _err_headers = [
+                            [b"content-type", b"application/json"],
+                            [b"content-length", str(len(_err_body)).encode()],
+                        ]
+                        if _gate_exc.status_code == 429:
+                            # auth.py:113 sets request.state.ratelimit_reset to
+                            # the absolute epoch the bucket frees up. Translate
+                            # to a delta seconds value for the Retry-After
+                            # header so the client backs off the actual wait,
+                            # not a hardcoded 60s.
+                            _reset_at = getattr(_gate_req.state, "ratelimit_reset", 0) or 0
+                            _retry_after = max(1, int(_reset_at - time.time())) if _reset_at else 60
+                            _err_headers.append([b"retry-after", str(_retry_after).encode()])
+                        await send(
+                            {
+                                "type": "http.response.start",
+                                "status": _gate_exc.status_code,
+                                "headers": _err_headers,
+                            }
+                        )
+                        await send({"type": "http.response.body", "body": _err_body})
+                        return
                 # GET/HEAD → branch on Accept header
                 if scope.get("method") in ("GET", "HEAD"):
                     accept = headers_map.get(b"accept", b"").decode("latin-1").lower()

@@ -118,13 +118,27 @@ def test_mcp_free_tier_429_after_limit(mcp_client):
     _reset_free_bucket()
 
 
-def test_mcp_get_also_gated(mcp_client):
-    """GET /mcp/ (SSE listen / discovery) must consume a credit too — otherwise a
-    client could spam GETs without burning the free bucket."""
+def test_mcp_get_is_exempt_from_gate(mcp_client):
+    """GET /mcp/ — SSE listen + discovery info — must NOT consume a credit.
+
+    A normal MCP client opens an SSE listen loop and reconnects every 15s
+    (the retry directive we emit). 240 reconnects/hr would 429 a Free user
+    in ~25 min before they ever invoke a tool. The GET responses are fixed
+    (14-byte "retry: 15000" or a small JSON blob) and abuse is still capped
+    by the nginx mcp_get zone (3,600/hr/IP).
+    """
     _reset_free_bucket()
 
     mcp_client.get("/mcp/", headers={"Accept": "application/json"})
-    assert _free_bucket_count() >= 1
+    assert _free_bucket_count() == 0
+
+
+def test_mcp_get_sse_is_exempt_from_gate(mcp_client):
+    """SSE-expecting GET — same exemption — must not burn the free bucket."""
+    _reset_free_bucket()
+
+    mcp_client.get("/mcp/", headers={"Accept": "text/event-stream"})
+    assert _free_bucket_count() == 0
 
 
 def test_mcp_pro_key_higher_limit(mcp_client):
