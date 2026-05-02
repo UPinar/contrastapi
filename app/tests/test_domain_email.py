@@ -218,6 +218,41 @@ class TestCheckDisposableUnit:
         assert result["disposable"] is True
         assert result["risk_level"] == "medium"
 
+    @patch("domain.recon.dns_lookup", return_value={"mx": []})
+    def test_check_disposable_tempmail_com(self, mock_dns):
+        """Regression: tempmail.com used to return disposable=False because the domain
+        was missing from DISPOSABLE_DOMAINS even though it was in DISPOSABLE_PROVIDERS."""
+        from domain.recon import check_disposable
+
+        result = check_disposable("test@tempmail.com")
+        assert result["disposable"] is True
+        assert result["provider"] == "TempMail"
+        assert result["risk_level"] == "high"
+
+
+class TestDisposableListSyncInvariant:
+    """Guard against drift between DISPOSABLE_PROVIDERS and DISPOSABLE_DOMAINS.
+
+    Every domain in DISPOSABLE_PROVIDERS must also be in DISPOSABLE_DOMAINS, otherwise
+    check_disposable() short-circuits on the membership test and never reaches the
+    provider lookup — the original cause of the tempmail.com false negative.
+    """
+
+    def test_every_provider_domain_is_in_domains_set(self):
+        from domain.disposable_domains import DISPOSABLE_DOMAINS, DISPOSABLE_PROVIDERS
+
+        missing = sorted(d for d in DISPOSABLE_PROVIDERS if d not in DISPOSABLE_DOMAINS)
+        assert not missing, (
+            "DISPOSABLE_PROVIDERS keys missing from DISPOSABLE_DOMAINS — "
+            "check_disposable() will return disposable=False for these: "
+            f"{missing}"
+        )
+
+    def test_domains_is_superset_of_providers(self):
+        from domain.disposable_domains import DISPOSABLE_DOMAINS, DISPOSABLE_PROVIDERS
+
+        assert len(DISPOSABLE_DOMAINS) >= len(DISPOSABLE_PROVIDERS)
+
 
 # =========== /v1/email/disposable route tests ===========
 
