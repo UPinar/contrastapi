@@ -354,10 +354,19 @@ def fetch_homepage_html(domain: str) -> dict:
     httpx exception OR a ValueError — caller maps to ErrorResponse.
     """
     last_exc: Exception | None = None
+    # `Accept-Encoding: identity` — refuse compressed responses. httpx's
+    # `iter_bytes()` transparently decompresses gzip/br/zstd BEFORE
+    # yielding chunks, which means a 1KB gzip-bomb decompressing to
+    # 500MB would blow past `_MAX_HOMEPAGE_BYTES` in RAM (the byte cap
+    # counts decompressed bytes, not wire bytes). Forcing identity
+    # encoding makes the cap a real wire-byte ceiling.
+    no_compression = {"Accept-Encoding": "identity"}
     for scheme in ("https", "http"):
         url = f"{scheme}://{domain}/"
         try:
-            with _ssrf_http.stream("GET", url, timeout=BRAND_ASSETS_TIMEOUT, follow_redirects=True) as resp:
+            with _ssrf_http.stream(
+                "GET", url, timeout=BRAND_ASSETS_TIMEOUT, follow_redirects=True, headers=no_compression
+            ) as resp:
                 final_url = str(resp.url)
                 status_code = resp.status_code
                 cache_control = (resp.headers.get("Cache-Control") or "").lower()

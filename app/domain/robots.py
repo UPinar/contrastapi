@@ -133,18 +133,22 @@ def fetch_robots_txt(domain: str) -> dict:
     body = ""
     truncated = False
 
+    # `Accept-Encoding: identity` — refuse gzip/br/zstd. httpx's
+    # `iter_bytes()` transparently decodes Content-Encoding before yielding
+    # chunks, so without this header a 1KB gzip-bomb decompressing to
+    # 500MB would blow past ROBOTS_MAX_BYTES in RAM. Forcing identity makes
+    # the cap a true wire-byte ceiling. (Earlier comments here claimed the
+    # opposite; that was wrong — see commit fixing the decompression-bomb
+    # finding from v1.25.0 Batch 5 round-2 review.)
+    no_compression = {"Accept-Encoding": "identity"}
     for scheme in ("https", "http"):
         url = f"{scheme}://{domain}/robots.txt"
         try:
-            with _ssrf_http.stream("GET", url, timeout=ROBOTS_TIMEOUT, follow_redirects=True) as resp:
+            with _ssrf_http.stream(
+                "GET", url, timeout=ROBOTS_TIMEOUT, follow_redirects=True, headers=no_compression
+            ) as resp:
                 fetched_url = str(resp.url)
                 status_code = resp.status_code
-                # iter_bytes() returns RAW bytes (httpx does NOT auto-decompress
-                # gzip/br on this path — only on iter_text/.text). The
-                # ROBOTS_MAX_BYTES cap therefore bounds compressed-on-wire
-                # bytes, which is what we want as a DoS guard against
-                # decompression bombs. DO NOT switch to iter_text() without
-                # adding a separate decompressed-size cap.
                 buf = bytearray()
                 for chunk in resp.iter_bytes():
                     buf += chunk

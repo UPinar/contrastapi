@@ -329,6 +329,27 @@ class TestExtractBrandAssets:
         out = extract_brand_assets(html, "https://x.com/")
         assert out["logo_url"] is None
 
+    def test_base_tag_does_not_redirect_url_resolution(self):
+        """A malicious target setting `<base href="javascript:...">` must
+        NOT influence our URL resolution. urljoin uses our explicit
+        `base_url` (the response final URL); BeautifulSoup's `<base>`
+        is irrelevant — we never read it."""
+        from domain.brand_assets import extract_brand_assets
+
+        html = """
+        <html><head>
+        <base href="javascript:alert('xss')">
+        <link rel="icon" href="/favicon.ico">
+        <meta property="og:image" content="/og.png">
+        </head></html>
+        """
+        out = extract_brand_assets(html, "https://example.com/")
+        # Both must resolve against https://example.com/, NOT against the <base> href
+        assert out["favicon_url"] == "https://example.com/favicon.ico"
+        assert out["og_image_url"] == "https://example.com/og.png"
+        assert "javascript:" not in (out["favicon_url"] or "")
+        assert "javascript:" not in (out["og_image_url"] or "")
+
     def test_jsonld_block_count_capped_at_20(self):
         """A page emitting 25 JSON-LD blocks must NOT have all 25 parsed
         — only the first _MAX_JSONLD_BLOCKS=20 are scanned. The 21st
@@ -463,6 +484,43 @@ class TestBrandAssetsRoute:
         r = client.get("/v1/brand/corp.com")
         assert r.status_code == 502
         assert "brand_assets fetch failed" in r.text
+
+    def test_fetch_homepage_html_sends_accept_encoding_identity(self):
+        """Compression-bomb DoS guard: `_MAX_HOMEPAGE_BYTES` only bounds
+        decompressed bytes (httpx auto-decodes gzip/br/zstd in
+        iter_bytes). We MUST send `Accept-Encoding: identity` so the
+        server cannot send a 1KB gzip blob that decompresses to 500MB
+        in our RAM before the byte cap fires."""
+        from unittest.mock import MagicMock
+
+        from domain.brand_assets import fetch_homepage_html
+
+        captured: dict = {}
+
+        class _FakeResp:
+            def __init__(self, headers):
+                self.headers = {"Content-Type": "text/html", **headers}
+                self.status_code = 200
+                self.url = "https://example.com/"
+
+            def iter_bytes(self):
+                yield b"<html><head></head></html>"
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+        def fake_stream(method, url, **kwargs):
+            captured["headers"] = kwargs.get("headers", {})
+            return _FakeResp({})
+
+        with patch("domain.brand_assets._ssrf_http") as mock_http:
+            mock_http.stream = MagicMock(side_effect=fake_stream)
+            fetch_homepage_html("example.com")
+
+        assert captured["headers"].get("Accept-Encoding") == "identity"
 
     @patch("domain.routes.get_cached_domain", side_effect=[None, _NO_ROBOTS])
     @patch("domain.routes.save_cached_domain")
