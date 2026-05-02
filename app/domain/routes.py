@@ -100,6 +100,7 @@ from pydantic import BaseModel, Field
 from schemas import (
     AsnResponse,
     AuditResponse,
+    BrandAssetsResponse,
     BulkDomainResponse,
     CertsResponse,
     DisposableResponse,
@@ -1061,6 +1062,121 @@ def redirect_chain_endpoint(url: str, request: Request):
         result["summary"] = f"{hop_count}-hop chain — final {result['final_status']} at {result['final_url']}"
 
     save_cached_domain(cache_key, result)
+    return result
+
+
+@router.get(
+    "/brand/{domain}",
+    operation_id="brand_assets",
+    response_model=BrandAssetsResponse,
+    response_model_exclude_none=True,
+)
+def brand_assets_endpoint(domain: DomainPath, request: Request):
+    """Scrape the target domain's homepage `<head>` for public brand assets:
+    favicon, og:image, theme-color, og:site_name, JSON-LD Organization.logo.
+
+    Ethical floor (Guardrail #3 in v1.25.0 plan): we honour the target's
+    robots.txt — `Disallow: /` for our UA token ("ContrastAPI") OR for `*`
+    returns 403 + `error.code = robots_txt_disallow` and we DO NOT fetch
+    the page. Per-target eTLD+1 throttle (60 req/min) protects the site
+    from being scraped via subdomain rotation. `Cache-Control: no-store`
+    or `private` from the target is honoured — we DO NOT write to cache
+    on those responses (Guardrail #4).
+    """
+    from target_throttle import consume_target_throttle
+
+    cleaned, _resolved_ip, _auth = _validate_and_auth(request, domain)
+
+    allowed, retry_after = consume_target_throttle(cleaned)
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Target throttle: {cleaned} exceeded the per-domain limit. retry_after={retry_after}s",
+            headers={"Retry-After": str(retry_after)},
+        )
+
+    cache_key = f"brand:{cleaned}"
+    cached = get_cached_domain(cache_key)
+    if cached:
+        return cached
+
+    # Robots.txt respect — reuse the robots cache, fall through to a fresh
+    # fetch if absent. Failure-mode policy: on robots.txt FETCH failure
+    # (DNS/TCP/TLS/upstream-5xx) we DO NOT block — robots is a courtesy
+    # signal, not an authentication boundary, and a transient outage
+    # should not poison every brand_assets call for an hour.
+    from domain.brand_assets import (
+        extract_brand_assets,
+        fetch_homepage_html,
+        homepage_allowed,
+    )
+    from domain.robots import _exception_kind, fetch_robots_txt
+
+    robots_payload = get_cached_domain(f"robots:{cleaned}")
+    if robots_payload is None:
+        try:
+            robots_payload = fetch_robots_txt(cleaned)
+            sc = robots_payload.get("status_code", 0)
+            # RFC 9309 §2.4: 5xx is transient — do not cache.
+            if not (500 <= sc < 600):
+                save_cached_domain(f"robots:{cleaned}", robots_payload)
+        except Exception as exc:
+            logger.debug(
+                "brand_assets: robots.txt fetch failed (allow-fail-open) %s [%s]", cleaned, _exception_kind(exc)
+            )
+            robots_payload = {"user_agents": {}, "sitemaps": [], "host": None}
+
+    allowed, blocking_pat = homepage_allowed(robots_payload)
+    if not allowed:
+        raise HTTPException(
+            status_code=403,
+            detail=f"robots_txt_disallow: target site forbids '{blocking_pat}' for ContrastAPI; we will not fetch /",
+        )
+
+    try:
+        page = fetch_homepage_html(cleaned)
+    except Exception as exc:
+        kind = _exception_kind(exc)
+        logger.info("brand_assets fetch failed for %s [%s]: %s", cleaned, kind, exc)
+        raise HTTPException(
+            status_code=502,
+            detail=f"brand_assets fetch failed: {kind}",
+        ) from exc
+
+    assets = extract_brand_assets(page["html"], page["url"])
+
+    # Guardrail #4: honour Cache-Control: no-store / private. We still
+    # build + return the response; we just don't persist it. Surface the
+    # decision in the response so callers can see what we did.
+    cc = page["cache_control"]
+    cache_respected = not any(token in cc for token in ("no-store", "private"))
+
+    parts: list[str] = []
+    if assets["site_name"]:
+        parts.append(f"site:{assets['site_name'][:60]}")
+    if assets["favicon_url"]:
+        parts.append("favicon")
+    if assets["og_image_url"]:
+        parts.append("og:image")
+    if assets["logo_url"]:
+        parts.append("jsonld:logo")
+    summary = f"{cleaned} — " + (", ".join(parts) if parts else "no public brand assets found")
+
+    result = {
+        "domain": cleaned,
+        "fetched_url": page["url"],
+        "status_code": page["status_code"],
+        "favicon_url_untrusted": assets["favicon_url"],
+        "og_image_url_untrusted": assets["og_image_url"],
+        "theme_color": assets["theme_color"],
+        "site_name_untrusted": assets["site_name"],
+        "logo_url_untrusted": assets["logo_url"],
+        "cache_respected": cache_respected,
+        "summary": summary,
+    }
+
+    if cache_respected:
+        save_cached_domain(cache_key, result)
     return result
 
 

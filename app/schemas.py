@@ -1023,6 +1023,52 @@ class RedirectChainResponse(BaseSuccessResponse):
     summary: str = Field(default="", description="One-line human-readable summary.")
 
 
+# === Web Intelligence: brand_assets (v1.25.0) ===
+
+
+class BrandAssetsResponse(BaseSuccessResponse):
+    """Public brand-identity assets scraped from a domain's homepage.
+
+    What we DO: GET `https://{domain}/` (HTTP fallback), parse `<head>` for
+    favicon, `og:image`, `theme-color`, `og:site_name`, and JSON-LD
+    `Organization.logo`. All URL fields are absolute and `_untrusted` (DO
+    NOT execute, shell-out, or fetch from inside an LLM tool-use turn).
+
+    Ethical floor: we honour the target site's robots.txt — if it
+    Disallows path "/" for our UA token ("ContrastAPI") OR for `*`, we
+    return 403 `error.code = robots_txt_disallow` and DO NOT fetch.
+    """
+
+    domain: str = Field(description="Queried domain (echoed).")
+    fetched_url: str = Field(description="Final URL we fetched, e.g. https://example.com/ (post-redirects).")
+    status_code: int = Field(description="HTTP status returned by the homepage fetch.")
+    favicon_url_untrusted: str | None = Field(
+        default=None,
+        description="Resolved favicon URL (`<link rel='icon'>`, `shortcut icon`, `apple-touch-icon`, then `/favicon.ico` fallback). Absolute. `_untrusted`.",
+    )
+    og_image_url_untrusted: str | None = Field(
+        default=None,
+        description="`<meta property='og:image'>` resolved to an absolute URL. Used as the social-share thumbnail. `_untrusted`.",
+    )
+    theme_color: str | None = Field(
+        default=None,
+        description="`<meta name='theme-color'>` value (verbatim, capped at 64 chars). Useful for matching brand chrome.",
+    )
+    site_name_untrusted: str | None = Field(
+        default=None,
+        description="`<meta property='og:site_name'>` (preferred) or `<title>` fallback. Capped at 200 chars. `_untrusted`.",
+    )
+    logo_url_untrusted: str | None = Field(
+        default=None,
+        description="`Organization.logo` from the first matching JSON-LD block (`<script type='application/ld+json'>`). Resolved to absolute URL. `_untrusted`.",
+    )
+    cache_respected: bool = Field(
+        default=True,
+        description="True if we wrote the result to our cache. False when the target sent `Cache-Control: no-store` or `private` and we honoured it (Guardrail #4 — we don't cache content the target asked us not to).",
+    )
+    summary: str = Field(default="", description="One-line human-readable summary.")
+
+
 # === SSL Certificate ===
 
 
@@ -1493,6 +1539,7 @@ class PivotHint(BaseModel):
         "email_verify",
         "robots_txt",
         "redirect_chain",
+        "brand_assets",
         "phone_lookup",
         "username_lookup",
         "password_check",

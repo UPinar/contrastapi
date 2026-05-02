@@ -6,7 +6,7 @@ import socket
 from pathlib import Path
 
 VERSION = "1.24.2"
-MCP_TOOL_COUNT = 45  # v1.25.0 Batch 4: +robots_txt +redirect_chain +email_verify
+MCP_TOOL_COUNT = 46  # v1.25.0 Batch 5: +brand_assets
 MCP_RESOURCE_COUNT = 7  # v1.23.0: atlas+d3fend+cwe (4 templates + 3 catalogs)
 MCP_PROMPT_COUNT = 3  # v1.23.0: security_audit, vulnerability_check, contrast_triage
 ENDPOINT_COUNT = "50+"
@@ -73,6 +73,12 @@ ROBOTS_CACHE_TTL = 3600  # 1 hour — robots.txt is fairly stable but not static
 # per-key TTL override is parked for v1.26+.
 REDIRECT_MAX_HOPS = 10
 REDIRECT_TIMEOUT = 5  # seconds per hop
+
+# brand_assets endpoint — homepage HTML scrape for favicon, og:image, theme-color,
+# og:site_name, JSON-LD organization.logo. Honour robots.txt Disallow on the
+# target's homepage for our UA (Guardrail #3 in v1.25.0 plan).
+BRAND_ASSETS_TIMEOUT = 5  # seconds, separate from RECON_TIMEOUT
+BRAND_ASSETS_CACHE_TTL = 3600  # 1h via DOMAIN_CACHE_TTL pathway
 
 # Endpoint credit costs — based on upstream API calls per request.
 # Default is 1 (single upstream). Orchestration endpoints cost more because
