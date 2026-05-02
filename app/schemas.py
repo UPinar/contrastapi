@@ -934,6 +934,50 @@ class RobotsTxtResponse(BaseSuccessResponse):
     summary: str = Field(default="", description="One-line human-readable summary.")
 
 
+# === Web Intelligence: email_verify (v1.25.0) ===
+
+
+class EmailVerifyResponse(BaseSuccessResponse):
+    """Combined email validation: syntax + MX + disposable + role + free-provider.
+
+    What we DO NOT do: SMTP `RCPT TO` deliverability probing. Hunter.io-style
+    mailbox-existence checks are an ethical grey area (mailbox enumeration +
+    Hetzner ToS risk on unsolicited SMTP from datacenter IPs). Use Hunter.io /
+    NeverBounce / ZeroBounce when you need that specific signal.
+    """
+
+    email: str = Field(description="Echo of the input email (lowercased, control-chars stripped).")
+    domain: str = Field(description="The domain part (after `@`).")
+    syntax_valid: bool = Field(
+        description="True iff the email passes the same RFC-aware regex used by /v1/email/disposable."
+    )
+    mx_records: list[MxDnsRecord] = Field(
+        default_factory=list,
+        description="MX records for the domain, sorted by priority. Empty list = no MX = mail cannot be delivered.",
+    )
+    disposable: bool = Field(
+        default=False,
+        description="True iff the domain matches our disposable-provider database OR a known disposable MX host.",
+    )
+    disposable_provider: str | None = Field(
+        default=None,
+        description="Name of the disposable provider when `disposable=true` (e.g. 'Mailinator'). Null otherwise.",
+    )
+    role_address: bool = Field(
+        default=False,
+        description="True iff the local-part is a generic role address (admin@, info@, support@, etc.) — not a specific person.",
+    )
+    role_type: str | None = Field(
+        default=None,
+        description="The role keyword when role_address=true (e.g. 'admin', 'noreply'). Null otherwise.",
+    )
+    free_provider: bool = Field(
+        default=False,
+        description="True iff the domain is a known consumer-mailbox provider (gmail/outlook/yahoo/proton/icloud). B2B detection signal.",
+    )
+    summary: str = Field(default="", description="One-line human-readable summary.")
+
+
 # === Web Intelligence: redirect_chain (v1.25.0) ===
 
 
@@ -1446,6 +1490,7 @@ class PivotHint(BaseModel):
         "check_dependencies",
         "email_mx",
         "email_disposable",
+        "email_verify",
         "robots_txt",
         "redirect_chain",
         "phone_lookup",

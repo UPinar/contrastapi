@@ -83,6 +83,7 @@ from app.schemas import (  # noqa: E402
     DnsResponse,
     DomainReportResponse,
     EmailMxResponse,
+    EmailVerifyResponse,
     ErrorResponse,
     ExploitResponse,
     HashResponse,
@@ -716,6 +717,17 @@ async def email_disposable(
 ) -> DisposableResponse | ErrorResponse:
     """Check if email address uses a known disposable/temporary provider (Guerrilla Mail, Temp Mail, Mailinator, etc.). Use for input validation to detect throwaway signups; for domain reputation use threat_intel. Companion email-investigation tools: email_mx (deliverability + MX trust), domain_report on the email's domain (full recon), threat_intel (malware-distribution signal on the domain). Free: 100/hr, Pro: 1000/hr. Returns {disposable, domain, provider}."""
     return DisposableResponse(**await _aget(f"/v1/email/disposable/{quote(email, safe='')}"))
+
+
+@mcp_tool_safe(annotations=_RO_OPEN_WORLD)
+async def email_verify(
+    email: Annotated[
+        str,
+        Field(description="Full email address to verify (e.g. 'admin@example.com', 'user@gmail.com'). Must contain '@'."),
+    ],
+) -> EmailVerifyResponse | ErrorResponse:
+    """One-call email validation combining syntax + MX records + disposable check + role-address detection (admin@/info@/...) + free-provider classification (gmail/outlook/yahoo/...). Use BEFORE adding an email to a contact list, sending an outbound message, or auditing a lead-list dump — replaces 2-3 tool calls (email_mx + email_disposable + manual role parse) with one structured response. Deliberately does NOT do SMTP `RCPT TO` deliverability probing — Hunter.io / NeverBounce-style mailbox enumeration is an ethical grey area we declined; use those services if you need that specific signal. role_address=true on `admin@`, `info@`, `noreply@`, `support@`, etc. (Gmail-style `+tag` is stripped before classification). free_provider=true on consumer-mailbox domains (B2B detection signal — a 'work' email at `@gmail.com` likely isn't a corporate user). Free: 100/hr, Pro: 1000/hr. Returns {email, domain, syntax_valid, mx_records, disposable, disposable_provider, role_address, role_type, free_provider, summary}."""
+    return EmailVerifyResponse(**await _aget(f"/v1/email/verify/{quote(email, safe='')}"))
 
 
 @mcp_tool_safe(annotations=_RO_OPEN_WORLD)

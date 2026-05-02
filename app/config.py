@@ -6,7 +6,7 @@ import socket
 from pathlib import Path
 
 VERSION = "1.24.2"
-MCP_TOOL_COUNT = 44  # v1.25.0 Batch 3: +robots_txt +redirect_chain
+MCP_TOOL_COUNT = 45  # v1.25.0 Batch 4: +robots_txt +redirect_chain +email_verify
 MCP_RESOURCE_COUNT = 7  # v1.23.0: atlas+d3fend+cwe (4 templates + 3 catalogs)
 MCP_PROMPT_COUNT = 3  # v1.23.0: security_audit, vulnerability_check, contrast_triage
 ENDPOINT_COUNT = "50+"

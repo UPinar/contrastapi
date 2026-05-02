@@ -106,6 +106,7 @@ from schemas import (
     DnsResponse,
     DomainReportResponse,
     EmailMxResponse,
+    EmailVerifyResponse,
     IpLookupResponse,
     MonitorResponse,
     PhoneLookupResponse,
@@ -779,6 +780,136 @@ def email_disposable(
 
     save_cached_domain(cache_key, result)
     return {**result}
+
+
+@router.get(
+    "/email/verify/{email}",
+    operation_id="email_verify",
+    response_model=EmailVerifyResponse,
+    response_model_exclude_none=True,
+)
+def email_verify_endpoint(
+    email: Annotated[
+        str,
+        Path(
+            description=(
+                "Email address to verify, e.g. 'admin@example.com'. The local-part "
+                "is preserved (lowercased) in the response; only the domain is hit "
+                "for MX resolution + disposable lookup. NO SMTP RCPT TO probe is "
+                "performed — see EmailVerifyResponse docstring."
+            ),
+        ),
+    ],
+    request: Request,
+):
+    """Combined email validation: syntax + MX + disposable + role + free-provider.
+
+    Combines `email_mx` (MX resolution) and `email_disposable` (disposable check)
+    into a single call so AI agents auditing a contact list don't need to
+    interleave two tools. Adds role-address detection (admin@, info@, ...) and
+    free-provider classification (gmail/outlook/yahoo/...).
+
+    Deliberately does NOT do SMTP `RCPT TO` deliverability probing — see the
+    response model docstring for the rationale.
+    """
+    from domain.email_verify import is_free_provider, parse_email, role_classification
+
+    parsed = parse_email(email or "")
+    if not parsed:
+        # We still surface the input so an agent can reflect it back to the user.
+        # Domain may be empty if the email had no `@` at all.
+        local = ""
+        domain = email.rsplit("@", 1)[1].lower() if "@" in email else ""
+        result = {
+            "email": email[:254],  # cap so a 100KB pasteload can't bloat the response
+            "domain": domain,
+            "syntax_valid": False,
+            "mx_records": [],
+            "disposable": False,
+            "role_address": False,
+            "free_provider": False,
+            "summary": f"{email[:80]} — invalid syntax",
+        }
+        # Auth still consumed — we did work (parsing + reflection).
+        authenticate(request, request.url.path)
+        return result
+
+    local, domain = parsed
+    authenticate(request, request.url.path)
+
+    cache_key = f"email_verify:{domain}"
+    cached = get_cached_domain(cache_key)
+    if cached:
+        # Per-email facets (role, syntax_valid) depend on the local-part, not
+        # cached. Only domain-level facets (mx, disposable, free) come from cache.
+        is_role, role_type = role_classification(local)
+        return {
+            **cached,
+            "email": f"{local}@{domain}",
+            "syntax_valid": True,
+            "role_address": is_role,
+            "role_type": role_type,
+            "summary": _email_verify_summary(local, domain, cached, is_role, role_type),
+        }
+
+    resolved = validate_domain(domain)
+    if not resolved:
+        # Domain doesn't resolve at all — return what we know with empty MX.
+        is_role, role_type = role_classification(local)
+        return {
+            "email": f"{local}@{domain}",
+            "domain": domain,
+            "syntax_valid": True,
+            "mx_records": [],
+            "disposable": False,
+            "role_address": is_role,
+            "role_type": role_type,
+            "free_provider": is_free_provider(domain),
+            "summary": f"{local}@{domain} — domain does not resolve",
+        }
+
+    # Domain-level facets we cache.
+    records = dns_lookup(domain)
+    mx_records = records.get("mx", [])
+    disposable_info = check_disposable(f"{local}@{domain}", domain=domain)
+    is_disposable = bool(disposable_info.get("disposable"))
+    disposable_provider = disposable_info.get("provider") if is_disposable else None
+    free = is_free_provider(domain)
+
+    cached_payload = {
+        "domain": domain,
+        "mx_records": mx_records,
+        "disposable": is_disposable,
+        "disposable_provider": disposable_provider,
+        "free_provider": free,
+    }
+    save_cached_domain(cache_key, cached_payload)
+
+    is_role, role_type = role_classification(local)
+    return {
+        "email": f"{local}@{domain}",
+        **cached_payload,
+        "syntax_valid": True,
+        "role_address": is_role,
+        "role_type": role_type,
+        "summary": _email_verify_summary(local, domain, cached_payload, is_role, role_type),
+    }
+
+
+def _email_verify_summary(local: str, domain: str, payload: dict, is_role: bool, role_type: str | None) -> str:
+    """One-line human summary for email_verify."""
+    parts = [f"{local}@{domain}"]
+    if payload.get("disposable"):
+        parts.append(f"disposable ({payload.get('disposable_provider') or 'unknown'})")
+    elif payload.get("free_provider"):
+        parts.append("free provider")
+    elif payload.get("mx_records"):
+        parts.append(f"{len(payload['mx_records'])} MX")
+    else:
+        parts.append("no MX")
+    if is_role:
+        parts.append(f"role:{role_type}")
+    return " — ".join(parts)
 
 
 @router.get(
