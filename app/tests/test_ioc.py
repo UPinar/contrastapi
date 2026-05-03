@@ -1,5 +1,6 @@
 """Tests for ioc/ module — IOC enrichment, malware hash, password breach."""
 
+import asyncio
 import socket
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -98,8 +99,8 @@ def test_threatfox_found():
         ],
     }
     mock_resp.raise_for_status = MagicMock()
-    with patch("ioc.lookup._client.post", return_value=mock_resp):
-        result = query_threatfox("44.228.249.3")
+    with patch("ioc.lookup._client.post", new_callable=AsyncMock, return_value=mock_resp):
+        result = asyncio.run(query_threatfox("44.228.249.3"))
     assert result["found"] is True
     assert result["malware"] == "Cobalt Strike"
 
@@ -110,16 +111,16 @@ def test_threatfox_not_found():
     mock_resp = MagicMock()
     mock_resp.json.return_value = {"query_status": "no_result", "data": None}
     mock_resp.raise_for_status = MagicMock()
-    with patch("ioc.lookup._client.post", return_value=mock_resp):
-        result = query_threatfox("1.2.3.4")
+    with patch("ioc.lookup._client.post", new_callable=AsyncMock, return_value=mock_resp):
+        result = asyncio.run(query_threatfox("1.2.3.4"))
     assert result["found"] is False
 
 
 def test_threatfox_timeout():
     from ioc.lookup import query_threatfox
 
-    with patch("ioc.lookup._client.post", side_effect=httpx.ConnectTimeout("timeout")):
-        result = query_threatfox("1.2.3.4")
+    with patch("ioc.lookup._client.post", new_callable=AsyncMock, side_effect=httpx.ConnectTimeout("timeout")):
+        result = asyncio.run(query_threatfox("1.2.3.4"))
     assert result["found"] is False
     assert "error" in result
 
@@ -137,7 +138,7 @@ def test_feodo_found():
         "1.2.3.4": {"malware": "QakBot", "first_seen": "2024-01-15", "last_online": None, "status": "online"}
     }
     _feodo_cache["fetched_at"] = time.time()
-    result = query_feodo("1.2.3.4")
+    result = asyncio.run(query_feodo("1.2.3.4"))
     assert result["found"] is True
     assert result["malware"] == "QakBot"
 
@@ -149,7 +150,7 @@ def test_feodo_not_found():
 
     _feodo_cache["data"] = {"9.9.9.9": {"malware": "test"}}
     _feodo_cache["fetched_at"] = time.time()
-    result = query_feodo("1.2.3.4")
+    result = asyncio.run(query_feodo("1.2.3.4"))
     assert result["found"] is False
 
 
@@ -174,8 +175,8 @@ def test_malwarebazaar_found():
         ],
     }
     mock_resp.raise_for_status = MagicMock()
-    with patch("ioc.lookup._client.post", return_value=mock_resp):
-        result = query_malwarebazaar("a" * 64)
+    with patch("ioc.lookup._client.post", new_callable=AsyncMock, return_value=mock_resp):
+        result = asyncio.run(query_malwarebazaar("a" * 64))
     assert result["found"] is True
     assert result["malware_family"] == "AgentTesla"
     assert result["file_type"] == "exe"
@@ -187,16 +188,16 @@ def test_malwarebazaar_not_found():
     mock_resp = MagicMock()
     mock_resp.json.return_value = {"query_status": "hash_not_found", "data": None}
     mock_resp.raise_for_status = MagicMock()
-    with patch("ioc.lookup._client.post", return_value=mock_resp):
-        result = query_malwarebazaar("b" * 64)
+    with patch("ioc.lookup._client.post", new_callable=AsyncMock, return_value=mock_resp):
+        result = asyncio.run(query_malwarebazaar("b" * 64))
     assert result["found"] is False
 
 
 def test_malwarebazaar_timeout():
     from ioc.lookup import query_malwarebazaar
 
-    with patch("ioc.lookup._client.post", side_effect=httpx.ReadTimeout("timeout")):
-        result = query_malwarebazaar("c" * 64)
+    with patch("ioc.lookup._client.post", new_callable=AsyncMock, side_effect=httpx.ReadTimeout("timeout")):
+        result = asyncio.run(query_malwarebazaar("c" * 64))
     assert result["found"] is False
     assert "error" in result
 
@@ -232,8 +233,8 @@ def test_query_pwned_hash_found():
         f"0018A45C4D1DEF81644B54AB7F969B88D65:23\n{suffix}:3861493\n00D4F6E8FA6EECAD2A3AA415EEC418D38EC:7\n"
     )
     mock_resp.raise_for_status = MagicMock()
-    with patch("ioc.password._client.get", return_value=mock_resp):
-        result = query_pwned_hash(sha1)
+    with patch("ioc.password._client.get", new_callable=AsyncMock, return_value=mock_resp):
+        result = asyncio.run(query_pwned_hash(sha1))
     assert result["found"] is True
     assert result["breach_count"] == 3861493
     assert result["hash_prefix"] == "5BAA6"
@@ -246,8 +247,8 @@ def test_query_pwned_hash_not_found():
     mock_resp = MagicMock()
     mock_resp.text = "0018A45C4D1DEF81644B54AB7F969B88D65:23\n00D4F6E8FA6EECAD2A3AA415EEC418D38EC:7\n"
     mock_resp.raise_for_status = MagicMock()
-    with patch("ioc.password._client.get", return_value=mock_resp):
-        result = query_pwned_hash(sha1)
+    with patch("ioc.password._client.get", new_callable=AsyncMock, return_value=mock_resp):
+        result = asyncio.run(query_pwned_hash(sha1))
     assert result["found"] is False
     assert result["breach_count"] == 0
 
@@ -255,8 +256,8 @@ def test_query_pwned_hash_not_found():
 def test_query_pwned_hash_timeout():
     from ioc.password import query_pwned_hash
 
-    with patch("ioc.password._client.get", side_effect=httpx.ConnectTimeout("timeout")):
-        result = query_pwned_hash("a" * 40)
+    with patch("ioc.password._client.get", new_callable=AsyncMock, side_effect=httpx.ConnectTimeout("timeout")):
+        result = asyncio.run(query_pwned_hash("a" * 40))
     assert result["found"] is False
     assert "error" in result
 
@@ -277,8 +278,8 @@ def client():
 
 def test_ioc_ip_endpoint(client):
     with (
-        patch("ioc.routes.query_threatfox", return_value={"found": False}),
-        patch("ioc.routes.query_feodo", return_value={"found": False}),
+        patch("ioc.routes.query_threatfox", new_callable=AsyncMock, return_value={"found": False}),
+        patch("ioc.routes.query_feodo", new_callable=AsyncMock, return_value={"found": False}),
         patch("ioc.routes.check_urlhaus", return_value={"urlhaus_status": "clean", "url_count": 0, "urls_online": 0}),
     ):
         resp = client.get("/v1/ioc/8.8.8.8")
@@ -293,7 +294,7 @@ def test_ioc_ip_endpoint(client):
 
 def test_ioc_domain_endpoint(client):
     with (
-        patch("ioc.routes.query_threatfox", return_value={"found": False}),
+        patch("ioc.routes.query_threatfox", new_callable=AsyncMock, return_value={"found": False}),
         patch("ioc.routes.check_urlhaus", return_value={"urlhaus_status": "clean", "url_count": 0, "urls_online": 0}),
     ):
         resp = client.get("/v1/ioc/evil.com")
@@ -316,7 +317,7 @@ def test_ioc_hash_endpoint(client):
 
 def test_ioc_url_endpoint(client):
     with (
-        patch("ioc.routes.query_threatfox", return_value={"found": False}),
+        patch("ioc.routes.query_threatfox", new_callable=AsyncMock, return_value={"found": False}),
         patch("ioc.routes.check_urlhaus", return_value={"urlhaus_status": "clean", "url_count": 0, "urls_online": 0}),
     ):
         resp = client.get("/v1/ioc/http://evil.com/payload.exe")
@@ -386,7 +387,7 @@ def test_ioc_url_ssrf_private_10(client):
 def test_ioc_url_public_host_calls_urlhaus(client):
     """URL IOC with public host should still call URLhaus."""
     with (
-        patch("ioc.routes.query_threatfox", return_value={"found": False}),
+        patch("ioc.routes.query_threatfox", new_callable=AsyncMock, return_value={"found": False}),
         patch("ioc.routes.check_urlhaus", return_value={"url_count": 0, "urls_online": 0}),
     ):
         resp = client.get("/v1/ioc/http://evil.com/payload.exe")
@@ -396,7 +397,7 @@ def test_ioc_url_public_host_calls_urlhaus(client):
 
 def test_ioc_url_empty_host(client):
     """URL IOC with empty/missing host should not crash."""
-    with patch("ioc.routes.query_threatfox", return_value={"found": False}):
+    with patch("ioc.routes.query_threatfox", new_callable=AsyncMock, return_value={"found": False}):
         # "http://" has empty hostname
         resp = client.get("/v1/ioc/http://")
     # Should return 200 (url type detected) or 400 — not 500
@@ -431,8 +432,12 @@ def test_ioc_invalid_indicator(client):
 
 def test_ioc_threat_level_high(client):
     with (
-        patch("ioc.routes.query_threatfox", return_value={"found": True, "malware": "Cobalt Strike"}),
-        patch("ioc.routes.query_feodo", return_value={"found": True, "malware": "QakBot"}),
+        patch(
+            "ioc.routes.query_threatfox",
+            new_callable=AsyncMock,
+            return_value={"found": True, "malware": "Cobalt Strike"},
+        ),
+        patch("ioc.routes.query_feodo", new_callable=AsyncMock, return_value={"found": True, "malware": "QakBot"}),
         patch("ioc.routes.check_urlhaus", return_value={"urlhaus_status": "clean", "url_count": 0, "urls_online": 0}),
     ):
         resp = client.get("/v1/ioc/1.2.3.4")
@@ -442,8 +447,8 @@ def test_ioc_threat_level_high(client):
 
 def test_ioc_lookup_verdict(client):
     with (
-        patch("ioc.routes.query_threatfox", return_value={"found": False}),
-        patch("ioc.routes.query_feodo", return_value={"found": False}),
+        patch("ioc.routes.query_threatfox", new_callable=AsyncMock, return_value={"found": False}),
+        patch("ioc.routes.query_feodo", new_callable=AsyncMock, return_value={"found": False}),
         patch("ioc.routes.check_urlhaus", return_value={"url_count": 0, "urls_online": 0}),
     ):
         resp = client.get("/v1/ioc/8.8.8.8")
@@ -461,8 +466,8 @@ def test_ioc_lookup_verdict(client):
 
 def test_ioc_lookup_verdict_partial_on_source_failure(client):
     with (
-        patch("ioc.routes.query_threatfox", side_effect=TimeoutError("timeout")),
-        patch("ioc.routes.query_feodo", return_value={"found": False}),
+        patch("ioc.routes.query_threatfox", new_callable=AsyncMock, side_effect=TimeoutError("timeout")),
+        patch("ioc.routes.query_feodo", new_callable=AsyncMock, return_value={"found": False}),
         patch("ioc.routes.check_urlhaus", return_value={"url_count": 0, "urls_online": 0}),
     ):
         resp = client.get("/v1/ioc/8.8.8.8")
@@ -481,8 +486,8 @@ def test_ioc_lookup_verdict_partial_on_source_failure(client):
 def test_ioc_lookup_hash_queries_only_threatfox(client):
     """Hash IOCs only run ThreatFox — Feodo and URLhaus do not index hashes."""
     with (
-        patch("ioc.routes.query_threatfox", return_value={"found": False}) as tf,
-        patch("ioc.routes.query_feodo", return_value={"found": False}) as feodo,
+        patch("ioc.routes.query_threatfox", new_callable=AsyncMock, return_value={"found": False}) as tf,
+        patch("ioc.routes.query_feodo", new_callable=AsyncMock, return_value={"found": False}) as feodo,
         patch("ioc.routes.check_urlhaus", return_value={"url_count": 0, "urls_online": 0}) as urlhaus,
     ):
         resp = client.get("/v1/ioc/" + "a" * 64)
@@ -504,8 +509,8 @@ def test_ioc_lookup_ip_queries_threatfox_feodo_urlhaus_tor(client):
     triaging an IP IOC could not see Tor membership without a second
     ip_lookup call."""
     with (
-        patch("ioc.routes.query_threatfox", return_value={"found": False}),
-        patch("ioc.routes.query_feodo", return_value={"found": False}),
+        patch("ioc.routes.query_threatfox", new_callable=AsyncMock, return_value={"found": False}),
+        patch("ioc.routes.query_feodo", new_callable=AsyncMock, return_value={"found": False}),
         patch("ioc.routes.check_urlhaus", return_value={"url_count": 0, "urls_online": 0}),
         patch("ioc.routes.check_tor_exit", return_value=False),
         patch("ioc.routes.tor_cache_status", return_value="ok"),
@@ -522,8 +527,8 @@ def test_ioc_lookup_ip_queries_threatfox_feodo_urlhaus_tor(client):
 def test_ioc_lookup_ip_tor_listed_surfaces_in_summary(client):
     """When the IP is in the Tor exit list, summary mentions it."""
     with (
-        patch("ioc.routes.query_threatfox", return_value={"found": False}),
-        patch("ioc.routes.query_feodo", return_value={"found": False}),
+        patch("ioc.routes.query_threatfox", new_callable=AsyncMock, return_value={"found": False}),
+        patch("ioc.routes.query_feodo", new_callable=AsyncMock, return_value={"found": False}),
         patch("ioc.routes.check_urlhaus", return_value={"url_count": 0, "urls_online": 0}),
         patch("ioc.routes.check_tor_exit", return_value=True),
         patch("ioc.routes.tor_cache_status", return_value="ok"),
@@ -540,8 +545,8 @@ def test_ioc_lookup_ip_tor_fetch_failed_marks_unavailable(client):
     as unavailable so an agent can tell `listed=false because not in list`
     from `listed=false because we never got the list`."""
     with (
-        patch("ioc.routes.query_threatfox", return_value={"found": False}),
-        patch("ioc.routes.query_feodo", return_value={"found": False}),
+        patch("ioc.routes.query_threatfox", new_callable=AsyncMock, return_value={"found": False}),
+        patch("ioc.routes.query_feodo", new_callable=AsyncMock, return_value={"found": False}),
         patch("ioc.routes.check_urlhaus", return_value={"url_count": 0, "urls_online": 0}),
         patch("ioc.routes.check_tor_exit", return_value=False),
         patch("ioc.routes.tor_cache_status", return_value="failed"),
@@ -555,7 +560,7 @@ def test_ioc_lookup_ip_tor_fetch_failed_marks_unavailable(client):
 def test_ioc_lookup_domain_does_not_query_tor(client):
     """Domain IOCs do not run the Tor cache lookup (IP-only signal)."""
     with (
-        patch("ioc.routes.query_threatfox", return_value={"found": False}),
+        patch("ioc.routes.query_threatfox", new_callable=AsyncMock, return_value={"found": False}),
         patch("ioc.routes.check_urlhaus", return_value={"url_count": 0, "urls_online": 0}),
         patch("ioc.routes.check_tor_exit") as mock_tor,
     ):
@@ -569,8 +574,8 @@ def test_ioc_lookup_domain_does_not_query_tor(client):
 def test_ioc_lookup_domain_queries_threatfox_and_urlhaus_no_feodo(client):
     """Domain IOCs run ThreatFox + URLhaus — Feodo is IP-only."""
     with (
-        patch("ioc.routes.query_threatfox", return_value={"found": False}),
-        patch("ioc.routes.query_feodo", return_value={"found": False}) as feodo,
+        patch("ioc.routes.query_threatfox", new_callable=AsyncMock, return_value={"found": False}),
+        patch("ioc.routes.query_feodo", new_callable=AsyncMock, return_value={"found": False}) as feodo,
         patch("ioc.routes.check_urlhaus", return_value={"url_count": 0, "urls_online": 0}),
     ):
         resp = client.get("/v1/ioc/evil.com")
@@ -584,8 +589,8 @@ def test_ioc_lookup_domain_queries_threatfox_and_urlhaus_no_feodo(client):
 def test_ioc_lookup_second_call_served_from_cache(client):
     """Second call for same indicator must skip all upstream feeds."""
     with (
-        patch("ioc.routes.query_threatfox", return_value={"found": False}) as tf,
-        patch("ioc.routes.query_feodo", return_value={"found": False}),
+        patch("ioc.routes.query_threatfox", new_callable=AsyncMock, return_value={"found": False}) as tf,
+        patch("ioc.routes.query_feodo", new_callable=AsyncMock, return_value={"found": False}),
         patch("ioc.routes.check_urlhaus", return_value={"url_count": 0, "urls_online": 0}),
         patch("ioc.routes.check_tor_exit", return_value=False),
         patch("ioc.routes.tor_cache_status", return_value="ok"),
@@ -601,8 +606,8 @@ def test_ioc_lookup_second_call_served_from_cache(client):
 def test_ioc_lookup_cache_segregates_by_indicator(client):
     """Distinct indicators must produce distinct cache entries."""
     with (
-        patch("ioc.routes.query_threatfox", return_value={"found": False}) as tf,
-        patch("ioc.routes.query_feodo", return_value={"found": False}),
+        patch("ioc.routes.query_threatfox", new_callable=AsyncMock, return_value={"found": False}) as tf,
+        patch("ioc.routes.query_feodo", new_callable=AsyncMock, return_value={"found": False}),
         patch("ioc.routes.check_urlhaus", return_value={"url_count": 0, "urls_online": 0}),
         patch("ioc.routes.check_tor_exit", return_value=False),
         patch("ioc.routes.tor_cache_status", return_value="ok"),
@@ -637,7 +642,7 @@ def test_hash_valid_sha256(client):
 
 
 def test_hash_valid_md5(client):
-    with patch("ioc.routes.query_malwarebazaar", return_value={"found": False}):
+    with patch("ioc.routes.query_malwarebazaar", new_callable=AsyncMock, return_value={"found": False}):
         resp = client.get("/v1/hash/" + "b" * 32)
     assert resp.status_code == 200
     assert resp.json()["hash_type"] == "md5"
@@ -645,7 +650,7 @@ def test_hash_valid_md5(client):
 
 
 def test_hash_valid_sha1(client):
-    with patch("ioc.routes.query_malwarebazaar", return_value={"found": False}):
+    with patch("ioc.routes.query_malwarebazaar", new_callable=AsyncMock, return_value={"found": False}):
         resp = client.get("/v1/hash/" + "c" * 40)
     assert resp.status_code == 200
     assert resp.json()["hash_type"] == "sha1"
@@ -662,7 +667,7 @@ def test_hash_non_hex(client):
 
 
 def test_hash_not_found(client):
-    with patch("ioc.routes.query_malwarebazaar", return_value={"found": False}):
+    with patch("ioc.routes.query_malwarebazaar", new_callable=AsyncMock, return_value={"found": False}):
         resp = client.get("/v1/hash/" + "d" * 64)
     assert resp.status_code == 200
     data = resp.json()
@@ -679,7 +684,7 @@ def test_password_found(client):
     mock_resp = MagicMock()
     mock_resp.text = f"0018A45C4D1DEF81644B54AB7F969B88D65:23\n{suffix}:9999\n"
     mock_resp.raise_for_status = MagicMock()
-    with patch("ioc.password._client.get", return_value=mock_resp):
+    with patch("ioc.password._client.get", new_callable=AsyncMock, return_value=mock_resp):
         resp = client.get(f"/v1/password/{sha1}")
     assert resp.status_code == 200
     data = resp.json()
@@ -693,7 +698,7 @@ def test_password_not_found(client):
     mock_resp = MagicMock()
     mock_resp.text = "0018A45C4D1DEF81644B54AB7F969B88D65:23\n"
     mock_resp.raise_for_status = MagicMock()
-    with patch("ioc.password._client.get", return_value=mock_resp):
+    with patch("ioc.password._client.get", new_callable=AsyncMock, return_value=mock_resp):
         resp = client.get(f"/v1/password/{sha1}")
     assert resp.status_code == 200
     data = resp.json()
@@ -712,7 +717,7 @@ def test_password_invalid_nonhex(client):
 
 
 def test_password_upstream_failure(client):
-    with patch("ioc.password._client.get", side_effect=httpx.ConnectTimeout("timeout")):
+    with patch("ioc.password._client.get", new_callable=AsyncMock, side_effect=httpx.ConnectTimeout("timeout")):
         resp = client.get("/v1/password/" + "a" * 40)
     assert resp.status_code == 200
     data = resp.json()
@@ -1066,8 +1071,8 @@ class TestBulkIocLookup:
         assert r.status_code == 429
 
     @patch("ioc.routes.check_urlhaus")
-    @patch("ioc.routes.query_feodo", return_value={"found": False})
-    @patch("ioc.routes.query_threatfox", return_value={"found": False})
+    @patch("ioc.routes.query_feodo", new_callable=AsyncMock, return_value={"found": False})
+    @patch("ioc.routes.query_threatfox", new_callable=AsyncMock, return_value={"found": False})
     @patch("ioc.routes.detect_indicator_type", return_value="ip")
     def test_bulk_ioc_strips_control_chars(self, mock_detect, mock_tf, mock_feodo, mock_urlhaus, client):
         """Indicators with newlines/control chars must be sanitized."""
@@ -1080,8 +1085,8 @@ class TestBulkIocLookup:
             assert "\u202e" not in item["indicator"]
 
     @patch("ioc.routes.check_urlhaus", return_value={"urlhaus_status": "not_found"})
-    @patch("ioc.routes.query_feodo", return_value={"found": False})
-    @patch("ioc.routes.query_threatfox", return_value={"found": False})
+    @patch("ioc.routes.query_feodo", new_callable=AsyncMock, return_value={"found": False})
+    @patch("ioc.routes.query_threatfox", new_callable=AsyncMock, return_value={"found": False})
     @patch("ioc.routes.detect_indicator_type", return_value="ip")
     def test_bulk_ioc_lookup_uses_cleaned_indicator(self, mock_detect, mock_tf, mock_feodo, mock_urlhaus, client):
         """Downstream lookup functions must receive the SANITIZED indicator, not raw input."""
@@ -1093,8 +1098,8 @@ class TestBulkIocLookup:
         assert called_with == "8.8.8.8"
 
     @patch("ioc.routes.check_urlhaus", return_value={"urlhaus_status": "not_found"})
-    @patch("ioc.routes.query_feodo", return_value={"found": False})
-    @patch("ioc.routes.query_threatfox", return_value={"found": False})
+    @patch("ioc.routes.query_feodo", new_callable=AsyncMock, return_value={"found": False})
+    @patch("ioc.routes.query_threatfox", new_callable=AsyncMock, return_value={"found": False})
     @patch("ioc.routes.detect_indicator_type", return_value="ip")
     def test_bulk_ioc_deduplicates(self, mock_detect, mock_tf, mock_feodo, mock_urlhaus, client):
         """Duplicate indicators should be deduplicated — only unique ones processed."""

@@ -130,23 +130,27 @@ async def ioc_lookup(
                     raise HTTPException(status_code=400, detail="Private/reserved IP addresses are not allowed")
             urlhaus_target = host
 
-    # Fire all lookups in parallel via asyncio.gather + run_in_threadpool. Replaces
-    # the previous ThreadPoolExecutor.submit/.result(timeout=) pattern. Per-source
+    # Fire all lookups in parallel via asyncio.gather. Native async helpers
+    # (query_threatfox/feodo, check_urlhaus) are awaited directly; pure-sync
+    # helpers (check_tor_exit) still go through run_in_threadpool. Per-source
     # timeouts are enforced by asyncio.wait_for; results default to {} on timeout
     # or exception (preserves the prior fallback semantics).
-    async def _wrap(fn, *args, timeout=10):
+    async def _await_with_timeout(coro, timeout=10):
+        return await asyncio.wait_for(coro, timeout=timeout)
+
+    async def _sync_with_timeout(fn, *args, timeout=10):
         return await asyncio.wait_for(run_in_threadpool(fn, *args), timeout=timeout)
 
-    tasks: list = [_wrap(query_threatfox, indicator)]
+    tasks: list = [_await_with_timeout(query_threatfox(indicator))]
     do_feodo = ioc_type == "ip"
     do_urlhaus = urlhaus_target is not None
     do_tor = ioc_type == "ip"
     if do_feodo:
-        tasks.append(_wrap(query_feodo, indicator))
+        tasks.append(_await_with_timeout(query_feodo(indicator)))
     if do_urlhaus:
-        tasks.append(_wrap(check_urlhaus, urlhaus_target))
+        tasks.append(_sync_with_timeout(check_urlhaus, urlhaus_target))
     if do_tor:
-        tasks.append(_wrap(check_tor_exit, indicator, timeout=2))
+        tasks.append(_sync_with_timeout(check_tor_exit, indicator, timeout=2))
 
     settled = await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -271,7 +275,7 @@ async def hash_lookup(
         )
 
     hash_type = _HASH_LENS[len(file_hash)]
-    result = await run_in_threadpool(query_malwarebazaar, file_hash)
+    result = await query_malwarebazaar(file_hash)
 
     if result.get("found"):
         family = result.get("malware_family", "unknown")
@@ -321,7 +325,7 @@ async def password_check(
             detail="Provide the full SHA1 hash (40 hexadecimal characters).",
         )
 
-    result = await run_in_threadpool(query_pwned_hash, sha1_hash)
+    result = await query_pwned_hash(sha1_hash)
     count = result.get("breach_count", 0)
     if result.get("found"):
         summary = f"This password appeared in {count:,} data breaches."
@@ -481,7 +485,7 @@ class _BulkIocRequest(BaseModel):
     )
 
 
-def _run_single_ioc(indicator: str) -> dict:
+async def _run_single_ioc(indicator: str) -> dict:
     """Lookup a single IOC via threatfox + feodo (if IP) + urlhaus."""
     indicator = indicator.strip()
     if not indicator:
@@ -519,7 +523,7 @@ def _run_single_ioc(indicator: str) -> dict:
     sources = {}
     threat_level = "none"
     try:
-        tf = query_threatfox(indicator)
+        tf = await query_threatfox(indicator)
         sources["threatfox"] = tf
         if tf.get("found"):
             threat_level = "high"
@@ -528,7 +532,7 @@ def _run_single_ioc(indicator: str) -> dict:
 
     if ioc_type == "ip":
         try:
-            feodo = query_feodo(indicator)
+            feodo = await query_feodo(indicator)
             sources["feodo"] = feodo
             if feodo.get("found"):
                 threat_level = "high"
@@ -537,7 +541,7 @@ def _run_single_ioc(indicator: str) -> dict:
 
     if urlhaus_target:
         try:
-            urlhaus = check_urlhaus(urlhaus_target)
+            urlhaus = await run_in_threadpool(check_urlhaus, urlhaus_target)
             if urlhaus:
                 sources["urlhaus"] = urlhaus
                 if urlhaus.get("urlhaus_status") == "found":
@@ -626,7 +630,7 @@ async def bulk_ioc_lookup(
                 return {"indicator": ind, "status": "error", "ioc": None, "error": "Request processing took too long"}
             per_timeout = min(_BULK_IOC_PER_TIMEOUT, remaining)
             try:
-                return await asyncio.wait_for(run_in_threadpool(_run_single_ioc, ind), timeout=per_timeout)
+                return await asyncio.wait_for(_run_single_ioc(ind), timeout=per_timeout)
             except (asyncio.TimeoutError, TimeoutError):
                 return {"indicator": ind, "status": "error", "ioc": None, "error": "Request processing took too long"}
             except Exception as e:

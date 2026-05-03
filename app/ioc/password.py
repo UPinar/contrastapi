@@ -16,9 +16,11 @@ from config import HIBP_URL
 logger = logging.getLogger("contrastapi")
 _SHA1_RE = re.compile(r"^[0-9a-fA-F]{40}$")
 _TIMEOUT = httpx.Timeout(5.0, connect=3.0)
-_client = httpx.Client(
+_client = httpx.AsyncClient(
     timeout=_TIMEOUT,
     headers={"User-Agent": "contrastapi", "Add-Padding": "true"},
+    cookies=httpx.Cookies(),
+    limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
 )
 
 
@@ -26,13 +28,13 @@ def is_valid_sha1(sha1_hash: str) -> bool:
     return bool(_SHA1_RE.match(sha1_hash))
 
 
-def query_pwned_hash(sha1_hash: str) -> dict:
+async def query_pwned_hash(sha1_hash: str) -> dict:
     """Check a SHA1 hash against HIBP Pwned Passwords. Returns found + breach count only."""
     sha1_hash = sha1_hash.upper()
     prefix = sha1_hash[:5]
     suffix = sha1_hash[5:]
     try:
-        resp = _client.get(f"{HIBP_URL}/{prefix}")
+        resp = await _client.get(f"{HIBP_URL}/{prefix}")
         resp.raise_for_status()
         for line in resp.text.strip().split("\n"):
             parts = line.strip().split(":")

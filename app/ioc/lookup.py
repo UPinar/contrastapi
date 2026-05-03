@@ -4,9 +4,9 @@ All upstream APIs are free (abuse.ch), Auth-Key required since 2026.
 Failures return partial data with error fields, never raise exceptions.
 """
 
+import asyncio
 import logging
 import re
-import threading
 import time
 
 import httpx
@@ -16,7 +16,13 @@ logger = logging.getLogger("contrastapi")
 
 _TIMEOUT = httpx.Timeout(5.0, connect=3.0)
 _auth_headers = {"Auth-Key": settings.urlhaus_api_key} if settings.urlhaus_api_key else {}
-_client = httpx.Client(timeout=_TIMEOUT, follow_redirects=False, headers=_auth_headers)
+_client = httpx.AsyncClient(
+    timeout=_TIMEOUT,
+    follow_redirects=False,
+    headers=_auth_headers,
+    cookies=httpx.Cookies(),
+    limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
+)
 
 THREATFOX_API = "https://threatfox-api.abuse.ch/api/v1/"
 FEODO_BLOCKLIST = "https://feodotracker.abuse.ch/downloads/ipblocklist.json"
@@ -24,7 +30,7 @@ MALWAREBAZAAR_API = "https://mb-api.abuse.ch/api/v1/"
 
 # In-memory Feodo blocklist cache (refreshed every hour)
 _feodo_cache: dict = {"data": {}, "fetched_at": 0}
-_feodo_lock = threading.Lock()
+_feodo_lock = asyncio.Lock()
 
 _IP_RE = re.compile(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$")
 _HASH_LENS = {32, 40, 64}  # MD5, SHA1, SHA256
@@ -45,10 +51,10 @@ def detect_indicator_type(indicator: str) -> str:
     return "unknown"
 
 
-def query_threatfox(indicator: str) -> dict:
+async def query_threatfox(indicator: str) -> dict:
     """Query ThreatFox for any IOC type (IP, domain, URL, hash)."""
     try:
-        resp = _client.post(
+        resp = await _client.post(
             THREATFOX_API,
             json={"query": "search_ioc", "search_term": indicator},
         )
@@ -78,18 +84,18 @@ def query_threatfox(indicator: str) -> dict:
         return {"found": False, "error": "upstream error"}
 
 
-def _refresh_feodo_cache() -> dict:
-    """Download Feodo Tracker blocklist and cache it (thread-safe, size-limited)."""
+async def _refresh_feodo_cache() -> dict:
+    """Download Feodo Tracker blocklist and cache it (loop-safe, size-limited)."""
     global _feodo_cache
     now = time.time()
     if now - _feodo_cache["fetched_at"] < FEODO_TTL and _feodo_cache["data"]:
         return _feodo_cache["data"]
-    with _feodo_lock:
-        # Re-check inside lock — another thread may have refreshed while we waited
+    async with _feodo_lock:
+        # Re-check inside lock — another task may have refreshed while we waited
         if now - _feodo_cache["fetched_at"] < FEODO_TTL and _feodo_cache["data"]:
             return _feodo_cache["data"]
         try:
-            resp = _client.get(FEODO_BLOCKLIST)
+            resp = await _client.get(FEODO_BLOCKLIST)
             resp.raise_for_status()
             if len(resp.content) > FEODO_MAX_BYTES:
                 logger.warning("Feodo blocklist too large (%d bytes), skipping", len(resp.content))
@@ -112,19 +118,19 @@ def _refresh_feodo_cache() -> dict:
             return _feodo_cache.get("data", {})
 
 
-def query_feodo(ip: str) -> dict:
+async def query_feodo(ip: str) -> dict:
     """Check IP against Feodo Tracker C2 blocklist."""
-    blocklist = _refresh_feodo_cache()
+    blocklist = await _refresh_feodo_cache()
     entry = blocklist.get(ip)
     if entry:
         return {"found": True, **entry}
     return {"found": False}
 
 
-def query_malwarebazaar(file_hash: str) -> dict:
+async def query_malwarebazaar(file_hash: str) -> dict:
     """Query MalwareBazaar for file hash reputation."""
     try:
-        resp = _client.post(
+        resp = await _client.post(
             MALWAREBAZAAR_API,
             data={"query": "get_info", "hash": file_hash},
         )
