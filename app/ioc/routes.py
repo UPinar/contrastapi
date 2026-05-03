@@ -9,13 +9,13 @@ from typing import Annotated
 from urllib.parse import urlparse
 
 import httpx
-from auth import authenticate
+from auth import AuthCtx, require_auth
 from config import settings
 from db import get_cached_domain, save_cached_domain
 from domain.ip_intel import check_tor_exit, tor_cache_status
 from domain.recon import _dns_call_with_timeout
 from domain.threat import check_urlhaus
-from fastapi import APIRouter, HTTPException, Path, Request
+from fastapi import APIRouter, Depends, HTTPException, Path
 from ioc.lookup import (
     detect_indicator_type,
     query_feodo,
@@ -68,14 +68,13 @@ def ioc_lookup(
             ),
         ),
     ],
-    request: Request,
+    auth: Annotated[AuthCtx, Depends(require_auth("/v1/ioc"))],
 ):
     """Unified IOC enrichment — auto-detects type and queries abuse.ch feeds.
 
     Source coverage by type: hash → ThreatFox only; IP → ThreatFox + Feodo + URLhaus;
     domain / URL → ThreatFox + URLhaus. Feodo and URLhaus do not index hashes.
     """
-    authenticate(request, "/v1/ioc")
     indicator = indicator.strip()
     if not indicator or len(indicator) > 2048:
         raise HTTPException(status_code=400, detail="Invalid indicator")
@@ -232,10 +231,9 @@ def hash_lookup(
             ),
         ),
     ],
-    request: Request,
+    auth: Annotated[AuthCtx, Depends(require_auth("/v1/hash"))],
 ):
     """Malware file hash reputation lookup via MalwareBazaar."""
-    authenticate(request, "/v1/hash")
     file_hash = file_hash.strip().lower()
 
     if not _HEX_RE.match(file_hash) or len(file_hash) not in _HASH_LENS:
@@ -286,11 +284,9 @@ def password_check(
             ),
         ),
     ],
-    request: Request,
+    auth: Annotated[AuthCtx, Depends(require_auth("/v1/password"))],
 ):
     """Password breach check via HIBP Pwned Passwords (k-anonymity). Send full SHA1 hash, get found + breach count."""
-    authenticate(request, "/v1/password")
-
     if not is_valid_sha1(sha1_hash):
         raise HTTPException(
             status_code=400,
@@ -348,10 +344,9 @@ def phishing_check(
             ),
         ),
     ],
-    request: Request,
+    auth: Annotated[AuthCtx, Depends(require_auth("/v1/phishing"))],
 ):
     """Check if a URL is malicious via URLhaus (host + exact URL lookup)."""
-    authenticate(request, "/v1/phishing")
     url = url.strip()
 
     if not url.startswith(("http://", "https://")) or len(url) > 2048:
@@ -538,25 +533,23 @@ def _run_single_ioc(indicator: str) -> dict:
     response_model=BulkIocResponse,
     response_model_exclude_none=True,
 )
-def bulk_ioc_lookup(body: _BulkIocRequest, request: Request):
+def bulk_ioc_lookup(
+    body: _BulkIocRequest,
+    auth: Annotated[AuthCtx, Depends(require_auth("/v1/iocs/bulk"))],
+):
     """Bulk IOC enrichment — up to 10 indicators (free) or 50 (pro). Each indicator counts as 1 request toward rate limit."""
     import ratelimit
-    from auth import extract_key, hash_key
     from config import FREE_BULK_LIMIT, FREE_HOURLY_LIMIT, PRO_BULK_LIMIT, PRO_HOURLY_LIMIT
     from db import hash_client_ip
-    from validation import get_client_ip
 
-    auth_ctx = authenticate(request, "/v1/iocs/bulk")
-    client_ip = get_client_ip(request)
-
-    bulk_limit = PRO_BULK_LIMIT if auth_ctx["tier"] == "pro" else FREE_BULK_LIMIT
+    bulk_limit = PRO_BULK_LIMIT if auth.tier == "pro" else FREE_BULK_LIMIT
 
     indicators = list(dict.fromkeys(i.strip() for i in body.indicators if i.strip()))
     count = len(indicators)
 
     if count == 0:
         # v1.21.0 parity with bulk_atlas_technique_lookup: empty list → 200 + empty results
-        # (not 400). Caller has already paid 1 quota unit via authenticate(); shape is consistent.
+        # (not 400). Caller has already paid 1 quota unit via require_auth; shape is consistent.
         return {
             "results": [],
             "total": 0,
@@ -570,15 +563,14 @@ def bulk_ioc_lookup(body: _BulkIocRequest, request: Request):
     if count > bulk_limit:
         raise HTTPException(
             status_code=422,
-            detail=f"Too many indicators. Limit: {bulk_limit} (your tier: {auth_ctx['tier']})",
+            detail=f"Too many indicators. Limit: {bulk_limit} (your tier: {auth.tier})",
         )
 
-    raw_key = extract_key(request)
-    if raw_key:
-        store_key = f"pro:{hash_key(raw_key)}"
+    if auth.tier == "pro":
+        store_key = f"pro:{auth.key_hash}"
         limit = PRO_HOURLY_LIMIT
     else:
-        store_key = f"free:{hash_client_ip(client_ip)}"
+        store_key = f"free:{hash_client_ip(auth.client_ip)}"
         limit = FREE_HOURLY_LIMIT
 
     if count > 1 and not ratelimit.consume_bulk("api", store_key, count - 1, limit):

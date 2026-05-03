@@ -5,6 +5,20 @@ from unittest.mock import MagicMock, patch
 
 import httpx
 import pytest
+from auth import AuthCtx
+
+# Faz 3: routes use Annotated[AuthCtx, Depends(require_auth(...))] instead of
+# inline authenticate(); patches must hit auth.authenticate_sync (the sync core
+# wrapped by require_auth's run_in_threadpool dep).
+_FREE_AUTH_CTX = AuthCtx(
+    tier="free",
+    key_hash=None,
+    client_ip="127.0.0.1",
+    ratelimit_limit=100,
+    ratelimit_remaining=99,
+    ratelimit_reset=0,
+    ratelimit_cost=1,
+)
 
 # === detect_indicator_type ===
 
@@ -1046,7 +1060,7 @@ class TestBulkIocLookup:
         assert data["partial"] is True
 
     @patch("ratelimit.consume_bulk", return_value=False)
-    @patch("ioc.routes.authenticate", return_value={"tier": "free", "key_hash": None, "client_ip": "127.0.0.1"})
+    @patch("auth.authenticate_sync", return_value=_FREE_AUTH_CTX)
     def test_bulk_ioc_rate_limit(self, mock_auth, mock_consume, client):
         r = client.post("/v1/iocs/bulk", json={"indicators": [f"8.8.8.{i}" for i in range(5)]})
         assert r.status_code == 429
@@ -1091,7 +1105,7 @@ class TestBulkIocLookup:
         assert len(data["results"]) == 1
 
     @patch("ratelimit.consume_bulk", return_value=False)
-    @patch("ioc.routes.authenticate", return_value={"tier": "free", "key_hash": None, "client_ip": "127.0.0.1"})
+    @patch("auth.authenticate_sync", return_value=_FREE_AUTH_CTX)
     def test_bulk_ioc_consume_bulk_call_args(self, mock_auth, mock_consume, client):
         """Verify consume_bulk is called with count - 1 (authenticate consumed 1)."""
         r = client.post("/v1/iocs/bulk", json={"indicators": [f"8.8.8.{i}" for i in range(5)]})
