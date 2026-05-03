@@ -12,6 +12,7 @@ import time
 
 from config import settings
 from db import _get_conn, get_api_db
+from fastapi.concurrency import run_in_threadpool
 
 
 def _ensure_table():
@@ -81,6 +82,10 @@ def check_limit(store_name: str, key: str, max_requests: int, window_seconds: in
     return allowed
 
 
+async def acheck_limit(store_name: str, key: str, max_requests: int, window_seconds: int = 3600) -> bool:
+    return await run_in_threadpool(check_limit, store_name, key, max_requests, window_seconds)
+
+
 def get_count(store_name: str, key: str, window_seconds: int = 3600) -> int:
     """Get current request count for a key."""
     _init()
@@ -131,6 +136,10 @@ def consume_bulk(store_name: str, key: str, count: int, max_requests: int, windo
         raise
 
 
+async def aconsume_bulk(store_name: str, key: str, count: int, max_requests: int, window_seconds: int = 3600) -> bool:
+    return await run_in_threadpool(consume_bulk, store_name, key, count, max_requests, window_seconds)
+
+
 def consume_credits(
     store_name: str, key: str, cost: int, max_requests: int, window_seconds: int = 3600
 ) -> tuple[bool, int]:
@@ -171,6 +180,12 @@ def consume_credits(
         raise
 
 
+async def aconsume_credits(
+    store_name: str, key: str, cost: int, max_requests: int, window_seconds: int = 3600
+) -> tuple[bool, int]:
+    return await run_in_threadpool(consume_credits, store_name, key, cost, max_requests, window_seconds)
+
+
 def get_reset_time(store_name: str, key: str, window_seconds: int = 3600) -> int:
     """Seconds until the oldest request in the window expires."""
     _init()
@@ -186,6 +201,10 @@ def get_reset_time(store_name: str, key: str, window_seconds: int = 3600) -> int
         if not row or row[0] is None:
             return 0
         return max(0, int(row[0] + window_seconds - now))
+
+
+async def aget_reset_time(store_name: str, key: str, window_seconds: int = 3600) -> int:
+    return await run_in_threadpool(get_reset_time, store_name, key, window_seconds)
 
 
 def reset(store_name: str | None = None) -> None:
