@@ -21,10 +21,10 @@ from d3fend.schemas import (
 )
 from db import (
     D3FEND_COVERAGE_MAX_IDS,
-    get_d3fend_coverage,
-    get_d3fend_defense,
-    get_d3fend_defenses_for_attack,
-    search_d3fend_defenses,
+    aget_d3fend_coverage,
+    aget_d3fend_defense,
+    aget_d3fend_defenses_for_attack,
+    asearch_d3fend_defenses,
 )
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from pydantic import BaseModel, Field
@@ -137,7 +137,7 @@ def _d3fend_coverage_pivot_hints(undefended: list[str]) -> list[PivotHint]:
     response_model=D3fendDefenseSearchResponse,
     response_model_exclude_none=True,
 )
-def d3fend_defense_search(
+async def d3fend_defense_search(
     auth: Annotated[AuthCtx, Depends(require_auth("/v1/d3fend/defenses"))],
     keyword: Annotated[
         str | None,
@@ -223,7 +223,7 @@ def d3fend_defense_search(
             raise HTTPException(status_code=400, detail="artifact must be at least 2 non-whitespace characters")
         artifact = stripped_a
 
-    rows = search_d3fend_defenses(
+    rows = await asearch_d3fend_defenses(
         keyword=keyword,
         tactic=tactic or None,
         artifact=artifact or None,
@@ -261,7 +261,7 @@ def d3fend_defense_search(
     response_model=D3fendForAttackResponse,
     response_model_exclude_none=True,
 )
-def d3fend_defense_for_attack(
+async def d3fend_defense_for_attack(
     attack_technique_id: Annotated[
         str,
         Path(
@@ -331,7 +331,7 @@ def d3fend_defense_for_attack(
                 detail="exclude_id must be a CamelCase D3FEND defense slug (e.g. 'TokenBinding')",
             )
 
-    defenses = get_d3fend_defenses_for_attack(normalized)
+    defenses = await aget_d3fend_defenses_for_attack(normalized)
     if exclude_id:
         defenses = [d for d in defenses if d.get("defense_id") != exclude_id]
 
@@ -380,7 +380,7 @@ class D3fendCoverageBody(BaseModel):
     response_model=D3fendCoverageResponse,
     response_model_exclude_none=True,
 )
-def d3fend_attack_coverage(
+async def d3fend_attack_coverage(
     body: D3fendCoverageBody,
     auth: Annotated[AuthCtx, Depends(require_auth("/v1/d3fend/coverage"))],
 ):
@@ -410,7 +410,7 @@ def d3fend_attack_coverage(
             "next_calls": None,
         }
 
-    cov = get_d3fend_coverage(normalized)
+    cov = await aget_d3fend_coverage(normalized)
     return {
         "queried_techniques": normalized,
         "coverage_by_tactic": cov["coverage_by_tactic"],
@@ -429,7 +429,7 @@ def d3fend_attack_coverage(
     response_model=D3fendDefenseResponse,
     response_model_exclude_none=True,
 )
-def d3fend_defense_lookup(
+async def d3fend_defense_lookup(
     defense_id: Annotated[
         str,
         Path(
@@ -450,7 +450,7 @@ def d3fend_defense_lookup(
     """
     normalized = _validate_defense_id(defense_id)
 
-    record = get_d3fend_defense(normalized)
+    record = await aget_d3fend_defense(normalized)
     if record is None:
         raise HTTPException(status_code=404, detail=f"defense_id {normalized!r} not in MITRE D3FEND catalog")
 
