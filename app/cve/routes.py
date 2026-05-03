@@ -41,7 +41,7 @@ from validation import is_valid_ip, validate_cve_id
 
 logger = logging.getLogger("contrastapi")
 
-router = APIRouter(prefix="/v1", tags=["CVE Intelligence"])
+router = APIRouter(tags=["CVE Intelligence"])
 
 # Default cap on affected_products in API responses. Log4j-class CVEs can carry
 # 50+ Siemens products — the full list is available via ?include_affected_products=true.

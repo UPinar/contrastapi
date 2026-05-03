@@ -32,7 +32,7 @@ from schemas import PivotHint
 
 logger = logging.getLogger("contrastapi")
 
-router = APIRouter(prefix="/v1/d3fend", tags=["MITRE D3FEND"])
+router = APIRouter(prefix="/d3fend", tags=["MITRE D3FEND"])
 
 _DEFENSE_ID_RE = re.compile(r"^[A-Za-z][A-Za-z0-9]{0,63}$")
 _ATTACK_TECHNIQUE_RE = re.compile(r"^T\d{4}(?:\.\d{3})?$")

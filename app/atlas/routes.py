@@ -32,7 +32,7 @@ from schemas import PivotHint
 
 logger = logging.getLogger("contrastapi")
 
-router = APIRouter(prefix="/v1/atlas", tags=["MITRE ATLAS"])
+router = APIRouter(prefix="/atlas", tags=["MITRE ATLAS"])
 
 _TECHNIQUE_RE = re.compile(r"^AML\.T\d{4}(?:\.\d{3})?$")
 _CASE_STUDY_RE = re.compile(r"^AML\.CS\d{4}$")

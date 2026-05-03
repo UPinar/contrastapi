@@ -40,7 +40,7 @@ _phish_client = httpx.AsyncClient(
     limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
 )
 
-router = APIRouter(prefix="/v1", tags=["Threat Intelligence"])
+router = APIRouter(tags=["Threat Intelligence"])
 
 _HEX_RE = re.compile(r"^[0-9a-fA-F]+$")
 _HASH_LENS = {32: "md5", 40: "sha1", 64: "sha256"}

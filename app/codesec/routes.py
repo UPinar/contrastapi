@@ -16,7 +16,7 @@ from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 from validation import _is_valid_format, clean_domain, is_valid_ip, validate_domain
 
-router = APIRouter(prefix="/v1", tags=["Code Security"])
+router = APIRouter(tags=["Code Security"])
 
 MAX_CODE_BYTES = 500 * 1024  # 500 KB
 MAX_CONCURRENT_SCANS = 4

@@ -205,7 +205,7 @@ _AUDIT_SENSITIVE_HEADERS = frozenset(
     }
 )
 
-router = APIRouter(prefix="/v1", tags=["Domain Intelligence"])
+router = APIRouter(tags=["Domain Intelligence"])
 
 
 @router.get("/", include_in_schema=False)

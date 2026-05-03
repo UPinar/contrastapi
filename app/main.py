@@ -1242,32 +1242,12 @@ def llms_full_txt(request: Request):
     )
 
 
-# Module routers
-from cve.routes import router as cve_router
-from domain.routes import router as domain_router
-
-app.include_router(domain_router)
-app.include_router(cve_router)
-
-from codesec.routes import router as codesec_router
-
-app.include_router(codesec_router)
-
-from ioc.routes import router as ioc_router
-
-app.include_router(ioc_router)
-
-from atlas.routes import router as atlas_router
-
-app.include_router(atlas_router)
-
-from d3fend.routes import router as d3fend_router
-
-app.include_router(d3fend_router)
-
+# /v1 aggregator (cve, domain, codesec, ioc, atlas, d3fend)
+from api.main import api_router
 from crypto_billing import router as crypto_billing_router
 from webhooks import router as webhooks_router
 
+app.include_router(api_router)
 app.include_router(webhooks_router)
 app.include_router(crypto_billing_router)
 
