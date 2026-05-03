@@ -1,17 +1,18 @@
 """Code Security API routes — /v1/check/*"""
 
-import threading
 from collections import Counter
 from typing import Annotated
 
+import anyio
 from auth import AuthCtx, require_auth
 from codesec.headers import check_headers
 from codesec.injection import detect_injection
 from codesec.schemas import CheckHeadersResponse, CodeCheckResponse, DependenciesResponse, ScanHeadersResponse
 from codesec.secrets import detect_secrets
-from db import _normalize_product, _parse_version, hash_client_ip, search_cves_by_products_bulk
+from db import _normalize_product, _parse_version, asearch_cves_by_products_bulk, hash_client_ip
 from domain.recon import fetch_live_headers
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 from validation import _is_valid_format, clean_domain, is_valid_ip, validate_domain
 
@@ -21,8 +22,11 @@ MAX_CODE_BYTES = 500 * 1024  # 500 KB
 MAX_CONCURRENT_SCANS = 4
 SEMAPHORE_TIMEOUT = 5
 
-# Limits concurrent code scans to prevent thread-pool starvation
-_scan_semaphore = threading.Semaphore(MAX_CONCURRENT_SCANS)
+# Limits concurrent code scans to prevent thread-pool starvation. anyio.Semaphore
+# (not asyncio.Semaphore) so acquire() yields the event loop AND survives across
+# event loops — TestClient creates a fresh loop per request, which would bind
+# asyncio.Semaphore to a dead loop and raise on the second test.
+_scan_semaphore = anyio.Semaphore(MAX_CONCURRENT_SCANS)
 
 
 # --- Request models ---
@@ -104,7 +108,7 @@ def _severity_counts(findings: list[dict]) -> dict[str, int]:
 @router.post(
     "/check/secrets", operation_id="check_secrets", response_model=CodeCheckResponse, response_model_exclude_none=True
 )
-def check_secrets_endpoint(
+async def check_secrets_endpoint(
     body: CodeInput,
     auth: Annotated[AuthCtx, Depends(require_auth("/v1/check/secrets"))],
 ):
@@ -117,11 +121,13 @@ def check_secrets_endpoint(
             detail=f"Language '{body.language}' not supported. Allowed: {', '.join(sorted(ALLOWED_LANGUAGES))}",
         )
 
-    acquired = _scan_semaphore.acquire(timeout=SEMAPHORE_TIMEOUT)
-    if not acquired:
-        raise HTTPException(status_code=503, detail="Too many concurrent scans. Please retry.")
     try:
-        findings = detect_secrets(body.code, lang)
+        with anyio.fail_after(SEMAPHORE_TIMEOUT):
+            await _scan_semaphore.acquire()
+    except TimeoutError:
+        raise HTTPException(status_code=503, detail="Too many concurrent scans. Please retry.") from None
+    try:
+        findings = await run_in_threadpool(detect_secrets, body.code, lang)
     finally:
         _scan_semaphore.release()
     by_severity = _severity_counts(findings)
@@ -146,7 +152,7 @@ def check_secrets_endpoint(
     response_model=CodeCheckResponse,
     response_model_exclude_none=True,
 )
-def check_injection_endpoint(
+async def check_injection_endpoint(
     body: CodeInput,
     auth: Annotated[AuthCtx, Depends(require_auth("/v1/check/injection"))],
 ):
@@ -159,11 +165,13 @@ def check_injection_endpoint(
             detail=f"Language '{body.language}' not supported. Allowed: {', '.join(sorted(ALLOWED_LANGUAGES))}",
         )
 
-    acquired = _scan_semaphore.acquire(timeout=SEMAPHORE_TIMEOUT)
-    if not acquired:
-        raise HTTPException(status_code=503, detail="Too many concurrent scans. Please retry.")
     try:
-        findings = detect_injection(body.code, lang)
+        with anyio.fail_after(SEMAPHORE_TIMEOUT):
+            await _scan_semaphore.acquire()
+    except TimeoutError:
+        raise HTTPException(status_code=503, detail="Too many concurrent scans. Please retry.") from None
+    try:
+        findings = await run_in_threadpool(detect_injection, body.code, lang)
     finally:
         _scan_semaphore.release()
     by_severity = _severity_counts(findings)
@@ -189,7 +197,7 @@ def check_injection_endpoint(
     response_model=ScanHeadersResponse,
     response_model_exclude_none=True,
 )
-def scan_headers_endpoint(
+async def scan_headers_endpoint(
     domain: Annotated[
         str,
         Path(
@@ -225,11 +233,11 @@ def scan_headers_endpoint(
         raise HTTPException(status_code=400, detail="Invalid domain")
     if include not in (None, "", "full"):
         raise HTTPException(status_code=400, detail="include must be 'full' (omit for slim default)")
-    resolved_ip = validate_domain(domain)
+    resolved_ip = await run_in_threadpool(validate_domain, domain)
     if not resolved_ip:
         raise HTTPException(status_code=422, detail="Could not resolve this domain. DNS resolution failed.")
 
-    result = fetch_live_headers(domain)
+    result = await run_in_threadpool(fetch_live_headers, domain)
     if "error" in result:
         raise HTTPException(status_code=504, detail=result["error"])
 
@@ -248,7 +256,7 @@ def scan_headers_endpoint(
     response_model=CheckHeadersResponse,
     response_model_exclude_none=True,
 )
-def check_headers_endpoint(
+async def check_headers_endpoint(
     body: HeadersInput,
     auth: Annotated[AuthCtx, Depends(require_auth("/v1/check/headers"))],
     include: Annotated[
@@ -289,7 +297,7 @@ def check_headers_endpoint(
     response_model=DependenciesResponse,
     response_model_exclude_none=True,
 )
-def check_dependencies_endpoint(
+async def check_dependencies_endpoint(
     body: DependenciesInput,
     auth: Annotated[AuthCtx, Depends(require_auth("/v1/check/dependencies"))],
 ):
@@ -327,7 +335,7 @@ def check_dependencies_endpoint(
         store_key = f"free:{hash_client_ip(auth.client_ip)}"
         limit = FREE_HOURLY_LIMIT
 
-    if count > 1 and not ratelimit.consume_bulk("api", store_key, count - 1, limit):
+    if count > 1 and not await ratelimit.aconsume_bulk("api", store_key, count - 1, limit):
         raise HTTPException(
             status_code=429,
             detail=f"Insufficient rate limit quota for {count} packages.",
@@ -335,12 +343,12 @@ def check_dependencies_endpoint(
 
     product_names = [pkg.name for pkg in packages]
     # NOTE: version-range matching below reads affected_products from the raw DB row
-    # via search_cves_by_products_bulk — NOT from the HTTP API response — so it is not
+    # via asearch_cves_by_products_bulk — NOT from the HTTP API response — so it is not
     # affected by the default truncation in _format_cve(). Do not rewire this path
     # through the API without restoring full affected_products, or version matches
     # against products 21+ will be silently missed.
     try:
-        cve_groups = search_cves_by_products_bulk(product_names, limit_per_product=20)
+        cve_groups = await asearch_cves_by_products_bulk(product_names, limit_per_product=20)
     except Exception:
         raise HTTPException(status_code=503, detail="CVE database temporarily unavailable. Please retry.") from None
 

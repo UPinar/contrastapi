@@ -1255,6 +1255,10 @@ def search_cves_by_products_bulk(products: list[str], limit_per_product: int = 2
     return result
 
 
+async def asearch_cves_by_products_bulk(products: list[str], limit_per_product: int = 20) -> dict[str, list[dict]]:
+    return await run_in_threadpool(search_cves_by_products_bulk, products, limit_per_product)
+
+
 def update_epss(cve_id: str, epss_score: float | None, epss_percentile: float | None) -> bool:
     """Update only EPSS fields for a CVE. Returns True if row existed."""
     with get_cve_db() as con:

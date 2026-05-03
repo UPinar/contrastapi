@@ -1404,46 +1404,38 @@ class TestReDoSProtectionIntegration:
 class TestScanConcurrency:
     """Tests for concurrent scan limiting."""
 
-    @patch("codesec.routes.SEMAPHORE_TIMEOUT", 0.1)
     def test_semaphore_503_on_exhaustion(self):
-        """When semaphore is exhausted, returns 503."""
-        from codesec.routes import _scan_semaphore
+        """When semaphore is exhausted, returns 503.
 
-        # Drain all permits
-        acquired = []
-        for _ in range(4):
-            acquired.append(_scan_semaphore.acquire(timeout=0))
+        Replace the module-level semaphore with one that has zero permits and use
+        a 0.1s anyio.fail_after timeout so the route's `await acquire()` cancels
+        immediately. We patch the anyio.Semaphore object itself (sync drain on
+        anyio is impossible from sync test code — acquire_nowait requires a
+        running loop).
+        """
+        import anyio
 
-        try:
+        zero_permit = anyio.Semaphore(0)
+        with patch("codesec.routes._scan_semaphore", zero_permit), patch("codesec.routes.SEMAPHORE_TIMEOUT", 0.1):
             r = client.post("/v1/check/injection", json={"code": 'eval("x")'})
             assert r.status_code == 503
             assert "concurrent" in r.json()["error"]["message"].lower()
-        finally:
-            for _ in acquired:
-                _scan_semaphore.release()
 
     def test_semaphore_released_on_success(self):
         """Semaphore is released after successful scan."""
         from codesec.routes import _scan_semaphore
 
-        before = _scan_semaphore._value
+        before = _scan_semaphore.value
         r = client.post("/v1/check/injection", json={"code": "safe_code = 1"})
         assert r.status_code == 200
-        after = _scan_semaphore._value
+        after = _scan_semaphore.value
         assert before == after
 
-    @patch("codesec.routes.SEMAPHORE_TIMEOUT", 0.1)
     def test_secrets_semaphore_503(self):
         """Secrets endpoint also respects concurrency limit."""
-        from codesec.routes import _scan_semaphore
+        import anyio
 
-        acquired = []
-        for _ in range(4):
-            acquired.append(_scan_semaphore.acquire(timeout=0))
-
-        try:
+        zero_permit = anyio.Semaphore(0)
+        with patch("codesec.routes._scan_semaphore", zero_permit), patch("codesec.routes.SEMAPHORE_TIMEOUT", 0.1):
             r = client.post("/v1/check/secrets", json={"code": "x = 1"})
             assert r.status_code == 503
-        finally:
-            for _ in acquired:
-                _scan_semaphore.release()
