@@ -1,6 +1,6 @@
 """Tests for technology fingerprinting, monitor, and vulns endpoints."""
 
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
 from main import app
@@ -176,7 +176,7 @@ class TestTechCategories:
 
 
 class TestTechRoute:
-    @patch("domain.routes.fetch_live_page")
+    @patch("domain.routes.fetch_live_page", new_callable=AsyncMock)
     @patch("domain.routes._validate_domain_input")
     def test_tech_200(self, mock_validate, mock_page):
         mock_validate.return_value = ("example.com", "93.184.216.34")
@@ -195,7 +195,7 @@ class TestTechRoute:
         assert "PHP" in names
         assert "WordPress" in names
 
-    @patch("domain.routes.fetch_live_page")
+    @patch("domain.routes.fetch_live_page", new_callable=AsyncMock)
     @patch("domain.routes._validate_domain_input")
     def test_tech_504_on_connection_failure(self, mock_validate, mock_page):
         mock_validate.return_value = ("down.com", "1.2.3.4")
@@ -203,7 +203,7 @@ class TestTechRoute:
         r = client.get("/v1/tech/down.com")
         assert r.status_code == 504
 
-    @patch("domain.routes.fetch_live_page")
+    @patch("domain.routes.fetch_live_page", new_callable=AsyncMock)
     @patch("domain.routes._validate_domain_input")
     def test_tech_returns_domain_and_technologies(self, mock_validate, mock_page):
         mock_validate.return_value = ("test.com", "1.2.3.4")
@@ -277,7 +277,7 @@ class TestMonitorRoute:
 
 class TestVulnsRoute:
     @patch("db.search_cves_by_products_bulk", return_value={})
-    @patch("domain.routes.fetch_live_page")
+    @patch("domain.routes.fetch_live_page", new_callable=AsyncMock)
     @patch("domain.routes._validate_domain_input")
     def test_vulns_200_no_cves(self, mock_validate, mock_page, mock_search):
         mock_validate.return_value = ("example.com", "93.184.216.34")
@@ -296,7 +296,7 @@ class TestVulnsRoute:
         assert "vulnerabilities" in data
 
     @patch("db.search_cves_by_products_bulk")
-    @patch("domain.routes.fetch_live_page")
+    @patch("domain.routes.fetch_live_page", new_callable=AsyncMock)
     @patch("domain.routes._validate_domain_input")
     def test_vulns_200_with_cves(self, mock_validate, mock_page, mock_search):
         mock_validate.return_value = ("vuln.com", "1.2.3.4")
@@ -318,7 +318,7 @@ class TestVulnsRoute:
         assert "CVE" in data["summary"]
         assert mock_search.call_count == 1
 
-    @patch("domain.routes.fetch_live_page")
+    @patch("domain.routes.fetch_live_page", new_callable=AsyncMock)
     @patch("domain.routes._validate_domain_input")
     def test_vulns_504_on_page_error(self, mock_validate, mock_page):
         mock_validate.return_value = ("down.com", "1.2.3.4")
@@ -327,7 +327,7 @@ class TestVulnsRoute:
         assert r.status_code == 504
 
     @patch("db.search_cves_by_products_bulk")
-    @patch("domain.routes.fetch_live_page")
+    @patch("domain.routes.fetch_live_page", new_callable=AsyncMock)
     @patch("domain.routes._validate_domain_input")
     def test_vulns_bulk_called_once_with_all_techs(self, mock_validate, mock_page, mock_search):
         """Multi-tech response must trigger exactly ONE bulk DB call (not N+1)."""
@@ -349,7 +349,7 @@ class TestVulnsRoute:
 
     @patch("domain.tech.detect_technologies")
     @patch("db.search_cves_by_products_bulk")
-    @patch("domain.routes.fetch_live_page")
+    @patch("domain.routes.fetch_live_page", new_callable=AsyncMock)
     @patch("domain.routes._validate_domain_input")
     def test_vulns_version_filter_uses_normalized_key(self, mock_validate, mock_page, mock_search, mock_detect):
         """Regression: aliased Maven artifactId (e.g., log4j-core) must still match

@@ -1128,8 +1128,70 @@ class _SSRFSafeTransport(httpx.HTTPTransport):
         self._pool = httpcore.ConnectionPool(network_backend=_SSRFSafeBackend())
 
 
-_ssrf_http = httpx.Client(
+class _SSRFSafeAsyncBackend(httpcore.AnyIOBackend):
+    """Async network backend mirroring `_SSRFSafeBackend` byte-for-byte.
+
+    Resolves DNS once (off-loop via run_in_executor → reuses sync helper to
+    keep the 3s threading-timeout invariant identical), rejects private IPs,
+    prefers IPv4, and falls through to IPv6 only on IPv4 failure. The async
+    variant is required for `httpx.AsyncClient`; the sync class stays alive
+    for the AIA-fetch path that runs inside a ThreadPoolExecutor worker.
+    """
+
+    async def connect_tcp(self, host, port, timeout=None, local_address=None, socket_options=None):
+        loop = asyncio.get_running_loop()
+        result, err = await loop.run_in_executor(
+            None,
+            lambda: _dns_call_with_timeout(
+                socket.getaddrinfo,
+                host,
+                None,
+                socket.AF_UNSPEC,
+                socket.SOCK_STREAM,
+            ),
+        )
+        if err or not result:
+            raise httpcore.ConnectError(f"DNS resolution failed for {host}")
+        for _family, _stype, _proto, _canonname, sockaddr in result:
+            if is_private_ip(sockaddr[0]):
+                raise httpcore.ConnectError(f"SSRF blocked: {host} resolves to private IP")
+        sorted_results = sorted(result, key=lambda r: (r[0] != socket.AF_INET,))
+        last_err = None
+        for _family, _stype, _proto, _canonname, sockaddr in sorted_results:
+            try:
+                return await super().connect_tcp(
+                    sockaddr[0],
+                    port,
+                    timeout=timeout,
+                    local_address=local_address,
+                    socket_options=socket_options,
+                )
+            except Exception as e:
+                last_err = e
+        raise httpcore.ConnectError(f"All addresses failed for {host}: {last_err}")
+
+
+class _SSRFSafeAsyncTransport(httpx.AsyncHTTPTransport):
+    """Async equivalent of `_SSRFSafeTransport`. Skips super().__init__ to
+    avoid spinning up a default `AsyncConnectionPool` we'd immediately discard.
+    """
+
+    def __init__(self):
+        self._pool = httpcore.AsyncConnectionPool(network_backend=_SSRFSafeAsyncBackend())
+
+
+# Sync client retained ONLY for the AIA-fetch path (`_fetch_intermediate` in
+# routes.py) which runs inside a `_aia_pool` ThreadPoolExecutor worker and
+# therefore cannot await. Faz 4h will migrate `_aia_pool` to asyncio.gather
+# and this client will be deleted.
+_ssrf_http_sync = httpx.Client(
     transport=_SSRFSafeTransport(),
+    timeout=httpx.Timeout(RECON_TIMEOUT, connect=5.0),
+    headers={"User-Agent": USER_AGENT},
+    max_redirects=5,
+)
+_ssrf_http = httpx.AsyncClient(
+    transport=_SSRFSafeAsyncTransport(),
     timeout=httpx.Timeout(RECON_TIMEOUT, connect=5.0),
     headers={"User-Agent": USER_AGENT},
     # follow_redirects set per-request by callers
@@ -1137,44 +1199,65 @@ _ssrf_http = httpx.Client(
 )
 
 
-def _safe_urlopen(domain: str, scheme: str, timeout: int, follow_redirects: bool = True):
+async def _safe_urlopen(domain: str, scheme: str, timeout: int, follow_redirects: bool = True):
     """SSRF-safe HTTP request. Validates all IPs (including redirect targets) before connecting."""
-    return _ssrf_http.get(
+    return await _ssrf_http.get(
         f"{scheme}://{domain}/",
         timeout=timeout,
         follow_redirects=follow_redirects,
     )
 
 
-def fetch_live_headers(domain: str) -> dict:
+async def fetch_live_headers(domain: str) -> dict:
     """Fetch HTTP response headers from a live domain (HTTPS/HTTP in parallel, first wins)."""
 
-    def _try_scheme(scheme):
-        resp = _safe_urlopen(domain, scheme, RECON_TIMEOUT)
+    async def _try_scheme(scheme):
+        resp = await _safe_urlopen(domain, scheme, RECON_TIMEOUT)
         return {
             "headers": {k.lower(): v for k, v in resp.headers.items()},
             "status_code": resp.status_code,
             "url": str(resp.url),
         }
 
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        futures = {pool.submit(_try_scheme, s): s for s in ("https", "http")}
-        errors = {}
-        for future in as_completed(futures):
-            scheme = futures[future]
+    https_t = asyncio.create_task(_try_scheme("https"))
+    http_t = asyncio.create_task(_try_scheme("http"))
+    errors: dict[str, str] = {}
+
+    done, pending = await asyncio.wait({https_t, http_t}, return_when=asyncio.FIRST_COMPLETED)
+
+    if https_t in done:
+        # HTTPS finished first — return it (or fall back to HTTP on failure).
+        try:
+            result = https_t.result()
+            for p in pending:
+                p.cancel()
+            return result
+        except Exception as e:
+            errors["https"] = type(e).__name__
             try:
-                result = future.result()
-                # Prefer HTTPS: if HTTPS won, return immediately
-                if scheme == "https":
-                    return result
-                # HTTP finished first — wait briefly for HTTPS
-                https_future = [f for f, s in futures.items() if s == "https"][0]
-                try:
-                    return https_future.result(timeout=1.0)
-                except Exception:
-                    return result
-            except Exception as e:
-                errors[scheme] = type(e).__name__
+                return await http_t
+            except Exception as e2:
+                errors["http"] = type(e2).__name__
+    else:
+        # HTTP finished first — give HTTPS up to 1s grace (matches sync semantics).
+        try:
+            http_result = http_t.result()
+        except Exception as e:
+            errors["http"] = type(e).__name__
+            try:
+                return await https_t
+            except Exception as e2:
+                errors["https"] = type(e2).__name__
+        else:
+            try:
+                # asyncio.shield: 1s wait_for cancels the waiter, NOT the inner
+                # task — preserves the sync `https_future.result(timeout=1.0)`
+                # behaviour where HTTPS keeps running regardless.
+                return await asyncio.wait_for(asyncio.shield(https_t), timeout=1.0)
+            except (asyncio.TimeoutError, Exception):
+                if not https_t.done():
+                    https_t.cancel()
+                return http_result
 
     logger.warning(
         "fetch_live_headers failed: HTTPS=%s, HTTP=%s",
@@ -1187,11 +1270,11 @@ def fetch_live_headers(domain: str) -> dict:
 MAX_HTML_SIZE = 65536  # 64KB
 
 
-def fetch_live_page(domain: str) -> dict:
+async def fetch_live_page(domain: str) -> dict:
     """Fetch HTTP headers AND HTML body (first 64KB) from a live domain (HTTPS/HTTP in parallel)."""
 
-    def _fetch(scheme):
-        with _ssrf_http.stream(
+    async def _fetch(scheme):
+        async with _ssrf_http.stream(
             "GET",
             f"{scheme}://{domain}/",
             timeout=RECON_TIMEOUT,
@@ -1203,7 +1286,7 @@ def fetch_live_page(domain: str) -> dict:
             if "text/html" in content_type or "application/xhtml" in content_type:
                 chunks = []
                 remaining = MAX_HTML_SIZE
-                for chunk in resp.iter_bytes():
+                async for chunk in resp.aiter_bytes():
                     chunks.append(chunk[:remaining])
                     remaining -= len(chunks[-1])
                     if remaining <= 0:
@@ -1212,22 +1295,40 @@ def fetch_live_page(domain: str) -> dict:
                 html = raw.decode("utf-8", errors="ignore")
             return {"headers": headers, "html": html, "status_code": resp.status_code, "url": str(resp.url)}
 
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        futures = {pool.submit(_fetch, s): s for s in ("https", "http")}
-        errors = {}
-        for future in as_completed(futures):
-            scheme = futures[future]
+    https_t = asyncio.create_task(_fetch("https"))
+    http_t = asyncio.create_task(_fetch("http"))
+    errors: dict[str, str] = {}
+
+    done, pending = await asyncio.wait({https_t, http_t}, return_when=asyncio.FIRST_COMPLETED)
+
+    if https_t in done:
+        try:
+            result = https_t.result()
+            for p in pending:
+                p.cancel()
+            return result
+        except Exception as e:
+            errors["https"] = type(e).__name__
             try:
-                result = future.result()
-                if scheme == "https":
-                    return result
-                https_future = [f for f, s in futures.items() if s == "https"][0]
-                try:
-                    return https_future.result(timeout=1.0)
-                except Exception:
-                    return result
-            except Exception as e:
-                errors[scheme] = type(e).__name__
+                return await http_t
+            except Exception as e2:
+                errors["http"] = type(e2).__name__
+    else:
+        try:
+            http_result = http_t.result()
+        except Exception as e:
+            errors["http"] = type(e).__name__
+            try:
+                return await https_t
+            except Exception as e2:
+                errors["https"] = type(e2).__name__
+        else:
+            try:
+                return await asyncio.wait_for(asyncio.shield(https_t), timeout=1.0)
+            except (asyncio.TimeoutError, Exception):
+                if not https_t.done():
+                    https_t.cancel()
+                return http_result
 
     logger.warning(
         "fetch_live_page failed: HTTPS=%s, HTTP=%s",
@@ -1404,8 +1505,7 @@ async def full_domain_report(
     f_dns = asyncio.create_task(run_in_threadpool(dns_lookup, domain))
     f_rdns = asyncio.create_task(run_in_threadpool(reverse_dns, domain))
     f_ssl = asyncio.create_task(run_in_threadpool(ssl_info, domain, resolved_ip))
-    # fetch_live_headers uses _ssrf_http (still sync — Batch 2 scope), keep threadpool wrap
-    f_headers = asyncio.create_task(run_in_threadpool(fetch_live_headers, domain))
+    f_headers = asyncio.create_task(fetch_live_headers(domain))
 
     # Slow modules (skip in lite mode)
     f_crtsh = f_whois = f_threat = f_subs = f_certs = None

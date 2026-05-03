@@ -1,6 +1,6 @@
 """Tests for /v1/robots/{domain} + the parser in domain/robots.py."""
 
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -166,7 +166,7 @@ _PARSED_OK = {
 
 
 class TestRobotsTxtRoute:
-    @patch("domain.robots.fetch_robots_txt", return_value=dict(_PARSED_OK))
+    @patch("domain.robots.fetch_robots_txt", new_callable=AsyncMock, return_value=dict(_PARSED_OK))
     @patch("db.get_cached_domain", return_value=None)
     @patch("db.save_cached_domain")
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
@@ -185,7 +185,7 @@ class TestRobotsTxtRoute:
         keys = [c.args[0] for c in mock_save.call_args_list]
         assert "robots:example.com" in keys
 
-    @patch("domain.robots.fetch_robots_txt")
+    @patch("domain.robots.fetch_robots_txt", new_callable=AsyncMock)
     @patch("db.get_cached_domain", return_value=None)
     @patch("db.save_cached_domain")
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
@@ -207,13 +207,13 @@ class TestRobotsTxtRoute:
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     def test_robots_cache_hit_short_circuits(self, mock_validate, mock_cache):
         mock_cache.return_value = dict(_PARSED_OK, summary="cached")
-        with patch("domain.robots.fetch_robots_txt") as mock_fetch:
+        with patch("domain.robots.fetch_robots_txt", new_callable=AsyncMock) as mock_fetch:
             r = client.get("/v1/robots/example.com")
             assert r.status_code == 200
             mock_fetch.assert_not_called()
         assert r.json()["summary"] == "cached"
 
-    @patch("domain.robots.fetch_robots_txt", side_effect=RuntimeError("connect failed"))
+    @patch("domain.robots.fetch_robots_txt", new_callable=AsyncMock, side_effect=RuntimeError("connect failed"))
     @patch("db.get_cached_domain", return_value=None)
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     def test_robots_fetch_failure_502(self, mock_validate, mock_cache, mock_fetch):
@@ -227,7 +227,7 @@ class TestRobotsTxtRoute:
         # Structured error code from _exception_kind
         assert "unknown_error" in msg
 
-    @patch("domain.robots.fetch_robots_txt")
+    @patch("domain.robots.fetch_robots_txt", new_callable=AsyncMock)
     @patch("db.get_cached_domain", return_value=None)
     @patch("db.save_cached_domain")
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
@@ -259,7 +259,7 @@ class TestRobotsTxtRoute:
         r = client.get("/v1/robots/8.8.8.8")
         assert r.status_code == 400
 
-    @patch("domain.robots.fetch_robots_txt", return_value=dict(_PARSED_OK))
+    @patch("domain.robots.fetch_robots_txt", new_callable=AsyncMock, return_value=dict(_PARSED_OK))
     @patch("db.get_cached_domain", return_value=None)
     @patch("db.save_cached_domain")
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")

@@ -1,6 +1,7 @@
 """Tests for /v1/brand/{domain} + helpers in domain/brand_assets.py."""
 
-from unittest.mock import patch
+import asyncio
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -424,7 +425,7 @@ class TestBrandAssetsRoute:
     @patch("db.get_cached_domain", side_effect=[None, _NO_ROBOTS])
     @patch("db.save_cached_domain")
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
-    @patch("domain.brand_assets.fetch_homepage_html", return_value=_GOOD_PAGE)
+    @patch("domain.brand_assets.fetch_homepage_html", new_callable=AsyncMock, return_value=_GOOD_PAGE)
     def test_brand_assets_200(self, mock_fetch, mock_validate, mock_save, mock_cache):
         r = client.get("/v1/brand/corp.com")
         assert r.status_code == 200, r.text
@@ -447,7 +448,7 @@ class TestBrandAssetsRoute:
             "truncated": False,
         }
         with patch("db.get_cached_domain", side_effect=[None, blocked_robots]):
-            with patch("domain.brand_assets.fetch_homepage_html") as mock_fetch:
+            with patch("domain.brand_assets.fetch_homepage_html", new_callable=AsyncMock) as mock_fetch:
                 r = client.get("/v1/brand/blocked.com")
                 assert r.status_code == 403
                 assert "robots_txt_disallow" in r.text
@@ -459,6 +460,7 @@ class TestBrandAssetsRoute:
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     @patch(
         "domain.brand_assets.fetch_homepage_html",
+        new_callable=AsyncMock,
         return_value={
             "html": _GOOD_PAGE["html"],
             "url": "https://corp.com/",
@@ -479,7 +481,7 @@ class TestBrandAssetsRoute:
     @patch("db.get_cached_domain", side_effect=[None, _NO_ROBOTS])
     @patch("db.save_cached_domain")
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
-    @patch("domain.brand_assets.fetch_homepage_html", side_effect=Exception("connect failed"))
+    @patch("domain.brand_assets.fetch_homepage_html", new_callable=AsyncMock, side_effect=Exception("connect failed"))
     def test_homepage_fetch_failure_502(self, mock_fetch, mock_validate, mock_save, mock_cache):
         r = client.get("/v1/brand/corp.com")
         assert r.status_code == 502
@@ -503,13 +505,13 @@ class TestBrandAssetsRoute:
                 self.status_code = 200
                 self.url = "https://example.com/"
 
-            def iter_bytes(self):
+            async def aiter_bytes(self):
                 yield b"<html><head></head></html>"
 
-            def __enter__(self):
+            async def __aenter__(self):
                 return self
 
-            def __exit__(self, *a):
+            async def __aexit__(self, *a):
                 return False
 
         def fake_stream(method, url, **kwargs):
@@ -518,7 +520,7 @@ class TestBrandAssetsRoute:
 
         with patch("domain.brand_assets._ssrf_http") as mock_http:
             mock_http.stream = MagicMock(side_effect=fake_stream)
-            fetch_homepage_html("example.com")
+            asyncio.run(fetch_homepage_html("example.com"))
 
         assert captured["headers"].get("Accept-Encoding") == "identity"
 

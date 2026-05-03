@@ -58,7 +58,7 @@ def _validate_url(url: str) -> tuple[str, str]:
     return parsed.scheme, parsed.hostname
 
 
-def walk_redirect_chain(start_url: str, max_hops: int = REDIRECT_MAX_HOPS) -> dict:
+async def walk_redirect_chain(start_url: str, max_hops: int = REDIRECT_MAX_HOPS) -> dict:
     """Hop-by-hop redirect walk. Up to `max_hops` HTTP fetches.
 
     Returns: {
@@ -124,7 +124,7 @@ def walk_redirect_chain(start_url: str, max_hops: int = REDIRECT_MAX_HOPS) -> di
         # skipping the body saves us from gigabyte-sized HTML pages on
         # hop_count == 1 single-fetch lookups.
         t0 = time.time()
-        with _ssrf_http.stream("GET", current_url, follow_redirects=False, timeout=REDIRECT_TIMEOUT) as resp:
+        async with _ssrf_http.stream("GET", current_url, follow_redirects=False, timeout=REDIRECT_TIMEOUT) as resp:
             latency_ms = int((time.time() - t0) * 1000)
             status_code = resp.status_code
             raw_location = resp.headers.get("location")

@@ -237,7 +237,7 @@ class TestSslCertificate:
         with (
             patch("domain.routes.socket.create_connection", return_value=mock_sock),
             patch("domain.routes._ssl.create_default_context") as mock_ctx,
-            patch("domain.routes._ssrf_http") as mock_http,
+            patch("domain.routes._ssrf_http_sync") as mock_http,
         ):
             mock_ctx.return_value.wrap_socket.return_value = mock_ssock
             mock_http.get.return_value = mock_resp
@@ -261,7 +261,7 @@ class TestSslCertificate:
         with (
             patch("domain.routes.socket.create_connection", return_value=mock_sock),
             patch("domain.routes._ssl.create_default_context") as mock_ctx,
-            patch("domain.routes._ssrf_http") as mock_http,
+            patch("domain.routes._ssrf_http_sync") as mock_http,
         ):
             mock_ctx.return_value.wrap_socket.return_value = mock_ssock
             mock_http.get.side_effect = httpx.TimeoutException("timeout")
@@ -289,7 +289,7 @@ class TestSslCertificate:
         with (
             patch("domain.routes.socket.create_connection", return_value=mock_sock),
             patch("domain.routes._ssl.create_default_context") as mock_ctx,
-            patch("domain.routes._ssrf_http") as mock_http,
+            patch("domain.routes._ssrf_http_sync") as mock_http,
         ):
             mock_ctx.return_value.wrap_socket.return_value = mock_ssock
             mock_http.get.return_value = mock_resp
@@ -1322,7 +1322,7 @@ class TestAuditDomain:
     _MOCK_LIVE = {"headers": {"server": "nginx/1.18", "x-frame-options": "DENY"}}
 
     @patch("domain.tech.detect_technologies")
-    @patch("domain.recon.fetch_live_headers")
+    @patch("domain.recon.fetch_live_headers", new_callable=AsyncMock)
     @patch("db.save_cached_domain")
     @patch("db.get_cached_domain", return_value=None)
     @patch("domain.routes.full_domain_report", new_callable=AsyncMock)
@@ -1351,7 +1351,7 @@ class TestAuditDomain:
         assert r.status_code == 400
 
     @patch("domain.tech.detect_technologies")
-    @patch("domain.recon.fetch_live_headers", side_effect=RuntimeError("connection refused"))
+    @patch("domain.recon.fetch_live_headers", new_callable=AsyncMock, side_effect=RuntimeError("connection refused"))
     @patch("db.save_cached_domain")
     @patch("db.get_cached_domain", return_value=None)
     @patch("domain.routes.full_domain_report", new_callable=AsyncMock)
@@ -1368,7 +1368,7 @@ class TestAuditDomain:
         assert data["technologies"]["count"] == 0
 
     @patch("domain.tech.detect_technologies")
-    @patch("domain.recon.fetch_live_headers")
+    @patch("domain.recon.fetch_live_headers", new_callable=AsyncMock)
     @patch("db.get_cached_domain")
     @patch("domain.routes.clean_domain", return_value="cached.com")
     def test_audit_uses_cache(self, mock_clean, mock_get, mock_live, mock_tech):
@@ -1384,7 +1384,7 @@ class TestAuditDomain:
         assert r.status_code == 200
 
     @patch("domain.tech.detect_technologies")
-    @patch("domain.recon.fetch_live_headers")
+    @patch("domain.recon.fetch_live_headers", new_callable=AsyncMock)
     @patch("db.save_cached_domain")
     @patch("db.get_cached_domain", return_value=None)
     @patch("domain.routes.full_domain_report", new_callable=AsyncMock)
@@ -1562,7 +1562,7 @@ class TestAuditDomainEdgeCases:
     }
 
     @patch("domain.tech.detect_technologies")
-    @patch("domain.recon.fetch_live_headers")
+    @patch("domain.recon.fetch_live_headers", new_callable=AsyncMock)
     @patch("db.save_cached_domain")
     @patch("db.get_cached_domain", return_value=None)
     @patch("domain.routes.full_domain_report", new_callable=AsyncMock)
@@ -1580,7 +1580,7 @@ class TestAuditDomainEdgeCases:
         mock_tech.assert_not_called()
 
     @patch("domain.tech.detect_technologies")
-    @patch("domain.recon.fetch_live_headers")
+    @patch("domain.recon.fetch_live_headers", new_callable=AsyncMock)
     @patch("db.save_cached_domain")
     @patch("db.get_cached_domain", return_value=None)
     @patch("domain.routes.full_domain_report", new_callable=AsyncMock)
@@ -1625,7 +1625,7 @@ class TestAuditDomainTxtFilter:
     }
 
     @patch("domain.tech.detect_technologies")
-    @patch("domain.recon.fetch_live_headers")
+    @patch("domain.recon.fetch_live_headers", new_callable=AsyncMock)
     @patch("db.get_cached_domain")
     @patch("domain.routes.clean_domain", return_value="example.com")
     def test_audit_domain_txt_filter_default(self, mock_clean, mock_get, mock_live, mock_tech):
@@ -1650,7 +1650,7 @@ class TestAuditDomainTxtFilter:
             assert "facebook-domain-verification" not in v
 
     @patch("domain.tech.detect_technologies")
-    @patch("domain.recon.fetch_live_headers")
+    @patch("domain.recon.fetch_live_headers", new_callable=AsyncMock)
     @patch("db.get_cached_domain")
     @patch("domain.routes.clean_domain", return_value="example.com")
     def test_audit_domain_txt_include_all(self, mock_clean, mock_get, mock_live, mock_tech):
@@ -1667,7 +1667,7 @@ class TestAuditDomainTxtFilter:
         assert len(dns["txt"]) == 8
 
     @patch("domain.tech.detect_technologies")
-    @patch("domain.recon.fetch_live_headers")
+    @patch("domain.recon.fetch_live_headers", new_callable=AsyncMock)
     @patch("db.get_cached_domain")
     @patch("domain.routes.clean_domain", return_value="example.com")
     def test_audit_domain_txt_filter_does_not_mutate_cache(self, mock_clean, mock_get, mock_live, mock_tech):

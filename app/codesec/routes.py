@@ -237,7 +237,7 @@ async def scan_headers_endpoint(
     if not resolved_ip:
         raise HTTPException(status_code=422, detail="Could not resolve this domain. DNS resolution failed.")
 
-    result = await run_in_threadpool(fetch_live_headers, domain)
+    result = await fetch_live_headers(domain)
     if "error" in result:
         raise HTTPException(status_code=504, detail=result["error"])
 

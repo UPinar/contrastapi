@@ -137,6 +137,7 @@ async def lifespan(app):
     from cve.routes import _exploit_client
     from cve.sync import _client as sync_client
     from domain.recon import _http as recon_client
+    from domain.recon import _ssrf_http, _ssrf_http_sync
     from domain.reputation import _client as rep_client
     from domain.routes import _ripe_client
     from domain.threat import _client as threat_client
@@ -144,10 +145,13 @@ async def lifespan(app):
     from ioc.password import _client as password_client
     from ioc.routes import _phish_client
 
-    # Sync httpx.Client — remaining Faz 4g/4 scope (_ssrf_http via routes, _ripe_client, cve.sync)
+    # Sync httpx.Client — remaining Faz 4g/4 scope (_ripe_client, cve.sync;
+    # _ssrf_http_sync only used by AIA fetch in _fetch_intermediate, deleted
+    # in Faz 4h once _aia_pool migrates to asyncio.gather)
     for c in (
         sync_client,
         _ripe_client,
+        _ssrf_http_sync,
     ):
         try:
             c.close()
@@ -162,6 +166,7 @@ async def lifespan(app):
         ioc_client,
         password_client,
         recon_client,
+        _ssrf_http,
         threat_client,
         rep_client,
     ):

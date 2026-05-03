@@ -1,6 +1,6 @@
 """Tests for /v1/seo/{domain} + the parser/scorer in domain/seo_audit.py."""
 
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -357,7 +357,7 @@ class TestSeoAuditRoute:
     @patch("db.get_cached_domain", side_effect=[None, _NO_ROBOTS])
     @patch("db.save_cached_domain")
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
-    @patch("domain.brand_assets.fetch_homepage_html", return_value=_GOOD_PAGE)
+    @patch("domain.brand_assets.fetch_homepage_html", new_callable=AsyncMock, return_value=_GOOD_PAGE)
     def test_seo_audit_200_with_score(self, mock_fetch, mock_validate, mock_save, mock_cache):
         r = client.get("/v1/seo/corp.com")
         assert r.status_code == 200, r.text
@@ -380,7 +380,7 @@ class TestSeoAuditRoute:
             "truncated": False,
         }
         with patch("db.get_cached_domain", side_effect=[None, blocked_robots]):
-            with patch("domain.brand_assets.fetch_homepage_html") as mock_fetch:
+            with patch("domain.brand_assets.fetch_homepage_html", new_callable=AsyncMock) as mock_fetch:
                 r = client.get("/v1/seo/blocked.com")
                 assert r.status_code == 403
                 assert "robots_txt_disallow" in r.text
@@ -391,6 +391,7 @@ class TestSeoAuditRoute:
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     @patch(
         "domain.brand_assets.fetch_homepage_html",
+        new_callable=AsyncMock,
         return_value={**_GOOD_PAGE, "cache_control": "no-store"},
     )
     def test_cache_control_no_store_skips_cache_write(self, mock_fetch, mock_validate, mock_save, mock_cache):
@@ -404,7 +405,7 @@ class TestSeoAuditRoute:
     @patch("db.get_cached_domain", side_effect=[None, _NO_ROBOTS])
     @patch("db.save_cached_domain")
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
-    @patch("domain.brand_assets.fetch_homepage_html", side_effect=Exception("boom"))
+    @patch("domain.brand_assets.fetch_homepage_html", new_callable=AsyncMock, side_effect=Exception("boom"))
     def test_homepage_fetch_failure_502(self, mock_fetch, mock_validate, mock_save, mock_cache):
         r = client.get("/v1/seo/corp.com")
         assert r.status_code == 502

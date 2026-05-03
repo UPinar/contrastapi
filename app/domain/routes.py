@@ -80,7 +80,7 @@ from domain.recon import (
     _hostname_matches,
     _parse_cert_der,
     _ssl_grade,
-    _ssrf_http,
+    _ssrf_http_sync,
     _strip_control_chars,
     check_ct_logs,
     check_disposable,
@@ -183,7 +183,11 @@ def _clean_shodan_str_list(items) -> list[str]:
 
 
 def _fetch_intermediate(url):
-    resp = _ssrf_http.get(url, timeout=5.0)
+    # Sync client — `_aia_pool.submit` runs this inside a worker thread that
+    # cannot await; the dedicated sync SSRF client preserves the same DNS +
+    # private-IP guard. Faz 4h migrates `_aia_pool` to asyncio.gather, after
+    # which this drops back to `_ssrf_http`.
+    resp = _ssrf_http_sync.get(url, timeout=5.0)
     if resp.status_code != 200:
         raise ValueError(f"HTTP {resp.status_code}")
     body = resp.content[:10240]
@@ -985,7 +989,7 @@ async def robots_txt_endpoint(
     from domain.robots import _exception_kind, fetch_robots_txt
 
     try:
-        result = await run_in_threadpool(fetch_robots_txt, cleaned)
+        result = await fetch_robots_txt(cleaned)
     except Exception as exc:
         kind = _exception_kind(exc)
         logger.info("robots.txt fetch failed for %s [%s]: %s", cleaned, kind, exc)
@@ -1069,7 +1073,7 @@ async def redirect_chain_endpoint(
         return cached
 
     try:
-        result = await run_in_threadpool(walk_redirect_chain, url)
+        result = await walk_redirect_chain(url)
     except TargetThrottleHopExceeded as exc:
         raise HTTPException(
             status_code=429,
@@ -1154,7 +1158,7 @@ async def brand_assets_endpoint(
     robots_payload = await aget_cached_domain(f"robots:{cleaned}")
     if robots_payload is None:
         try:
-            robots_payload = await run_in_threadpool(fetch_robots_txt, cleaned)
+            robots_payload = await fetch_robots_txt(cleaned)
             sc = robots_payload.get("status_code", 0)
             # RFC 9309 §2.4: 5xx is transient — do not cache.
             if not (500 <= sc < 600):
@@ -1173,7 +1177,7 @@ async def brand_assets_endpoint(
         )
 
     try:
-        page = await run_in_threadpool(fetch_homepage_html, cleaned)
+        page = await fetch_homepage_html(cleaned)
     except Exception as exc:
         kind = _exception_kind(exc)
         logger.info("brand_assets fetch failed for %s [%s]: %s", cleaned, kind, exc)
@@ -1269,7 +1273,7 @@ async def seo_audit_endpoint(
     robots_payload = await aget_cached_domain(f"robots:{cleaned}")
     if robots_payload is None:
         try:
-            robots_payload = await run_in_threadpool(fetch_robots_txt, cleaned)
+            robots_payload = await fetch_robots_txt(cleaned)
             sc = robots_payload.get("status_code", 0)
             if not (500 <= sc < 600):
                 await asave_cached_domain(f"robots:{cleaned}", robots_payload)
@@ -1285,7 +1289,7 @@ async def seo_audit_endpoint(
         )
 
     try:
-        page = await run_in_threadpool(fetch_homepage_html, cleaned)
+        page = await fetch_homepage_html(cleaned)
     except Exception as exc:
         kind = _exception_kind(exc)
         logger.info("seo_audit fetch failed for %s [%s]: %s", cleaned, kind, exc)
@@ -2061,7 +2065,7 @@ async def tech_fingerprint(
 ):
     """Technology fingerprinting — detect CMS, frameworks, servers, CDNs, analytics."""
     domain, resolved_ip = _validate_domain_input(domain)
-    page = await run_in_threadpool(fetch_live_page, domain)
+    page = await fetch_live_page(domain)
     if "error" in page:
         raise HTTPException(status_code=504, detail=page["error"])
     from domain.tech import detect_technologies
@@ -2148,7 +2152,7 @@ async def domain_vulns(
     """Tech stack vulnerability scan — detect technologies, then look up CVEs for each."""
     domain, resolved_ip = _validate_domain_input(domain)
 
-    page = await run_in_threadpool(fetch_live_page, domain)
+    page = await fetch_live_page(domain)
     if "error" in page:
         raise HTTPException(status_code=504, detail=page["error"])
 
@@ -2699,7 +2703,7 @@ async def audit_domain(
     report = _apply_txt_filter(report, include_all_txt)
 
     try:
-        live = await run_in_threadpool(fetch_live_headers, domain)
+        live = await fetch_live_headers(domain)
     except Exception as e:
         logger.warning("audit_domain: fetch_live_headers failed: %s", type(e).__name__)
         live = {}

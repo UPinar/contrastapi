@@ -1,6 +1,7 @@
 """Tests for /v1/redirect/{url:path} + walk_redirect_chain in domain/redirect_chain.py."""
 
-from unittest.mock import MagicMock, patch
+import asyncio
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -64,7 +65,7 @@ class TestValidateUrl:
 
 
 def _make_resp(status: int, location: str | None = None, url: str = "https://a.com/"):
-    """Build a context-manager-shaped mock that mimics httpx.Client.stream()."""
+    """Build an async-context-manager-shaped mock that mimics httpx.AsyncClient.stream()."""
     resp = MagicMock()
     resp.status_code = status
     resp.url = url
@@ -72,8 +73,8 @@ def _make_resp(status: int, location: str | None = None, url: str = "https://a.c
     if location:
         resp.headers["location"] = location
     cm = MagicMock()
-    cm.__enter__ = MagicMock(return_value=resp)
-    cm.__exit__ = MagicMock(return_value=False)
+    cm.__aenter__ = AsyncMock(return_value=resp)
+    cm.__aexit__ = AsyncMock(return_value=False)
     return cm
 
 
@@ -82,7 +83,7 @@ class TestWalkRedirectChain:
         from domain import redirect_chain as rc
 
         with patch.object(rc._ssrf_http, "stream", side_effect=[_make_resp(200, url="https://a.com/")]):
-            out = rc.walk_redirect_chain("https://a.com/")
+            out = asyncio.run(rc.walk_redirect_chain("https://a.com/"))
         assert out["hop_count"] == 1
         assert out["loop_detected"] is False
         assert out["truncated"] is False
@@ -99,7 +100,7 @@ class TestWalkRedirectChain:
             _make_resp(200, url="https://c.com/"),
         ]
         with patch.object(rc._ssrf_http, "stream", side_effect=responses):
-            out = rc.walk_redirect_chain("https://a.com/")
+            out = asyncio.run(rc.walk_redirect_chain("https://a.com/"))
         assert out["hop_count"] == 3
         assert out["final_url"] == "https://c.com/"
         assert out["final_status"] == 200
@@ -113,7 +114,7 @@ class TestWalkRedirectChain:
             _make_resp(302, location="https://a.com/", url="https://b.com/"),  # loop back
         ]
         with patch.object(rc._ssrf_http, "stream", side_effect=responses):
-            out = rc.walk_redirect_chain("https://a.com/")
+            out = asyncio.run(rc.walk_redirect_chain("https://a.com/"))
         assert out["loop_detected"] is True
         assert out["hop_count"] == 2  # only 2 fetches (a, b) — third would have re-fetched a
         assert out["truncated"] is False
@@ -124,7 +125,7 @@ class TestWalkRedirectChain:
         # 11 sequential redirects to fresh hosts — should truncate at hop 10
         responses = [_make_resp(302, location=f"https://h{i + 1}.com/", url=f"https://h{i}.com/") for i in range(11)]
         with patch.object(rc._ssrf_http, "stream", side_effect=responses):
-            out = rc.walk_redirect_chain("https://h0.com/", max_hops=10)
+            out = asyncio.run(rc.walk_redirect_chain("https://h0.com/", max_hops=10))
         assert out["truncated"] is True
         assert out["hop_count"] == 10
 
@@ -136,14 +137,14 @@ class TestWalkRedirectChain:
             _make_resp(200, url="https://a.com/new-path"),
         ]
         with patch.object(rc._ssrf_http, "stream", side_effect=responses):
-            out = rc.walk_redirect_chain("https://a.com/old-path")
+            out = asyncio.run(rc.walk_redirect_chain("https://a.com/old-path"))
         assert out["hops"][0]["location"] == "https://a.com/new-path"
 
     def test_30x_with_no_location_terminates(self):
         from domain import redirect_chain as rc
 
         with patch.object(rc._ssrf_http, "stream", side_effect=[_make_resp(304, url="https://a.com/")]):
-            out = rc.walk_redirect_chain("https://a.com/")
+            out = asyncio.run(rc.walk_redirect_chain("https://a.com/"))
         assert out["hop_count"] == 1
         assert out["truncated"] is False
         assert out["loop_detected"] is False
@@ -155,7 +156,7 @@ class TestWalkRedirectChain:
 
         responses = [_make_resp(302, location="file:///etc/passwd", url="https://a.com/")]
         with patch.object(rc._ssrf_http, "stream", side_effect=responses):
-            out = rc.walk_redirect_chain("https://a.com/")
+            out = asyncio.run(rc.walk_redirect_chain("https://a.com/"))
         # The bad scheme is silently dropped (location=None) → terminal at 1 hop
         assert out["hop_count"] == 1
         assert out["hops"][0]["location"] is None
@@ -177,7 +178,7 @@ class TestWalkRedirectChain:
         from domain import redirect_chain as rc
 
         with pytest.raises(ValueError):
-            rc.walk_redirect_chain("file:///etc/passwd")
+            asyncio.run(rc.walk_redirect_chain("file:///etc/passwd"))
 
     def test_cross_host_throttle_consumed_at_each_new_host(self):
         from domain import redirect_chain as rc
@@ -191,7 +192,7 @@ class TestWalkRedirectChain:
         ]
         with patch.object(rc._ssrf_http, "stream", side_effect=responses):
             with patch("target_throttle.consume_target_throttle", return_value=(True, 0)) as mock_throttle:
-                rc.walk_redirect_chain("https://a.com/")
+                asyncio.run(rc.walk_redirect_chain("https://a.com/"))
         # Hop 0 (start) is consumed by the route handler (NOT this function);
         # hop 1 = b.com, hop 2 = c.com → 2 throttle calls inside the walker.
         assert mock_throttle.call_count == 2
@@ -208,7 +209,7 @@ class TestWalkRedirectChain:
         with patch.object(rc._ssrf_http, "stream", side_effect=responses):
             with patch("target_throttle.consume_target_throttle", return_value=(False, 17)):
                 with pytest.raises(TargetThrottleHopExceeded) as exc_info:
-                    rc.walk_redirect_chain("https://a.com/")
+                    asyncio.run(rc.walk_redirect_chain("https://a.com/"))
         assert exc_info.value.host == "b.com"
         assert exc_info.value.retry_after == 17
 
@@ -232,7 +233,7 @@ _OK_RESULT = {
 
 
 class TestRedirectChainRoute:
-    @patch("domain.redirect_chain.walk_redirect_chain", return_value=dict(_OK_RESULT))
+    @patch("domain.redirect_chain.walk_redirect_chain", new_callable=AsyncMock, return_value=dict(_OK_RESULT))
     @patch("db.get_cached_domain", return_value=None)
     @patch("db.save_cached_domain")
     def test_redirect_200(self, mock_save, mock_cache, mock_walk):
@@ -251,7 +252,7 @@ class TestRedirectChainRoute:
         r = client.get("/v1/redirect/https:///")
         assert r.status_code == 400
 
-    @patch("domain.redirect_chain.walk_redirect_chain")
+    @patch("domain.redirect_chain.walk_redirect_chain", new_callable=AsyncMock)
     @patch("db.get_cached_domain", return_value=None)
     def test_redirect_fetch_failure_502(self, mock_cache, mock_walk):
         class TimeoutException(Exception):
@@ -264,7 +265,7 @@ class TestRedirectChainRoute:
         assert "redirect_chain fetch failed" in body["error"]["message"]
         assert "timeout" in body["error"]["message"]
 
-    @patch("domain.redirect_chain.walk_redirect_chain")
+    @patch("domain.redirect_chain.walk_redirect_chain", new_callable=AsyncMock)
     @patch("db.get_cached_domain", return_value=None)
     def test_redirect_mid_chain_throttle_429(self, mock_cache, mock_walk):
         from domain.redirect_chain import TargetThrottleHopExceeded

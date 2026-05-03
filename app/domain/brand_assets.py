@@ -340,7 +340,7 @@ def extract_brand_assets(html: str, base_url: str) -> dict:
     }
 
 
-def fetch_homepage_html(domain: str) -> dict:
+async def fetch_homepage_html(domain: str) -> dict:
     """Fetch the target domain's homepage over HTTPS (HTTP fallback).
 
     Returns: {
@@ -364,7 +364,7 @@ def fetch_homepage_html(domain: str) -> dict:
     for scheme in ("https", "http"):
         url = f"{scheme}://{domain}/"
         try:
-            with _ssrf_http.stream(
+            async with _ssrf_http.stream(
                 "GET", url, timeout=BRAND_ASSETS_TIMEOUT, follow_redirects=True, headers=no_compression
             ) as resp:
                 final_url = str(resp.url)
@@ -377,7 +377,7 @@ def fetch_homepage_html(domain: str) -> dict:
                     # route can return a clean 502 + diagnostic.
                     raise ValueError(f"non-HTML content-type at {final_url!r}: {content_type!r}")
                 buf = bytearray()
-                for chunk in resp.iter_bytes():
+                async for chunk in resp.aiter_bytes():
                     buf += chunk
                     if len(buf) >= _MAX_HOMEPAGE_BYTES:
                         break

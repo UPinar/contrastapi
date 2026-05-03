@@ -3001,7 +3001,7 @@ class TestCheckUrlhaus:
 
 
 class TestFetchLiveHeaders:
-    @patch("domain.recon._ssrf_http.get")
+    @patch("domain.recon._ssrf_http.get", new_callable=AsyncMock)
     def test_success(self, mock_get):
         from domain.recon import fetch_live_headers
 
@@ -3010,16 +3010,16 @@ class TestFetchLiveHeaders:
         resp.status_code = 200
         resp.url = httpx.URL("https://example.com/")
         mock_get.return_value = resp
-        result = fetch_live_headers("example.com")
+        result = asyncio.run(fetch_live_headers("example.com"))
         assert "headers" in result
         assert result["status_code"] == 200
         assert "x-frame-options" in result["headers"]
 
-    @patch("domain.recon._ssrf_http.get", side_effect=Exception("conn refused"))
+    @patch("domain.recon._ssrf_http.get", new_callable=AsyncMock, side_effect=Exception("conn refused"))
     def test_failure(self, mock_get):
         from domain.recon import fetch_live_headers
 
-        result = fetch_live_headers("unreachable.test")
+        result = asyncio.run(fetch_live_headers("unreachable.test"))
         assert "error" in result
 
 
@@ -3290,7 +3290,7 @@ class TestFullDomainReport:
     """Unit tests for full_domain_report — all sub-functions mocked."""
 
     @patch("domain.scoring.score_domain")
-    @patch("domain.recon.fetch_live_headers")
+    @patch("domain.recon.fetch_live_headers", new_callable=AsyncMock)
     @patch("domain.recon.email_security")
     @patch("domain.threat.check_urlhaus", new_callable=AsyncMock)
     @patch("domain.recon.check_ct_logs", new_callable=AsyncMock)
@@ -3325,7 +3325,7 @@ class TestFullDomainReport:
         assert "summary" in result
 
     @patch("domain.scoring.score_domain", return_value={"grade": "B", "score": 70, "factors": []})
-    @patch("domain.recon.fetch_live_headers", return_value={"headers": {}})
+    @patch("domain.recon.fetch_live_headers", new_callable=AsyncMock, return_value={"headers": {}})
     @patch("domain.recon.email_security", return_value={"grade": "C"})
     @patch("domain.threat.check_urlhaus", return_value={"url_count": 0, "urls_online": 0}, new_callable=AsyncMock)
     @patch(
@@ -3366,7 +3366,7 @@ class TestFullDomainReport:
         assert result["reputation"]["shodan"]["status"] == "pro_only"
 
     @patch("domain.scoring.score_domain", return_value={"grade": "A", "score": 90, "factors": []})
-    @patch("domain.recon.fetch_live_headers", return_value={"headers": {}})
+    @patch("domain.recon.fetch_live_headers", new_callable=AsyncMock, return_value={"headers": {}})
     @patch("domain.recon.email_security", return_value={"grade": "A"})
     @patch("domain.threat.check_urlhaus", return_value={"url_count": 0, "urls_online": 0}, new_callable=AsyncMock)
     @patch(
@@ -3413,7 +3413,7 @@ class TestFullDomainReport:
         assert "reputation" not in result
 
     @patch("domain.scoring.score_domain")
-    @patch("domain.recon.fetch_live_headers")
+    @patch("domain.recon.fetch_live_headers", new_callable=AsyncMock)
     @patch("domain.recon.email_security", return_value={"grade": "A"})
     @patch("domain.threat.check_urlhaus", return_value={"url_count": 3, "urls_online": 1}, new_callable=AsyncMock)
     @patch(
@@ -3731,7 +3731,7 @@ class TestSslInfo:
 
 
 class TestScanHeadersRoute:
-    @patch("codesec.routes.fetch_live_headers")
+    @patch("codesec.routes.fetch_live_headers", new_callable=AsyncMock)
     @patch("codesec.routes.validate_domain", return_value="93.184.216.34")
     def test_scan_headers_200(self, mock_validate, mock_fetch):
         mock_fetch.return_value = {
@@ -3750,7 +3750,7 @@ class TestScanHeadersRoute:
         r = client.get("/v1/scan/headers/not-valid")
         assert r.status_code == 400
 
-    @patch("codesec.routes.fetch_live_headers")
+    @patch("codesec.routes.fetch_live_headers", new_callable=AsyncMock)
     @patch("codesec.routes.validate_domain", return_value="1.2.3.4")
     def test_scan_headers_connection_failure_504(self, mock_validate, mock_fetch):
         mock_fetch.return_value = {"error": "Could not connect to fail.test"}
@@ -4592,7 +4592,7 @@ class TestProOnlyEnrichment:
     # --- full_domain_report unit tests ---
 
     @patch("domain.scoring.score_domain", return_value={"grade": "A", "score": 90, "factors": []})
-    @patch("domain.recon.fetch_live_headers", return_value={"headers": {}})
+    @patch("domain.recon.fetch_live_headers", new_callable=AsyncMock, return_value={"headers": {}})
     @patch("domain.recon.email_security", return_value={"grade": "A"})
     @patch("domain.threat.check_urlhaus", return_value={"url_count": 0, "urls_online": 0}, new_callable=AsyncMock)
     @patch(
@@ -4648,7 +4648,7 @@ class TestProOnlyEnrichment:
         assert result["reputation"]["shodan"]["upgrade_url"] == "https://contrastcyber.com/pricing"
 
     @patch("domain.scoring.score_domain", return_value={"grade": "A", "score": 90, "factors": []})
-    @patch("domain.recon.fetch_live_headers", return_value={"headers": {}})
+    @patch("domain.recon.fetch_live_headers", new_callable=AsyncMock, return_value={"headers": {}})
     @patch("domain.recon.email_security", return_value={"grade": "A"})
     @patch("domain.threat.check_urlhaus", return_value={"url_count": 0, "urls_online": 0}, new_callable=AsyncMock)
     @patch(
@@ -4869,7 +4869,7 @@ class TestProOnlyEnrichment:
         "domain.tech.detect_technologies",
         return_value={"technologies": [], "categories": {}, "count": 0, "summary": ""},
     )
-    @patch("domain.recon.fetch_live_headers", return_value={"headers": {}})
+    @patch("domain.recon.fetch_live_headers", new_callable=AsyncMock, return_value={"headers": {}})
     @patch("db.save_cached_domain")
     @patch("db.get_cached_domain", return_value=None)
     @patch(

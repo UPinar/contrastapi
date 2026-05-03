@@ -113,7 +113,7 @@ def parse_robots_txt(body: str) -> dict:
     return {"user_agents": user_agents, "sitemaps": sitemaps, "host": host}
 
 
-def fetch_robots_txt(domain: str) -> dict:
+async def fetch_robots_txt(domain: str) -> dict:
     """Fetch + parse robots.txt for `domain` over HTTPS (HTTP fallback).
 
     Returns: {
@@ -144,13 +144,13 @@ def fetch_robots_txt(domain: str) -> dict:
     for scheme in ("https", "http"):
         url = f"{scheme}://{domain}/robots.txt"
         try:
-            with _ssrf_http.stream(
+            async with _ssrf_http.stream(
                 "GET", url, timeout=ROBOTS_TIMEOUT, follow_redirects=True, headers=no_compression
             ) as resp:
                 fetched_url = str(resp.url)
                 status_code = resp.status_code
                 buf = bytearray()
-                for chunk in resp.iter_bytes():
+                async for chunk in resp.aiter_bytes():
                     buf += chunk
                     if len(buf) >= ROBOTS_MAX_BYTES:
                         truncated = True
