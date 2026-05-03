@@ -1822,13 +1822,19 @@ try:
                             [b"content-length", str(len(_err_body)).encode()],
                         ]
                         if _gate_exc.status_code == 429:
-                            # auth.py:113 sets request.state.ratelimit_reset to
-                            # the absolute epoch the bucket frees up. Translate
-                            # to a delta seconds value for the Retry-After
-                            # header so the client backs off the actual wait,
-                            # not a hardcoded 60s.
-                            _reset_at = getattr(_gate_req.state, "ratelimit_reset", 0) or 0
-                            _retry_after = max(1, int(_reset_at - time.time())) if _reset_at else 60
+                            # Faz 3: authenticate_sync stashes AuthCtx on
+                            # request.state.auth BEFORE the 429 raise.
+                            # ratelimit_reset is a DELTA in seconds (from
+                            # ratelimit.get_reset_time), so it goes straight
+                            # into Retry-After. Pre-Faz-3 code subtracted
+                            # time.time() treating it as epoch — that always
+                            # clamped to 1s. Fall back to 60s only if no
+                            # AuthCtx (defensive — should never happen on the
+                            # 429 path post-Faz-3).
+                            _auth_mcp = getattr(_gate_req.state, "auth", None)
+                            _retry_after = (
+                                _auth_mcp.ratelimit_reset if _auth_mcp and _auth_mcp.ratelimit_reset > 0 else 60
+                            )
                             _err_headers.append([b"retry-after", str(_retry_after).encode()])
                         await send(
                             {
