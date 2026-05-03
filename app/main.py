@@ -18,7 +18,6 @@ import base64
 import hashlib
 import logging
 import re
-import time
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -321,58 +320,24 @@ _SECURITY_HEADERS = {
 }
 
 
-@app.middleware("http")
-async def security_headers_middleware(request: Request, call_next):
-    response = await call_next(request)
-    for name, value in _SECURITY_HEADERS.items():
-        response.headers.setdefault(name, value)
-    return response
+# Middleware stack — registered via add_middleware (LIFO: last added = outermost).
+# Final outer→inner order: RequestContextMiddleware → SecurityHeadersMiddleware → CORS → routes.
+# CORS already registered at line 190 (innermost wrapping).
+from middleware import (
+    RequestContextMiddleware,
+    SecurityHeadersMiddleware,
+    _extract_key_from_scope,
+)
 
-
-# --- Middleware: Request ID + Rate Limit Headers + Logging ---
-
-
-@app.middleware("http")
-async def request_middleware(request: Request, call_next):
-    request_id = uuid.uuid4().hex[:16]
-    request.state.request_id = request_id
-    start = time.time()
-
-    response = await call_next(request)
-
-    # Request ID header
-    response.headers["X-Request-ID"] = request_id
-
-    # Rate limit headers (set by auth.authenticate_sync via request.state.auth).
-    # Faz 3: middleware reads from request.state.auth exclusively. AuthCtx is
-    # stashed BEFORE 401/429 raise (auth.authenticate_sync), so the headers
-    # always reflect the actual quota state — no extract_key() fallback needed.
-    auth_ctx: AuthCtx | None = getattr(request.state, "auth", None)
-    if auth_ctx is not None:
-        response.headers["X-RateLimit-Limit"] = str(auth_ctx.ratelimit_limit)
-        response.headers["X-RateLimit-Remaining"] = str(auth_ctx.ratelimit_remaining)
-        response.headers["X-RateLimit-Reset"] = str(auth_ctx.ratelimit_reset)
-        response.headers["X-RateLimit-Tier"] = auth_ctx.tier
-        response.headers["X-RateLimit-Cost"] = str(auth_ctx.ratelimit_cost)
-
-    # Upgrade signal: only on free-tier 429s (Pro already pays; 200s don't need upsell).
-    # If auth_ctx is None (request never reached an authenticated route — 404,
-    # static asset, etc.), fall back to extract_key for the rare case where a
-    # tarpit/rate-limit-zone in nginx emits 429 without our auth path running.
-    if response.status_code == 429:
-        is_free = (auth_ctx is not None and auth_ctx.tier == "free") or (
-            auth_ctx is None and extract_key(request) is None
-        )
-        if is_free:
-            response.headers["X-Upgrade-URL"] = UPGRADE_URL
-
-    # Request logging + metrics
-    elapsed = int((time.time() - start) * 1000)
-    safe_path = _sanitize_path(request.url.path)
-    logger.info("%s %s %s %dms [%s]", request.method, safe_path, response.status_code, elapsed, request_id)
-    _record_metric(request.url.path, response.status_code, elapsed)
-
-    return response
+app.add_middleware(SecurityHeadersMiddleware, headers=_SECURITY_HEADERS)
+app.add_middleware(
+    RequestContextMiddleware,
+    upgrade_url=UPGRADE_URL,
+    sanitize_path=_sanitize_path,
+    extract_key_fn=_extract_key_from_scope,
+    record_metric=_record_metric,
+    logger=logger,
+)
 
 
 # --- Error handler ---
