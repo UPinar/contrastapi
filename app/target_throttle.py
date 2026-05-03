@@ -133,9 +133,9 @@ def _maybe_alert(etld1_value: str, count: int) -> None:
 def _fire_alert(etld1_value: str, count: int) -> None:
     """Best-effort Telegram alert. Swallows all exceptions (never breaks request)."""
     try:
-        from main import _notify_telegram
+        from core.notify import notify_telegram as _notify_telegram
     except Exception as exc:  # pragma: no cover — import guard
-        logger.warning("target_throttle alert: import _notify_telegram failed (%s)", exc)
+        logger.warning("target_throttle alert: import notify_telegram failed (%s)", exc)
         return
     # Defense-in-depth length cap. tldextract output is already constrained to
     # PSL-valid characters [a-z0-9.-], but a malformed extract could in theory

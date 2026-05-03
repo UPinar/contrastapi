@@ -54,7 +54,6 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
 from ratelimit import check_limit
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from validation import get_client_ip
@@ -179,7 +178,7 @@ app = FastAPI(
 )
 
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
-templates = Jinja2Templates(directory=BASE_DIR / "templates")
+from core.templates import templates
 
 # CORS — narrowly scoped to the billing endpoints called from the marketing
 # site (contrastcyber.com). The rest of the API is consumed by server-side
@@ -197,67 +196,10 @@ app.add_middleware(
 )
 
 
-# --- In-memory metrics ---
-
-import threading
-
-_metrics_lock = threading.Lock()
-_metrics = {
-    "requests_total": 0,
-    "requests_by_status": {},
-    "requests_by_path": {},
-    "errors_total": 0,
-    "latency_sum_ms": 0,
-}
-
-
-_PATH_NORMALIZE = re.compile(
-    r"/v1/(cve|domain|dns|whois|subdomains|certs|ssl|threat|ip|epss|exploit|scan/headers|monitor|ioc|hash|password|asn|phishing|tech|email/mx|email/disposable|phone)/[^/]+(?:/(changes|vulns))?"
-)
-
-_MAX_TRACKED_PATHS = 200
-
-_LOG_SANITIZE = re.compile(
-    r"/v1/(phone|email/mx|email/disposable|ip|domain|dns|whois|subdomains|certs|ssl|threat|tech|monitor|ioc|phishing|scan/headers|asn|password|archive|username|cve|cves|exploit|hash|epss)(?:/(lookup|search|leading|bulk|report))?/[^?]+",
-    re.IGNORECASE,
-)
-
-
-def _sanitize_path(path: str) -> str:
-    """Redact PII (domains, IPs, emails, phones) from request paths for safe logging."""
-    safe = re.sub(r"[\x00-\x1f\x7f]", "", path)
-    query_idx = safe.find("?")
-    if query_idx >= 0:
-        safe = safe[:query_idx]
-    return _LOG_SANITIZE.sub(
-        lambda m: (
-            f"/v1/{m.group(1).lower()}/{m.group(2).lower()}/***" if m.group(2) else f"/v1/{m.group(1).lower()}/***"
-        ),
-        safe,
-    )
-
-
-def _normalize_path(path: str) -> str:
-    """Normalize dynamic path segments to prevent unbounded memory growth."""
-    m = _PATH_NORMALIZE.match(path)
-    if m:
-        return f"/v1/{m.group(1)}/{{id}}"
-    return path
-
-
-def _record_metric(path: str, status: int, elapsed_ms: int):
-    with _metrics_lock:
-        _metrics["requests_total"] += 1
-        _metrics["latency_sum_ms"] += elapsed_ms
-        status_key = str(status)
-        _metrics["requests_by_status"][status_key] = _metrics["requests_by_status"].get(status_key, 0) + 1
-        if path.startswith("/v1/"):
-            norm = _normalize_path(path)
-            if len(_metrics["requests_by_path"]) < _MAX_TRACKED_PATHS or norm in _metrics["requests_by_path"]:
-                _metrics["requests_by_path"][norm] = _metrics["requests_by_path"].get(norm, 0) + 1
-        if status >= 400:
-            _metrics["errors_total"] += 1
-
+from core.metrics import _sanitize_path
+from core.metrics import metrics as _metrics
+from core.metrics import metrics_lock as _metrics_lock
+from core.metrics import record_metric as _record_metric
 
 # --- Security headers (set on every response; replaces nginx snippet) ---
 
