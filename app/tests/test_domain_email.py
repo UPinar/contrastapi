@@ -96,8 +96,8 @@ MOCK_EMAIL_SECURITY = {
 class TestEmailMxRoute:
     @patch("domain.routes.email_security", return_value=MOCK_EMAIL_SECURITY)
     @patch("domain.routes.dns_lookup", return_value=MOCK_MX_DNS)
-    @patch("domain.routes.get_cached_domain", return_value=None)
-    @patch("domain.routes.save_cached_domain")
+    @patch("db.get_cached_domain", return_value=None)
+    @patch("db.save_cached_domain")
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     def test_email_mx_200(self, mock_validate, mock_save, mock_cache, mock_dns, mock_email):
         r = client.get("/v1/email/mx/example.com")
@@ -114,8 +114,8 @@ class TestEmailMxRoute:
         return_value={"spf": None, "dmarc": None, "dkim_selectors": [], "grade": "F", "issues": ["No SPF"]},
     )
     @patch("domain.routes.dns_lookup", return_value={"a": ["1.2.3.4"]})
-    @patch("domain.routes.get_cached_domain", return_value=None)
-    @patch("domain.routes.save_cached_domain")
+    @patch("db.get_cached_domain", return_value=None)
+    @patch("db.save_cached_domain")
     @patch("domain.routes.validate_domain", return_value="1.2.3.4")
     def test_email_mx_no_mx_records(self, mock_validate, mock_save, mock_cache, mock_dns, mock_email):
         r = client.get("/v1/email/mx/nomx.example.com")
@@ -125,7 +125,7 @@ class TestEmailMxRoute:
         assert data.get("mail_provider") is None
         assert "no MX records" in data["summary"]
 
-    @patch("domain.routes.get_cached_domain")
+    @patch("db.get_cached_domain")
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     def test_email_mx_cached(self, mock_validate, mock_cache):
         mock_cache.return_value = {
@@ -149,8 +149,8 @@ class TestEmailMxRoute:
 
     @patch("domain.routes.email_security", return_value=MOCK_EMAIL_SECURITY)
     @patch("domain.routes.dns_lookup", return_value=MOCK_MX_DNS)
-    @patch("domain.routes.get_cached_domain", return_value=None)
-    @patch("domain.routes.save_cached_domain")
+    @patch("db.get_cached_domain", return_value=None)
+    @patch("db.save_cached_domain")
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     def test_email_mx_response_shape(self, mock_validate, mock_save, mock_cache, mock_dns, mock_email):
         r = client.get("/v1/email/mx/example.com")
@@ -160,8 +160,8 @@ class TestEmailMxRoute:
     @patch("domain.routes.RECON_TIMEOUT", 0.1)
     @patch("domain.routes.email_security", side_effect=lambda *a, **kw: __import__("time").sleep(0.5))
     @patch("domain.routes.dns_lookup", return_value=MOCK_MX_DNS)
-    @patch("domain.routes.get_cached_domain", return_value=None)
-    @patch("domain.routes.save_cached_domain")
+    @patch("db.get_cached_domain", return_value=None)
+    @patch("db.save_cached_domain")
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     def test_email_mx_timeout_fallback(self, mock_validate, mock_save, mock_cache, mock_dns, mock_email):
         r = client.get("/v1/email/mx/slow.example.com")
@@ -273,8 +273,8 @@ class TestDisposableListSyncInvariant:
 
 class TestDisposableRoute:
     @patch("domain.routes.check_disposable", return_value=MOCK_DISPOSABLE_RESULT)
-    @patch("domain.routes.get_cached_domain", return_value=None)
-    @patch("domain.routes.save_cached_domain")
+    @patch("db.get_cached_domain", return_value=None)
+    @patch("db.save_cached_domain")
     @patch("domain.routes.validate_domain", return_value="1.2.3.4")
     def test_disposable_known(self, mock_validate, mock_save, mock_cache, mock_check):
         r = client.get("/v1/email/disposable/test@tempmail.com")
@@ -286,8 +286,8 @@ class TestDisposableRoute:
         assert "disposable" in data["summary"]
 
     @patch("domain.routes.check_disposable", return_value=MOCK_CLEAN_RESULT)
-    @patch("domain.routes.get_cached_domain", return_value=None)
-    @patch("domain.routes.save_cached_domain")
+    @patch("db.get_cached_domain", return_value=None)
+    @patch("db.save_cached_domain")
     @patch("domain.routes.validate_domain", return_value="1.2.3.4")
     def test_not_disposable(self, mock_validate, mock_save, mock_cache, mock_check):
         r = client.get("/v1/email/disposable/user@google.com")
@@ -298,8 +298,8 @@ class TestDisposableRoute:
         assert "not disposable" in data["summary"]
 
     @patch("domain.routes.check_disposable", return_value=MOCK_MX_ONLY_RESULT)
-    @patch("domain.routes.get_cached_domain", return_value=None)
-    @patch("domain.routes.save_cached_domain")
+    @patch("db.get_cached_domain", return_value=None)
+    @patch("db.save_cached_domain")
     @patch("domain.routes.validate_domain", return_value="1.2.3.4")
     def test_mx_only_disposable(self, mock_validate, mock_save, mock_cache, mock_check):
         r = client.get("/v1/email/disposable/user@sneakydomain.com")
@@ -312,7 +312,7 @@ class TestDisposableRoute:
         r = client.get("/v1/email/disposable/notanemail")
         assert r.status_code == 400
 
-    @patch("domain.routes.get_cached_domain")
+    @patch("db.get_cached_domain")
     def test_cached(self, mock_cache):
         mock_cache.return_value = {
             "email": "test@tempmail.com",
@@ -328,8 +328,8 @@ class TestDisposableRoute:
         assert r.status_code == 200
 
     @patch("domain.routes.check_disposable", return_value=MOCK_DISPOSABLE_RESULT)
-    @patch("domain.routes.get_cached_domain", return_value=None)
-    @patch("domain.routes.save_cached_domain")
+    @patch("db.get_cached_domain", return_value=None)
+    @patch("db.save_cached_domain")
     @patch("domain.routes.validate_domain", return_value="1.2.3.4")
     def test_response_shape(self, mock_validate, mock_save, mock_cache, mock_check):
         r = client.get("/v1/email/disposable/test@tempmail.com")
@@ -369,7 +369,7 @@ class TestDisposableRoute:
         assert r.status_code == 400
         assert "local-part" in r.json()["error"]["message"]
 
-    @patch("domain.routes.get_cached_domain")
+    @patch("db.get_cached_domain")
     def test_cached_returns_correct_email(self, mock_cache):
         """M1 fix: cached response must return the requested email, not the original."""
         mock_cache.return_value = {

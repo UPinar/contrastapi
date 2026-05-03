@@ -134,8 +134,8 @@ class TestIsFreeProvider:
 class TestEmailVerifyRoute:
     @patch("domain.routes.check_disposable", return_value={"disposable": False, "provider": None})
     @patch("domain.routes.dns_lookup", return_value={"mx": [{"priority": 10, "host": "aspmx.l.google.com."}]})
-    @patch("domain.routes.get_cached_domain", return_value=None)
-    @patch("domain.routes.save_cached_domain")
+    @patch("db.get_cached_domain", return_value=None)
+    @patch("db.save_cached_domain")
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     def test_verify_corporate_email_200(self, mock_validate, mock_save, mock_cache, mock_dns, mock_disp):
         r = client.get("/v1/email/verify/jane.doe@corp.com")
@@ -151,8 +151,8 @@ class TestEmailVerifyRoute:
 
     @patch("domain.routes.check_disposable", return_value={"disposable": False, "provider": None})
     @patch("domain.routes.dns_lookup", return_value={"mx": [{"priority": 1, "host": "smtp.gmail.com."}]})
-    @patch("domain.routes.get_cached_domain", return_value=None)
-    @patch("domain.routes.save_cached_domain")
+    @patch("db.get_cached_domain", return_value=None)
+    @patch("db.save_cached_domain")
     @patch("domain.routes.validate_domain", return_value="142.250.80.5")
     def test_verify_free_provider_flagged(self, mock_validate, mock_save, mock_cache, mock_dns, mock_disp):
         r = client.get("/v1/email/verify/user@gmail.com")
@@ -162,8 +162,8 @@ class TestEmailVerifyRoute:
 
     @patch("domain.routes.check_disposable", return_value={"disposable": False, "provider": None})
     @patch("domain.routes.dns_lookup", return_value={"mx": [{"priority": 10, "host": "mx.example.com."}]})
-    @patch("domain.routes.get_cached_domain", return_value=None)
-    @patch("domain.routes.save_cached_domain")
+    @patch("db.get_cached_domain", return_value=None)
+    @patch("db.save_cached_domain")
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     def test_verify_role_address_flagged(self, mock_validate, mock_save, mock_cache, mock_dns, mock_disp):
         r = client.get("/v1/email/verify/admin+ci@corp.com")
@@ -174,8 +174,8 @@ class TestEmailVerifyRoute:
 
     @patch("domain.routes.check_disposable", return_value={"disposable": True, "provider": "Mailinator"})
     @patch("domain.routes.dns_lookup", return_value={"mx": [{"priority": 10, "host": "mx.mailinator.com."}]})
-    @patch("domain.routes.get_cached_domain", return_value=None)
-    @patch("domain.routes.save_cached_domain")
+    @patch("db.get_cached_domain", return_value=None)
+    @patch("db.save_cached_domain")
     @patch("domain.routes.validate_domain", return_value="1.2.3.4")
     def test_verify_disposable_flagged(self, mock_validate, mock_save, mock_cache, mock_dns, mock_disp):
         r = client.get("/v1/email/verify/throwaway@mailinator.com")
@@ -205,7 +205,7 @@ class TestEmailVerifyRoute:
 
     @patch("domain.routes.dns_lookup")
     @patch("domain.routes.check_disposable")
-    @patch("domain.routes.save_cached_domain")
+    @patch("db.save_cached_domain")
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     def test_verify_cache_hit_recomputes_role_per_email(self, mock_validate, mock_save, mock_disp, mock_dns):
         """Cache stores domain-level facets only; per-email facets (role, syntax)
@@ -217,7 +217,7 @@ class TestEmailVerifyRoute:
             "disposable_provider": None,
             "free_provider": False,
         }
-        with patch("domain.routes.get_cached_domain", return_value=cached_payload):
+        with patch("db.get_cached_domain", return_value=cached_payload):
             r1 = client.get("/v1/email/verify/admin@corp.com")
             r2 = client.get("/v1/email/verify/jane.doe@corp.com")
         assert r1.status_code == 200

@@ -167,8 +167,8 @@ _PARSED_OK = {
 
 class TestRobotsTxtRoute:
     @patch("domain.robots.fetch_robots_txt", return_value=dict(_PARSED_OK))
-    @patch("domain.routes.get_cached_domain", return_value=None)
-    @patch("domain.routes.save_cached_domain")
+    @patch("db.get_cached_domain", return_value=None)
+    @patch("db.save_cached_domain")
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     def test_robots_200(self, mock_validate, mock_save, mock_cache, mock_fetch):
         r = client.get("/v1/robots/example.com")
@@ -186,8 +186,8 @@ class TestRobotsTxtRoute:
         assert "robots:example.com" in keys
 
     @patch("domain.robots.fetch_robots_txt")
-    @patch("domain.routes.get_cached_domain", return_value=None)
-    @patch("domain.routes.save_cached_domain")
+    @patch("db.get_cached_domain", return_value=None)
+    @patch("db.save_cached_domain")
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     def test_robots_404_implicit_allow_all(self, mock_validate, mock_save, mock_cache, mock_fetch):
         mock_fetch.return_value = {
@@ -203,7 +203,7 @@ class TestRobotsTxtRoute:
         assert data["user_agents"] == {}
         assert "implicit allow-all" in data["summary"]
 
-    @patch("domain.routes.get_cached_domain")
+    @patch("db.get_cached_domain")
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     def test_robots_cache_hit_short_circuits(self, mock_validate, mock_cache):
         mock_cache.return_value = dict(_PARSED_OK, summary="cached")
@@ -214,7 +214,7 @@ class TestRobotsTxtRoute:
         assert r.json()["summary"] == "cached"
 
     @patch("domain.robots.fetch_robots_txt", side_effect=RuntimeError("connect failed"))
-    @patch("domain.routes.get_cached_domain", return_value=None)
+    @patch("db.get_cached_domain", return_value=None)
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     def test_robots_fetch_failure_502(self, mock_validate, mock_cache, mock_fetch):
         r = client.get("/v1/robots/blackhole.example.com")
@@ -228,8 +228,8 @@ class TestRobotsTxtRoute:
         assert "unknown_error" in msg
 
     @patch("domain.robots.fetch_robots_txt")
-    @patch("domain.routes.get_cached_domain", return_value=None)
-    @patch("domain.routes.save_cached_domain")
+    @patch("db.get_cached_domain", return_value=None)
+    @patch("db.save_cached_domain")
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     def test_robots_5xx_upstream_502_no_cache(self, mock_validate, mock_save, mock_cache, mock_fetch):
         """RFC 9309 §2.4: 5xx is transient — surface as 502, do NOT cache empty rules."""
@@ -260,8 +260,8 @@ class TestRobotsTxtRoute:
         assert r.status_code == 400
 
     @patch("domain.robots.fetch_robots_txt", return_value=dict(_PARSED_OK))
-    @patch("domain.routes.get_cached_domain", return_value=None)
-    @patch("domain.routes.save_cached_domain")
+    @patch("db.get_cached_domain", return_value=None)
+    @patch("db.save_cached_domain")
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     def test_robots_target_throttle_429(self, mock_validate, mock_save, mock_cache, mock_fetch):
         """61st request to the same eTLD+1 within 60s gets 429 from target_throttle."""

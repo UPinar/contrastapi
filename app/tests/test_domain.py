@@ -514,7 +514,7 @@ MOCK_FULL_REPORT = {
 class TestDomainRoutes:
     @patch("domain.routes.full_domain_report", return_value=MOCK_FULL_REPORT)
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
-    @patch("domain.routes.get_cached_domain_with_age", return_value=None)
+    @patch("db.get_cached_domain_with_age", return_value=None)
     def test_domain_report_200(self, mock_cache, mock_validate, mock_report):
         """validate_domain is called in _validate_and_auth for all routes."""
         r = client.get("/v1/domain/example.com")
@@ -526,7 +526,7 @@ class TestDomainRoutes:
 
     @patch("domain.routes.full_domain_report", return_value=MOCK_FULL_REPORT)
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
-    @patch("domain.routes.get_cached_domain_with_age", return_value=None)
+    @patch("db.get_cached_domain_with_age", return_value=None)
     def test_domain_report_post(self, mock_cache, mock_validate, mock_report):
         """POST returns same result as GET (Salesforce SFDC-Callout compat)."""
         r = client.post("/v1/domain/example.com")
@@ -536,7 +536,7 @@ class TestDomainRoutes:
 
     @patch("domain.routes.full_domain_report", return_value=MOCK_FULL_REPORT)
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
-    @patch("domain.routes.get_cached_domain_with_age", return_value=None)
+    @patch("db.get_cached_domain_with_age", return_value=None)
     def test_domain_report_post_with_body(self, mock_cache, mock_validate, mock_report):
         """POST with JSON body is ignored (body not read)."""
         r = client.post("/v1/domain/example.com", json={"extra": "ignored"})
@@ -544,7 +544,7 @@ class TestDomainRoutes:
 
     @patch("domain.routes.full_domain_report", return_value=MOCK_FULL_REPORT)
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
-    @patch("domain.routes.get_cached_domain_with_age", return_value=None)
+    @patch("db.get_cached_domain_with_age", return_value=None)
     def test_domain_report_risk_score_alias(self, mock_cache, mock_validate, mock_report):
         r = client.get("/v1/domain/example.com")
         assert r.status_code == 200
@@ -556,7 +556,7 @@ class TestDomainRoutes:
 
     @patch("domain.routes.full_domain_report", return_value=MOCK_FULL_REPORT)
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
-    @patch("domain.routes.get_cached_domain_with_age", return_value=None)
+    @patch("db.get_cached_domain_with_age", return_value=None)
     def test_domain_report_emits_rfc8594_deprecation_headers(self, mock_cache, mock_validate, mock_report):
         """v1.21.1: top-level risk_score alias is deprecated; route emits Deprecation/Sunset."""
         r = client.get("/v1/domain/example.com")
@@ -569,7 +569,7 @@ class TestDomainRoutes:
 
     @patch("domain.routes.full_domain_report")
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
-    @patch("domain.routes.get_cached_domain_with_age", return_value=(MOCK_FULL_REPORT, 1800))
+    @patch("db.get_cached_domain_with_age", return_value=(MOCK_FULL_REPORT, 1800))
     def test_domain_report_emits_deprecation_headers_on_cache_hit(self, mock_cache, mock_validate, mock_report):
         """v1.21.1: deprecation headers must fire on BOTH cache-miss AND cache-hit paths."""
         r = client.get("/v1/domain/example.com")
@@ -580,7 +580,7 @@ class TestDomainRoutes:
 
     @patch("domain.routes.full_domain_report")
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
-    @patch("domain.routes.get_cached_domain_with_age", return_value=(MOCK_FULL_REPORT, 3600))
+    @patch("db.get_cached_domain_with_age", return_value=(MOCK_FULL_REPORT, 3600))
     def test_domain_report_cached(self, mock_cache, mock_validate, mock_report):
         r = client.get("/v1/domain/example.com")
         assert r.status_code == 200
@@ -589,7 +589,7 @@ class TestDomainRoutes:
 
     @patch("domain.routes.full_domain_report", return_value=MOCK_FULL_REPORT)
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
-    @patch("domain.routes.get_cached_domain_with_age", return_value=None)
+    @patch("db.get_cached_domain_with_age", return_value=None)
     def test_domain_report_lite(self, mock_cache, mock_validate, mock_report):
         """?lite=true passes lite=True to full_domain_report and uses separate cache key."""
         r = client.get("/v1/domain/example.com?lite=true")
@@ -618,7 +618,7 @@ class TestDomainRoutes:
             keys_seen.append(key)
             return None
 
-        with _patch("domain.routes.get_cached_domain_with_age", side_effect=fake_get):
+        with _patch("db.get_cached_domain_with_age", side_effect=fake_get):
             client.get("/v1/domain/example.com?lite=true")
             client.get("/v1/domain/example.com")
         assert keys_seen == ["free:lite:example.com", "free:example.com"]
@@ -627,14 +627,14 @@ class TestDomainRoutes:
 
     @patch("domain.routes._is_valid_format", return_value=False)
     @patch("domain.routes.validate_domain", return_value=None)
-    @patch("domain.routes.get_cached_domain_with_age", return_value=None)
+    @patch("db.get_cached_domain_with_age", return_value=None)
     def test_domain_report_invalid_domain(self, mock_cache, mock_validate, mock_format):
         r = client.get("/v1/domain/nonexistent.invalid")
         assert r.status_code == 400
 
     @patch("domain.routes.full_domain_report", return_value=MOCK_FULL_REPORT)
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
-    @patch("domain.routes.get_cached_domain_with_age", return_value=None)
+    @patch("db.get_cached_domain_with_age", return_value=None)
     def test_domain_report_verdict(self, mock_cache, mock_validate, mock_report):
         r = client.get("/v1/domain/example.com")
         assert r.status_code == 200
@@ -649,7 +649,7 @@ class TestDomainRoutes:
 
     @patch("domain.routes.full_domain_report", return_value=MOCK_FULL_REPORT)
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
-    @patch("domain.routes.get_cached_domain_with_age", return_value=None)
+    @patch("db.get_cached_domain_with_age", return_value=None)
     def test_domain_report_verdict_complete_full_mode(self, mock_cache, mock_validate, mock_report):
         r = client.get("/v1/domain/example.com")
         assert r.status_code == 200
@@ -674,7 +674,7 @@ class TestDomainRoutes:
         },
     )
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
-    @patch("domain.routes.get_cached_domain_with_age", return_value=None)
+    @patch("db.get_cached_domain_with_age", return_value=None)
     def test_domain_report_verdict_partial_on_urlhaus_error(self, mock_cache, mock_validate, mock_report):
         r = client.get("/v1/domain/example.com")
         assert r.status_code == 200
@@ -684,7 +684,7 @@ class TestDomainRoutes:
 
     @patch("domain.routes.full_domain_report", return_value=MOCK_FULL_REPORT)
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
-    @patch("domain.routes.get_cached_domain_with_age", return_value=None)
+    @patch("db.get_cached_domain_with_age", return_value=None)
     def test_domain_report_verdict_lite_mode(self, mock_cache, mock_validate, mock_report):
         r = client.get("/v1/domain/example.com?lite=true")
         assert r.status_code == 200
@@ -697,7 +697,7 @@ class TestDomainRoutes:
 
     @patch("domain.routes.full_domain_report", return_value=MOCK_FULL_REPORT)
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
-    @patch("domain.routes.get_cached_domain_with_age", return_value=None)
+    @patch("db.get_cached_domain_with_age", return_value=None)
     def test_domain_report_next_calls_full_chain(self, mock_cache, mock_validate, mock_report):
         """Cascade: domain has A record → subdomain_enum + ssl_check + tech_fingerprint."""
         r = client.get("/v1/domain/example.com")
@@ -1612,7 +1612,7 @@ class TestDomainReportTxtFilter:
 
     @patch("domain.routes.full_domain_report")
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
-    @patch("domain.routes.get_cached_domain_with_age")
+    @patch("db.get_cached_domain_with_age")
     def test_domain_report_txt_filter_default(self, mock_cache, mock_validate, mock_report):
         mock_cache.return_value = (self._TXT_REPORT, 60)
         r = client.get("/v1/domain/example.com")
@@ -1630,7 +1630,7 @@ class TestDomainReportTxtFilter:
 
     @patch("domain.routes.full_domain_report")
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
-    @patch("domain.routes.get_cached_domain_with_age")
+    @patch("db.get_cached_domain_with_age")
     def test_domain_report_txt_include_all(self, mock_cache, mock_validate, mock_report):
         mock_cache.return_value = (self._TXT_REPORT, 60)
         r = client.get("/v1/domain/example.com?include_all_txt=true")
@@ -1641,7 +1641,7 @@ class TestDomainReportTxtFilter:
 
     @patch("domain.routes.full_domain_report")
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
-    @patch("domain.routes.get_cached_domain_with_age")
+    @patch("db.get_cached_domain_with_age")
     def test_domain_report_txt_filter_does_not_mutate_cache(self, mock_cache, mock_validate, mock_report):
         # Two calls back-to-back hitting the same cached object — second call must
         # see the original 8-entry list (i.e. filter must copy, not mutate).
@@ -1659,7 +1659,7 @@ class TestDomainReportTxtFilter:
 
     @patch("domain.routes.full_domain_report")
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
-    @patch("domain.routes.get_cached_domain_with_age")
+    @patch("db.get_cached_domain_with_age")
     def test_domain_report_txt_filter_no_txt_section(self, mock_cache, mock_validate, mock_report):
         no_txt = {**self._TXT_REPORT, "dns": {"a": ["93.184.216.34"]}}
         mock_cache.return_value = (no_txt, 60)
@@ -1671,7 +1671,7 @@ class TestDomainReportTxtFilter:
 
     @patch("domain.routes.full_domain_report")
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
-    @patch("domain.routes.get_cached_domain_with_age")
+    @patch("db.get_cached_domain_with_age")
     def test_domain_report_txt_filter_empty_txt(self, mock_cache, mock_validate, mock_report):
         empty_txt = {**self._TXT_REPORT, "dns": {"a": ["93.184.216.34"], "txt": []}}
         mock_cache.return_value = (empty_txt, 60)
@@ -4008,8 +4008,8 @@ class TestDnsLookupRecordTypes:
 
 class TestIpRouteReputation:
     @patch("auth.aauthenticate", new_callable=AsyncMock, return_value=_AUTH_PRO)
-    @patch("domain.routes.save_cached_ip")
-    @patch("domain.routes.get_cached_ip_with_age", return_value=None)
+    @patch("db.save_cached_ip")
+    @patch("db.get_cached_ip_with_age", return_value=None)
     @patch("domain.routes.ratelimit.check_limit", return_value=True)
     @patch("domain.routes.check_shodan", return_value={"status": "ok", "ports": [80]})
     @patch("domain.routes.check_abuseipdb", return_value={"status": "ok", "abuse_score": 10})
@@ -4037,7 +4037,7 @@ class TestIpRouteReputation:
         mock_cache_save.assert_called_once()
 
     @patch("auth.aauthenticate", new_callable=AsyncMock, return_value=_AUTH_FREE)
-    @patch("domain.routes.get_cached_ip_with_age", return_value=None)
+    @patch("db.get_cached_ip_with_age", return_value=None)
     @patch("domain.routes.ratelimit.check_limit", return_value=False)
     @patch(
         "domain.routes.ip_enrichment",
@@ -4070,7 +4070,7 @@ class TestIpRouteReputation:
     @patch("domain.routes.check_abuseipdb")
     @patch("domain.routes.check_shodan")
     @patch(
-        "domain.routes.get_cached_ip_with_age",
+        "db.get_cached_ip_with_age",
         return_value=(
             {
                 "abuseipdb": {"status": "ok", "abuse_score": 0},
@@ -4636,7 +4636,7 @@ class TestProOnlyEnrichment:
     # --- /v1/ip route tests ---
 
     @patch("auth.aauthenticate", new_callable=AsyncMock, return_value=_AUTH_FREE)
-    @patch("domain.routes.get_cached_ip_with_age", return_value=None)
+    @patch("db.get_cached_ip_with_age", return_value=None)
     @patch("domain.routes.ratelimit.check_limit", return_value=True)
     @patch("domain.routes.check_shodan", side_effect=AssertionError("Shodan must not be called for free tier"))
     @patch("domain.routes.check_abuseipdb", side_effect=AssertionError("AbuseIPDB must not be called for free tier"))
@@ -4696,7 +4696,7 @@ class TestProOnlyEnrichment:
     @patch("domain.routes.check_shodan", side_effect=AssertionError("Shodan must not be called — cache hit"))
     @patch("domain.routes.check_abuseipdb", side_effect=AssertionError("AbuseIPDB must not be called — cache hit"))
     @patch(
-        "domain.routes.get_cached_ip_with_age",
+        "db.get_cached_ip_with_age",
         return_value=(
             {"abuseipdb": {"status": "ok", "abuse_score": 0}, "shodan": {"status": "ok", "ports": [443]}},
             3600,
@@ -4717,7 +4717,7 @@ class TestProOnlyEnrichment:
 
     @pytest.mark.real_firehol
     @patch("auth.aauthenticate", new_callable=AsyncMock, return_value=_AUTH_FREE)
-    @patch("domain.routes.get_cached_ip_with_age", return_value=None)
+    @patch("db.get_cached_ip_with_age", return_value=None)
     @patch("domain.routes.check_shodan", side_effect=AssertionError("Shodan must not be called for free tier"))
     @patch("domain.routes.check_abuseipdb", side_effect=AssertionError("AbuseIPDB must not be called for free tier"))
     @patch("domain.routes.ip_enrichment", return_value=_ENRICH_EMPTY)
@@ -4745,9 +4745,9 @@ class TestProOnlyEnrichment:
 
     @pytest.mark.real_firehol
     @patch("auth.aauthenticate", new_callable=AsyncMock, return_value=_AUTH_PRO)
-    @patch("domain.routes.get_cached_ip_with_age", return_value=None)
+    @patch("db.get_cached_ip_with_age", return_value=None)
     @patch("domain.routes.ratelimit.check_limit", return_value=True)
-    @patch("domain.routes.save_cached_ip")
+    @patch("db.save_cached_ip")
     @patch("domain.routes.ip_enrichment", return_value=_ENRICH_EMPTY)
     @patch("domain.routes.socket.gethostbyaddr", return_value=("example.com", [], []))
     @patch("domain.routes.check_shodan", return_value={"status": "ok", "ports": []})
@@ -4775,8 +4775,8 @@ class TestProOnlyEnrichment:
         return_value={"technologies": [], "categories": {}, "count": 0, "summary": ""},
     )
     @patch("domain.recon.fetch_live_headers", return_value={"headers": {}})
-    @patch("domain.routes.save_cached_domain")
-    @patch("domain.routes.get_cached_domain", return_value=None)
+    @patch("db.save_cached_domain")
+    @patch("db.get_cached_domain", return_value=None)
     @patch("domain.routes.full_domain_report", return_value={"domain": "example.com", "summary": "ok"})
     @patch("domain.routes.clean_domain", return_value="example.com")
     @patch(
@@ -4809,8 +4809,8 @@ class TestProOnlyEnrichment:
         saved_key, _ = mock_save.call_args[0]
         assert saved_key == "pro:example.com", f"audit_domain save_cached_domain used tier-agnostic key: {saved_key}"
 
-    @patch("domain.routes.save_cached_domain")
-    @patch("domain.routes.get_cached_domain_with_age", return_value=None)
+    @patch("db.save_cached_domain")
+    @patch("db.get_cached_domain_with_age", return_value=None)
     @patch("domain.routes.full_domain_report", return_value={"domain": "example.com", "summary": "ok"})
     @patch("domain.routes._validate_domain_input", return_value=("example.com", "1.2.3.4"))
     @patch("auth.aauthenticate", new_callable=AsyncMock)
@@ -4866,8 +4866,8 @@ class TestDomainBurstThrottleAndTimeout:
 
     @patch("domain.routes.full_domain_report", return_value=MOCK_FULL_REPORT)
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
-    @patch("domain.routes.get_cached_domain_with_age", return_value=None)
-    @patch("domain.routes.save_cached_domain")
+    @patch("db.get_cached_domain_with_age", return_value=None)
+    @patch("db.save_cached_domain")
     def test_burst_throttle_free_tier_429_after_limit(self, mock_save, mock_cache, mock_validate, mock_report):
         """6th request from same client within 60s window → 429 (Free tier)."""
         for i in range(5):
@@ -4894,8 +4894,8 @@ class TestDomainBurstThrottleAndTimeout:
             ratelimit_cost=1,
         ),
     )
-    @patch("domain.routes.get_cached_domain_with_age", return_value=None)
-    @patch("domain.routes.save_cached_domain")
+    @patch("db.get_cached_domain_with_age", return_value=None)
+    @patch("db.save_cached_domain")
     def test_burst_throttle_pro_tier_exempt(self, mock_save, mock_cache, mock_auth_sync, mock_validate, mock_report):
         """Pro tier bypasses behavioral throttle — explicit paid quota."""
         for i in range(8):
@@ -4904,7 +4904,7 @@ class TestDomainBurstThrottleAndTimeout:
 
     @patch("domain.routes.full_domain_report", return_value=MOCK_FULL_REPORT)
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
-    @patch("domain.routes.get_cached_domain_with_age", return_value=(MOCK_FULL_REPORT, 30))
+    @patch("db.get_cached_domain_with_age", return_value=(MOCK_FULL_REPORT, 30))
     def test_burst_throttle_consumes_quota_on_cache_hit(self, mock_cache, mock_validate, mock_report):
         """Cache hits MUST consume burst quota — otherwise repeated cached-domain
         queries (UA-rotating bot pattern that lands on a popular domain) bypass
@@ -4919,7 +4919,7 @@ class TestDomainBurstThrottleAndTimeout:
 
     @patch("domain.routes.DOMAIN_HARD_TIMEOUT", 0.1)
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
-    @patch("domain.routes.get_cached_domain_with_age", return_value=None)
+    @patch("db.get_cached_domain_with_age", return_value=None)
     def test_hard_timeout_returns_504(self, mock_cache, mock_validate):
         """full_domain_report exceeding DOMAIN_HARD_TIMEOUT → 504 (worker freed)."""
         import time as _time

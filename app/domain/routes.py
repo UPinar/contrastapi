@@ -1,16 +1,17 @@
 """Domain Intelligence API routes — /v1/domain/*, /v1/dns/*, /v1/whois/*, etc."""
 
+import asyncio
 import atexit
 import logging
 import re
 import socket
 import ssl as _ssl
 import threading
-import time as _time
 from concurrent.futures import ThreadPoolExecutor
-from concurrent.futures import TimeoutError as FuturesTimeoutError
 from typing import Annotated
 from urllib.parse import urlparse as _urlparse
+
+from fastapi.concurrency import run_in_threadpool
 
 
 class AsnUpstreamError(Exception):
@@ -56,13 +57,15 @@ from config import (
 from cryptography import x509
 from cryptography.x509.oid import AuthorityInformationAccessOID
 from db import (
-    enrich_cves_by_ids,
+    aenrich_cves_by_ids,
+    aget_cached_domain,
+    aget_cached_domain_with_age,
+    aget_cached_ip_with_age,
+    asave_cached_domain,
+    asave_cached_ip,
     get_cached_domain,
-    get_cached_domain_with_age,
-    get_cached_ip_with_age,
     hash_client_ip,
     save_cached_domain,
-    save_cached_ip,
 )
 from domain.archive import wayback_lookup
 from domain.ip_intel import (
@@ -468,13 +471,13 @@ def _threat_verdict(unavailable: bool = False) -> Verdict:
     )
 
 
-def _from_cache(domain: str, key: str, tier: str) -> dict | None:
+async def _from_cache(domain: str, key: str, tier: str) -> dict | None:
     """Try to extract a section from a cached full domain report.
 
     Matches the tier-prefixed cache keys used by domain_report/bulk/audit —
     otherwise sub-endpoints (dns/whois/subdomains/certs) would always miss.
     """
-    cached = get_cached_domain(f"{tier}:{domain}")
+    cached = await aget_cached_domain(f"{tier}:{domain}")
     if cached and key in cached:
         return cached[key]
     return None
@@ -581,7 +584,7 @@ def _domain_pivot_hints(report: dict, domain: str) -> list[PivotHint]:
     response_model_exclude_none=True,
     include_in_schema=False,
 )
-def domain_report(
+async def domain_report(
     domain: DomainPath,
     auth: Annotated[AuthCtx, Depends(require_auth("/v1/domain"))],
     response: Response,
@@ -622,7 +625,7 @@ def domain_report(
     # bypass the nginx UA blocklist by querying many distinct domains rapidly;
     # this catches the pattern at the application layer regardless of UA.
     if tier == "free" and client_ip:
-        if not ratelimit.check_limit(
+        if not await ratelimit.acheck_limit(
             "domain_burst",
             hash_client_ip(client_ip),
             max_requests=DOMAIN_BURST_LIMIT,
@@ -639,7 +642,7 @@ def domain_report(
     # Separate cache keys for lite vs full, segregated by tier to prevent
     # free-tier pro_only stubs from poisoning Pro reads (and vice versa).
     cache_key = f"{tier}:lite:{domain}" if lite else f"{tier}:{domain}"
-    hit = get_cached_domain_with_age(cache_key)
+    hit = await aget_cached_domain_with_age(cache_key)
     if hit is not None:
         cached, age = hit
         emitted = _apply_txt_filter(cached, include_all_txt)
@@ -650,24 +653,19 @@ def domain_report(
         }
 
     # Hard timeout guard — full_domain_report can hang on slow upstream
-    # fail-overs (WHOIS, CT logs, subdomain enum). shutdown(wait=False,
-    # cancel_futures=True) prevents worker starvation under sustained 504
-    # bursts: the bare context manager would shutdown(wait=True) and BLOCK
-    # the request on the timed-out background thread (mirror email_mx).
-    _pool = ThreadPoolExecutor(max_workers=1)
+    # fail-overs (WHOIS, CT logs, subdomain enum). asyncio.wait_for cancels
+    # the awaitable cleanly without blocking the event loop on a timed-out
+    # background thread (anyio's run_in_threadpool worker is reusable).
     try:
-        _fut = _pool.submit(
-            full_domain_report, domain, resolved_ip=resolved_ip, client_ip=client_ip, lite=lite, tier=tier
+        result = await asyncio.wait_for(
+            run_in_threadpool(
+                full_domain_report, domain, resolved_ip=resolved_ip, client_ip=client_ip, lite=lite, tier=tier
+            ),
+            timeout=DOMAIN_HARD_TIMEOUT,
         )
-        try:
-            result = _fut.result(timeout=DOMAIN_HARD_TIMEOUT)
-        except FuturesTimeoutError:
-            raise HTTPException(
-                status_code=504, detail="Domain report timed out — upstream services too slow"
-            ) from None
-    finally:
-        _pool.shutdown(wait=False, cancel_futures=True)
-    save_cached_domain(cache_key, result)
+    except (asyncio.TimeoutError, TimeoutError):
+        raise HTTPException(status_code=504, detail="Domain report timed out — upstream services too slow") from None
+    await asave_cached_domain(cache_key, result)
     emitted = _apply_txt_filter(result, include_all_txt)
     return {
         **emitted,
@@ -677,16 +675,16 @@ def domain_report(
 
 
 @router.get("/dns/{domain}", operation_id="dns_records", response_model=DnsResponse, response_model_exclude_none=True)
-def dns_records(
+async def dns_records(
     domain: DomainPath,
     auth: Annotated[AuthCtx, Depends(require_auth("/v1/dns"))],
 ):
     """DNS record lookup: A, AAAA, MX, NS, TXT, CNAME, SOA."""
     domain, resolved_ip = _validate_domain_input(domain)
-    cached = _from_cache(domain, "dns", auth.tier)
+    cached = await _from_cache(domain, "dns", auth.tier)
     if cached:
         return {"domain": domain, "records": cached, "summary": _dns_summary(cached, domain)}
-    records = dns_lookup(domain)
+    records = await run_in_threadpool(dns_lookup, domain)
     if not records:
         raise HTTPException(status_code=404, detail=f"No DNS records found for '{domain}'")
     return {"domain": domain, "records": records, "summary": _dns_summary(records, domain)}
@@ -698,7 +696,7 @@ def dns_records(
     response_model=EmailMxResponse,
     response_model_exclude_none=True,
 )
-def email_mx(
+async def email_mx(
     domain: DomainPath,
     auth: Annotated[AuthCtx, Depends(require_auth("/v1/email/mx"))],
 ):
@@ -707,24 +705,26 @@ def email_mx(
 
     # Check cache
     cache_key = f"email_mx:{domain}"
-    cached = get_cached_domain(cache_key)
+    cached = await aget_cached_domain(cache_key)
     if cached:
         return {**cached}
 
     # Fetch DNS records for MX + TXT (SPF)
-    records = dns_lookup(domain)
+    records = await run_in_threadpool(dns_lookup, domain)
     mx_records = records.get("mx", [])
     txt_records = records.get("txt", [])
 
     # Detect mail provider
     provider = detect_mail_provider(mx_records)
 
-    # Email security check (SPF/DMARC/DKIM) — run in thread with timeout
-    # to prevent DKIM probing from blocking a worker (up to 19 selectors x 5s each)
-    pool = ThreadPoolExecutor(max_workers=1)
+    # Email security check (SPF/DMARC/DKIM) — bound by overall deadline so
+    # DKIM probing (up to 19 selectors x 5s each) can't pin a worker.
     try:
-        security = pool.submit(email_security, domain, txt_records).result(timeout=RECON_TIMEOUT * 2)
-    except FuturesTimeoutError:
+        security = await asyncio.wait_for(
+            run_in_threadpool(email_security, domain, txt_records),
+            timeout=RECON_TIMEOUT * 2,
+        )
+    except (asyncio.TimeoutError, TimeoutError):
         security = {
             "spf": None,
             "dmarc": None,
@@ -733,8 +733,6 @@ def email_mx(
             "grade": "F",
             "issues": ["Email security check timed out"],
         }
-    finally:
-        pool.shutdown(wait=False, cancel_futures=True)
 
     # Build summary
     parts = [domain]
@@ -765,7 +763,7 @@ def email_mx(
         "email_security": security,
         "summary": summary,
     }
-    save_cached_domain(cache_key, result)
+    await asave_cached_domain(cache_key, result)
     return {**result}
 
 
@@ -783,7 +781,7 @@ def _disposable_summary(email: str, result: dict) -> str:
     response_model=DisposableResponse,
     response_model_exclude_none=True,
 )
-def email_disposable(
+async def email_disposable(
     email: Annotated[
         str,
         Path(
@@ -808,7 +806,7 @@ def email_disposable(
 
     # Check cache (keyed by domain — rebuild summary with current email on hit)
     cache_key = f"email_disp:{domain}"
-    cached = get_cached_domain(cache_key)
+    cached = await aget_cached_domain(cache_key)
     if cached:
         summary = _disposable_summary(email, cached)
         return {**cached, "email": email, "summary": summary}
@@ -817,10 +815,10 @@ def email_disposable(
     if not resolved_ip:
         raise HTTPException(status_code=422, detail="Could not resolve email domain. DNS resolution failed.")
 
-    result = check_disposable(email, domain=domain)
+    result = await run_in_threadpool(check_disposable, email, domain=domain)
     result["summary"] = _disposable_summary(email, result)
 
-    save_cached_domain(cache_key, result)
+    await asave_cached_domain(cache_key, result)
     return {**result}
 
 
@@ -830,7 +828,7 @@ def email_disposable(
     response_model=EmailVerifyResponse,
     response_model_exclude_none=True,
 )
-def email_verify_endpoint(
+async def email_verify_endpoint(
     email: Annotated[
         str,
         Path(
@@ -877,7 +875,7 @@ def email_verify_endpoint(
     local, domain = parsed
 
     cache_key = f"email_verify:{domain}"
-    cached = get_cached_domain(cache_key)
+    cached = await aget_cached_domain(cache_key)
     if cached:
         # Per-email facets (role, syntax_valid) depend on the local-part, not
         # cached. Only domain-level facets (mx, disposable, free) come from cache.
@@ -908,9 +906,9 @@ def email_verify_endpoint(
         }
 
     # Domain-level facets we cache.
-    records = dns_lookup(domain)
+    records = await run_in_threadpool(dns_lookup, domain)
     mx_records = records.get("mx", [])
-    disposable_info = check_disposable(f"{local}@{domain}", domain=domain)
+    disposable_info = await run_in_threadpool(check_disposable, f"{local}@{domain}", domain=domain)
     is_disposable = bool(disposable_info.get("disposable"))
     disposable_provider = disposable_info.get("provider") if is_disposable else None
     free = is_free_provider(domain)
@@ -922,7 +920,7 @@ def email_verify_endpoint(
         "disposable_provider": disposable_provider,
         "free_provider": free,
     }
-    save_cached_domain(cache_key, cached_payload)
+    await asave_cached_domain(cache_key, cached_payload)
 
     is_role, role_type = role_classification(local)
     return {
@@ -957,7 +955,7 @@ def _email_verify_summary(local: str, domain: str, payload: dict, is_role: bool,
     response_model=RobotsTxtResponse,
     response_model_exclude_none=True,
 )
-def robots_txt_endpoint(
+async def robots_txt_endpoint(
     domain: DomainPath,
     auth: Annotated[AuthCtx, Depends(require_auth("/v1/robots"))],
 ):
@@ -985,14 +983,14 @@ def robots_txt_endpoint(
         )
 
     cache_key = f"robots:{cleaned}"
-    cached = get_cached_domain(cache_key)
+    cached = await aget_cached_domain(cache_key)
     if cached:
         return cached
 
     from domain.robots import _exception_kind, fetch_robots_txt
 
     try:
-        result = fetch_robots_txt(cleaned)
+        result = await run_in_threadpool(fetch_robots_txt, cleaned)
     except Exception as exc:
         kind = _exception_kind(exc)
         logger.info("robots.txt fetch failed for %s [%s]: %s", cleaned, kind, exc)
@@ -1020,7 +1018,7 @@ def robots_txt_endpoint(
     else:
         result["summary"] = f"{cleaned} — {ua_count} UA blocks, {sm_count} sitemaps"
 
-    save_cached_domain(cache_key, result)
+    await asave_cached_domain(cache_key, result)
     return result
 
 
@@ -1030,7 +1028,7 @@ def robots_txt_endpoint(
     response_model=RedirectChainResponse,
     response_model_exclude_none=True,
 )
-def redirect_chain_endpoint(
+async def redirect_chain_endpoint(
     url: str,
     auth: Annotated[AuthCtx, Depends(require_auth("/v1/redirect"))],
 ):
@@ -1071,12 +1069,12 @@ def redirect_chain_endpoint(
             )
 
     cache_key = f"redirect:{url}"
-    cached = get_cached_domain(cache_key)
+    cached = await aget_cached_domain(cache_key)
     if cached:
         return cached
 
     try:
-        result = walk_redirect_chain(url)
+        result = await run_in_threadpool(walk_redirect_chain, url)
     except TargetThrottleHopExceeded as exc:
         raise HTTPException(
             status_code=429,
@@ -1104,7 +1102,7 @@ def redirect_chain_endpoint(
     else:
         result["summary"] = f"{hop_count}-hop chain — final {result['final_status']} at {result['final_url']}"
 
-    save_cached_domain(cache_key, result)
+    await asave_cached_domain(cache_key, result)
     return result
 
 
@@ -1114,7 +1112,7 @@ def redirect_chain_endpoint(
     response_model=BrandAssetsResponse,
     response_model_exclude_none=True,
 )
-def brand_assets_endpoint(
+async def brand_assets_endpoint(
     domain: DomainPath,
     auth: Annotated[AuthCtx, Depends(require_auth("/v1/brand"))],
 ):
@@ -1142,7 +1140,7 @@ def brand_assets_endpoint(
         )
 
     cache_key = f"brand:{cleaned}"
-    cached = get_cached_domain(cache_key)
+    cached = await aget_cached_domain(cache_key)
     if cached:
         return cached
 
@@ -1158,14 +1156,14 @@ def brand_assets_endpoint(
     )
     from domain.robots import _exception_kind, fetch_robots_txt
 
-    robots_payload = get_cached_domain(f"robots:{cleaned}")
+    robots_payload = await aget_cached_domain(f"robots:{cleaned}")
     if robots_payload is None:
         try:
-            robots_payload = fetch_robots_txt(cleaned)
+            robots_payload = await run_in_threadpool(fetch_robots_txt, cleaned)
             sc = robots_payload.get("status_code", 0)
             # RFC 9309 §2.4: 5xx is transient — do not cache.
             if not (500 <= sc < 600):
-                save_cached_domain(f"robots:{cleaned}", robots_payload)
+                await asave_cached_domain(f"robots:{cleaned}", robots_payload)
         except Exception as exc:
             logger.debug(
                 "brand_assets: robots.txt fetch failed (allow-fail-open) %s [%s]", cleaned, _exception_kind(exc)
@@ -1180,7 +1178,7 @@ def brand_assets_endpoint(
         )
 
     try:
-        page = fetch_homepage_html(cleaned)
+        page = await run_in_threadpool(fetch_homepage_html, cleaned)
     except Exception as exc:
         kind = _exception_kind(exc)
         logger.info("brand_assets fetch failed for %s [%s]: %s", cleaned, kind, exc)
@@ -1222,7 +1220,7 @@ def brand_assets_endpoint(
     }
 
     if cache_respected:
-        save_cached_domain(cache_key, result)
+        await asave_cached_domain(cache_key, result)
     return result
 
 
@@ -1232,7 +1230,7 @@ def brand_assets_endpoint(
     response_model=SeoAuditResponse,
     response_model_exclude_none=True,
 )
-def seo_audit_endpoint(
+async def seo_audit_endpoint(
     domain: DomainPath,
     auth: Annotated[AuthCtx, Depends(require_auth("/v1/seo"))],
 ):
@@ -1263,7 +1261,7 @@ def seo_audit_endpoint(
         )
 
     cache_key = f"seo:{cleaned}"
-    cached = get_cached_domain(cache_key)
+    cached = await aget_cached_domain(cache_key)
     if cached:
         return cached
 
@@ -1273,13 +1271,13 @@ def seo_audit_endpoint(
 
     # Robots respect — same fail-open posture as brand_assets: a transient
     # robots.txt outage must not poison every seo_audit call.
-    robots_payload = get_cached_domain(f"robots:{cleaned}")
+    robots_payload = await aget_cached_domain(f"robots:{cleaned}")
     if robots_payload is None:
         try:
-            robots_payload = fetch_robots_txt(cleaned)
+            robots_payload = await run_in_threadpool(fetch_robots_txt, cleaned)
             sc = robots_payload.get("status_code", 0)
             if not (500 <= sc < 600):
-                save_cached_domain(f"robots:{cleaned}", robots_payload)
+                await asave_cached_domain(f"robots:{cleaned}", robots_payload)
         except Exception as exc:
             logger.debug("seo_audit: robots.txt fetch failed (allow-fail-open) %s [%s]", cleaned, _exception_kind(exc))
             robots_payload = {"user_agents": {}, "sitemaps": [], "host": None}
@@ -1292,7 +1290,7 @@ def seo_audit_endpoint(
         )
 
     try:
-        page = fetch_homepage_html(cleaned)
+        page = await run_in_threadpool(fetch_homepage_html, cleaned)
     except Exception as exc:
         kind = _exception_kind(exc)
         logger.info("seo_audit fetch failed for %s [%s]: %s", cleaned, kind, exc)
@@ -1324,7 +1322,7 @@ def seo_audit_endpoint(
     }
 
     if cache_respected:
-        save_cached_domain(cache_key, result)
+        await asave_cached_domain(cache_key, result)
     return result
 
 
@@ -1335,7 +1333,7 @@ def seo_audit_endpoint(
     response_model_exclude_none=True,
     include_in_schema=True,
 )
-def phone_endpoint(
+async def phone_endpoint(
     number: Annotated[
         str,
         Path(
@@ -1348,7 +1346,7 @@ def phone_endpoint(
     auth: Annotated[AuthCtx, Depends(require_auth("/v1/phone"))],
 ):
     """Phone number validation and intelligence — format, country, type, carrier, timezone."""
-    result = phone_lookup(number)
+    result = await run_in_threadpool(phone_lookup, number)
     return result
 
 
@@ -1359,7 +1357,7 @@ def phone_endpoint(
     response_model_exclude_none=True,
     include_in_schema=True,
 )
-def username_endpoint(
+async def username_endpoint(
     username: Annotated[
         str,
         Path(
@@ -1373,22 +1371,22 @@ def username_endpoint(
     auth: Annotated[AuthCtx, Depends(require_auth("/v1/username"))],
 ):
     """Username OSINT — check if a username exists on 16 platforms (GitHub, Reddit, X, etc.)."""
-    return username_lookup(username)
+    return await run_in_threadpool(username_lookup, username)
 
 
 @router.get(
     "/whois/{domain}", operation_id="whois_lookup", response_model=WhoisResponse, response_model_exclude_none=True
 )
-def whois_endpoint(
+async def whois_endpoint(
     domain: DomainPath,
     auth: Annotated[AuthCtx, Depends(require_auth("/v1/whois"))],
 ):
     """WHOIS registration data for a domain."""
     domain, resolved_ip = _validate_domain_input(domain)
-    cached = _from_cache(domain, "whois", auth.tier)
+    cached = await _from_cache(domain, "whois", auth.tier)
     if cached and "error" not in cached:
         return {"domain": domain, "whois": cached, "summary": _whois_summary(cached, domain)}
-    result = whois_lookup(domain)
+    result = await run_in_threadpool(whois_lookup, domain)
     if "error" in result:
         raise HTTPException(status_code=504, detail=result["error"])
     return {"domain": domain, "whois": result, "summary": _whois_summary(result, domain)}
@@ -1459,42 +1457,42 @@ def _asn_pivot_hints(resolved_ip: str | None) -> list[PivotHint]:
     response_model=SubdomainsResponse,
     response_model_exclude_none=True,
 )
-def subdomains(
+async def subdomains(
     domain: DomainPath,
     auth: Annotated[AuthCtx, Depends(require_auth("/v1/subdomains"))],
 ):
     """Subdomain enumeration via DNS brute force + certificate transparency."""
     domain, resolved_ip = _validate_domain_input(domain)
     # Tier-agnostic: DNS+CT data is the same regardless of caller, flat key maximises hits.
-    cached = get_cached_domain(f"subdomains:{domain}")
+    cached = await aget_cached_domain(f"subdomains:{domain}")
     if cached is None:
-        cached = _from_cache(domain, "subdomains", auth.tier)
+        cached = await _from_cache(domain, "subdomains", auth.tier)
     if cached:
         sub_list = cached.get("subdomains") or []
         return {"domain": domain, **cached, "next_calls": _subdomain_pivot_hints(sub_list) or None}
-    result = enumerate_subdomains(domain)
-    save_cached_domain(f"subdomains:{domain}", result)
+    result = await run_in_threadpool(enumerate_subdomains, domain)
+    await asave_cached_domain(f"subdomains:{domain}", result)
     sub_list = result.get("subdomains") or []
     return {"domain": domain, **result, "next_calls": _subdomain_pivot_hints(sub_list) or None}
 
 
 @router.get("/certs/{domain}", operation_id="ct_logs", response_model=CertsResponse, response_model_exclude_none=True)
-def certs(
+async def certs(
     domain: DomainPath,
     auth: Annotated[AuthCtx, Depends(require_auth("/v1/certs"))],
 ):
     """Certificate transparency log lookup."""
     domain, resolved_ip = _validate_domain_input(domain)
     # Tier-agnostic: CT log data is the same regardless of caller, flat key maximises hits.
-    cached = get_cached_domain(f"certificates:{domain}")
+    cached = await aget_cached_domain(f"certificates:{domain}")
     if cached is None:
-        cached = _from_cache(domain, "certificates", auth.tier)
+        cached = await _from_cache(domain, "certificates", auth.tier)
     if cached:
         total = cached.get("total_certificates", 0)
         summary = f"{total} certificate{'s' if total != 1 else ''} in CT logs for {domain}"
         return {"domain": domain, **cached, "summary": summary}
-    result = check_ct_logs(domain)
-    save_cached_domain(f"certificates:{domain}", result)
+    result = await run_in_threadpool(check_ct_logs, domain)
+    await asave_cached_domain(f"certificates:{domain}", result)
     total = result.get("total_certificates", 0)
     summary = f"{total} certificate{'s' if total != 1 else ''} in CT logs for {domain}"
     return {"domain": domain, **result, "summary": summary}
@@ -1503,7 +1501,7 @@ def certs(
 @router.get(
     "/ssl/{domain}", operation_id="ssl_certificate", response_model=SslResponse, response_model_exclude_none=True
 )
-def ssl_certificate(
+async def ssl_certificate(
     domain: DomainPath,
     auth: Annotated[AuthCtx, Depends(require_auth("/v1/ssl"))],
 ):
@@ -1511,7 +1509,7 @@ def ssl_certificate(
     domain, resolved_ip = _validate_domain_input(domain)
 
     # Check cache (keyed as ssl:<domain> in domain_cache)
-    cached = get_cached_domain(f"ssl:{domain}")
+    cached = await aget_cached_domain(f"ssl:{domain}")
     if cached:
         return {**cached}
 
@@ -1665,20 +1663,20 @@ def ssl_certificate(
         "summary": ". ".join(parts),
     }
 
-    save_cached_domain(f"ssl:{domain}", result)
+    await asave_cached_domain(f"ssl:{domain}", result)
     return {**result}
 
 
 @router.get(
     "/threat/{domain}", operation_id="threat_intel", response_model=ThreatResponse, response_model_exclude_none=True
 )
-def threat_intel(
+async def threat_intel(
     domain: DomainPath,
     auth: Annotated[AuthCtx, Depends(require_auth("/v1/threat"))],
 ):
     """Threat intelligence — check domain against URLhaus for known malware URLs."""
     domain, resolved_ip = _validate_domain_input(domain)
-    result = check_urlhaus(domain)
+    result = await run_in_threadpool(check_urlhaus, domain)
     urlhaus_unavailable = result.get("urlhaus_status") == "error"
     urls_online = result["urls_online"]
     url_count = result["url_count"]
@@ -1695,13 +1693,13 @@ def threat_intel(
     response_model=WaybackResponse,
     response_model_exclude_none=True,
 )
-def wayback_lookup_route(
+async def wayback_lookup_route(
     domain: DomainPath,
     auth: Annotated[AuthCtx, Depends(require_auth("/v1/archive"))],
 ):
     """Web archive lookup — historical snapshots from the Wayback Machine."""
     domain, resolved_ip = _validate_domain_input(domain)
-    return wayback_lookup(domain)
+    return await run_in_threadpool(wayback_lookup, domain)
 
 
 def _ripe_country_for_ip(ip: str) -> str:
@@ -1854,7 +1852,7 @@ def _fetch_asn_country(ip: str) -> dict:
 
 
 @router.get("/ip/{ip}", operation_id="ip_lookup", response_model=IpLookupResponse, response_model_exclude_none=False)
-def ip_lookup(
+async def ip_lookup(
     ip: IpPath,
     auth: Annotated[AuthCtx, Depends(require_auth("/v1/ip"))],
 ):
@@ -1870,17 +1868,17 @@ def ip_lookup(
     client_ip = auth.client_ip
 
     # Kick ASN/country fetch in parallel with the rest of the critical path.
-    f_asn_country = _reputation_pool.submit(_fetch_asn_country, ip)
+    asn_country_task = asyncio.create_task(run_in_threadpool(_fetch_asn_country, ip))
 
     try:
-        addr_result, addr_err = _dns_call_with_timeout(socket.gethostbyaddr, ip)
+        addr_result, addr_err = await run_in_threadpool(_dns_call_with_timeout, socket.gethostbyaddr, ip)
         # Reverse DNS is owner-controlled; strip control / bidi chars before
         # echoing into the JSON response (Trojan Source CVE-2021-42574 class).
         ptr = _strip_control_chars(addr_result[0]) if addr_result and not addr_err else None
     except (socket.herror, socket.gaierror, OSError):
         ptr = None
 
-    enrichment = ip_enrichment(ip)
+    enrichment = await run_in_threadpool(ip_enrichment, ip)
     internetdb_failed = enrichment.pop("internetdb_status", "ok") == "error"
     ports = enrichment.get("ports", [])
     # Shodan InternetDB is upstream-controlled — a poisoned feed could smuggle
@@ -1896,7 +1894,7 @@ def ip_lookup(
     # agents can triage without a fan-out cve_lookup per CVE. See
     # db.enrich_cves_by_ids docstring for the unknown-CVE contract.
     raw_vulns = _clean_shodan_str_list(enrichment.get("vulns"))
-    vulns = enrich_cves_by_ids(raw_vulns)
+    vulns = await aenrich_cves_by_ids(raw_vulns)
     enrichment["vulns"] = vulns
     hostnames = enrichment.get("hostnames", [])
 
@@ -1907,11 +1905,11 @@ def ip_lookup(
     reputation_failed = False
     firehol_attempted = False
     firehol_failed = False
-    hit = get_cached_ip_with_age(ip)
+    hit = await aget_cached_ip_with_age(ip)
     if hit is not None:
         reputation, rep_age = hit
         reputation_attempted = True
-    elif auth.tier == "pro" and ratelimit.check_limit(
+    elif auth.tier == "pro" and await ratelimit.acheck_limit(
         store_name="enrichment",
         key=hash_client_ip(client_ip),
         max_requests=ENRICHMENT_DAILY_LIMIT,
@@ -1920,26 +1918,30 @@ def ip_lookup(
         reputation_attempted = True
         firehol_attempted = True
         try:
-            f_ab = _reputation_pool.submit(check_abuseipdb, ip)
-            f_sh = _reputation_pool.submit(check_shodan, ip)
-            f_fh = _ip_enrichment_pool.submit(check_firehol, ip)
-            firehol_result = f_fh.result(timeout=RECON_TIMEOUT + 2)
+            ab_res, sh_res, fh_res = await asyncio.wait_for(
+                asyncio.gather(
+                    run_in_threadpool(check_abuseipdb, ip),
+                    run_in_threadpool(check_shodan, ip),
+                    run_in_threadpool(check_firehol, ip),
+                ),
+                timeout=RECON_TIMEOUT + 2,
+            )
             reputation = {
-                "firehol": firehol_result,
-                "abuseipdb": f_ab.result(timeout=RECON_TIMEOUT + 2),
-                "shodan": f_sh.result(timeout=RECON_TIMEOUT + 2),
+                "firehol": fh_res,
+                "abuseipdb": ab_res,
+                "shodan": sh_res,
             }
-            if firehol_result.get("status") == "unavailable":
+            if fh_res.get("status") == "unavailable":
                 firehol_failed = True
-            save_cached_ip(ip, reputation)
+            await asave_cached_ip(ip, reputation)
             rep_age = 0
         except Exception as e:
             logger.warning("Reputation enrichment failed: %s", type(e).__name__)
             reputation = {}
             reputation_failed = True
-            ratelimit.refund("enrichment", client_ip)
+            await ratelimit.arefund("enrichment", client_ip)
     elif auth.tier != "pro":
-        firehol_result = check_firehol(ip)
+        firehol_result = await run_in_threadpool(check_firehol, ip)
         firehol_attempted = True
         # Bug I4: free tier used to ship two ~13-field pro_only stubs
         # (abuseipdb + shodan, every property null) — ~150 token of pure
@@ -1959,13 +1961,13 @@ def ip_lookup(
         reputation_attempted = True
 
     try:
-        tor_exit = check_tor_exit(ip)
+        tor_exit = await run_in_threadpool(check_tor_exit, ip)
     except Exception:
         tor_exit = False
     tor_status = tor_cache_status()
 
     try:
-        asn_data = f_asn_country.result(timeout=6.0)
+        asn_data = await asyncio.wait_for(asn_country_task, timeout=6.0)
     except Exception:
         logger.debug("_fetch_asn_country future timed out or failed")
         asn_data = {"asn": None, "asn_name": "", "country": "", "failed": True}
@@ -2046,13 +2048,13 @@ def ip_lookup(
 @router.get(
     "/tech/{domain}", operation_id="tech_fingerprint", response_model=TechResponse, response_model_exclude_none=True
 )
-def tech_fingerprint(
+async def tech_fingerprint(
     domain: DomainPath,
     auth: Annotated[AuthCtx, Depends(require_auth("/v1/tech"))],
 ):
     """Technology fingerprinting — detect CMS, frameworks, servers, CDNs, analytics."""
     domain, resolved_ip = _validate_domain_input(domain)
-    page = fetch_live_page(domain)
+    page = await run_in_threadpool(fetch_live_page, domain)
     if "error" in page:
         raise HTTPException(status_code=504, detail=page["error"])
     from domain.tech import detect_technologies
@@ -2064,7 +2066,7 @@ def tech_fingerprint(
 @router.get(
     "/monitor/{domain}", operation_id="domain_monitor", response_model=MonitorResponse, response_model_exclude_none=True
 )
-def domain_monitor(
+async def domain_monitor(
     domain: DomainPath,
     auth: Annotated[AuthCtx, Depends(require_auth("/v1/monitor"))],
 ):
@@ -2072,14 +2074,14 @@ def domain_monitor(
     domain, resolved_ip = _validate_domain_input(domain)
 
     # Quick DNS A record check
-    dns_a = quick_dns_a(domain)
+    dns_a = await run_in_threadpool(quick_dns_a, domain)
     is_up = dns_a is not None and len(dns_a) > 0
 
     # SSL info (single TLS handshake)
     ssl_days = None
     ssl_grade = None
     try:
-        ssl_result = ssl_info(domain, resolved_ip)
+        ssl_result = await run_in_threadpool(ssl_info, domain, resolved_ip)
         if "error" not in ssl_result:
             ssl_days = ssl_result.get("days_remaining")
             ssl_grade = ssl_result.get("grade")
@@ -2091,7 +2093,7 @@ def domain_monitor(
     risk_grade = None
     risk_score = None
     last_full_report = None
-    cached = get_cached_domain(f"{auth.tier}:{domain}")
+    cached = await aget_cached_domain(f"{auth.tier}:{domain}")
     if cached:
         last_full_report = cached.get("fetched_at")
         risk = cached.get("risk", {})
@@ -2132,18 +2134,18 @@ def domain_monitor(
     response_model=VulnsResponse,
     response_model_exclude_none=True,
 )
-def domain_vulns(
+async def domain_vulns(
     domain: DomainPath,
     auth: Annotated[AuthCtx, Depends(require_auth("/v1/domain/vulns"))],
 ):
     """Tech stack vulnerability scan — detect technologies, then look up CVEs for each."""
     domain, resolved_ip = _validate_domain_input(domain)
 
-    page = fetch_live_page(domain)
+    page = await run_in_threadpool(fetch_live_page, domain)
     if "error" in page:
         raise HTTPException(status_code=504, detail=page["error"])
 
-    from db import normalize_product, parse_version, search_cves_by_products_bulk
+    from db import asearch_cves_by_products_bulk, normalize_product, parse_version
     from domain.tech import detect_technologies
 
     tech_result = detect_technologies(page["headers"], page.get("html"))
@@ -2154,7 +2156,7 @@ def domain_vulns(
     # the bulk function's hard limit; trim here so we never raise instead of degrading).
     MAX_TECHS = 500
     product_names = [(t["name"] or "")[:256] for t in technologies[:MAX_TECHS] if t.get("name")]
-    bulk = search_cves_by_products_bulk(product_names, limit_per_product=10) if product_names else {}
+    bulk = await asearch_cves_by_products_bulk(product_names, limit_per_product=10) if product_names else {}
 
     vulnerabilities = []
     total_cves = 0
@@ -2249,7 +2251,7 @@ def _truncate_asn_prefixes(result: dict, include_full: bool) -> dict:
 
 
 @router.get("/asn/{target}", operation_id="asn_lookup", response_model=AsnResponse, response_model_exclude_none=True)
-def asn_lookup(
+async def asn_lookup(
     target: Annotated[
         str,
         Path(
@@ -2285,7 +2287,7 @@ def asn_lookup(
         domain = clean_domain(target)
         if not domain:
             raise HTTPException(status_code=400, detail="Invalid domain or IP address")
-        a_records = quick_dns_a(domain)
+        a_records = await run_in_threadpool(quick_dns_a, domain)
         if not a_records:
             raise HTTPException(status_code=422, detail=f"Could not resolve domain '{target}' to an IP address")
         ip = a_records[0]
@@ -2293,7 +2295,7 @@ def asn_lookup(
 
     # Check cache
     cache_key = f"asn:{ip}"
-    cached = get_cached_domain(cache_key)
+    cached = await aget_cached_domain(cache_key)
     if cached:
         result = {**cached, "target": target}
         if resolved_ip:
@@ -2383,32 +2385,32 @@ def asn_lookup(
         except (_httpx.HTTPError, _httpx.TimeoutException, ValueError, KeyError, TypeError) as e:
             raise AsnUpstreamError("announced-prefixes", type(e).__name__) from e
 
-    f_overview = _reputation_pool.submit(_fetch_overview)
-    f_prefixes = _reputation_pool.submit(_fetch_prefixes)
-
     warnings: list[str] = []
 
-    try:
-        asn_name = f_overview.result(timeout=7)
-    except AsnUpstreamError as e:
-        asn_name = ""
-        warnings.append(f"{e.upstream}: {e.reason}")
-        logger.warning("ASN upstream failure: %s %s", e.upstream, e.reason)
-    except FuturesTimeoutError:
-        asn_name = ""
-        warnings.append("as-overview: timeout")
-        logger.warning("ASN upstream failure: as-overview FuturesTimeoutError")
+    overview_task = asyncio.create_task(run_in_threadpool(_fetch_overview))
+    prefixes_task = asyncio.create_task(run_in_threadpool(_fetch_prefixes))
 
     try:
-        ipv4_prefixes, ipv6_prefixes = f_prefixes.result(timeout=7)
+        asn_name = await asyncio.wait_for(overview_task, timeout=7)
+    except AsnUpstreamError as e:
+        asn_name = ""
+        warnings.append(f"{e.upstream}: {e.reason}")
+        logger.warning("ASN upstream failure: %s %s", e.upstream, e.reason)
+    except (asyncio.TimeoutError, TimeoutError):
+        asn_name = ""
+        warnings.append("as-overview: timeout")
+        logger.warning("ASN upstream failure: as-overview timeout")
+
+    try:
+        ipv4_prefixes, ipv6_prefixes = await asyncio.wait_for(prefixes_task, timeout=7)
     except AsnUpstreamError as e:
         ipv4_prefixes, ipv6_prefixes = [], []
         warnings.append(f"{e.upstream}: {e.reason}")
         logger.warning("ASN upstream failure: %s %s", e.upstream, e.reason)
-    except FuturesTimeoutError:
+    except (asyncio.TimeoutError, TimeoutError):
         ipv4_prefixes, ipv6_prefixes = [], []
         warnings.append("announced-prefixes: timeout")
-        logger.warning("ASN upstream failure: announced-prefixes FuturesTimeoutError")
+        logger.warning("ASN upstream failure: announced-prefixes timeout")
 
     parts = [f"AS{asn}"]
     if asn_name:
@@ -2452,7 +2454,7 @@ def asn_lookup(
     # data_age_seconds=None instead of forwarding a stale age=0.
     both_metadata_futures_failed = bool(warnings) and not asn_name and not ipv4_prefixes and not ipv6_prefixes
     if not both_metadata_futures_failed:
-        save_cached_domain(cache_key, result)
+        await asave_cached_domain(cache_key, result)
     out = {
         **result,
         "verdict": _asn_verdict(warnings, age_seconds=0),
@@ -2508,7 +2510,7 @@ def _run_single_report(raw_domain: str, client_ip: str, tier: str = "free") -> d
     response_model=BulkDomainResponse,
     response_model_exclude_none=True,
 )
-def bulk_domain_report(
+async def bulk_domain_report(
     body: _BulkRequest,
     auth: Annotated[AuthCtx, Depends(require_auth("/v1/domains/bulk"))],
 ):
@@ -2543,7 +2545,7 @@ def bulk_domain_report(
         limit = FREE_HOURLY_LIMIT
 
     # Atomic check-and-consume: require_auth already consumed 1, we need (count - 1) more
-    if count > 1 and not ratelimit.consume_bulk("api", store_key, count - 1, limit):
+    if count > 1 and not await ratelimit.aconsume_bulk("api", store_key, count - 1, limit):
         raise HTTPException(
             status_code=429,
             detail=f"Insufficient rate limit quota for {count} domains.",
@@ -2557,36 +2559,42 @@ def bulk_domain_report(
         )
 
     try:
-        # Run reports in parallel, preserving input order
-        ordered_futures = [(_bulk_pool.submit(_run_single_report, d, client_ip, auth.tier), d) for d in domains]
-        results = []
+        # Run reports in parallel, preserving input order. Per-domain timeout
+        # caps each individual report; the overall deadline cancels any task
+        # that hasn't completed when the global window closes (those become
+        # "Bulk request timed out" + partial=True, mirroring the pre-async
+        # for-loop behaviour).
+        per_domain_tasks = [
+            asyncio.create_task(
+                asyncio.wait_for(
+                    run_in_threadpool(_run_single_report, d, client_ip, auth.tier),
+                    timeout=BULK_PER_DOMAIN_TIMEOUT,
+                )
+            )
+            for d in domains
+        ]
+        done, pending = await asyncio.wait(per_domain_tasks, timeout=BULK_OVERALL_TIMEOUT)
+
         timed_out = 0
         partial = False
-        deadline = _time.monotonic() + BULK_OVERALL_TIMEOUT
-
-        for future, domain in ordered_futures:
-            remaining = deadline - _time.monotonic()
-            if remaining <= 0:
-                # Overall timeout exceeded — cancel remaining futures, return partial results
-                future.cancel()
+        results: list[dict] = []
+        for d, task in zip(domains, per_domain_tasks, strict=True):
+            if task in pending:
+                task.cancel()
                 logger.warning("Bulk overall timeout — skipping remaining domains")
-                results.append({"domain": domain, "status": "error", "report": None, "error": "Bulk request timed out"})
+                results.append({"domain": d, "status": "error", "report": None, "error": "Bulk request timed out"})
                 timed_out += 1
                 partial = True
                 continue
-            per_domain = min(BULK_PER_DOMAIN_TIMEOUT, remaining)
             try:
-                results.append(future.result(timeout=per_domain))
-            except FuturesTimeoutError:
-                future.cancel()
+                results.append(task.result())
+            except (asyncio.TimeoutError, TimeoutError):
                 logger.warning("Bulk report timed out")
-                results.append(
-                    {"domain": domain, "status": "error", "report": None, "error": "Domain report timed out"}
-                )
+                results.append({"domain": d, "status": "error", "report": None, "error": "Domain report timed out"})
                 timed_out += 1
             except Exception as exc:
                 logger.warning("Bulk report failed: %s", type(exc).__name__)
-                results.append({"domain": domain, "status": "error", "report": None, "error": "Domain report failed"})
+                results.append({"domain": d, "status": "error", "report": None, "error": "Domain report failed"})
     finally:
         _bulk_semaphore.release()
 
@@ -2624,7 +2632,7 @@ def bulk_domain_report(
     response_model=AuditResponse,
     response_model_exclude_none=True,
 )
-def audit_domain(
+async def audit_domain(
     domain: str,
     auth: Annotated[AuthCtx, Depends(require_auth("/v1/audit", cost=COST_AUDIT))],
     include_all_txt: Annotated[
@@ -2656,23 +2664,24 @@ def audit_domain(
     tier = auth.tier
     cache_key = f"{tier}:{domain}"
 
-    cached = get_cached_domain(cache_key)
+    cached = await aget_cached_domain(cache_key)
     if cached:
         report = cached
     else:
         # Hard timeout guard — full_domain_report can hang on slow upstream
         # fail-overs (WHOIS, CT logs, subdomain enum). Cap at BULK_PER_DOMAIN_TIMEOUT.
-        with ThreadPoolExecutor(max_workers=1) as _pool:
-            _fut = _pool.submit(full_domain_report, domain, client_ip=client_ip, tier=tier)
-            try:
-                report = _fut.result(timeout=BULK_PER_DOMAIN_TIMEOUT)
-            except FuturesTimeoutError:
-                logger.warning("audit_domain: full_domain_report timed out")
-                raise HTTPException(status_code=504, detail="Domain audit timed out — target upstream slow") from None
-            except Exception as e:
-                logger.warning("audit_domain: full_domain_report failed: %s", type(e).__name__)
-                raise HTTPException(status_code=502, detail="Domain audit failed") from None
-        save_cached_domain(cache_key, report)
+        try:
+            report = await asyncio.wait_for(
+                run_in_threadpool(full_domain_report, domain, client_ip=client_ip, tier=tier),
+                timeout=BULK_PER_DOMAIN_TIMEOUT,
+            )
+        except (asyncio.TimeoutError, TimeoutError):
+            logger.warning("audit_domain: full_domain_report timed out")
+            raise HTTPException(status_code=504, detail="Domain audit timed out — target upstream slow") from None
+        except Exception as e:
+            logger.warning("audit_domain: full_domain_report failed: %s", type(e).__name__)
+            raise HTTPException(status_code=502, detail="Domain audit failed") from None
+        await asave_cached_domain(cache_key, report)
 
     # Apply the TXT filter AFTER caching the unfiltered report so the cache stays
     # canonical and ?include_all_txt=true on a subsequent request can serve the
@@ -2681,7 +2690,7 @@ def audit_domain(
     report = _apply_txt_filter(report, include_all_txt)
 
     try:
-        live = fetch_live_headers(domain)
+        live = await run_in_threadpool(fetch_live_headers, domain)
     except Exception as e:
         logger.warning("audit_domain: fetch_live_headers failed: %s", type(e).__name__)
         live = {}
@@ -2740,7 +2749,7 @@ def audit_domain(
     response_model=ThreatReportResponse,
     response_model_exclude_none=True,
 )
-def threat_report(
+async def threat_report(
     ip: IpPath,
     auth: Annotated[AuthCtx, Depends(require_auth("/v1/threat-report", cost=COST_THREAT_REPORT))],
 ):
@@ -2755,47 +2764,46 @@ def threat_report(
     if is_private_ip(ip):
         raise HTTPException(status_code=400, detail="Private/reserved IP addresses are not allowed")
 
-    with ThreadPoolExecutor(max_workers=4) as pool:
-        f_enrich = pool.submit(ip_enrichment, ip)
-        if auth.tier == "pro":
-            f_abuse = pool.submit(check_abuseipdb, ip)
-            f_shodan = pool.submit(check_shodan, ip)
-        else:
-            f_abuse = None
-            f_shodan = None
+    enrich_task = asyncio.create_task(run_in_threadpool(ip_enrichment, ip))
+    if auth.tier == "pro":
+        abuse_task = asyncio.create_task(run_in_threadpool(check_abuseipdb, ip))
+        shodan_task = asyncio.create_task(run_in_threadpool(check_shodan, ip))
+    else:
+        abuse_task = None
+        shodan_task = None
 
+    try:
+        enrichment = await asyncio.wait_for(enrich_task, timeout=10)
+    except Exception as e:
+        logger.warning("threat_report: ip_enrichment failed: %s", type(e).__name__)
+        enrich_task.cancel()
+        enrichment = {"ports": [], "hostnames": [], "vulns": [], "cpes": [], "tags": []}
+    if abuse_task is not None:
         try:
-            enrichment = f_enrich.result(timeout=10)
+            abuseipdb = await asyncio.wait_for(abuse_task, timeout=10)
         except Exception as e:
-            logger.warning("threat_report: ip_enrichment failed: %s", type(e).__name__)
-            f_enrich.cancel()
-            enrichment = {"ports": [], "hostnames": [], "vulns": [], "cpes": [], "tags": []}
-        if f_abuse is not None:
-            try:
-                abuseipdb = f_abuse.result(timeout=10)
-            except Exception as e:
-                logger.warning("threat_report: check_abuseipdb failed: %s", type(e).__name__)
-                f_abuse.cancel()
-                abuseipdb = {"status": "error"}
-        else:
-            abuseipdb = {
-                "status": "pro_only",
-                "reason": "AbuseIPDB enrichment requires Pro tier",
-                "upgrade_url": UPGRADE_URL,
-            }
-        if f_shodan is not None:
-            try:
-                shodan_data = f_shodan.result(timeout=10)
-            except Exception as e:
-                logger.warning("threat_report: check_shodan failed: %s", type(e).__name__)
-                f_shodan.cancel()
-                shodan_data = {"status": "error"}
-        else:
-            shodan_data = {
-                "status": "pro_only",
-                "reason": "Shodan enrichment requires Pro tier",
-                "upgrade_url": UPGRADE_URL,
-            }
+            logger.warning("threat_report: check_abuseipdb failed: %s", type(e).__name__)
+            abuse_task.cancel()
+            abuseipdb = {"status": "error"}
+    else:
+        abuseipdb = {
+            "status": "pro_only",
+            "reason": "AbuseIPDB enrichment requires Pro tier",
+            "upgrade_url": UPGRADE_URL,
+        }
+    if shodan_task is not None:
+        try:
+            shodan_data = await asyncio.wait_for(shodan_task, timeout=10)
+        except Exception as e:
+            logger.warning("threat_report: check_shodan failed: %s", type(e).__name__)
+            shodan_task.cancel()
+            shodan_data = {"status": "error"}
+    else:
+        shodan_data = {
+            "status": "pro_only",
+            "reason": "Shodan enrichment requires Pro tier",
+            "upgrade_url": UPGRADE_URL,
+        }
 
     if not isinstance(enrichment, dict):
         enrichment = {"ports": [], "hostnames": [], "vulns": [], "cpes": [], "tags": []}
@@ -2807,7 +2815,7 @@ def threat_report(
     # Phase 2 IP enrichment parity: threat_report.enrichment.vulns ships the
     # same severity-aware list[VulnInfo] shape as ip_lookup.vulns (v1.16.0
     # BREAKING). Pre-1.16 this was list[str].
-    enrichment["vulns"] = enrich_cves_by_ids(_clean_shodan_str_list(enrichment.get("vulns")))
+    enrichment["vulns"] = await aenrich_cves_by_ids(_clean_shodan_str_list(enrichment.get("vulns")))
     if not isinstance(abuseipdb, dict):
         abuseipdb = {"status": "error"}
     if not isinstance(shodan_data, dict):
@@ -2816,14 +2824,14 @@ def threat_report(
     asn_data = {}
     try:
         cache_key = f"asn:{ip}"
-        cached_asn = get_cached_domain(cache_key)
+        cached_asn = await aget_cached_domain(cache_key)
         if cached_asn:
             asn_data = _truncate_asn_prefixes(cached_asn, include_full=False)
         # Use the shared _fetch_asn_country helper that ip_lookup runs so
         # threat_report sees the same asn_name + country enrichment instead
         # of reinventing a network-info-only fetch (Bug I3 — passive intel
         # parity with ip_lookup).
-        country_payload = _fetch_asn_country(ip)
+        country_payload = await run_in_threadpool(_fetch_asn_country, ip)
         if country_payload.get("asn") and not asn_data.get("asn"):
             asn_data["asn"] = country_payload["asn"]
         if country_payload.get("asn_name") and not asn_data.get("asn_name"):
@@ -2843,7 +2851,7 @@ def threat_report(
     # so SOC triage callers do not need a second ip_lookup call to fill in
     # the basics.
     try:
-        ptr_result, _ = _dns_call_with_timeout(socket.gethostbyaddr, ip)
+        ptr_result, _ = await run_in_threadpool(_dns_call_with_timeout, socket.gethostbyaddr, ip)
         # Reverse DNS is owner-controlled; strip control / bidi chars before
         # echoing into the JSON response (same pattern as DNS TXT / DKIM).
         ptr = _strip_control_chars(ptr_result[0]) if ptr_result else None
@@ -2857,21 +2865,21 @@ def threat_report(
         country = asn_data.get("country") or ""
 
     try:
-        tor_exit = check_tor_exit(ip)
+        tor_exit = await run_in_threadpool(check_tor_exit, ip)
     except Exception:
         tor_exit = False
     tor_status = tor_cache_status()
 
     asn_val = asn_data.get("asn") if isinstance(asn_data, dict) else None
     try:
-        cloud_provider = check_cloud_provider(ip, asn=asn_val)
+        cloud_provider = await run_in_threadpool(check_cloud_provider, ip, asn=asn_val)
     except Exception:
         cloud_provider = None
 
     is_datacenter_flag = is_datacenter(ip, asn=asn_val, cloud_provider=cloud_provider)
 
     try:
-        firehol = check_firehol(ip)
+        firehol = await run_in_threadpool(check_firehol, ip)
     except Exception:
         firehol = {"status": "unavailable"}
 

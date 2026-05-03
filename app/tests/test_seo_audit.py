@@ -354,8 +354,8 @@ _GOOD_PAGE = {
 
 
 class TestSeoAuditRoute:
-    @patch("domain.routes.get_cached_domain", side_effect=[None, _NO_ROBOTS])
-    @patch("domain.routes.save_cached_domain")
+    @patch("db.get_cached_domain", side_effect=[None, _NO_ROBOTS])
+    @patch("db.save_cached_domain")
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     @patch("domain.brand_assets.fetch_homepage_html", return_value=_GOOD_PAGE)
     def test_seo_audit_200_with_score(self, mock_fetch, mock_validate, mock_save, mock_cache):
@@ -379,15 +379,15 @@ class TestSeoAuditRoute:
             "host": None,
             "truncated": False,
         }
-        with patch("domain.routes.get_cached_domain", side_effect=[None, blocked_robots]):
+        with patch("db.get_cached_domain", side_effect=[None, blocked_robots]):
             with patch("domain.brand_assets.fetch_homepage_html") as mock_fetch:
                 r = client.get("/v1/seo/blocked.com")
                 assert r.status_code == 403
                 assert "robots_txt_disallow" in r.text
                 mock_fetch.assert_not_called()
 
-    @patch("domain.routes.get_cached_domain", side_effect=[None, _NO_ROBOTS])
-    @patch("domain.routes.save_cached_domain")
+    @patch("db.get_cached_domain", side_effect=[None, _NO_ROBOTS])
+    @patch("db.save_cached_domain")
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     @patch(
         "domain.brand_assets.fetch_homepage_html",
@@ -401,8 +401,8 @@ class TestSeoAuditRoute:
         keys_written = [c.args[0] for c in mock_save.call_args_list]
         assert "seo:corp.com" not in keys_written
 
-    @patch("domain.routes.get_cached_domain", side_effect=[None, _NO_ROBOTS])
-    @patch("domain.routes.save_cached_domain")
+    @patch("db.get_cached_domain", side_effect=[None, _NO_ROBOTS])
+    @patch("db.save_cached_domain")
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     @patch("domain.brand_assets.fetch_homepage_html", side_effect=Exception("boom"))
     def test_homepage_fetch_failure_502(self, mock_fetch, mock_validate, mock_save, mock_cache):

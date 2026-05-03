@@ -233,8 +233,8 @@ _OK_RESULT = {
 
 class TestRedirectChainRoute:
     @patch("domain.redirect_chain.walk_redirect_chain", return_value=dict(_OK_RESULT))
-    @patch("domain.routes.get_cached_domain", return_value=None)
-    @patch("domain.routes.save_cached_domain")
+    @patch("db.get_cached_domain", return_value=None)
+    @patch("db.save_cached_domain")
     def test_redirect_200(self, mock_save, mock_cache, mock_walk):
         r = client.get("/v1/redirect/https://a.com/")
         assert r.status_code == 200, r.text
@@ -252,7 +252,7 @@ class TestRedirectChainRoute:
         assert r.status_code == 400
 
     @patch("domain.redirect_chain.walk_redirect_chain")
-    @patch("domain.routes.get_cached_domain", return_value=None)
+    @patch("db.get_cached_domain", return_value=None)
     def test_redirect_fetch_failure_502(self, mock_cache, mock_walk):
         class TimeoutException(Exception):
             pass
@@ -265,7 +265,7 @@ class TestRedirectChainRoute:
         assert "timeout" in body["error"]["message"]
 
     @patch("domain.redirect_chain.walk_redirect_chain")
-    @patch("domain.routes.get_cached_domain", return_value=None)
+    @patch("db.get_cached_domain", return_value=None)
     def test_redirect_mid_chain_throttle_429(self, mock_cache, mock_walk):
         from domain.redirect_chain import TargetThrottleHopExceeded
 

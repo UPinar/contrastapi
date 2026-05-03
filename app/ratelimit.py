@@ -230,6 +230,10 @@ def refund(store_name: str, key: str) -> None:
             con.execute("DELETE FROM rate_limits WHERE rowid = ?", (row[0],))
 
 
+async def arefund(store_name: str, key: str) -> None:
+    await run_in_threadpool(refund, store_name, key)
+
+
 def cleanup_expired(max_age_seconds: int = 7200) -> int:
     """Remove all expired entries older than max_age. Call periodically."""
     _init()

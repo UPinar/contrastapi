@@ -856,6 +856,22 @@ def save_cached_ip(ip: str, result: dict) -> None:
         )
 
 
+async def aget_cached_domain_with_age(key: str) -> tuple[dict, int] | None:
+    return await run_in_threadpool(get_cached_domain_with_age, key)
+
+
+async def aget_cached_ip(ip: str) -> dict | None:
+    return await run_in_threadpool(get_cached_ip, ip)
+
+
+async def aget_cached_ip_with_age(ip: str) -> tuple[dict, int] | None:
+    return await run_in_threadpool(get_cached_ip_with_age, ip)
+
+
+async def asave_cached_ip(ip: str, result: dict) -> None:
+    await run_in_threadpool(save_cached_ip, ip, result)
+
+
 # --- CVE operations ---
 
 
@@ -1147,6 +1163,10 @@ def enrich_cves_by_ids(cve_ids: list[str]) -> list[dict]:
         else:
             out.append({"cve_id": clean, "severity": "UNKNOWN", "cvss_v3": None})
     return out
+
+
+async def aenrich_cves_by_ids(cve_ids: list[str]) -> list[dict]:
+    return await run_in_threadpool(enrich_cves_by_ids, cve_ids)
 
 
 def search_cves_by_product(product: str, version: str | None = None, limit: int = 20) -> list[dict]:

@@ -421,8 +421,8 @@ _GOOD_PAGE = {
 
 
 class TestBrandAssetsRoute:
-    @patch("domain.routes.get_cached_domain", side_effect=[None, _NO_ROBOTS])
-    @patch("domain.routes.save_cached_domain")
+    @patch("db.get_cached_domain", side_effect=[None, _NO_ROBOTS])
+    @patch("db.save_cached_domain")
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     @patch("domain.brand_assets.fetch_homepage_html", return_value=_GOOD_PAGE)
     def test_brand_assets_200(self, mock_fetch, mock_validate, mock_save, mock_cache):
@@ -446,7 +446,7 @@ class TestBrandAssetsRoute:
             "host": None,
             "truncated": False,
         }
-        with patch("domain.routes.get_cached_domain", side_effect=[None, blocked_robots]):
+        with patch("db.get_cached_domain", side_effect=[None, blocked_robots]):
             with patch("domain.brand_assets.fetch_homepage_html") as mock_fetch:
                 r = client.get("/v1/brand/blocked.com")
                 assert r.status_code == 403
@@ -454,8 +454,8 @@ class TestBrandAssetsRoute:
                 # Critical: we must NOT have fetched the homepage.
                 mock_fetch.assert_not_called()
 
-    @patch("domain.routes.get_cached_domain", side_effect=[None, _NO_ROBOTS])
-    @patch("domain.routes.save_cached_domain")
+    @patch("db.get_cached_domain", side_effect=[None, _NO_ROBOTS])
+    @patch("db.save_cached_domain")
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     @patch(
         "domain.brand_assets.fetch_homepage_html",
@@ -476,8 +476,8 @@ class TestBrandAssetsRoute:
         keys_written = [c.args[0] for c in mock_save.call_args_list]
         assert "brand:corp.com" not in keys_written
 
-    @patch("domain.routes.get_cached_domain", side_effect=[None, _NO_ROBOTS])
-    @patch("domain.routes.save_cached_domain")
+    @patch("db.get_cached_domain", side_effect=[None, _NO_ROBOTS])
+    @patch("db.save_cached_domain")
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     @patch("domain.brand_assets.fetch_homepage_html", side_effect=Exception("connect failed"))
     def test_homepage_fetch_failure_502(self, mock_fetch, mock_validate, mock_save, mock_cache):
@@ -522,8 +522,8 @@ class TestBrandAssetsRoute:
 
         assert captured["headers"].get("Accept-Encoding") == "identity"
 
-    @patch("domain.routes.get_cached_domain", side_effect=[None, _NO_ROBOTS])
-    @patch("domain.routes.save_cached_domain")
+    @patch("db.get_cached_domain", side_effect=[None, _NO_ROBOTS])
+    @patch("db.save_cached_domain")
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     def test_ssrf_blocked_redirect_surfaces_as_502(self, mock_validate, mock_save, mock_cache):
         """If the homepage fetch ends up trying to connect to a private
@@ -544,8 +544,8 @@ class TestBrandAssetsRoute:
         """Fail-open on robots.txt fetch failure: a transient DNS / TLS
         outage on robots must not poison every brand_assets call. We
         treat it as 'no rules' and proceed."""
-        with patch("domain.routes.get_cached_domain", return_value=None):
-            with patch("domain.routes.save_cached_domain"):
+        with patch("db.get_cached_domain", return_value=None):
+            with patch("db.save_cached_domain"):
                 with patch("domain.routes.validate_domain", return_value="93.184.216.34"):
                     with patch("domain.robots.fetch_robots_txt", side_effect=Exception("dns boom")):
                         with patch("domain.brand_assets.fetch_homepage_html", return_value=_GOOD_PAGE):
@@ -555,7 +555,7 @@ class TestBrandAssetsRoute:
                             assert data["domain"] == "corp.com"
 
     @patch(
-        "domain.routes.get_cached_domain",
+        "db.get_cached_domain",
         return_value={
             "domain": "corp.com",
             "fetched_url": "https://corp.com/",

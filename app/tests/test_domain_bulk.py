@@ -117,8 +117,8 @@ class TestSslCertificate:
         mock_ssock.__exit__ = MagicMock(return_value=False)
         return mock_ssock
 
-    @patch("domain.routes.save_cached_domain")
-    @patch("domain.routes.get_cached_domain", return_value=None)
+    @patch("db.save_cached_domain")
+    @patch("db.get_cached_domain", return_value=None)
     @patch("domain.routes._validate_domain_input")
     def test_ssl_valid_cert(self, mock_validate, mock_cache_get, mock_cache_save):
         mock_validate.return_value = ("example.com", "93.184.216.34")
@@ -152,8 +152,8 @@ class TestSslCertificate:
         assert len(data["chain"]) == 1
         assert data["chain"][0]["source"] == "handshake"
 
-    @patch("domain.routes.save_cached_domain")
-    @patch("domain.routes.get_cached_domain", return_value=None)
+    @patch("db.save_cached_domain")
+    @patch("db.get_cached_domain", return_value=None)
     @patch("domain.routes._validate_domain_input")
     def test_ssl_expired_cert(self, mock_validate, mock_cache_get, mock_cache_save):
         mock_validate.return_value = ("expired.com", "1.2.3.4")
@@ -175,7 +175,7 @@ class TestSslCertificate:
         assert "expired" in data["validation_errors"]
         assert "INVALID: expired" in data["summary"]
 
-    @patch("domain.routes.get_cached_domain", return_value=None)
+    @patch("db.get_cached_domain", return_value=None)
     @patch("domain.routes._validate_domain_input")
     def test_ssl_connection_refused(self, mock_validate, mock_cache_get):
         mock_validate.return_value = ("nossl.com", "1.2.3.4")
@@ -194,14 +194,14 @@ class TestSslCertificate:
             "grade": "A",
             "summary": "cached.com — A",
         }
-        with patch("domain.routes.get_cached_domain", return_value=cached_result):
+        with patch("db.get_cached_domain", return_value=cached_result):
             r = client.get("/v1/ssl/cached.com")
         assert r.status_code == 200
         data = r.json()
         assert data["grade"] == "A"
 
-    @patch("domain.routes.save_cached_domain")
-    @patch("domain.routes.get_cached_domain", return_value=None)
+    @patch("db.save_cached_domain")
+    @patch("db.get_cached_domain", return_value=None)
     @patch("domain.routes._validate_domain_input")
     def test_ssl_chain_no_aia_extension(self, mock_validate, mock_cache_get, mock_cache_save):
         mock_validate.return_value = ("example.com", "93.184.216.34")
@@ -221,8 +221,8 @@ class TestSslCertificate:
         assert data["warnings"] == []
         assert "partial" not in data["summary"]
 
-    @patch("domain.routes.save_cached_domain")
-    @patch("domain.routes.get_cached_domain", return_value=None)
+    @patch("db.save_cached_domain")
+    @patch("db.get_cached_domain", return_value=None)
     @patch("domain.routes._validate_domain_input")
     def test_ssl_chain_with_aia_success(self, mock_validate, mock_cache_get, mock_cache_save):
         mock_validate.return_value = ("example.com", "93.184.216.34")
@@ -248,8 +248,8 @@ class TestSslCertificate:
         assert data["warnings"] == []
         assert "partial" not in data["summary"]
 
-    @patch("domain.routes.save_cached_domain")
-    @patch("domain.routes.get_cached_domain", return_value=None)
+    @patch("db.save_cached_domain")
+    @patch("db.get_cached_domain", return_value=None)
     @patch("domain.routes._validate_domain_input")
     def test_ssl_chain_aia_timeout(self, mock_validate, mock_cache_get, mock_cache_save):
         mock_validate.return_value = ("example.com", "93.184.216.34")
@@ -273,8 +273,8 @@ class TestSslCertificate:
         assert "timeout" in data["warnings"][0].lower()
         assert "partial" in data["summary"]
 
-    @patch("domain.routes.save_cached_domain")
-    @patch("domain.routes.get_cached_domain", return_value=None)
+    @patch("db.save_cached_domain")
+    @patch("db.get_cached_domain", return_value=None)
     @patch("domain.routes._validate_domain_input")
     def test_ssl_chain_aia_malformed(self, mock_validate, mock_cache_get, mock_cache_save):
         mock_validate.return_value = ("example.com", "93.184.216.34")
@@ -320,8 +320,8 @@ class TestBulkDomainReport:
         "summary": "example.com — healthy",
     }
 
-    @patch("domain.routes.save_cached_domain")
-    @patch("domain.routes.get_cached_domain", return_value=None)
+    @patch("db.save_cached_domain")
+    @patch("db.get_cached_domain", return_value=None)
     @patch("domain.routes.full_domain_report")
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     def test_bulk_valid(self, mock_validate, mock_report, mock_cache_get, mock_cache_save):
@@ -348,8 +348,8 @@ class TestBulkDomainReport:
         r = client.post("/v1/domains/bulk", json={"domains": [f"d{i}.com" for i in range(51)]})
         assert r.status_code == 422  # pydantic max_length=50
 
-    @patch("domain.routes.save_cached_domain")
-    @patch("domain.routes.get_cached_domain", return_value=None)
+    @patch("db.save_cached_domain")
+    @patch("db.get_cached_domain", return_value=None)
     @patch("domain.routes.full_domain_report")
     @patch("domain.routes.validate_domain")
     def test_bulk_partial_failure(self, mock_validate, mock_report, mock_cache_get, mock_cache_save):
@@ -381,7 +381,7 @@ class TestBulkDomainReport:
         r = client.post("/v1/domains/bulk", json={"domains": [f"d{i}.com" for i in range(5)]})
         assert r.status_code == 429
 
-    @patch("domain.routes.get_cached_domain")
+    @patch("db.get_cached_domain")
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     def test_bulk_cached(self, mock_validate, mock_cache):
         """Cached domains should be returned without calling full_domain_report."""
@@ -391,8 +391,8 @@ class TestBulkDomainReport:
         data = r.json()
         assert data["successful"] == 1
 
-    @patch("domain.routes.save_cached_domain")
-    @patch("domain.routes.get_cached_domain", return_value=None)
+    @patch("db.save_cached_domain")
+    @patch("db.get_cached_domain", return_value=None)
     @patch("domain.routes.full_domain_report")
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     def test_bulk_deduplicates_domains(self, mock_validate, mock_report, mock_cache_get, mock_cache_save):
@@ -405,8 +405,8 @@ class TestBulkDomainReport:
         assert len(data["results"]) == 1
         assert data["results"][0]["domain"] == "example.com"
 
-    @patch("domain.routes.save_cached_domain")
-    @patch("domain.routes.get_cached_domain", return_value=None)
+    @patch("db.save_cached_domain")
+    @patch("db.get_cached_domain", return_value=None)
     @patch(
         "domain.routes.full_domain_report",
         side_effect=RuntimeError("/opt/contrastapi/app/domain/recon.py line 42: connection pool exhausted"),
@@ -423,8 +423,8 @@ class TestBulkDomainReport:
         assert "/opt" not in err_item["error"]
         assert "recon.py" not in err_item["error"]
 
-    @patch("domain.routes.save_cached_domain")
-    @patch("domain.routes.get_cached_domain", return_value=None)
+    @patch("db.save_cached_domain")
+    @patch("db.get_cached_domain", return_value=None)
     @patch("domain.routes.full_domain_report")
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     @patch("auth.aauthenticate", new_callable=AsyncMock, return_value=_AUTH_PRO)
@@ -449,8 +449,8 @@ class TestBulkDomainReport:
         assert r.status_code == 422
         assert "Limit: 10" in r.json()["error"]["message"]
 
-    @patch("domain.routes.save_cached_domain")
-    @patch("domain.routes.get_cached_domain", return_value=None)
+    @patch("db.save_cached_domain")
+    @patch("db.get_cached_domain", return_value=None)
     @patch("domain.routes.full_domain_report")
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     @patch("auth.aauthenticate", new_callable=AsyncMock, return_value=_AUTH_FREE)
@@ -460,8 +460,8 @@ class TestBulkDomainReport:
         r = client.post("/v1/domains/bulk", json={"domains": [f"d{i}.com" for i in range(10)]})
         assert r.status_code != 422
 
-    @patch("domain.routes.save_cached_domain")
-    @patch("domain.routes.get_cached_domain", return_value=None)
+    @patch("db.save_cached_domain")
+    @patch("db.get_cached_domain", return_value=None)
     @patch("domain.routes.full_domain_report")
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     @patch("auth.aauthenticate", new_callable=AsyncMock, return_value=_AUTH_PRO)
@@ -475,8 +475,8 @@ class TestBulkDomainReport:
         assert data["total"] == 20
         assert data["successful"] == 20
 
-    @patch("domain.routes.save_cached_domain")
-    @patch("domain.routes.get_cached_domain", return_value=None)
+    @patch("db.save_cached_domain")
+    @patch("db.get_cached_domain", return_value=None)
     @patch("domain.routes.full_domain_report")
     @patch("domain.routes.validate_domain", return_value="1.2.3.4")
     def test_bulk_per_domain_timeout(self, mock_validate, mock_report, mock_cache_get, mock_cache_save):
@@ -496,8 +496,8 @@ class TestBulkDomainReport:
         assert data["failed"] == 0  # timed_out is separate from failed
         assert data["results"][0]["error"] == "Domain report timed out"
 
-    @patch("domain.routes.save_cached_domain")
-    @patch("domain.routes.get_cached_domain", return_value=None)
+    @patch("db.save_cached_domain")
+    @patch("db.get_cached_domain", return_value=None)
     @patch("domain.routes.full_domain_report")
     @patch("domain.routes.validate_domain", return_value="1.2.3.4")
     def test_bulk_overall_timeout_partial(self, mock_validate, mock_report, mock_cache_get, mock_cache_save):
@@ -517,8 +517,8 @@ class TestBulkDomainReport:
         assert data["timed_out"] >= 1
         assert "partial" in data["summary"]
 
-    @patch("domain.routes.save_cached_domain")
-    @patch("domain.routes.get_cached_domain", return_value=None)
+    @patch("db.save_cached_domain")
+    @patch("db.get_cached_domain", return_value=None)
     @patch("domain.routes.full_domain_report")
     @patch("domain.routes.validate_domain", return_value="1.2.3.4")
     def test_bulk_response_has_timeout_fields(self, mock_validate, mock_report, mock_cache_get, mock_cache_save):
@@ -545,8 +545,8 @@ class TestBulkDomainReport:
             _bulk_semaphore.release()
             _bulk_semaphore.release()
 
-    @patch("domain.routes.save_cached_domain")
-    @patch("domain.routes.get_cached_domain", return_value=None)
+    @patch("db.save_cached_domain")
+    @patch("db.get_cached_domain", return_value=None)
     @patch("domain.routes.full_domain_report")
     @patch("domain.routes.validate_domain", return_value="1.2.3.4")
     def test_bulk_semaphore_released_on_error(self, mock_validate, mock_report, mock_cache_get, mock_cache_save):
@@ -623,8 +623,8 @@ MOCK_RIPE_PREFIXES = {
 
 
 class TestAsnRoute:
-    @patch("domain.routes.save_cached_domain")
-    @patch("domain.routes.get_cached_domain", return_value=None)
+    @patch("db.save_cached_domain")
+    @patch("db.get_cached_domain", return_value=None)
     @patch("auth.aauthenticate", new_callable=AsyncMock, return_value=_AUTH_FREE)
     def test_asn_with_ip(self, mock_auth, mock_cache_get, mock_cache_save):
         """ASN lookup with direct IP input."""
@@ -653,8 +653,8 @@ class TestAsnRoute:
             assert data.get("resolved_ip") is None
             assert "AS13335" in data["summary"]
 
-    @patch("domain.routes.save_cached_domain")
-    @patch("domain.routes.get_cached_domain", return_value=None)
+    @patch("db.save_cached_domain")
+    @patch("db.get_cached_domain", return_value=None)
     @patch("domain.routes.quick_dns_a", return_value=["1.1.1.1"])
     @patch("domain.routes.clean_domain", return_value="example.com")
     @patch("domain.routes.is_valid_ip", return_value=False)
@@ -685,8 +685,8 @@ class TestAsnRoute:
             assert data.get("next_calls"), "domain input must emit ip_lookup pivot"
             assert any(h["tool"] == "ip_lookup" and h["input"] == "1.1.1.1" for h in data["next_calls"])
 
-    @patch("domain.routes.save_cached_domain")
-    @patch("domain.routes.get_cached_domain", return_value=None)
+    @patch("db.save_cached_domain")
+    @patch("db.get_cached_domain", return_value=None)
     @patch("auth.aauthenticate", new_callable=AsyncMock, return_value=_AUTH_FREE)
     def test_asn_with_ip_input_emits_no_pivot(self, mock_auth, mock_cache_get, mock_cache_save):
         """IP input → no ip_lookup pivot (agent already has the IP)."""
@@ -728,7 +728,7 @@ class TestAsnRoute:
             patch("domain.routes.is_valid_ip", return_value=False),
             patch("domain.routes.clean_domain", return_value="example.com"),
             patch("domain.routes.quick_dns_a", return_value=["1.1.1.1"]),
-            patch("domain.routes.get_cached_domain", return_value=cached_data),
+            patch("db.get_cached_domain", return_value=cached_data),
         ):
             r = client.get("/v1/asn/example.com")
             assert r.status_code == 200
@@ -737,8 +737,8 @@ class TestAsnRoute:
             assert data.get("next_calls")
             assert any(h["tool"] == "ip_lookup" and h["input"] == "1.1.1.1" for h in data["next_calls"])
 
-    @patch("domain.routes.save_cached_domain")
-    @patch("domain.routes.get_cached_domain", return_value=None)
+    @patch("db.save_cached_domain")
+    @patch("db.get_cached_domain", return_value=None)
     @patch("auth.aauthenticate", new_callable=AsyncMock, return_value=_AUTH_FREE)
     def test_asn_lookup_overview_upstream_timeout(self, mock_auth, mock_cache_get, mock_cache_save):
         """as-overview timeout degrades gracefully: asn_name empty, prefixes populated, warnings signal failure."""
@@ -765,8 +765,8 @@ class TestAsnRoute:
             assert any("as-overview" in w.lower() and "timeout" in w.lower() for w in data["warnings"])
             assert "partial" in data["summary"].lower()
 
-    @patch("domain.routes.save_cached_domain")
-    @patch("domain.routes.get_cached_domain", return_value=None)
+    @patch("db.save_cached_domain")
+    @patch("db.get_cached_domain", return_value=None)
     @patch("auth.aauthenticate", new_callable=AsyncMock, return_value=_AUTH_FREE)
     def test_asn_lookup_prefixes_upstream_5xx(self, mock_auth, mock_cache_get, mock_cache_save):
         """announced-prefixes HTTP 503 degrades gracefully: asn_name populated, prefixes empty, warnings signal failure."""
@@ -797,8 +797,8 @@ class TestAsnRoute:
             assert data["ipv6_prefixes"] == []
             assert any("announced-prefixes" in w.lower() for w in data["warnings"])
 
-    @patch("domain.routes.save_cached_domain")
-    @patch("domain.routes.get_cached_domain", return_value=None)
+    @patch("db.save_cached_domain")
+    @patch("db.get_cached_domain", return_value=None)
     @patch("auth.aauthenticate", new_callable=AsyncMock, return_value=_AUTH_FREE)
     def test_asn_lookup_clean_success_no_warnings(self, mock_auth, mock_cache_get, mock_cache_save):
         """All upstreams succeed — warnings is empty, response shape unchanged."""
@@ -833,8 +833,8 @@ class TestAsnRoute:
         msg = r.json()["error"]["message"]
         assert "Private" in msg or "private" in msg.lower()
 
-    @patch("domain.routes.save_cached_domain")
-    @patch("domain.routes.get_cached_domain", return_value=None)
+    @patch("db.save_cached_domain")
+    @patch("db.get_cached_domain", return_value=None)
     @patch("auth.aauthenticate", new_callable=AsyncMock, return_value=_AUTH_FREE)
     def test_asn_lookup_skips_cache_when_both_metadata_futures_failed(self, mock_auth, mock_cache_get, mock_cache_save):
         """Bug NEW-A: when both as-overview and announced-prefixes fail at write
@@ -863,8 +863,8 @@ class TestAsnRoute:
             assert data["ipv6_prefixes"] == []
             mock_cache_save.assert_not_called()
 
-    @patch("domain.routes.save_cached_domain")
-    @patch("domain.routes.get_cached_domain", return_value=None)
+    @patch("db.save_cached_domain")
+    @patch("db.get_cached_domain", return_value=None)
     @patch("auth.aauthenticate", new_callable=AsyncMock, return_value=_AUTH_FREE)
     def test_asn_lookup_caches_when_only_one_metadata_future_failed(self, mock_auth, mock_cache_get, mock_cache_save):
         """Partial success is still cacheable — only the empty-and-empty
@@ -905,7 +905,7 @@ class TestAsnRoute:
             "summary": "AS13335 (CLOUDFLARENET). 1 IPv4 and 0 IPv6 prefixes",
             "warnings": [],
         }
-        with patch("domain.routes.get_cached_domain", return_value=cached_data):
+        with patch("db.get_cached_domain", return_value=cached_data):
             r = client.get("/v1/asn/1.1.1.1")
             assert r.status_code == 200
             data = r.json()
@@ -929,7 +929,7 @@ class TestAsnRoute:
             "summary": "AS13335 (CLOUDFLARENET). 100 IPv4 and 0 IPv6 prefixes",
             "warnings": [],
         }
-        with patch("domain.routes.get_cached_domain", return_value=cached_data):
+        with patch("db.get_cached_domain", return_value=cached_data):
             r = client.get("/v1/asn/1.1.1.1")
             assert r.status_code == 200
             data = r.json()
@@ -952,7 +952,7 @@ class TestAsnRoute:
             "summary": "AS13335 (CLOUDFLARENET). 100 IPv4 and 0 IPv6 prefixes",
             "warnings": [],
         }
-        with patch("domain.routes.get_cached_domain", return_value=cached_data):
+        with patch("db.get_cached_domain", return_value=cached_data):
             r = client.get("/v1/asn/1.1.1.1?include_full_prefixes=true")
             assert r.status_code == 200
             data = r.json()
@@ -974,7 +974,7 @@ class TestAsnRoute:
             "summary": "AS13335 (CLOUDFLARENET). 5 IPv4 and 0 IPv6 prefixes",
             "warnings": [],
         }
-        with patch("domain.routes.get_cached_domain", return_value=cached_data):
+        with patch("db.get_cached_domain", return_value=cached_data):
             r = client.get("/v1/asn/1.1.1.1")
             assert r.status_code == 200
             assert len(r.json()["ipv4_prefixes"]) == 5
@@ -994,7 +994,7 @@ class TestAsnRoute:
             "summary": "AS13335 (CLOUDFLARENET). 100 IPv4 and 0 IPv6 prefixes",
             "warnings": [],
         }
-        with patch("domain.routes.get_cached_domain", return_value=cached_data):
+        with patch("db.get_cached_domain", return_value=cached_data):
             r1 = client.get("/v1/asn/1.1.1.1")
             r2 = client.get("/v1/asn/1.1.1.1?include_full_prefixes=true")
             assert len(r1.json()["ipv4_prefixes"]) == 50
@@ -1002,8 +1002,8 @@ class TestAsnRoute:
             # Cache itself untouched
             assert len(cached_data["ipv4_prefixes"]) == 100
 
-    @patch("domain.routes.save_cached_domain")
-    @patch("domain.routes.get_cached_domain", return_value=None)
+    @patch("db.save_cached_domain")
+    @patch("db.get_cached_domain", return_value=None)
     @patch("auth.aauthenticate", new_callable=AsyncMock, return_value=_AUTH_FREE)
     def test_asn_lookup_verdict_complete_on_clean_success(self, mock_auth, mock_cache_get, mock_cache_save):
         """Bug I2: asn_lookup now emits a verdict block. On clean success
@@ -1034,8 +1034,8 @@ class TestAsnRoute:
             assert v["completeness"] == "complete"
             assert v["data_age_seconds"] == 0  # fresh fetch
 
-    @patch("domain.routes.save_cached_domain")
-    @patch("domain.routes.get_cached_domain", return_value=None)
+    @patch("db.save_cached_domain")
+    @patch("db.get_cached_domain", return_value=None)
     @patch("auth.aauthenticate", new_callable=AsyncMock, return_value=_AUTH_FREE)
     def test_asn_lookup_verdict_partial_on_overview_timeout(self, mock_auth, mock_cache_get, mock_cache_save):
         """as-overview fails → ripe_stat:as-overview in sources_unavailable,
@@ -1061,8 +1061,8 @@ class TestAsnRoute:
             assert "ripe_stat:announced-prefixes" not in v["sources_unavailable"]
             assert v["completeness"] == "partial"
 
-    @patch("domain.routes.save_cached_domain")
-    @patch("domain.routes.get_cached_domain", return_value=None)
+    @patch("db.save_cached_domain")
+    @patch("db.get_cached_domain", return_value=None)
     @patch("auth.aauthenticate", new_callable=AsyncMock, return_value=_AUTH_FREE)
     def test_asn_lookup_does_not_persist_pydantic_verdict_to_cache(self, mock_auth, mock_cache_get, mock_cache_save):
         """The verdict is a Pydantic model — calling json.dumps on the
@@ -1121,7 +1121,7 @@ class TestAsnRoute:
             "summary": "AS13335",
             "warnings": ["announced-prefixes: timeout"],
         }
-        with patch("domain.routes.get_cached_domain", return_value=cached_data):
+        with patch("db.get_cached_domain", return_value=cached_data):
             r = client.get("/v1/asn/1.1.1.1")
             assert r.status_code == 200
             v = r.json()["verdict"]
@@ -1148,7 +1148,7 @@ class TestAsnRoute:
             "summary": "AS13335",
             "warnings": [],
         }
-        with patch("domain.routes.get_cached_domain", return_value=legacy_cache):
+        with patch("db.get_cached_domain", return_value=legacy_cache):
             r = client.get("/v1/asn/1.1.1.1")
             assert r.status_code == 200
             data = r.json()
@@ -1171,7 +1171,7 @@ class TestAsnRoute:
             "summary": "AS13335",
             "warnings": [],
         }
-        with patch("domain.routes.get_cached_domain", return_value=cached_data):
+        with patch("db.get_cached_domain", return_value=cached_data):
             r = client.get("/v1/asn/1.1.1.1")
             assert r.status_code == 200
             data = r.json()
@@ -1319,8 +1319,8 @@ class TestAuditDomain:
 
     @patch("domain.tech.detect_technologies")
     @patch("domain.recon.fetch_live_headers")
-    @patch("domain.routes.save_cached_domain")
-    @patch("domain.routes.get_cached_domain", return_value=None)
+    @patch("db.save_cached_domain")
+    @patch("db.get_cached_domain", return_value=None)
     @patch("domain.routes.full_domain_report")
     @patch("domain.routes.clean_domain", return_value="example.com")
     def test_audit_success(self, mock_clean, mock_report, mock_get, mock_save, mock_live, mock_tech):
@@ -1348,8 +1348,8 @@ class TestAuditDomain:
 
     @patch("domain.tech.detect_technologies")
     @patch("domain.recon.fetch_live_headers", side_effect=RuntimeError("connection refused"))
-    @patch("domain.routes.save_cached_domain")
-    @patch("domain.routes.get_cached_domain", return_value=None)
+    @patch("db.save_cached_domain")
+    @patch("db.get_cached_domain", return_value=None)
     @patch("domain.routes.full_domain_report")
     @patch("domain.routes.clean_domain", return_value="example.com")
     def test_audit_live_headers_failure(self, mock_clean, mock_report, mock_get, mock_save, mock_live, mock_tech):
@@ -1365,7 +1365,7 @@ class TestAuditDomain:
 
     @patch("domain.tech.detect_technologies")
     @patch("domain.recon.fetch_live_headers")
-    @patch("domain.routes.get_cached_domain")
+    @patch("db.get_cached_domain")
     @patch("domain.routes.clean_domain", return_value="cached.com")
     def test_audit_uses_cache(self, mock_clean, mock_get, mock_live, mock_tech):
         """Cache hit should NOT call full_domain_report."""
@@ -1381,8 +1381,8 @@ class TestAuditDomain:
 
     @patch("domain.tech.detect_technologies")
     @patch("domain.recon.fetch_live_headers")
-    @patch("domain.routes.save_cached_domain")
-    @patch("domain.routes.get_cached_domain", return_value=None)
+    @patch("db.save_cached_domain")
+    @patch("db.get_cached_domain", return_value=None)
     @patch("domain.routes.full_domain_report")
     @patch("domain.routes.clean_domain", return_value="example.com")
     def test_audit_next_calls_subdomain_and_ssl(
@@ -1447,7 +1447,7 @@ class TestThreatReport:
         mock_ripe_resp.raise_for_status = MagicMock()
         mock_ripe.get.return_value = mock_ripe_resp
 
-        with patch("domain.routes.get_cached_domain", return_value=None), patch("domain.routes.save_cached_domain"):
+        with patch("db.get_cached_domain", return_value=None), patch("db.save_cached_domain"):
             r = client.get("/v1/threat-report/8.8.8.8")
         assert r.status_code == 200
         data = r.json()
@@ -1490,7 +1490,7 @@ class TestThreatReport:
         mock_ripe_resp.raise_for_status = MagicMock()
         mock_ripe.get.return_value = mock_ripe_resp
 
-        with patch("domain.routes.get_cached_domain", return_value=None), patch("domain.routes.save_cached_domain"):
+        with patch("db.get_cached_domain", return_value=None), patch("db.save_cached_domain"):
             r = client.get("/v1/threat-report/1.2.3.4")
         assert r.status_code == 200
         data = r.json()
@@ -1512,7 +1512,7 @@ class TestThreatReport:
         mock_shodan.return_value = {"status": "ok"}
         mock_ripe.get.side_effect = RuntimeError("RIPE timeout")
 
-        with patch("domain.routes.get_cached_domain", return_value=None):
+        with patch("db.get_cached_domain", return_value=None):
             r = client.get("/v1/threat-report/1.2.3.4")
         assert r.status_code == 200
         data = r.json()
@@ -1534,7 +1534,7 @@ class TestThreatReport:
         mock_ripe_resp.raise_for_status = MagicMock()
         mock_ripe.get.return_value = mock_ripe_resp
 
-        with patch("domain.routes.get_cached_domain", return_value=None), patch("domain.routes.save_cached_domain"):
+        with patch("db.get_cached_domain", return_value=None), patch("db.save_cached_domain"):
             r = client.get("/v1/threat-report/1.2.3.4")
         assert r.status_code == 200
         body_text = r.text
@@ -1558,8 +1558,8 @@ class TestAuditDomainEdgeCases:
 
     @patch("domain.tech.detect_technologies")
     @patch("domain.recon.fetch_live_headers")
-    @patch("domain.routes.save_cached_domain")
-    @patch("domain.routes.get_cached_domain", return_value=None)
+    @patch("db.save_cached_domain")
+    @patch("db.get_cached_domain", return_value=None)
     @patch("domain.routes.full_domain_report")
     @patch("domain.routes.clean_domain", return_value="example.com")
     def test_audit_empty_headers(self, mock_clean, mock_report, mock_get, mock_save, mock_live, mock_tech):
@@ -1576,8 +1576,8 @@ class TestAuditDomainEdgeCases:
 
     @patch("domain.tech.detect_technologies")
     @patch("domain.recon.fetch_live_headers")
-    @patch("domain.routes.save_cached_domain")
-    @patch("domain.routes.get_cached_domain", return_value=None)
+    @patch("db.save_cached_domain")
+    @patch("db.get_cached_domain", return_value=None)
     @patch("domain.routes.full_domain_report")
     @patch("domain.routes.clean_domain", return_value="example.com")
     def test_audit_malformed_live_headers(self, mock_clean, mock_report, mock_get, mock_save, mock_live, mock_tech):
@@ -1621,7 +1621,7 @@ class TestAuditDomainTxtFilter:
 
     @patch("domain.tech.detect_technologies")
     @patch("domain.recon.fetch_live_headers")
-    @patch("domain.routes.get_cached_domain")
+    @patch("db.get_cached_domain")
     @patch("domain.routes.clean_domain", return_value="example.com")
     def test_audit_domain_txt_filter_default(self, mock_clean, mock_get, mock_live, mock_tech):
         # Cached object — audit must not mutate it
@@ -1646,7 +1646,7 @@ class TestAuditDomainTxtFilter:
 
     @patch("domain.tech.detect_technologies")
     @patch("domain.recon.fetch_live_headers")
-    @patch("domain.routes.get_cached_domain")
+    @patch("db.get_cached_domain")
     @patch("domain.routes.clean_domain", return_value="example.com")
     def test_audit_domain_txt_include_all(self, mock_clean, mock_get, mock_live, mock_tech):
         cached_obj = {**self._TXT_REPORT, "dns": dict(self._TXT_REPORT["dns"])}
@@ -1663,7 +1663,7 @@ class TestAuditDomainTxtFilter:
 
     @patch("domain.tech.detect_technologies")
     @patch("domain.recon.fetch_live_headers")
-    @patch("domain.routes.get_cached_domain")
+    @patch("db.get_cached_domain")
     @patch("domain.routes.clean_domain", return_value="example.com")
     def test_audit_domain_txt_filter_does_not_mutate_cache(self, mock_clean, mock_get, mock_live, mock_tech):
         # Two back-to-back calls hitting the same cached object — second call must
