@@ -248,7 +248,7 @@ def test_400_invalid_argument_envelope_shape():
 
 def test_status_to_code_mapping_known_codes():
     """Sanity-check the status→code dict used by api_error_handler."""
-    from main import _STATUS_TO_ERROR_CODE
+    from core.exception_handlers import _STATUS_TO_ERROR_CODE
 
     assert _STATUS_TO_ERROR_CODE[400] == "invalid_argument"
     assert _STATUS_TO_ERROR_CODE[401] == "auth_required"
@@ -263,7 +263,7 @@ def test_status_to_code_mapping_known_codes():
 
 def test_unknown_status_code_falls_back_to_upstream_error():
     """`api_error_handler` default for unmapped status codes."""
-    from main import _STATUS_TO_ERROR_CODE
+    from core.exception_handlers import _STATUS_TO_ERROR_CODE
 
     assert _STATUS_TO_ERROR_CODE.get(418, "upstream_error") == "upstream_error"
 
@@ -284,8 +284,8 @@ def test_error_envelope_message_truncated_to_500_chars():
     """`HTTPException.detail` is free-form; the wire `error.message` must
     respect ErrorDetail.max_length=500 even when upstream raises a long
     detail string. Mirrors the MCP-side truncation in mcp_server.py."""
+    from core.exception_handlers import _error_envelope
     from fastapi import HTTPException
-    from main import _error_envelope
 
     long_msg = "X" * 1500
     body = _error_envelope(code="upstream_error", message=long_msg)
@@ -301,7 +301,7 @@ def test_error_envelope_message_truncated_to_500_chars():
 def test_error_envelope_retry_after_capped_at_3600():
     """Mirror mcp_server.py:269 cap. Hostile upstream must not pin clients
     into multi-hour backoff via Retry-After."""
-    from main import _RETRY_AFTER_MAX_SECONDS, _error_envelope
+    from core.exception_handlers import _RETRY_AFTER_MAX_SECONDS, _error_envelope
 
     body = _error_envelope(code="rate_limit_exceeded", message="x", retry_after_seconds=99999)
     assert body["retry_after_seconds"] == _RETRY_AFTER_MAX_SECONDS == 3600
@@ -341,8 +341,8 @@ def test_validation_error_reason_truncated_to_500_chars():
     import asyncio
     import json
 
+    from core.exception_handlers import validation_error_handler
     from fastapi.exceptions import RequestValidationError
-    from main import validation_error_handler
     from starlette.requests import Request
 
     long_msg = "Value error, " + ("X" * 2000)

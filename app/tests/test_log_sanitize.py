@@ -1,7 +1,7 @@
-"""Tests for _sanitize_path (app/main.py) — PII redaction for log output."""
+"""Tests for _sanitize_path (app/core/metrics.py) — PII redaction for log output."""
 
 import pytest
-from main import _sanitize_path
+from core.metrics import _sanitize_path
 
 
 @pytest.mark.parametrize(
