@@ -4,18 +4,25 @@ Two modes:
   - Keyless: rate limited by IP (100 req/hr)
   - API key: cc_ prefixed key in Authorization header (1000 req/hr)
 
-Faz 3 architecture:
+Architecture (Faz 3 + Faz 4):
   - AuthCtx frozen dataclass — type-safe auth context, single source of truth
     for tier/key_hash/client_ip + 4 ratelimit_* fields. Stashed on
     request.state.auth before raising 401/429.
-  - authenticate_sync() — sync core. Used by: require_auth's threadpool dep,
-    MCP ASGI gate (sync inside ASGI middleware), test_auth.py.
+  - aauthenticate() — async core used by require_auth's FastAPI dep. Awaits
+    aget_api_key / aconsume_credits / aget_reset_time / atouch_api_key /
+    alog_usage; pure-CPU helpers (hash_key, hash_client_ip, extract_key,
+    _privacy_opt_out, _stash) stay direct calls.
+  - authenticate_sync() — sync core preserved for the MCP ASGI gate (sync
+    inside ASGI middleware where async I/O isn't available) and for
+    test_auth.py's direct sync-core invariants.
   - require_auth(endpoint, cost) — FastAPI dependency factory used by every
     public REST route. Routes write `auth: Annotated[AuthCtx, Depends(require_auth("/v1/<path>"))]`
     to receive a populated AuthCtx + auto-emit ContrastAPIKey security in OpenAPI.
 
-Legacy `authenticate()` wrapper removed in Batch 3f (2026-05-03). Mid-migration
-shim only — never permanent backward-compat.
+Legacy `authenticate()` wrapper removed in Batch 3f (2026-05-03); Batch 4e
+(2026-05-03) replaced `require_auth`'s `run_in_threadpool(authenticate_sync,
+...)` dispatch with a direct `await aauthenticate(...)`. Mid-migration shims
+only — never permanent backward-compat.
 """
 
 import hashlib

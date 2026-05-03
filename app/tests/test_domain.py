@@ -16,9 +16,9 @@ from main import app
 
 client = TestClient(app)
 
-# Faz 3: routes use Annotated[AuthCtx, Depends(require_auth(...))] instead of
-# inline authenticate(); patches must hit auth.authenticate_sync (the sync core
-# wrapped by require_auth's run_in_threadpool dep).
+# Routes use Annotated[AuthCtx, Depends(require_auth(...))]; require_auth's
+# dep awaits auth.aauthenticate (Faz 4 batch 4e), so patches target
+# auth.aauthenticate with new_callable=AsyncMock.
 _AUTH_FREE = AuthCtx(
     tier="free",
     key_hash=None,

@@ -1,6 +1,6 @@
 """Tests for CVE Intelligence module — routes.py + sync.py"""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 from fastapi.testclient import TestClient
@@ -4158,7 +4158,8 @@ class TestBulkCveLookup:
 
     @patch("ratelimit.consume_bulk", return_value=False)
     @patch(
-        "auth.authenticate_sync",
+        "auth.aauthenticate",
+        new_callable=AsyncMock,
         return_value=__import__("auth").AuthCtx(
             tier="free",
             key_hash=None,
