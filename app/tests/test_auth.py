@@ -103,7 +103,7 @@ def test_extract_key_empty_bearer():
 
 
 def test_authenticate_keyless_allowed():
-    from auth import authenticate
+    from auth import authenticate_sync as authenticate
 
     # Direct test via mock request
     request = MagicMock()
@@ -111,13 +111,14 @@ def test_authenticate_keyless_allowed():
     request.client = MagicMock()
     request.client.host = "1.2.3.4"
     ctx = authenticate(request, "/v1/cve/test")
-    assert ctx["tier"] == "free"
-    assert ctx["key_hash"] is None
-    assert ctx["client_ip"] == "1.2.3.4"
+    assert ctx.tier == "free"
+    assert ctx.key_hash is None
+    assert ctx.client_ip == "1.2.3.4"
 
 
 def test_authenticate_pro_key_valid():
-    from auth import authenticate, generate_key, hash_key
+    from auth import authenticate_sync as authenticate
+    from auth import generate_key, hash_key
     from db import save_api_key
 
     key = generate_key()
@@ -127,12 +128,12 @@ def test_authenticate_pro_key_valid():
     request.client = MagicMock()
     request.client.host = "5.6.7.8"
     ctx = authenticate(request, "/v1/cve/test")
-    assert ctx["tier"] == "pro"
-    assert ctx["key_hash"] == hash_key(key)
+    assert ctx.tier == "pro"
+    assert ctx.key_hash == hash_key(key)
 
 
 def test_authenticate_invalid_key_401():
-    from auth import authenticate
+    from auth import authenticate_sync as authenticate
     from fastapi import HTTPException
 
     request = MagicMock()
@@ -145,7 +146,7 @@ def test_authenticate_invalid_key_401():
 
 
 def test_authenticate_keyless_rate_limit_429():
-    from auth import authenticate
+    from auth import authenticate_sync as authenticate
     from config import FREE_HOURLY_LIMIT
     from fastapi import HTTPException
 
@@ -167,7 +168,8 @@ def test_authenticate_keyless_rate_limit_429():
 
 
 def test_authenticate_deactivated_key_401():
-    from auth import authenticate, generate_key, hash_key
+    from auth import authenticate_sync as authenticate
+    from auth import generate_key, hash_key
     from db import deactivate_api_key, save_api_key
     from fastapi import HTTPException
 
@@ -185,7 +187,8 @@ def test_authenticate_deactivated_key_401():
 
 @patch("auth.PRO_HOURLY_LIMIT", 5)
 def test_authenticate_pro_rate_limit_429():
-    from auth import authenticate, generate_key, hash_key
+    from auth import authenticate_sync as authenticate
+    from auth import generate_key, hash_key
     from db import save_api_key
     from fastapi import HTTPException
 
@@ -213,20 +216,22 @@ def test_authenticate_pro_rate_limit_429():
 
 
 def test_authenticate_sets_ratelimit_state():
-    from auth import authenticate
+    from auth import authenticate_sync as authenticate
 
     request = MagicMock()
     request.headers = {}
     request.client = MagicMock()
     request.client.host = "10.10.10.10"
     authenticate(request, "/v1/test")
-    assert request.state.ratelimit_limit == 100
-    assert request.state.ratelimit_remaining == 99
-    assert request.state.ratelimit_reset >= 0
+    # Faz 3: middleware reads from request.state.auth (AuthCtx), not the
+    # legacy request.state.ratelimit_* fields removed in Batch 3f.
+    assert request.state.auth.ratelimit_limit == 100
+    assert request.state.auth.ratelimit_remaining == 99
+    assert request.state.auth.ratelimit_reset >= 0
 
 
 def test_authenticate_ratelimit_remaining_decreases():
-    from auth import authenticate
+    from auth import authenticate_sync as authenticate
 
     for i in range(5):
         request = MagicMock()
@@ -234,14 +239,14 @@ def test_authenticate_ratelimit_remaining_decreases():
         request.client = MagicMock()
         request.client.host = "11.11.11.11"
         authenticate(request, "/v1/test")
-    assert request.state.ratelimit_remaining == 95
+    assert request.state.auth.ratelimit_remaining == 95
 
 
 # --- localhost rate limit exemption ---
 
 
 def test_authenticate_localhost_ipv4_skips_rate_limit():
-    from auth import authenticate
+    from auth import authenticate_sync as authenticate
     from config import FREE_HOURLY_LIMIT
 
     # Send more requests than the free limit from 127.0.0.1
@@ -251,12 +256,12 @@ def test_authenticate_localhost_ipv4_skips_rate_limit():
         request.client = MagicMock()
         request.client.host = "127.0.0.1"
         ctx = authenticate(request, "/v1/test")
-        assert ctx["tier"] == "free"
-        assert ctx["client_ip"] == "127.0.0.1"
+        assert ctx.tier == "free"
+        assert ctx.client_ip == "127.0.0.1"
 
 
 def test_authenticate_localhost_ipv6_skips_rate_limit():
-    from auth import authenticate
+    from auth import authenticate_sync as authenticate
     from config import FREE_HOURLY_LIMIT
 
     for _ in range(FREE_HOURLY_LIMIT + 5):
@@ -265,13 +270,14 @@ def test_authenticate_localhost_ipv6_skips_rate_limit():
         request.client = MagicMock()
         request.client.host = "::1"
         ctx = authenticate(request, "/v1/test")
-        assert ctx["tier"] == "free"
-        assert ctx["client_ip"] == "::1"
+        assert ctx.tier == "free"
+        assert ctx.client_ip == "::1"
 
 
 @patch("auth.PRO_HOURLY_LIMIT", 5)
 def test_authenticate_localhost_pro_skips_rate_limit():
-    from auth import authenticate, generate_key, hash_key
+    from auth import authenticate_sync as authenticate
+    from auth import generate_key, hash_key
     from db import save_api_key
 
     key = generate_key()
@@ -282,12 +288,12 @@ def test_authenticate_localhost_pro_skips_rate_limit():
         request.client = MagicMock()
         request.client.host = "127.0.0.1"
         ctx = authenticate(request, "/v1/test")
-        assert ctx["tier"] == "pro"
+        assert ctx.tier == "pro"
 
 
 def test_authenticate_localhost_skips_usage_log(monkeypatch):
     import auth
-    from auth import authenticate
+    from auth import authenticate_sync as authenticate
 
     calls = []
     monkeypatch.setattr(auth, "log_usage", lambda *a, **kw: calls.append((a, kw)))
@@ -302,7 +308,7 @@ def test_authenticate_localhost_skips_usage_log(monkeypatch):
 def test_authenticate_dnt_header_skips_usage_log(monkeypatch):
     """DNT: 1 → no usage row written (privacy.html section 3 promise)."""
     import auth
-    from auth import authenticate
+    from auth import authenticate_sync as authenticate
 
     calls = []
     monkeypatch.setattr(auth, "log_usage", lambda *a, **kw: calls.append((a, kw)))
@@ -311,14 +317,14 @@ def test_authenticate_dnt_header_skips_usage_log(monkeypatch):
     request.client = MagicMock()
     request.client.host = "203.0.113.10"
     ctx = authenticate(request, "/v1/test")
-    assert ctx["tier"] == "free"
+    assert ctx.tier == "free"
     assert len(calls) == 0
 
 
 def test_authenticate_sec_gpc_header_skips_usage_log(monkeypatch):
     """Sec-GPC: 1 → no usage row written."""
     import auth
-    from auth import authenticate
+    from auth import authenticate_sync as authenticate
 
     calls = []
     monkeypatch.setattr(auth, "log_usage", lambda *a, **kw: calls.append((a, kw)))
@@ -327,14 +333,14 @@ def test_authenticate_sec_gpc_header_skips_usage_log(monkeypatch):
     request.client = MagicMock()
     request.client.host = "203.0.113.11"
     ctx = authenticate(request, "/v1/test")
-    assert ctx["tier"] == "free"
+    assert ctx.tier == "free"
     assert len(calls) == 0
 
 
 def test_authenticate_no_privacy_header_logs_normally(monkeypatch):
     """No DNT/GPC → usage row written as before."""
     import auth
-    from auth import authenticate
+    from auth import authenticate_sync as authenticate
 
     calls = []
     monkeypatch.setattr(auth, "log_usage", lambda *a, **kw: calls.append((a, kw)))
@@ -349,7 +355,8 @@ def test_authenticate_no_privacy_header_logs_normally(monkeypatch):
 def test_authenticate_dnt_pro_key_skips_usage_log(monkeypatch):
     """Pro tier also honors DNT — no usage row written even with valid key."""
     import auth
-    from auth import authenticate, generate_key, hash_key
+    from auth import authenticate_sync as authenticate
+    from auth import generate_key, hash_key
     from db import save_api_key
 
     calls = []
@@ -361,13 +368,13 @@ def test_authenticate_dnt_pro_key_skips_usage_log(monkeypatch):
     request.client = MagicMock()
     request.client.host = "203.0.113.13"
     ctx = authenticate(request, "/v1/test")
-    assert ctx["tier"] == "pro"
+    assert ctx.tier == "pro"
     assert len(calls) == 0
 
 
 def test_authenticate_dnt_does_not_bypass_rate_limit(monkeypatch):
     """DNT skips logging but rate limiting still applies (abuse protection)."""
-    from auth import authenticate
+    from auth import authenticate_sync as authenticate
     from config import FREE_HOURLY_LIMIT
     from fastapi import HTTPException
 

@@ -4,14 +4,18 @@ Two modes:
   - Keyless: rate limited by IP (100 req/hr)
   - API key: cc_ prefixed key in Authorization header (1000 req/hr)
 
-Faz 3 refactor:
-  - AuthCtx frozen dataclass — type-safe auth context, replaces dict
-  - authenticate_sync() — sync core, returns AuthCtx, sets request.state.auth
-    BEFORE raising 401/429 (middleware reads from a single source of truth)
-  - require_auth(endpoint, cost) — FastAPI dependency factory; routes use
-    `Annotated[AuthCtx, Depends(require_auth("/v1/cve"))]`
-  - authenticate() — legacy dict-returning wrapper, kept for un-migrated
-    callers (MCP ASGI gate + tests + main.py meta routes); removed in Batch 3f
+Faz 3 architecture:
+  - AuthCtx frozen dataclass — type-safe auth context, single source of truth
+    for tier/key_hash/client_ip + 4 ratelimit_* fields. Stashed on
+    request.state.auth before raising 401/429.
+  - authenticate_sync() — sync core. Used by: require_auth's threadpool dep,
+    MCP ASGI gate (sync inside ASGI middleware), test_auth.py.
+  - require_auth(endpoint, cost) — FastAPI dependency factory used by every
+    public REST route. Routes write `auth: Annotated[AuthCtx, Depends(require_auth("/v1/<path>"))]`
+    to receive a populated AuthCtx + auto-emit ContrastAPIKey security in OpenAPI.
+
+Legacy `authenticate()` wrapper removed in Batch 3f (2026-05-03). Mid-migration
+shim only — never permanent backward-compat.
 """
 
 import hashlib
@@ -70,19 +74,6 @@ def hash_key(key: str) -> str:
     return hashlib.sha256(key.encode()).hexdigest()
 
 
-def _set_ratelimit_state(request: Request, limit: int, remaining: int, reset: int) -> None:
-    """Store rate limit info on request.state for the middleware to read.
-
-    Kept during Faz 3 migration: main.py middleware (line 350+) still reads
-    request.state.ratelimit_limit/remaining/reset/tier/cost. Batch 3f will
-    migrate the middleware to read from request.state.auth.* exclusively and
-    this helper will be deleted.
-    """
-    request.state.ratelimit_limit = limit
-    request.state.ratelimit_remaining = max(0, remaining)
-    request.state.ratelimit_reset = reset
-
-
 def extract_key(request: Request) -> str | None:
     """Extract API key from Authorization: Bearer cc_xxx header."""
     auth = request.headers.get("authorization", "")
@@ -103,12 +94,12 @@ def _privacy_opt_out(request: Request) -> bool:
 
 
 def _stash(request: Request, ctx: AuthCtx) -> None:
-    """Set both new (request.state.auth) and legacy (request.state.ratelimit_*)
-    state. Legacy fields removed in Batch 3f when middleware migrates."""
+    """Stash AuthCtx on request.state for the middleware to read.
+
+    Single source of truth — main.py middleware reads ratelimit_* fields from
+    request.state.auth.* exclusively (no fallback after Batch 3f).
+    """
     request.state.auth = ctx
-    request.state.ratelimit_tier = ctx.tier
-    request.state.ratelimit_cost = ctx.ratelimit_cost
-    _set_ratelimit_state(request, ctx.ratelimit_limit, ctx.ratelimit_remaining, ctx.ratelimit_reset)
 
 
 def authenticate_sync(request: Request, endpoint: str, cost: int = 1) -> AuthCtx:
@@ -263,18 +254,3 @@ def require_auth(endpoint: str, cost: int = 1):
 
     _dep.__name__ = f"require_auth({endpoint})"
     return _dep
-
-
-def authenticate(request: Request, endpoint: str, cost: int = 1) -> dict:
-    """Legacy dict-returning wrapper. Use authenticate_sync() (returns AuthCtx)
-    or require_auth() (FastAPI dep) instead.
-
-    Kept during Faz 3 migration for:
-      - main.py meta routes /v1/usage, /v1/privacy/my-data (Batch 3f)
-      - main.py MCP ASGI gate at line 1808 (Batch 3f)
-      - tests/test_auth.py (Batch 3f)
-
-    REMOVED in Batch 3f. NO permanent backward-compat.
-    """
-    ctx = authenticate_sync(request, endpoint, cost)
-    return {"tier": ctx.tier, "key_hash": ctx.key_hash, "client_ip": ctx.client_ip}

@@ -22,8 +22,9 @@ import time
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Annotated
 
-from auth import extract_key
+from auth import AuthCtx, extract_key, require_auth
 from config import (
     ATLAS_CASE_STUDY_COUNT,
     ATLAS_TECHNIQUE_COUNT,
@@ -50,7 +51,7 @@ from db import (
     hash_client_ip,
     init_all_dbs,
 )
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -348,29 +349,28 @@ async def request_middleware(request: Request, call_next):
     # Request ID header
     response.headers["X-Request-ID"] = request_id
 
-    # Rate limit headers (set by auth.authenticate via request.state)
-    limit = getattr(request.state, "ratelimit_limit", None)
-    if limit is not None:
-        response.headers["X-RateLimit-Limit"] = str(limit)
-        response.headers["X-RateLimit-Remaining"] = str(getattr(request.state, "ratelimit_remaining", 0))
-        response.headers["X-RateLimit-Reset"] = str(getattr(request.state, "ratelimit_reset", 0))
-
-    # Tier header (set by auth.authenticate via request.state)
-    tier = getattr(request.state, "ratelimit_tier", None)
-    if tier:
-        response.headers["X-RateLimit-Tier"] = tier
-
-    # Credit cost header (set by auth.authenticate via request.state)
-    cost = getattr(request.state, "ratelimit_cost", None)
-    if cost is not None:
-        response.headers["X-RateLimit-Cost"] = str(cost)
+    # Rate limit headers (set by auth.authenticate_sync via request.state.auth).
+    # Faz 3: middleware reads from request.state.auth exclusively. AuthCtx is
+    # stashed BEFORE 401/429 raise (auth.authenticate_sync), so the headers
+    # always reflect the actual quota state — no extract_key() fallback needed.
+    auth_ctx: AuthCtx | None = getattr(request.state, "auth", None)
+    if auth_ctx is not None:
+        response.headers["X-RateLimit-Limit"] = str(auth_ctx.ratelimit_limit)
+        response.headers["X-RateLimit-Remaining"] = str(auth_ctx.ratelimit_remaining)
+        response.headers["X-RateLimit-Reset"] = str(auth_ctx.ratelimit_reset)
+        response.headers["X-RateLimit-Tier"] = auth_ctx.tier
+        response.headers["X-RateLimit-Cost"] = str(auth_ctx.ratelimit_cost)
 
     # Upgrade signal: only on free-tier 429s (Pro already pays; 200s don't need upsell).
-    # auth.authenticate() raises HTTPException(429) BEFORE setting request.state.ratelimit_tier
-    # (see auth.py:113 vs auth.py:124), so `tier` is None in middleware on the 429 path.
-    # Fall back to extract_key(): no valid Bearer cc_ token == free tier.
-    if response.status_code == 429 and extract_key(request) is None:
-        response.headers["X-Upgrade-URL"] = UPGRADE_URL
+    # If auth_ctx is None (request never reached an authenticated route — 404,
+    # static asset, etc.), fall back to extract_key for the rare case where a
+    # tarpit/rate-limit-zone in nginx emits 429 without our auth path running.
+    if response.status_code == 429:
+        is_free = (auth_ctx is not None and auth_ctx.tier == "free") or (
+            auth_ctx is None and extract_key(request) is None
+        )
+        if is_free:
+            response.headers["X-Upgrade-URL"] = UPGRADE_URL
 
     # Request logging + metrics
     elapsed = int((time.time() - start) * 1000)
@@ -491,11 +491,15 @@ async def api_error_handler(request: Request, exc: StarletteHTTPException):
         content["hint"] = f"Method {request.method} not allowed. Try POST for /v1/check/* endpoints."
 
     if exc.status_code == 429:
-        reset_seconds = getattr(request.state, "ratelimit_reset", 0)
+        # Faz 3: read from request.state.auth (AuthCtx) — populated by
+        # authenticate_sync BEFORE the 429 raise. Fallback for non-auth 429s
+        # (nginx tarpit zone, target_throttle) where AuthCtx wasn't built.
+        auth_ctx_429: AuthCtx | None = getattr(request.state, "auth", None)
+        reset_seconds = auth_ctx_429.ratelimit_reset if auth_ctx_429 else 0
         error_kwargs["retry_after_seconds"] = reset_seconds
         content["error_code"] = "rate_limit"
         content["reset_in"] = reset_seconds
-        is_free = extract_key(request) is None
+        is_free = (auth_ctx_429.tier == "free") if auth_ctx_429 else (extract_key(request) is None)
         if is_free:
             content["tier"] = "free"
             content["limit"] = FREE_HOURLY_LIMIT
@@ -794,42 +798,34 @@ def metrics(request: Request):
 
 
 @app.get("/v1/usage", operation_id="api_usage", tags=["Meta"])
-def api_usage(request: Request):
+def api_usage(auth: Annotated[AuthCtx, Depends(require_auth("/v1/usage"))]):
     """Usage statistics for API key holders."""
-    from auth import authenticate
     from db import get_key_usage_stats
 
-    raw_key = extract_key(request)
-    if not raw_key:
+    if auth.tier != "pro" or not auth.key_hash:
         raise HTTPException(status_code=401, detail="API key required. Pass Authorization: Bearer cc_xxx")
 
-    # Authenticate (validates key + rate limit)
-    auth_ctx = authenticate(request, "/v1/usage")
-    kh = auth_ctx["key_hash"]
-
-    stats = get_key_usage_stats(kh)
+    stats = get_key_usage_stats(auth.key_hash)
     stats["hourly_limit"] = PRO_HOURLY_LIMIT
     stats["hourly_remaining"] = max(0, PRO_HOURLY_LIMIT - stats["last_1h"])
     return stats
 
 
 @app.get("/v1/privacy/my-data", operation_id="privacy_my_data", tags=["Meta"])
-def privacy_my_data(request: Request):
+def privacy_my_data(auth: Annotated[AuthCtx, Depends(require_auth("/v1/privacy/my-data"))]):
     """Return everything this API has stored about you. GDPR-style transparency.
 
     Shows the hashed IP, Pro key record (if any), and last-24h endpoint usage.
     The raw domains, IPs, CVEs, hashes, or code you submitted are NEVER stored —
     path parameters are stripped before any DB write (see db.normalize_endpoint).
     """
-    from auth import authenticate
     from db import get_privacy_data
 
-    auth_ctx = authenticate(request, "/v1/privacy/my-data")
-    data = get_privacy_data(auth_ctx["client_ip"], auth_ctx["key_hash"])
+    data = get_privacy_data(auth.client_ip, auth.key_hash)
 
-    tier = auth_ctx["tier"]
+    tier = auth.tier
     limit = PRO_HOURLY_LIMIT if tier == "pro" else FREE_HOURLY_LIMIT
-    remaining = getattr(request.state, "ratelimit_remaining", None)
+    remaining = auth.ratelimit_remaining
 
     return {
         "tier": tier,
@@ -1722,7 +1718,10 @@ try:
     from datetime import datetime as _mcp_datetime
 
     # Hoisted for the rate-limit gate inside _MCPIPForwardMiddleware (hot path).
-    from auth import authenticate as _mcp_authenticate
+    # MCP gate runs INSIDE ASGI middleware (no FastAPI Depends), so it calls the
+    # sync core directly. authenticate_sync raises HTTPException on 401/429 with
+    # request.state.auth populated for the middleware's response shaping below.
+    from auth import authenticate_sync as _mcp_authenticate
     from starlette.requests import Request as _MCPStarletteRequest
 
     _MCP_TOOL_LOG = "/var/log/contrastapi/mcp_tools.jsonl"
