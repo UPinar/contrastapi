@@ -10,10 +10,33 @@ import dns.exception
 import dns.resolver
 import httpx
 import pytest
+from auth import AuthCtx
 from fastapi.testclient import TestClient
 from main import app
 
 client = TestClient(app)
+
+# Faz 3: routes use Annotated[AuthCtx, Depends(require_auth(...))] instead of
+# inline authenticate(); patches must hit auth.authenticate_sync (the sync core
+# wrapped by require_auth's run_in_threadpool dep).
+_AUTH_FREE = AuthCtx(
+    tier="free",
+    key_hash=None,
+    client_ip="127.0.0.1",
+    ratelimit_limit=100,
+    ratelimit_remaining=99,
+    ratelimit_reset=0,
+    ratelimit_cost=1,
+)
+_AUTH_PRO = AuthCtx(
+    tier="pro",
+    key_hash="abc",
+    client_ip="127.0.0.1",
+    ratelimit_limit=1000,
+    ratelimit_remaining=999,
+    ratelimit_reset=0,
+    ratelimit_cost=1,
+)
 
 
 # =========== recon.py unit tests ===========
@@ -259,7 +282,7 @@ class TestSubdomainEnumCrtshStatus:
     def test_route_emits_crtsh_status(self):
         from unittest.mock import patch as _patch
 
-        with _patch("domain.routes.authenticate"):
+        with _patch("auth.authenticate_sync", return_value=_AUTH_FREE):
             with _patch(
                 "domain.routes.enumerate_subdomains",
                 return_value={
@@ -273,9 +296,7 @@ class TestSubdomainEnumCrtshStatus:
                     "summary": "0 subdomain(s) found for example.com (CT logs timeout)",
                 },
             ):
-                with _patch(
-                    "domain.routes._validate_and_auth", return_value=("example.com", "1.2.3.4", {"tier": "free"})
-                ):
+                with _patch("domain.routes._validate_domain_input", return_value=("example.com", "1.2.3.4")):
                     with _patch("domain.routes._from_cache", return_value=None):
                         r = client.get("/v1/subdomains/example.com")
                         assert r.status_code == 200
@@ -3985,7 +4006,7 @@ class TestDnsLookupRecordTypes:
 
 
 class TestIpRouteReputation:
-    @patch("domain.routes.authenticate", return_value={"tier": "pro"})
+    @patch("auth.authenticate_sync", return_value=_AUTH_PRO)
     @patch("domain.routes.save_cached_ip")
     @patch("domain.routes.get_cached_ip_with_age", return_value=None)
     @patch("domain.routes.ratelimit.check_limit", return_value=True)
@@ -4014,7 +4035,7 @@ class TestIpRouteReputation:
         assert data["reputation"]["shodan"]["status"] == "ok"
         mock_cache_save.assert_called_once()
 
-    @patch("domain.routes.authenticate", return_value={"tier": "free"})
+    @patch("auth.authenticate_sync", return_value=_AUTH_FREE)
     @patch("domain.routes.get_cached_ip_with_age", return_value=None)
     @patch("domain.routes.ratelimit.check_limit", return_value=False)
     @patch(
@@ -4044,7 +4065,7 @@ class TestIpRouteReputation:
         # preserved + severity emitted (UNKNOWN if not in cve.db).
         assert "CVE-2024-1234" in {v["cve_id"] for v in data["vulns"]}
 
-    @patch("domain.routes.authenticate", return_value={"tier": "free"})
+    @patch("auth.authenticate_sync", return_value=_AUTH_FREE)
     @patch("domain.routes.check_abuseipdb")
     @patch("domain.routes.check_shodan")
     @patch(
@@ -4372,7 +4393,7 @@ class TestScoreDomainEdgeCases:
 
 
 class TestThreatIntelRoute:
-    @patch("domain.routes.authenticate", return_value={"tier": "free"})
+    @patch("auth.authenticate_sync", return_value=_AUTH_FREE)
     @patch("domain.routes.check_urlhaus", return_value={"urlhaus_status": "clean", "urls_online": 0, "url_count": 0})
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     def test_threat_clean(self, mock_validate, mock_urlhaus, mock_auth):
@@ -4380,7 +4401,7 @@ class TestThreatIntelRoute:
         assert r.status_code == 200
         assert "no threats" in r.json()["summary"]
 
-    @patch("domain.routes.authenticate", return_value={"tier": "free"})
+    @patch("auth.authenticate_sync", return_value=_AUTH_FREE)
     @patch(
         "domain.routes.check_urlhaus",
         return_value={
@@ -4400,7 +4421,7 @@ class TestThreatIntelRoute:
         assert "3 URL" in data["summary"]
         assert data["urls_online"] == 2
 
-    @patch("domain.routes.authenticate", return_value={"tier": "free"})
+    @patch("auth.authenticate_sync", return_value=_AUTH_FREE)
     @patch(
         "domain.routes.check_urlhaus",
         return_value={
@@ -4426,7 +4447,7 @@ class TestThreatIntelRoute:
         assert v["sources_unavailable"] == []
         assert v["completeness"] == "complete"
 
-    @patch("domain.routes.authenticate", return_value={"tier": "free"})
+    @patch("auth.authenticate_sync", return_value=_AUTH_FREE)
     @patch(
         "domain.routes.check_urlhaus",
         return_value={
@@ -4613,7 +4634,7 @@ class TestProOnlyEnrichment:
 
     # --- /v1/ip route tests ---
 
-    @patch("domain.routes.authenticate", return_value={"tier": "free"})
+    @patch("auth.authenticate_sync", return_value=_AUTH_FREE)
     @patch("domain.routes.get_cached_ip_with_age", return_value=None)
     @patch("domain.routes.ratelimit.check_limit", return_value=True)
     @patch("domain.routes.check_shodan", side_effect=AssertionError("Shodan must not be called for free tier"))
@@ -4643,7 +4664,7 @@ class TestProOnlyEnrichment:
 
     # --- /v1/threat-report route tests ---
 
-    @patch("domain.routes.authenticate", return_value={"tier": "free"})
+    @patch("auth.authenticate_sync", return_value=_AUTH_FREE)
     @patch("domain.routes._ripe_client")
     @patch("domain.routes.check_shodan", side_effect=AssertionError("Shodan must not be called for free tier"))
     @patch("domain.routes.check_abuseipdb", side_effect=AssertionError("AbuseIPDB must not be called for free tier"))
@@ -4670,7 +4691,7 @@ class TestProOnlyEnrichment:
 
     # --- Cache bypass test ---
 
-    @patch("domain.routes.authenticate", return_value={"tier": "free"})
+    @patch("auth.authenticate_sync", return_value=_AUTH_FREE)
     @patch("domain.routes.check_shodan", side_effect=AssertionError("Shodan must not be called — cache hit"))
     @patch("domain.routes.check_abuseipdb", side_effect=AssertionError("AbuseIPDB must not be called — cache hit"))
     @patch(
@@ -4694,7 +4715,7 @@ class TestProOnlyEnrichment:
         assert data["reputation"]["shodan"]["status"] == "ok"
 
     @pytest.mark.real_firehol
-    @patch("domain.routes.authenticate", return_value={"tier": "free"})
+    @patch("auth.authenticate_sync", return_value=_AUTH_FREE)
     @patch("domain.routes.get_cached_ip_with_age", return_value=None)
     @patch("domain.routes.check_shodan", side_effect=AssertionError("Shodan must not be called for free tier"))
     @patch("domain.routes.check_abuseipdb", side_effect=AssertionError("AbuseIPDB must not be called for free tier"))
@@ -4722,7 +4743,7 @@ class TestProOnlyEnrichment:
         assert "shodan" in rep["upgrade"]["pro_only_sources"]
 
     @pytest.mark.real_firehol
-    @patch("domain.routes.authenticate", return_value={"tier": "pro"})
+    @patch("auth.authenticate_sync", return_value=_AUTH_PRO)
     @patch("domain.routes.get_cached_ip_with_age", return_value=None)
     @patch("domain.routes.ratelimit.check_limit", return_value=True)
     @patch("domain.routes.save_cached_ip")
@@ -4757,7 +4778,18 @@ class TestProOnlyEnrichment:
     @patch("domain.routes.get_cached_domain", return_value=None)
     @patch("domain.routes.full_domain_report", return_value={"domain": "example.com", "summary": "ok"})
     @patch("domain.routes.clean_domain", return_value="example.com")
-    @patch("domain.routes.authenticate", return_value={"tier": "pro", "key_hash": "h", "client_ip": "10.0.0.1"})
+    @patch(
+        "auth.authenticate_sync",
+        return_value=AuthCtx(
+            tier="pro",
+            key_hash="h",
+            client_ip="10.0.0.1",
+            ratelimit_limit=1000,
+            ratelimit_remaining=999,
+            ratelimit_reset=0,
+            ratelimit_cost=1,
+        ),
+    )
     def test_audit_domain_threads_pro_tier_to_full_report(
         self, mock_auth, mock_clean, mock_report, mock_get, mock_save, mock_headers, mock_tech
     ):
@@ -4778,11 +4810,22 @@ class TestProOnlyEnrichment:
     @patch("domain.routes.save_cached_domain")
     @patch("domain.routes.get_cached_domain_with_age", return_value=None)
     @patch("domain.routes.full_domain_report", return_value={"domain": "example.com", "summary": "ok"})
-    @patch("domain.routes._validate_and_auth")
-    def test_domain_report_cache_keys_tier_segregated(self, mock_auth, mock_report, mock_get, mock_save):
+    @patch("domain.routes._validate_domain_input", return_value=("example.com", "1.2.3.4"))
+    @patch("auth.authenticate_sync")
+    def test_domain_report_cache_keys_tier_segregated(
+        self, mock_auth_sync, mock_validate, mock_report, mock_get, mock_save
+    ):
         """Free stub must not poison Pro cache — tier prefix segregates cache keys."""
         # Free tier request
-        mock_auth.return_value = ("example.com", "1.2.3.4", {"tier": "free", "key_hash": None, "client_ip": "10.0.0.1"})
+        mock_auth_sync.return_value = AuthCtx(
+            tier="free",
+            key_hash=None,
+            client_ip="10.0.0.1",
+            ratelimit_limit=100,
+            ratelimit_remaining=99,
+            ratelimit_reset=0,
+            ratelimit_cost=1,
+        )
         r_free = client.get("/v1/domain/example.com")
         assert r_free.status_code == 200
         free_read_key = mock_get.call_args[0][0]
@@ -4793,7 +4836,15 @@ class TestProOnlyEnrichment:
         # Pro tier request — must check a DIFFERENT cache key, not the free one
         mock_get.reset_mock()
         mock_save.reset_mock()
-        mock_auth.return_value = ("example.com", "1.2.3.4", {"tier": "pro", "key_hash": "h", "client_ip": "10.0.0.2"})
+        mock_auth_sync.return_value = AuthCtx(
+            tier="pro",
+            key_hash="h",
+            client_ip="10.0.0.2",
+            ratelimit_limit=1000,
+            ratelimit_remaining=999,
+            ratelimit_reset=0,
+            ratelimit_cost=1,
+        )
         r_pro = client.get("/v1/domain/example.com")
         assert r_pro.status_code == 200
         pro_read_key = mock_get.call_args[0][0]
@@ -4827,16 +4878,23 @@ class TestDomainBurstThrottleAndTimeout:
         assert "5" in str(body) and "60" in str(body)
 
     @patch("domain.routes.full_domain_report", return_value=MOCK_FULL_REPORT)
-    @patch("domain.routes._validate_and_auth")
+    @patch("domain.routes._validate_domain_input", return_value=("example.com", "93.184.216.34"))
+    @patch(
+        "auth.authenticate_sync",
+        return_value=AuthCtx(
+            tier="pro",
+            key_hash="h",
+            client_ip="10.0.0.1",
+            ratelimit_limit=1000,
+            ratelimit_remaining=999,
+            ratelimit_reset=0,
+            ratelimit_cost=1,
+        ),
+    )
     @patch("domain.routes.get_cached_domain_with_age", return_value=None)
     @patch("domain.routes.save_cached_domain")
-    def test_burst_throttle_pro_tier_exempt(self, mock_save, mock_cache, mock_auth, mock_report):
+    def test_burst_throttle_pro_tier_exempt(self, mock_save, mock_cache, mock_auth_sync, mock_validate, mock_report):
         """Pro tier bypasses behavioral throttle — explicit paid quota."""
-        mock_auth.return_value = (
-            "example.com",
-            "93.184.216.34",
-            {"tier": "pro", "key_hash": "h", "client_ip": "10.0.0.1"},
-        )
         for i in range(8):
             r = client.get(f"/v1/domain/example{i}.com")
             assert r.status_code == 200, f"Pro tier request {i + 1} unexpectedly throttled"

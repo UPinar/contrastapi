@@ -3,10 +3,23 @@
 from unittest.mock import MagicMock, patch
 
 import httpx
+from auth import AuthCtx
 from fastapi.testclient import TestClient
 from main import app
 
 client = TestClient(app)
+
+# Faz 3: routes use Annotated[AuthCtx, Depends(require_auth(...))] — patches
+# must hit auth.authenticate_sync (the sync core) not the route-local symbol.
+_AUTH_FREE = AuthCtx(
+    tier="free",
+    key_hash=None,
+    client_ip="127.0.0.1",
+    ratelimit_limit=100,
+    ratelimit_remaining=99,
+    ratelimit_reset=0,
+    ratelimit_cost=1,
+)
 
 
 # =========== username_lookup unit tests ===========
@@ -259,7 +272,7 @@ class TestUsernameLookupUnit:
 
 
 class TestUsernameRoute:
-    @patch("domain.routes.authenticate")
+    @patch("auth.authenticate_sync", return_value=_AUTH_FREE)
     @patch("domain.routes.username_lookup")
     def test_valid_username(self, mock_lookup, mock_auth):
         mock_lookup.return_value = {
@@ -275,7 +288,7 @@ class TestUsernameRoute:
         assert data["username"] == "testuser"
         assert data["found_count"] == 1
 
-    @patch("domain.routes.authenticate")
+    @patch("auth.authenticate_sync", return_value=_AUTH_FREE)
     @patch("domain.routes.username_lookup")
     def test_invalid_username(self, mock_lookup, mock_auth):
         mock_lookup.return_value = {
@@ -287,7 +300,7 @@ class TestUsernameRoute:
         data = r.json()
         assert "error" in data
 
-    @patch("domain.routes.authenticate")
+    @patch("auth.authenticate_sync", return_value=_AUTH_FREE)
     @patch("domain.routes.username_lookup")
     def test_response_shape(self, mock_lookup, mock_auth):
         mock_lookup.return_value = {

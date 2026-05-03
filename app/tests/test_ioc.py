@@ -936,7 +936,7 @@ def test_phishing_url_status_missing_treated_as_active(client):
 def test_threat_endpoint_clean(client):
     """Threat intel for a clean domain returns 200 with expected fields."""
     with (
-        patch("domain.routes._validate_and_auth", return_value=("example.com", "93.184.216.34", {"tier": "free"})),
+        patch("domain.routes._validate_domain_input", return_value=("example.com", "93.184.216.34")),
         patch(
             "domain.routes.check_urlhaus", return_value={"urlhaus_status": "clean", "urls_online": 0, "url_count": 0}
         ),
@@ -952,7 +952,7 @@ def test_threat_endpoint_clean(client):
 def test_threat_endpoint_listed(client):
     """Threat intel for a listed domain returns 200 with threat details."""
     with (
-        patch("domain.routes._validate_and_auth", return_value=("evil.com", "1.2.3.4", {"tier": "free"})),
+        patch("domain.routes._validate_domain_input", return_value=("evil.com", "1.2.3.4")),
         patch(
             "domain.routes.check_urlhaus",
             return_value={

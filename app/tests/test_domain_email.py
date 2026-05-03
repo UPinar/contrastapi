@@ -2,10 +2,23 @@
 
 from unittest.mock import patch
 
+from auth import AuthCtx
 from fastapi.testclient import TestClient
 from main import app
 
 client = TestClient(app)
+
+# Faz 3: routes use Annotated[AuthCtx, Depends(require_auth(...))] — patches
+# must hit auth.authenticate_sync (the sync core) not the route-local symbol.
+_AUTH_FREE = AuthCtx(
+    tier="free",
+    key_hash=None,
+    client_ip="127.0.0.1",
+    ratelimit_limit=100,
+    ratelimit_remaining=99,
+    ratelimit_reset=0,
+    ratelimit_cost=1,
+)
 
 # =========== detect_mail_provider unit tests ===========
 
@@ -497,7 +510,7 @@ class TestPhoneCarrierHonesty:
 
     def test_route_drops_carrier_when_unsupported(self):
         # response_model_exclude_none=True → carrier key absent from JSON for US
-        with patch("domain.routes.authenticate"):
+        with patch("auth.authenticate_sync", return_value=_AUTH_FREE):
             r = client.get("/v1/phone/%2B14155552671")
             assert r.status_code == 200
             data = r.json()
@@ -506,7 +519,7 @@ class TestPhoneCarrierHonesty:
             assert "carrier" not in data, "carrier must be omitted when unsupported_region"
 
     def test_route_emits_carrier_when_known(self):
-        with patch("domain.routes.authenticate"):
+        with patch("auth.authenticate_sync", return_value=_AUTH_FREE):
             r = client.get("/v1/phone/%2B905321234567")
             assert r.status_code == 200
             data = r.json()
@@ -516,7 +529,7 @@ class TestPhoneCarrierHonesty:
 
 
 class TestPhoneRoute:
-    @patch("domain.routes.authenticate")
+    @patch("auth.authenticate_sync", return_value=_AUTH_FREE)
     def test_phone_valid(self, mock_auth):
         r = client.get("/v1/phone/%2B905321234567")
         assert r.status_code == 200
@@ -524,14 +537,14 @@ class TestPhoneRoute:
         assert data["valid"] is True
         assert data["country_code"] == "TR"
 
-    @patch("domain.routes.authenticate")
+    @patch("auth.authenticate_sync", return_value=_AUTH_FREE)
     def test_phone_invalid(self, mock_auth):
         r = client.get("/v1/phone/notanumber")
         assert r.status_code == 200
         data = r.json()
         assert data["valid"] is False
 
-    @patch("domain.routes.authenticate")
+    @patch("auth.authenticate_sync", return_value=_AUTH_FREE)
     def test_phone_response_shape(self, mock_auth):
         # Use a TR number — libphonenumber's carrier DB covers it, so the carrier
         # field is present. US/CA omit `carrier` per Bug M (unsupported_region).

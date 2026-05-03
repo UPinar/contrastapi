@@ -4,6 +4,7 @@ import datetime
 from unittest.mock import MagicMock, patch
 
 import httpx
+from auth import AuthCtx
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
@@ -12,6 +13,28 @@ from fastapi.testclient import TestClient
 from main import app
 
 client = TestClient(app)
+
+# Faz 3: routes use Annotated[AuthCtx, Depends(require_auth(...))] instead of
+# inline authenticate(); patches must hit auth.authenticate_sync (the sync core
+# wrapped by require_auth's run_in_threadpool dep).
+_AUTH_FREE = AuthCtx(
+    tier="free",
+    key_hash=None,
+    client_ip="127.0.0.1",
+    ratelimit_limit=100,
+    ratelimit_remaining=99,
+    ratelimit_reset=0,
+    ratelimit_cost=1,
+)
+_AUTH_PRO = AuthCtx(
+    tier="pro",
+    key_hash="abc",
+    client_ip="127.0.0.1",
+    ratelimit_limit=1000,
+    ratelimit_remaining=999,
+    ratelimit_reset=0,
+    ratelimit_cost=1,
+)
 
 MOCK_DNS_RESULT = {"a": ["93.184.216.34"], "ns": ["a.iana-servers.net"]}
 MOCK_WHOIS_RESULT = {"registrar": "Test Registrar", "creation_date": "2020-01-01", "raw_length": 500}
@@ -96,9 +119,9 @@ class TestSslCertificate:
 
     @patch("domain.routes.save_cached_domain")
     @patch("domain.routes.get_cached_domain", return_value=None)
-    @patch("domain.routes._validate_and_auth")
+    @patch("domain.routes._validate_domain_input")
     def test_ssl_valid_cert(self, mock_validate, mock_cache_get, mock_cache_save):
-        mock_validate.return_value = ("example.com", "93.184.216.34", {"tier": "free"})
+        mock_validate.return_value = ("example.com", "93.184.216.34")
         mock_ssock = self._make_mock_ssock()
         mock_sock = MagicMock()
         mock_sock.__enter__ = MagicMock(return_value=mock_sock)
@@ -131,9 +154,9 @@ class TestSslCertificate:
 
     @patch("domain.routes.save_cached_domain")
     @patch("domain.routes.get_cached_domain", return_value=None)
-    @patch("domain.routes._validate_and_auth")
+    @patch("domain.routes._validate_domain_input")
     def test_ssl_expired_cert(self, mock_validate, mock_cache_get, mock_cache_save):
-        mock_validate.return_value = ("expired.com", "1.2.3.4", {"tier": "free"})
+        mock_validate.return_value = ("expired.com", "1.2.3.4")
         # Real expired DER triggers our independent expiry check (cert_valid=False, grade F)
         mock_ssock = self._make_mock_ssock(leaf_der=_LEAF_EXPIRED_DER)
         mock_sock = MagicMock()
@@ -153,16 +176,16 @@ class TestSslCertificate:
         assert "INVALID: expired" in data["summary"]
 
     @patch("domain.routes.get_cached_domain", return_value=None)
-    @patch("domain.routes._validate_and_auth")
+    @patch("domain.routes._validate_domain_input")
     def test_ssl_connection_refused(self, mock_validate, mock_cache_get):
-        mock_validate.return_value = ("nossl.com", "1.2.3.4", {"tier": "free"})
+        mock_validate.return_value = ("nossl.com", "1.2.3.4")
         with patch("domain.routes.socket.create_connection", side_effect=ConnectionRefusedError("Connection refused")):
             r = client.get("/v1/ssl/nossl.com")
         assert r.status_code == 504
 
-    @patch("domain.routes._validate_and_auth")
+    @patch("domain.routes._validate_domain_input")
     def test_ssl_cached(self, mock_validate):
-        mock_validate.return_value = ("cached.com", "1.2.3.4", {"tier": "free"})
+        mock_validate.return_value = ("cached.com", "1.2.3.4")
         cached_result = {
             "domain": "cached.com",
             "valid": True,
@@ -179,9 +202,9 @@ class TestSslCertificate:
 
     @patch("domain.routes.save_cached_domain")
     @patch("domain.routes.get_cached_domain", return_value=None)
-    @patch("domain.routes._validate_and_auth")
+    @patch("domain.routes._validate_domain_input")
     def test_ssl_chain_no_aia_extension(self, mock_validate, mock_cache_get, mock_cache_save):
-        mock_validate.return_value = ("example.com", "93.184.216.34", {"tier": "free"})
+        mock_validate.return_value = ("example.com", "93.184.216.34")
         mock_ssock = self._make_mock_ssock(leaf_der=_LEAF_DER)
         mock_sock = MagicMock()
         mock_sock.__enter__ = MagicMock(return_value=mock_sock)
@@ -200,9 +223,9 @@ class TestSslCertificate:
 
     @patch("domain.routes.save_cached_domain")
     @patch("domain.routes.get_cached_domain", return_value=None)
-    @patch("domain.routes._validate_and_auth")
+    @patch("domain.routes._validate_domain_input")
     def test_ssl_chain_with_aia_success(self, mock_validate, mock_cache_get, mock_cache_save):
-        mock_validate.return_value = ("example.com", "93.184.216.34", {"tier": "free"})
+        mock_validate.return_value = ("example.com", "93.184.216.34")
         mock_ssock = self._make_mock_ssock(leaf_der=_LEAF_AIA_DER)
         mock_sock = MagicMock()
         mock_sock.__enter__ = MagicMock(return_value=mock_sock)
@@ -227,9 +250,9 @@ class TestSslCertificate:
 
     @patch("domain.routes.save_cached_domain")
     @patch("domain.routes.get_cached_domain", return_value=None)
-    @patch("domain.routes._validate_and_auth")
+    @patch("domain.routes._validate_domain_input")
     def test_ssl_chain_aia_timeout(self, mock_validate, mock_cache_get, mock_cache_save):
-        mock_validate.return_value = ("example.com", "93.184.216.34", {"tier": "free"})
+        mock_validate.return_value = ("example.com", "93.184.216.34")
         mock_ssock = self._make_mock_ssock(leaf_der=_LEAF_AIA_DER)
         mock_sock = MagicMock()
         mock_sock.__enter__ = MagicMock(return_value=mock_sock)
@@ -252,9 +275,9 @@ class TestSslCertificate:
 
     @patch("domain.routes.save_cached_domain")
     @patch("domain.routes.get_cached_domain", return_value=None)
-    @patch("domain.routes._validate_and_auth")
+    @patch("domain.routes._validate_domain_input")
     def test_ssl_chain_aia_malformed(self, mock_validate, mock_cache_get, mock_cache_save):
-        mock_validate.return_value = ("example.com", "93.184.216.34", {"tier": "free"})
+        mock_validate.return_value = ("example.com", "93.184.216.34")
         mock_ssock = self._make_mock_ssock(leaf_der=_LEAF_AIA_DER)
         mock_sock = MagicMock()
         mock_sock.__enter__ = MagicMock(return_value=mock_sock)
@@ -352,7 +375,7 @@ class TestBulkDomainReport:
         assert err_items[0]["error"] is not None
 
     @patch("domain.routes.ratelimit.consume_bulk", return_value=False)
-    @patch("domain.routes.authenticate", return_value={"tier": "free", "key_hash": None, "client_ip": "127.0.0.1"})
+    @patch("auth.authenticate_sync", return_value=_AUTH_FREE)
     def test_bulk_rate_limit_exceeded(self, mock_auth, mock_consume):
         """Requesting 5 domains with insufficient quota → 429."""
         r = client.post("/v1/domains/bulk", json={"domains": [f"d{i}.com" for i in range(5)]})
@@ -404,7 +427,7 @@ class TestBulkDomainReport:
     @patch("domain.routes.get_cached_domain", return_value=None)
     @patch("domain.routes.full_domain_report")
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
-    @patch("domain.routes.authenticate", return_value={"tier": "pro", "key_hash": "abc", "client_ip": "127.0.0.1"})
+    @patch("auth.authenticate_sync", return_value=_AUTH_PRO)
     def test_bulk_pro_allows_up_to_50(self, mock_auth, mock_validate, mock_report, mock_cache_get, mock_cache_save):
         """Pro tier should accept up to 50 domains without 422."""
         mock_report.return_value = dict(self._MOCK_REPORT)
@@ -412,14 +435,14 @@ class TestBulkDomainReport:
         # Should not get 422 (may get 429 due to rate limit, but not validation error)
         assert r.status_code != 422
 
-    @patch("domain.routes.authenticate", return_value={"tier": "pro", "key_hash": "abc", "client_ip": "127.0.0.1"})
+    @patch("auth.authenticate_sync", return_value=_AUTH_PRO)
     def test_bulk_pro_rejects_over_50(self, mock_auth):
         """Pro tier should reject more than 50 domains."""
         # 51 domains hits pydantic max_length=50 first
         r = client.post("/v1/domains/bulk", json={"domains": [f"d{i}.com" for i in range(51)]})
         assert r.status_code == 422
 
-    @patch("domain.routes.authenticate", return_value={"tier": "free", "key_hash": None, "client_ip": "127.0.0.1"})
+    @patch("auth.authenticate_sync", return_value=_AUTH_FREE)
     def test_bulk_free_rejects_over_10(self, mock_auth):
         """Free tier should reject more than 10 domains."""
         r = client.post("/v1/domains/bulk", json={"domains": [f"d{i}.com" for i in range(11)]})
@@ -430,7 +453,7 @@ class TestBulkDomainReport:
     @patch("domain.routes.get_cached_domain", return_value=None)
     @patch("domain.routes.full_domain_report")
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
-    @patch("domain.routes.authenticate", return_value={"tier": "free", "key_hash": None, "client_ip": "127.0.0.1"})
+    @patch("auth.authenticate_sync", return_value=_AUTH_FREE)
     def test_bulk_free_allows_exactly_10(self, mock_auth, mock_validate, mock_report, mock_cache_get, mock_cache_save):
         """Free tier should accept exactly 10 domains."""
         mock_report.return_value = dict(self._MOCK_REPORT)
@@ -441,7 +464,7 @@ class TestBulkDomainReport:
     @patch("domain.routes.get_cached_domain", return_value=None)
     @patch("domain.routes.full_domain_report")
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
-    @patch("domain.routes.authenticate", return_value={"tier": "pro", "key_hash": "abc", "client_ip": "127.0.0.1"})
+    @patch("auth.authenticate_sync", return_value=_AUTH_PRO)
     def test_bulk_pro_20_domains_success(self, mock_auth, mock_validate, mock_report, mock_cache_get, mock_cache_save):
         """Pro tier can process 20 domains (impossible for free tier)."""
         mock_report.return_value = dict(self._MOCK_REPORT)
@@ -602,7 +625,7 @@ MOCK_RIPE_PREFIXES = {
 class TestAsnRoute:
     @patch("domain.routes.save_cached_domain")
     @patch("domain.routes.get_cached_domain", return_value=None)
-    @patch("domain.routes.authenticate", return_value={"tier": "free"})
+    @patch("auth.authenticate_sync", return_value=_AUTH_FREE)
     def test_asn_with_ip(self, mock_auth, mock_cache_get, mock_cache_save):
         """ASN lookup with direct IP input."""
 
@@ -635,7 +658,7 @@ class TestAsnRoute:
     @patch("domain.routes.quick_dns_a", return_value=["1.1.1.1"])
     @patch("domain.routes.clean_domain", return_value="example.com")
     @patch("domain.routes.is_valid_ip", return_value=False)
-    @patch("domain.routes.authenticate", return_value={"tier": "free"})
+    @patch("auth.authenticate_sync", return_value=_AUTH_FREE)
     def test_asn_with_domain(self, mock_auth, mock_is_ip, mock_clean, mock_dns, mock_cache_get, mock_cache_save):
         """ASN lookup with domain input — should resolve to IP first."""
 
@@ -664,7 +687,7 @@ class TestAsnRoute:
 
     @patch("domain.routes.save_cached_domain")
     @patch("domain.routes.get_cached_domain", return_value=None)
-    @patch("domain.routes.authenticate", return_value={"tier": "free"})
+    @patch("auth.authenticate_sync", return_value=_AUTH_FREE)
     def test_asn_with_ip_input_emits_no_pivot(self, mock_auth, mock_cache_get, mock_cache_save):
         """IP input → no ip_lookup pivot (agent already has the IP)."""
 
@@ -687,7 +710,7 @@ class TestAsnRoute:
             # response_model_exclude_none=True drops next_calls when None.
             assert "next_calls" not in data
 
-    @patch("domain.routes.authenticate", return_value={"tier": "free"})
+    @patch("auth.authenticate_sync", return_value=_AUTH_FREE)
     def test_asn_cached_domain_input_still_emits_pivot(self, mock_auth):
         """Cache-hit path must also surface the ip_lookup pivot (regression: Action #11)."""
         cached_data = {
@@ -716,7 +739,7 @@ class TestAsnRoute:
 
     @patch("domain.routes.save_cached_domain")
     @patch("domain.routes.get_cached_domain", return_value=None)
-    @patch("domain.routes.authenticate", return_value={"tier": "free"})
+    @patch("auth.authenticate_sync", return_value=_AUTH_FREE)
     def test_asn_lookup_overview_upstream_timeout(self, mock_auth, mock_cache_get, mock_cache_save):
         """as-overview timeout degrades gracefully: asn_name empty, prefixes populated, warnings signal failure."""
 
@@ -744,7 +767,7 @@ class TestAsnRoute:
 
     @patch("domain.routes.save_cached_domain")
     @patch("domain.routes.get_cached_domain", return_value=None)
-    @patch("domain.routes.authenticate", return_value={"tier": "free"})
+    @patch("auth.authenticate_sync", return_value=_AUTH_FREE)
     def test_asn_lookup_prefixes_upstream_5xx(self, mock_auth, mock_cache_get, mock_cache_save):
         """announced-prefixes HTTP 503 degrades gracefully: asn_name populated, prefixes empty, warnings signal failure."""
 
@@ -776,7 +799,7 @@ class TestAsnRoute:
 
     @patch("domain.routes.save_cached_domain")
     @patch("domain.routes.get_cached_domain", return_value=None)
-    @patch("domain.routes.authenticate", return_value={"tier": "free"})
+    @patch("auth.authenticate_sync", return_value=_AUTH_FREE)
     def test_asn_lookup_clean_success_no_warnings(self, mock_auth, mock_cache_get, mock_cache_save):
         """All upstreams succeed — warnings is empty, response shape unchanged."""
 
@@ -812,7 +835,7 @@ class TestAsnRoute:
 
     @patch("domain.routes.save_cached_domain")
     @patch("domain.routes.get_cached_domain", return_value=None)
-    @patch("domain.routes.authenticate", return_value={"tier": "free"})
+    @patch("auth.authenticate_sync", return_value=_AUTH_FREE)
     def test_asn_lookup_skips_cache_when_both_metadata_futures_failed(self, mock_auth, mock_cache_get, mock_cache_save):
         """Bug NEW-A: when both as-overview and announced-prefixes fail at write
         time, asn_name='' and prefix lists are empty. Caching that empty
@@ -842,7 +865,7 @@ class TestAsnRoute:
 
     @patch("domain.routes.save_cached_domain")
     @patch("domain.routes.get_cached_domain", return_value=None)
-    @patch("domain.routes.authenticate", return_value={"tier": "free"})
+    @patch("auth.authenticate_sync", return_value=_AUTH_FREE)
     def test_asn_lookup_caches_when_only_one_metadata_future_failed(self, mock_auth, mock_cache_get, mock_cache_save):
         """Partial success is still cacheable — only the empty-and-empty
         case poisons. as-overview succeeded → asn_name='CLOUDFLARENET',
@@ -868,7 +891,7 @@ class TestAsnRoute:
             assert data["ipv4_prefixes"] == []
             mock_cache_save.assert_called_once()
 
-    @patch("domain.routes.authenticate", return_value={"tier": "free"})
+    @patch("auth.authenticate_sync", return_value=_AUTH_FREE)
     def test_asn_cached_result(self, mock_auth):
         """Cached ASN result should be returned successfully."""
         cached_data = {
@@ -889,7 +912,7 @@ class TestAsnRoute:
             assert data["asn"] == 13335
             assert data.get("warnings") == []
 
-    @patch("domain.routes.authenticate", return_value={"tier": "free"})
+    @patch("auth.authenticate_sync", return_value=_AUTH_FREE)
     def test_asn_prefixes_truncated_by_default(self, mock_auth):
         """Cache returns 100 prefixes; response truncates to 50 and ipv4_count stays honest."""
         from config import MAX_ASN_PREFIXES_DEFAULT
@@ -914,7 +937,7 @@ class TestAsnRoute:
             assert data["ipv4_count"] == 100  # honest pre-truncation
             assert data["ipv4_prefixes"][0] == "10.0.0.0/24"
 
-    @patch("domain.routes.authenticate", return_value={"tier": "free"})
+    @patch("auth.authenticate_sync", return_value=_AUTH_FREE)
     def test_asn_include_full_prefixes_returns_full(self, mock_auth):
         """include_full_prefixes=true returns the full cached list, ipv4_count unchanged."""
         big_v4 = [f"10.{i}.0.0/24" for i in range(100)]
@@ -936,7 +959,7 @@ class TestAsnRoute:
             assert len(data["ipv4_prefixes"]) == 100
             assert data["ipv4_count"] == 100
 
-    @patch("domain.routes.authenticate", return_value={"tier": "free"})
+    @patch("auth.authenticate_sync", return_value=_AUTH_FREE)
     def test_asn_short_list_not_truncated(self, mock_auth):
         """5 prefixes < default cap: response equals cache."""
         small = [f"1.1.{i}.0/24" for i in range(5)]
@@ -956,7 +979,7 @@ class TestAsnRoute:
             assert r.status_code == 200
             assert len(r.json()["ipv4_prefixes"]) == 5
 
-    @patch("domain.routes.authenticate", return_value={"tier": "free"})
+    @patch("auth.authenticate_sync", return_value=_AUTH_FREE)
     def test_asn_truncation_does_not_mutate_cache(self, mock_auth):
         """Two consecutive calls (default + include_full) share one cache entry — no mutation."""
         big_v4 = [f"10.{i}.0.0/24" for i in range(100)]
@@ -981,7 +1004,7 @@ class TestAsnRoute:
 
     @patch("domain.routes.save_cached_domain")
     @patch("domain.routes.get_cached_domain", return_value=None)
-    @patch("domain.routes.authenticate", return_value={"tier": "free"})
+    @patch("auth.authenticate_sync", return_value=_AUTH_FREE)
     def test_asn_lookup_verdict_complete_on_clean_success(self, mock_auth, mock_cache_get, mock_cache_save):
         """Bug I2: asn_lookup now emits a verdict block. On clean success
         every RIPE Stat sub-endpoint is in sources_queried and none in
@@ -1013,7 +1036,7 @@ class TestAsnRoute:
 
     @patch("domain.routes.save_cached_domain")
     @patch("domain.routes.get_cached_domain", return_value=None)
-    @patch("domain.routes.authenticate", return_value={"tier": "free"})
+    @patch("auth.authenticate_sync", return_value=_AUTH_FREE)
     def test_asn_lookup_verdict_partial_on_overview_timeout(self, mock_auth, mock_cache_get, mock_cache_save):
         """as-overview fails → ripe_stat:as-overview in sources_unavailable,
         completeness='partial'. The other sub-endpoints stay in queried."""
@@ -1040,7 +1063,7 @@ class TestAsnRoute:
 
     @patch("domain.routes.save_cached_domain")
     @patch("domain.routes.get_cached_domain", return_value=None)
-    @patch("domain.routes.authenticate", return_value={"tier": "free"})
+    @patch("auth.authenticate_sync", return_value=_AUTH_FREE)
     def test_asn_lookup_does_not_persist_pydantic_verdict_to_cache(self, mock_auth, mock_cache_get, mock_cache_save):
         """The verdict is a Pydantic model — calling json.dumps on the
         cache payload would TypeError if we ever stored it. Verify the
@@ -1082,7 +1105,7 @@ class TestAsnRoute:
         v2 = _asn_verdict(["as-overview: timeout"], age_seconds=0)
         assert "ripe_stat:as-overview" in v2.sources_unavailable
 
-    @patch("domain.routes.authenticate", return_value={"tier": "free"})
+    @patch("auth.authenticate_sync", return_value=_AUTH_FREE)
     def test_asn_lookup_verdict_rebuilt_from_cached_warnings(self, mock_auth):
         """Cache-hit path rebuilds the verdict from cached warnings — older
         entries written before I2 do not carry one. data_age_seconds=None
@@ -1107,7 +1130,7 @@ class TestAsnRoute:
             # data_age_seconds=None is dropped by response_model_exclude_none
             assert "data_age_seconds" not in v
 
-    @patch("domain.routes.authenticate", return_value={"tier": "free"})
+    @patch("auth.authenticate_sync", return_value=_AUTH_FREE)
     def test_asn_lookup_coerces_legacy_wrapper_cache_entries(self, mock_auth):
         """Bug I1 cache backward-compat: pre-1.15.0 entries hold
         [{'prefix': str}] wrappers. The cache-hit path must coerce them
@@ -1133,7 +1156,7 @@ class TestAsnRoute:
             assert data["ipv6_prefixes"] == ["2606:4700::/32"]
             assert all(isinstance(p, str) for p in data["ipv4_prefixes"])
 
-    @patch("domain.routes.authenticate", return_value={"tier": "free"})
+    @patch("auth.authenticate_sync", return_value=_AUTH_FREE)
     def test_asn_prefix_format_is_flat_string_list(self, mock_auth):
         """Bug I1: prefixes are now plain CIDR strings, not {'prefix': str} wrappers.
         Halves the byte size on AS-rich responses (CF AS13335 ~2500 prefixes)."""
@@ -1384,7 +1407,7 @@ class TestAuditDomain:
 class TestThreatReport:
     """Tests for GET /v1/threat-report/{ip}"""
 
-    @patch("domain.routes.authenticate", return_value={"tier": "pro"})
+    @patch("auth.authenticate_sync", return_value=_AUTH_PRO)
     @patch("domain.routes._ripe_client")
     @patch("domain.routes.check_shodan")
     @patch("domain.routes.check_abuseipdb")
@@ -1453,7 +1476,7 @@ class TestThreatReport:
         assert r.status_code == 400
         assert "Private" in r.json()["error"]["message"]
 
-    @patch("domain.routes.authenticate", return_value={"tier": "pro"})
+    @patch("auth.authenticate_sync", return_value=_AUTH_PRO)
     @patch("domain.routes._ripe_client")
     @patch("domain.routes.check_shodan", side_effect=RuntimeError("upstream down"))
     @patch("domain.routes.check_abuseipdb")

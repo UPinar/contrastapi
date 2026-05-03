@@ -177,9 +177,9 @@ class TestTechCategories:
 
 class TestTechRoute:
     @patch("domain.routes.fetch_live_page")
-    @patch("domain.routes._validate_and_auth")
+    @patch("domain.routes._validate_domain_input")
     def test_tech_200(self, mock_validate, mock_page):
-        mock_validate.return_value = ("example.com", "93.184.216.34", {"tier": "free"})
+        mock_validate.return_value = ("example.com", "93.184.216.34")
         mock_page.return_value = {
             "headers": {"server": "nginx/1.24.0", "x-powered-by": "PHP/8.2"},
             "html": '<meta name="generator" content="WordPress 6.4">',
@@ -196,17 +196,17 @@ class TestTechRoute:
         assert "WordPress" in names
 
     @patch("domain.routes.fetch_live_page")
-    @patch("domain.routes._validate_and_auth")
+    @patch("domain.routes._validate_domain_input")
     def test_tech_504_on_connection_failure(self, mock_validate, mock_page):
-        mock_validate.return_value = ("down.com", "1.2.3.4", {"tier": "free"})
+        mock_validate.return_value = ("down.com", "1.2.3.4")
         mock_page.return_value = {"error": "Could not connect to down.com"}
         r = client.get("/v1/tech/down.com")
         assert r.status_code == 504
 
     @patch("domain.routes.fetch_live_page")
-    @patch("domain.routes._validate_and_auth")
+    @patch("domain.routes._validate_domain_input")
     def test_tech_returns_domain_and_technologies(self, mock_validate, mock_page):
-        mock_validate.return_value = ("test.com", "1.2.3.4", {"tier": "free"})
+        mock_validate.return_value = ("test.com", "1.2.3.4")
         mock_page.return_value = {
             "headers": {"server": "Apache/2.4"},
             "html": "",
@@ -227,9 +227,9 @@ class TestMonitorRoute:
     @patch("domain.routes.get_cached_domain", return_value=None)
     @patch("domain.routes.ssl_info", return_value={"grade": "A", "days_remaining": 90})
     @patch("domain.routes.quick_dns_a", return_value=["93.184.216.34"])
-    @patch("domain.routes._validate_and_auth")
+    @patch("domain.routes._validate_domain_input")
     def test_monitor_200_up(self, mock_validate, mock_dns, mock_ssl, mock_cache):
-        mock_validate.return_value = ("example.com", "93.184.216.34", {"tier": "free"})
+        mock_validate.return_value = ("example.com", "93.184.216.34")
         r = client.get("/v1/monitor/example.com")
         assert r.status_code == 200
         data = r.json()
@@ -243,9 +243,9 @@ class TestMonitorRoute:
     @patch("domain.routes.get_cached_domain", return_value=None)
     @patch("domain.routes.ssl_info", side_effect=Exception("TLS handshake failed"))
     @patch("domain.routes.quick_dns_a", return_value=[])
-    @patch("domain.routes._validate_and_auth")
+    @patch("domain.routes._validate_domain_input")
     def test_monitor_200_down(self, mock_validate, mock_dns, mock_ssl, mock_cache):
-        mock_validate.return_value = ("down.com", "1.2.3.4", {"tier": "free"})
+        mock_validate.return_value = ("down.com", "1.2.3.4")
         r = client.get("/v1/monitor/down.com")
         assert r.status_code == 200
         data = r.json()
@@ -256,9 +256,9 @@ class TestMonitorRoute:
     @patch("domain.routes.get_cached_domain")
     @patch("domain.routes.ssl_info", return_value={"grade": "B", "days_remaining": 30})
     @patch("domain.routes.quick_dns_a", return_value=["1.2.3.4"])
-    @patch("domain.routes._validate_and_auth")
+    @patch("domain.routes._validate_domain_input")
     def test_monitor_dns_changed(self, mock_validate, mock_dns, mock_ssl, mock_cache):
-        mock_validate.return_value = ("example.com", "1.2.3.4", {"tier": "free"})
+        mock_validate.return_value = ("example.com", "1.2.3.4")
         mock_cache.return_value = {
             "fetched_at": "2025-01-01T00:00:00",
             "risk": {"grade": "B", "score": 70},
@@ -278,9 +278,9 @@ class TestMonitorRoute:
 class TestVulnsRoute:
     @patch("db.search_cves_by_products_bulk", return_value={})
     @patch("domain.routes.fetch_live_page")
-    @patch("domain.routes._validate_and_auth")
+    @patch("domain.routes._validate_domain_input")
     def test_vulns_200_no_cves(self, mock_validate, mock_page, mock_search):
-        mock_validate.return_value = ("example.com", "93.184.216.34", {"tier": "free"})
+        mock_validate.return_value = ("example.com", "93.184.216.34")
         mock_page.return_value = {
             "headers": {"server": "nginx/1.24.0"},
             "html": "",
@@ -297,9 +297,9 @@ class TestVulnsRoute:
 
     @patch("db.search_cves_by_products_bulk")
     @patch("domain.routes.fetch_live_page")
-    @patch("domain.routes._validate_and_auth")
+    @patch("domain.routes._validate_domain_input")
     def test_vulns_200_with_cves(self, mock_validate, mock_page, mock_search):
-        mock_validate.return_value = ("vuln.com", "1.2.3.4", {"tier": "free"})
+        mock_validate.return_value = ("vuln.com", "1.2.3.4")
         mock_page.return_value = {
             "headers": {"server": "Apache/2.4"},
             "html": "",
@@ -319,19 +319,19 @@ class TestVulnsRoute:
         assert mock_search.call_count == 1
 
     @patch("domain.routes.fetch_live_page")
-    @patch("domain.routes._validate_and_auth")
+    @patch("domain.routes._validate_domain_input")
     def test_vulns_504_on_page_error(self, mock_validate, mock_page):
-        mock_validate.return_value = ("down.com", "1.2.3.4", {"tier": "free"})
+        mock_validate.return_value = ("down.com", "1.2.3.4")
         mock_page.return_value = {"error": "Connection refused"}
         r = client.get("/v1/domain/down.com/vulns")
         assert r.status_code == 504
 
     @patch("db.search_cves_by_products_bulk")
     @patch("domain.routes.fetch_live_page")
-    @patch("domain.routes._validate_and_auth")
+    @patch("domain.routes._validate_domain_input")
     def test_vulns_bulk_called_once_with_all_techs(self, mock_validate, mock_page, mock_search):
         """Multi-tech response must trigger exactly ONE bulk DB call (not N+1)."""
-        mock_validate.return_value = ("multi.com", "1.2.3.4", {"tier": "free"})
+        mock_validate.return_value = ("multi.com", "1.2.3.4")
         mock_page.return_value = {
             "headers": {"server": "nginx/1.24.0", "x-powered-by": "PHP/8.1.0"},
             "html": "",
@@ -350,12 +350,12 @@ class TestVulnsRoute:
     @patch("domain.tech.detect_technologies")
     @patch("db.search_cves_by_products_bulk")
     @patch("domain.routes.fetch_live_page")
-    @patch("domain.routes._validate_and_auth")
+    @patch("domain.routes._validate_domain_input")
     def test_vulns_version_filter_uses_normalized_key(self, mock_validate, mock_page, mock_search, mock_detect):
         """Regression: aliased Maven artifactId (e.g., log4j-core) must still match
         version-filtered CVEs whose affected_products use the NVD canonical name (log4j).
         The substring check must use the normalized key, not the raw tech name."""
-        mock_validate.return_value = ("alias.com", "1.2.3.4", {"tier": "free"})
+        mock_validate.return_value = ("alias.com", "1.2.3.4")
         mock_page.return_value = {"headers": {}, "html": "", "status_code": 200}
         mock_detect.return_value = {
             "technologies": [{"name": "log4j-core", "version": "2.14.0"}],

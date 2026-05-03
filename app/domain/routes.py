@@ -20,7 +20,7 @@ class AsnUpstreamError(Exception):
         super().__init__(f"{upstream}: {reason}")
 
 
-from fastapi import APIRouter, HTTPException, Path, Query, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response
 
 _reputation_pool = ThreadPoolExecutor(max_workers=3)
 _aia_pool = ThreadPoolExecutor(max_workers=2)
@@ -39,7 +39,7 @@ import httpx as _httpx
 import ratelimit
 
 _ripe_client = _httpx.Client(timeout=_httpx.Timeout(7.0, connect=3.0), follow_redirects=False)
-from auth import authenticate
+from auth import AuthCtx, require_auth
 from config import (
     BULK_OVERALL_TIMEOUT,
     BULK_PER_DOMAIN_TIMEOUT,
@@ -128,7 +128,7 @@ from domain.threat import check_urlhaus
 from domain.username import username_lookup
 from pydantic import BaseModel, Field
 from schemas import PivotHint, Verdict
-from validation import _is_valid_format, clean_domain, get_client_ip, is_private_ip, is_valid_ip, validate_domain
+from validation import _is_valid_format, clean_domain, is_private_ip, is_valid_ip, validate_domain
 
 logger = logging.getLogger("contrastapi")
 
@@ -215,9 +215,8 @@ router = APIRouter(prefix="/v1", tags=["Domain Intelligence"])
 
 
 @router.get("/", include_in_schema=False)
-def api_root(request: Request):
+def api_root(auth: Annotated[AuthCtx, Depends(require_auth("/v1"))]):
     """Available endpoints when someone hits /v1/ directly."""
-    authenticate(request, "/v1")
     return {
         "api": "ContrastAPI",
         "docs": "https://github.com/UPinar/contrastapi/blob/main/docs/ENDPOINTS.md",
@@ -251,10 +250,13 @@ def api_root(request: Request):
     }
 
 
-def _validate_and_auth(request: Request, raw_domain: str) -> tuple[str, str, dict]:
-    """Authenticate, clean domain, validate domain. Returns (domain, resolved_ip, auth_ctx).
+def _validate_domain_input(raw_domain: str) -> tuple[str, str]:
+    """Clean + validate the raw domain input, then DNS-resolve. Returns (domain, resolved_ip).
 
-    Auth runs first to reject unauthenticated/rate-limited requests before DNS resolution.
+    Faz 3: auth no longer happens here — routes acquire AuthCtx via
+    Annotated[AuthCtx, Depends(require_auth(...))] which runs BEFORE the
+    handler body, so callers see auth-rejected requests as 401/429 before
+    reaching this helper at all.
     """
     domain = clean_domain(raw_domain)
     if not domain:
@@ -266,11 +268,10 @@ def _validate_and_auth(request: Request, raw_domain: str) -> tuple[str, str, dic
         )
     if not _is_valid_format(domain):
         raise HTTPException(status_code=400, detail="Invalid domain")
-    auth_ctx = authenticate(request, request.url.path)
     resolved_ip = validate_domain(domain)
     if not resolved_ip:
         raise HTTPException(status_code=422, detail="Could not resolve this domain. DNS resolution failed.")
-    return domain, resolved_ip, auth_ctx
+    return domain, resolved_ip
 
 
 def _dns_summary(records: dict, domain: str) -> str:
@@ -582,7 +583,7 @@ def _domain_pivot_hints(report: dict, domain: str) -> list[PivotHint]:
 )
 def domain_report(
     domain: DomainPath,
-    request: Request,
+    auth: Annotated[AuthCtx, Depends(require_auth("/v1/domain"))],
     response: Response,
     lite: Annotated[
         bool,
@@ -613,9 +614,9 @@ def domain_report(
     response.headers["Deprecation"] = "true"
     response.headers["Sunset"] = "Wed, 01 Sep 2026 00:00:00 GMT"
     response.headers["Link"] = '<https://github.com/UPinar/contrastapi/releases>; rel="deprecation"'
-    domain, resolved_ip, auth_ctx = _validate_and_auth(request, domain)
-    tier = auth_ctx["tier"]
-    client_ip = get_client_ip(request)
+    domain, resolved_ip = _validate_domain_input(domain)
+    tier = auth.tier
+    client_ip = auth.client_ip
 
     # Behavioral burst throttle (Free tier only). UA-rotating bot fleets
     # bypass the nginx UA blocklist by querying many distinct domains rapidly;
@@ -676,10 +677,13 @@ def domain_report(
 
 
 @router.get("/dns/{domain}", operation_id="dns_records", response_model=DnsResponse, response_model_exclude_none=True)
-def dns_records(domain: DomainPath, request: Request):
+def dns_records(
+    domain: DomainPath,
+    auth: Annotated[AuthCtx, Depends(require_auth("/v1/dns"))],
+):
     """DNS record lookup: A, AAAA, MX, NS, TXT, CNAME, SOA."""
-    domain, resolved_ip, auth_ctx = _validate_and_auth(request, domain)
-    cached = _from_cache(domain, "dns", auth_ctx["tier"])
+    domain, resolved_ip = _validate_domain_input(domain)
+    cached = _from_cache(domain, "dns", auth.tier)
     if cached:
         return {"domain": domain, "records": cached, "summary": _dns_summary(cached, domain)}
     records = dns_lookup(domain)
@@ -694,9 +698,12 @@ def dns_records(domain: DomainPath, request: Request):
     response_model=EmailMxResponse,
     response_model_exclude_none=True,
 )
-def email_mx(domain: DomainPath, request: Request):
+def email_mx(
+    domain: DomainPath,
+    auth: Annotated[AuthCtx, Depends(require_auth("/v1/email/mx"))],
+):
     """Email MX analysis — mail provider detection, SPF/DMARC/DKIM check, security grade."""
-    domain, resolved_ip, auth_ctx = _validate_and_auth(request, domain)
+    domain, resolved_ip = _validate_domain_input(domain)
 
     # Check cache
     cache_key = f"email_mx:{domain}"
@@ -787,7 +794,7 @@ def email_disposable(
             ),
         ),
     ],
-    request: Request,
+    auth: Annotated[AuthCtx, Depends(require_auth("/v1/email/disposable"))],
 ):
     """Check if an email uses a disposable/temporary email provider."""
     if "@" not in email:
@@ -798,7 +805,6 @@ def email_disposable(
     domain = clean_domain(raw_domain)
     if not domain or not _is_valid_format(domain):
         raise HTTPException(status_code=400, detail="Invalid email domain")
-    authenticate(request, request.url.path)
 
     # Check cache (keyed by domain — rebuild summary with current email on hit)
     cache_key = f"email_disp:{domain}"
@@ -836,7 +842,7 @@ def email_verify_endpoint(
             ),
         ),
     ],
-    request: Request,
+    auth: Annotated[AuthCtx, Depends(require_auth("/v1/email/verify"))],
 ):
     """Combined email validation: syntax + MX + disposable + role + free-provider.
 
@@ -856,7 +862,8 @@ def email_verify_endpoint(
         # Domain may be empty if the email had no `@` at all.
         local = ""
         domain = email.rsplit("@", 1)[1].lower() if "@" in email else ""
-        result = {
+        # Auth was already consumed by require_auth before we got here.
+        return {
             "email": email[:254],  # cap so a 100KB pasteload can't bloat the response
             "domain": domain,
             "syntax_valid": False,
@@ -866,12 +873,8 @@ def email_verify_endpoint(
             "free_provider": False,
             "summary": f"{email[:80]} — invalid syntax",
         }
-        # Auth still consumed — we did work (parsing + reflection).
-        authenticate(request, request.url.path)
-        return result
 
     local, domain = parsed
-    authenticate(request, request.url.path)
 
     cache_key = f"email_verify:{domain}"
     cached = get_cached_domain(cache_key)
@@ -954,7 +957,10 @@ def _email_verify_summary(local: str, domain: str, payload: dict, is_role: bool,
     response_model=RobotsTxtResponse,
     response_model_exclude_none=True,
 )
-def robots_txt_endpoint(domain: DomainPath, request: Request):
+def robots_txt_endpoint(
+    domain: DomainPath,
+    auth: Annotated[AuthCtx, Depends(require_auth("/v1/robots"))],
+):
     """Fetch + parse the target domain's robots.txt file.
 
     Returns sitemaps, per-User-agent allow/disallow rules, crawl-delay, and the
@@ -968,7 +974,7 @@ def robots_txt_endpoint(domain: DomainPath, request: Request):
     """
     from target_throttle import consume_target_throttle
 
-    cleaned, _resolved_ip, _auth = _validate_and_auth(request, domain)
+    cleaned, _resolved_ip = _validate_domain_input(domain)
 
     allowed, retry_after = consume_target_throttle(cleaned)
     if not allowed:
@@ -1024,7 +1030,10 @@ def robots_txt_endpoint(domain: DomainPath, request: Request):
     response_model=RedirectChainResponse,
     response_model_exclude_none=True,
 )
-def redirect_chain_endpoint(url: str, request: Request):
+def redirect_chain_endpoint(
+    url: str,
+    auth: Annotated[AuthCtx, Depends(require_auth("/v1/redirect"))],
+):
     """Walk a URL's HTTP redirect chain hop-by-hop, returning each (status, Location, latency).
 
     Up to 10 hops; SSRF-safe (private IPs and non-HTTP schemes rejected at every
@@ -1050,8 +1059,7 @@ def redirect_chain_endpoint(url: str, request: Request):
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    # Authenticate (consumes 1 API credit) and apply the *start* host's throttle.
-    authenticate(request, request.url.path)
+    # Auth + 1 API credit was consumed by require_auth. Apply the *start* host's throttle.
     start_host = (_urlparse_local(url).hostname or "").lower()
     if start_host:
         allowed, retry = consume_target_throttle(start_host)
@@ -1106,7 +1114,10 @@ def redirect_chain_endpoint(url: str, request: Request):
     response_model=BrandAssetsResponse,
     response_model_exclude_none=True,
 )
-def brand_assets_endpoint(domain: DomainPath, request: Request):
+def brand_assets_endpoint(
+    domain: DomainPath,
+    auth: Annotated[AuthCtx, Depends(require_auth("/v1/brand"))],
+):
     """Scrape the target domain's homepage `<head>` for public brand assets:
     favicon, og:image, theme-color, og:site_name, JSON-LD Organization.logo.
 
@@ -1120,7 +1131,7 @@ def brand_assets_endpoint(domain: DomainPath, request: Request):
     """
     from target_throttle import consume_target_throttle
 
-    cleaned, _resolved_ip, _auth = _validate_and_auth(request, domain)
+    cleaned, _resolved_ip = _validate_domain_input(domain)
 
     allowed, retry_after = consume_target_throttle(cleaned)
     if not allowed:
@@ -1221,7 +1232,10 @@ def brand_assets_endpoint(domain: DomainPath, request: Request):
     response_model=SeoAuditResponse,
     response_model_exclude_none=True,
 )
-def seo_audit_endpoint(domain: DomainPath, request: Request):
+def seo_audit_endpoint(
+    domain: DomainPath,
+    auth: Annotated[AuthCtx, Depends(require_auth("/v1/seo"))],
+):
     """Audit a domain's homepage for SEO health and emit a 0-100 composite score.
 
     10 audit rules (each 0-10 pts): title present, title length 30-60,
@@ -1238,7 +1252,7 @@ def seo_audit_endpoint(domain: DomainPath, request: Request):
     """
     from target_throttle import consume_target_throttle
 
-    cleaned, _resolved_ip, _auth = _validate_and_auth(request, domain)
+    cleaned, _resolved_ip = _validate_domain_input(domain)
 
     allowed, retry_after = consume_target_throttle(cleaned)
     if not allowed:
@@ -1331,10 +1345,9 @@ def phone_endpoint(
             ),
         ),
     ],
-    request: Request,
+    auth: Annotated[AuthCtx, Depends(require_auth("/v1/phone"))],
 ):
     """Phone number validation and intelligence — format, country, type, carrier, timezone."""
-    authenticate(request, request.url.path)
     result = phone_lookup(number)
     return result
 
@@ -1357,20 +1370,22 @@ def username_endpoint(
             ),
         ),
     ],
-    request: Request,
+    auth: Annotated[AuthCtx, Depends(require_auth("/v1/username"))],
 ):
     """Username OSINT — check if a username exists on 16 platforms (GitHub, Reddit, X, etc.)."""
-    authenticate(request, request.url.path)
     return username_lookup(username)
 
 
 @router.get(
     "/whois/{domain}", operation_id="whois_lookup", response_model=WhoisResponse, response_model_exclude_none=True
 )
-def whois_endpoint(domain: DomainPath, request: Request):
+def whois_endpoint(
+    domain: DomainPath,
+    auth: Annotated[AuthCtx, Depends(require_auth("/v1/whois"))],
+):
     """WHOIS registration data for a domain."""
-    domain, resolved_ip, auth_ctx = _validate_and_auth(request, domain)
-    cached = _from_cache(domain, "whois", auth_ctx["tier"])
+    domain, resolved_ip = _validate_domain_input(domain)
+    cached = _from_cache(domain, "whois", auth.tier)
     if cached and "error" not in cached:
         return {"domain": domain, "whois": cached, "summary": _whois_summary(cached, domain)}
     result = whois_lookup(domain)
@@ -1444,13 +1459,16 @@ def _asn_pivot_hints(resolved_ip: str | None) -> list[PivotHint]:
     response_model=SubdomainsResponse,
     response_model_exclude_none=True,
 )
-def subdomains(domain: DomainPath, request: Request):
+def subdomains(
+    domain: DomainPath,
+    auth: Annotated[AuthCtx, Depends(require_auth("/v1/subdomains"))],
+):
     """Subdomain enumeration via DNS brute force + certificate transparency."""
-    domain, resolved_ip, auth_ctx = _validate_and_auth(request, domain)
+    domain, resolved_ip = _validate_domain_input(domain)
     # Tier-agnostic: DNS+CT data is the same regardless of caller, flat key maximises hits.
     cached = get_cached_domain(f"subdomains:{domain}")
     if cached is None:
-        cached = _from_cache(domain, "subdomains", auth_ctx["tier"])
+        cached = _from_cache(domain, "subdomains", auth.tier)
     if cached:
         sub_list = cached.get("subdomains") or []
         return {"domain": domain, **cached, "next_calls": _subdomain_pivot_hints(sub_list) or None}
@@ -1461,13 +1479,16 @@ def subdomains(domain: DomainPath, request: Request):
 
 
 @router.get("/certs/{domain}", operation_id="ct_logs", response_model=CertsResponse, response_model_exclude_none=True)
-def certs(domain: DomainPath, request: Request):
+def certs(
+    domain: DomainPath,
+    auth: Annotated[AuthCtx, Depends(require_auth("/v1/certs"))],
+):
     """Certificate transparency log lookup."""
-    domain, resolved_ip, auth_ctx = _validate_and_auth(request, domain)
+    domain, resolved_ip = _validate_domain_input(domain)
     # Tier-agnostic: CT log data is the same regardless of caller, flat key maximises hits.
     cached = get_cached_domain(f"certificates:{domain}")
     if cached is None:
-        cached = _from_cache(domain, "certificates", auth_ctx["tier"])
+        cached = _from_cache(domain, "certificates", auth.tier)
     if cached:
         total = cached.get("total_certificates", 0)
         summary = f"{total} certificate{'s' if total != 1 else ''} in CT logs for {domain}"
@@ -1482,9 +1503,12 @@ def certs(domain: DomainPath, request: Request):
 @router.get(
     "/ssl/{domain}", operation_id="ssl_certificate", response_model=SslResponse, response_model_exclude_none=True
 )
-def ssl_certificate(domain: DomainPath, request: Request):
+def ssl_certificate(
+    domain: DomainPath,
+    auth: Annotated[AuthCtx, Depends(require_auth("/v1/ssl"))],
+):
     """SSL certificate details with grade, chain, cipher, and protocol information."""
-    domain, resolved_ip, auth_ctx = _validate_and_auth(request, domain)
+    domain, resolved_ip = _validate_domain_input(domain)
 
     # Check cache (keyed as ssl:<domain> in domain_cache)
     cached = get_cached_domain(f"ssl:{domain}")
@@ -1648,9 +1672,12 @@ def ssl_certificate(domain: DomainPath, request: Request):
 @router.get(
     "/threat/{domain}", operation_id="threat_intel", response_model=ThreatResponse, response_model_exclude_none=True
 )
-def threat_intel(domain: DomainPath, request: Request):
+def threat_intel(
+    domain: DomainPath,
+    auth: Annotated[AuthCtx, Depends(require_auth("/v1/threat"))],
+):
     """Threat intelligence — check domain against URLhaus for known malware URLs."""
-    domain, resolved_ip, auth_ctx = _validate_and_auth(request, domain)
+    domain, resolved_ip = _validate_domain_input(domain)
     result = check_urlhaus(domain)
     urlhaus_unavailable = result.get("urlhaus_status") == "error"
     urls_online = result["urls_online"]
@@ -1668,9 +1695,12 @@ def threat_intel(domain: DomainPath, request: Request):
     response_model=WaybackResponse,
     response_model_exclude_none=True,
 )
-def wayback_lookup_route(domain: DomainPath, request: Request):
+def wayback_lookup_route(
+    domain: DomainPath,
+    auth: Annotated[AuthCtx, Depends(require_auth("/v1/archive"))],
+):
     """Web archive lookup — historical snapshots from the Wayback Machine."""
-    domain, resolved_ip, auth_ctx = _validate_and_auth(request, domain)
+    domain, resolved_ip = _validate_domain_input(domain)
     return wayback_lookup(domain)
 
 
@@ -1824,7 +1854,10 @@ def _fetch_asn_country(ip: str) -> dict:
 
 
 @router.get("/ip/{ip}", operation_id="ip_lookup", response_model=IpLookupResponse, response_model_exclude_none=False)
-def ip_lookup(ip: IpPath, request: Request):
+def ip_lookup(
+    ip: IpPath,
+    auth: Annotated[AuthCtx, Depends(require_auth("/v1/ip"))],
+):
     """IP intelligence — reverse DNS, ASN + country (RIPE Stat), open ports, vulnerabilities, hostnames (Shodan InternetDB), cloud provider + is_datacenter flag, Tor exit detection, severity_label, and reputation (FireHOL level1 blocklist on Free tier; +AbuseIPDB + Shodan on Pro)."""
     if not is_valid_ip(ip):
         if "." in ip and not ip.replace(".", "").isdigit():
@@ -1834,8 +1867,7 @@ def ip_lookup(ip: IpPath, request: Request):
         raise HTTPException(status_code=400, detail="Invalid IP address")
     if is_private_ip(ip):
         raise HTTPException(status_code=400, detail="Private/reserved IP addresses are not allowed")
-    auth_ctx = authenticate(request, "/v1/ip")
-    client_ip = get_client_ip(request)
+    client_ip = auth.client_ip
 
     # Kick ASN/country fetch in parallel with the rest of the critical path.
     f_asn_country = _reputation_pool.submit(_fetch_asn_country, ip)
@@ -1879,7 +1911,7 @@ def ip_lookup(ip: IpPath, request: Request):
     if hit is not None:
         reputation, rep_age = hit
         reputation_attempted = True
-    elif auth_ctx["tier"] == "pro" and ratelimit.check_limit(
+    elif auth.tier == "pro" and ratelimit.check_limit(
         store_name="enrichment",
         key=hash_client_ip(client_ip),
         max_requests=ENRICHMENT_DAILY_LIMIT,
@@ -1906,7 +1938,7 @@ def ip_lookup(ip: IpPath, request: Request):
             reputation = {}
             reputation_failed = True
             ratelimit.refund("enrichment", client_ip)
-    elif auth_ctx["tier"] != "pro":
+    elif auth.tier != "pro":
         firehol_result = check_firehol(ip)
         firehol_attempted = True
         # Bug I4: free tier used to ship two ~13-field pro_only stubs
@@ -2005,7 +2037,7 @@ def ip_lookup(ip: IpPath, request: Request):
         firehol_failed=firehol_failed,
         tor_status=tor_status,
     )
-    pivot_hints = _ip_pivot_hints(ip, asn_val, reputation, auth_ctx["tier"])
+    pivot_hints = _ip_pivot_hints(ip, asn_val, reputation, auth.tier)
     if pivot_hints:
         result["next_calls"] = pivot_hints
     return result
@@ -2014,9 +2046,12 @@ def ip_lookup(ip: IpPath, request: Request):
 @router.get(
     "/tech/{domain}", operation_id="tech_fingerprint", response_model=TechResponse, response_model_exclude_none=True
 )
-def tech_fingerprint(domain: DomainPath, request: Request):
+def tech_fingerprint(
+    domain: DomainPath,
+    auth: Annotated[AuthCtx, Depends(require_auth("/v1/tech"))],
+):
     """Technology fingerprinting — detect CMS, frameworks, servers, CDNs, analytics."""
-    domain, resolved_ip, auth_ctx = _validate_and_auth(request, domain)
+    domain, resolved_ip = _validate_domain_input(domain)
     page = fetch_live_page(domain)
     if "error" in page:
         raise HTTPException(status_code=504, detail=page["error"])
@@ -2029,9 +2064,12 @@ def tech_fingerprint(domain: DomainPath, request: Request):
 @router.get(
     "/monitor/{domain}", operation_id="domain_monitor", response_model=MonitorResponse, response_model_exclude_none=True
 )
-def domain_monitor(domain: DomainPath, request: Request):
+def domain_monitor(
+    domain: DomainPath,
+    auth: Annotated[AuthCtx, Depends(require_auth("/v1/monitor"))],
+):
     """Lightweight health check — DNS up/down, SSL status, risk grade from cache. Designed for high-frequency polling."""
-    domain, resolved_ip, auth_ctx = _validate_and_auth(request, domain)
+    domain, resolved_ip = _validate_domain_input(domain)
 
     # Quick DNS A record check
     dns_a = quick_dns_a(domain)
@@ -2053,7 +2091,7 @@ def domain_monitor(domain: DomainPath, request: Request):
     risk_grade = None
     risk_score = None
     last_full_report = None
-    cached = get_cached_domain(f"{auth_ctx['tier']}:{domain}")
+    cached = get_cached_domain(f"{auth.tier}:{domain}")
     if cached:
         last_full_report = cached.get("fetched_at")
         risk = cached.get("risk", {})
@@ -2094,9 +2132,12 @@ def domain_monitor(domain: DomainPath, request: Request):
     response_model=VulnsResponse,
     response_model_exclude_none=True,
 )
-def domain_vulns(domain: DomainPath, request: Request):
+def domain_vulns(
+    domain: DomainPath,
+    auth: Annotated[AuthCtx, Depends(require_auth("/v1/domain/vulns"))],
+):
     """Tech stack vulnerability scan — detect technologies, then look up CVEs for each."""
-    domain, resolved_ip, auth_ctx = _validate_and_auth(request, domain)
+    domain, resolved_ip = _validate_domain_input(domain)
 
     page = fetch_live_page(domain)
     if "error" in page:
@@ -2218,7 +2259,7 @@ def asn_lookup(
             ),
         ),
     ],
-    request: Request,
+    auth: Annotated[AuthCtx, Depends(require_auth("/v1/asn"))],
     include_full_prefixes: Annotated[
         bool,
         Query(
@@ -2232,8 +2273,6 @@ def asn_lookup(
 ):
     """ASN lookup — resolve target (domain or IP) to its Autonomous System Number, holder name, and announced prefixes."""
     import ipaddress
-
-    authenticate(request, "/v1/asn")
 
     # Determine IP from target
     resolved_ip = None
@@ -2469,15 +2508,17 @@ def _run_single_report(raw_domain: str, client_ip: str, tier: str = "free") -> d
     response_model=BulkDomainResponse,
     response_model_exclude_none=True,
 )
-def bulk_domain_report(body: _BulkRequest, request: Request):
+def bulk_domain_report(
+    body: _BulkRequest,
+    auth: Annotated[AuthCtx, Depends(require_auth("/v1/domains/bulk"))],
+):
     """Bulk domain intelligence — up to 10 domains (free) or 50 (pro). Each domain counts as 1 request toward rate limit."""
-    auth_ctx = authenticate(request, "/v1/domains/bulk")
-    client_ip = get_client_ip(request)
+    client_ip = auth.client_ip
 
     # Tier-based bulk limit
     from config import FREE_BULK_LIMIT, PRO_BULK_LIMIT
 
-    bulk_limit = PRO_BULK_LIMIT if auth_ctx["tier"] == "pro" else FREE_BULK_LIMIT
+    bulk_limit = PRO_BULK_LIMIT if auth.tier == "pro" else FREE_BULK_LIMIT
 
     # Deduplicate domains (preserve order)
     domains = list(dict.fromkeys(body.domains))
@@ -2486,22 +2527,14 @@ def bulk_domain_report(body: _BulkRequest, request: Request):
     if count > bulk_limit:
         raise HTTPException(
             status_code=422,
-            detail=f"Too many domains. Limit: {bulk_limit} (your tier: {auth_ctx['tier']})",
+            detail=f"Too many domains. Limit: {bulk_limit} (your tier: {auth.tier})",
         )
 
     # Check remaining quota before starting (each domain = 1 request)
-    raw_key = None
-    auth_header = request.headers.get("authorization", "")
-    if auth_header.startswith("Bearer "):
-        from auth import extract_key, hash_key
-
-        raw_key = extract_key(request)
-
-    if raw_key:
-        from auth import hash_key
+    if auth.tier == "pro":
         from config import PRO_HOURLY_LIMIT
 
-        store_key = f"pro:{hash_key(raw_key)}"
+        store_key = f"pro:{auth.key_hash}"
         limit = PRO_HOURLY_LIMIT
     else:
         from config import FREE_HOURLY_LIMIT
@@ -2509,7 +2542,7 @@ def bulk_domain_report(body: _BulkRequest, request: Request):
         store_key = f"free:{hash_client_ip(client_ip)}"
         limit = FREE_HOURLY_LIMIT
 
-    # Atomic check-and-consume: authenticate() already consumed 1, we need (count - 1) more
+    # Atomic check-and-consume: require_auth already consumed 1, we need (count - 1) more
     if count > 1 and not ratelimit.consume_bulk("api", store_key, count - 1, limit):
         raise HTTPException(
             status_code=429,
@@ -2525,7 +2558,7 @@ def bulk_domain_report(body: _BulkRequest, request: Request):
 
     try:
         # Run reports in parallel, preserving input order
-        ordered_futures = [(_bulk_pool.submit(_run_single_report, d, client_ip, auth_ctx["tier"]), d) for d in domains]
+        ordered_futures = [(_bulk_pool.submit(_run_single_report, d, client_ip, auth.tier), d) for d in domains]
         results = []
         timed_out = 0
         partial = False
@@ -2593,7 +2626,7 @@ def bulk_domain_report(body: _BulkRequest, request: Request):
 )
 def audit_domain(
     domain: str,
-    request: Request,
+    auth: Annotated[AuthCtx, Depends(require_auth("/v1/audit", cost=COST_AUDIT))],
     include_all_txt: Annotated[
         bool,
         Query(
@@ -2615,14 +2648,12 @@ def audit_domain(
     from domain.recon import fetch_live_headers
     from domain.tech import detect_technologies
 
-    auth_ctx = authenticate(request, "/v1/audit", cost=COST_AUDIT)
-
     domain = clean_domain(domain)
     if not domain:
         raise HTTPException(status_code=400, detail="Invalid domain")
 
-    client_ip = get_client_ip(request)
-    tier = auth_ctx["tier"]
+    client_ip = auth.client_ip
+    tier = auth.tier
     cache_key = f"{tier}:{domain}"
 
     cached = get_cached_domain(cache_key)
@@ -2709,15 +2740,16 @@ def audit_domain(
     response_model=ThreatReportResponse,
     response_model_exclude_none=True,
 )
-def threat_report(ip: IpPath, request: Request):
+def threat_report(
+    ip: IpPath,
+    auth: Annotated[AuthCtx, Depends(require_auth("/v1/threat-report", cost=COST_THREAT_REPORT))],
+):
     """Comprehensive IP threat report — Shodan InternetDB + AbuseIPDB + Shodan full + ASN in a single call.
 
     Aggregates open ports, vulnerabilities, abuse reports, geolocation, ASN ownership,
     and reputation across multiple sources. Designed for SOC triage and threat hunting
     where a complete IP profile is needed without making 4+ separate API calls.
     """
-    auth_ctx = authenticate(request, "/v1/threat-report", cost=COST_THREAT_REPORT)
-
     if not is_valid_ip(ip):
         raise HTTPException(status_code=400, detail="Invalid IP address")
     if is_private_ip(ip):
@@ -2725,7 +2757,7 @@ def threat_report(ip: IpPath, request: Request):
 
     with ThreadPoolExecutor(max_workers=4) as pool:
         f_enrich = pool.submit(ip_enrichment, ip)
-        if auth_ctx["tier"] == "pro":
+        if auth.tier == "pro":
             f_abuse = pool.submit(check_abuseipdb, ip)
             f_shodan = pool.submit(check_shodan, ip)
         else:
@@ -2927,15 +2959,15 @@ def threat_report(ip: IpPath, request: Request):
                 "internetdb",
                 "tor",
                 "firehol",
-                *(("abuseipdb", "shodan") if auth_ctx["tier"] == "pro" else ()),
+                *(("abuseipdb", "shodan") if auth.tier == "pro" else ()),
             ],
             sources_unavailable=[
-                *(["abuseipdb"] if auth_ctx["tier"] != "pro" else []),
-                *(["shodan"] if auth_ctx["tier"] != "pro" else []),
+                *(["abuseipdb"] if auth.tier != "pro" else []),
+                *(["shodan"] if auth.tier != "pro" else []),
                 *(["tor"] if tor_status != "ok" else []),
                 *(["firehol"] if firehol.get("status") == "unavailable" else []),
                 *(["asn"] if isinstance(asn_data, dict) and asn_data.get("error") == "lookup_failed" else []),
             ],
-            completeness="partial" if auth_ctx["tier"] != "pro" else "complete",
+            completeness="partial" if auth.tier != "pro" else "complete",
         ),
     }
