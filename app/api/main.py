@@ -7,6 +7,7 @@ Aggregator OUTSIDE (separate `app.include_router` in main.py):
   - crypto_billing_router (literal `/v1/billing/crypto/*` paths)
 """
 
+from api.meta import router as meta_router
 from atlas.routes import router as atlas_router
 from codesec.routes import router as codesec_router
 from cve.routes import router as cve_router
@@ -24,3 +25,4 @@ api_router.include_router(codesec_router)
 api_router.include_router(ioc_router)
 api_router.include_router(atlas_router)
 api_router.include_router(d3fend_router)
+api_router.include_router(meta_router)

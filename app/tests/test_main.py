@@ -320,7 +320,7 @@ def test_429_response_carries_retry_after_in_nested_error():
 
     from fastapi import HTTPException
 
-    with patch("main.check_limit", side_effect=HTTPException(status_code=429, detail="slow down")):
+    with patch("main.check_limit", side_effect=HTTPException(status_code=429, detail="slow down"), create=True):
         r = client.get("/v1/cves?limit=1")
     if r.status_code != 429:
         # Test environment may bypass the rate-limit middleware; assert structure if any 429 surfaces
