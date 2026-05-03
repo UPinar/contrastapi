@@ -150,8 +150,6 @@ async def lifespan(app):
         threat_client,
         recon_client,
         sync_client,
-        ioc_client,
-        password_client,
         _ripe_client,
     ):
         try:
@@ -159,7 +157,7 @@ async def lifespan(app):
         except Exception:
             pass
     # AsyncClient — must use aclose() to release the underlying HTTP/2 transport
-    for ac in (_exploit_client, _phish_client):
+    for ac in (_exploit_client, _phish_client, ioc_client, password_client):
         try:
             await ac.aclose()
         except Exception:
