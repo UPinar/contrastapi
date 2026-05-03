@@ -1,21 +1,22 @@
 """IOC / Threat Intelligence API routes — /v1/ioc/*, /v1/hash/*, /v1/password/*, /v1/phishing/*"""
 
+import asyncio
 import logging
 import re
 import socket
 import time as _time
-from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from typing import Annotated
 from urllib.parse import urlparse
 
 import httpx
 from auth import AuthCtx, require_auth
 from config import settings
-from db import get_cached_domain, save_cached_domain
+from db import aget_cached_domain, asave_cached_domain
 from domain.ip_intel import check_tor_exit, tor_cache_status
 from domain.recon import _dns_call_with_timeout
 from domain.threat import check_urlhaus
 from fastapi import APIRouter, Depends, HTTPException, Path
+from fastapi.concurrency import run_in_threadpool
 from ioc.lookup import (
     detect_indicator_type,
     query_feodo,
@@ -58,7 +59,7 @@ def _ioc_verdict(queried: list[str], unavailable: list[str]) -> Verdict:
 @router.get(
     "/ioc/{indicator:path}", operation_id="ioc_lookup", response_model=IocResponse, response_model_exclude_none=True
 )
-def ioc_lookup(
+async def ioc_lookup(
     indicator: Annotated[
         str,
         Path(
@@ -92,7 +93,7 @@ def ioc_lookup(
     # returns identical content. Key is lowercased so case-variant hashes/IPs
     # share a slot. Tor cache lookup (free, in-memory) is bundled in cache too.
     cache_key = f"ioc:{indicator.lower()}"
-    cached = get_cached_domain(cache_key)
+    cached = await aget_cached_domain(cache_key)
     if cached:
         return {**cached}
 
@@ -101,7 +102,7 @@ def ioc_lookup(
     queried_sources: list[str] = []
     unavailable_sources: list[str] = []
 
-    # Validate before submitting to pool
+    # Validate before fanning out
     urlhaus_target = None
     if ioc_type == "ip":
         if is_private_ip(indicator):
@@ -116,75 +117,96 @@ def ioc_lookup(
                 if is_private_ip(host):
                     raise HTTPException(status_code=400, detail="Private/reserved IP addresses are not allowed")
             else:
-                addrs, _ = _dns_call_with_timeout(socket.getaddrinfo, host, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+                addrs, _ = await run_in_threadpool(
+                    _dns_call_with_timeout, socket.getaddrinfo, host, None, socket.AF_UNSPEC, socket.SOCK_STREAM
+                )
                 if addrs and any(is_private_ip(addr[4][0]) for addr in addrs):
                     raise HTTPException(status_code=400, detail="Private/reserved IP addresses are not allowed")
             urlhaus_target = host
 
-    # Fire all lookups in parallel
-    with ThreadPoolExecutor(max_workers=4) as pool:
-        f_tf = pool.submit(query_threatfox, indicator)
-        f_feodo = pool.submit(query_feodo, indicator) if ioc_type == "ip" else None
-        f_urlhaus = pool.submit(check_urlhaus, urlhaus_target) if urlhaus_target else None
-        # Bug I5: ioc_lookup on an IP indicator now also asks the local Tor
-        # cache (free, in-memory, no upstream request). ip_lookup of the same
-        # IP already exposed tor_exit; without this hop a SOC agent triaging
-        # an IP IOC had to make a second ip_lookup call just to learn the
-        # IP was a Tor exit.
-        f_tor = pool.submit(check_tor_exit, indicator) if ioc_type == "ip" else None
+    # Fire all lookups in parallel via asyncio.gather + run_in_threadpool. Replaces
+    # the previous ThreadPoolExecutor.submit/.result(timeout=) pattern. Per-source
+    # timeouts are enforced by asyncio.wait_for; results default to {} on timeout
+    # or exception (preserves the prior fallback semantics).
+    async def _wrap(fn, *args, timeout=10):
+        return await asyncio.wait_for(run_in_threadpool(fn, *args), timeout=timeout)
 
-        queried_sources.append("threatfox")
-        try:
-            tf = f_tf.result(timeout=10)
-        except Exception:
-            logger.debug("ThreatFox lookup failed")
-            tf = {"found": False}
-            unavailable_sources.append("threatfox")
-        sources["threatfox"] = tf
-        if tf.get("found"):
-            threat_parts.append(f"{tf.get('malware', 'unknown')} ({tf.get('threat_type', 'unknown')}) via ThreatFox")
+    tasks: list = [_wrap(query_threatfox, indicator)]
+    do_feodo = ioc_type == "ip"
+    do_urlhaus = urlhaus_target is not None
+    do_tor = ioc_type == "ip"
+    if do_feodo:
+        tasks.append(_wrap(query_feodo, indicator))
+    if do_urlhaus:
+        tasks.append(_wrap(check_urlhaus, urlhaus_target))
+    if do_tor:
+        tasks.append(_wrap(check_tor_exit, indicator, timeout=2))
 
-        if f_feodo is not None:
-            queried_sources.append("feodo")
-            try:
-                feodo = f_feodo.result(timeout=10)
-            except Exception:
-                logger.debug("Feodo lookup failed")
-                feodo = {"found": False}
-                unavailable_sources.append("feodo")
-            sources["feodo"] = feodo
-            if feodo.get("found"):
-                threat_parts.append(f"{feodo.get('malware', 'unknown')} via Feodo Tracker")
+    settled = await asyncio.gather(*tasks, return_exceptions=True)
 
-        if f_urlhaus is not None:
-            queried_sources.append("urlhaus")
-            try:
-                urlhaus = f_urlhaus.result(timeout=10)
-            except Exception:
-                logger.debug("URLhaus lookup failed")
-                urlhaus = {"url_count": 0, "urls_online": 0}
-                unavailable_sources.append("urlhaus")
-            sources["urlhaus"] = {
-                "found": urlhaus.get("url_count", 0) > 0,
-                "urls_online": urlhaus.get("urls_online", 0),
-            }
-            if sources["urlhaus"]["found"]:
-                threat_parts.append(f"{urlhaus['url_count']} malware URLs via URLhaus")
+    def _take(idx):
+        return settled[idx]
 
-        if f_tor is not None:
-            queried_sources.append("tor")
-            tor_state = tor_cache_status()
-            try:
-                tor_listed = bool(f_tor.result(timeout=2))
-            except Exception:
-                logger.debug("Tor list lookup failed")
-                tor_listed = False
-                tor_state = "failed"
-            if tor_state != "ok":
-                unavailable_sources.append("tor")
-            sources["tor"] = {"listed": tor_listed, "fetch_status": tor_state}
-            if tor_listed:
-                threat_parts.append("known Tor exit node")
+    queried_sources.append("threatfox")
+    tf_result = _take(0)
+    if isinstance(tf_result, Exception):
+        logger.debug("ThreatFox lookup failed")
+        tf = {"found": False}
+        unavailable_sources.append("threatfox")
+    else:
+        tf = tf_result
+    sources["threatfox"] = tf
+    if tf.get("found"):
+        threat_parts.append(f"{tf.get('malware', 'unknown')} ({tf.get('threat_type', 'unknown')}) via ThreatFox")
+
+    cursor = 1
+    if do_feodo:
+        queried_sources.append("feodo")
+        feodo_result = _take(cursor)
+        cursor += 1
+        if isinstance(feodo_result, Exception):
+            logger.debug("Feodo lookup failed")
+            feodo = {"found": False}
+            unavailable_sources.append("feodo")
+        else:
+            feodo = feodo_result
+        sources["feodo"] = feodo
+        if feodo.get("found"):
+            threat_parts.append(f"{feodo.get('malware', 'unknown')} via Feodo Tracker")
+
+    if do_urlhaus:
+        queried_sources.append("urlhaus")
+        urlhaus_result = _take(cursor)
+        cursor += 1
+        if isinstance(urlhaus_result, Exception):
+            logger.debug("URLhaus lookup failed")
+            urlhaus = {"url_count": 0, "urls_online": 0}
+            unavailable_sources.append("urlhaus")
+        else:
+            urlhaus = urlhaus_result
+        sources["urlhaus"] = {
+            "found": urlhaus.get("url_count", 0) > 0,
+            "urls_online": urlhaus.get("urls_online", 0),
+        }
+        if sources["urlhaus"]["found"]:
+            threat_parts.append(f"{urlhaus['url_count']} malware URLs via URLhaus")
+
+    if do_tor:
+        queried_sources.append("tor")
+        tor_state = tor_cache_status()
+        tor_result = _take(cursor)
+        cursor += 1
+        if isinstance(tor_result, Exception):
+            logger.debug("Tor list lookup failed")
+            tor_listed = False
+            tor_state = "failed"
+        else:
+            tor_listed = bool(tor_result)
+        if tor_state != "ok":
+            unavailable_sources.append("tor")
+        sources["tor"] = {"listed": tor_listed, "fetch_status": tor_state}
+        if tor_listed:
+            threat_parts.append("known Tor exit node")
 
     # Determine threat level
     found_count = sum(1 for s in sources.values() if s.get("found"))
@@ -214,14 +236,14 @@ def ioc_lookup(
         "summary": summary,
         "verdict": _ioc_verdict(queried_sources, unavailable_sources).model_dump(),
     }
-    save_cached_domain(cache_key, response)
+    await asave_cached_domain(cache_key, response)
     return response
 
 
 @router.get(
     "/hash/{file_hash}", operation_id="hash_lookup", response_model=HashResponse, response_model_exclude_none=True
 )
-def hash_lookup(
+async def hash_lookup(
     file_hash: Annotated[
         str,
         Path(
@@ -243,7 +265,7 @@ def hash_lookup(
         )
 
     hash_type = _HASH_LENS[len(file_hash)]
-    result = query_malwarebazaar(file_hash)
+    result = await run_in_threadpool(query_malwarebazaar, file_hash)
 
     if result.get("found"):
         family = result.get("malware_family", "unknown")
@@ -274,7 +296,7 @@ def hash_lookup(
     response_model=PasswordResponse,
     response_model_exclude_none=True,
 )
-def password_check(
+async def password_check(
     sha1_hash: Annotated[
         str,
         Path(
@@ -293,7 +315,7 @@ def password_check(
             detail="Provide the full SHA1 hash (40 hexadecimal characters).",
         )
 
-    result = query_pwned_hash(sha1_hash)
+    result = await run_in_threadpool(query_pwned_hash, sha1_hash)
     count = result.get("breach_count", 0)
     if result.get("found"):
         summary = f"This password appeared in {count:,} data breaches."
@@ -333,7 +355,7 @@ def _query_urlhaus_url(url: str) -> dict:
     response_model=PhishingResponse,
     response_model_exclude_none=True,
 )
-def phishing_check(
+async def phishing_check(
     url: Annotated[
         str,
         Path(
@@ -366,20 +388,22 @@ def phishing_check(
             raise HTTPException(status_code=400, detail="Private/reserved IP addresses are not allowed.")
     else:
         # Resolve domain and check for private IPs (consistent with /v1/ioc)
-        addr_result, _ = _dns_call_with_timeout(socket.getaddrinfo, host, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+        addr_result, _ = await run_in_threadpool(
+            _dns_call_with_timeout, socket.getaddrinfo, host, None, socket.AF_UNSPEC, socket.SOCK_STREAM
+        )
         if addr_result and any(is_private_ip(addr[4][0]) for addr in addr_result):
             raise HTTPException(status_code=400, detail="Private/reserved IP addresses are not allowed.")
 
-    # URLhaus host lookup
-    uh_host = check_urlhaus(host)
+    # URLhaus host + exact-URL lookups in parallel.
+    uh_host, urlhaus_url = await asyncio.gather(
+        run_in_threadpool(check_urlhaus, host),
+        run_in_threadpool(_query_urlhaus_url, url),
+    )
     urlhaus_host = {
         "found": uh_host.get("url_count", 0) > 0,
         "urls_online": uh_host.get("urls_online", 0),
         "url_count": uh_host.get("url_count", 0),
     }
-
-    # URLhaus exact URL lookup
-    urlhaus_url = _query_urlhaus_url(url)
 
     # Distinguish active (live serving malware) from stale (historical only) findings.
     # URLhaus keeps host records forever; urls_online == 0 means every malware URL on
@@ -533,7 +557,7 @@ def _run_single_ioc(indicator: str) -> dict:
     response_model=BulkIocResponse,
     response_model_exclude_none=True,
 )
-def bulk_ioc_lookup(
+async def bulk_ioc_lookup(
     body: _BulkIocRequest,
     auth: Annotated[AuthCtx, Depends(require_auth("/v1/iocs/bulk"))],
 ):
@@ -573,42 +597,42 @@ def bulk_ioc_lookup(
         store_key = f"free:{hash_client_ip(auth.client_ip)}"
         limit = FREE_HOURLY_LIMIT
 
-    if count > 1 and not ratelimit.consume_bulk("api", store_key, count - 1, limit):
+    if count > 1 and not await ratelimit.aconsume_bulk("api", store_key, count - 1, limit):
         raise HTTPException(
             status_code=429,
             detail=f"Insufficient rate limit quota for {count} indicators.",
         )
 
-    results = []
-    timed_out = 0
-    partial = False
     deadline = _time.monotonic() + _BULK_IOC_OVERALL_TIMEOUT
+    sem = asyncio.Semaphore(5)
+    overall_expired = False
 
-    with ThreadPoolExecutor(max_workers=5) as pool:
-        futures = [(pool.submit(_run_single_ioc, ind), ind) for ind in indicators]
-        for future, ind in futures:
+    async def _process(ind: str) -> dict:
+        nonlocal overall_expired
+        remaining = deadline - _time.monotonic()
+        if remaining <= 0:
+            overall_expired = True
+            return {"indicator": ind, "status": "error", "ioc": None, "error": "Request processing took too long"}
+        async with sem:
             remaining = deadline - _time.monotonic()
             if remaining <= 0:
-                future.cancel()
-                results.append(
-                    {"indicator": ind, "status": "error", "ioc": None, "error": "Request processing took too long"}
-                )
-                timed_out += 1
-                partial = True
-                continue
-            per_ind = min(_BULK_IOC_PER_TIMEOUT, remaining)
+                overall_expired = True
+                return {"indicator": ind, "status": "error", "ioc": None, "error": "Request processing took too long"}
+            per_timeout = min(_BULK_IOC_PER_TIMEOUT, remaining)
             try:
-                results.append(future.result(timeout=per_ind))
-            except TimeoutError:
-                future.cancel()
-                results.append(
-                    {"indicator": ind, "status": "error", "ioc": None, "error": "Request processing took too long"}
-                )
-                timed_out += 1
+                return await asyncio.wait_for(run_in_threadpool(_run_single_ioc, ind), timeout=per_timeout)
+            except (asyncio.TimeoutError, TimeoutError):
+                return {"indicator": ind, "status": "error", "ioc": None, "error": "Request processing took too long"}
             except Exception as e:
                 # Log type only — never expose exception detail in response or full message
                 logger.warning("Bulk IOC lookup failed: %s", type(e).__name__)
-                results.append({"indicator": ind, "status": "error", "ioc": None, "error": "Lookup failed"})
+                return {"indicator": ind, "status": "error", "ioc": None, "error": "Lookup failed"}
+
+    results = await asyncio.gather(*[_process(ind) for ind in indicators])
+    timed_out = sum(
+        1 for r in results if r["status"] == "error" and r.get("error") == "Request processing took too long"
+    )
+    partial = overall_expired
 
     successful = sum(1 for r in results if r["status"] == "ok")
     invalid = sum(1 for r in results if r["status"] == "invalid_format")
