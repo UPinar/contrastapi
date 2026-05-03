@@ -1,5 +1,6 @@
 """Tests for domain intelligence module — recon.py + routes.py"""
 
+import asyncio
 import json
 import socket
 import ssl
@@ -125,7 +126,7 @@ class TestCrtshSubdomains:
             {"name_value": "www.example.com"},
             {"name_value": "mail.example.com\napi.example.com"},
         ]
-        subs, warnings, _status = _crtsh_subdomains("example.com", data)
+        subs, warnings, _status = asyncio.run(_crtsh_subdomains("example.com", data))
         assert "www.example.com" in subs
         assert "api.example.com" in subs
 
@@ -133,27 +134,27 @@ class TestCrtshSubdomains:
         from domain.recon import _crtsh_subdomains
 
         data = [{"name_value": "*.example.com"}]
-        subs, warnings, _status = _crtsh_subdomains("example.com", data)
+        subs, warnings, _status = asyncio.run(_crtsh_subdomains("example.com", data))
         assert len(subs) == 0
 
     def test_filters_other_domains(self):
         from domain.recon import _crtsh_subdomains
 
         data = [{"name_value": "sub.other.com"}]
-        subs, warnings, _status = _crtsh_subdomains("example.com", data)
+        subs, warnings, _status = asyncio.run(_crtsh_subdomains("example.com", data))
         assert len(subs) == 0
 
     def test_limits_to_50(self):
         from domain.recon import _crtsh_subdomains
 
         data = [{"name_value": f"sub{i}.example.com"} for i in range(100)]
-        subs, warnings, _status = _crtsh_subdomains("example.com", data)
+        subs, warnings, _status = asyncio.run(_crtsh_subdomains("example.com", data))
         assert len(subs) <= 50
 
     def test_empty_data(self):
         from domain.recon import _crtsh_subdomains
 
-        subs, warnings, _status = _crtsh_subdomains("example.com", [])
+        subs, warnings, _status = asyncio.run(_crtsh_subdomains("example.com", []))
         assert subs == []
 
 
@@ -165,8 +166,8 @@ class TestFetchCrtsh:
         from domain.recon import _fetch_crtsh
 
         with patch("domain.recon._http") as mock_http:
-            mock_http.get.side_effect = httpx.TimeoutException("timed out")
-            data, err = _fetch_crtsh("%.example.com")
+            mock_http.get = AsyncMock(side_effect=httpx.TimeoutException("timed out"))
+            data, err = asyncio.run(_fetch_crtsh("%.example.com"))
             assert data == []
             assert err == "crt_sh_timeout"
 
@@ -176,8 +177,8 @@ class TestFetchCrtsh:
         mock_resp = MagicMock()
         mock_resp.status_code = 429
         with patch("domain.recon._http") as mock_http:
-            mock_http.get.return_value = mock_resp
-            data, err = _fetch_crtsh("%.example.com")
+            mock_http.get = AsyncMock(return_value=mock_resp)
+            data, err = asyncio.run(_fetch_crtsh("%.example.com"))
             assert data == []
             assert err == "crt_sh_rate_limited"
 
@@ -189,8 +190,8 @@ class TestFetchCrtsh:
         mock_resp.raise_for_status.return_value = None
         mock_resp.json.side_effect = json.JSONDecodeError("bad json", "", 0)
         with patch("domain.recon._http") as mock_http:
-            mock_http.get.return_value = mock_resp
-            data, err = _fetch_crtsh("%.example.com")
+            mock_http.get = AsyncMock(return_value=mock_resp)
+            data, err = asyncio.run(_fetch_crtsh("%.example.com"))
             assert data == []
             assert err == "parse_error"
 
@@ -199,7 +200,7 @@ class TestFetchCrtsh:
 
         with patch("domain.recon._fetch_crtsh", return_value=([], "crt_sh_timeout")):
             with patch("domain.recon.socket.gethostbyname", side_effect=socket.gaierror):
-                result = enumerate_subdomains("example.com")
+                result = asyncio.run(enumerate_subdomains("example.com"))
         assert result["warnings"] == ["crt_sh_timeout"]
         assert result["sources"] == []
         assert result["subdomains"] == []
@@ -211,7 +212,7 @@ class TestFetchCrtsh:
 
         with patch("domain.recon._fetch_crtsh", return_value=([], None)):
             with patch("domain.recon.socket.gethostbyname", side_effect=socket.gaierror):
-                result = enumerate_subdomains("example.com")
+                result = asyncio.run(enumerate_subdomains("example.com"))
         assert result["warnings"] == []
         # Bug N: confirmed-empty path emits crtsh_status='ok' so agents can trust the count
         assert result["crtsh_status"] == "ok"
@@ -221,7 +222,7 @@ class TestFetchCrtsh:
         from domain.recon import _crtsh_subdomains
 
         data = [{"name_value": "*.api.example.com\napi.example.com"}]
-        subs, warnings, _status = _crtsh_subdomains("example.com", data)
+        subs, warnings, _status = asyncio.run(_crtsh_subdomains("example.com", data))
         assert subs.count("api.example.com") == 1
         assert warnings == []
 
@@ -233,7 +234,7 @@ class TestFetchCrtsh:
 
         with patch("domain.recon._fetch_crtsh", return_value=(large_data[:CRTSH_MAX_RESULTS], None)):
             with patch("domain.recon.socket.gethostbyname", side_effect=socket.gaierror):
-                result = enumerate_subdomains("example.com")
+                result = asyncio.run(enumerate_subdomains("example.com"))
         assert len(result["subdomains"]) <= 50
 
 
@@ -256,7 +257,7 @@ class TestSubdomainEnumCrtshStatus:
 
         with patch("domain.recon._fetch_crtsh", return_value=([], fetch_error)):
             with patch("domain.recon.socket.gethostbyname", side_effect=socket.gaierror):
-                result = enumerate_subdomains("example.com")
+                result = asyncio.run(enumerate_subdomains("example.com"))
         assert result["crtsh_status"] == expected_status
         assert fetch_error in result["warnings"]
 
@@ -266,7 +267,7 @@ class TestSubdomainEnumCrtshStatus:
         from domain.recon import enumerate_subdomains
 
         with patch("domain.recon.socket.gethostbyname", side_effect=socket.gaierror):
-            result = enumerate_subdomains("example.com", crtsh_data=[])
+            result = asyncio.run(enumerate_subdomains("example.com", crtsh_data=[]))
         assert result["crtsh_status"] == "ok"
 
     def test_status_ok_with_real_crtsh_results(self):
@@ -275,7 +276,7 @@ class TestSubdomainEnumCrtshStatus:
         data = [{"name_value": "api.example.com\nweb.example.com"}]
         with patch("domain.recon._fetch_crtsh", return_value=(data, None)):
             with patch("domain.recon.socket.gethostbyname", side_effect=socket.gaierror):
-                result = enumerate_subdomains("example.com")
+                result = asyncio.run(enumerate_subdomains("example.com"))
         assert result["crtsh_status"] == "ok"
         assert result["found_via_crtsh"] >= 1
 
@@ -359,7 +360,7 @@ class TestCheckCtLogs:
                 "common_name": "www.example.com",
             },
         ]
-        result = check_ct_logs("example.com", data)
+        result = asyncio.run(check_ct_logs("example.com", data))
         assert result["total_certificates"] == 2
         assert len(result["certificates"]) == 2
 
@@ -370,13 +371,13 @@ class TestCheckCtLogs:
             {"serial_number": "001", "issuer_name": "LE", "not_before": "", "not_after": "", "common_name": "a.com"},
             {"serial_number": "001", "issuer_name": "LE", "not_before": "", "not_after": "", "common_name": "a.com"},
         ]
-        result = check_ct_logs("a.com", data)
+        result = asyncio.run(check_ct_logs("a.com", data))
         assert len(result["certificates"]) == 1
 
     def test_empty_data(self):
         from domain.recon import check_ct_logs
 
-        result = check_ct_logs("x.com", [])
+        result = asyncio.run(check_ct_logs("x.com", []))
         assert result["total_certificates"] == 0
 
     def test_limits_certificates(self):
@@ -386,7 +387,7 @@ class TestCheckCtLogs:
             {"serial_number": str(i), "issuer_name": "LE", "not_before": "", "not_after": "", "common_name": "x.com"}
             for i in range(25)
         ]
-        result = check_ct_logs("x.com", data)
+        result = asyncio.run(check_ct_logs("x.com", data))
         assert len(result["certificates"]) <= 10
 
 
@@ -512,7 +513,7 @@ MOCK_FULL_REPORT = {
 
 
 class TestDomainRoutes:
-    @patch("domain.routes.full_domain_report", return_value=MOCK_FULL_REPORT)
+    @patch("domain.routes.full_domain_report", return_value=MOCK_FULL_REPORT, new_callable=AsyncMock)
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     @patch("db.get_cached_domain_with_age", return_value=None)
     def test_domain_report_200(self, mock_cache, mock_validate, mock_report):
@@ -524,7 +525,7 @@ class TestDomainRoutes:
         assert "dns" in data
         assert "summary" in data
 
-    @patch("domain.routes.full_domain_report", return_value=MOCK_FULL_REPORT)
+    @patch("domain.routes.full_domain_report", return_value=MOCK_FULL_REPORT, new_callable=AsyncMock)
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     @patch("db.get_cached_domain_with_age", return_value=None)
     def test_domain_report_post(self, mock_cache, mock_validate, mock_report):
@@ -534,7 +535,7 @@ class TestDomainRoutes:
         data = r.json()
         assert data["domain"] == "example.com"
 
-    @patch("domain.routes.full_domain_report", return_value=MOCK_FULL_REPORT)
+    @patch("domain.routes.full_domain_report", return_value=MOCK_FULL_REPORT, new_callable=AsyncMock)
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     @patch("db.get_cached_domain_with_age", return_value=None)
     def test_domain_report_post_with_body(self, mock_cache, mock_validate, mock_report):
@@ -542,7 +543,7 @@ class TestDomainRoutes:
         r = client.post("/v1/domain/example.com", json={"extra": "ignored"})
         assert r.status_code == 200
 
-    @patch("domain.routes.full_domain_report", return_value=MOCK_FULL_REPORT)
+    @patch("domain.routes.full_domain_report", return_value=MOCK_FULL_REPORT, new_callable=AsyncMock)
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     @patch("db.get_cached_domain_with_age", return_value=None)
     def test_domain_report_risk_score_alias(self, mock_cache, mock_validate, mock_report):
@@ -554,7 +555,7 @@ class TestDomainRoutes:
         assert isinstance(data["risk_score"], int)
         assert data["risk_score"] == data["risk"]["score"]
 
-    @patch("domain.routes.full_domain_report", return_value=MOCK_FULL_REPORT)
+    @patch("domain.routes.full_domain_report", return_value=MOCK_FULL_REPORT, new_callable=AsyncMock)
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     @patch("db.get_cached_domain_with_age", return_value=None)
     def test_domain_report_emits_rfc8594_deprecation_headers(self, mock_cache, mock_validate, mock_report):
@@ -567,7 +568,7 @@ class TestDomainRoutes:
         # Link must resolve — pointing to GitHub releases (which lists v1.21.1 deprecation note)
         assert "github.com/UPinar/contrastapi/releases" in r.headers.get("Link", "")
 
-    @patch("domain.routes.full_domain_report")
+    @patch("domain.routes.full_domain_report", new_callable=AsyncMock)
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     @patch("db.get_cached_domain_with_age", return_value=(MOCK_FULL_REPORT, 1800))
     def test_domain_report_emits_deprecation_headers_on_cache_hit(self, mock_cache, mock_validate, mock_report):
@@ -578,7 +579,7 @@ class TestDomainRoutes:
         assert r.headers.get("Deprecation") == "true"
         assert r.headers.get("Sunset") == "Wed, 01 Sep 2026 00:00:00 GMT"
 
-    @patch("domain.routes.full_domain_report")
+    @patch("domain.routes.full_domain_report", new_callable=AsyncMock)
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     @patch("db.get_cached_domain_with_age", return_value=(MOCK_FULL_REPORT, 3600))
     def test_domain_report_cached(self, mock_cache, mock_validate, mock_report):
@@ -587,7 +588,7 @@ class TestDomainRoutes:
         data = r.json()
         assert mock_report.call_count == 0
 
-    @patch("domain.routes.full_domain_report", return_value=MOCK_FULL_REPORT)
+    @patch("domain.routes.full_domain_report", return_value=MOCK_FULL_REPORT, new_callable=AsyncMock)
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     @patch("db.get_cached_domain_with_age", return_value=None)
     def test_domain_report_lite(self, mock_cache, mock_validate, mock_report):
@@ -602,7 +603,7 @@ class TestDomainRoutes:
         # Cache key is tier-prefixed (free-tier unauthenticated test client)
         mock_cache.assert_called_once_with("free:lite:example.com")
 
-    @patch("domain.routes.full_domain_report", return_value=MOCK_FULL_REPORT)
+    @patch("domain.routes.full_domain_report", return_value=MOCK_FULL_REPORT, new_callable=AsyncMock)
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     def test_domain_report_lite_and_full_use_distinct_cache_keys(self, mock_validate, mock_report):
         """Regression for B4: a lite-cached entry must NOT be served to a full
@@ -632,7 +633,7 @@ class TestDomainRoutes:
         r = client.get("/v1/domain/nonexistent.invalid")
         assert r.status_code == 400
 
-    @patch("domain.routes.full_domain_report", return_value=MOCK_FULL_REPORT)
+    @patch("domain.routes.full_domain_report", return_value=MOCK_FULL_REPORT, new_callable=AsyncMock)
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     @patch("db.get_cached_domain_with_age", return_value=None)
     def test_domain_report_verdict(self, mock_cache, mock_validate, mock_report):
@@ -647,7 +648,7 @@ class TestDomainRoutes:
             assert isinstance(v["data_age_seconds"], int)
             assert v["data_age_seconds"] >= 0
 
-    @patch("domain.routes.full_domain_report", return_value=MOCK_FULL_REPORT)
+    @patch("domain.routes.full_domain_report", return_value=MOCK_FULL_REPORT, new_callable=AsyncMock)
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     @patch("db.get_cached_domain_with_age", return_value=None)
     def test_domain_report_verdict_complete_full_mode(self, mock_cache, mock_validate, mock_report):
@@ -672,6 +673,7 @@ class TestDomainRoutes:
                 "urls": [],
             },
         },
+        new_callable=AsyncMock,
     )
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     @patch("db.get_cached_domain_with_age", return_value=None)
@@ -682,7 +684,7 @@ class TestDomainRoutes:
         assert "urlhaus" in v["sources_unavailable"]
         assert v["completeness"] == "partial"
 
-    @patch("domain.routes.full_domain_report", return_value=MOCK_FULL_REPORT)
+    @patch("domain.routes.full_domain_report", return_value=MOCK_FULL_REPORT, new_callable=AsyncMock)
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     @patch("db.get_cached_domain_with_age", return_value=None)
     def test_domain_report_verdict_lite_mode(self, mock_cache, mock_validate, mock_report):
@@ -695,7 +697,7 @@ class TestDomainRoutes:
         assert set(v["sources_unavailable"]) == {"whois", "subdomains", "ct_logs", "urlhaus", "reputation"}
         assert v["completeness"] == "complete"
 
-    @patch("domain.routes.full_domain_report", return_value=MOCK_FULL_REPORT)
+    @patch("domain.routes.full_domain_report", return_value=MOCK_FULL_REPORT, new_callable=AsyncMock)
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     @patch("db.get_cached_domain_with_age", return_value=None)
     def test_domain_report_next_calls_full_chain(self, mock_cache, mock_validate, mock_report):
@@ -762,7 +764,7 @@ class TestDomainRoutes:
         r = client.get("/v1/whois/example.dev")
         assert r.status_code == 504
 
-    @patch("domain.routes.enumerate_subdomains", return_value=MOCK_SUBDOMAIN_RESULT)
+    @patch("domain.routes.enumerate_subdomains", return_value=MOCK_SUBDOMAIN_RESULT, new_callable=AsyncMock)
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     def test_subdomains_200(self, mock_validate, mock_subs):
         r = client.get("/v1/subdomains/example.com")
@@ -770,7 +772,7 @@ class TestDomainRoutes:
         data = r.json()
         assert data["count"] == 1
 
-    @patch("domain.routes.check_ct_logs", return_value=MOCK_CT_RESULT)
+    @patch("domain.routes.check_ct_logs", return_value=MOCK_CT_RESULT, new_callable=AsyncMock)
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     def test_certs_200(self, mock_validate, mock_ct):
         r = client.get("/v1/certs/example.com")
@@ -778,7 +780,7 @@ class TestDomainRoutes:
         data = r.json()
         assert data["total_certificates"] == 1
 
-    @patch("domain.routes.check_ct_logs", return_value=MOCK_CT_RESULT)
+    @patch("domain.routes.check_ct_logs", return_value=MOCK_CT_RESULT, new_callable=AsyncMock)
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     def test_certs_second_call_served_from_cache(self, mock_validate, mock_ct):
         # Cold call writes to dedicated `certificates:{domain}` cache.
@@ -800,6 +802,7 @@ class TestDomainRoutes:
             "tags": [],
             "internetdb_status": "ok",
         },
+        new_callable=AsyncMock,
     )
     @patch("domain.routes.socket.gethostbyaddr", return_value=("example.com", [], []))
     def test_ip_lookup_200(self, mock_ptr, mock_enrich):
@@ -812,6 +815,7 @@ class TestDomainRoutes:
     @patch(
         "domain.routes.ip_enrichment",
         return_value={"ports": [], "hostnames": [], "vulns": [], "cpes": [], "tags": [], "internetdb_status": "ok"},
+        new_callable=AsyncMock,
     )
     @patch("domain.routes.socket.gethostbyaddr", side_effect=Exception("no PTR"))
     def test_ip_lookup_no_ptr(self, mock_ptr, mock_enrich):
@@ -830,6 +834,7 @@ class TestDomainRoutes:
             "tags": [],
             "internetdb_status": "ok",
         },
+        new_callable=AsyncMock,
     )
     @patch("domain.routes.socket.gethostbyaddr", return_value=("example.com", [], []))
     def test_ip_lookup_verdict(self, mock_ptr, mock_enrich):
@@ -847,6 +852,7 @@ class TestDomainRoutes:
     @patch(
         "domain.routes.ip_enrichment",
         return_value={"ports": [80], "hostnames": [], "vulns": [], "cpes": [], "tags": [], "internetdb_status": "ok"},
+        new_callable=AsyncMock,
     )
     @patch("domain.routes.socket.gethostbyaddr", return_value=("example.com", [], []))
     def test_ip_lookup_verdict_complete_happy_path(self, mock_ptr, mock_enrich):
@@ -862,6 +868,7 @@ class TestDomainRoutes:
     @patch(
         "domain.routes.ip_enrichment",
         return_value={"ports": [], "hostnames": [], "vulns": [], "cpes": [], "tags": [], "internetdb_status": "error"},
+        new_callable=AsyncMock,
     )
     @patch("domain.routes.socket.gethostbyaddr", return_value=("example.com", [], []))
     def test_ip_lookup_verdict_partial_on_internetdb_error(self, mock_ptr, mock_enrich):
@@ -874,6 +881,7 @@ class TestDomainRoutes:
     @patch(
         "domain.routes.ip_enrichment",
         return_value={"ports": [], "hostnames": [], "vulns": [], "cpes": [], "tags": [], "internetdb_status": "ok"},
+        new_callable=AsyncMock,
     )
     @patch("domain.routes.socket.gethostbyaddr", side_effect=Exception("no PTR"))
     def test_ip_lookup_verdict_includes_tor_when_cache_ok(self, mock_ptr, mock_enrich):
@@ -889,6 +897,7 @@ class TestDomainRoutes:
     @patch(
         "domain.routes.ip_enrichment",
         return_value={"ports": [], "hostnames": [], "vulns": [], "cpes": [], "tags": [], "internetdb_status": "ok"},
+        new_callable=AsyncMock,
     )
     @patch("domain.routes.socket.gethostbyaddr", side_effect=Exception("no PTR"))
     def test_ip_lookup_verdict_marks_tor_unavailable_when_fetch_failed(self, mock_ptr, mock_enrich):
@@ -906,6 +915,7 @@ class TestDomainRoutes:
     @patch(
         "domain.routes.ip_enrichment",
         return_value={"ports": [], "hostnames": [], "vulns": [], "cpes": [], "tags": [], "internetdb_status": "ok"},
+        new_callable=AsyncMock,
     )
     @patch("domain.routes.socket.gethostbyaddr", side_effect=Exception("no PTR"))
     def test_ip_lookup_verdict_marks_tor_unavailable_on_initial_status(self, mock_ptr, mock_enrich):
@@ -929,7 +939,7 @@ class TestDomainRoutes:
 
     @patch("domain.routes.check_cloud_provider", return_value="AWS")
     @patch("domain.routes.check_tor_exit", return_value=False)
-    @patch("domain.routes.ip_enrichment", return_value={**_enrich_empty})
+    @patch("domain.routes.ip_enrichment", return_value={**_enrich_empty}, new_callable=AsyncMock)
     @patch("domain.routes.socket.gethostbyaddr", side_effect=Exception("no PTR"))
     def test_ip_cloud_provider_aws(self, mock_ptr, mock_enrich, mock_tor, mock_cloud):
         r = client.get("/v1/ip/3.5.140.2")
@@ -941,7 +951,7 @@ class TestDomainRoutes:
 
     @patch("domain.routes.check_cloud_provider", return_value=None)
     @patch("domain.routes.check_tor_exit", return_value=False)
-    @patch("domain.routes.ip_enrichment", return_value={**_enrich_empty})
+    @patch("domain.routes.ip_enrichment", return_value={**_enrich_empty}, new_callable=AsyncMock)
     @patch("domain.routes.socket.gethostbyaddr", side_effect=Exception("no PTR"))
     def test_ip_cloud_provider_none(self, mock_ptr, mock_enrich, mock_tor, mock_cloud):
         r = client.get("/v1/ip/1.2.3.4")
@@ -952,7 +962,7 @@ class TestDomainRoutes:
 
     @patch("domain.routes.check_cloud_provider", return_value=None)
     @patch("domain.routes.check_tor_exit", return_value=True)
-    @patch("domain.routes.ip_enrichment", return_value={**_enrich_empty})
+    @patch("domain.routes.ip_enrichment", return_value={**_enrich_empty}, new_callable=AsyncMock)
     @patch("domain.routes.socket.gethostbyaddr", side_effect=Exception("no PTR"))
     def test_ip_tor_exit_true(self, mock_ptr, mock_enrich, mock_tor, mock_cloud):
         r = client.get("/v1/ip/1.2.3.4")
@@ -962,7 +972,7 @@ class TestDomainRoutes:
 
     @patch("domain.routes.check_cloud_provider", return_value=None)
     @patch("domain.routes.check_tor_exit", return_value=False)
-    @patch("domain.routes.ip_enrichment", return_value={**_enrich_empty})
+    @patch("domain.routes.ip_enrichment", return_value={**_enrich_empty}, new_callable=AsyncMock)
     @patch("domain.routes.socket.gethostbyaddr", side_effect=Exception("no PTR"))
     def test_ip_risk_score_present(self, mock_ptr, mock_enrich, mock_tor, mock_cloud):
         r = client.get("/v1/ip/1.2.3.4")
@@ -976,6 +986,7 @@ class TestDomainRoutes:
     @patch(
         "domain.routes.ip_enrichment",
         return_value={"ports": [], "hostnames": [], "vulns": [], "cpes": [], "tags": [], "internetdb_status": "ok"},
+        new_callable=AsyncMock,
     )
     @patch("domain.routes.socket.gethostbyaddr", return_value=("dns.google", [], []))
     def test_ip_risk_score_low_clean_cloud(self, mock_ptr, mock_enrich, mock_tor, mock_cloud):
@@ -987,7 +998,7 @@ class TestDomainRoutes:
 
     @patch("domain.routes.check_cloud_provider", return_value=None)
     @patch("domain.routes.check_tor_exit", return_value=True)
-    @patch("domain.routes.ip_enrichment", return_value={**_enrich_empty})
+    @patch("domain.routes.ip_enrichment", return_value={**_enrich_empty}, new_callable=AsyncMock)
     @patch("domain.routes.socket.gethostbyaddr", side_effect=Exception("no PTR"))
     def test_ip_risk_score_high_tor(self, mock_ptr, mock_enrich, mock_tor, mock_cloud):
         r = client.get("/v1/ip/1.2.3.4")
@@ -1014,6 +1025,7 @@ class TestDomainRoutes:
             "tags": [],
             "internetdb_status": "ok",
         },
+        new_callable=AsyncMock,
     )
     @patch("domain.routes.socket.gethostbyaddr", side_effect=Exception("no PTR"))
     def test_ip_lookup_vulns_enriched_with_severity(self, mock_ptr, mock_enrich, mock_tor, mock_cloud):
@@ -1048,6 +1060,7 @@ class TestDomainRoutes:
             "tags": [],
             "internetdb_status": "ok",
         },
+        new_callable=AsyncMock,
     )
     @patch("domain.routes.socket.gethostbyaddr", side_effect=Exception("no PTR"))
     def test_ip_lookup_unknown_cve_marked_unknown(self, mock_ptr, mock_enrich, mock_tor, mock_cloud):
@@ -1078,6 +1091,7 @@ class TestDomainRoutes:
             "tags": ["cdn‮"],
             "internetdb_status": "ok",
         },
+        new_callable=AsyncMock,
     )
     @patch("domain.routes.socket.gethostbyaddr", side_effect=Exception("no PTR"))
     def test_ip_lookup_vulns_strips_bidi_controls(self, mock_ptr, mock_enrich, mock_tor, mock_cloud):
@@ -1100,7 +1114,7 @@ class TestDomainRoutes:
 
     @patch("domain.routes.check_cloud_provider", return_value=None)
     @patch("domain.routes.check_tor_exit", return_value=True)
-    @patch("domain.routes.ip_enrichment", return_value={**_enrich_empty})
+    @patch("domain.routes.ip_enrichment", return_value={**_enrich_empty}, new_callable=AsyncMock)
     @patch("domain.routes.socket.gethostbyaddr", side_effect=Exception("no PTR"))
     def test_ip_lookup_severity_label_emitted(self, mock_ptr, mock_enrich, mock_tor, mock_cloud):
         r = client.get("/v1/ip/1.2.3.4")
@@ -1116,7 +1130,7 @@ class TestDomainRoutes:
 
     @patch("domain.routes.check_cloud_provider", return_value=None)
     @patch("domain.routes.check_tor_exit", return_value=False)
-    @patch("domain.routes.ip_enrichment", return_value={**_enrich_empty})
+    @patch("domain.routes.ip_enrichment", return_value={**_enrich_empty}, new_callable=AsyncMock)
     @patch("domain.routes.socket.gethostbyaddr", side_effect=Exception("no PTR"))
     def test_ip_verdict_falsifiable_includes_is_datacenter(self, mock_ptr, mock_enrich, mock_tor, mock_cloud):
         # Phase 6 (v1.17.0): is_datacenter is now a top-level response field
@@ -1129,7 +1143,7 @@ class TestDomainRoutes:
 
     @patch("domain.routes.check_cloud_provider", return_value=None)
     @patch("domain.routes.check_tor_exit", return_value=False)
-    @patch("domain.routes.ip_enrichment", return_value={**_enrich_empty})
+    @patch("domain.routes.ip_enrichment", return_value={**_enrich_empty}, new_callable=AsyncMock)
     @patch("domain.routes.socket.gethostbyaddr", side_effect=Exception("no PTR"))
     def test_ip_verdict_falsifiable_includes_firehol(self, mock_ptr, mock_enrich, mock_tor, mock_cloud):
         # Phase 6: firehol surfaces under reputation but the verdict block is
@@ -1152,6 +1166,7 @@ class TestDomainRoutes:
             "tags": [],
             "internetdb_status": "ok",
         },
+        new_callable=AsyncMock,
     )
     @patch("domain.routes.socket.gethostbyaddr", side_effect=Exception("no PTR"))
     def test_ip_lookup_vulns_preserves_shodan_order(self, mock_ptr, mock_enrich, mock_tor, mock_cloud):
@@ -1172,7 +1187,7 @@ class TestDomainRoutes:
 
     @patch("domain.routes.check_cloud_provider", return_value="AWS")
     @patch("domain.routes.check_tor_exit", return_value=False)
-    @patch("domain.routes.ip_enrichment", return_value={**_enrich_empty})
+    @patch("domain.routes.ip_enrichment", return_value={**_enrich_empty}, new_callable=AsyncMock)
     @patch("domain.routes.socket.gethostbyaddr", side_effect=Exception("no PTR"))
     def test_ip_verdict_extended_falsifiable_fields(self, mock_ptr, mock_enrich, mock_tor, mock_cloud):
         r = client.get("/v1/ip/3.5.140.2")
@@ -1184,7 +1199,7 @@ class TestDomainRoutes:
 
     @patch("domain.routes.check_cloud_provider", side_effect=Exception("upstream down"))
     @patch("domain.routes.check_tor_exit", return_value=False)
-    @patch("domain.routes.ip_enrichment", return_value={**_enrich_empty})
+    @patch("domain.routes.ip_enrichment", return_value={**_enrich_empty}, new_callable=AsyncMock)
     @patch("domain.routes.socket.gethostbyaddr", side_effect=Exception("no PTR"))
     def test_ip_intel_cache_failure_resilient(self, mock_ptr, mock_enrich, mock_tor, mock_cloud):
         r = client.get("/v1/ip/1.2.3.4")
@@ -1196,7 +1211,7 @@ class TestDomainRoutes:
     )
     @patch("domain.routes.check_cloud_provider", return_value="Cloudflare")
     @patch("domain.routes.check_tor_exit", return_value=False)
-    @patch("domain.routes.ip_enrichment", return_value={**_enrich_empty})
+    @patch("domain.routes.ip_enrichment", return_value={**_enrich_empty}, new_callable=AsyncMock)
     @patch("domain.routes.socket.gethostbyaddr", return_value=("one.one.one.one", [], []))
     def test_ip_lookup_returns_asn_country(self, mock_ptr, mock_enrich, mock_tor, mock_cloud, mock_asn):
         r = client.get("/v1/ip/1.1.1.1")
@@ -1219,7 +1234,7 @@ class TestDomainRoutes:
     )
     @patch("domain.routes.check_cloud_provider", return_value=None)
     @patch("domain.routes.check_tor_exit", return_value=False)
-    @patch("domain.routes.ip_enrichment", return_value={**_enrich_empty})
+    @patch("domain.routes.ip_enrichment", return_value={**_enrich_empty}, new_callable=AsyncMock)
     @patch("domain.routes.socket.gethostbyaddr", side_effect=Exception("no PTR"))
     def test_ip_lookup_asn_fetch_failure_graceful(self, mock_ptr, mock_enrich, mock_tor, mock_cloud, mock_asn):
         r = client.get("/v1/ip/1.2.3.4")
@@ -1241,7 +1256,7 @@ class TestDomainRoutes:
     )
     @patch("domain.routes.check_cloud_provider", return_value="GCP")
     @patch("domain.routes.check_tor_exit", return_value=False)
-    @patch("domain.routes.ip_enrichment", return_value={**_enrich_empty})
+    @patch("domain.routes.ip_enrichment", return_value={**_enrich_empty}, new_callable=AsyncMock)
     @patch("domain.routes.socket.gethostbyaddr", return_value=("dns.google", [], []))
     def test_ip_lookup_asn_name_missing_still_renders(self, mock_ptr, mock_enrich, mock_tor, mock_cloud, mock_asn):
         r = client.get("/v1/ip/8.8.8.8")
@@ -1259,7 +1274,7 @@ class TestDomainRoutes:
     )
     @patch("domain.routes.check_cloud_provider", return_value="Cloudflare")
     @patch("domain.routes.check_tor_exit", return_value=False)
-    @patch("domain.routes.ip_enrichment", return_value={**_enrich_empty})
+    @patch("domain.routes.ip_enrichment", return_value={**_enrich_empty}, new_callable=AsyncMock)
     @patch("domain.routes.socket.gethostbyaddr", return_value=("one.one.one.one", [], []))
     def test_ip_lookup_verdict_includes_asn_fields(self, mock_ptr, mock_enrich, mock_tor, mock_cloud, mock_asn):
         r = client.get("/v1/ip/1.1.1.1")
@@ -1277,7 +1292,7 @@ class TestDomainRoutes:
     )
     @patch("domain.routes.check_cloud_provider", return_value="Google")
     @patch("domain.routes.check_tor_exit", return_value=False)
-    @patch("domain.routes.ip_enrichment", return_value={**_enrich_empty})
+    @patch("domain.routes.ip_enrichment", return_value={**_enrich_empty}, new_callable=AsyncMock)
     @patch("domain.routes.socket.gethostbyaddr", return_value=("dns.google", [], []))
     def test_ip_lookup_ipv6_enrichment_path(self, mock_ptr, mock_enrich, mock_tor, mock_cloud, mock_asn):
         """B6 verify: IPv6 input traverses the same enrichment pipeline as IPv4
@@ -1332,7 +1347,7 @@ class TestDomainRoutes:
         return_value={"asn": 15169, "asn_name": "GOOGLE - Google LLC", "country": "US", "failed": False},
     )
     @patch("domain.routes.check_tor_exit", return_value=False)
-    @patch("domain.routes.ip_enrichment", return_value={**_enrich_empty})
+    @patch("domain.routes.ip_enrichment", return_value={**_enrich_empty}, new_callable=AsyncMock)
     @patch("domain.routes.socket.gethostbyaddr", return_value=("dns.google", [], []))
     def test_ip_lookup_asn_map_resolves_google_for_8888(self, mock_ptr, mock_enrich, mock_tor, mock_asn):
         """End-to-end: 8.8.8.8 resolves cloud_provider='Google' via ASN-map fallback (Bug #4 audit fix)."""
@@ -1350,7 +1365,7 @@ class TestDomainRoutes:
         return_value={"asn": 15169, "asn_name": "GOOGLE - Google LLC", "country": "US", "failed": False},
     )
     @patch("domain.routes.check_tor_exit", return_value=False)
-    @patch("domain.routes.ip_enrichment", return_value={**_enrich_empty})
+    @patch("domain.routes.ip_enrichment", return_value={**_enrich_empty}, new_callable=AsyncMock)
     @patch("domain.routes.socket.gethostbyaddr", return_value=("ec2-3-5-140-2.amazonaws.com", [], []))
     def test_ip_lookup_cidr_match_overrides_asn_map(self, mock_ptr, mock_enrich, mock_tor, mock_asn):
         """End-to-end CIDR precedence: even when ASN says Google, a CIDR hit (e.g. AWS) wins.
@@ -1490,6 +1505,7 @@ class TestSubdomainPivotHints:
             "warnings": [],
             "crtsh_status": "ok",
         },
+        new_callable=AsyncMock,
     )
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     def test_subdomains_endpoint_emits_capped_next_calls(self, mock_validate, mock_enum):
@@ -1515,6 +1531,7 @@ class TestSubdomainPivotHints:
             "warnings": [],
             "crtsh_status": "ok",
         },
+        new_callable=AsyncMock,
     )
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     def test_subdomains_endpoint_cap_truncates_oversize_at_10(self, mock_validate, mock_enum):
@@ -1538,6 +1555,7 @@ class TestSubdomainPivotHints:
             "warnings": [],
             "crtsh_status": "ok",
         },
+        new_callable=AsyncMock,
     )
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     def test_subdomains_second_call_served_from_cache(self, mock_validate, mock_enum):
@@ -1610,7 +1628,7 @@ class TestDomainReportTxtFilter:
         ):
             assert not _is_security_txt_record(drop), f"expected non-security record dropped: {drop!r}"
 
-    @patch("domain.routes.full_domain_report")
+    @patch("domain.routes.full_domain_report", new_callable=AsyncMock)
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     @patch("db.get_cached_domain_with_age")
     def test_domain_report_txt_filter_default(self, mock_cache, mock_validate, mock_report):
@@ -1628,7 +1646,7 @@ class TestDomainReportTxtFilter:
             assert "google-site-verification" not in v
             assert "facebook-domain-verification" not in v
 
-    @patch("domain.routes.full_domain_report")
+    @patch("domain.routes.full_domain_report", new_callable=AsyncMock)
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     @patch("db.get_cached_domain_with_age")
     def test_domain_report_txt_include_all(self, mock_cache, mock_validate, mock_report):
@@ -1639,7 +1657,7 @@ class TestDomainReportTxtFilter:
         assert dns["total_txt_records"] == 8
         assert len(dns["txt"]) == 8
 
-    @patch("domain.routes.full_domain_report")
+    @patch("domain.routes.full_domain_report", new_callable=AsyncMock)
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     @patch("db.get_cached_domain_with_age")
     def test_domain_report_txt_filter_does_not_mutate_cache(self, mock_cache, mock_validate, mock_report):
@@ -1657,7 +1675,7 @@ class TestDomainReportTxtFilter:
         assert r2.status_code == 200
         assert len(r2.json()["dns"]["txt"]) == 8
 
-    @patch("domain.routes.full_domain_report")
+    @patch("domain.routes.full_domain_report", new_callable=AsyncMock)
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     @patch("db.get_cached_domain_with_age")
     def test_domain_report_txt_filter_no_txt_section(self, mock_cache, mock_validate, mock_report):
@@ -1669,7 +1687,7 @@ class TestDomainReportTxtFilter:
         assert "txt" not in dns
         assert "total_txt_records" not in dns
 
-    @patch("domain.routes.full_domain_report")
+    @patch("domain.routes.full_domain_report", new_callable=AsyncMock)
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     @patch("db.get_cached_domain_with_age")
     def test_domain_report_txt_filter_empty_txt(self, mock_cache, mock_validate, mock_report):
@@ -2018,30 +2036,32 @@ class TestDomainRoutesBadInput:
 class TestIpEnrichment:
     @patch("domain.recon._http")
     def test_enrichment_success(self, mock_http):
-        mock_http.get.return_value = _mock_httpx_response(
-            200,
-            {
-                "ports": [22, 80, 443],
-                "hostnames": ["example.com"],
-                "vulns": ["CVE-2024-1234"],
-                "cpes": ["cpe:/a:nginx:nginx"],
-                "tags": ["cloud"],
-            },
+        mock_http.get = AsyncMock(
+            return_value=_mock_httpx_response(
+                200,
+                {
+                    "ports": [22, 80, 443],
+                    "hostnames": ["example.com"],
+                    "vulns": ["CVE-2024-1234"],
+                    "cpes": ["cpe:/a:nginx:nginx"],
+                    "tags": ["cloud"],
+                },
+            )
         )
 
         from domain.recon import ip_enrichment
 
-        result = ip_enrichment("93.184.216.34")
+        result = asyncio.run(ip_enrichment("93.184.216.34"))
         assert result["ports"] == [22, 80, 443]
         assert "CVE-2024-1234" in result["vulns"]
         assert "example.com" in result["hostnames"]
 
     @patch("domain.recon._http")
     def test_enrichment_failure_graceful(self, mock_http):
-        mock_http.get.side_effect = Exception("timeout")
+        mock_http.get = AsyncMock(side_effect=Exception("timeout"))
         from domain.recon import ip_enrichment
 
-        result = ip_enrichment("1.2.3.4")
+        result = asyncio.run(ip_enrichment("1.2.3.4"))
         assert result["ports"] == []
         assert result["vulns"] == []
 
@@ -2267,7 +2287,7 @@ class TestCtLogsErrorPropagation:
         from domain.recon import check_ct_logs
 
         with patch("domain.recon._fetch_crtsh", return_value=([], "crt_sh_timeout")):
-            result = check_ct_logs("example.com")
+            result = asyncio.run(check_ct_logs("example.com"))
         assert result["error"] == "crt_sh_timeout"
         assert result["total_certificates"] == 0
         assert result["crtsh_status"] == "timeout"
@@ -2279,7 +2299,7 @@ class TestCtLogsErrorPropagation:
 
         fake_data = [{"serial_number": "abc", "issuer_name": "X", "common_name": "example.com"}]
         with patch("domain.recon._fetch_crtsh", return_value=(fake_data, None)):
-            result = check_ct_logs("example.com")
+            result = asyncio.run(check_ct_logs("example.com"))
         assert result["error"] is None
         assert result["total_certificates"] == 1
         assert result["crtsh_status"] == "ok"
@@ -2290,7 +2310,7 @@ class TestCtLogsErrorPropagation:
         `error` was always None on this path even when crt.sh had failed."""
         from domain.recon import check_ct_logs
 
-        result = check_ct_logs("example.com", crtsh_data=[], crtsh_error="crt_sh_unavailable")
+        result = asyncio.run(check_ct_logs("example.com", crtsh_data=[], crtsh_error="crt_sh_unavailable"))
         assert result["error"] == "crt_sh_unavailable"
         assert result["crtsh_status"] == "unavailable"
         assert result["total_certificates"] == 0
@@ -2299,7 +2319,7 @@ class TestCtLogsErrorPropagation:
         from domain.recon import check_ct_logs
 
         fake_data = [{"serial_number": "x", "issuer_name": "Y", "common_name": "example.com"}]
-        result = check_ct_logs("example.com", crtsh_data=fake_data, crtsh_error=None)
+        result = asyncio.run(check_ct_logs("example.com", crtsh_data=fake_data, crtsh_error=None))
         assert result["error"] is None
         assert result["crtsh_status"] == "ok"
         assert result["total_certificates"] == 1
@@ -2317,7 +2337,7 @@ class TestCtLogsErrorPropagation:
             "parse_error": "error",
         }
         for fetch_error, expected_status in cases.items():
-            result = check_ct_logs("example.com", crtsh_data=[], crtsh_error=fetch_error)
+            result = asyncio.run(check_ct_logs("example.com", crtsh_data=[], crtsh_error=fetch_error))
             assert result["crtsh_status"] == expected_status, fetch_error
 
 
@@ -2927,8 +2947,8 @@ class TestCheckUrlhaus:
     def test_clean_domain(self, mock_client):
         from domain.threat import check_urlhaus
 
-        mock_client.post.return_value = _mock_httpx_response(200, {"query_status": "no_results"})
-        result = check_urlhaus("clean-example.com")
+        mock_client.post = AsyncMock(return_value=_mock_httpx_response(200, {"query_status": "no_results"}))
+        result = asyncio.run(check_urlhaus("clean-example.com"))
         assert result["urlhaus_status"] == "clean"
         assert result["url_count"] == 0
 
@@ -2936,29 +2956,31 @@ class TestCheckUrlhaus:
     def test_listed_domain(self, mock_client):
         from domain.threat import check_urlhaus
 
-        mock_client.post.return_value = _mock_httpx_response(
-            200,
-            {
-                "query_status": "ok",
-                "urls": [
-                    {
-                        "url": "http://bad.com/mal.exe",
-                        "url_status": "online",
-                        "threat": "malware_download",
-                        "date_added": "2026-01-01",
-                        "tags": ["elf"],
-                    },
-                    {
-                        "url": "http://bad.com/old.exe",
-                        "url_status": "offline",
-                        "threat": "malware_download",
-                        "date_added": "2025-06-01",
-                        "tags": None,
-                    },
-                ],
-            },
+        mock_client.post = AsyncMock(
+            return_value=_mock_httpx_response(
+                200,
+                {
+                    "query_status": "ok",
+                    "urls": [
+                        {
+                            "url": "http://bad.com/mal.exe",
+                            "url_status": "online",
+                            "threat": "malware_download",
+                            "date_added": "2026-01-01",
+                            "tags": ["elf"],
+                        },
+                        {
+                            "url": "http://bad.com/old.exe",
+                            "url_status": "offline",
+                            "threat": "malware_download",
+                            "date_added": "2025-06-01",
+                            "tags": None,
+                        },
+                    ],
+                },
+            )
         )
-        result = check_urlhaus("bad.com")
+        result = asyncio.run(check_urlhaus("bad.com"))
         assert result["urlhaus_status"] == "listed"
         assert result["url_count"] == 2
         assert result["urls_online"] == 1
@@ -2969,8 +2991,8 @@ class TestCheckUrlhaus:
     def test_error_graceful(self, mock_client):
         from domain.threat import check_urlhaus
 
-        mock_client.post.side_effect = Exception("timeout")
-        result = check_urlhaus("timeout.com")
+        mock_client.post = AsyncMock(side_effect=Exception("timeout"))
+        result = asyncio.run(check_urlhaus("timeout.com"))
         assert result["urlhaus_status"] == "error"
         assert result["url_count"] == 0
 
@@ -3079,20 +3101,22 @@ class TestReputation:
     def test_abuseipdb_success(self, mock_client):
         from domain.reputation import check_abuseipdb
 
-        mock_client.get.return_value = _mock_httpx_response(
-            200,
-            {
-                "data": {
-                    "abuseConfidenceScore": 85,
-                    "totalReports": 50,
-                    "countryCode": "DE",
-                    "isp": "Test ISP",
-                    "usageType": "Hosting",
-                    "isTor": False,
-                }
-            },
+        mock_client.get = AsyncMock(
+            return_value=_mock_httpx_response(
+                200,
+                {
+                    "data": {
+                        "abuseConfidenceScore": 85,
+                        "totalReports": 50,
+                        "countryCode": "DE",
+                        "isp": "Test ISP",
+                        "usageType": "Hosting",
+                        "isTor": False,
+                    }
+                },
+            )
         )
-        result = check_abuseipdb("1.2.3.4")
+        result = asyncio.run(check_abuseipdb("1.2.3.4"))
         assert result["status"] == "ok"
         assert result["abuse_score"] == 85
         assert result["total_reports"] == 50
@@ -3104,7 +3128,7 @@ class TestReputation:
     def test_abuseipdb_no_key(self):
         from domain.reputation import check_abuseipdb
 
-        result = check_abuseipdb("1.2.3.4")
+        result = asyncio.run(check_abuseipdb("1.2.3.4"))
         assert result["status"] == "skipped"
 
     @patch("domain.reputation._client")
@@ -3112,8 +3136,8 @@ class TestReputation:
     def test_abuseipdb_error(self, mock_client):
         from domain.reputation import check_abuseipdb
 
-        mock_client.get.side_effect = httpx.RequestError("connection refused")
-        result = check_abuseipdb("1.2.3.4")
+        mock_client.get = AsyncMock(side_effect=httpx.RequestError("connection refused"))
+        result = asyncio.run(check_abuseipdb("1.2.3.4"))
         assert result["status"] == "error"
 
     @patch("domain.reputation._client")
@@ -3121,22 +3145,24 @@ class TestReputation:
     def test_shodan_success(self, mock_client):
         from domain.reputation import check_shodan
 
-        mock_client.get.return_value = _mock_httpx_response(
-            200,
-            {
-                "os": "Linux",
-                "org": "Example Corp",
-                "isp": "Test ISP",
-                "asn": "AS12345",
-                "ports": [22, 80, 443],
-                "vulns": {"CVE-2024-1111": {}, "CVE-2024-2222": {}},
-                "hostnames": ["example.com"],
-                "city": "Berlin",
-                "country_name": "Germany",
-                "last_update": "2026-03-01",
-            },
+        mock_client.get = AsyncMock(
+            return_value=_mock_httpx_response(
+                200,
+                {
+                    "os": "Linux",
+                    "org": "Example Corp",
+                    "isp": "Test ISP",
+                    "asn": "AS12345",
+                    "ports": [22, 80, 443],
+                    "vulns": {"CVE-2024-1111": {}, "CVE-2024-2222": {}},
+                    "hostnames": ["example.com"],
+                    "city": "Berlin",
+                    "country_name": "Germany",
+                    "last_update": "2026-03-01",
+                },
+            )
         )
-        result = check_shodan("1.2.3.4")
+        result = asyncio.run(check_shodan("1.2.3.4"))
         assert result["status"] == "ok"
         assert result["ports"] == [22, 80, 443]
         assert result["org"] == "Example Corp"
@@ -3147,7 +3173,7 @@ class TestReputation:
     def test_shodan_no_key(self):
         from domain.reputation import check_shodan
 
-        result = check_shodan("1.2.3.4")
+        result = asyncio.run(check_shodan("1.2.3.4"))
         assert result["status"] == "skipped"
 
     @patch("domain.reputation._client")
@@ -3155,8 +3181,8 @@ class TestReputation:
     def test_shodan_403(self, mock_client):
         from domain.reputation import check_shodan
 
-        mock_client.get.return_value = _mock_httpx_response(403)
-        result = check_shodan("1.2.3.4")
+        mock_client.get = AsyncMock(return_value=_mock_httpx_response(403))
+        result = asyncio.run(check_shodan("1.2.3.4"))
         assert result["status"] == "restricted"
 
     @patch("domain.reputation._client")
@@ -3164,8 +3190,8 @@ class TestReputation:
     def test_shodan_error(self, mock_client):
         from domain.reputation import check_shodan
 
-        mock_client.get.side_effect = httpx.RequestError("timeout")
-        result = check_shodan("1.2.3.4")
+        mock_client.get = AsyncMock(side_effect=httpx.RequestError("timeout"))
+        result = asyncio.run(check_shodan("1.2.3.4"))
         assert result["status"] == "error"
 
 
@@ -3266,10 +3292,10 @@ class TestFullDomainReport:
     @patch("domain.scoring.score_domain")
     @patch("domain.recon.fetch_live_headers")
     @patch("domain.recon.email_security")
-    @patch("domain.threat.check_urlhaus")
-    @patch("domain.recon.check_ct_logs")
-    @patch("domain.recon.enumerate_subdomains")
-    @patch("domain.recon._fetch_crtsh", return_value=([], None))
+    @patch("domain.threat.check_urlhaus", new_callable=AsyncMock)
+    @patch("domain.recon.check_ct_logs", new_callable=AsyncMock)
+    @patch("domain.recon.enumerate_subdomains", new_callable=AsyncMock)
+    @patch("domain.recon._fetch_crtsh", return_value=([], None), new_callable=AsyncMock)
     @patch("domain.recon.ssl_info")
     @patch("domain.recon.whois_lookup")
     @patch("domain.recon.reverse_dns")
@@ -3290,7 +3316,7 @@ class TestFullDomainReport:
         m_headers.return_value = {"headers": {"server": "nginx"}}
         m_score.return_value = {"grade": "A", "score": 90, "factors": []}
 
-        result = full_domain_report("example.com", resolved_ip="1.2.3.4", client_ip="10.0.0.1")
+        result = asyncio.run(full_domain_report("example.com", resolved_ip="1.2.3.4", client_ip="10.0.0.1"))
         assert result["domain"] == "example.com"
         assert result["dns"] == {"a": ["1.2.3.4"]}
         assert result["whois"]["registrar"] == "Reg Inc."
@@ -3301,10 +3327,12 @@ class TestFullDomainReport:
     @patch("domain.scoring.score_domain", return_value={"grade": "B", "score": 70, "factors": []})
     @patch("domain.recon.fetch_live_headers", return_value={"headers": {}})
     @patch("domain.recon.email_security", return_value={"grade": "C"})
-    @patch("domain.threat.check_urlhaus", return_value={"url_count": 0, "urls_online": 0})
-    @patch("domain.recon.check_ct_logs", return_value={"total_certificates": 0, "certificates": []})
-    @patch("domain.recon.enumerate_subdomains", return_value={"subdomains": [], "count": 0})
-    @patch("domain.recon._fetch_crtsh", return_value=([], None))
+    @patch("domain.threat.check_urlhaus", return_value={"url_count": 0, "urls_online": 0}, new_callable=AsyncMock)
+    @patch(
+        "domain.recon.check_ct_logs", return_value={"total_certificates": 0, "certificates": []}, new_callable=AsyncMock
+    )
+    @patch("domain.recon.enumerate_subdomains", return_value={"subdomains": [], "count": 0}, new_callable=AsyncMock)
+    @patch("domain.recon._fetch_crtsh", return_value=([], None), new_callable=AsyncMock)
     @patch("domain.recon.ssl_info", return_value={"issuer": "LE", "grade": "B"})
     @patch("domain.recon.whois_lookup", return_value={})
     @patch("domain.recon.reverse_dns", return_value={"ip": "1.2.3.4", "ptr": None})
@@ -3331,17 +3359,21 @@ class TestFullDomainReport:
         from domain.recon import full_domain_report
 
         m_rl.check_limit.return_value = False
-        result = full_domain_report("example.com", resolved_ip="1.2.3.4", client_ip="10.0.0.1", tier="free")
+        result = asyncio.run(
+            full_domain_report("example.com", resolved_ip="1.2.3.4", client_ip="10.0.0.1", tier="free")
+        )
         assert result["reputation"]["abuseipdb"]["status"] == "pro_only"
         assert result["reputation"]["shodan"]["status"] == "pro_only"
 
     @patch("domain.scoring.score_domain", return_value={"grade": "A", "score": 90, "factors": []})
     @patch("domain.recon.fetch_live_headers", return_value={"headers": {}})
     @patch("domain.recon.email_security", return_value={"grade": "A"})
-    @patch("domain.threat.check_urlhaus", return_value={"url_count": 0, "urls_online": 0})
-    @patch("domain.recon.check_ct_logs", return_value={"total_certificates": 0, "certificates": []})
-    @patch("domain.recon.enumerate_subdomains", return_value={"subdomains": [], "count": 0})
-    @patch("domain.recon._fetch_crtsh", return_value=([], None))
+    @patch("domain.threat.check_urlhaus", return_value={"url_count": 0, "urls_online": 0}, new_callable=AsyncMock)
+    @patch(
+        "domain.recon.check_ct_logs", return_value={"total_certificates": 0, "certificates": []}, new_callable=AsyncMock
+    )
+    @patch("domain.recon.enumerate_subdomains", return_value={"subdomains": [], "count": 0}, new_callable=AsyncMock)
+    @patch("domain.recon._fetch_crtsh", return_value=([], None), new_callable=AsyncMock)
     @patch("domain.recon.ssl_info", return_value={"issuer": "LE", "grade": "A"})
     @patch("domain.recon.whois_lookup", return_value={})
     @patch("domain.recon.reverse_dns", return_value={"ip": "1.2.3.4", "ptr": None})
@@ -3349,8 +3381,8 @@ class TestFullDomainReport:
     @patch("domain.recon.ratelimit")
     @patch("db.save_cached_ip")
     @patch("db.get_cached_ip", return_value=None)
-    @patch("domain.reputation.check_shodan", side_effect=Exception("timeout"))
-    @patch("domain.reputation.check_abuseipdb", return_value={"status": "ok"})
+    @patch("domain.reputation.check_shodan", side_effect=Exception("timeout"), new_callable=AsyncMock)
+    @patch("domain.reputation.check_abuseipdb", return_value={"status": "ok"}, new_callable=AsyncMock)
     def test_reputation_failure_refunds(
         self,
         m_ab,
@@ -3371,22 +3403,28 @@ class TestFullDomainReport:
         m_score,
     ):
         """Pro tier: on reputation failure, rate limit quota is refunded."""
+        from db import hash_client_ip
         from domain.recon import full_domain_report
 
         m_rl.check_limit.return_value = True
-        result = full_domain_report("example.com", resolved_ip="1.2.3.4", client_ip="10.0.0.1", tier="pro")
-        m_rl.refund.assert_called_once_with("enrichment", "10.0.0.1")
+        m_rl.arefund = AsyncMock()
+        result = asyncio.run(full_domain_report("example.com", resolved_ip="1.2.3.4", client_ip="10.0.0.1", tier="pro"))
+        m_rl.arefund.assert_called_once_with("enrichment", hash_client_ip("10.0.0.1"))
         assert "reputation" not in result
 
     @patch("domain.scoring.score_domain")
     @patch("domain.recon.fetch_live_headers")
     @patch("domain.recon.email_security", return_value={"grade": "A"})
-    @patch("domain.threat.check_urlhaus", return_value={"url_count": 3, "urls_online": 1})
-    @patch("domain.recon.check_ct_logs", return_value={"total_certificates": 0, "certificates": []})
+    @patch("domain.threat.check_urlhaus", return_value={"url_count": 3, "urls_online": 1}, new_callable=AsyncMock)
     @patch(
-        "domain.recon.enumerate_subdomains", return_value={"subdomains": ["a.example.com", "b.example.com"], "count": 2}
+        "domain.recon.check_ct_logs", return_value={"total_certificates": 0, "certificates": []}, new_callable=AsyncMock
     )
-    @patch("domain.recon._fetch_crtsh", return_value=([], None))
+    @patch(
+        "domain.recon.enumerate_subdomains",
+        return_value={"subdomains": ["a.example.com", "b.example.com"], "count": 2},
+        new_callable=AsyncMock,
+    )
+    @patch("domain.recon._fetch_crtsh", return_value=([], None), new_callable=AsyncMock)
     @patch("domain.recon.ssl_info", return_value={"issuer": "DigiCert", "grade": "B"})
     @patch("domain.recon.whois_lookup", return_value={})
     @patch("domain.recon.reverse_dns", return_value={"ip": "5.5.5.5", "ptr": None})
@@ -3398,7 +3436,7 @@ class TestFullDomainReport:
 
         m_headers.return_value = {"headers": {"server": "cloudflare"}}
         m_score.return_value = {"grade": "C", "score": 55, "factors": []}
-        result = full_domain_report("example.com", resolved_ip="5.5.5.5")
+        result = asyncio.run(full_domain_report("example.com", resolved_ip="5.5.5.5"))
         summary = result["summary"]
         assert "example.com" in summary
         assert "5.5.5.5" in summary
@@ -3724,7 +3762,7 @@ class TestScanHeadersRoute:
 
 
 class TestEnumerateSubdomains:
-    @patch("domain.recon._fetch_crtsh", return_value=([{"name_value": "ct.example.com"}], None))
+    @patch("domain.recon._fetch_crtsh", return_value=([{"name_value": "ct.example.com"}], None), new_callable=AsyncMock)
     @patch("domain.recon.socket.gethostbyname")
     def test_dns_brute_and_crtsh_merge(self, mock_resolve, mock_crtsh):
         from domain.recon import enumerate_subdomains
@@ -3737,14 +3775,14 @@ class TestEnumerateSubdomains:
             raise socket.gaierror("not found")
 
         mock_resolve.side_effect = gethostbyname_side
-        result = enumerate_subdomains("example.com")
+        result = asyncio.run(enumerate_subdomains("example.com"))
         subs = result["subdomains"]
         assert "www.example.com" in subs
         assert "api.example.com" in subs
         assert "ct.example.com" in subs
         assert result["count"] == 3
 
-    @patch("domain.recon._fetch_crtsh", return_value=([], None))
+    @patch("domain.recon._fetch_crtsh", return_value=([], None), new_callable=AsyncMock)
     @patch("domain.recon.socket.gethostbyname")
     def test_private_ip_filtered(self, mock_resolve, mock_crtsh):
         from domain.recon import enumerate_subdomains
@@ -3757,7 +3795,7 @@ class TestEnumerateSubdomains:
             raise socket.gaierror("not found")
 
         mock_resolve.side_effect = gethostbyname_side
-        result = enumerate_subdomains("example.com")
+        result = asyncio.run(enumerate_subdomains("example.com"))
         assert "www.example.com" not in result["subdomains"]
         assert "api.example.com" in result["subdomains"]
 
@@ -3770,6 +3808,7 @@ class TestEnumerateSubdomains:
             ],
             None,
         ),
+        new_callable=AsyncMock,
     )
     @patch("domain.recon.socket.gethostbyname")
     def test_set_deduplication(self, mock_resolve, mock_crtsh):
@@ -3781,7 +3820,7 @@ class TestEnumerateSubdomains:
             raise socket.gaierror("not found")
 
         mock_resolve.side_effect = gethostbyname_side
-        result = enumerate_subdomains("example.com")
+        result = asyncio.run(enumerate_subdomains("example.com"))
         assert result["subdomains"].count("www.example.com") == 1
 
 
@@ -4011,8 +4050,8 @@ class TestIpRouteReputation:
     @patch("db.save_cached_ip")
     @patch("db.get_cached_ip_with_age", return_value=None)
     @patch("domain.routes.ratelimit.check_limit", return_value=True)
-    @patch("domain.routes.check_shodan", return_value={"status": "ok", "ports": [80]})
-    @patch("domain.routes.check_abuseipdb", return_value={"status": "ok", "abuse_score": 10})
+    @patch("domain.routes.check_shodan", return_value={"status": "ok", "ports": [80]}, new_callable=AsyncMock)
+    @patch("domain.routes.check_abuseipdb", return_value={"status": "ok", "abuse_score": 10}, new_callable=AsyncMock)
     @patch(
         "domain.routes.ip_enrichment",
         return_value={
@@ -4023,6 +4062,7 @@ class TestIpRouteReputation:
             "tags": [],
             "internetdb_status": "ok",
         },
+        new_callable=AsyncMock,
     )
     @patch("domain.routes.socket.gethostbyaddr", return_value=("example.com", [], []))
     def test_ip_with_reputation(
@@ -4049,6 +4089,7 @@ class TestIpRouteReputation:
             "tags": [],
             "internetdb_status": "ok",
         },
+        new_callable=AsyncMock,
     )
     @patch("domain.routes.socket.gethostbyaddr", return_value=("example.com", [], []))
     def test_ip_without_reputation_limit_exceeded(self, mock_ptr, mock_enrich, mock_limit, mock_cache_get, mock_auth):
@@ -4067,8 +4108,8 @@ class TestIpRouteReputation:
         assert "CVE-2024-1234" in {v["cve_id"] for v in data["vulns"]}
 
     @patch("auth.aauthenticate", new_callable=AsyncMock, return_value=_AUTH_FREE)
-    @patch("domain.routes.check_abuseipdb")
-    @patch("domain.routes.check_shodan")
+    @patch("domain.routes.check_abuseipdb", new_callable=AsyncMock)
+    @patch("domain.routes.check_shodan", new_callable=AsyncMock)
     @patch(
         "db.get_cached_ip_with_age",
         return_value=(
@@ -4082,6 +4123,7 @@ class TestIpRouteReputation:
     @patch(
         "domain.routes.ip_enrichment",
         return_value={"ports": [443], "hostnames": [], "vulns": [], "cpes": [], "tags": [], "internetdb_status": "ok"},
+        new_callable=AsyncMock,
     )
     @patch("domain.routes.socket.gethostbyaddr", return_value=("example.com", [], []))
     def test_ip_reputation_from_cache(self, mock_ptr, mock_enrich, mock_cache_get, mock_sh, mock_ab, mock_auth):
@@ -4247,8 +4289,8 @@ class TestReputationRateLimit:
     def test_abuseipdb_429(self, mock_client):
         from domain.reputation import check_abuseipdb
 
-        mock_client.get.return_value = _mock_httpx_response(429)
-        result = check_abuseipdb("1.2.3.4")
+        mock_client.get = AsyncMock(return_value=_mock_httpx_response(429))
+        result = asyncio.run(check_abuseipdb("1.2.3.4"))
         assert result["status"] == "rate_limited"
 
     @patch("domain.reputation._client")
@@ -4256,8 +4298,8 @@ class TestReputationRateLimit:
     def test_shodan_429(self, mock_client):
         from domain.reputation import check_shodan
 
-        mock_client.get.return_value = _mock_httpx_response(429)
-        result = check_shodan("1.2.3.4")
+        mock_client.get = AsyncMock(return_value=_mock_httpx_response(429))
+        result = asyncio.run(check_shodan("1.2.3.4"))
         assert result["status"] == "rate_limited"
 
 
@@ -4395,7 +4437,11 @@ class TestScoreDomainEdgeCases:
 
 class TestThreatIntelRoute:
     @patch("auth.aauthenticate", new_callable=AsyncMock, return_value=_AUTH_FREE)
-    @patch("domain.routes.check_urlhaus", return_value={"urlhaus_status": "clean", "urls_online": 0, "url_count": 0})
+    @patch(
+        "domain.routes.check_urlhaus",
+        return_value={"urlhaus_status": "clean", "urls_online": 0, "url_count": 0},
+        new_callable=AsyncMock,
+    )
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     def test_threat_clean(self, mock_validate, mock_urlhaus, mock_auth):
         r = client.get("/v1/threat/example.com")
@@ -4413,6 +4459,7 @@ class TestThreatIntelRoute:
             "tags": [],
             "urls": [],
         },
+        new_callable=AsyncMock,
     )
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     def test_threat_listed(self, mock_validate, mock_urlhaus, mock_auth):
@@ -4433,6 +4480,7 @@ class TestThreatIntelRoute:
             "tags": [],
             "urls": [],
         },
+        new_callable=AsyncMock,
     )
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     def test_threat_intel_verdict(self, mock_validate, mock_urlhaus, mock_auth):
@@ -4459,6 +4507,7 @@ class TestThreatIntelRoute:
             "tags": [],
             "urls": [],
         },
+        new_callable=AsyncMock,
     )
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     def test_threat_intel_verdict_partial_on_error(self, mock_validate, mock_urlhaus, mock_auth):
@@ -4545,19 +4594,27 @@ class TestProOnlyEnrichment:
     @patch("domain.scoring.score_domain", return_value={"grade": "A", "score": 90, "factors": []})
     @patch("domain.recon.fetch_live_headers", return_value={"headers": {}})
     @patch("domain.recon.email_security", return_value={"grade": "A"})
-    @patch("domain.threat.check_urlhaus", return_value={"url_count": 0, "urls_online": 0})
-    @patch("domain.recon.check_ct_logs", return_value={"total_certificates": 0, "certificates": []})
-    @patch("domain.recon.enumerate_subdomains", return_value={"subdomains": [], "count": 0})
-    @patch("domain.recon._fetch_crtsh", return_value=([], None))
+    @patch("domain.threat.check_urlhaus", return_value={"url_count": 0, "urls_online": 0}, new_callable=AsyncMock)
+    @patch(
+        "domain.recon.check_ct_logs", return_value={"total_certificates": 0, "certificates": []}, new_callable=AsyncMock
+    )
+    @patch("domain.recon.enumerate_subdomains", return_value={"subdomains": [], "count": 0}, new_callable=AsyncMock)
+    @patch("domain.recon._fetch_crtsh", return_value=([], None), new_callable=AsyncMock)
     @patch("domain.recon.ssl_info", return_value={"issuer": "LE", "grade": "B"})
     @patch("domain.recon.whois_lookup", return_value={})
     @patch("domain.recon.reverse_dns", return_value={"ip": "1.2.3.4", "ptr": None})
     @patch("domain.recon.dns_lookup", return_value={"a": ["1.2.3.4"]})
     @patch("domain.recon.ratelimit")
     @patch("db.get_cached_ip", return_value=None)
-    @patch("domain.reputation.check_shodan", side_effect=AssertionError("Shodan must not be called for free tier"))
     @patch(
-        "domain.reputation.check_abuseipdb", side_effect=AssertionError("AbuseIPDB must not be called for free tier")
+        "domain.reputation.check_shodan",
+        side_effect=AssertionError("Shodan must not be called for free tier"),
+        new_callable=AsyncMock,
+    )
+    @patch(
+        "domain.reputation.check_abuseipdb",
+        side_effect=AssertionError("AbuseIPDB must not be called for free tier"),
+        new_callable=AsyncMock,
     )
     def test_domain_report_free_tier_enrichment_pro_only(
         self,
@@ -4581,7 +4638,9 @@ class TestProOnlyEnrichment:
         from domain.recon import full_domain_report
 
         m_rl.check_limit.return_value = True
-        result = full_domain_report("example.com", resolved_ip="1.2.3.4", client_ip="10.0.0.1", tier="free")
+        result = asyncio.run(
+            full_domain_report("example.com", resolved_ip="1.2.3.4", client_ip="10.0.0.1", tier="free")
+        )
         assert "reputation" in result
         assert result["reputation"]["abuseipdb"]["status"] == "pro_only"
         assert result["reputation"]["abuseipdb"]["upgrade_url"] == "https://contrastcyber.com/pricing"
@@ -4591,10 +4650,12 @@ class TestProOnlyEnrichment:
     @patch("domain.scoring.score_domain", return_value={"grade": "A", "score": 90, "factors": []})
     @patch("domain.recon.fetch_live_headers", return_value={"headers": {}})
     @patch("domain.recon.email_security", return_value={"grade": "A"})
-    @patch("domain.threat.check_urlhaus", return_value={"url_count": 0, "urls_online": 0})
-    @patch("domain.recon.check_ct_logs", return_value={"total_certificates": 0, "certificates": []})
-    @patch("domain.recon.enumerate_subdomains", return_value={"subdomains": [], "count": 0})
-    @patch("domain.recon._fetch_crtsh", return_value=([], None))
+    @patch("domain.threat.check_urlhaus", return_value={"url_count": 0, "urls_online": 0}, new_callable=AsyncMock)
+    @patch(
+        "domain.recon.check_ct_logs", return_value={"total_certificates": 0, "certificates": []}, new_callable=AsyncMock
+    )
+    @patch("domain.recon.enumerate_subdomains", return_value={"subdomains": [], "count": 0}, new_callable=AsyncMock)
+    @patch("domain.recon._fetch_crtsh", return_value=([], None), new_callable=AsyncMock)
     @patch("domain.recon.ssl_info", return_value={"issuer": "LE", "grade": "A"})
     @patch("domain.recon.whois_lookup", return_value={})
     @patch("domain.recon.reverse_dns", return_value={"ip": "1.2.3.4", "ptr": None})
@@ -4602,8 +4663,8 @@ class TestProOnlyEnrichment:
     @patch("domain.recon.ratelimit")
     @patch("db.save_cached_ip")
     @patch("db.get_cached_ip", return_value=None)
-    @patch("domain.reputation.check_shodan", return_value={"status": "ok", "mock": True})
-    @patch("domain.reputation.check_abuseipdb", return_value={"status": "ok", "mock": True})
+    @patch("domain.reputation.check_shodan", return_value={"status": "ok", "mock": True}, new_callable=AsyncMock)
+    @patch("domain.reputation.check_abuseipdb", return_value={"status": "ok", "mock": True}, new_callable=AsyncMock)
     def test_domain_report_pro_tier_enrichment_called(
         self,
         m_ab,
@@ -4627,7 +4688,7 @@ class TestProOnlyEnrichment:
         from domain.recon import full_domain_report
 
         m_rl.check_limit.return_value = True
-        result = full_domain_report("example.com", resolved_ip="1.2.3.4", client_ip="10.0.0.1", tier="pro")
+        result = asyncio.run(full_domain_report("example.com", resolved_ip="1.2.3.4", client_ip="10.0.0.1", tier="pro"))
         m_ab.assert_called_once()
         m_sh.assert_called_once()
         assert result["reputation"]["abuseipdb"]["status"] == "ok"
@@ -4638,9 +4699,17 @@ class TestProOnlyEnrichment:
     @patch("auth.aauthenticate", new_callable=AsyncMock, return_value=_AUTH_FREE)
     @patch("db.get_cached_ip_with_age", return_value=None)
     @patch("domain.routes.ratelimit.check_limit", return_value=True)
-    @patch("domain.routes.check_shodan", side_effect=AssertionError("Shodan must not be called for free tier"))
-    @patch("domain.routes.check_abuseipdb", side_effect=AssertionError("AbuseIPDB must not be called for free tier"))
-    @patch("domain.routes.ip_enrichment", return_value=_ENRICH_EMPTY)
+    @patch(
+        "domain.routes.check_shodan",
+        side_effect=AssertionError("Shodan must not be called for free tier"),
+        new_callable=AsyncMock,
+    )
+    @patch(
+        "domain.routes.check_abuseipdb",
+        side_effect=AssertionError("AbuseIPDB must not be called for free tier"),
+        new_callable=AsyncMock,
+    )
+    @patch("domain.routes.ip_enrichment", return_value=_ENRICH_EMPTY, new_callable=AsyncMock)
     @patch("domain.routes.socket.gethostbyaddr", return_value=("example.com", [], []))
     def test_ip_lookup_free_tier_enrichment_pro_only(
         self, mock_ptr, mock_enrich, mock_ab, mock_sh, mock_limit, mock_cache, mock_auth
@@ -4667,10 +4736,20 @@ class TestProOnlyEnrichment:
 
     @patch("auth.aauthenticate", new_callable=AsyncMock, return_value=_AUTH_FREE)
     @patch("domain.routes._ripe_client")
-    @patch("domain.routes.check_shodan", side_effect=AssertionError("Shodan must not be called for free tier"))
-    @patch("domain.routes.check_abuseipdb", side_effect=AssertionError("AbuseIPDB must not be called for free tier"))
     @patch(
-        "domain.routes.ip_enrichment", return_value={"ports": [], "hostnames": [], "vulns": [], "cpes": [], "tags": []}
+        "domain.routes.check_shodan",
+        side_effect=AssertionError("Shodan must not be called for free tier"),
+        new_callable=AsyncMock,
+    )
+    @patch(
+        "domain.routes.check_abuseipdb",
+        side_effect=AssertionError("AbuseIPDB must not be called for free tier"),
+        new_callable=AsyncMock,
+    )
+    @patch(
+        "domain.routes.ip_enrichment",
+        return_value={"ports": [], "hostnames": [], "vulns": [], "cpes": [], "tags": []},
+        new_callable=AsyncMock,
     )
     def test_threat_report_free_tier_enrichment_pro_only(self, mock_enrich, mock_ab, mock_sh, mock_ripe, mock_auth):
         """Free tier /v1/threat-report: pro_only stub returned, no live API calls."""
@@ -4693,8 +4772,16 @@ class TestProOnlyEnrichment:
     # --- Cache bypass test ---
 
     @patch("auth.aauthenticate", new_callable=AsyncMock, return_value=_AUTH_FREE)
-    @patch("domain.routes.check_shodan", side_effect=AssertionError("Shodan must not be called — cache hit"))
-    @patch("domain.routes.check_abuseipdb", side_effect=AssertionError("AbuseIPDB must not be called — cache hit"))
+    @patch(
+        "domain.routes.check_shodan",
+        side_effect=AssertionError("Shodan must not be called — cache hit"),
+        new_callable=AsyncMock,
+    )
+    @patch(
+        "domain.routes.check_abuseipdb",
+        side_effect=AssertionError("AbuseIPDB must not be called — cache hit"),
+        new_callable=AsyncMock,
+    )
     @patch(
         "db.get_cached_ip_with_age",
         return_value=(
@@ -4702,7 +4789,7 @@ class TestProOnlyEnrichment:
             3600,
         ),
     )
-    @patch("domain.routes.ip_enrichment", return_value=_ENRICH_EMPTY)
+    @patch("domain.routes.ip_enrichment", return_value=_ENRICH_EMPTY, new_callable=AsyncMock)
     @patch("domain.routes.socket.gethostbyaddr", return_value=("example.com", [], []))
     def test_cached_reputation_served_to_free_tier(
         self, mock_ptr, mock_enrich, mock_cache, mock_ab, mock_sh, mock_auth
@@ -4718,9 +4805,17 @@ class TestProOnlyEnrichment:
     @pytest.mark.real_firehol
     @patch("auth.aauthenticate", new_callable=AsyncMock, return_value=_AUTH_FREE)
     @patch("db.get_cached_ip_with_age", return_value=None)
-    @patch("domain.routes.check_shodan", side_effect=AssertionError("Shodan must not be called for free tier"))
-    @patch("domain.routes.check_abuseipdb", side_effect=AssertionError("AbuseIPDB must not be called for free tier"))
-    @patch("domain.routes.ip_enrichment", return_value=_ENRICH_EMPTY)
+    @patch(
+        "domain.routes.check_shodan",
+        side_effect=AssertionError("Shodan must not be called for free tier"),
+        new_callable=AsyncMock,
+    )
+    @patch(
+        "domain.routes.check_abuseipdb",
+        side_effect=AssertionError("AbuseIPDB must not be called for free tier"),
+        new_callable=AsyncMock,
+    )
+    @patch("domain.routes.ip_enrichment", return_value=_ENRICH_EMPTY, new_callable=AsyncMock)
     @patch("domain.routes.socket.gethostbyaddr", return_value=("example.com", [], []))
     @patch("domain.ip_intel.check_firehol", return_value={"status": "ok", "listed": False, "lists_matched": []})
     def test_ip_lookup_free_tier_firehol_present(
@@ -4748,10 +4843,10 @@ class TestProOnlyEnrichment:
     @patch("db.get_cached_ip_with_age", return_value=None)
     @patch("domain.routes.ratelimit.check_limit", return_value=True)
     @patch("db.save_cached_ip")
-    @patch("domain.routes.ip_enrichment", return_value=_ENRICH_EMPTY)
+    @patch("domain.routes.ip_enrichment", return_value=_ENRICH_EMPTY, new_callable=AsyncMock)
     @patch("domain.routes.socket.gethostbyaddr", return_value=("example.com", [], []))
-    @patch("domain.routes.check_shodan", return_value={"status": "ok", "ports": []})
-    @patch("domain.routes.check_abuseipdb", return_value={"status": "ok", "abuse_score": 0})
+    @patch("domain.routes.check_shodan", return_value={"status": "ok", "ports": []}, new_callable=AsyncMock)
+    @patch("domain.routes.check_abuseipdb", return_value={"status": "ok", "abuse_score": 0}, new_callable=AsyncMock)
     @patch("domain.ip_intel.check_firehol", return_value={"status": "ok", "listed": False, "lists_matched": []})
     def test_ip_lookup_pro_tier_firehol_in_parallel(
         self, mock_fh, mock_ab, mock_sh, mock_ptr, mock_enrich, mock_save, mock_limit, mock_cache, mock_auth
@@ -4777,7 +4872,11 @@ class TestProOnlyEnrichment:
     @patch("domain.recon.fetch_live_headers", return_value={"headers": {}})
     @patch("db.save_cached_domain")
     @patch("db.get_cached_domain", return_value=None)
-    @patch("domain.routes.full_domain_report", return_value={"domain": "example.com", "summary": "ok"})
+    @patch(
+        "domain.routes.full_domain_report",
+        return_value={"domain": "example.com", "summary": "ok"},
+        new_callable=AsyncMock,
+    )
     @patch("domain.routes.clean_domain", return_value="example.com")
     @patch(
         "auth.aauthenticate",
@@ -4811,7 +4910,11 @@ class TestProOnlyEnrichment:
 
     @patch("db.save_cached_domain")
     @patch("db.get_cached_domain_with_age", return_value=None)
-    @patch("domain.routes.full_domain_report", return_value={"domain": "example.com", "summary": "ok"})
+    @patch(
+        "domain.routes.full_domain_report",
+        return_value={"domain": "example.com", "summary": "ok"},
+        new_callable=AsyncMock,
+    )
     @patch("domain.routes._validate_domain_input", return_value=("example.com", "1.2.3.4"))
     @patch("auth.aauthenticate", new_callable=AsyncMock)
     def test_domain_report_cache_keys_tier_segregated(
@@ -4864,7 +4967,7 @@ class TestDomainBurstThrottleAndTimeout:
     UA-rotating bot fleets) and an 8s hard ceiling on full_domain_report (caps
     workers tied up by slow upstream fail-overs)."""
 
-    @patch("domain.routes.full_domain_report", return_value=MOCK_FULL_REPORT)
+    @patch("domain.routes.full_domain_report", return_value=MOCK_FULL_REPORT, new_callable=AsyncMock)
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     @patch("db.get_cached_domain_with_age", return_value=None)
     @patch("db.save_cached_domain")
@@ -4879,7 +4982,7 @@ class TestDomainBurstThrottleAndTimeout:
         # Detail message names the limit + window so client can react
         assert "5" in str(body) and "60" in str(body)
 
-    @patch("domain.routes.full_domain_report", return_value=MOCK_FULL_REPORT)
+    @patch("domain.routes.full_domain_report", return_value=MOCK_FULL_REPORT, new_callable=AsyncMock)
     @patch("domain.routes._validate_domain_input", return_value=("example.com", "93.184.216.34"))
     @patch(
         "auth.aauthenticate",
@@ -4902,7 +5005,7 @@ class TestDomainBurstThrottleAndTimeout:
             r = client.get(f"/v1/domain/example{i}.com")
             assert r.status_code == 200, f"Pro tier request {i + 1} unexpectedly throttled"
 
-    @patch("domain.routes.full_domain_report", return_value=MOCK_FULL_REPORT)
+    @patch("domain.routes.full_domain_report", return_value=MOCK_FULL_REPORT, new_callable=AsyncMock)
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     @patch("db.get_cached_domain_with_age", return_value=(MOCK_FULL_REPORT, 30))
     def test_burst_throttle_consumes_quota_on_cache_hit(self, mock_cache, mock_validate, mock_report):
@@ -4922,10 +5025,9 @@ class TestDomainBurstThrottleAndTimeout:
     @patch("db.get_cached_domain_with_age", return_value=None)
     def test_hard_timeout_returns_504(self, mock_cache, mock_validate):
         """full_domain_report exceeding DOMAIN_HARD_TIMEOUT → 504 (worker freed)."""
-        import time as _time
 
-        def slow_report(*args, **kwargs):
-            _time.sleep(0.5)
+        async def slow_report(*args, **kwargs):
+            await asyncio.sleep(0.5)
             return MOCK_FULL_REPORT
 
         with patch("domain.routes.full_domain_report", side_effect=slow_report):

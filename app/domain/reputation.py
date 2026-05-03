@@ -13,23 +13,25 @@ from db import get_cached_ip, save_cached_ip
 
 logger = logging.getLogger("contrastapi")
 
-_client = httpx.Client(
+_client = httpx.AsyncClient(
     timeout=httpx.Timeout(RECON_TIMEOUT, connect=5.0),
     headers={"Accept": "application/json"},
     follow_redirects=False,
+    cookies=httpx.Cookies(),
+    limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
 )
 
 
-def check_abuseipdb(ip: str) -> dict:
+async def check_abuseipdb(ip: str) -> dict:
     """Check IP against AbuseIPDB."""
     if not settings.abuseipdb_api_key:
         return {"status": "skipped", "reason": "no API key"}
     cache_key = f"abuseipdb:{ip}"
-    cached = get_cached_ip(cache_key)
+    cached = get_cached_ip(cache_key)  # sync sqlite OK in async — microsecond IO
     if cached is not None:
         return cached
     try:
-        resp = _client.get(
+        resp = await _client.get(
             f"{ABUSEIPDB_API_URL}",
             params={"ipAddress": ip, "maxAgeInDays": "90"},
             headers={"Key": settings.abuseipdb_api_key},
@@ -58,16 +60,16 @@ def check_abuseipdb(ip: str) -> dict:
         return {"status": "error", "reason": "AbuseIPDB API connection failed"}
 
 
-def check_shodan(ip: str) -> dict:
+async def check_shodan(ip: str) -> dict:
     """Check IP against Shodan full API (more detail than InternetDB)."""
     if not settings.shodan_api_key:
         return {"status": "skipped", "reason": "no API key"}
     cache_key = f"shodan:{ip}"
-    cached = get_cached_ip(cache_key)
+    cached = get_cached_ip(cache_key)  # sync sqlite OK in async — microsecond IO
     if cached is not None:
         return cached
     try:
-        resp = _client.get(
+        resp = await _client.get(
             f"{SHODAN_API_URL}/{ip}",
             params={"key": settings.shodan_api_key},
         )

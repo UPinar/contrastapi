@@ -7,21 +7,23 @@ from config import RECON_TIMEOUT, URLHAUS_API_URL, settings
 
 logger = logging.getLogger("contrastapi")
 
-_client = httpx.Client(
+_client = httpx.AsyncClient(
     timeout=httpx.Timeout(RECON_TIMEOUT, connect=5.0),
     headers={"Auth-Key": settings.urlhaus_api_key} if settings.urlhaus_api_key else {},
     follow_redirects=False,
+    cookies=httpx.Cookies(),
+    limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
 )
 
 
-def check_urlhaus(domain: str) -> dict:
+async def check_urlhaus(domain: str) -> dict:
     """Check a domain against URLhaus for known malware URLs.
 
     Returns:
         Dict with urls_online, url_count, threat_types, tags, and urls list.
     """
     try:
-        resp = _client.post(
+        resp = await _client.post(
             f"{URLHAUS_API_URL}/host/",
             data={"host": domain},
         )

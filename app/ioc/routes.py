@@ -148,7 +148,7 @@ async def ioc_lookup(
     if do_feodo:
         tasks.append(_await_with_timeout(query_feodo(indicator)))
     if do_urlhaus:
-        tasks.append(_sync_with_timeout(check_urlhaus, urlhaus_target))
+        tasks.append(_await_with_timeout(check_urlhaus(urlhaus_target)))
     if do_tor:
         tasks.append(_sync_with_timeout(check_tor_exit, indicator, timeout=2))
 
@@ -406,7 +406,7 @@ async def phishing_check(
 
     # URLhaus host + exact-URL lookups in parallel.
     uh_host, urlhaus_url = await asyncio.gather(
-        run_in_threadpool(check_urlhaus, host),
+        check_urlhaus(host),
         _query_urlhaus_url(url),
     )
     urlhaus_host = {
@@ -541,7 +541,7 @@ async def _run_single_ioc(indicator: str) -> dict:
 
     if urlhaus_target:
         try:
-            urlhaus = await run_in_threadpool(check_urlhaus, urlhaus_target)
+            urlhaus = await check_urlhaus(urlhaus_target)
             if urlhaus:
                 sources["urlhaus"] = urlhaus
                 if urlhaus.get("urlhaus_status") == "found":

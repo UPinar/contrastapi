@@ -4,6 +4,7 @@ Extracted from contrastcyber recon.py, adapted for API responses.
 All functions return structured dicts with summary fields.
 """
 
+import asyncio
 import json
 import logging
 import re
@@ -30,6 +31,7 @@ from config import (
 )
 from cryptography import x509
 from cryptography.x509.oid import ExtensionOID, NameOID
+from fastapi.concurrency import run_in_threadpool
 from validation import is_private_ip
 
 logger = logging.getLogger("contrastapi")
@@ -78,10 +80,12 @@ def _strip_control_chars(s: str) -> str:
 
 
 # Module-level client for simple HTTP calls (connection pooling)
-_http = httpx.Client(
+_http = httpx.AsyncClient(
     timeout=httpx.Timeout(RECON_TIMEOUT, connect=5.0),
     headers={"User-Agent": USER_AGENT},
     follow_redirects=False,
+    cookies=httpx.Cookies(),
+    limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
 )
 
 WAF_SIGNATURES = {
@@ -156,9 +160,9 @@ WHOIS_SERVERS = {
 CT_MAX_ENTRIES = 20
 CT_MAX_CERTS = 10
 
-# In-memory TTL cache for crt.sh responses (thread-safe)
+# In-memory TTL cache for crt.sh responses (async-safe)
 _crtsh_cache: dict[str, tuple[list, float]] = {}
-_crtsh_cache_lock = threading.Lock()
+_crtsh_cache_lock = asyncio.Lock()
 _CRTSH_CACHE_TTL = 3600  # 1 hour
 _CRTSH_CACHE_MAX = 1000
 
@@ -328,7 +332,7 @@ def _parse_whois(text: str) -> dict:
 # === Subdomains ===
 
 
-def enumerate_subdomains(domain: str, crtsh_data: list | None = None) -> dict:
+async def enumerate_subdomains(domain: str, crtsh_data: list | None = None) -> dict:
     """Enumerate subdomains via DNS brute force + crt.sh CT logs."""
     found_wordlist: set[str] = set()
     warnings: list[str] = []
@@ -340,14 +344,15 @@ def enumerate_subdomains(domain: str, crtsh_data: list | None = None) -> dict:
             return fqdn
         return None
 
-    with ThreadPoolExecutor(max_workers=10) as dns_pool:
-        futures = {dns_pool.submit(_resolve_sub, sub): sub for sub in COMMON_SUBDOMAINS}
-        for fut in futures:
-            result = fut.result()
-            if result:
-                found_wordlist.add(result)
+    dns_results = await asyncio.gather(
+        *[run_in_threadpool(_resolve_sub, sub) for sub in COMMON_SUBDOMAINS],
+        return_exceptions=False,
+    )
+    for result in dns_results:
+        if result:
+            found_wordlist.add(result)
 
-    found_crtsh, crtsh_warnings, crtsh_status = _crtsh_subdomains(domain, crtsh_data)
+    found_crtsh, crtsh_warnings, crtsh_status = await _crtsh_subdomains(domain, crtsh_data)
     warnings.extend(crtsh_warnings)
 
     all_found = sorted(found_wordlist | set(found_crtsh))
@@ -382,7 +387,7 @@ def enumerate_subdomains(domain: str, crtsh_data: list | None = None) -> dict:
     }
 
 
-def _fetch_crtsh(query: str) -> tuple[list, str | None]:
+async def _fetch_crtsh(query: str) -> tuple[list, str | None]:
     """Fetch certificate data from crt.sh (with 1h in-memory TTL cache).
 
     Returns:
@@ -391,13 +396,13 @@ def _fetch_crtsh(query: str) -> tuple[list, str | None]:
         "parse_error" | "crt_sh_error"
     """
     now = time.time()
-    with _crtsh_cache_lock:
+    async with _crtsh_cache_lock:
         if query in _crtsh_cache:
             result, ts = _crtsh_cache[query]
             if now - ts < _CRTSH_CACHE_TTL:
                 return (list(result), None)
     try:
-        resp = _http.get(
+        resp = await _http.get(
             "https://crt.sh/",
             params={"q": query, "output": "json"},
             timeout=CRTSH_TIMEOUT,
@@ -421,7 +426,7 @@ def _fetch_crtsh(query: str) -> tuple[list, str | None]:
         return ([], "crt_sh_error")
     if not data:
         return ([], None)
-    with _crtsh_cache_lock:
+    async with _crtsh_cache_lock:
         _crtsh_cache[query] = (data, now)
         if len(_crtsh_cache) > _CRTSH_CACHE_MAX:
             oldest_key = min(_crtsh_cache, key=lambda k: _crtsh_cache[k][1])
@@ -438,7 +443,7 @@ _CRTSH_STATUS_BY_ERROR = {
 }
 
 
-def _crtsh_subdomains(domain: str, data: list | None = None) -> tuple[list, list, str]:
+async def _crtsh_subdomains(domain: str, data: list | None = None) -> tuple[list, list, str]:
     """Extract subdomain names from crt.sh data.
 
     Returns:
@@ -452,7 +457,7 @@ def _crtsh_subdomains(domain: str, data: list | None = None) -> tuple[list, list
     warnings: list[str] = []
     status = "ok"
     if data is None:
-        data, fetch_error = _fetch_crtsh(f"%.{domain}")
+        data, fetch_error = await _fetch_crtsh(f"%.{domain}")
         if fetch_error:
             warnings.append(fetch_error)
             status = _CRTSH_STATUS_BY_ERROR.get(fetch_error, "error")
@@ -482,7 +487,7 @@ def _crtsh_subdomains(domain: str, data: list | None = None) -> tuple[list, list
 # === CT Logs ===
 
 
-def check_ct_logs(domain: str, crtsh_data: list | None = None, crtsh_error: str | None = None) -> dict:
+async def check_ct_logs(domain: str, crtsh_data: list | None = None, crtsh_error: str | None = None) -> dict:
     """Certificate transparency log lookup via crt.sh.
 
     Returns dict with `error` field populated (e.g. "crt_sh_timeout") when the
@@ -501,7 +506,7 @@ def check_ct_logs(domain: str, crtsh_data: list | None = None, crtsh_error: str 
     """
     fetch_error: str | None = crtsh_error
     if crtsh_data is None:
-        data, fetch_error = _fetch_crtsh(domain)
+        data, fetch_error = await _fetch_crtsh(domain)
     else:
         data = crtsh_data
     # Pattern parity with _crtsh_subdomains: an unrecognised error string is
@@ -1237,10 +1242,10 @@ def fetch_live_page(domain: str) -> dict:
 INTERNETDB_URL = "https://internetdb.shodan.io/"
 
 
-def ip_enrichment(ip: str) -> dict:
+async def ip_enrichment(ip: str) -> dict:
     """Enrich IP with open ports, hostnames, vulns from Shodan InternetDB (free, no key)."""
     try:
-        resp = _http.get(f"{INTERNETDB_URL}{ip}")
+        resp = await _http.get(f"{INTERNETDB_URL}{ip}")
         resp.raise_for_status()
         data = resp.json()
         return {
@@ -1364,7 +1369,7 @@ def phone_lookup(number: str) -> dict:
 # === Full Domain Report ===
 
 
-def full_domain_report(
+async def full_domain_report(
     domain: str, resolved_ip: str | None = None, client_ip: str | None = None, lite: bool = False, tier: str = "free"
 ) -> dict:
     """Run domain intelligence checks in parallel, return combined report.
@@ -1383,7 +1388,7 @@ def full_domain_report(
     enrich = False
     cached_rep = None
     if not lite and resolved_ip:
-        cached_rep = get_cached_ip(resolved_ip)
+        cached_rep = get_cached_ip(resolved_ip)  # sync sqlite OK in async — microsecond IO
         if cached_rep is not None:
             enrich = True  # cache hit, no quota consumed
         elif client_ip and ratelimit.check_limit(
@@ -1395,95 +1400,96 @@ def full_domain_report(
             enrich = True
             cached_rep = None
 
-    with ThreadPoolExecutor(max_workers=10) as pool:
-        # Fast modules (always run)
-        f_dns = pool.submit(dns_lookup, domain)
-        f_rdns = pool.submit(reverse_dns, domain)
-        f_ssl = pool.submit(ssl_info, domain, resolved_ip)
-        f_headers = pool.submit(fetch_live_headers, domain)
+    # Fast modules (always run) — sync helpers in threadpool, async helpers awaited
+    f_dns = asyncio.create_task(run_in_threadpool(dns_lookup, domain))
+    f_rdns = asyncio.create_task(run_in_threadpool(reverse_dns, domain))
+    f_ssl = asyncio.create_task(run_in_threadpool(ssl_info, domain, resolved_ip))
+    # fetch_live_headers uses _ssrf_http (still sync — Batch 2 scope), keep threadpool wrap
+    f_headers = asyncio.create_task(run_in_threadpool(fetch_live_headers, domain))
 
-        # Slow modules (skip in lite mode)
-        f_crtsh = f_whois = f_threat = f_subs = f_certs = None
-        f_ab = f_sh = None
-        if not lite:
-            f_crtsh = pool.submit(_fetch_crtsh, f"%.{domain}")
-            f_whois = pool.submit(whois_lookup, domain)
-            f_threat = pool.submit(check_urlhaus, domain)
+    # Slow modules (skip in lite mode)
+    f_crtsh = f_whois = f_threat = f_subs = f_certs = None
+    f_ab = f_sh = None
+    if not lite:
+        f_crtsh = asyncio.create_task(_fetch_crtsh(f"%.{domain}"))
+        f_whois = asyncio.create_task(run_in_threadpool(whois_lookup, domain))
+        f_threat = asyncio.create_task(check_urlhaus(domain))
 
-            def _subs_with_crtsh():
-                data, _ = f_crtsh.result(timeout=CRTSH_TIMEOUT + 2)
-                return enumerate_subdomains(domain, crtsh_data=data)
+        async def _subs_with_crtsh():
+            # asyncio.shield prevents cancellation of f_crtsh from propagating
+            # back into the shared crtsh task — both _subs and _ct depend on it.
+            data, _ = await asyncio.wait_for(asyncio.shield(f_crtsh), timeout=CRTSH_TIMEOUT + 2)
+            return await enumerate_subdomains(domain, crtsh_data=data)
 
-            f_subs = pool.submit(_subs_with_crtsh)
+        async def _ct_with_crtsh():
+            data, fetch_error = await asyncio.wait_for(asyncio.shield(f_crtsh), timeout=CRTSH_TIMEOUT + 2)
+            return await check_ct_logs(domain, data, crtsh_error=fetch_error)
 
-            def _ct_with_crtsh():
-                data, fetch_error = f_crtsh.result(timeout=CRTSH_TIMEOUT + 2)
-                return check_ct_logs(domain, data, crtsh_error=fetch_error)
+        f_subs = asyncio.create_task(_subs_with_crtsh())
+        f_certs = asyncio.create_task(_ct_with_crtsh())
 
-            f_certs = pool.submit(_ct_with_crtsh)
+        if enrich and cached_rep is None and resolved_ip and tier == "pro":
+            f_ab = asyncio.create_task(check_abuseipdb(resolved_ip))
+            f_sh = asyncio.create_task(check_shodan(resolved_ip))
 
-            if enrich and cached_rep is None and resolved_ip:
-                if tier == "pro":
-                    f_ab = pool.submit(check_abuseipdb, resolved_ip)
-                    f_sh = pool.submit(check_shodan, resolved_ip)
+    report["dns"] = await asyncio.wait_for(f_dns, timeout=RECON_TIMEOUT * 3)
+    report["reverse_dns"] = await asyncio.wait_for(f_rdns, timeout=RECON_TIMEOUT * 2)
+    report["ssl"] = await asyncio.wait_for(f_ssl, timeout=RECON_TIMEOUT * 2)
 
-        report["dns"] = f_dns.result(timeout=RECON_TIMEOUT * 3)
-        report["reverse_dns"] = f_rdns.result(timeout=RECON_TIMEOUT * 2)
-        report["ssl"] = f_ssl.result(timeout=RECON_TIMEOUT * 2)
+    if lite:
+        report["whois"] = {}
+        report["subdomains"] = {"subdomains": [], "count": 0}
+        report["certificates"] = {"total_certificates": 0, "certificates": []}
+        report["threat"] = {
+            "urlhaus_status": "skipped",
+            "url_count": 0,
+            "urls_online": 0,
+            "threat_types": [],
+            "tags": [],
+            "urls": [],
+        }
+    else:
+        report["whois"] = await asyncio.wait_for(f_whois, timeout=RECON_TIMEOUT * 2)
+        report["subdomains"] = await asyncio.wait_for(f_subs, timeout=CRTSH_TIMEOUT + RECON_TIMEOUT + 4)
+        report["certificates"] = await asyncio.wait_for(f_certs, timeout=CRTSH_TIMEOUT + RECON_TIMEOUT + 4)
+        report["threat"] = await asyncio.wait_for(f_threat, timeout=RECON_TIMEOUT * 2)
 
-        if lite:
-            report["whois"] = {}
-            report["subdomains"] = {"subdomains": [], "count": 0}
-            report["certificates"] = {"total_certificates": 0, "certificates": []}
-            report["threat"] = {
-                "urlhaus_status": "skipped",
-                "url_count": 0,
-                "urls_online": 0,
-                "threat_types": [],
-                "tags": [],
-                "urls": [],
+    if enrich and cached_rep is not None:
+        report["reputation"] = cached_rep
+    elif f_ab is not None:
+        try:
+            reputation = {
+                "abuseipdb": await asyncio.wait_for(f_ab, timeout=RECON_TIMEOUT + 2),
+                "shodan": await asyncio.wait_for(f_sh, timeout=RECON_TIMEOUT + 2),
             }
-        else:
-            report["whois"] = f_whois.result(timeout=RECON_TIMEOUT * 2)
-            report["subdomains"] = f_subs.result(timeout=CRTSH_TIMEOUT + RECON_TIMEOUT + 4)
-            report["certificates"] = f_certs.result(timeout=CRTSH_TIMEOUT + RECON_TIMEOUT + 4)
-            report["threat"] = f_threat.result(timeout=RECON_TIMEOUT * 2)
+            save_cached_ip(resolved_ip, reputation)  # sync sqlite OK in async — microsecond IO
+            report["reputation"] = reputation
+        except Exception as e:
+            logger.warning("Reputation enrichment failed: %s", type(e).__name__)
+            if client_ip:
+                await ratelimit.arefund("enrichment", hash_client_ip(client_ip))
+    elif not lite and resolved_ip and tier != "pro":
+        report["reputation"] = {
+            "abuseipdb": {
+                "status": "pro_only",
+                "reason": "AbuseIPDB enrichment requires Pro tier",
+                "upgrade_url": UPGRADE_URL,
+            },
+            "shodan": {
+                "status": "pro_only",
+                "reason": "Shodan enrichment requires Pro tier",
+                "upgrade_url": UPGRADE_URL,
+            },
+        }
 
-        if enrich and cached_rep is not None:
-            report["reputation"] = cached_rep
-        elif f_ab is not None:
-            try:
-                reputation = {
-                    "abuseipdb": f_ab.result(timeout=RECON_TIMEOUT + 2),
-                    "shodan": f_sh.result(timeout=RECON_TIMEOUT + 2),
-                }
-                save_cached_ip(resolved_ip, reputation)
-                report["reputation"] = reputation
-            except Exception as e:
-                logger.warning("Reputation enrichment failed: %s", type(e).__name__)
-                if client_ip:
-                    ratelimit.refund("enrichment", client_ip)
-        elif not lite and resolved_ip and tier != "pro":
-            report["reputation"] = {
-                "abuseipdb": {
-                    "status": "pro_only",
-                    "reason": "AbuseIPDB enrichment requires Pro tier",
-                    "upgrade_url": UPGRADE_URL,
-                },
-                "shodan": {
-                    "status": "pro_only",
-                    "reason": "Shodan enrichment requires Pro tier",
-                    "upgrade_url": UPGRADE_URL,
-                },
-            }
+    # Email security uses DNS TXT records from dns_lookup (sequenced after f_dns)
+    txt_records = report["dns"].get("txt", [])
+    report["email_security"] = await asyncio.wait_for(
+        run_in_threadpool(email_security, domain, txt_records), timeout=RECON_TIMEOUT * 2
+    )
 
-        # Email security uses DNS TXT records from dns_lookup
-        txt_records = report["dns"].get("txt", [])
-        f_email = pool.submit(email_security, domain, txt_records)
-        report["email_security"] = f_email.result(timeout=RECON_TIMEOUT * 2)
-
-        # Detect WAF from headers (already fetched in parallel)
-        header_result = f_headers.result(timeout=RECON_TIMEOUT * 2)
+    # Detect WAF from headers (already fetched in parallel)
+    header_result = await asyncio.wait_for(f_headers, timeout=RECON_TIMEOUT * 2)
 
     if "headers" in header_result:
         report["waf"] = detect_waf(header_result["headers"])

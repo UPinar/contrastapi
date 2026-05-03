@@ -655,9 +655,7 @@ async def domain_report(
     # background thread (anyio's run_in_threadpool worker is reusable).
     try:
         result = await asyncio.wait_for(
-            run_in_threadpool(
-                full_domain_report, domain, resolved_ip=resolved_ip, client_ip=client_ip, lite=lite, tier=tier
-            ),
+            full_domain_report(domain, resolved_ip=resolved_ip, client_ip=client_ip, lite=lite, tier=tier),
             timeout=DOMAIN_HARD_TIMEOUT,
         )
     except (asyncio.TimeoutError, TimeoutError):
@@ -1467,7 +1465,7 @@ async def subdomains(
     if cached:
         sub_list = cached.get("subdomains") or []
         return {"domain": domain, **cached, "next_calls": _subdomain_pivot_hints(sub_list) or None}
-    result = await run_in_threadpool(enumerate_subdomains, domain)
+    result = await enumerate_subdomains(domain)
     await asave_cached_domain(f"subdomains:{domain}", result)
     sub_list = result.get("subdomains") or []
     return {"domain": domain, **result, "next_calls": _subdomain_pivot_hints(sub_list) or None}
@@ -1488,7 +1486,7 @@ async def certs(
         total = cached.get("total_certificates", 0)
         summary = f"{total} certificate{'s' if total != 1 else ''} in CT logs for {domain}"
         return {"domain": domain, **cached, "summary": summary}
-    result = await run_in_threadpool(check_ct_logs, domain)
+    result = await check_ct_logs(domain)
     await asave_cached_domain(f"certificates:{domain}", result)
     total = result.get("total_certificates", 0)
     summary = f"{total} certificate{'s' if total != 1 else ''} in CT logs for {domain}"
@@ -1673,7 +1671,7 @@ async def threat_intel(
 ):
     """Threat intelligence — check domain against URLhaus for known malware URLs."""
     domain, resolved_ip = _validate_domain_input(domain)
-    result = await run_in_threadpool(check_urlhaus, domain)
+    result = await check_urlhaus(domain)
     urlhaus_unavailable = result.get("urlhaus_status") == "error"
     urls_online = result["urls_online"]
     url_count = result["url_count"]
@@ -1875,7 +1873,7 @@ async def ip_lookup(
     except (socket.herror, socket.gaierror, OSError):
         ptr = None
 
-    enrichment = await run_in_threadpool(ip_enrichment, ip)
+    enrichment = await ip_enrichment(ip)
     internetdb_failed = enrichment.pop("internetdb_status", "ok") == "error"
     ports = enrichment.get("ports", [])
     # Shodan InternetDB is upstream-controlled — a poisoned feed could smuggle
@@ -1923,8 +1921,8 @@ async def ip_lookup(
         try:
             ab_res, sh_res, fh_res = await asyncio.wait_for(
                 asyncio.gather(
-                    run_in_threadpool(check_abuseipdb, ip),
-                    run_in_threadpool(check_shodan, ip),
+                    check_abuseipdb(ip),
+                    check_shodan(ip),
                     run_in_threadpool(check_firehol, ip),
                 ),
                 timeout=RECON_TIMEOUT + 2,
@@ -1948,7 +1946,7 @@ async def ip_lookup(
                 # Refund must run on BaseException too (CancelledError) — pre-Faz-4
                 # the sync .submit/.result chain raised CancelledError up through
                 # this except block as a generic Exception; on async it bypasses.
-                await ratelimit.arefund("enrichment", client_ip)
+                await ratelimit.arefund("enrichment", hash_client_ip(client_ip))
     elif auth.tier != "pro":
         firehol_result = await run_in_threadpool(check_firehol, ip)
         firehol_attempted = True
@@ -2488,7 +2486,7 @@ class _BulkRequest(BaseModel):
 _bulk_semaphore = threading.Semaphore(2)  # per-worker limit; with workers=2 actual max is 4
 
 
-def _run_single_report(raw_domain: str, client_ip: str, tier: str = "free") -> dict:
+async def _run_single_report(raw_domain: str, client_ip: str, tier: str = "free") -> dict:
     """Run full_domain_report for one domain, returning a result dict."""
     domain = clean_domain(raw_domain)
     resolved_ip = validate_domain(domain) if domain else None
@@ -2504,7 +2502,7 @@ def _run_single_report(raw_domain: str, client_ip: str, tier: str = "free") -> d
         cached = get_cached_domain(cache_key)
         if cached:
             return {"domain": domain, "status": "ok", "report": {**cached}, "error": None}
-        report = full_domain_report(domain, resolved_ip=resolved_ip, client_ip=client_ip, tier=tier)
+        report = await full_domain_report(domain, resolved_ip=resolved_ip, client_ip=client_ip, tier=tier)
         save_cached_domain(cache_key, report)
         return {"domain": domain, "status": "ok", "report": {**report}, "error": None}
     except Exception as e:
@@ -2578,7 +2576,7 @@ async def bulk_domain_report(
         per_domain_tasks = [
             asyncio.create_task(
                 asyncio.wait_for(
-                    run_in_threadpool(_run_single_report, d, client_ip, auth.tier),
+                    _run_single_report(d, client_ip, auth.tier),
                     timeout=BULK_PER_DOMAIN_TIMEOUT,
                 )
             )
@@ -2683,7 +2681,7 @@ async def audit_domain(
         # fail-overs (WHOIS, CT logs, subdomain enum). Cap at BULK_PER_DOMAIN_TIMEOUT.
         try:
             report = await asyncio.wait_for(
-                run_in_threadpool(full_domain_report, domain, client_ip=client_ip, tier=tier),
+                full_domain_report(domain, client_ip=client_ip, tier=tier),
                 timeout=BULK_PER_DOMAIN_TIMEOUT,
             )
         except (asyncio.TimeoutError, TimeoutError):
@@ -2775,10 +2773,10 @@ async def threat_report(
     if is_private_ip(ip):
         raise HTTPException(status_code=400, detail="Private/reserved IP addresses are not allowed")
 
-    enrich_task = asyncio.create_task(run_in_threadpool(ip_enrichment, ip))
+    enrich_task = asyncio.create_task(ip_enrichment(ip))
     if auth.tier == "pro":
-        abuse_task = asyncio.create_task(run_in_threadpool(check_abuseipdb, ip))
-        shodan_task = asyncio.create_task(run_in_threadpool(check_shodan, ip))
+        abuse_task = asyncio.create_task(check_abuseipdb(ip))
+        shodan_task = asyncio.create_task(check_shodan(ip))
     else:
         abuse_task = None
         shodan_task = None

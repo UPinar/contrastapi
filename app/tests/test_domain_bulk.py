@@ -1,5 +1,6 @@
 """Tests for SSL certificate, bulk domain report, ASN lookup, and response model filtering."""
 
+import asyncio
 import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -322,7 +323,7 @@ class TestBulkDomainReport:
 
     @patch("db.save_cached_domain")
     @patch("db.get_cached_domain", return_value=None)
-    @patch("domain.routes.full_domain_report")
+    @patch("domain.routes.full_domain_report", new_callable=AsyncMock)
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     def test_bulk_valid(self, mock_validate, mock_report, mock_cache_get, mock_cache_save):
         mock_report.return_value = dict(self._MOCK_REPORT)
@@ -350,7 +351,7 @@ class TestBulkDomainReport:
 
     @patch("db.save_cached_domain")
     @patch("db.get_cached_domain", return_value=None)
-    @patch("domain.routes.full_domain_report")
+    @patch("domain.routes.full_domain_report", new_callable=AsyncMock)
     @patch("domain.routes.validate_domain")
     def test_bulk_partial_failure(self, mock_validate, mock_report, mock_cache_get, mock_cache_save):
         """One valid domain, one invalid → partial success."""
@@ -393,7 +394,7 @@ class TestBulkDomainReport:
 
     @patch("db.save_cached_domain")
     @patch("db.get_cached_domain", return_value=None)
-    @patch("domain.routes.full_domain_report")
+    @patch("domain.routes.full_domain_report", new_callable=AsyncMock)
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     def test_bulk_deduplicates_domains(self, mock_validate, mock_report, mock_cache_get, mock_cache_save):
         """Duplicate domains should be deduplicated — only unique ones processed."""
@@ -410,6 +411,7 @@ class TestBulkDomainReport:
     @patch(
         "domain.routes.full_domain_report",
         side_effect=RuntimeError("/opt/contrastapi/app/domain/recon.py line 42: connection pool exhausted"),
+        new_callable=AsyncMock,
     )
     @patch("domain.routes.validate_domain", return_value="1.2.3.4")
     def test_bulk_error_sanitized(self, mock_validate, mock_report, mock_cache_get, mock_cache_save):
@@ -425,7 +427,7 @@ class TestBulkDomainReport:
 
     @patch("db.save_cached_domain")
     @patch("db.get_cached_domain", return_value=None)
-    @patch("domain.routes.full_domain_report")
+    @patch("domain.routes.full_domain_report", new_callable=AsyncMock)
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     @patch("auth.aauthenticate", new_callable=AsyncMock, return_value=_AUTH_PRO)
     def test_bulk_pro_allows_up_to_50(self, mock_auth, mock_validate, mock_report, mock_cache_get, mock_cache_save):
@@ -451,7 +453,7 @@ class TestBulkDomainReport:
 
     @patch("db.save_cached_domain")
     @patch("db.get_cached_domain", return_value=None)
-    @patch("domain.routes.full_domain_report")
+    @patch("domain.routes.full_domain_report", new_callable=AsyncMock)
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     @patch("auth.aauthenticate", new_callable=AsyncMock, return_value=_AUTH_FREE)
     def test_bulk_free_allows_exactly_10(self, mock_auth, mock_validate, mock_report, mock_cache_get, mock_cache_save):
@@ -462,7 +464,7 @@ class TestBulkDomainReport:
 
     @patch("db.save_cached_domain")
     @patch("db.get_cached_domain", return_value=None)
-    @patch("domain.routes.full_domain_report")
+    @patch("domain.routes.full_domain_report", new_callable=AsyncMock)
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     @patch("auth.aauthenticate", new_callable=AsyncMock, return_value=_AUTH_PRO)
     def test_bulk_pro_20_domains_success(self, mock_auth, mock_validate, mock_report, mock_cache_get, mock_cache_save):
@@ -477,14 +479,13 @@ class TestBulkDomainReport:
 
     @patch("db.save_cached_domain")
     @patch("db.get_cached_domain", return_value=None)
-    @patch("domain.routes.full_domain_report")
+    @patch("domain.routes.full_domain_report", new_callable=AsyncMock)
     @patch("domain.routes.validate_domain", return_value="1.2.3.4")
     def test_bulk_per_domain_timeout(self, mock_validate, mock_report, mock_cache_get, mock_cache_save):
         """Per-domain timeout returns timed_out count."""
-        import time
 
-        def slow_report(*args, **kwargs):
-            time.sleep(5)
+        async def slow_report(*args, **kwargs):
+            await asyncio.sleep(5)
             return dict(self._MOCK_REPORT)
 
         mock_report.side_effect = slow_report
@@ -498,14 +499,13 @@ class TestBulkDomainReport:
 
     @patch("db.save_cached_domain")
     @patch("db.get_cached_domain", return_value=None)
-    @patch("domain.routes.full_domain_report")
+    @patch("domain.routes.full_domain_report", new_callable=AsyncMock)
     @patch("domain.routes.validate_domain", return_value="1.2.3.4")
     def test_bulk_overall_timeout_partial(self, mock_validate, mock_report, mock_cache_get, mock_cache_save):
         """Overall timeout triggers partial results for remaining domains."""
-        import time
 
-        def slow_report(*args, **kwargs):
-            time.sleep(5)  # all domains block past overall timeout
+        async def slow_report(*args, **kwargs):
+            await asyncio.sleep(5)  # all domains block past overall timeout
             return dict(self._MOCK_REPORT)
 
         mock_report.side_effect = slow_report
@@ -519,7 +519,7 @@ class TestBulkDomainReport:
 
     @patch("db.save_cached_domain")
     @patch("db.get_cached_domain", return_value=None)
-    @patch("domain.routes.full_domain_report")
+    @patch("domain.routes.full_domain_report", new_callable=AsyncMock)
     @patch("domain.routes.validate_domain", return_value="1.2.3.4")
     def test_bulk_response_has_timeout_fields(self, mock_validate, mock_report, mock_cache_get, mock_cache_save):
         """Successful bulk response includes timed_out=0 and partial=False."""
@@ -547,7 +547,7 @@ class TestBulkDomainReport:
 
     @patch("db.save_cached_domain")
     @patch("db.get_cached_domain", return_value=None)
-    @patch("domain.routes.full_domain_report")
+    @patch("domain.routes.full_domain_report", new_callable=AsyncMock)
     @patch("domain.routes.validate_domain", return_value="1.2.3.4")
     def test_bulk_semaphore_released_on_error(self, mock_validate, mock_report, mock_cache_get, mock_cache_save):
         """Semaphore is released even if domain processing raises."""
@@ -1219,6 +1219,7 @@ class TestResponseModelFiltering:
     @patch(
         "domain.routes.enumerate_subdomains",
         return_value={"subdomains": ["www.example.com"], "count": 1},
+        new_callable=AsyncMock,
     )
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     def test_subdomains_exclude_none(self, mock_validate, mock_subs, mock_cache):
@@ -1231,6 +1232,7 @@ class TestResponseModelFiltering:
     @patch(
         "domain.routes.enumerate_subdomains",
         return_value={"subdomains": ["www.example.com"], "count": 1, "_debug_internal": "secret"},
+        new_callable=AsyncMock,
     )
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     def test_subdomains_extra_ignored(self, mock_validate, mock_subs, mock_cache):
@@ -1241,7 +1243,7 @@ class TestResponseModelFiltering:
 
     # --- certs: exclude_none ---
     @patch("domain.routes._from_cache", return_value=None)
-    @patch("domain.routes.check_ct_logs", return_value=MOCK_CT_RESULT)
+    @patch("domain.routes.check_ct_logs", return_value=MOCK_CT_RESULT, new_callable=AsyncMock)
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     def test_certs_exclude_none(self, mock_validate, mock_ct, mock_cache):
         r = client.get("/v1/certs/example.com")
@@ -1253,6 +1255,7 @@ class TestResponseModelFiltering:
     @patch(
         "domain.routes.check_ct_logs",
         return_value={**MOCK_CT_RESULT, "_raw_response": {"leaked": True}},
+        new_callable=AsyncMock,
     )
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     def test_certs_extra_ignored(self, mock_validate, mock_ct, mock_cache):
@@ -1275,6 +1278,7 @@ class TestResponseModelFiltering:
     @patch(
         "domain.routes.enumerate_subdomains",
         return_value={"subdomains": ["www.example.com"], "count": 1},
+        new_callable=AsyncMock,
     )
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     def test_subdomains_response_shape(self, mock_validate, mock_subs, mock_cache):
@@ -1294,7 +1298,7 @@ class TestResponseModelFiltering:
         }
 
     @patch("domain.routes._from_cache", return_value=None)
-    @patch("domain.routes.check_ct_logs", return_value=MOCK_CT_RESULT)
+    @patch("domain.routes.check_ct_logs", return_value=MOCK_CT_RESULT, new_callable=AsyncMock)
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     def test_certs_response_shape(self, mock_validate, mock_ct, mock_cache):
         r = client.get("/v1/certs/example.com")
@@ -1321,7 +1325,7 @@ class TestAuditDomain:
     @patch("domain.recon.fetch_live_headers")
     @patch("db.save_cached_domain")
     @patch("db.get_cached_domain", return_value=None)
-    @patch("domain.routes.full_domain_report")
+    @patch("domain.routes.full_domain_report", new_callable=AsyncMock)
     @patch("domain.routes.clean_domain", return_value="example.com")
     def test_audit_success(self, mock_clean, mock_report, mock_get, mock_save, mock_live, mock_tech):
         mock_report.return_value = dict(self._MOCK_REPORT)
@@ -1350,7 +1354,7 @@ class TestAuditDomain:
     @patch("domain.recon.fetch_live_headers", side_effect=RuntimeError("connection refused"))
     @patch("db.save_cached_domain")
     @patch("db.get_cached_domain", return_value=None)
-    @patch("domain.routes.full_domain_report")
+    @patch("domain.routes.full_domain_report", new_callable=AsyncMock)
     @patch("domain.routes.clean_domain", return_value="example.com")
     def test_audit_live_headers_failure(self, mock_clean, mock_report, mock_get, mock_save, mock_live, mock_tech):
         """fetch_live_headers exception must NOT crash audit - returns empty headers/tech."""
@@ -1383,7 +1387,7 @@ class TestAuditDomain:
     @patch("domain.recon.fetch_live_headers")
     @patch("db.save_cached_domain")
     @patch("db.get_cached_domain", return_value=None)
-    @patch("domain.routes.full_domain_report")
+    @patch("domain.routes.full_domain_report", new_callable=AsyncMock)
     @patch("domain.routes.clean_domain", return_value="example.com")
     def test_audit_next_calls_subdomain_and_ssl(
         self, mock_clean, mock_report, mock_get, mock_save, mock_live, mock_tech
@@ -1409,9 +1413,9 @@ class TestThreatReport:
 
     @patch("auth.aauthenticate", new_callable=AsyncMock, return_value=_AUTH_PRO)
     @patch("domain.routes._ripe_client")
-    @patch("domain.routes.check_shodan")
-    @patch("domain.routes.check_abuseipdb")
-    @patch("domain.routes.ip_enrichment")
+    @patch("domain.routes.check_shodan", new_callable=AsyncMock)
+    @patch("domain.routes.check_abuseipdb", new_callable=AsyncMock)
+    @patch("domain.routes.ip_enrichment", new_callable=AsyncMock)
     @patch(
         "domain.routes._fetch_asn_country",
         return_value={"asn": 15169, "asn_name": "GOOGLE", "country": "US", "failed": False},
@@ -1478,9 +1482,9 @@ class TestThreatReport:
 
     @patch("auth.aauthenticate", new_callable=AsyncMock, return_value=_AUTH_PRO)
     @patch("domain.routes._ripe_client")
-    @patch("domain.routes.check_shodan", side_effect=RuntimeError("upstream down"))
-    @patch("domain.routes.check_abuseipdb")
-    @patch("domain.routes.ip_enrichment")
+    @patch("domain.routes.check_shodan", side_effect=RuntimeError("upstream down"), new_callable=AsyncMock)
+    @patch("domain.routes.check_abuseipdb", new_callable=AsyncMock)
+    @patch("domain.routes.ip_enrichment", new_callable=AsyncMock)
     def test_threat_report_partial_failure(self, mock_enrich, mock_abuse, mock_shodan, mock_ripe, mock_auth):
         """Shodan failure should not crash endpoint - returns error dict."""
         mock_enrich.return_value = {"ports": [], "hostnames": [], "vulns": [], "cpes": [], "tags": []}
@@ -1498,9 +1502,9 @@ class TestThreatReport:
         assert data["threat_level"] == "high"
 
     @patch("domain.routes._ripe_client")
-    @patch("domain.routes.check_shodan")
-    @patch("domain.routes.check_abuseipdb")
-    @patch("domain.routes.ip_enrichment")
+    @patch("domain.routes.check_shodan", new_callable=AsyncMock)
+    @patch("domain.routes.check_abuseipdb", new_callable=AsyncMock)
+    @patch("domain.routes.ip_enrichment", new_callable=AsyncMock)
     @patch(
         "domain.routes._fetch_asn_country",
         return_value={"asn": None, "asn_name": "", "country": "", "failed": True},
@@ -1522,9 +1526,10 @@ class TestThreatReport:
     @patch(
         "domain.routes.check_shodan",
         side_effect=RuntimeError("/opt/contrastapi/app/domain/reputation.py line 73: connection refused"),
+        new_callable=AsyncMock,
     )
-    @patch("domain.routes.check_abuseipdb")
-    @patch("domain.routes.ip_enrichment")
+    @patch("domain.routes.check_abuseipdb", new_callable=AsyncMock)
+    @patch("domain.routes.ip_enrichment", new_callable=AsyncMock)
     def test_threat_report_no_exception_leakage(self, mock_enrich, mock_abuse, mock_shodan, mock_ripe):
         """Internal error details (paths, exception messages) must NOT leak in response."""
         mock_enrich.return_value = {"ports": [], "hostnames": [], "vulns": [], "cpes": [], "tags": []}
@@ -1560,7 +1565,7 @@ class TestAuditDomainEdgeCases:
     @patch("domain.recon.fetch_live_headers")
     @patch("db.save_cached_domain")
     @patch("db.get_cached_domain", return_value=None)
-    @patch("domain.routes.full_domain_report")
+    @patch("domain.routes.full_domain_report", new_callable=AsyncMock)
     @patch("domain.routes.clean_domain", return_value="example.com")
     def test_audit_empty_headers(self, mock_clean, mock_report, mock_get, mock_save, mock_live, mock_tech):
         """When fetch_live_headers returns empty headers, tech detection is skipped."""
@@ -1578,7 +1583,7 @@ class TestAuditDomainEdgeCases:
     @patch("domain.recon.fetch_live_headers")
     @patch("db.save_cached_domain")
     @patch("db.get_cached_domain", return_value=None)
-    @patch("domain.routes.full_domain_report")
+    @patch("domain.routes.full_domain_report", new_callable=AsyncMock)
     @patch("domain.routes.clean_domain", return_value="example.com")
     def test_audit_malformed_live_headers(self, mock_clean, mock_report, mock_get, mock_save, mock_live, mock_tech):
         """When fetch_live_headers returns a non-dict 'headers' field, audit must not crash."""

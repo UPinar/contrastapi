@@ -144,23 +144,30 @@ async def lifespan(app):
     from ioc.password import _client as password_client
     from ioc.routes import _phish_client
 
-    # Sync httpx.Client — pending Faz 4g migration to AsyncClient
+    # Sync httpx.Client — remaining Faz 4g/4 scope (_ssrf_http via routes, _ripe_client, cve.sync)
     for c in (
-        rep_client,
-        threat_client,
-        recon_client,
         sync_client,
         _ripe_client,
     ):
         try:
             c.close()
-        except Exception:
+        except BaseException:
             pass
-    # AsyncClient — must use aclose() to release the underlying HTTP/2 transport
-    for ac in (_exploit_client, _phish_client, ioc_client, password_client):
+    # AsyncClient — must use aclose() to release the underlying HTTP/2 transport.
+    # Catch BaseException so a CancelledError mid-shutdown does not leak the
+    # remaining clients' connections (CancelledError is not Exception in 3.8+).
+    for ac in (
+        _exploit_client,
+        _phish_client,
+        ioc_client,
+        password_client,
+        recon_client,
+        threat_client,
+        rep_client,
+    ):
         try:
             await ac.aclose()
-        except Exception:
+        except BaseException:
             pass
     # Close thread-local DB connections
     from db import close_thread_connections
