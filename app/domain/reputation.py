@@ -4,11 +4,10 @@ import logging
 
 import httpx
 from config import (
-    ABUSEIPDB_API_KEY,
     ABUSEIPDB_API_URL,
     RECON_TIMEOUT,
-    SHODAN_API_KEY,
     SHODAN_API_URL,
+    settings,
 )
 from db import get_cached_ip, save_cached_ip
 
@@ -23,7 +22,7 @@ _client = httpx.Client(
 
 def check_abuseipdb(ip: str) -> dict:
     """Check IP against AbuseIPDB."""
-    if not ABUSEIPDB_API_KEY:
+    if not settings.abuseipdb_api_key:
         return {"status": "skipped", "reason": "no API key"}
     cache_key = f"abuseipdb:{ip}"
     cached = get_cached_ip(cache_key)
@@ -33,7 +32,7 @@ def check_abuseipdb(ip: str) -> dict:
         resp = _client.get(
             f"{ABUSEIPDB_API_URL}",
             params={"ipAddress": ip, "maxAgeInDays": "90"},
-            headers={"Key": ABUSEIPDB_API_KEY},
+            headers={"Key": settings.abuseipdb_api_key},
         )
         if resp.status_code == 429:
             return {"status": "rate_limited", "reason": "AbuseIPDB API rate limit exceeded"}
@@ -61,7 +60,7 @@ def check_abuseipdb(ip: str) -> dict:
 
 def check_shodan(ip: str) -> dict:
     """Check IP against Shodan full API (more detail than InternetDB)."""
-    if not SHODAN_API_KEY:
+    if not settings.shodan_api_key:
         return {"status": "skipped", "reason": "no API key"}
     cache_key = f"shodan:{ip}"
     cached = get_cached_ip(cache_key)
@@ -70,7 +69,7 @@ def check_shodan(ip: str) -> dict:
     try:
         resp = _client.get(
             f"{SHODAN_API_URL}/{ip}",
-            params={"key": SHODAN_API_KEY},
+            params={"key": settings.shodan_api_key},
         )
         if resp.status_code == 403:
             return {"status": "restricted", "reason": "IP not available on free tier"}

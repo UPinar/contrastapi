@@ -13,11 +13,10 @@ from __future__ import annotations
 
 import datetime
 import logging
-import os
 import time
 
 import tldextract
-from config import TARGET_THROTTLE_DAILY_ALERT, TARGET_THROTTLE_PER_MIN
+from config import TARGET_THROTTLE_DAILY_ALERT, TARGET_THROTTLE_PER_MIN, settings
 from db import get_api_db
 from ratelimit import check_limit_with_count, get_reset_time
 
@@ -83,7 +82,7 @@ def consume_target_throttle(host: str) -> tuple[bool, int]:
     Disabled when env TARGET_THROTTLE_DISABLED=1 (kill-switch for false-positive
     incidents — leaves the throttle layer logically present but pass-through).
     """
-    if os.environ.get("TARGET_THROTTLE_DISABLED") == "1":
+    if settings.target_throttle_disabled:
         return True, 0
 
     e = etld1(host)

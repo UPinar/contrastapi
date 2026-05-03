@@ -774,11 +774,11 @@ class TestCacheKeyVersioning:
         """Saving under domain 'foo.com' must store under 'VERSION:foo.com' in the table."""
         import sqlite3
 
-        from config import CACHE_DB_PATH, VERSION
+        from config import VERSION, settings
         from db import save_cached_domain
 
         save_cached_domain("versioncheck.com", {"x": 1})
-        with sqlite3.connect(CACHE_DB_PATH) as con:
+        with sqlite3.connect(settings.cache_db) as con:
             row = con.execute(
                 "SELECT domain FROM domain_cache WHERE domain = ?",
                 (f"{VERSION}:versioncheck.com",),
@@ -797,10 +797,10 @@ class TestCacheKeyVersioning:
         import sqlite3
         from datetime import UTC, datetime
 
-        from config import CACHE_DB_PATH
+        from config import settings
         from db import get_cached_domain
 
-        with sqlite3.connect(CACHE_DB_PATH) as con:
+        with sqlite3.connect(settings.cache_db) as con:
             con.execute(
                 "INSERT OR REPLACE INTO domain_cache (domain, result_json, fetched_at) VALUES (?, ?, ?)",
                 ("legacy.com", '{"old_shape": true}', datetime.now(UTC).isoformat()),
@@ -811,11 +811,11 @@ class TestCacheKeyVersioning:
     def test_ip_cache_versioned_under_the_hood(self):
         import sqlite3
 
-        from config import CACHE_DB_PATH, VERSION
+        from config import VERSION, settings
         from db import save_cached_ip
 
         save_cached_ip("9.9.9.9", {"x": 1})
-        with sqlite3.connect(CACHE_DB_PATH) as con:
+        with sqlite3.connect(settings.cache_db) as con:
             row = con.execute("SELECT ip FROM ip_cache WHERE ip = ?", (f"{VERSION}:9.9.9.9",)).fetchone()
             assert row is not None
             assert row[0] == f"{VERSION}:9.9.9.9"

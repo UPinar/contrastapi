@@ -3053,7 +3053,7 @@ def _mock_httpx_response(status_code=200, json_data=None):
 
 class TestReputation:
     @patch("domain.reputation._client")
-    @patch("domain.reputation.ABUSEIPDB_API_KEY", "test-key")
+    @patch("config.settings.abuseipdb_api_key", "test-key")
     def test_abuseipdb_success(self, mock_client):
         from domain.reputation import check_abuseipdb
 
@@ -3078,7 +3078,7 @@ class TestReputation:
         assert result["isp"] == "Test ISP"
         assert result["is_tor"] is False
 
-    @patch("domain.reputation.ABUSEIPDB_API_KEY", "")
+    @patch("config.settings.abuseipdb_api_key", "")
     def test_abuseipdb_no_key(self):
         from domain.reputation import check_abuseipdb
 
@@ -3086,7 +3086,7 @@ class TestReputation:
         assert result["status"] == "skipped"
 
     @patch("domain.reputation._client")
-    @patch("domain.reputation.ABUSEIPDB_API_KEY", "test-key")
+    @patch("config.settings.abuseipdb_api_key", "test-key")
     def test_abuseipdb_error(self, mock_client):
         from domain.reputation import check_abuseipdb
 
@@ -3095,7 +3095,7 @@ class TestReputation:
         assert result["status"] == "error"
 
     @patch("domain.reputation._client")
-    @patch("domain.reputation.SHODAN_API_KEY", "test-key")
+    @patch("config.settings.shodan_api_key", "test-key")
     def test_shodan_success(self, mock_client):
         from domain.reputation import check_shodan
 
@@ -3121,7 +3121,7 @@ class TestReputation:
         assert "CVE-2024-1111" in result["vulns"]
         assert result["hostnames"] == ["example.com"]
 
-    @patch("domain.reputation.SHODAN_API_KEY", "")
+    @patch("config.settings.shodan_api_key", "")
     def test_shodan_no_key(self):
         from domain.reputation import check_shodan
 
@@ -3129,7 +3129,7 @@ class TestReputation:
         assert result["status"] == "skipped"
 
     @patch("domain.reputation._client")
-    @patch("domain.reputation.SHODAN_API_KEY", "test-key")
+    @patch("config.settings.shodan_api_key", "test-key")
     def test_shodan_403(self, mock_client):
         from domain.reputation import check_shodan
 
@@ -3138,7 +3138,7 @@ class TestReputation:
         assert result["status"] == "restricted"
 
     @patch("domain.reputation._client")
-    @patch("domain.reputation.SHODAN_API_KEY", "test-key")
+    @patch("config.settings.shodan_api_key", "test-key")
     def test_shodan_error(self, mock_client):
         from domain.reputation import check_shodan
 
@@ -4221,7 +4221,7 @@ class TestReputationRateLimit:
     """Test HTTP 429 rate limit handling."""
 
     @patch("domain.reputation._client")
-    @patch("domain.reputation.ABUSEIPDB_API_KEY", "test-key")
+    @patch("config.settings.abuseipdb_api_key", "test-key")
     def test_abuseipdb_429(self, mock_client):
         from domain.reputation import check_abuseipdb
 
@@ -4230,7 +4230,7 @@ class TestReputationRateLimit:
         assert result["status"] == "rate_limited"
 
     @patch("domain.reputation._client")
-    @patch("domain.reputation.SHODAN_API_KEY", "test-key")
+    @patch("config.settings.shodan_api_key", "test-key")
     def test_shodan_429(self, mock_client):
         from domain.reputation import check_shodan
 

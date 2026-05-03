@@ -10,7 +10,7 @@ Replaces the previous in-memory limiter which:
 
 import time
 
-from config import API_DB_PATH
+from config import settings
 from db import _get_conn, get_api_db
 
 
@@ -108,7 +108,7 @@ def consume_bulk(store_name: str, key: str, count: int, max_requests: int, windo
     cutoff = now - window_seconds
     full_key = f"{store_name}:{key}"
 
-    con = _get_conn(str(API_DB_PATH))
+    con = _get_conn(str(settings.api_db))
     try:
         con.execute("BEGIN IMMEDIATE")
         con.execute("DELETE FROM rate_limits WHERE key = ? AND ts <= ?", (full_key, cutoff))
@@ -148,7 +148,7 @@ def consume_credits(
     cutoff = now - window_seconds
     full_key = f"{store_name}:{key}"
 
-    con = _get_conn(str(API_DB_PATH))
+    con = _get_conn(str(settings.api_db))
     try:
         con.execute("BEGIN IMMEDIATE")
         con.execute("DELETE FROM rate_limits WHERE key = ? AND ts <= ?", (full_key, cutoff))

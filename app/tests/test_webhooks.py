@@ -72,7 +72,7 @@ def client():
 
 def test_webhook_invalid_signature_403(client):
     payload = _make_payload("order_created", {"id": "order_1"})
-    with patch("webhooks.LEMONSQUEEZY_WEBHOOK_SECRET", WEBHOOK_SECRET):
+    with patch("config.settings.lemonsqueezy_webhook_secret", WEBHOOK_SECRET):
         resp = client.post(
             "/webhooks/lemonsqueezy",
             content=payload,
@@ -83,7 +83,7 @@ def test_webhook_invalid_signature_403(client):
 
 def test_webhook_missing_signature_403(client):
     payload = _make_payload("order_created", {"id": "order_1"})
-    with patch("webhooks.LEMONSQUEEZY_WEBHOOK_SECRET", WEBHOOK_SECRET):
+    with patch("config.settings.lemonsqueezy_webhook_secret", WEBHOOK_SECRET):
         resp = client.post("/webhooks/lemonsqueezy", content=payload)
     assert resp.status_code == 403
 
@@ -91,7 +91,7 @@ def test_webhook_missing_signature_403(client):
 def test_webhook_order_created_provisions_key(client):
     payload = _make_payload("order_created", {"id": "order_100"}, event_id="evt_100")
     sig = _sign(payload)
-    with patch("webhooks.LEMONSQUEEZY_WEBHOOK_SECRET", WEBHOOK_SECRET):
+    with patch("config.settings.lemonsqueezy_webhook_secret", WEBHOOK_SECRET):
         resp = client.post(
             "/webhooks/lemonsqueezy",
             content=payload,
@@ -118,7 +118,7 @@ def test_webhook_duplicate_order_idempotent(client):
     sig1 = _sign(payload1)
     payload2 = _make_payload("order_created", {"id": "order_dup"}, event_id="evt_dup_2")
     sig2 = _sign(payload2)
-    with patch("webhooks.LEMONSQUEEZY_WEBHOOK_SECRET", WEBHOOK_SECRET):
+    with patch("config.settings.lemonsqueezy_webhook_secret", WEBHOOK_SECRET):
         resp1 = client.post(
             "/webhooks/lemonsqueezy",
             content=payload1,
@@ -145,7 +145,7 @@ def test_webhook_subscription_cancelled_deactivates(client):
     # First create a key via order_created
     payload_create = _make_payload("order_created", {"id": "order_cancel"}, event_id="evt_cancel_1")
     sig_create = _sign(payload_create)
-    with patch("webhooks.LEMONSQUEEZY_WEBHOOK_SECRET", WEBHOOK_SECRET):
+    with patch("config.settings.lemonsqueezy_webhook_secret", WEBHOOK_SECRET):
         resp = client.post(
             "/webhooks/lemonsqueezy",
             content=payload_create,
@@ -161,7 +161,7 @@ def test_webhook_subscription_cancelled_deactivates(client):
         event_id="evt_cancel_2",
     )
     sig_cancel = _sign(payload_cancel)
-    with patch("webhooks.LEMONSQUEEZY_WEBHOOK_SECRET", WEBHOOK_SECRET):
+    with patch("config.settings.lemonsqueezy_webhook_secret", WEBHOOK_SECRET):
         resp = client.post(
             "/webhooks/lemonsqueezy",
             content=payload_cancel,
@@ -183,7 +183,7 @@ def test_webhook_subscription_expired_deactivates(client):
     # Create key
     payload_create = _make_payload("order_created", {"id": "order_expire"}, event_id="evt_expire_1")
     sig_create = _sign(payload_create)
-    with patch("webhooks.LEMONSQUEEZY_WEBHOOK_SECRET", WEBHOOK_SECRET):
+    with patch("config.settings.lemonsqueezy_webhook_secret", WEBHOOK_SECRET):
         resp = client.post(
             "/webhooks/lemonsqueezy",
             content=payload_create,
@@ -198,7 +198,7 @@ def test_webhook_subscription_expired_deactivates(client):
         event_id="evt_expire_2",
     )
     sig_expire = _sign(payload_expire)
-    with patch("webhooks.LEMONSQUEEZY_WEBHOOK_SECRET", WEBHOOK_SECRET):
+    with patch("config.settings.lemonsqueezy_webhook_secret", WEBHOOK_SECRET):
         resp = client.post(
             "/webhooks/lemonsqueezy",
             content=payload_expire,
@@ -211,7 +211,7 @@ def test_webhook_subscription_expired_deactivates(client):
 def test_webhook_unknown_event_ignored(client):
     payload = _make_payload("subscription_payment_success", {"id": "pay_1"}, event_id="evt_unk")
     sig = _sign(payload)
-    with patch("webhooks.LEMONSQUEEZY_WEBHOOK_SECRET", WEBHOOK_SECRET):
+    with patch("config.settings.lemonsqueezy_webhook_secret", WEBHOOK_SECRET):
         resp = client.post(
             "/webhooks/lemonsqueezy",
             content=payload,
@@ -225,7 +225,7 @@ def test_webhook_replay_protection(client):
     """Same event_id sent twice should return already_processed on second call."""
     payload = _make_payload("order_created", {"id": "order_replay"}, event_id="evt_replay_same")
     sig = _sign(payload)
-    with patch("webhooks.LEMONSQUEEZY_WEBHOOK_SECRET", WEBHOOK_SECRET):
+    with patch("config.settings.lemonsqueezy_webhook_secret", WEBHOOK_SECRET):
         resp1 = client.post(
             "/webhooks/lemonsqueezy",
             content=payload,
@@ -246,7 +246,7 @@ def test_webhook_replay_protection(client):
 def test_webhook_missing_order_id_400(client):
     payload = _make_payload("order_created", {}, event_id="evt_no_order")
     sig = _sign(payload)
-    with patch("webhooks.LEMONSQUEEZY_WEBHOOK_SECRET", WEBHOOK_SECRET):
+    with patch("config.settings.lemonsqueezy_webhook_secret", WEBHOOK_SECRET):
         resp = client.post(
             "/webhooks/lemonsqueezy",
             content=payload,
@@ -258,7 +258,7 @@ def test_webhook_missing_order_id_400(client):
 def test_webhook_invalid_json_400(client):
     payload = b"not json"
     sig = _sign(payload)
-    with patch("webhooks.LEMONSQUEEZY_WEBHOOK_SECRET", WEBHOOK_SECRET):
+    with patch("config.settings.lemonsqueezy_webhook_secret", WEBHOOK_SECRET):
         resp = client.post(
             "/webhooks/lemonsqueezy",
             content=payload,
@@ -273,7 +273,7 @@ def test_webhook_cancel_nonexistent_order(client):
         {"id": "sub_x", "attributes": {"order_id": "order_nonexistent"}},
     )
     sig = _sign(payload)
-    with patch("webhooks.LEMONSQUEEZY_WEBHOOK_SECRET", WEBHOOK_SECRET):
+    with patch("config.settings.lemonsqueezy_webhook_secret", WEBHOOK_SECRET):
         resp = client.post(
             "/webhooks/lemonsqueezy",
             content=payload,
@@ -337,7 +337,7 @@ def test_welcome_shows_key_after_purchase(client):
     """POST order_created webhook, then GET /welcome shows the API key."""
     payload = _make_payload("order_created", {"id": _UUID_WELCOME}, event_id="evt_welcome_1")
     sig = _sign(payload)
-    with patch("webhooks.LEMONSQUEEZY_WEBHOOK_SECRET", WEBHOOK_SECRET):
+    with patch("config.settings.lemonsqueezy_webhook_secret", WEBHOOK_SECRET):
         resp = client.post(
             "/webhooks/lemonsqueezy",
             content=payload,
@@ -356,7 +356,7 @@ def test_welcome_key_cleared_after_first_view(client):
     """Second GET /welcome for the same order shows 'already claimed'."""
     payload = _make_payload("order_created", {"id": _UUID_ONCE}, event_id="evt_once_1")
     sig = _sign(payload)
-    with patch("webhooks.LEMONSQUEEZY_WEBHOOK_SECRET", WEBHOOK_SECRET):
+    with patch("config.settings.lemonsqueezy_webhook_secret", WEBHOOK_SECRET):
         client.post(
             "/webhooks/lemonsqueezy",
             content=payload,
@@ -413,7 +413,7 @@ def test_check_key_ready_after_webhook(client):
     """check-key returns ready=true when pending key exists."""
     payload = _make_payload("order_created", {"id": _UUID_CHECK}, event_id="evt_check_1")
     sig = _sign(payload)
-    with patch("webhooks.LEMONSQUEEZY_WEBHOOK_SECRET", WEBHOOK_SECRET):
+    with patch("config.settings.lemonsqueezy_webhook_secret", WEBHOOK_SECRET):
         client.post("/webhooks/lemonsqueezy", content=payload, headers={"x-signature": sig})
 
     resp = client.get("/api/check-key", params={"order_id": _UUID_CHECK})
@@ -465,7 +465,7 @@ def test_cleanup_expired_pending_keys(client):
     # Create a key via webhook
     payload = _make_payload("order_created", {"id": _UUID_CLEANUP}, event_id="evt_cleanup_1")
     sig = _sign(payload)
-    with patch("webhooks.LEMONSQUEEZY_WEBHOOK_SECRET", WEBHOOK_SECRET):
+    with patch("config.settings.lemonsqueezy_webhook_secret", WEBHOOK_SECRET):
         client.post("/webhooks/lemonsqueezy", content=payload, headers={"x-signature": sig})
 
     assert has_pending_key(_UUID_CLEANUP) is True

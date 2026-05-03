@@ -3,13 +3,13 @@
 import logging
 
 import httpx
-from config import RECON_TIMEOUT, URLHAUS_API_KEY, URLHAUS_API_URL
+from config import RECON_TIMEOUT, URLHAUS_API_URL, settings
 
 logger = logging.getLogger("contrastapi")
 
 _client = httpx.Client(
     timeout=httpx.Timeout(RECON_TIMEOUT, connect=5.0),
-    headers={"Auth-Key": URLHAUS_API_KEY} if URLHAUS_API_KEY else {},
+    headers={"Auth-Key": settings.urlhaus_api_key} if settings.urlhaus_api_key else {},
     follow_redirects=False,
 )
 

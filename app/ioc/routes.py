@@ -10,7 +10,7 @@ from urllib.parse import urlparse
 
 import httpx
 from auth import authenticate
-from config import URLHAUS_API_KEY
+from config import settings
 from db import get_cached_domain, save_cached_domain
 from domain.ip_intel import check_tor_exit, tor_cache_status
 from domain.recon import _dns_call_with_timeout
@@ -29,7 +29,7 @@ from validation import is_private_ip, is_valid_ip
 
 logger = logging.getLogger("contrastapi")
 
-_phish_headers = {"Auth-Key": URLHAUS_API_KEY} if URLHAUS_API_KEY else {}
+_phish_headers = {"Auth-Key": settings.urlhaus_api_key} if settings.urlhaus_api_key else {}
 _phish_client = httpx.Client(timeout=httpx.Timeout(5.0, connect=3.0), follow_redirects=False, headers=_phish_headers)
 
 router = APIRouter(prefix="/v1", tags=["Threat Intelligence"])

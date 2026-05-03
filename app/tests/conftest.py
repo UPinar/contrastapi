@@ -1,6 +1,5 @@
 """Shared test fixtures for ContrastAPI."""
 
-import importlib
 import os
 
 import pytest
@@ -23,7 +22,16 @@ def pytest_configure(config):
 
 @pytest.fixture(scope="session", autouse=True)
 def _session_dbs(tmp_path_factory):
-    """Set DB paths once and reload modules a single time."""
+    """Point the singleton ``settings`` at temp DBs for the whole test session.
+
+    Mutating the existing instance (instead of ``importlib.reload(config)``)
+    keeps every module's ``from config import settings`` reference identical
+    to ``config.settings`` — reloading orphans those references and
+    ``patch("config.settings.X", ...)`` in tests stops affecting modules that
+    captured the old singleton.
+    """
+    from pathlib import Path
+
     db_dir = tmp_path_factory.mktemp("dbs")
     os.environ["TESTING"] = "1"
     os.environ["CONTRASTAPI_DB"] = str(db_dir / "api.db")
@@ -32,12 +40,13 @@ def _session_dbs(tmp_path_factory):
 
     import config
 
-    importlib.reload(config)
-    import db
-    import ratelimit
+    config.settings.api_db = Path(os.environ["CONTRASTAPI_DB"])
+    config.settings.cve_db = Path(os.environ["CONTRASTAPI_CVE_DB"])
+    config.settings.cache_db = Path(os.environ["CONTRASTAPI_CACHE_DB"])
+    config.settings.testing = True
 
-    importlib.reload(db)
-    importlib.reload(ratelimit)
+    import db
+
     db.init_all_dbs()
     yield
     db.close_thread_connections()

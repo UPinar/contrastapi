@@ -28,7 +28,7 @@ from collections import OrderedDict
 from datetime import UTC, datetime, timedelta
 
 from auth import generate_key, hash_key
-from config import NOWPAYMENTS_API_KEY, NOWPAYMENTS_IPN_SECRET, VERSION
+from config import VERSION, settings
 from db import get_key_by_order_id, save_api_key_with_pending
 from fastapi import APIRouter, HTTPException, Request
 from validation import get_client_ip
@@ -50,9 +50,9 @@ ORDER_DESCRIPTION = "ContrastAPI Pro 30-day key"
 # loudly here rather than silently redirecting users somewhere unexpected.
 ALLOWED_INVOICE_URL_PREFIXES = ("https://nowpayments.io/",)
 
-if not NOWPAYMENTS_API_KEY:
+if not settings.nowpayments_api_key:
     logger.warning("NOWPAYMENTS_API_KEY is not set — crypto checkout endpoint will return 503")
-if not NOWPAYMENTS_IPN_SECRET:
+if not settings.nowpayments_ipn_secret:
     logger.warning("NOWPAYMENTS_IPN_SECRET is not set — all IPN webhooks will be rejected")
 
 router = APIRouter(tags=["Billing"])
@@ -141,10 +141,10 @@ async def crypto_checkout(request: Request) -> dict:
 
     Returns the hosted checkout URL the browser should redirect to.
     """
-    if not NOWPAYMENTS_API_KEY:
+    if not settings.nowpayments_api_key:
         raise HTTPException(status_code=503, detail="Crypto payment temporarily unavailable")
     order_id = str(uuid.uuid4())
-    data = _create_nowpayments_invoice(NOWPAYMENTS_API_KEY, order_id)
+    data = _create_nowpayments_invoice(settings.nowpayments_api_key, order_id)
     invoice_id = data.get("id")
     invoice_url = data.get("invoice_url")
     if not invoice_id or not invoice_url:
@@ -168,7 +168,7 @@ async def crypto_ipn(request: Request) -> dict:
     if len(body) > 1_048_576:
         raise HTTPException(status_code=413, detail="Payload too large")
     signature = request.headers.get("x-nowpayments-sig", "")
-    if not verify_ipn_signature(body, signature, NOWPAYMENTS_IPN_SECRET):
+    if not verify_ipn_signature(body, signature, settings.nowpayments_ipn_secret):
         # Logging the (CF-restored) client IP is what enables fail2ban to
         # catch flood/forgery attempts on the public webhook endpoint.
         logger.warning(

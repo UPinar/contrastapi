@@ -21,13 +21,13 @@ from collections import OrderedDict
 from pathlib import Path
 
 from auth import generate_key, hash_key
-from config import LEMONSQUEEZY_WEBHOOK_SECRET
+from config import settings
 from db import deactivate_api_key, get_key_by_order_id, save_api_key, save_pending_key
 from fastapi import APIRouter, HTTPException, Request
 
 logger = logging.getLogger("contrastapi")
 
-if not LEMONSQUEEZY_WEBHOOK_SECRET:
+if not settings.lemonsqueezy_webhook_secret:
     logger.warning("LEMONSQUEEZY_WEBHOOK_SECRET is not set — all webhooks will be rejected")
 
 _TELEGRAM_TOKEN_FILE = Path("/etc/telegram-bot/token")
@@ -106,7 +106,7 @@ async def lemonsqueezy_webhook(request: Request):
         raise HTTPException(status_code=413, detail="Payload too large")
     signature = request.headers.get("x-signature", "")
 
-    if not verify_signature(body, signature, LEMONSQUEEZY_WEBHOOK_SECRET):
+    if not verify_signature(body, signature, settings.lemonsqueezy_webhook_secret):
         logger.warning("Webhook signature verification failed")
         raise HTTPException(status_code=403, detail="Invalid signature")
 

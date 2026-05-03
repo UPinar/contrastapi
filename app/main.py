@@ -17,7 +17,6 @@ Modules:
 import base64
 import hashlib
 import logging
-import os
 import re
 import time
 import uuid
@@ -40,6 +39,7 @@ from config import (
     TEST_COUNT,
     UPGRADE_URL,
     VERSION,
+    settings,
 )
 from db import (
     get_and_clear_pending_key,
@@ -754,7 +754,7 @@ def metrics(request: Request):
     """Prometheus-style metrics endpoint (localhost only)."""
     client_ip = request.client.host if request.client else "unknown"
     allowed = {"127.0.0.1", "::1"}
-    if os.getenv("TESTING"):
+    if settings.testing:
         allowed.add("testclient")
     if client_ip not in allowed:
         raise HTTPException(status_code=403, detail="Metrics only available from localhost")

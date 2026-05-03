@@ -16,14 +16,11 @@ from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 
 from config import (
-    API_DB_PATH,
-    CACHE_DB_PATH,
     CACHE_MAX_BYTES,
-    CVE_DB_PATH,
     DOMAIN_CACHE_TTL,
-    HASH_SECRET,
     IP_CACHE_TTL,
     VERSION,
+    settings,
 )
 
 logger = logging.getLogger("contrastapi")
@@ -68,8 +65,8 @@ def _normalize_product(name: str | None) -> str | None:
 normalize_product = _normalize_product
 
 
-# Resolve HMAC key once at import time (config.py guarantees non-empty fallback)
-_hmac_key = HASH_SECRET.encode()
+# Resolve HMAC key once at import time (settings.hash_secret guarantees non-empty fallback)
+_hmac_key = settings.hash_secret.encode()
 
 _local = threading.local()
 
@@ -92,7 +89,7 @@ def _get_conn(db_path: str) -> sqlite3.Connection:
 @contextmanager
 def get_api_db():
     """Thread-safe connection to api.db"""
-    con = _get_conn(str(API_DB_PATH))
+    con = _get_conn(str(settings.api_db))
     try:
         yield con
         con.commit()
@@ -104,7 +101,7 @@ def get_api_db():
 @contextmanager
 def get_cve_db():
     """Thread-safe connection to cve.db"""
-    con = _get_conn(str(CVE_DB_PATH))
+    con = _get_conn(str(settings.cve_db))
     try:
         yield con
         con.commit()
@@ -116,7 +113,7 @@ def get_cve_db():
 @contextmanager
 def get_cache_db():
     """Thread-safe connection to domain_cache.db"""
-    con = _get_conn(str(CACHE_DB_PATH))
+    con = _get_conn(str(settings.cache_db))
     try:
         yield con
         con.commit()
@@ -496,7 +493,7 @@ def get_and_clear_pending_key(order_id: str) -> str | None:
     BEGIN IMMEDIATE acquires a write lock upfront, preventing concurrent
     readers from seeing the key between SELECT and UPDATE (no TOCTOU window).
     """
-    con = _get_conn(str(API_DB_PATH))
+    con = _get_conn(str(settings.api_db))
     try:
         con.execute("BEGIN IMMEDIATE")
         row = con.execute(

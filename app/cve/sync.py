@@ -33,9 +33,9 @@ from config import (
     GHSA_API_URL,
     KEV_URL,
     MITRE_RELEASES_URL,
-    NVD_API_KEY,
     NVD_API_URL,
     NVD_PAGE_SIZE,
+    settings,
 )
 from db import (
     get_cve,
@@ -59,7 +59,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 log = logging.getLogger("contrastapi")
 
 # NVD rate limits: 5 req/30s without key, 50 req/30s with key
-NVD_DELAY = 0.6 if NVD_API_KEY else 6.0
+NVD_DELAY = 0.6 if settings.nvd_api_key else 6.0
 HTTP_TIMEOUT = 30
 MAX_RETRIES = 3
 USER_AGENT = "ContrastAPI/1.0 (api.contrastcyber.com)"
@@ -95,8 +95,8 @@ _OSV_ECOSYSTEM_VENDOR: dict[str, str] = {
 def _nvd_request(params: dict) -> dict:
     """Make a single NVD API request with retries."""
     headers = {"Accept": "application/json"}
-    if NVD_API_KEY:
-        headers["apiKey"] = NVD_API_KEY
+    if settings.nvd_api_key:
+        headers["apiKey"] = settings.nvd_api_key
 
     for attempt in range(MAX_RETRIES):
         try:

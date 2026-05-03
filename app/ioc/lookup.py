@@ -10,12 +10,12 @@ import threading
 import time
 
 import httpx
-from config import FEODO_MAX_BYTES, FEODO_TTL, URLHAUS_API_KEY
+from config import FEODO_MAX_BYTES, FEODO_TTL, settings
 
 logger = logging.getLogger("contrastapi")
 
 _TIMEOUT = httpx.Timeout(5.0, connect=3.0)
-_auth_headers = {"Auth-Key": URLHAUS_API_KEY} if URLHAUS_API_KEY else {}
+_auth_headers = {"Auth-Key": settings.urlhaus_api_key} if settings.urlhaus_api_key else {}
 _client = httpx.Client(timeout=_TIMEOUT, follow_redirects=False, headers=_auth_headers)
 
 THREATFOX_API = "https://threatfox-api.abuse.ch/api/v1/"

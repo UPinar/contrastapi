@@ -1,6 +1,5 @@
 """Tests for target_throttle.py — per-eTLD+1 web-intel throttle."""
 
-import os
 from unittest.mock import patch
 
 import pytest
@@ -19,9 +18,11 @@ def _reset_stores():
             con.execute("DELETE FROM target_throttle_alerts")
         except Exception:
             pass
-    os.environ.pop("TARGET_THROTTLE_DISABLED", None)
+    from config import settings
+
+    settings.target_throttle_disabled = False
     yield
-    os.environ.pop("TARGET_THROTTLE_DISABLED", None)
+    settings.target_throttle_disabled = False
 
 
 # --- etld1 extraction ---
@@ -132,11 +133,11 @@ def test_different_etlds_have_independent_buckets():
     assert allowed is True
 
 
-def test_disabled_env_bypasses_throttle():
-    from config import TARGET_THROTTLE_PER_MIN
+def test_disabled_kill_switch_bypasses_throttle():
+    from config import TARGET_THROTTLE_PER_MIN, settings
     from target_throttle import consume_target_throttle
 
-    os.environ["TARGET_THROTTLE_DISABLED"] = "1"
+    settings.target_throttle_disabled = True
     for _ in range(TARGET_THROTTLE_PER_MIN * 2):
         allowed, _ = consume_target_throttle("victim.com")
         assert allowed is True

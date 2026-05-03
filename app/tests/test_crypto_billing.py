@@ -103,7 +103,7 @@ def client():
 
 
 def test_checkout_missing_api_key_returns_503(client):
-    with patch("crypto_billing.NOWPAYMENTS_API_KEY", ""):
+    with patch("config.settings.nowpayments_api_key", ""):
         resp = client.post("/v1/billing/crypto/checkout")
     assert resp.status_code == 503
 
@@ -116,7 +116,7 @@ def test_checkout_success_returns_invoice_url(client):
     fake_response.__enter__.return_value = fake_response
     fake_response.__exit__.return_value = False
     with (
-        patch("crypto_billing.NOWPAYMENTS_API_KEY", API_KEY),
+        patch("config.settings.nowpayments_api_key", API_KEY),
         patch("crypto_billing.urllib.request.urlopen", return_value=fake_response) as mock_open,
     ):
         resp = client.post("/v1/billing/crypto/checkout")
@@ -146,7 +146,7 @@ def test_checkout_provider_unreachable_returns_502(client):
     import urllib.error
 
     with (
-        patch("crypto_billing.NOWPAYMENTS_API_KEY", API_KEY),
+        patch("config.settings.nowpayments_api_key", API_KEY),
         patch(
             "crypto_billing.urllib.request.urlopen",
             side_effect=urllib.error.URLError("connection refused"),
@@ -162,7 +162,7 @@ def test_checkout_malformed_provider_response_returns_502(client):
     fake_response.__enter__.return_value = fake_response
     fake_response.__exit__.return_value = False
     with (
-        patch("crypto_billing.NOWPAYMENTS_API_KEY", API_KEY),
+        patch("config.settings.nowpayments_api_key", API_KEY),
         patch("crypto_billing.urllib.request.urlopen", return_value=fake_response),
     ):
         resp = client.post("/v1/billing/crypto/checkout")
@@ -175,7 +175,7 @@ def test_checkout_provider_missing_invoice_url_returns_502(client):
     fake_response.__enter__.return_value = fake_response
     fake_response.__exit__.return_value = False
     with (
-        patch("crypto_billing.NOWPAYMENTS_API_KEY", API_KEY),
+        patch("config.settings.nowpayments_api_key", API_KEY),
         patch("crypto_billing.urllib.request.urlopen", return_value=fake_response),
     ):
         resp = client.post("/v1/billing/crypto/checkout")
@@ -187,7 +187,7 @@ def test_checkout_provider_missing_invoice_url_returns_502(client):
 
 def test_ipn_invalid_signature_returns_403(client):
     body = json.dumps({"invoice_id": "ipn1", "order_id": _uuid(), "payment_status": "finished"}).encode()
-    with patch("crypto_billing.NOWPAYMENTS_IPN_SECRET", IPN_SECRET):
+    with patch("config.settings.nowpayments_ipn_secret", IPN_SECRET):
         resp = client.post(
             "/v1/billing/crypto/webhook",
             content=body,
@@ -198,7 +198,7 @@ def test_ipn_invalid_signature_returns_403(client):
 
 def test_ipn_oversized_body_returns_413(client):
     big = b"x" * 1_048_577
-    with patch("crypto_billing.NOWPAYMENTS_IPN_SECRET", IPN_SECRET):
+    with patch("config.settings.nowpayments_ipn_secret", IPN_SECRET):
         resp = client.post(
             "/v1/billing/crypto/webhook",
             content=big,
@@ -209,7 +209,7 @@ def test_ipn_oversized_body_returns_413(client):
 
 def test_ipn_missing_invoice_id_returns_400(client):
     body, sig = _canonical_sign({"order_id": _uuid(), "payment_status": "finished"})
-    with patch("crypto_billing.NOWPAYMENTS_IPN_SECRET", IPN_SECRET):
+    with patch("config.settings.nowpayments_ipn_secret", IPN_SECRET):
         resp = client.post(
             "/v1/billing/crypto/webhook",
             content=body,
@@ -220,7 +220,7 @@ def test_ipn_missing_invoice_id_returns_400(client):
 
 def test_ipn_missing_order_id_returns_400(client):
     body, sig = _canonical_sign({"invoice_id": "ipn1", "payment_status": "finished"})
-    with patch("crypto_billing.NOWPAYMENTS_IPN_SECRET", IPN_SECRET):
+    with patch("config.settings.nowpayments_ipn_secret", IPN_SECRET):
         resp = client.post(
             "/v1/billing/crypto/webhook",
             content=body,
@@ -234,7 +234,7 @@ def test_ipn_invalid_order_id_format_returns_400(client):
     """A non-UUID order_id (e.g. NOWPayments' numeric invoice_id mistakenly
     echoed) must be rejected — the welcome page validator demands UUIDs."""
     body, sig = _canonical_sign({"invoice_id": "ipn1", "order_id": "5228306332", "payment_status": "finished"})
-    with patch("crypto_billing.NOWPAYMENTS_IPN_SECRET", IPN_SECRET):
+    with patch("config.settings.nowpayments_ipn_secret", IPN_SECRET):
         resp = client.post(
             "/v1/billing/crypto/webhook",
             content=body,
@@ -246,7 +246,7 @@ def test_ipn_invalid_order_id_format_returns_400(client):
 def test_ipn_pending_status_ignored(client):
     order_id = _uuid()
     body, sig = _canonical_sign({"invoice_id": "pending_inv", "order_id": order_id, "payment_status": "pending"})
-    with patch("crypto_billing.NOWPAYMENTS_IPN_SECRET", IPN_SECRET):
+    with patch("config.settings.nowpayments_ipn_secret", IPN_SECRET):
         resp = client.post(
             "/v1/billing/crypto/webhook",
             content=body,
@@ -268,7 +268,7 @@ def test_ipn_finished_provisions_key(client):
     order_id = _uuid()
     body, sig = _canonical_sign({"invoice_id": invoice, "order_id": order_id, "payment_status": "finished"})
     with (
-        patch("crypto_billing.NOWPAYMENTS_IPN_SECRET", IPN_SECRET),
+        patch("config.settings.nowpayments_ipn_secret", IPN_SECRET),
         patch("crypto_billing._notify_telegram") as mock_tg,
     ):
         resp = client.post(
@@ -306,7 +306,7 @@ def test_ipn_replay_same_invoice_returns_already_processed(client):
     order_id = _uuid()
     body, sig = _canonical_sign({"invoice_id": invoice, "order_id": order_id, "payment_status": "finished"})
     with (
-        patch("crypto_billing.NOWPAYMENTS_IPN_SECRET", IPN_SECRET),
+        patch("config.settings.nowpayments_ipn_secret", IPN_SECRET),
         patch("crypto_billing._notify_telegram"),
     ):
         r1 = client.post(
@@ -331,7 +331,7 @@ def test_ipn_idempotent_when_key_already_exists(client):
     order_id = _uuid()
     body, sig = _canonical_sign({"invoice_id": invoice, "order_id": order_id, "payment_status": "finished"})
     with (
-        patch("crypto_billing.NOWPAYMENTS_IPN_SECRET", IPN_SECRET),
+        patch("config.settings.nowpayments_ipn_secret", IPN_SECRET),
         patch("crypto_billing._notify_telegram"),
     ):
         r1 = client.post(
@@ -356,7 +356,7 @@ def test_ipn_idempotent_when_key_already_exists(client):
 def test_ipn_failed_status_ignored(client):
     order_id = _uuid()
     body, sig = _canonical_sign({"invoice_id": "failed_inv", "order_id": order_id, "payment_status": "failed"})
-    with patch("crypto_billing.NOWPAYMENTS_IPN_SECRET", IPN_SECRET):
+    with patch("config.settings.nowpayments_ipn_secret", IPN_SECRET):
         resp = client.post(
             "/v1/billing/crypto/webhook",
             content=body,
@@ -383,7 +383,7 @@ def test_ipn_non_terminal_states_are_no_ops(client, status):
     invoice_id = f"state_{status}_inv"
     order_id = _uuid()
     body, sig = _canonical_sign({"invoice_id": invoice_id, "order_id": order_id, "payment_status": status})
-    with patch("crypto_billing.NOWPAYMENTS_IPN_SECRET", IPN_SECRET):
+    with patch("config.settings.nowpayments_ipn_secret", IPN_SECRET):
         resp = client.post(
             "/v1/billing/crypto/webhook",
             content=body,
@@ -411,7 +411,7 @@ def test_ipn_pending_then_finished_provisions_key(client):
         {"invoice_id": invoice, "order_id": order_id, "payment_status": "finished"}
     )
     with (
-        patch("crypto_billing.NOWPAYMENTS_IPN_SECRET", IPN_SECRET),
+        patch("config.settings.nowpayments_ipn_secret", IPN_SECRET),
         patch("crypto_billing._notify_telegram"),
     ):
         r1 = client.post(
@@ -444,7 +444,7 @@ def test_ipn_payment_id_fallback_when_invoice_id_absent(client):
     order_id = _uuid()
     body, sig = _canonical_sign({"payment_id": "pay_fallback_001", "order_id": order_id, "payment_status": "finished"})
     with (
-        patch("crypto_billing.NOWPAYMENTS_IPN_SECRET", IPN_SECRET),
+        patch("config.settings.nowpayments_ipn_secret", IPN_SECRET),
         patch("crypto_billing._notify_telegram"),
     ):
         resp = client.post(
@@ -505,7 +505,7 @@ def test_ipn_concurrent_insert_race_returns_already_provisioned(client, caplog):
         return None
 
     with (
-        _patch("crypto_billing.NOWPAYMENTS_IPN_SECRET", IPN_SECRET),
+        _patch("config.settings.nowpayments_ipn_secret", IPN_SECRET),
         _patch("crypto_billing._notify_telegram"),
         _patch("crypto_billing.save_api_key_with_pending", side_effect=racing_save),
         _patch("crypto_billing.get_key_by_order_id", side_effect=racing_lookup),
@@ -540,7 +540,7 @@ def test_ipn_signature_failure_logs_client_ip(client, caplog):
 
     body = json.dumps({"invoice_id": "ipn_forge", "order_id": _uuid(), "payment_status": "finished"}).encode()
     with (
-        patch("crypto_billing.NOWPAYMENTS_IPN_SECRET", IPN_SECRET),
+        patch("config.settings.nowpayments_ipn_secret", IPN_SECRET),
         caplog.at_level(logging.WARNING, logger="contrastapi"),
     ):
         resp = client.post(
@@ -592,7 +592,7 @@ def test_e2e_checkout_to_welcome_returns_raw_key(client):
     fake_response.__enter__.return_value = fake_response
     fake_response.__exit__.return_value = False
     with (
-        patch("crypto_billing.NOWPAYMENTS_API_KEY", API_KEY),
+        patch("config.settings.nowpayments_api_key", API_KEY),
         patch("crypto_billing.urllib.request.urlopen", return_value=fake_response),
     ):
         checkout = client.post("/v1/billing/crypto/checkout")
@@ -602,7 +602,7 @@ def test_e2e_checkout_to_welcome_returns_raw_key(client):
 
     body, sig = _canonical_sign({"invoice_id": invoice_id, "order_id": order_id, "payment_status": "finished"})
     with (
-        patch("crypto_billing.NOWPAYMENTS_IPN_SECRET", IPN_SECRET),
+        patch("config.settings.nowpayments_ipn_secret", IPN_SECRET),
         patch("crypto_billing._notify_telegram"),
     ):
         ipn = client.post(
@@ -683,7 +683,7 @@ def test_checkout_rejects_untrusted_invoice_url(client):
     fake_response.__enter__.return_value = fake_response
     fake_response.__exit__.return_value = False
     with (
-        patch("crypto_billing.NOWPAYMENTS_API_KEY", API_KEY),
+        patch("config.settings.nowpayments_api_key", API_KEY),
         patch("crypto_billing.urllib.request.urlopen", return_value=fake_response),
     ):
         resp = client.post("/v1/billing/crypto/checkout")

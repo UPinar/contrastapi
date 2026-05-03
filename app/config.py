@@ -1,9 +1,16 @@
-"""Configuration constants for ContrastAPI"""
+"""Configuration for ContrastAPI.
+
+Env-backed values live on the ``Settings`` class (pydantic-settings, typed).
+Pure constants stay as module-level globals. Import ``settings`` to read any
+env-derived value — no module-level aliases.
+"""
 
 import hashlib
-import os
 import socket
 from pathlib import Path
+
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 VERSION = "1.26.1"
 MCP_TOOL_COUNT = 47  # v1.25.0: +robots_txt +redirect_chain +email_verify +brand_assets +seo_audit
@@ -24,25 +31,76 @@ MAX_ASN_PREFIXES_DEFAULT = 50
 
 BASE_DIR = Path(__file__).parent
 
-# Database paths
+# DB default paths — server (/var/lib/contrastapi/) when present, else BASE_DIR.
 _default_api_db = Path("/var/lib/contrastapi/api.db")
 _default_cve_db = Path("/var/lib/contrastapi/cve.db")
 _default_cache_db = Path("/var/lib/contrastapi/domain_cache.db")
 
-API_DB_PATH = Path(
-    os.environ.get("CONTRASTAPI_DB", str(_default_api_db if _default_api_db.parent.exists() else BASE_DIR / "api.db"))
-)
-CVE_DB_PATH = Path(
-    os.environ.get(
-        "CONTRASTAPI_CVE_DB", str(_default_cve_db if _default_cve_db.parent.exists() else BASE_DIR / "cve.db")
+
+def _resolve_db_default(server: Path, fallback_name: str) -> Path:
+    return server if server.parent.exists() else BASE_DIR / fallback_name
+
+
+class Settings(BaseSettings):
+    """Env-backed configuration.
+
+    Field names are pythonic; ``alias`` maps to the actual env var. Reading
+    ``settings.api_db`` returns a typed ``Path``; ``settings.nvd_api_key`` a
+    ``str``. Tests override via ``monkeypatch.setenv`` + module reload, or by
+    instantiating ``Settings(api_db=...)`` directly.
+    """
+
+    model_config = SettingsConfigDict(
+        env_file=None,  # systemd EnvironmentFile already injects into os.environ
+        extra="ignore",
+        case_sensitive=False,
+        populate_by_name=True,
     )
-)
-CACHE_DB_PATH = Path(
-    os.environ.get(
-        "CONTRASTAPI_CACHE_DB",
-        str(_default_cache_db if _default_cache_db.parent.exists() else BASE_DIR / "domain_cache.db"),
+
+    # DB paths (typed Path, server defaults via factory)
+    api_db: Path = Field(
+        default_factory=lambda: _resolve_db_default(_default_api_db, "api.db"),
+        alias="CONTRASTAPI_DB",
     )
-)
+    cve_db: Path = Field(
+        default_factory=lambda: _resolve_db_default(_default_cve_db, "cve.db"),
+        alias="CONTRASTAPI_CVE_DB",
+    )
+    cache_db: Path = Field(
+        default_factory=lambda: _resolve_db_default(_default_cache_db, "domain_cache.db"),
+        alias="CONTRASTAPI_CACHE_DB",
+    )
+
+    # CVE intelligence
+    nvd_api_key: str = ""
+
+    # Billing — Lemon Squeezy (cards) + NOWPayments (crypto fallback)
+    lemonsqueezy_webhook_secret: str = ""
+    lemonsqueezy_api_key: str = ""
+    nowpayments_api_key: str = ""
+    nowpayments_ipn_secret: str = ""
+
+    # External enrichment APIs
+    abuseipdb_api_key: str = ""
+    shodan_api_key: str = ""
+    urlhaus_api_key: str = ""
+
+    # Privacy — empty → deterministic fallback (host+db) computed below.
+    hash_secret_raw: str = Field(default="", alias="CONTRASTAPI_HASH_SECRET")
+
+    # Test mode + per-target throttle kill-switch
+    testing: bool = False
+    target_throttle_disabled: bool = False
+
+    @property
+    def hash_secret(self) -> str:
+        """Final hash secret. Env value when set, deterministic host+db fallback otherwise."""
+        if self.hash_secret_raw:
+            return self.hash_secret_raw
+        return hashlib.sha256(f"{socket.gethostname()}:{self.api_db}".encode()).hexdigest()
+
+
+settings = Settings()
 
 # Rate limits
 FREE_HOURLY_LIMIT = 100  # keyless: 100 req/hr per IP (shared across workers)
@@ -106,7 +164,6 @@ DOMAIN_CACHE_TTL = 3600  # 1 hour
 # NVD sync
 NVD_API_URL = "https://services.nvd.nist.gov/rest/json/cves/2.0"
 NVD_PAGE_SIZE = 2000
-NVD_API_KEY = os.environ.get("NVD_API_KEY", "")
 
 # CISA KEV (GitHub mirror — CISA blocks datacenter IPs)
 KEV_URL = "https://raw.githubusercontent.com/cisagov/kev-data/develop/known_exploited_vulnerabilities.json"
@@ -122,19 +179,6 @@ CWE_ZIP_URL = "https://cwe.mitre.org/data/csv/1000.csv.zip"
 
 # GitHub Security Advisories (leads NVD on OSS CVEs)
 GHSA_API_URL = "https://api.github.com/advisories"
-
-# Lemon Squeezy (payment / API key provisioning)
-LEMONSQUEEZY_WEBHOOK_SECRET = os.environ.get("LEMONSQUEEZY_WEBHOOK_SECRET", "")
-LEMONSQUEEZY_API_KEY = os.environ.get("LEMONSQUEEZY_API_KEY", "")
-
-# NOWPayments (crypto payment provider — RU/CN/IR fallback when card is restricted)
-NOWPAYMENTS_API_KEY = os.environ.get("NOWPAYMENTS_API_KEY", "")
-NOWPAYMENTS_IPN_SECRET = os.environ.get("NOWPAYMENTS_IPN_SECRET", "")
-
-# External API keys (reputation/enrichment)
-ABUSEIPDB_API_KEY = os.environ.get("ABUSEIPDB_API_KEY", "")
-SHODAN_API_KEY = os.environ.get("SHODAN_API_KEY", "")
-URLHAUS_API_KEY = os.environ.get("URLHAUS_API_KEY", "")
 
 # External API URLs
 ABUSEIPDB_API_URL = "https://api.abuseipdb.com/api/v2/check"
@@ -207,7 +251,3 @@ BULK_OVERALL_TIMEOUT = 120  # hard cap for entire bulk request; partial results 
 
 # Severity ordering
 SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
-
-# Client IP hashing secret — deterministic fallback so hashes survive restarts
-_raw_secret = os.environ.get("CONTRASTAPI_HASH_SECRET", "")
-HASH_SECRET = _raw_secret or hashlib.sha256(f"{socket.gethostname()}:{API_DB_PATH}".encode()).hexdigest()
