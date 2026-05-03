@@ -22,21 +22,22 @@ from cve.schemas import (
     KevDetailResponse,
 )
 from db import (
-    count_cves_for_cwe,
-    get_cached_domain,
-    get_cve,
-    get_cve_sources,
-    get_cwe,
-    get_kev_details,
-    get_last_successful_sync,
-    get_leading_cves,
-    get_related_cves_by_product,
+    acount_cves_for_cwe,
+    aget_cached_domain,
+    aget_cve,
+    aget_cve_sources,
+    aget_cwe,
+    aget_kev_details,
+    aget_last_successful_sync,
+    aget_leading_cves,
+    aget_related_cves_by_product,
+    asave_cached_domain,
+    asearch_cves,
+    asearch_exploits_by_cve,
     hash_client_ip,
-    save_cached_domain,
-    search_cves,
-    search_exploits_by_cve,
 )
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field, StringConstraints
 from schemas import PivotHint, SearchHint, Verdict
 from validation import is_valid_ip, validate_cve_id
@@ -189,7 +190,7 @@ def _check_cve_input(cve_id: str):
     response_model=CveSearchResponse,
     response_model_exclude_none=True,
 )
-def cve_leading(
+async def cve_leading(
     auth: Annotated[AuthCtx, Depends(require_auth("/v1/cve/leading"))],
     limit: int = Query(50, ge=1, le=200, description="Max results per page"),
     offset: int = Query(0, ge=0, le=5000, description="Number of results to skip (for pagination)"),
@@ -211,13 +212,13 @@ def cve_leading(
     if include not in (None, "", "full"):
         raise HTTPException(status_code=400, detail="include must be 'full' (omit for slim default)")
 
-    results, total = get_leading_cves(limit=limit, offset=offset)
+    results, total = await aget_leading_cves(limit=limit, offset=offset)
     count = len(results)
     truncated = total > offset + count
     summary = f"{count} leading CVE{'s' if count != 1 else ''} returned, {total} total (indexed before NVD)"
-    verdict = _cve_verdict(sources=["mitre_cache", "ghsa_cache"], completeness="complete")
+    verdict = await _cve_verdict(sources=["mitre_cache", "ghsa_cache"], completeness="complete")
     formatter = _format_cve if include == "full" else _format_cve_slim
-    formatted_results = [formatter(row) for row in results]
+    formatted_results = [await formatter(row) for row in results]
     return {
         "count": count,
         "total": total,
@@ -231,7 +232,7 @@ def cve_leading(
 
 
 @router.get("/cve/{cve_id}", operation_id="cve_lookup", response_model=CveResponse, response_model_exclude_none=True)
-def cve_lookup(
+async def cve_lookup(
     cve_id: Annotated[
         str,
         Path(
@@ -258,15 +259,15 @@ def cve_lookup(
     # Cache key embeds the two opt-in flags that change response shape.
     # 4 variants per CVE; the (False, False) default dominates in practice.
     cache_key = f"cve_lookup:{cve_id}:{int(include_affected_products)}{int(include_full_references)}"
-    cached = get_cached_domain(cache_key)
+    cached = await aget_cached_domain(cache_key)
     if cached:
         return {**cached}
 
-    result = get_cve(cve_id)
+    result = await aget_cve(cve_id)
     if result is None:
         raise HTTPException(status_code=404, detail=f"CVE {cve_id} not found")
 
-    formatted = _format_cve(
+    formatted = await _format_cve(
         result,
         include_enrichment=True,
         include_full_products=include_affected_products,
@@ -277,9 +278,9 @@ def cve_lookup(
     sources_for_verdict = [f"{s}_cache" for s in formatted["sources"]]
     if not sources_for_verdict and not is_minimal:
         sources_for_verdict = ["nvd_cache"]
-    formatted["verdict"] = _cve_verdict(sources=sources_for_verdict, completeness=completeness).model_dump()
+    formatted["verdict"] = (await _cve_verdict(sources=sources_for_verdict, completeness=completeness)).model_dump()
     formatted["next_calls"] = [h.model_dump() for h in _cve_pivot_hints(formatted)]
-    save_cached_domain(cache_key, formatted)
+    await asave_cached_domain(cache_key, formatted)
     return formatted
 
 
@@ -406,7 +407,7 @@ def _kev_pivot_hints(record: dict) -> list[PivotHint]:
     response_model=KevDetailResponse,
     response_model_exclude_none=True,
 )
-def kev_detail(
+async def kev_detail(
     cve_id: Annotated[
         str,
         Path(
@@ -429,11 +430,11 @@ def kev_detail(
     cve_id = cve_id.strip().upper()
     _check_cve_input(cve_id)
 
-    record = get_kev_details(cve_id)
+    record = await aget_kev_details(cve_id)
     if record is None:
         raise HTTPException(status_code=404, detail=f"{cve_id} is not in the CISA KEV catalog")
 
-    record["verdict"] = _cve_verdict(sources=["cisa_kev_cache"], completeness="complete")
+    record["verdict"] = await _cve_verdict(sources=["cisa_kev_cache"], completeness="complete")
     record["next_calls"] = _kev_pivot_hints(record)
     return record
 
@@ -522,7 +523,7 @@ def _format_cwe_slim(record: dict) -> dict:
     response_model=CweLookupResponse,
     response_model_exclude_none=True,
 )
-def cwe_lookup(
+async def cwe_lookup(
     cwe_id: Annotated[
         str,
         Path(
@@ -557,15 +558,15 @@ def cwe_lookup(
     if include not in (None, "", "full"):
         raise HTTPException(status_code=400, detail="include must be 'full' (omit for slim default)")
 
-    record = get_cwe(normalized)
+    record = await aget_cwe(normalized)
     if record is None:
         raise HTTPException(
             status_code=404, detail=f"{normalized} is not in the MITRE CWE catalog (research view 1000)"
         )
 
-    cve_count = count_cves_for_cwe(normalized)
+    cve_count = await acount_cves_for_cwe(normalized)
     record["cve_count"] = cve_count
-    record["verdict"] = _cve_verdict(sources=["mitre_cwe_cache"], completeness="complete")
+    record["verdict"] = await _cve_verdict(sources=["mitre_cwe_cache"], completeness="complete")
     record["next_calls"] = _cwe_pivot_hints(record, cve_count)
 
     if include == "full":
@@ -576,7 +577,7 @@ def cwe_lookup(
 
 
 @router.get("/cves", operation_id="cve_search", response_model=CveSearchResponse, response_model_exclude_none=True)
-def cve_search(
+async def cve_search(
     auth: Annotated[AuthCtx, Depends(require_auth("/v1/cves"))],
     product: str | None = Query(
         None,
@@ -666,11 +667,11 @@ def cve_search(
         separators=(",", ":"),
     )
     cache_key = "cve_search:" + hashlib.sha256(_key_payload.encode()).hexdigest()[:16]
-    cached = get_cached_domain(cache_key)
+    cached = await aget_cached_domain(cache_key)
     if cached:
         return {**cached}
 
-    results, total = search_cves(
+    results, total = await asearch_cves(
         product=product,
         severity=severity,
         published_after=after_date,
@@ -731,11 +732,11 @@ def cve_search(
         }.items()
         if v is not None and v != ""
     }
-    # model_dump() so the dict is JSON-serializable for save_cached_domain.
-    verdict = _cve_verdict(sources=["nvd_cache"], completeness="complete").model_dump()
+    # model_dump() so the dict is JSON-serializable for asave_cached_domain.
+    verdict = (await _cve_verdict(sources=["nvd_cache"], completeness="complete")).model_dump()
     full = include == "full"
     formatter = _format_cve if full else _format_cve_slim
-    formatted_results = [formatter(row) for row in results]
+    formatted_results = [await formatter(row) for row in results]
     next_offset = offset + count if truncated else None
     hint = _cve_list_hint(count)
     response = {
@@ -750,13 +751,13 @@ def cve_search(
         "verdict": verdict,
         "hint": hint.model_dump() if hint else None,
     }
-    save_cached_domain(cache_key, response)
+    await asave_cached_domain(cache_key, response)
     return response
 
 
-def _cve_verdict(sources: list[str] | None = None, completeness: str = "complete") -> Verdict:
+async def _cve_verdict(sources: list[str] | None = None, completeness: str = "complete") -> Verdict:
     """Build a verdict metadata block for cve_lookup responses."""
-    last = get_last_successful_sync("nvd")
+    last = await aget_last_successful_sync("nvd")
     age: int | None = None
     if last:
         try:
@@ -775,9 +776,9 @@ def _cve_verdict(sources: list[str] | None = None, completeness: str = "complete
     )
 
 
-def _sync_age_seconds(source: str) -> int | None:
+async def _sync_age_seconds(source: str) -> int | None:
     """Return seconds since last successful sync for a source, or None."""
-    last = get_last_successful_sync(source)
+    last = await aget_last_successful_sync(source)
     if not last:
         return None
     try:
@@ -787,7 +788,7 @@ def _sync_age_seconds(source: str) -> int | None:
         return None
 
 
-def _exploit_lookup_verdict(github_error: bool, shodan_error: bool, offline_found: bool) -> Verdict:
+async def _exploit_lookup_verdict(github_error: bool, shodan_error: bool, offline_found: bool) -> Verdict:
     """Build a Verdict for exploit_lookup responses."""
     sources_queried = ["github_advisory", "shodan_cvedb", "exploitdb_csv"]
     unavailable = []
@@ -795,7 +796,7 @@ def _exploit_lookup_verdict(github_error: bool, shodan_error: bool, offline_foun
         unavailable.append("github_advisory")
     if shodan_error:
         unavailable.append("shodan_cvedb")
-    exploitdb_age = _sync_age_seconds("exploitdb")
+    exploitdb_age = await _sync_age_seconds("exploitdb")
     if exploitdb_age is not None and exploitdb_age > 7 * 86400:
         unavailable.append("exploitdb_csv")
 
@@ -816,7 +817,7 @@ def _exploit_lookup_verdict(github_error: bool, shodan_error: bool, offline_foun
     )
 
 
-def _format_cve(
+async def _format_cve(
     row: dict,
     include_enrichment: bool = False,
     include_full_products: bool = False,
@@ -850,7 +851,7 @@ def _format_cve(
     related_cves uses the RAW DB `row.get("affected_products")` regardless of
     truncation, so enrichment is O(1) and never missed because of the cap.
     """
-    sources_rows = get_cve_sources(row["cve_id"])
+    sources_rows = await aget_cve_sources(row["cve_id"])
     source_names = [s["source"] for s in sources_rows]
     all_references = row.get("refs", []) or []
     total_references = len(all_references)
@@ -892,7 +893,7 @@ def _format_cve(
         result["patch_url"] = patch_url
         affected = row.get("affected_products") or []
         if affected and (first := affected[0]).get("product"):
-            result["related_cves"] = get_related_cves_by_product(
+            result["related_cves"] = await aget_related_cves_by_product(
                 product=first["product"],
                 vendor=first.get("vendor"),
                 limit=5,
@@ -903,7 +904,7 @@ def _format_cve(
     return result
 
 
-def _format_cve_slim(row: dict) -> dict:
+async def _format_cve_slim(row: dict) -> dict:
     """Slim formatter for cve_search list items.
 
     Drops description, cvss_breakdown, affected_products, references, first_seen_source,
@@ -912,7 +913,7 @@ def _format_cve_slim(row: dict) -> dict:
     modified, sources. ~70% token reduction vs full payload on Log4j-class CVEs. Use
     cve_lookup or cve_search?include=full for drill-down.
     """
-    sources_rows = get_cve_sources(row["cve_id"])
+    sources_rows = await aget_cve_sources(row["cve_id"])
     source_names = [s["source"] for s in sources_rows]
     all_products = row.get("affected_products", []) or []
     return {
@@ -1108,7 +1109,7 @@ def _search_shodan_refs(cve_id: str) -> dict:
 @router.get(
     "/exploit/{cve_id}", operation_id="exploit_lookup", response_model=ExploitResponse, response_model_exclude_none=True
 )
-def exploit_lookup(
+async def exploit_lookup(
     cve_id: Annotated[
         str,
         Path(
@@ -1126,17 +1127,21 @@ def exploit_lookup(
 
     # Check cache
     cache_key = f"exploit:{cve_id}"
-    cached = get_cached_domain(cache_key)
+    cached = await aget_cached_domain(cache_key)
     if cached:
         return {**cached}
 
     # GitHub Advisory + Shodan CVEDB are independent HTTP fan-outs; run in parallel.
-    # Local SQLite (search_exploits_by_cve) stays on the main thread — no IO wait.
-    f_github = _exploit_pool.submit(_search_github_advisories, cve_id)
-    f_shodan = _exploit_pool.submit(_search_shodan_refs, cve_id)
-    offline, offline_truncated = search_exploits_by_cve(cve_id)
-    github = f_github.result()
-    shodan_refs = f_shodan.result()
+    # Local SQLite (asearch_exploits_by_cve) stays on the event loop via threadpool wrapper.
+    # Sync httpx.Client calls inside _search_* helpers are wrapped in run_in_threadpool
+    # for now; batch 4g converts them to httpx.AsyncClient and removes the wrap.
+    import asyncio
+
+    github, shodan_refs, (offline, offline_truncated) = await asyncio.gather(
+        run_in_threadpool(_search_github_advisories, cve_id),
+        run_in_threadpool(_search_shodan_refs, cve_id),
+        asearch_exploits_by_cve(cve_id),
+    )
 
     # EDB-ID dedup: ExploitDB CSV mirror and Shodan CVEDB sometimes list the same exploit
     # twice (Shodan refs include exploit-db.com URLs). Strip overlap from Shodan count.
@@ -1182,7 +1187,7 @@ def exploit_lookup(
         for row in offline
     ]
 
-    verdict = _exploit_lookup_verdict(
+    verdict = await _exploit_lookup_verdict(
         github_error=github.get("error") is not None,
         shodan_error=shodan_refs.get("error") is not None,
         offline_found=len(offline) > 0,
@@ -1201,7 +1206,7 @@ def exploit_lookup(
         "next_calls": [h.model_dump() for h in _exploit_pivot_hints(cve_id)],
     }
 
-    save_cached_domain(cache_key, result)
+    await asave_cached_domain(cache_key, result)
     return {**result}
 
 
@@ -1235,7 +1240,7 @@ class _BulkCveRequest(BaseModel):
     response_model=BulkCveResponse,
     response_model_exclude_none=True,
 )
-def bulk_cve_lookup(
+async def bulk_cve_lookup(
     body: _BulkCveRequest,
     auth: Annotated[AuthCtx, Depends(require_auth("/v1/cves/bulk"))],
 ):
@@ -1274,7 +1279,7 @@ def bulk_cve_lookup(
         store_key = f"free:{hash_client_ip(auth.client_ip)}"
         limit = FREE_HOURLY_LIMIT
 
-    if count > 1 and not ratelimit.consume_bulk("api", store_key, count - 1, limit):
+    if count > 1 and not await ratelimit.aconsume_bulk("api", store_key, count - 1, limit):
         raise HTTPException(
             status_code=429,
             detail=f"Insufficient rate limit quota for {count} CVE IDs.",
@@ -1294,11 +1299,11 @@ def bulk_cve_lookup(
             )
             continue
         try:
-            row = get_cve(cid)
+            row = await aget_cve(cid)
             if row is None:
                 results.append({"cve_id": cid, "status": "not_found", "cve": None, "error": f"CVE {cid} not found"})
             else:
-                formatted = _format_cve(
+                formatted = await _format_cve(
                     row,
                     include_enrichment=True,
                     include_full_products=body.include_affected_products,
@@ -1309,7 +1314,7 @@ def bulk_cve_lookup(
                 sources_for_verdict = [f"{s}_cache" for s in formatted["sources"]]
                 if not sources_for_verdict and not is_minimal:
                     sources_for_verdict = ["nvd_cache"]
-                formatted["verdict"] = _cve_verdict(sources=sources_for_verdict, completeness=completeness)
+                formatted["verdict"] = await _cve_verdict(sources=sources_for_verdict, completeness=completeness)
                 formatted["next_calls"] = _cve_pivot_hints(formatted)
                 results.append({"cve_id": cid, "status": "ok", "cve": formatted, "error": None})
                 successful += 1

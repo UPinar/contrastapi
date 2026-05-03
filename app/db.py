@@ -942,6 +942,10 @@ def get_leading_cves(limit: int = 50, offset: int = 0) -> tuple[list[dict], int]
         return [_deserialize_cve(row) for row in rows], total
 
 
+async def aget_leading_cves(limit: int = 50, offset: int = 0) -> tuple[list[dict], int]:
+    return await run_in_threadpool(get_leading_cves, limit, offset)
+
+
 def search_cves(
     product: str | None = None,
     severity: str | None = None,
@@ -1077,6 +1081,10 @@ def get_related_cves_by_product(
         cur.row_factory = sqlite3.Row
         rows = cur.execute(sql, tuple(params)).fetchall()
         return [{"cve_id": r["cve_id"], "severity": r["severity"], "cvss_v3": r["cvss_v3"]} for r in rows]
+
+
+async def aget_related_cves_by_product(**kwargs) -> list[dict]:
+    return await run_in_threadpool(get_related_cves_by_product, **kwargs)
 
 
 def enrich_cves_by_ids(cve_ids: list[str]) -> list[dict]:
@@ -1668,6 +1676,10 @@ def get_cve_sources(cve_id: str) -> list[dict]:
         return [dict(row) for row in rows]
 
 
+async def aget_cve_sources(cve_id: str) -> list[dict]:
+    return await run_in_threadpool(get_cve_sources, cve_id)
+
+
 def update_sync_status(source: str, count: int, status: str = "ok", checkpoint: str | None = None) -> None:
     now = datetime.now(UTC).isoformat()
     with get_cve_db() as con:
@@ -1697,6 +1709,10 @@ def get_last_successful_sync(source: str) -> str | None:
     with get_cve_db() as con:
         row = con.execute("SELECT last_sync FROM sync_status WHERE source = ? AND status = 'ok'", (source,)).fetchone()
         return row[0] if row else None
+
+
+async def aget_last_successful_sync(source: str) -> str | None:
+    return await run_in_threadpool(get_last_successful_sync, source)
 
 
 def get_cves_needing_osv_backfill(limit: int = 500, since: str = "2026-04-15") -> list[str]:
@@ -1783,6 +1799,10 @@ def search_exploits_by_cve(cve_id: str, limit: int = 100) -> tuple[list[dict], b
         ).fetchall()
         truncated = len(rows) > limit
         return [dict(r) for r in rows[:limit]], truncated
+
+
+async def asearch_exploits_by_cve(cve_id: str, limit: int = 100) -> tuple[list[dict], bool]:
+    return await run_in_threadpool(search_exploits_by_cve, cve_id, limit)
 
 
 # --- ATLAS helpers ---

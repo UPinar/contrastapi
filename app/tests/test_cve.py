@@ -297,7 +297,7 @@ class TestCveLookup:
         from unittest.mock import patch as _patch
 
         _seed_cve(cve_id="CVE-2024-7777")
-        with _patch("cve.routes.get_cve", wraps=__import__("db").get_cve) as spy:
+        with _patch("cve.routes.aget_cve", new_callable=AsyncMock, wraps=__import__("db").aget_cve) as spy:
             r1 = client.get("/v1/cve/CVE-2024-7777")
             assert r1.status_code == 200
             r2 = client.get("/v1/cve/CVE-2024-7777")
@@ -313,7 +313,7 @@ class TestCveLookup:
         from unittest.mock import patch as _patch
 
         _seed_cve(cve_id="CVE-2024-7778")
-        with _patch("cve.routes.get_cve", wraps=__import__("db").get_cve) as spy:
+        with _patch("cve.routes.aget_cve", new_callable=AsyncMock, wraps=__import__("db").aget_cve) as spy:
             client.get("/v1/cve/CVE-2024-7778")
             client.get("/v1/cve/CVE-2024-7778?include_full_references=true")
             assert spy.call_count == 2
@@ -768,7 +768,7 @@ class TestCveSearch:
 
     def test_cve_search_second_call_served_from_cache(self):
         # Cold call hits search_cves SQL; hot call must short-circuit before
-        # the SQL fires. Spy on cve.routes.search_cves to assert call_count==1.
+        # the SQL fires. Spy on cve.routes.asearch_cves to assert call_count==1.
         # Also spy on save_cached_domain to confirm the cache was actually
         # written (silent CACHE_MAX_BYTES rejection would still pass call_count
         # but produce a perpetual cold path).
@@ -776,8 +776,10 @@ class TestCveSearch:
 
         _seed_cve(cve_id="CVE-2024-CACHE1", severity="HIGH")
         with (
-            _patch("cve.routes.search_cves", wraps=__import__("db").search_cves) as spy,
-            _patch("cve.routes.save_cached_domain", wraps=__import__("db").save_cached_domain) as save_spy,
+            _patch("cve.routes.asearch_cves", new_callable=AsyncMock, wraps=__import__("db").asearch_cves) as spy,
+            _patch(
+                "cve.routes.asave_cached_domain", new_callable=AsyncMock, wraps=__import__("db").asave_cached_domain
+            ) as save_spy,
         ):
             r1 = client.get("/v1/cves?severity=HIGH&limit=5")
             assert r1.status_code == 200
@@ -793,7 +795,7 @@ class TestCveSearch:
         from unittest.mock import patch as _patch
 
         _seed_cve(cve_id="CVE-2024-CACHE2", severity="CRITICAL")
-        with _patch("cve.routes.search_cves", wraps=__import__("db").search_cves) as spy:
+        with _patch("cve.routes.asearch_cves", new_callable=AsyncMock, wraps=__import__("db").asearch_cves) as spy:
             client.get("/v1/cves?severity=HIGH&limit=5")
             client.get("/v1/cves?severity=CRITICAL&limit=5")
             assert spy.call_count == 2
@@ -804,7 +806,7 @@ class TestCveSearch:
         from unittest.mock import patch as _patch
 
         _seed_cve(cve_id="CVE-2024-CACHE3", severity="HIGH")
-        with _patch("cve.routes.search_cves", wraps=__import__("db").search_cves) as spy:
+        with _patch("cve.routes.asearch_cves", new_callable=AsyncMock, wraps=__import__("db").asearch_cves) as spy:
             client.get("/v1/cves?severity=HIGH&limit=5")
             client.get("/v1/cves?severity=HIGH&limit=5&include=full")
             assert spy.call_count == 2
@@ -3223,8 +3225,8 @@ class TestOpenApiCveRoutes:
 
 
 class TestExploitLookup:
-    @patch("cve.routes.save_cached_domain")
-    @patch("cve.routes.get_cached_domain", return_value=None)
+    @patch("cve.routes.asave_cached_domain", new_callable=AsyncMock)
+    @patch("cve.routes.aget_cached_domain", new_callable=AsyncMock, return_value=None)
     def test_exploit_both_found(self, mock_cache_get, mock_cache_save):
         """CVE with GitHub advisories and ExploitDB results."""
         gh_resp = MagicMock()
@@ -3266,8 +3268,8 @@ class TestExploitLookup:
         assert next_calls[0]["tool"] == "cve_lookup"
         assert next_calls[0]["input"] == "CVE-2024-9999"
 
-    @patch("cve.routes.save_cached_domain")
-    @patch("cve.routes.get_cached_domain", return_value=None)
+    @patch("cve.routes.asave_cached_domain", new_callable=AsyncMock)
+    @patch("cve.routes.aget_cached_domain", new_callable=AsyncMock, return_value=None)
     def test_exploit_not_found(self, mock_cache_get, mock_cache_save):
         """CVE with no exploits found anywhere."""
         gh_resp = MagicMock()
@@ -3291,8 +3293,8 @@ class TestExploitLookup:
         assert data["exploits_found"] == 0
         assert "no public exploits" in data["summary"]
 
-    @patch("cve.routes.save_cached_domain")
-    @patch("cve.routes.get_cached_domain", return_value=None)
+    @patch("cve.routes.asave_cached_domain", new_callable=AsyncMock)
+    @patch("cve.routes.aget_cached_domain", new_callable=AsyncMock, return_value=None)
     def test_exploit_shodan_refs_fails_gracefully(self, mock_cache_get, mock_cache_save):
         """Shodan CVEDB timeout should not prevent GitHub results from returning."""
         gh_resp = MagicMock()
@@ -3335,7 +3337,7 @@ class TestExploitLookup:
             "has_public_exploit": True,
             "summary": "CVE-2024-1111 — 1 public exploit(s) found",
         }
-        with patch("cve.routes.get_cached_domain", return_value=cached_result):
+        with patch("cve.routes.aget_cached_domain", new_callable=AsyncMock, return_value=cached_result):
             r = client.get("/v1/exploit/CVE-2024-1111")
         assert r.status_code == 200
         data = r.json()
@@ -3401,9 +3403,9 @@ class TestExploitLookupScopeB:
             "synced_at": "2024-04-01T00:00:00+00:00",
         }
 
-    @patch("cve.routes.save_cached_domain")
-    @patch("cve.routes.get_cached_domain", return_value=None)
-    @patch("cve.routes.search_exploits_by_cve")
+    @patch("cve.routes.asave_cached_domain", new_callable=AsyncMock)
+    @patch("cve.routes.aget_cached_domain", new_callable=AsyncMock, return_value=None)
+    @patch("cve.routes.asearch_exploits_by_cve", new_callable=AsyncMock)
     def test_exploit_offline_db_hit(self, mock_offline, mock_cache_get, mock_cache_save):
         """Offline DB hit returned when live sources empty."""
         mock_offline.return_value = ([self._offline_row()], False)
@@ -3428,9 +3430,9 @@ class TestExploitLookupScopeB:
         assert len(data["exploits"]) == 1
         assert data["exploits"][0]["edb_id"] == 1
 
-    @patch("cve.routes.save_cached_domain")
-    @patch("cve.routes.get_cached_domain", return_value=None)
-    @patch("cve.routes.search_exploits_by_cve")
+    @patch("cve.routes.asave_cached_domain", new_callable=AsyncMock)
+    @patch("cve.routes.aget_cached_domain", new_callable=AsyncMock, return_value=None)
+    @patch("cve.routes.asearch_exploits_by_cve", new_callable=AsyncMock)
     def test_exploit_mixed_sources_union(self, mock_offline, mock_cache_get, mock_cache_save):
         """exploits[] contains offline rows; count = offline + github."""
         mock_offline.return_value = ([self._offline_row(edb_id=10), self._offline_row(edb_id=11)], False)
@@ -3444,10 +3446,10 @@ class TestExploitLookupScopeB:
         assert data["exploits_found"] == 4  # 2 offline + 2 github
         assert len(data["exploits"]) == 2
 
-    @patch("cve.routes.save_cached_domain")
-    @patch("cve.routes.get_cached_domain", return_value=None)
-    @patch("cve.routes.search_exploits_by_cve")
-    @patch("cve.routes._sync_age_seconds", return_value=3600)
+    @patch("cve.routes.asave_cached_domain", new_callable=AsyncMock)
+    @patch("cve.routes.aget_cached_domain", new_callable=AsyncMock, return_value=None)
+    @patch("cve.routes.asearch_exploits_by_cve", new_callable=AsyncMock)
+    @patch("cve.routes._sync_age_seconds", new_callable=AsyncMock, return_value=3600)
     def test_exploit_verdict_complete_all_ok(self, mock_age, mock_offline, mock_cache_get, mock_cache_save):
         """completeness=complete when offline hit and no sources unavailable."""
         mock_offline.return_value = ([self._offline_row()], False)
@@ -3461,10 +3463,10 @@ class TestExploitLookupScopeB:
         assert data["verdict"]["completeness"] == "complete"
         assert data["verdict"]["sources_unavailable"] == []
 
-    @patch("cve.routes.save_cached_domain")
-    @patch("cve.routes.get_cached_domain", return_value=None)
-    @patch("cve.routes.search_exploits_by_cve")
-    @patch("cve.routes._sync_age_seconds", return_value=3600)
+    @patch("cve.routes.asave_cached_domain", new_callable=AsyncMock)
+    @patch("cve.routes.aget_cached_domain", new_callable=AsyncMock, return_value=None)
+    @patch("cve.routes.asearch_exploits_by_cve", new_callable=AsyncMock)
+    @patch("cve.routes._sync_age_seconds", new_callable=AsyncMock, return_value=3600)
     def test_exploit_verdict_partial_github_down(self, mock_age, mock_offline, mock_cache_get, mock_cache_save):
         """github_advisory in sources_unavailable when GitHub errors."""
         mock_offline.return_value = ([], False)
@@ -3477,10 +3479,10 @@ class TestExploitLookupScopeB:
         data = r.json()
         assert "github_advisory" in data["verdict"]["sources_unavailable"]
 
-    @patch("cve.routes.save_cached_domain")
-    @patch("cve.routes.get_cached_domain", return_value=None)
-    @patch("cve.routes.search_exploits_by_cve")
-    @patch("cve.routes._sync_age_seconds", return_value=3600)
+    @patch("cve.routes.asave_cached_domain", new_callable=AsyncMock)
+    @patch("cve.routes.aget_cached_domain", new_callable=AsyncMock, return_value=None)
+    @patch("cve.routes.asearch_exploits_by_cve", new_callable=AsyncMock)
+    @patch("cve.routes._sync_age_seconds", new_callable=AsyncMock, return_value=3600)
     def test_exploit_verdict_partial_shodan_down(self, mock_age, mock_offline, mock_cache_get, mock_cache_save):
         """shodan_cvedb in sources_unavailable when Shodan errors."""
         mock_offline.return_value = ([], False)
@@ -3495,10 +3497,10 @@ class TestExploitLookupScopeB:
         data = r.json()
         assert "shodan_cvedb" in data["verdict"]["sources_unavailable"]
 
-    @patch("cve.routes.save_cached_domain")
-    @patch("cve.routes.get_cached_domain", return_value=None)
-    @patch("cve.routes.search_exploits_by_cve")
-    @patch("cve.routes._sync_age_seconds", return_value=3600)
+    @patch("cve.routes.asave_cached_domain", new_callable=AsyncMock)
+    @patch("cve.routes.aget_cached_domain", new_callable=AsyncMock, return_value=None)
+    @patch("cve.routes.asearch_exploits_by_cve", new_callable=AsyncMock)
+    @patch("cve.routes._sync_age_seconds", new_callable=AsyncMock, return_value=3600)
     def test_exploit_verdict_minimal_all_down(self, mock_age, mock_offline, mock_cache_get, mock_cache_save):
         """completeness=minimal when all live sources down and no offline hit."""
         mock_offline.return_value = ([], False)
@@ -3511,9 +3513,9 @@ class TestExploitLookupScopeB:
         data = r.json()
         assert data["verdict"]["completeness"] == "minimal"
 
-    @patch("cve.routes.save_cached_domain")
-    @patch("cve.routes.get_cached_domain", return_value=None)
-    @patch("cve.routes.search_exploits_by_cve")
+    @patch("cve.routes.asave_cached_domain", new_callable=AsyncMock)
+    @patch("cve.routes.aget_cached_domain", new_callable=AsyncMock, return_value=None)
+    @patch("cve.routes.asearch_exploits_by_cve", new_callable=AsyncMock)
     def test_exploit_verdict_data_age_max(self, mock_offline, mock_cache_get, mock_cache_save):
         """data_age_seconds = max(nvd_age, exploitdb_age)."""
         mock_offline.return_value = ([], False)
@@ -3524,7 +3526,7 @@ class TestExploitLookupScopeB:
             return nvd_age if source == "nvd" else exploitdb_age
 
         with (
-            patch("cve.routes._sync_age_seconds", side_effect=_mock_age),
+            patch("cve.routes._sync_age_seconds", new_callable=AsyncMock, side_effect=_mock_age),
             patch(
                 "cve.routes._exploit_client.get",
                 side_effect=lambda url, **kw: self._gh_ok() if "github.com" in url else self._shodan_404(),
@@ -3534,9 +3536,9 @@ class TestExploitLookupScopeB:
         data = r.json()
         assert data["verdict"]["data_age_seconds"] == 5000
 
-    @patch("cve.routes.save_cached_domain")
-    @patch("cve.routes.get_cached_domain", return_value=None)
-    @patch("cve.routes.search_exploits_by_cve")
+    @patch("cve.routes.asave_cached_domain", new_callable=AsyncMock)
+    @patch("cve.routes.aget_cached_domain", new_callable=AsyncMock, return_value=None)
+    @patch("cve.routes.asearch_exploits_by_cve", new_callable=AsyncMock)
     def test_exploit_verdict_stale_exploitdb_7d(self, mock_offline, mock_cache_get, mock_cache_save):
         """exploitdb_csv in sources_unavailable when last sync > 7 days ago."""
         mock_offline.return_value = ([], False)
@@ -3546,7 +3548,7 @@ class TestExploitLookupScopeB:
             return stale
 
         with (
-            patch("cve.routes._sync_age_seconds", side_effect=_mock_age),
+            patch("cve.routes._sync_age_seconds", new_callable=AsyncMock, side_effect=_mock_age),
             patch(
                 "cve.routes._exploit_client.get",
                 side_effect=lambda url, **kw: self._gh_ok() if "github.com" in url else self._shodan_404(),
@@ -3556,10 +3558,10 @@ class TestExploitLookupScopeB:
         data = r.json()
         assert "exploitdb_csv" in data["verdict"]["sources_unavailable"]
 
-    @patch("cve.routes.save_cached_domain")
-    @patch("cve.routes.get_cached_domain", return_value=None)
-    @patch("cve.routes.search_exploits_by_cve")
-    @patch("cve.routes._sync_age_seconds", return_value=3600)
+    @patch("cve.routes.asave_cached_domain", new_callable=AsyncMock)
+    @patch("cve.routes.aget_cached_domain", new_callable=AsyncMock, return_value=None)
+    @patch("cve.routes.asearch_exploits_by_cve", new_callable=AsyncMock)
+    @patch("cve.routes._sync_age_seconds", new_callable=AsyncMock, return_value=3600)
     def test_exploit_structured_shape(self, mock_age, mock_offline, mock_cache_get, mock_cache_save):
         """Response exploits[0] has edb_id, url, verified fields."""
         mock_offline.return_value = ([self._offline_row(edb_id=42)], False)
@@ -3575,10 +3577,10 @@ class TestExploitLookupScopeB:
         assert "exploit-db.com" in exploit["url"]
         assert exploit["verified"] is True
 
-    @patch("cve.routes.save_cached_domain")
-    @patch("cve.routes.get_cached_domain", return_value=None)
-    @patch("cve.routes.search_exploits_by_cve")
-    @patch("cve.routes._sync_age_seconds", return_value=3600)
+    @patch("cve.routes.asave_cached_domain", new_callable=AsyncMock)
+    @patch("cve.routes.aget_cached_domain", new_callable=AsyncMock, return_value=None)
+    @patch("cve.routes.asearch_exploits_by_cve", new_callable=AsyncMock)
+    @patch("cve.routes._sync_age_seconds", new_callable=AsyncMock, return_value=3600)
     def test_exploit_sources_shape(self, mock_age, mock_offline, mock_cache_get, mock_cache_save):
         """sources dict has github + shodan_refs keys with count field."""
         mock_offline.return_value = ([], False)
@@ -3601,9 +3603,9 @@ class TestExploitLookupVerdictHonesty:
     verdict must NOT report completeness=complete (it would otherwise serve a
     'no exploits found' answer for 1h TTL based on partial data)."""
 
-    @patch("cve.routes.search_exploits_by_cve", return_value=([], False))
-    @patch("cve.routes.get_cached_domain", return_value=None)
-    @patch("cve.routes.save_cached_domain")
+    @patch("cve.routes.asearch_exploits_by_cve", new_callable=AsyncMock, return_value=([], False))
+    @patch("cve.routes.aget_cached_domain", new_callable=AsyncMock, return_value=None)
+    @patch("cve.routes.asave_cached_domain", new_callable=AsyncMock)
     @patch("cve.routes._search_shodan_refs")
     @patch("cve.routes._search_github_advisories")
     def test_github_error_downgrades_completeness(self, mock_gh, mock_shodan, mock_save, mock_cache, mock_offline):
@@ -3615,9 +3617,9 @@ class TestExploitLookupVerdictHonesty:
         assert verdict["completeness"] != "complete"
         assert "github_advisory" in verdict["sources_unavailable"]
 
-    @patch("cve.routes.search_exploits_by_cve", return_value=([], False))
-    @patch("cve.routes.get_cached_domain", return_value=None)
-    @patch("cve.routes.save_cached_domain")
+    @patch("cve.routes.asearch_exploits_by_cve", new_callable=AsyncMock, return_value=([], False))
+    @patch("cve.routes.aget_cached_domain", new_callable=AsyncMock, return_value=None)
+    @patch("cve.routes.asave_cached_domain", new_callable=AsyncMock)
     @patch("cve.routes._search_shodan_refs")
     @patch("cve.routes._search_github_advisories")
     def test_shodan_error_downgrades_completeness(self, mock_gh, mock_shodan, mock_save, mock_cache, mock_offline):
@@ -3633,9 +3635,9 @@ class TestExploitLookupVerdictHonesty:
 class TestExploitLookupParallelism:
     """GitHub Advisory + Shodan CVEDB fan-out must run in parallel, not serial."""
 
-    @patch("cve.routes.search_exploits_by_cve", return_value=([], False))
-    @patch("cve.routes.get_cached_domain", return_value=None)
-    @patch("cve.routes.save_cached_domain")
+    @patch("cve.routes.asearch_exploits_by_cve", new_callable=AsyncMock, return_value=([], False))
+    @patch("cve.routes.aget_cached_domain", new_callable=AsyncMock, return_value=None)
+    @patch("cve.routes.asave_cached_domain", new_callable=AsyncMock)
     @patch("cve.routes._search_shodan_refs")
     @patch("cve.routes._search_github_advisories")
     def test_github_and_shodan_run_concurrently(self, mock_gh, mock_shodan, mock_save, mock_cache, mock_offline):
@@ -4025,7 +4027,7 @@ class TestBulkCveLookup:
         "summary": "Backdoor in xz (CRITICAL)",
     }
 
-    @patch("cve.routes.get_cve")
+    @patch("cve.routes.aget_cve", new_callable=AsyncMock)
     def test_bulk_cve_success(self, mock_get):
         mock_get.return_value = dict(self._MOCK_CVE)
         r = client.post("/v1/cves/bulk", json={"cve_ids": ["CVE-2024-3094", "CVE-2021-44228"]})
@@ -4036,7 +4038,7 @@ class TestBulkCveLookup:
         assert data["failed"] == 0
         assert len(data["results"]) == 2
 
-    @patch("cve.routes.get_cve")
+    @patch("cve.routes.aget_cve", new_callable=AsyncMock)
     def test_bulk_cve_items_carry_next_calls(self, mock_get):
         mock_get.return_value = dict(self._MOCK_CVE)
         r = client.post("/v1/cves/bulk", json={"cve_ids": ["CVE-2024-3094"]})
@@ -4049,7 +4051,7 @@ class TestBulkCveLookup:
         assert "kev_detail" in tools
         assert "cwe_lookup" in tools
 
-    @patch("cve.routes.get_cve", return_value=None)
+    @patch("cve.routes.aget_cve", new_callable=AsyncMock, return_value=None)
     def test_bulk_cve_not_found(self, mock_get):
         r = client.post("/v1/cves/bulk", json={"cve_ids": ["CVE-9999-99999"]})
         assert r.status_code == 200
@@ -4057,7 +4059,7 @@ class TestBulkCveLookup:
         assert data["successful"] == 0
         assert data["results"][0]["status"] == "not_found"
 
-    @patch("cve.routes.get_cve")
+    @patch("cve.routes.aget_cve", new_callable=AsyncMock)
     def test_bulk_cve_mixed(self, mock_get):
         def side(cid):
             return dict(self._MOCK_CVE) if cid == "CVE-2024-3094" else None
@@ -4080,7 +4082,7 @@ class TestBulkCveLookup:
         assert data["results"][0]["status"] == "invalid_format"
         assert data["results"][0]["error"] is not None
 
-    @patch("cve.routes.get_cve")
+    @patch("cve.routes.aget_cve", new_callable=AsyncMock)
     def test_bulk_cve_truncates_affected_products_by_default(self, mock_get):
         large_cve = dict(self._MOCK_CVE)
         large_cve["affected_products"] = [{"vendor": f"v{i}", "product": f"p{i}"} for i in range(50)]
@@ -4093,7 +4095,7 @@ class TestBulkCveLookup:
         assert len(cve["affected_products"]) == 20
         assert cve["total_products"] == 50
 
-    @patch("cve.routes.get_cve")
+    @patch("cve.routes.aget_cve", new_callable=AsyncMock)
     def test_bulk_cve_include_affected_products_returns_full(self, mock_get):
         large_cve = dict(self._MOCK_CVE)
         large_cve["affected_products"] = [{"vendor": f"v{i}", "product": f"p{i}"} for i in range(50)]
@@ -4109,7 +4111,7 @@ class TestBulkCveLookup:
         assert len(cve["affected_products"]) == 50
         assert cve["total_products"] == 50
 
-    @patch("cve.routes.get_cve")
+    @patch("cve.routes.aget_cve", new_callable=AsyncMock)
     def test_bulk_cve_truncates_references_to_10_by_default(self, mock_get):
         big = dict(self._MOCK_CVE)
         big["refs"] = [f"https://example.com/r-{i}" for i in range(25)]
@@ -4120,7 +4122,7 @@ class TestBulkCveLookup:
         assert len(cve["references"]) == 10
         assert cve["total_references"] == 25
 
-    @patch("cve.routes.get_cve")
+    @patch("cve.routes.aget_cve", new_callable=AsyncMock)
     def test_bulk_cve_include_full_references_returns_full(self, mock_get):
         big = dict(self._MOCK_CVE)
         big["refs"] = [f"https://example.com/r-{i}" for i in range(25)]
@@ -4180,7 +4182,7 @@ class TestBulkCveLookup:
         assert args[0] == "api"
         assert args[2] == 4  # count - 1 = 5 - 1 = 4
 
-    @patch("cve.routes.get_cve")
+    @patch("cve.routes.aget_cve", new_callable=AsyncMock)
     def test_bulk_cve_deduplicates(self, mock_get):
         mock_get.return_value = dict(self._MOCK_CVE)
         r = client.post("/v1/cves/bulk", json={"cve_ids": ["CVE-2024-3094", "CVE-2024-3094"]})
@@ -4261,7 +4263,7 @@ class TestBulkCveLookup:
             assert data["results"][0]["error"] is not None
             assert data["partial"] is True
 
-    @patch("cve.routes.get_cve")
+    @patch("cve.routes.aget_cve", new_callable=AsyncMock)
     def test_bulk_cve_mixed_valid_invalid_format(self, mock_get):
         """Valid + invalid-format IDs in same batch → 200 OK with per-item status."""
         mock_get.return_value = dict(self._MOCK_CVE)
@@ -4282,7 +4284,7 @@ class TestBulkCveLookup:
         assert invalid[0]["cve_id"] == "NOT-A-CVE"
         assert invalid[0]["error"] is not None
 
-    @patch("cve.routes.get_cve")
+    @patch("cve.routes.aget_cve", new_callable=AsyncMock)
     def test_bulk_cve_partial_flag_false_when_all_ok(self, mock_get):
         """partial=False only when every item is status=ok."""
         mock_get.return_value = dict(self._MOCK_CVE)
@@ -4293,7 +4295,7 @@ class TestBulkCveLookup:
         assert data["failed"] == 0
         assert data["timed_out"] == 0
 
-    @patch("cve.routes.get_cve", return_value=None)
+    @patch("cve.routes.aget_cve", new_callable=AsyncMock, return_value=None)
     def test_bulk_cve_mixed_invalid_and_not_found(self, mock_get):
         """invalid_format + not_found statuses coexist in one response."""
         r = client.post(
@@ -4316,8 +4318,8 @@ class TestBulkCveLookup:
         )
         assert r.status_code == 422
 
-    @patch("cve.routes.get_cve_sources")
-    @patch("cve.routes.get_cve")
+    @patch("cve.routes.aget_cve_sources", new_callable=AsyncMock)
+    @patch("cve.routes.aget_cve", new_callable=AsyncMock)
     def test_bulk_cve_results_include_verdict(self, mock_get, mock_sources):
         mock_get.return_value = dict(self._MOCK_CVE)
         mock_sources.return_value = [
@@ -4335,8 +4337,8 @@ class TestBulkCveLookup:
         assert verdict["completeness"] == "complete"
         assert verdict["sources_queried"] == ["nvd_cache", "ghsa_cache"]
 
-    @patch("cve.routes.get_cve_sources")
-    @patch("cve.routes.get_cve")
+    @patch("cve.routes.aget_cve_sources", new_callable=AsyncMock)
+    @patch("cve.routes.aget_cve", new_callable=AsyncMock)
     def test_bulk_cve_minimal_empty_sources_returns_empty_sources_queried(self, mock_get, mock_sources):
         stub = {k: v for k, v in self._MOCK_CVE.items() if k not in {"severity", "cvss_v3", "description"}}
         mock_get.return_value = stub
