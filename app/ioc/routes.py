@@ -23,8 +23,9 @@ from ioc.lookup import (
     query_threatfox,
 )
 from ioc.password import is_valid_sha1, query_pwned_hash
+from ioc.schemas import BulkIocResponse, HashResponse, IocResponse, PasswordResponse, PhishingResponse
 from pydantic import BaseModel, Field
-from schemas import BulkIocResponse, HashResponse, IocResponse, PasswordResponse, PhishingResponse, Verdict
+from schemas import Verdict
 from validation import is_private_ip, is_valid_ip
 
 logger = logging.getLogger("contrastapi")

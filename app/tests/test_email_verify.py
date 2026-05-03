@@ -242,7 +242,7 @@ class TestEmailVerifyRoute:
 
     def test_verify_no_smtp_probe_documented_in_response_model(self):
         """EmailVerifyResponse docstring must explicitly state we do not probe SMTP."""
-        from schemas import EmailVerifyResponse
+        from domain.schemas import EmailVerifyResponse
 
         assert "RCPT TO" in EmailVerifyResponse.__doc__
         assert "do not" in EmailVerifyResponse.__doc__.lower() or "do NOT" in EmailVerifyResponse.__doc__

@@ -13,6 +13,12 @@ import re
 from typing import Annotated
 
 from auth import authenticate
+from d3fend.schemas import (
+    D3fendCoverageResponse,
+    D3fendDefenseResponse,
+    D3fendDefenseSearchResponse,
+    D3fendForAttackResponse,
+)
 from db import (
     D3FEND_COVERAGE_MAX_IDS,
     get_d3fend_coverage,
@@ -22,13 +28,7 @@ from db import (
 )
 from fastapi import APIRouter, HTTPException, Path, Query, Request
 from pydantic import BaseModel, Field
-from schemas import (
-    D3fendCoverageResponse,
-    D3fendDefenseResponse,
-    D3fendDefenseSearchResponse,
-    D3fendForAttackResponse,
-    PivotHint,
-)
+from schemas import PivotHint
 
 logger = logging.getLogger("contrastapi")
 

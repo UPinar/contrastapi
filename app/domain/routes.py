@@ -97,10 +97,7 @@ from domain.recon import (
     whois_lookup,
 )
 from domain.reputation import check_abuseipdb, check_shodan
-from domain.threat import check_urlhaus
-from domain.username import username_lookup
-from pydantic import BaseModel, Field
-from schemas import (
+from domain.schemas import (
     AsnResponse,
     AuditResponse,
     BrandAssetsResponse,
@@ -114,7 +111,6 @@ from schemas import (
     IpLookupResponse,
     MonitorResponse,
     PhoneLookupResponse,
-    PivotHint,
     RedirectChainResponse,
     RobotsTxtResponse,
     SeoAuditResponse,
@@ -124,11 +120,14 @@ from schemas import (
     ThreatReportResponse,
     ThreatResponse,
     UsernameLookupResponse,
-    Verdict,
     VulnsResponse,
     WaybackResponse,
     WhoisResponse,
 )
+from domain.threat import check_urlhaus
+from domain.username import username_lookup
+from pydantic import BaseModel, Field
+from schemas import PivotHint, Verdict
 from validation import _is_valid_format, clean_domain, get_client_ip, is_private_ip, is_valid_ip, validate_domain
 
 logger = logging.getLogger("contrastapi")

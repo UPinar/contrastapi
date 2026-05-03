@@ -7,12 +7,12 @@ from typing import Annotated
 from auth import authenticate
 from codesec.headers import check_headers
 from codesec.injection import detect_injection
+from codesec.schemas import CheckHeadersResponse, CodeCheckResponse, DependenciesResponse, ScanHeadersResponse
 from codesec.secrets import detect_secrets
 from db import _normalize_product, _parse_version, hash_client_ip, search_cves_by_products_bulk
 from domain.recon import fetch_live_headers
 from fastapi import APIRouter, HTTPException, Path, Query, Request
 from pydantic import BaseModel, Field
-from schemas import CheckHeadersResponse, CodeCheckResponse, DependenciesResponse, ScanHeadersResponse
 from validation import _is_valid_format, clean_domain, is_valid_ip, validate_domain
 
 router = APIRouter(prefix="/v1", tags=["Code Security"])

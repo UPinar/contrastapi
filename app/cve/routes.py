@@ -12,6 +12,15 @@ from urllib.parse import unquote
 
 import httpx
 from auth import authenticate
+from cve.schemas import (
+    BulkCveResponse,
+    CveResponse,
+    CveSearchResponse,
+    CweLookupResponse,
+    Exploit,
+    ExploitResponse,
+    KevDetailResponse,
+)
 from db import (
     count_cves_for_cwe,
     get_cached_domain,
@@ -29,18 +38,7 @@ from db import (
 )
 from fastapi import APIRouter, HTTPException, Path, Query, Request
 from pydantic import BaseModel, Field, StringConstraints
-from schemas import (
-    BulkCveResponse,
-    CveResponse,
-    CveSearchResponse,
-    CweLookupResponse,
-    Exploit,
-    ExploitResponse,
-    KevDetailResponse,
-    PivotHint,
-    SearchHint,
-    Verdict,
-)
+from schemas import PivotHint, SearchHint, Verdict
 from validation import is_valid_ip, validate_cve_id
 
 logger = logging.getLogger("contrastapi")

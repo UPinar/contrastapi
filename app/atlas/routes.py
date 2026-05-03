@@ -12,6 +12,13 @@ import logging
 import re
 from typing import Annotated
 
+from atlas.schemas import (
+    AtlasCaseStudyResponse,
+    AtlasCaseStudySearchResponse,
+    AtlasTechniqueResponse,
+    AtlasTechniqueSearchResponse,
+    BulkAtlasTechniqueResponse,
+)
 from auth import authenticate
 from db import (
     get_atlas_case_study,
@@ -21,14 +28,7 @@ from db import (
 )
 from fastapi import APIRouter, HTTPException, Path, Query, Request
 from pydantic import BaseModel, Field
-from schemas import (
-    AtlasCaseStudyResponse,
-    AtlasCaseStudySearchResponse,
-    AtlasTechniqueResponse,
-    AtlasTechniqueSearchResponse,
-    BulkAtlasTechniqueResponse,
-    PivotHint,
-)
+from schemas import PivotHint
 
 logger = logging.getLogger("contrastapi")
 

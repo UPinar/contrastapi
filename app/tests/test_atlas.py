@@ -460,7 +460,9 @@ def test_bulk_endpoints_share_4_state_status_enum():
     """v1.21.0: BulkCveItem + BulkIocItem + BulkAtlasTechniqueItem hepsi {ok, error, not_found, invalid_format}."""
     from typing import get_args
 
-    from schemas import BulkAtlasTechniqueItem, BulkCveItem, BulkIocItem
+    from atlas.schemas import BulkAtlasTechniqueItem
+    from cve.schemas import BulkCveItem
+    from ioc.schemas import BulkIocItem
 
     expected = {"ok", "error", "not_found", "invalid_format"}
     for cls in (BulkCveItem, BulkIocItem, BulkAtlasTechniqueItem):
