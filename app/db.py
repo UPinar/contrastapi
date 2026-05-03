@@ -421,6 +421,14 @@ def touch_api_key(key_hash: str) -> None:
         con.execute("UPDATE api_keys SET last_used_at = ? WHERE key_hash = ?", (now, key_hash))
 
 
+async def aget_api_key(key_hash: str) -> dict | None:
+    return await run_in_threadpool(get_api_key, key_hash)
+
+
+async def atouch_api_key(key_hash: str) -> None:
+    await run_in_threadpool(touch_api_key, key_hash)
+
+
 def get_key_by_order_id(order_id: str) -> dict | None:
     """Look up an API key by Lemon Squeezy order ID."""
     with get_api_db() as con:
@@ -582,6 +590,10 @@ def log_usage(client_ip: str, endpoint: str, key_hash: str | None = None) -> Non
             "INSERT INTO api_usage (key_hash, client_ip, endpoint, called_at) VALUES (?, ?, ?, ?)",
             (key_hash, ip_hash, endpoint, now),
         )
+
+
+async def alog_usage(client_ip: str, endpoint: str, key_hash: str | None = None) -> None:
+    await run_in_threadpool(log_usage, client_ip, endpoint, key_hash)
 
 
 def get_total_requests() -> int:
@@ -1896,6 +1908,10 @@ def get_atlas_technique(technique_id: str) -> dict | None:
     }
 
 
+async def aget_atlas_technique(technique_id: str) -> dict | None:
+    return await run_in_threadpool(get_atlas_technique, technique_id)
+
+
 def search_atlas_techniques(
     keyword: str | None = None,
     tactic: str | None = None,
@@ -1940,6 +1956,10 @@ def search_atlas_techniques(
     return out
 
 
+async def asearch_atlas_techniques(**kwargs) -> list[dict]:
+    return await run_in_threadpool(search_atlas_techniques, **kwargs)
+
+
 def get_atlas_case_study(case_study_id: str) -> dict | None:
     """Fetch ATLAS case study by id. Returns None when not found."""
     with get_cve_db() as con:
@@ -1958,6 +1978,10 @@ def get_atlas_case_study(case_study_id: str) -> dict | None:
         "techniques_used": _decode_json_list(row["techniques_used"]),
         "updated_at": row["updated_at"],
     }
+
+
+async def aget_atlas_case_study(case_study_id: str) -> dict | None:
+    return await run_in_threadpool(get_atlas_case_study, case_study_id)
 
 
 def search_atlas_case_studies(
@@ -1993,6 +2017,10 @@ def search_atlas_case_studies(
         }
         for r in rows
     ]
+
+
+async def asearch_atlas_case_studies(**kwargs) -> list[dict]:
+    return await run_in_threadpool(search_atlas_case_studies, **kwargs)
 
 
 # --- D3FEND helpers ---
@@ -2090,6 +2118,10 @@ def get_d3fend_defense(defense_id: str) -> dict | None:
     }
 
 
+async def aget_d3fend_defense(defense_id: str) -> dict | None:
+    return await run_in_threadpool(get_d3fend_defense, defense_id)
+
+
 def search_d3fend_defenses(
     keyword: str | None = None,
     tactic: str | None = None,
@@ -2134,6 +2166,10 @@ def search_d3fend_defenses(
     ]
 
 
+async def asearch_d3fend_defenses(**kwargs) -> list[dict]:
+    return await run_in_threadpool(search_d3fend_defenses, **kwargs)
+
+
 def get_d3fend_defenses_for_attack(attack_technique_id: str) -> list[dict]:
     """Reverse lookup: given an ATT&CK T-code, return all D3FEND defenses that mitigate it."""
     with get_cve_db() as con:
@@ -2162,6 +2198,10 @@ def get_d3fend_defenses_for_attack(attack_technique_id: str) -> list[dict]:
         }
         for r in rows
     ]
+
+
+async def aget_d3fend_defenses_for_attack(attack_technique_id: str) -> list[dict]:
+    return await run_in_threadpool(get_d3fend_defenses_for_attack, attack_technique_id)
 
 
 D3FEND_COVERAGE_MAX_IDS = 500
@@ -2198,6 +2238,10 @@ def get_d3fend_coverage(attack_technique_ids: list[str]) -> dict:
         "defended_techniques": sorted(defended),
         "undefended_techniques": undefended,
     }
+
+
+async def aget_d3fend_coverage(attack_technique_ids: list[str]) -> dict:
+    return await run_in_threadpool(get_d3fend_coverage, attack_technique_ids)
 
 
 # === v1.23.0 catalog browsing helpers (feeds MCP Resources) ====================
