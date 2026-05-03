@@ -4157,12 +4157,23 @@ class TestBulkCveLookup:
         assert r.status_code == 422
 
     @patch("ratelimit.consume_bulk", return_value=False)
-    @patch("cve.routes.authenticate", return_value={"tier": "free", "key_hash": None, "client_ip": "127.0.0.1"})
+    @patch(
+        "auth.authenticate_sync",
+        return_value=__import__("auth").AuthCtx(
+            tier="free",
+            key_hash=None,
+            client_ip="127.0.0.1",
+            ratelimit_limit=100,
+            ratelimit_remaining=99,
+            ratelimit_reset=0,
+            ratelimit_cost=1,
+        ),
+    )
     def test_bulk_cve_rate_limit(self, mock_auth, mock_consume):
         ids = [f"CVE-2024-{i:05d}" for i in range(5)]
         r = client.post("/v1/cves/bulk", json={"cve_ids": ids})
         assert r.status_code == 429
-        # Verify consume_bulk was called with count - 1 (authenticate consumed 1 already)
+        # Verify consume_bulk was called with count - 1 (require_auth consumed 1 already)
         mock_consume.assert_called_once()
         args = mock_consume.call_args.args
         assert args[0] == "api"

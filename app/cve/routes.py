@@ -11,7 +11,7 @@ from typing import Annotated
 from urllib.parse import unquote
 
 import httpx
-from auth import authenticate
+from auth import AuthCtx, require_auth
 from cve.schemas import (
     BulkCveResponse,
     CveResponse,
@@ -36,7 +36,7 @@ from db import (
     search_cves,
     search_exploits_by_cve,
 )
-from fastapi import APIRouter, HTTPException, Path, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from pydantic import BaseModel, Field, StringConstraints
 from schemas import PivotHint, SearchHint, Verdict
 from validation import is_valid_ip, validate_cve_id
@@ -190,7 +190,7 @@ def _check_cve_input(cve_id: str):
     response_model_exclude_none=True,
 )
 def cve_leading(
-    request: Request,
+    auth: Annotated[AuthCtx, Depends(require_auth("/v1/cve/leading"))],
     limit: int = Query(50, ge=1, le=200, description="Max results per page"),
     offset: int = Query(0, ge=0, le=5000, description="Number of results to skip (for pagination)"),
     include: str | None = Query(
@@ -207,7 +207,6 @@ def cve_leading(
     """CVEs indexed from MITRE/GHSA before NVD has enriched them. These are
     vulnerabilities we know about that NVD hasn't published yet — our unique
     early-warning feed."""
-    authenticate(request, request.url.path)
 
     if include not in (None, "", "full"):
         raise HTTPException(status_code=400, detail="include must be 'full' (omit for slim default)")
@@ -242,7 +241,7 @@ def cve_lookup(
             ),
         ),
     ],
-    request: Request,
+    auth: Annotated[AuthCtx, Depends(require_auth("/v1/cve"))],
     include_affected_products: bool = Query(
         False,
         description="Return full affected_products list (default: first 20). Use for bulk audits or dependency scans.",
@@ -255,8 +254,6 @@ def cve_lookup(
     """Look up a single CVE by ID. Returns full details with EPSS score and KEV status."""
     cve_id = cve_id.strip().upper()
     _check_cve_input(cve_id)
-
-    authenticate(request, request.url.path)
 
     # Cache key embeds the two opt-in flags that change response shape.
     # 4 variants per CVE; the (False, False) default dominates in practice.
@@ -420,7 +417,7 @@ def kev_detail(
             ),
         ),
     ],
-    request: Request,
+    auth: Annotated[AuthCtx, Depends(require_auth("/v1/kev"))],
 ):
     """Look up CISA KEV (Known Exploited Vulnerabilities) full record for a CVE.
 
@@ -431,8 +428,6 @@ def kev_detail(
     """
     cve_id = cve_id.strip().upper()
     _check_cve_input(cve_id)
-
-    authenticate(request, request.url.path)
 
     record = get_kev_details(cve_id)
     if record is None:
@@ -538,7 +533,7 @@ def cwe_lookup(
             ),
         ),
     ],
-    request: Request,
+    auth: Annotated[AuthCtx, Depends(require_auth("/v1/cwe"))],
     include: Annotated[
         str | None,
         Query(
@@ -558,8 +553,6 @@ def cwe_lookup(
     after cve_lookup or kev_detail to understand the underlying weakness category.
     """
     normalized = _normalize_cwe(cwe_id)
-
-    authenticate(request, request.url.path)
 
     if include not in (None, "", "full"):
         raise HTTPException(status_code=400, detail="include must be 'full' (omit for slim default)")
@@ -584,7 +577,7 @@ def cwe_lookup(
 
 @router.get("/cves", operation_id="cve_search", response_model=CveSearchResponse, response_model_exclude_none=True)
 def cve_search(
-    request: Request,
+    auth: Annotated[AuthCtx, Depends(require_auth("/v1/cves"))],
     product: str | None = Query(
         None,
         min_length=2,
@@ -630,8 +623,6 @@ def cve_search(
     ),
 ):
     """Search CVEs by product, severity, date range, KEV status, and EPSS score."""
-    authenticate(request, request.url.path)
-
     if severity and severity.upper() not in ("CRITICAL", "HIGH", "MEDIUM", "LOW"):
         raise HTTPException(status_code=400, detail="severity must be CRITICAL, HIGH, MEDIUM, or LOW")
     if sort and sort not in ("epss_desc", "cvss_desc", "published_desc"):
@@ -1127,12 +1118,11 @@ def exploit_lookup(
             ),
         ),
     ],
-    request: Request,
+    auth: Annotated[AuthCtx, Depends(require_auth("/v1/exploit"))],
 ):
     """Search for public exploits and advisories related to a CVE."""
     cve_id = cve_id.strip().upper()
     _check_cve_input(cve_id)
-    authenticate(request, "/v1/exploit")
 
     # Check cache
     cache_key = f"exploit:{cve_id}"
@@ -1245,17 +1235,15 @@ class _BulkCveRequest(BaseModel):
     response_model=BulkCveResponse,
     response_model_exclude_none=True,
 )
-def bulk_cve_lookup(body: _BulkCveRequest, request: Request):
+def bulk_cve_lookup(
+    body: _BulkCveRequest,
+    auth: Annotated[AuthCtx, Depends(require_auth("/v1/cves/bulk"))],
+):
     """Bulk CVE lookup — up to 10 CVEs (free) or 50 (pro). Each CVE counts as 1 request toward rate limit."""
     import ratelimit
-    from auth import extract_key, hash_key
     from config import FREE_BULK_LIMIT, FREE_HOURLY_LIMIT, PRO_BULK_LIMIT, PRO_HOURLY_LIMIT
-    from validation import get_client_ip
 
-    auth_ctx = authenticate(request, "/v1/cves/bulk")
-    client_ip = get_client_ip(request)
-
-    bulk_limit = PRO_BULK_LIMIT if auth_ctx["tier"] == "pro" else FREE_BULK_LIMIT
+    bulk_limit = PRO_BULK_LIMIT if auth.tier == "pro" else FREE_BULK_LIMIT
 
     cve_ids = list(dict.fromkeys(c.strip().upper() for c in body.cve_ids if c.strip()))
     count = len(cve_ids)
@@ -1263,7 +1251,7 @@ def bulk_cve_lookup(body: _BulkCveRequest, request: Request):
     if count == 0:
         # v1.21.0 parity with bulk_atlas_technique_lookup + bulk_ioc_lookup: empty list → 200 +
         # empty results (not 400). Consistent with the "all bulk endpoints behave identically
-        # on edge cases" contract; caller already paid 1 quota via authenticate().
+        # on edge cases" contract; caller already paid 1 quota via require_auth.
         return {
             "results": [],
             "total": 0,
@@ -1276,15 +1264,14 @@ def bulk_cve_lookup(body: _BulkCveRequest, request: Request):
     if count > bulk_limit:
         raise HTTPException(
             status_code=422,
-            detail=f"Too many CVE IDs. Limit: {bulk_limit} (your tier: {auth_ctx['tier']})",
+            detail=f"Too many CVE IDs. Limit: {bulk_limit} (your tier: {auth.tier})",
         )
 
-    raw_key = extract_key(request)
-    if raw_key:
-        store_key = f"pro:{hash_key(raw_key)}"
+    if auth.tier == "pro":
+        store_key = f"pro:{auth.key_hash}"
         limit = PRO_HOURLY_LIMIT
     else:
-        store_key = f"free:{hash_client_ip(client_ip)}"
+        store_key = f"free:{hash_client_ip(auth.client_ip)}"
         limit = FREE_HOURLY_LIMIT
 
     if count > 1 and not ratelimit.consume_bulk("api", store_key, count - 1, limit):
