@@ -1,6 +1,6 @@
 """Tests for email MX, disposable email, and phone lookup endpoints."""
 
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from auth import AuthCtx
 from fastapi.testclient import TestClient
@@ -510,7 +510,7 @@ class TestPhoneCarrierHonesty:
 
     def test_route_drops_carrier_when_unsupported(self):
         # response_model_exclude_none=True → carrier key absent from JSON for US
-        with patch("auth.authenticate_sync", return_value=_AUTH_FREE):
+        with patch("auth.aauthenticate", new_callable=AsyncMock, return_value=_AUTH_FREE):
             r = client.get("/v1/phone/%2B14155552671")
             assert r.status_code == 200
             data = r.json()
@@ -519,7 +519,7 @@ class TestPhoneCarrierHonesty:
             assert "carrier" not in data, "carrier must be omitted when unsupported_region"
 
     def test_route_emits_carrier_when_known(self):
-        with patch("auth.authenticate_sync", return_value=_AUTH_FREE):
+        with patch("auth.aauthenticate", new_callable=AsyncMock, return_value=_AUTH_FREE):
             r = client.get("/v1/phone/%2B905321234567")
             assert r.status_code == 200
             data = r.json()
@@ -529,7 +529,7 @@ class TestPhoneCarrierHonesty:
 
 
 class TestPhoneRoute:
-    @patch("auth.authenticate_sync", return_value=_AUTH_FREE)
+    @patch("auth.aauthenticate", new_callable=AsyncMock, return_value=_AUTH_FREE)
     def test_phone_valid(self, mock_auth):
         r = client.get("/v1/phone/%2B905321234567")
         assert r.status_code == 200
@@ -537,14 +537,14 @@ class TestPhoneRoute:
         assert data["valid"] is True
         assert data["country_code"] == "TR"
 
-    @patch("auth.authenticate_sync", return_value=_AUTH_FREE)
+    @patch("auth.aauthenticate", new_callable=AsyncMock, return_value=_AUTH_FREE)
     def test_phone_invalid(self, mock_auth):
         r = client.get("/v1/phone/notanumber")
         assert r.status_code == 200
         data = r.json()
         assert data["valid"] is False
 
-    @patch("auth.authenticate_sync", return_value=_AUTH_FREE)
+    @patch("auth.aauthenticate", new_callable=AsyncMock, return_value=_AUTH_FREE)
     def test_phone_response_shape(self, mock_auth):
         # Use a TR number — libphonenumber's carrier DB covers it, so the carrier
         # field is present. US/CA omit `carrier` per Bug M (unsupported_region).

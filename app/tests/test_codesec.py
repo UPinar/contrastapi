@@ -857,11 +857,11 @@ class TestDependenciesRoute:
 
     def test_over_free_limit_422(self):
         """Free tier: >10 packages → 422 before any DB work."""
-        from unittest.mock import patch
+        from unittest.mock import AsyncMock, patch
 
         with (
             patch("ratelimit.consume_bulk", return_value=True) as mock_consume,
-            patch("auth.authenticate_sync", return_value=_FREE_AUTH_CTX),
+            patch("auth.aauthenticate", new_callable=AsyncMock, return_value=_FREE_AUTH_CTX),
         ):
             pkgs = [{"name": f"pkg{i}"} for i in range(11)]
             r = client.post("/v1/check/dependencies", json={"packages": pkgs})
@@ -876,11 +876,11 @@ class TestDependenciesRoute:
 
     def test_consume_bulk_called_with_count_minus_one(self):
         """Verify per-package charging: N packages → consume_bulk(count - 1) after authenticate()'s 1."""
-        from unittest.mock import patch
+        from unittest.mock import AsyncMock, patch
 
         with (
             patch("ratelimit.consume_bulk", return_value=True) as mock_consume,
-            patch("auth.authenticate_sync", return_value=_FREE_AUTH_CTX),
+            patch("auth.aauthenticate", new_callable=AsyncMock, return_value=_FREE_AUTH_CTX),
         ):
             pkgs = [{"name": f"pkg{i}"} for i in range(5)]
             r = client.post("/v1/check/dependencies", json={"packages": pkgs})
@@ -890,11 +890,11 @@ class TestDependenciesRoute:
 
     def test_bulk_rate_limit_exhausted(self):
         """When consume_bulk returns False → 429."""
-        from unittest.mock import patch
+        from unittest.mock import AsyncMock, patch
 
         with (
             patch("ratelimit.consume_bulk", return_value=False),
-            patch("auth.authenticate_sync", return_value=_FREE_AUTH_CTX),
+            patch("auth.aauthenticate", new_callable=AsyncMock, return_value=_FREE_AUTH_CTX),
         ):
             pkgs = [{"name": f"pkg{i}"} for i in range(5)]
             r = client.post("/v1/check/dependencies", json={"packages": pkgs})
@@ -902,11 +902,11 @@ class TestDependenciesRoute:
 
     def test_deduplicates_repeat_packages(self):
         """Duplicate (name, version) pairs are collapsed before charging — prevents 10x credit waste on same pkg."""
-        from unittest.mock import patch
+        from unittest.mock import AsyncMock, patch
 
         with (
             patch("ratelimit.consume_bulk", return_value=True) as mock_consume,
-            patch("auth.authenticate_sync", return_value=_FREE_AUTH_CTX),
+            patch("auth.aauthenticate", new_callable=AsyncMock, return_value=_FREE_AUTH_CTX),
         ):
             pkgs = [{"name": "flask", "version": "2.0.0"}] * 5 + [{"name": "django"}]
             r = client.post("/v1/check/dependencies", json={"packages": pkgs})
@@ -917,11 +917,11 @@ class TestDependenciesRoute:
 
     def test_single_package_skips_consume_bulk(self):
         """count=1 → authenticate()'s 1 credit is enough, consume_bulk must NOT be called."""
-        from unittest.mock import patch
+        from unittest.mock import AsyncMock, patch
 
         with (
             patch("ratelimit.consume_bulk") as mock_consume,
-            patch("auth.authenticate_sync", return_value=_FREE_AUTH_CTX),
+            patch("auth.aauthenticate", new_callable=AsyncMock, return_value=_FREE_AUTH_CTX),
         ):
             r = client.post("/v1/check/dependencies", json={"packages": [{"name": "flask"}]})
             assert r.status_code == 200
@@ -929,11 +929,11 @@ class TestDependenciesRoute:
 
     def test_dedup_normalizes_version_whitespace_and_case(self):
         """Versions differing only in whitespace/case are deduped — blocks charge-inflation via formatting."""
-        from unittest.mock import patch
+        from unittest.mock import AsyncMock, patch
 
         with (
             patch("ratelimit.consume_bulk", return_value=True) as mock_consume,
-            patch("auth.authenticate_sync", return_value=_FREE_AUTH_CTX),
+            patch("auth.aauthenticate", new_callable=AsyncMock, return_value=_FREE_AUTH_CTX),
         ):
             pkgs = [
                 {"name": "foo", "version": "1.0.0"},

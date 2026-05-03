@@ -24,11 +24,18 @@ from dataclasses import dataclass
 from typing import Literal
 
 from config import FREE_HOURLY_LIMIT, KEY_LENGTH, KEY_PREFIX, PRO_HOURLY_LIMIT
-from db import get_api_key, hash_client_ip, log_usage, touch_api_key
+from db import (
+    aget_api_key,
+    alog_usage,
+    atouch_api_key,
+    get_api_key,
+    hash_client_ip,
+    log_usage,
+    touch_api_key,
+)
 from fastapi import Depends, HTTPException, Request
-from fastapi.concurrency import run_in_threadpool
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from ratelimit import consume_credits, get_reset_time
+from ratelimit import aconsume_credits, aget_reset_time, consume_credits, get_reset_time
 
 # OpenAPI security scheme. auto_error=False so /v1/* keyless endpoints stay
 # reachable without an Authorization header — actual auth + rate-limit decision
@@ -222,6 +229,119 @@ def authenticate_sync(request: Request, endpoint: str, cost: int = 1) -> AuthCtx
     return ctx
 
 
+async def aauthenticate(request: Request, endpoint: str, cost: int = 1) -> AuthCtx:
+    """Async authentication path used by require_auth's FastAPI dep.
+
+    Mirrors authenticate_sync but awaits the aXxx helpers directly, eliminating
+    the run_in_threadpool wrapper layer that previously dispatched the entire
+    sync function. Pure-CPU helpers (hash_key, hash_client_ip, extract_key,
+    _privacy_opt_out, _stash) stay direct calls — threadpool overhead would
+    dwarf their sub-microsecond work.
+    """
+    from validation import get_client_ip
+
+    client_ip = get_client_ip(request)
+    raw_key = extract_key(request)
+    localhost = client_ip in ("127.0.0.1", "::1")
+
+    if raw_key:
+        kh = hash_key(raw_key)
+        key_row = await aget_api_key(kh)
+        if key_row is None:
+            ctx = AuthCtx(
+                tier="pro",
+                key_hash=kh,
+                client_ip=client_ip,
+                ratelimit_limit=PRO_HOURLY_LIMIT,
+                ratelimit_remaining=0,
+                ratelimit_reset=0,
+                ratelimit_cost=cost,
+            )
+            _stash(request, ctx)
+            raise HTTPException(status_code=401, detail="Invalid API key")
+
+        limit = PRO_HOURLY_LIMIT
+        store_key = f"pro:{kh}"
+
+        if not localhost:
+            allowed, remaining = await aconsume_credits("api", store_key, cost, limit)
+            reset_at = await aget_reset_time("api", store_key)
+            if not allowed:
+                ctx = AuthCtx(
+                    tier="pro",
+                    key_hash=kh,
+                    client_ip=client_ip,
+                    ratelimit_limit=limit,
+                    ratelimit_remaining=0,
+                    ratelimit_reset=reset_at,
+                    ratelimit_cost=cost,
+                )
+                _stash(request, ctx)
+                raise HTTPException(
+                    status_code=429,
+                    detail=f"Rate limit exceeded ({limit}/hr). Contact support for higher limits.",
+                )
+        else:
+            remaining = limit
+            reset_at = 0
+
+        await atouch_api_key(kh)
+        if not localhost and not _privacy_opt_out(request):
+            await alog_usage(client_ip, endpoint, key_hash=kh)
+
+        ctx = AuthCtx(
+            tier="pro",
+            key_hash=kh,
+            client_ip=client_ip,
+            ratelimit_limit=limit,
+            ratelimit_remaining=remaining,
+            ratelimit_reset=reset_at,
+            ratelimit_cost=cost,
+        )
+        _stash(request, ctx)
+        return ctx
+
+    limit = FREE_HOURLY_LIMIT
+    store_key = f"free:{hash_client_ip(client_ip)}"
+
+    if not localhost:
+        allowed, remaining = await aconsume_credits("api", store_key, cost, limit)
+        reset_at = await aget_reset_time("api", store_key)
+        if not allowed:
+            ctx = AuthCtx(
+                tier="free",
+                key_hash=None,
+                client_ip=client_ip,
+                ratelimit_limit=limit,
+                ratelimit_remaining=0,
+                ratelimit_reset=reset_at,
+                ratelimit_cost=cost,
+            )
+            _stash(request, ctx)
+            raise HTTPException(
+                status_code=429,
+                detail=f"Rate limit exceeded ({limit}/hr). Upgrade to Pro (1000/hr): https://contrastcyber.com/pricing",
+            )
+    else:
+        remaining = limit
+        reset_at = 0
+
+    if not localhost and not _privacy_opt_out(request):
+        await alog_usage(client_ip, endpoint)
+
+    ctx = AuthCtx(
+        tier="free",
+        key_hash=None,
+        client_ip=client_ip,
+        ratelimit_limit=limit,
+        ratelimit_remaining=remaining,
+        ratelimit_reset=reset_at,
+        ratelimit_cost=cost,
+    )
+    _stash(request, ctx)
+    return ctx
+
+
 def require_auth(endpoint: str, cost: int = 1):
     """FastAPI dependency factory: returns an async dep that authenticates
     + rate-limits the request and yields an AuthCtx.
@@ -238,19 +358,21 @@ def require_auth(endpoint: str, cost: int = 1):
     per-request dependency cache uses the same callable identity across
     requests — multiple Depends() of the same endpoint string don't re-run.
 
-    The sync work (DB lookup, sliding-window rate limit) runs in a threadpool
-    so async event-loop isn't blocked. Faz 4 plans to make this natively async.
+    Batch 4e: dispatches to aauthenticate() which awaits the aXxx DB and
+    rate-limit helpers directly. The previous run_in_threadpool wrapper that
+    moved the whole sync function off the event loop is no longer needed —
+    each individual I/O call now offloads independently.
     """
 
     async def _dep(
         request: Request,
         # Bound to surface ContrastAPIKey scheme in /openapi.json. We intentionally
-        # ignore the parsed credential here — authenticate_sync() re-extracts via
+        # ignore the parsed credential here — aauthenticate() re-extracts via
         # extract_key() (validates length + cc_ prefix). Two-pass parse keeps the
         # security UI signal without changing the keyless code path.
         _credentials: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
     ) -> AuthCtx:
-        return await run_in_threadpool(authenticate_sync, request, endpoint, cost)
+        return await aauthenticate(request, endpoint, cost)
 
     _dep.__name__ = f"require_auth({endpoint})"
     return _dep

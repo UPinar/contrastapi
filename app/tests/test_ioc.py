@@ -1,7 +1,7 @@
 """Tests for ioc/ module — IOC enrichment, malware hash, password breach."""
 
 import socket
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
@@ -1060,7 +1060,7 @@ class TestBulkIocLookup:
         assert data["partial"] is True
 
     @patch("ratelimit.consume_bulk", return_value=False)
-    @patch("auth.authenticate_sync", return_value=_FREE_AUTH_CTX)
+    @patch("auth.aauthenticate", new_callable=AsyncMock, return_value=_FREE_AUTH_CTX)
     def test_bulk_ioc_rate_limit(self, mock_auth, mock_consume, client):
         r = client.post("/v1/iocs/bulk", json={"indicators": [f"8.8.8.{i}" for i in range(5)]})
         assert r.status_code == 429
@@ -1105,7 +1105,7 @@ class TestBulkIocLookup:
         assert len(data["results"]) == 1
 
     @patch("ratelimit.consume_bulk", return_value=False)
-    @patch("auth.authenticate_sync", return_value=_FREE_AUTH_CTX)
+    @patch("auth.aauthenticate", new_callable=AsyncMock, return_value=_FREE_AUTH_CTX)
     def test_bulk_ioc_consume_bulk_call_args(self, mock_auth, mock_consume, client):
         """Verify consume_bulk is called with count - 1 (authenticate consumed 1)."""
         r = client.post("/v1/iocs/bulk", json={"indicators": [f"8.8.8.{i}" for i in range(5)]})

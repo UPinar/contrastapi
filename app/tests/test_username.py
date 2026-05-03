@@ -1,6 +1,6 @@
 """Tests for username OSINT lookup endpoint."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 from auth import AuthCtx
@@ -272,7 +272,7 @@ class TestUsernameLookupUnit:
 
 
 class TestUsernameRoute:
-    @patch("auth.authenticate_sync", return_value=_AUTH_FREE)
+    @patch("auth.aauthenticate", new_callable=AsyncMock, return_value=_AUTH_FREE)
     @patch("domain.routes.username_lookup")
     def test_valid_username(self, mock_lookup, mock_auth):
         mock_lookup.return_value = {
@@ -288,7 +288,7 @@ class TestUsernameRoute:
         assert data["username"] == "testuser"
         assert data["found_count"] == 1
 
-    @patch("auth.authenticate_sync", return_value=_AUTH_FREE)
+    @patch("auth.aauthenticate", new_callable=AsyncMock, return_value=_AUTH_FREE)
     @patch("domain.routes.username_lookup")
     def test_invalid_username(self, mock_lookup, mock_auth):
         mock_lookup.return_value = {
@@ -300,7 +300,7 @@ class TestUsernameRoute:
         data = r.json()
         assert "error" in data
 
-    @patch("auth.authenticate_sync", return_value=_AUTH_FREE)
+    @patch("auth.aauthenticate", new_callable=AsyncMock, return_value=_AUTH_FREE)
     @patch("domain.routes.username_lookup")
     def test_response_shape(self, mock_lookup, mock_auth):
         mock_lookup.return_value = {
