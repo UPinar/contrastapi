@@ -130,14 +130,11 @@ async def lifespan(app):
     # Stop maintenance + warm tasks
     task.cancel()
     warm_task.cancel()
-    # Faz 4 migration removed _reputation_pool + _bulk_pool — top-level fan-outs
-    # now use asyncio.gather over run_in_threadpool. _aia_pool + _ip_enrichment_pool
-    # remain (sync helpers under run_in_threadpool) and self-shutdown via atexit.
     # Close HTTP clients
     from cve.routes import _exploit_client
     from cve.sync import _client as sync_client
     from domain.recon import _http as recon_client
-    from domain.recon import _ssrf_http, _ssrf_http_sync
+    from domain.recon import _ssrf_http
     from domain.reputation import _client as rep_client
     from domain.routes import _ripe_client
     from domain.threat import _client as threat_client
@@ -145,14 +142,6 @@ async def lifespan(app):
     from ioc.password import _client as password_client
     from ioc.routes import _phish_client
 
-    # Sync httpx.Client — only _ssrf_http_sync remains (Faz 4g Batch 4 moved
-    # _ripe_client + cve.sync._client to AsyncClient). _ssrf_http_sync deleted
-    # in Faz 4h once _aia_pool migrates to asyncio.gather.
-    for c in (_ssrf_http_sync,):
-        try:
-            c.close()
-        except BaseException:
-            pass
     # AsyncClient — must use aclose() to release the underlying HTTP/2 transport.
     # Catch BaseException so a CancelledError mid-shutdown does not leak the
     # remaining clients' connections (CancelledError is not Exception in 3.8+).

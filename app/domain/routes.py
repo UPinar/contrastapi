@@ -1,13 +1,11 @@
 """Domain Intelligence API routes — /v1/domain/*, /v1/dns/*, /v1/whois/*, etc."""
 
 import asyncio
-import atexit
 import logging
 import re
 import socket
 import ssl as _ssl
 import threading
-from concurrent.futures import ThreadPoolExecutor
 from typing import Annotated
 from urllib.parse import urlparse as _urlparse
 
@@ -21,20 +19,9 @@ class AsnUpstreamError(Exception):
         super().__init__(f"{upstream}: {reason}")
 
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response
-
-_aia_pool = ThreadPoolExecutor(max_workers=2)
-# Dedicated pool for _fetch_asn_country inner fan-out (country + holder).
-# Faz 4 migration moved the top-level reputation fan-out to asyncio.gather +
-# run_in_threadpool, so the former _reputation_pool is gone — _ip_enrichment_pool
-# is now the only remaining dedicated pool, used by sync helpers running under
-# run_in_threadpool from async routes.
-_ip_enrichment_pool = ThreadPoolExecutor(max_workers=4)
-atexit.register(_ip_enrichment_pool.shutdown, wait=False)
-atexit.register(_aia_pool.shutdown, wait=False)
-
 import httpx as _httpx
 import ratelimit
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response
 
 _ripe_client = _httpx.AsyncClient(
     timeout=_httpx.Timeout(7.0, connect=3.0),
@@ -85,7 +72,7 @@ from domain.recon import (
     _hostname_matches,
     _parse_cert_der,
     _ssl_grade,
-    _ssrf_http_sync,
+    _ssrf_http,
     _strip_control_chars,
     check_ct_logs,
     check_disposable,
@@ -187,12 +174,10 @@ def _clean_shodan_str_list(items) -> list[str]:
     return [_strip_control_chars(v) for v in (items or []) if isinstance(v, str)]
 
 
-def _fetch_intermediate(url):
-    # Sync client — `_aia_pool.submit` runs this inside a worker thread that
-    # cannot await; the dedicated sync SSRF client preserves the same DNS +
-    # private-IP guard. Faz 4h migrates `_aia_pool` to asyncio.gather, after
-    # which this drops back to `_ssrf_http`.
-    resp = _ssrf_http_sync.get(url, timeout=5.0)
+async def _fetch_intermediate(url):
+    # Caller wraps with asyncio.wait_for(timeout=7) for per-task budget;
+    # inner timeout=5.0 protects against slow body reads.
+    resp = await _ssrf_http.get(url, timeout=5.0)
     if resp.status_code != 200:
         raise ValueError(f"HTTP {resp.status_code}")
     body = resp.content[:10240]
@@ -1605,10 +1590,27 @@ async def ssl_certificate(
             pass
 
         if aia_urls:
-            futures = {_aia_pool.submit(_fetch_intermediate, u): u for u in aia_urls}
-            for fut, url in futures.items():
-                try:
-                    ic = fut.result(timeout=7)
+            results = await asyncio.gather(
+                *(asyncio.wait_for(_fetch_intermediate(u), timeout=7) for u in aia_urls),
+                return_exceptions=True,
+            )
+            for url, item in zip(aia_urls, results, strict=True):
+                if isinstance(item, Exception):
+                    if isinstance(item, (asyncio.TimeoutError, _httpx.TimeoutException)):
+                        warnings.append(f"AIA fetch timeout: {_safe_url(url)}")
+                    elif isinstance(item, _httpx.HTTPError):
+                        warnings.append(f"AIA fetch error: {_safe_url(url)}")
+                    elif isinstance(item, (ValueError, TypeError)):
+                        warnings.append(f"AIA parse failed: {_safe_url(url)}")
+                    else:
+                        warnings.append(f"AIA fetch error: {_safe_url(url)}")
+                elif isinstance(item, BaseException):
+                    # gather(return_exceptions=True) captures Exception subclasses;
+                    # a BaseException (CancelledError, KeyboardInterrupt) here means
+                    # cancellation slipped past wait_for — propagate cleanly.
+                    raise item
+                else:
+                    ic = item
                     chain.append(
                         {
                             "subject": _safe_rdn(ic.subject.rfc4514_string()),
@@ -1617,14 +1619,6 @@ async def ssl_certificate(
                             "source": "aia_fetch",
                         }
                     )
-                except _httpx.TimeoutException:
-                    warnings.append(f"AIA fetch timeout: {_safe_url(url)}")
-                except _httpx.HTTPError:
-                    warnings.append(f"AIA fetch error: {_safe_url(url)}")
-                except (ValueError, TypeError):
-                    warnings.append(f"AIA parse failed: {_safe_url(url)}")
-                except Exception:
-                    warnings.append(f"AIA fetch error: {_safe_url(url)}")
 
     cipher_dict = {}
     if cipher_info:
@@ -1752,8 +1746,7 @@ async def _fetch_asn_country(ip: str) -> dict:
     success, two parallel asyncio tasks (country + holder) race a 3.0s
     asyncio.wait_for timeout. Cache hit with all fields populated
     short-circuits to ~0ms; partial cache hit (asn known but name or country
-    missing) triggers fan-out only for the missing field(s). _ip_enrichment_pool
-    is no longer used here (Faz 4g Batch 4 — pool definition removal in 4h).
+    missing) triggers fan-out only for the missing field(s).
     """
     cached = get_cached_domain(f"asn:{ip}")
     if cached:

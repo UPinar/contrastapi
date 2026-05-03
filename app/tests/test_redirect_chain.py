@@ -165,7 +165,7 @@ class TestWalkRedirectChain:
         """A redirect Location: http://[::1]/ should be parsed and reach the SSRF guard.
 
         We don't reject IPv6 brackets at _validate_url (they're structurally valid);
-        the actual block happens at TCP-connect time via _SSRFSafeBackend. This
+        the actual block happens at TCP-connect time via _SSRFSafeAsyncBackend. This
         test verifies that the URL passes validation (so we don't pre-emptively
         drop a public IPv6 redirect target by mistake).
         """

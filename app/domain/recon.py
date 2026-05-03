@@ -1079,63 +1079,14 @@ def email_security(domain: str, txt_records: list | None = None) -> dict:
 # === Live Header Fetch ===
 
 
-class _SSRFSafeBackend(httpcore.SyncBackend):
-    """Network backend that validates all resolved IPs before connecting.
-
-    Resolves DNS once, rejects private IPs, then connects to the validated IP.
-    httpcore uses the request hostname (not the connect IP) for TLS SNI and
-    certificate verification, so SSL works correctly with IP pinning.
-    """
-
-    def connect_tcp(self, host, port, timeout=None, local_address=None, socket_options=None):
-        result, err = _dns_call_with_timeout(
-            socket.getaddrinfo,
-            host,
-            None,
-            socket.AF_UNSPEC,
-            socket.SOCK_STREAM,
-        )
-        if err or not result:
-            raise httpcore.ConnectError(f"DNS resolution failed for {host}")
-        for _family, _stype, _proto, _canonname, sockaddr in result:
-            if is_private_ip(sockaddr[0]):
-                raise httpcore.ConnectError(f"SSRF blocked: {host} resolves to private IP")
-        # Prefer IPv4 over IPv6 for reliability, try each validated IP
-        sorted_results = sorted(result, key=lambda r: (r[0] != socket.AF_INET,))
-        last_err = None
-        for _family, _stype, _proto, _canonname, sockaddr in sorted_results:
-            try:
-                return super().connect_tcp(
-                    sockaddr[0],
-                    port,
-                    timeout=timeout,
-                    local_address=local_address,
-                    socket_options=socket_options,
-                )
-            except Exception as e:
-                last_err = e
-        raise httpcore.ConnectError(f"All addresses failed for {host}: {last_err}")
-
-
-class _SSRFSafeTransport(httpx.HTTPTransport):
-    """HTTP transport with SSRF protection at the connection level.
-
-    Skips super().__init__() to avoid creating a default ConnectionPool
-    that would immediately be discarded. Only self._pool is needed.
-    """
-
-    def __init__(self):
-        self._pool = httpcore.ConnectionPool(network_backend=_SSRFSafeBackend())
-
-
 class _SSRFSafeAsyncBackend(httpcore.AnyIOBackend):
-    """Async network backend mirroring `_SSRFSafeBackend` byte-for-byte.
+    """Async network backend that validates all resolved IPs before connecting.
 
     Resolves DNS once (off-loop via run_in_executor → reuses sync helper to
     keep the 3s threading-timeout invariant identical), rejects private IPs,
-    prefers IPv4, and falls through to IPv6 only on IPv4 failure. The async
-    variant is required for `httpx.AsyncClient`; the sync class stays alive
-    for the AIA-fetch path that runs inside a ThreadPoolExecutor worker.
+    prefers IPv4, and falls through to IPv6 only on IPv4 failure.
+    httpcore uses the request hostname (not the connect IP) for TLS SNI and
+    certificate verification, so SSL works correctly with IP pinning.
     """
 
     async def connect_tcp(self, host, port, timeout=None, local_address=None, socket_options=None):
@@ -1172,24 +1123,14 @@ class _SSRFSafeAsyncBackend(httpcore.AnyIOBackend):
 
 
 class _SSRFSafeAsyncTransport(httpx.AsyncHTTPTransport):
-    """Async equivalent of `_SSRFSafeTransport`. Skips super().__init__ to
-    avoid spinning up a default `AsyncConnectionPool` we'd immediately discard.
+    """SSRF-safe async HTTP transport. Skips super().__init__ to avoid
+    spinning up a default `AsyncConnectionPool` we'd immediately discard.
     """
 
     def __init__(self):
         self._pool = httpcore.AsyncConnectionPool(network_backend=_SSRFSafeAsyncBackend())
 
 
-# Sync client retained ONLY for the AIA-fetch path (`_fetch_intermediate` in
-# routes.py) which runs inside a `_aia_pool` ThreadPoolExecutor worker and
-# therefore cannot await. Faz 4h will migrate `_aia_pool` to asyncio.gather
-# and this client will be deleted.
-_ssrf_http_sync = httpx.Client(
-    transport=_SSRFSafeTransport(),
-    timeout=httpx.Timeout(RECON_TIMEOUT, connect=5.0),
-    headers={"User-Agent": USER_AGENT},
-    max_redirects=5,
-)
 _ssrf_http = httpx.AsyncClient(
     transport=_SSRFSafeAsyncTransport(),
     timeout=httpx.Timeout(RECON_TIMEOUT, connect=5.0),

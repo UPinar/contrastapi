@@ -237,10 +237,10 @@ class TestSslCertificate:
         with (
             patch("domain.routes.socket.create_connection", return_value=mock_sock),
             patch("domain.routes._ssl.create_default_context") as mock_ctx,
-            patch("domain.routes._ssrf_http_sync") as mock_http,
+            patch("domain.routes._ssrf_http") as mock_http,
         ):
             mock_ctx.return_value.wrap_socket.return_value = mock_ssock
-            mock_http.get.return_value = mock_resp
+            mock_http.get = AsyncMock(return_value=mock_resp)
             r = client.get("/v1/ssl/example.com")
         assert r.status_code == 200
         data = r.json()
@@ -261,10 +261,10 @@ class TestSslCertificate:
         with (
             patch("domain.routes.socket.create_connection", return_value=mock_sock),
             patch("domain.routes._ssl.create_default_context") as mock_ctx,
-            patch("domain.routes._ssrf_http_sync") as mock_http,
+            patch("domain.routes._ssrf_http") as mock_http,
         ):
             mock_ctx.return_value.wrap_socket.return_value = mock_ssock
-            mock_http.get.side_effect = httpx.TimeoutException("timeout")
+            mock_http.get = AsyncMock(side_effect=httpx.TimeoutException("timeout"))
             r = client.get("/v1/ssl/example.com")
         assert r.status_code == 200
         data = r.json()
@@ -289,10 +289,10 @@ class TestSslCertificate:
         with (
             patch("domain.routes.socket.create_connection", return_value=mock_sock),
             patch("domain.routes._ssl.create_default_context") as mock_ctx,
-            patch("domain.routes._ssrf_http_sync") as mock_http,
+            patch("domain.routes._ssrf_http") as mock_http,
         ):
             mock_ctx.return_value.wrap_socket.return_value = mock_ssock
-            mock_http.get.return_value = mock_resp
+            mock_http.get = AsyncMock(return_value=mock_resp)
             r = client.get("/v1/ssl/example.com")
         assert r.status_code == 200
         data = r.json()
