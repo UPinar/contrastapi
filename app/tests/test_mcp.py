@@ -142,9 +142,9 @@ def test_mcp_tool_has_input_schema(mcp_client):
 
 def test_mcp_tool_call_cve_lookup(mcp_client, monkeypatch):
     """tools/call invokes the tool and returns both text + structuredContent (v1.22.0)."""
-    import main
+    from core import mcp_proxy
 
-    mod = main._mcp_mod
+    mod = mcp_proxy._mcp_mod
 
     async def mock_aget(path, params=None):
         return {"cve_id": "CVE-2024-0001", "summary": "HIGH — Test CVE for unit test"}
@@ -183,9 +183,9 @@ def test_mcp_tool_call_whois_lookup_docstring_parity(mcp_client, monkeypatch):
     expiration_date + dnssec — both wrong. Real fields are expiry_date + name_servers
     + raw_length, no dnssec. See WhoisInfoEmbedded in app/schemas.py.
     """
-    import main
+    from core import mcp_proxy
 
-    mod = main._mcp_mod
+    mod = mcp_proxy._mcp_mod
 
     async def mock_aget(path, params=None):
         return {
@@ -256,9 +256,9 @@ def test_mcp_tool_call_nonexistent_tool(mcp_client):
 
 
 def test_mcp_tool_call_audit_domain(mcp_client, monkeypatch):
-    import main
+    from core import mcp_proxy
 
-    mod = main._mcp_mod
+    mod = mcp_proxy._mcp_mod
 
     async def mock_aget(path, params=None):
         return {"domain": "example.com", "summary": "audit ok"}
@@ -299,9 +299,9 @@ def test_mcp_tool_call_audit_domain_invalid(mcp_client):
 
 
 def test_mcp_tool_call_threat_report(mcp_client, monkeypatch):
-    import main
+    from core import mcp_proxy
 
-    mod = main._mcp_mod
+    mod = mcp_proxy._mcp_mod
 
     async def mock_aget(path, params=None):
         return {"ip": "8.8.8.8", "summary": "threat ok"}
@@ -341,9 +341,9 @@ def test_mcp_tool_call_threat_report_invalid_ip(mcp_client):
 
 
 def test_mcp_tool_call_bulk_cve_lookup(mcp_client, monkeypatch):
-    import main
+    from core import mcp_proxy
 
-    mod = main._mcp_mod
+    mod = mcp_proxy._mcp_mod
 
     async def mock_apost(path, json_body, params=None):
         return {"total": 2, "successful": 2, "failed": 0, "summary": "bulk cve ok"}
@@ -386,9 +386,9 @@ def test_mcp_tool_call_bulk_cve_lookup_empty(mcp_client):
 
 
 def test_mcp_tool_call_bulk_ioc_lookup(mcp_client, monkeypatch):
-    import main
+    from core import mcp_proxy
 
-    mod = main._mcp_mod
+    mod = mcp_proxy._mcp_mod
 
     async def mock_apost(path, json_body, params=None):
         return {"total": 2, "successful": 2, "failed": 0}
@@ -676,9 +676,9 @@ def test_mcp_tool_safe_catches_pydantic_validation_error(mcp_client, monkeypatch
     leaks to wire OR to logs (regression guard for the v1.22 round-2 log-injection fix)."""
     import logging
 
-    import main
+    from core import mcp_proxy
 
-    mod = main._mcp_mod
+    mod = mcp_proxy._mcp_mod
 
     async def mock_aget(path, params=None):
         # Distinctive marker keys/values; if any of these reach logs we have a
