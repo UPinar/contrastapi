@@ -22,6 +22,7 @@ from config import (
     VERSION,
     settings,
 )
+from fastapi.concurrency import run_in_threadpool
 
 logger = logging.getLogger("contrastapi")
 
@@ -783,6 +784,14 @@ def save_cached_domain(domain: str, result: dict) -> None:
             "INSERT OR REPLACE INTO domain_cache (domain, result_json, fetched_at) VALUES (?, ?, ?)",
             (key, result_str, now),
         )
+
+
+async def aget_cached_domain(domain: str) -> dict | None:
+    return await run_in_threadpool(get_cached_domain, domain)
+
+
+async def asave_cached_domain(domain: str, result: dict) -> None:
+    await run_in_threadpool(save_cached_domain, domain, result)
 
 
 # --- IP cache ---
