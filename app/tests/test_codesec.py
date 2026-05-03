@@ -3,6 +3,7 @@
 import re
 from unittest.mock import MagicMock, patch
 
+from auth import AuthCtx
 from codesec.headers import MAX_HEADER_VALUE_DEFAULT, check_headers
 from codesec.injection import detect_injection
 from codesec.secrets import detect_secrets
@@ -11,6 +12,19 @@ from fastapi.testclient import TestClient
 from main import app
 
 client = TestClient(app)
+
+# Faz 3: routes use Annotated[AuthCtx, Depends(require_auth(...))] instead of
+# inline authenticate(); patches must hit auth.authenticate_sync (the sync core
+# wrapped by require_auth's run_in_threadpool dep).
+_FREE_AUTH_CTX = AuthCtx(
+    tier="free",
+    key_hash=None,
+    client_ip="127.0.0.1",
+    ratelimit_limit=100,
+    ratelimit_remaining=99,
+    ratelimit_reset=0,
+    ratelimit_cost=1,
+)
 
 
 # =========== detect_secrets unit tests ===========
@@ -847,10 +861,7 @@ class TestDependenciesRoute:
 
         with (
             patch("ratelimit.consume_bulk", return_value=True) as mock_consume,
-            patch(
-                "codesec.routes.authenticate",
-                return_value={"tier": "free", "key_hash": None, "client_ip": "127.0.0.1"},
-            ),
+            patch("auth.authenticate_sync", return_value=_FREE_AUTH_CTX),
         ):
             pkgs = [{"name": f"pkg{i}"} for i in range(11)]
             r = client.post("/v1/check/dependencies", json={"packages": pkgs})
@@ -869,10 +880,7 @@ class TestDependenciesRoute:
 
         with (
             patch("ratelimit.consume_bulk", return_value=True) as mock_consume,
-            patch(
-                "codesec.routes.authenticate",
-                return_value={"tier": "free", "key_hash": None, "client_ip": "127.0.0.1"},
-            ),
+            patch("auth.authenticate_sync", return_value=_FREE_AUTH_CTX),
         ):
             pkgs = [{"name": f"pkg{i}"} for i in range(5)]
             r = client.post("/v1/check/dependencies", json={"packages": pkgs})
@@ -886,10 +894,7 @@ class TestDependenciesRoute:
 
         with (
             patch("ratelimit.consume_bulk", return_value=False),
-            patch(
-                "codesec.routes.authenticate",
-                return_value={"tier": "free", "key_hash": None, "client_ip": "127.0.0.1"},
-            ),
+            patch("auth.authenticate_sync", return_value=_FREE_AUTH_CTX),
         ):
             pkgs = [{"name": f"pkg{i}"} for i in range(5)]
             r = client.post("/v1/check/dependencies", json={"packages": pkgs})
@@ -901,10 +906,7 @@ class TestDependenciesRoute:
 
         with (
             patch("ratelimit.consume_bulk", return_value=True) as mock_consume,
-            patch(
-                "codesec.routes.authenticate",
-                return_value={"tier": "free", "key_hash": None, "client_ip": "127.0.0.1"},
-            ),
+            patch("auth.authenticate_sync", return_value=_FREE_AUTH_CTX),
         ):
             pkgs = [{"name": "flask", "version": "2.0.0"}] * 5 + [{"name": "django"}]
             r = client.post("/v1/check/dependencies", json={"packages": pkgs})
@@ -919,10 +921,7 @@ class TestDependenciesRoute:
 
         with (
             patch("ratelimit.consume_bulk") as mock_consume,
-            patch(
-                "codesec.routes.authenticate",
-                return_value={"tier": "free", "key_hash": None, "client_ip": "127.0.0.1"},
-            ),
+            patch("auth.authenticate_sync", return_value=_FREE_AUTH_CTX),
         ):
             r = client.post("/v1/check/dependencies", json={"packages": [{"name": "flask"}]})
             assert r.status_code == 200
@@ -934,10 +933,7 @@ class TestDependenciesRoute:
 
         with (
             patch("ratelimit.consume_bulk", return_value=True) as mock_consume,
-            patch(
-                "codesec.routes.authenticate",
-                return_value={"tier": "free", "key_hash": None, "client_ip": "127.0.0.1"},
-            ),
+            patch("auth.authenticate_sync", return_value=_FREE_AUTH_CTX),
         ):
             pkgs = [
                 {"name": "foo", "version": "1.0.0"},

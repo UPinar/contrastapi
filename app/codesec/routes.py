@@ -4,14 +4,14 @@ import threading
 from collections import Counter
 from typing import Annotated
 
-from auth import authenticate
+from auth import AuthCtx, require_auth
 from codesec.headers import check_headers
 from codesec.injection import detect_injection
 from codesec.schemas import CheckHeadersResponse, CodeCheckResponse, DependenciesResponse, ScanHeadersResponse
 from codesec.secrets import detect_secrets
 from db import _normalize_product, _parse_version, hash_client_ip, search_cves_by_products_bulk
 from domain.recon import fetch_live_headers
-from fastapi import APIRouter, HTTPException, Path, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from pydantic import BaseModel, Field
 from validation import _is_valid_format, clean_domain, is_valid_ip, validate_domain
 
@@ -104,9 +104,11 @@ def _severity_counts(findings: list[dict]) -> dict[str, int]:
 @router.post(
     "/check/secrets", operation_id="check_secrets", response_model=CodeCheckResponse, response_model_exclude_none=True
 )
-def check_secrets_endpoint(body: CodeInput, request: Request):
+def check_secrets_endpoint(
+    body: CodeInput,
+    auth: Annotated[AuthCtx, Depends(require_auth("/v1/check/secrets"))],
+):
     """Detect hardcoded secrets (AWS keys, tokens, passwords, etc.) in source code."""
-    authenticate(request, "/v1/check/secrets")
     _check_code_size(body.code)
     lang = body.language.lower()
     if lang not in ALLOWED_LANGUAGES:
@@ -144,9 +146,11 @@ def check_secrets_endpoint(body: CodeInput, request: Request):
     response_model=CodeCheckResponse,
     response_model_exclude_none=True,
 )
-def check_injection_endpoint(body: CodeInput, request: Request):
+def check_injection_endpoint(
+    body: CodeInput,
+    auth: Annotated[AuthCtx, Depends(require_auth("/v1/check/injection"))],
+):
     """Detect SQL injection, command injection, and path traversal patterns in source code."""
-    authenticate(request, "/v1/check/injection")
     _check_code_size(body.code)
     lang = body.language.lower()
     if lang not in ALLOWED_LANGUAGES:
@@ -196,7 +200,7 @@ def scan_headers_endpoint(
             ),
         ),
     ],
-    request: Request,
+    auth: Annotated[AuthCtx, Depends(require_auth("/v1/scan/headers"))],
     include: Annotated[
         str | None,
         Query(
@@ -219,7 +223,6 @@ def scan_headers_endpoint(
         )
     if not _is_valid_format(domain):
         raise HTTPException(status_code=400, detail="Invalid domain")
-    authenticate(request, request.url.path)
     if include not in (None, "", "full"):
         raise HTTPException(status_code=400, detail="include must be 'full' (omit for slim default)")
     resolved_ip = validate_domain(domain)
@@ -247,7 +250,7 @@ def scan_headers_endpoint(
 )
 def check_headers_endpoint(
     body: HeadersInput,
-    request: Request,
+    auth: Annotated[AuthCtx, Depends(require_auth("/v1/check/headers"))],
     include: Annotated[
         str | None,
         Query(
@@ -260,7 +263,6 @@ def check_headers_endpoint(
     ] = None,
 ):
     """Validate HTTP security headers (CSP, HSTS, X-Frame-Options, etc.)."""
-    authenticate(request, "/v1/check/headers")
     if include not in (None, "", "full"):
         raise HTTPException(status_code=400, detail="include must be 'full' (omit for slim default)")
     if len(body.headers) > MAX_HEADERS:
@@ -287,17 +289,16 @@ def check_headers_endpoint(
     response_model=DependenciesResponse,
     response_model_exclude_none=True,
 )
-def check_dependencies_endpoint(body: DependenciesInput, request: Request):
+def check_dependencies_endpoint(
+    body: DependenciesInput,
+    auth: Annotated[AuthCtx, Depends(require_auth("/v1/check/dependencies"))],
+):
     """Check packages against the CVE database for known vulnerabilities.
 
     Up to 10 packages (free) or 50 (pro). Each package counts as 1 request toward rate limit.
     """
     import ratelimit
-    from auth import extract_key, hash_key
     from config import FREE_BULK_LIMIT, FREE_HOURLY_LIMIT, PRO_BULK_LIMIT, PRO_HOURLY_LIMIT
-    from validation import get_client_ip
-
-    auth_ctx = authenticate(request, "/v1/check/dependencies")
 
     seen: set[tuple[str, str | None]] = set()
     packages: list[PackageItem] = []
@@ -312,19 +313,18 @@ def check_dependencies_endpoint(body: DependenciesInput, request: Request):
     if count == 0:
         raise HTTPException(status_code=400, detail="packages must contain at least one non-empty name")
 
-    bulk_limit = PRO_BULK_LIMIT if auth_ctx["tier"] == "pro" else FREE_BULK_LIMIT
+    bulk_limit = PRO_BULK_LIMIT if auth.tier == "pro" else FREE_BULK_LIMIT
     if count > bulk_limit:
         raise HTTPException(
             status_code=422,
-            detail=f"Too many packages. Limit: {bulk_limit} (your tier: {auth_ctx['tier']})",
+            detail=f"Too many packages. Limit: {bulk_limit} (your tier: {auth.tier})",
         )
 
-    raw_key = extract_key(request)
-    if raw_key:
-        store_key = f"pro:{hash_key(raw_key)}"
+    if auth.tier == "pro":
+        store_key = f"pro:{auth.key_hash}"
         limit = PRO_HOURLY_LIMIT
     else:
-        store_key = f"free:{hash_client_ip(get_client_ip(request))}"
+        store_key = f"free:{hash_client_ip(auth.client_ip)}"
         limit = FREE_HOURLY_LIMIT
 
     if count > 1 and not ratelimit.consume_bulk("api", store_key, count - 1, limit):
