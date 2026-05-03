@@ -231,6 +231,7 @@ def refund(store_name: str, key: str) -> None:
 
 
 async def arefund(store_name: str, key: str) -> None:
+    """Async wrapper for refund — used by ip_lookup pro-tier enrichment failure path."""
     await run_in_threadpool(refund, store_name, key)
 
 

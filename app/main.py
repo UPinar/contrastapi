@@ -130,17 +130,9 @@ async def lifespan(app):
     # Stop maintenance + warm tasks
     task.cancel()
     warm_task.cancel()
-    # Shut down thread pools
-    from domain.routes import _bulk_pool, _reputation_pool
-
-    try:
-        _reputation_pool.shutdown(wait=False)
-    except Exception:
-        pass
-    try:
-        _bulk_pool.shutdown(wait=False)
-    except Exception:
-        pass
+    # Faz 4 migration removed _reputation_pool + _bulk_pool — top-level fan-outs
+    # now use asyncio.gather over run_in_threadpool. _aia_pool + _ip_enrichment_pool
+    # remain (sync helpers under run_in_threadpool) and self-shutdown via atexit.
     # Close HTTP clients
     from cve.routes import _exploit_client
     from cve.sync import _client as sync_client

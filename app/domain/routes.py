@@ -23,18 +23,15 @@ class AsnUpstreamError(Exception):
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response
 
-_reputation_pool = ThreadPoolExecutor(max_workers=3)
 _aia_pool = ThreadPoolExecutor(max_workers=2)
-# Dedicated pool for _fetch_asn_country inner fan-out (country + holder), keeps
-# _reputation_pool free for top-level submissions and avoids nested-submit
-# deadlock when many ip_lookup requests arrive concurrently.
+# Dedicated pool for _fetch_asn_country inner fan-out (country + holder).
+# Faz 4 migration moved the top-level reputation fan-out to asyncio.gather +
+# run_in_threadpool, so the former _reputation_pool is gone — _ip_enrichment_pool
+# is now the only remaining dedicated pool, used by sync helpers running under
+# run_in_threadpool from async routes.
 _ip_enrichment_pool = ThreadPoolExecutor(max_workers=4)
-# atexit runs handlers in LIFO order. _ip_enrichment_pool receives submits from
-# tasks running inside _reputation_pool (nested fan-out), so it must shut down
-# LAST — register it FIRST.
 atexit.register(_ip_enrichment_pool.shutdown, wait=False)
 atexit.register(_aia_pool.shutdown, wait=False)
-atexit.register(_reputation_pool.shutdown, wait=False)
 
 import httpx as _httpx
 import ratelimit
@@ -1917,6 +1914,12 @@ async def ip_lookup(
     ):
         reputation_attempted = True
         firehol_attempted = True
+        # Credit-refund correctness: acheck_limit consumed 1 enrichment credit.
+        # If the gather() fails OR the request is cancelled mid-await (client
+        # disconnect → asyncio.CancelledError, which is NOT an Exception
+        # subclass on Python 3.8+), we must refund before propagating, else
+        # repeated client-side cancels exhaust the user's daily quota for free.
+        enrichment_succeeded = False
         try:
             ab_res, sh_res, fh_res = await asyncio.wait_for(
                 asyncio.gather(
@@ -1935,11 +1938,17 @@ async def ip_lookup(
                 firehol_failed = True
             await asave_cached_ip(ip, reputation)
             rep_age = 0
+            enrichment_succeeded = True
         except Exception as e:
             logger.warning("Reputation enrichment failed: %s", type(e).__name__)
             reputation = {}
             reputation_failed = True
-            await ratelimit.arefund("enrichment", client_ip)
+        finally:
+            if not enrichment_succeeded:
+                # Refund must run on BaseException too (CancelledError) — pre-Faz-4
+                # the sync .submit/.result chain raised CancelledError up through
+                # this except block as a generic Exception; on async it bypasses.
+                await ratelimit.arefund("enrichment", client_ip)
     elif auth.tier != "pro":
         firehol_result = await run_in_threadpool(check_firehol, ip)
         firehol_attempted = True
@@ -2476,7 +2485,6 @@ class _BulkRequest(BaseModel):
     )
 
 
-_bulk_pool = ThreadPoolExecutor(max_workers=5)
 _bulk_semaphore = threading.Semaphore(2)  # per-worker limit; with workers=2 actual max is 4
 
 
@@ -2544,18 +2552,21 @@ async def bulk_domain_report(
         store_key = f"free:{hash_client_ip(client_ip)}"
         limit = FREE_HOURLY_LIMIT
 
-    # Atomic check-and-consume: require_auth already consumed 1, we need (count - 1) more
-    if count > 1 and not await ratelimit.aconsume_bulk("api", store_key, count - 1, limit):
-        raise HTTPException(
-            status_code=429,
-            detail=f"Insufficient rate limit quota for {count} domains.",
-        )
-
-    # Limit concurrent bulk requests to prevent thread pool exhaustion
+    # Order matters: acquire the concurrency slot BEFORE consuming bulk quota.
+    # The opposite order leaves a window where (count-1) credits are debited
+    # but the request 503s on semaphore exhaustion — credits silently lost.
     if not _bulk_semaphore.acquire(blocking=False):
         raise HTTPException(
             status_code=503,
             detail="Too many concurrent bulk requests. Please retry shortly.",
+        )
+
+    # Atomic check-and-consume: require_auth already consumed 1, we need (count - 1) more
+    if count > 1 and not await ratelimit.aconsume_bulk("api", store_key, count - 1, limit):
+        _bulk_semaphore.release()
+        raise HTTPException(
+            status_code=429,
+            detail=f"Insufficient rate limit quota for {count} domains.",
         )
 
     try:
