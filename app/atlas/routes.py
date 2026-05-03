@@ -19,14 +19,14 @@ from atlas.schemas import (
     AtlasTechniqueSearchResponse,
     BulkAtlasTechniqueResponse,
 )
-from auth import authenticate
+from auth import AuthCtx, require_auth
 from db import (
     get_atlas_case_study,
     get_atlas_technique,
     search_atlas_case_studies,
     search_atlas_techniques,
 )
-from fastapi import APIRouter, HTTPException, Path, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from pydantic import BaseModel, Field
 from schemas import PivotHint
 
@@ -163,7 +163,7 @@ def _atlas_case_study_pivot_hints(record: dict) -> list[PivotHint]:
     response_model_exclude_none=True,
 )
 def atlas_technique_search(
-    request: Request,
+    auth: Annotated[AuthCtx, Depends(require_auth("/v1/atlas/techniques"))],
     keyword: Annotated[
         str | None,
         Query(
@@ -214,7 +214,6 @@ def atlas_technique_search(
     model. Drill into atlas_technique_lookup with the returned technique_id for
     full description, ATT&CK bridge, and next_calls pivot hints.
     """
-    authenticate(request, request.url.path)
     if include not in (None, "", "full"):
         raise HTTPException(status_code=400, detail="include must be 'full' (omit for slim default)")
     if exclude_id is not None:
@@ -294,7 +293,7 @@ def atlas_technique_search(
     response_model_exclude_none=True,
 )
 def atlas_case_study_search(
-    request: Request,
+    auth: Annotated[AuthCtx, Depends(require_auth("/v1/atlas/case-studies"))],
     keyword: Annotated[
         str | None,
         Query(
@@ -327,7 +326,6 @@ def atlas_case_study_search(
     incidents that exercised it. Returns slim records; drill via
     atlas_case_study_lookup for the full procedure list.
     """
-    authenticate(request, request.url.path)
     if include not in (None, "", "full"):
         raise HTTPException(status_code=400, detail="include must be 'full' (omit for slim default)")
 
@@ -385,7 +383,6 @@ def atlas_case_study_search(
     response_model_exclude_none=True,
 )
 def atlas_case_study_lookup(
-    request: Request,
     case_study_id: Annotated[
         str,
         Path(
@@ -395,6 +392,7 @@ def atlas_case_study_lookup(
             ),
         ),
     ],
+    auth: Annotated[AuthCtx, Depends(require_auth("/v1/atlas/case-studies"))],
     include: Annotated[
         str | None,
         Query(
@@ -417,7 +415,6 @@ def atlas_case_study_lookup(
     the verbose narrative.
     """
     normalized = _validate_case_study_id(case_study_id)
-    authenticate(request, request.url.path)
     if include not in (None, "", "full"):
         raise HTTPException(status_code=400, detail="include must be 'full' (omit for slim default)")
 
@@ -458,7 +455,10 @@ class _BulkAtlasTechniqueRequest(BaseModel):
     response_model=BulkAtlasTechniqueResponse,
     response_model_exclude_none=True,
 )
-def bulk_atlas_technique_lookup(request: Request, body: _BulkAtlasTechniqueRequest):
+def bulk_atlas_technique_lookup(
+    body: _BulkAtlasTechniqueRequest,
+    auth: Annotated[AuthCtx, Depends(require_auth("/v1/atlas/techniques/bulk"))],
+):
     """Bulk ATLAS technique lookup — up to 10 (free) / 50 (pro) technique ids in one call.
 
     Designed as the natural follow-up to atlas_case_study_lookup (which carries
@@ -471,13 +471,8 @@ def bulk_atlas_technique_lookup(request: Request, body: _BulkAtlasTechniqueReque
     the per-hour quota.
     """
     import ratelimit
-    from auth import extract_key, hash_key
     from config import FREE_BULK_LIMIT, FREE_HOURLY_LIMIT, PRO_BULK_LIMIT, PRO_HOURLY_LIMIT
     from db import hash_client_ip
-    from validation import get_client_ip
-
-    auth_ctx = authenticate(request, request.url.path)
-    client_ip = get_client_ip(request)
 
     # Normalize, de-dup preserving order, cap.
     seen: dict[str, None] = {}
@@ -504,21 +499,20 @@ def bulk_atlas_technique_lookup(request: Request, body: _BulkAtlasTechniqueReque
 
     # Tier-aware bulk cap: free=10, pro=50. (Pydantic max_length=50 already
     # caps the absolute upper bound; this enforces the free-tier ceiling.)
-    bulk_cap = PRO_BULK_LIMIT if auth_ctx["tier"] == "pro" else FREE_BULK_LIMIT
+    bulk_cap = PRO_BULK_LIMIT if auth.tier == "pro" else FREE_BULK_LIMIT
     if count > bulk_cap:
         raise HTTPException(
             status_code=422,
-            detail=f"Too many technique IDs. Limit: {bulk_cap} (your tier: {auth_ctx['tier']})",
+            detail=f"Too many technique IDs. Limit: {bulk_cap} (your tier: {auth.tier})",
         )
 
     # Per-id quota consumption (mirror bulk_cve_lookup). The first id is already
-    # accounted for by the middleware that ran on this request; consume count-1.
-    raw_key = extract_key(request)
-    if raw_key:
-        store_key = f"pro:{hash_key(raw_key)}"
+    # accounted for by require_auth on this request; consume count-1.
+    if auth.tier == "pro":
+        store_key = f"pro:{auth.key_hash}"
         hourly_limit = PRO_HOURLY_LIMIT
     else:
-        store_key = f"free:{hash_client_ip(client_ip)}"
+        store_key = f"free:{hash_client_ip(auth.client_ip)}"
         hourly_limit = FREE_HOURLY_LIMIT
 
     if count > 1 and not ratelimit.consume_bulk("api", store_key, count - 1, hourly_limit):
@@ -599,7 +593,6 @@ def bulk_atlas_technique_lookup(request: Request, body: _BulkAtlasTechniqueReque
     response_model_exclude_none=True,
 )
 def atlas_technique_lookup(
-    request: Request,
     technique_id: Annotated[
         str,
         Path(
@@ -610,6 +603,7 @@ def atlas_technique_lookup(
             ),
         ),
     ],
+    auth: Annotated[AuthCtx, Depends(require_auth("/v1/atlas"))],
 ):
     """Look up a MITRE ATLAS technique (AI/ML attack catalog).
 
@@ -619,7 +613,6 @@ def atlas_technique_lookup(
     to pivot to D3FEND defenses through d3fend_defense_for_attack.
     """
     normalized = _validate_technique_id(technique_id)
-    authenticate(request, request.url.path)
 
     record = get_atlas_technique(normalized)
     if record is None:

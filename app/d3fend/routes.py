@@ -12,7 +12,7 @@ import logging
 import re
 from typing import Annotated
 
-from auth import authenticate
+from auth import AuthCtx, require_auth
 from d3fend.schemas import (
     D3fendCoverageResponse,
     D3fendDefenseResponse,
@@ -26,7 +26,7 @@ from db import (
     get_d3fend_defenses_for_attack,
     search_d3fend_defenses,
 )
-from fastapi import APIRouter, HTTPException, Path, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from pydantic import BaseModel, Field
 from schemas import PivotHint
 
@@ -138,7 +138,7 @@ def _d3fend_coverage_pivot_hints(undefended: list[str]) -> list[PivotHint]:
     response_model_exclude_none=True,
 )
 def d3fend_defense_search(
-    request: Request,
+    auth: Annotated[AuthCtx, Depends(require_auth("/v1/d3fend/defenses"))],
     keyword: Annotated[
         str | None,
         Query(
@@ -193,7 +193,6 @@ def d3fend_defense_search(
     Default response is SLIM (drops `uri` from each row). Pass `include=full`
     for the verbose record on every row.
     """
-    authenticate(request, request.url.path)
     if include not in (None, "", "full"):
         raise HTTPException(status_code=400, detail="include must be 'full' (omit for slim default)")
     if exclude_id is not None:
@@ -263,7 +262,6 @@ def d3fend_defense_search(
     response_model_exclude_none=True,
 )
 def d3fend_defense_for_attack(
-    request: Request,
     attack_technique_id: Annotated[
         str,
         Path(
@@ -273,6 +271,7 @@ def d3fend_defense_for_attack(
             ),
         ),
     ],
+    auth: Annotated[AuthCtx, Depends(require_auth("/v1/d3fend/attack"))],
     limit: Annotated[
         int,
         Query(
@@ -322,7 +321,6 @@ def d3fend_defense_for_attack(
     for the verbose record.
     """
     normalized = _validate_attack_technique(attack_technique_id)
-    authenticate(request, request.url.path)
     if include not in (None, "", "full"):
         raise HTTPException(status_code=400, detail="include must be 'full' (omit for slim default)")
     if exclude_id is not None:
@@ -383,8 +381,8 @@ class D3fendCoverageBody(BaseModel):
     response_model_exclude_none=True,
 )
 def d3fend_attack_coverage(
-    request: Request,
     body: D3fendCoverageBody,
+    auth: Annotated[AuthCtx, Depends(require_auth("/v1/d3fend/coverage"))],
 ):
     """Batch coverage breakdown: given a list of ATT&CK T-codes, return defense counts per tactic + identify undefended techniques.
 
@@ -393,8 +391,6 @@ def d3fend_attack_coverage(
     D3FEND mapping; undefended_techniques are the gaps. coverage_by_tactic
     counts DISTINCT defenses per D3FEND tactic across the whole input set.
     """
-    authenticate(request, request.url.path)
-
     normalized: list[str] = []
     for raw in body.attack_technique_ids[:D3FEND_COVERAGE_MAX_IDS]:
         if not isinstance(raw, str):
@@ -434,7 +430,6 @@ def d3fend_attack_coverage(
     response_model_exclude_none=True,
 )
 def d3fend_defense_lookup(
-    request: Request,
     defense_id: Annotated[
         str,
         Path(
@@ -444,6 +439,7 @@ def d3fend_defense_lookup(
             ),
         ),
     ],
+    auth: Annotated[AuthCtx, Depends(require_auth("/v1/d3fend"))],
 ):
     """Look up a MITRE D3FEND defense technique by slug.
 
@@ -453,7 +449,6 @@ def d3fend_defense_lookup(
     d3fend_defense_for_attack to inspect a specific defense in detail.
     """
     normalized = _validate_defense_id(defense_id)
-    authenticate(request, request.url.path)
 
     record = get_d3fend_defense(normalized)
     if record is None:
