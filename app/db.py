@@ -905,6 +905,10 @@ def get_cve(cve_id: str) -> dict | None:
         return _deserialize_cve(row) if row else None
 
 
+async def aget_cve(cve_id: str) -> dict | None:
+    return await run_in_threadpool(get_cve, cve_id)
+
+
 def get_leading_cves(limit: int = 50, offset: int = 0) -> tuple[list[dict], int]:
     """Return CVEs that exist in MITRE/GHSA but NOT yet in NVD.
     These are 'leading' CVEs — indexed before NVD enriches them."""
@@ -1000,6 +1004,10 @@ def search_cves(
             f"SELECT * FROM cves WHERE {where} ORDER BY {order_by} LIMIT ? OFFSET ?", query_params
         ).fetchall()
         return [_deserialize_cve(row) for row in rows], total
+
+
+async def asearch_cves(**kwargs) -> tuple[list[dict], int]:
+    return await run_in_threadpool(search_cves, **kwargs)
 
 
 def _parse_version(v: str) -> tuple:
@@ -1347,6 +1355,10 @@ def get_kev_details(cve_id: str) -> dict | None:
     }
 
 
+async def aget_kev_details(cve_id: str) -> dict | None:
+    return await run_in_threadpool(get_kev_details, cve_id)
+
+
 def upsert_cwe(
     cwe_id: str,
     *,
@@ -1442,6 +1454,10 @@ def get_cwe(cwe_id: str) -> dict | None:
     }
 
 
+async def aget_cwe(cwe_id: str) -> dict | None:
+    return await run_in_threadpool(get_cwe, cwe_id)
+
+
 def count_cves_for_cwe(cwe_id: str) -> int:
     """Return number of CVEs whose cwe_id equals the given CWE.
 
@@ -1455,6 +1471,10 @@ def count_cves_for_cwe(cwe_id: str) -> int:
             (cwe_id,),
         ).fetchone()
     return int(row[0]) if row else 0
+
+
+async def acount_cves_for_cwe(cwe_id: str) -> int:
+    return await run_in_threadpool(count_cves_for_cwe, cwe_id)
 
 
 def upsert_cve_if_absent(cve_data: dict) -> bool:
