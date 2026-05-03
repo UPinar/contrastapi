@@ -751,7 +751,7 @@ def test_phishing_both_found(client):
     url_resp.json.return_value = {"query_status": "ok", "threat": "malware_download", "tags": ["elf", "mozi"]}
     url_resp.raise_for_status = MagicMock()
     with (
-        patch("ioc.routes._phish_client.post", return_value=url_resp),
+        patch("ioc.routes._phish_client.post", new_callable=AsyncMock, return_value=url_resp),
         patch("ioc.routes.check_urlhaus", return_value={"url_count": 5, "urls_online": 3}),
     ):
         resp = client.get("/v1/phishing/https://evil.example.com/payload.exe")
@@ -774,7 +774,7 @@ def test_phishing_not_found(client):
     url_resp.json.return_value = {"query_status": "no_results"}
     url_resp.raise_for_status = MagicMock()
     with (
-        patch("ioc.routes._phish_client.post", return_value=url_resp),
+        patch("ioc.routes._phish_client.post", new_callable=AsyncMock, return_value=url_resp),
         patch("ioc.routes.check_urlhaus", return_value={"url_count": 0, "urls_online": 0}),
     ):
         resp = client.get("/v1/phishing/https://safe.example.com/page")
@@ -791,7 +791,7 @@ def test_phishing_url_only(client):
     url_resp.json.return_value = {"query_status": "ok", "threat": "phishing", "tags": ["phish"]}
     url_resp.raise_for_status = MagicMock()
     with (
-        patch("ioc.routes._phish_client.post", return_value=url_resp),
+        patch("ioc.routes._phish_client.post", new_callable=AsyncMock, return_value=url_resp),
         patch("ioc.routes.check_urlhaus", return_value={"url_count": 0, "urls_online": 0}),
     ):
         resp = client.get("/v1/phishing/http://compromised.example.com/login")
@@ -809,7 +809,7 @@ def test_phishing_host_only(client):
     url_resp.json.return_value = {"query_status": "no_results"}
     url_resp.raise_for_status = MagicMock()
     with (
-        patch("ioc.routes._phish_client.post", return_value=url_resp),
+        patch("ioc.routes._phish_client.post", new_callable=AsyncMock, return_value=url_resp),
         patch("ioc.routes.check_urlhaus", return_value={"url_count": 2, "urls_online": 1}),
     ):
         resp = client.get("/v1/phishing/https://badhost.example.com/new-path")
@@ -836,7 +836,7 @@ def test_phishing_private_ip_rejected(client):
 def test_phishing_urlhaus_url_timeout(client):
     """URLhaus URL lookup timeout → graceful fallback, no 500."""
     with (
-        patch("ioc.routes._phish_client.post", side_effect=httpx.ConnectTimeout("timeout")),
+        patch("ioc.routes._phish_client.post", new_callable=AsyncMock, side_effect=httpx.ConnectTimeout("timeout")),
         patch("ioc.routes.check_urlhaus", return_value={"url_count": 0, "urls_online": 0}),
     ):
         resp = client.get("/v1/phishing/https://timeout.example.com/page")
@@ -853,7 +853,7 @@ def test_phishing_stale_host_only(client):
     url_resp.json.return_value = {"query_status": "no_results"}
     url_resp.raise_for_status = MagicMock()
     with (
-        patch("ioc.routes._phish_client.post", return_value=url_resp),
+        patch("ioc.routes._phish_client.post", new_callable=AsyncMock, return_value=url_resp),
         patch("ioc.routes.check_urlhaus", return_value={"url_count": 5, "urls_online": 0}),
     ):
         resp = client.get("/v1/phishing/https://past-incident.example.com/page")
@@ -879,7 +879,7 @@ def test_phishing_stale_url_offline(client):
     }
     url_resp.raise_for_status = MagicMock()
     with (
-        patch("ioc.routes._phish_client.post", return_value=url_resp),
+        patch("ioc.routes._phish_client.post", new_callable=AsyncMock, return_value=url_resp),
         patch("ioc.routes.check_urlhaus", return_value={"url_count": 0, "urls_online": 0}),
     ):
         resp = client.get("/v1/phishing/https://taken-down.example.com/old.exe")
@@ -904,7 +904,7 @@ def test_phishing_active_url_offline_host_stale_medium(client):
     }
     url_resp.raise_for_status = MagicMock()
     with (
-        patch("ioc.routes._phish_client.post", return_value=url_resp),
+        patch("ioc.routes._phish_client.post", new_callable=AsyncMock, return_value=url_resp),
         patch("ioc.routes.check_urlhaus", return_value={"url_count": 3, "urls_online": 0}),
     ):
         resp = client.get("/v1/phishing/https://compromised.example.com/login")
@@ -922,7 +922,7 @@ def test_phishing_url_status_missing_treated_as_active(client):
     url_resp.json.return_value = {"query_status": "ok", "threat": "phishing", "tags": []}
     url_resp.raise_for_status = MagicMock()
     with (
-        patch("ioc.routes._phish_client.post", return_value=url_resp),
+        patch("ioc.routes._phish_client.post", new_callable=AsyncMock, return_value=url_resp),
         patch("ioc.routes.check_urlhaus", return_value={"url_count": 0, "urls_online": 0}),
     ):
         resp = client.get("/v1/phishing/https://no-status.example.com/page")

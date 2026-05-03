@@ -32,7 +32,13 @@ from validation import is_private_ip, is_valid_ip
 logger = logging.getLogger("contrastapi")
 
 _phish_headers = {"Auth-Key": settings.urlhaus_api_key} if settings.urlhaus_api_key else {}
-_phish_client = httpx.Client(timeout=httpx.Timeout(5.0, connect=3.0), follow_redirects=False, headers=_phish_headers)
+_phish_client = httpx.AsyncClient(
+    timeout=httpx.Timeout(5.0, connect=3.0),
+    follow_redirects=False,
+    headers=_phish_headers,
+    cookies=httpx.Cookies(),
+    limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
+)
 
 router = APIRouter(prefix="/v1", tags=["Threat Intelligence"])
 
@@ -325,10 +331,10 @@ async def password_check(
     return {**result, "summary": summary}
 
 
-def _query_urlhaus_url(url: str) -> dict:
+async def _query_urlhaus_url(url: str) -> dict:
     """Query URLhaus for an exact URL match."""
     try:
-        resp = _phish_client.post(
+        resp = await _phish_client.post(
             "https://urlhaus-api.abuse.ch/v1/url/",
             data={"url": url},
         )
@@ -397,7 +403,7 @@ async def phishing_check(
     # URLhaus host + exact-URL lookups in parallel.
     uh_host, urlhaus_url = await asyncio.gather(
         run_in_threadpool(check_urlhaus, host),
-        run_in_threadpool(_query_urlhaus_url, url),
+        _query_urlhaus_url(url),
     )
     urlhaus_host = {
         "found": uh_host.get("url_count", 0) > 0,

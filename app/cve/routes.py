@@ -1,11 +1,9 @@
 """CVE Intelligence API routes — /v1/cve/*, /v1/cves/*, /v1/exploit/*"""
 
-import atexit
 import hashlib
 import json
 import logging
 import re
-from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from typing import Annotated
 from urllib.parse import unquote
@@ -37,7 +35,6 @@ from db import (
     hash_client_ip,
 )
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
-from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field, StringConstraints
 from schemas import PivotHint, SearchHint, Verdict
 from validation import is_valid_ip, validate_cve_id
@@ -64,12 +61,12 @@ MAX_REFERENCES_DEFAULT = 10
 MAX_CWE_MITIGATIONS_DEFAULT = 3
 MAX_CWE_EXAMPLES_DEFAULT = 3
 
-_exploit_client = httpx.Client(timeout=httpx.Timeout(5.0, connect=3.0), follow_redirects=True)
-
-# Two outbound HTTP fan-outs for exploit_lookup (GitHub Advisory + Shodan CVEDB).
-# 2 workers is sufficient — there are only ever 2 submitters per request.
-_exploit_pool = ThreadPoolExecutor(max_workers=2)
-atexit.register(_exploit_pool.shutdown, wait=False)
+_exploit_client = httpx.AsyncClient(
+    timeout=httpx.Timeout(5.0, connect=3.0),
+    follow_redirects=True,
+    cookies=httpx.Cookies(),
+    limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
+)
 
 _DATE_RE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
 _MIN_DATE = "1970-01-01"
@@ -1019,10 +1016,10 @@ def _generate_summary(row: dict) -> str:
     return " ".join(parts) if parts else row.get("cve_id", "")
 
 
-def _search_github_advisories(cve_id: str) -> dict:
+async def _search_github_advisories(cve_id: str) -> dict:
     """Search GitHub Advisory Database for advisories related to a CVE."""
     try:
-        resp = _exploit_client.get(
+        resp = await _exploit_client.get(
             "https://api.github.com/advisories",
             params={"cve_id": cve_id},
             headers={"Accept": "application/vnd.github+json"},
@@ -1074,10 +1071,10 @@ def _shodan_edb_ids(shodan_refs: dict) -> set[str]:
     return ids
 
 
-def _search_shodan_refs(cve_id: str) -> dict:
+async def _search_shodan_refs(cve_id: str) -> dict:
     """Fetch Shodan CVEDB references for a CVE (NOT ExploitDB — those come from the offline CSV)."""
     try:
-        resp = _exploit_client.get(
+        resp = await _exploit_client.get(
             f"https://cvedb.shodan.io/cve/{cve_id}",
         )
         if resp.status_code == 404:
@@ -1133,13 +1130,11 @@ async def exploit_lookup(
 
     # GitHub Advisory + Shodan CVEDB are independent HTTP fan-outs; run in parallel.
     # Local SQLite (asearch_exploits_by_cve) stays on the event loop via threadpool wrapper.
-    # Sync httpx.Client calls inside _search_* helpers are wrapped in run_in_threadpool
-    # for now; batch 4g converts them to httpx.AsyncClient and removes the wrap.
     import asyncio
 
     github, shodan_refs, (offline, offline_truncated) = await asyncio.gather(
-        run_in_threadpool(_search_github_advisories, cve_id),
-        run_in_threadpool(_search_shodan_refs, cve_id),
+        _search_github_advisories(cve_id),
+        _search_shodan_refs(cve_id),
         asearch_exploits_by_cve(cve_id),
     )
 

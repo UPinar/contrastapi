@@ -144,19 +144,24 @@ async def lifespan(app):
     from ioc.password import _client as password_client
     from ioc.routes import _phish_client
 
+    # Sync httpx.Client — pending Faz 4g migration to AsyncClient
     for c in (
         rep_client,
         threat_client,
         recon_client,
         sync_client,
-        _exploit_client,
-        _phish_client,
         ioc_client,
         password_client,
         _ripe_client,
     ):
         try:
             c.close()
+        except Exception:
+            pass
+    # AsyncClient — must use aclose() to release the underlying HTTP/2 transport
+    for ac in (_exploit_client, _phish_client):
+        try:
+            await ac.aclose()
         except Exception:
             pass
     # Close thread-local DB connections

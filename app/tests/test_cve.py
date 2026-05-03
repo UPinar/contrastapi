@@ -3251,7 +3251,7 @@ class TestExploitLookup:
                 return gh_resp
             return edb_resp
 
-        with patch("cve.routes._exploit_client.get", side_effect=mock_get):
+        with patch("cve.routes._exploit_client.get", new_callable=AsyncMock, side_effect=mock_get):
             r = client.get("/v1/exploit/CVE-2024-9999")
         assert r.status_code == 200
         data = r.json()
@@ -3285,7 +3285,7 @@ class TestExploitLookup:
                 return gh_resp
             return edb_resp
 
-        with patch("cve.routes._exploit_client.get", side_effect=mock_get):
+        with patch("cve.routes._exploit_client.get", new_callable=AsyncMock, side_effect=mock_get):
             r = client.get("/v1/exploit/CVE-2024-0001")
         assert r.status_code == 200
         data = r.json()
@@ -3314,7 +3314,7 @@ class TestExploitLookup:
                 return gh_resp
             raise httpx.ConnectTimeout("timeout")
 
-        with patch("cve.routes._exploit_client.get", side_effect=mock_get):
+        with patch("cve.routes._exploit_client.get", new_callable=AsyncMock, side_effect=mock_get):
             r = client.get("/v1/exploit/CVE-2024-5555")
         assert r.status_code == 200
         data = r.json()
@@ -3421,7 +3421,7 @@ class TestExploitLookupScopeB:
             resp.raise_for_status = MagicMock()
             return resp
 
-        with patch("cve.routes._exploit_client.get", side_effect=mock_get):
+        with patch("cve.routes._exploit_client.get", new_callable=AsyncMock, side_effect=mock_get):
             r = client.get("/v1/exploit/CVE-2024-8888")
         assert r.status_code == 200
         data = r.json()
@@ -3439,6 +3439,7 @@ class TestExploitLookupScopeB:
 
         with patch(
             "cve.routes._exploit_client.get",
+            new_callable=AsyncMock,
             side_effect=lambda url, **kw: self._gh_ok(2) if "github.com" in url else self._shodan_404(),
         ):
             r = client.get("/v1/exploit/CVE-2024-8888")
@@ -3456,6 +3457,7 @@ class TestExploitLookupScopeB:
 
         with patch(
             "cve.routes._exploit_client.get",
+            new_callable=AsyncMock,
             side_effect=lambda url, **kw: self._gh_ok() if "github.com" in url else self._shodan_ok(),
         ):
             r = client.get("/v1/exploit/CVE-2024-8888")
@@ -3473,6 +3475,7 @@ class TestExploitLookupScopeB:
 
         with patch(
             "cve.routes._exploit_client.get",
+            new_callable=AsyncMock,
             side_effect=lambda url, **kw: self._gh_err() if "github.com" in url else self._shodan_404(),
         ):
             r = client.get("/v1/exploit/CVE-2024-8888")
@@ -3492,7 +3495,7 @@ class TestExploitLookupScopeB:
                 return self._gh_ok()
             raise httpx.ConnectTimeout("timeout")
 
-        with patch("cve.routes._exploit_client.get", side_effect=mock_get):
+        with patch("cve.routes._exploit_client.get", new_callable=AsyncMock, side_effect=mock_get):
             r = client.get("/v1/exploit/CVE-2024-8888")
         data = r.json()
         assert "shodan_cvedb" in data["verdict"]["sources_unavailable"]
@@ -3508,7 +3511,7 @@ class TestExploitLookupScopeB:
         def mock_get(url, **kwargs):
             raise httpx.ConnectTimeout("all down")
 
-        with patch("cve.routes._exploit_client.get", side_effect=mock_get):
+        with patch("cve.routes._exploit_client.get", new_callable=AsyncMock, side_effect=mock_get):
             r = client.get("/v1/exploit/CVE-2024-8888")
         data = r.json()
         assert data["verdict"]["completeness"] == "minimal"
@@ -3529,6 +3532,7 @@ class TestExploitLookupScopeB:
             patch("cve.routes._sync_age_seconds", new_callable=AsyncMock, side_effect=_mock_age),
             patch(
                 "cve.routes._exploit_client.get",
+                new_callable=AsyncMock,
                 side_effect=lambda url, **kw: self._gh_ok() if "github.com" in url else self._shodan_404(),
             ),
         ):
@@ -3551,6 +3555,7 @@ class TestExploitLookupScopeB:
             patch("cve.routes._sync_age_seconds", new_callable=AsyncMock, side_effect=_mock_age),
             patch(
                 "cve.routes._exploit_client.get",
+                new_callable=AsyncMock,
                 side_effect=lambda url, **kw: self._gh_ok() if "github.com" in url else self._shodan_404(),
             ),
         ):
@@ -3568,6 +3573,7 @@ class TestExploitLookupScopeB:
 
         with patch(
             "cve.routes._exploit_client.get",
+            new_callable=AsyncMock,
             side_effect=lambda url, **kw: self._gh_ok() if "github.com" in url else self._shodan_404(),
         ):
             r = client.get("/v1/exploit/CVE-2024-8888")
@@ -3587,6 +3593,7 @@ class TestExploitLookupScopeB:
 
         with patch(
             "cve.routes._exploit_client.get",
+            new_callable=AsyncMock,
             side_effect=lambda url, **kw: self._gh_ok() if "github.com" in url else self._shodan_404(),
         ):
             r = client.get("/v1/exploit/CVE-2024-8888")
@@ -3606,8 +3613,8 @@ class TestExploitLookupVerdictHonesty:
     @patch("cve.routes.asearch_exploits_by_cve", new_callable=AsyncMock, return_value=([], False))
     @patch("cve.routes.aget_cached_domain", new_callable=AsyncMock, return_value=None)
     @patch("cve.routes.asave_cached_domain", new_callable=AsyncMock)
-    @patch("cve.routes._search_shodan_refs")
-    @patch("cve.routes._search_github_advisories")
+    @patch("cve.routes._search_shodan_refs", new_callable=AsyncMock)
+    @patch("cve.routes._search_github_advisories", new_callable=AsyncMock)
     def test_github_error_downgrades_completeness(self, mock_gh, mock_shodan, mock_save, mock_cache, mock_offline):
         mock_gh.return_value = {"found": False, "count": 0, "advisories": [], "error": "upstream timeout"}
         mock_shodan.return_value = {"found": False, "count": 0, "results": []}
@@ -3620,8 +3627,8 @@ class TestExploitLookupVerdictHonesty:
     @patch("cve.routes.asearch_exploits_by_cve", new_callable=AsyncMock, return_value=([], False))
     @patch("cve.routes.aget_cached_domain", new_callable=AsyncMock, return_value=None)
     @patch("cve.routes.asave_cached_domain", new_callable=AsyncMock)
-    @patch("cve.routes._search_shodan_refs")
-    @patch("cve.routes._search_github_advisories")
+    @patch("cve.routes._search_shodan_refs", new_callable=AsyncMock)
+    @patch("cve.routes._search_github_advisories", new_callable=AsyncMock)
     def test_shodan_error_downgrades_completeness(self, mock_gh, mock_shodan, mock_save, mock_cache, mock_offline):
         mock_gh.return_value = {"found": False, "count": 0, "advisories": []}
         mock_shodan.return_value = {"found": False, "count": 0, "results": [], "error": "upstream timeout"}
@@ -3638,17 +3645,18 @@ class TestExploitLookupParallelism:
     @patch("cve.routes.asearch_exploits_by_cve", new_callable=AsyncMock, return_value=([], False))
     @patch("cve.routes.aget_cached_domain", new_callable=AsyncMock, return_value=None)
     @patch("cve.routes.asave_cached_domain", new_callable=AsyncMock)
-    @patch("cve.routes._search_shodan_refs")
-    @patch("cve.routes._search_github_advisories")
+    @patch("cve.routes._search_shodan_refs", new_callable=AsyncMock)
+    @patch("cve.routes._search_github_advisories", new_callable=AsyncMock)
     def test_github_and_shodan_run_concurrently(self, mock_gh, mock_shodan, mock_save, mock_cache, mock_offline):
+        import asyncio
         import time
 
-        def slow_gh(_cve):
-            time.sleep(0.2)
+        async def slow_gh(_cve):
+            await asyncio.sleep(0.2)
             return {"found": False, "count": 0, "advisories": []}
 
-        def slow_shodan(_cve):
-            time.sleep(0.2)
+        async def slow_shodan(_cve):
+            await asyncio.sleep(0.2)
             return {"found": False, "count": 0, "results": []}
 
         mock_gh.side_effect = slow_gh

@@ -12,7 +12,7 @@ from fastapi import Request
 
 logger = logging.getLogger("contrastapi")
 
-CVE_ID_PATTERN = re.compile(r"^CVE-\d{4}-\d{4,}$")
+CVE_ID_PATTERN = re.compile(r"^CVE-\d{4}-\d{4,7}$")
 
 # O(1) domain character validation
 _DOMAIN_CHARS = frozenset("abcdefghijklmnopqrstuvwxyz0123456789.-")
