@@ -9,6 +9,7 @@ Resume via state file: {"last_cve_id": "CVE-yyyy-nnnnn", "timestamp": "..."}.
 """
 
 import argparse
+import asyncio
 import json
 import logging
 import sys
@@ -78,7 +79,7 @@ def query_batch(last_id: str, batch_size: int) -> list[str]:
     return valid
 
 
-def fetch_with_backoff(cve_id: str) -> dict | None:
+async def fetch_with_backoff(cve_id: str) -> dict | None:
     """Wrap _fetch_mitre_cve with 429 exp-backoff. Returns parsed dict or None.
 
     Non-429 HTTPStatusError → logged + None.
@@ -86,19 +87,19 @@ def fetch_with_backoff(cve_id: str) -> dict | None:
     """
     for attempt in range(MAX_RETRIES_429):
         try:
-            return _fetch_mitre_cve(cve_id)
+            return await _fetch_mitre_cve(cve_id)
         except httpx.HTTPStatusError as e:
             if e.response.status_code != 429:
                 log.warning("MITRE %d for %s (no retry)", e.response.status_code, cve_id)
                 return None
             delay = BACKOFF_SCHEDULE[attempt]
             log.warning("MITRE 429 for %s — backoff %.1fs (attempt %d)", cve_id, delay, attempt + 1)
-            time.sleep(delay)
+            await asyncio.sleep(delay)
     log.warning("MITRE 429 for %s — giving up after %d retries", cve_id, MAX_RETRIES_429)
     return None
 
 
-def main() -> int:
+async def main() -> int:
     parser = argparse.ArgumentParser(description="Backfill empty MITRE fields for CVEs.")
     parser.add_argument("--dry-run", action="store_true", help="preview, no writes")
     parser.add_argument("--reset", action="store_true", help="ignore checkpoint, start from beginning")
@@ -131,84 +132,91 @@ def main() -> int:
     total_updated = total_skipped = total_failed = 0
     batch_num = 0
 
-    while True:
-        if args.limit and total_updated >= args.limit:
-            log.info("Reached --limit=%d, stopping", args.limit)
-            break
-
-        cve_ids = query_batch(last_id, args.batch_size)
-        if not cve_ids:
-            log.info("No more empty CVEs; done.")
-            break
-
-        batch_num += 1
-        batch_start = time.monotonic()
-
-        for cve_id in cve_ids:
+    try:
+        while True:
             if args.limit and total_updated >= args.limit:
+                log.info("Reached --limit=%d, stopping", args.limit)
                 break
 
-            record = fetch_with_backoff(cve_id)
-            if record is None:
-                total_failed += 1
+            cve_ids = query_batch(last_id, args.batch_size)
+            if not cve_ids:
+                log.info("No more empty CVEs; done.")
+                break
+
+            batch_num += 1
+            batch_start = time.monotonic()
+
+            for cve_id in cve_ids:
+                if args.limit and total_updated >= args.limit:
+                    break
+
+                record = await fetch_with_backoff(cve_id)
+                if record is None:
+                    total_failed += 1
+                    last_id = cve_id
+                    continue
+
+                try:
+                    parsed = _parse_mitre_cve(record)
+                except (ValueError, KeyError, TypeError, AttributeError) as e:
+                    log.warning("parse_mitre failed for %s: %s", cve_id, e)
+                    total_failed += 1
+                    last_id = cve_id
+                    continue
+
+                if not parsed.get("cve_id") or parsed.get("_skip"):
+                    total_skipped += 1
+                    last_id = cve_id
+                    continue
+
+                if args.dry_run:
+                    log.info(
+                        "[DRY RUN] would upsert %s (cwe=%s cvss=%s ap=%d)",
+                        cve_id,
+                        parsed.get("cwe_id"),
+                        parsed.get("cvss_v3"),
+                        len(parsed.get("affected_products") or []),
+                    )
+                else:
+                    upsert_cve_if_absent(parsed)
+                    record_cve_source(cve_id, "mitre", f"https://www.cve.org/CVERecord?id={cve_id}")
+
+                total_updated += 1
                 last_id = cve_id
-                continue
+                await asyncio.sleep(BASE_THROTTLE)
 
-            try:
-                parsed = _parse_mitre_cve(record)
-            except (ValueError, KeyError, TypeError, AttributeError) as e:
-                log.warning("parse_mitre failed for %s: %s", cve_id, e)
-                total_failed += 1
-                last_id = cve_id
-                continue
+            if not args.dry_run:
+                save_state(state_path, last_id)
 
-            if not parsed.get("cve_id") or parsed.get("_skip"):
-                total_skipped += 1
-                last_id = cve_id
-                continue
+            elapsed = time.monotonic() - batch_start
+            rate = len(cve_ids) / elapsed if elapsed > 0 else 0
+            log.info(
+                "batch=%d processed=%d updated=%d skipped=%d failed=%d elapsed=%.1fs rate=%.1fcve/s",
+                batch_num,
+                len(cve_ids),
+                total_updated,
+                total_skipped,
+                total_failed,
+                elapsed,
+                rate,
+            )
 
-            if args.dry_run:
-                log.info(
-                    "[DRY RUN] would upsert %s (cwe=%s cvss=%s ap=%d)",
-                    cve_id,
-                    parsed.get("cwe_id"),
-                    parsed.get("cvss_v3"),
-                    len(parsed.get("affected_products") or []),
-                )
-            else:
-                upsert_cve_if_absent(parsed)
-                record_cve_source(cve_id, "mitre", f"https://www.cve.org/CVERecord?id={cve_id}")
-
-            total_updated += 1
-            last_id = cve_id
-            time.sleep(BASE_THROTTLE)
-
-        if not args.dry_run:
-            save_state(state_path, last_id)
-
-        elapsed = time.monotonic() - batch_start
-        rate = len(cve_ids) / elapsed if elapsed > 0 else 0
+        total_elapsed = time.monotonic() - start
         log.info(
-            "batch=%d processed=%d updated=%d skipped=%d failed=%d elapsed=%.1fs rate=%.1fcve/s",
-            batch_num,
-            len(cve_ids),
+            "DONE total_updated=%d total_skipped=%d total_failed=%d elapsed=%.1fs",
             total_updated,
             total_skipped,
             total_failed,
-            elapsed,
-            rate,
+            total_elapsed,
         )
+        return 0
+    finally:
+        # Release the AsyncClient HTTP/2 connection pool even on early exception
+        # — without aclose(), Python emits ResourceWarning + leaks the socket.
+        from cve.sync import _client as sync_client
 
-    total_elapsed = time.monotonic() - start
-    log.info(
-        "DONE total_updated=%d total_skipped=%d total_failed=%d elapsed=%.1fs",
-        total_updated,
-        total_skipped,
-        total_failed,
-        total_elapsed,
-    )
-    return 0
+        await sync_client.aclose()
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(asyncio.run(main()))

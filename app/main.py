@@ -145,14 +145,10 @@ async def lifespan(app):
     from ioc.password import _client as password_client
     from ioc.routes import _phish_client
 
-    # Sync httpx.Client — remaining Faz 4g/4 scope (_ripe_client, cve.sync;
-    # _ssrf_http_sync only used by AIA fetch in _fetch_intermediate, deleted
-    # in Faz 4h once _aia_pool migrates to asyncio.gather)
-    for c in (
-        sync_client,
-        _ripe_client,
-        _ssrf_http_sync,
-    ):
+    # Sync httpx.Client — only _ssrf_http_sync remains (Faz 4g Batch 4 moved
+    # _ripe_client + cve.sync._client to AsyncClient). _ssrf_http_sync deleted
+    # in Faz 4h once _aia_pool migrates to asyncio.gather.
+    for c in (_ssrf_http_sync,):
         try:
             c.close()
         except BaseException:
@@ -169,6 +165,8 @@ async def lifespan(app):
         _ssrf_http,
         threat_client,
         rep_client,
+        sync_client,
+        _ripe_client,
     ):
         try:
             await ac.aclose()

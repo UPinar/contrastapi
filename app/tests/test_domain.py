@@ -1750,19 +1750,19 @@ class TestFetchAsnCountry:
                 resp.json.return_value = {"data": {"holder": "CLOUDFLARENET"}}
             return resp
 
-        with patch("domain.routes._ripe_client.get", side_effect=_mock_get):
+        with patch("domain.routes._ripe_client.get", new_callable=AsyncMock, side_effect=_mock_get):
             from domain.routes import _fetch_asn_country
 
-            out = _fetch_asn_country("198.51.100.1")
+            out = asyncio.run(_fetch_asn_country("198.51.100.1"))
         assert out == {"asn": 13335, "asn_name": "CLOUDFLARENET", "country": "AU", "failed": False}
 
     def test_network_info_failure_returns_empty(self):
         from unittest.mock import patch
 
-        with patch("domain.routes._ripe_client.get", side_effect=Exception("network down")):
+        with patch("domain.routes._ripe_client.get", new_callable=AsyncMock, side_effect=Exception("network down")):
             from domain.routes import _fetch_asn_country
 
-            out = _fetch_asn_country("198.51.100.2")
+            out = asyncio.run(_fetch_asn_country("198.51.100.2"))
         assert out == {"asn": None, "asn_name": "", "country": "", "failed": True}
 
     def test_country_unknown_sentinel_treated_as_empty(self):
@@ -1779,10 +1779,10 @@ class TestFetchAsnCountry:
                 resp.json.return_value = {"data": {"holder": "CLOUDFLARENET"}}
             return resp
 
-        with patch("domain.routes._ripe_client.get", side_effect=_mock_get):
+        with patch("domain.routes._ripe_client.get", new_callable=AsyncMock, side_effect=_mock_get):
             from domain.routes import _fetch_asn_country
 
-            out = _fetch_asn_country("198.51.100.3")
+            out = asyncio.run(_fetch_asn_country("198.51.100.3"))
         assert out["asn"] == 13335
         assert out["asn_name"] == "CLOUDFLARENET"
         assert out["country"] == ""  # "?" sentinel normalized
@@ -1802,10 +1802,10 @@ class TestFetchAsnCountry:
                 resp.json.return_value = {"data": {"located_resources": [{"location": "AU"}]}}
             return resp
 
-        with patch("domain.routes._ripe_client.get", side_effect=_mock_get):
+        with patch("domain.routes._ripe_client.get", new_callable=AsyncMock, side_effect=_mock_get):
             from domain.routes import _fetch_asn_country
 
-            out = _fetch_asn_country("198.51.100.4")
+            out = asyncio.run(_fetch_asn_country("198.51.100.4"))
         assert out["asn"] == 13335
         assert out["asn_name"] == ""
         assert out["country"] == "AU"
@@ -1822,10 +1822,12 @@ class TestFetchAsnCountry:
             f"asn:{ip}",
             {"asn": 64512, "asn_name": "CACHED-HOLDER", "country": "JP"},
         )
-        with patch("domain.routes._ripe_client.get", side_effect=AssertionError("should not hit RIPE")):
+        with patch(
+            "domain.routes._ripe_client.get", new_callable=AsyncMock, side_effect=AssertionError("should not hit RIPE")
+        ):
             from domain.routes import _fetch_asn_country
 
-            out = _fetch_asn_country(ip)
+            out = asyncio.run(_fetch_asn_country(ip))
         assert out["asn"] == 64512
         assert out["asn_name"] == "CACHED-HOLDER"
         assert out["country"] == "JP"
@@ -1851,10 +1853,10 @@ class TestFetchAsnCountry:
                 return resp
             raise AssertionError(f"should not hit {url} on partial-cache-fill for missing country")
 
-        with patch("domain.routes._ripe_client.get", side_effect=_mock_get):
+        with patch("domain.routes._ripe_client.get", new_callable=AsyncMock, side_effect=_mock_get):
             from domain.routes import _fetch_asn_country
 
-            out = _fetch_asn_country(ip)
+            out = asyncio.run(_fetch_asn_country(ip))
         assert out["asn"] == 15169
         assert out["asn_name"] == "GOOGLE - Google LLC"
         assert out["country"] == "US"
@@ -1880,10 +1882,10 @@ class TestFetchAsnCountry:
                 return resp
             raise AssertionError(f"should not hit {url} on partial-cache-fill for missing name")
 
-        with patch("domain.routes._ripe_client.get", side_effect=_mock_get):
+        with patch("domain.routes._ripe_client.get", new_callable=AsyncMock, side_effect=_mock_get):
             from domain.routes import _fetch_asn_country
 
-            out = _fetch_asn_country(ip)
+            out = asyncio.run(_fetch_asn_country(ip))
         assert out["asn"] == 15169
         assert out["asn_name"] == "GOOGLE - Google LLC"
         assert out["country"] == "US"
@@ -1912,10 +1914,10 @@ class TestFetchAsnCountry:
                 raise AssertionError("network-info should not be called when asn is cached")
             return resp
 
-        with patch("domain.routes._ripe_client.get", side_effect=_mock_get):
+        with patch("domain.routes._ripe_client.get", new_callable=AsyncMock, side_effect=_mock_get):
             from domain.routes import _fetch_asn_country
 
-            out = _fetch_asn_country(ip)
+            out = asyncio.run(_fetch_asn_country(ip))
         assert out["asn"] == 15169
         assert out["asn_name"] == "GOOGLE - Google LLC"
         assert out["country"] == "US"
@@ -1932,10 +1934,10 @@ class TestFetchAsnCountry:
         ip = "198.51.100.10"
         save_cached_domain(f"asn:{ip}", {"asn": 15169})
 
-        with patch("domain.routes._ripe_client.get", side_effect=Exception("RIPE down")):
+        with patch("domain.routes._ripe_client.get", new_callable=AsyncMock, side_effect=Exception("RIPE down")):
             from domain.routes import _fetch_asn_country
 
-            out = _fetch_asn_country(ip)
+            out = asyncio.run(_fetch_asn_country(ip))
         assert out["asn"] == 15169
         assert out["asn_name"] == ""
         assert out["country"] == ""
@@ -1963,10 +1965,10 @@ class TestFetchAsnCountry:
                 resp.json.return_value = {"data": {"holder": "CLOUDFLARENET"}}
             return resp
 
-        with patch("domain.routes._ripe_client.get", side_effect=_mock_get):
+        with patch("domain.routes._ripe_client.get", new_callable=AsyncMock, side_effect=_mock_get):
             from domain.routes import _fetch_asn_country
 
-            out = _fetch_asn_country(ip)
+            out = asyncio.run(_fetch_asn_country(ip))
         # Corrupted entry ignored → cache-miss path, fresh fetch
         assert out["asn"] == 13335
         assert out["asn_name"] == "CLOUDFLARENET"
@@ -1990,10 +1992,10 @@ class TestFetchAsnCountry:
                 resp.json.return_value = {"data": {"holder": huge}}
             return resp
 
-        with patch("domain.routes._ripe_client.get", side_effect=_mock_get):
+        with patch("domain.routes._ripe_client.get", new_callable=AsyncMock, side_effect=_mock_get):
             from domain.routes import _fetch_asn_country
 
-            out = _fetch_asn_country("198.51.100.6")
+            out = asyncio.run(_fetch_asn_country("198.51.100.6"))
         assert len(out["asn_name"]) == 256
         assert out["asn_name"] == "X" * 256
 
@@ -4735,7 +4737,7 @@ class TestProOnlyEnrichment:
     # --- /v1/threat-report route tests ---
 
     @patch("auth.aauthenticate", new_callable=AsyncMock, return_value=_AUTH_FREE)
-    @patch("domain.routes._ripe_client")
+    @patch("domain.routes._ripe_client", new_callable=AsyncMock)
     @patch(
         "domain.routes.check_shodan",
         side_effect=AssertionError("Shodan must not be called for free tier"),
@@ -4753,7 +4755,7 @@ class TestProOnlyEnrichment:
     )
     def test_threat_report_free_tier_enrichment_pro_only(self, mock_enrich, mock_ab, mock_sh, mock_ripe, mock_auth):
         """Free tier /v1/threat-report: pro_only stub returned, no live API calls."""
-        mock_ripe.get.side_effect = Exception("no network")
+        mock_ripe.get = AsyncMock(side_effect=Exception("no network"))
         r = client.get("/v1/threat-report/8.8.8.8")
         assert r.status_code == 200
         data = r.json()

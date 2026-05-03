@@ -641,7 +641,7 @@ class TestAsnRoute:
                 resp.json.return_value = MOCK_RIPE_PREFIXES
             return resp
 
-        with patch("domain.routes._ripe_client.get", side_effect=mock_get) as mock_httpx:
+        with patch("domain.routes._ripe_client.get", new_callable=AsyncMock, side_effect=mock_get) as mock_httpx:
             r = client.get("/v1/asn/1.1.1.1")
             assert r.status_code == 200
             data = r.json()
@@ -674,7 +674,7 @@ class TestAsnRoute:
                 resp.json.return_value = MOCK_RIPE_PREFIXES
             return resp
 
-        with patch("domain.routes._ripe_client.get", side_effect=mock_get):
+        with patch("domain.routes._ripe_client.get", new_callable=AsyncMock, side_effect=mock_get):
             r = client.get("/v1/asn/example.com")
             assert r.status_code == 200
             data = r.json()
@@ -703,7 +703,7 @@ class TestAsnRoute:
                 resp.json.return_value = MOCK_RIPE_PREFIXES
             return resp
 
-        with patch("domain.routes._ripe_client.get", side_effect=mock_get):
+        with patch("domain.routes._ripe_client.get", new_callable=AsyncMock, side_effect=mock_get):
             r = client.get("/v1/asn/1.1.1.1")
             assert r.status_code == 200
             data = r.json()
@@ -755,7 +755,7 @@ class TestAsnRoute:
                 resp.json.return_value = MOCK_RIPE_PREFIXES
             return resp
 
-        with patch("domain.routes._ripe_client.get", side_effect=mock_get):
+        with patch("domain.routes._ripe_client.get", new_callable=AsyncMock, side_effect=mock_get):
             r = client.get("/v1/asn/1.1.1.1")
             assert r.status_code == 200
             data = r.json()
@@ -788,7 +788,7 @@ class TestAsnRoute:
                 )
             return resp
 
-        with patch("domain.routes._ripe_client.get", side_effect=mock_get):
+        with patch("domain.routes._ripe_client.get", new_callable=AsyncMock, side_effect=mock_get):
             r = client.get("/v1/asn/1.1.1.1")
             assert r.status_code == 200
             data = r.json()
@@ -815,7 +815,7 @@ class TestAsnRoute:
                 resp.json.return_value = MOCK_RIPE_PREFIXES
             return resp
 
-        with patch("domain.routes._ripe_client.get", side_effect=mock_get):
+        with patch("domain.routes._ripe_client.get", new_callable=AsyncMock, side_effect=mock_get):
             r = client.get("/v1/asn/1.1.1.1")
             assert r.status_code == 200
             data = r.json()
@@ -853,7 +853,7 @@ class TestAsnRoute:
             # both metadata calls fail
             raise httpx.TimeoutException("timeout")
 
-        with patch("domain.routes._ripe_client.get", side_effect=mock_get):
+        with patch("domain.routes._ripe_client.get", new_callable=AsyncMock, side_effect=mock_get):
             r = client.get("/v1/asn/1.1.1.1")
             assert r.status_code == 200
             data = r.json()
@@ -883,7 +883,7 @@ class TestAsnRoute:
                 raise httpx.TimeoutException("timeout")
             return resp
 
-        with patch("domain.routes._ripe_client.get", side_effect=mock_get):
+        with patch("domain.routes._ripe_client.get", new_callable=AsyncMock, side_effect=mock_get):
             r = client.get("/v1/asn/1.1.1.1")
             assert r.status_code == 200
             data = r.json()
@@ -1022,7 +1022,7 @@ class TestAsnRoute:
                 resp.json.return_value = MOCK_RIPE_PREFIXES
             return resp
 
-        with patch("domain.routes._ripe_client.get", side_effect=mock_get):
+        with patch("domain.routes._ripe_client.get", new_callable=AsyncMock, side_effect=mock_get):
             r = client.get("/v1/asn/1.1.1.1")
             assert r.status_code == 200
             v = r.json()["verdict"]
@@ -1053,7 +1053,7 @@ class TestAsnRoute:
                 resp.json.return_value = MOCK_RIPE_PREFIXES
             return resp
 
-        with patch("domain.routes._ripe_client.get", side_effect=mock_get):
+        with patch("domain.routes._ripe_client.get", new_callable=AsyncMock, side_effect=mock_get):
             r = client.get("/v1/asn/1.1.1.1")
             assert r.status_code == 200
             v = r.json()["verdict"]
@@ -1081,7 +1081,7 @@ class TestAsnRoute:
                 resp.json.return_value = MOCK_RIPE_PREFIXES
             return resp
 
-        with patch("domain.routes._ripe_client.get", side_effect=mock_get):
+        with patch("domain.routes._ripe_client.get", new_callable=AsyncMock, side_effect=mock_get):
             r = client.get("/v1/asn/1.1.1.1")
             assert r.status_code == 200
             mock_cache_save.assert_called_once()
@@ -1412,12 +1412,13 @@ class TestThreatReport:
     """Tests for GET /v1/threat-report/{ip}"""
 
     @patch("auth.aauthenticate", new_callable=AsyncMock, return_value=_AUTH_PRO)
-    @patch("domain.routes._ripe_client")
+    @patch("domain.routes._ripe_client", new_callable=AsyncMock)
     @patch("domain.routes.check_shodan", new_callable=AsyncMock)
     @patch("domain.routes.check_abuseipdb", new_callable=AsyncMock)
     @patch("domain.routes.ip_enrichment", new_callable=AsyncMock)
     @patch(
         "domain.routes._fetch_asn_country",
+        new_callable=AsyncMock,
         return_value={"asn": 15169, "asn_name": "GOOGLE", "country": "US", "failed": False},
     )
     @patch("domain.routes.check_firehol", return_value={"status": "ok", "listed": False, "lists_matched": []})
@@ -1449,7 +1450,7 @@ class TestThreatReport:
         mock_ripe_resp = MagicMock()
         mock_ripe_resp.json.return_value = {"data": {"asns": [15169], "prefix": "8.8.8.0/24"}}
         mock_ripe_resp.raise_for_status = MagicMock()
-        mock_ripe.get.return_value = mock_ripe_resp
+        mock_ripe.get = AsyncMock(return_value=mock_ripe_resp)
 
         with patch("db.get_cached_domain", return_value=None), patch("db.save_cached_domain"):
             r = client.get("/v1/threat-report/8.8.8.8")
@@ -1481,7 +1482,7 @@ class TestThreatReport:
         assert "Private" in r.json()["error"]["message"]
 
     @patch("auth.aauthenticate", new_callable=AsyncMock, return_value=_AUTH_PRO)
-    @patch("domain.routes._ripe_client")
+    @patch("domain.routes._ripe_client", new_callable=AsyncMock)
     @patch("domain.routes.check_shodan", side_effect=RuntimeError("upstream down"), new_callable=AsyncMock)
     @patch("domain.routes.check_abuseipdb", new_callable=AsyncMock)
     @patch("domain.routes.ip_enrichment", new_callable=AsyncMock)
@@ -1492,7 +1493,7 @@ class TestThreatReport:
         mock_ripe_resp = MagicMock()
         mock_ripe_resp.json.return_value = {"data": {"asns": [12345], "prefix": "1.2.3.0/24"}}
         mock_ripe_resp.raise_for_status = MagicMock()
-        mock_ripe.get.return_value = mock_ripe_resp
+        mock_ripe.get = AsyncMock(return_value=mock_ripe_resp)
 
         with patch("db.get_cached_domain", return_value=None), patch("db.save_cached_domain"):
             r = client.get("/v1/threat-report/1.2.3.4")
@@ -1501,12 +1502,13 @@ class TestThreatReport:
         assert data["shodan"]["status"] == "error"
         assert data["threat_level"] == "high"
 
-    @patch("domain.routes._ripe_client")
+    @patch("domain.routes._ripe_client", new_callable=AsyncMock)
     @patch("domain.routes.check_shodan", new_callable=AsyncMock)
     @patch("domain.routes.check_abuseipdb", new_callable=AsyncMock)
     @patch("domain.routes.ip_enrichment", new_callable=AsyncMock)
     @patch(
         "domain.routes._fetch_asn_country",
+        new_callable=AsyncMock,
         return_value={"asn": None, "asn_name": "", "country": "", "failed": True},
     )
     def test_threat_report_asn_failure(self, mock_country, mock_enrich, mock_abuse, mock_shodan, mock_ripe):
@@ -1514,7 +1516,7 @@ class TestThreatReport:
         mock_enrich.return_value = {"ports": [], "hostnames": [], "vulns": [], "cpes": [], "tags": []}
         mock_abuse.return_value = {"status": "ok"}
         mock_shodan.return_value = {"status": "ok"}
-        mock_ripe.get.side_effect = RuntimeError("RIPE timeout")
+        mock_ripe.get = AsyncMock(side_effect=RuntimeError("RIPE timeout"))
 
         with patch("db.get_cached_domain", return_value=None):
             r = client.get("/v1/threat-report/1.2.3.4")
@@ -1522,7 +1524,7 @@ class TestThreatReport:
         data = r.json()
         assert data["asn"] == {"error": "lookup_failed"}
 
-    @patch("domain.routes._ripe_client")
+    @patch("domain.routes._ripe_client", new_callable=AsyncMock)
     @patch(
         "domain.routes.check_shodan",
         side_effect=RuntimeError("/opt/contrastapi/app/domain/reputation.py line 73: connection refused"),
@@ -1537,7 +1539,7 @@ class TestThreatReport:
         mock_ripe_resp = MagicMock()
         mock_ripe_resp.json.return_value = {"data": {"asns": [12345], "prefix": "1.2.3.0/24"}}
         mock_ripe_resp.raise_for_status = MagicMock()
-        mock_ripe.get.return_value = mock_ripe_resp
+        mock_ripe.get = AsyncMock(return_value=mock_ripe_resp)
 
         with patch("db.get_cached_domain", return_value=None), patch("db.save_cached_domain"):
             r = client.get("/v1/threat-report/1.2.3.4")

@@ -1,8 +1,10 @@
 """Tests for scripts/backfill_mitre_fields.py"""
 
+import asyncio
 import json
 import sys
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 # Make scripts/ importable from the test suite (app/ is already on sys.path via conftest)
 _CONTRASTAPI_ROOT = str(Path(__file__).resolve().parent.parent.parent)
@@ -53,7 +55,7 @@ class TestBackfillMitre:
 
         _seed_empty_cve("CVE-2025-1001")
 
-        monkeypatch.setattr(_backfill_mod, "_fetch_mitre_cve", lambda cid: _mitre_record(cid))
+        monkeypatch.setattr(_backfill_mod, "_fetch_mitre_cve", AsyncMock(side_effect=lambda cid: _mitre_record(cid)))
 
         state_file = tmp_path / "state.json"
         monkeypatch.setattr(
@@ -68,7 +70,7 @@ class TestBackfillMitre:
                 str(state_file),
             ],
         )
-        rc = _backfill_mod.main()
+        rc = asyncio.run(_backfill_mod.main())
         assert rc == 0
 
         # State file must NOT be written in dry-run
@@ -85,7 +87,7 @@ class TestBackfillMitre:
 
         _seed_empty_cve("CVE-2025-1002")
 
-        monkeypatch.setattr(_backfill_mod, "_fetch_mitre_cve", lambda cid: _mitre_record(cid))
+        monkeypatch.setattr(_backfill_mod, "_fetch_mitre_cve", AsyncMock(side_effect=lambda cid: _mitre_record(cid)))
 
         monkeypatch.setattr(
             sys,
@@ -98,7 +100,7 @@ class TestBackfillMitre:
                 str(tmp_path / "state.json"),
             ],
         )
-        rc = _backfill_mod.main()
+        rc = asyncio.run(_backfill_mod.main())
         assert rc == 0
 
         row = get_cve("CVE-2025-1002")
@@ -124,7 +126,7 @@ class TestBackfillMitre:
         monkeypatch.setattr(
             _backfill_mod,
             "_fetch_mitre_cve",
-            lambda cid: _mitre_record(cid, cwe="CWE-99", cvss=2.0),
+            AsyncMock(side_effect=lambda cid: _mitre_record(cid, cwe="CWE-99", cvss=2.0)),
         )
         monkeypatch.setattr(
             sys,
@@ -135,7 +137,7 @@ class TestBackfillMitre:
                 str(tmp_path / "state.json"),
             ],
         )
-        _backfill_mod.main()
+        asyncio.run(_backfill_mod.main())
 
         row = get_cve("CVE-2025-1003")
         # Strong fields preserved by upsert_cve_if_absent COALESCE logic
@@ -149,7 +151,7 @@ class TestBackfillMitre:
 
         _seed_empty_cve("CVE-2025-1004")
 
-        monkeypatch.setattr(_backfill_mod, "_fetch_mitre_cve", lambda cid: _mitre_record(cid))
+        monkeypatch.setattr(_backfill_mod, "_fetch_mitre_cve", AsyncMock(side_effect=lambda cid: _mitre_record(cid)))
 
         state_file = str(tmp_path / "state.json")
         for _ in range(2):
@@ -165,7 +167,7 @@ class TestBackfillMitre:
                     state_file,
                 ],
             )
-            _backfill_mod.main()
+            asyncio.run(_backfill_mod.main())
 
         with get_cve_db() as con:
             count = con.execute("SELECT COUNT(*) FROM cve_products WHERE cve_id=?", ("CVE-2025-1004",)).fetchone()[0]
@@ -185,7 +187,7 @@ class TestBackfillMitre:
             fetched.append(cid)
             return _mitre_record(cid)
 
-        monkeypatch.setattr(_backfill_mod, "_fetch_mitre_cve", _mock_fetch)
+        monkeypatch.setattr(_backfill_mod, "_fetch_mitre_cve", AsyncMock(side_effect=_mock_fetch))
         monkeypatch.setattr(
             sys,
             "argv",
@@ -195,7 +197,7 @@ class TestBackfillMitre:
                 str(state_file),
             ],
         )
-        _backfill_mod.main()
+        asyncio.run(_backfill_mod.main())
 
         assert "CVE-2025-1005" not in fetched
         assert "CVE-2025-1006" not in fetched
@@ -216,7 +218,7 @@ class TestBackfillMitre:
             fetched.append(cid)
             return _mitre_record(cid)
 
-        monkeypatch.setattr(_backfill_mod, "_fetch_mitre_cve", _mock_fetch)
+        monkeypatch.setattr(_backfill_mod, "_fetch_mitre_cve", AsyncMock(side_effect=_mock_fetch))
         monkeypatch.setattr(
             sys,
             "argv",
@@ -226,7 +228,7 @@ class TestBackfillMitre:
                 str(tmp_path / "state.json"),
             ],
         )
-        _backfill_mod.main()
+        asyncio.run(_backfill_mod.main())
 
         assert "CVE-BOGUS" not in fetched
         assert "CVE-2025-1100" in fetched
@@ -242,7 +244,7 @@ class TestBackfillMitre:
             fetched.append(cid)
             return _mitre_record(cid)
 
-        monkeypatch.setattr(_backfill_mod, "_fetch_mitre_cve", _mock_fetch)
+        monkeypatch.setattr(_backfill_mod, "_fetch_mitre_cve", AsyncMock(side_effect=_mock_fetch))
         monkeypatch.setattr(
             sys,
             "argv",
@@ -254,13 +256,13 @@ class TestBackfillMitre:
                 str(tmp_path / "state.json"),
             ],
         )
-        _backfill_mod.main()
+        asyncio.run(_backfill_mod.main())
 
         assert "CVE-2020-9999" not in fetched
         assert "CVE-2025-2000" in fetched
 
     def test_backfill_handles_fetch_failure(self, monkeypatch, tmp_path):
-        monkeypatch.setattr(_backfill_mod, "_fetch_mitre_cve", lambda cid: None)
+        monkeypatch.setattr(_backfill_mod, "_fetch_mitre_cve", AsyncMock(side_effect=lambda cid: None))
 
         _seed_empty_cve("CVE-2025-1010")
 
@@ -276,7 +278,7 @@ class TestBackfillMitre:
                 str(state_file),
             ],
         )
-        rc = _backfill_mod.main()
+        rc = asyncio.run(_backfill_mod.main())
         assert rc == 0
 
         # State must advance past the failed CVE

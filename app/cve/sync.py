@@ -14,6 +14,7 @@ Designed to run via systemd timer every 2 hours.
 Crash recovery: full syncs save a checkpoint after each page. Use --resume to continue.
 """
 
+import asyncio
 import csv
 import gzip
 import io
@@ -22,7 +23,6 @@ import logging
 import math
 import re
 import sys
-import time
 import zipfile
 from datetime import UTC, datetime, timedelta
 from urllib.parse import urlparse
@@ -64,10 +64,12 @@ HTTP_TIMEOUT = 30
 MAX_RETRIES = 3
 USER_AGENT = "ContrastAPI/1.0 (api.contrastcyber.com)"
 
-_client = httpx.Client(
+_client = httpx.AsyncClient(
     timeout=httpx.Timeout(HTTP_TIMEOUT, connect=10.0),
     headers={"User-Agent": USER_AGENT},
     follow_redirects=True,
+    limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
+    cookies=httpx.Cookies(),
 )
 
 OSV_API_URL = "https://api.osv.dev/v1/vulns/{cve_id}"
@@ -92,7 +94,7 @@ _OSV_ECOSYSTEM_VENDOR: dict[str, str] = {
 # --- NVD Sync ---
 
 
-def _nvd_request(params: dict) -> dict:
+async def _nvd_request(params: dict) -> dict:
     """Make a single NVD API request with retries."""
     headers = {"Accept": "application/json"}
     if settings.nvd_api_key:
@@ -100,16 +102,16 @@ def _nvd_request(params: dict) -> dict:
 
     for attempt in range(MAX_RETRIES):
         try:
-            resp = _client.get(NVD_API_URL, params=params, headers=headers)
+            resp = await _client.get(NVD_API_URL, params=params, headers=headers)
             if resp.status_code == 403:
                 wait = 30 * (attempt + 1)
                 log.warning("NVD 403 rate limit, waiting %ds...", wait)
-                time.sleep(wait)
+                await asyncio.sleep(wait)
                 continue
             if resp.status_code == 503:
                 wait = 10 * (attempt + 1)
                 log.warning("NVD 503 service unavailable, waiting %ds...", wait)
-                time.sleep(wait)
+                await asyncio.sleep(wait)
                 continue
             resp.raise_for_status()
             return resp.json()
@@ -119,7 +121,7 @@ def _nvd_request(params: dict) -> dict:
         except Exception as e:
             if attempt < MAX_RETRIES - 1:
                 log.warning("NVD request failed (attempt %d): %s", attempt + 1, e)
-                time.sleep(5)
+                await asyncio.sleep(5)
             else:
                 raise
 
@@ -224,7 +226,7 @@ def _parse_nvd_cve(item: dict) -> dict:
     }
 
 
-def sync_nvd(full: bool = False, resume: bool = False) -> int:
+async def sync_nvd(full: bool = False, resume: bool = False) -> int:
     """Sync CVEs from NVD. Returns count of CVEs processed.
 
     Args:
@@ -284,7 +286,7 @@ def sync_nvd(full: bool = False, resume: bool = False) -> int:
 
     while True:
         params["startIndex"] = start_index
-        data = _nvd_request(params)
+        data = await _nvd_request(params)
         if not data:
             log.error("Empty NVD response at startIndex=%d", start_index)
             break
@@ -328,7 +330,7 @@ def sync_nvd(full: bool = False, resume: bool = False) -> int:
             completed_normally = True
             break
 
-        time.sleep(NVD_DELAY)
+        await asyncio.sleep(NVD_DELAY)
 
     # Only clear checkpoint and mark "ok" if sync finished all pages
     if completed_normally or not full:
@@ -533,7 +535,7 @@ def _parse_mitre_cve(item: dict) -> dict:
 MITRE_API_URL = "https://cveawg.mitre.org/api/cve/{cve_id}"
 
 
-def _fetch_mitre_cve(cve_id: str) -> dict | None:
+async def _fetch_mitre_cve(cve_id: str) -> dict | None:
     """Fetch a single CVE record from cveawg.mitre.org.
 
     Returns parsed JSON dict on 200, None on 404/timeout/parse_error.
@@ -541,7 +543,7 @@ def _fetch_mitre_cve(cve_id: str) -> dict | None:
     Honors RateLimit-Remaining header — sleeps until reset when low.
     """
     try:
-        resp = _client.get(MITRE_API_URL.format(cve_id=cve_id), timeout=7.0)
+        resp = await _client.get(MITRE_API_URL.format(cve_id=cve_id), timeout=7.0)
     except (httpx.TimeoutException, httpx.ConnectError, httpx.NetworkError) as e:
         log.warning("MITRE network error for %s: %s", cve_id, type(e).__name__)
         return None
@@ -561,7 +563,7 @@ def _fetch_mitre_cve(cve_id: str) -> dict | None:
         reset = int(resp.headers.get("RateLimit-Reset", "0"))
         if remaining < 10 and reset > 0:
             log.info("MITRE rate-limit low (remaining=%d); sleeping %ds", remaining, reset)
-            time.sleep(min(reset, 60))
+            await asyncio.sleep(min(reset, 60))
     except (ValueError, TypeError):
         pass
 
@@ -572,7 +574,7 @@ def _fetch_mitre_cve(cve_id: str) -> dict | None:
         return None
 
 
-def sync_mitre(full: bool = False) -> int:
+async def sync_mitre(full: bool = False) -> int:
     """Sync CVEs from MITRE cvelistV5 via the nightly GitHub release.
 
     v1 scope: delta only. Fetches the `latest` release, picks the smallest
@@ -590,7 +592,7 @@ def sync_mitre(full: bool = False) -> int:
 
     try:
         # Discover the latest release tarball
-        resp = _client.get(MITRE_RELEASES_URL, headers=_github_headers(), timeout=30)
+        resp = await _client.get(MITRE_RELEASES_URL, headers=_github_headers(), timeout=30)
         resp.raise_for_status()
         release = resp.json()
         tag = release.get("tag_name", "unknown")
@@ -614,7 +616,7 @@ def sync_mitre(full: bool = False) -> int:
             return 0
 
         # Download the zip. GitHub release assets are unauthenticated, browser-like.
-        zresp = _client.get(dl_url, timeout=120)
+        zresp = await _client.get(dl_url, timeout=120)
         zresp.raise_for_status()
         zdata = zresp.content
 
@@ -739,7 +741,7 @@ def _ghsa_next_link(headers) -> str | None:
     return url
 
 
-def sync_ghsa(full: bool = False) -> int:
+async def sync_ghsa(full: bool = False) -> int:
     """Sync CVEs from GitHub Security Advisories.
 
     Delta-only: walks /advisories sorted by updated desc until we reach the
@@ -765,7 +767,7 @@ def sync_ghsa(full: bool = False) -> int:
         stop = False
 
         for _page_num in range(GHSA_MAX_PAGES):
-            resp = _client.get(url, params=params, headers=_github_headers(), timeout=30)
+            resp = await _client.get(url, params=params, headers=_github_headers(), timeout=30)
             resp.raise_for_status()
             advisories = resp.json() or []
 
@@ -834,7 +836,7 @@ def sync_ghsa(full: bool = False) -> int:
 # --- EPSS Sync ---
 
 
-def sync_epss() -> int:
+async def sync_epss() -> int:
     """Sync EPSS scores from FIRST.org CSV bulk download. Returns count updated."""
     log.info("EPSS sync starting (CSV bulk)...")
     update_sync_status("epss", 0, "in_progress")
@@ -844,7 +846,7 @@ def sync_epss() -> int:
     max_decompressed = 200 * 1024 * 1024  # 200MB
 
     try:
-        resp = _client.get(epss_csv_url, headers={"Accept-Encoding": "gzip"}, timeout=120)
+        resp = await _client.get(epss_csv_url, headers={"Accept-Encoding": "gzip"}, timeout=120)
         resp.raise_for_status()
         raw = resp.content
 
@@ -903,7 +905,7 @@ def sync_epss() -> int:
 # --- KEV Sync ---
 
 
-def sync_kev() -> int:
+async def sync_kev() -> int:
     """Sync CISA Known Exploited Vulnerabilities. Returns count updated.
 
     Writes the boolean flag + date to cves and the full record to kev_details.
@@ -913,7 +915,7 @@ def sync_kev() -> int:
     count = 0
 
     try:
-        resp = _client.get(KEV_URL, headers={"Accept": "application/json"}, timeout=30)
+        resp = await _client.get(KEV_URL, headers={"Accept": "application/json"}, timeout=30)
         resp.raise_for_status()
         data = resp.json()
 
@@ -1097,7 +1099,7 @@ def _parse_cwe_examples(raw: str | None) -> list[str]:
     return out
 
 
-def sync_cwe() -> int:
+async def sync_cwe() -> int:
     """Sync MITRE CWE catalog (research view 1000). Returns count upserted.
 
     Downloads the public ZIP, extracts the CSV, parses each row into the cwes
@@ -1109,7 +1111,7 @@ def sync_cwe() -> int:
     count = 0
 
     try:
-        resp = _client.get(CWE_ZIP_URL, headers={"Accept": "application/zip"}, timeout=60)
+        resp = await _client.get(CWE_ZIP_URL, headers={"Accept": "application/zip"}, timeout=60)
         resp.raise_for_status()
         if len(resp.content) > CWE_ZIP_MAX_BYTES:
             log.error("CWE ZIP exceeds %d bytes (%d) — refusing", CWE_ZIP_MAX_BYTES, len(resp.content))
@@ -1291,10 +1293,10 @@ def _parse_osv_vulnerability(vuln: dict) -> dict:
     }
 
 
-def _fetch_osv_vulnerability(cve_id: str) -> dict | None:
+async def _fetch_osv_vulnerability(cve_id: str) -> dict | None:
     """Fetch a single CVE from OSV.dev. Returns parsed JSON dict on 200, None on 404/error."""
     try:
-        resp = _client.get(OSV_API_URL.format(cve_id=cve_id), timeout=10.0)
+        resp = await _client.get(OSV_API_URL.format(cve_id=cve_id), timeout=10.0)
     except (httpx.TimeoutException, httpx.ConnectError, httpx.NetworkError) as e:
         log.warning("OSV network error for %s: %s", cve_id, type(e).__name__)
         return None
@@ -1314,7 +1316,7 @@ def _fetch_osv_vulnerability(cve_id: str) -> dict | None:
         return None
 
 
-def sync_osv(full: bool = False) -> int:
+async def sync_osv(full: bool = False) -> int:
     """Backfill CVE enrichment from OSV.dev for post-NVD-gap CVEs.
 
     Delta-only: selects CVEs with incomplete CVSS/CWE published on/after
@@ -1338,20 +1340,20 @@ def sync_osv(full: bool = False) -> int:
             return 0
 
         for cve_id in cve_ids:
-            vuln = _fetch_osv_vulnerability(cve_id)
+            vuln = await _fetch_osv_vulnerability(cve_id)
             if vuln is None:
-                time.sleep(OSV_INTER_REQUEST_SLEEP)
+                await asyncio.sleep(OSV_INTER_REQUEST_SLEEP)
                 continue
 
             try:
                 cve_data = _parse_osv_vulnerability(vuln)
             except Exception as e:
                 log.warning("OSV parse error for %s: %s", cve_id, e)
-                time.sleep(OSV_INTER_REQUEST_SLEEP)
+                await asyncio.sleep(OSV_INTER_REQUEST_SLEEP)
                 continue
 
             if not cve_data.get("cve_id") or cve_data.get("_skip"):
-                time.sleep(OSV_INTER_REQUEST_SLEEP)
+                await asyncio.sleep(OSV_INTER_REQUEST_SLEEP)
                 continue
 
             upsert_cve_if_absent(cve_data)
@@ -1361,7 +1363,7 @@ def sync_osv(full: bool = False) -> int:
                 f"https://osv.dev/vulnerability/{vuln.get('id') or cve_data['cve_id']}",
             )
             count += 1
-            time.sleep(OSV_INTER_REQUEST_SLEEP)
+            await asyncio.sleep(OSV_INTER_REQUEST_SLEEP)
 
         update_sync_status("osv", count, "ok")
         log.info("OSV sync complete: %d CVEs enriched", count)
@@ -1429,7 +1431,7 @@ def _parse_exploitdb_row(row: dict) -> list[dict]:
     return out
 
 
-def sync_exploitdb(full: bool = False) -> int:
+async def sync_exploitdb(full: bool = False) -> int:
     """Download ExploitDB CSV and upsert into the exploits table.
 
     Delta mode skips the download when Last-Modified matches the stored checkpoint.
@@ -1439,7 +1441,7 @@ def sync_exploitdb(full: bool = False) -> int:
     update_sync_status("exploitdb", 0, "in_progress")
     checkpoint = None if full else get_sync_checkpoint("exploitdb")
     try:
-        head = _client.head(EXPLOITDB_CSV_URL, timeout=10, follow_redirects=True)
+        head = await _client.head(EXPLOITDB_CSV_URL, timeout=10, follow_redirects=True)
         if head.url.host not in EXPLOITDB_ALLOWED_HOSTS:
             raise ValueError(f"ExploitDB HEAD redirected to unexpected host: {head.url.host}")
         last_mod = head.headers.get("last-modified")
@@ -1448,7 +1450,7 @@ def sync_exploitdb(full: bool = False) -> int:
             update_sync_status("exploitdb", 0, "ok", checkpoint=checkpoint)
             return 0
 
-        resp = _client.get(
+        resp = await _client.get(
             EXPLOITDB_CSV_URL,
             timeout=120,
             follow_redirects=True,
@@ -1494,63 +1496,63 @@ def sync_exploitdb(full: bool = False) -> int:
 # --- Main ---
 
 
-def sync_all(full: bool = False):
+async def sync_all(full: bool = False):
     """Run all sync tasks. MITRE, GHSA, OSV, and CWE run delta-only regardless of `full`."""
     from atlas.sync import sync_atlas
     from d3fend.sync import sync_d3fend
 
     init_all_dbs()
-    sync_nvd(full=full)
-    sync_mitre(full=False)
-    sync_ghsa(full=False)
-    sync_osv(full=False)
-    sync_kev()
-    sync_cwe()
-    sync_epss()
-    sync_exploitdb(full=False)
+    await sync_nvd(full=full)
+    await sync_mitre(full=False)
+    await sync_ghsa(full=False)
+    await sync_osv(full=False)
+    await sync_kev()
+    await sync_cwe()
+    await sync_epss()
+    await sync_exploitdb(full=False)
+    # atlas/d3fend remain sync (own httpx.Client) — Batch 5 candidate.
     sync_atlas()
     sync_d3fend()
 
 
-if __name__ == "__main__":
-    args = sys.argv[1:]
-
+async def _main_cli(args: list[str]) -> None:
+    """CLI dispatcher — extracted from __main__ to be awaitable."""
     init_all_dbs()
 
     if "--resume" in args:
-        sync_nvd(full=True, resume=True)
-        sync_mitre(full=False)
-        sync_ghsa(full=False)
-        sync_osv(full=False)
-        sync_kev()
-        sync_cwe()
-        sync_epss()
+        await sync_nvd(full=True, resume=True)
+        await sync_mitre(full=False)
+        await sync_ghsa(full=False)
+        await sync_osv(full=False)
+        await sync_kev()
+        await sync_cwe()
+        await sync_epss()
     elif "--full" in args:
-        sync_nvd(full=True)
-        sync_mitre(full=False)
-        sync_ghsa(full=False)
-        sync_osv(full=False)
-        sync_kev()
-        sync_cwe()
-        sync_epss()
+        await sync_nvd(full=True)
+        await sync_mitre(full=False)
+        await sync_ghsa(full=False)
+        await sync_osv(full=False)
+        await sync_kev()
+        await sync_cwe()
+        await sync_epss()
     elif "--source" in args:
         src = args[args.index("--source") + 1] if args.index("--source") + 1 < len(args) else ""
         if src == "mitre":
-            sync_mitre(full=False)
+            await sync_mitre(full=False)
         elif src == "ghsa":
-            sync_ghsa(full=False)
+            await sync_ghsa(full=False)
         elif src == "osv":
-            sync_osv(full=False)
+            await sync_osv(full=False)
         elif src == "epss":
-            sync_epss()
+            await sync_epss()
         elif src == "kev":
-            sync_kev()
+            await sync_kev()
         elif src == "cwe":
-            sync_cwe()
+            await sync_cwe()
         elif src == "nvd":
-            sync_nvd(full=False)
+            await sync_nvd(full=False)
         elif src == "exploitdb":
-            sync_exploitdb(full="--full" in args)
+            await sync_exploitdb(full="--full" in args)
         elif src == "atlas":
             from atlas.sync import sync_atlas
 
@@ -1562,4 +1564,8 @@ if __name__ == "__main__":
         else:
             print(f"Unknown source: {src}. Options: nvd, mitre, ghsa, osv, epss, kev, cwe, exploitdb, atlas, d3fend")
     else:
-        sync_all()
+        await sync_all()
+
+
+if __name__ == "__main__":
+    asyncio.run(_main_cli(sys.argv[1:]))

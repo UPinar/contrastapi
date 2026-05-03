@@ -111,13 +111,14 @@ def _mock_asn_country(request):
     if request.node.get_closest_marker("real_asn_country"):
         yield
         return
-    from unittest.mock import patch
+    from unittest.mock import AsyncMock, patch
 
     # Default: `failed=False` — unrelated ip_lookup tests shouldn't see
     # "ripe_stat" in sources_unavailable just because they don't care about
     # ASN. Tests that validate failure paths patch explicitly with failed=True.
     with patch(
         "domain.routes._fetch_asn_country",
+        new_callable=AsyncMock,
         return_value={"asn": None, "asn_name": "", "country": "", "failed": False},
     ):
         yield

@@ -36,7 +36,12 @@ atexit.register(_aia_pool.shutdown, wait=False)
 import httpx as _httpx
 import ratelimit
 
-_ripe_client = _httpx.Client(timeout=_httpx.Timeout(7.0, connect=3.0), follow_redirects=False)
+_ripe_client = _httpx.AsyncClient(
+    timeout=_httpx.Timeout(7.0, connect=3.0),
+    follow_redirects=False,
+    limits=_httpx.Limits(max_connections=10, max_keepalive_connections=5),
+    cookies=_httpx.Cookies(),
+)
 from auth import AuthCtx, require_auth
 from config import (
     BULK_OVERALL_TIMEOUT,
@@ -1701,10 +1706,10 @@ async def wayback_lookup_route(
     return await run_in_threadpool(wayback_lookup, domain)
 
 
-def _ripe_country_for_ip(ip: str) -> str:
+async def _ripe_country_for_ip(ip: str) -> str:
     """Fetch RIR allocation country for `ip` via RIPE Stat. Empty on failure."""
     try:
-        r = _ripe_client.get(
+        r = await _ripe_client.get(
             "https://stat.ripe.net/data/rir-stats-country/data.json",
             params={"resource": ip},
             timeout=2.5,
@@ -1720,10 +1725,10 @@ def _ripe_country_for_ip(ip: str) -> str:
     return ""
 
 
-def _ripe_holder_for_asn(asn_val: int) -> str:
+async def _ripe_holder_for_asn(asn_val: int) -> str:
     """Fetch holder (org name) for AS`asn_val` via RIPE Stat. Empty on failure."""
     try:
-        r = _ripe_client.get(
+        r = await _ripe_client.get(
             "https://stat.ripe.net/data/as-overview/data.json",
             params={"resource": f"AS{asn_val}"},
             timeout=2.5,
@@ -1735,7 +1740,7 @@ def _ripe_holder_for_asn(asn_val: int) -> str:
         return ""
 
 
-def _fetch_asn_country(ip: str) -> dict:
+async def _fetch_asn_country(ip: str) -> dict:
     """Best-effort RIPE Stat ASN + country fetch for ip_lookup inline enrichment.
 
     Returns dict with keys:
@@ -1743,11 +1748,12 @@ def _fetch_asn_country(ip: str) -> dict:
 
     `failed=True` means RIPE Stat produced no usable data (all three fields
     empty) — callers use this to mark sources_unavailable honestly. Never
-    raises. Critical path: main thread blocks ~2.5s on network-info; on
-    success, two parallel futures run in `_ip_enrichment_pool` with 3.0s
-    timeouts (country + holder). Cache hit with all fields populated
+    raises. Critical path: main coroutine awaits ~2.5s on network-info; on
+    success, two parallel asyncio tasks (country + holder) race a 3.0s
+    asyncio.wait_for timeout. Cache hit with all fields populated
     short-circuits to ~0ms; partial cache hit (asn known but name or country
-    missing) triggers fan-out only for the missing field(s).
+    missing) triggers fan-out only for the missing field(s). _ip_enrichment_pool
+    is no longer used here (Faz 4g Batch 4 — pool definition removal in 4h).
     """
     cached = get_cached_domain(f"asn:{ip}")
     if cached:
@@ -1781,20 +1787,20 @@ def _fetch_asn_country(ip: str) -> dict:
         # RIPE. Closes the stale-cache poisoning case where asn_lookup wrote
         # {asn, asn_name=""} without country during a transient RIPE outage.
         if cached_asn is not None:
-            f_country = _ip_enrichment_pool.submit(_ripe_country_for_ip, ip) if not cached_country else None
-            f_name = _ip_enrichment_pool.submit(_ripe_holder_for_asn, cached_asn) if not cached_name else None
+            t_country = asyncio.create_task(_ripe_country_for_ip(ip)) if not cached_country else None
+            t_name = asyncio.create_task(_ripe_holder_for_asn(cached_asn)) if not cached_name else None
 
             country_out = cached_country
             name_out = cached_name
-            if f_country is not None:
+            if t_country is not None:
                 try:
-                    country_out = f_country.result(timeout=3.0)
-                except Exception:
+                    country_out = await asyncio.wait_for(t_country, timeout=3.0)
+                except (asyncio.TimeoutError, _httpx.HTTPError, OSError, ValueError):
                     country_out = ""
-            if f_name is not None:
+            if t_name is not None:
                 try:
-                    name_out = f_name.result(timeout=3.0)
-                except Exception:
+                    name_out = await asyncio.wait_for(t_name, timeout=3.0)
+                except (asyncio.TimeoutError, _httpx.HTTPError, OSError, ValueError):
                     name_out = ""
             # Same honesty rule as cache-miss path: `failed` only when NO
             # useful field survives. asn from cache counts, so partial branch
@@ -1813,7 +1819,7 @@ def _fetch_asn_country(ip: str) -> dict:
     asn_name = ""
 
     try:
-        r = _ripe_client.get(
+        r = await _ripe_client.get(
             "https://stat.ripe.net/data/network-info/data.json",
             params={"resource": ip},
             timeout=2.5,
@@ -1833,17 +1839,17 @@ def _fetch_asn_country(ip: str) -> dict:
     except Exception:
         logger.debug("_fetch_asn_country network-info request failed")
 
-    f_country = _ip_enrichment_pool.submit(_ripe_country_for_ip, ip)
-    f_name = _ip_enrichment_pool.submit(_ripe_holder_for_asn, asn) if asn else None
+    t_country = asyncio.create_task(_ripe_country_for_ip(ip))
+    t_name = asyncio.create_task(_ripe_holder_for_asn(asn)) if asn else None
 
     try:
-        country = f_country.result(timeout=3.0)
-    except Exception:
+        country = await asyncio.wait_for(t_country, timeout=3.0)
+    except (asyncio.TimeoutError, _httpx.HTTPError, OSError, ValueError):
         country = ""
-    if f_name is not None:
+    if t_name is not None:
         try:
-            asn_name = f_name.result(timeout=3.0)
-        except Exception:
+            asn_name = await asyncio.wait_for(t_name, timeout=3.0)
+        except (asyncio.TimeoutError, _httpx.HTTPError, OSError, ValueError):
             asn_name = ""
 
     failed = not (asn or asn_name or country)
@@ -1867,7 +1873,7 @@ async def ip_lookup(
     client_ip = auth.client_ip
 
     # Kick ASN/country fetch in parallel with the rest of the critical path.
-    asn_country_task = asyncio.create_task(run_in_threadpool(_fetch_asn_country, ip))
+    asn_country_task = asyncio.create_task(_fetch_asn_country(ip))
 
     try:
         addr_result, addr_err = await run_in_threadpool(_dns_call_with_timeout, socket.gethostbyaddr, ip)
@@ -2331,7 +2337,7 @@ async def asn_lookup(
 
     # Fetch ASN from RIPE Stat
     try:
-        r1 = _ripe_client.get(
+        r1 = await _ripe_client.get(
             "https://stat.ripe.net/data/network-info/data.json",
             params={"resource": ip},
             timeout=5.0,
@@ -2356,9 +2362,9 @@ async def asn_lookup(
     ipv4_prefixes = []
     ipv6_prefixes = []
 
-    def _fetch_overview():
+    async def _fetch_overview():
         try:
-            r = _ripe_client.get(
+            r = await _ripe_client.get(
                 "https://stat.ripe.net/data/as-overview/data.json",
                 params={"resource": f"AS{asn}"},
                 timeout=5.0,
@@ -2369,9 +2375,9 @@ async def asn_lookup(
         except (_httpx.HTTPError, _httpx.TimeoutException, ValueError, KeyError, TypeError) as e:
             raise AsnUpstreamError("as-overview", type(e).__name__) from e
 
-    def _fetch_prefixes():
+    async def _fetch_prefixes():
         try:
-            r = _ripe_client.get(
+            r = await _ripe_client.get(
                 "https://stat.ripe.net/data/announced-prefixes/data.json",
                 params={"resource": f"AS{asn}"},
                 timeout=5.0,
@@ -2398,8 +2404,8 @@ async def asn_lookup(
 
     warnings: list[str] = []
 
-    overview_task = asyncio.create_task(run_in_threadpool(_fetch_overview))
-    prefixes_task = asyncio.create_task(run_in_threadpool(_fetch_prefixes))
+    overview_task = asyncio.create_task(_fetch_overview())
+    prefixes_task = asyncio.create_task(_fetch_prefixes())
 
     try:
         asn_name = await asyncio.wait_for(overview_task, timeout=7)
@@ -2844,7 +2850,7 @@ async def threat_report(
         # threat_report sees the same asn_name + country enrichment instead
         # of reinventing a network-info-only fetch (Bug I3 — passive intel
         # parity with ip_lookup).
-        country_payload = await run_in_threadpool(_fetch_asn_country, ip)
+        country_payload = await _fetch_asn_country(ip)
         if country_payload.get("asn") and not asn_data.get("asn"):
             asn_data["asn"] = country_payload["asn"]
         if country_payload.get("asn_name") and not asn_data.get("asn_name"):

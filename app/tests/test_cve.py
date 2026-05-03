@@ -1,5 +1,6 @@
 """Tests for CVE Intelligence module — routes.py + sync.py"""
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -1204,7 +1205,7 @@ class TestParseNvdCve:
 
 
 class TestSyncNvd:
-    @patch("cve.sync._nvd_request")
+    @patch("cve.sync._nvd_request", new_callable=AsyncMock)
     def test_delta_sync(self, mock_req):
         mock_req.return_value = {
             "totalResults": 1,
@@ -1222,20 +1223,20 @@ class TestSyncNvd:
         }
         from cve.sync import sync_nvd
 
-        count = sync_nvd(full=False)
+        count = asyncio.run(sync_nvd(full=False))
         assert count == 1
 
-    @patch("cve.sync._nvd_request")
+    @patch("cve.sync._nvd_request", new_callable=AsyncMock)
     def test_empty_response(self, mock_req):
         mock_req.return_value = {"totalResults": 0, "vulnerabilities": []}
         from cve.sync import sync_nvd
 
-        count = sync_nvd(full=False)
+        count = asyncio.run(sync_nvd(full=False))
         assert count == 0
 
 
 class TestSyncKev:
-    @patch("cve.sync._client")
+    @patch("cve.sync._client", new_callable=AsyncMock)
     def test_kev_sync(self, mock_client):
         mock_resp = MagicMock()
         mock_resp.status_code = 200
@@ -1253,7 +1254,7 @@ class TestSyncKev:
 
         from cve.sync import sync_kev
 
-        count = sync_kev()
+        count = asyncio.run(sync_kev())
         assert count == 1
 
         from db import get_cve
@@ -1262,7 +1263,7 @@ class TestSyncKev:
         assert cve is not None
         assert cve["in_kev"] == 1
 
-    @patch("cve.sync._client")
+    @patch("cve.sync._client", new_callable=AsyncMock)
     def test_kev_sync_writes_full_details(self, mock_client):
         """sync_kev() must populate kev_details with all CISA fields."""
         mock_resp = MagicMock()
@@ -1290,7 +1291,7 @@ class TestSyncKev:
         from cve.sync import sync_kev
         from db import get_kev_details
 
-        count = sync_kev()
+        count = asyncio.run(sync_kev())
         assert count == 1
 
         details = get_kev_details("CVE-2021-44228")
@@ -1307,7 +1308,7 @@ class TestSyncKev:
         assert details["notes"].startswith("https://logging.apache.org")
         assert details["cwes"] == ["CWE-20", "CWE-400", "CWE-502"]
 
-    @patch("cve.sync._client")
+    @patch("cve.sync._client", new_callable=AsyncMock)
     def test_kev_sync_ransomware_unknown_treated_false(self, mock_client):
         mock_resp = MagicMock()
         mock_resp.status_code = 200
@@ -1326,14 +1327,14 @@ class TestSyncKev:
         from cve.sync import sync_kev
         from db import get_cve, get_kev_details
 
-        sync_kev()
+        asyncio.run(sync_kev())
         # cves row + kev_details row must both be populated after sync
         assert get_cve("CVE-2024-9999") is not None
         details = get_kev_details("CVE-2024-9999")
         assert details is not None
         assert details["known_ransomware_use"] is False
 
-    @patch("cve.sync._client")
+    @patch("cve.sync._client", new_callable=AsyncMock)
     def test_kev_sync_creates_minimal_cve_when_absent(self, mock_client):
         """update_kev() returns False for unknown CVE -> upsert_cve() seeds minimal row,
         and kev_details upsert still runs."""
@@ -1357,7 +1358,7 @@ class TestSyncKev:
         from cve.sync import sync_kev
         from db import get_cve, get_kev_details
 
-        sync_kev()
+        asyncio.run(sync_kev())
         cve = get_cve("CVE-2099-12345")
         assert cve is not None
         assert cve["in_kev"] == 1
@@ -1366,7 +1367,7 @@ class TestSyncKev:
         assert details["vendor_project"] == "Acme"
         assert details["product"] == "Widget"
 
-    @patch("cve.sync._client")
+    @patch("cve.sync._client", new_callable=AsyncMock)
     def test_kev_sync_cwes_match_canonical_pattern(self, mock_client):
         """Defensive: written CWE entries should match canonical CWE-<n> pattern."""
         import re
@@ -1388,7 +1389,7 @@ class TestSyncKev:
         from cve.sync import sync_kev
         from db import get_kev_details
 
-        sync_kev()
+        asyncio.run(sync_kev())
         details = get_kev_details("CVE-2024-3030")
         assert details is not None
         for cwe_id in details["cwes"]:
@@ -1563,12 +1564,12 @@ class TestSyncCwe:
         )
         zip_bytes = self._build_zip_with_csv(csv_text)
 
-        with patch("cve.sync._client.get") as mock_get:
+        with patch("cve.sync._client.get", new_callable=AsyncMock) as mock_get:
             mock_get.return_value = MagicMock(
                 content=zip_bytes,
                 raise_for_status=MagicMock(),
             )
-            count = sync_cwe()
+            count = asyncio.run(sync_cwe())
 
         assert count == 1
         record = get_cwe("CWE-79")
@@ -1590,9 +1591,9 @@ class TestSyncCwe:
         csv_text = self._csv_header() + self._csv_row("79", "XSS", related=related)
         zip_bytes = self._build_zip_with_csv(csv_text)
 
-        with patch("cve.sync._client.get") as mock_get:
+        with patch("cve.sync._client.get", new_callable=AsyncMock) as mock_get:
             mock_get.return_value = MagicMock(content=zip_bytes, raise_for_status=MagicMock())
-            sync_cwe()
+            asyncio.run(sync_cwe())
 
         record = get_cwe("CWE-79")
         assert record["parent_cwe"] == "CWE-707"
@@ -1607,9 +1608,9 @@ class TestSyncCwe:
         related = "::NATURE:ChildOf:CWE ID:999:VIEW ID:699:ORDINAL:Primary::"
         csv_text = self._csv_header() + self._csv_row("79", "XSS", related=related)
         zip_bytes = self._build_zip_with_csv(csv_text)
-        with patch("cve.sync._client.get") as mock_get:
+        with patch("cve.sync._client.get", new_callable=AsyncMock) as mock_get:
             mock_get.return_value = MagicMock(content=zip_bytes, raise_for_status=MagicMock())
-            sync_cwe()
+            asyncio.run(sync_cwe())
 
         record = get_cwe("CWE-79")
         assert record["parent_cwe"] is None
@@ -1628,9 +1629,9 @@ class TestSyncCwe:
         )
         csv_text = self._csv_header() + self._csv_row("79", "XSS", mitigations=mitigations, examples=examples)
         zip_bytes = self._build_zip_with_csv(csv_text)
-        with patch("cve.sync._client.get") as mock_get:
+        with patch("cve.sync._client.get", new_callable=AsyncMock) as mock_get:
             mock_get.return_value = MagicMock(content=zip_bytes, raise_for_status=MagicMock())
-            sync_cwe()
+            asyncio.run(sync_cwe())
 
         record = get_cwe("CWE-79")
         assert len(record["mitigations"]) == 2
@@ -1646,18 +1647,18 @@ class TestSyncCwe:
         csv_text = self._csv_header() + ',"",Base,Stable,desc,ext,,,,,,,,Medium,,,,,,,,,\n'
         csv_text += self._csv_row("79", "Valid")
         zip_bytes = self._build_zip_with_csv(csv_text)
-        with patch("cve.sync._client.get") as mock_get:
+        with patch("cve.sync._client.get", new_callable=AsyncMock) as mock_get:
             mock_get.return_value = MagicMock(content=zip_bytes, raise_for_status=MagicMock())
-            count = sync_cwe()
+            count = asyncio.run(sync_cwe())
         assert count == 1
 
     def test_sync_cwe_oversize_zip_refused(self):
         from cve.sync import sync_cwe
 
         oversized = b"\x00" * (26 * 1024 * 1024)
-        with patch("cve.sync._client.get") as mock_get:
+        with patch("cve.sync._client.get", new_callable=AsyncMock) as mock_get:
             mock_get.return_value = MagicMock(content=oversized, raise_for_status=MagicMock())
-            count = sync_cwe()
+            count = asyncio.run(sync_cwe())
         assert count == 0
 
 
@@ -1994,7 +1995,7 @@ class TestCveProductsTable:
 
 
 class TestSyncEpssValidation:
-    @patch("cve.sync._client")
+    @patch("cve.sync._client", new_callable=AsyncMock)
     def test_epss_nan_filtered(self, mock_client):
         _seed_cve(cve_id="CVE-2024-NAN1", epss_score=0.5, epss_percentile=0.5)
         import gzip
@@ -2008,14 +2009,14 @@ class TestSyncEpssValidation:
 
         from cve.sync import sync_epss
 
-        sync_epss()
+        asyncio.run(sync_epss())
 
         from db import get_cve
 
         cve = get_cve("CVE-2024-NAN1")
         assert cve["epss_score"] is None
 
-    @patch("cve.sync._client")
+    @patch("cve.sync._client", new_callable=AsyncMock)
     def test_epss_inf_filtered(self, mock_client):
         _seed_cve(cve_id="CVE-2024-INF1", epss_score=0.5, epss_percentile=0.5)
         import gzip
@@ -2029,7 +2030,7 @@ class TestSyncEpssValidation:
 
         from cve.sync import sync_epss
 
-        sync_epss()
+        asyncio.run(sync_epss())
 
         from db import get_cve
 
@@ -2137,7 +2138,7 @@ class TestCveSources:
         assert row["severity"] == "CRITICAL"
         assert row["cvss_v3"] == 9.8
 
-    @patch("cve.sync._nvd_request")
+    @patch("cve.sync._nvd_request", new_callable=AsyncMock)
     def test_sync_nvd_records_source(self, mock_req):
         mock_req.return_value = {
             "totalResults": 1,
@@ -2156,7 +2157,7 @@ class TestCveSources:
         from cve.sync import sync_nvd
         from db import get_cve_sources
 
-        sync_nvd(full=False)
+        asyncio.run(sync_nvd(full=False))
         rows = get_cve_sources("CVE-2024-0002")
         assert len(rows) == 1
         assert rows[0]["source"] == "nvd"
@@ -2694,7 +2695,7 @@ class TestSeverityFromScore:
 
 
 class TestSyncMitre:
-    @patch("cve.sync._client")
+    @patch("cve.sync._client", new_callable=AsyncMock)
     def test_delta_sync_happy_path(self, mock_client):
         record = {
             "cveMetadata": {
@@ -2729,7 +2730,7 @@ class TestSyncMitre:
         from cve.sync import sync_mitre
         from db import get_cve, get_cve_sources
 
-        count = sync_mitre(full=False)
+        count = asyncio.run(sync_mitre(full=False))
         assert count == 1
         row = get_cve("CVE-2024-70011")
         assert row is not None
@@ -2740,7 +2741,7 @@ class TestSyncMitre:
         assert sources[0]["source"] == "mitre"
         assert "CVERecord" in sources[0]["source_url"]
 
-    @patch("cve.sync._client")
+    @patch("cve.sync._client", new_callable=AsyncMock)
     def test_delta_sync_skips_rejected(self, mock_client):
         rejected = {
             "cveMetadata": {"cveId": "CVE-2024-70012", "state": "REJECTED"},
@@ -2762,11 +2763,11 @@ class TestSyncMitre:
         from cve.sync import sync_mitre
         from db import get_cve
 
-        count = sync_mitre(full=False)
+        count = asyncio.run(sync_mitre(full=False))
         assert count == 0
         assert get_cve("CVE-2024-70012") is None
 
-    @patch("cve.sync._client")
+    @patch("cve.sync._client", new_callable=AsyncMock)
     def test_mitre_does_not_overwrite_nvd_data(self, mock_client):
         """If NVD already published richer data, MITRE delta must not overwrite it."""
         _seed_cve(cve_id="CVE-2024-70013", severity="CRITICAL", cvss_v3=9.8, description="NVD description")
@@ -2789,7 +2790,7 @@ class TestSyncMitre:
         from cve.sync import sync_mitre
         from db import get_cve, get_cve_sources
 
-        sync_mitre(full=False)
+        asyncio.run(sync_mitre(full=False))
         row = get_cve("CVE-2024-70013")
         assert row["severity"] == "CRITICAL"
         assert row["cvss_v3"] == 9.8
@@ -2803,7 +2804,7 @@ class TestSyncMitre:
         from cve.sync import sync_mitre
 
         with pytest.raises(NotImplementedError):
-            sync_mitre(full=True)
+            asyncio.run(sync_mitre(full=True))
 
 
 class TestParseGhsaAdvisory:
@@ -2877,7 +2878,7 @@ def _mk_ghsa_resp(advisories, next_url=None, remaining=None):
 
 
 class TestSyncGhsa:
-    @patch("cve.sync._client")
+    @patch("cve.sync._client", new_callable=AsyncMock)
     def test_delta_sync_happy_path(self, mock_client):
         advisories = [
             {
@@ -2902,14 +2903,14 @@ class TestSyncGhsa:
         from cve.sync import sync_ghsa
         from db import get_cve, get_cve_sources
 
-        count = sync_ghsa(full=False)
+        count = asyncio.run(sync_ghsa(full=False))
         assert count == 2
         assert get_cve("CVE-2024-80011") is not None
         assert get_cve("CVE-2024-80012") is not None
         sources = {s["source"] for s in get_cve_sources("CVE-2024-80011")}
         assert "ghsa" in sources
 
-    @patch("cve.sync._client")
+    @patch("cve.sync._client", new_callable=AsyncMock)
     def test_delta_sync_skips_null_cve_id(self, mock_client):
         advisories = [
             {
@@ -2930,11 +2931,11 @@ class TestSyncGhsa:
         from cve.sync import sync_ghsa
         from db import get_cve
 
-        count = sync_ghsa(full=False)
+        count = asyncio.run(sync_ghsa(full=False))
         assert count == 1
         assert get_cve("CVE-2024-80013") is not None
 
-    @patch("cve.sync._client")
+    @patch("cve.sync._client", new_callable=AsyncMock)
     def test_delta_sync_paginates(self, mock_client):
         page1 = [
             {
@@ -2960,13 +2961,13 @@ class TestSyncGhsa:
         from cve.sync import sync_ghsa
         from db import get_cve
 
-        count = sync_ghsa(full=False)
+        count = asyncio.run(sync_ghsa(full=False))
         assert count == 2
         assert get_cve("CVE-2024-80021") is not None
         assert get_cve("CVE-2024-80022") is not None
         assert mock_client.get.call_count == 2
 
-    @patch("cve.sync._client")
+    @patch("cve.sync._client", new_callable=AsyncMock)
     def test_delta_sync_stops_on_checkpoint(self, mock_client):
         from db import update_sync_status
 
@@ -2992,12 +2993,12 @@ class TestSyncGhsa:
         from cve.sync import sync_ghsa
         from db import get_cve
 
-        count = sync_ghsa(full=False)
+        count = asyncio.run(sync_ghsa(full=False))
         assert count == 0
         assert get_cve("CVE-2024-80031") is None
         assert get_cve("CVE-2024-80032") is None
 
-    @patch("cve.sync._client")
+    @patch("cve.sync._client", new_callable=AsyncMock)
     def test_ghsa_does_not_overwrite_nvd_data(self, mock_client):
         """If NVD already published richer data, GHSA delta must not overwrite it."""
         _seed_cve(cve_id="CVE-2024-80041", severity="CRITICAL", cvss_v3=9.8, description="NVD desc")
@@ -3015,7 +3016,7 @@ class TestSyncGhsa:
         from cve.sync import sync_ghsa
         from db import get_cve, get_cve_sources
 
-        sync_ghsa(full=False)
+        asyncio.run(sync_ghsa(full=False))
         row = get_cve("CVE-2024-80041")
         assert row["severity"] == "CRITICAL"
         assert row["cvss_v3"] == 9.8
@@ -3028,7 +3029,7 @@ class TestSyncGhsa:
         from cve.sync import sync_ghsa
 
         with pytest.raises(NotImplementedError):
-            sync_ghsa(full=True)
+            asyncio.run(sync_ghsa(full=True))
 
 
 def _build_osv_resp(vuln: dict, status_code: int = 200):
@@ -3082,23 +3083,23 @@ class TestSyncOsv:
         result = _parse_osv_vulnerability(vuln)
         assert result["cwe_id"] == "CWE-79"
 
-    @patch("cve.sync._client")
+    @patch("cve.sync._client", new_callable=AsyncMock)
     def test_osv_handles_404_gracefully(self, mock_client):
         from cve.sync import _fetch_osv_vulnerability
 
         mock_client.get.return_value = _build_osv_resp({}, status_code=404)
-        result = _fetch_osv_vulnerability("CVE-2026-91004")
+        result = asyncio.run(_fetch_osv_vulnerability("CVE-2026-91004"))
         assert result is None
 
-    @patch("cve.sync._client")
+    @patch("cve.sync._client", new_callable=AsyncMock)
     def test_osv_handles_network_error(self, mock_client):
         from cve.sync import _fetch_osv_vulnerability
 
         mock_client.get.side_effect = httpx.TimeoutException("timeout")
-        result = _fetch_osv_vulnerability("CVE-2026-91005")
+        result = asyncio.run(_fetch_osv_vulnerability("CVE-2026-91005"))
         assert result is None
 
-    @patch("cve.sync._client")
+    @patch("cve.sync._client", new_callable=AsyncMock)
     def test_osv_does_not_overwrite_nvd_data(self, mock_client):
         """NVD cvss_v3=9.8 must survive OSV enrichment with cvss_v3=5.0."""
         _seed_cve(
@@ -3120,12 +3121,12 @@ class TestSyncOsv:
         from cve.sync import sync_osv
         from db import get_cve
 
-        sync_osv(full=False)
+        asyncio.run(sync_osv(full=False))
         row = get_cve("CVE-2026-91006")
         assert row["cvss_v3"] == 9.8
         assert row["severity"] == "CRITICAL"
 
-    @patch("cve.sync._client")
+    @patch("cve.sync._client", new_callable=AsyncMock)
     def test_osv_records_source_url(self, mock_client):
         _seed_cve(
             cve_id="CVE-2026-91007",
@@ -3145,7 +3146,7 @@ class TestSyncOsv:
         from cve.sync import sync_osv
         from db import get_cve_sources
 
-        sync_osv(full=False)
+        asyncio.run(sync_osv(full=False))
         sources = get_cve_sources("CVE-2026-91007")
         osv_source = next((s for s in sources if s["source"] == "osv"), None)
         assert osv_source is not None
@@ -3165,7 +3166,7 @@ class TestSyncOsv:
         from cve.sync import sync_osv
 
         with pytest.raises(NotImplementedError):
-            sync_osv(full=True)
+            asyncio.run(sync_osv(full=True))
 
     def test_osv_backfill_selector_respects_since_and_limit(self):
         from db import get_cves_needing_osv_backfill, upsert_cve
@@ -3777,7 +3778,7 @@ class TestResponseModelFiltering:
 class TestSyncCrashRecovery:
     """Tests for NVD sync checkpoint/resume and in_progress status."""
 
-    @patch("cve.sync._nvd_request")
+    @patch("cve.sync._nvd_request", new_callable=AsyncMock)
     def test_sync_marks_in_progress(self, mock_req):
         """Sync should set status='in_progress' at start."""
         from db import get_sync_status, update_sync_status
@@ -3812,12 +3813,12 @@ class TestSyncCrashRecovery:
         mock_req.side_effect = capture_in_progress
         from cve.sync import sync_nvd
 
-        sync_nvd(full=False)
+        asyncio.run(sync_nvd(full=False))
         st = get_sync_status().get("nvd", {})
         assert st["status"] == "ok"
 
     @patch("time.sleep")
-    @patch("cve.sync._nvd_request")
+    @patch("cve.sync._nvd_request", new_callable=AsyncMock)
     def test_full_sync_saves_checkpoint(self, mock_req, mock_sleep):
         """Full sync should save checkpoint after each page."""
         pages = [
@@ -3856,13 +3857,13 @@ class TestSyncCrashRecovery:
         from cve.sync import sync_nvd
         from db import get_sync_status
 
-        count = sync_nvd(full=True)
+        count = asyncio.run(sync_nvd(full=True))
         assert count == 3
         st = get_sync_status().get("nvd", {})
         assert st["status"] == "ok"
         assert st.get("checkpoint") is None  # cleared on success
 
-    @patch("cve.sync._nvd_request")
+    @patch("cve.sync._nvd_request", new_callable=AsyncMock)
     def test_resume_from_checkpoint(self, mock_req):
         """Resume should start from saved checkpoint."""
         import json
@@ -3891,14 +3892,14 @@ class TestSyncCrashRecovery:
 
         from cve.sync import sync_nvd
 
-        count = sync_nvd(full=True, resume=True)
+        count = asyncio.run(sync_nvd(full=True, resume=True))
         assert count == 3  # 2 from checkpoint + 1 new
 
         # Verify startIndex was 2
         call_args = mock_req.call_args
         assert call_args[0][0]["startIndex"] == 2
 
-    @patch("cve.sync._nvd_request")
+    @patch("cve.sync._nvd_request", new_callable=AsyncMock)
     def test_resume_no_checkpoint_starts_fresh(self, mock_req):
         """Resume with no checkpoint should start from 0."""
         from db import update_sync_status
@@ -3908,12 +3909,12 @@ class TestSyncCrashRecovery:
         mock_req.return_value = {"totalResults": 0, "vulnerabilities": []}
         from cve.sync import sync_nvd
 
-        sync_nvd(full=True, resume=True)
+        asyncio.run(sync_nvd(full=True, resume=True))
         call_args = mock_req.call_args
         assert call_args[0][0]["startIndex"] == 0
 
     @patch("cve.sync.get_last_successful_sync")
-    @patch("cve.sync._nvd_request")
+    @patch("cve.sync._nvd_request", new_callable=AsyncMock)
     def test_delta_uses_last_sync_time(self, mock_req, mock_last):
         """Delta sync should use last successful sync time instead of hardcoded window."""
         mock_last.return_value = "2026-04-04T10:00:00+00:00"
@@ -3921,14 +3922,14 @@ class TestSyncCrashRecovery:
 
         from cve.sync import sync_nvd
 
-        sync_nvd(full=False)
+        asyncio.run(sync_nvd(full=False))
 
         call_args = mock_req.call_args[0][0]
         # Should be ~30min before last sync (09:30), not 2.5h before now
         assert "lastModStartDate" in call_args
         assert call_args["lastModStartDate"].startswith("2026-04-04T09:30")
 
-    @patch("cve.sync._nvd_request")
+    @patch("cve.sync._nvd_request", new_callable=AsyncMock)
     def test_delta_fallback_no_prior_sync(self, mock_req):
         """Delta sync without prior sync should fall back to 2.5h window."""
         from db import update_sync_status
@@ -3939,12 +3940,12 @@ class TestSyncCrashRecovery:
         mock_req.return_value = {"totalResults": 0, "vulnerabilities": []}
         from cve.sync import sync_nvd
 
-        sync_nvd(full=False)
+        asyncio.run(sync_nvd(full=False))
         # Should not crash, just use fallback window
         assert mock_req.called
 
     @patch("time.sleep")
-    @patch("cve.sync._nvd_request")
+    @patch("cve.sync._nvd_request", new_callable=AsyncMock)
     def test_partial_failure_preserves_checkpoint(self, mock_req, mock_sleep):
         """If NVD returns empty on page 2, checkpoint should be preserved, not cleared."""
         import json
@@ -3970,7 +3971,7 @@ class TestSyncCrashRecovery:
         from cve.sync import sync_nvd
         from db import get_sync_status
 
-        count = sync_nvd(full=True)
+        count = asyncio.run(sync_nvd(full=True))
         assert count == 2
 
         st = get_sync_status().get("nvd", {})
@@ -3981,7 +3982,7 @@ class TestSyncCrashRecovery:
         assert cp["start_index"] == 2
         assert cp["total_processed"] == 2
 
-    @patch("cve.sync._nvd_request")
+    @patch("cve.sync._nvd_request", new_callable=AsyncMock)
     def test_corrupt_checkpoint_starts_fresh(self, mock_req):
         """Corrupt checkpoint JSON should be ignored, sync starts from 0."""
         from db import update_sync_status
@@ -3992,11 +3993,11 @@ class TestSyncCrashRecovery:
         mock_req.return_value = {"totalResults": 0, "vulnerabilities": []}
         from cve.sync import sync_nvd
 
-        sync_nvd(full=True, resume=True)
+        asyncio.run(sync_nvd(full=True, resume=True))
         call_args = mock_req.call_args[0][0]
         assert call_args["startIndex"] == 0
 
-    @patch("cve.sync._nvd_request")
+    @patch("cve.sync._nvd_request", new_callable=AsyncMock)
     def test_negative_checkpoint_starts_fresh(self, mock_req):
         """Checkpoint with negative values should be ignored."""
         import json
@@ -4009,7 +4010,7 @@ class TestSyncCrashRecovery:
         mock_req.return_value = {"totalResults": 0, "vulnerabilities": []}
         from cve.sync import sync_nvd
 
-        sync_nvd(full=True, resume=True)
+        asyncio.run(sync_nvd(full=True, resume=True))
         call_args = mock_req.call_args[0][0]
         assert call_args["startIndex"] == 0
 
