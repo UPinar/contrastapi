@@ -428,17 +428,18 @@ def test_bulk_atlas_technique_lookup_dedup_preserves_first_occurrence():
 def test_bulk_atlas_technique_lookup_error_path_on_db_exception(monkeypatch):
     """v1.21.0: transient DB exception → status='error' (parity with bulk_cve + bulk_ioc)."""
     _seed_atlas()
-    # Patch get_atlas_technique to raise on a specific id
+    # Patch aget_atlas_technique to raise on a specific id (Faz 4 batch 4f-atlas:
+    # the route awaits the async wrapper).
     import atlas.routes as atlas_routes
 
-    original = atlas_routes.get_atlas_technique
+    original = atlas_routes.aget_atlas_technique
 
-    def flaky(tid):
+    async def flaky(tid):
         if tid == "AML.T0000":
             raise RuntimeError("simulated DB I/O error")
-        return original(tid)
+        return await original(tid)
 
-    monkeypatch.setattr(atlas_routes, "get_atlas_technique", flaky)
+    monkeypatch.setattr(atlas_routes, "aget_atlas_technique", flaky)
 
     r = client.post(
         "/v1/atlas/techniques/bulk",

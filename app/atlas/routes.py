@@ -21,10 +21,10 @@ from atlas.schemas import (
 )
 from auth import AuthCtx, require_auth
 from db import (
-    get_atlas_case_study,
-    get_atlas_technique,
-    search_atlas_case_studies,
-    search_atlas_techniques,
+    aget_atlas_case_study,
+    aget_atlas_technique,
+    asearch_atlas_case_studies,
+    asearch_atlas_techniques,
 )
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from pydantic import BaseModel, Field
@@ -42,7 +42,7 @@ _PIVOT_CAP = 5
 _SEARCH_DESCRIPTION_PREVIEW = 240  # chars; full text via _lookup drill or include=full
 
 
-def _inherit_tactics_from_parent(record: dict, _cache: dict | None = None) -> dict:
+async def _inherit_tactics_from_parent(record: dict, _cache: dict | None = None) -> dict:
     """Backfill `tactics` from the parent technique when this is a sub-technique with empty tactics.
 
     ATLAS upstream does not propagate tactics down to sub-techniques (e.g. AML.T0051.002
@@ -60,7 +60,7 @@ def _inherit_tactics_from_parent(record: dict, _cache: dict | None = None) -> di
     if _cache is not None and parent_id in _cache:
         parent = _cache[parent_id]
     else:
-        parent = get_atlas_technique(parent_id)
+        parent = await aget_atlas_technique(parent_id)
         if _cache is not None:
             _cache[parent_id] = parent
     if not parent:
@@ -162,7 +162,7 @@ def _atlas_case_study_pivot_hints(record: dict) -> list[PivotHint]:
     response_model=AtlasTechniqueSearchResponse,
     response_model_exclude_none=True,
 )
-def atlas_technique_search(
+async def atlas_technique_search(
     auth: Annotated[AuthCtx, Depends(require_auth("/v1/atlas/techniques"))],
     keyword: Annotated[
         str | None,
@@ -248,7 +248,7 @@ def atlas_technique_search(
                 detail="maturity must be 'demonstrated', 'feasible', or 'realized'",
             )
 
-    rows = search_atlas_techniques(
+    rows = await asearch_atlas_techniques(
         keyword=keyword,
         tactic=tactic or None,
         maturity=maturity or None,
@@ -260,7 +260,7 @@ def atlas_technique_search(
 
     parent_cache: dict = {}
     for r in rows:
-        _inherit_tactics_from_parent(r, _cache=parent_cache)
+        await _inherit_tactics_from_parent(r, _cache=parent_cache)
 
     if include != "full":
         for r in rows:
@@ -292,7 +292,7 @@ def atlas_technique_search(
     response_model=AtlasCaseStudySearchResponse,
     response_model_exclude_none=True,
 )
-def atlas_case_study_search(
+async def atlas_case_study_search(
     auth: Annotated[AuthCtx, Depends(require_auth("/v1/atlas/case-studies"))],
     keyword: Annotated[
         str | None,
@@ -346,7 +346,7 @@ def atlas_case_study_search(
                 detail="technique_id must match 'AML.T####' or 'AML.T####.###'",
             )
 
-    rows = search_atlas_case_studies(
+    rows = await asearch_atlas_case_studies(
         keyword=keyword,
         technique_id=technique_id or None,
         limit=limit,
@@ -382,7 +382,7 @@ def atlas_case_study_search(
     response_model=AtlasCaseStudyResponse,
     response_model_exclude_none=True,
 )
-def atlas_case_study_lookup(
+async def atlas_case_study_lookup(
     case_study_id: Annotated[
         str,
         Path(
@@ -418,7 +418,7 @@ def atlas_case_study_lookup(
     if include not in (None, "", "full"):
         raise HTTPException(status_code=400, detail="include must be 'full' (omit for slim default)")
 
-    record = get_atlas_case_study(normalized)
+    record = await aget_atlas_case_study(normalized)
     if record is None:
         raise HTTPException(status_code=404, detail=f"{normalized} is not in the MITRE ATLAS case study catalog")
 
@@ -455,7 +455,7 @@ class _BulkAtlasTechniqueRequest(BaseModel):
     response_model=BulkAtlasTechniqueResponse,
     response_model_exclude_none=True,
 )
-def bulk_atlas_technique_lookup(
+async def bulk_atlas_technique_lookup(
     body: _BulkAtlasTechniqueRequest,
     auth: Annotated[AuthCtx, Depends(require_auth("/v1/atlas/techniques/bulk"))],
 ):
@@ -515,7 +515,7 @@ def bulk_atlas_technique_lookup(
         store_key = f"free:{hash_client_ip(auth.client_ip)}"
         hourly_limit = FREE_HOURLY_LIMIT
 
-    if count > 1 and not ratelimit.consume_bulk("api", store_key, count - 1, hourly_limit):
+    if count > 1 and not await ratelimit.aconsume_bulk("api", store_key, count - 1, hourly_limit):
         raise HTTPException(
             status_code=429,
             detail=f"Insufficient rate limit quota for {count} technique IDs.",
@@ -538,7 +538,7 @@ def bulk_atlas_technique_lookup(
         # v1.21.0: per-id error path (DB I/O exception). Schema defines 'error' alongside
         # 'ok'/'not_found'/'invalid_format' for parity with bulk_cve_lookup + bulk_ioc_lookup.
         try:
-            record = get_atlas_technique(tid)
+            record = await aget_atlas_technique(tid)
         except Exception as e:
             logger.warning("Bulk ATLAS technique lookup failed for %s: %s", tid, type(e).__name__)
             results.append(
@@ -560,7 +560,7 @@ def bulk_atlas_technique_lookup(
                 }
             )
             continue
-        _inherit_tactics_from_parent(record, _cache=parent_cache)
+        await _inherit_tactics_from_parent(record, _cache=parent_cache)
         record["next_calls"] = _atlas_technique_pivot_hints(record)
         results.append(
             {
@@ -592,7 +592,7 @@ def bulk_atlas_technique_lookup(
     response_model=AtlasTechniqueResponse,
     response_model_exclude_none=True,
 )
-def atlas_technique_lookup(
+async def atlas_technique_lookup(
     technique_id: Annotated[
         str,
         Path(
@@ -614,10 +614,10 @@ def atlas_technique_lookup(
     """
     normalized = _validate_technique_id(technique_id)
 
-    record = get_atlas_technique(normalized)
+    record = await aget_atlas_technique(normalized)
     if record is None:
         raise HTTPException(status_code=404, detail=f"{normalized} is not in the MITRE ATLAS catalog")
 
-    _inherit_tactics_from_parent(record)
+    await _inherit_tactics_from_parent(record)
     record["next_calls"] = _atlas_technique_pivot_hints(record)
     return record
