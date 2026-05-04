@@ -145,6 +145,22 @@ def test_authenticate_invalid_key_401():
     assert exc_info.value.status_code == 401
 
 
+def test_authenticate_malformed_bearer_cc_401():
+    # Bearer cc_<too-short>: user clearly attempted a key, must 401 — must NOT
+    # silently degrade to free tier (would mask broken-key misuse from customer).
+    from auth import authenticate_sync as authenticate
+    from fastapi import HTTPException
+
+    for token in ("cc_BAD000", "cc_", "cc_x", "cc_" + "a" * 100):
+        request = MagicMock()
+        request.headers = {"authorization": f"Bearer {token}"}
+        request.client = MagicMock()
+        request.client.host = "9.8.7.6"
+        with pytest.raises(HTTPException) as exc_info:
+            authenticate(request, "/v1/test")
+        assert exc_info.value.status_code == 401, f"token={token!r} should have raised 401"
+
+
 def test_authenticate_keyless_rate_limit_429():
     from auth import authenticate_sync as authenticate
     from config import FREE_HOURLY_LIMIT

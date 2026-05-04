@@ -98,6 +98,16 @@ def extract_key(request: Request) -> str | None:
     return None
 
 
+def _saw_bearer_attempt(request: Request) -> bool:
+    # Distinguishes "user attempted Bearer cc_ but length wrong" (→ 401)
+    # from "no Authorization header at all" (→ free tier). Without this,
+    # malformed keys silently degrade to free tier and the customer never learns.
+    auth = request.headers.get("authorization", "")
+    if not auth.startswith("Bearer "):
+        return False
+    return auth[7:].strip().startswith(KEY_PREFIX)
+
+
 def _privacy_opt_out(request: Request) -> bool:
     """True if the client sent DNT: 1 or Sec-GPC: 1 — skip analytics logging.
 
@@ -134,6 +144,19 @@ def authenticate_sync(request: Request, endpoint: str, cost: int = 1) -> AuthCtx
     client_ip = get_client_ip(request)
     raw_key = extract_key(request)
     localhost = client_ip in ("127.0.0.1", "::1")
+
+    if not raw_key and _saw_bearer_attempt(request):
+        ctx = AuthCtx(
+            tier="pro",
+            key_hash=None,
+            client_ip=client_ip,
+            ratelimit_limit=PRO_HOURLY_LIMIT,
+            ratelimit_remaining=0,
+            ratelimit_reset=0,
+            ratelimit_cost=cost,
+        )
+        _stash(request, ctx)
+        raise HTTPException(status_code=401, detail="Invalid API key")
 
     if raw_key:
         kh = hash_key(raw_key)
@@ -250,6 +273,19 @@ async def aauthenticate(request: Request, endpoint: str, cost: int = 1) -> AuthC
     client_ip = get_client_ip(request)
     raw_key = extract_key(request)
     localhost = client_ip in ("127.0.0.1", "::1")
+
+    if not raw_key and _saw_bearer_attempt(request):
+        ctx = AuthCtx(
+            tier="pro",
+            key_hash=None,
+            client_ip=client_ip,
+            ratelimit_limit=PRO_HOURLY_LIMIT,
+            ratelimit_remaining=0,
+            ratelimit_reset=0,
+            ratelimit_cost=cost,
+        )
+        _stash(request, ctx)
+        raise HTTPException(status_code=401, detail="Invalid API key")
 
     if raw_key:
         kh = hash_key(raw_key)
