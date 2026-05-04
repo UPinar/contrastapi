@@ -1,8 +1,8 @@
 {
   "name": "contrastapi",
   "displayName": "ContrastAPI Security Tools",
-  "version": "0.3.0",
-  "description": "33 security research tools (CVE + EPSS/KEV, MITRE CWE catalog, KEV detail, domain audit, IP threat intel, dependency scan, IOC enrichment, SSL/DNS checks) over remote MCP. Free tier: 100 credits/hour.",
+  "version": "0.4.0",
+  "description": "47 security research tools over remote MCP — CVE + EPSS/KEV, MITRE CWE catalog + KEV detail, domain audit + DNS/SSL/WHOIS/subdomain enum + WAF detect, IP threat intel + cloud/Tor/FireHOL classification, IOC enrichment (ThreatFox/Feodo/URLhaus), email/phone/username OSINT, code security checks, MITRE ATLAS AI/ML attack catalog + bulk drill, MITRE D3FEND defenses mapped to ATT&CK, web intelligence (robots.txt parser, redirect-chain walker, email validation, brand-asset scraper, SEO audit). Plus 7 MCP Resources (ATLAS/D3FEND/CWE catalog browsing) + 3 conditional Prompts (incl. contrast_triage red/blue). Free tier: 100 credits/hour, no API key.",
   "author": {
     "name": "ContrastCyber",
     "email": "contact@contrastcyber.com",
@@ -17,7 +17,13 @@
     "mcp",
     "dependency-scanner",
     "ip-reputation",
-    "domain-audit"
+    "domain-audit",
+    "mitre-atlas",
+    "mitre-d3fend",
+    "ai-security",
+    "web-intel",
+    "seo-audit",
+    "email-validation"
   ],
   "logo": "app/static/favicon.svg",
   "homepage": "https://api.contrastcyber.com",
