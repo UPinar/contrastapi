@@ -1,6 +1,6 @@
 {
   "name": "contrastapi",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "Official Node.js SDK for ContrastAPI — security intelligence for developers and AI agents",
   "main": "index.js",
   "types": "index.d.ts",
@@ -37,7 +37,7 @@
     "README.md"
   ],
   "engines": {
-    "node": ">=14"
+    "node": ">=18"
   },
   "scripts": {
     "test": "node --test test/"

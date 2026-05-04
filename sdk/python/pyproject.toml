@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "contrastapi"
-version = "1.22.3"
+version = "1.22.4"
 description = "Official Python SDK for ContrastAPI — security intelligence for developers and AI agents"
 readme = "README.md"
 license = "MIT"
@@ -39,7 +39,7 @@ Repository = "https://github.com/UPinar/contrastapi"
 Issues = "https://github.com/UPinar/contrastapi/issues"
 
 [project.optional-dependencies]
-test = ["pytest>=7", "pytest-asyncio>=0.21", "respx>=0.20"]
+test = ["pytest>=8", "pytest-asyncio>=0.21", "respx>=0.20"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["contrastapi"]
