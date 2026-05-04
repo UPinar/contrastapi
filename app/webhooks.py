@@ -30,6 +30,18 @@ def _safe(value: object) -> str:
     return str(value).replace("\r", "").replace("\n", "")
 
 
+def _order_tag(value: object) -> str:
+    """Stable opaque correlation tag for an order id — first 12 chars of sha256.
+
+    Order IDs are not secret (they appear in customer receipts and the LS
+    dashboard), but CodeQL's `py/clear-text-logging-sensitive-data` heuristic
+    flags `order_id` token as PII. Logging a hash prefix is still useful for
+    cross-log correlation while keeping the analyzer satisfied and avoiding
+    incidental leakage if log destinations ever change.
+    """
+    return hashlib.sha256(str(value).encode("utf-8", errors="replace")).hexdigest()[:12]
+
+
 if not settings.lemonsqueezy_webhook_secret:
     logger.warning("LEMONSQUEEZY_WEBHOOK_SECRET is not set — all webhooks will be rejected")
 
@@ -117,7 +129,7 @@ def _handle_order_created(data: dict) -> dict:
     # Idempotency: check if key already exists for this order
     existing = get_key_by_order_id(order_id)
     if existing:
-        logger.info("Webhook idempotent: key already exists for order %s", _safe(order_id))
+        logger.info("Webhook idempotent: key already exists for order_tag=%s", _order_tag(order_id))
         return {"status": "already_provisioned", "order_id": order_id}
 
     # Generate and store — raw key is delivered via Lemon Squeezy email,
@@ -127,7 +139,7 @@ def _handle_order_created(data: dict) -> dict:
     save_api_key(kh, order_id=order_id)
     save_pending_key(order_id, raw_key)
 
-    logger.info("API key provisioned for order %s", _safe(order_id))
+    logger.info("API key provisioned for order_tag=%s", _order_tag(order_id))
     _notify_telegram(f"<b>💰 New Pro Customer!</b>\nOrder: <code>{html.escape(order_id)}</code>")
 
     return {"status": "provisioned", "order_id": order_id}
@@ -140,5 +152,10 @@ def _handle_subscription_ended(data: dict, event_name: str) -> dict:
         raise HTTPException(status_code=400, detail="Missing order ID in payload")
 
     count = deactivate_api_key(order_id)
-    logger.info("Webhook %s: deactivated %d key(s) for order %s", _safe(event_name), count, _safe(order_id))
+    logger.info(
+        "Webhook %s: deactivated %d key(s) for order_tag=%s",
+        _safe(event_name),
+        count,
+        _order_tag(order_id),
+    )
     return {"status": "deactivated", "order_id": order_id, "keys_affected": count}
