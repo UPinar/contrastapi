@@ -86,7 +86,6 @@ async def query_threatfox(indicator: str) -> dict:
 
 async def _refresh_feodo_cache() -> dict:
     """Download Feodo Tracker blocklist and cache it (loop-safe, size-limited)."""
-    global _feodo_cache
     now = time.time()
     if now - _feodo_cache["fetched_at"] < FEODO_TTL and _feodo_cache["data"]:
         return _feodo_cache["data"]
@@ -111,7 +110,8 @@ async def _refresh_feodo_cache() -> dict:
                         "last_online": entry.get("last_online"),
                         "status": entry.get("status"),
                     }
-            _feodo_cache = {"data": ip_map, "fetched_at": time.time()}
+            _feodo_cache["data"] = ip_map
+            _feodo_cache["fetched_at"] = time.time()
             return ip_map
         except Exception as e:
             logger.warning("Feodo blocklist fetch failed: %s", type(e).__name__)

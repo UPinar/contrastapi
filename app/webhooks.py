@@ -140,5 +140,5 @@ def _handle_subscription_ended(data: dict, event_name: str) -> dict:
         raise HTTPException(status_code=400, detail="Missing order ID in payload")
 
     count = deactivate_api_key(order_id)
-    logger.info("Webhook %s: deactivated %d key(s) for order %s", event_name, count, order_id)
+    logger.info("Webhook %s: deactivated %d key(s) for order %s", _safe(event_name), count, _safe(order_id))
     return {"status": "deactivated", "order_id": order_id, "keys_affected": count}

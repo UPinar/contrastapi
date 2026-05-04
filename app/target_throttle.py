@@ -26,7 +26,7 @@ _STORE = "target_throttle"
 _DAILY_STORE = "target_throttle_daily"  # separate key prefix → 86400s rows survive 60s DELETEs
 # bundled PSL: avoid first-request network fetch + suffix-list cache pollution
 _extract = tldextract.TLDExtract(suffix_list_urls=())
-_table_ready = False
+_table_ready = [False]  # mutable container so a global rebind is unnecessary
 
 
 def _ensure_alert_table() -> None:
@@ -43,10 +43,9 @@ def _ensure_alert_table() -> None:
 
 
 def _init() -> None:
-    global _table_ready
-    if not _table_ready:
+    if not _table_ready[0]:
         _ensure_alert_table()
-        _table_ready = True
+        _table_ready[0] = True
 
 
 def etld1(host: str) -> str:

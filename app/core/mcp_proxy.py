@@ -25,7 +25,13 @@ from starlette.requests import Request as _MCPStarletteRequest
 logger = logging.getLogger("contrastapi")
 
 session_mgr: Any = None  # set by init_mcp; consumed by lifespan factory in main.py
-_mcp_mod: Any = None  # set by init_mcp; raw mcp_server module — consumed by tests
+_mcp_mod: Any = None  # set by init_mcp; raw mcp_server module — read via mcp_module()
+
+
+def mcp_module() -> Any:
+    """Return the loaded MCP server module (raw mcp_server.py), or None if MCP failed to load."""
+    return _mcp_mod
+
 
 _MCP_TOOL_LOG = "/var/log/contrastapi/mcp_tools.jsonl"
 _MCP_TOOL_BODY_LIMIT = 256 * 1024  # 256KB cap — larger body = skip (log gate)
@@ -77,6 +83,7 @@ def _log_mcp_tool(name: str) -> None:
         with open(_MCP_TOOL_LOG, "a") as f:
             f.write(line)
     except Exception:
+        # Tool-usage logging is best-effort; never block the request path on a log write.
         pass
 
 

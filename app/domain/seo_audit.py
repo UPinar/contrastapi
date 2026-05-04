@@ -22,12 +22,7 @@ from urllib.parse import urljoin, urlparse
 
 import tldextract
 from bs4 import BeautifulSoup
-from domain.brand_assets import (
-    _abs_url,
-    _strip_control_chars,
-    fetch_homepage_html,  # noqa: F401 — re-exported for test patching
-    homepage_allowed,  # noqa: F401 — re-exported for the route handler's import path
-)
+from domain.brand_assets import _abs_url, _strip_control_chars
 
 # Bundled PSL — lookups are pure CPU; tldextract.extract() is hot-pathed across
 # every <a href> on the page (up to _MAX_LINKS_COUNTED=2000) so we cache the

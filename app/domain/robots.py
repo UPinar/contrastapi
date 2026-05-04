@@ -16,6 +16,7 @@ escape the API surface.
 from __future__ import annotations
 
 import logging
+import math
 from urllib.parse import urlparse
 
 from config import ROBOTS_MAX_BYTES, ROBOTS_TIMEOUT
@@ -97,7 +98,7 @@ def parse_robots_txt(body: str) -> dict:
             # Spec is silent on bounds; Google ignores Crawl-delay altogether
             # and most crawlers cap at sane values. Drop nonsense (negative,
             # NaN, > 24h) to avoid misleading agents into "wait 10 billion s".
-            if cd != cd or cd < 0 or cd > 86400:
+            if math.isnan(cd) or cd < 0 or cd > 86400:
                 continue
             for ua in current_uas:
                 _block(ua)["crawl_delay"] = cd
@@ -128,7 +129,6 @@ async def fetch_robots_txt(domain: str) -> dict:
     handles it and surfaces an `ErrorResponse`.
     """
     last_exc: Exception | None = None
-    fetched_url = f"https://{domain}/robots.txt"
     status_code = 0
     body = ""
     truncated = False

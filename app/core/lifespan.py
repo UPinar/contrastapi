@@ -101,8 +101,10 @@ def make_lifespan(get_mcp_session_mgr: Callable[[], Any]):
         from ioc.routes import _phish_client
 
         # AsyncClient — must use aclose() to release the underlying HTTP/2 transport.
-        # Catch BaseException so a CancelledError mid-shutdown does not leak the
-        # remaining clients' connections (CancelledError is not Exception in 3.8+).
+        # Include CancelledError so a cancel mid-shutdown does not leak the remaining
+        # clients' connections (CancelledError is not a subclass of Exception in 3.8+).
+        # KeyboardInterrupt / SystemExit are intentionally NOT caught so they still
+        # propagate out of the lifespan exit.
         for ac in (
             _exploit_client,
             _phish_client,
@@ -122,7 +124,8 @@ def make_lifespan(get_mcp_session_mgr: Callable[[], Any]):
         ):
             try:
                 await ac.aclose()
-            except BaseException:
+            except (Exception, asyncio.CancelledError):
+                # Best-effort cleanup; one client failing to close must not strand the others.
                 pass
         # Close thread-local DB connections
         from db import close_thread_connections

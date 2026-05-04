@@ -8,6 +8,7 @@ the parsed `ErrorDetail` envelope (dict) from the wire — `.code`, `.message`,
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 # Wire-boundary defensive caps mirror server-side `_ERROR_MESSAGE_MAX_LEN` /
@@ -67,7 +68,7 @@ def _coerce_retry_after(value: Any) -> int | None:
         return None
     # Reject NaN — `int(float('nan'))` raises ValueError but inf raises
     # OverflowError; both must be silently dropped to None per defensive policy.
-    if isinstance(value, float) and (value != value or value in (float("inf"), float("-inf"))):
+    if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
         return None
     try:
         as_int = int(value)

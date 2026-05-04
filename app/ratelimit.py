@@ -27,14 +27,13 @@ def _ensure_table():
         con.execute("CREATE INDEX IF NOT EXISTS idx_rl_key_ts ON rate_limits(key, ts)")
 
 
-_table_ready = False
+_table_ready = [False]  # mutable container so a global rebind is unnecessary
 
 
 def _init():
-    global _table_ready
-    if not _table_ready:
+    if not _table_ready[0]:
         _ensure_table()
-        _table_ready = True
+        _table_ready[0] = True
 
 
 def check_limit_with_count(

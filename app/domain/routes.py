@@ -847,7 +847,6 @@ async def email_verify_endpoint(
     if not parsed:
         # We still surface the input so an agent can reflect it back to the user.
         # Domain may be empty if the email had no `@` at all.
-        local = ""
         domain = email.rsplit("@", 1)[1].lower() if "@" in email else ""
         # Auth was already consumed by require_auth before we got here.
         return {
@@ -1591,6 +1590,7 @@ async def ssl_certificate(
                     if len(aia_urls) >= 2:
                         break
         except x509.ExtensionNotFound:
+            # Leaf cert without AIA extension — common; skip intermediate fetch.
             pass
 
         if aia_urls:

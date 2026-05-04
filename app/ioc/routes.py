@@ -533,6 +533,7 @@ async def _run_single_ioc(indicator: str) -> dict:
             if feodo.get("found"):
                 threat_level = "high"
         except Exception:
+            # Feodo blocklist unreachable — surface "found: False" rather than 5xx.
             sources["feodo"] = {"found": False}
 
     if urlhaus_target:
@@ -543,6 +544,7 @@ async def _run_single_ioc(indicator: str) -> dict:
                 if urlhaus.get("urlhaus_status") == "found":
                     threat_level = "high"
         except Exception:
+            # URLhaus feed unreachable — best-effort, response still returned with other sources.
             pass
 
     # Sub-tech to honest reflect "all sources reachable but no findings": still status='ok',

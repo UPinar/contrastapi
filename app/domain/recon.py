@@ -222,6 +222,7 @@ def dns_lookup(domain: str) -> dict:
             else:
                 records[rtype.lower()] = [str(r).strip('"') for r in answers]
         except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN, dns.resolver.NoNameservers, dns.exception.Timeout):
+            # Missing record / NXDOMAIN / timeout is normal for many domains — skip this rtype.
             pass
     records["total_txt_records"] = len(records.get("txt") or [])
     return records
@@ -571,9 +572,6 @@ def detect_waf(headers: dict) -> dict:
 
 
 # === SSL Info ===
-
-
-_VALID_VALIDATION_TAGS = {"expired", "self_signed", "hostname_mismatch", "untrusted_root", "chain_incomplete"}
 
 
 def _classify_ssl_verify_error(verify_message: str) -> list[str]:
@@ -1032,6 +1030,7 @@ def email_security(domain: str, txt_records: list | None = None) -> dict:
                 if len(dkim_found) >= 3:
                     break
     except TimeoutError:
+        # DKIM probe deadline exceeded — return whatever selectors resolved so far.
         pass
     finally:
         pool.shutdown(wait=False, cancel_futures=True)

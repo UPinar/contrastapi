@@ -1917,6 +1917,7 @@ def _decode_json_list(raw: str | None) -> list[str]:
         if isinstance(decoded, list):
             return [str(x) for x in decoded if x]
     except (json.JSONDecodeError, TypeError):
+        # Corrupt JSON column — treat as empty rather than crashing the read path.
         pass
     return []
 

@@ -83,6 +83,7 @@ async def _fetch_capped(client, url: str, max_bytes: int) -> bytes | None:
                 if cl_int < 0 or cl_int > max_bytes:
                     return None
         except (TypeError, ValueError):
+            # Malformed Content-Length — fall through to the streaming byte-cap below.
             pass
         buf = bytearray()
         async for chunk in resp.aiter_bytes():
@@ -106,7 +107,6 @@ async def _refresh_cloud_cache() -> tuple:
     Per-source failures preserve that source's prefixes from the previous cache.
     Total failure preserves previous cache entirely.
     """
-    global _cloud_cache
     if time.time() - _cloud_cache["fetched_at"] < CLOUD_IP_TTL and _cloud_cache["v4"] is not None:
         return _cloud_cache["v4"], _cloud_cache["v6"]
     async with _cloud_lock:
@@ -190,7 +190,9 @@ async def _refresh_cloud_cache() -> tuple:
                     if prev_v6[prefix] == src:
                         _safe_insert(v6, prefix, src)
 
-        _cloud_cache = {"v4": v4, "v6": v6, "fetched_at": time.time()}
+        _cloud_cache["v4"] = v4
+        _cloud_cache["v6"] = v6
+        _cloud_cache["fetched_at"] = time.time()
         logger.info("Cloud IP ranges loaded: %s (failed→prev: %s)", sorted(loaded), sorted(failed))
         return v4, v6
 

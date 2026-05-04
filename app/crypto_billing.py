@@ -202,10 +202,10 @@ async def crypto_ipn(request: Request) -> dict:
         order_id = str(uuid.UUID(str(raw_order_id)))
     except (ValueError, AttributeError, TypeError) as e:
         logger.warning(
-            "NOWPayments IPN rejected: invoice_id=%s order_id=%r reason=%s",
+            "NOWPayments IPN rejected: invoice_id=%s order_id=%s reason=%s",
             _safe(invoice_id),
-            raw_order_id,
-            e,
+            _safe(str(raw_order_id)),
+            _safe(str(e)),
         )
         raise HTTPException(status_code=400, detail="Invalid order_id format") from None
     payment_status = payload.get("payment_status", "")

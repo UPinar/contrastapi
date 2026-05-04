@@ -565,6 +565,7 @@ async def _fetch_mitre_cve(cve_id: str) -> dict | None:
             log.info("MITRE rate-limit low (remaining=%d); sleeping %ds", remaining, reset)
             await asyncio.sleep(min(reset, 60))
     except (ValueError, TypeError):
+        # Malformed rate-limit headers — skip budgeting; main request already succeeded.
         pass
 
     try:
@@ -810,6 +811,7 @@ async def sync_ghsa(full: bool = False) -> int:
                         log.warning("GHSA: rate limit remaining=%s, breaking to resume next cron", remaining)
                         break
                 except ValueError:
+                    # Non-numeric x-ratelimit-remaining header — proceed; next page check will retry.
                     pass
 
             next_url = _ghsa_next_link(resp.headers)
