@@ -10,7 +10,7 @@ phonenumbers==9.0.29
 cryptography==47.0.0
 cvss==3.6
 mcp==1.27.0
-PyYAML>=6.0
+PyYAML>=6.0.3
 tldextract>=5.0
 beautifulsoup4>=4.14.3
 
