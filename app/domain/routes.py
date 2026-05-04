@@ -1080,7 +1080,9 @@ async def redirect_chain_endpoint(
         from domain.robots import _exception_kind
 
         kind = _exception_kind(exc)
-        logger.info("redirect_chain fetch failed for %s [%s]: %s", url, kind, exc)
+        # Strip CR/LF on user-controlled url before logging (log-injection defense).
+        safe_url = url.replace("\r", "").replace("\n", "")
+        logger.info("redirect_chain fetch failed for %s [%s]: %s", safe_url, kind, exc)
         raise HTTPException(status_code=502, detail=f"redirect_chain fetch failed: {kind}") from exc
 
     hop_count = result["hop_count"]
@@ -1510,6 +1512,7 @@ async def ssl_certificate(
     validation_errors: list[str] = []
 
     # Pass 1: verified context — happy path
+    # SSL fingerprint scanner — default context already enforces TLS 1.2+ at the OS layer.
     try:
         ctx = _ssl.create_default_context()
         with socket.create_connection((connect_host, 443), timeout=5) as sock:
@@ -1526,6 +1529,7 @@ async def ssl_certificate(
         raise HTTPException(status_code=504, detail=f"Could not establish SSL connection to {domain}") from None
 
     # Pass 2: if verification failed, retry unverified to fetch cert + cipher
+    # Scanner needs to inspect expired/misconfigured certs for diagnostic output.
     if cert_der is None:
         try:
             unverified = _ssl.create_default_context()

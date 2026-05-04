@@ -37,7 +37,8 @@ jobs:
         with:
           languages: ${{ matrix.language }}
           # security-and-quality = security-extended + maintainability queries
-          queries: security-and-quality
+          # Test path exclusions live in the config file.
+          config-file: ./.github/codeql/codeql-config.yml
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3

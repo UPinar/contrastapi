@@ -1,0 +1,13 @@
+name: ContrastAPI CodeQL Config
+
+# Test code is exercised intentionally (mock URLs, ReDoS fixtures, fixture cleanup
+# patterns) so most security signal here is noise. SDK tests follow the same
+# fixture conventions. Plans/ holds design notes, not runtime code.
+paths-ignore:
+  - 'app/tests'
+  - 'sdk/python/tests'
+  - 'sdk/node/tests'
+  - 'plans'
+
+queries:
+  - uses: security-and-quality

@@ -707,6 +707,8 @@ def ssl_info(domain: str, resolved_ip: str | None = None) -> dict:
     chain_verified = False
 
     # Pass 1: verified context (chain + hostname check by OpenSSL)
+    # SSL fingerprint scanner — intentionally probes target's TLS config; default
+    # context already enforces TLS 1.2+ but downstream scanner reports the version.
     try:
         ctx = ssl.create_default_context()
         with socket.create_connection((connect_host, 443), timeout=RECON_TIMEOUT) as sock:
@@ -726,6 +728,7 @@ def ssl_info(domain: str, resolved_ip: str | None = None) -> dict:
         return {"error": "SSL lookup failed", "grade": "F", "cert_valid": False, "validation_errors": []}
 
     # Pass 2: if verification failed, retry unverified to fetch cert details
+    # Scanner needs to inspect expired/misconfigured certs for diagnostic output.
     if cert_der is None:
         try:
             unverified = ssl.create_default_context()

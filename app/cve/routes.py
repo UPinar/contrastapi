@@ -1074,6 +1074,8 @@ def _shodan_edb_ids(shodan_refs: dict) -> set[str]:
 async def _search_shodan_refs(cve_id: str) -> dict:
     """Fetch Shodan CVEDB references for a CVE (NOT ExploitDB — those come from the offline CSV)."""
     try:
+        # cve_id is enforced to match ^CVE-\d{4}-\d{4,7}$ via _check_cve_input() at every caller —
+        # only digits and hyphens, no URL-special chars, so the host segment cannot be manipulated.
         resp = await _exploit_client.get(
             f"https://cvedb.shodan.io/cve/{cve_id}",
         )

@@ -36,6 +36,12 @@ from webhooks import _notify_telegram
 
 logger = logging.getLogger("contrastapi")
 
+
+def _safe(value: object) -> str:
+    """Strip CR/LF from values flowing into log records (defense vs log injection)."""
+    return str(value).replace("\r", "").replace("\n", "")
+
+
 NOWPAYMENTS_API_BASE = "https://api.nowpayments.io/v1"
 PRO_PRICE_USD = 7.00
 PRO_VALIDITY_DAYS = 30
@@ -197,7 +203,7 @@ async def crypto_ipn(request: Request) -> dict:
     except (ValueError, AttributeError, TypeError) as e:
         logger.warning(
             "NOWPayments IPN rejected: invoice_id=%s order_id=%r reason=%s",
-            invoice_id,
+            _safe(invoice_id),
             raw_order_id,
             e,
         )
@@ -212,9 +218,9 @@ async def crypto_ipn(request: Request) -> dict:
     if payment_status != "finished":
         logger.info(
             "NOWPayments IPN ignored: invoice_id=%s order_id=%s payment_status=%s",
-            invoice_id,
+            _safe(invoice_id),
             order_id,
-            payment_status,
+            _safe(payment_status),
         )
         return {
             "status": "ignored",
@@ -226,7 +232,7 @@ async def crypto_ipn(request: Request) -> dict:
     # Replay protection keyed by invoice_id (stable per NOWPayments invoice).
     with _processed_lock:
         if invoice_id in _processed_invoices:
-            logger.info("NOWPayments IPN replay ignored: invoice_id=%s", invoice_id)
+            logger.info("NOWPayments IPN replay ignored: invoice_id=%s", _safe(invoice_id))
             return {"status": "already_processed", "invoice_id": invoice_id, "order_id": order_id}
         while len(_processed_invoices) >= _MAX_PROCESSED:
             _processed_invoices.popitem(last=False)
@@ -264,7 +270,7 @@ async def crypto_ipn(request: Request) -> dict:
     logger.info(
         "Crypto Pro key provisioned for order %s (invoice %s, expires %s)",
         order_id,
-        invoice_id,
+        _safe(invoice_id),
         expires_at,
     )
     _notify_telegram(

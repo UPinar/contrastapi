@@ -24,6 +24,12 @@ from fastapi import APIRouter, HTTPException, Request
 
 logger = logging.getLogger("contrastapi")
 
+
+def _safe(value: object) -> str:
+    """Strip CR/LF from values flowing into log records (defense vs log injection)."""
+    return str(value).replace("\r", "").replace("\n", "")
+
+
 if not settings.lemonsqueezy_webhook_secret:
     logger.warning("LEMONSQUEEZY_WEBHOOK_SECRET is not set — all webhooks will be rejected")
 
@@ -85,7 +91,7 @@ async def lemonsqueezy_webhook(request: Request):
     if event_id:
         with _processed_lock:
             if event_id in _processed_events:
-                logger.info("Webhook replay ignored: event_id=%s", event_id)
+                logger.info("Webhook replay ignored: event_id=%s", _safe(event_id))
                 return {"status": "already_processed", "event_id": event_id}
             # FIFO eviction: remove oldest entries when store is full
             while len(_processed_events) >= _MAX_PROCESSED:
@@ -98,7 +104,7 @@ async def lemonsqueezy_webhook(request: Request):
         return _handle_subscription_ended(data, event_name)
     else:
         # Unknown event — acknowledge silently
-        logger.info("Webhook event ignored: %s", event_name)
+        logger.info("Webhook event ignored: %s", _safe(event_name))
         return {"status": "ignored", "event": event_name}
 
 
@@ -111,7 +117,7 @@ def _handle_order_created(data: dict) -> dict:
     # Idempotency: check if key already exists for this order
     existing = get_key_by_order_id(order_id)
     if existing:
-        logger.info("Webhook idempotent: key already exists for order %s", order_id)
+        logger.info("Webhook idempotent: key already exists for order %s", _safe(order_id))
         return {"status": "already_provisioned", "order_id": order_id}
 
     # Generate and store — raw key is delivered via Lemon Squeezy email,
@@ -121,7 +127,7 @@ def _handle_order_created(data: dict) -> dict:
     save_api_key(kh, order_id=order_id)
     save_pending_key(order_id, raw_key)
 
-    logger.info("API key provisioned for order %s", order_id)
+    logger.info("API key provisioned for order %s", _safe(order_id))
     _notify_telegram(f"<b>💰 New Pro Customer!</b>\nOrder: <code>{html.escape(order_id)}</code>")
 
     return {"status": "provisioned", "order_id": order_id}
