@@ -1,0 +1,16 @@
+# ZAP baseline rule overrides for ContrastAPI.
+# Format: RULE_ID	ACTION	COMMENT (tab-separated). ACTION = IGNORE | WARN | FAIL.
+# These rules are JSON-API-irrelevant noise; landing page is intentionally minimal.
+# Review quarterly: if the landing page grows, re-evaluate 10027 (could mask HTML-comment leaks).
+# NOTE: Cloudflare /cdn-cgi/* paths are excluded at the spider level (see scan command),
+# NOT via rule-level IGNORE — that would mask real findings on our own endpoints.
+10015	IGNORE	(Incomplete or No Cache-control Header Set — JSON API responses are intentionally non-cacheable)
+10027	IGNORE	(Information Disclosure - Suspicious Comments — landing page is minimal HTML, no inline scripts/secrets)
+10049	IGNORE	(Non-Storable Content — intentional for API)
+10050	IGNORE	(Retrieved from Cache — info only, nginx static file cache is intended)
+10063	IGNORE	(Permissions Policy Header Not Set — not applicable to JSON API)
+10096	IGNORE	(Timestamp Disclosure — verdict_metadata exposes intentional timestamps)
+10098	IGNORE	(Cross-Domain Misconfiguration — MCP protocol requires Access-Control-Allow-Origin:* on /mcp/)
+10099	IGNORE	(Source Code Disclosure SQL — /playground shows example SQLi payloads as educational content, not real disclosure)
+10109	IGNORE	(Modern Web Application — landing page is intentionally simple static HTML)
+90004	IGNORE	(COEP Header Missing — require-corp would break Swagger UI cross-origin asset loading)

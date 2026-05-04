@@ -1,0 +1,123 @@
+=== contrastapi npm SDK Publish Adimlari ===
+Tarih: 29 Nisan 2026
+Paket: contrastapi@1.3.0
+
+ONCE: Dosyalar Linux'tan kopyalandi (rw mount + cp), version 1.3.0
+SIMDI: Windows Hello ile login + publish
+
+--- ADIMLAR (Windows'ta) ---
+
+1) PowerShell ac (Win+X -> Terminal / PowerShell)
+
+2) Klasore gir (mutlak yol — hangi dizinde olursan ol calisir):
+   cd $env:USERPROFILE\Desktop\contrastapi-sdk
+   # alternatif: cd C:\Users\uygrp\Desktop\contrastapi-sdk
+
+3) Version dogrula:
+   type package.json | findstr version
+   -> "version": "1.3.0" gormelisin
+
+4) Login (eger session expired ise — ilk denemede atla, gerekirse 5'e bak):
+   npm login --auth-type=web
+
+   Browser'da:
+   - "Sign in with GitHub" veya "Sign in" sec
+   - Email: contact@contrastcyber.com
+   - Windows Hello PIN gir
+   - "Authorize" tikla
+   - Browser "You are authenticated" gosterince geri PowerShell'e don
+
+5) Login dogrula:
+   npm whoami
+   -> contrast_cyber yazmali
+
+6) Publish:
+   npm publish
+
+   Basarili cikti:
+   + contrastapi@1.3.0
+
+7) Dogrula:
+   https://www.npmjs.com/package/contrastapi
+   -> "1.3.0" en ustte gorunmeli (latest tag)
+
+--- SORUN CIKARSA ---
+
+* "E401 Unauthorized" -> npm login tekrar yap (adim 4)
+* "E403 Forbidden" -> npm whoami yanlis hesap, npm logout + login
+* "EPUBLISHCONFLICT 403" -> version 1.3.0 zaten yayinlanmis, version'i 1.3.1'e
+   bump et (package.json) sonra tekrar publish
+* Browser acilmazsa -> manuel URL: terminal URL gosterir, Firefox/Edge'de ac
+* "ENOENT package.json" -> yanlis klasor; cd komutunu kontrol et
+
+--- PUBLISH SONRASI ---
+
+1) Linux'a reboot
+2) Claude'a "node sdk 1.3.0 publish tamam" de
+3) /home/contrast/hacks/contrastapi/sdk/node/.npmrc varsa sil
+4) Memory'e kaydet — release tarihi + 11 yeni method
+
+--- v1.3.0 NEYI EKLEDI (1.1.0 -> 1.3.0 jump) ---
+
+API 1.11.1, 1.16, 1.17, 1.18.x, 1.19.0, 1.19.1 release'lerinin SDK karsiligi.
+Toplam 11 yeni method, 3 yeni namespace.
+
+CVE Intelligence (3 yeni method):
+* api.cve.leading({limit, offset, include})
+   - GET /v1/cve/leading
+   - MITRE/GHSA'dan NVD'den once gelen taze CVE'ler (API v1.9.0)
+* api.cve.kev(cveId)
+   - GET /v1/kev/{cve_id}
+   - CISA KEV catalog detayi (federal patch deadline, ransomware association,
+     CISA-given common name e.g. "Log4Shell"). 404 doner CVE KEV'de degilse
+   - API v1.11.1
+* api.cwe.lookup(cweId)         [yeni namespace]
+   - GET /v1/cwe/{cwe_id}
+   - MITRE CWE research view 1000 (description, abstract type, exploit
+     likelihood, mitigations, parent/child weakness chain, CVE count)
+   - API v1.11.1
+
+MITRE ATLAS (4 yeni method, yeni namespace) — AI/ML attack catalog:
+* api.atlas.technique(techniqueId)
+   - GET /v1/atlas/{technique_id}
+   - ATLAS technique detail (167 techniques)
+* api.atlas.techniqueSearch({q, tactic, maturity, limit, offset, include})
+   - GET /v1/atlas/techniques
+   - Search/filter techniques
+* api.atlas.caseStudy(caseStudyId)
+   - GET /v1/atlas/case-studies/{case_study_id}
+   - ATLAS case study detail (57 case studies)
+* api.atlas.caseStudySearch({q, target_type, limit, offset, include})
+   - GET /v1/atlas/case-studies
+
+MITRE D3FEND (4 yeni method, yeni namespace) — defense technique catalog:
+* api.d3fend.defense(defenseId)
+   - GET /v1/d3fend/{defense_id}
+   - Defense technique detail (149 defenses, 3234 mappings)
+* api.d3fend.defenseSearch({q, tactic, kind, limit, offset})
+   - GET /v1/d3fend/defenses
+* api.d3fend.defenseForAttack(attackTechniqueId)
+   - GET /v1/d3fend/attack/{attack_technique_id}
+   - ATT&CK -> defenses bridge
+* api.d3fend.coverage(["T1059", "T1078", ...])
+   - POST /v1/d3fend/coverage
+   - Batch coverage breakdown: defended_techniques, undefended_techniques,
+     coverage_by_tactic. Threat-model gap analysis tek call.
+
+Drift duzeltmeleri:
+* index.d.ts'den phantom method'lar silindi:
+  - cve.recent (yok, kullanilmamali)
+  - cve.epss   (standalone endpoint yok; cve_lookup response'unda gomulu)
+* cve.kev imzasi degisti: (params?) -> (cveId)  // gercek API single-CVE detail
+
+Tool count: API tarafinda 41 MCP tool, SDK 19 namespace metoduna ulasti.
+Onceki release: 1.1.0 (11 Nis 2026, audit + threatReport + cve.bulk + ioc.bulk)
+Bu release: 1.3.0 (29 Nis 2026, kev/cwe/leading + atlas/d3fend toplu yetisme)
+
+--- DOSYALAR ---
+
+index.js      - 11 yeni method (cve.leading, cve.kev, cwe.lookup +
+                atlas namespace 4 method + d3fend namespace 4 method)
+index.d.ts    - TS tipleri yeniden hizalandi + 3 yeni namespace
+package.json  - 1.1.0 -> 1.3.0, keywords +kev +cwe +atlas +d3fend +mitre +attack +ai-security
+README.md    - CVE/CWE/ATLAS/D3FEND ornek bloklar yeniden duzenlendi

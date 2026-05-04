@@ -18,3 +18,9 @@ research_landing*.md
 .coverage
 deploy/
 .aider*
+
+# SDK build artifacts (regenerated per release)
+sdk/python/dist/
+
+# One-shot CLI verification reports
+cli_prompt_verify.md
