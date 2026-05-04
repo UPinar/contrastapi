@@ -24,13 +24,14 @@ jobs:
       - uses: actions/checkout@v4
 
       # Pinned by SHA — never @main in CI (supply chain risk).
-      # Action signature uses a single `args:` string; the previous
-      # target/templates/flags fields were silently ignored.
+      # Nuclei v3.8 dropped category keywords (`-t cves,exposures,...` now
+      # resolved as file paths and fail). Drop -t entirely; severity filter
+      # over the full default ~/nuclei-templates/ tree gives the same coverage.
       # -rl 1 -c 2: 1 req/sec, 2 concurrent — keeps us under Free 100/hr.
       - name: Nuclei scan
         uses: projectdiscovery/nuclei-action@cc153d0541e1adf8a42bbe31c0a4fb2376147538
         with:
-          args: -u https://api.contrastcyber.com -t cves,exposures,misconfiguration,vulnerabilities -severity medium,high,critical -rl 1 -c 2 -timeout 10 -jsonl-export nuclei.jsonl
+          args: -u https://api.contrastcyber.com -severity medium,high,critical -rl 1 -c 2 -timeout 10 -jsonl-export nuclei.jsonl
 
       - name: Summarize + alert
         if: always()
