@@ -31,7 +31,7 @@ def make_lifespan(get_mcp_session_mgr: Callable[[], Any]):
 
             for name, fn in (("cloud", _refresh_cloud_cache), ("tor", _refresh_tor_cache)):
                 try:
-                    await asyncio.wait_for(asyncio.to_thread(fn), timeout=20)
+                    await asyncio.wait_for(fn(), timeout=20)
                 except asyncio.CancelledError:
                     raise
                 except asyncio.TimeoutError:
@@ -62,8 +62,8 @@ def make_lifespan(get_mcp_session_mgr: Callable[[], Any]):
                 try:
                     from domain.ip_intel import _refresh_cloud_cache, _refresh_tor_cache
 
-                    await asyncio.wait_for(asyncio.to_thread(_refresh_cloud_cache), timeout=60)
-                    await asyncio.wait_for(asyncio.to_thread(_refresh_tor_cache), timeout=60)
+                    await asyncio.wait_for(_refresh_cloud_cache(), timeout=60)
+                    await asyncio.wait_for(_refresh_tor_cache(), timeout=60)
                 except asyncio.TimeoutError:
                     logger.warning("IP intel periodic refresh timed out (60s)")
                 except Exception as e:
@@ -84,13 +84,18 @@ def make_lifespan(get_mcp_session_mgr: Callable[[], Any]):
         task.cancel()
         warm_task.cancel()
         # Close HTTP clients
+        from atlas.sync import _client as atlas_client
         from cve.routes import _exploit_client
         from cve.sync import _client as sync_client
+        from d3fend.sync import _client as d3fend_client
+        from domain.archive import _client as wayback_client
+        from domain.ip_intel import _intel_client
         from domain.recon import _http as recon_client
         from domain.recon import _ssrf_http
         from domain.reputation import _client as rep_client
         from domain.routes import _ripe_client
         from domain.threat import _client as threat_client
+        from domain.username import _client as username_client
         from ioc.lookup import _client as ioc_client
         from ioc.password import _client as password_client
         from ioc.routes import _phish_client
@@ -109,6 +114,11 @@ def make_lifespan(get_mcp_session_mgr: Callable[[], Any]):
             rep_client,
             sync_client,
             _ripe_client,
+            atlas_client,
+            d3fend_client,
+            wayback_client,
+            username_client,
+            _intel_client,
         ):
             try:
                 await ac.aclose()

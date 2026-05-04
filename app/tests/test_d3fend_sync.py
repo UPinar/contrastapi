@@ -1,6 +1,7 @@
 """Tests for D3FEND mappings sync — sync_d3fend()."""
 
-from unittest.mock import MagicMock, patch
+import asyncio
+from unittest.mock import AsyncMock, MagicMock, patch
 
 
 def _binding(def_uri, def_label, parent, def_tactic, def_artifact, off_id, off_label, off_tactic):
@@ -75,7 +76,7 @@ def _mock_client_returning(payload: dict, content_size: int | None = None):
     mock_resp.json.return_value = payload
     mock_resp.raise_for_status.return_value = None
     mock_client = MagicMock()
-    mock_client.get.return_value = mock_resp
+    mock_client.get = AsyncMock(return_value=mock_resp)
     return mock_client
 
 
@@ -83,7 +84,7 @@ def test_sync_d3fend_writes_defenses():
     from d3fend import sync as d3_sync
 
     with patch.object(d3_sync, "_client", _mock_client_returning(SAMPLE_D3FEND)):
-        count = d3_sync.sync_d3fend()
+        count = asyncio.run(d3_sync.sync_d3fend())
     assert count == 4  # 4 mapping rows
 
     from db import get_d3fend_defense
@@ -102,7 +103,7 @@ def test_sync_d3fend_reverse_lookup():
     from d3fend import sync as d3_sync
 
     with patch.object(d3_sync, "_client", _mock_client_returning(SAMPLE_D3FEND)):
-        d3_sync.sync_d3fend()
+        asyncio.run(d3_sync.sync_d3fend())
 
     from db import get_d3fend_defenses_for_attack
 
@@ -121,7 +122,7 @@ def test_sync_d3fend_search_by_tactic():
     from d3fend import sync as d3_sync
 
     with patch.object(d3_sync, "_client", _mock_client_returning(SAMPLE_D3FEND)):
-        d3_sync.sync_d3fend()
+        asyncio.run(d3_sync.sync_d3fend())
 
     from db import search_d3fend_defenses
 
@@ -136,7 +137,7 @@ def test_sync_d3fend_coverage():
     from d3fend import sync as d3_sync
 
     with patch.object(d3_sync, "_client", _mock_client_returning(SAMPLE_D3FEND)):
-        d3_sync.sync_d3fend()
+        asyncio.run(d3_sync.sync_d3fend())
 
     from db import get_d3fend_coverage
 
@@ -168,7 +169,7 @@ def test_sync_d3fend_invalid_tactic_skipped():
         },
     }
     with patch.object(d3_sync, "_client", _mock_client_returning(payload)):
-        count = d3_sync.sync_d3fend()
+        count = asyncio.run(d3_sync.sync_d3fend())
     assert count == 0
 
     from db import get_d3fend_defense
@@ -180,7 +181,7 @@ def test_sync_d3fend_marks_status_ok():
     from d3fend import sync as d3_sync
 
     with patch.object(d3_sync, "_client", _mock_client_returning(SAMPLE_D3FEND)):
-        d3_sync.sync_d3fend()
+        asyncio.run(d3_sync.sync_d3fend())
 
     from db import get_sync_status
 

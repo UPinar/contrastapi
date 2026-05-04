@@ -1,6 +1,7 @@
 """Tests for ATLAS YAML sync — sync_atlas()."""
 
-from unittest.mock import MagicMock, patch
+import asyncio
+from unittest.mock import AsyncMock, MagicMock, patch
 
 SAMPLE_ATLAS_YAML = b"""
 id: ATLAS
@@ -46,7 +47,7 @@ def _mock_client_returning(content: bytes):
     mock_resp.content = content
     mock_resp.raise_for_status.return_value = None
     mock_client = MagicMock()
-    mock_client.get.return_value = mock_resp
+    mock_client.get = AsyncMock(return_value=mock_resp)
     return mock_client
 
 
@@ -54,7 +55,7 @@ def test_sync_atlas_writes_techniques():
     from atlas import sync as atlas_sync
 
     with patch.object(atlas_sync, "_client", _mock_client_returning(SAMPLE_ATLAS_YAML)):
-        count = atlas_sync.sync_atlas()
+        count = asyncio.run(atlas_sync.sync_atlas())
 
     assert count == 3  # 2 techniques + 1 case study
 
@@ -78,7 +79,7 @@ def test_sync_atlas_writes_case_studies():
     from atlas import sync as atlas_sync
 
     with patch.object(atlas_sync, "_client", _mock_client_returning(SAMPLE_ATLAS_YAML)):
-        atlas_sync.sync_atlas()
+        asyncio.run(atlas_sync.sync_atlas())
 
     from db import get_atlas_case_study
 
@@ -93,7 +94,7 @@ def test_sync_atlas_search_by_keyword():
     from atlas import sync as atlas_sync
 
     with patch.object(atlas_sync, "_client", _mock_client_returning(SAMPLE_ATLAS_YAML)):
-        atlas_sync.sync_atlas()
+        asyncio.run(atlas_sync.sync_atlas())
 
     from db import search_atlas_techniques
 
@@ -106,7 +107,7 @@ def test_sync_atlas_search_by_tactic():
     from atlas import sync as atlas_sync
 
     with patch.object(atlas_sync, "_client", _mock_client_returning(SAMPLE_ATLAS_YAML)):
-        atlas_sync.sync_atlas()
+        asyncio.run(atlas_sync.sync_atlas())
 
     from db import search_atlas_techniques
 
@@ -119,7 +120,7 @@ def test_sync_atlas_oversize_refuses():
 
     huge = b"x" * (atlas_sync.ATLAS_MAX_BYTES + 1)
     with patch.object(atlas_sync, "_client", _mock_client_returning(huge)):
-        count = atlas_sync.sync_atlas()
+        count = asyncio.run(atlas_sync.sync_atlas())
     assert count == 0
 
 
@@ -127,7 +128,7 @@ def test_sync_atlas_marks_status_ok():
     from atlas import sync as atlas_sync
 
     with patch.object(atlas_sync, "_client", _mock_client_returning(SAMPLE_ATLAS_YAML)):
-        atlas_sync.sync_atlas()
+        asyncio.run(atlas_sync.sync_atlas())
 
     from db import get_sync_status
 

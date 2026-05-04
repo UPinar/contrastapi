@@ -19,7 +19,7 @@ ATLAS_MAX_BYTES = 5 * 1024 * 1024  # 5 MB cap (current ~440 KB)
 HTTP_TIMEOUT = 60
 USER_AGENT = "ContrastAPI/1.0 (api.contrastcyber.com)"
 
-_client = httpx.Client(
+_client = httpx.AsyncClient(
     timeout=httpx.Timeout(HTTP_TIMEOUT, connect=10.0),
     headers={"User-Agent": USER_AGENT, "Accept": "text/yaml"},
     follow_redirects=True,
@@ -40,7 +40,7 @@ def _clean(s) -> str | None:
     return _strip_control_chars(str(s))
 
 
-def sync_atlas() -> int:
+async def sync_atlas() -> int:
     """Sync MITRE ATLAS catalog (techniques + case studies). Returns total upserted count."""
     log.info("ATLAS sync starting...")
     update_sync_status("atlas", 0, "in_progress")
@@ -48,7 +48,7 @@ def sync_atlas() -> int:
     case_study_count = 0
 
     try:
-        resp = _client.get(ATLAS_URL)
+        resp = await _client.get(ATLAS_URL)
         resp.raise_for_status()
         if len(resp.content) > ATLAS_MAX_BYTES:
             log.error("ATLAS YAML exceeds %d bytes (%d) — refusing", ATLAS_MAX_BYTES, len(resp.content))

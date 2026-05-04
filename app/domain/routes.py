@@ -1360,7 +1360,7 @@ async def username_endpoint(
     auth: Annotated[AuthCtx, Depends(require_auth("/v1/username"))],
 ):
     """Username OSINT — check if a username exists on 16 platforms (GitHub, Reddit, X, etc.)."""
-    return await run_in_threadpool(username_lookup, username)
+    return await username_lookup(username)
 
 
 @router.get(
@@ -1697,7 +1697,7 @@ async def wayback_lookup_route(
 ):
     """Web archive lookup — historical snapshots from the Wayback Machine."""
     domain, resolved_ip = _validate_domain_input(domain)
-    return await run_in_threadpool(wayback_lookup, domain)
+    return await wayback_lookup(domain)
 
 
 async def _ripe_country_for_ip(ip: str) -> str:
@@ -1926,7 +1926,7 @@ async def ip_lookup(
                 asyncio.gather(
                     check_abuseipdb(ip),
                     check_shodan(ip),
-                    run_in_threadpool(check_firehol, ip),
+                    check_firehol(ip),
                 ),
                 timeout=RECON_TIMEOUT + 2,
             )
@@ -1951,7 +1951,7 @@ async def ip_lookup(
                 # this except block as a generic Exception; on async it bypasses.
                 await ratelimit.arefund("enrichment", hash_client_ip(client_ip))
     elif auth.tier != "pro":
-        firehol_result = await run_in_threadpool(check_firehol, ip)
+        firehol_result = await check_firehol(ip)
         firehol_attempted = True
         # Bug I4: free tier used to ship two ~13-field pro_only stubs
         # (abuseipdb + shodan, every property null) — ~150 token of pure
@@ -1971,7 +1971,7 @@ async def ip_lookup(
         reputation_attempted = True
 
     try:
-        tor_exit = await run_in_threadpool(check_tor_exit, ip)
+        tor_exit = await check_tor_exit(ip)
     except Exception:
         tor_exit = False
     tor_status = tor_cache_status()
@@ -1990,7 +1990,7 @@ async def ip_lookup(
     # cloud_provider after asn so the ASN-map fallback can fire when the IP isn't
     # in a published CIDR range (e.g. 8.8.8.8 → AS15169 → "Google").
     try:
-        cloud_provider = check_cloud_provider(ip, asn=asn_val)
+        cloud_provider = await check_cloud_provider(ip, asn=asn_val)
     except Exception:
         cloud_provider = None
 
@@ -2877,21 +2877,21 @@ async def threat_report(
         country = asn_data.get("country") or ""
 
     try:
-        tor_exit = await run_in_threadpool(check_tor_exit, ip)
+        tor_exit = await check_tor_exit(ip)
     except Exception:
         tor_exit = False
     tor_status = tor_cache_status()
 
     asn_val = asn_data.get("asn") if isinstance(asn_data, dict) else None
     try:
-        cloud_provider = await run_in_threadpool(check_cloud_provider, ip, asn=asn_val)
+        cloud_provider = await check_cloud_provider(ip, asn=asn_val)
     except Exception:
         cloud_provider = None
 
     is_datacenter_flag = is_datacenter(ip, asn=asn_val, cloud_provider=cloud_provider)
 
     try:
-        firehol = await run_in_threadpool(check_firehol, ip)
+        firehol = await check_firehol(ip)
     except Exception:
         firehol = {"status": "unavailable"}
 

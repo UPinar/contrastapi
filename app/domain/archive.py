@@ -1,8 +1,8 @@
 """Wayback Machine / Web Archive lookup — historical snapshots via CDX API."""
 
+import asyncio
 import json
 import logging
-import threading
 import time
 
 import httpx
@@ -20,14 +20,14 @@ logger = logging.getLogger("contrastapi")
 USER_AGENT = "contrastapi/1.0"
 WAYBACK_CDX_URL = "https://web.archive.org/cdx/search/cdx"
 
-_client = httpx.Client(
+_client = httpx.AsyncClient(
     timeout=httpx.Timeout(WAYBACK_CDX_TIMEOUT, connect=5.0),
     follow_redirects=False,
     headers={"User-Agent": USER_AGENT},
 )
 
 _wayback_cache: dict[str, tuple[dict, float]] = {}
-_wayback_cache_lock = threading.Lock()
+_wayback_cache_lock = asyncio.Lock()
 
 
 def _parse_date(ts: str) -> str:
@@ -37,10 +37,10 @@ def _parse_date(ts: str) -> str:
     return ts
 
 
-def _fetch_cdx(domain: str) -> tuple[list | None, str | None]:
+async def _fetch_cdx(domain: str) -> tuple[list | None, str | None]:
     """Returns (rows, error_msg). error_msg is None on success."""
     try:
-        resp = _client.get(
+        resp = await _client.get(
             WAYBACK_CDX_URL,
             params={
                 "url": domain,
@@ -161,9 +161,9 @@ def _build_response(domain: str, rows: list, warnings: list[str]) -> dict:
     }
 
 
-def wayback_lookup(domain: str) -> dict:
+async def wayback_lookup(domain: str) -> dict:
     now = time.time()
-    with _wayback_cache_lock:
+    async with _wayback_cache_lock:
         cached = _wayback_cache.get(domain)
         if cached:
             cached_result, cached_at = cached
@@ -174,7 +174,7 @@ def wayback_lookup(domain: str) -> dict:
                 return cached_result
 
     warnings: list[str] = []
-    rows, err = _fetch_cdx(domain)
+    rows, err = await _fetch_cdx(domain)
 
     if err:
         # Distinguish upstream failure from confirmed-empty: previously both paths
@@ -188,7 +188,7 @@ def wayback_lookup(domain: str) -> dict:
     else:
         result = _build_response(domain, rows, warnings)
 
-    with _wayback_cache_lock:
+    async with _wayback_cache_lock:
         if len(_wayback_cache) >= WAYBACK_CACHE_MAX:
             oldest_key = min(_wayback_cache, key=lambda k: _wayback_cache[k][1])
             del _wayback_cache[oldest_key]

@@ -130,16 +130,12 @@ async def ioc_lookup(
                     raise HTTPException(status_code=400, detail="Private/reserved IP addresses are not allowed")
             urlhaus_target = host
 
-    # Fire all lookups in parallel via asyncio.gather. Native async helpers
-    # (query_threatfox/feodo, check_urlhaus) are awaited directly; pure-sync
-    # helpers (check_tor_exit) still go through run_in_threadpool. Per-source
-    # timeouts are enforced by asyncio.wait_for; results default to {} on timeout
-    # or exception (preserves the prior fallback semantics).
+    # Fire all lookups in parallel via asyncio.gather. All helpers are now
+    # native async (Faz 4 Batch 5). Per-source timeouts are enforced by
+    # asyncio.wait_for; results default to {} on timeout or exception
+    # (preserves the prior fallback semantics).
     async def _await_with_timeout(coro, timeout=10):
         return await asyncio.wait_for(coro, timeout=timeout)
-
-    async def _sync_with_timeout(fn, *args, timeout=10):
-        return await asyncio.wait_for(run_in_threadpool(fn, *args), timeout=timeout)
 
     tasks: list = [_await_with_timeout(query_threatfox(indicator))]
     do_feodo = ioc_type == "ip"
@@ -150,7 +146,7 @@ async def ioc_lookup(
     if do_urlhaus:
         tasks.append(_await_with_timeout(check_urlhaus(urlhaus_target)))
     if do_tor:
-        tasks.append(_sync_with_timeout(check_tor_exit, indicator, timeout=2))
+        tasks.append(_await_with_timeout(check_tor_exit(indicator), timeout=2))
 
     settled = await asyncio.gather(*tasks, return_exceptions=True)
 

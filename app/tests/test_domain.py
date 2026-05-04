@@ -937,8 +937,8 @@ class TestDomainRoutes:
         "internetdb_status": "ok",
     }
 
-    @patch("domain.routes.check_cloud_provider", return_value="AWS")
-    @patch("domain.routes.check_tor_exit", return_value=False)
+    @patch("domain.routes.check_cloud_provider", new_callable=AsyncMock, return_value="AWS")
+    @patch("domain.routes.check_tor_exit", new_callable=AsyncMock, return_value=False)
     @patch("domain.routes.ip_enrichment", return_value={**_enrich_empty}, new_callable=AsyncMock)
     @patch("domain.routes.socket.gethostbyaddr", side_effect=Exception("no PTR"))
     def test_ip_cloud_provider_aws(self, mock_ptr, mock_enrich, mock_tor, mock_cloud):
@@ -949,8 +949,8 @@ class TestDomainRoutes:
         # tor_exit is always present as a bool (response_model_exclude_none=False on /ip/{ip})
         assert data["tor_exit"] is False
 
-    @patch("domain.routes.check_cloud_provider", return_value=None)
-    @patch("domain.routes.check_tor_exit", return_value=False)
+    @patch("domain.routes.check_cloud_provider", new_callable=AsyncMock, return_value=None)
+    @patch("domain.routes.check_tor_exit", new_callable=AsyncMock, return_value=False)
     @patch("domain.routes.ip_enrichment", return_value={**_enrich_empty}, new_callable=AsyncMock)
     @patch("domain.routes.socket.gethostbyaddr", side_effect=Exception("no PTR"))
     def test_ip_cloud_provider_none(self, mock_ptr, mock_enrich, mock_tor, mock_cloud):
@@ -960,8 +960,8 @@ class TestDomainRoutes:
         # cloud_provider is always present (null when neither CIDR nor ASN map matches)
         assert data["cloud_provider"] is None
 
-    @patch("domain.routes.check_cloud_provider", return_value=None)
-    @patch("domain.routes.check_tor_exit", return_value=True)
+    @patch("domain.routes.check_cloud_provider", new_callable=AsyncMock, return_value=None)
+    @patch("domain.routes.check_tor_exit", new_callable=AsyncMock, return_value=True)
     @patch("domain.routes.ip_enrichment", return_value={**_enrich_empty}, new_callable=AsyncMock)
     @patch("domain.routes.socket.gethostbyaddr", side_effect=Exception("no PTR"))
     def test_ip_tor_exit_true(self, mock_ptr, mock_enrich, mock_tor, mock_cloud):
@@ -970,8 +970,8 @@ class TestDomainRoutes:
         data = r.json()
         assert data["tor_exit"] is True
 
-    @patch("domain.routes.check_cloud_provider", return_value=None)
-    @patch("domain.routes.check_tor_exit", return_value=False)
+    @patch("domain.routes.check_cloud_provider", new_callable=AsyncMock, return_value=None)
+    @patch("domain.routes.check_tor_exit", new_callable=AsyncMock, return_value=False)
     @patch("domain.routes.ip_enrichment", return_value={**_enrich_empty}, new_callable=AsyncMock)
     @patch("domain.routes.socket.gethostbyaddr", side_effect=Exception("no PTR"))
     def test_ip_risk_score_present(self, mock_ptr, mock_enrich, mock_tor, mock_cloud):
@@ -981,8 +981,8 @@ class TestDomainRoutes:
         assert "risk_score" in data
         assert 0 <= data["risk_score"] <= 100
 
-    @patch("domain.routes.check_cloud_provider", return_value="GCP")
-    @patch("domain.routes.check_tor_exit", return_value=False)
+    @patch("domain.routes.check_cloud_provider", new_callable=AsyncMock, return_value="GCP")
+    @patch("domain.routes.check_tor_exit", new_callable=AsyncMock, return_value=False)
     @patch(
         "domain.routes.ip_enrichment",
         return_value={"ports": [], "hostnames": [], "vulns": [], "cpes": [], "tags": [], "internetdb_status": "ok"},
@@ -996,8 +996,8 @@ class TestDomainRoutes:
         # cloud bonus + ptr bonus, no abuse, no tor → low score
         assert data["risk_score"] <= 30
 
-    @patch("domain.routes.check_cloud_provider", return_value=None)
-    @patch("domain.routes.check_tor_exit", return_value=True)
+    @patch("domain.routes.check_cloud_provider", new_callable=AsyncMock, return_value=None)
+    @patch("domain.routes.check_tor_exit", new_callable=AsyncMock, return_value=True)
     @patch("domain.routes.ip_enrichment", return_value={**_enrich_empty}, new_callable=AsyncMock)
     @patch("domain.routes.socket.gethostbyaddr", side_effect=Exception("no PTR"))
     def test_ip_risk_score_high_tor(self, mock_ptr, mock_enrich, mock_tor, mock_cloud):
@@ -1013,8 +1013,8 @@ class TestDomainRoutes:
     # unknown-CVE honesty (UNKNOWN/null, not absent), Shodan input order
     # preservation.
 
-    @patch("domain.routes.check_cloud_provider", return_value=None)
-    @patch("domain.routes.check_tor_exit", return_value=False)
+    @patch("domain.routes.check_cloud_provider", new_callable=AsyncMock, return_value=None)
+    @patch("domain.routes.check_tor_exit", new_callable=AsyncMock, return_value=False)
     @patch(
         "domain.routes.ip_enrichment",
         return_value={
@@ -1048,8 +1048,8 @@ class TestDomainRoutes:
         assert crit["severity"] == "CRITICAL"
         assert crit["cvss_v3"] == 9.8
 
-    @patch("domain.routes.check_cloud_provider", return_value=None)
-    @patch("domain.routes.check_tor_exit", return_value=False)
+    @patch("domain.routes.check_cloud_provider", new_callable=AsyncMock, return_value=None)
+    @patch("domain.routes.check_tor_exit", new_callable=AsyncMock, return_value=False)
     @patch(
         "domain.routes.ip_enrichment",
         return_value={
@@ -1074,8 +1074,8 @@ class TestDomainRoutes:
         assert vulns[0]["severity"] == "UNKNOWN"
         assert vulns[0]["cvss_v3"] is None
 
-    @patch("domain.routes.check_cloud_provider", return_value=None)
-    @patch("domain.routes.check_tor_exit", return_value=False)
+    @patch("domain.routes.check_cloud_provider", new_callable=AsyncMock, return_value=None)
+    @patch("domain.routes.check_tor_exit", new_callable=AsyncMock, return_value=False)
     @patch(
         "domain.routes.ip_enrichment",
         return_value={
@@ -1112,8 +1112,8 @@ class TestDomainRoutes:
 
     # --- Phase 5 mini (v1.16.1) — severity_label inline ---
 
-    @patch("domain.routes.check_cloud_provider", return_value=None)
-    @patch("domain.routes.check_tor_exit", return_value=True)
+    @patch("domain.routes.check_cloud_provider", new_callable=AsyncMock, return_value=None)
+    @patch("domain.routes.check_tor_exit", new_callable=AsyncMock, return_value=True)
     @patch("domain.routes.ip_enrichment", return_value={**_enrich_empty}, new_callable=AsyncMock)
     @patch("domain.routes.socket.gethostbyaddr", side_effect=Exception("no PTR"))
     def test_ip_lookup_severity_label_emitted(self, mock_ptr, mock_enrich, mock_tor, mock_cloud):
@@ -1128,8 +1128,8 @@ class TestDomainRoutes:
         # falsifiable_fields advertises severity_label (verdict honesty).
         assert "severity_label" in data["verdict"]["falsifiable_fields"]
 
-    @patch("domain.routes.check_cloud_provider", return_value=None)
-    @patch("domain.routes.check_tor_exit", return_value=False)
+    @patch("domain.routes.check_cloud_provider", new_callable=AsyncMock, return_value=None)
+    @patch("domain.routes.check_tor_exit", new_callable=AsyncMock, return_value=False)
     @patch("domain.routes.ip_enrichment", return_value={**_enrich_empty}, new_callable=AsyncMock)
     @patch("domain.routes.socket.gethostbyaddr", side_effect=Exception("no PTR"))
     def test_ip_verdict_falsifiable_includes_is_datacenter(self, mock_ptr, mock_enrich, mock_tor, mock_cloud):
@@ -1141,8 +1141,8 @@ class TestDomainRoutes:
         fields = r.json()["verdict"]["falsifiable_fields"]
         assert "is_datacenter" in fields
 
-    @patch("domain.routes.check_cloud_provider", return_value=None)
-    @patch("domain.routes.check_tor_exit", return_value=False)
+    @patch("domain.routes.check_cloud_provider", new_callable=AsyncMock, return_value=None)
+    @patch("domain.routes.check_tor_exit", new_callable=AsyncMock, return_value=False)
     @patch("domain.routes.ip_enrichment", return_value={**_enrich_empty}, new_callable=AsyncMock)
     @patch("domain.routes.socket.gethostbyaddr", side_effect=Exception("no PTR"))
     def test_ip_verdict_falsifiable_includes_firehol(self, mock_ptr, mock_enrich, mock_tor, mock_cloud):
@@ -1154,8 +1154,8 @@ class TestDomainRoutes:
         fields = r.json()["verdict"]["falsifiable_fields"]
         assert "firehol" in fields
 
-    @patch("domain.routes.check_cloud_provider", return_value=None)
-    @patch("domain.routes.check_tor_exit", return_value=False)
+    @patch("domain.routes.check_cloud_provider", new_callable=AsyncMock, return_value=None)
+    @patch("domain.routes.check_tor_exit", new_callable=AsyncMock, return_value=False)
     @patch(
         "domain.routes.ip_enrichment",
         return_value={
@@ -1185,8 +1185,8 @@ class TestDomainRoutes:
         order = [v["cve_id"] for v in r.json()["vulns"]]
         assert order == ["CVE-2099-IP-ORDER-2", "CVE-2099-IP-ORDER-1", "CVE-9999-IP-UNKNOWN"]
 
-    @patch("domain.routes.check_cloud_provider", return_value="AWS")
-    @patch("domain.routes.check_tor_exit", return_value=False)
+    @patch("domain.routes.check_cloud_provider", new_callable=AsyncMock, return_value="AWS")
+    @patch("domain.routes.check_tor_exit", new_callable=AsyncMock, return_value=False)
     @patch("domain.routes.ip_enrichment", return_value={**_enrich_empty}, new_callable=AsyncMock)
     @patch("domain.routes.socket.gethostbyaddr", side_effect=Exception("no PTR"))
     def test_ip_verdict_extended_falsifiable_fields(self, mock_ptr, mock_enrich, mock_tor, mock_cloud):
@@ -1198,7 +1198,7 @@ class TestDomainRoutes:
         assert "risk_score" in fields
 
     @patch("domain.routes.check_cloud_provider", side_effect=Exception("upstream down"))
-    @patch("domain.routes.check_tor_exit", return_value=False)
+    @patch("domain.routes.check_tor_exit", new_callable=AsyncMock, return_value=False)
     @patch("domain.routes.ip_enrichment", return_value={**_enrich_empty}, new_callable=AsyncMock)
     @patch("domain.routes.socket.gethostbyaddr", side_effect=Exception("no PTR"))
     def test_ip_intel_cache_failure_resilient(self, mock_ptr, mock_enrich, mock_tor, mock_cloud):
@@ -1209,8 +1209,8 @@ class TestDomainRoutes:
         "domain.routes._fetch_asn_country",
         return_value={"asn": 13335, "asn_name": "CLOUDFLARENET", "country": "US", "failed": False},
     )
-    @patch("domain.routes.check_cloud_provider", return_value="Cloudflare")
-    @patch("domain.routes.check_tor_exit", return_value=False)
+    @patch("domain.routes.check_cloud_provider", new_callable=AsyncMock, return_value="Cloudflare")
+    @patch("domain.routes.check_tor_exit", new_callable=AsyncMock, return_value=False)
     @patch("domain.routes.ip_enrichment", return_value={**_enrich_empty}, new_callable=AsyncMock)
     @patch("domain.routes.socket.gethostbyaddr", return_value=("one.one.one.one", [], []))
     def test_ip_lookup_returns_asn_country(self, mock_ptr, mock_enrich, mock_tor, mock_cloud, mock_asn):
@@ -1232,8 +1232,8 @@ class TestDomainRoutes:
         "domain.routes._fetch_asn_country",
         return_value={"asn": None, "asn_name": "", "country": "", "failed": True},
     )
-    @patch("domain.routes.check_cloud_provider", return_value=None)
-    @patch("domain.routes.check_tor_exit", return_value=False)
+    @patch("domain.routes.check_cloud_provider", new_callable=AsyncMock, return_value=None)
+    @patch("domain.routes.check_tor_exit", new_callable=AsyncMock, return_value=False)
     @patch("domain.routes.ip_enrichment", return_value={**_enrich_empty}, new_callable=AsyncMock)
     @patch("domain.routes.socket.gethostbyaddr", side_effect=Exception("no PTR"))
     def test_ip_lookup_asn_fetch_failure_graceful(self, mock_ptr, mock_enrich, mock_tor, mock_cloud, mock_asn):
@@ -1254,8 +1254,8 @@ class TestDomainRoutes:
         "domain.routes._fetch_asn_country",
         return_value={"asn": 15169, "asn_name": "", "country": "US", "failed": False},
     )
-    @patch("domain.routes.check_cloud_provider", return_value="GCP")
-    @patch("domain.routes.check_tor_exit", return_value=False)
+    @patch("domain.routes.check_cloud_provider", new_callable=AsyncMock, return_value="GCP")
+    @patch("domain.routes.check_tor_exit", new_callable=AsyncMock, return_value=False)
     @patch("domain.routes.ip_enrichment", return_value={**_enrich_empty}, new_callable=AsyncMock)
     @patch("domain.routes.socket.gethostbyaddr", return_value=("dns.google", [], []))
     def test_ip_lookup_asn_name_missing_still_renders(self, mock_ptr, mock_enrich, mock_tor, mock_cloud, mock_asn):
@@ -1272,8 +1272,8 @@ class TestDomainRoutes:
         "domain.routes._fetch_asn_country",
         return_value={"asn": 13335, "asn_name": "CLOUDFLARENET", "country": "US", "failed": False},
     )
-    @patch("domain.routes.check_cloud_provider", return_value="Cloudflare")
-    @patch("domain.routes.check_tor_exit", return_value=False)
+    @patch("domain.routes.check_cloud_provider", new_callable=AsyncMock, return_value="Cloudflare")
+    @patch("domain.routes.check_tor_exit", new_callable=AsyncMock, return_value=False)
     @patch("domain.routes.ip_enrichment", return_value={**_enrich_empty}, new_callable=AsyncMock)
     @patch("domain.routes.socket.gethostbyaddr", return_value=("one.one.one.one", [], []))
     def test_ip_lookup_verdict_includes_asn_fields(self, mock_ptr, mock_enrich, mock_tor, mock_cloud, mock_asn):
@@ -1290,8 +1290,8 @@ class TestDomainRoutes:
         "domain.routes._fetch_asn_country",
         return_value={"asn": 15169, "asn_name": "GOOGLE", "country": "US", "failed": False},
     )
-    @patch("domain.routes.check_cloud_provider", return_value="Google")
-    @patch("domain.routes.check_tor_exit", return_value=False)
+    @patch("domain.routes.check_cloud_provider", new_callable=AsyncMock, return_value="Google")
+    @patch("domain.routes.check_tor_exit", new_callable=AsyncMock, return_value=False)
     @patch("domain.routes.ip_enrichment", return_value={**_enrich_empty}, new_callable=AsyncMock)
     @patch("domain.routes.socket.gethostbyaddr", return_value=("dns.google", [], []))
     def test_ip_lookup_ipv6_enrichment_path(self, mock_ptr, mock_enrich, mock_tor, mock_cloud, mock_asn):
@@ -1319,34 +1319,36 @@ class TestDomainRoutes:
 
     def test_check_cloud_provider_asn_map_fallback_google(self):
         """8.8.8.8 isn't in the GCP CIDR list but AS15169 is in the ASN map → 'Google'."""
-        from unittest.mock import patch
+        import asyncio
+        from unittest.mock import AsyncMock, patch
 
         from domain.ip_intel import check_cloud_provider
 
         # Force CIDR lookup to return None (mimic GCP range list missing 8.8.8.8)
-        with patch("domain.ip_intel._refresh_cloud_cache", return_value=(None, None)):
-            assert check_cloud_provider("8.8.8.8", asn=15169) == "Google"
-            assert check_cloud_provider("104.16.1.1", asn=13335) == "Cloudflare"
-            assert check_cloud_provider("1.2.3.4", asn=99999) is None  # unknown ASN
-            assert check_cloud_provider("1.2.3.4", asn=None) is None  # no ASN provided
+        with patch("domain.ip_intel._refresh_cloud_cache", new_callable=AsyncMock, return_value=(None, None)):
+            assert asyncio.run(check_cloud_provider("8.8.8.8", asn=15169)) == "Google"
+            assert asyncio.run(check_cloud_provider("104.16.1.1", asn=13335)) == "Cloudflare"
+            assert asyncio.run(check_cloud_provider("1.2.3.4", asn=99999)) is None  # unknown ASN
+            assert asyncio.run(check_cloud_provider("1.2.3.4", asn=None)) is None  # no ASN provided
 
     def test_check_cloud_provider_cidr_takes_precedence_over_asn(self):
         """CIDR lookup is authoritative; ASN map only fires when CIDR misses."""
-        from unittest.mock import MagicMock, patch
+        import asyncio
+        from unittest.mock import AsyncMock, MagicMock, patch
 
         from domain.ip_intel import check_cloud_provider
 
         fake_v4 = MagicMock()
         fake_v4.get.return_value = "AWS"  # CIDR says AWS
-        with patch("domain.ip_intel._refresh_cloud_cache", return_value=(fake_v4, None)):
+        with patch("domain.ip_intel._refresh_cloud_cache", new_callable=AsyncMock, return_value=(fake_v4, None)):
             # Even with asn=15169 (Google in map), CIDR's AWS wins
-            assert check_cloud_provider("3.5.140.2", asn=15169) == "AWS"
+            assert asyncio.run(check_cloud_provider("3.5.140.2", asn=15169)) == "AWS"
 
     @patch(
         "domain.routes._fetch_asn_country",
         return_value={"asn": 15169, "asn_name": "GOOGLE - Google LLC", "country": "US", "failed": False},
     )
-    @patch("domain.routes.check_tor_exit", return_value=False)
+    @patch("domain.routes.check_tor_exit", new_callable=AsyncMock, return_value=False)
     @patch("domain.routes.ip_enrichment", return_value={**_enrich_empty}, new_callable=AsyncMock)
     @patch("domain.routes.socket.gethostbyaddr", return_value=("dns.google", [], []))
     def test_ip_lookup_asn_map_resolves_google_for_8888(self, mock_ptr, mock_enrich, mock_tor, mock_asn):
@@ -1364,7 +1366,7 @@ class TestDomainRoutes:
         "domain.routes._fetch_asn_country",
         return_value={"asn": 15169, "asn_name": "GOOGLE - Google LLC", "country": "US", "failed": False},
     )
-    @patch("domain.routes.check_tor_exit", return_value=False)
+    @patch("domain.routes.check_tor_exit", new_callable=AsyncMock, return_value=False)
     @patch("domain.routes.ip_enrichment", return_value={**_enrich_empty}, new_callable=AsyncMock)
     @patch("domain.routes.socket.gethostbyaddr", return_value=("ec2-3-5-140-2.amazonaws.com", [], []))
     def test_ip_lookup_cidr_match_overrides_asn_map(self, mock_ptr, mock_enrich, mock_tor, mock_asn):

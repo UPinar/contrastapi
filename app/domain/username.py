@@ -1,10 +1,9 @@
 """Username OSINT lookup — check if a username exists on 16 platforms."""
 
+import asyncio
 import logging
 import random
 import re
-import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import httpx
 from config import (
@@ -32,14 +31,12 @@ _PLATFORM_EXTRA_HEADERS: dict[str, dict[str, str]] = {
     "npm": {"Referer": "https://www.npmjs.com/"},
 }
 
-_client = httpx.Client(
+_client = httpx.AsyncClient(
     timeout=httpx.Timeout(USERNAME_LOOKUP_TIMEOUT, connect=3.0),
     headers={"User-Agent": _USER_AGENTS[0], "Accept": "text/html,application/xhtml+xml"},
     follow_redirects=False,
+    limits=httpx.Limits(max_connections=30, max_keepalive_connections=10),
 )
-
-# Shared pool across requests — cap total threads to avoid exhaustion
-_pool = ThreadPoolExecutor(max_workers=30)
 
 # Platform definitions: (name, display_url, check_url|None, method, body_indicator)
 # check_url: if different from display_url (e.g. Reddit JSON API). None = use display_url.
@@ -84,7 +81,7 @@ def _parse_200(indicator: str | None, method: str, body: str) -> str:
     return "found"
 
 
-def _check_platform(
+async def _check_platform(
     name: str,
     display_url: str,
     check_url: str,
@@ -102,9 +99,9 @@ def _check_platform(
         headers = _request_headers(name, attempt)
         try:
             if method == "get":
-                resp = _client.get(check_url, headers=headers)
+                resp = await _client.get(check_url, headers=headers)
             else:
-                resp = _client.head(check_url, headers=headers)
+                resp = await _client.head(check_url, headers=headers)
 
             code = resp.status_code
 
@@ -134,13 +131,13 @@ def _check_platform(
             last_transient = "error"
 
         if attempt < USERNAME_MAX_RETRIES:
-            time.sleep(backoff + random.uniform(0.1, 0.5))  # noqa: S311 — jitter only, not crypto
+            await asyncio.sleep(backoff + random.uniform(0.1, 0.5))  # noqa: S311 — jitter only, not crypto
             backoff *= USERNAME_BACKOFF_MULTIPLIER
 
     return {"platform": name, "url": display_url, "status": last_transient}
 
 
-def username_lookup(username: str) -> dict:
+async def username_lookup(username: str) -> dict:
     """Check if a username exists on 16 platforms.
 
     Args:
@@ -162,27 +159,39 @@ def username_lookup(username: str) -> dict:
     results = []
     seen_platforms: set[str] = set()
 
-    futures = {}
+    plans: list[tuple[str, str, str, str, str | None]] = []
     for name, display_tpl, check_tpl, method, indicator in PLATFORMS:
         display_url = display_tpl.format(u=raw)
         check_url = check_tpl.format(u=raw) if check_tpl else display_url
-        fut = _pool.submit(_check_platform, name, display_url, check_url, method, indicator)
-        futures[fut] = name
+        plans.append((name, display_url, check_url, method, indicator))
 
-    try:
-        for fut in as_completed(futures, timeout=USERNAME_LOOKUP_TIMEOUT * 2 + 5):
-            try:
-                result = fut.result()
-                results.append(result)
-                seen_platforms.add(result["platform"])
-            except (httpx.TimeoutException, httpx.RequestError, OSError):
-                pname = futures[fut]
-                results.append({"platform": pname, "url": "", "status": "error"})
-                seen_platforms.add(pname)
-    except TimeoutError:
-        pass
+    # Wrap each coroutine in a Task so we can correlate done/pending back to the plan
+    tasks: dict[asyncio.Task, tuple[str, str]] = {}
+    for name, display_url, check_url, method, indicator in plans:
+        task = asyncio.create_task(_check_platform(name, display_url, check_url, method, indicator))
+        tasks[task] = (name, display_url)
 
-    # Add missing platforms that timed out at the as_completed level
+    # Parity with the previous as_completed(timeout=...) semantics: collect any
+    # task that finished before the deadline, mark the rest as error. Cancel
+    # pending tasks so they do not leak past this call. Hard ceiling of 120s
+    # defends against a misconfigured USERNAME_LOOKUP_TIMEOUT amplifying into
+    # connection-pool exhaustion (16 platform tasks * runaway timeout).
+    total_timeout = min(USERNAME_LOOKUP_TIMEOUT * 2 + 5, 120)
+    done, pending = await asyncio.wait(tasks.keys(), timeout=total_timeout)
+    for task in pending:
+        task.cancel()
+
+    for task in done:
+        name, display_url = tasks[task]
+        try:
+            result = task.result()
+            results.append(result)
+            seen_platforms.add(result["platform"])
+        except (httpx.TimeoutException, httpx.RequestError, OSError):
+            results.append({"platform": name, "url": display_url, "status": "error"})
+            seen_platforms.add(name)
+
+    # Add missing platforms (cancelled-on-timeout or not yet completed)
     for name, display_tpl, *_ in PLATFORMS:
         if name not in seen_platforms:
             results.append({"platform": name, "url": display_tpl.format(u=raw), "status": "error"})

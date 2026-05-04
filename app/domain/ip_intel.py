@@ -1,11 +1,12 @@
 """IP intelligence caches: cloud provider CIDR lookup, Tor exit node detection, risk scoring."""
 
+import asyncio
 import ipaddress
 import json
 import logging
-import threading
 import time
 
+import httpx
 import pytricia
 from config import (
     AWS_IP_RANGES_URL,
@@ -27,7 +28,7 @@ logger = logging.getLogger("contrastapi")
 
 # Cloud range cache: separate tries for IPv4 (32-bit) and IPv6 (128-bit)
 _cloud_cache: dict = {"v4": None, "v6": None, "fetched_at": 0.0}
-_cloud_lock = threading.Lock()
+_cloud_lock = asyncio.Lock()
 
 _tor_cache: dict = {
     "data": frozenset(),
@@ -40,7 +41,7 @@ _tor_cache: dict = {
     "fetch_status": "initial",
     "line_count": 0,
 }
-_tor_lock = threading.Lock()
+_tor_lock = asyncio.Lock()
 
 _firehol_cache: dict = {
     "v4": None,
@@ -49,34 +50,42 @@ _firehol_cache: dict = {
     "consecutive_failures": 0,
     "last_failure_at": 0.0,
 }
-_firehol_lock = threading.Lock()
+_firehol_lock = asyncio.Lock()
+
+# Module-level singleton AsyncClient — pooled, lifespan-managed. follow_redirects=False:
+# upstream URLs are hardcoded constants; a rogue redirect (CDN compromise, DNS
+# hijack) could otherwise steer us toward loopback / cloud metadata endpoints.
+# Accept-Encoding: identity defeats gzip-bomb DoS — httpx's aiter_bytes() decodes
+# Content-Encoding BEFORE yielding chunks, so byte caps are otherwise ineffective
+# against a 1KB gzip blob that decompresses to 500MB (CLAUDE.md v1.25.0 rule).
+_intel_client = httpx.AsyncClient(
+    timeout=15.0,
+    follow_redirects=False,
+    verify=True,
+    headers={"Accept-Encoding": "identity"},
+)
 
 
-def _make_http_client():
-    import httpx
-
-    # follow_redirects=False: upstream URLs are hardcoded constants; a rogue
-    # redirect (CDN compromise, DNS hijack) could otherwise steer us toward
-    # loopback / cloud metadata endpoints.
-    return httpx.Client(timeout=15.0, follow_redirects=False, verify=True)
-
-
-def _fetch_capped(client, url: str, max_bytes: int) -> bytes | None:
+async def _fetch_capped(client, url: str, max_bytes: int) -> bytes | None:
     """Fetch URL with streaming early-abort when body exceeds max_bytes.
 
     Checks Content-Length header first, then enforces cap chunk-by-chunk.
     Returns raw body bytes on success, None if over the cap.
     """
-    with client.stream("GET", url) as resp:
+    async with client.stream("GET", url) as resp:
         resp.raise_for_status()
         cl = resp.headers.get("content-length")
         try:
-            if cl is not None and int(cl) > max_bytes:
-                return None
+            if cl is not None:
+                cl_int = int(cl)
+                # Reject negative or oversize Content-Length up front.
+                # Negative values would bypass `> max_bytes` (CWE-190).
+                if cl_int < 0 or cl_int > max_bytes:
+                    return None
         except (TypeError, ValueError):
             pass
         buf = bytearray()
-        for chunk in resp.iter_bytes():
+        async for chunk in resp.aiter_bytes():
             buf.extend(chunk)
             if len(buf) > max_bytes:
                 return None
@@ -91,7 +100,7 @@ def _safe_insert(trie, cidr: str, value: str) -> None:
         logger.debug("skip malformed CIDR %s (%s): %s", cidr, value, type(e).__name__)
 
 
-def _refresh_cloud_cache() -> tuple:
+async def _refresh_cloud_cache() -> tuple:
     """Fetch AWS/GCP/Cloudflare IP ranges and populate two PyTricia tries (v4, v6).
 
     Per-source failures preserve that source's prefixes from the previous cache.
@@ -100,7 +109,7 @@ def _refresh_cloud_cache() -> tuple:
     global _cloud_cache
     if time.time() - _cloud_cache["fetched_at"] < CLOUD_IP_TTL and _cloud_cache["v4"] is not None:
         return _cloud_cache["v4"], _cloud_cache["v6"]
-    with _cloud_lock:
+    async with _cloud_lock:
         if time.time() - _cloud_cache["fetched_at"] < CLOUD_IP_TTL and _cloud_cache["v4"] is not None:
             return _cloud_cache["v4"], _cloud_cache["v6"]
 
@@ -111,63 +120,58 @@ def _refresh_cloud_cache() -> tuple:
         v6 = pytricia.PyTricia(128)
         loaded: set[str] = set()
 
-        client = _make_http_client()
+        # AWS — prefixes[].ip_prefix / ipv6_prefixes[].ipv6_prefix
         try:
-            # AWS — prefixes[].ip_prefix / ipv6_prefixes[].ipv6_prefix
-            try:
-                body = _fetch_capped(client, AWS_IP_RANGES_URL, CLOUD_IP_MAX_BYTES)
-                if body is None:
-                    logger.warning("AWS IP ranges exceeded cap (%d bytes)", CLOUD_IP_MAX_BYTES)
-                else:
-                    data = json.loads(body)
-                    for p in data.get("prefixes") or []:
-                        cidr = p.get("ip_prefix")
-                        if cidr:
-                            _safe_insert(v4, cidr, "AWS")
-                    for p in data.get("ipv6_prefixes") or []:
-                        cidr = p.get("ipv6_prefix")
-                        if cidr:
-                            _safe_insert(v6, cidr, "AWS")
-                    loaded.add("AWS")
-            except Exception as e:
-                logger.warning("AWS IP ranges fetch failed: %s", type(e).__name__)
+            body = await _fetch_capped(_intel_client, AWS_IP_RANGES_URL, CLOUD_IP_MAX_BYTES)
+            if body is None:
+                logger.warning("AWS IP ranges exceeded cap (%d bytes)", CLOUD_IP_MAX_BYTES)
+            else:
+                data = json.loads(body)
+                for p in data.get("prefixes") or []:
+                    cidr = p.get("ip_prefix")
+                    if cidr:
+                        _safe_insert(v4, cidr, "AWS")
+                for p in data.get("ipv6_prefixes") or []:
+                    cidr = p.get("ipv6_prefix")
+                    if cidr:
+                        _safe_insert(v6, cidr, "AWS")
+                loaded.add("AWS")
+        except Exception as e:
+            logger.warning("AWS IP ranges fetch failed: %s", type(e).__name__)
 
-            # GCP — prefixes[].ipv4Prefix / ipv6Prefix
-            try:
-                body = _fetch_capped(client, GCP_IP_RANGES_URL, CLOUD_IP_MAX_BYTES)
-                if body is None:
-                    logger.warning("GCP IP ranges exceeded cap (%d bytes)", CLOUD_IP_MAX_BYTES)
-                else:
-                    data = json.loads(body)
-                    for p in data.get("prefixes") or []:
-                        cidr4 = p.get("ipv4Prefix")
-                        if cidr4:
-                            _safe_insert(v4, cidr4, "GCP")
-                        cidr6 = p.get("ipv6Prefix")
-                        if cidr6:
-                            _safe_insert(v6, cidr6, "GCP")
-                    loaded.add("GCP")
-            except Exception as e:
-                logger.warning("GCP IP ranges fetch failed: %s", type(e).__name__)
+        # GCP — prefixes[].ipv4Prefix / ipv6Prefix
+        try:
+            body = await _fetch_capped(_intel_client, GCP_IP_RANGES_URL, CLOUD_IP_MAX_BYTES)
+            if body is None:
+                logger.warning("GCP IP ranges exceeded cap (%d bytes)", CLOUD_IP_MAX_BYTES)
+            else:
+                data = json.loads(body)
+                for p in data.get("prefixes") or []:
+                    cidr4 = p.get("ipv4Prefix")
+                    if cidr4:
+                        _safe_insert(v4, cidr4, "GCP")
+                    cidr6 = p.get("ipv6Prefix")
+                    if cidr6:
+                        _safe_insert(v6, cidr6, "GCP")
+                loaded.add("GCP")
+        except Exception as e:
+            logger.warning("GCP IP ranges fetch failed: %s", type(e).__name__)
 
-            # Cloudflare — result.ipv4_cidrs / result.ipv6_cidrs (ignore result.tor_ips)
-            try:
-                body = _fetch_capped(client, CF_IP_RANGES_URL, CLOUD_IP_MAX_BYTES)
-                if body is None:
-                    logger.warning("CF IP ranges exceeded cap (%d bytes)", CLOUD_IP_MAX_BYTES)
-                else:
-                    data = json.loads(body)
-                    result = data.get("result") or {}
-                    for cidr in result.get("ipv4_cidrs") or []:
-                        _safe_insert(v4, cidr, "Cloudflare")
-                    for cidr in result.get("ipv6_cidrs") or []:
-                        _safe_insert(v6, cidr, "Cloudflare")
-                    loaded.add("Cloudflare")
-            except Exception as e:
-                logger.warning("CF IP ranges fetch failed: %s", type(e).__name__)
-
-        finally:
-            client.close()
+        # Cloudflare — result.ipv4_cidrs / result.ipv6_cidrs (ignore result.tor_ips)
+        try:
+            body = await _fetch_capped(_intel_client, CF_IP_RANGES_URL, CLOUD_IP_MAX_BYTES)
+            if body is None:
+                logger.warning("CF IP ranges exceeded cap (%d bytes)", CLOUD_IP_MAX_BYTES)
+            else:
+                data = json.loads(body)
+                result = data.get("result") or {}
+                for cidr in result.get("ipv4_cidrs") or []:
+                    _safe_insert(v4, cidr, "Cloudflare")
+                for cidr in result.get("ipv6_cidrs") or []:
+                    _safe_insert(v6, cidr, "Cloudflare")
+                loaded.add("Cloudflare")
+        except Exception as e:
+            logger.warning("CF IP ranges fetch failed: %s", type(e).__name__)
 
         # Preserve previous prefixes for any failed source.
         # Snapshot prefix lists before iterating: concurrent readers may still
@@ -191,7 +195,7 @@ def _refresh_cloud_cache() -> tuple:
         return v4, v6
 
 
-def _refresh_tor_cache() -> frozenset:
+async def _refresh_tor_cache() -> frozenset:
     """Fetch Tor bulk exit list (one IP per line). Returns frozenset of exit IPs.
 
     TTL gating is based on fetched_at (not data truthiness) so a first-fetch
@@ -201,12 +205,11 @@ def _refresh_tor_cache() -> frozenset:
     global _tor_cache
     if time.time() - _tor_cache["fetched_at"] < TOR_EXIT_TTL and _tor_cache["fetched_at"] > 0:
         return _tor_cache["data"]
-    with _tor_lock:
+    async with _tor_lock:
         if time.time() - _tor_cache["fetched_at"] < TOR_EXIT_TTL and _tor_cache["fetched_at"] > 0:
             return _tor_cache["data"]
-        client = _make_http_client()
         try:
-            body = _fetch_capped(client, TOR_EXIT_LIST_URL, TOR_EXIT_MAX_BYTES)
+            body = await _fetch_capped(_intel_client, TOR_EXIT_LIST_URL, TOR_EXIT_MAX_BYTES)
             if body is None:
                 logger.warning("Tor exit list exceeded cap (%d bytes)", TOR_EXIT_MAX_BYTES)
                 _tor_cache = {
@@ -245,8 +248,6 @@ def _refresh_tor_cache() -> frozenset:
                 "fetched_at": time.time(),
             }
             return _tor_cache.get("data", frozenset())
-        finally:
-            client.close()
 
 
 def tor_cache_status() -> str:
@@ -257,13 +258,19 @@ def tor_cache_status() -> str:
     list is missing — so a downstream agent can tell `tor_exit=false because
     not in list` from `tor_exit=false because we never got the list`.
 
-    Holds `_tor_lock` to keep the read consistent with the dict-replace
-    pattern used by `_refresh_tor_cache`. CPython's GIL makes a single
-    `dict.get` atomic, but reading without the lock would still let a status
-    appear stale across a concurrent refresh on a non-GIL runtime.
+    Sync read: a single `dict.get` is atomic under CPython's GIL, and we never
+    block on it from the route hot path. The async `_tor_lock` is used by
+    refresh writers; a stale read across a concurrent refresh is acceptable
+    here (the next request reads the post-refresh status).
+
+    Invariant guaranteeing safety: `_refresh_tor_cache` ALWAYS replaces
+    `_tor_cache` via single dict assignment (`_tor_cache = {...}`), never
+    in-place mutation of an existing dict. Reader sees either old or new dict
+    in full, never a torn intermediate. If this invariant is broken (per-key
+    update added), this function MUST be wrapped in `async with _tor_lock`
+    and made async — review all 3 assignment branches before relaxing.
     """
-    with _tor_lock:
-        return _tor_cache.get("fetch_status", "initial")
+    return _tor_cache.get("fetch_status", "initial")
 
 
 def _strip_zone(ip: str) -> str:
@@ -310,7 +317,7 @@ _DATACENTER_ASNS: set[int] = {
 }
 
 
-def check_cloud_provider(ip: str, asn: int | None = None) -> str | None:
+async def check_cloud_provider(ip: str, asn: int | None = None) -> str | None:
     """Return cloud provider name if IP is in a known cloud CIDR range OR its
     ASN is in the static map; else None.
 
@@ -321,7 +328,7 @@ def check_cloud_provider(ip: str, asn: int | None = None) -> str | None:
     """
     try:
         ip_clean = _strip_zone(ip)
-        v4, v6 = _refresh_cloud_cache()
+        v4, v6 = await _refresh_cloud_cache()
         trie = v6 if ":" in ip_clean else v4
         if trie is not None:
             cidr_match = trie.get(ip_clean)
@@ -337,17 +344,17 @@ def check_cloud_provider(ip: str, asn: int | None = None) -> str | None:
     return None
 
 
-def check_tor_exit(ip: str) -> bool:
+async def check_tor_exit(ip: str) -> bool:
     """Return True if IP is a known Tor exit node."""
     try:
-        exits = _refresh_tor_cache()
+        exits = await _refresh_tor_cache()
         return _strip_zone(ip) in exits
     except Exception as e:
         logger.warning("check_tor_exit failed: %s", type(e).__name__)
         return False
 
 
-def _refresh_firehol_cache() -> tuple:
+async def _refresh_firehol_cache() -> tuple:
     """Fetch FireHOL level1 netset, build PyTricia tries (v4 + v6).
 
     Returns (v4_trie, v6_trie). On fetch failure returns previously cached
@@ -367,7 +374,7 @@ def _refresh_firehol_cache() -> tuple:
         and now - _firehol_cache["last_failure_at"] < FIREHOL_FAILURE_BACKOFF_SEC
     ):
         return _firehol_cache.get("v4"), _firehol_cache.get("v6")
-    with _firehol_lock:
+    async with _firehol_lock:
         now = time.time()
         if now - _firehol_cache["fetched_at"] < FIREHOL_TTL and _firehol_cache["fetched_at"] > 0:
             return _firehol_cache["v4"], _firehol_cache["v6"]
@@ -376,9 +383,8 @@ def _refresh_firehol_cache() -> tuple:
             and now - _firehol_cache["last_failure_at"] < FIREHOL_FAILURE_BACKOFF_SEC
         ):
             return _firehol_cache.get("v4"), _firehol_cache.get("v6")
-        client = _make_http_client()
         try:
-            body = _fetch_capped(client, FIREHOL_LEVEL1_URL, FIREHOL_MAX_BYTES)
+            body = await _fetch_capped(_intel_client, FIREHOL_LEVEL1_URL, FIREHOL_MAX_BYTES)
             if body is None:
                 logger.warning("FireHOL level1 exceeded cap (%d bytes)", FIREHOL_MAX_BYTES)
                 _firehol_cache["consecutive_failures"] += 1
@@ -416,11 +422,9 @@ def _refresh_firehol_cache() -> tuple:
             _firehol_cache["consecutive_failures"] += 1
             _firehol_cache["last_failure_at"] = time.time()
             return _firehol_cache.get("v4"), _firehol_cache.get("v6")
-        finally:
-            client.close()
 
 
-def check_firehol(ip: str) -> dict:
+async def check_firehol(ip: str) -> dict:
     """Check FireHOL level1 blocklist membership.
 
     Returns one of:
@@ -437,7 +441,7 @@ def check_firehol(ip: str) -> dict:
         return {"status": "skipped", "listed": False, "lists_matched": []}
 
     try:
-        v4, v6 = _refresh_firehol_cache()
+        v4, v6 = await _refresh_firehol_cache()
         trie = v6 if ":" in stripped else v4
         if trie is None:
             return {"status": "unavailable", "listed": False, "lists_matched": []}

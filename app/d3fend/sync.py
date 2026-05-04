@@ -28,7 +28,7 @@ ATTACK_MAPPING_CHUNK = 2000
 
 VALID_TACTICS = {"Model", "Harden", "Detect", "Isolate", "Deceive", "Evict", "Restore"}
 
-_client = httpx.Client(
+_client = httpx.AsyncClient(
     timeout=httpx.Timeout(HTTP_TIMEOUT, connect=10.0),
     headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
     follow_redirects=True,
@@ -65,7 +65,7 @@ def _binding_value(binding: dict, key: str) -> str | None:
     return None
 
 
-def sync_d3fend() -> int:
+async def sync_d3fend() -> int:
     """Sync D3FEND defense catalog and attack mappings. Returns count of mapping rows upserted."""
     log.info("D3FEND sync starting...")
     update_sync_status("d3fend", 0, "in_progress")
@@ -73,7 +73,7 @@ def sync_d3fend() -> int:
     mapping_count = 0
 
     try:
-        resp = _client.get(D3FEND_URL)
+        resp = await _client.get(D3FEND_URL)
         resp.raise_for_status()
         if len(resp.content) > D3FEND_MAX_BYTES:
             log.error("D3FEND mappings exceed %d bytes (%d) — refusing", D3FEND_MAX_BYTES, len(resp.content))

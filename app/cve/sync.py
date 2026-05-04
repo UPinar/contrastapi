@@ -1510,9 +1510,8 @@ async def sync_all(full: bool = False):
     await sync_cwe()
     await sync_epss()
     await sync_exploitdb(full=False)
-    # atlas/d3fend remain sync (own httpx.Client) — Batch 5 candidate.
-    sync_atlas()
-    sync_d3fend()
+    await sync_atlas()
+    await sync_d3fend()
 
 
 async def _main_cli(args: list[str]) -> None:
@@ -1556,11 +1555,11 @@ async def _main_cli(args: list[str]) -> None:
         elif src == "atlas":
             from atlas.sync import sync_atlas
 
-            sync_atlas()
+            await sync_atlas()
         elif src == "d3fend":
             from d3fend.sync import sync_d3fend
 
-            sync_d3fend()
+            await sync_d3fend()
         else:
             print(f"Unknown source: {src}. Options: nvd, mitre, ghsa, osv, epss, kev, cwe, exploitdb, atlas, d3fend")
     else:

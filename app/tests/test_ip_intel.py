@@ -1,10 +1,28 @@
 """Tests for domain/ip_intel.py — cloud provider lookup, Tor exit detection, risk scoring."""
 
+import asyncio
 import time
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import pytricia
+
+
+class _AsyncBytesIter:
+    """Async iterator yielding bytes chunks from a sync iterable — for AsyncClient mocks."""
+
+    def __init__(self, chunks):
+        self._chunks = iter(chunks)
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        try:
+            return next(self._chunks)
+        except StopIteration:
+            raise StopAsyncIteration
+
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -49,10 +67,10 @@ class TestRefreshCloudCache:
             headers["content-length"] = content_length
         resp.headers.get = lambda k, default=None: headers.get(k, default)
         # iter_bytes yields body in a single chunk
-        resp.iter_bytes = lambda: iter([body])
+        resp.aiter_bytes = lambda: _AsyncBytesIter([body])
         ctx = MagicMock()
-        ctx.__enter__ = lambda s: resp
-        ctx.__exit__ = MagicMock(return_value=False)
+        ctx.__aenter__ = AsyncMock(return_value=resp)
+        ctx.__aexit__ = AsyncMock(return_value=False)
         return ctx
 
     def test_aws_only_others_fail(self):
@@ -67,14 +85,12 @@ class TestRefreshCloudCache:
                 return self._stream_ctx(aws_body)
             raise httpx.TimeoutException("timeout")
 
-        with patch("domain.ip_intel._make_http_client") as mock_factory:
-            mock_client = MagicMock()
+        with patch("domain.ip_intel._intel_client") as mock_client:
             mock_client.stream.side_effect = stream_side_effect
-            mock_factory.return_value = mock_client
 
             from domain.ip_intel import _refresh_cloud_cache
 
-            v4, v6 = _refresh_cloud_cache()
+            v4, v6 = asyncio.run(_refresh_cloud_cache())
 
         # AWS prefix should be present; no exception bubbled
         assert v4.get("3.5.0.1") == "AWS"
@@ -91,14 +107,12 @@ class TestRefreshCloudCache:
         # Content-Length declares oversize → early abort, no iter_bytes consumed
         big_ctx = self._stream_ctx(b"", content_length=str(10 * 1024 * 1024))
 
-        with patch("domain.ip_intel._make_http_client") as mock_factory:
-            mock_client = MagicMock()
+        with patch("domain.ip_intel._intel_client") as mock_client:
             mock_client.stream.return_value = big_ctx
-            mock_factory.return_value = mock_client
 
             from domain.ip_intel import _refresh_cloud_cache
 
-            v4, _ = _refresh_cloud_cache()
+            v4, _ = asyncio.run(_refresh_cloud_cache())
 
         # All sources hit body cap → previous AWS prefix preserved
         assert v4.get("10.0.0.0/8") == "AWS"
@@ -111,11 +125,11 @@ class TestRefreshCloudCache:
         v6 = pytricia.PyTricia(128)
         m._cloud_cache = {"v4": v4, "v6": v6, "fetched_at": time.time()}
 
-        with patch("domain.ip_intel._make_http_client") as mock_factory:
+        with patch("domain.ip_intel._intel_client") as mock_client:
             from domain.ip_intel import _refresh_cloud_cache
 
-            _refresh_cloud_cache()
-            mock_factory.assert_not_called()
+            asyncio.run(_refresh_cloud_cache())
+            mock_client.stream.assert_not_called()
 
 
 # ── tor cache tests ───────────────────────────────────────────────────────────
@@ -139,19 +153,17 @@ class TestRefreshTorCache:
         resp = MagicMock()
         resp.raise_for_status = MagicMock()
         resp.headers.get = lambda k, default=None: None
-        resp.iter_bytes = lambda: iter([body])
+        resp.aiter_bytes = lambda: _AsyncBytesIter([body])
         ctx = MagicMock()
-        ctx.__enter__ = lambda s: resp
-        ctx.__exit__ = MagicMock(return_value=False)
+        ctx.__aenter__ = AsyncMock(return_value=resp)
+        ctx.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("domain.ip_intel._make_http_client") as mock_factory:
-            mock_client = MagicMock()
+        with patch("domain.ip_intel._intel_client") as mock_client:
             mock_client.stream.return_value = ctx
-            mock_factory.return_value = mock_client
 
             from domain.ip_intel import _refresh_tor_cache
 
-            result = _refresh_tor_cache()
+            result = asyncio.run(_refresh_tor_cache())
 
         assert "1.2.3.4" in result
         assert "5.6.7.8" in result
@@ -168,11 +180,11 @@ class TestRefreshTorCache:
             "line_count": 1,
         }
 
-        with patch("domain.ip_intel._make_http_client") as mock_factory:
+        with patch("domain.ip_intel._intel_client") as mock_client:
             from domain.ip_intel import _refresh_tor_cache
 
-            result = _refresh_tor_cache()
-            mock_factory.assert_not_called()
+            result = asyncio.run(_refresh_tor_cache())
+            mock_client.stream.assert_not_called()
 
         assert "1.2.3.4" in result
 
@@ -183,16 +195,16 @@ class TestRefreshTorCache:
         resp = MagicMock()
         resp.raise_for_status = MagicMock()
         resp.headers.get = lambda k, default=None: None
-        resp.iter_bytes = lambda: iter([body])
+        resp.aiter_bytes = lambda: _AsyncBytesIter([body])
         ctx = MagicMock()
-        ctx.__enter__ = lambda s: resp
-        ctx.__exit__ = MagicMock(return_value=False)
+        ctx.__aenter__ = AsyncMock(return_value=resp)
+        ctx.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("domain.ip_intel._make_http_client") as mock_factory:
-            mock_factory.return_value = MagicMock(stream=MagicMock(return_value=ctx))
+        with patch("domain.ip_intel._intel_client") as mock_client:
+            mock_client.stream = MagicMock(return_value=ctx)
             from domain.ip_intel import _refresh_tor_cache, tor_cache_status
 
-            _refresh_tor_cache()
+            asyncio.run(_refresh_tor_cache())
             assert tor_cache_status() == "ok"
             import domain.ip_intel as m
 
@@ -202,14 +214,12 @@ class TestRefreshTorCache:
         """NEW-B: timeout / network error → fetch_status='failed' so the
         verdict layer adds 'tor' to sources_unavailable, turning the silent
         false-negative into honest signal."""
-        with patch("domain.ip_intel._make_http_client") as mock_factory:
-            mock_client = MagicMock()
+        with patch("domain.ip_intel._intel_client") as mock_client:
             mock_client.stream.side_effect = Exception("boom")
-            mock_factory.return_value = mock_client
 
             from domain.ip_intel import _refresh_tor_cache, tor_cache_status
 
-            result = _refresh_tor_cache()
+            result = asyncio.run(_refresh_tor_cache())
             assert result == frozenset()
             assert tor_cache_status() == "failed"
 
@@ -221,16 +231,16 @@ class TestRefreshTorCache:
         resp.raise_for_status = MagicMock()
         # Force the cap branch by claiming a too-large content-length.
         resp.headers.get = lambda k, default=None: "999999999" if k == "content-length" else default
-        resp.iter_bytes = lambda: iter([])
+        resp.aiter_bytes = lambda: _AsyncBytesIter([])
         ctx = MagicMock()
-        ctx.__enter__ = lambda s: resp
-        ctx.__exit__ = MagicMock(return_value=False)
+        ctx.__aenter__ = AsyncMock(return_value=resp)
+        ctx.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("domain.ip_intel._make_http_client") as mock_factory:
-            mock_factory.return_value = MagicMock(stream=MagicMock(return_value=ctx))
+        with patch("domain.ip_intel._intel_client") as mock_client:
+            mock_client.stream = MagicMock(return_value=ctx)
             from domain.ip_intel import _refresh_tor_cache, tor_cache_status
 
-            _refresh_tor_cache()
+            asyncio.run(_refresh_tor_cache())
             assert tor_cache_status() == "capped"
 
     def test_initial_status_before_first_fetch(self):
@@ -261,7 +271,7 @@ class TestCheckCloudProvider:
 
         from domain.ip_intel import check_cloud_provider
 
-        assert check_cloud_provider("3.5.140.2") == "AWS"
+        assert asyncio.run(check_cloud_provider("3.5.140.2")) == "AWS"
 
     def test_returns_none_outside_range(self):
         import domain.ip_intel as m
@@ -273,7 +283,7 @@ class TestCheckCloudProvider:
 
         from domain.ip_intel import check_cloud_provider
 
-        assert check_cloud_provider("9.9.9.9") is None
+        assert asyncio.run(check_cloud_provider("9.9.9.9")) is None
 
     def test_ipv6_lookup(self):
         import domain.ip_intel as m
@@ -285,7 +295,7 @@ class TestCheckCloudProvider:
 
         from domain.ip_intel import check_cloud_provider
 
-        assert check_cloud_provider("2606:4700::1111") == "Cloudflare"
+        assert asyncio.run(check_cloud_provider("2606:4700::1111")) == "Cloudflare"
 
 
 class TestCheckTorExit:
@@ -311,7 +321,7 @@ class TestCheckTorExit:
 
         from domain.ip_intel import check_tor_exit
 
-        assert check_tor_exit("5.9.32.230") is True
+        assert asyncio.run(check_tor_exit("5.9.32.230")) is True
 
     def test_ip_not_in_exit_set(self):
         import domain.ip_intel as m
@@ -325,7 +335,7 @@ class TestCheckTorExit:
 
         from domain.ip_intel import check_tor_exit
 
-        assert check_tor_exit("8.8.8.8") is False
+        assert asyncio.run(check_tor_exit("8.8.8.8")) is False
 
 
 # ── FireHOL tests ─────────────────────────────────────────────────────────────
@@ -350,62 +360,53 @@ class TestFirehol:
         resp = MagicMock()
         resp.raise_for_status = MagicMock()
         resp.headers.get = lambda k, default=None: None
-        resp.iter_bytes = lambda: iter([body])
+        resp.aiter_bytes = lambda: _AsyncBytesIter([body])
         ctx = MagicMock()
-        ctx.__enter__ = lambda s: resp
-        ctx.__exit__ = MagicMock(return_value=False)
+        ctx.__aenter__ = AsyncMock(return_value=resp)
+        ctx.__aexit__ = AsyncMock(return_value=False)
         return ctx
 
     def test_firehol_listed_ip(self):
         body = b"1.2.3.0/24\n"
-        with patch("domain.ip_intel._make_http_client") as mock_factory:
-            mock_client = MagicMock()
+        with patch("domain.ip_intel._intel_client") as mock_client:
             mock_client.stream.return_value = self._stream_ctx(body)
-            mock_factory.return_value = mock_client
 
             from domain.ip_intel import check_firehol
 
-            result = check_firehol("1.2.3.5")
+            result = asyncio.run(check_firehol("1.2.3.5"))
 
         assert result == {"status": "ok", "listed": True, "lists_matched": ["firehol_level1"]}
 
     def test_firehol_clean_ip(self):
         body = b"1.2.3.0/24\n"
-        with patch("domain.ip_intel._make_http_client") as mock_factory:
-            mock_client = MagicMock()
+        with patch("domain.ip_intel._intel_client") as mock_client:
             mock_client.stream.return_value = self._stream_ctx(body)
-            mock_factory.return_value = mock_client
 
             from domain.ip_intel import check_firehol
 
-            result = check_firehol("9.9.9.9")
+            result = asyncio.run(check_firehol("9.9.9.9"))
 
         assert result == {"status": "ok", "listed": False, "lists_matched": []}
 
     def test_firehol_fetch_failure_graceful(self):
         import httpx
 
-        with patch("domain.ip_intel._make_http_client") as mock_factory:
-            mock_client = MagicMock()
+        with patch("domain.ip_intel._intel_client") as mock_client:
             mock_client.stream.side_effect = httpx.TimeoutException("timeout")
-            mock_factory.return_value = mock_client
 
             from domain.ip_intel import check_firehol
 
-            result = check_firehol("5.5.5.5")
+            result = asyncio.run(check_firehol("5.5.5.5"))
 
         assert result["status"] == "unavailable"
         assert result["listed"] is False
         assert result["lists_matched"] == []
 
     def test_firehol_private_ip_skipped(self):
-        with patch("domain.ip_intel._make_http_client") as mock_factory:
-            mock_client = MagicMock()
-            mock_factory.return_value = mock_client
-
+        with patch("domain.ip_intel._intel_client") as mock_client:
             from domain.ip_intel import check_firehol
 
-            result = check_firehol("10.0.0.1")
+            result = asyncio.run(check_firehol("10.0.0.1"))
 
         assert result["status"] == "skipped"
         assert result["listed"] is False
@@ -413,14 +414,12 @@ class TestFirehol:
 
     def test_firehol_comment_and_blank_lines_ignored(self):
         body = b"# comment\n\n  \n1.2.3.4\n"
-        with patch("domain.ip_intel._make_http_client") as mock_factory:
-            mock_client = MagicMock()
+        with patch("domain.ip_intel._intel_client") as mock_client:
             mock_client.stream.return_value = self._stream_ctx(body)
-            mock_factory.return_value = mock_client
 
             from domain.ip_intel import _refresh_firehol_cache
 
-            v4, v6 = _refresh_firehol_cache()
+            v4, v6 = asyncio.run(_refresh_firehol_cache())
 
         assert v4.get("1.2.3.4") is True
         count = sum(1 for _ in v4)
@@ -428,16 +427,14 @@ class TestFirehol:
 
     def test_firehol_cache_refresh_respects_ttl(self):
         body = b"1.2.3.0/24\n"
-        with patch("domain.ip_intel._make_http_client") as mock_factory:
-            mock_client = MagicMock()
+        with patch("domain.ip_intel._intel_client") as mock_client:
             mock_client.stream.return_value = self._stream_ctx(body)
-            mock_factory.return_value = mock_client
 
             with patch("domain.ip_intel.time") as mock_time:
                 mock_time.time.return_value = 0.0
                 from domain.ip_intel import _refresh_firehol_cache
 
-                _refresh_firehol_cache()
+                asyncio.run(_refresh_firehol_cache())
 
                 mock_client.stream.reset_mock()
                 mock_client.stream.return_value = self._stream_ctx(body)
@@ -446,35 +443,31 @@ class TestFirehol:
                 from config import FIREHOL_TTL
 
                 mock_time.time.return_value = FIREHOL_TTL + 1.0
-                _refresh_firehol_cache()
+                asyncio.run(_refresh_firehol_cache())
 
         assert mock_client.stream.call_count == 1
 
     def test_firehol_ipv6_cidr_in_v6_trie(self):
         # Use a routable (non-reserved, non-documentation) IPv6 prefix
         body = b"2607:f8b0::/32\n"
-        with patch("domain.ip_intel._make_http_client") as mock_factory:
-            mock_client = MagicMock()
+        with patch("domain.ip_intel._intel_client") as mock_client:
             mock_client.stream.return_value = self._stream_ctx(body)
-            mock_factory.return_value = mock_client
 
             from domain.ip_intel import check_firehol
 
-            result = check_firehol("2607:f8b0::1")
+            result = asyncio.run(check_firehol("2607:f8b0::1"))
 
         assert result == {"status": "ok", "listed": True, "lists_matched": ["firehol_level1"]}
 
     def test_firehol_ipv6_clean_not_listed(self):
         # Different v6 prefix from the listed one → must return listed=False
         body = b"2607:f8b0::/32\n"
-        with patch("domain.ip_intel._make_http_client") as mock_factory:
-            mock_client = MagicMock()
+        with patch("domain.ip_intel._intel_client") as mock_client:
             mock_client.stream.return_value = self._stream_ctx(body)
-            mock_factory.return_value = mock_client
 
             from domain.ip_intel import check_firehol
 
-            result = check_firehol("2606:4700::1")
+            result = asyncio.run(check_firehol("2606:4700::1"))
 
         assert result == {"status": "ok", "listed": False, "lists_matched": []}
 
@@ -482,30 +475,26 @@ class TestFirehol:
         import httpx
         from config import FIREHOL_FAILURE_THRESHOLD
 
-        with patch("domain.ip_intel._make_http_client") as mock_factory:
-            mock_client = MagicMock()
+        with patch("domain.ip_intel._intel_client") as mock_client:
             mock_client.stream.side_effect = httpx.TimeoutException("timeout")
-            mock_factory.return_value = mock_client
 
             from domain.ip_intel import _refresh_firehol_cache
 
             for _ in range(FIREHOL_FAILURE_THRESHOLD):
-                _refresh_firehol_cache()
+                asyncio.run(_refresh_firehol_cache())
             # Next call within backoff window must NOT hit upstream
             fetches_before = mock_client.stream.call_count
-            _refresh_firehol_cache()
+            asyncio.run(_refresh_firehol_cache())
             assert mock_client.stream.call_count == fetches_before
 
     def test_firehol_malformed_line_skipped(self):
         body = b"NOT_AN_IP\n1.2.3.4\n"
-        with patch("domain.ip_intel._make_http_client") as mock_factory:
-            mock_client = MagicMock()
+        with patch("domain.ip_intel._intel_client") as mock_client:
             mock_client.stream.return_value = self._stream_ctx(body)
-            mock_factory.return_value = mock_client
 
             from domain.ip_intel import _refresh_firehol_cache
 
-            v4, _ = _refresh_firehol_cache()
+            v4, _ = asyncio.run(_refresh_firehol_cache())
 
         count = sum(1 for _ in v4)
         assert count == 1
