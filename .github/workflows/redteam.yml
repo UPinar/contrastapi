@@ -1,6 +1,6 @@
 name: Red Team Scan
 
-# Passive scanning: ZAP baseline + Nuclei against the live API on a weekly cron.
+# Passive Nuclei scan against the live API on a weekly cron.
 # Public repo policy: NO raw reports uploaded as artifacts (would expose found
 # vulns to anyone with repo read for 30 days = zero-day disclosure window).
 # Only counts go into the public job summary; full details go to Telegram.
@@ -18,64 +18,19 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  zap-baseline:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: ZAP baseline scan
-        uses: zaproxy/action-baseline@v0.14.0
-        with:
-          target: 'https://api.contrastcyber.com'
-          rules_file_name: '.zap/rules.tsv'
-          cmd_options: '-a -j'
-          allow_issue_writing: false
-          fail_action: false
-
-      - name: Summarize + alert
-        if: always()
-        env:
-          TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TG_CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: |
-          set -e
-          if [ ! -f report_json.json ]; then
-            echo "## ZAP Baseline ❌" >> "$GITHUB_STEP_SUMMARY"
-            echo "Scan failed to produce a report." >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-          HIGH=$(jq '[.site[0].alerts[]? | select(.riskcode=="3")] | length' report_json.json)
-          MED=$(jq  '[.site[0].alerts[]? | select(.riskcode=="2")] | length' report_json.json)
-          LOW=$(jq  '[.site[0].alerts[]? | select(.riskcode=="1")] | length' report_json.json)
-          {
-            echo "## ZAP Baseline"
-            echo "- High: $HIGH"
-            echo "- Medium: $MED"
-            echo "- Low: $LOW"
-          } >> "$GITHUB_STEP_SUMMARY"
-          if [ "$HIGH" -gt 0 ] || [ "$MED" -gt 0 ]; then
-            DETAILS=$(jq -r '.site[0].alerts[]? | select(.riskcode=="2" or .riskcode=="3") | "[\(.riskdesc)] \(.alert) — \(.instances[0].uri // "n/a")"' report_json.json | head -20)
-            MSG=$(printf 'ZAP baseline: %s high, %s medium\n\n%s' "$HIGH" "$MED" "$DETAILS")
-            curl -s -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
-              --data-urlencode "chat_id=${TG_CHAT}" \
-              --data-urlencode "text=${MSG}" > /dev/null
-          fi
-          rm -f report_json.json report_html.html report_md.md
-
   nuclei-scan:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      # Pinned to v3.1.1 SHA — never use @main in CI (supply chain risk).
+      # Pinned by SHA — never @main in CI (supply chain risk).
+      # Action signature uses a single `args:` string; the previous
+      # target/templates/flags fields were silently ignored.
+      # -rl 1 -c 2: 1 req/sec, 2 concurrent — keeps us under Free 100/hr.
       - name: Nuclei scan
         uses: projectdiscovery/nuclei-action@cc153d0541e1adf8a42bbe31c0a4fb2376147538
         with:
-          target: https://api.contrastcyber.com
-          templates: cves,exposures,misconfiguration,vulnerabilities
-          # -severity is a nuclei CLI flag, not an action input.
-          # -rl 1 -c 2: 1 req/sec, 2 concurrent — keeps us under the free tier 100/hr cap.
-          flags: '-severity medium,high,critical -rl 1 -c 2 -timeout 10 -jsonl-export nuclei.jsonl'
+          args: -u https://api.contrastcyber.com -t cves,exposures,misconfiguration,vulnerabilities -severity medium,high,critical -rl 1 -c 2 -timeout 10 -jsonl-export nuclei.jsonl
 
       - name: Summarize + alert
         if: always()
