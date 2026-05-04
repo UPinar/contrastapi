@@ -1,0 +1,80 @@
+=== contrastapi npm SDK Publish Adimlari ===
+Tarih: 4 Mayis 2026
+Paket: contrastapi@1.4.1
+
+ONCE: Dosyalar Linux'tan kopyalandi (zip transfer), version 1.4.1
+SIMDI: Windows Hello ile login + publish
+
+--- DEGISIKLIK OZETI (1.4.0 -> 1.4.1) ---
+
+Sadece metadata bump — hicbir runtime/API kod degisikligi yok.
+
+* package.json:
+  - version: 1.4.0 -> 1.4.1
+  - engines.node: ">=14" -> ">=18"
+
+Sebep: Node 14 EOL 2023-04. Aktif LTS'ler v22 (end 2027-04) ve v24
+(end 2028-04). Eski engines field kullanicilara yanlis sinyal veriyordu;
+gercek runtime zaten Node 18+ uzerinde test ediliyor.
+
+Onceki release: v1.4.0 (1 May 2026)
+
+--- ADIMLAR (Windows'ta) ---
+
+1) PowerShell ac (Win+X -> Terminal / PowerShell)
+
+2) Klasore gir:
+   cd $env:USERPROFILE\Desktop\contrastapi-sdk
+   # alternatif: cd C:\Users\uygrp\Desktop\contrastapi-sdk
+
+3) ZIP'i unzip et (eger henuz acmadiysan):
+   Expand-Archive -Force contrastapi-node-1.4.1.zip .\contrastapi-node-1.4.1\
+   cd .\contrastapi-node-1.4.1\
+
+4) Version dogrula:
+   type package.json | findstr version
+   -> "version": "1.4.1" gormelisin
+
+5) Login (eger session expired ise):
+   npm login --auth-type=web
+
+   Browser'da:
+   - "Sign in" sec
+   - Email: contact@contrastcyber.com
+   - Windows Hello PIN gir
+   - "Authorize" tikla
+
+6) Login dogrula:
+   npm whoami
+   -> contrast_cyber yazmali
+
+7) Publish:
+   npm publish
+
+   Basarili cikti:
+   + contrastapi@1.4.1
+
+8) Dogrula:
+   https://www.npmjs.com/package/contrastapi
+   -> "1.4.1" en ustte gorunmeli (latest tag)
+
+--- SORUN CIKARSA ---
+
+* "E401 Unauthorized" -> npm login tekrar yap (adim 5)
+* "E403 Forbidden" -> npm whoami yanlis hesap, npm logout + login
+* "EPUBLISHCONFLICT 403" -> version 1.4.1 zaten yayinlanmis (cok dusuk
+   ihtimal), package.json'da 1.4.2'ye bump + tekrar publish
+* "ENOENT package.json" -> yanlis klasor; cd komutunu kontrol et
+
+--- PUBLISH SONRASI ---
+
+1) Claude'a "node sdk 1.4.1 publish tamam" de
+2) Memory guncellemesi (release tarihi + engine bump)
+
+--- DOSYALAR ---
+
+index.js      - degisiklik yok (1.4.0 ile birebir ayni)
+index.d.ts    - degisiklik yok
+package.json  - version 1.4.1 + engines.node >=18
+README.md    - degisiklik yok
+test/         - degisiklik yok (node --test test/ yesil)
