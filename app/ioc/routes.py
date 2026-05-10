@@ -1,0 +1,799 @@
+"""IOC / Threat Intelligence API routes — /v1/ioc/*, /v1/hash/*, /v1/password/*, /v1/phishing/*"""
+
+import asyncio
+import logging
+import re
+import socket
+import time as _time
+from typing import Annotated
+from urllib.parse import urlparse
+
+import httpx
+from auth import AuthCtx, require_auth
+from config import settings
+from db import aget_cached_domain, asave_cached_domain
+from domain.ip_intel import check_tor_exit, tor_cache_status
+from domain.recon import _dns_call_with_timeout
+from domain.threat import check_urlhaus
+from fastapi import APIRouter, Depends, HTTPException, Path
+from fastapi.concurrency import run_in_threadpool
+from ioc.lookup import (
+    detect_indicator_type,
+    query_feodo,
+    query_malwarebazaar,
+    query_threatfox,
+)
+from ioc.password import is_valid_sha1, query_pwned_hash
+from ioc.schemas import BulkIocResponse, HashResponse, IocResponse, PasswordResponse, PhishingResponse
+from pydantic import BaseModel, Field
+from schemas import PivotHint, Verdict
+from validation import is_private_ip, is_valid_ip, sanitize_echo
+
+logger = logging.getLogger("contrastapi")
+
+_phish_headers = {"Auth-Key": settings.urlhaus_api_key} if settings.urlhaus_api_key else {}
+_phish_client = httpx.AsyncClient(
+    timeout=httpx.Timeout(5.0, connect=3.0),
+    follow_redirects=False,
+    headers=_phish_headers,
+    cookies=httpx.Cookies(),
+    limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
+)
+
+router = APIRouter(tags=["Threat Intelligence"])
+
+_HEX_RE = re.compile(r"^[0-9a-fA-F]+$")
+_HASH_LENS = {32: "md5", 40: "sha1", 64: "sha256"}
+
+# ThreatFox honeypot/demo entries carry these tags; cap their threat_level to avoid
+# false escalation when an agent triages benign sample IOCs (e.g. example.com).
+_TEST_IOC_TAGS: frozenset[str] = frozenset({"test", "example", "demo", "sandbox", "appleseed"})
+
+
+def _ioc_verdict(queried: list[str], unavailable: list[str]) -> Verdict:
+    """Build verdict metadata for ioc_lookup responses (live threat-feed queries, age=0)."""
+    return Verdict(
+        deterministic=True,
+        falsifiable_fields=["type", "threat_level", "sources"],
+        data_age_seconds=0,
+        sources_queried=queried,
+        sources_unavailable=unavailable,
+        completeness="partial" if unavailable else "complete",
+    )
+
+
+@router.get(
+    "/ioc/{indicator:path}", operation_id="ioc_lookup", response_model=IocResponse, response_model_exclude_none=True
+)
+async def ioc_lookup(
+    indicator: Annotated[
+        str,
+        Path(
+            description=(
+                "Indicator of compromise — auto-detected type. Accepts: IP (IPv4/IPv6), domain, URL "
+                "(with scheme), or file hash (MD5/SHA1/SHA256/SHA512, hex). Max 2048 chars."
+            ),
+        ),
+    ],
+    auth: Annotated[AuthCtx, Depends(require_auth("/v1/ioc"))],
+):
+    """Unified IOC enrichment — auto-detects type and queries abuse.ch feeds.
+
+    Source coverage by type: hash → ThreatFox only; IP → ThreatFox + Feodo + URLhaus;
+    domain / URL → ThreatFox + URLhaus. Feodo and URLhaus do not index hashes.
+    """
+    indicator = indicator.strip()
+    if not indicator or len(indicator) > 2048:
+        raise HTTPException(status_code=400, detail="Invalid indicator")
+    # Sanitize indicator for safe inclusion in response summary (prevent XSS in consumers)
+    indicator = re.sub(r"[<>&\"']", "", indicator)
+
+    ioc_type = detect_indicator_type(indicator)
+    if ioc_type == "unknown":
+        raise HTTPException(
+            status_code=400, detail="Could not detect indicator type. Provide an IP, domain, URL, or file hash."
+        )
+
+    # Cache full response for ≤1h. Threat-feed pulls (ThreatFox/Feodo/URLhaus)
+    # cost 2-10s each in the cold path; the same IOC re-queried within the hour
+    # returns identical content. Key is lowercased so case-variant hashes/IPs
+    # share a slot. Tor cache lookup (free, in-memory) is bundled in cache too.
+    cache_key = f"ioc:{indicator.lower()}"
+    cached = await aget_cached_domain(cache_key)
+    if cached:
+        return {**cached}
+
+    sources = {}
+    threat_parts = []
+    queried_sources: list[str] = []
+    unavailable_sources: list[str] = []
+
+    # Validate before fanning out
+    urlhaus_target = None
+    if ioc_type == "ip":
+        if is_private_ip(indicator):
+            raise HTTPException(status_code=400, detail="Private/reserved IP addresses are not allowed")
+        urlhaus_target = indicator
+    elif ioc_type == "domain":
+        urlhaus_target = indicator
+    elif ioc_type == "url":
+        host = urlparse(indicator).hostname
+        if host:
+            if is_valid_ip(host):
+                if is_private_ip(host):
+                    raise HTTPException(status_code=400, detail="Private/reserved IP addresses are not allowed")
+            else:
+                addrs, _ = await run_in_threadpool(
+                    _dns_call_with_timeout, socket.getaddrinfo, host, None, socket.AF_UNSPEC, socket.SOCK_STREAM
+                )
+                if addrs and any(is_private_ip(addr[4][0]) for addr in addrs):
+                    raise HTTPException(status_code=400, detail="Private/reserved IP addresses are not allowed")
+            urlhaus_target = host
+
+    # Fire all lookups in parallel via asyncio.gather. All helpers are now
+    # native async (Faz 4 Batch 5). Per-source timeouts are enforced by
+    # asyncio.wait_for; results default to {} on timeout or exception
+    # (preserves the prior fallback semantics).
+    async def _await_with_timeout(coro, timeout=10):
+        return await asyncio.wait_for(coro, timeout=timeout)
+
+    tasks: list = [_await_with_timeout(query_threatfox(indicator))]
+    do_feodo = ioc_type == "ip"
+    do_urlhaus = urlhaus_target is not None
+    do_tor = ioc_type == "ip"
+    if do_feodo:
+        tasks.append(_await_with_timeout(query_feodo(indicator)))
+    if do_urlhaus:
+        tasks.append(_await_with_timeout(check_urlhaus(urlhaus_target)))
+    if do_tor:
+        tasks.append(_await_with_timeout(check_tor_exit(indicator), timeout=2))
+
+    settled = await asyncio.gather(*tasks, return_exceptions=True)
+
+    def _take(idx):
+        return settled[idx]
+
+    queried_sources.append("threatfox")
+    tf_result = _take(0)
+    if isinstance(tf_result, Exception):
+        logger.debug("ThreatFox lookup failed")
+        tf = {"found": False}
+        unavailable_sources.append("threatfox")
+    else:
+        tf = tf_result
+    sources["threatfox"] = tf
+    if tf.get("found"):
+        threat_parts.append(f"{tf.get('malware', 'unknown')} ({tf.get('threat_type', 'unknown')}) via ThreatFox")
+
+    cursor = 1
+    if do_feodo:
+        queried_sources.append("feodo")
+        feodo_result = _take(cursor)
+        cursor += 1
+        if isinstance(feodo_result, Exception):
+            logger.debug("Feodo lookup failed")
+            feodo = {"found": False}
+            unavailable_sources.append("feodo")
+        else:
+            feodo = feodo_result
+        sources["feodo"] = feodo
+        if feodo.get("found"):
+            threat_parts.append(f"{feodo.get('malware', 'unknown')} via Feodo Tracker")
+
+    if do_urlhaus:
+        queried_sources.append("urlhaus")
+        urlhaus_result = _take(cursor)
+        cursor += 1
+        if isinstance(urlhaus_result, Exception):
+            logger.debug("URLhaus lookup failed")
+            urlhaus = {"url_count": 0, "urls_online": 0}
+            unavailable_sources.append("urlhaus")
+        else:
+            urlhaus = urlhaus_result
+        sources["urlhaus"] = {
+            "found": urlhaus.get("url_count", 0) > 0,
+            "urls_online": urlhaus.get("urls_online", 0),
+        }
+        if sources["urlhaus"]["found"]:
+            threat_parts.append(f"{urlhaus['url_count']} malware URLs via URLhaus")
+
+    if do_tor:
+        queried_sources.append("tor")
+        tor_state = tor_cache_status()
+        tor_result = _take(cursor)
+        cursor += 1
+        if isinstance(tor_result, Exception):
+            logger.debug("Tor list lookup failed")
+            tor_listed = False
+            tor_state = "failed"
+        else:
+            tor_listed = bool(tor_result)
+        if tor_state != "ok":
+            unavailable_sources.append("tor")
+        sources["tor"] = {"listed": tor_listed, "fetch_status": tor_state}
+        if tor_listed:
+            threat_parts.append("known Tor exit node")
+
+    # Determine threat level
+    found_count = sum(1 for s in sources.values() if s.get("found"))
+    if found_count >= 2:
+        threat_level = "high"
+    elif found_count == 1:
+        threat_level = "medium"
+    else:
+        threat_level = "none"
+
+    # Cap test/demo entries: ThreatFox honeypot tags should not trigger high/medium.
+    tf_tags = {(t or "").lower().strip() for t in (sources.get("threatfox", {}).get("tags") or [])}
+    if tf_tags & _TEST_IOC_TAGS and threat_level in ("high", "medium"):
+        threat_level = "low"
+        threat_parts.append("(capped — ThreatFox test/demo tag)")
+
+    if threat_parts:
+        summary = f"{indicator} flagged as malicious: " + ", ".join(threat_parts)
+    else:
+        summary = f"{indicator} — no threats found across {len(sources)} sources"
+
+    response = {
+        "indicator": indicator,
+        "type": ioc_type,
+        "threat_level": threat_level,
+        "sources": sources,
+        "summary": summary,
+        "verdict": _ioc_verdict(queried_sources, unavailable_sources).model_dump(),
+    }
+    await asave_cached_domain(cache_key, response)
+    return response
+
+
+@router.get(
+    "/hash/{file_hash}", operation_id="hash_lookup", response_model=HashResponse, response_model_exclude_none=True
+)
+async def hash_lookup(
+    file_hash: Annotated[
+        str,
+        Path(
+            description=(
+                "File hash (hex, case-insensitive). Accepted lengths: MD5=32, SHA1=40, SHA256=64. "
+                "Other lengths or non-hex characters return 400."
+            ),
+        ),
+    ],
+    auth: Annotated[AuthCtx, Depends(require_auth("/v1/hash"))],
+):
+    """Malware file hash reputation lookup via MalwareBazaar."""
+    file_hash = file_hash.strip().lower()
+
+    if not _HEX_RE.match(file_hash) or len(file_hash) not in _HASH_LENS:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid hash. Provide MD5 (32 chars), SHA1 (40 chars), or SHA256 (64 chars).",
+        )
+
+    hash_type = _HASH_LENS[len(file_hash)]
+    result = await query_malwarebazaar(file_hash)
+
+    if result.get("found"):
+        family = result.get("malware_family", "unknown")
+        first_seen = result.get("first_seen", "unknown")
+        tags = result.get("tags", [])
+        tag_str = f" ({', '.join(tags[:3])})" if tags else ""
+        summary = f"{file_hash[:16]}... is {family}{tag_str}. First seen {first_seen}."
+    else:
+        summary = "No malware data found for this hash"
+
+    response = {
+        "hash": file_hash,
+        "hash_type": hash_type,
+        "found": result.get("found", False),
+        "malware_family": result.get("malware_family"),
+        "file_type": result.get("file_type"),
+        "file_size": result.get("file_size"),
+        "first_seen": result.get("first_seen"),
+        "tags": result.get("tags", []),
+        "file_name": result.get("file_name"),
+        "summary": summary,
+    }
+    hints = _hash_lookup_pivot_hints(response)
+    response["next_calls"] = [h.model_dump() for h in hints] if hints else None
+    return response
+
+
+@router.get(
+    "/password/{sha1_hash}",
+    operation_id="password_check",
+    response_model=PasswordResponse,
+    response_model_exclude_none=True,
+)
+async def password_check(
+    sha1_hash: Annotated[
+        str,
+        Path(
+            description=(
+                "Full SHA-1 hash of the password (40 hex chars, case-insensitive). "
+                "k-anonymity is applied server-side: only the first 5 chars are sent to HIBP."
+            ),
+        ),
+    ],
+    auth: Annotated[AuthCtx, Depends(require_auth("/v1/password"))],
+):
+    """Password breach check via HIBP Pwned Passwords (k-anonymity). Send full SHA1 hash, get found + breach count."""
+    if not is_valid_sha1(sha1_hash):
+        raise HTTPException(
+            status_code=400,
+            detail="Provide the full SHA1 hash (40 hexadecimal characters).",
+        )
+
+    result = await query_pwned_hash(sha1_hash)
+    count = result.get("breach_count", 0)
+    if result.get("found"):
+        summary = f"This password appeared in {count:,} data breaches."
+    else:
+        summary = "This password has not been found in any known data breaches."
+
+    return {**result, "summary": summary}
+
+
+async def _query_urlhaus_url(url: str) -> dict:
+    """Query URLhaus for an exact URL match."""
+    try:
+        resp = await _phish_client.post(
+            "https://urlhaus-api.abuse.ch/v1/url/",
+            data={"url": url},
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        if data.get("query_status") != "ok":
+            return {"found": False, "threat": None, "tags": [], "status": None}
+        raw_status = (data.get("url_status") or "").strip().lower()
+        normalized_status = raw_status if raw_status in {"online", "offline"} else "unknown"
+        return {
+            "found": True,
+            "threat": data.get("threat") or "unknown",
+            "tags": data.get("tags") or [],
+            "status": normalized_status,
+        }
+    except Exception as e:
+        logger.warning("URLhaus URL check failed: %s", type(e).__name__)
+        return {"found": False, "threat": None, "tags": [], "status": None}
+
+
+def _phishing_check_pivot_hints(record: dict) -> list[PivotHint]:
+    """Conditional: domain_report (medium/high or malicious), threat_intel (high), tech_fingerprint (clean)."""
+    host = record.get("host") or ""
+    if not host:
+        return []
+    threat_level = record.get("threat_level", "none")
+    is_malicious = bool(record.get("is_malicious"))
+    hints: list[PivotHint] = []
+    if is_malicious or threat_level in ("high", "medium"):
+        hints.append(
+            PivotHint(
+                tool="domain_report",
+                input=host,
+                reason="Comprehensive domain report: WHOIS, DNS, SSL, threat reputation, headers.",
+            )
+        )
+    if threat_level == "high":
+        hints.append(
+            PivotHint(
+                tool="threat_intel", input=host, reason="Domain-level threat reputation: AbuseIPDB, Shodan, blocklists."
+            )
+        )
+    if not is_malicious:
+        hints.append(
+            PivotHint(
+                tool="tech_fingerprint",
+                input=host,
+                reason="Detect tech stack — phishing sites often clone target tech for legitimacy.",
+            )
+        )
+    return hints
+
+
+def _hash_lookup_pivot_hints(record: dict) -> list[PivotHint]:
+    """Single-hint helper: extended threat-intel pivot when MalwareBazaar found this hash."""
+    if not record.get("found"):
+        return []
+    return [
+        PivotHint(
+            tool="ioc_lookup",
+            input=record["hash"],
+            reason="Extended threat intel: cross-reference this hash via ThreatFox + Feodo + URLhaus.",
+        )
+    ]
+
+
+def _bulk_ioc_per_item_pivot_hints(item: dict) -> list[PivotHint]:
+    """Per-item type dispatch (hash/ip/domain → drill, url → skip). Skips non-ok items."""
+    if item.get("status") != "ok":
+        return []
+    ioc = item.get("ioc") or {}
+    ioc_type = ioc.get("type")
+    indicator = item.get("indicator") or ""
+    if not indicator:
+        return []
+    if ioc_type == "hash":
+        return [
+            PivotHint(
+                tool="hash_lookup",
+                input=indicator,
+                reason="MalwareBazaar deep lookup: malware family, file metadata, sample tags.",
+            )
+        ]
+    if ioc_type == "ip":
+        return [
+            PivotHint(
+                tool="ip_lookup",
+                input=indicator,
+                reason="Full IP enrichment: ASN, geo, reverse DNS, abuse contact.",
+            )
+        ]
+    if ioc_type == "domain":
+        return [
+            PivotHint(
+                tool="domain_report",
+                input=indicator,
+                reason="Full domain recon: WHOIS, DNS, SSL, subdomains, threat intel.",
+            )
+        ]
+    return []
+
+
+def _bulk_ioc_lookup_outer_hints(results: list[dict]) -> list[PivotHint]:
+    """Outer envelope: 1 ioc_lookup hint with first successful indicator for cross-source correlation."""
+    if not results:
+        return []
+    first_ok = next(
+        (item.get("indicator") for item in results if item.get("status") == "ok"),
+        None,
+    )
+    if not first_ok:
+        return []
+    return [
+        PivotHint(
+            tool="ioc_lookup",
+            input=first_ok,
+            reason="Drill into first successful IOC for cross-source threat-intel correlation.",
+        )
+    ]
+
+
+@router.get(
+    "/phishing/{url:path}",
+    operation_id="phishing_check",
+    response_model=PhishingResponse,
+    response_model_exclude_none=True,
+)
+async def phishing_check(
+    url: Annotated[
+        str,
+        Path(
+            description=(
+                "Full URL to check (must include scheme, e.g. 'https://example.com/path'). "
+                "URL-encode any '?' or '#' chars the agent wants preserved into the path component. "
+                "Checked against URLhaus for both exact URL and host-level matches."
+            ),
+        ),
+    ],
+    auth: Annotated[AuthCtx, Depends(require_auth("/v1/phishing"))],
+):
+    """Check if a URL is malicious via URLhaus (host + exact URL lookup)."""
+    url = url.strip()
+
+    if not url.startswith(("http://", "https://")) or len(url) > 2048:
+        raise HTTPException(
+            status_code=400, detail="Invalid URL. Must start with http:// or https:// and be at most 2048 characters."
+        )
+
+    # Extract and validate hostname
+    try:
+        host = urlparse(url).hostname or ""
+    except ValueError:
+        host = ""
+    if not host:
+        raise HTTPException(status_code=400, detail="Could not extract hostname from URL.")
+    if is_valid_ip(host):
+        if is_private_ip(host):
+            raise HTTPException(status_code=400, detail="Private/reserved IP addresses are not allowed.")
+    else:
+        # Resolve domain and check for private IPs (consistent with /v1/ioc)
+        addr_result, _ = await run_in_threadpool(
+            _dns_call_with_timeout, socket.getaddrinfo, host, None, socket.AF_UNSPEC, socket.SOCK_STREAM
+        )
+        if addr_result and any(is_private_ip(addr[4][0]) for addr in addr_result):
+            raise HTTPException(status_code=400, detail="Private/reserved IP addresses are not allowed.")
+
+    # URLhaus host + exact-URL lookups in parallel.
+    uh_host, urlhaus_url = await asyncio.gather(
+        check_urlhaus(host),
+        _query_urlhaus_url(url),
+    )
+    urlhaus_host = {
+        "found": uh_host.get("url_count", 0) > 0,
+        "urls_online": uh_host.get("urls_online", 0),
+        "url_count": uh_host.get("url_count", 0),
+    }
+
+    # Distinguish active (live serving malware) from stale (historical only) findings.
+    # URLhaus keeps host records forever; urls_online == 0 means every malware URL on
+    # that host is now offline, so the host is not currently a live threat. Same for
+    # an exact URL match with url_status == "offline". Only "online" or "unknown"
+    # status counts as active (conservative — upstream sometimes omits status).
+    url_active = urlhaus_url["found"] and urlhaus_url.get("status") in (None, "online", "unknown")
+    host_active = urlhaus_host["urls_online"] > 0
+    any_evidence = urlhaus_url["found"] or urlhaus_host["found"]
+
+    is_malicious = url_active or host_active
+    is_stale = any_evidence and not is_malicious
+
+    if url_active and host_active:
+        threat_level = "high"
+    elif url_active or host_active:
+        threat_level = "medium"
+    elif is_stale:
+        threat_level = "low"
+    else:
+        threat_level = "none"
+
+    # Build summary
+    parts = []
+    if urlhaus_url["found"]:
+        if url_active:
+            parts.append(f"exact URL listed ({urlhaus_url['threat']})")
+        else:
+            parts.append(f"exact URL listed but offline ({urlhaus_url['threat']})")
+    if urlhaus_host["found"]:
+        if host_active:
+            parts.append(f"host has {urlhaus_host['url_count']} malware URLs ({urlhaus_host['urls_online']} online)")
+        else:
+            parts.append(f"host has {urlhaus_host['url_count']} historical malware URLs (0 online)")
+    if is_malicious:
+        summary = f"{url} — malicious: " + ", ".join(parts)
+    elif is_stale:
+        summary = f"{url} — stale historical evidence only: " + ", ".join(parts)
+    else:
+        summary = f"{url} — not found in threat databases"
+
+    response = {
+        "url": url,
+        "host": host,
+        "is_malicious": is_malicious,
+        "is_stale": is_stale,
+        "urlhaus_host": urlhaus_host,
+        "urlhaus_url": urlhaus_url,
+        "threat_level": threat_level,
+        "summary": summary,
+    }
+    response["next_calls"] = [h.model_dump() for h in _phishing_check_pivot_hints(response)]
+    return response
+
+
+# === Bulk IOC Lookup ===
+
+_BULK_IOC_PER_TIMEOUT = 10
+_BULK_IOC_OVERALL_TIMEOUT = 120
+
+
+class _BulkIocRequest(BaseModel):
+    indicators: list[str] = Field(
+        default_factory=list,
+        max_length=50,
+        description=(
+            "List of indicators of compromise — each is auto-detected per-item (IP / domain / "
+            "URL / file hash MD5/SHA1/SHA256/SHA512). Mixed types in one batch are supported. "
+            "Each indicator consumes 1 unit of the per-hour quota; entries beyond the caller's "
+            "remaining quota land in `skipped_due_to_rate_limit`. Max 50 per call (Pydantic input cap)."
+        ),
+    )
+
+
+async def _run_single_ioc(indicator: str) -> dict:
+    """Lookup a single IOC via threatfox + feodo (if IP) + urlhaus."""
+    indicator = indicator.strip()
+    if not indicator:
+        return {"indicator": indicator, "status": "invalid_format", "ioc": None, "error": "Empty indicator"}
+    # Strip control chars (newlines, tabs, bidi overrides, etc.) — str.isprintable()
+    # returns False for \n, \r, \t and Unicode control chars but True for normal space.
+    indicator = "".join(c for c in indicator if c.isprintable())
+    indicator = re.sub(r"[<>&\"']", "", indicator)
+
+    ioc_type = detect_indicator_type(indicator)
+    if ioc_type == "unknown":
+        return {"indicator": indicator, "status": "invalid_format", "ioc": None, "error": "Unknown indicator type"}
+
+    if ioc_type == "ip" and is_private_ip(indicator):
+        return {"indicator": indicator, "status": "invalid_format", "ioc": None, "error": "Private IP not allowed"}
+
+    # Determine target for urlhaus host lookup (mirror single /v1/ioc behavior)
+    urlhaus_target = None
+    if ioc_type in ("ip", "domain"):
+        urlhaus_target = indicator
+    elif ioc_type == "url":
+        host = urlparse(indicator).hostname
+        if host:
+            if is_valid_ip(host) and is_private_ip(host):
+                # v1.21.0: parity with direct private-IP path (line ~474) — validation rejection
+                # is invalid_format, not transient error.
+                return {
+                    "indicator": indicator,
+                    "status": "invalid_format",
+                    "ioc": None,
+                    "error": "Private IP not allowed",
+                }
+            urlhaus_target = host
+
+    sources = {}
+    threat_level = "none"
+    try:
+        tf = await query_threatfox(indicator)
+        sources["threatfox"] = tf
+        if tf.get("found"):
+            threat_level = "high"
+    except Exception:
+        sources["threatfox"] = {"found": False}
+
+    if ioc_type == "ip":
+        try:
+            feodo = await query_feodo(indicator)
+            sources["feodo"] = feodo
+            if feodo.get("found"):
+                threat_level = "high"
+        except Exception:
+            # Feodo blocklist unreachable — surface "found: False" rather than 5xx.
+            sources["feodo"] = {"found": False}
+
+    if urlhaus_target:
+        try:
+            urlhaus = await check_urlhaus(urlhaus_target)
+            if urlhaus:
+                sources["urlhaus"] = urlhaus
+                if urlhaus.get("urlhaus_status") == "found":
+                    threat_level = "high"
+        except Exception:
+            # URLhaus feed unreachable — best-effort, response still returned with other sources.
+            pass
+
+    # Sub-tech to honest reflect "all sources reachable but no findings": still status='ok',
+    # threat_level='none'. 'not_found' is reserved in schema for parity but not emitted here —
+    # IOC lookups always traverse upstream feeds, distinct from CVE catalog lookups where
+    # 'not_found' carries a distinct meaning ("not in our DB").
+    return {
+        "indicator": indicator,
+        "status": "ok",
+        "ioc": {"type": ioc_type, "threat_level": threat_level, "sources": sources},
+        "error": None,
+    }
+
+
+@router.post(
+    "/iocs/bulk",
+    operation_id="bulk_ioc_lookup",
+    response_model=BulkIocResponse,
+    response_model_exclude_none=True,
+)
+async def bulk_ioc_lookup(
+    body: _BulkIocRequest,
+    auth: Annotated[AuthCtx, Depends(require_auth("/v1/iocs/bulk"))],
+):
+    """Bulk IOC enrichment — up to 50 indicators per call (Pydantic input cap). Each indicator
+    consumes 1 unit of the per-hour quota; entries beyond the caller's remaining quota land in
+    `skipped_due_to_rate_limit` instead of failing the whole batch (v1.27 dynamic budget)."""
+    import ratelimit
+    from config import FREE_HOURLY_LIMIT, PRO_HOURLY_LIMIT
+    from db import hash_client_ip
+
+    indicators = list(dict.fromkeys(i.strip() for i in body.indicators if i.strip()))
+    count = len(indicators)
+
+    if count == 0:
+        # v1.21.0 parity with bulk_atlas_technique_lookup: empty list → 200 + empty results
+        # (not 400). Caller has already paid 1 quota unit via require_auth; shape is consistent.
+        return {
+            "results": [],
+            "total": 0,
+            "processed": 0,
+            "skipped_due_to_rate_limit": [],
+            "successful": 0,
+            "failed": 0,
+            "timed_out": 0,
+            "invalid": 0,
+            "partial": False,
+            "summary": "0/0 indicators processed",
+            "next_calls": None,
+        }
+
+    if auth.tier == "pro":
+        store_key = f"pro:{auth.key_hash}"
+        limit = PRO_HOURLY_LIMIT
+    else:
+        store_key = f"free:{hash_client_ip(auth.client_ip)}"
+        limit = FREE_HOURLY_LIMIT
+
+    available_budget = auth.ratelimit_remaining + 1
+    processable = min(count, available_budget)
+    extra = processable - 1
+
+    if extra > 0 and not await ratelimit.aconsume_bulk("api", store_key, extra, limit):
+        # Race: another worker drained quota between require_auth and here.
+        # Fall back to processing only the unit require_auth already paid for.
+        processable = 1
+
+    skipped_indicators = [sanitize_echo(s) for s in indicators[processable:]]
+    indicators = indicators[:processable]
+    count = len(indicators)
+
+    deadline = _time.monotonic() + _BULK_IOC_OVERALL_TIMEOUT
+    sem = asyncio.Semaphore(5)
+    overall_expired = False
+
+    async def _process(ind: str) -> dict:
+        nonlocal overall_expired
+        remaining = deadline - _time.monotonic()
+        if remaining <= 0:
+            overall_expired = True
+            return {"indicator": ind, "status": "error", "ioc": None, "error": "Request processing took too long"}
+        async with sem:
+            remaining = deadline - _time.monotonic()
+            if remaining <= 0:
+                overall_expired = True
+                return {"indicator": ind, "status": "error", "ioc": None, "error": "Request processing took too long"}
+            per_timeout = min(_BULK_IOC_PER_TIMEOUT, remaining)
+            try:
+                return await asyncio.wait_for(_run_single_ioc(ind), timeout=per_timeout)
+            except (asyncio.TimeoutError, TimeoutError):
+                return {"indicator": ind, "status": "error", "ioc": None, "error": "Request processing took too long"}
+            except Exception as e:
+                # Log type only — never expose exception detail in response or full message
+                logger.warning("Bulk IOC lookup failed: %s", type(e).__name__)
+                return {"indicator": ind, "status": "error", "ioc": None, "error": "Lookup failed"}
+
+    results = await asyncio.gather(*[_process(ind) for ind in indicators])
+    for r in results:
+        per_item = _bulk_ioc_per_item_pivot_hints(r)
+        r["next_calls"] = [h.model_dump() for h in per_item] if per_item else None
+    timed_out = sum(
+        1 for r in results if r["status"] == "error" and r.get("error") == "Request processing took too long"
+    )
+    partial = overall_expired
+
+    successful = sum(1 for r in results if r["status"] == "ok")
+    invalid = sum(1 for r in results if r["status"] == "invalid_format")
+    # `failed` per BulkIocResponse schema = transient errors only (timeout drained, exception).
+    # invalid_format is a separate per-item category (validation rejection). `failed` excludes
+    # both 'ok' and 'invalid_format'.
+    failed = count - successful - timed_out - invalid
+
+    skipped_count = len(skipped_indicators)
+    total = count + skipped_count
+
+    if partial:
+        summary = f"{successful}/{total} indicators processed (partial — overall timeout)"
+    elif failed == 0 and timed_out == 0 and invalid == 0 and skipped_count == 0:
+        summary = f"All {total} indicators processed"
+    else:
+        parts = [f"{successful}/{total} processed"]
+        if invalid:
+            parts.append(f"{invalid} invalid")
+        if failed:
+            parts.append(f"{failed} failed")
+        if timed_out:
+            parts.append(f"{timed_out} timed out")
+        if skipped_count:
+            parts.append(f"{skipped_count} skipped (quota)")
+        summary = ", ".join(parts)
+
+    outer_hints = _bulk_ioc_lookup_outer_hints(results)
+    return {
+        "results": results,
+        "total": total,
+        "processed": count,
+        "skipped_due_to_rate_limit": skipped_indicators,
+        "successful": successful,
+        "failed": failed,
+        "timed_out": timed_out,
+        "invalid": invalid,
+        "partial": partial or invalid > 0 or skipped_count > 0,
+        "summary": summary,
+        "next_calls": [h.model_dump() for h in outer_hints] if outer_hints else None,
+    }

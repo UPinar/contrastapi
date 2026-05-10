@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Privacy Policy | ContrastAPI</title>
+  <meta name="description" content="ContrastAPI Privacy Policy — what data we collect, how we use it, retention windows, GDPR/KVKK rights, and how to verify it yourself via /v1/privacy/my-data.">
+  <meta name="theme-color" content="#09090b">
+  <link rel="canonical" href="https://api.contrastcyber.com/privacy">
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="/static/favicon-192.png">
+  <link rel="stylesheet" href="/static/style.css?v=27">
+  <link rel="stylesheet" href="/static/css/page.css?v=7">
+  <script src="/static/js/landing.js?v=1" defer></script>
+</head>
+<body>
+  <div class="glow"></div>
+
+  {% include "nav.html" %}
+
+  <div class="page">
+    <h1>Privacy <span>Policy</span></h1>
+    <p class="subtitle">Last updated: May 9, 2026</p>
+
+    <h2>1. Introduction</h2>
+    <p>ContrastCyber ("we", "us") operates <strong>ContrastAPI</strong> at api.contrastcyber.com. This Privacy Policy covers data we collect via the API surface (REST endpoints, MCP tools, MCP resources, MCP prompts), our HTML landing/docs pages, and our payment provider integrations. The scanner at contrastcyber.com is a separate property with its own <a href="https://contrastcyber.com/privacy">Privacy Policy</a>.</p>
+
+    <h2>2. Data We Collect</h2>
+
+    <h3>2.1 API Usage Data</h3>
+    <ul>
+      <li><strong>API request logs</strong> — endpoint <em>category</em> called (path parameters such as domain names, IPs, CVE IDs, emails, phone numbers, and usernames are stripped before logging), timestamp, and a hashed API key (for Pro users). Used for usage analytics and rate limit enforcement.</li>
+      <li><strong>Hashed API keys</strong> — Pro API keys are stored as irreversible SHA-256 cryptographic hashes. The raw key is high-entropy (192-bit random) so brute-forcing the hash is computationally infeasible. We never store your raw API key after initial generation. The raw key is shown to you exactly once on the welcome page.</li>
+      <li><strong>Order metadata (Pro only)</strong> — your NOWPayments invoice ID or Lemon Squeezy order ID, the creation timestamp, the expiry date, and the last-use timestamp. No payment-card data ever touches our server (handled entirely by the processors).</li>
+      <li><strong>Query inputs are NOT stored</strong> — the actual values you query (domain names, IPs, CVE IDs, emails, phone numbers, usernames) are processed in real-time and discarded once the response is returned. Domain and IP lookups are temporarily cached (≤1 hour) to reduce upstream load and improve response times; the cache is keyed but never linked to your IP or key.</li>
+    </ul>
+
+    <h3>2.2 Technical Data</h3>
+    <ul>
+      <li><strong>Hashed IP addresses</strong> — a one-way keyed HMAC-SHA256 hash of your IP (with a server-side secret as the HMAC key) is stored for aggregate analytics. The hash is irreversible and cannot be brute-forced without the server secret. No raw IP address is ever stored in the application database.</li>
+      <li><strong>Rate limiting</strong> — raw IP addresses are stored temporarily in-memory for sliding-window rate limit enforcement and purged automatically. Never shared.</li>
+      <li><strong>Server logs</strong> — standard nginx access logs retained for up to <strong>24 hours</strong>. Path parameters and query strings are stripped to <code>REDACTED</code> at the nginx layer <em>before</em> the log line ever touches disk:
+      <pre class="code-block code-block-sm"><code>Before:  GET /v1/ip/8.8.8.8 HTTP/1.1
+After:   GET /v1/ip/REDACTED HTTP/1.1
+
+Before:  GET /v1/whois/example.com HTTP/1.1
+After:   GET /v1/whois/REDACTED HTTP/1.1
+
+Before:  GET /v1/cves?q=log4j HTTP/1.1
+After:   GET /v1/cves HTTP/1.1</code></pre>
+      The log line itself contains: IP address, timestamp, HTTP method, sanitized path (as above), status code, response size, referrer URL, and user-agent string. A separate daily aggregate snapshot (per-day counts and ISO country codes only — no IPs, no paths, no query data) is retained indefinitely for product analytics.</li>
+      <li><strong>Application logs (systemd journal)</strong> — application warning/error events record only the exception <em>type</em> (e.g. <code>TimeoutException</code>, <code>HTTPStatusError</code>) and the sanitized endpoint path. Query parameters, full exception messages, and stack traces are deliberately stripped before the line is emitted, so domain names, IPs, CVE IDs, hashes, and other inputs never reach the journal. Retained for <strong>24 hours</strong> (<code>MaxRetentionSec=1day</code> in <code>journald.conf</code>).</li>
+      <li><strong>MCP tool audit log</strong> — each MCP tool call is recorded as <code>{timestamp, tool name, metadata flags}</code>. Metadata flags are limited to result filtering, pagination, and sort options (e.g. <code>severity</code>, <code>kev</code>, <code>limit</code>, <code>sort</code>). Query inputs (CVE IDs, domains, IPs, emails, phone numbers, usernames, vendor and product names, free-text queries, ATLAS/D3FEND identifiers) are filtered at extraction time per the allowlist in <a href="https://github.com/UPinar/contrastapi/blob/main/app/core/mcp_proxy.py" target="_blank" rel="noopener"><code>mcp_proxy.py</code></a>. String values are shape-checked (alphanumeric + <code>._-:,</code>, ≤64 chars) so PII cannot be smuggled via control characters or whitespace. The log contains no IP address and no query inputs, so it is retained indefinitely for product usage analytics.</li>
+      <li><strong>Geographic analysis</strong> — a local GeoIP database (MaxMind GeoLite2) maps IP addresses to <strong>country-level location only</strong>. No city, region, or precise location data is derived. No individual user is identified or profiled.</li>
+    </ul>
+
+    <h3>2.3 What We Do NOT Collect</h3>
+    <ul>
+      <li>No personal information (name, email, phone) — Free tier requires no signup; Pro tier captures only the order ID from the payment processor</li>
+      <li>No tracking cookies or session cookies</li>
+      <li>No third-party analytics (no Google Analytics, no Facebook Pixel, no fingerprinting)</li>
+      <li>No advertising data</li>
+      <li>We do not sell, rent, or share any data with third parties</li>
+      <li>We do not track users across sites</li>
+      <li>We do not store the content of API query responses (CVE details, threat lookups, etc.)</li>
+      <li>We do not store the raw queries you submit (domains, IPs, emails, etc.)</li>
+    </ul>
+
+    <h3>2.4 Verify It Yourself</h3>
+    <p>Don't take our word for it. ContrastAPI exposes a transparency endpoint that returns <strong>every single row</strong> our database has about you — right now, in real time:</p>
+    <pre class="code-block"><code>curl https://api.contrastcyber.com/v1/privacy/my-data</code></pre>
+    <p>The response shows your hashed IP, your last 24 hours of endpoint activity (aggregated by endpoint category — no query parameters), your rate limit state, and a <code>not_stored</code> list explaining what is deliberately absent. Pro users additionally see their key record (order ID, creation date, expiry, last use). The endpoint points back to the exact source lines in <a href="https://github.com/UPinar/contrastapi/blob/main/app/db.py" target="_blank" rel="noopener">db.py (hash_client_ip + normalize_endpoint)</a> that enforce the privacy guarantees — so you can audit the code, not just the policy.</p>
+
+    <h2>3. DNT &amp; Global Privacy Control</h2>
+    <p>We respect the <strong>Do Not Track</strong> (DNT) and <strong>Global Privacy Control</strong> (Sec-GPC) headers. If your browser sends either signal, we do not store any hashed IP data with your request. The API still works normally — we simply skip the analytics hash.</p>
+
+    <h2>4. How We Use Data</h2>
+    <ul>
+      <li><strong>Rate limiting:</strong> hashed IP (Free) or hashed key (Pro) enforces fair usage limits. Rate limit state is sliding-window and purged automatically.</li>
+      <li><strong>Per-target throttle:</strong> we count requests per registrable domain (eTLD+1) on web-intelligence endpoints to protect third-party origins. The counter is keyed by the target, not by you.</li>
+      <li><strong>Analytics:</strong> hashed IPs are salted with a random value, irreversible, and cannot be traced back to individual users. Used for aggregate counters (total requests/day) only.</li>
+      <li><strong>Geographic analytics:</strong> country-level data is used for aggregate traffic analysis. Never linked to individual users or shared externally.</li>
+      <li><strong>Pro key billing:</strong> order ID is matched against the payment processor's webhook to provision your key and confirm the payment lifecycle.</li>
+    </ul>
+
+    <h2>5. Data Retention</h2>
+    <ul>
+      <li><strong>API usage logs (per-endpoint counters keyed by hashed IP):</strong> retained for 90 days, then permanently deleted (hard <code>DELETE</code> from the database, not anonymization).</li>
+      <li><strong>API query caches (domain, IP):</strong> cached for up to 1 hour to improve response times, then automatically expired and purged.</li>
+      <li><strong>Rate limit data:</strong> purged automatically (sliding window, in-memory).</li>
+      <li><strong>Server logs (nginx access):</strong> rotated and deleted after <strong>24 hours</strong> (forced midnight UTC rotation, <code>rotate 1</code>).</li>
+      <li><strong>Application logs (systemd journal):</strong> capped at <strong>24 hours</strong> (<code>MaxRetentionSec=1day</code>).</li>
+      <li><strong>MCP tool audit log:</strong> rotated daily for compression; retained indefinitely (no IP addresses, no query inputs — only tool name + result-filter metadata for product usage analytics).</li>
+      <li><strong>Pro API keys (hashed) + order metadata (order ID, created_at, expires_at, last_used_at):</strong> retained while the key is active. Crypto-paid keys carry an <code>expires_at</code> field 30 days after payment; expired keys reject requests but the row remains until manual purge. Card-paid keys are deleted upon cancellation request. To request immediate deletion of your key + order row at any time, contact us.</li>
+    </ul>
+
+    <h2>6. Payment Processors</h2>
+    <p>We use two payment processors for Pro subscriptions:</p>
+    <ul>
+      <li><strong>Lemon Squeezy</strong> for card payments. Lemon Squeezy receives only the payment information you provide directly to them; we receive only the order ID and status. See <a href="https://www.lemonsqueezy.com/privacy" target="_blank" rel="noopener">Lemon Squeezy's Privacy Policy</a>.</li>
+      <li><strong>NOWPayments</strong> for cryptocurrency payments. NOWPayments receives only the invoice and payment data; we receive a webhook with the invoice ID, payment status, and amount. See <a href="https://nowpayments.io/privacy-policy" target="_blank" rel="noopener">NOWPayments Privacy Policy</a>.</li>
+    </ul>
+    <p>We do not share any usage data, IP addresses, queries, or response contents with either processor.</p>
+
+    <h2>7. International Data Transfers</h2>
+    <p>Our server is located in Germany (EU). If you access the Service from outside the EU, your requests are processed on this EU-based server. We do not transfer data to servers outside the EU. Payment processors operate their own infrastructure in their own jurisdictions.</p>
+
+    <h2>8. GDPR (EU/EEA Users)</h2>
+    <p>If you are located in the European Union or European Economic Area:</p>
+    <ul>
+      <li><strong>Legal basis:</strong> we process data based on legitimate interest (Article 6(1)(f) GDPR) — specifically, operating and securing a public API service, preventing abuse, and understanding aggregate usage patterns. For Pro subscribers, processing of order metadata is based on contract performance (Article 6(1)(b)).</li>
+      <li><strong>Data minimization:</strong> we collect only what is necessary. IP addresses are hashed with a random salt immediately and never stored in raw form in our database. Query inputs are never persisted.</li>
+      <li><strong>Your rights:</strong> you have the right to access, rectification, erasure, restriction of processing, data portability, and objection. Since we do not maintain user accounts and cannot link hashed data back to individuals (Free tier), most of these rights are satisfied by design.</li>
+      <li><strong>Right to erasure:</strong> Free tier — call <code>/v1/privacy/my-data</code> to confirm what is held; rows are hard-deleted automatically after 90 days. Pro tier — contact us at the address below to delete the order record and revoke the key. We process requests within 30 days.</li>
+      <li><strong>Data Protection Officer:</strong> given our small scale and minimal data processing, we have not appointed a DPO. Contact us directly for any privacy concerns.</li>
+    </ul>
+
+    <h2>9. KVKK (Turkish Users)</h2>
+    <p>If you are located in Turkey, your rights under the Personal Data Protection Law (KVKK, Law No. 6698) are respected. You have the right to learn whether your personal data is processed, request information about processing, learn the purpose and whether data is used accordingly, know third parties to whom data is transferred, request correction or deletion, and object to automated processing. Contact us at the address below to exercise these rights.</p>
+
+    <h2>10. Security</h2>
+    <p>All data is transmitted over HTTPS. The origin uses Cloudflare Authenticated Origin Pulls (mTLS) so direct-origin bypass is rejected. We employ industry-standard server hardening, intrusion detection, file integrity monitoring, fail2ban with custom nginx-blocklist actions, and audit logging. The application is open source and available for public audit.</p>
+
+    <h2>11. Open Source</h2>
+    <p>ContrastAPI is fully open source under the MIT License. You can review exactly what data is collected by reading the source code:</p>
+    <ul>
+      <li><a href="https://github.com/UPinar/contrastapi" target="_blank" rel="noopener">github.com/UPinar/contrastapi</a></li>
+    </ul>
+
+    <h2>12. Children's Privacy</h2>
+    <p>Our Service is not directed at children under 16. We do not knowingly collect data from children. If you believe a child has used our Service, contact us and we will delete any associated data.</p>
+
+    <h2>13. Changes</h2>
+    <p>We may update this Privacy Policy. Changes will be posted on this page with an updated date. Material changes will be communicated via the website.</p>
+
+    <h2>14. Contact</h2>
+    <p>For privacy questions or to exercise your rights: <a href="#" data-copy-email="contact@contrastcyber.com">contact@contrastcyber.com</a></p>
+  </div>
+
+  <footer>
+    <div class="footer-links">
+      <a href="/terms">Terms</a>
+      <a href="/privacy">Privacy</a>
+      <a href="#" data-copy-email="contact@contrastcyber.com">Contact</a>
+      <a href="https://github.com/UPinar/contrastapi">GitHub</a>
+    </div>
+    <p>&copy; 2026 ContrastCyber</p>
+  </footer>
+</body>
+</html>

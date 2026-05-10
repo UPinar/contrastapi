@@ -1,0 +1,48 @@
+[build-system]
+requires = ["hatchling>=1.18"]
+build-backend = "hatchling.build"
+
+[project]
+name = "contrastapi"
+version = "1.22.5"
+description = "Official Python SDK for ContrastAPI — security intelligence for developers and AI agents"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [{ name = "ContrastCyber", email = "contact@contrastcyber.com" }]
+keywords = [
+    "security", "cve", "kev", "cwe", "atlas", "d3fend", "mitre",
+    "attack", "vulnerability", "domain", "dns", "whois", "ssl",
+    "threat-intelligence", "mcp", "osint", "api", "ai-security",
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Security",
+    "Typing :: Typed",
+]
+dependencies = [
+    "httpx>=0.25,<1.0",
+]
+
+[project.urls]
+Homepage = "https://contrastcyber.com"
+Documentation = "https://api.contrastcyber.com/docs"
+Repository = "https://github.com/UPinar/contrastapi"
+Issues = "https://github.com/UPinar/contrastapi/issues"
+
+[project.optional-dependencies]
+test = ["pytest>=8", "pytest-asyncio>=0.21", "respx>=0.20"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["contrastapi"]
+
+[tool.hatch.build.targets.sdist]
+include = ["contrastapi/**", "tests/**", "README.md", "LICENSE"]

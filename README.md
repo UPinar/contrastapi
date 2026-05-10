@@ -1,0 +1,79 @@
+# ContrastAPI — 49 Security Tools + 7 MCP Resources for AI Agents
+
+<p align="center">
+  <img src="app/static/banner.png" alt="ContrastAPI Banner" width="100%">
+</p>
+
+[![MCP](https://img.shields.io/badge/MCP-49_tools-purple.svg)](https://modelcontextprotocol.io)
+[![smithery badge](https://smithery.ai/badge/contrastcyber/contrastapi)](https://smithery.ai/servers/contrastcyber/contrastapi)
+[![contrastapi MCP server](https://glama.ai/mcp/servers/UPinar/contrastapi/badges/score.svg)](https://glama.ai/mcp/servers/UPinar/contrastapi)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+
+**Security intelligence MCP server for AI agents.** CVE/KEV/CWE lookup with EPSS, **composite risk scoring (CVSS+EPSS+KEV+PoC fusion — v1.29.1)**, **CVSS v3.x vector parser (v1.29.1)**, domain audit, IP threat reports, IOC enrichment, code security, **MITRE ATLAS (AI/ML attacks) + D3FEND (defenses)**, **web intelligence (robots.txt, redirect-chain, email validation, brand-assets, SEO audit — v1.25.0)**. **49 tools + 7 Resources (ATLAS+D3FEND+CWE catalog browsing) + conditional triage Prompt, free, no API key, 30 credits/hour.**
+
+[中文](README_CN.md) · **Live:** [api.contrastcyber.com](https://api.contrastcyber.com)
+
+---
+
+## Setup (MCP)
+
+```json
+{
+  "mcpServers": {
+    "contrastapi": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://api.contrastcyber.com/mcp/"]
+    }
+  }
+}
+```
+
+Restart your agent. Other clients (Python SDK, Node SDK, cURL, VS Code): **[mcp-setup](https://api.contrastcyber.com/mcp-setup)** · **[quickstart](https://api.contrastcyber.com/quickstart)**
+
+## SDKs
+
+```bash
+pip install contrastapi      # Python 3.10+ — sync + async, typed responses, shortcut helpers
+npm install contrastapi      # Node 14+ — concrete TypeScript types, 14 namespaces
+```
+
+Both SDKs cover all 57+ HTTP endpoints / 49 MCP tools (CVE/KEV/CWE, ATLAS, D3FEND, domain, IP, IOC, code-security, web-intel, etc.) with the same wire-exact response shapes and a typed exception hierarchy mirroring the v1.22.2+ error envelope. v1.23.0 adds MCP Resources (ATLAS+D3FEND+CWE catalog browsing — see [docs/resources.md](docs/resources.md)) and a conditional triage Prompt (see [docs/PROMPTS.md#contrast-triage-v1230](docs/PROMPTS.md)). v1.25.0 adds 5 web-intelligence tools (`robots_txt`, `redirect_chain`, `email_verify`, `brand_assets`, `seo_audit`) with explicit ethical-floor guardrails (per-target eTLD+1 throttle, robots.txt respected, no SMTP probing).
+
+## Try it
+
+```bash
+curl https://api.contrastcyber.com/v1/cve/CVE-2021-44228
+curl https://api.contrastcyber.com/v1/cve/CVE-2021-44228/risk_score   # composite risk (CVSS+EPSS+KEV+PoC)
+curl 'https://api.contrastcyber.com/v1/cvss/details?vector=CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H'
+curl https://api.contrastcyber.com/v1/atlas/AML.T0051            # MITRE ATLAS — LLM Prompt Injection
+curl https://api.contrastcyber.com/v1/d3fend/attack/T1059        # D3FEND defenses for ATT&CK T1059
+```
+
+Or ask your agent:
+
+- *"Compute the composite risk score for CVE-2021-44228 — fuse CVSS, EPSS, KEV, and PoC into a single label."*
+- *"Is CVE-2024-3094 exploited in the wild? Check EPSS + KEV, then look up the underlying CWE."*
+- *"Explain LLM Prompt Injection in MITRE ATLAS and bridge it to D3FEND defenses."*
+- *"For these ATT&CK techniques [T1059, T1190, T1550.001, T9999], which have NO D3FEND mitigation?"*
+
+## Links
+
+**Endpoints:** [docs/ENDPOINTS.md](docs/ENDPOINTS.md) · **OpenAPI:** [openapi.json](https://api.contrastcyber.com/openapi.json) · **Playground:** [/playground](https://api.contrastcyber.com/playground)
+
+<details>
+<summary>Also available on</summary>
+
+[Smithery](https://smithery.ai/servers/contrastcyber/contrastapi) · [npm](https://www.npmjs.com/package/contrastapi) · [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=ContrastAPI.contrastapi) · [Awesome OSINT MCP](https://github.com/soxoj/awesome-osint-mcp-servers) · [RapidAPI](https://rapidapi.com/UPinar/api/contrastapi)
+
+</details>
+
+<details>
+<summary>Multi-agent verdict metadata</summary>
+
+Responses include a `verdict` block — `deterministic`, `falsifiable_fields`, `data_age_seconds`, `sources_queried` / `sources_unavailable`, `completeness` — so a verifier agent can independently re-derive specific fields from the upstream authority (NVD, RDAP, CT logs, URLhaus). Probe `GET /v1/capabilities` for `"verdict_metadata": true`.
+
+CVE responses also embed `next_calls: list[PivotHint]` — `{tool, input, reason}` triples that suggest the next MCP tool to call (e.g. `kev_detail` when `kev.in_kev=true`, `cwe_lookup` when `cwe_id` is set). Agents chain workflows without manual prompting.
+
+</details>
+
+MIT

@@ -1,0 +1,33 @@
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+*.db
+*.db-wal
+*.db-shm
+venv/
+.env
+test_*.db
+.mcpregistry_*
+scripts/*
+!scripts/backfill_mitre_fields.py
+plans/
+.npmrc
+node_modules/
+research_landing*.md
+.coverage
+deploy/
+.aider*
+
+# SDK build artifacts (regenerated per release)
+sdk/python/dist/
+
+sdk/node/publish_v*.txt
+sdk/python/publish_v*.txt
+
+# One-shot CLI verification reports
+cli_prompt_verify.md
+
+# Local-dev fallback artifacts (BASE_DIR-relative when env vars unset)
+app/mcp_tools.jsonl
+app/glama.json

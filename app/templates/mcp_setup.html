@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MCP Setup | ContrastAPI</title>
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="/static/favicon-192.png">
+  <link rel="stylesheet" href="/static/style.css?v=27">
+  <link rel="stylesheet" href="/static/css/page.css?v=3">
+  <script src="/static/js/landing.js?v=1" defer></script>
+</head>
+<body>
+  <div class="glow"></div>
+
+  {% include "nav.html" %}
+
+  <div class="page">
+    <h1>MCP <span>Setup</span></h1>
+    <p class="subtitle">Give your AI agent {{ tool_count }} security tools, {{ resource_count }} catalog resources, and a triage prompt. One config, zero signup.</p>
+
+    <div class="docs-strip" style="margin: 8px 0 24px; font-size: 0.95em; color: #888;">
+      <strong>Docs:</strong>
+      <a href="https://github.com/UPinar/contrastapi/blob/main/docs/tool-selection-guide.md">Tool Selection Guide</a>
+      &middot;
+      <a href="https://github.com/UPinar/contrastapi/blob/main/docs/ENDPOINTS.md">Endpoints</a>
+      &middot;
+      <a href="https://github.com/UPinar/contrastapi/blob/main/docs/PROMPTS.md">Prompts</a>
+      &middot;
+      <a href="https://github.com/UPinar/contrastapi/blob/main/docs/resources.md">Resources</a>
+    </div>
+
+    <h2><span class="num">1</span> Claude Desktop</h2>
+    <p>Edit <code>~/.claude/claude_desktop_config.json</code>:</p>
+    <div class="code-block"><span class="lang">json</span><code>{
+  "mcpServers": {
+    "contrastapi": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://api.contrastcyber.com/mcp/"]
+    }
+  }
+}</code></div>
+    <p>Restart Claude Desktop. Done.</p>
+
+    <h2><span class="num">2</span> Cursor</h2>
+    <p>Add to <code>.cursor/mcp.json</code> in your project root:</p>
+    <div class="code-block"><span class="lang">json</span><code>{
+  "mcpServers": {
+    "contrastapi": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://api.contrastcyber.com/mcp/"]
+    }
+  }
+}</code></div>
+
+    <h2><span class="num">3</span> VS Code (Claude Code)</h2>
+    <p>Add to <code>.mcp.json</code> in your project root:</p>
+    <div class="code-block"><span class="lang">json</span><code>{
+  "mcpServers": {
+    "contrastapi": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://api.contrastcyber.com/mcp/"]
+    }
+  }
+}</code></div>
+
+    <h2><span class="num">4</span> Windsurf</h2>
+    <p>Add to <code>~/.codeium/windsurf/mcp_config.json</code>:</p>
+    <div class="code-block"><span class="lang">json</span><code>{
+  "mcpServers": {
+    "contrastapi": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://api.contrastcyber.com/mcp/"]
+    }
+  }
+}</code></div>
+
+    <h2><span class="num">5</span> OpenClaw</h2>
+    <p>Run this command in your terminal (adds ContrastAPI to OpenClaw's gateway config):</p>
+    <div class="code-block"><span class="lang">bash</span><code>openclaw mcp set contrastapi '{"url":"https://api.contrastcyber.com/mcp/","transport":"streamable-http"}'</code></div>
+    <p>Or edit your OpenClaw config directly and add under <code>mcp.servers</code>:</p>
+    <div class="code-block"><span class="lang">json</span><code>{
+  "mcp": {
+    "servers": {
+      "contrastapi": {
+        "url": "https://api.contrastcyber.com/mcp/",
+        "transport": "streamable-http"
+      }
+    }
+  }
+}</code></div>
+
+    <h2><span class="num">6</span> LM Studio</h2>
+    <p>One-click install (requires <a href="https://lmstudio.ai/" target="_blank" rel="noopener">LM Studio 0.3.17+</a>):</p>
+    <p><a href="lmstudio://add_mcp?name=contrastapi&amp;config=eyJ1cmwiOiJodHRwczovL2FwaS5jb250cmFzdGN5YmVyLmNvbS9tY3AvIn0%3D" class="btn-cta">Add to LM Studio</a></p>
+    <p>Or add manually via <strong>Program &rarr; Install &rarr; Edit mcp.json</strong>:</p>
+    <div class="code-block"><span class="lang">json</span><code>{
+  "mcpServers": {
+    "contrastapi": {
+      "url": "https://api.contrastcyber.com/mcp/"
+    }
+  }
+}</code></div>
+
+    <h2><span class="num">7</span> Any MCP Client (HTTP)</h2>
+    <p>Use the remote HTTP transport directly:</p>
+    <div class="code-block"><span class="lang">http</span><code>POST https://api.contrastcyber.com/mcp/
+Content-Type: application/json
+Accept: application/json, text/event-stream
+
+{"jsonrpc":"2.0","id":1,"method":"initialize",
+ "params":{"protocolVersion":"2025-03-26",
+   "capabilities":{},
+   "clientInfo":{"name":"my-app","version":"1.0"}}}</code></div>
+
+    <h2><span class="num">8</span> Pro API Key <span class="section-optional">(optional)</span></h2>
+    <p>Free tier ({{ free_limit }} req/hr) works without a key. Add a Pro key to unlock {{ pro_limit }} req/hr and full
+    AbuseIPDB + Shodan reputation enrichment on <code>/v1/domain/</code>, <code>/v1/ip/</code>,
+    and <code>/v1/threat-report/</code>.</p>
+
+    <p><strong>stdio transport</strong> (Claude Desktop, Cursor, VS Code, Windsurf, Cline) &mdash;
+    pass the key via mcp-remote's <code>--header</code> flag; <code>env</code> holds the raw value:</p>
+    <div class="code-block"><span class="lang">json</span><code>{
+  "mcpServers": {
+    "contrastapi": {
+      "command": "npx",
+      "args": [
+        "-y", "mcp-remote", "https://api.contrastcyber.com/mcp/",
+        "--header", "Authorization: Bearer ${CONTRASTAPI_API_KEY}"
+      ],
+      "env": { "CONTRASTAPI_API_KEY": "cc_..." }
+    }
+  }
+}</code></div>
+
+    <p><strong>HTTP transport</strong> (LM Studio, OpenClaw, generic HTTP clients) &mdash;
+    add <code>headers</code>:</p>
+    <div class="code-block"><span class="lang">json</span><code>{
+  "mcpServers": {
+    "contrastapi": {
+      "url": "https://api.contrastcyber.com/mcp/",
+      "headers": { "Authorization": "Bearer cc_..." }
+    }
+  }
+}</code></div>
+
+    <p>Get a Pro key ($15/mo): <a href="/pricing">api.contrastcyber.com/pricing</a>
+    &mdash; or email <a href="#" data-copy-email="contact@contrastcyber.com">contact@contrastcyber.com</a>.</p>
+
+    <div class="try-box">
+      <h3>Ask your AI</h3>
+
+      <h4>Recon &amp; Domain</h4>
+      <ul>
+        <li><em>"Run a full security audit on example.com"</em></li>
+        <li><em>"Give me a quick domain summary for example.com (DNS + WHOIS + SSL, skip full audit)"</em></li>
+        <li><em>"What are the DNS records for example.com?"</em></li>
+        <li><em>"What's the MX record for example.com?"</em></li>
+        <li><em>"Is the SSL certificate on example.com expiring soon?"</em></li>
+        <li><em>"What technologies does example.com use?"</em></li>
+        <li><em>"Check the security headers on example.com"</em></li>
+        <li><em>"Find all subdomains of example.com"</em></li>
+        <li><em>"Who registered example.com and when does it expire?"</em></li>
+        <li><em>"Does example.com have proper SPF and DMARC records?"</em></li>
+        <li><em>"Show me the Wayback Machine snapshots for example.com"</em></li>
+      </ul>
+
+      <h4>CVE &amp; Exploits</h4>
+      <ul>
+        <li><em>"Look up CVE-2024-3094 &mdash; is it being exploited in the wild?"</em></li>
+        <li><em>"Find critical Apache vulnerabilities published between 2025-01-01 and 2025-06-30"</em></li>
+        <li><em>"Show me all CISA KEV entries from the last 30 days"</em></li>
+        <li><em>"Find CVEs with EPSS score above 0.9 &mdash; what's most likely to be exploited?"</em></li>
+        <li><em>"Search for critical Linux kernel CVEs, sorted by exploit probability"</em></li>
+        <li><em>"Are there public exploits for CVE-2021-44228?"</em></li>
+        <li><em>"Check these CVEs in bulk: CVE-2024-3094, CVE-2021-44228, CVE-2023-4863"</em></li>
+        <li><em>"Show me CVEs that were indexed before NVD &mdash; what's leading right now?"</em></li>
+      </ul>
+
+      <h4>IP &amp; Network</h4>
+      <ul>
+        <li><em>"Is 8.8.8.8 malicious? Pull reputation from AbuseIPDB and Shodan."</em></li>
+        <li><em>"Generate a threat report for 8.8.8.8 &mdash; include Shodan, AbuseIPDB, and ASN data"</em></li>
+        <li><em>"What ASN does 1.1.1.1 belong to?"</em></li>
+      </ul>
+
+      <h4>Threat Intelligence / IOC</h4>
+      <ul>
+        <li><em>"Check example.com for known malware URLs"</em></li>
+        <li><em>"Enrich this IOC: 185.220.101.1"</em></li>
+        <li><em>"Enrich these indicators in bulk: 185.220.101.1, evil-example.test, 44d88612fea8a8f36de82e1278abb02f"</em></li>
+        <li><em>"Check if http://evil-example.test/login is a phishing URL"</em></li>
+        <li><em>"Has this password been exposed in a data breach?"</em></li>
+        <li><em>"Is this file hash known malware? a1b2c3d4e5f6..."</em></li>
+      </ul>
+
+      <h4>Code Security</h4>
+      <ul>
+        <li><em>"Check this code for hardcoded API keys and secrets"</em></li>
+        <li><em>"Scan this function for SQL injection vulnerabilities"</em></li>
+        <li><em>"Validate these HTTP security headers"</em></li>
+        <li><em>"Check if these npm dependencies have known CVEs: lodash@4.17.0, axios@0.21.0"</em></li>
+      </ul>
+
+      <h4>Contact Validation / OSINT</h4>
+      <ul>
+        <li><em>"Verify admin@example.com — is it syntax-valid, does the domain accept mail, and is it a role address?"</em></li>
+        <li><em>"Is user@example.com a disposable email?"</em></li>
+        <li><em>"Is jane@gmail.com a personal address (free provider) or could it be a corporate one?"</em></li>
+        <li><em>"Look up this phone number: +1-555-0123"</em></li>
+        <li><em>"Find accounts for username 'johndoe' across platforms"</em></li>
+      </ul>
+
+      <h4>Web Intelligence (v1.25.0)</h4>
+      <ul>
+        <li><em>"Get the parsed robots.txt for github.com — what paths does it disallow for our UA?"</em></li>
+        <li><em>"Walk the redirect chain for https://bit.ly/3xyz and tell me where it actually lands"</em></li>
+        <li><em>"Pull brand assets for stripe.com — favicon, og:image, theme color, JSON-LD logo"</em></li>
+        <li><em>"Run a one-page SEO audit on example.com and list the missing_signals"</em></li>
+        <li><em>"Audit the SEO of my homepage and rank what needs fixing first"</em></li>
+      </ul>
+
+      <h4>MITRE ATLAS (AI/ML Threats)</h4>
+      <ul>
+        <li><em>"Look up MITRE ATLAS technique AML.T0051 (LLM Prompt Injection) and explain how it bridges to ATT&amp;CK"</em></li>
+        <li><em>"Find ATLAS techniques about prompt injection or jailbreaks"</em></li>
+        <li><em>"Show me real-world ML attack case studies — anything involving ChatGPT plugins?"</em></li>
+        <li><em>"Drill these ATLAS techniques in bulk: AML.T0051, AML.T0043, AML.T0061"</em></li>
+      </ul>
+
+      <h4>MITRE D3FEND (Defense Mapping)</h4>
+      <ul>
+        <li><em>"What D3FEND defenses mitigate ATT&amp;CK T1059 (command/scripting)?"</em></li>
+        <li><em>"Look up D3FEND TokenBinding — which ATT&amp;CK techniques does it mitigate?"</em></li>
+        <li><em>"For these ATT&amp;CK techniques [T1059, T1190, T1550.001, T9999], which have NO D3FEND mitigation?"</em></li>
+        <li><em>"Find D3FEND Harden defenses targeting Access Tokens"</em></li>
+      </ul>
+
+      <h4>CWE / KEV</h4>
+      <ul>
+        <li><em>"Look up CWE-79 (XSS) — description, mitigations, parent/child weakness chain"</em></li>
+        <li><em>"What's the CISA KEV federal patch deadline for CVE-2021-44228?"</em></li>
+        <li><em>"Is this CVE ransomware-associated per the KEV catalog?"</em></li>
+      </ul>
+
+      <h4>Chained Workflows</h4>
+      <ul>
+        <li><em>"Audit example.com, then look up CVEs for every technology detected"</em></li>
+        <li><em>"Find all subdomains of example.com, check the SSL on each, and report any expiring in the next 30 days"</em></li>
+        <li><em>"Enrich these 20 IPs and tell me which ones are in AbuseIPDB's high-risk bucket"</em></li>
+        <li><em>"List leading CVEs and check if any have public exploits"</em></li>
+        <li><em>"Verify these 50 emails from a lead-list dump — flag disposable, role, and free-provider addresses"</em></li>
+        <li><em>"Score the SEO of these 5 prospect homepages and rank them by missing_signals count"</em></li>
+        <li><em>"Run /contrast-triage on AML.T0051 from the blue-team perspective"</em></li>
+      </ul>
+    </div>
+
+  </div>
+
+  <footer>
+    <div class="footer-links">
+      <a href="/terms">Terms</a>
+      <a href="/privacy">Privacy</a>
+      <a href="#" data-copy-email="contact@contrastcyber.com">Contact</a>
+      <a href="https://github.com/UPinar/contrastapi">GitHub</a>
+    </div>
+    <p>&copy; 2026 ContrastCyber</p>
+  </footer>
+</body>
+</html>

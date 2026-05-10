@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Terms of Service | ContrastAPI</title>
+  <meta name="description" content="ContrastAPI Terms of Service — security intelligence API usage terms, Free and Pro plans, acceptable use, third-party lookups.">
+  <meta name="theme-color" content="#09090b">
+  <link rel="canonical" href="https://api.contrastcyber.com/terms">
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="/static/favicon-192.png">
+  <link rel="stylesheet" href="/static/style.css?v=27">
+  <link rel="stylesheet" href="/static/css/page.css?v=7">
+  <script src="/static/js/landing.js?v=1" defer></script>
+</head>
+<body>
+  <div class="glow"></div>
+
+  {% include "nav.html" %}
+
+  <div class="page">
+    <h1>Terms of <span>Service</span></h1>
+    <p class="subtitle">Last updated: May 4, 2026</p>
+
+    <h2>1. Service Description</h2>
+    <p>ContrastCyber ("we", "us") operates <strong>ContrastAPI</strong> at api.contrastcyber.com — a security intelligence API providing CVE/EPSS/KEV lookup, MITRE CWE/ATLAS/D3FEND catalog browsing, domain reconnaissance, IOC and threat intelligence, OSINT (WHOIS, subdomains, certificate transparency), code security analysis (secrets, injection, headers), email validation, redirect-chain analysis, robots.txt parsing, and SEO audit. The Service is exposed as {{ endpoint_count }} REST endpoints, {{ tool_count }} MCP (Model Context Protocol) tools, {{ resource_count }} MCP Resources, and {{ prompt_count }} MCP Prompts. The Service is provided as-is with no warranty.</p>
+
+    <h2>2. Informational Only</h2>
+    <p>All results returned by ContrastAPI are provided for informational purposes only and are <strong>not a substitute for a professional security audit</strong>. CVE severity scores, exploit availability flags, IP reputation verdicts, and domain risk indicators reflect public data sources and heuristics — they may be incomplete, outdated, or wrong for your specific context. Do not rely solely on our results for production security decisions, incident response, or compliance attestation.</p>
+
+    <h2>3. Acceptable Use</h2>
+    <p>The Service analyzes public information (CVE databases, DNS records, SSL certificates, WHOIS data, public threat feeds, robots.txt, HTTP headers). No exploit attempts, brute-force, intrusive scanning, or SMTP probing is performed by us. You agree not to:</p>
+    <ul>
+      <li>Use the Service for any illegal purpose</li>
+      <li>Attempt to overwhelm or disrupt the Service (DDoS, excessive automated requests beyond your tier)</li>
+      <li>Circumvent rate limits, authentication, or per-target throttles (eTLD+1)</li>
+      <li>Resell raw API responses as a competing security-intel service without written permission</li>
+      <li>Use results to facilitate attacks, harassment, doxxing, or unauthorized intrusion against third parties</li>
+      <li>Share, transfer, publish, or embed your Pro API key in client-side code, public repositories, or shared infrastructure</li>
+      <li>Use lookup endpoints (email/phone/username/domain) to harvest personal data for marketing, profiling, or stalking</li>
+    </ul>
+
+    <h2>4. Free &amp; Pro Plans</h2>
+    <h3>4.1 Free Tier</h3>
+    <p>No API key, no signup. Rate limited to <strong>{{ free_limit }} requests per hour per IP address</strong>. Available for personal and commercial use. Some Pro-only enrichment fields (Shodan, AbuseIPDB) are omitted from responses.</p>
+    <h3>4.2 Pro Plan</h3>
+    <p>Pro keys provide <strong>{{ pro_limit }} requests per hour per key</strong> and enable enrichment fields (Shodan, AbuseIPDB, full IP intel) where available. Enrichment is provided through shared upstream API keys subject to daily provider caps; quotas are expanded as the customer base grows. Subscriptions are billed at the current rate via our payment processors:</p>
+    <ul>
+      <li><strong>Card payments</strong> via Lemon Squeezy (recurring monthly billing until cancelled)</li>
+      <li><strong>Crypto payments</strong> via NOWPayments (one-time invoices for 30-day key validity; renew by paying again)</li>
+    </ul>
+    <p>By subscribing you agree to keep your API key confidential — you are responsible for all usage under your key — and not to share or resell it. We may revoke API keys that violate these terms without refund. Pricing and rate limits may be adjusted with 30 days notice to existing subscribers.</p>
+
+    <h2>5. Rate Limits &amp; Throttles</h2>
+    <p>Free: {{ free_limit }} requests/hour per IP. Pro: {{ pro_limit }} requests/hour per key. In addition to per-caller limits, the Service enforces a per-target throttle (60 requests per minute per registrable domain) on web-intelligence endpoints to protect third-party origins. Pro subscribers will receive 30 days notice before structural rate limit changes.</p>
+
+    <h2>6. Abusive Usage</h2>
+    <p>We reserve the right to block, throttle, or ban any IP address, ASN, API key, or user engaging in abusive usage, including but not limited to: automated scraping beyond rate limits, credential stuffing, distributed key-cycling, request-per-minute spikes targeting third-party origins, or any activity that degrades the Service for other users. Bans are enforced at the nginx layer and may apply to a single IP, an IP range, or a CIDR.</p>
+
+    <h2>7. Service Availability</h2>
+    <p>The Service may change, be interrupted, or be discontinued without notice. We do not guarantee uptime, availability, or any service level agreement (SLA). Endpoints may be added, modified, or removed; tool catalogs (CVE, ATLAS, D3FEND, CWE) sync from upstream sources on a regular cadence and may briefly show stale data during sync windows. Real-time health is reported at <code>/v1/status</code>.</p>
+
+    <h2>8. Data Collection</h2>
+    <p>ContrastAPI stores only: (a) a salted HMAC hash of your IP address, (b) the endpoint <em>category</em> called (path parameters — domains, IPs, CVE IDs, emails, phone numbers, usernames — are stripped before logging), (c) the call timestamp, and (d) for Pro users, an irreversible cryptographic hash of your API key and a NOWPayments/Lemon Squeezy order ID. Domain and IP lookup results are temporarily cached for up to 1 hour to reduce upstream load. No raw IP addresses, query parameters, or response contents are stored in the application database. You can verify this at any time by calling <code>GET /v1/privacy/my-data</code>, which returns every row our database has about you. See our <a href="/privacy">Privacy Policy</a> for full details.</p>
+
+    <h2>9. Third-Party Lookups</h2>
+    <p>Many endpoints query or analyze data about third-party domains, IP addresses, email addresses, phone numbers, usernames, or organizations. You are responsible for ensuring your use of these lookups complies with applicable laws in your jurisdiction (data protection, anti-stalking, computer misuse, telecommunications). We do not verify whether you have authorization to query specific targets. Some endpoints proxy public threat feeds (URLhaus, AbuseIPDB, Shodan, FireHOL, Tor exit list); use of those datasets is subject to their respective terms.</p>
+
+    <h2>10. Intellectual Property</h2>
+    <p>ContrastAPI is open source software licensed under the MIT License. Source code is available at <a href="https://github.com/UPinar/contrastapi" target="_blank" rel="noopener">github.com/UPinar/contrastapi</a>. Catalog data (MITRE ATT&amp;CK, ATLAS, D3FEND, CWE; NIST NVD; FIRST EPSS; CISA KEV) is owned by the respective upstream sources and licensed under their own terms.</p>
+
+    <h2>11. Disclaimer of Warranties</h2>
+    <p>THE SERVICE IS PROVIDED "AS IS" WITHOUT WARRANTIES OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT. WE DO NOT WARRANT THAT THE SERVICE WILL BE UNINTERRUPTED, ERROR-FREE, OR FREE OF HARMFUL COMPONENTS. WE MAKE NO GUARANTEES ABOUT THE ACCURACY, COMPLETENESS, OR RELIABILITY OF ANY RESULTS, INCLUDING THIRD-PARTY THREAT DATA AND CVE METADATA.</p>
+
+    <h2>12. Limitation of Liability</h2>
+    <p>IN NO EVENT SHALL CONTRASTCYBER BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR PUNITIVE DAMAGES ARISING FROM YOUR USE OF THE SERVICE, INCLUDING BUT NOT LIMITED TO: DATA LOSS, SECURITY BREACHES RESULTING FROM RELIANCE ON API RESULTS, BUSINESS INTERRUPTION, MISSED VULNERABILITIES, OR LOSS OF PROFITS. OUR TOTAL LIABILITY SHALL NOT EXCEED THE AMOUNT YOU PAID US IN THE 12 MONTHS PRECEDING THE CLAIM.</p>
+
+    <h2>13. Indemnification</h2>
+    <p>You agree to indemnify and hold harmless ContrastCyber from any claims, damages, or expenses arising from your use of the Service, your violation of these Terms, or your violation of any third party's rights (including unauthorized lookups against individuals or organizations).</p>
+
+    <h2>14. Governing Law</h2>
+    <p>These Terms are governed by the laws of the Republic of Turkey. Any disputes shall be resolved in the courts of Istanbul, Turkey.</p>
+
+    <h2>15. Changes to Terms</h2>
+    <p>We may update these Terms at any time. Continued use of the Service constitutes acceptance of the updated Terms. Material changes will be communicated via the website.</p>
+
+    <h2>16. Contact</h2>
+    <p>For questions about these Terms, contact us at <a href="#" data-copy-email="contact@contrastcyber.com">contact@contrastcyber.com</a>.</p>
+  </div>
+
+  <footer>
+    <div class="footer-links">
+      <a href="/terms">Terms</a>
+      <a href="/privacy">Privacy</a>
+      <a href="#" data-copy-email="contact@contrastcyber.com">Contact</a>
+      <a href="https://github.com/UPinar/contrastapi">GitHub</a>
+    </div>
+    <p>&copy; 2026 ContrastCyber</p>
+  </footer>
+</body>
+</html>

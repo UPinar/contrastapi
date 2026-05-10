@@ -1,0 +1,217 @@
+{# SECURITY: Jinja2Templates leaves autoescape OFF for .txt extensions.
+   This template currently only interpolates `MCP_TOOL_COUNT` (an integer
+   constant from app/config.py). DO NOT add user-controlled strings here
+   without enabling autoescape or applying the `|e` filter — silent SSTI
+   would slip through. #}
+# ContrastAPI
+
+> Security intelligence API for AI models and developers. Free to use, no API key required.
+
+- [Quick Start](https://api.contrastcyber.com/quickstart)
+- [MCP Setup](https://api.contrastcyber.com/mcp-setup)
+- [API Documentation](https://github.com/UPinar/contrastapi/blob/main/docs/ENDPOINTS.md)
+- [OpenAPI Spec](https://api.contrastcyber.com/openapi.json)
+- [Full API Reference](https://api.contrastcyber.com/llms-full.txt)
+
+
+## When to Use This API
+
+Use ContrastAPI when you need to:
+- Look up CVE details, severity, CVSS breakdown, EPSS exploit probability, or CISA KEV status
+- Browse MITRE CWE catalog for weakness descriptions, mitigations, and parent/child chains
+- Investigate a domain's DNS, WHOIS, SSL certificate, subdomains, email security (SPF/DMARC/DKIM)
+- Get a domain security risk score (A-F grade, 100-point scale)
+- Detect WAF/CDN protection on a target domain
+- Check a domain for malware/threat intelligence (URLhaus)
+- Scan a live domain's HTTP security headers
+- Scan code for hardcoded secrets, SQL/command injection, or missing security headers
+- Check software dependencies against the CVE database
+- Enrich an IP address with open ports, vulnerabilities, and hostnames (Shodan InternetDB)
+- Map MITRE ATLAS AI/ML attack techniques (AML.T####) to real-world incident case studies (AML.CS####)
+- Bridge offensive intel to MITRE D3FEND defenses for any ATT&CK technique
+- Verify a single email (syntax + MX + disposable + role + free-provider) without SMTP probing
+- Read a target site's robots.txt, walk redirect chains, scrape public brand assets, or score SEO of a homepage
+
+## Authentication
+
+No API key needed. Free: 100 requests/hour per IP.
+API key (1000 req/hr): pass `Authorization: Bearer cc_xxx` header.
+Rate limit headers returned: X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset, X-RateLimit-Cost, X-RateLimit-Tier.
+
+## Credit Costs
+
+Most endpoints cost 1 credit per call. Aggregating endpoints that fan out to multiple upstream sources cost more:
+- `GET /v1/audit/{domain}` — 4 credits (domain report + live headers + tech fingerprint)
+- `GET /v1/threat-report/{ip}` — 4 credits (Shodan + AbuseIPDB + full Shodan + ASN)
+- `GET /v1/brand/{domain}`, `GET /v1/seo/{domain}` — 2 credits (homepage fetch + robots.txt fetch + parse)
+- `POST /v1/cves/bulk`, `POST /v1/iocs/bulk`, `POST /v1/atlas/techniques/bulk` — 1 credit per item in the request
+- All other endpoints — 1 credit
+
+Every authenticated response includes X-RateLimit-Cost so clients can budget calls transparently.
+
+## Endpoints ({{ MCP_TOOL_COUNT }} MCP tools)
+
+### CVE Intelligence
+- GET /v1/cve/{cve_id} — Full CVE details with EPSS score, KEV status, CVSS breakdown
+- GET /v1/cve/{cve_id}/risk_score — Composite risk score (CVSS×0.20 + EPSS×0.35 + KEV×0.30 + PoC×0.15) with multiplicative boosters
+- GET /v1/cvss/details?vector= — Parse a CVSS v3.x vector string into per-metric breakdown + recomputed base score
+- GET /v1/cve/leading — CVEs indexed before NVD (MITRE/GHSA-only feed)
+- GET /v1/cves?product=&severity=&published_after=&published_before=&kev=&epss_min=&sort=&offset= — Search CVEs (paginated): filter by product, severity, date range, KEV-only, min EPSS score, sort, offset
+- GET /v1/exploit/{cve_id} — Public exploits and advisories (GitHub Advisory, ExploitDB)
+- GET /v1/kev/{cve_id} — CISA KEV detail (federal patch deadline, required action, ransomware association, CWE list)
+- GET /v1/cwe/{cwe_id} — MITRE CWE catalog (description, mitigations, parent/child weakness chain)
+- POST /v1/cves/bulk — Bulk CVE lookup (10 free, 50 pro per request)
+
+### Domain Intelligence
+- GET /v1/domain/{domain} — Full domain report (DNS + WHOIS + SSL + subdomains + WAF + email security + threat intel + risk score)
+- GET /v1/audit/{domain} — Orchestrated domain audit (full report + tech fingerprint + live headers in one call)
+- GET /v1/threat-report/{ip} — Orchestrated IP threat report (Shodan + AbuseIPDB + ASN + enrichment)
+- GET /v1/dns/{domain} — DNS records (A, AAAA, MX, NS, TXT, CNAME, SOA)
+- GET /v1/whois/{domain} — WHOIS registration data
+- GET /v1/ssl/{domain} — SSL/TLS certificate analysis (cipher, chain, expiry, grade)
+- GET /v1/subdomains/{domain} — Subdomain enumeration (DNS brute + CT logs)
+- GET /v1/certs/{domain} — Certificate Transparency log entries
+- GET /v1/ip/{ip} — IP intelligence (reverse DNS, open ports, vulns, hostnames via Shodan)
+- GET /v1/asn/{target} — ASN lookup (AS number, holder, prefixes). Accepts domain or IP
+- GET /v1/threat/{domain} — Threat intelligence (URLhaus malware URL lookup)
+- GET /v1/tech/{domain} — Technology fingerprinting (CMS, frameworks, servers, CDN, analytics)
+- GET /v1/scan/headers/{domain} — Live HTTP security header scan and analysis
+- GET /v1/email/mx/{domain} — Email MX analysis (provider, SPF/DMARC/DKIM, security grade)
+- GET /v1/email/disposable/{email} — Check if email uses disposable/temporary provider
+- GET /v1/phone/{number} — Phone number validation (format, country, type, carrier, timezone)
+- GET /v1/username/{username} — Username OSINT across 16 platforms
+- GET /v1/archive/{domain} — Wayback Machine historical snapshots
+
+### Threat Intelligence / IOC
+- GET /v1/ioc/{indicator} — Unified IOC enrichment (IP, domain, URL, hash → ThreatFox/URLhaus/Feodo)
+- GET /v1/hash/{file_hash} — Malware hash reputation via MalwareBazaar
+- GET /v1/password/{sha1_hash} — Password breach check via HIBP (k-anonymity)
+- GET /v1/phishing/{url} — Phishing/malware URL check via URLhaus
+- POST /v1/iocs/bulk — Bulk IOC enrichment (10 free, 50 pro per request)
+
+### MITRE ATLAS (AI/ML Threats)
+- GET /v1/atlas/{technique_id} — Lookup ATLAS technique (AML.T#### or AML.T####.###); sub-techniques inherit parent tactics
+- GET /v1/atlas/techniques?keyword=&tactic=&maturity= — Search ATLAS techniques (~167 entries)
+- POST /v1/atlas/techniques/bulk — Bulk lookup up to 50 ATLAS technique ids in one call
+- GET /v1/atlas/case-studies/{case_study_id} — Lookup ATLAS case study (AML.CS####)
+- GET /v1/atlas/case-studies?keyword=&technique_id= — Search ATLAS case studies (~57 entries)
+
+### MITRE D3FEND (Defense Mapping)
+- GET /v1/d3fend/{defense_id} — Lookup D3FEND defense by slug (e.g. TokenBinding) — tactic, artifact, mapped ATT&CK T-codes
+- GET /v1/d3fend/defenses?keyword=&tactic=&artifact= — Search D3FEND defenses (~149 entries)
+- GET /v1/d3fend/attack/{attack_technique_id} — Reverse: ATT&CK T-code → mitigating D3FEND defenses
+- POST /v1/d3fend/coverage — Batch coverage breakdown for a list of ATT&CK T-codes (max 500)
+
+### Web Intelligence (v1.25.0)
+Single-page audits with explicit ethical floor: per-target eTLD+1 throttle (60/min), self-identifying UA `ContrastAPI/<version> (+https://contrastcyber.com/bot)`, robots.txt respected (Disallow `/` for our UA → 403, no fetch), Cache-Control honoured (no-store/private skips cache write), no SMTP probing.
+- GET /v1/robots/{domain} — Parsed robots.txt (sitemaps, per-UA allow/disallow, crawl-delay, RFC 9309)
+- GET /v1/redirect/{url:path} — Walk URL redirect chain hop-by-hop, SSRF-guarded at every hop (deobfuscate URL shorteners, audit phishing links)
+- GET /v1/email/verify/{email} — Combined email validation: syntax + MX + disposable + role + free-provider (no SMTP RCPT TO probing — ethical declined)
+- GET /v1/brand/{domain} — Public brand assets from homepage <head> (favicon, og:image, theme-color, og:site_name, JSON-LD logo) [cost: 2]
+- GET /v1/seo/{domain} — One-page SEO audit + 0-100 composite score (10 rules) + missing_signals list of concrete fixes [cost: 2]
+
+### Code Security
+- POST /v1/check/headers — Validate HTTP security headers (JSON body: {"headers": {...}})
+- POST /v1/check/secrets — Detect hardcoded secrets (JSON body: {"code": "...", "language": "python"})
+- POST /v1/check/injection — SQL/command/path injection detection (JSON body: {"code": "...", "language": "python"})
+- POST /v1/check/dependencies — Check packages against CVE DB (JSON body: {"packages": [{"name": "...", "version": "..."}]})
+
+### Meta
+- GET /v1/status — API health check and data freshness
+- GET /v1/usage — Usage statistics (Pro key required)
+- GET /v1/privacy/my-data — GDPR transparency: returns everything the DB has about the caller (hashed IP, 24h endpoint usage, Pro key record if any). Query parameters are never stored. No auth required.
+
+## MCP (Model Context Protocol)
+
+ContrastAPI is available as an MCP server with {{ MCP_TOOL_COUNT }} tools.
+MCP tools: domain_report, audit_domain, dns_lookup, whois_lookup, ssl_check, subdomain_enum,
+tech_fingerprint, threat_intel, scan_headers, email_mx, email_disposable, email_verify,
+phone_lookup, username_lookup, wayback_lookup, ip_lookup, asn_lookup, threat_report,
+cve_lookup, cve_search, cve_leading, exploit_lookup, bulk_cve_lookup, kev_detail, cwe_lookup,
+ioc_lookup, hash_lookup, password_check, phishing_check, bulk_ioc_lookup,
+check_secrets, check_injection, check_dependencies, check_headers,
+atlas_technique_lookup, atlas_technique_search, bulk_atlas_technique_lookup, atlas_case_study_lookup, atlas_case_study_search,
+d3fend_defense_lookup, d3fend_defense_search, d3fend_defense_for_attack, d3fend_attack_coverage,
+robots_txt, redirect_chain, brand_assets, seo_audit.
+
+### MCP Resources (catalog browsing, no rate limit)
+- atlas://catalog, atlas://technique/{technique_id}, atlas://case-study/{case_study_id}
+- d3fend://catalog, d3fend://defense/{defense_id}
+- cwe://catalog, cwe://weakness/{cwe_id}
+
+### MCP Prompts
+- contrast_triage(target, perspective='red'|'blue') — conditional triage chain (auto-detects target type: CVE / ATLAS / ATT&CK / CWE / hash / IP / domain)
+- security_audit(domain) — single-target full audit workflow
+- vulnerability_check(product) — quick CVE search by product
+
+### HTTP Transport (remote)
+POST https://api.contrastcyber.com/mcp/
+Headers: Content-Type: application/json, Accept: application/json, text/event-stream
+Body: JSON-RPC 2.0 (initialize, tools/list, tools/call)
+
+### Stdio Transport (local)
+Add to .mcp.json:
+{"mcpServers": {"contrastapi": {"command": "python3", "args": ["/path/to/mcp_server.py"]}}}
+
+## Quick Examples
+
+### CVE Lookup
+GET https://api.contrastcyber.com/v1/cve/CVE-2024-3094
+→ Returns severity, CVSS, CVSS breakdown, description, EPSS score, KEV status, affected products
+
+### Domain Report with Risk Score
+GET https://api.contrastcyber.com/v1/domain/example.com
+→ Returns DNS, WHOIS, SSL (graded A-F), subdomains, WAF, email security, threat intel, risk score (A-F)
+
+### Threat Intelligence
+GET https://api.contrastcyber.com/v1/threat/example.com
+→ Returns URLhaus malware URLs, threat types, online/offline status
+
+### Live Header Scan
+GET https://api.contrastcyber.com/v1/scan/headers/example.com
+→ Fetches live headers, analyzes CSP/HSTS/X-Frame-Options, returns score and grade
+
+### IP Intelligence
+GET https://api.contrastcyber.com/v1/ip/93.184.216.34
+→ Returns reverse DNS, open ports, known vulnerabilities, hostnames
+
+### Technology Fingerprinting
+GET https://api.contrastcyber.com/v1/tech/example.com
+→ Returns detected technologies (CMS, frameworks, servers, CDN, analytics) with versions
+
+### Secret Detection
+POST https://api.contrastcyber.com/v1/check/secrets
+Body: {"code": "aws_key = 'AKIAIOSFODNN7EXAMPLE'", "language": "python"}
+→ Returns findings with severity, line number, remediation advice
+
+### MITRE ATLAS — LLM Prompt Injection
+GET https://api.contrastcyber.com/v1/atlas/AML.T0051
+→ Returns technique description, tactics, ATT&CK bridge, case studies, pivot hints
+
+### MITRE D3FEND — Reverse Defense Lookup
+GET https://api.contrastcyber.com/v1/d3fend/attack/T1059
+→ Returns D3FEND defenses that mitigate ATT&CK T1059 (Command/Scripting Interpreter)
+
+### CISA KEV Detail
+GET https://api.contrastcyber.com/v1/kev/CVE-2021-44228
+→ Returns federal patch deadline, required action, ransomware association, CWE list
+
+### Email Verify (combined, no SMTP probe)
+GET https://api.contrastcyber.com/v1/email/verify/admin@example.com
+→ Returns syntax_valid, mx_records, disposable, role_address, role_type, free_provider, summary
+
+### Robots.txt Parser
+GET https://api.contrastcyber.com/v1/robots/github.com
+→ Returns sitemaps, per-User-agent allow/disallow rules, crawl-delay, host directive (RFC 9309)
+
+### Redirect Chain Walker
+GET https://api.contrastcyber.com/v1/redirect/https%3A%2F%2Fbit.ly%2F3xyz
+→ Walks each hop with status, Location, latency_ms; SSRF-guarded; loop_detected flag
+
+### Brand Assets Scraper
+GET https://api.contrastcyber.com/v1/brand/stripe.com
+→ Returns favicon_url, og_image_url, theme_color, site_name, JSON-LD logo (all `_untrusted`)
+
+### SEO Audit (one-page)
+GET https://api.contrastcyber.com/v1/seo/example.com
+→ Returns title/description, H1 list, OG tags, canonical, image alt coverage, 0-100 score, missing_signals

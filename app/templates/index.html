@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ContrastAPI — Security Intelligence API</title>
+  <meta name="description" content="Security intelligence API and MCP server with {{ tool_count }} tools. CVE lookup, domain recon, threat intel, MITRE ATLAS (AI/ML attacks), D3FEND defenses, code security. Free, no API key required.">
+  <meta property="og:title" content="ContrastAPI — {{ tool_count }} Security Tools for AI Agents">
+  <meta property="og:description" content="Free security intelligence API and MCP server. {{ tool_count }} tools: CVE, domain recon, IOC, MITRE ATLAS, D3FEND, code security. No signup required.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://api.contrastcyber.com">
+  <meta property="og:image" content="https://api.contrastcyber.com/static/og-image.png">
+  <meta property="og:site_name" content="ContrastAPI">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="ContrastAPI — {{ tool_count }} Security Tools for AI Agents">
+  <meta name="twitter:description" content="Free security MCP server. {{ tool_count }} tools: CVE, domain recon, IOC, MITRE ATLAS, D3FEND, code security. No signup.">
+  <meta name="twitter:image" content="https://api.contrastcyber.com/static/og-image.png">
+  <meta name="msvalidate.01" content="FF2D74F962D3EB9B4CD7B81481A4C873">
+  <link rel="canonical" href="https://api.contrastcyber.com/">
+  <link rel="alternate" hreflang="en" href="https://api.contrastcyber.com/">
+  <link rel="alternate" hreflang="zh" href="https://api.contrastcyber.com/cn/">
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="/static/favicon-192.png">
+  <link rel="stylesheet" href="/static/style.css?v=29">
+  <script src="/static/js/landing.js?v=2" defer></script>
+  <link rel="alternate" type="text/plain" href="/llms.txt" title="LLM Discovery">
+  <link rel="alternate" type="application/json" href="/openapi.json" title="OpenAPI Spec">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebAPI",
+    "name": "ContrastAPI",
+    "description": "Security intelligence API for AI models and developers. CVE lookup with EPSS/KEV enrichment, domain reconnaissance, threat intelligence, and code security verification.",
+    "url": "https://api.contrastcyber.com",
+    "documentation": "https://github.com/UPinar/contrastapi/blob/main/docs/ENDPOINTS.md",
+    "provider": {
+      "@type": "Organization",
+      "name": "ContrastCyber",
+      "url": "https://contrastcyber.com"
+    },
+    "termsOfService": "https://contrastcyber.com",
+    "availableChannel": {
+      "@type": "ServiceChannel",
+      "serviceUrl": "https://api.contrastcyber.com/v1/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div class="glow"></div>
+
+  {% include "nav.html" %}
+
+  <section class="hero">
+    <div class="pill">{{ tool_count }} TOOLS · {{ resource_count }} RESOURCES · {{ endpoint_count }} ENDPOINTS · MCP SERVER</div>
+    <h1>{{ tool_count }} security tools,<br><span class="gradient">one JSON config.</span></h1>
+    <p class="subtitle">CVE + EPSS + KEV lookup, domain recon, IP threat reports, IOC enrichment, MITRE ATLAS (AI/ML attacks), D3FEND defenses, and code security. Structured JSON with LLM-optimized summaries. Works with Claude Desktop, Cursor, VS Code, and any MCP client.</p>
+    <div class="cta-group">
+      <a href="#setup" class="btn-cta">Install in 30 seconds →</a>
+      <a href="/playground" class="btn-cta-secondary">Try Playground</a>
+    </div>
+    <div class="hero-curl-wrap">
+      <pre class="hero-curl"><span class="prompt">$ </span><code>curl https://api.contrastcyber.com/v1/audit/example.com</code></pre>
+      <button type="button" class="copy-btn" aria-label="Copy command">
+        <svg class="icon-copy" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+        <svg class="icon-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+      </button>
+    </div>
+  </section>
+
+  <!-- Trust Strip -->
+  <section class="trust-strip" aria-label="Trust signals">
+    <div class="trust-strip-inner">
+      <span><strong>{{ test_count }}</strong> tests passing</span>
+      <span><strong>99/100</strong> on <a href="https://smithery.ai/servers/contrastcyber/contrastapi" target="_blank" rel="noopener">Smithery</a></span>
+      <span><strong>{{ tool_count }}</strong> tools · <strong>{{ resource_count }}</strong> resources · <strong>{{ endpoint_count }}</strong> endpoints</span>
+      <span><a href="https://pypi.org/project/contrastapi/" target="_blank" rel="noopener">PyPI</a> · <a href="https://www.npmjs.com/package/contrastapi" target="_blank" rel="noopener">npm</a> · <a href="https://marketplace.visualstudio.com/items?itemName=ContrastAPI.contrastapi" target="_blank" rel="noopener">VS Code</a></span>
+      <span>MIT licensed · Free forever</span>
+    </div>
+  </section>
+
+  <!-- Endpoints -->
+  <section class="endpoints">
+    <h2 class="section-title">Web Intelligence</h2>
+    <p class="endpoints-lede">Single-page audits with explicit ethical floor: per-target eTLD+1 throttle (60/min), self-identifying <a href="/bot">UA</a>, robots.txt respected, Cache-Control honoured, no SMTP probing.</p>
+    <div class="endpoint-group">
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/robots/{domain}</span>
+        <span class="endpoint-desc">Parsed robots.txt — sitemaps, per-UA allow/disallow, crawl-delay (RFC 9309)</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/redirect/{url:path}</span>
+        <span class="endpoint-desc">Walk a URL's redirect chain hop-by-hop, SSRF-guarded at every hop</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/email/verify/{email}</span>
+        <span class="endpoint-desc">Combined email validation: syntax + MX + disposable + role + free-provider (no SMTP probe)</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/brand/{domain}</span>
+        <span class="endpoint-desc">Public brand assets from homepage &lt;head&gt;: favicon, og:image, theme-color, JSON-LD logo</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/seo/{domain}</span>
+        <span class="endpoint-desc">One-page SEO audit + 0-100 composite score (10 rules) + concrete missing_signals</span>
+      </div>
+    </div>
+
+    <h2 class="section-title">Domain Intelligence</h2>
+    <div class="endpoint-group">
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/domain/{domain}</span>
+        <span class="endpoint-desc">Full domain report</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/audit/{domain}</span>
+        <span class="endpoint-desc">Full audit (report + tech + headers)</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/dns/{domain}</span>
+        <span class="endpoint-desc">DNS records</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/whois/{domain}</span>
+        <span class="endpoint-desc">WHOIS lookup</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/subdomains/{domain}</span>
+        <span class="endpoint-desc">Subdomain enumeration</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/certs/{domain}</span>
+        <span class="endpoint-desc">CT log certificates</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/ssl/{domain}</span>
+        <span class="endpoint-desc">SSL certificate details, grade, chain &amp; cipher</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/threat/{domain}</span>
+        <span class="endpoint-desc">URLhaus threat intel</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/ip/{ip}</span>
+        <span class="endpoint-desc">IP intel + reputation (AbuseIPDB, Shodan)</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/tech/{domain}</span>
+        <span class="endpoint-desc">Technology fingerprinting (CMS, frameworks, CDN, analytics)</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/asn/{target}</span>
+        <span class="endpoint-desc">ASN lookup (AS number or IP)</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/email/mx/{domain}</span>
+        <span class="endpoint-desc">Mail provider detection + email security grade</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/email/disposable/{email}</span>
+        <span class="endpoint-desc">Disposable/temporary email check</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/phone/{number}</span>
+        <span class="endpoint-desc">Phone validation, carrier, country, timezone</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/username/{username}</span>
+        <span class="endpoint-desc">Username OSINT across 30+ sites (presence + breach hints)</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/archive/{domain}</span>
+        <span class="endpoint-desc">Wayback Machine snapshots — first/last seen, archive timeline</span>
+      </div>
+    </div>
+
+    <h2 class="section-title">CVE Intelligence</h2>
+    <div class="endpoint-group">
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/cve/{cve_id}</span>
+        <span class="endpoint-desc">CVE details + EPSS + KEV</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/cve/{cve_id}/risk_score</span>
+        <span class="endpoint-desc">Composite risk score (CVSS+EPSS+KEV+PoC fusion, 0-100) + label + urgency</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/cvss/details?vector=</span>
+        <span class="endpoint-desc">Parse a CVSS v3.x vector into per-metric breakdown + recomputed score</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/cves?product=&severity=&published_after=&published_before=&kev=&epss_min=&sort=&offset=</span>
+        <span class="endpoint-desc">Search CVEs (paginated)</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/cve/leading</span>
+        <span class="endpoint-desc">Early-warning feed: CVEs MITRE/GHSA-indexed before NVD enrichment</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/exploit/{cve_id}</span>
+        <span class="endpoint-desc">Public exploits &amp; advisories</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/kev/{cve_id}</span>
+        <span class="endpoint-desc">CISA KEV detail (federal patch deadline, ransomware, CWE list)</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/cwe/{cwe_id}</span>
+        <span class="endpoint-desc">MITRE CWE catalog (description, mitigations, parent/child chain)</span>
+      </div>
+    </div>
+
+    <h2 class="section-title">MITRE ATLAS (AI/ML Threats)</h2>
+    <div class="endpoint-group">
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/atlas/{technique_id}</span>
+        <span class="endpoint-desc">ATLAS technique lookup (e.g. AML.T0051 LLM Prompt Injection)</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/atlas/techniques?keyword=&tactic=&maturity=</span>
+        <span class="endpoint-desc">Search ATLAS techniques ({{ atlas_technique_count }} entries)</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/atlas/case-studies/{case_study_id}</span>
+        <span class="endpoint-desc">Real-world ML attack case study (e.g. AML.CS0009 ChatGPT Plugins)</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/atlas/case-studies?keyword=</span>
+        <span class="endpoint-desc">Search ATLAS case studies ({{ atlas_case_study_count }} entries)</span>
+      </div>
+      <div class="endpoint">
+        <span class="method post">POST</span>
+        <span class="endpoint-path">/v1/atlas/techniques/bulk</span>
+        <span class="endpoint-desc">Bulk technique drill (up to 50 IDs per request)</span>
+      </div>
+    </div>
+
+    <h2 class="section-title">MITRE D3FEND (Defense Mapping)</h2>
+    <div class="endpoint-group">
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/d3fend/{defense_id}</span>
+        <span class="endpoint-desc">Defense technique lookup (e.g. TokenBinding) with mapped ATT&amp;CK techniques</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/d3fend/defenses?keyword=&tactic=</span>
+        <span class="endpoint-desc">Search D3FEND defenses ({{ d3fend_defense_count }} entries, 7 tactics)</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/d3fend/attack/{attack_technique_id}</span>
+        <span class="endpoint-desc">Reverse lookup: defenses for an ATT&amp;CK technique (e.g. T1059)</span>
+      </div>
+      <div class="endpoint">
+        <span class="method post">POST</span>
+        <span class="endpoint-path">/v1/d3fend/coverage</span>
+        <span class="endpoint-desc">Batch coverage map for a list of ATT&amp;CK technique IDs</span>
+      </div>
+    </div>
+
+    <h2 class="section-title">Threat Intelligence</h2>
+    <div class="endpoint-group">
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/ioc/{indicator}</span>
+        <span class="endpoint-desc">Unified IOC enrichment (IP, domain, URL, hash)</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/hash/{hash}</span>
+        <span class="endpoint-desc">Malware hash reputation (MalwareBazaar)</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/password/{sha1_hash}</span>
+        <span class="endpoint-desc">Password breach check (HIBP, found + count only)</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/phishing/{url}</span>
+        <span class="endpoint-desc">Phishing/malware URL check (URLhaus)</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/monitor/{domain}</span>
+        <span class="endpoint-desc">Lightweight domain health check</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/domain/{domain}/vulns</span>
+        <span class="endpoint-desc">Tech stack CVE scan</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/threat-report/{ip}</span>
+        <span class="endpoint-desc">IP threat report (Shodan + AbuseIPDB + ASN)</span>
+      </div>
+      <div class="endpoint">
+        <span class="method post">POST</span>
+        <span class="endpoint-path">/v1/domains/bulk</span>
+        <span class="endpoint-desc">Bulk domain scan (up to 10 domains)</span>
+      </div>
+      <div class="endpoint">
+        <span class="method post">POST</span>
+        <span class="endpoint-path">/v1/cves/bulk</span>
+        <span class="endpoint-desc">Bulk CVE lookup (free 10, pro 50 per request)</span>
+      </div>
+      <div class="endpoint">
+        <span class="method post">POST</span>
+        <span class="endpoint-path">/v1/iocs/bulk</span>
+        <span class="endpoint-desc">Bulk IOC enrichment (free 10, pro 50 per request)</span>
+      </div>
+    </div>
+
+    <h2 class="section-title">Code Security</h2>
+    <div class="endpoint-group">
+      <div class="endpoint">
+        <span class="method post">POST</span>
+        <span class="endpoint-path">/v1/check/headers</span>
+        <span class="endpoint-desc">Validate HTTP headers</span>
+      </div>
+      <div class="endpoint">
+        <span class="method post">POST</span>
+        <span class="endpoint-path">/v1/check/secrets</span>
+        <span class="endpoint-desc">Detect hardcoded secrets</span>
+      </div>
+      <div class="endpoint">
+        <span class="method post">POST</span>
+        <span class="endpoint-path">/v1/check/injection</span>
+        <span class="endpoint-desc">SQL/cmd injection patterns</span>
+      </div>
+      <div class="endpoint">
+        <span class="method post">POST</span>
+        <span class="endpoint-path">/v1/check/dependencies</span>
+        <span class="endpoint-desc">Check packages for CVEs (free 10, pro 50 per request)</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/scan/headers/{domain}</span>
+        <span class="endpoint-desc">Live header security scan</span>
+      </div>
+    </div>
+
+    <h2 class="section-title">Operations</h2>
+    <div class="endpoint-group">
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/status</span>
+        <span class="endpoint-desc">API health + data freshness</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/usage</span>
+        <span class="endpoint-desc">Your usage stats (Pro)</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- GitHub CTA -->
+  <section class="github-cta" aria-label="GitHub">
+    <div class="github-cta-inner">
+    <p class="github-cta-text">Open source, MIT licensed, built in public.</p>
+    <a href="https://github.com/UPinar/contrastapi" class="btn-github" target="_blank" rel="noopener">
+      <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      Star on GitHub
+    </a>
+    </div>
+  </section>
+
+  <!-- 30-Second Setup -->
+  <section id="setup" class="endpoints setup-section" aria-labelledby="setup-title">
+    <h2 id="setup-title" class="section-title">30-Second Setup</h2>
+    <div class="setup-cards">
+      <div class="setup-card">
+        <h3>1. MCP (Claude / Cursor / VS Code)</h3>
+        <pre>{
+  "mcpServers": {
+    "contrastapi": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote",
+        "https://api.contrastcyber.com/mcp/"]
+    }
+  }
+}</pre>
+        <a href="/mcp-setup">Full MCP guide →</a>
+      </div>
+      <div class="setup-card">
+        <h3>2. SDKs <span class="setup-card-badge">Python · Node</span></h3>
+        <pre>pip install contrastapi
+npm install contrastapi</pre>
+        <pre>from contrastapi import ContrastAPI
+c = ContrastAPI()
+c.cve.lookup("CVE-2024-3094")
+c.atlas.bulk_technique_lookup(["AML.T0051"])</pre>
+        <span style="white-space:nowrap"><a href="https://pypi.org/project/contrastapi/" target="_blank" rel="noopener">PyPI →</a> · <a href="https://www.npmjs.com/package/contrastapi" target="_blank" rel="noopener">npm →</a></span>
+      </div>
+      <div class="setup-card">
+        <h3>3. cURL</h3>
+        <div class="copy-wrap"><pre>curl https://api.contrastcyber.com\
+  /v1/audit/example.com</pre><button type="button" class="copy-btn" aria-label="Copy command"><svg class="icon-copy" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><svg class="icon-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg></button></div>
+        <div class="copy-wrap"><pre>curl https://api.contrastcyber.com\
+  /v1/cve/CVE-2024-3094</pre><button type="button" class="copy-btn" aria-label="Copy command"><svg class="icon-copy" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><svg class="icon-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg></button></div>
+        <a href="/quickstart">Quick start guide →</a>
+      </div>
+      <div class="setup-card">
+        <h3>4. VS Code Extension</h3>
+        <pre>code --install-extension \
+  ContrastAPI.contrastapi</pre>
+        <p class="setup-card-note">29 commands · sidebar tree · right-click menu · no API key</p>
+        <a href="https://marketplace.visualstudio.com/items?itemName=ContrastAPI.contrastapi" target="_blank" rel="noopener">Marketplace →</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Credit Costs -->
+  <section class="endpoints endpoints-mt">
+    <h2 class="section-title">Credit Costs</h2>
+    <p class="endpoints-lede">
+      Transparent pricing — every response includes <code class="code-accent">X-RateLimit-Cost</code> so you can budget calls.
+    </p>
+    <div class="endpoint-group">
+      <div class="endpoint">
+        <span class="method get">1&times;</span>
+        <span class="endpoint-path">Most endpoints</span>
+        <span class="endpoint-desc">1 credit per call</span>
+      </div>
+      <div class="endpoint">
+        <span class="method post">4&times;</span>
+        <span class="endpoint-path">/v1/audit/{domain}</span>
+        <span class="endpoint-desc">Aggregates 4 upstream sources</span>
+      </div>
+      <div class="endpoint">
+        <span class="method post">4&times;</span>
+        <span class="endpoint-path">/v1/threat-report/{ip}</span>
+        <span class="endpoint-desc">ASN + IP enrichment + Shodan InternetDB (Pro adds full Shodan + AbuseIPDB)</span>
+      </div>
+      <div class="endpoint">
+        <span class="method post">N&times;</span>
+        <span class="endpoint-path">Bulk endpoints</span>
+        <span class="endpoint-desc">N credits for N items in the request</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- FAQ -->
+  <section class="auth-section">
+    <div class="faq">
+      <h2>FAQ</h2>
+      <dl>
+        <dt>Do I need an API key?</dt>
+        <dd>No. The free tier works without authentication — just send requests. Pro users include their key via the Authorization: Bearer header.</dd>
+
+        <dt>What happens when I hit the rate limit?</dt>
+        <dd>You'll get a 429 response with a RateLimit-Reset header showing when your limit resets. Upgrade to Pro for 10x the limit.</dd>
+
+        <dt>How do I get my API key after purchase?</dt>
+        <dd>After checkout, you'll be redirected to a welcome page showing your key. Save it immediately — it's shown only once.</dd>
+
+        <dt>Can I cancel anytime?</dt>
+        <dd>Yes. Cancel through Lemon Squeezy customer portal. Your key stays active until the billing period ends.</dd>
+
+        <dt>Is there an SLA?</dt>
+        <dd>The API targets 99.9% uptime. Check /v1/status for real-time health. Pro users get priority support via email.</dd>
+      </dl>
+    </div>
+  </section>
+
+  <section class="auth-section">
+    <h2 class="section-title">Data Freshness</h2>
+    <ul class="freshness-list">
+      <li><strong>Domain &amp; IP lookups:</strong> 1-hour cache per query.</li>
+      <li><strong>IP threat feeds:</strong> FireHOL refreshed every 6 hours; Tor exit list, Feodo C2, and cloud-IP ranges every 1 hour.</li>
+      <li><strong>Web intelligence (robots.txt, brand assets):</strong> 1-hour cache per target.</li>
+      <li><strong>Wayback history:</strong> 24-hour cache (rarely changes upstream).</li>
+      <li><strong>CVE / EPSS / KEV:</strong> synced via cron from NVD, MITRE, FIRST EPSS, and CISA KEV (typical lag &lt;2h).</li>
+      <li><strong>Per-target throttle:</strong> 60 req/min per registrable domain (eTLD+1) on web-intel endpoints — protects upstream origins from your bursts.</li>
+      <li>For real-time results, vary your query (cache is keyed by the exact target).</li>
+    </ul>
+  </section>
+
+  <footer>
+    <div class="footer-links">
+      <a href="/terms">Terms</a>
+      <a href="/privacy">Privacy</a>
+      <a href="#" data-copy-email="contact@contrastcyber.com">Contact</a>
+      <a href="https://github.com/UPinar/contrastapi">GitHub</a>
+    </div>
+    <p>&copy; 2026 ContrastCyber</p>
+  </footer>
+</body>
+</html>

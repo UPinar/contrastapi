@@ -1,0 +1,43 @@
+target-version = "py312"
+line-length = 120
+
+[lint]
+select = [
+    "F",      # Pyflakes — unused imports, undefined names, dead code
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "I",      # isort — import ordering
+    "UP",     # pyupgrade — outdated syntax
+    "B",      # flake8-bugbear — common bugs
+    "SIM",    # flake8-simplify — unnecessary complexity
+    "S",      # flake8-bandit — security issues
+    "RUF",    # Ruff-specific rules
+]
+ignore = [
+    "E501",   # line length — let formatter handle it
+    "S101",   # assert usage — fine in tests
+    "S110",   # try-except-pass — intentional in recon fallbacks
+    "S112",   # try-except-continue — intentional in DNS fallback
+    "S603",   # subprocess call — we validate inputs
+    "S607",   # partial executable path — paths are config-controlled
+    "S108",   # hardcoded temp dir — test fixtures
+    "B008",   # function call in default arg — FastAPI Depends() pattern
+    "SIM102", # nested if — readability preference
+    "SIM105", # contextlib.suppress — explicit try/except is clearer
+    "SIM110", # use all() — explicit loop is clearer for validation
+    "SIM117", # nested with — keep for readability
+    "RUF012", # mutable class attrs — test fixtures, not a real issue
+    "RUF015", # next() over [0] — minor style
+    "RUF059", # unused unpacked variable — _validate_and_auth pattern
+    "S310",   # suspicious url open — SSRF-safe wrapper validates schemes
+    "S608",   # hardcoded SQL — WHERE clause built from validated enums
+    "SIM108", # ternary — readability preference for multi-line
+    "UP041",  # timeout-error-alias — keep explicit TimeoutError
+]
+
+[lint.per-file-ignores]
+"app/tests/*" = ["S", "B", "F841"]  # relax security/bugbear/unused in tests
+"app/tests/conftest.py" = ["E402"]  # sys.path must be modified before app imports
+"app/main.py" = ["E402"]            # middleware/metrics defined between import groups
+"app/domain/routes.py" = ["E402"]   # thread pool created before imports
+"app/mcp_stdio.py" = ["E402"]       # sys.path must be modified before app imports

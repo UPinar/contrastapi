@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Quick Start | ContrastAPI</title>
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="/static/favicon-192.png">
+  <link rel="stylesheet" href="/static/style.css?v=27">
+  <link rel="stylesheet" href="/static/css/page.css?v=2">
+  <script src="/static/js/landing.js?v=1" defer></script>
+</head>
+<body>
+  <div class="glow"></div>
+
+  {% include "nav.html" %}
+
+  <div class="page">
+    <h1>Quick <span>Start</span></h1>
+    <p class="subtitle">From zero to first API call in 30 seconds. No signup, no API key required.</p>
+
+    <div class="docs-strip" style="margin: 8px 0 24px; font-size: 0.95em; color: #888;">
+      <strong>Docs:</strong>
+      <a href="https://github.com/UPinar/contrastapi/blob/main/docs/tool-selection-guide.md">Tool Selection Guide</a>
+      &middot;
+      <a href="https://github.com/UPinar/contrastapi/blob/main/docs/ENDPOINTS.md">Endpoints</a>
+      &middot;
+      <a href="https://github.com/UPinar/contrastapi/blob/main/docs/PROMPTS.md">Prompts</a>
+      &middot;
+      <a href="https://github.com/UPinar/contrastapi/blob/main/docs/resources.md">Resources</a>
+    </div>
+
+    <h2><span class="num">1</span> cURL</h2>
+    <p>Copy, paste, run.</p>
+    <div class="code-block"><span class="lang">bash</span><code>curl https://api.contrastcyber.com/v1/domain/example.com</code></div>
+
+    <div class="code-block"><span class="lang">bash</span><code># CVE lookup
+curl https://api.contrastcyber.com/v1/cve/CVE-2024-3094
+
+# Live header scan
+curl https://api.contrastcyber.com/v1/scan/headers/example.com
+
+# IP intelligence
+curl https://api.contrastcyber.com/v1/ip/8.8.8.8
+
+# Code secrets scan
+curl -X POST https://api.contrastcyber.com/v1/check/secrets \
+  -H "Content-Type: application/json" \
+  -d '{"code": "aws_key = AKIAIOSFODNN7EXAMPLE"}'</code></div>
+
+    <h2><span class="num">2</span> Node.js / JavaScript</h2>
+    <p><span class="pill-inline">npm</span> No SDK needed — just fetch.</p>
+    <div class="code-block"><span class="lang">javascript</span><code>// Domain security report
+const res = await fetch('https://api.contrastcyber.com/v1/domain/example.com');
+const data = await res.json();
+console.log(data.risk_score);   // { grade: "B", score: 72, ... }
+console.log(data.ssl.grade);    // "A"
+console.log(data.dns.records);  // [{ type: "A", value: "93.184.216.34" }, ...]
+
+// CVE lookup
+const cve = await fetch('https://api.contrastcyber.com/v1/cve/CVE-2024-3094');
+const vuln = await cve.json();
+console.log(vuln.severity);     // "critical"
+console.log(vuln.epss_score);   // 0.94</code></div>
+
+    <h2><span class="num">3</span> Python</h2>
+    <div class="code-block"><span class="lang">python</span><code>import requests
+
+# Domain report
+r = requests.get('https://api.contrastcyber.com/v1/domain/example.com')
+data = r.json()
+print(data['risk_score']['grade'])  # "B"
+
+# Scan code for secrets
+r = requests.post('https://api.contrastcyber.com/v1/check/secrets',
+    json={'code': 'password = "hunter2"'})
+print(r.json()['findings'])</code></div>
+
+    <h2><span class="num">4</span> CI/CD (GitHub Actions)</h2>
+    <div class="code-block"><span class="lang">yaml</span><code># .github/workflows/security.yml
+- name: Security header check
+  run: |
+    GRADE=$(curl -s https://api.contrastcyber.com/v1/scan/headers/$DOMAIN | jq -r '.grade')
+    if [ "$GRADE" = "F" ]; then echo "Security grade F!" && exit 1; fi</code></div>
+
+    <h2><span class="num">5</span> With a Pro API Key <span class="section-optional">(optional)</span></h2>
+    <p>Free tier is {{ free_limit }} req/hr. Add an <code>Authorization: Bearer cc_...</code> header to unlock {{ pro_limit }} req/hr
+    and full <strong>AbuseIPDB + Shodan</strong> reputation enrichment on <code>/v1/domain/</code>,
+    <code>/v1/ip/</code>, and <code>/v1/threat-report/</code>.</p>
+
+    <div class="code-block"><span class="lang">bash</span><code># cURL with Pro key
+curl -H "Authorization: Bearer $CONTRASTAPI_API_KEY" \
+  https://api.contrastcyber.com/v1/ip/8.8.8.8</code></div>
+
+    <div class="code-block"><span class="lang">javascript</span><code>// Node.js / JavaScript — key from env
+const res = await fetch('https://api.contrastcyber.com/v1/ip/8.8.8.8', {
+  headers: { 'Authorization': `Bearer ${process.env.CONTRASTAPI_API_KEY}` }
+});
+const data = await res.json();
+console.log(data.reputation.abuseipdb.abuse_score);  // 0 for clean IPs
+console.log(data.reputation.shodan.ports);            // [22, 80, 443, ...]</code></div>
+
+    <div class="code-block"><span class="lang">python</span><code>import os, requests
+
+headers = {'Authorization': f'Bearer {os.environ["CONTRASTAPI_API_KEY"]}'}
+r = requests.get('https://api.contrastcyber.com/v1/ip/8.8.8.8', headers=headers)
+print(r.json()['reputation']['shodan']['ports'])</code></div>
+
+    <div class="code-block"><span class="lang">yaml</span><code>{% raw %}# GitHub Actions — key from repo secrets
+- name: Threat report with Pro enrichment
+  env:
+    CONTRASTAPI_API_KEY: ${{ secrets.CONTRASTAPI_API_KEY }}
+    TARGET_IP: "8.8.8.8"
+  run: |
+    curl -H "Authorization: Bearer $CONTRASTAPI_API_KEY" \
+      https://api.contrastcyber.com/v1/threat-report/$TARGET_IP{% endraw %}</code></div>
+
+    <p>Get a Pro key ($15/mo): <a href="/pricing">api.contrastcyber.com/pricing</a>
+    &mdash; or email <a href="#" data-copy-email="contact@contrastcyber.com">contact@contrastcyber.com</a>.</p>
+
+  </div>
+
+  <footer>
+    <div class="footer-links">
+      <a href="/terms">Terms</a>
+      <a href="/privacy">Privacy</a>
+      <a href="#" data-copy-email="contact@contrastcyber.com">Contact</a>
+      <a href="https://github.com/UPinar/contrastapi">GitHub</a>
+    </div>
+    <p>&copy; 2026 ContrastCyber</p>
+  </footer>
+</body>
+</html>

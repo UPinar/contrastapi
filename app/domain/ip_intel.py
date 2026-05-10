@@ -1,0 +1,558 @@
+"""IP intelligence caches: cloud provider CIDR lookup, Tor exit node detection, risk scoring."""
+
+import asyncio
+import ipaddress
+import json
+import logging
+import time
+
+import httpx
+import pytricia
+from config import (
+    AWS_IP_RANGES_URL,
+    CF_IP_RANGES_URL,
+    CLOUD_IP_MAX_BYTES,
+    CLOUD_IP_TTL,
+    FIREHOL_FAILURE_BACKOFF_SEC,
+    FIREHOL_FAILURE_THRESHOLD,
+    FIREHOL_LEVEL1_URL,
+    FIREHOL_MAX_BYTES,
+    FIREHOL_TTL,
+    GCP_IP_RANGES_URL,
+    TOR_EXIT_LIST_URL,
+    TOR_EXIT_MAX_BYTES,
+    TOR_EXIT_TTL,
+)
+
+logger = logging.getLogger("contrastapi")
+
+# Cloud range cache: separate tries for IPv4 (32-bit) and IPv6 (128-bit)
+_cloud_cache: dict = {"v4": None, "v6": None, "fetched_at": 0.0}
+_cloud_lock = asyncio.Lock()
+
+_tor_cache: dict = {
+    "data": frozenset(),
+    "fetched_at": 0.0,
+    # Honesty metadata for the verdict layer (Bug NEW-B): without this every
+    # `tor_exit=false` was indistinguishable from "fetch failed, list is
+    # empty" — a known-Tor-exit IP would silently report tor_exit=false and
+    # the agent had no way to tell. fetch_status is one of:
+    # "initial" | "ok" | "failed" | "capped".
+    "fetch_status": "initial",
+    "line_count": 0,
+}
+_tor_lock = asyncio.Lock()
+
+_firehol_cache: dict = {
+    "v4": None,
+    "v6": None,
+    "fetched_at": 0.0,
+    "consecutive_failures": 0,
+    "last_failure_at": 0.0,
+}
+_firehol_lock = asyncio.Lock()
+
+# Module-level singleton AsyncClient — pooled, lifespan-managed. follow_redirects=False:
+# upstream URLs are hardcoded constants; a rogue redirect (CDN compromise, DNS
+# hijack) could otherwise steer us toward loopback / cloud metadata endpoints.
+# Accept-Encoding: identity defeats gzip-bomb DoS — httpx's aiter_bytes() decodes
+# Content-Encoding BEFORE yielding chunks, so byte caps are otherwise ineffective
+# against a 1KB gzip blob that decompresses to 500MB (CLAUDE.md v1.25.0 rule).
+_intel_client = httpx.AsyncClient(
+    timeout=15.0,
+    follow_redirects=False,
+    verify=True,
+    headers={"Accept-Encoding": "identity"},
+)
+
+
+async def _fetch_capped(client, url: str, max_bytes: int) -> bytes | None:
+    """Fetch URL with streaming early-abort when body exceeds max_bytes.
+
+    Checks Content-Length header first, then enforces cap chunk-by-chunk.
+    Returns raw body bytes on success, None if over the cap.
+    """
+    async with client.stream("GET", url) as resp:
+        resp.raise_for_status()
+        cl = resp.headers.get("content-length")
+        try:
+            if cl is not None:
+                cl_int = int(cl)
+                # Reject negative or oversize Content-Length up front.
+                # Negative values would bypass `> max_bytes` (CWE-190).
+                if cl_int < 0 or cl_int > max_bytes:
+                    return None
+        except (TypeError, ValueError):
+            # Malformed Content-Length — fall through to the streaming byte-cap below.
+            pass
+        buf = bytearray()
+        async for chunk in resp.aiter_bytes():
+            buf.extend(chunk)
+            if len(buf) > max_bytes:
+                return None
+        return bytes(buf)
+
+
+def _safe_insert(trie, cidr: str, value: str) -> None:
+    """Insert CIDR into trie, skip with debug log if malformed."""
+    try:
+        trie[cidr] = value
+    except (ValueError, TypeError) as e:
+        logger.debug("skip malformed CIDR %s (%s): %s", cidr, value, type(e).__name__)
+
+
+async def _refresh_cloud_cache() -> tuple:
+    """Fetch AWS/GCP/Cloudflare IP ranges and populate two PyTricia tries (v4, v6).
+
+    Per-source failures preserve that source's prefixes from the previous cache.
+    Total failure preserves previous cache entirely.
+    """
+    if time.time() - _cloud_cache["fetched_at"] < CLOUD_IP_TTL and _cloud_cache["v4"] is not None:
+        return _cloud_cache["v4"], _cloud_cache["v6"]
+    async with _cloud_lock:
+        if time.time() - _cloud_cache["fetched_at"] < CLOUD_IP_TTL and _cloud_cache["v4"] is not None:
+            return _cloud_cache["v4"], _cloud_cache["v6"]
+
+        prev_v4 = _cloud_cache.get("v4")
+        prev_v6 = _cloud_cache.get("v6")
+
+        v4 = pytricia.PyTricia(32)
+        v6 = pytricia.PyTricia(128)
+        loaded: set[str] = set()
+
+        # AWS — prefixes[].ip_prefix / ipv6_prefixes[].ipv6_prefix
+        try:
+            body = await _fetch_capped(_intel_client, AWS_IP_RANGES_URL, CLOUD_IP_MAX_BYTES)
+            if body is None:
+                logger.warning("AWS IP ranges exceeded cap (%d bytes)", CLOUD_IP_MAX_BYTES)
+            else:
+                data = json.loads(body)
+                for p in data.get("prefixes") or []:
+                    cidr = p.get("ip_prefix")
+                    if cidr:
+                        _safe_insert(v4, cidr, "AWS")
+                for p in data.get("ipv6_prefixes") or []:
+                    cidr = p.get("ipv6_prefix")
+                    if cidr:
+                        _safe_insert(v6, cidr, "AWS")
+                loaded.add("AWS")
+        except Exception as e:
+            logger.warning("AWS IP ranges fetch failed: %s", type(e).__name__)
+
+        # GCP — prefixes[].ipv4Prefix / ipv6Prefix
+        try:
+            body = await _fetch_capped(_intel_client, GCP_IP_RANGES_URL, CLOUD_IP_MAX_BYTES)
+            if body is None:
+                logger.warning("GCP IP ranges exceeded cap (%d bytes)", CLOUD_IP_MAX_BYTES)
+            else:
+                data = json.loads(body)
+                for p in data.get("prefixes") or []:
+                    cidr4 = p.get("ipv4Prefix")
+                    if cidr4:
+                        _safe_insert(v4, cidr4, "GCP")
+                    cidr6 = p.get("ipv6Prefix")
+                    if cidr6:
+                        _safe_insert(v6, cidr6, "GCP")
+                loaded.add("GCP")
+        except Exception as e:
+            logger.warning("GCP IP ranges fetch failed: %s", type(e).__name__)
+
+        # Cloudflare — result.ipv4_cidrs / result.ipv6_cidrs (ignore result.tor_ips)
+        try:
+            body = await _fetch_capped(_intel_client, CF_IP_RANGES_URL, CLOUD_IP_MAX_BYTES)
+            if body is None:
+                logger.warning("CF IP ranges exceeded cap (%d bytes)", CLOUD_IP_MAX_BYTES)
+            else:
+                data = json.loads(body)
+                result = data.get("result") or {}
+                for cidr in result.get("ipv4_cidrs") or []:
+                    _safe_insert(v4, cidr, "Cloudflare")
+                for cidr in result.get("ipv6_cidrs") or []:
+                    _safe_insert(v6, cidr, "Cloudflare")
+                loaded.add("Cloudflare")
+        except Exception as e:
+            logger.warning("CF IP ranges fetch failed: %s", type(e).__name__)
+
+        # Preserve previous prefixes for any failed source.
+        # Snapshot prefix lists before iterating: concurrent readers may still
+        # be calling check_cloud_provider() against prev_v4/prev_v6 (no lock on
+        # read path), and PyTricia's C-extension iterator is not documented
+        # reentrant-safe against concurrent lookups.
+        failed = {"AWS", "GCP", "Cloudflare"} - loaded
+        if failed and prev_v4 is not None:
+            prev_v4_keys = list(prev_v4)
+            prev_v6_keys = list(prev_v6) if prev_v6 is not None else []
+            for src in failed:
+                for prefix in prev_v4_keys:
+                    if prev_v4[prefix] == src:
+                        _safe_insert(v4, prefix, src)
+                for prefix in prev_v6_keys:
+                    if prev_v6[prefix] == src:
+                        _safe_insert(v6, prefix, src)
+
+        _cloud_cache["v4"] = v4
+        _cloud_cache["v6"] = v6
+        _cloud_cache["fetched_at"] = time.time()
+        logger.info("Cloud IP ranges loaded: %s (failed→prev: %s)", sorted(loaded), sorted(failed))
+        return v4, v6
+
+
+async def _refresh_tor_cache() -> frozenset:
+    """Fetch Tor bulk exit list (one IP per line). Returns frozenset of exit IPs.
+
+    TTL gating is based on fetched_at (not data truthiness) so a first-fetch
+    failure does not perpetually skip retries. On failure returns previously
+    cached set (or empty frozenset).
+    """
+    global _tor_cache
+    if time.time() - _tor_cache["fetched_at"] < TOR_EXIT_TTL and _tor_cache["fetched_at"] > 0:
+        return _tor_cache["data"]
+    async with _tor_lock:
+        if time.time() - _tor_cache["fetched_at"] < TOR_EXIT_TTL and _tor_cache["fetched_at"] > 0:
+            return _tor_cache["data"]
+        try:
+            body = await _fetch_capped(_intel_client, TOR_EXIT_LIST_URL, TOR_EXIT_MAX_BYTES)
+            if body is None:
+                logger.warning("Tor exit list exceeded cap (%d bytes)", TOR_EXIT_MAX_BYTES)
+                _tor_cache = {
+                    **_tor_cache,
+                    "fetch_status": "capped",
+                    # bump fetched_at so we honour the TTL — otherwise every
+                    # request hammers the upstream while it is misbehaving.
+                    "fetched_at": time.time(),
+                }
+                return _tor_cache.get("data", frozenset())
+            ips_set: set[str] = set()
+            for line in body.decode("utf-8", errors="replace").splitlines():
+                candidate = line.strip()
+                if not candidate or candidate.startswith("#"):
+                    continue
+                try:
+                    ipaddress.ip_address(candidate)
+                except ValueError:
+                    logger.debug("skip malformed Tor exit line: %r", candidate[:64])
+                    continue
+                ips_set.add(candidate)
+            ips = frozenset(ips_set)
+            _tor_cache = {
+                "data": ips,
+                "fetched_at": time.time(),
+                "fetch_status": "ok",
+                "line_count": len(ips),
+            }
+            logger.info("Tor exit list loaded: %d IPs", len(ips))
+            return ips
+        except Exception as e:
+            logger.warning("Tor exit list fetch failed: %s", type(e).__name__)
+            _tor_cache = {
+                **_tor_cache,
+                "fetch_status": "failed",
+                "fetched_at": time.time(),
+            }
+            return _tor_cache.get("data", frozenset())
+
+
+def tor_cache_status() -> str:
+    """Expose `_tor_cache["fetch_status"]` for the verdict layer.
+
+    Returns one of "initial" | "ok" | "failed" | "capped". The route handler
+    uses this to add "tor" to verdict.sources_unavailable when the upstream
+    list is missing — so a downstream agent can tell `tor_exit=false because
+    not in list` from `tor_exit=false because we never got the list`.
+
+    Sync read: a single `dict.get` is atomic under CPython's GIL, and we never
+    block on it from the route hot path. The async `_tor_lock` is used by
+    refresh writers; a stale read across a concurrent refresh is acceptable
+    here (the next request reads the post-refresh status).
+
+    Invariant guaranteeing safety: `_refresh_tor_cache` ALWAYS replaces
+    `_tor_cache` via single dict assignment (`_tor_cache = {...}`), never
+    in-place mutation of an existing dict. Reader sees either old or new dict
+    in full, never a torn intermediate. If this invariant is broken (per-key
+    update added), this function MUST be wrapped in `async with _tor_lock`
+    and made async — review all 3 assignment branches before relaxing.
+    """
+    return _tor_cache.get("fetch_status", "initial")
+
+
+def _strip_zone(ip: str) -> str:
+    # pytricia rejects IPv6 zone IDs (fe80::1%eth0); ipaddress accepts them.
+    # Strip so a zone-scoped input becomes a plain lookup instead of an exception.
+    return ip.split("%", 1)[0] if "%" in ip else ip
+
+
+# ASN-to-provider fallback map — used when an IP isn't in the published cloud
+# CIDR ranges (AWS/GCP/Cloudflare) but the ASN is unambiguously owned by a
+# known provider. Covers Google's anycast DNS infra (8.8.8.8 / AS15169) which
+# isn't in the GCP cloud range list, plus other major hosters.
+#
+# Selection criteria: tier-1 cloud / DNS / hosting operators whose ASN ownership
+# is unambiguous and stable. Source: IANA RIR allocations + vendor docs.
+# Last audit: 2026-04-25. ASN reassignments are rare but possible (M&A, RIR
+# transfers); revisit quarterly. ASN comes from RIPE Stat (authoritative BGP
+# origin) — if BGP is hijacked, cloud_provider will reflect the attacker's
+# advertised ASN, not the true operator. Acceptable: we report current BGP
+# state, and the verdict block carries source provenance.
+_ASN_TO_CLOUD_PROVIDER: dict[int, str] = {
+    15169: "Google",
+    396982: "Google",
+    16509: "AWS",
+    14618: "AWS",
+    8075: "Microsoft",
+    13335: "Cloudflare",
+    14061: "DigitalOcean",
+    24940: "Hetzner",
+    16276: "OVH",
+    63949: "Linode",
+    20473: "Vultr",
+}
+
+# Phase 3: superset of _ASN_TO_CLOUD_PROVIDER plus tier-1 datacenter ASNs whose
+# IPs aren't always exposed via published cloud CIDR ranges (Oracle/Alibaba/
+# Tencent are common bug-bounty / SOC triage targets but rarely appear in
+# AWS/GCP/Cloudflare CIDR feeds).
+_DATACENTER_ASNS: set[int] = {
+    *_ASN_TO_CLOUD_PROVIDER.keys(),
+    31898,  # Oracle Cloud
+    45102,  # Alibaba Cloud
+    132203,  # Tencent Cloud
+}
+
+
+async def check_cloud_provider(ip: str, asn: int | None = None) -> str | None:
+    """Return cloud provider name if IP is in a known cloud CIDR range OR its
+    ASN is in the static map; else None.
+
+    The CIDR-based lookup (AWS/GCP/Cloudflare) is authoritative when it matches.
+    The ASN map is a fallback for providers whose anycast / public-service IPs
+    sit outside their published cloud ranges (e.g. 8.8.8.8 is AS15169 Google
+    but not in the GCP IP range list).
+    """
+    try:
+        ip_clean = _strip_zone(ip)
+        v4, v6 = await _refresh_cloud_cache()
+        trie = v6 if ":" in ip_clean else v4
+        if trie is not None:
+            cidr_match = trie.get(ip_clean)
+            if cidr_match:
+                return cidr_match
+    except Exception as e:
+        logger.warning("check_cloud_provider CIDR lookup failed: %s", type(e).__name__)
+    # bool⊂int in Python; reject bool. Also reject zero/negative ASNs (real
+    # ASNs are positive 32-bit ints) so a corrupt upstream value can't hit
+    # the dict and silently miss without log signal.
+    if isinstance(asn, int) and not isinstance(asn, bool) and asn > 0:
+        return _ASN_TO_CLOUD_PROVIDER.get(asn)
+    return None
+
+
+async def check_tor_exit(ip: str) -> bool:
+    """Return True if IP is a known Tor exit node."""
+    try:
+        exits = await _refresh_tor_cache()
+        return _strip_zone(ip) in exits
+    except Exception as e:
+        logger.warning("check_tor_exit failed: %s", type(e).__name__)
+        return False
+
+
+async def _refresh_firehol_cache() -> tuple:
+    """Fetch FireHOL level1 netset, build PyTricia tries (v4 + v6).
+
+    Returns (v4_trie, v6_trie). On fetch failure returns previously cached
+    tries (or (None, None) on cold failure). TTL guards thrashing on success;
+    a consecutive-failure counter trips a short backoff to avoid amplifying
+    upstream outages (free tier calls this inline per request).
+
+    Line format: one CIDR or bare IP per line; '#' comments skipped; blanks
+    skipped. IPv6 CIDRs occur but are rare in level1.
+    """
+    global _firehol_cache
+    now = time.time()
+    if now - _firehol_cache["fetched_at"] < FIREHOL_TTL and _firehol_cache["fetched_at"] > 0:
+        return _firehol_cache["v4"], _firehol_cache["v6"]
+    if (
+        _firehol_cache["consecutive_failures"] >= FIREHOL_FAILURE_THRESHOLD
+        and now - _firehol_cache["last_failure_at"] < FIREHOL_FAILURE_BACKOFF_SEC
+    ):
+        return _firehol_cache.get("v4"), _firehol_cache.get("v6")
+    async with _firehol_lock:
+        now = time.time()
+        if now - _firehol_cache["fetched_at"] < FIREHOL_TTL and _firehol_cache["fetched_at"] > 0:
+            return _firehol_cache["v4"], _firehol_cache["v6"]
+        if (
+            _firehol_cache["consecutive_failures"] >= FIREHOL_FAILURE_THRESHOLD
+            and now - _firehol_cache["last_failure_at"] < FIREHOL_FAILURE_BACKOFF_SEC
+        ):
+            return _firehol_cache.get("v4"), _firehol_cache.get("v6")
+        try:
+            body = await _fetch_capped(_intel_client, FIREHOL_LEVEL1_URL, FIREHOL_MAX_BYTES)
+            if body is None:
+                logger.warning("FireHOL level1 exceeded cap (%d bytes)", FIREHOL_MAX_BYTES)
+                _firehol_cache["consecutive_failures"] += 1
+                _firehol_cache["last_failure_at"] = time.time()
+                return _firehol_cache.get("v4"), _firehol_cache.get("v6")
+            v4 = pytricia.PyTricia(32)
+            v6 = pytricia.PyTricia(128)
+            count_v4 = count_v6 = 0
+            for line in body.decode("utf-8", errors="replace").splitlines():
+                candidate = line.strip()
+                if not candidate or candidate.startswith("#"):
+                    continue
+                try:
+                    net = ipaddress.ip_network(candidate, strict=False)
+                except ValueError:
+                    logger.debug("skip malformed FireHOL line: %r", candidate[:64])
+                    continue
+                if net.version == 4:
+                    v4[str(net)] = True
+                    count_v4 += 1
+                else:
+                    v6[str(net)] = True
+                    count_v6 += 1
+            _firehol_cache = {
+                "v4": v4,
+                "v6": v6,
+                "fetched_at": time.time(),
+                "consecutive_failures": 0,
+                "last_failure_at": 0.0,
+            }
+            logger.info("FireHOL level1 loaded: %d v4 / %d v6 prefixes", count_v4, count_v6)
+            return v4, v6
+        except Exception as e:
+            logger.warning("FireHOL level1 fetch failed: %s", type(e).__name__)
+            _firehol_cache["consecutive_failures"] += 1
+            _firehol_cache["last_failure_at"] = time.time()
+            return _firehol_cache.get("v4"), _firehol_cache.get("v6")
+
+
+async def check_firehol(ip: str) -> dict:
+    """Check FireHOL level1 blocklist membership.
+
+    Returns one of:
+        {"status":"ok",          "listed": bool, "lists_matched": [...]}
+        {"status":"skipped",     "listed": False, "lists_matched": []}  # private/reserved
+        {"status":"unavailable", "listed": False, "lists_matched": []}  # fetch never succeeded
+    """
+    stripped = _strip_zone(ip)
+    try:
+        addr = ipaddress.ip_address(stripped)
+        if addr.is_private or addr.is_reserved or addr.is_loopback or addr.is_link_local:
+            return {"status": "skipped", "listed": False, "lists_matched": []}
+    except ValueError:
+        return {"status": "skipped", "listed": False, "lists_matched": []}
+
+    try:
+        v4, v6 = await _refresh_firehol_cache()
+        trie = v6 if ":" in stripped else v4
+        if trie is None:
+            return {"status": "unavailable", "listed": False, "lists_matched": []}
+        listed = stripped in trie
+        return {
+            "status": "ok",
+            "listed": listed,
+            "lists_matched": ["firehol_level1"] if listed else [],
+        }
+    except Exception as e:
+        logger.warning("check_firehol failed: %s", type(e).__name__)
+        return {"status": "unavailable", "listed": False, "lists_matched": []}
+
+
+def is_datacenter(ip: str, asn: int | None = None, cloud_provider: str | None = None) -> bool:
+    """Return True if IP is hosted on a known datacenter / cloud provider.
+
+    Two-tier short-circuit detection:
+    1. cloud_provider populated by check_cloud_provider() (CIDR or ASN map hit)
+    2. asn falls in _DATACENTER_ASNS (covers Oracle/Alibaba/Tencent that the
+       cloud-provider map intentionally excludes because their public CIDR
+       feeds are unreliable, but whose ASNs are unambiguous datacenter origin).
+
+    `ip` is currently informational (logging hooks); IPv6 is supported because
+    decisions hinge on `cloud_provider` and `asn`, both IP-family agnostic.
+    `bool` is also `int` in Python — the `not isinstance(asn, bool)` guard
+    keeps `asn=True` (a bug, not a real ASN) from sneaking past the check.
+    """
+    if cloud_provider is not None:
+        return True
+    if isinstance(asn, int) and not isinstance(asn, bool) and asn > 0:
+        return asn in _DATACENTER_ASNS
+    return False
+
+
+def score_ip(
+    reputation: dict | None,
+    ports: list,
+    ptr: str | None,
+    cloud_provider: str | None,
+    tor_exit: bool,
+    vulns: list | None = None,
+    is_datacenter: bool = False,
+    firehol: dict | None = None,
+) -> int:
+    """Compute 0-100 composite risk score. Higher = riskier.
+
+    Phase 5 refactor (v1.17.0): formula re-grounded around six additive
+    components — ports, tor_exit, firehol.listed, abuseipdb confidence,
+    is_datacenter, and known-vuln count. Datacenter membership flipped
+    sign vs the pre-1.17 formula (was -10 trust bonus, now +10 risk
+    penalty — bug-bounty / SOC perspective: datacenter = scriptable
+    target, not "trusted infrastructure").
+
+    `ptr` and `cloud_provider` parameters are retained for backward
+    compatibility with legacy callers but no longer influence the score
+    (cloud_provider is subsumed by `is_datacenter`).
+
+    Component weights (max 100):
+        ports         : 10 * min(len(ports), 5)              [0-50]
+        tor_exit      : 30 if tor_exit else 0                [0 or 30]
+        firehol.listed: 20 if listed else 0                  [0 or 20]
+        abuse_score   : round(15 * abuse_score / 100)        [0-15]
+        is_datacenter : 10 if is_datacenter else 0           [0 or 10]
+        vulns         : 5 * min(len(vulns), 4)               [0-20]
+    """
+    del ptr, cloud_provider  # Phase 5: retained in signature, inert in formula.
+
+    # Defensive type narrowing — every component parameter flows from upstream
+    # (Shodan, RIPE, FireHOL fetcher) so the score must not turn into garbage
+    # if a poisoned cache or future caller hands us a bare string. `len()` on
+    # a str succeeds silently and would inflate the component fivefold.
+    if not isinstance(ports, list):
+        ports = []
+    if not isinstance(vulns, list):
+        vulns = []
+    if not isinstance(firehol, dict):
+        firehol = None
+
+    abuse_score = 0
+    if reputation:
+        try:
+            abuse_score = int(reputation.get("abuseipdb", {}).get("abuse_score", 0) or 0)
+        except (TypeError, ValueError):
+            abuse_score = 0
+    abuse_score = max(0, min(abuse_score, 100))
+
+    firehol_listed = bool(firehol and firehol.get("listed"))
+
+    component_ports = 10 * min(len(ports), 5)
+    component_tor = 30 if tor_exit else 0
+    component_firehol = 20 if firehol_listed else 0
+    component_abuse = round(15 * abuse_score / 100)
+    component_dc = 10 if is_datacenter else 0
+    component_vulns = 5 * min(len(vulns), 4)
+
+    score = component_ports + component_tor + component_firehol + component_abuse + component_dc + component_vulns
+    return max(0, min(100, score))
+
+
+def severity_label(score: int) -> str:
+    """Coarse-grained risk band for `risk_score` (0-100). Lets Nuclei
+    template matchers + MCP agent triage on a 4-bucket label without
+    re-implementing the threshold logic. Plan §Phase 5 boundaries:
+    >=75 critical, >=50 high, >=25 medium, else low."""
+    if score >= 75:
+        return "critical"
+    if score >= 50:
+        return "high"
+    if score >= 25:
+        return "medium"
+    return "low"

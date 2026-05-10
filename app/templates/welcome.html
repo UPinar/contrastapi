@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Welcome — ContrastAPI</title>
+  <meta name="robots" content="noindex, nofollow">
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="/static/favicon-192.png">
+  <link rel="stylesheet" href="/static/style.css?v=22">
+  <link rel="stylesheet" href="/static/css/welcome.css?v=2">
+  <script src="/static/js/welcome.js?v=2" defer></script>
+</head>
+<body>
+  <div class="glow"></div>
+
+  <div class="welcome-container">
+    <h1>Welcome to Contrast<span class="welcome-brand-api">API</span> Pro</h1>
+
+    {% if api_key %}
+    <div id="key-section">
+      <p>Your API key has been generated. Use it in the <code>X-API-Key</code> header with every request.</p>
+
+      <div class="key-box">
+        <code id="api-key">{{ api_key }}</code>
+        <button class="copy-btn">Copy</button>
+      </div>
+
+      <div class="warning">
+        Save this key now. For security, it will not be shown again.
+      </div>
+    </div>
+    {% elif polling %}
+    <div id="polling-section" data-order-id="{{ order_id }}">
+      <div class="spinner"></div>
+      <p id="polling-msg">Your payment is being processed. This usually takes a few seconds...</p>
+    </div>
+    <div id="key-section" class="is-hidden">
+      <p>Your API key has been generated. Use it in the <code>X-API-Key</code> header with every request.</p>
+      <div class="key-box">
+        <code id="api-key"></code>
+        <button class="copy-btn">Copy</button>
+      </div>
+      <div class="warning">
+        Save this key now. For security, it will not be shown again.
+      </div>
+    </div>
+    <div id="timeout-section" class="is-hidden">
+      <div class="error-box">
+        <strong>Key generation is taking longer than expected.</strong>
+        <p class="welcome-error-hint">Please refresh this page in a minute. If the problem persists, contact <span class="copy-support" data-copy-email="contact@contrastcyber.com">contact@contrastcyber.com</span>.</p>
+      </div>
+    </div>
+    {% else %}
+    <div class="error-box">
+      <strong>{{ error }}</strong>
+    </div>
+    {% endif %}
+
+    <a href="/" class="back-link">&larr; Back to API docs</a>
+  </div>
+</body>
+</html>

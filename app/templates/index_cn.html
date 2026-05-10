@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ContrastAPI — 安全情报 API</title>
+  <meta name="description" content="面向 AI 模型和开发者的安全情报 API 和 MCP 服务器，{{ tool_count }} 个工具。CVE 查询、域名侦察、威胁情报、代码安全。免费，无需 API 密钥。">
+  <meta name="keywords" content="MCP 安全工具, API 安全扫描, CVE 查询, 域名情报, 威胁情报, AI 安全, MCP 服务器, 安全 API">
+  <meta property="og:title" content="ContrastAPI — {{ tool_count }} 个 AI 安全工具">
+  <meta property="og:description" content="免费安全情报 MCP 服务器，{{ tool_count }} 个工具：CVE、域名侦察、IOC、漏洞利用搜索、代码安全。无需注册。">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://api.contrastcyber.com/cn/">
+  <meta property="og:image" content="https://api.contrastcyber.com/static/og-image.png">
+  <meta property="og:site_name" content="ContrastAPI">
+  <meta property="og:locale" content="zh_CN">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="ContrastAPI — 安全情报 API">
+  <meta name="twitter:description" content="免费安全 API。CVE 查询、域名情报、代码安全。无需注册。">
+  <meta name="twitter:image" content="https://api.contrastcyber.com/static/og-image.png">
+  <link rel="canonical" href="https://api.contrastcyber.com/cn/">
+  <link rel="alternate" hreflang="en" href="https://api.contrastcyber.com/">
+  <link rel="alternate" hreflang="zh" href="https://api.contrastcyber.com/cn/">
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="/static/favicon-192.png">
+  <link rel="stylesheet" href="/static/style.css?v=29">
+  <script src="/static/js/landing.js?v=2" defer></script>
+  <link rel="alternate" type="text/plain" href="/llms.txt" title="LLM Discovery">
+  <link rel="alternate" type="application/json" href="/openapi.json" title="OpenAPI Spec">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebAPI",
+    "name": "ContrastAPI",
+    "description": "面向 AI 模型和开发者的安全情报 API。CVE 查询（含 EPSS/KEV 增强）、域名侦察、威胁情报和代码安全扫描。",
+    "url": "https://api.contrastcyber.com",
+    "documentation": "https://github.com/UPinar/contrastapi/blob/main/docs/ENDPOINTS.md",
+    "inLanguage": "zh-CN",
+    "provider": {
+      "@type": "Organization",
+      "name": "ContrastCyber",
+      "url": "https://contrastcyber.com"
+    },
+    "termsOfService": "https://contrastcyber.com",
+    "availableChannel": {
+      "@type": "ServiceChannel",
+      "serviceUrl": "https://api.contrastcyber.com/v1/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div class="glow"></div>
+
+  {% include "nav_cn.html" %}
+
+  <section class="hero">
+    <div class="pill">{{ tool_count }} 个工具 · {{ resource_count }} 资源 · {{ endpoint_count }} 接口 · MCP 服务器</div>
+    <h1>{{ tool_count }} 个安全工具，<br><span class="gradient">一份 JSON 配置。</span></h1>
+    <p class="subtitle">CVE + EPSS + KEV 查询、域名侦察、IP 威胁报告、IOC 增强，以及代码安全扫描。结构化 JSON + LLM 优化摘要。支持 Claude Desktop、Cursor、VS Code，以及任何 MCP 兼容客户端（含 DeepSeek、Qwen）。</p>
+    <div class="cta-group">
+      <a href="#setup" class="btn-cta">30 秒内安装 →</a>
+      <a href="/playground" class="btn-cta-secondary">试用 Playground</a>
+    </div>
+    <div class="hero-curl-wrap">
+      <pre class="hero-curl"><span class="prompt">$ </span><code>curl https://api.contrastcyber.com/v1/audit/example.com</code></pre>
+      <button type="button" class="copy-btn" aria-label="复制命令">
+        <svg class="icon-copy" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+        <svg class="icon-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+      </button>
+    </div>
+  </section>
+
+  <!-- 信任标识 -->
+  <section class="trust-strip" aria-label="信任标识">
+    <div class="trust-strip-inner">
+      <span><strong>{{ test_count }}</strong> 项测试通过</span>
+      <span><a href="https://smithery.ai/servers/contrastcyber/contrastapi" target="_blank" rel="noopener">Smithery</a> <strong>99/100</strong></span>
+      <span><strong>{{ tool_count }}</strong> 工具 · <strong>{{ resource_count }}</strong> 资源 · <strong>{{ endpoint_count }}</strong> 接口</span>
+      <span><a href="https://pypi.org/project/contrastapi/" target="_blank" rel="noopener">PyPI</a> · <a href="https://www.npmjs.com/package/contrastapi" target="_blank" rel="noopener">npm</a> · <a href="https://marketplace.visualstudio.com/items?itemName=ContrastAPI.contrastapi" target="_blank" rel="noopener">VS Code</a></span>
+      <span>MIT 许可 · 永久免费</span>
+    </div>
+  </section>
+
+  <!-- 接口列表 -->
+  <section class="endpoints">
+    <h2 class="section-title">网站情报</h2>
+    <p class="endpoints-lede">单页面审计，明确的伦理底线：每目标 eTLD+1 限速（60/分钟）、自我标识 <a href="/bot">UA</a>、遵守 robots.txt、尊重 Cache-Control、不进行 SMTP 探测。</p>
+    <div class="endpoint-group">
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/robots/{domain}</span>
+        <span class="endpoint-desc">解析 robots.txt — sitemaps、按 UA 的 allow/disallow、crawl-delay（RFC 9309）</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/redirect/{url:path}</span>
+        <span class="endpoint-desc">逐跳跟踪 URL 重定向链，每跳 SSRF 防护</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/email/verify/{email}</span>
+        <span class="endpoint-desc">邮箱综合校验：语法 + MX + 一次性 + 角色 + 免费提供商（不进行 SMTP 探测）</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/brand/{domain}</span>
+        <span class="endpoint-desc">从首页 &lt;head&gt; 抓取公开品牌资源：favicon、og:image、theme-color、JSON-LD logo</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/seo/{domain}</span>
+        <span class="endpoint-desc">单页 SEO 审计 + 0-100 综合分数（10 项规则）+ 具体的 missing_signals</span>
+      </div>
+    </div>
+
+    <h2 class="section-title">域名情报</h2>
+    <div class="endpoint-group">
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/domain/{domain}</span>
+        <span class="endpoint-desc">完整域名报告</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/audit/{domain}</span>
+        <span class="endpoint-desc">完整审计（报告 + 技术 + 响应头）</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/dns/{domain}</span>
+        <span class="endpoint-desc">DNS 记录</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/whois/{domain}</span>
+        <span class="endpoint-desc">WHOIS 查询</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/subdomains/{domain}</span>
+        <span class="endpoint-desc">子域名枚举</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/certs/{domain}</span>
+        <span class="endpoint-desc">证书透明度日志</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/ssl/{domain}</span>
+        <span class="endpoint-desc">SSL 证书详情、评级、证书链和密码套件</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/threat/{domain}</span>
+        <span class="endpoint-desc">URLhaus 威胁情报</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/ip/{ip}</span>
+        <span class="endpoint-desc">IP 情报 + 信誉（AbuseIPDB、Shodan）</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/tech/{domain}</span>
+        <span class="endpoint-desc">技术指纹识别（CMS、框架、CDN、分析工具）</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/asn/{target}</span>
+        <span class="endpoint-desc">ASN 查询（AS 号或 IP）</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/email/mx/{domain}</span>
+        <span class="endpoint-desc">邮件服务商检测 + 电子邮件安全评级</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/email/disposable/{email}</span>
+        <span class="endpoint-desc">一次性/临时邮箱检测</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/phone/{number}</span>
+        <span class="endpoint-desc">电话号码验证、运营商、国家、时区</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/username/{username}</span>
+        <span class="endpoint-desc">跨 30+ 站点的用户名 OSINT（账户存在性 + 数据泄露线索）</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/archive/{domain}</span>
+        <span class="endpoint-desc">Wayback Machine 快照 — 首次/最近见证、归档时间线</span>
+      </div>
+    </div>
+
+    <h2 class="section-title">CVE 情报</h2>
+    <div class="endpoint-group">
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/cve/{cve_id}</span>
+        <span class="endpoint-desc">CVE 详情 + EPSS + KEV</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/cve/{cve_id}/risk_score</span>
+        <span class="endpoint-desc">综合风险评分（CVSS+EPSS+KEV+PoC 融合，0-100）+ 等级 + 紧急度</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/cvss/details?vector=</span>
+        <span class="endpoint-desc">解析 CVSS v3.x 向量字符串：每项指标分解 + 重新计算的基础分</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/cves?product=&severity=&published_after=&published_before=&kev=&epss_min=&sort=&offset=</span>
+        <span class="endpoint-desc">CVE 搜索 (分页)</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/cve/leading</span>
+        <span class="endpoint-desc">早期预警源：MITRE/GHSA 已索引但 NVD 尚未补充的 CVE</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/exploit/{cve_id}</span>
+        <span class="endpoint-desc">公开漏洞利用和安全公告</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/kev/{cve_id}</span>
+        <span class="endpoint-desc">CISA KEV 详情（联邦修补截止日期、勒索软件关联、CWE 列表）</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/cwe/{cwe_id}</span>
+        <span class="endpoint-desc">MITRE CWE 目录（描述、缓解措施、父/子弱点链）</span>
+      </div>
+    </div>
+
+    <h2 class="section-title">MITRE ATLAS（AI/ML 威胁）</h2>
+    <div class="endpoint-group">
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/atlas/{technique_id}</span>
+        <span class="endpoint-desc">ATLAS 技术查询（例如 AML.T0051 LLM 提示词注入）</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/atlas/techniques?keyword=&tactic=&maturity=</span>
+        <span class="endpoint-desc">搜索 ATLAS 技术（{{ atlas_technique_count }} 条）</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/atlas/case-studies/{case_study_id}</span>
+        <span class="endpoint-desc">真实 ML 攻击案例（例如 AML.CS0009 ChatGPT 插件）</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/atlas/case-studies?keyword=</span>
+        <span class="endpoint-desc">搜索 ATLAS 案例（{{ atlas_case_study_count }} 条）</span>
+      </div>
+      <div class="endpoint">
+        <span class="method post">POST</span>
+        <span class="endpoint-path">/v1/atlas/techniques/bulk</span>
+        <span class="endpoint-desc">批量技术深挖（每次最多 50 个 ID）</span>
+      </div>
+    </div>
+
+    <h2 class="section-title">MITRE D3FEND（防御映射）</h2>
+    <div class="endpoint-group">
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/d3fend/{defense_id}</span>
+        <span class="endpoint-desc">防御技术查询（例如 TokenBinding），含映射的 ATT&amp;CK 技术</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/d3fend/defenses?keyword=&tactic=</span>
+        <span class="endpoint-desc">搜索 D3FEND 防御（{{ d3fend_defense_count }} 条，7 个战术）</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/d3fend/attack/{attack_technique_id}</span>
+        <span class="endpoint-desc">反向查询：某个 ATT&amp;CK 技术对应的防御（例如 T1059）</span>
+      </div>
+      <div class="endpoint">
+        <span class="method post">POST</span>
+        <span class="endpoint-path">/v1/d3fend/coverage</span>
+        <span class="endpoint-desc">批量覆盖图：给定 ATT&amp;CK 技术 ID 列表</span>
+      </div>
+    </div>
+
+    <h2 class="section-title">威胁情报</h2>
+    <div class="endpoint-group">
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/ioc/{indicator}</span>
+        <span class="endpoint-desc">统一 IOC 查询（IP、域名、URL、哈希）</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/hash/{hash}</span>
+        <span class="endpoint-desc">恶意软件哈希信誉（MalwareBazaar）</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/password/{sha1_hash}</span>
+        <span class="endpoint-desc">密码泄露检查（HIBP，仅返回是否泄露和次数）</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/phishing/{url}</span>
+        <span class="endpoint-desc">钓鱼/恶意 URL 检查（URLhaus）</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/monitor/{domain}</span>
+        <span class="endpoint-desc">轻量级域名健康检查</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/domain/{domain}/vulns</span>
+        <span class="endpoint-desc">技术栈 CVE 扫描</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/threat-report/{ip}</span>
+        <span class="endpoint-desc">IP 威胁报告（Shodan + AbuseIPDB + ASN）</span>
+      </div>
+      <div class="endpoint">
+        <span class="method post">POST</span>
+        <span class="endpoint-path">/v1/domains/bulk</span>
+        <span class="endpoint-desc">批量域名扫描（最多 10 个域名）</span>
+      </div>
+      <div class="endpoint">
+        <span class="method post">POST</span>
+        <span class="endpoint-path">/v1/cves/bulk</span>
+        <span class="endpoint-desc">批量 CVE 查询（免费每次 10 条，Pro 50 条）</span>
+      </div>
+      <div class="endpoint">
+        <span class="method post">POST</span>
+        <span class="endpoint-path">/v1/iocs/bulk</span>
+        <span class="endpoint-desc">批量 IOC 富化（免费每次 10 条，Pro 50 条）</span>
+      </div>
+    </div>
+
+    <h2 class="section-title">代码安全</h2>
+    <div class="endpoint-group">
+      <div class="endpoint">
+        <span class="method post">POST</span>
+        <span class="endpoint-path">/v1/check/headers</span>
+        <span class="endpoint-desc">验证 HTTP 安全头</span>
+      </div>
+      <div class="endpoint">
+        <span class="method post">POST</span>
+        <span class="endpoint-path">/v1/check/secrets</span>
+        <span class="endpoint-desc">检测硬编码密钥</span>
+      </div>
+      <div class="endpoint">
+        <span class="method post">POST</span>
+        <span class="endpoint-path">/v1/check/injection</span>
+        <span class="endpoint-desc">SQL/命令注入模式检测</span>
+      </div>
+      <div class="endpoint">
+        <span class="method post">POST</span>
+        <span class="endpoint-path">/v1/check/dependencies</span>
+        <span class="endpoint-desc">检查依赖包已知 CVE（免费每次 10 个，Pro 50 个）</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/scan/headers/{domain}</span>
+        <span class="endpoint-desc">HTTP 安全头实时扫描</span>
+      </div>
+    </div>
+
+    <h2 class="section-title">运维</h2>
+    <div class="endpoint-group">
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/status</span>
+        <span class="endpoint-desc">API 健康状态 + 数据新鲜度</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/usage</span>
+        <span class="endpoint-desc">使用量统计（Pro 版）</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- GitHub CTA -->
+  <section class="github-cta" aria-label="GitHub">
+    <div class="github-cta-inner">
+    <p class="github-cta-text">开源项目，MIT 许可证，公开构建。</p>
+    <a href="https://github.com/UPinar/contrastapi" class="btn-github" target="_blank" rel="noopener">
+      <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      在 GitHub 上加星
+    </a>
+    </div>
+  </section>
+
+  <!-- 30 秒配置 -->
+  <section id="setup" class="endpoints setup-section" aria-labelledby="setup-title">
+    <h2 id="setup-title" class="section-title">30 秒配置</h2>
+    <div class="setup-cards">
+      <div class="setup-card">
+        <h3>1. MCP（Claude / Cursor / VS Code）</h3>
+        <pre>{
+  "mcpServers": {
+    "contrastapi": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote",
+        "https://api.contrastcyber.com/mcp/"]
+    }
+  }
+}</pre>
+        <a href="/mcp-setup">完整 MCP 指南 →</a>
+      </div>
+      <div class="setup-card">
+        <h3>2. SDK <span class="setup-card-badge">Python · Node</span></h3>
+        <pre>pip install contrastapi
+npm install contrastapi</pre>
+        <pre>from contrastapi import ContrastAPI
+c = ContrastAPI()
+c.cve.lookup("CVE-2024-3094")
+c.atlas.bulk_technique_lookup(["AML.T0051"])</pre>
+        <span style="white-space:nowrap"><a href="https://pypi.org/project/contrastapi/" target="_blank" rel="noopener">PyPI →</a> · <a href="https://www.npmjs.com/package/contrastapi" target="_blank" rel="noopener">npm →</a></span>
+      </div>
+      <div class="setup-card">
+        <h3>3. cURL</h3>
+        <div class="copy-wrap"><pre>curl https://api.contrastcyber.com\
+  /v1/audit/example.com</pre><button type="button" class="copy-btn" aria-label="复制命令"><svg class="icon-copy" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><svg class="icon-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg></button></div>
+        <div class="copy-wrap"><pre>curl https://api.contrastcyber.com\
+  /v1/cve/CVE-2024-3094</pre><button type="button" class="copy-btn" aria-label="复制命令"><svg class="icon-copy" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><svg class="icon-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg></button></div>
+        <a href="/quickstart">快速入门指南 →</a>
+      </div>
+      <div class="setup-card">
+        <h3>4. VS Code 扩展</h3>
+        <pre>code --install-extension \
+  ContrastAPI.contrastapi</pre>
+        <p class="setup-card-note">{{ tool_count }} 个命令 · 侧边栏树 · 右键菜单 · 无需 API 密钥</p>
+        <a href="https://marketplace.visualstudio.com/items?itemName=ContrastAPI.contrastapi" target="_blank" rel="noopener">Marketplace →</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- 信用额度 -->
+  <section class="endpoints endpoints-mt">
+    <h2 class="section-title">信用额度</h2>
+    <p class="endpoints-lede">
+      透明计价 — 每个响应都包含 <code class="code-accent">X-RateLimit-Cost</code> 响应头，便于预算管理。
+    </p>
+    <div class="endpoint-group">
+      <div class="endpoint">
+        <span class="method get">1&times;</span>
+        <span class="endpoint-path">大多数端点</span>
+        <span class="endpoint-desc">每次调用 1 信用</span>
+      </div>
+      <div class="endpoint">
+        <span class="method post">4&times;</span>
+        <span class="endpoint-path">/v1/audit/{domain}</span>
+        <span class="endpoint-desc">聚合 4 个上游数据源</span>
+      </div>
+      <div class="endpoint">
+        <span class="method post">4&times;</span>
+        <span class="endpoint-path">/v1/threat-report/{ip}</span>
+        <span class="endpoint-desc">ASN + IP 信息富化 + Shodan InternetDB（Pro 版另含完整 Shodan + AbuseIPDB）</span>
+      </div>
+      <div class="endpoint">
+        <span class="method post">N&times;</span>
+        <span class="endpoint-path">批量端点</span>
+        <span class="endpoint-desc">N 条数据消耗 N 信用</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 常见问题 -->
+  <section class="auth-section">
+    <div class="faq">
+      <h2>常见问题</h2>
+      <dl>
+        <dt>需要 API 密钥吗？</dt>
+        <dd>不需要。免费版无需认证，直接发送请求即可。Pro 用户通过 Authorization: Bearer 头部携带密钥。</dd>
+
+        <dt>达到速率限制后会怎样？</dt>
+        <dd>您会收到 429 响应，其中 RateLimit-Reset 头部显示限制重置时间。升级 Pro 版可获得 10 倍限额。</dd>
+
+        <dt>购买后如何获取 API 密钥？</dt>
+        <dd>完成支付后，您将被重定向到欢迎页面，显示您的密钥。请立即保存——密钥仅显示一次。</dd>
+
+        <dt>可以随时取消吗？</dt>
+        <dd>可以。通过 Lemon Squeezy 客户门户取消。密钥在计费周期结束前保持有效。</dd>
+
+        <dt>有 SLA 吗？</dt>
+        <dd>API 目标可用性为 99.9%。访问 /v1/status 查看实时健康状态。Pro 用户可通过邮件获得优先支持。</dd>
+
+        <dt>中国大陆可以访问吗？</dt>
+        <dd>可以。API 服务器位于欧洲，中国大陆可直接访问，无需 VPN。典型延迟约 250-350ms，适合大多数使用场景。</dd>
+      </dl>
+    </div>
+  </section>
+
+  <section class="auth-section">
+    <h2 class="section-title">数据新鲜度</h2>
+    <ul class="freshness-list">
+      <li><strong>域名与 IP 查询：</strong>每次查询缓存 1 小时。</li>
+      <li><strong>IP 威胁情报源：</strong>FireHOL 每 6 小时刷新；Tor 出口列表、Feodo C2、云 IP 段每 1 小时刷新。</li>
+      <li><strong>Web 情报（robots.txt、品牌资产）：</strong>每个目标缓存 1 小时。</li>
+      <li><strong>Wayback 历史：</strong>缓存 24 小时（上游变动较少）。</li>
+      <li><strong>CVE / EPSS / KEV：</strong>通过 cron 从 NVD、MITRE、FIRST EPSS 和 CISA KEV 同步（典型延迟 &lt;2 小时）。</li>
+      <li><strong>每目标节流：</strong>web 情报端点上每个可注册域名（eTLD+1）每分钟 60 请求 —— 保护上游源免受您的突发请求冲击。</li>
+      <li>如需实时结果，请改变查询（缓存按目标精确匹配）。</li>
+    </ul>
+  </section>
+
+  <footer>
+    <div class="footer-links">
+      <a href="/terms">条款</a>
+      <a href="/privacy">隐私</a>
+      <a href="#" data-copy-email="contact@contrastcyber.com">联系我们</a>
+      <a href="https://github.com/UPinar/contrastapi">GitHub</a>
+      <a href="/">English</a>
+    </div>
+    <p>&copy; 2026 ContrastCyber</p>
+  </footer>
+</body>
+</html>

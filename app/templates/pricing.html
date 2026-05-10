@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pricing | ContrastAPI</title>
+  <meta name="description" content="ContrastAPI pricing — Free {{ free_limit }} req/hr, Pro $15/mo for {{ pro_limit }} req/hr. {{ tool_count }} MCP tools, {{ endpoint_count }} endpoints. Pay with card (Lemon Squeezy) or crypto (NOWPayments).">
+  <meta name="theme-color" content="#09090b">
+  <link rel="canonical" href="https://api.contrastcyber.com/pricing">
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="/static/favicon-192.png">
+  <meta property="og:title" content="Pricing | ContrastAPI">
+  <meta property="og:description" content="Security intelligence API — free for individuals, $15/mo for teams. {{ tool_count }} MCP tools, {{ endpoint_count }} endpoints.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://api.contrastcyber.com/pricing">
+  <meta property="og:site_name" content="ContrastAPI">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="Pricing | ContrastAPI">
+  <meta name="twitter:description" content="Security intelligence API — free for individuals, $15/mo for teams.">
+  <link rel="stylesheet" href="/static/style.css?v=27">
+  <link rel="stylesheet" href="/static/css/page.css?v=7">
+  <script src="/static/js/landing.js?v=1" defer></script>
+  <script src="/static/js/crypto-checkout.js?v=1" defer></script>
+</head>
+<body>
+  <div class="glow"></div>
+
+  {% include "nav.html" %}
+
+  <div class="page">
+    <h1>Simple <span>Pricing</span></h1>
+    <p class="subtitle">Security intelligence API — free for individuals, $15/mo for teams that need higher limits.</p>
+
+    <div class="tier-grid">
+      <div class="tier">
+        <h2>Free</h2>
+        <div class="price">$0 <span>/forever</span></div>
+        <p class="tagline">For developers, researchers, indie hackers, and AI agents.</p>
+        <ul>
+          <li>{{ free_limit }} API requests / hour per IP</li>
+          <li>All {{ endpoint_count }} endpoints (CVE, EPSS, KEV, ATLAS, D3FEND, CWE, domain, IOC, OSINT, web-intel)</li>
+          <li>All {{ tool_count }} MCP tools + {{ resource_count }} MCP Resources + {{ prompt_count }} MCP Prompts</li>
+          <li>No signup, no API key, no credit card</li>
+          <li>JSON responses, public source code (MIT)</li>
+        </ul>
+        <a href="/quickstart" class="tier-cta">Start Calling — Free</a>
+      </div>
+
+      <div class="tier featured">
+        <h2>Pro</h2>
+        <div class="price">$15 <span>/month</span></div>
+        <p class="tagline">For teams, automation pipelines, and high-volume MCP agents.</p>
+        <ul>
+          <li>{{ pro_limit }} API requests / hour per key</li>
+          <li>Enrichment fields enabled (Shodan, AbuseIPDB, full IP intel) &mdash; subject to upstream provider availability and shared-key daily caps; we expand quotas as the customer base grows</li>
+          <li>API key authentication (X-API-Key header or Bearer token)</li>
+          <li>30-day key validity (crypto) or recurring monthly (card)</li>
+        </ul>
+        <p class="cta-note">Card via Lemon Squeezy &middot; Crypto via NOWPayments (BTC, USDT, ETH and more)</p>
+        <a href="https://contrastcyber.lemonsqueezy.com/checkout/buy/da64b10b-457d-4162-ae96-8e0e6e83f368" class="tier-cta primary">💳 Pay with Card</a>
+        <button type="button" id="crypto-checkout-btn" class="tier-cta primary">₿ Pay with Crypto</button>
+      </div>
+    </div>
+
+    <div class="faq">
+      <h2>FAQ</h2>
+      <dl>
+        <dt>Is the Free tier really free?</dt>
+        <dd>Yes. No credit card, no signup, no trial period. {{ free_limit }} requests/hour per IP, forever. Every endpoint and every MCP tool is available — Pro just raises the rate limit and unlocks Pro-only enrichment fields (Shodan, AbuseIPDB).</dd>
+
+        <dt>What's actually behind the API?</dt>
+        <dd>{{ endpoint_count }} REST endpoints covering CVE/EPSS/KEV lookup, composite risk scoring (CVSS+EPSS+KEV+PoC fusion), CVSS v3.x vector parsing, MITRE CWE / ATLAS / D3FEND catalog browsing, domain reconnaissance (DNS, WHOIS, SSL, subdomains, CT logs), IOC and threat intelligence (URLhaus, AbuseIPDB, Shodan, FireHOL, Tor exit list), code security analysis (secrets, injection, headers), and web intelligence (robots.txt parsing, redirect-chain walking, email validation, brand asset scraping, SEO audit). All exposed as {{ tool_count }} MCP tools for AI agents (Claude, Cursor, Copilot, etc.).</dd>
+
+        <dt>How do I use this with Claude / Cursor / an MCP client?</dt>
+        <dd>See the <a href="/mcp-setup">MCP setup guide</a>. One-line config, streamable-http transport, no key required for the Free tier.</dd>
+
+        <dt>How do I get my Pro API key after purchase?</dt>
+        <dd>After checkout (card or crypto), you'll be redirected to a welcome page that polls and shows your key once the payment processor confirms. Save it immediately — for security, the raw key is shown only once.</dd>
+
+        <dt>Can I pay with crypto?</dt>
+        <dd>Yes. Click "Pay with Crypto" and pick any coin on the NOWPayments page (BTC, USDT, ETH, TRX, and more). Same $15/mo. The Pro key is valid for 30 days from payment confirmation; pay again to renew. Useful when card payments are restricted in your region.</dd>
+
+        <dt>Can I cancel anytime?</dt>
+        <dd>Card subscriptions: cancel through the Lemon Squeezy customer portal — your key stays active until the billing period ends. Crypto: each payment is a one-time invoice for 30 days, so there's nothing to cancel; you simply stop paying to renew.</dd>
+
+        <dt>Is there an SLA?</dt>
+        <dd>The API targets 99.9% uptime. Real-time health is reported at <code>/v1/status</code>. Pro users get priority email support. No formal SLA at this stage.</dd>
+
+        <dt>Is it open source?</dt>
+        <dd>Yes — MIT licensed. Source at <a href="https://github.com/UPinar/contrastapi" target="_blank" rel="noopener">github.com/UPinar/contrastapi</a>.</dd>
+      </dl>
+    </div>
+  </div>
+
+  <footer>
+    <div class="footer-links">
+      <a href="/terms">Terms</a>
+      <a href="/privacy">Privacy</a>
+      <a href="#" data-copy-email="contact@contrastcyber.com">Contact</a>
+      <a href="https://github.com/UPinar/contrastapi">GitHub</a>
+    </div>
+    <p>&copy; 2026 ContrastCyber</p>
+  </footer>
+</body>
+</html>

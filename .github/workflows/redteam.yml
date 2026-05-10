@@ -1,0 +1,68 @@
+name: Red Team Scan
+
+# Passive Nuclei scan against the live API on a weekly cron.
+# Public repo policy: NO raw reports uploaded as artifacts (would expose found
+# vulns to anyone with repo read for 30 days = zero-day disclosure window).
+# Only counts go into the public job summary; full details go to Telegram.
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: redteam
+  cancel-in-progress: true
+
+jobs:
+  nuclei-scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pinned by SHA — never @main in CI (supply chain risk).
+      # Nuclei v3.8 dropped category keywords (`-t cves,exposures,...` now
+      # resolved as file paths and fail). Drop -t entirely; severity filter
+      # over the full default ~/nuclei-templates/ tree gives the same coverage.
+      # -rl 1 -c 2: 1 req/sec, 2 concurrent — keeps us under Free 100/hr.
+      # nuclei v3.8 has no -duration / -max-time flag; we cap the scan with
+      # step-level timeout-minutes so the post-step (Summarize + alert) still
+      # runs on `if: always()` with whatever JSONL was flushed to disk.
+      - name: Nuclei scan
+        timeout-minutes: 25
+        uses: projectdiscovery/nuclei-action@cc153d0541e1adf8a42bbe31c0a4fb2376147538
+        with:
+          args: -u https://api.contrastcyber.com -severity medium,high,critical -rl 1 -c 2 -timeout 10 -stats -jsonl-export nuclei.jsonl
+
+      - name: Summarize + alert
+        if: always()
+        env:
+          TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TG_CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          set -e
+          if [ ! -f nuclei.jsonl ]; then
+            echo "## Nuclei (no findings file produced — likely 0 findings)" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          CRIT=$(grep -c '"severity":"critical"' nuclei.jsonl || true)
+          HIGH=$(grep -c '"severity":"high"'     nuclei.jsonl || true)
+          MED=$(grep -c  '"severity":"medium"'   nuclei.jsonl || true)
+          {
+            echo "## Nuclei"
+            echo "- Critical: $CRIT"
+            echo "- High: $HIGH"
+            echo "- Medium: $MED"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$CRIT" -gt 0 ] || [ "$HIGH" -gt 0 ] || [ "$MED" -gt 0 ]; then
+            DETAILS=$(jq -r 'select(.info.severity=="critical" or .info.severity=="high" or .info.severity=="medium") | "[\(.info.severity)] \(.["template-id"]) — \(.matched-at // "n/a")"' nuclei.jsonl | head -20)
+            MSG=$(printf 'Nuclei: %s crit, %s high, %s med\n\n%s' "$CRIT" "$HIGH" "$MED" "$DETAILS")
+            curl -s -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
+              --data-urlencode "chat_id=${TG_CHAT}" \
+              --data-urlencode "text=${MSG}" > /dev/null
+          fi
+          rm -f nuclei.jsonl

@@ -1,0 +1,6 @@
+# Test fixtures — demo strings used to exercise codesec/ioc scanners.
+# Not real credentials.
+app/tests/test_ioc.py:generic-api-key:228
+app/tests/test_codesec.py:generic-api-key:104
+app/tests/test_codesec.py:jwt:84
+app/tests/test_codesec.py:jwt:90
