@@ -22,7 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       # Pinned by SHA — never @main in CI (supply chain risk).
       # Nuclei v3.8 dropped category keywords (`-t cves,exposures,...` now
