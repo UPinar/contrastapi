@@ -6,7 +6,7 @@ python-multipart==0.0.28
 dnspython==2.8.0
 httpx==0.28.1
 pytest==9.0.3
-phonenumbers==9.0.29
+phonenumbers==9.0.30
 cryptography==47.0.0
 cvss==3.6
 mcp==1.27.1
