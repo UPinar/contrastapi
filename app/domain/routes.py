@@ -1079,7 +1079,7 @@ async def email_mx(
 
 
 @router.get(
-    "/security-posture/{domain}",
+    "/email/security-posture/{domain}",
     response_model=EmailSecurityPostureResponse,
     response_model_exclude_none=True,
 )
@@ -1130,12 +1130,12 @@ async def email_security_posture(
 
 def _email_posture_pivot_hints(result: dict) -> list:
     """Pivot hints for email_security_posture."""
-    hints = [
-        ("dns_lookup", {"domain": result["domain"]}, "Inspect full DNS records"),
-        ("domain_report", {"domain": result["domain"]}, "Broader posture audit"),
-        ("email_mx", {"domain": result["domain"]}, "MX + mail provider check"),
+    domain = result["domain"]
+    return [
+        PivotHint(tool="dns_lookup", input=domain, reason="Inspect full DNS records for this domain"),
+        PivotHint(tool="domain_report", input=domain, reason="Broader posture audit beyond email auth"),
+        PivotHint(tool="email_mx", input=domain, reason="MX records + mail provider check"),
     ]
-    return [PivotHint(tool=t[0], args=t[1], description=t[2]) for t in hints]
 
 
 def _disposable_summary(email: str, result: dict) -> str:
