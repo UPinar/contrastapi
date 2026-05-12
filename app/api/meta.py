@@ -15,14 +15,15 @@ from config import (
     VERSION,
 )
 from db import get_sync_status
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 
 router = APIRouter(tags=["Meta"])
 
 
 @router.get("/status", operation_id="api_status")
-def api_status():
+def api_status(response: Response):
     """API health check and data freshness."""
+    response.headers["Cache-Control"] = "public, max-age=60"
     sync = get_sync_status()
     return {
         "status": "ok",

@@ -245,6 +245,7 @@ class _MCPIPForwardMiddleware:
                             [b"content-type", b"application/json"],
                             [b"content-length", str(len(body)).encode()],
                             [b"vary", b"Accept"],
+                            [b"cache-control", b"public, max-age=300"],
                         ],
                     }
                 )

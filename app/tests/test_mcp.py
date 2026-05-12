@@ -572,6 +572,28 @@ def test_mcp_json_equivalent_to_well_known_alias(mcp_client):
     assert r1.json() == r2.json() == r3.json()
 
 
+def test_mcp_server_card_has_cache_control_header(mcp_client):
+    """CF edge cache: /.well-known/mcp/server-card.json deterministic, 10min TTL."""
+    r = mcp_client.get("/.well-known/mcp/server-card.json")
+    assert r.status_code == 200
+    assert r.headers.get("cache-control") == "public, max-age=600"
+
+
+def test_mcp_json_aliases_share_cache_control(mcp_client):
+    """CF edge cache: /mcp.json + /.well-known/mcp.json + /.well-known/mcp-server.json carry same Cache-Control."""
+    for path in ("/mcp.json", "/.well-known/mcp.json", "/.well-known/mcp-server.json"):
+        r = mcp_client.get(path)
+        assert r.status_code == 200, f"{path} not 200"
+        assert r.headers.get("cache-control") == "public, max-age=600", f"{path} missing cache-control"
+
+
+def test_mcp_get_static_info_has_cache_control_header(mcp_client):
+    """CF edge cache: GET /mcp/ static server-info JSON, 5min TTL."""
+    r = mcp_client.get("/mcp/")
+    assert r.status_code == 200
+    assert r.headers.get("cache-control") == "public, max-age=300"
+
+
 def test_mcp_json_content_type_is_json(mcp_client):
     """GET /mcp.json must advertise application/json for strict discovery crawlers."""
     r = mcp_client.get("/mcp.json")

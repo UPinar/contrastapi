@@ -44,43 +44,46 @@ def mcp_server_card_alias():
 @router.get("/.well-known/mcp/server-card.json", include_in_schema=False)
 def mcp_server_card():
     """MCP server discovery card (draft spec)."""
-    return {
-        "$schema": "https://modelcontextprotocol.io/schemas/server-card.json",
-        "version": "1.0",
-        "protocolVersion": "2024-11-05",
-        "serverInfo": {
-            "name": "contrastapi",
-            "title": "ContrastAPI \u2014 Security Intelligence",
-            "description": (
-                f"Security intelligence MCP server with {MCP_TOOL_COUNT} tools: CVE lookup with EPSS/KEV "
-                "enrichment, domain recon (DNS, WHOIS, SSL, subdomains, WAF), IP/ASN lookup, "
-                "email/phone/username OSINT, IOC/threat intel, exploit search, tech "
-                "fingerprinting, orchestrated audit + threat reports, bulk lookups, code "
-                "security checks."
-            ),
-            "version": VERSION,
-            "homepage": "https://github.com/UPinar/contrastapi",
-            "repository": "https://github.com/UPinar/contrastapi",
+    return JSONResponse(
+        content={
+            "$schema": "https://modelcontextprotocol.io/schemas/server-card.json",
+            "version": "1.0",
+            "protocolVersion": "2024-11-05",
+            "serverInfo": {
+                "name": "contrastapi",
+                "title": "ContrastAPI \u2014 Security Intelligence",
+                "description": (
+                    f"Security intelligence MCP server with {MCP_TOOL_COUNT} tools: CVE lookup with EPSS/KEV "
+                    "enrichment, domain recon (DNS, WHOIS, SSL, subdomains, WAF), IP/ASN lookup, "
+                    "email/phone/username OSINT, IOC/threat intel, exploit search, tech "
+                    "fingerprinting, orchestrated audit + threat reports, bulk lookups, code "
+                    "security checks."
+                ),
+                "version": VERSION,
+                "homepage": "https://github.com/UPinar/contrastapi",
+                "repository": "https://github.com/UPinar/contrastapi",
+            },
+            "transport": [
+                {
+                    "type": "streamable-http",
+                    "url": "https://api.contrastcyber.com/mcp/",
+                }
+            ],
+            "capabilities": {
+                "tools": True,
+                "resources": False,
+                "prompts": False,
+            },
+            "provider": {
+                "name": "ContrastCyber",
+                "url": "https://contrastcyber.com",
+            },
+            "auth": "none",
+            "tools_count": MCP_TOOL_COUNT,
+            "documentation": "https://github.com/UPinar/contrastapi/blob/main/docs/ENDPOINTS.md",
         },
-        "transport": [
-            {
-                "type": "streamable-http",
-                "url": "https://api.contrastcyber.com/mcp/",
-            }
-        ],
-        "capabilities": {
-            "tools": True,
-            "resources": False,
-            "prompts": False,
-        },
-        "provider": {
-            "name": "ContrastCyber",
-            "url": "https://contrastcyber.com",
-        },
-        "auth": "none",
-        "tools_count": MCP_TOOL_COUNT,
-        "documentation": "https://github.com/UPinar/contrastapi/blob/main/docs/ENDPOINTS.md",
-    }
+        headers={"Cache-Control": "public, max-age=600"},
+    )
 
 
 @router.get("/.well-known/ai-plugin.json", include_in_schema=False)
