@@ -161,3 +161,20 @@ def mcp_client(_session_dbs):
 
     with TestClient(main.app) as c:
         yield c
+
+
+def mcp_error_payload(response) -> dict:
+    """Extract the JSON error payload from a v1.32.2+ MCP tool error response.
+
+    Post-v1.32.2 tools raise FastMCP `ToolError` on AppException/ValidationError,
+    so `isError=true` is set on the wire and the structured payload is embedded
+    in `content[0].text` after FastMCP's `"Error executing tool {name}: "` prefix.
+    Asserts isError=true and returns the parsed payload `{"error": {...}}`.
+    """
+    import json as _json
+
+    result = response.json()["result"]
+    assert result.get("isError") is True, f"expected isError=True on error path, got: {result}"
+    text = result["content"][0]["text"]
+    _, _, payload = text.partition(": ")
+    return _json.loads(payload)

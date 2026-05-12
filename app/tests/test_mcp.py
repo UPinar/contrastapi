@@ -1,6 +1,7 @@
 """Tests for MCP Streamable HTTP endpoint (/mcp/)"""
 
 import pytest
+from tests.conftest import mcp_error_payload
 
 mcp = pytest.importorskip("mcp", reason="mcp package not installed")
 
@@ -293,9 +294,9 @@ def test_mcp_tool_call_audit_domain_invalid(mcp_client):
         },
     )
     assert r.status_code == 200
-    sc = r.json()["result"]["structuredContent"]["result"]
-    assert sc["error"]["code"] == "invalid_argument"
-    assert "Invalid domain" in sc["error"]["message"]
+    err = mcp_error_payload(r)["error"]
+    assert err["code"] == "invalid_argument"
+    assert "Invalid domain" in err["message"]
 
 
 def test_mcp_tool_call_threat_report(mcp_client, monkeypatch):
@@ -335,9 +336,9 @@ def test_mcp_tool_call_threat_report_invalid_ip(mcp_client):
         },
     )
     assert r.status_code == 200
-    sc = r.json()["result"]["structuredContent"]["result"]
-    assert sc["error"]["code"] == "invalid_argument"
-    assert "Invalid IP" in sc["error"]["message"]
+    err = mcp_error_payload(r)["error"]
+    assert err["code"] == "invalid_argument"
+    assert "Invalid IP" in err["message"]
 
 
 def test_mcp_tool_call_bulk_cve_lookup(mcp_client, monkeypatch):
@@ -380,9 +381,9 @@ def test_mcp_tool_call_bulk_cve_lookup_empty(mcp_client):
         },
     )
     assert r.status_code == 200
-    sc = r.json()["result"]["structuredContent"]["result"]
-    assert sc["error"]["code"] == "invalid_argument"
-    assert "non-empty list" in sc["error"]["message"]
+    err = mcp_error_payload(r)["error"]
+    assert err["code"] == "invalid_argument"
+    assert "non-empty list" in err["message"]
 
 
 def test_mcp_tool_call_bulk_ioc_lookup(mcp_client, monkeypatch):
@@ -425,9 +426,9 @@ def test_mcp_tool_call_bulk_ioc_lookup_empty(mcp_client):
         },
     )
     assert r.status_code == 200
-    sc = r.json()["result"]["structuredContent"]["result"]
-    assert sc["error"]["code"] == "invalid_argument"
-    assert "non-empty list" in sc["error"]["message"]
+    err = mcp_error_payload(r)["error"]
+    assert err["code"] == "invalid_argument"
+    assert "non-empty list" in err["message"]
 
 
 # --- Docs mention MCP ---
@@ -687,9 +688,9 @@ def test_mcp_tool_safe_catches_app_exception(mcp_client):
         },
     )
     assert r.status_code == 200
-    sc = r.json()["result"]["structuredContent"]["result"]
-    assert sc["error"]["code"] == "invalid_argument"
-    assert "Invalid CVE" in sc["error"]["message"]
+    err = mcp_error_payload(r)["error"]
+    assert err["code"] == "invalid_argument"
+    assert "Invalid CVE" in err["message"]
 
 
 def test_mcp_tool_safe_catches_pydantic_validation_error(mcp_client, monkeypatch, caplog):
@@ -720,9 +721,9 @@ def test_mcp_tool_safe_catches_pydantic_validation_error(mcp_client, monkeypatch
             },
         )
     assert r.status_code == 200
-    sc = r.json()["result"]["structuredContent"]["result"]
-    assert sc["error"]["code"] == "upstream_error"
-    assert sc["error"]["message"] == "Upstream response validation failed"
+    err = mcp_error_payload(r)["error"]
+    assert err["code"] == "upstream_error"
+    assert err["message"] == "Upstream response validation failed"
     # Wire response carries NO upstream-controlled keys / values.
     body_text = r.text
     assert "leaky-marker" not in body_text, "upstream payload leaked to MCP wire"
@@ -799,9 +800,9 @@ def test_bulk_cve_lookup_rejects_oversized_list(mcp_client):
         },
     )
     assert r.status_code == 200
-    sc = r.json()["result"]["structuredContent"]["result"]
-    assert sc["error"]["code"] == "invalid_argument"
-    assert "max 50" in sc["error"]["message"]
+    err = mcp_error_payload(r)["error"]
+    assert err["code"] == "invalid_argument"
+    assert "max 50" in err["message"]
 
 
 def test_bulk_ioc_lookup_rejects_oversized_list(mcp_client):
@@ -816,20 +817,18 @@ def test_bulk_ioc_lookup_rejects_oversized_list(mcp_client):
         },
     )
     assert r.status_code == 200
-    sc = r.json()["result"]["structuredContent"]["result"]
-    assert sc["error"]["code"] == "invalid_argument"
-    assert "max 50" in sc["error"]["message"]
+    err = mcp_error_payload(r)["error"]
+    assert err["code"] == "invalid_argument"
+    assert "max 50" in err["message"]
 
 
 def test_bulk_atlas_technique_lookup_rejects_oversized_list(mcp_client):
-    """Parity guard for the third bulk tool. NOTE: bulk_atlas_technique_lookup
+    """Parity guard for the third bulk tool. bulk_atlas_technique_lookup
     declares Field(max_length=50) on the technique_ids parameter, so FastMCP
     rejects oversized input at the schema layer BEFORE the body's defensive
-    `if len(...) > 50` check ever runs — wire shape is `isError: true` with a
-    text-only content block (not the structured ErrorResponse path the
-    cve/ioc bulk variants take). Both layers are valid defense; this test
-    pins the schema-layer rejection so a future drop of max_length wouldn't
-    silently accept oversized input."""
+    `if len(...) > 50` check ever runs. After v1.32.2, the AppException path
+    ALSO emits isError=true (see test above), so both layers now agree on
+    error wire shape."""
     r = mcp_client.post(
         "/mcp/",
         headers=MCP_HEADERS,
@@ -869,12 +868,10 @@ def test_asn_lookup_error_preserves_original_user_input(mcp_client):
         },
     )
     assert r.status_code == 200
-    sc = r.json()["result"]["structuredContent"]["result"]
-    assert sc["error"]["code"] == "invalid_argument"
+    err = mcp_error_payload(r)["error"]
+    assert err["code"] == "invalid_argument"
     # The literal user input must appear verbatim in the error message.
-    assert "NOT_A_THING.@@@" in sc["error"]["message"], (
-        f"original user input lost in error message: {sc['error']['message']!r}"
-    )
+    assert "NOT_A_THING.@@@" in err["message"], f"original user input lost in error message: {err['message']!r}"
 
 
 def test_error_detail_message_max_length_enforced():

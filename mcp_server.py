@@ -49,6 +49,7 @@ for _p in (_REPO_ROOT, _APP_DIR):
 
 import httpx  # noqa: E402  (must follow sys.path patch above)
 from mcp.server.fastmcp import FastMCP  # noqa: E402
+from mcp.server.fastmcp.exceptions import ToolError  # noqa: E402
 from mcp.server.transport_security import TransportSecuritySettings  # noqa: E402
 from mcp.types import ToolAnnotations  # noqa: E402
 from pydantic import Field, ValidationError  # noqa: E402
@@ -487,12 +488,18 @@ def _require_attack_technique(value: str) -> str:
 def mcp_tool_safe(*, annotations: ToolAnnotations):
     """v1.22.0 tool decorator. Wraps `@mcp.tool` so AppException (and Pydantic
     ValidationError raised when the upstream response body does not match the
-    declared response model) is caught and returned as a structured
-    `ErrorResponse`. Enables single-line tool bodies in Commit C.
+    declared response model) becomes a spec-compliant MCP error result.
 
-    Sets `structured_output=True` so FastMCP emits both `content[0].text` (JSON)
-    and `structuredContent` (dict) on success — matching MCP 1.0 spec for tools
-    whose output is a Pydantic model union.
+    On success: FastMCP emits both `content[0].text` (JSON) and `structuredContent`
+    (dict) — matching MCP 1.0 spec for tools whose output is a Pydantic model union.
+
+    On failure (v1.32.2): raises FastMCP `ToolError` so the wire response carries
+    `isError: true` per MCP spec. Prior versions returned an `ErrorResponse`
+    instance which FastMCP packaged as a successful tool result with the error
+    payload nested inside `structuredContent` — agents could not branch on
+    success vs error reliably. The ToolError message embeds the full
+    `ErrorResponse` JSON so agents parsing `content[0].text` still get the
+    structured `{error: {code, message, retry_after_seconds, ...}}` envelope.
     """
 
     def decorator(fn):
@@ -501,7 +508,8 @@ def mcp_tool_safe(*, annotations: ToolAnnotations):
             try:
                 return await fn(*args, **kwargs)
             except AppException as e:
-                return ErrorResponse(error=e.to_error_detail())
+                payload = ErrorResponse(error=e.to_error_detail()).model_dump_json(exclude_none=True)
+                raise ToolError(payload) from None
             except ValidationError:
                 # Upstream returned a body that does not match our Pydantic schema
                 # (cache poisoning / sync drift / partial JSON). Surface as
@@ -512,7 +520,8 @@ def mcp_tool_safe(*, annotations: ToolAnnotations):
                 # max_length=500 if oversized, raising a second unhandled error).
                 logger.warning("mcp_tool %s upstream response failed schema validation", fn.__name__)
                 exc = UpstreamErrorException("Upstream response validation failed")
-                return ErrorResponse(error=exc.to_error_detail())
+                payload = ErrorResponse(error=exc.to_error_detail()).model_dump_json(exclude_none=True)
+                raise ToolError(payload) from None
 
         return mcp.tool(annotations=annotations, structured_output=True)(wrapped)
 

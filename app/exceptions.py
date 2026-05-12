@@ -36,7 +36,7 @@ class AppException(Exception):
         docs_url: str | None = None,
     ) -> None:
         super().__init__(message)
-        self.message = message
+        self.message = message[:500]
         self.retry_after = retry_after
         self.upgrade_url = upgrade_url
         self.docs_url = docs_url

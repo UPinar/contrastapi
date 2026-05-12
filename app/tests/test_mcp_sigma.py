@@ -1,6 +1,7 @@
 """MCP-side integration tests for sigma_rule_lookup + bulk_sigma_rule_lookup tools."""
 
 import pytest
+from tests.conftest import mcp_error_payload
 
 mcp = pytest.importorskip("mcp", reason="mcp package not installed")
 
@@ -104,9 +105,9 @@ def test_mcp_tool_call_sigma_rule_lookup_rejects_invalid_uuid(mcp_client):
         },
     )
     assert r.status_code == 200
-    sc = r.json()["result"]["structuredContent"]["result"]
-    assert sc["error"]["code"] == "invalid_argument"
-    assert "UUID" in sc["error"]["message"]
+    err = mcp_error_payload(r)["error"]
+    assert err["code"] == "invalid_argument"
+    assert "UUID" in err["message"]
 
 
 # --- tools/call bulk_sigma_rule_lookup ---
@@ -165,9 +166,9 @@ def test_mcp_tool_call_bulk_sigma_rejects_empty(mcp_client):
         },
     )
     assert r.status_code == 200
-    sc = r.json()["result"]["structuredContent"]["result"]
-    assert sc["error"]["code"] == "invalid_argument"
-    assert "non-empty list" in sc["error"]["message"]
+    err = mcp_error_payload(r)["error"]
+    assert err["code"] == "invalid_argument"
+    assert "non-empty list" in err["message"]
 
 
 def test_mcp_tool_call_bulk_sigma_rejects_oversize(mcp_client):
