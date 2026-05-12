@@ -13,7 +13,7 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 VERSION = "1.31.0"
-MCP_TOOL_COUNT = 49  # v1.29.1: +calculate_risk_score (CVSS/EPSS/KEV/PoC fusion) +get_cvss_details (v3.x parser)
+MCP_TOOL_COUNT = 50  # v1.32.0: +email_security_posture (SPF/DMARC/DKIM posture with score + findings)
 MCP_RESOURCE_COUNT = 7  # v1.23.0: atlas+d3fend+cwe (4 templates + 3 catalogs)
 MCP_PROMPT_COUNT = 3  # v1.23.0: security_audit, vulnerability_check, contrast_triage
 ENDPOINT_COUNT = "57+"

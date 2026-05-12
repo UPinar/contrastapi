@@ -1580,3 +1580,424 @@ async def full_domain_report(
     )
 
     return report
+
+
+# ====== Email Security Posture Helpers ======
+
+
+def _parse_spf(spf_record: str | None) -> dict:
+    """Parse SPF record."""
+    findings = []
+    if not spf_record:
+        return {
+            "present": False,
+            "record": None,
+            "all_policy": None,
+            "mechanisms": [],
+            "lookup_count": 0,
+            "redirect_target": None,
+            "has_spf_all": False,
+            "findings": [
+                {
+                    "check": "SPF record present",
+                    "status": "fail",
+                    "severity": "critical",
+                    "description": "No SPF record. Domain vulnerable to email spoofing.",
+                    "fix_hint": "Create TXT with 'v=spf1 ... -all'",
+                }
+            ],
+        }
+    mechanisms: list[dict] = []
+    lookup_count, all_policy, has_spf_all, redirect_target = 0, None, False, None
+    for part in spf_record.split()[1:]:
+        qualifier = part[0] if part and part[0] in "+-~?" else "+"
+        rest = part[1:] if part and part[0] in "+-~?" else part
+        if rest == "all":
+            has_spf_all = True
+            all_policy = {"+": "permissive", "-": "strict", "~": "soft_fail", "?": "neutral"}.get(qualifier, "neutral")
+            mechanisms.append({"type": "all", "value": "all", "qualifier": qualifier})
+        elif ":" in rest:
+            mech_type, value = rest.split(":", 1)
+            mechanisms.append({"type": mech_type, "value": value, "qualifier": qualifier})
+            if mech_type in ["include", "a", "mx", "ptr", "exists"]:
+                lookup_count += 1
+            elif mech_type == "redirect":
+                redirect_target = value
+                lookup_count += 1
+        elif rest in ["a", "mx", "ptr"]:
+            mechanisms.append({"type": rest, "value": "", "qualifier": qualifier})
+            lookup_count += 1
+    if all_policy == "permissive":
+        findings.append(
+            {
+                "check": "SPF all policy",
+                "status": "fail",
+                "severity": "critical",
+                "description": "SPF uses '+all' - all senders pass, defeating spoofing protection.",
+                "fix_hint": "Change '+all' to '-all' or '~all'",
+            }
+        )
+    elif all_policy == "strict":
+        findings.append(
+            {
+                "check": "SPF all policy",
+                "status": "pass",
+                "severity": "low",
+                "description": "SPF uses '-all' - strict.",
+                "fix_hint": "",
+            }
+        )
+    elif all_policy == "soft_fail":
+        findings.append(
+            {
+                "check": "SPF all policy",
+                "status": "warn",
+                "severity": "medium",
+                "description": "SPF uses '~all' - soft-fail.",
+                "fix_hint": "Consider '-all'",
+            }
+        )
+    else:
+        findings.append(
+            {
+                "check": "SPF all",
+                "status": "warn",
+                "severity": "high",
+                "description": "No 'all' mechanism.",
+                "fix_hint": "Add '-all' at end",
+            }
+        )
+    if lookup_count > 10:
+        findings.append(
+            {
+                "check": "SPF lookup count",
+                "status": "warn",
+                "severity": "medium",
+                "description": f"SPF has {lookup_count} lookups > RFC 7208 limit 10.",
+                "fix_hint": "Consolidate 'include:' or use redirect=",
+            }
+        )
+    else:
+        findings.append(
+            {
+                "check": "SPF lookup count",
+                "status": "pass",
+                "severity": "low",
+                "description": f"SPF {lookup_count} lookups <= 10 (RFC 7208 OK).",
+                "fix_hint": "",
+            }
+        )
+    return {
+        "present": True,
+        "record": spf_record,
+        "all_policy": all_policy,
+        "mechanisms": mechanisms,
+        "lookup_count": lookup_count,
+        "redirect_target": redirect_target,
+        "has_spf_all": has_spf_all,
+        "findings": findings,
+    }
+
+
+_DKIM_SELECTOR_RE = re.compile(r"(?!-)[a-z0-9-]{1,63}(?<!-)")
+
+
+def _normalize_dkim_selectors(raw: str | None, max_items: int = 10) -> list[str] | None:
+    """Parse CSV selectors, cap at max_items, RFC-6376-validate each (alphanumeric+dash, ≤63 chars).
+
+    Returns None when input is None/empty OR every entry fails validation, so the probe falls
+    back to the built-in selector list. Prevents unbounded query-param abuse (CWE-400).
+    """
+    if not raw:
+        return None
+    candidates = [s.strip().lower() for s in raw.split(",") if s.strip()][:max_items]
+    return [s for s in candidates if _DKIM_SELECTOR_RE.fullmatch(s)] or None
+
+
+def _lookup_dmarc_txt(domain: str) -> str | None:
+    """Sync DMARC TXT lookup at `_dmarc.<domain>`. Run via run_in_threadpool from async context."""
+    try:
+        r = dns.resolver.Resolver()
+        r.timeout = 3
+        r.lifetime = 3
+        answers = r.resolve(f"_dmarc.{domain}", "TXT")
+    except dns.exception.DNSException:
+        return None
+    for rec in answers:
+        val = _strip_control_chars(b"".join(rec.strings).decode("utf-8", errors="replace"))
+        if val.lower().startswith("v=dmarc1"):
+            return val
+    return None
+
+
+def _parse_dmarc(dmarc_record: str | None) -> dict:
+    """Parse DMARC record."""
+    findings = []
+    if not dmarc_record:
+        return {
+            "present": False,
+            "record": None,
+            "policy": None,
+            "subdomain_policy": None,
+            "pct": None,
+            "aspf": None,
+            "adkim": None,
+            "rua_uris": [],
+            "ruf_uris": [],
+            "fo": None,
+            "findings": [
+                {
+                    "check": "DMARC record present",
+                    "status": "fail",
+                    "severity": "critical",
+                    "description": "No DMARC record. Receivers cannot verify sender authenticity.",
+                    "fix_hint": "Create TXT at '_dmarc.{domain}' with 'v=DMARC1; p=reject; ...'",
+                }
+            ],
+        }
+    policy, subdomain_policy, pct, aspf, adkim = None, None, None, None, None
+    rua_uris: list[str] = []
+    ruf_uris: list[str] = []
+    fo = None
+    for tag_pair in dmarc_record.split(";"):
+        if "=" not in tag_pair:
+            continue
+        key, value = tag_pair.strip().split("=", 1)
+        key, value = key.strip().lower(), value.strip()
+        if key == "p":
+            policy = value.lower()
+        elif key == "sp":
+            subdomain_policy = value.lower()
+        elif key == "pct":
+            pct = int(value) if value.isdigit() else None
+        elif key == "aspf":
+            aspf = value.lower() if value.lower() in ["s", "r"] else None
+        elif key == "adkim":
+            adkim = value.lower() if value.lower() in ["s", "r"] else None
+        elif key == "rua":
+            rua_uris = [u.strip() for u in value.split(",")]
+        elif key == "ruf":
+            ruf_uris = [u.strip() for u in value.split(",")]
+        elif key == "fo":
+            fo = value
+    if policy == "reject":
+        findings.append(
+            {
+                "check": "DMARC enforce",
+                "status": "pass",
+                "severity": "low",
+                "description": "DMARC p=reject - strict.",
+                "fix_hint": "",
+            }
+        )
+    elif policy == "quarantine":
+        findings.append(
+            {
+                "check": "DMARC enforce",
+                "status": "pass",
+                "severity": "low",
+                "description": "DMARC p=quarantine - moderate.",
+                "fix_hint": "",
+            }
+        )
+    elif policy == "none":
+        findings.append(
+            {
+                "check": "DMARC enforce",
+                "status": "warn",
+                "severity": "high",
+                "description": "DMARC p=none - monitoring only.",
+                "fix_hint": "Upgrade to reject/quarantine",
+            }
+        )
+    if pct and pct < 100:
+        findings.append(
+            {
+                "check": "DMARC rollout",
+                "status": "warn",
+                "severity": "medium",
+                "description": f"DMARC pct={pct}% - partial.",
+                "fix_hint": "Increase to 100",
+            }
+        )
+    elif pct == 100 or pct is None:
+        findings.append(
+            {
+                "check": "DMARC rollout",
+                "status": "pass",
+                "severity": "low",
+                "description": "DMARC pct=100 (full rollout).",
+                "fix_hint": "",
+            }
+        )
+    if aspf == "s" and adkim == "s":
+        findings.append(
+            {
+                "check": "DMARC alignment",
+                "status": "pass",
+                "severity": "low",
+                "description": "Both aspf=s, adkim=s - strict alignment.",
+                "fix_hint": "",
+            }
+        )
+    else:
+        findings.append(
+            {
+                "check": "DMARC alignment",
+                "status": "warn",
+                "severity": "medium",
+                "description": "Relaxed alignment (default).",
+                "fix_hint": "Consider aspf=s, adkim=s",
+            }
+        )
+    if rua_uris or ruf_uris:
+        findings.append(
+            {
+                "check": "DMARC reporting",
+                "status": "pass",
+                "severity": "low",
+                "description": f"Reporting configured ({len(rua_uris)} rua, {len(ruf_uris)} ruf).",
+                "fix_hint": "",
+            }
+        )
+    else:
+        findings.append(
+            {
+                "check": "DMARC reporting",
+                "status": "warn",
+                "severity": "low",
+                "description": "No reporting URIs.",
+                "fix_hint": "Add rua=mailto:dmarc@example.com",
+            }
+        )
+    return {
+        "present": True,
+        "record": dmarc_record,
+        "policy": policy,
+        "subdomain_policy": subdomain_policy,
+        "pct": pct,
+        "aspf": aspf,
+        "adkim": adkim,
+        "rua_uris": rua_uris,
+        "ruf_uris": ruf_uris,
+        "fo": fo,
+        "findings": findings,
+    }
+
+
+def _probe_dkim_posture(domain: str, selectors: list[str] | None = None, timeout: int = 8) -> dict:
+    """Probe DKIM selectors."""
+    verified: list[str] = []
+    tested: list[str] = []
+    findings: list[dict] = []
+    today = datetime.now(UTC)
+    date_selectors = [(today - timedelta(days=i)).strftime("%Y%m%d") for i in range(DKIM_DATE_WINDOW_DAYS)]
+    all_selectors = list(DKIM_SELECTORS) + date_selectors + (selectors or [])
+
+    def _check_dkim_selector(selector: str) -> str | None:
+        try:
+            r = dns.resolver.Resolver()
+            r.timeout, r.lifetime = 2, 3
+            answers = r.resolve(f"{selector}._domainkey.{domain}", "TXT")
+        except dns.exception.DNSException:
+            return None
+        for rec in answers:
+            try:
+                value = _strip_control_chars(b"".join(rec.strings).decode("utf-8", errors="replace")).lower()
+            except (AttributeError, UnicodeDecodeError):
+                value = _strip_control_chars(str(rec).replace('" "', "").strip('"')).lower()
+            if "v=dmarc1" in value or "v=spf1" in value:
+                continue
+            if "v=dkim1" in value or _DKIM_PTAG_RE.search(value):
+                return selector
+        return None
+
+    pool = ThreadPoolExecutor(max_workers=10)
+    try:
+        futures = {pool.submit(_check_dkim_selector, s): s for s in all_selectors}
+        for future in as_completed(futures, timeout=timeout):
+            tested.append(futures[future])
+            try:
+                result = future.result(timeout=2)
+                if result:
+                    verified.append(result)
+                if len(verified) >= 3:
+                    break
+            except Exception:
+                pass
+    except TimeoutError:
+        pass
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
+    status = "verified" if verified else "unverifiable"
+    if verified:
+        findings.append(
+            {
+                "check": "DKIM verified",
+                "status": "pass",
+                "severity": "low",
+                "description": f"DKIM keys at {len(verified)} selector(s): {', '.join(verified[:3])}.",
+                "fix_hint": "",
+            }
+        )
+    else:
+        findings.append(
+            {
+                "check": "DKIM verified",
+                "status": "warn",
+                "severity": "medium",
+                "description": "DKIM not found under common selectors. Custom selectors unknown.",
+                "fix_hint": "Supply custom selectors if known.",
+            }
+        )
+    return {"verified_selectors": verified, "status": status, "tested_selectors": tested, "findings": findings}
+
+
+def _score_email_security_posture(spf: dict, dmarc: dict, dkim: dict) -> dict:
+    """Score posture as 0-100 + grade A+-F."""
+    score = 0
+    if spf.get("present"):
+        score += 15
+        if spf.get("all_policy") == "strict":
+            score += 15
+        elif spf.get("all_policy") == "soft_fail":
+            score += 8
+        if spf.get("lookup_count", 0) <= 10:
+            score += 5
+    if dmarc.get("present"):
+        if dmarc.get("policy") == "reject":
+            score += 20
+        elif dmarc.get("policy") == "quarantine":
+            score += 15
+        if (dmarc.get("pct") or 100) == 100:
+            score += 5
+        elif (dmarc.get("pct") or 0) > 50:
+            score += 2
+        if dmarc.get("aspf") == "s" and dmarc.get("adkim") == "s":
+            score += 10
+        elif dmarc.get("aspf") == "s" or dmarc.get("adkim") == "s":
+            score += 5
+        if dmarc.get("rua_uris") or dmarc.get("ruf_uris"):
+            score += 5
+    if dkim.get("status") == "verified":
+        score += 10
+    # Bonus: all three mechanisms configured (SPF strict + DMARC enforce + DKIM verified)
+    if (
+        spf.get("all_policy") in ["strict", "soft_fail"]
+        and dmarc.get("policy") in ["reject", "quarantine"]
+        and dkim.get("status") == "verified"
+    ):
+        score += 10
+    if 95 <= score <= 100:
+        grade = "A+"
+    elif 85 <= score < 95:
+        grade = "A"
+    elif 70 <= score < 85:
+        grade = "B"
+    elif 50 <= score < 70:
+        grade = "C"
+    elif 25 <= score < 50:
+        grade = "D"
+    else:
+        grade = "F"
+    return {"posture_score": score, "posture_grade": grade}

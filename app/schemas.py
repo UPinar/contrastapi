@@ -88,6 +88,7 @@ class PivotHint(BaseModel):
         "check_injection",
         "check_dependencies",
         "email_mx",
+        "email_security_posture",
         "email_disposable",
         "email_verify",
         "robots_txt",

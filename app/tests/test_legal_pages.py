@@ -35,7 +35,7 @@ def test_pricing_page_renders_with_tiers_and_crypto_checkout():
     assert 'id="crypto-checkout-btn"' in body
     assert "/static/js/crypto-checkout.js" in body
     # MCP positioning
-    assert "49 MCP tools" in body or "49 MCP" in body
+    assert "50 MCP tools" in body or "50 MCP" in body
     # Pricing page must NOT advertise the scanner — it's a separate property
     assert "https://contrastcyber.com/pricing" not in body
     assert 'https://contrastcyber.com"' not in body

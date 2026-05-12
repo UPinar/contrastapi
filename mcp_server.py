@@ -90,6 +90,7 @@ from app.domain.schemas import (  # noqa: E402
     DnsResponse,
     DomainReportResponse,
     EmailMxResponse,
+    EmailSecurityPostureResponse,
     EmailVerifyResponse,
     IpLookupResponse,
     PhoneLookupResponse,
@@ -736,6 +737,20 @@ async def email_mx(
 ) -> EmailMxResponse | ErrorResponse:
     """Analyze email security: MX records, SPF policy, DMARC policy, DKIM probe across common+date-based selectors, mail provider, grade. Use to verify email-auth setup and phishing risk; for full audit use domain_report. Free: 30/hr, Pro: 500/hr. email_security.dkim_status reports honest evidence: 'verified' iff at least one selector responded, else 'unverifiable' (custom selectors cannot be discovered without prior knowledge). Grade: when DKIM verified, A=SPF+DMARC+DKIM/B=2of3/C=1of3; when DKIM unverifiable, A=SPF+DMARC/B=one/F=neither — DKIM absence is NOT penalized because it is unprovable in DNS. Returns {mx_records, mail_provider, email_security:{spf, dmarc, dkim_selectors, dkim_status, grade, issues}, summary}."""
     return EmailMxResponse(**await _aget(f"/v1/email/mx/{_require_domain(domain)}"))
+
+
+@mcp_tool_safe(annotations=_RO_OPEN_WORLD)
+async def email_security_posture(
+    domain: Annotated[
+        str, Field(description="Domain to audit email authentication posture for (e.g. 'example.com')")
+    ],
+    selectors: Annotated[
+        str | None,
+        Field(description="Optional comma-separated custom DKIM selectors to probe")
+    ] = None,
+) -> EmailSecurityPostureResponse | ErrorResponse:
+    """Analyze domain email authentication posture: SPF, DMARC, DKIM with numeric score and findings. Dual-use: red-team (spoofing feasibility) + blue-team (posture audit). Score 0-100, grades A+-F. DKIM probing tests common selectors + recent dates; custom selectors must be supplied. Passive DNS-only; no SMTP probe. Free: 30/hr, Pro: 500/hr."""
+    return EmailSecurityPostureResponse(**await _aget(f"/v1/email/security-posture/{_require_domain(domain)}", params={"selectors": selectors} if selectors else None))
 
 
 @mcp_tool_safe(annotations=_RO_OPEN_WORLD)

@@ -70,7 +70,13 @@ from domain.recon import (
     _classify_ssl_verify_error,
     _dns_call_with_timeout,
     _hostname_matches,
+    _lookup_dmarc_txt,
+    _normalize_dkim_selectors,
     _parse_cert_der,
+    _parse_dmarc,
+    _parse_spf,
+    _probe_dkim_posture,
+    _score_email_security_posture,
     _ssl_grade,
     _ssrf_http,
     _strip_control_chars,
@@ -99,6 +105,7 @@ from domain.schemas import (
     DnsResponse,
     DomainReportResponse,
     EmailMxResponse,
+    EmailSecurityPostureResponse,
     EmailVerifyResponse,
     IpLookupResponse,
     MonitorResponse,
@@ -1069,6 +1076,66 @@ async def email_mx(
     result["next_calls"] = [h.model_dump() for h in _email_mx_pivot_hints(result)]
     await asave_cached_domain(cache_key, result)
     return {**result}
+
+
+@router.get(
+    "/security-posture/{domain}",
+    response_model=EmailSecurityPostureResponse,
+    response_model_exclude_none=True,
+)
+async def email_security_posture(
+    domain: DomainPath,
+    auth: Annotated[AuthCtx, Depends(require_auth("/v1/email/security-posture"))],
+    selectors: str | None = None,
+):
+    """Email authentication posture: SPF, DMARC, DKIM with numeric score and findings."""
+    domain, _ = _validate_domain_input(domain)
+    custom_selectors = _normalize_dkim_selectors(selectors)
+    selector_sig = ",".join(custom_selectors) if custom_selectors else ""
+    cache_key = f"email_security_posture:{domain}:{selector_sig}"
+    cached = await aget_cached_domain(cache_key)
+    if cached:
+        return {**cached}
+    txt_records = (await run_in_threadpool(dns_lookup, domain)).get("txt", [])
+    spf_record = next((t for t in txt_records if t.lower().startswith("v=spf1")), None)
+    dmarc_record = await run_in_threadpool(_lookup_dmarc_txt, domain)
+    spf = _parse_spf(spf_record)
+    dmarc = _parse_dmarc(dmarc_record)
+    dkim = await run_in_threadpool(_probe_dkim_posture, domain, custom_selectors, 8)
+    score_result = _score_email_security_posture(spf, dmarc, dkim)
+    all_findings = spf["findings"] + dmarc["findings"] + dkim["findings"]
+    parts = [domain]
+    if spf.get("all_policy"):
+        parts.append(f"SPF {spf['all_policy']}")
+    if dmarc.get("policy"):
+        parts.append(f"DMARC {dmarc['policy']}")
+    if dkim.get("status"):
+        parts.append(f"DKIM {dkim['status']}")
+    parts.append(f"Grade: {score_result['posture_grade']}")
+    summary = " - ".join(parts)
+    result = {
+        "domain": domain,
+        "spf": spf,
+        "dmarc": dmarc,
+        "dkim": dkim,
+        "posture_score": score_result["posture_score"],
+        "posture_grade": score_result["posture_grade"],
+        "all_findings": all_findings,
+        "summary": summary,
+    }
+    result["next_calls"] = [h.model_dump() for h in _email_posture_pivot_hints(result)]
+    await asave_cached_domain(cache_key, result)
+    return {**result}
+
+
+def _email_posture_pivot_hints(result: dict) -> list:
+    """Pivot hints for email_security_posture."""
+    hints = [
+        ("dns_lookup", {"domain": result["domain"]}, "Inspect full DNS records"),
+        ("domain_report", {"domain": result["domain"]}, "Broader posture audit"),
+        ("email_mx", {"domain": result["domain"]}, "MX + mail provider check"),
+    ]
+    return [PivotHint(tool=t[0], args=t[1], description=t[2]) for t in hints]
 
 
 def _disposable_summary(email: str, result: dict) -> str:

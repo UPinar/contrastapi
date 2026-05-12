@@ -301,6 +301,77 @@ class DomainReputationInfo(BaseModel):
     model_config = {"extra": "allow"}
 
 
+class Finding(BaseModel):
+    """Discrete audit finding."""
+
+    check: str = Field(description="What was checked")
+    status: Literal["pass", "warn", "fail"] = Field(description="Outcome")
+    severity: Literal["critical", "high", "medium", "low"] = Field(description="Severity")
+    description: str = Field(description="Finding description")
+    fix_hint: str = Field(description="Remediation hint")
+
+
+class SpfMechanism(BaseModel):
+    """Single SPF mechanism (a, mx, include, ip4, ip6, ptr, exists, redirect)."""
+
+    type: str = Field(description="Mechanism type")
+    value: str = Field(description="Mechanism value")
+    qualifier: Literal["+", "-", "~", "?"] = Field(
+        description="Qualifier: + (pass), - (fail), ~ (softfail), ? (neutral)"
+    )
+
+
+class SpfPosture(BaseModel):
+    """SPF posture analysis."""
+
+    present: bool = Field(description="SPF record exists")
+    record: str | None = Field(default=None)
+    all_policy: Literal["permissive", "soft_fail", "strict", "neutral"] | None = Field(default=None)
+    mechanisms: list[SpfMechanism] = Field(default_factory=list)
+    lookup_count: int = Field(description="DNS lookups needed")
+    redirect_target: str | None = Field(default=None)
+    has_spf_all: bool = Field(description="Has 'all' mechanism")
+    findings: list[Finding] = Field(default_factory=list)
+
+
+class DmarcPosture(BaseModel):
+    """DMARC posture analysis."""
+
+    present: bool = Field(description="DMARC record exists")
+    record: str | None = Field(default=None)
+    policy: Literal["none", "quarantine", "reject"] | None = Field(default=None)
+    subdomain_policy: Literal["none", "quarantine", "reject"] | None = Field(default=None)
+    pct: int | None = Field(default=None, description="Rollout percentage")
+    aspf: Literal["s", "r"] | None = Field(default=None, description="SPF alignment mode")
+    adkim: Literal["s", "r"] | None = Field(default=None, description="DKIM alignment mode")
+    rua_uris: list[str] = Field(default_factory=list, description="Aggregate report URIs")
+    ruf_uris: list[str] = Field(default_factory=list, description="Forensic report URIs")
+    fo: str | None = Field(default=None, description="Failure reporting options")
+    findings: list[Finding] = Field(default_factory=list)
+
+
+class DkimPosture(BaseModel):
+    """DKIM posture — selector discovery and verification."""
+
+    verified_selectors: list[str] = Field(default_factory=list)
+    status: Literal["verified", "unverifiable"] = Field(description="Verification status")
+    tested_selectors: list[str] = Field(default_factory=list, description="All selectors probed")
+    findings: list[Finding] = Field(default_factory=list)
+
+
+class EmailSecurityPostureResponse(BaseSuccessResponse):
+    """Email authentication posture: SPF + DMARC + DKIM with score and findings."""
+
+    domain: str = Field(description="Domain analyzed")
+    spf: SpfPosture = Field(description="SPF posture")
+    dmarc: DmarcPosture = Field(description="DMARC posture")
+    dkim: DkimPosture = Field(description="DKIM posture")
+    posture_score: int = Field(description="Score 0-100")
+    posture_grade: Literal["A+", "A", "B", "C", "D", "F"] = Field(description="Grade A+-F")
+    all_findings: list[Finding] = Field(description="Flattened findings")
+    summary: str = Field(description="Summary")
+
+
 class DomainReportResponse(BaseSuccessResponse):
     domain: str = Field(description="Queried domain (echoed, lowercased).")
     dns: DomainDnsInfo | None = Field(
