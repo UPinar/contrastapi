@@ -373,6 +373,31 @@
       </div>
     </div>
 
+    <div class="pg-card" id="ep-email_security_posture">
+      <div class="pg-card-header">
+        <span class="method get">GET</span>
+        <span class="name">/v1/email/security-posture/{domain}</span>
+        <span class="desc">SPF / DKIM / DMARC posture — 0-100 score, A+/A/B/C/D/F grade, remediation findings</span>
+      </div>
+      <div class="pg-card-body">
+        <div class="pg-inputs">
+          <label>domain</label>
+          <input type="text" id="input-email_security_posture" value="github.com" placeholder="example.com">
+          <button class="btn-run" data-tool="email_security_posture">Run &rarr;</button>
+        </div>
+        <div class="pg-response" id="resp-email_security_posture">
+          <pre>{
+  <span class="key">"domain"</span>: <span class="str">"github.com"</span>,
+  <span class="key">"score"</span>: <span class="num">95</span>,
+  <span class="key">"grade"</span>: <span class="str">"A"</span>,
+  <span class="key">"spf"</span>: { <span class="key">"present"</span>: <span class="bool">true</span>, <span class="key">"all_mechanism"</span>: <span class="str">"-all"</span> },
+  <span class="key">"dmarc"</span>: { <span class="key">"policy"</span>: <span class="str">"reject"</span> },
+  <span class="key">"dkim"</span>: { <span class="key">"selectors_tested"</span>: <span class="num">2</span> }
+}</pre>
+        </div>
+      </div>
+    </div>
+
     <div class="pg-card" id="ep-robots_txt">
       <div class="pg-card-header">
         <span class="method get">GET</span>
@@ -1134,6 +1159,55 @@ T1078</textarea>
     <span class="key">"Detect"</span>: <span class="num">12</span>,
     <span class="key">"Isolate"</span>: <span class="num">4</span>
   }
+}</pre>
+        </div>
+      </div>
+    </div>
+
+    <h2 class="section-title">Sigma Detection Rules</h2>
+
+    <div class="pg-card" id="ep-sigma_lookup">
+      <div class="pg-card-header">
+        <span class="method get">GET</span>
+        <span class="name">/v1/sigma/{rule_id}</span>
+        <span class="desc">Lookup Sigma rule by UUID — full detection logic + tags (SigmaHQ corpus, ~3,200 rules)</span>
+      </div>
+      <div class="pg-card-body">
+        <div class="pg-inputs">
+          <input id="input-sigma_lookup" type="text" class="pg-input" value="195e1b9d-bfc2-4ffa-ab4e-35aef69815f8" placeholder="Sigma rule UUID">
+          <button class="btn-run" data-tool="sigma_lookup">Run &rarr;</button>
+        </div>
+        <div class="pg-response" id="resp-sigma_lookup">
+          <pre>{
+  <span class="key">"rule"</span>: {
+    <span class="key">"rule_id"</span>: <span class="str">"195e1b9d-..."</span>,
+    <span class="key">"title"</span>: <span class="str">"Suspicious Powershell Process Creation"</span>,
+    <span class="key">"status"</span>: <span class="str">"stable"</span>,
+    <span class="key">"level"</span>: <span class="str">"high"</span>,
+    <span class="key">"tags"</span>: [<span class="str">"attack.t1059"</span>],
+    <span class="key">"logsource"</span>: {<span class="key">"product"</span>: <span class="str">"windows"</span>}
+  }
+}</pre>
+        </div>
+      </div>
+    </div>
+
+    <div class="pg-card" id="ep-sigma_search">
+      <div class="pg-card-header">
+        <span class="method get">GET</span>
+        <span class="name">/v1/sigma/search</span>
+        <span class="desc">Search rules by ATT&amp;CK technique, CVE, logsource, or freetext</span>
+      </div>
+      <div class="pg-card-body">
+        <div class="pg-inputs">
+          <input id="input-sigma_search" type="text" class="pg-input" value="T1059" placeholder="?technique=T1059 or ?cve_id=CVE-2024-3400 or ?query=powershell">
+          <button class="btn-run" data-tool="sigma_search">Run &rarr;</button>
+        </div>
+        <div class="pg-response" id="resp-sigma_search">
+          <pre>{
+  <span class="key">"total_matches"</span>: <span class="num">187</span>,
+  <span class="key">"limit"</span>: <span class="num">50</span>,
+  <span class="key">"rules"</span>: [{ <span class="comment">// 50 rules tagged attack.t1059</span> }]
 }</pre>
         </div>
       </div>

@@ -7,6 +7,7 @@ links are relative (so they resolve to api.contrastcyber.com), and the
 crypto-checkout JS is wired into the pricing page.
 """
 
+from config import MCP_TOOL_COUNT
 from fastapi.testclient import TestClient
 from main import app
 
@@ -34,8 +35,8 @@ def test_pricing_page_renders_with_tiers_and_crypto_checkout():
     assert "lemonsqueezy.com/checkout/buy/" in body
     assert 'id="crypto-checkout-btn"' in body
     assert "/static/js/crypto-checkout.js" in body
-    # MCP positioning
-    assert "50 MCP tools" in body or "50 MCP" in body
+    # MCP positioning — drift-safe, pulls from config so bumps don't break the test
+    assert f"{MCP_TOOL_COUNT} MCP tools" in body or f"{MCP_TOOL_COUNT} MCP" in body
     # Pricing page must NOT advertise the scanner — it's a separate property
     assert "https://contrastcyber.com/pricing" not in body
     assert 'https://contrastcyber.com"' not in body

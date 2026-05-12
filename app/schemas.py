@@ -108,6 +108,8 @@ class PivotHint(BaseModel):
         "d3fend_defense_search",
         "d3fend_defense_for_attack",
         "d3fend_attack_coverage",
+        "sigma_rule_lookup",
+        "bulk_sigma_rule_lookup",
     ] = Field(
         description=(
             "Canonical MCP tool name to call next. Constrained to known operation_ids in "

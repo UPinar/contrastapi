@@ -13,11 +13,11 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 VERSION = "1.31.0"
-MCP_TOOL_COUNT = 50  # v1.32.0: +email_security_posture (SPF/DMARC/DKIM posture with score + findings)
+MCP_TOOL_COUNT = 52  # v1.32.0: +email_security_posture +sigma_rule_lookup +bulk_sigma_rule_lookup
 MCP_RESOURCE_COUNT = 7  # v1.23.0: atlas+d3fend+cwe (4 templates + 3 catalogs)
 MCP_PROMPT_COUNT = 3  # v1.23.0: security_audit, vulnerability_check, contrast_triage
-ENDPOINT_COUNT = "57+"
-TEST_COUNT = 2289
+ENDPOINT_COUNT = "60+"
+TEST_COUNT = 2374
 # Catalog row counts surfaced on landing/playground. Bump after `python -m cve.sync
 # --source atlas` (ATLAS upstream cadence ~6 months) or `--source d3fend` (yearly).
 ATLAS_TECHNIQUE_COUNT = 167

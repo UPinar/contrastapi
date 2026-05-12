@@ -102,6 +102,11 @@
       </div>
       <div class="endpoint">
         <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/email/security-posture/{domain}</span>
+        <span class="endpoint-desc">SPF / DKIM / DMARC posture audit — 0-100 score with A+/A/B/C/D/F grade + remediation findings</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
         <span class="endpoint-path">/v1/brand/{domain}</span>
         <span class="endpoint-desc">Public brand assets from homepage &lt;head&gt;: favicon, og:image, theme-color, JSON-LD logo</span>
       </div>
@@ -290,6 +295,25 @@
         <span class="method post">POST</span>
         <span class="endpoint-path">/v1/d3fend/coverage</span>
         <span class="endpoint-desc">Batch coverage map for a list of ATT&amp;CK technique IDs</span>
+      </div>
+    </div>
+
+    <h2 class="section-title">Sigma Detection Rules</h2>
+    <div class="endpoint-group">
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/sigma/{rule_id}</span>
+        <span class="endpoint-desc">Lookup Sigma rule by UUID — full detection logic + tags (SigmaHQ corpus, ~3,200 rules, daily sync)</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/sigma/search?technique=&amp;cve_id=&amp;logsource_product=&amp;query=</span>
+        <span class="endpoint-desc">Search rules by ATT&amp;CK technique / CVE / logsource / freetext</span>
+      </div>
+      <div class="endpoint">
+        <span class="method post">POST</span>
+        <span class="endpoint-path">/v1/sigma/bulk</span>
+        <span class="endpoint-desc">Bulk lookup up to 50 Sigma rule UUIDs (per-item ok / not_found / invalid_format)</span>
       </div>
     </div>
 

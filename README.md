@@ -1,15 +1,15 @@
-# ContrastAPI — 49 Security Tools + 7 MCP Resources for AI Agents
+# ContrastAPI — 52 Security Tools + 7 MCP Resources for AI Agents
 
 <p align="center">
   <img src="app/static/banner.png" alt="ContrastAPI Banner" width="100%">
 </p>
 
-[![MCP](https://img.shields.io/badge/MCP-49_tools-purple.svg)](https://modelcontextprotocol.io)
+[![MCP](https://img.shields.io/badge/MCP-52_tools-purple.svg)](https://modelcontextprotocol.io)
 [![smithery badge](https://smithery.ai/badge/contrastcyber/contrastapi)](https://smithery.ai/servers/contrastcyber/contrastapi)
 [![contrastapi MCP server](https://glama.ai/mcp/servers/UPinar/contrastapi/badges/score.svg)](https://glama.ai/mcp/servers/UPinar/contrastapi)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-**Security intelligence MCP server for AI agents.** CVE/KEV/CWE lookup with EPSS, **composite risk scoring (CVSS+EPSS+KEV+PoC fusion — v1.29.1)**, **CVSS v3.x vector parser (v1.29.1)**, domain audit, IP threat reports, IOC enrichment, code security, **MITRE ATLAS (AI/ML attacks) + D3FEND (defenses)**, **web intelligence (robots.txt, redirect-chain, email validation, brand-assets, SEO audit — v1.25.0)**. **49 tools + 7 Resources (ATLAS+D3FEND+CWE catalog browsing) + conditional triage Prompt, free, no API key, 30 credits/hour.**
+**Security intelligence MCP server for AI agents.** CVE/KEV/CWE lookup with EPSS, **composite risk scoring (CVSS+EPSS+KEV+PoC fusion — v1.29.1)**, **CVSS v3.x vector parser (v1.29.1)**, domain audit, IP threat reports, IOC enrichment, code security, **MITRE ATLAS (AI/ML attacks) + D3FEND (defenses)**, **web intelligence (robots.txt, redirect-chain, email validation, brand-assets, SEO audit — v1.25.0)**. **52 tools + 7 Resources (ATLAS+D3FEND+CWE catalog browsing) + conditional triage Prompt, free, no API key, 30 credits/hour.**
 
 [中文](README_CN.md) · **Live:** [api.contrastcyber.com](https://api.contrastcyber.com)
 
@@ -37,7 +37,7 @@ pip install contrastapi      # Python 3.10+ — sync + async, typed responses, s
 npm install contrastapi      # Node 14+ — concrete TypeScript types, 14 namespaces
 ```
 
-Both SDKs cover all 57+ HTTP endpoints / 49 MCP tools (CVE/KEV/CWE, ATLAS, D3FEND, domain, IP, IOC, code-security, web-intel, etc.) with the same wire-exact response shapes and a typed exception hierarchy mirroring the v1.22.2+ error envelope. v1.23.0 adds MCP Resources (ATLAS+D3FEND+CWE catalog browsing — see [docs/resources.md](docs/resources.md)) and a conditional triage Prompt (see [docs/PROMPTS.md#contrast-triage-v1230](docs/PROMPTS.md)). v1.25.0 adds 5 web-intelligence tools (`robots_txt`, `redirect_chain`, `email_verify`, `brand_assets`, `seo_audit`) with explicit ethical-floor guardrails (per-target eTLD+1 throttle, robots.txt respected, no SMTP probing).
+Both SDKs cover all 60+ HTTP endpoints / 52 MCP tools (CVE/KEV/CWE, ATLAS, D3FEND, Sigma rules, email security posture, domain, IP, IOC, code-security, web-intel, etc.) with the same wire-exact response shapes and a typed exception hierarchy mirroring the v1.22.2+ error envelope. v1.23.0 adds MCP Resources (ATLAS+D3FEND+CWE catalog browsing — see [docs/resources.md](docs/resources.md)) and a conditional triage Prompt (see [docs/PROMPTS.md#contrast-triage-v1230](docs/PROMPTS.md)). v1.25.0 adds 5 web-intelligence tools (`robots_txt`, `redirect_chain`, `email_verify`, `brand_assets`, `seo_audit`) with explicit ethical-floor guardrails (per-target eTLD+1 throttle, robots.txt respected, no SMTP probing).
 
 ## Try it
 

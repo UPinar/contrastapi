@@ -129,6 +129,14 @@ GET  /v1/d3fend/attack/{attack_technique_id} Reverse: ATT&CK T-code -> mitigatin
 POST /v1/d3fend/coverage                     Batch coverage breakdown for a list of ATT&CK T-codes (max 500); identifies undefended techniques
 ```
 
+## Sigma Detection Rules (v1.32.0 — SigmaHQ corpus, daily sync)
+
+```
+GET  /v1/sigma/{rule_id}                     Lookup Sigma rule by UUID — full rule with title, level, logsource, detection, tags (attack.t#### / cve.YYYY-####)
+GET  /v1/sigma/search?technique=&cve_id=&logsource_product=&logsource_category=&query=&status=&level=&limit=&offset=  Search 3,200+ rules by ATT&CK technique, CVE, logsource, freetext (capped 1-200/page)
+POST /v1/sigma/bulk                          Bulk lookup up to 50 Sigma rule UUIDs in one call (per-item status: ok / not_found / invalid_format)
+```
+
 ## Meta
 
 ```

@@ -104,6 +104,11 @@
       </div>
       <div class="endpoint">
         <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/email/security-posture/{domain}</span>
+        <span class="endpoint-desc">SPF / DKIM / DMARC 邮件安全姿态审计——0-100 分数，A+/A/B/C/D/F 评级 + 补救建议</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
         <span class="endpoint-path">/v1/brand/{domain}</span>
         <span class="endpoint-desc">从首页 &lt;head&gt; 抓取公开品牌资源：favicon、og:image、theme-color、JSON-LD logo</span>
       </div>
@@ -292,6 +297,25 @@
         <span class="method post">POST</span>
         <span class="endpoint-path">/v1/d3fend/coverage</span>
         <span class="endpoint-desc">批量覆盖图：给定 ATT&amp;CK 技术 ID 列表</span>
+      </div>
+    </div>
+
+    <h2 class="section-title">Sigma 检测规则</h2>
+    <div class="endpoint-group">
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/sigma/{rule_id}</span>
+        <span class="endpoint-desc">通过 UUID 查询 Sigma 检测规则——完整规则 + 标签（SigmaHQ 语料库，~3,200 条规则，每日同步）</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/sigma/search?technique=&amp;cve_id=&amp;query=</span>
+        <span class="endpoint-desc">按 ATT&amp;CK 技术 / CVE / 日志源 / 关键字搜索规则</span>
+      </div>
+      <div class="endpoint">
+        <span class="method post">POST</span>
+        <span class="endpoint-path">/v1/sigma/bulk</span>
+        <span class="endpoint-desc">批量查询最多 50 个 Sigma 规则 UUID（每项状态：ok / not_found / invalid_format）</span>
       </div>
     </div>
 

@@ -128,6 +128,10 @@ from app.ioc.schemas import (  # noqa: E402
     PhishingResponse,
 )
 from app.schemas import ErrorResponse  # noqa: E402
+from app.sigma.schemas import (  # noqa: E402
+    BulkSigmaRuleLookupResponse,
+    SigmaRuleLookupResponse,
+)
 
 # Shared annotations — all tools are read-only API lookups.
 # v1.22.0 splits the legacy `_RO` (open-world default) into closed/open world
@@ -532,6 +536,8 @@ _ATLAS_TACTIC_RE = re.compile(r"^AML\.TA\d{4}$", re.IGNORECASE)
 _D3FEND_DEFENSE_RE = re.compile(r"^[A-Za-z][A-Za-z0-9]{0,63}$")
 _ATTACK_TECHNIQUE_RE = re.compile(r"^T\d{4}(?:\.\d{3})?$", re.IGNORECASE)
 _D3FEND_TACTICS = {"Model", "Harden", "Detect", "Isolate", "Deceive", "Evict", "Restore"}
+
+_SIGMA_UUID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 
 
 # v1.23.0 — target-type auto-detection for contrast_triage prompt.
@@ -1497,6 +1503,45 @@ async def d3fend_attack_coverage(
     if len(attack_technique_ids) > 500:
         raise InvalidArgumentException("Too many ids — max 500. Truncate input client-side.")
     return D3fendCoverageResponse(**await _apost("/v1/d3fend/coverage", {"attack_technique_ids": attack_technique_ids}))
+
+
+# === Sigma Detection Rules ===
+
+
+@mcp_tool_safe(annotations=_RO_CLOSED_WORLD)
+async def sigma_rule_lookup(
+    rule_id: Annotated[
+        str,
+        Field(
+            max_length=50,
+            description="Sigma rule UUID (RFC 4122, 36 chars, hyphenated). Example: '195e1b9d-bfc2-4ffa-ab4e-35aef69815f8'. Obtained from the REST sigma_rule_search endpoint or external SIEM correlation.",
+        ),
+    ],
+) -> SigmaRuleLookupResponse | ErrorResponse:
+    """Look up a single Sigma detection rule by UUID from the SigmaHQ corpus (~3,200 rules, refreshed daily at 02:00 UTC). Returns the full rule with title, description, status (stable/test/experimental/deprecated/unsupported), level (informational/low/medium/high/critical), logsource (product/category/service), detection logic, tags (including attack.t#### ATT&CK technique refs and cve.YYYY-#### CVE refs), author, references, and modification date. Use to fetch a known rule for context (e.g., a SIEM detection that fired) or to inspect a rule discovered via REST sigma_rule_search. When a rule tags an ATT&CK technique or CVE, the response next_calls surfaces atlas_technique_lookup / cve_lookup as natural follow-ups. Free: 30/hr, Pro: 500/hr. Returns {rule, next_calls}."""
+    if not _SIGMA_UUID_RE.match(rule_id):
+        raise InvalidArgumentException(f"Invalid Sigma rule_id: {rule_id!r}. Expected UUID format (8-4-4-4-12 hex with hyphens).")
+    return SigmaRuleLookupResponse(**await _aget(f"/v1/sigma/{rule_id}"))
+
+
+@mcp_tool_safe(annotations=_RO_CLOSED_WORLD)
+async def bulk_sigma_rule_lookup(
+    rule_ids: Annotated[
+        list[str],
+        Field(
+            description="List of Sigma rule UUIDs in RFC 4122 format. Up to 50 per call (Pro tier) or 10 (free tier). Each id counts as 1 request toward the rate limit. Per-item validation: invalid-format ids return status='invalid_format', unknown UUIDs return status='not_found' — the whole call does not fail.",
+            max_length=50,
+        ),
+    ],
+) -> BulkSigmaRuleLookupResponse | ErrorResponse:
+    """Bulk Sigma rule lookup — retrieve full records for up to 50 rule UUIDs in a single request instead of N separate sigma_rule_lookup calls. Designed for triage workflows where multiple rule ids are known (e.g., from a SIEM alert batch or a tagged detection bundle). Each item is the same shape as sigma_rule_lookup with status ok/not_found/invalid_format and an error field when applicable. Free: 30/hr (1 per item, max 10 items free tier), Pro: 500/hr (max 50 items). Returns {results [{rule_id, status, rule, error}], total, successful, failed, partial, summary, next_calls}."""
+    if not isinstance(rule_ids, list) or not rule_ids:
+        raise InvalidArgumentException("rule_ids must be a non-empty list")
+    if len(rule_ids) > 50:
+        raise InvalidArgumentException("Too many rule_ids — max 50 per request (Pro tier) or 10 (free tier).")
+    if not all(isinstance(rid, str) for rid in rule_ids):
+        raise InvalidArgumentException("All rule_ids must be strings")
+    return BulkSigmaRuleLookupResponse(**await _apost("/v1/sigma/bulk", {"rule_ids": rule_ids}))
 
 
 # === Threat Intelligence / IOC ===

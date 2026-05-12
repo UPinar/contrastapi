@@ -791,6 +791,39 @@ def api_capabilities():
                     },
                 ],
             },
+            "sigma": {
+                "description": "SigmaHQ detection rule corpus (~3,200 rules, daily sync) — UUID lookup + bulk lookup for blue-team triage",
+                "tools": [
+                    {
+                        "name": "sigma_rule_lookup",
+                        "method": "GET",
+                        "path": "/v1/sigma/{rule_id}",
+                        "credit_cost": 1,
+                        "blast_radius": "zero",
+                        "description": "Lookup a single Sigma rule by UUID — full rule with title, level, logsource, detection logic, tags (attack.t#### / cve.YYYY-####), references",
+                        "response_keys": ["rule", "next_calls"],
+                    },
+                    {
+                        "name": "bulk_sigma_rule_lookup",
+                        "method": "POST",
+                        "path": "/v1/sigma/bulk",
+                        "credit_cost": 1,
+                        "credit_cost_note": "1 credit per rule_id (each id counts)",
+                        "blast_radius": "zero",
+                        "description": "Bulk lookup up to 50 Sigma rule UUIDs in one request — per-item status (ok/not_found/invalid_format)",
+                        "body": {"rule_ids": "list[str] (max 50)"},
+                        "response_keys": [
+                            "results",
+                            "total",
+                            "successful",
+                            "failed",
+                            "partial",
+                            "summary",
+                            "next_calls",
+                        ],
+                    },
+                ],
+            },
             "atlas": {
                 "description": "MITRE ATLAS — AI/ML adversarial attack catalog (techniques + case studies)",
                 "tools": [

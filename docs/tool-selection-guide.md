@@ -1,6 +1,6 @@
 # Tool Selection Guide
 
-> 49 MCP tools, 57+ HTTP endpoints. This guide answers "which tool for which question" in 4 decision trees. Skim this once; agents read tool docstrings — humans read this.
+> 52 MCP tools, 60+ HTTP endpoints. This guide answers "which tool for which question" in 4 decision trees. Skim this once; agents read tool docstrings — humans read this.
 
 ---
 
