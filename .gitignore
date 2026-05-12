@@ -11,6 +11,7 @@ test_*.db
 .mcpregistry_*
 scripts/*
 !scripts/backfill_mitre_fields.py
+!scripts/refresh_sigma.sh
 plans/
 .npmrc
 node_modules/

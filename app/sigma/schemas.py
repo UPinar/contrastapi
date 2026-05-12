@@ -150,3 +150,40 @@ class BulkSigmaRuleLookupResponse(BaseSuccessResponse):
         default=None,
         description="Suggested follow-up tool calls (atlas_technique_lookup, cve_lookup, etc.)",
     )
+
+
+class SigmaRuleSearchResponse(BaseSuccessResponse):
+    """Multi-rule search response (GET /v1/sigma/search)."""
+
+    model_config = {"extra": "forbid"}
+
+    rules: list[SigmaRule] = Field(
+        default_factory=list,
+        description="Matching rules, capped by limit (default 50, max 200)",
+    )
+    total_matches: int = Field(
+        default=0,
+        description="Total candidates before limit/offset slicing",
+    )
+    limit: int = Field(default=50, description="Effective limit applied to this response")
+    offset: int = Field(default=0, description="Offset into the matched set")
+    truncated: bool = Field(
+        default=False,
+        description="True when total_matches > offset + limit (more pages available)",
+    )
+    next_calls: list[PivotHint] | None = Field(
+        default=None,
+        description="Suggested follow-up tool calls based on first result",
+    )
+
+
+class BulkSigmaRuleLookupRequest(BaseModel):
+    """POST /v1/sigma/bulk request body."""
+
+    model_config = {"extra": "forbid"}
+
+    rule_ids: list[str] = Field(
+        min_length=1,
+        max_length=50,
+        description="UUIDs to look up (1-50)",
+    )

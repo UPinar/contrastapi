@@ -65,6 +65,10 @@ class Settings(BaseSettings):
         default_factory=lambda: BASE_DIR / "domain_cache.db",
         alias="CONTRASTAPI_CACHE_DB",
     )
+    sigma_path: Path = Field(
+        default_factory=lambda: BASE_DIR / "tests" / "fixtures" / "sigma",
+        alias="CONTRASTAPI_SIGMA_PATH",
+    )
 
     # Operational artifacts (prod overrides via env vars, dev uses BASE_DIR-relative)
     mcp_tool_log_path: Path = Field(

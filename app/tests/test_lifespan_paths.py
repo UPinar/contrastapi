@@ -13,10 +13,11 @@ from core.lifespan import _warn_if_paths_under_base_dir
 
 
 def test_no_warning_when_all_paths_outside_base_dir(monkeypatch, caplog, tmp_path):
-    """When all 5 operational paths resolve outside BASE_DIR, no warning."""
+    """When all operational paths resolve outside BASE_DIR, no warning."""
     monkeypatch.setattr(settings, "api_db", tmp_path / "api.db")
     monkeypatch.setattr(settings, "cve_db", tmp_path / "cve.db")
     monkeypatch.setattr(settings, "cache_db", tmp_path / "cache.db")
+    monkeypatch.setattr(settings, "sigma_path", tmp_path / "sigma")
     monkeypatch.setattr(settings, "mcp_tool_log_path", tmp_path / "mcp.jsonl")
     monkeypatch.setattr(settings, "glama_manifest_path", tmp_path / "glama.json")
     caplog.clear()
@@ -26,10 +27,11 @@ def test_no_warning_when_all_paths_outside_base_dir(monkeypatch, caplog, tmp_pat
 
 
 def test_warning_lists_all_unset_env_names(monkeypatch, caplog):
-    """All 5 paths under BASE_DIR → warning names all 5 env vars."""
+    """All 6 paths under BASE_DIR → warning names all 6 env vars."""
     monkeypatch.setattr(settings, "api_db", BASE_DIR / "api.db")
     monkeypatch.setattr(settings, "cve_db", BASE_DIR / "cve.db")
     monkeypatch.setattr(settings, "cache_db", BASE_DIR / "cache.db")
+    monkeypatch.setattr(settings, "sigma_path", BASE_DIR / "sigma")
     monkeypatch.setattr(settings, "mcp_tool_log_path", BASE_DIR / "mcp.jsonl")
     monkeypatch.setattr(settings, "glama_manifest_path", BASE_DIR / "glama.json")
     caplog.clear()
@@ -41,6 +43,7 @@ def test_warning_lists_all_unset_env_names(monkeypatch, caplog):
         "CONTRASTAPI_DB",
         "CONTRASTAPI_CVE_DB",
         "CONTRASTAPI_CACHE_DB",
+        "CONTRASTAPI_SIGMA_PATH",
         "MCP_TOOL_LOG_PATH",
         "GLAMA_MANIFEST_PATH",
     ):
@@ -53,6 +56,7 @@ def test_warning_lists_only_unset_env_subset(monkeypatch, caplog, tmp_path):
     monkeypatch.setattr(settings, "api_db", tmp_path / "api.db")  # set
     monkeypatch.setattr(settings, "cve_db", tmp_path / "cve.db")  # set
     monkeypatch.setattr(settings, "cache_db", tmp_path / "cache.db")  # set
+    monkeypatch.setattr(settings, "sigma_path", tmp_path / "sigma")  # set
     monkeypatch.setattr(settings, "mcp_tool_log_path", BASE_DIR / "mcp.jsonl")  # unset
     monkeypatch.setattr(settings, "glama_manifest_path", BASE_DIR / "glama.json")  # unset
     caplog.clear()
@@ -65,3 +69,4 @@ def test_warning_lists_only_unset_env_subset(monkeypatch, caplog, tmp_path):
     assert "CONTRASTAPI_DB" not in msgs[0]
     assert "CONTRASTAPI_CVE_DB" not in msgs[0]
     assert "CONTRASTAPI_CACHE_DB" not in msgs[0]
+    assert "CONTRASTAPI_SIGMA_PATH" not in msgs[0]

@@ -11,6 +11,7 @@ from typing import Any
 
 from config import BASE_DIR, settings
 from db import init_all_dbs
+from sigma.sync import load_sigma_corpus
 
 logger = logging.getLogger("contrastapi")
 
@@ -25,6 +26,7 @@ def _warn_if_paths_under_base_dir() -> None:
         ("CONTRASTAPI_DB", settings.api_db),
         ("CONTRASTAPI_CVE_DB", settings.cve_db),
         ("CONTRASTAPI_CACHE_DB", settings.cache_db),
+        ("CONTRASTAPI_SIGMA_PATH", settings.sigma_path),
         ("MCP_TOOL_LOG_PATH", settings.mcp_tool_log_path),
         ("GLAMA_MANIFEST_PATH", settings.glama_manifest_path),
     ):
@@ -49,6 +51,7 @@ def make_lifespan(get_mcp_session_mgr: Callable[[], Any]):
 
         init_all_dbs()
         _warn_if_paths_under_base_dir()
+        load_sigma_corpus(settings.sigma_path)
         logger.info("ContrastAPI started — databases initialized")
 
         # Non-blocking warm: run cache refresh in background so startup is not

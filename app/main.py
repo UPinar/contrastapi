@@ -32,6 +32,7 @@ from middleware import (
     SecurityHeadersMiddleware,
     _extract_key_from_scope,
 )
+from sigma.routes import router as sigma_router
 from webhooks import router as webhooks_router
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -78,6 +79,7 @@ register_exception_handlers(app)
 
 # Order matters for OpenAPI tag insertion + 404 hint matching.
 app.include_router(api_router)
+app.include_router(sigma_router, prefix="/v1")
 app.include_router(landing_router)
 app.include_router(diagnostics_router)
 app.include_router(discovery_router)
