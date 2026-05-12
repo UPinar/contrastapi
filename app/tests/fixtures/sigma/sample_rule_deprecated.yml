@@ -1,0 +1,17 @@
+title: Deprecated Old Rule
+id: 12345678-90ab-cdef-1234-567890abcdef
+status: deprecated
+level: informational
+description: This rule is no longer maintained.
+
+tags:
+  - attack.t1001
+
+logsource:
+  product: windows
+  category: file_access
+
+detection:
+  selection:
+    EventID: 4656
+  condition: selection

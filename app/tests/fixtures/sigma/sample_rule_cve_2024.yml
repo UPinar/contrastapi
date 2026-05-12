@@ -1,0 +1,33 @@
+title: AWS CloudTrail - Suspicious IAM Activity
+id: 98765432-abcd-ef01-2345-6789abcdef01
+status: test
+level: high
+description: Detects suspicious IAM privilege escalation patterns in AWS CloudTrail logs.
+author: ContrastAPI Test
+date: 2024-02-20
+
+tags:
+  - attack.privilege_escalation
+  - attack.t1548
+  - cve.2024.1234
+  - cve.2024-5678
+
+logsource:
+  product: aws
+  service: cloudtrail
+  category: iam_activity
+  definition: CloudTrail IAM events
+
+detection:
+  selection:
+    eventSource: iam.amazonaws.com
+    eventName:
+      - CreateAccessKey
+      - AttachUserPolicy
+  condition: selection
+
+falsepositives:
+  - Authorized provisioning workflows
+
+references:
+  - https://docs.aws.amazon.com/IAM/latest/UserGuide/security_iam_service-with-iam.html

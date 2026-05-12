@@ -1,0 +1,39 @@
+title: Suspicious Process Creation - Powershell
+id: 195e1b9d-bfc2-4ffa-ab4e-35aef69815f8
+status: stable
+level: medium
+description: |
+  Detects suspicious PowerShell process execution that may indicate command-line
+  injection or script execution attacks on Windows systems.
+author: ContrastAPI Test
+date: 2024-01-15
+modified: 2024-05-12
+
+tags:
+  - attack.execution
+  - attack.t1059
+  - attack.t1059.001
+
+logsource:
+  product: windows
+  service: sysmon
+  category: process_creation
+  definition: Process creation with parent image powershell.exe
+
+detection:
+  selection_powershell:
+    Image|endswith: '\powershell.exe'
+    CommandLine|contains:
+      - 'DownloadString'
+      - 'IEX'
+      - 'Invoke-Expression'
+  selection_parent:
+    ParentImage|endswith: '\powershell.exe'
+  condition: selection_powershell and selection_parent
+
+falsepositives:
+  - Legitimate PowerShell script execution by administrators
+  - Build automation tools
+
+references:
+  - https://attack.mitre.org/techniques/T1059/001/

@@ -1,0 +1,19 @@
+title: Generic Process Execution
+id: cccccccc-dddd-eeee-ffff-000000000001
+status: experimental
+level: low
+description: Simple process execution rule without tags.
+author: ContrastAPI Test
+date: 2024-03-10
+
+logsource:
+  product: linux
+  category: process_creation
+
+detection:
+  selection:
+    CommandLine|contains: 'suspicious_binary'
+  condition: selection
+
+falsepositives:
+  - None expected
