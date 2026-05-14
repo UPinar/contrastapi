@@ -34,6 +34,7 @@ from config import (
     BULK_OVERALL_TIMEOUT,
     BULK_PER_DOMAIN_TIMEOUT,
     COST_AUDIT,
+    COST_DOMAIN_VULNS,
     COST_THREAT_REPORT,
     DOMAIN_BURST_LIMIT,
     DOMAIN_BURST_WINDOW,
@@ -2569,7 +2570,7 @@ async def domain_monitor(
 )
 async def domain_vulns(
     domain: DomainPath,
-    auth: Annotated[AuthCtx, Depends(require_auth("/v1/domain/vulns"))],
+    auth: Annotated[AuthCtx, Depends(require_auth("/v1/domain/vulns", cost=COST_DOMAIN_VULNS))],
 ):
     """Tech stack vulnerability scan — detect technologies, then look up CVEs for each."""
     domain, resolved_ip = _validate_domain_input(domain)
@@ -3099,6 +3100,28 @@ async def audit_domain(
     HTTP security headers, and reputation data. Designed for AI agents and security
     automation that need a complete picture in one request.
     """
+    return await _audit_domain_impl(
+        domain,
+        include_all_txt=include_all_txt,
+        tier=auth.tier,
+        client_ip=auth.client_ip,
+    )
+
+
+async def _audit_domain_impl(
+    domain: str,
+    *,
+    include_all_txt: bool = False,
+    tier: str = "pro",
+    client_ip: str = "",
+) -> dict:
+    """Pattern B shared implementation — called by both the REST handler above
+    and the MCP `audit_domain` wrapper (mcp_server.py). Centralizing here means
+    one rate-limit consume per call: REST gate when invoked via HTTP, MCP gate
+    via `_TOOL_COST["audit_domain"]` when invoked via tools/call. Raises
+    `HTTPException` on validation/timeout/upstream failure; the MCP wrapper
+    catches and converts to `AppException` for the FastMCP error envelope.
+    """
     from domain.recon import fetch_live_headers
     from domain.tech import detect_technologies
 
@@ -3106,8 +3129,6 @@ async def audit_domain(
     if not domain:
         raise HTTPException(status_code=400, detail="Invalid domain")
 
-    client_ip = auth.client_ip
-    tier = auth.tier
     cache_key = f"{tier}:{domain}"
 
     cached = await aget_cached_domain(cache_key)
@@ -3185,6 +3206,30 @@ async def threat_report(
     and reputation across multiple sources. Designed for SOC triage and threat hunting
     where a complete IP profile is needed without making 4+ separate API calls.
     """
+    return await _threat_report_impl(
+        ip,
+        tier=auth.tier,
+        client_ip=auth.client_ip,
+    )
+
+
+async def _threat_report_impl(
+    ip: str,
+    *,
+    tier: str = "pro",
+    client_ip: str = "",
+) -> dict:
+    """Pattern B shared implementation — called by both the REST handler above
+    and the MCP `threat_report` wrapper (mcp_server.py). Centralizing here means
+    one rate-limit consume per call: REST gate when invoked via HTTP, MCP gate
+    via `_TOOL_COST["threat_report"]` when invoked via tools/call. Raises
+    `HTTPException(400)` on validation failure; the MCP wrapper catches and
+    converts to `InvalidArgumentException` for the FastMCP error envelope. The
+    `tier` parameter gates the Pro-only AbuseIPDB + Shodan task creation; Free
+    tier returns `pro_only` stubs. `client_ip` is accepted for signature parity
+    with `_audit_domain_impl` but not currently consumed by the body (reserved
+    for future per-IP rate-limit / abuse logging).
+    """
     if not is_valid_ip(ip):
         raise HTTPException(
             status_code=400,
@@ -3197,7 +3242,7 @@ async def threat_report(
         )
 
     enrich_task = asyncio.create_task(ip_enrichment(ip))
-    if auth.tier == "pro":
+    if tier == "pro":
         abuse_task = asyncio.create_task(check_abuseipdb(ip))
         shodan_task = asyncio.create_task(check_shodan(ip))
     else:
@@ -3399,15 +3444,15 @@ async def threat_report(
                 "internetdb",
                 "tor",
                 "firehol",
-                *(("abuseipdb", "shodan") if auth.tier == "pro" else ()),
+                *(("abuseipdb", "shodan") if tier == "pro" else ()),
             ],
             sources_unavailable=[
-                *(["abuseipdb"] if auth.tier != "pro" else []),
-                *(["shodan"] if auth.tier != "pro" else []),
+                *(["abuseipdb"] if tier != "pro" else []),
+                *(["shodan"] if tier != "pro" else []),
                 *(["tor"] if tor_status != "ok" else []),
                 *(["firehol"] if firehol.get("status") == "unavailable" else []),
                 *(["asn"] if isinstance(asn_data, dict) and asn_data.get("error") == "lookup_failed" else []),
             ],
-            completeness="partial" if auth.tier != "pro" else "complete",
+            completeness="partial" if tier != "pro" else "complete",
         ),
     }

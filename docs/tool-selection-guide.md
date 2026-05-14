@@ -11,7 +11,7 @@ type unknown                       → ioc_lookup       (auto-detects IP/domain/
 type known: IP                     → threat_report    (IP-focused: AbuseIPDB+Shodan+ASN+FireHOL)
 type known: domain                 → threat_intel     (URLhaus single-source, fast)
 type known: hash                   → hash_lookup      (MalwareBazaar primary)
-need full posture (DNS+SSL+stack)  → audit_domain     (active scan, costs 4 credits)
+need full posture (DNS+SSL+stack)  → audit_domain     (active scan, costs 6 credits)
 need passive recon only            → domain_report    (DNS+WHOIS+SSL+threat status)
 ```
 
@@ -133,8 +133,9 @@ Use `exclude_id=` on search/reverse-lookup endpoints to skip the originating rec
 
 | Tool | Credit cost | Why |
 |---|---:|---|
-| `audit_domain` | 4 | recon + 3 active calls |
-| `threat_report` | 4 | IP + AbuseIPDB + Shodan + ASN |
+| `audit_domain` | 6 | v1.32.4 Plan A: DNS+WHOIS+SSL+CT+subdom+headers+tech+email+cache (9-11 sources) |
+| `threat_report` | 6 | v1.32.4 Plan A: IP enrich+AbuseIPDB+Shodan+ASN+Tor+cloud+FireHOL+CVE (8 sources) |
+| `domain_vulns` | 4 | v1.32.4 Plan A: tech_fingerprint + bulk_cve per product |
 | `brand_assets`, `seo_audit` | 2 | homepage fetch + robots.txt fetch + parse |
 | Most catalog lookups (`cve_lookup`, `cwe_lookup`, `kev_detail`, ATLAS, D3FEND) | 1 | DB read |
 | Web-intel singles (`robots_txt`, `redirect_chain`, `email_verify`) | 1 | one fetch + parse |

@@ -536,32 +536,37 @@ def test_x_ratelimit_cost_default_one():
     assert r.headers.get("X-RateLimit-Cost") == "1"
 
 
-def test_x_ratelimit_cost_audit_four():
-    """audit_domain consumes COST_AUDIT=4 credits. Uses input that clean_domain reduces to empty → 400 fast."""
+def test_x_ratelimit_cost_audit_matches_constant():
+    """audit_domain consumes COST_AUDIT credits — header value tracks the
+    canonical config constant, not a hardcoded integer."""
+    from config import COST_AUDIT
+
     # clean_domain('...') strips trailing dots → "" → handler returns 400 immediately after authenticate().
     r = client.get("/v1/audit/...")
     assert r.status_code == 400
-    assert r.headers.get("X-RateLimit-Cost") == "4"
+    assert r.headers.get("X-RateLimit-Cost") == str(COST_AUDIT)
 
 
-def test_x_ratelimit_cost_threat_report_four():
-    """threat_report consumes COST_THREAT_REPORT=4 credits."""
+def test_x_ratelimit_cost_threat_report_matches_constant():
+    """threat_report consumes COST_THREAT_REPORT credits."""
+    from config import COST_THREAT_REPORT
+
     r = client.get("/v1/threat-report/8.8.8.8")
-    assert r.headers.get("X-RateLimit-Cost") == "4"
+    assert r.headers.get("X-RateLimit-Cost") == str(COST_THREAT_REPORT)
 
 
 def test_threat_report_cost_exhausts_free_limit():
-    """threat-report costs 4 credits; (FREE_HOURLY_LIMIT // 4) calls fit, next exhausts.
+    """threat-report costs COST_THREAT_REPORT credits; (FREE_HOURLY_LIMIT // cost) calls fit, next exhausts.
 
     Uses X-Forwarded-For to get a non-localhost IP so rate limiting actually enforces.
     Hits an invalid IP so authenticate() runs but the handler exits fast with 400.
     """
-    from config import FREE_HOURLY_LIMIT
+    from config import COST_THREAT_REPORT, FREE_HOURLY_LIMIT
     from ratelimit import reset
 
     reset("api")
     headers = {"X-Forwarded-For": "203.0.113.42"}
-    cost = 4
+    cost = COST_THREAT_REPORT
     max_calls = FREE_HOURLY_LIMIT // cost
     for i in range(max_calls):
         r = client.get("/v1/threat-report/not_an_ip", headers=headers)

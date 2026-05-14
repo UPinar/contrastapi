@@ -21,7 +21,17 @@ from datetime import UTC, datetime
 from typing import Any
 
 from auth import authenticate_sync as _mcp_authenticate
-from config import BASE_DIR, FREE_HOURLY_LIMIT, MCP_TOOL_COUNT, PRO_HOURLY_LIMIT, UPGRADE_URL, VERSION, settings
+from config import (
+    BASE_DIR,
+    COST_AUDIT,
+    COST_THREAT_REPORT,
+    FREE_HOURLY_LIMIT,
+    MCP_TOOL_COUNT,
+    PRO_HOURLY_LIMIT,
+    UPGRADE_URL,
+    VERSION,
+    settings,
+)
 from fastapi import FastAPI, HTTPException
 from starlette.requests import Request as _MCPStarletteRequest
 
@@ -38,7 +48,20 @@ _tools_list_result_bytes: "bytes | None" = None
 # inline pay a weighted credit cost so Free-tier users cannot draw N units
 # of upstream work while burning a single credit. Atomic tools (default)
 # are absent from the map and fall through to cost=1.
-_TOOL_COST: dict[str, int] = {}
+#
+# Tools listed here charge the MCP gate the mapped cost. For tools that
+# ALSO expose a REST endpoint, listing them here is SAFE ONLY when the MCP
+# wrapper calls the shared `_impl()` helper directly (Pattern B refactor)
+# instead of HTTP-hopping to REST via `_aget()`. A wrapper that still calls
+# `_aget()` MUST stay out of the map — otherwise the REST gate + MCP gate
+# both fire on a single call (double-charge).
+#
+# v1.32.4 Pattern B shipped: `audit_domain` (Batch 4) + `threat_report`
+# (Batch 5). `domain_vulns` still HTTP-hops via `_aget()` → stays out.
+_TOOL_COST: dict[str, int] = {
+    "audit_domain": COST_AUDIT,
+    "threat_report": COST_THREAT_REPORT,
+}
 
 
 def mcp_module() -> Any:
@@ -226,13 +249,18 @@ def _log_mcp_tool(name: str, params: "dict | None" = None) -> None:
 class _MCPIPForwardMiddleware:
     """ASGI wrapper around the MCP Starlette app: rate-limit gate + IP forwarding."""
 
-    def __init__(self, asgi_app, client_ip_var, safe_ip_fn):
+    def __init__(self, asgi_app, client_ip_var, safe_ip_fn, user_tier_var):
         self.app = asgi_app
         self._client_ip_var = client_ip_var
         self._safe_ip = safe_ip_fn
+        self._user_tier_var = user_tier_var
 
     async def __call__(self, scope, receive, send):
         if scope["type"] == "http":
+            # Pattern B token: captured only when the tools/call gate succeeds
+            # below; reset in the finally block alongside _client_ip_var so the
+            # tier value cannot bleed past the request scope.
+            _tier_token = None
             raw_headers = scope.get("headers", [])
             headers_map = dict(raw_headers)
             # Priority: CF-Connecting-IP (Cloudflare) > X-Real-IP (nginx) > XFF
@@ -444,6 +472,15 @@ class _MCPIPForwardMiddleware:
                         _cost = 1
                     try:
                         _mcp_authenticate(_gate_req, "/mcp/", cost=_cost)
+                        # Pattern B foundation: publish the resolved tier so MCP
+                        # tool wrappers (audit_domain, threat_report — Batches
+                        # 4-5) can gate Pro-only sub-calls without HTTP-hopping
+                        # back to require_auth. Token captured so the finally
+                        # block at the bottom of __call__ resets it — same
+                        # request-scoped lifecycle as _client_ip_var.
+                        _auth_resolved = getattr(_gate_req.state, "auth", None)
+                        if _auth_resolved is not None:
+                            _tier_token = self._user_tier_var.set(_auth_resolved.tier)
                     except HTTPException as _gate_exc:
                         _err_payload = {
                             "jsonrpc": "2.0",
@@ -500,6 +537,8 @@ class _MCPIPForwardMiddleware:
                 await self.app(scope, receive, send)
             finally:
                 self._client_ip_var.reset(token)
+                if _tier_token is not None:
+                    self._user_tier_var.reset(_tier_token)
         else:
             await self.app(scope, receive, send)
 
@@ -556,10 +595,11 @@ def init_mcp(app: FastAPI) -> None:
         _mcp_mod = mod
         instance = mod.mcp
         client_ip_var = mod._client_ip_var
+        user_tier_var = mod._user_tier_var
         safe_ip = mod._safe_ip
         starlette_app = instance.streamable_http_app()
         session_mgr = instance.session_manager
         _sterilize_fastmcp_tool_errors()
-        app.mount("/mcp", _MCPIPForwardMiddleware(starlette_app, client_ip_var, safe_ip))
+        app.mount("/mcp", _MCPIPForwardMiddleware(starlette_app, client_ip_var, safe_ip, user_tier_var))
     except ImportError:
         logger.warning("MCP server not available (mcp package not installed)")

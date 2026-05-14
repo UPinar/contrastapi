@@ -12,12 +12,12 @@ from pathlib import Path
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-VERSION = "1.32.3"
+VERSION = "1.32.4"
 MCP_TOOL_COUNT = 52  # v1.32.0: +email_security_posture +sigma_rule_lookup +bulk_sigma_rule_lookup
 MCP_RESOURCE_COUNT = 7  # v1.23.0: atlas+d3fend+cwe (4 templates + 3 catalogs)
 MCP_PROMPT_COUNT = 3  # v1.23.0: security_audit, vulnerability_check, contrast_triage
 ENDPOINT_COUNT = "60+"
-TEST_COUNT = 2384
+TEST_COUNT = 2399
 # Catalog row counts surfaced on landing/playground. Bump after `python -m cve.sync
 # --source atlas` (ATLAS upstream cadence ~6 months) or `--source d3fend` (yearly).
 ATLAS_TECHNIQUE_COUNT = 167
@@ -151,9 +151,19 @@ BRAND_ASSETS_CACHE_TTL = 3600  # 1h via DOMAIN_CACHE_TTL pathway
 # Endpoint credit costs — based on upstream API calls per request.
 # Default is 1 (single upstream). Orchestration endpoints cost more because
 # they aggregate multiple sources. Transparent pricing, surfaced via X-RateLimit-Cost header.
+#
+# v1.32.4 Plan A (2026-05-14) raised composite costs to align Free 30/hr with
+# the "2 guaranteed premium / 3 mid / 5 light composite calls per hour" target.
+# Breaking change from v1.32.3: audit + threat + domain_vulns. See research.md.
 COST_DEFAULT = 1
-COST_AUDIT = 4  # domain_report + live_headers + tech_detect + cache layer
-COST_THREAT_REPORT = 4  # ip_enrichment + abuseipdb + shodan + asn
+COST_AUDIT = 6  # v1.32.4 4->6 — DNS+WHOIS+SSL+CT+subdom+headers+tech+email+cache (9-11 sources)
+COST_THREAT_REPORT = 6  # v1.32.4 4->6 — IP enrich+AbuseIPDB+Shodan+ASN+Tor+cloud+FireHOL+CVE (8 sources)
+COST_DOMAIN_VULNS = 4  # v1.32.4 NEW (was implicit cost=1) — tech_fingerprint + bulk CVE per product
+COST_TECH_CVE_AUDIT = 10  # v1.32.4 NEW — tech_fingerprint + bulk_cve + exploit_lookup + kev_detail
+COST_GENERATE_RISK_REPORT = 15  # v1.32.4 NEW — N CVE risk-score + markdown (Pro upsell anchor)
+COST_CVE_TIMELINE = 6  # v1.32.4 NEW — KEV + EPSS + PoC count + vendor advisory feeds
+COST_PRIORITIZE_CVES = 10  # v1.32.4 NEW — bulk_cve + per-item calculate_risk_score
+COST_TRENDING_CVES = 5  # v1.32.4 NEW — EPSS feed + cve_search (marketing/SEO funnel)
 
 # API key
 KEY_PREFIX = "cc_"

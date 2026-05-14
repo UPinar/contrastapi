@@ -8,6 +8,8 @@ from typing import Annotated
 
 from auth import AuthCtx, require_auth
 from config import (
+    COST_AUDIT,
+    COST_THREAT_REPORT,
     FREE_HOURLY_LIMIT,
     MCP_TOOL_COUNT,
     PRO_HOURLY_LIMIT,
@@ -285,7 +287,7 @@ def api_capabilities():
                         "name": "audit_domain",
                         "method": "GET",
                         "path": "/v1/audit/{domain}",
-                        "credit_cost": 4,
+                        "credit_cost": COST_AUDIT,
                         "blast_radius": "high",
                         "description": "Orchestrated domain audit: full report + tech fingerprint + live HTTP headers in one call",
                         "response_keys": ["domain", "report", "technologies", "live_headers", "summary"],
@@ -294,7 +296,7 @@ def api_capabilities():
                         "name": "threat_report",
                         "method": "GET",
                         "path": "/v1/threat-report/{ip}",
-                        "credit_cost": 4,
+                        "credit_cost": COST_THREAT_REPORT,
                         "blast_radius": "low",
                         "description": "Orchestrated IP threat report: Shodan + AbuseIPDB + ASN. No private IPs.",
                         "response_keys": ["ip", "enrichment", "abuseipdb", "shodan", "asn", "threat_level", "summary"],

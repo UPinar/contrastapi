@@ -331,13 +331,22 @@ def test_mcp_pro_key_higher_limit(mcp_client):
 
 
 def test_mcp_tool_cost_map_attribute_exists():
-    """_TOOL_COST must be a module-level dict on mcp_proxy so later batches
-    can register composite tools by name. Empty default in v1.32.4 Batch 1."""
+    """_TOOL_COST is the module-level cost map consumed by the /mcp/ gate.
+    Tools listed here must use Pattern B (call shared `_impl()` directly, no
+    HTTP hop via `_aget()`). A wrapper still using `_aget()` MUST stay out —
+    otherwise both REST and MCP gates fire on a single call (double-charge).
+    v1.32.4 Batch 4: `audit_domain` switched to Pattern B, listed here.
+    v1.32.4 Batch 5: `threat_report` switched to Pattern B, listed here.
+    `domain_vulns` stays out — still HTTP-hops via `_aget()`."""
     from core import mcp_proxy
 
     assert hasattr(mcp_proxy, "_TOOL_COST"), "mcp_proxy must expose _TOOL_COST dict"
     assert isinstance(mcp_proxy._TOOL_COST, dict)
-    assert mcp_proxy._TOOL_COST == {}, "Batch 1 ships _TOOL_COST empty"
+    # audit_domain + threat_report: Pattern B shipped — must be in the map.
+    assert "audit_domain" in mcp_proxy._TOOL_COST
+    assert "threat_report" in mcp_proxy._TOOL_COST
+    # domain_vulns: still uses _aget() — must NOT appear (would double-charge).
+    assert "domain_vulns" not in mcp_proxy._TOOL_COST
 
 
 def test_mcp_unknown_tool_defaults_to_cost_1(mcp_client):
@@ -423,3 +432,270 @@ def test_mcp_malformed_tool_name_falls_back_to_cost_1(mcp_client, monkeypatch):
             f"malformed name {payload['params']['name']!r} must not trigger cost=5 lookup; "
             f"got {_free_bucket_count()} credits consumed"
         )
+
+
+def test_cost_constants_match_plan_a_values():
+    """Plan A pricing (2026-05-14, breaking change in v1.32.4): audit + threat
+    + domain_vulns raised; new composite constants added. This test pins the
+    exact integers so a silent regression (someone tweaks COST_AUDIT back to
+    4) gets caught — pricing decisions live in research.md / release notes."""
+    from config import (
+        COST_AUDIT,
+        COST_CVE_TIMELINE,
+        COST_DEFAULT,
+        COST_DOMAIN_VULNS,
+        COST_GENERATE_RISK_REPORT,
+        COST_PRIORITIZE_CVES,
+        COST_TECH_CVE_AUDIT,
+        COST_THREAT_REPORT,
+        COST_TRENDING_CVES,
+    )
+
+    assert COST_DEFAULT == 1
+    assert COST_AUDIT == 6, "Plan A: 4 -> 6 (breaking)"
+    assert COST_THREAT_REPORT == 6, "Plan A: 4 -> 6 (breaking)"
+    assert COST_DOMAIN_VULNS == 4, "Plan A: 1 -> 4 (composite re-pricing)"
+    assert COST_TECH_CVE_AUDIT == 10, "Plan A: red team flagship"
+    assert COST_GENERATE_RISK_REPORT == 15, "Plan A: Pro anchor, 2 calls/hr Free"
+    assert COST_CVE_TIMELINE == 6
+    assert COST_PRIORITIZE_CVES == 10
+    assert COST_TRENDING_CVES == 5
+
+
+def test_mcp_audit_domain_mcp_gate_consumes_six_after_pattern_b(mcp_client):
+    """v1.32.4 Batch 4 Pattern B inversion: the MCP audit_domain wrapper now calls
+    `_audit_domain_impl()` directly (no HTTP hop to /v1/audit/{domain}), so the
+    REST gate is bypassed for MCP traffic. The MCP gate MUST therefore charge
+    COST_AUDIT (6) via `_TOOL_COST["audit_domain"]` so the credit price matches
+    the REST endpoint's. Replaces the pre-Batch-4 guard that asserted the OPPOSITE
+    (`audit_domain` NOT in `_TOOL_COST`) — that contract was valid only while the
+    wrapper still HTTP-hopped via `_aget()` and double-charging was the risk."""
+    from config import COST_AUDIT
+    from core import mcp_proxy
+
+    assert mcp_proxy._TOOL_COST.get("audit_domain") == COST_AUDIT, (
+        f"audit_domain must consume COST_AUDIT={COST_AUDIT} via the MCP gate post-Pattern-B; "
+        f"got {mcp_proxy._TOOL_COST.get('audit_domain')!r}"
+    )
+
+
+def test_mcp_threat_report_mcp_gate_consumes_six_after_pattern_b(mcp_client):
+    """v1.32.4 Batch 5/5 Pattern B inversion: the MCP threat_report wrapper now
+    calls `_threat_report_impl()` directly (no HTTP hop to /v1/threat-report/{ip}),
+    so the REST gate is bypassed for MCP traffic. The MCP gate MUST charge
+    COST_THREAT_REPORT (6) via `_TOOL_COST["threat_report"]` so the credit price
+    matches the REST endpoint's. Mirrors the audit_domain (Batch 4) guard."""
+    from config import COST_THREAT_REPORT
+    from core import mcp_proxy
+
+    assert mcp_proxy._TOOL_COST.get("threat_report") == COST_THREAT_REPORT, (
+        f"threat_report must consume COST_THREAT_REPORT={COST_THREAT_REPORT} via the MCP gate "
+        f"post-Pattern-B; got {mcp_proxy._TOOL_COST.get('threat_report')!r}"
+    )
+
+
+def test_threat_report_impl_callable_directly():
+    """Pattern B contract: `_threat_report_impl(ip, *, tier, client_ip)` MUST be
+    importable from `app.domain.routes` and accept the three keyword arguments
+    the MCP wrapper passes. Pure import-shape guard — does not invoke the function
+    (would hit real DNS/AbuseIPDB/Shodan). Parity with the Batch 4 audit_domain
+    shape test."""
+    import inspect
+
+    from app.domain.routes import _threat_report_impl
+
+    sig = inspect.signature(_threat_report_impl)
+    params = sig.parameters
+    assert "ip" in params, "first positional must be `ip`"
+    for kw in ("tier", "client_ip"):
+        assert kw in params, f"_threat_report_impl must accept `{kw}` kwarg; missing"
+    assert inspect.iscoroutinefunction(_threat_report_impl), "_threat_report_impl must be async"
+
+
+def test_mcp_threat_report_wrapper_does_not_call_aget(mcp_client, monkeypatch):
+    """Pattern B behavior: MCP threat_report MUST call `_threat_report_impl` and
+    MUST NOT call `_aget("/v1/threat-report/...")`. Spy on both: assert _impl was
+    called, assert _aget was NOT called with a threat-report path. Guards against
+    accidental regression where someone re-introduces the HTTP hop and reactivates
+    the double-charge risk."""
+    from core import mcp_proxy
+
+    _reset_free_bucket()
+
+    mod = mcp_proxy._mcp_mod
+    from app.domain import routes as _routes
+
+    impl_calls: list[dict] = []
+    aget_threat_calls: list[str] = []
+
+    async def _spy_impl(ip, *, tier="pro", client_ip=""):
+        impl_calls.append({"ip": ip, "tier": tier})
+        return {
+            "ip": ip,
+            "ptr": None,
+            "asn_name": None,
+            "country": None,
+            "cloud_provider": None,
+            "is_datacenter": False,
+            "tor_exit": False,
+            "firehol": None,
+            "risk_score": 0,
+            "severity_label": "low",
+            "enrichment": {"ports": [], "hostnames": [], "vulns": [], "cpes": [], "tags": []},
+            "abuseipdb": {"status": "error"},
+            "shodan": {"status": "error"},
+            "asn": {},
+            "threat_level": "none",
+            "summary": "threat ok",
+        }
+
+    real_aget = mod._aget
+
+    async def _spy_aget(path, params=None):
+        if path.startswith("/v1/threat-report/"):
+            aget_threat_calls.append(path)
+        return await real_aget(path, params=params)
+
+    monkeypatch.setattr(_routes, "_threat_report_impl", _spy_impl)
+    monkeypatch.setattr(mod, "_aget", _spy_aget)
+
+    r = mcp_client.post(
+        "/mcp/",
+        headers=MCP_HEADERS,
+        json={
+            "jsonrpc": "2.0",
+            "id": 301,
+            "method": "tools/call",
+            "params": {"name": "threat_report", "arguments": {"ip": "8.8.8.8"}},
+        },
+    )
+
+    assert r.status_code == 200, r.text
+    assert len(impl_calls) == 1, f"_threat_report_impl must be called exactly once; got {len(impl_calls)}"
+    assert impl_calls[0]["ip"] == "8.8.8.8"
+    assert aget_threat_calls == [], (
+        f"MCP threat_report wrapper must not HTTP-hop to /v1/threat-report/...; got {aget_threat_calls}"
+    )
+
+
+def test_audit_domain_impl_callable_directly():
+    """Pattern B contract: `_audit_domain_impl(domain, *, include_all_txt, tier,
+    client_ip)` MUST be importable from `app.domain.routes` and accept the four
+    keyword arguments the MCP wrapper passes. Pure import-shape guard — does not
+    invoke the function (would hit real DNS/HTTP). Batch 5/5 adds the analogous
+    `_threat_report_impl` shape test."""
+    import inspect
+
+    from app.domain.routes import _audit_domain_impl
+
+    sig = inspect.signature(_audit_domain_impl)
+    params = sig.parameters
+    assert "domain" in params, "first positional must be `domain`"
+    for kw in ("include_all_txt", "tier", "client_ip"):
+        assert kw in params, f"_audit_domain_impl must accept `{kw}` kwarg; missing"
+    # Async coroutine — REST handler awaits it, MCP wrapper awaits it.
+    assert inspect.iscoroutinefunction(_audit_domain_impl), "_audit_domain_impl must be async"
+
+
+def test_mcp_audit_domain_wrapper_does_not_call_aget(mcp_client, monkeypatch):
+    """Pattern B behavior: MCP audit_domain MUST call `_audit_domain_impl` and
+    MUST NOT call `_aget("/v1/audit/...")`. Spy on both: assert _impl was called,
+    assert _aget was NOT called with an audit path. Guards against accidental
+    regression where someone re-introduces the HTTP hop and reactivates the
+    double-charge risk."""
+    from core import mcp_proxy
+
+    _reset_free_bucket()
+
+    mod = mcp_proxy._mcp_mod
+    from app.domain import routes as _routes
+
+    impl_calls: list[dict] = []
+    aget_audit_calls: list[str] = []
+
+    async def _spy_impl(domain, *, include_all_txt=False, tier="pro", client_ip=""):
+        impl_calls.append({"domain": domain, "tier": tier, "include_all_txt": include_all_txt})
+        return {
+            "domain": domain,
+            "report": {},
+            "technologies": {"technologies": [], "categories": {}, "count": 0, "summary": ""},
+            "live_headers": {},
+            "summary": "audit ok",
+            "next_calls": None,
+        }
+
+    real_aget = mod._aget
+
+    async def _spy_aget(path, params=None):
+        if path.startswith("/v1/audit/"):
+            aget_audit_calls.append(path)
+        return await real_aget(path, params=params)
+
+    monkeypatch.setattr(_routes, "_audit_domain_impl", _spy_impl)
+    monkeypatch.setattr(mod, "_aget", _spy_aget)
+
+    r = mcp_client.post(
+        "/mcp/",
+        headers=MCP_HEADERS,
+        json={
+            "jsonrpc": "2.0",
+            "id": 300,
+            "method": "tools/call",
+            "params": {"name": "audit_domain", "arguments": {"domain": "example.com"}},
+        },
+    )
+
+    assert r.status_code == 200, r.text
+    assert len(impl_calls) == 1, f"_audit_domain_impl must be called exactly once; got {len(impl_calls)}"
+    assert impl_calls[0]["domain"] == "example.com"
+    assert aget_audit_calls == [], (
+        f"MCP audit_domain wrapper must not HTTP-hop to /v1/audit/...; got {aget_audit_calls}"
+    )
+
+
+def test_mcp_user_tier_var_module_attribute_exists():
+    """Pattern B foundation: mcp_server must expose a `_user_tier_var` ContextVar
+    so the gate can propagate the caller's tier into MCP tool functions. Used by
+    Batches 4/5 (audit_domain / threat_report Pattern B refactor) to gate Pro-only
+    features inside `_impl()` helpers without an HTTP round-trip to the REST layer."""
+    import contextvars
+
+    import mcp_server
+
+    assert hasattr(mcp_server, "_user_tier_var"), "mcp_server must expose _user_tier_var ContextVar"
+    assert isinstance(mcp_server._user_tier_var, contextvars.ContextVar)
+    # Default must be safe — "pro" so an unauthenticated MCP call (e.g. CLI/local
+    # dev) does not silently degrade to Free-tier feature gating.
+    assert mcp_server._user_tier_var.get() == "pro"
+
+
+def test_mcp_get_user_tier_helper_exists():
+    """Pattern B helper: `_get_user_tier()` reads the ContextVar with a safe
+    fallback. MCP wrappers call this instead of touching the ContextVar directly,
+    so future logic (e.g. tier inference from API key prefix) lives in one place."""
+    import mcp_server
+
+    assert hasattr(mcp_server, "_get_user_tier")
+    # Default-context call must return "pro" (sane default).
+    assert mcp_server._get_user_tier() == "pro"
+
+
+def test_mcp_gate_publishes_tier_into_contextvar():
+    from pathlib import Path
+
+    proxy_src = Path(__file__).resolve().parent.parent / "core" / "mcp_proxy.py"
+    content = proxy_src.read_text()
+    assert "self._user_tier_var.set(" in content
+    auth_idx = content.find("_mcp_authenticate(_gate_req")
+    set_idx = content.find("self._user_tier_var.set(")
+    assert set_idx > auth_idx > 0
+    # v1.32.4 Batch 4 hardening: the token returned by .set() MUST be captured
+    # and reset in a finally block so the tier cannot bleed past the request
+    # scope (matches the _client_ip_var lifecycle below it in the middleware).
+    # Guards against the asymmetry caught in the Batch 4 security review.
+    assert "_tier_token = self._user_tier_var.set(" in content, (
+        "tier ContextVar set must capture the token for request-scoped reset"
+    )
+    assert "self._user_tier_var.reset(_tier_token)" in content, (
+        "tier ContextVar must be reset in finally to prevent cross-request leakage"
+    )

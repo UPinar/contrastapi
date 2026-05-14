@@ -257,14 +257,21 @@ def test_mcp_tool_call_nonexistent_tool(mcp_client):
 
 
 def test_mcp_tool_call_audit_domain(mcp_client, monkeypatch):
-    from core import mcp_proxy
+    # v1.32.4 Batch 4 Pattern B: MCP wrapper now calls `_audit_domain_impl`
+    # directly. Patch the impl in `app.domain.routes` instead of `_aget`.
+    from app.domain import routes as _routes
 
-    mod = mcp_proxy._mcp_mod
+    async def mock_impl(domain, *, include_all_txt=False, tier="pro", client_ip=""):
+        return {
+            "domain": domain,
+            "report": None,
+            "technologies": {"technologies": [], "categories": {}, "count": 0, "summary": ""},
+            "live_headers": {},
+            "summary": "audit ok",
+            "next_calls": None,
+        }
 
-    async def mock_aget(path, params=None):
-        return {"domain": "example.com", "summary": "audit ok"}
-
-    monkeypatch.setattr(mod, "_aget", mock_aget)
+    monkeypatch.setattr(_routes, "_audit_domain_impl", mock_impl)
     r = mcp_client.post(
         "/mcp/",
         headers=MCP_HEADERS,
@@ -300,14 +307,31 @@ def test_mcp_tool_call_audit_domain_invalid(mcp_client):
 
 
 def test_mcp_tool_call_threat_report(mcp_client, monkeypatch):
-    from core import mcp_proxy
+    # v1.32.4 Batch 5 Pattern B: MCP wrapper now calls `_threat_report_impl`
+    # directly. Patch the impl in `app.domain.routes` instead of `_aget`.
+    from app.domain import routes as _routes
 
-    mod = mcp_proxy._mcp_mod
+    async def mock_impl(ip, *, tier="pro", client_ip=""):
+        return {
+            "ip": ip,
+            "ptr": None,
+            "asn_name": None,
+            "country": None,
+            "cloud_provider": None,
+            "is_datacenter": False,
+            "tor_exit": False,
+            "firehol": None,
+            "risk_score": 0,
+            "severity_label": "low",
+            "enrichment": {"ports": [], "hostnames": [], "vulns": [], "cpes": [], "tags": []},
+            "abuseipdb": {"status": "error"},
+            "shodan": {"status": "error"},
+            "asn": {},
+            "threat_level": "none",
+            "summary": "threat ok",
+        }
 
-    async def mock_aget(path, params=None):
-        return {"ip": "8.8.8.8", "summary": "threat ok"}
-
-    monkeypatch.setattr(mod, "_aget", mock_aget)
+    monkeypatch.setattr(_routes, "_threat_report_impl", mock_impl)
     r = mcp_client.post(
         "/mcp/",
         headers=MCP_HEADERS,

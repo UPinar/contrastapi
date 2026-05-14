@@ -48,6 +48,7 @@ for _p in (_REPO_ROOT, _APP_DIR):
         sys.path.insert(0, _p)
 
 import httpx  # noqa: E402  (must follow sys.path patch above)
+from fastapi import HTTPException  # noqa: E402
 from mcp.server.fastmcp import FastMCP  # noqa: E402
 from mcp.server.fastmcp.exceptions import ToolError  # noqa: E402
 from mcp.server.transport_security import TransportSecuritySettings  # noqa: E402
@@ -159,6 +160,25 @@ logger = logging.getLogger("contrastapi.mcp")
 # Carries the real client IP from MCP HTTP handler to internal API calls,
 # so backend rate limiting sees the original IP instead of localhost.
 _client_ip_var: contextvars.ContextVar[str] = contextvars.ContextVar("mcp_client_ip", default="")
+
+# v1.32.4 Pattern B foundation: carries the caller's tier ("free" | "pro" | "test")
+# from the MCP gate into MCP tool functions. Used by `_audit_domain_impl()` and
+# `_threat_report_impl()` (Batches 4-5) so they can gate Pro-only sub-calls
+# (AbuseIPDB, Shodan) without an HTTP round-trip back to the REST `require_auth`
+# layer. Default "pro" so direct stdio / local-CLI invocations get full access.
+_user_tier_var: contextvars.ContextVar[str] = contextvars.ContextVar("mcp_user_tier", default="pro")
+
+
+def _get_user_tier() -> str:
+    """Read the caller's tier from the MCP gate's ContextVar.
+
+    Returns "pro" as a safe default when no gate has run (direct stdio calls,
+    unit tests). MCP tool wrappers should call this instead of touching
+    `_user_tier_var` directly so future logic (e.g. tier inference from key
+    metadata) lives in one place.
+    """
+    return _user_tier_var.get()
+
 
 mcp = FastMCP(
     "contrastapi",
@@ -637,9 +657,32 @@ async def audit_domain(
         ),
     ] = False,
 ) -> AuditResponse | ErrorResponse:
-    """Perform comprehensive domain audit: combines domain_report + live HTTP security headers + technology fingerprinting. By default report.dns.txt is filtered to security-relevant entries (SPF, DMARC, DKIM, MTA-STS, TLS-RPT) and report.dns.total_txt_records reports the honest pre-filter count; pass include_all_txt=true for the raw TXT list. Use when you need the full picture (recon + active checks); use domain_report for passive-only assessment. Response carries next_calls — chain with subdomain_enum (always emitted) and ssl_check (when an A record resolves) for the residual recon depth (tech_fingerprint already inline as `technologies`). Free: 30/hr (costs 4 credits), Pro: 500/hr. Returns {domain, report, technologies, live_headers, summary, next_calls}."""
-    params = {"include_all_txt": "true"} if include_all_txt else None
-    return AuditResponse(**await _aget(f"/v1/audit/{_require_domain(domain)}", params=params))
+    """Perform comprehensive domain audit: combines domain_report + live HTTP security headers + technology fingerprinting. By default report.dns.txt is filtered to security-relevant entries (SPF, DMARC, DKIM, MTA-STS, TLS-RPT) and report.dns.total_txt_records reports the honest pre-filter count; pass include_all_txt=true for the raw TXT list. Use when you need the full picture (recon + active checks); use domain_report for passive-only assessment. Response carries next_calls — chain with subdomain_enum (always emitted) and ssl_check (when an A record resolves) for the residual recon depth (tech_fingerprint already inline as `technologies`). Free: 30/hr (costs 6 credits), Pro: 500/hr. Returns {domain, report, technologies, live_headers, summary, next_calls}."""
+    # v1.32.4 Pattern B: call the shared internal helper directly instead of
+    # HTTP-hopping to /v1/audit/{domain} via _aget(). The MCP gate already
+    # charged COST_AUDIT via _TOOL_COST["audit_domain"]; a REST round-trip
+    # would double-charge and add ~50ms loopback latency.
+    from app.domain.routes import _audit_domain_impl
+
+    try:
+        result = await _audit_domain_impl(
+            _require_domain(domain),
+            include_all_txt=include_all_txt,
+            tier=_get_user_tier(),
+            client_ip=_safe_ip(_client_ip_var.get()),
+        )
+    except HTTPException as e:
+        # _audit_domain_impl raises FastAPI HTTPException for validation /
+        # timeout / upstream failure (REST contract). @mcp_tool_safe only
+        # catches AppException, so convert here: 400/422 → invalid_argument,
+        # 504 → upstream_timeout, anything else → upstream_error.
+        detail = e.detail if isinstance(e.detail, str) else "Audit failed"
+        if e.status_code in (400, 422):
+            raise InvalidArgumentException(detail) from None
+        if e.status_code == 504:
+            raise UpstreamTimeoutException(detail) from None
+        raise UpstreamErrorException(detail) from None
+    return AuditResponse(**result)
 
 
 @mcp_tool_safe(annotations=_RO_OPEN_WORLD)
@@ -651,8 +694,34 @@ async def threat_report(
         ),
     ],
 ) -> ThreatReportResponse | ErrorResponse:
-    """Query comprehensive threat profile for an IP: Shodan host data, AbuseIPDB reputation, ASN/geolocation, and open ports. Use for IP investigation and SOC alert triage; for domain data use domain_report. Note: nested asn block always returns at most 50 IPv4/IPv6 prefixes — call asn_lookup with include_full_prefixes=True for the full announced-prefixes list. enrichment.vulns is severity-aware list[VulnInfo] (cve_id + severity + cvss_v3) — Phase 2 v1.16.0 BREAKING; pre-1.16 it was list[str] of CVE IDs. Free: 30/hr (costs 4 credits), Pro: 500/hr. Returns {ip, enrichment, abuseipdb, shodan, asn, threat_level}."""
-    return ThreatReportResponse(**await _aget(f"/v1/threat-report/{_require_public_ip(ip)}"))
+    """Query comprehensive threat profile for an IP: Shodan host data, AbuseIPDB reputation, ASN/geolocation, and open ports. Use for IP investigation and SOC alert triage; for domain data use domain_report. Note: nested asn block always returns at most 50 IPv4/IPv6 prefixes — call asn_lookup with include_full_prefixes=True for the full announced-prefixes list. enrichment.vulns is severity-aware list[VulnInfo] (cve_id + severity + cvss_v3) — Phase 2 v1.16.0 BREAKING; pre-1.16 it was list[str] of CVE IDs. Free: 30/hr (costs 6 credits), Pro: 500/hr. Returns {ip, enrichment, abuseipdb, shodan, asn, threat_level}."""
+    # v1.32.4 Pattern B: call the shared internal helper directly instead of
+    # HTTP-hopping to /v1/threat-report/{ip} via _aget(). The MCP gate already
+    # charged COST_THREAT_REPORT via _TOOL_COST["threat_report"]; a REST round
+    # trip would double-charge and add ~50ms loopback latency. Tier comes from
+    # the ContextVar published by the MCP gate after authentication so Pro-only
+    # AbuseIPDB/Shodan tasks fire for Pro callers and Free callers get the
+    # pro_only stubs (parity with the REST handler's auth.tier branching).
+    from app.domain.routes import _threat_report_impl
+
+    try:
+        result = await _threat_report_impl(
+            _require_public_ip(ip),
+            tier=_get_user_tier(),
+            client_ip=_safe_ip(_client_ip_var.get()),
+        )
+    except HTTPException as e:
+        # _threat_report_impl raises FastAPI HTTPException for validation
+        # (invalid IP, private IP). @mcp_tool_safe only catches AppException,
+        # so convert here: 400/422 → invalid_argument, 504 → upstream_timeout,
+        # anything else → upstream_error.
+        detail = e.detail if isinstance(e.detail, str) else "Threat report failed"
+        if e.status_code in (400, 422):
+            raise InvalidArgumentException(detail) from None
+        if e.status_code == 504:
+            raise UpstreamTimeoutException(detail) from None
+        raise UpstreamErrorException(detail) from None
+    return ThreatReportResponse(**result)
 
 
 @mcp_tool_safe(annotations=_RO_OPEN_WORLD)
