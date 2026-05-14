@@ -321,3 +321,105 @@ def test_mcp_pro_key_higher_limit(mcp_client):
             break
     assert 429 not in statuses
     assert 200 in statuses
+
+
+# v1.32.4 variable-cost infrastructure — composite tools (added in later
+# batches) consume more than one credit per call. The map ships empty in
+# this batch; tests below monkeypatch a known-good atomic tool into the
+# map to exercise the lookup path without depending on a composite tool
+# being registered yet.
+
+
+def test_mcp_tool_cost_map_attribute_exists():
+    """_TOOL_COST must be a module-level dict on mcp_proxy so later batches
+    can register composite tools by name. Empty default in v1.32.4 Batch 1."""
+    from core import mcp_proxy
+
+    assert hasattr(mcp_proxy, "_TOOL_COST"), "mcp_proxy must expose _TOOL_COST dict"
+    assert isinstance(mcp_proxy._TOOL_COST, dict)
+    assert mcp_proxy._TOOL_COST == {}, "Batch 1 ships _TOOL_COST empty"
+
+
+def test_mcp_unknown_tool_defaults_to_cost_1(mcp_client):
+    """Tools not in _TOOL_COST keep the existing cost=1 behavior — the 52
+    atomic tools shipping in v1.32.3 must not regress."""
+    _reset_free_bucket()
+
+    r = mcp_client.post("/mcp/", headers=MCP_HEADERS, json=TOOL_CALL_PAYLOAD)
+    assert r.status_code == 200
+    assert _free_bucket_count() == 1, "atomic tool call should consume exactly 1 credit"
+
+
+def test_mcp_mapped_tool_consumes_mapped_cost(mcp_client, monkeypatch):
+    """When a tool name appears in _TOOL_COST, the gate must withdraw that
+    many credits in a single tools/call. Uses cve_lookup (real registered
+    tool) monkeypatched to cost=5 — proves the lookup path works end-to-end
+    before composite tools land in Batches 2 and 3."""
+    from core import mcp_proxy
+
+    _reset_free_bucket()
+    monkeypatch.setitem(mcp_proxy._TOOL_COST, "cve_lookup", 5)
+
+    r = mcp_client.post("/mcp/", headers=MCP_HEADERS, json=TOOL_CALL_PAYLOAD)
+    assert r.status_code == 200
+    assert _free_bucket_count() == 5, "single tools/call on a cost-5 tool must consume 5 credits"
+
+
+def test_mcp_mapped_tool_429_after_fewer_calls(mcp_client, monkeypatch):
+    """A cost=N tool exhausts the Free FREE_HOURLY_LIMIT bucket in
+    floor(FREE_HOURLY_LIMIT/N) calls instead of FREE_HOURLY_LIMIT — the
+    gate refuses the next call when current_consumed + N would exceed the
+    cap. This is the revenue mechanism: composite tools accelerate the
+    Free → Pro conversion funnel."""
+    from config import FREE_HOURLY_LIMIT
+    from core import mcp_proxy
+
+    _reset_free_bucket()
+    monkeypatch.setitem(mcp_proxy._TOOL_COST, "cve_lookup", 5)
+
+    statuses = []
+    for _ in range((FREE_HOURLY_LIMIT // 5) + 2):
+        r = mcp_client.post("/mcp/", headers=MCP_HEADERS, json=TOOL_CALL_PAYLOAD)
+        statuses.append(r.status_code)
+        if r.status_code == 429:
+            break
+
+    assert 429 in statuses, "must 429 after the cost-weighted bucket fills"
+    successful_calls = sum(1 for s in statuses if s == 200)
+    assert successful_calls <= FREE_HOURLY_LIMIT // 5, (
+        f"composite tool must not exceed {FREE_HOURLY_LIMIT // 5} successful calls on Free; got {successful_calls}"
+    )
+
+
+def test_mcp_malformed_tool_name_falls_back_to_cost_1(mcp_client, monkeypatch):
+    """A tools/call body with a name that violates the validator (oversize,
+    control chars, path traversal) must NOT match _TOOL_COST entries even if
+    monkeypatched — the gate rejects it at the validation layer and falls
+    back to cost=1. Closes the asymmetric-validation bypass where the gate
+    is permissive but FastMCP downstream is strict (CWE-20 / CWE-770)."""
+    from core import mcp_proxy
+
+    # Inject a high-cost entry, then attempt to reach it via malformed names.
+    monkeypatch.setitem(mcp_proxy._TOOL_COST, "cve_lookup", 5)
+
+    malformed_payloads = [
+        # Oversize name (>64 chars) — even if it could match a registered tool,
+        # the gate strips it for safety.
+        {"jsonrpc": "2.0", "id": 99, "method": "tools/call", "params": {"name": "a" * 100, "arguments": {}}},
+        # Path traversal — non-alphanumeric (slash/dot)
+        {"jsonrpc": "2.0", "id": 99, "method": "tools/call", "params": {"name": "../../etc/passwd", "arguments": {}}},
+        # Whitespace-only — truthy but isalnum() fails after replace("_","")
+        {"jsonrpc": "2.0", "id": 99, "method": "tools/call", "params": {"name": "   ", "arguments": {}}},
+        # Non-string type
+        {"jsonrpc": "2.0", "id": 99, "method": "tools/call", "params": {"name": ["cve_lookup"], "arguments": {}}},
+    ]
+
+    for payload in malformed_payloads:
+        _reset_free_bucket()
+        # The call itself likely 4xx/5xx from FastMCP (invalid tool name), but
+        # the gate decision happens first — verify cost-1 was withdrawn, not 5.
+        mcp_client.post("/mcp/", headers=MCP_HEADERS, json=payload)
+        assert _free_bucket_count() <= 1, (
+            f"malformed name {payload['params']['name']!r} must not trigger cost=5 lookup; "
+            f"got {_free_bucket_count()} credits consumed"
+        )

@@ -34,6 +34,11 @@ _mcp_mod: Any = None  # set by init_mcp; raw mcp_server module — read via mcp_
 # concatenated via byte template at request time; eliminates ~80-120ms of
 # FastMCP Pydantic→JSON serialization per Smithery probe.
 _tools_list_result_bytes: "bytes | None" = None
+# v1.32.4: Composite tools that invoke multiple internal sub-operations
+# inline pay a weighted credit cost so Free-tier users cannot draw N units
+# of upstream work while burning a single credit. Atomic tools (default)
+# are absent from the map and fall through to cost=1.
+_TOOL_COST: dict[str, int] = {}
 
 
 def mcp_module() -> Any:
@@ -418,8 +423,27 @@ class _MCPIPForwardMiddleware:
                         )
                 if _method == "tools/call":
                     _gate_req = _MCPStarletteRequest(scope)
+                    # Cost lookup with input validation mirroring _extract_tool_call
+                    # (line 185): bound length and alphanumeric+underscore only. An
+                    # oversized or whitespace/control-laden name from a crafted body
+                    # falls through to cost=1, but the downstream FastMCP dispatcher
+                    # rejects it anyway — never reaches a registered tool.
+                    _cost = 1
                     try:
-                        _mcp_authenticate(_gate_req, "/mcp/", cost=1)
+                        _params = _rpc.get("params") if isinstance(_rpc, dict) else None
+                        if isinstance(_params, dict):
+                            _maybe_name = _params.get("name")
+                            if (
+                                isinstance(_maybe_name, str)
+                                and _maybe_name
+                                and len(_maybe_name) <= 64
+                                and _maybe_name.replace("_", "").isalnum()
+                            ):
+                                _cost = _TOOL_COST.get(_maybe_name, 1)
+                    except (AttributeError, TypeError):
+                        _cost = 1
+                    try:
+                        _mcp_authenticate(_gate_req, "/mcp/", cost=_cost)
                     except HTTPException as _gate_exc:
                         _err_payload = {
                             "jsonrpc": "2.0",
