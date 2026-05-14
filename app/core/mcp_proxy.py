@@ -63,6 +63,17 @@ _TOOL_COST: dict[str, int] = {
     "threat_report": COST_THREAT_REPORT,
 }
 
+# v1.32.5 / v1.32.7: experimental probe methods the MCP SDK doesn't implement.
+# Smithery decays catalog score for every -32601/-32602 response — short-circuit
+# known-safe probes with an empty-array body keyed by the last URI segment.
+# Bytes literal (not dict) so the middleware can concat without JSON-encoding
+# per request. Add a new entry only after verifying the probe is safe and idem-
+# potent — anything that would normally do real work belongs in tools/call.
+_SMITHERY_PROBE_RESULT: dict[str, bytes] = {
+    "triggers/list": b'{"triggers":[]}',
+    "ai.smithery/events/list": b'{"events":[]}',
+}
+
 
 def mcp_module() -> Any:
     """Return the loaded MCP server module (raw mcp_server.py), or None if MCP failed to load."""
@@ -410,28 +421,6 @@ class _MCPIPForwardMiddleware:
                     await send({"type": "http.response.body", "body": _batch_err})
                     return
                 _method = _rpc.get("method") if isinstance(_rpc, dict) else None
-                # v1.32.6 TEMP DEBUG (REMOVE in v1.32.7): Smithery scoring
-                # diagnostic. The triggers/list fast-path shipped in v1.32.5
-                # is verified via curl, but Smithery's inspector still reports
-                # `-32602 Invalid request parameters`. Log the EXACT method +
-                # UA Smithery sends so we can tell whether they call a
-                # different method name, validate against schema without
-                # calling, or use a custom probe shape.
-                if isinstance(_method, str):
-                    _m_lower = _method.lower()
-                    _ua_dbg = ""
-                    for _k, _v in scope.get("headers", []):
-                        if _k == b"user-agent":
-                            _ua_dbg = _v.decode("latin-1", "replace")[:100]
-                            break
-                    if "trigger" in _m_lower or "smithery" in _ua_dbg.lower():
-                        logger.warning(
-                            "SMITHERY_PROBE method=%r id=%r ua=%r params=%r",
-                            _method,
-                            _rpc.get("id") if isinstance(_rpc, dict) else None,
-                            _ua_dbg,
-                            _rpc.get("params") if isinstance(_rpc, dict) else None,
-                        )
                 # Fast-path: tools/list is deterministic except for the JSON-RPC
                 # id field. Serve pre-serialized result bytes with the id spliced
                 # in at the byte level — sub-millisecond vs ~80-120ms FastMCP
@@ -471,28 +460,41 @@ class _MCPIPForwardMiddleware:
                             "tools/list fast-path failed (%s), falling through to slow path",
                             type(_fp_exc).__name__,
                         )
-                # v1.32.5: Smithery (and other catalog indexers) probe
-                # `triggers/list` as a health-check / scoring criterion. The
-                # method is a draft MCP spec extension that the SDK does not
-                # implement, so the FastMCP dispatcher returns -32601/-32602
-                # for every probe. Smithery treats those errors as a missing-
-                # feature penalty and decays our score under a rolling window
-                # (observed 99→85 over 4-5 days). We short-circuit here with
-                # an empty-array result — "supported, no triggers exposed" —
-                # which is forward-compatible with the eventual spec.
+                # v1.32.5 / v1.32.7: Smithery (and other catalog indexers)
+                # probe experimental method names that the MCP SDK does not
+                # implement. Without intervention FastMCP returns -32601/-32602
+                # for every probe and Smithery decays the server score under a
+                # rolling window (observed 99→85 over ~5 days). Short-circuit
+                # known-safe probes with an empty-array result keyed by the
+                # last URI segment ("supported, none exposed").
                 #
-                # TODO (post-spec): once `triggers/list` lands in the MCP spec
-                # and the SDK ships a real handler, REMOVE this fast-path or
-                # it will silently mask the real implementation forever.
+                # v1.32.7 diagnosis (S241 SMITHERY_PROBE debug log): Smithery's
+                # actual probe is `ai.smithery/events/list`, NOT `triggers/list`
+                # as their user-facing "Failed to list triggers" inspector text
+                # suggests. We cover both: `triggers/list` for forward-compat
+                # with the MCP draft spec, `ai.smithery/events/list` for the
+                # current Smithery scoring criterion.
                 #
                 # `_rpc["id"] is not None` excludes JSON-RPC notifications:
                 # spec §5.3 forbids responding to notifications; `"id" in _rpc`
                 # alone would accept `{"id": null}` which some clients use as
                 # an intentional drop-response signal.
-                if _method == "triggers/list" and isinstance(_rpc, dict) and "id" in _rpc and _rpc["id"] is not None:
+                if (
+                    isinstance(_method, str)
+                    and _method in _SMITHERY_PROBE_RESULT
+                    and isinstance(_rpc, dict)
+                    and "id" in _rpc
+                    and _rpc["id"] is not None
+                ):
                     try:
                         _req_id_bytes = _json.dumps(_rpc["id"]).encode()
-                        _trig_body = b'{"jsonrpc":"2.0","id":' + _req_id_bytes + b',"result":{"triggers":[]}}'
+                        _trig_body = (
+                            b'{"jsonrpc":"2.0","id":'
+                            + _req_id_bytes
+                            + b',"result":'
+                            + _SMITHERY_PROBE_RESULT[_method]
+                            + b"}"
+                        )
                         await send(
                             {
                                 "type": "http.response.start",
@@ -507,7 +509,8 @@ class _MCPIPForwardMiddleware:
                         return
                     except Exception as _tg_exc:
                         logger.warning(
-                            "triggers/list fast-path failed (%s), falling through",
+                            "Smithery probe fast-path failed for %s (%s), falling through",
+                            _method,
                             type(_tg_exc).__name__,
                         )
                 if _method == "tools/call":

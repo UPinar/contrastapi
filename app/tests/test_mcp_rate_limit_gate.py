@@ -757,3 +757,39 @@ def test_mcp_triggers_list_null_id_does_not_use_fast_path(mcp_client):
         # Reject the fast-path-success shape: that would mean we ignored the
         # null-id guard and shipped {"triggers": []} despite the spec gap.
         assert body.get("result") != {"triggers": []}, f"fast-path must not fire on null id; got {body}"
+
+
+def test_mcp_smithery_events_list_returns_empty_array(mcp_client):
+    """v1.32.7: Smithery's actual scoring probe is `ai.smithery/events/list`
+    (proprietary namespace), NOT `triggers/list` as the inspector's user-
+    facing 'Failed to list triggers' text implies. Confirmed via S241
+    SMITHERY_PROBE debug log capture in v1.32.6. The middleware fast-path
+    short-circuits with {"events": []} so Smithery's rolling-window score
+    stops decaying."""
+    r = mcp_client.post(
+        "/mcp/",
+        headers=MCP_HEADERS,
+        json={"jsonrpc": "2.0", "id": 8888, "method": "ai.smithery/events/list", "params": {}},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body.get("id") == 8888
+    assert body.get("result") == {"events": []}
+    assert "error" not in body, f"ai.smithery/events/list must not return JSON-RPC error: {body}"
+
+
+def test_mcp_smithery_events_list_does_not_consume_credit(mcp_client):
+    """Smithery probes ~100x/day. Each one must be free — burning credits
+    on a passive health-check would tank Free-tier user quotas. The fast-
+    path returns BEFORE the tools/call gate."""
+    _reset_free_bucket()
+    initial = _free_bucket_count()
+    r = mcp_client.post(
+        "/mcp/",
+        headers=MCP_HEADERS,
+        json={"jsonrpc": "2.0", "id": 8889, "method": "ai.smithery/events/list", "params": {}},
+    )
+    assert r.status_code == 200
+    assert _free_bucket_count() == initial, (
+        f"ai.smithery/events/list must not consume credits; was {initial}, now {_free_bucket_count()}"
+    )
