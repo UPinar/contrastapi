@@ -12,7 +12,7 @@ from pathlib import Path
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-VERSION = "1.32.5"
+VERSION = "1.32.6"
 MCP_TOOL_COUNT = 52  # v1.32.0: +email_security_posture +sigma_rule_lookup +bulk_sigma_rule_lookup
 MCP_RESOURCE_COUNT = 7  # v1.23.0: atlas+d3fend+cwe (4 templates + 3 catalogs)
 MCP_PROMPT_COUNT = 3  # v1.23.0: security_audit, vulnerability_check, contrast_triage

@@ -410,6 +410,28 @@ class _MCPIPForwardMiddleware:
                     await send({"type": "http.response.body", "body": _batch_err})
                     return
                 _method = _rpc.get("method") if isinstance(_rpc, dict) else None
+                # v1.32.6 TEMP DEBUG (REMOVE in v1.32.7): Smithery scoring
+                # diagnostic. The triggers/list fast-path shipped in v1.32.5
+                # is verified via curl, but Smithery's inspector still reports
+                # `-32602 Invalid request parameters`. Log the EXACT method +
+                # UA Smithery sends so we can tell whether they call a
+                # different method name, validate against schema without
+                # calling, or use a custom probe shape.
+                if isinstance(_method, str):
+                    _m_lower = _method.lower()
+                    _ua_dbg = ""
+                    for _k, _v in scope.get("headers", []):
+                        if _k == b"user-agent":
+                            _ua_dbg = _v.decode("latin-1", "replace")[:100]
+                            break
+                    if "trigger" in _m_lower or "smithery" in _ua_dbg.lower():
+                        logger.warning(
+                            "SMITHERY_PROBE method=%r id=%r ua=%r params=%r",
+                            _method,
+                            _rpc.get("id") if isinstance(_rpc, dict) else None,
+                            _ua_dbg,
+                            _rpc.get("params") if isinstance(_rpc, dict) else None,
+                        )
                 # Fast-path: tools/list is deterministic except for the JSON-RPC
                 # id field. Serve pre-serialized result bytes with the id spliced
                 # in at the byte level — sub-millisecond vs ~80-120ms FastMCP
