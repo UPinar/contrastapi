@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from config import BASE_DIR, settings
+from core import mcp_proxy
 from db import init_all_dbs
 from sigma.sync import load_sigma_corpus
 
@@ -52,6 +53,7 @@ def make_lifespan(get_mcp_session_mgr: Callable[[], Any]):
         init_all_dbs()
         _warn_if_paths_under_base_dir()
         load_sigma_corpus(settings.sigma_path)
+        await mcp_proxy.build_and_set_tools_list_cache()
         logger.info("ContrastAPI started — databases initialized")
 
         # Non-blocking warm: run cache refresh in background so startup is not

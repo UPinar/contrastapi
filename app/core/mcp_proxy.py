@@ -29,6 +29,11 @@ logger = logging.getLogger("contrastapi")
 
 session_mgr: Any = None  # set by init_mcp; consumed by lifespan factory in main.py
 _mcp_mod: Any = None  # set by init_mcp; raw mcp_server module — read via mcp_module()
+# Pre-serialized tools/list "result" portion (without JSON-RPC envelope) — set
+# by build_and_set_tools_list_cache() at lifespan startup. Per-request id is
+# concatenated via byte template at request time; eliminates ~80-120ms of
+# FastMCP Pydantic→JSON serialization per Smithery probe.
+_tools_list_result_bytes: "bytes | None" = None
 
 
 def mcp_module() -> Any:
@@ -39,6 +44,36 @@ def mcp_module() -> Any:
 def mcp_session_mgr() -> Any:
     """Return the MCP session manager set by init_mcp, or None if MCP failed to load."""
     return session_mgr
+
+
+async def build_and_set_tools_list_cache() -> "int | None":
+    """Pre-serialize the FastMCP tools/list result and stash it on the module.
+
+    Called once at lifespan startup (after init_mcp + sigma load). Per-request
+    `id` is concatenated via byte template in the middleware fast-path, so the
+    cached bytes here contain only the static `result` portion.
+
+    Best-effort: returns the cached byte length on success, None on failure
+    (mcp module missing, list_tools raised). Never raises — a None cache
+    falls through to the FastMCP slow path.
+    """
+    global _tools_list_result_bytes
+    mod = mcp_module()
+    if mod is None:
+        return None
+    try:
+        tools = await mod.mcp.list_tools()
+        result = {"tools": [t.model_dump(mode="json", exclude_none=True) for t in tools]}
+        _tools_list_result_bytes = _json.dumps(result, separators=(",", ":")).encode()
+        logger.info("tools/list cache pre-serialized: %d bytes", len(_tools_list_result_bytes))
+        return len(_tools_list_result_bytes)
+    except Exception as e:
+        # Log only the exception class name — the str() of a Pydantic
+        # ValidationError appends a docs URL that leaks the Pydantic minor
+        # version (CWE-200). Same sterilization pattern as the fast-path
+        # exception handler below.
+        logger.warning("Failed to pre-serialize tools/list (%s)", type(e).__name__)
+        return None
 
 
 _MCP_TOOL_LOG = str(settings.mcp_tool_log_path)
@@ -342,6 +377,45 @@ class _MCPIPForwardMiddleware:
                     await send({"type": "http.response.body", "body": _batch_err})
                     return
                 _method = _rpc.get("method") if isinstance(_rpc, dict) else None
+                # Fast-path: tools/list is deterministic except for the JSON-RPC
+                # id field. Serve pre-serialized result bytes with the id spliced
+                # in at the byte level — sub-millisecond vs ~80-120ms FastMCP
+                # Pydantic→JSON. Falls through to the slow path if cache is None
+                # (startup failure or monkeypatched in tests) or if the request
+                # is a JSON-RPC notification (no "id" key — spec §5.3 forbids a
+                # response, FastMCP handles that correctly).
+                if (
+                    _method == "tools/list"
+                    and _tools_list_result_bytes is not None
+                    and isinstance(_rpc, dict)
+                    and "id" in _rpc
+                ):
+                    try:
+                        _req_id_bytes = _json.dumps(_rpc["id"]).encode()
+                        _fp_body = (
+                            b'{"jsonrpc":"2.0","id":' + _req_id_bytes + b',"result":' + _tools_list_result_bytes + b"}"
+                        )
+                        await send(
+                            {
+                                "type": "http.response.start",
+                                "status": 200,
+                                "headers": [
+                                    [b"content-type", b"application/json"],
+                                    [b"content-length", str(len(_fp_body)).encode()],
+                                ],
+                            }
+                        )
+                        await send({"type": "http.response.body", "body": _fp_body})
+                        return
+                    except Exception as _fp_exc:
+                        # Log only the exception class name — the str() of a
+                        # Pydantic ValidationError appends a docs URL that leaks
+                        # the Pydantic minor version (CWE-200). _sterilize_fastmcp_tool_errors
+                        # patches the tool-call path; this path is separate.
+                        logger.warning(
+                            "tools/list fast-path failed (%s), falling through to slow path",
+                            type(_fp_exc).__name__,
+                        )
                 if _method == "tools/call":
                     _gate_req = _MCPStarletteRequest(scope)
                     try:

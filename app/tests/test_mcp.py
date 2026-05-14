@@ -1065,3 +1065,131 @@ class TestMcpToolAuditLog:
         mcp_proxy._log_mcp_tool("kev_detail", {})
         record = _json.loads(log_path.read_text().strip())
         assert "params" not in record  # empty params dropped, keeps log compact
+
+
+# --- Tools/list pre-serialize cache (latency fix #1) ---
+
+
+class TestToolsListCache:
+    """tools/list response is pre-serialized at lifespan startup and served
+    via byte-concat fast-path in the MCP middleware. Eliminates ~80-120ms
+    FastMCP serialization per Smithery probe."""
+
+    def test_cache_populated_at_startup(self, mcp_client):
+        """After lifespan startup, the module-level cache must hold bytes."""
+        from core import mcp_proxy
+
+        assert mcp_proxy._tools_list_result_bytes is not None
+        assert isinstance(mcp_proxy._tools_list_result_bytes, bytes)
+        assert len(mcp_proxy._tools_list_result_bytes) > 1000  # 52 tools ~80KB
+
+    def test_response_id_substitution_int(self, mcp_client):
+        """Request id=777 must round-trip to response id=777."""
+        r = mcp_client.post(
+            "/mcp/",
+            headers=MCP_HEADERS,
+            json={"jsonrpc": "2.0", "id": 777, "method": "tools/list", "params": {}},
+        )
+        assert r.status_code == 200
+        data = r.json()
+        assert data["jsonrpc"] == "2.0"
+        assert data["id"] == 777
+
+    def test_response_id_substitution_string(self, mcp_client):
+        """Request id="abc-123" must round-trip to response id="abc-123"."""
+        r = mcp_client.post(
+            "/mcp/",
+            headers=MCP_HEADERS,
+            json={"jsonrpc": "2.0", "id": "abc-123", "method": "tools/list", "params": {}},
+        )
+        assert r.status_code == 200
+        data = r.json()
+        assert data["id"] == "abc-123"
+
+    def test_response_tool_count_matches_config(self, mcp_client):
+        """Cached response must expose exactly MCP_TOOL_COUNT tools (drift guard)."""
+        from config import MCP_TOOL_COUNT
+
+        r = mcp_client.post(
+            "/mcp/",
+            headers=MCP_HEADERS,
+            json={"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}},
+        )
+        assert r.status_code == 200
+        tools = r.json()["result"]["tools"]
+        assert len(tools) == MCP_TOOL_COUNT
+        for t in tools:
+            assert "name" in t
+            assert "inputSchema" in t
+
+    def test_fallback_to_fastmcp_when_cache_none(self, mcp_client, monkeypatch):
+        """If the cache is unset (build failed, manually cleared), the request
+        must still succeed via the FastMCP slow path — degraded latency, never broken."""
+        from core import mcp_proxy
+
+        monkeypatch.setattr(mcp_proxy, "_tools_list_result_bytes", None)
+        r = mcp_client.post(
+            "/mcp/",
+            headers=MCP_HEADERS,
+            json={"jsonrpc": "2.0", "id": 42, "method": "tools/list", "params": {}},
+        )
+        assert r.status_code == 200
+        data = r.json()
+        assert data["id"] == 42
+        from config import MCP_TOOL_COUNT
+
+        assert len(data["result"]["tools"]) == MCP_TOOL_COUNT
+
+    def test_fast_path_serves_sentinel_with_int_id(self, mcp_client, monkeypatch):
+        """Sentinel proof that the fast-path actually short-circuits: replace
+        the cache with a tiny known payload; if the fast-path is taken the
+        response body must equal envelope + sentinel byte-for-byte. If the
+        request fell through to FastMCP, the body would contain real tools."""
+        from core import mcp_proxy
+
+        sentinel = b'{"tools":[{"name":"_sentinel_alpha_"}]}'
+        monkeypatch.setattr(mcp_proxy, "_tools_list_result_bytes", sentinel)
+        r = mcp_client.post(
+            "/mcp/",
+            headers=MCP_HEADERS,
+            json={"jsonrpc": "2.0", "id": 777, "method": "tools/list", "params": {}},
+        )
+        assert r.status_code == 200
+        assert r.content == b'{"jsonrpc":"2.0","id":777,"result":' + sentinel + b"}"
+
+    def test_fast_path_serves_sentinel_with_string_id(self, mcp_client, monkeypatch):
+        """String JSON-RPC ids must be quoted correctly in the envelope."""
+        from core import mcp_proxy
+
+        sentinel = b'{"tools":[{"name":"_sentinel_beta_"}]}'
+        monkeypatch.setattr(mcp_proxy, "_tools_list_result_bytes", sentinel)
+        r = mcp_client.post(
+            "/mcp/",
+            headers=MCP_HEADERS,
+            json={"jsonrpc": "2.0", "id": "abc-123", "method": "tools/list", "params": {}},
+        )
+        assert r.status_code == 200
+        assert r.content == b'{"jsonrpc":"2.0","id":"abc-123","result":' + sentinel + b"}"
+
+    def test_notification_falls_through_to_slow_path(self, mcp_client, monkeypatch):
+        """JSON-RPC 2.0 §5.3: a notification (request without `id`) must NOT
+        receive a fast-path response with id:null. The fast-path must skip
+        such requests and let FastMCP handle them per spec. Verifies via
+        sentinel: if fast-path took, body would equal envelope + sentinel;
+        slow path returns real tools instead."""
+        from core import mcp_proxy
+
+        sentinel = b'{"tools":[{"name":"_sentinel_gamma_"}]}'
+        monkeypatch.setattr(mcp_proxy, "_tools_list_result_bytes", sentinel)
+        r = mcp_client.post(
+            "/mcp/",
+            headers=MCP_HEADERS,
+            json={"jsonrpc": "2.0", "method": "tools/list", "params": {}},  # no id
+        )
+        # Whatever FastMCP returns (200, 400, error envelope), the body must
+        # NOT contain the fast-path sentinel — proves the guard worked. The
+        # sentinel literal `_sentinel_gamma_` cannot appear in any real
+        # FastMCP tool name (collision-proof by inspection of the tool
+        # registry); slow path may itself error out on the malformed
+        # notification, which is fine — we only assert the negative.
+        assert b"_sentinel_gamma_" not in r.content
