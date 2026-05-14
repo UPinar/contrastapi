@@ -24,6 +24,7 @@ from auth import authenticate_sync as _mcp_authenticate
 from config import (
     BASE_DIR,
     COST_AUDIT,
+    COST_TECH_CVE_AUDIT,
     COST_THREAT_REPORT,
     FREE_HOURLY_LIMIT,
     MCP_TOOL_COUNT,
@@ -61,6 +62,7 @@ _tools_list_result_bytes: "bytes | None" = None
 _TOOL_COST: dict[str, int] = {
     "audit_domain": COST_AUDIT,
     "threat_report": COST_THREAT_REPORT,
+    "tech_stack_cve_audit": COST_TECH_CVE_AUDIT,
 }
 
 # v1.32.5 / v1.32.7: experimental probe methods the MCP SDK doesn't implement.

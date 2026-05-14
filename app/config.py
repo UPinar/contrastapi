@@ -12,12 +12,12 @@ from pathlib import Path
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-VERSION = "1.32.7"
-MCP_TOOL_COUNT = 52  # v1.32.0: +email_security_posture +sigma_rule_lookup +bulk_sigma_rule_lookup
+VERSION = "1.33.0"
+MCP_TOOL_COUNT = 53  # v1.33.0: +tech_stack_cve_audit (MCP-only composite)
 MCP_RESOURCE_COUNT = 7  # v1.23.0: atlas+d3fend+cwe (4 templates + 3 catalogs)
 MCP_PROMPT_COUNT = 3  # v1.23.0: security_audit, vulnerability_check, contrast_triage
 ENDPOINT_COUNT = "60+"
-TEST_COUNT = 2404
+TEST_COUNT = 2412
 # Catalog row counts surfaced on landing/playground. Bump after `python -m cve.sync
 # --source atlas` (ATLAS upstream cadence ~6 months) or `--source d3fend` (yearly).
 ATLAS_TECHNIQUE_COUNT = 167

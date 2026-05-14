@@ -337,16 +337,35 @@ def test_mcp_tool_cost_map_attribute_exists():
     otherwise both REST and MCP gates fire on a single call (double-charge).
     v1.32.4 Batch 4: `audit_domain` switched to Pattern B, listed here.
     v1.32.4 Batch 5: `threat_report` switched to Pattern B, listed here.
+    v1.32.4 Batch 3: `tech_stack_cve_audit` MCP-only composite — listed here.
     `domain_vulns` stays out — still HTTP-hops via `_aget()`."""
     from core import mcp_proxy
 
     assert hasattr(mcp_proxy, "_TOOL_COST"), "mcp_proxy must expose _TOOL_COST dict"
     assert isinstance(mcp_proxy._TOOL_COST, dict)
-    # audit_domain + threat_report: Pattern B shipped — must be in the map.
     assert "audit_domain" in mcp_proxy._TOOL_COST
     assert "threat_report" in mcp_proxy._TOOL_COST
-    # domain_vulns: still uses _aget() — must NOT appear (would double-charge).
+    assert "tech_stack_cve_audit" in mcp_proxy._TOOL_COST
     assert "domain_vulns" not in mcp_proxy._TOOL_COST
+
+
+def test_tool_cost_map_completeness_for_composites():
+    """Drift guard: every MCP composite tool MUST have a `_TOOL_COST` entry
+    with the matching `COST_*` constant. When adding a new composite tool,
+    append to `COMPOSITE_TOOLS` here AND wire `_TOOL_COST[name] = COST_*` in
+    `app/core/mcp_proxy.py`. If a composite drops off the map, Free-tier
+    users get N upstream sub-calls for 1 credit."""
+    from config import COST_AUDIT, COST_TECH_CVE_AUDIT, COST_THREAT_REPORT
+    from core import mcp_proxy
+
+    COMPOSITE_TOOLS = [
+        ("audit_domain", COST_AUDIT),
+        ("threat_report", COST_THREAT_REPORT),
+        ("tech_stack_cve_audit", COST_TECH_CVE_AUDIT),
+    ]
+    for name, expected in COMPOSITE_TOOLS:
+        actual = mcp_proxy._TOOL_COST.get(name)
+        assert actual == expected, f"Composite '{name}' must have _TOOL_COST entry={expected}; got {actual!r}"
 
 
 def test_mcp_unknown_tool_defaults_to_cost_1(mcp_client):
@@ -793,3 +812,107 @@ def test_mcp_smithery_events_list_does_not_consume_credit(mcp_client):
     assert _free_bucket_count() == initial, (
         f"ai.smithery/events/list must not consume credits; was {initial}, now {_free_bucket_count()}"
     )
+
+
+def test_mcp_tech_stack_cve_audit_cost_consumed_once(mcp_client, monkeypatch):
+    """v1.32.4 Batch 3: a single `tools/call` for `tech_stack_cve_audit` must
+    consume exactly COST_TECH_CVE_AUDIT (10) credits."""
+    from config import COST_TECH_CVE_AUDIT
+
+    _reset_free_bucket()
+
+    from app.domain import routes as _routes
+
+    async def _spy_impl(domain, *, tier="pro", client_ip=""):
+        return {
+            "domain": domain,
+            "technologies": {"technologies": [], "categories": {}, "count": 0, "summary": ""},
+            "cves_by_tech": {},
+            "kev_findings": [],
+            "summary": "ok",
+            "next_calls": None,
+        }
+
+    monkeypatch.setattr(_routes, "_tech_stack_cve_audit_impl", _spy_impl)
+
+    r = mcp_client.post(
+        "/mcp/",
+        headers=MCP_HEADERS,
+        json={
+            "jsonrpc": "2.0",
+            "id": 410,
+            "method": "tools/call",
+            "params": {"name": "tech_stack_cve_audit", "arguments": {"domain": "example.com"}},
+        },
+    )
+
+    assert r.status_code == 200, r.text
+    assert _free_bucket_count() == COST_TECH_CVE_AUDIT, (
+        f"tech_stack_cve_audit must consume exactly {COST_TECH_CVE_AUDIT} credits; got {_free_bucket_count()}"
+    )
+
+
+def test_mcp_tech_stack_cve_audit_wrapper_does_not_call_aget(mcp_client, monkeypatch):
+    """Pattern B behavior: MCP tech_stack_cve_audit MUST call _impl directly
+    and MUST NOT HTTP-hop to /v1/tech/... /v1/cves/... /v1/cve/...
+    /v1/exploit/... /v1/kev/..."""
+    from core import mcp_proxy
+
+    _reset_free_bucket()
+
+    mod = mcp_proxy._mcp_mod
+    from app.domain import routes as _routes
+
+    impl_calls: list[dict] = []
+    aget_subcall_paths: list[str] = []
+
+    async def _spy_impl(domain, *, tier="pro", client_ip=""):
+        impl_calls.append({"domain": domain, "tier": tier})
+        return {
+            "domain": domain,
+            "technologies": {"technologies": [], "categories": {}, "count": 0, "summary": ""},
+            "cves_by_tech": {},
+            "kev_findings": [],
+            "summary": "ok",
+            "next_calls": None,
+        }
+
+    real_aget = mod._aget
+    SUBCALL_PREFIXES = ("/v1/tech/", "/v1/cves/", "/v1/cve/", "/v1/exploit/", "/v1/kev/")
+
+    async def _spy_aget(path, params=None):
+        if path.startswith(SUBCALL_PREFIXES):
+            aget_subcall_paths.append(path)
+        return await real_aget(path, params=params)
+
+    monkeypatch.setattr(_routes, "_tech_stack_cve_audit_impl", _spy_impl)
+    monkeypatch.setattr(mod, "_aget", _spy_aget)
+
+    r = mcp_client.post(
+        "/mcp/",
+        headers=MCP_HEADERS,
+        json={
+            "jsonrpc": "2.0",
+            "id": 411,
+            "method": "tools/call",
+            "params": {"name": "tech_stack_cve_audit", "arguments": {"domain": "example.com"}},
+        },
+    )
+
+    assert r.status_code == 200, r.text
+    assert len(impl_calls) == 1, f"_tech_stack_cve_audit_impl must be called exactly once; got {len(impl_calls)}"
+    assert aget_subcall_paths == [], (
+        f"MCP tech_stack_cve_audit wrapper must not HTTP-hop to sub-tool REST paths; got {aget_subcall_paths}"
+    )
+
+
+def test_mcp_tech_stack_cve_audit_impl_signature():
+    """`_tech_stack_cve_audit_impl` must accept `domain` + `tier` + `client_ip`."""
+    import inspect
+
+    from app.domain.routes import _tech_stack_cve_audit_impl
+
+    sig = inspect.signature(_tech_stack_cve_audit_impl)
+    for kw in ("domain", "tier", "client_ip"):
+        assert kw in sig.parameters, f"missing `{kw}` parameter"
+    assert inspect.iscoroutinefunction(_tech_stack_cve_audit_impl)

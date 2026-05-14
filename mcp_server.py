@@ -129,7 +129,7 @@ from app.ioc.schemas import (  # noqa: E402
     PasswordResponse,
     PhishingResponse,
 )
-from app.schemas import ErrorResponse  # noqa: E402
+from app.schemas import ErrorResponse, TechStackCveAuditResponse  # noqa: E402
 from app.sigma.schemas import (  # noqa: E402
     BulkSigmaRuleLookupResponse,
     SigmaRuleLookupResponse,
@@ -683,6 +683,37 @@ async def audit_domain(
             raise UpstreamTimeoutException(detail) from None
         raise UpstreamErrorException(detail) from None
     return AuditResponse(**result)
+
+
+@mcp_tool_safe(annotations=_RO_CLOSED_WORLD)
+async def tech_stack_cve_audit(
+    domain: Annotated[
+        str,
+        Field(
+            description="Target domain to fingerprint and CVE-audit (e.g. 'example.com'). IPs and internal hostnames are rejected.",
+            min_length=1,
+            max_length=253,
+        ),
+    ],
+) -> TechStackCveAuditResponse | ErrorResponse:
+    """Composite tech-stack + CVE audit (MCP-only, no REST endpoint). Detects technologies on the target domain, queries CVE database for known vulnerabilities per product, enriches top-10 CVE candidates with CISA KEV federal patch deadlines, and (Pro tier) checks public exploit / PoC availability. Tier-aware CVE batch: Free=10 candidates, Pro=50. Free tier omits exploit_findings entirely. Cost: 10 credits per call — Free 30/hr ≈ 3 audits, Pro 500/hr ≈ 50 audits. Returns {domain, technologies, cves_by_tech, kev_findings, exploit_findings (Pro only), summary, next_calls}."""
+    from app.domain.routes import _tech_stack_cve_audit_impl
+
+    try:
+        result = await _tech_stack_cve_audit_impl(
+            domain,
+            tier=_get_user_tier(),
+            client_ip="",
+        )
+    except HTTPException as e:
+        detail = e.detail if isinstance(e.detail, str) else "tech_stack_cve_audit failed"
+        if e.status_code in (400, 422):
+            raise InvalidArgumentException(detail) from None
+        if e.status_code == 504:
+            raise UpstreamTimeoutException(detail) from None
+        logger.warning("tech_stack_cve_audit: unmapped HTTPException status %d", e.status_code)
+        raise UpstreamErrorException(detail) from None
+    return TechStackCveAuditResponse(**result)
 
 
 @mcp_tool_safe(annotations=_RO_OPEN_WORLD)

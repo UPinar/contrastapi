@@ -3456,3 +3456,224 @@ async def _threat_report_impl(
             completeness="partial" if tier != "pro" else "complete",
         ),
     }
+
+
+async def _tech_stack_cve_candidates(tech_list: list[dict], *, limit: int) -> tuple[list[str], dict[str, list[str]]]:
+    """Resolve detected technologies into a CVE candidate list with per-product
+    attribution. Uses product-name-based bulk search (`asearch_cves_by_products_bulk`).
+    Returns (flat_cve_ids, product_attribution) where flat_cve_ids is the deduped
+    list capped at `limit` and product_attribution maps each product name to the
+    subset of flat_cve_ids attributed to that product (a CVE present in multiple
+    products is listed under each)."""
+    from db import asearch_cves_by_products_bulk
+
+    products = [t.get("name") for t in tech_list if isinstance(t, dict) and t.get("name")]
+    if not products:
+        return [], {}
+    try:
+        bulk = await asearch_cves_by_products_bulk(products, limit_per_product=limit)
+    except Exception as e:
+        logger.warning("tech_stack: asearch_cves_by_products_bulk failed: %s", type(e).__name__)
+        return [], {}
+
+    seen: list[str] = []
+    attribution: dict[str, list[str]] = {}
+    for product_name, product_rows in bulk.items():
+        per_product: list[str] = []
+        for row in product_rows:
+            cid = row.get("cve_id") if isinstance(row, dict) else None
+            if not cid:
+                continue
+            if cid not in seen and len(seen) < limit:
+                seen.append(cid)
+            if cid in seen:
+                per_product.append(cid)
+        attribution[product_name] = per_product
+    return seen, attribution
+
+
+async def _tech_stack_bulk_cve_lookup(cve_ids: list[str]) -> dict:
+    """Pattern B sub-call: in-process bulk CVE detail fetch via `aget_cve`.
+    Returns the same envelope shape as the public `bulk_cve_lookup` tool."""
+    if not cve_ids:
+        return {
+            "results": [],
+            "total": 0,
+            "successful": 0,
+            "failed": 0,
+            "timed_out": 0,
+            "partial": False,
+            "summary": "no CVEs",
+        }
+    from db import aget_cve
+
+    results = []
+    successful = 0
+    failed = 0
+    for cid in cve_ids:
+        try:
+            row = await aget_cve(cid)
+            if row is None:
+                results.append({"cve_id": cid, "status": "not_found"})
+                failed += 1
+            else:
+                results.append({"cve_id": cid, "status": "ok", "cve": row})
+                successful += 1
+        except Exception as e:
+            results.append({"cve_id": cid, "status": "error", "error": type(e).__name__})
+            failed += 1
+    return {
+        "results": results,
+        "total": len(cve_ids),
+        "successful": successful,
+        "failed": failed,
+        "timed_out": 0,
+        "partial": failed > 0,
+        "summary": f"{successful}/{len(cve_ids)} CVEs fetched",
+    }
+
+
+async def _tech_stack_kev_lookup(cve_id: str) -> dict | None:
+    """Pattern B sub-call: direct KEV lookup via `aget_kev_details`. Returns
+    the KEV record dict on hit, None when CVE is not in CISA KEV. Errors
+    logged + swallowed (returns None)."""
+    from db import aget_kev_details
+
+    try:
+        return await aget_kev_details(cve_id)
+    except Exception as e:
+        logger.warning("tech_stack: aget_kev_details(%s) failed: %s", cve_id, type(e).__name__)
+        return None
+
+
+async def _tech_stack_exploit_lookup(cve_id: str) -> dict:
+    """Pattern B sub-call: direct exploit lookup via `asearch_exploits_by_cve`
+    (local ExploitDB mirror only — fast, no upstream fetch). Returns a slim
+    envelope {cve_id, has_public_exploit, exploits_found}. Errors return an
+    empty dict."""
+    from db import asearch_exploits_by_cve
+
+    try:
+        rows, _truncated = await asearch_exploits_by_cve(cve_id)
+    except Exception as e:
+        logger.warning("tech_stack: asearch_exploits_by_cve(%s) failed: %s", cve_id, type(e).__name__)
+        return {}
+    return {
+        "cve_id": cve_id,
+        "has_public_exploit": bool(rows),
+        "exploits_found": len(rows),
+    }
+
+
+async def _tech_stack_cve_audit_impl(
+    domain: str,
+    *,
+    tier: str = "pro",
+    client_ip: str = "",
+) -> dict:
+    """Pattern B shared implementation for MCP-only composite
+    `tech_stack_cve_audit`. Fans out to tech fingerprint + bulk CVE lookup +
+    KEV lookup (and exploit lookup for Pro) via direct in-process calls.
+    Tier branching: Free skips exploit enrichment AND drops the field from
+    the response. CVE candidate batch: Free=10, Pro=50."""
+    from domain.recon import fetch_live_headers
+    from domain.tech import detect_technologies
+
+    domain = clean_domain(domain)
+    if not domain or " " in domain or is_valid_ip(domain):
+        raise HTTPException(status_code=400, detail="Invalid domain")
+
+    try:
+        live = await fetch_live_headers(domain)
+    except Exception as e:
+        logger.warning("tech_stack_cve_audit: fetch_live_headers failed: %s", type(e).__name__)
+        live = {}
+    headers = live.get("headers", {}) if isinstance(live, dict) else {}
+    if not isinstance(headers, dict):
+        headers = {}
+
+    tech = (
+        detect_technologies(headers) if headers else {"technologies": [], "categories": {}, "count": 0, "summary": ""}
+    )
+    tech_list = tech.get("technologies", []) or []
+
+    cve_batch_limit = 50 if tier == "pro" else 10
+    candidate_cve_ids, product_attribution = await _tech_stack_cve_candidates(tech_list, limit=cve_batch_limit)
+
+    if candidate_cve_ids:
+        bulk = await _tech_stack_bulk_cve_lookup(candidate_cve_ids)
+    else:
+        bulk = {
+            "results": [],
+            "total": 0,
+            "successful": 0,
+            "failed": 0,
+            "timed_out": 0,
+            "partial": False,
+            "summary": "no CVEs",
+        }
+
+    from db import normalize_product as _normalize_product
+
+    cves_by_tech: dict[str, list[str]] = {}
+    for t in tech_list:
+        if not isinstance(t, dict):
+            continue
+        name = t.get("name", "?")
+        version = t.get("version", "?")
+        key = f"{name}/{version}"
+        # asearch_cves_by_products_bulk returns dict keyed by normalize_product(name).strip().lower();
+        # mirror that here or TitleCase tech names (Apache, jQuery) silently get [].
+        norm = (_normalize_product(name) or "").strip().lower() if name else ""
+        cves_by_tech[key] = list(product_attribution.get(norm, []))
+
+    kev_findings: list[dict] = []
+    exploit_findings: list[dict] = []
+
+    cves_to_enrich = candidate_cve_ids[:10]
+    if cves_to_enrich:
+        kev_results = await asyncio.gather(
+            *[_tech_stack_kev_lookup(c) for c in cves_to_enrich],
+            return_exceptions=True,
+        )
+        for kev in kev_results:
+            if isinstance(kev, dict) and kev:
+                kev_findings.append(kev)
+
+        if tier == "pro":
+            exploit_results = await asyncio.gather(
+                *[_tech_stack_exploit_lookup(c) for c in cves_to_enrich],
+                return_exceptions=True,
+            )
+            for exp in exploit_results:
+                if isinstance(exp, dict) and exp.get("has_public_exploit"):
+                    exploit_findings.append(exp)
+
+    summary = (
+        f"Detected {tech.get('count', 0)} technologies, "
+        f"{bulk.get('successful', 0)} CVEs enriched, "
+        f"{len(kev_findings)} KEV-listed"
+    )
+    if tier == "pro":
+        summary += f", {len(exploit_findings)} with public exploits"
+
+    next_calls = [
+        {
+            "tool": "cve_lookup",
+            "input": cid,
+            "reason": "Drill into CVE detail (CVSS, EPSS, affected products, references)",
+        }
+        for cid in candidate_cve_ids[:10]
+    ]
+
+    response: dict = {
+        "domain": domain,
+        "technologies": tech,
+        "cves_by_tech": cves_by_tech,
+        "kev_findings": kev_findings,
+        "summary": summary,
+        "next_calls": next_calls or None,
+    }
+    if tier == "pro":
+        response["exploit_findings"] = exploit_findings
+    return response

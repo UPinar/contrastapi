@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_serializer
 
 
 class ErrorDetail(BaseModel):
@@ -110,6 +110,7 @@ class PivotHint(BaseModel):
         "d3fend_attack_coverage",
         "sigma_rule_lookup",
         "bulk_sigma_rule_lookup",
+        "tech_stack_cve_audit",
     ] = Field(
         description=(
             "Canonical MCP tool name to call next. Constrained to known operation_ids in "
@@ -235,3 +236,38 @@ class BaseSuccessResponse(BaseModel):
             "should chain these without re-prompting the user."
         ),
     )
+
+
+class TechStackCveAuditResponse(BaseSuccessResponse):
+    """Response envelope for the MCP-only composite `tech_stack_cve_audit`.
+
+    Combines technology fingerprint, per-tech CVE candidates, KEV matches,
+    and (Pro-only) exploit findings in a single agentic response. Free tier
+    drops `exploit_findings` entirely (field absent, not None) via the
+    `_serialize_drop_none_exploit_findings` model serializer below.
+    """
+
+    model_config = {"extra": "allow"}
+
+    domain: str = Field(description="Normalized input domain (clean_domain applied).")
+    technologies: dict = Field(description="Tech fingerprint payload — {technologies, categories, count, summary}.")
+    cves_by_tech: dict[str, list[str]] = Field(
+        default_factory=dict,
+        description="Map of `name/version` → list of CVE IDs for that product.",
+    )
+    kev_findings: list[dict] = Field(
+        default_factory=list,
+        description="CISA KEV records for matched CVEs. Empty when no KEV matches.",
+    )
+    exploit_findings: list[dict] | None = Field(
+        default=None,
+        description="Pro tier only: public exploit / PoC availability per CVE. Absent on Free.",
+    )
+    summary: str = Field(description="Human-readable triage summary — N techs, M CVEs, K KEV-listed.")
+
+    @model_serializer(mode="wrap")
+    def _serialize_drop_none_exploit_findings(self, handler):
+        data = handler(self)
+        if data.get("exploit_findings") is None:
+            data.pop("exploit_findings", None)
+        return data

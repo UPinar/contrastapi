@@ -9,6 +9,7 @@ from typing import Annotated
 from auth import AuthCtx, require_auth
 from config import (
     COST_AUDIT,
+    COST_TECH_CVE_AUDIT,
     COST_THREAT_REPORT,
     FREE_HOURLY_LIMIT,
     MCP_TOOL_COUNT,
@@ -405,6 +406,22 @@ def api_capabilities():
                         "blast_radius": "high",
                         "description": "Technology fingerprinting: CMS, frameworks, servers, CDN, analytics",
                         "response_keys": ["domain", "technologies", "categories", "count", "summary"],
+                    },
+                    {
+                        "name": "tech_stack_cve_audit",
+                        "method": None,
+                        "path": None,
+                        "credit_cost": COST_TECH_CVE_AUDIT,
+                        "blast_radius": "high",
+                        "description": "MCP-only composite: tech fingerprint + bulk CVE lookup + KEV + exploit findings",
+                        "response_keys": [
+                            "domain",
+                            "technologies",
+                            "cves_by_tech",
+                            "kev_findings",
+                            "exploit_findings",
+                            "summary",
+                        ],
                     },
                     {
                         "name": "scan_headers",
