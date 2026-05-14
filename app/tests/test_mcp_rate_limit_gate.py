@@ -699,3 +699,61 @@ def test_mcp_gate_publishes_tier_into_contextvar():
     assert "self._user_tier_var.reset(_tier_token)" in content, (
         "tier ContextVar must be reset in finally to prevent cross-request leakage"
     )
+
+
+def test_mcp_triggers_list_returns_empty_array(mcp_client):
+    """v1.32.5: Smithery (and other catalog indexers) probe `triggers/list`
+    as a scoring criterion. The MCP SDK does not implement that method, so
+    without intervention FastMCP returns -32601/-32602 for every probe and
+    Smithery decays the server score (observed 99→85 over ~5 days under
+    their rolling window). The mcp_proxy middleware short-circuits with an
+    empty-array result — keeps catalog rank intact and forward-compatible
+    with the eventual spec adoption."""
+    r = mcp_client.post(
+        "/mcp/",
+        headers=MCP_HEADERS,
+        json={"jsonrpc": "2.0", "id": 7777, "method": "triggers/list", "params": {}},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body.get("id") == 7777
+    assert body.get("result") == {"triggers": []}
+    assert "error" not in body, f"triggers/list must not return JSON-RPC error: {body}"
+
+
+def test_mcp_triggers_list_does_not_consume_credit(mcp_client):
+    """triggers/list is a metadata / health probe — it must NOT consume
+    rate-limit credits (would amplify the Smithery score penalty rather
+    than fix it). The fast-path returns BEFORE the tools/call gate."""
+    _reset_free_bucket()
+    initial = _free_bucket_count()
+    r = mcp_client.post(
+        "/mcp/",
+        headers=MCP_HEADERS,
+        json={"jsonrpc": "2.0", "id": 7778, "method": "triggers/list", "params": {}},
+    )
+    assert r.status_code == 200
+    assert _free_bucket_count() == initial, (
+        f"triggers/list must not consume credits; was {initial}, now {_free_bucket_count()}"
+    )
+
+
+def test_mcp_triggers_list_null_id_does_not_use_fast_path(mcp_client):
+    """JSON-RPC §5.3 + spec ambiguity: requests with explicit `"id": null`
+    are treated as notifications by some clients (intentional drop-response
+    signal). The fast-path's null-id guard makes it fall through to FastMCP
+    rather than reply with a non-null-id envelope — matches tools/list
+    behaviour and avoids surprising clients that key off id=null."""
+    r = mcp_client.post(
+        "/mcp/",
+        headers=MCP_HEADERS,
+        json={"jsonrpc": "2.0", "id": None, "method": "triggers/list", "params": {}},
+    )
+    # FastMCP returns 202 Accepted for null-id (notification interpretation)
+    # or 200 with method-not-found from the SDK. The CONTRACT we're locking:
+    # the fast-path's empty-array result MUST NOT be returned when id=null.
+    if r.text:
+        body = r.json()
+        # Reject the fast-path-success shape: that would mean we ignored the
+        # null-id guard and shipped {"triggers": []} despite the spec gap.
+        assert body.get("result") != {"triggers": []}, f"fast-path must not fire on null id; got {body}"

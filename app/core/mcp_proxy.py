@@ -449,6 +449,45 @@ class _MCPIPForwardMiddleware:
                             "tools/list fast-path failed (%s), falling through to slow path",
                             type(_fp_exc).__name__,
                         )
+                # v1.32.5: Smithery (and other catalog indexers) probe
+                # `triggers/list` as a health-check / scoring criterion. The
+                # method is a draft MCP spec extension that the SDK does not
+                # implement, so the FastMCP dispatcher returns -32601/-32602
+                # for every probe. Smithery treats those errors as a missing-
+                # feature penalty and decays our score under a rolling window
+                # (observed 99→85 over 4-5 days). We short-circuit here with
+                # an empty-array result — "supported, no triggers exposed" —
+                # which is forward-compatible with the eventual spec.
+                #
+                # TODO (post-spec): once `triggers/list` lands in the MCP spec
+                # and the SDK ships a real handler, REMOVE this fast-path or
+                # it will silently mask the real implementation forever.
+                #
+                # `_rpc["id"] is not None` excludes JSON-RPC notifications:
+                # spec §5.3 forbids responding to notifications; `"id" in _rpc`
+                # alone would accept `{"id": null}` which some clients use as
+                # an intentional drop-response signal.
+                if _method == "triggers/list" and isinstance(_rpc, dict) and "id" in _rpc and _rpc["id"] is not None:
+                    try:
+                        _req_id_bytes = _json.dumps(_rpc["id"]).encode()
+                        _trig_body = b'{"jsonrpc":"2.0","id":' + _req_id_bytes + b',"result":{"triggers":[]}}'
+                        await send(
+                            {
+                                "type": "http.response.start",
+                                "status": 200,
+                                "headers": [
+                                    [b"content-type", b"application/json"],
+                                    [b"content-length", str(len(_trig_body)).encode()],
+                                ],
+                            }
+                        )
+                        await send({"type": "http.response.body", "body": _trig_body})
+                        return
+                    except Exception as _tg_exc:
+                        logger.warning(
+                            "triggers/list fast-path failed (%s), falling through",
+                            type(_tg_exc).__name__,
+                        )
                 if _method == "tools/call":
                     _gate_req = _MCPStarletteRequest(scope)
                     # Cost lookup with input validation mirroring _extract_tool_call
