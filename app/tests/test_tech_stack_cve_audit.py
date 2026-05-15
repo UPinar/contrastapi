@@ -109,9 +109,11 @@ async def test_tech_stack_cve_audit_happy_path(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_tech_stack_cve_audit_free_tier_no_exploit(monkeypatch):
-    """Free tier MUST omit `exploit_findings` from the response envelope
-    entirely (key absent — not None, not empty list)."""
+async def test_tech_stack_cve_audit_free_tier_also_gets_exploit(monkeypatch):
+    """v1.33.1: tier gating removed. Exploit data is a local ExploitDB-mirror
+    lookup (not Shodan/AbuseIPDB) so it MUST NOT be tier-gated — Free gets the
+    SAME treatment as Pro: exploit lookup is invoked and `exploit_findings` is
+    always present in the envelope (empty list when no public exploits)."""
     from app.domain import routes as _routes
 
     async def _fake_live_headers(domain):
@@ -163,8 +165,15 @@ async def test_tech_stack_cve_audit_free_tier_no_exploit(monkeypatch):
 
     result = await _tech_stack_cve_audit_impl("example.com", tier="free", client_ip="")
 
-    assert "exploit_findings" not in result, f"Free tier MUST drop exploit_findings; got keys {sorted(result.keys())}"
-    assert exploit_calls == [], f"Free tier MUST NOT invoke exploit lookup; got {exploit_calls}"
+    assert "exploit_findings" in result, (
+        f"Free tier MUST include exploit_findings (no tier gating); got keys {sorted(result.keys())}"
+    )
+    assert result["exploit_findings"] == [], (
+        "fake exploit returns {} → no public exploit → empty list (present, not absent)"
+    )
+    assert exploit_calls == ["CVE-2024-0001"], (
+        f"Free tier MUST invoke exploit lookup (un-gated, same as Pro); got {exploit_calls}"
+    )
 
 
 @pytest.mark.asyncio
@@ -220,8 +229,10 @@ async def test_tech_stack_cve_audit_pro_tier_bulk_batch_50(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_tech_stack_cve_audit_free_tier_bulk_batch_10(monkeypatch):
-    """Free tier requests limit=10 for the CVE candidate generator."""
+async def test_tech_stack_cve_audit_free_tier_bulk_batch_50(monkeypatch):
+    """v1.33.1: Free tier requests the SAME limit=50 as Pro for the CVE
+    candidate generator. The candidate set is a local CVE-DB lookup (no
+    Shodan/AbuseIPDB) so result depth MUST NOT be tier-gated."""
     from app.domain import routes as _routes
 
     seen_limits: list[int] = []
@@ -268,7 +279,7 @@ async def test_tech_stack_cve_audit_free_tier_bulk_batch_10(monkeypatch):
     from app.domain.routes import _tech_stack_cve_audit_impl
 
     await _tech_stack_cve_audit_impl("example.com", tier="free", client_ip="")
-    assert seen_limits == [10], f"Free tier must request limit=10; got {seen_limits}"
+    assert seen_limits == [50], f"Free tier must request limit=50 (un-gated); got {seen_limits}"
 
 
 @pytest.mark.asyncio
@@ -333,27 +344,27 @@ async def test_tech_stack_cve_audit_invalid_domain():
         assert exc_info.value.status_code == 400, f"input {bad!r} must 400; got {exc_info.value.status_code}"
 
 
-def test_tech_stack_cve_audit_response_free_tier_serializes_without_exploit_findings():
-    """Wire-shape guard: Free tier wrapping MUST NOT include `exploit_findings`
-    in `model_dump()` output. Pricing-leak fix: even though the field is
-    declared with default=None on the model, the custom @model_serializer
-    drops it when None so Free-tier callers never see the key on the wire."""
+def test_tech_stack_cve_audit_response_always_serializes_exploit_findings():
+    """v1.33.1: tier gating removed. `exploit_findings` is a plain
+    `list[dict]` (default []) with NO drop-when-None serializer — it is
+    ALWAYS present on the wire (even with no exploit data) so every caller
+    sees a consistent envelope shape regardless of tier."""
     from app.schemas import TechStackCveAuditResponse
 
-    free_response = TechStackCveAuditResponse(
+    response = TechStackCveAuditResponse(
         domain="example.com",
         technologies={"technologies": [], "categories": {}, "count": 0, "summary": ""},
         cves_by_tech={},
         kev_findings=[],
         summary="ok",
     )
-    data = free_response.model_dump()
-    assert "exploit_findings" not in data, f"Wire response leaks exploit_findings on Free: keys={sorted(data.keys())}"
+    data = response.model_dump()
+    assert "exploit_findings" in data, f"exploit_findings MUST always be present; keys={sorted(data.keys())}"
+    assert data["exploit_findings"] == [], "unset exploit_findings must serialize as [] (present, not absent/None)"
 
 
-def test_tech_stack_cve_audit_response_pro_tier_serializes_with_exploit_findings():
-    """Symmetric guard: Pro tier wrapping MUST include `exploit_findings` in
-    `model_dump()` output when populated."""
+def test_tech_stack_cve_audit_response_serializes_populated_exploit_findings():
+    """Populated `exploit_findings` is preserved verbatim in model_dump()."""
     from app.schemas import TechStackCveAuditResponse
 
     pro_response = TechStackCveAuditResponse(

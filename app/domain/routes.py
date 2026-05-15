@@ -3573,9 +3573,12 @@ async def _tech_stack_cve_audit_impl(
 ) -> dict:
     """Pattern B shared implementation for MCP-only composite
     `tech_stack_cve_audit`. Fans out to tech fingerprint + bulk CVE lookup +
-    KEV lookup (and exploit lookup for Pro) via direct in-process calls.
-    Tier branching: Free skips exploit enrichment AND drops the field from
-    the response. CVE candidate batch: Free=10, Pro=50."""
+    KEV lookup + exploit lookup via direct in-process calls. No tier gating:
+    every data source here is a local DB mirror (CVE/KEV/ExploitDB) — not
+    Shodan/AbuseIPDB — so CVE batch depth (50) and exploit findings are
+    identical for all tiers; monetization is the per-call credit cost +
+    hourly rate limit only. `tier` is kept for Pattern B signature symmetry
+    but no longer affects the output."""
     from domain.recon import fetch_live_headers
     from domain.tech import detect_technologies
 
@@ -3597,7 +3600,7 @@ async def _tech_stack_cve_audit_impl(
     )
     tech_list = tech.get("technologies", []) or []
 
-    cve_batch_limit = 50 if tier == "pro" else 10
+    cve_batch_limit = 50  # v1.33.1: un-gated — local CVE DB, no per-tier depth reduction
     candidate_cve_ids, product_attribution = await _tech_stack_cve_candidates(tech_list, limit=cve_batch_limit)
 
     if candidate_cve_ids:
@@ -3640,22 +3643,20 @@ async def _tech_stack_cve_audit_impl(
             if isinstance(kev, dict) and kev:
                 kev_findings.append(kev)
 
-        if tier == "pro":
-            exploit_results = await asyncio.gather(
-                *[_tech_stack_exploit_lookup(c) for c in cves_to_enrich],
-                return_exceptions=True,
-            )
-            for exp in exploit_results:
-                if isinstance(exp, dict) and exp.get("has_public_exploit"):
-                    exploit_findings.append(exp)
+        exploit_results = await asyncio.gather(
+            *[_tech_stack_exploit_lookup(c) for c in cves_to_enrich],
+            return_exceptions=True,
+        )
+        for exp in exploit_results:
+            if isinstance(exp, dict) and exp.get("has_public_exploit"):
+                exploit_findings.append(exp)
 
     summary = (
         f"Detected {tech.get('count', 0)} technologies, "
         f"{bulk.get('successful', 0)} CVEs enriched, "
         f"{len(kev_findings)} KEV-listed"
     )
-    if tier == "pro":
-        summary += f", {len(exploit_findings)} with public exploits"
+    summary += f", {len(exploit_findings)} with public exploits"
 
     next_calls = [
         {
@@ -3674,6 +3675,5 @@ async def _tech_stack_cve_audit_impl(
         "summary": summary,
         "next_calls": next_calls or None,
     }
-    if tier == "pro":
-        response["exploit_findings"] = exploit_findings
+    response["exploit_findings"] = exploit_findings
     return response

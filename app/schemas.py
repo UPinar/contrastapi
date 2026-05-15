@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_serializer
+from pydantic import BaseModel, Field
 
 
 class ErrorDetail(BaseModel):
@@ -242,9 +242,9 @@ class TechStackCveAuditResponse(BaseSuccessResponse):
     """Response envelope for the MCP-only composite `tech_stack_cve_audit`.
 
     Combines technology fingerprint, per-tech CVE candidates, KEV matches,
-    and (Pro-only) exploit findings in a single agentic response. Free tier
-    drops `exploit_findings` entirely (field absent, not None) via the
-    `_serialize_drop_none_exploit_findings` model serializer below.
+    and exploit findings in a single agentic response. No tier gating — all
+    fields (including `exploit_findings`) are sourced from local DB mirrors
+    and are always present on the wire for every tier.
     """
 
     model_config = {"extra": "allow"}
@@ -259,15 +259,9 @@ class TechStackCveAuditResponse(BaseSuccessResponse):
         default_factory=list,
         description="CISA KEV records for matched CVEs. Empty when no KEV matches.",
     )
-    exploit_findings: list[dict] | None = Field(
-        default=None,
-        description="Pro tier only: public exploit / PoC availability per CVE. Absent on Free.",
+    exploit_findings: list[dict] = Field(
+        default_factory=list,
+        description="Public exploit / PoC availability per matched CVE (local ExploitDB mirror). "
+        "Always present; empty list when none found.",
     )
     summary: str = Field(description="Human-readable triage summary — N techs, M CVEs, K KEV-listed.")
-
-    @model_serializer(mode="wrap")
-    def _serialize_drop_none_exploit_findings(self, handler):
-        data = handler(self)
-        if data.get("exploit_findings") is None:
-            data.pop("exploit_findings", None)
-        return data

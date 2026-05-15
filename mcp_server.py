@@ -696,7 +696,7 @@ async def tech_stack_cve_audit(
         ),
     ],
 ) -> TechStackCveAuditResponse | ErrorResponse:
-    """Composite tech-stack + CVE audit (MCP-only, no REST endpoint). Detects technologies on the target domain, queries CVE database for known vulnerabilities per product, enriches top-10 CVE candidates with CISA KEV federal patch deadlines, and (Pro tier) checks public exploit / PoC availability. Tier-aware CVE batch: Free=10 candidates, Pro=50. Free tier omits exploit_findings entirely. Cost: 10 credits per call — Free 30/hr ≈ 3 audits, Pro 500/hr ≈ 50 audits. Returns {domain, technologies, cves_by_tech, kev_findings, exploit_findings (Pro only), summary, next_calls}."""
+    """Composite tech-stack + CVE audit (MCP-only, no REST endpoint). Detects technologies on the target domain, queries CVE database for known vulnerabilities per product, enriches top-10 CVE candidates with CISA KEV federal patch deadlines, and checks public exploit / PoC availability. Identical for every tier — all data is sourced from local DB mirrors (no Shodan/AbuseIPDB), so there is no tier gating. CVE candidate batch: 50. Cost: 10 credits per call — Free 30/hr ≈ 3 audits, Pro 500/hr ≈ 50 audits. Returns {domain, technologies, cves_by_tech, kev_findings, exploit_findings, summary, next_calls}."""
     from app.domain.routes import _tech_stack_cve_audit_impl
 
     try:
