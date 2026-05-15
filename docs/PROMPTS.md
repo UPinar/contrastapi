@@ -27,6 +27,7 @@ Copy-paste these into Claude Desktop, Cursor, VS Code, or any MCP-enabled agent 
 - *"Show me CVEs that were indexed before NVD — what's leading right now?"*
 - *"Pull the CISA KEV record for CVE-2021-44228 — what's the federal patch deadline and required action?"*
 - *"Look up CWE-79 — describe the weakness, list common mitigations, and tell me how many CVEs are mapped to it"*
+- *"Audit example.com's tech stack for known CVEs — fingerprint the technologies, map CVEs per product, flag KEV-listed ones with patch deadlines, and note which have public exploits"*
 
 ## IP & Network
 

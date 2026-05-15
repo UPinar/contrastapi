@@ -1,6 +1,6 @@
 # Tool Selection Guide
 
-> 52 MCP tools, 60+ HTTP endpoints. This guide answers "which tool for which question" in 4 decision trees. Skim this once; agents read tool docstrings — humans read this.
+> 53 MCP tools, 60+ HTTP endpoints. This guide answers "which tool for which question" in 4 decision trees. Skim this once; agents read tool docstrings — humans read this.
 
 ---
 
@@ -38,6 +38,7 @@ search by vendor/product/keyword          → cve_search       (filter + cursor 
 KEV detail: federal patch deadline + remediation → kev_detail
 underlying CWE category + mitigations     → cwe_lookup       (MITRE CWE 944-entry catalog)
 public exploits / PoC code for this CVE   → exploit_lookup   (Exploit-DB + GitHub PoC)
+CVEs affecting a domain's whole tech stack → tech_stack_cve_audit (1 call: fingerprint→CVE→KEV→exploit, cost 10)
 ```
 
 **Cascading workflow** (the canonical CVE drill-down):

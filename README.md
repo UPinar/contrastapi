@@ -1,15 +1,15 @@
-# ContrastAPI — 52 Security Tools + 7 MCP Resources for AI Agents
+# ContrastAPI — 53 Security Tools + 7 MCP Resources for AI Agents
 
 <p align="center">
   <img src="app/static/banner.png" alt="ContrastAPI Banner" width="100%">
 </p>
 
-[![MCP](https://img.shields.io/badge/MCP-52_tools-purple.svg)](https://modelcontextprotocol.io)
+[![MCP](https://img.shields.io/badge/MCP-53_tools-purple.svg)](https://modelcontextprotocol.io)
 [![smithery badge](https://smithery.ai/badge/contrastcyber/contrastapi)](https://smithery.ai/servers/contrastcyber/contrastapi)
 [![contrastapi MCP server](https://glama.ai/mcp/servers/UPinar/contrastapi/badges/score.svg)](https://glama.ai/mcp/servers/UPinar/contrastapi)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-**Security intelligence MCP server for AI agents.** CVE/KEV/CWE lookup with EPSS, **composite risk scoring (CVSS+EPSS+KEV+PoC fusion — v1.29.1)**, **CVSS v3.x vector parser (v1.29.1)**, domain audit, IP threat reports, IOC enrichment, code security, **MITRE ATLAS (AI/ML attacks) + D3FEND (defenses)**, **web intelligence (robots.txt, redirect-chain, email validation, brand-assets, SEO audit — v1.25.0)**. **52 tools + 7 Resources (ATLAS+D3FEND+CWE catalog browsing) + conditional triage Prompt, free, no API key, 30 credits/hour.**
+**Security intelligence MCP server for AI agents.** CVE/KEV/CWE lookup with EPSS, **composite risk scoring (CVSS+EPSS+KEV+PoC fusion — v1.29.1)**, **CVSS v3.x vector parser (v1.29.1)**, domain audit, IP threat reports, IOC enrichment, code security, **MITRE ATLAS (AI/ML attacks) + D3FEND (defenses)**, **web intelligence (robots.txt, redirect-chain, email validation, brand-assets, SEO audit — v1.25.0)**. **53 tools + 7 Resources (ATLAS+D3FEND+CWE catalog browsing) + conditional triage Prompt, free, no API key, 30 credits/hour.**
 
 [中文](README_CN.md) · **Live:** [api.contrastcyber.com](https://api.contrastcyber.com)
 
@@ -37,24 +37,24 @@ pip install contrastapi      # Python 3.10+ — sync + async, typed responses, s
 npm install contrastapi      # Node 14+ — concrete TypeScript types, 14 namespaces
 ```
 
-Both SDKs cover all 60+ HTTP endpoints / 52 MCP tools (CVE/KEV/CWE, ATLAS, D3FEND, Sigma rules, email security posture, domain, IP, IOC, code-security, web-intel, etc.) with the same wire-exact response shapes and a typed exception hierarchy mirroring the v1.22.2+ error envelope. v1.23.0 adds MCP Resources (ATLAS+D3FEND+CWE catalog browsing — see [docs/resources.md](docs/resources.md)) and a conditional triage Prompt (see [docs/PROMPTS.md#contrast-triage-v1230](docs/PROMPTS.md)). v1.25.0 adds 5 web-intelligence tools (`robots_txt`, `redirect_chain`, `email_verify`, `brand_assets`, `seo_audit`) with explicit ethical-floor guardrails (per-target eTLD+1 throttle, robots.txt respected, no SMTP probing).
+Both SDKs cover all 60+ HTTP endpoints / 53 MCP tools (CVE/KEV/CWE, ATLAS, D3FEND, Sigma rules, email security posture, domain, IP, IOC, code-security, web-intel, etc.) with the same wire-exact response shapes and a typed exception hierarchy mirroring the v1.22.2+ error envelope. v1.23.0 adds MCP Resources (ATLAS+D3FEND+CWE catalog browsing — see [docs/resources.md](docs/resources.md)) and a conditional triage Prompt (see [docs/PROMPTS.md#contrast-triage-v1230](docs/PROMPTS.md)). v1.25.0 adds 5 web-intelligence tools (`robots_txt`, `redirect_chain`, `email_verify`, `brand_assets`, `seo_audit`) with explicit ethical-floor guardrails (per-target eTLD+1 throttle, robots.txt respected, no SMTP probing).
 
 ## Try it
 
 ```bash
-curl https://api.contrastcyber.com/v1/cve/CVE-2021-44228
-curl https://api.contrastcyber.com/v1/cve/CVE-2021-44228/risk_score   # composite risk (CVSS+EPSS+KEV+PoC)
-curl 'https://api.contrastcyber.com/v1/cvss/details?vector=CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H'
-curl https://api.contrastcyber.com/v1/atlas/AML.T0051            # MITRE ATLAS — LLM Prompt Injection
-curl https://api.contrastcyber.com/v1/d3fend/attack/T1059        # D3FEND defenses for ATT&CK T1059
+curl 'https://api.contrastcyber.com/v1/cves?product=openssl&kev=true'  # cve_search — CVEs by product, KEV-only filter
+curl https://api.contrastcyber.com/v1/domain/example.com         # domain_report — DNS+WHOIS+SSL+subdomains+intel, one call
+curl https://api.contrastcyber.com/v1/cve/CVE-2021-44228         # cve_lookup — full record (CVSS+EPSS+KEV+CWE)
+curl https://api.contrastcyber.com/v1/exploit/CVE-2021-44228     # exploit_lookup — public PoC / exploit availability
+curl https://api.contrastcyber.com/v1/ip/1.1.1.1                 # ip_lookup — reputation, geo, ASN, threat intel
 ```
 
 Or ask your agent:
 
-- *"Compute the composite risk score for CVE-2021-44228 — fuse CVSS, EPSS, KEV, and PoC into a single label."*
-- *"Is CVE-2024-3094 exploited in the wild? Check EPSS + KEV, then look up the underlying CWE."*
-- *"Explain LLM Prompt Injection in MITRE ATLAS and bridge it to D3FEND defenses."*
-- *"For these ATT&CK techniques [T1059, T1190, T1550.001, T9999], which have NO D3FEND mitigation?"*
+- *"Search for KEV-listed OpenSSL CVEs, then pull the full record for the highest-EPSS one."*
+- *"Run a full domain report for example.com — DNS, WHOIS, SSL, subdomains, and threat intel in one call."*
+- *"Does CVE-2021-44228 have a public exploit or PoC available?"*
+- *"What's the reputation, country, and ASN for 1.1.1.1 — is it flagged in any threat feed?"*
 
 ## Links
 
