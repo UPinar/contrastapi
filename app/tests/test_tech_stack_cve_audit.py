@@ -11,6 +11,7 @@ would not take effect.
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 
 import pytest
@@ -29,8 +30,7 @@ def test_tech_stack_cve_audit_impl_signature():
     assert "client_ip" in sig.parameters
 
 
-@pytest.mark.asyncio
-async def test_tech_stack_cve_audit_happy_path(monkeypatch):
+def test_tech_stack_cve_audit_happy_path(monkeypatch):
     """Domain → 2 techs → 3 CVE candidates → 1 KEV match → Pro tier sees
     exploit_findings. Envelope carries domain, technologies, cves_by_tech,
     kev_findings, exploit_findings, summary, next_calls."""
@@ -89,7 +89,7 @@ async def test_tech_stack_cve_audit_happy_path(monkeypatch):
 
     from app.domain.routes import _tech_stack_cve_audit_impl
 
-    result = await _tech_stack_cve_audit_impl("example.com", tier="pro", client_ip="")
+    result = asyncio.run(_tech_stack_cve_audit_impl("example.com", tier="pro", client_ip=""))
 
     assert result["domain"] == "example.com"
     assert result["technologies"]["count"] == 2
@@ -108,8 +108,7 @@ async def test_tech_stack_cve_audit_happy_path(monkeypatch):
     assert isinstance(result.get("next_calls"), list) and len(result["next_calls"]) > 0
 
 
-@pytest.mark.asyncio
-async def test_tech_stack_cve_audit_free_tier_also_gets_exploit(monkeypatch):
+def test_tech_stack_cve_audit_free_tier_also_gets_exploit(monkeypatch):
     """v1.33.1: tier gating removed. Exploit data is a local ExploitDB-mirror
     lookup (not Shodan/AbuseIPDB) so it MUST NOT be tier-gated — Free gets the
     SAME treatment as Pro: exploit lookup is invoked and `exploit_findings` is
@@ -163,7 +162,7 @@ async def test_tech_stack_cve_audit_free_tier_also_gets_exploit(monkeypatch):
 
     from app.domain.routes import _tech_stack_cve_audit_impl
 
-    result = await _tech_stack_cve_audit_impl("example.com", tier="free", client_ip="")
+    result = asyncio.run(_tech_stack_cve_audit_impl("example.com", tier="free", client_ip=""))
 
     assert "exploit_findings" in result, (
         f"Free tier MUST include exploit_findings (no tier gating); got keys {sorted(result.keys())}"
@@ -176,8 +175,7 @@ async def test_tech_stack_cve_audit_free_tier_also_gets_exploit(monkeypatch):
     )
 
 
-@pytest.mark.asyncio
-async def test_tech_stack_cve_audit_pro_tier_bulk_batch_50(monkeypatch):
+def test_tech_stack_cve_audit_pro_tier_bulk_batch_50(monkeypatch):
     """Pro tier requests limit=50 for the CVE candidate generator."""
     from app.domain import routes as _routes
 
@@ -224,12 +222,11 @@ async def test_tech_stack_cve_audit_pro_tier_bulk_batch_50(monkeypatch):
 
     from app.domain.routes import _tech_stack_cve_audit_impl
 
-    await _tech_stack_cve_audit_impl("example.com", tier="pro", client_ip="")
+    asyncio.run(_tech_stack_cve_audit_impl("example.com", tier="pro", client_ip=""))
     assert seen_limits == [50], f"Pro tier must request limit=50; got {seen_limits}"
 
 
-@pytest.mark.asyncio
-async def test_tech_stack_cve_audit_free_tier_bulk_batch_50(monkeypatch):
+def test_tech_stack_cve_audit_free_tier_bulk_batch_50(monkeypatch):
     """v1.33.1: Free tier requests the SAME limit=50 as Pro for the CVE
     candidate generator. The candidate set is a local CVE-DB lookup (no
     Shodan/AbuseIPDB) so result depth MUST NOT be tier-gated."""
@@ -278,12 +275,11 @@ async def test_tech_stack_cve_audit_free_tier_bulk_batch_50(monkeypatch):
 
     from app.domain.routes import _tech_stack_cve_audit_impl
 
-    await _tech_stack_cve_audit_impl("example.com", tier="free", client_ip="")
+    asyncio.run(_tech_stack_cve_audit_impl("example.com", tier="free", client_ip=""))
     assert seen_limits == [50], f"Free tier must request limit=50 (un-gated); got {seen_limits}"
 
 
-@pytest.mark.asyncio
-async def test_tech_stack_cve_audit_no_techs_detected(monkeypatch):
+def test_tech_stack_cve_audit_no_techs_detected(monkeypatch):
     """Empty fingerprint → zero techs → no CVE lookup, empty cves_by_tech,
     empty kev_findings. Must not crash."""
     from app.domain import routes as _routes
@@ -326,21 +322,20 @@ async def test_tech_stack_cve_audit_no_techs_detected(monkeypatch):
 
     from app.domain.routes import _tech_stack_cve_audit_impl
 
-    result = await _tech_stack_cve_audit_impl("static-site.example", tier="pro", client_ip="")
+    result = asyncio.run(_tech_stack_cve_audit_impl("static-site.example", tier="pro", client_ip=""))
     assert result["technologies"]["count"] == 0
     assert result["cves_by_tech"] == {}
     assert result["kev_findings"] == []
     assert bulk_calls == [], "bulk_cve must not be called when no CVE candidates"
 
 
-@pytest.mark.asyncio
-async def test_tech_stack_cve_audit_invalid_domain():
+def test_tech_stack_cve_audit_invalid_domain():
     """Malformed inputs raise HTTPException(400) via clean_domain."""
     from app.domain.routes import _tech_stack_cve_audit_impl
 
     for bad in ["", "   ", "not a domain", "192.168.1.1"]:
         with pytest.raises(HTTPException) as exc_info:
-            await _tech_stack_cve_audit_impl(bad, tier="pro", client_ip="")
+            asyncio.run(_tech_stack_cve_audit_impl(bad, tier="pro", client_ip=""))
         assert exc_info.value.status_code == 400, f"input {bad!r} must 400; got {exc_info.value.status_code}"
 
 
