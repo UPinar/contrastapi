@@ -26,6 +26,7 @@ only — never permanent backward-compat.
 """
 
 import hashlib
+import os
 import secrets
 from dataclasses import dataclass
 from typing import Literal
@@ -90,22 +91,29 @@ def hash_key(key: str) -> str:
 
 # v1.33.x Opt 2 — per-process random token marking a trusted in-process hop
 # (mcp_server._aget() -> /v1/*). Never logged, never in any response, never
-# sent to external clients. Regenerated every process start.
-INTERNAL_TRUST_TOKEN = secrets.token_urlsafe(32)
+# sent to external clients. os.environ-backed so the value is identical
+# across the codebase's dual import paths (bare `auth` vs `app.auth`
+# sys.path trap) AND across the 4 uvicorn workers (--workers 2 x @8002/
+# @8003); a plain module-level secrets call differs per module instance /
+# per process and silently breaks the trust check (v1.33.2 prod incident).
+# CONTRASTAPI_INTERNAL_TOKEN is pre-populated in production via systemd
+# EnvironmentFile; random fallback only fires in dev/test (single process).
+INTERNAL_TRUST_TOKEN = os.environ.setdefault("CONTRASTAPI_INTERNAL_TOKEN", secrets.token_urlsafe(32))
 
 
 def _is_trusted_internal(request: Request) -> str | None:
     """Return the already-resolved tier iff this is a trusted in-process hop.
 
-    True only when X-Internal-Auth matches the per-process token AND the real
-    TCP peer is loopback (X-Forwarded-For is client-controlled, NOT consulted).
-    Both required. Returns "pro"/"free" to skip re-auth + re-charge, else None.
+    True only when X-Internal-Auth matches the process-shared token
+    (timing-safe compare) AND X-Internal-Tier is "pro"/"free". The TCP peer
+    is NOT checked: uvicorn's proxy_headers rewrites request.client.host
+    from X-Forwarded-For on the in-process hop, so a loopback test fails for
+    the forwarded request. nginx strips inbound X-Internal-* on every public
+    location (the external-injection boundary); the secret token (never
+    logged/echoed) is the sole, sufficient control. Returns tier else None.
     """
     tok = request.headers.get("x-internal-auth", "")
     if not tok or not secrets.compare_digest(tok, INTERNAL_TRUST_TOKEN):
-        return None
-    peer = request.client.host if request.client else ""
-    if peer not in ("127.0.0.1", "::1"):
         return None
     tier = request.headers.get("x-internal-tier", "")
     if tier not in ("pro", "free"):

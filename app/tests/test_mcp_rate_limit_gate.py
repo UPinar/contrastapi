@@ -943,6 +943,18 @@ def test_internal_trust_token_exists_and_random():
     assert len(INTERNAL_TRUST_TOKEN) >= 32
 
 
+def test_internal_trust_token_is_environ_backed():
+    """Defect-1 (v1.33.3): token must be os.environ-backed so all 4 uvicorn
+    workers (--workers 2 x @8002/@8003) share one value. A plain per-process
+    secrets.token_urlsafe makes the MCP->REST hop token mismatch cross-worker
+    -> keyless-Free 30/hr (v1.33.2 prod incident)."""
+    import os
+
+    import auth
+
+    assert os.environ.get("CONTRASTAPI_INTERNAL_TOKEN") == auth.INTERNAL_TRUST_TOKEN
+
+
 def test_is_trusted_internal_accepts_valid_token_loopback():
     import auth
 
@@ -959,21 +971,25 @@ def test_is_trusted_internal_accepts_valid_token_loopback():
     assert auth._is_trusted_internal(req_free) == "free"
 
 
+def test_is_trusted_internal_accepts_non_loopback_with_valid_token():
+    """Defect-2 (v1.33.3): TCP peer check removed. uvicorn proxy_headers
+    rewrites request.client.host from X-Forwarded-For on the in-process hop,
+    so a valid token+tier must be trusted regardless of peer (the loopback
+    test was failing every forwarded hop -> keyless-Free 30/hr)."""
+    import auth
+
+    req = _fake_request(
+        {"x-internal-auth": auth.INTERNAL_TRUST_TOKEN, "x-internal-tier": "pro"},
+        peer="203.0.113.5",
+    )
+    assert auth._is_trusted_internal(req) == "pro"
+
+
 def test_is_trusted_internal_rejects_spoofing():
     import auth
 
     # wrong token
     assert auth._is_trusted_internal(_fake_request({"x-internal-auth": "bogus", "x-internal-tier": "pro"})) is None
-    # valid token but non-loopback real peer
-    assert (
-        auth._is_trusted_internal(
-            _fake_request(
-                {"x-internal-auth": auth.INTERNAL_TRUST_TOKEN, "x-internal-tier": "pro"},
-                peer="203.0.113.5",
-            )
-        )
-        is None
-    )
     # valid token + loopback but invalid tier
     assert (
         auth._is_trusted_internal(
