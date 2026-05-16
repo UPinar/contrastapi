@@ -88,6 +88,31 @@ def hash_key(key: str) -> str:
     return hashlib.sha256(key.encode()).hexdigest()
 
 
+# v1.33.x Opt 2 — per-process random token marking a trusted in-process hop
+# (mcp_server._aget() -> /v1/*). Never logged, never in any response, never
+# sent to external clients. Regenerated every process start.
+INTERNAL_TRUST_TOKEN = secrets.token_urlsafe(32)
+
+
+def _is_trusted_internal(request: Request) -> str | None:
+    """Return the already-resolved tier iff this is a trusted in-process hop.
+
+    True only when X-Internal-Auth matches the per-process token AND the real
+    TCP peer is loopback (X-Forwarded-For is client-controlled, NOT consulted).
+    Both required. Returns "pro"/"free" to skip re-auth + re-charge, else None.
+    """
+    tok = request.headers.get("x-internal-auth", "")
+    if not tok or not secrets.compare_digest(tok, INTERNAL_TRUST_TOKEN):
+        return None
+    peer = request.client.host if request.client else ""
+    if peer not in ("127.0.0.1", "::1"):
+        return None
+    tier = request.headers.get("x-internal-tier", "")
+    if tier not in ("pro", "free"):
+        return None
+    return tier
+
+
 def extract_key(request: Request) -> str | None:
     """Extract API key from Authorization: Bearer cc_xxx header."""
     auth = request.headers.get("authorization", "")
@@ -140,6 +165,21 @@ def authenticate_sync(request: Request, endpoint: str, cost: int = 1) -> AuthCtx
         HTTPException 429 — rate limit exceeded
     """
     from validation import get_client_ip
+
+    _trusted_tier = _is_trusted_internal(request)
+    if _trusted_tier is not None:
+        _lim = PRO_HOURLY_LIMIT if _trusted_tier == "pro" else FREE_HOURLY_LIMIT
+        _ctx = AuthCtx(
+            tier=_trusted_tier,
+            key_hash=None,
+            client_ip="127.0.0.1",
+            ratelimit_limit=_lim,
+            ratelimit_remaining=_lim,
+            ratelimit_reset=0,
+            ratelimit_cost=cost,
+        )
+        _stash(request, _ctx)
+        return _ctx
 
     client_ip = get_client_ip(request)
     raw_key = extract_key(request)
@@ -269,6 +309,21 @@ async def aauthenticate(request: Request, endpoint: str, cost: int = 1) -> AuthC
     dwarf their sub-microsecond work.
     """
     from validation import get_client_ip
+
+    _trusted_tier = _is_trusted_internal(request)
+    if _trusted_tier is not None:
+        _lim = PRO_HOURLY_LIMIT if _trusted_tier == "pro" else FREE_HOURLY_LIMIT
+        _ctx = AuthCtx(
+            tier=_trusted_tier,
+            key_hash=None,
+            client_ip="127.0.0.1",
+            ratelimit_limit=_lim,
+            ratelimit_remaining=_lim,
+            ratelimit_reset=0,
+            ratelimit_cost=cost,
+        )
+        _stash(request, _ctx)
+        return _ctx
 
     client_ip = get_client_ip(request)
     raw_key = extract_key(request)

@@ -48,6 +48,13 @@ for _p in (_REPO_ROOT, _APP_DIR):
         sys.path.insert(0, _p)
 
 import httpx  # noqa: E402  (must follow sys.path patch above)
+
+# Bare `auth` (NOT `app.auth`): routes + the MCP gate all do `from auth
+# import ...`, creating sys.modules["auth"]. Importing `app.auth` here would
+# load a SECOND module object with its own random INTERNAL_TRUST_TOKEN, so the
+# token we send would never match the one _is_trusted_internal checks → Opt 2
+# silently dead. Resolvable in every context: _APP_DIR is on sys.path (above).
+from auth import INTERNAL_TRUST_TOKEN  # noqa: E402
 from fastapi import HTTPException  # noqa: E402
 from mcp.server.fastmcp import FastMCP  # noqa: E402
 from mcp.server.fastmcp.exceptions import ToolError  # noqa: E402
@@ -251,6 +258,10 @@ def _headers() -> dict:
     h = {"Accept": "application/json"}
     if API_KEY:
         h["Authorization"] = f"Bearer {API_KEY}"
+    # Opt 2: mark this as a trusted in-process hop so REST require_auth skips
+    # re-auth + re-charge (the /mcp/ gate already charged the resolved tier).
+    h["X-Internal-Auth"] = INTERNAL_TRUST_TOKEN
+    h["X-Internal-Tier"] = _get_user_tier()
     # Forward real client IP so backend applies correct rate limits
     client_ip = _safe_ip(_client_ip_var.get())
     if client_ip:
@@ -856,16 +867,18 @@ async def email_mx(
 
 @mcp_tool_safe(annotations=_RO_OPEN_WORLD)
 async def email_security_posture(
-    domain: Annotated[
-        str, Field(description="Domain to audit email authentication posture for (e.g. 'example.com')")
-    ],
+    domain: Annotated[str, Field(description="Domain to audit email authentication posture for (e.g. 'example.com')")],
     selectors: Annotated[
-        str | None,
-        Field(description="Optional comma-separated custom DKIM selectors to probe")
+        str | None, Field(description="Optional comma-separated custom DKIM selectors to probe")
     ] = None,
 ) -> EmailSecurityPostureResponse | ErrorResponse:
     """Analyze domain email authentication posture: SPF, DMARC, DKIM with numeric score and findings. Dual-use: red-team (spoofing feasibility) + blue-team (posture audit). Score 0-100, grades A+-F. DKIM probing tests common selectors + recent dates; custom selectors must be supplied. Passive DNS-only; no SMTP probe. Free: 30/hr, Pro: 500/hr."""
-    return EmailSecurityPostureResponse(**await _aget(f"/v1/email/security-posture/{_require_domain(domain)}", params={"selectors": selectors} if selectors else None))
+    return EmailSecurityPostureResponse(
+        **await _aget(
+            f"/v1/email/security-posture/{_require_domain(domain)}",
+            params={"selectors": selectors} if selectors else None,
+        )
+    )
 
 
 @mcp_tool_safe(annotations=_RO_OPEN_WORLD)
@@ -1629,7 +1642,9 @@ async def sigma_rule_lookup(
 ) -> SigmaRuleLookupResponse | ErrorResponse:
     """Look up a single Sigma detection rule by UUID from the SigmaHQ corpus (~3,200 rules, refreshed daily at 02:00 UTC). Returns the full rule with title, description, status (stable/test/experimental/deprecated/unsupported), level (informational/low/medium/high/critical), logsource (product/category/service), detection logic, tags (including attack.t#### ATT&CK technique refs and cve.YYYY-#### CVE refs), author, references, and modification date. Use to fetch a known rule for context (e.g., a SIEM detection that fired) or to inspect a rule discovered via REST sigma_rule_search. When a rule tags an ATT&CK technique or CVE, the response next_calls surfaces atlas_technique_lookup / cve_lookup as natural follow-ups. Free: 30/hr, Pro: 500/hr. Returns {rule, next_calls}."""
     if not _SIGMA_UUID_RE.match(rule_id):
-        raise InvalidArgumentException(f"Invalid Sigma rule_id: {rule_id!r}. Expected UUID format (8-4-4-4-12 hex with hyphens).")
+        raise InvalidArgumentException(
+            f"Invalid Sigma rule_id: {rule_id!r}. Expected UUID format (8-4-4-4-12 hex with hyphens)."
+        )
     return SigmaRuleLookupResponse(**await _aget(f"/v1/sigma/{rule_id}"))
 
 

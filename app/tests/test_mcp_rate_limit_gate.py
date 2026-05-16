@@ -916,3 +916,101 @@ def test_mcp_tech_stack_cve_audit_impl_signature():
     for kw in ("domain", "tier", "client_ip"):
         assert kw in sig.parameters, f"missing `{kw}` parameter"
     assert inspect.iscoroutinefunction(_tech_stack_cve_audit_impl)
+
+
+# === Opt 2: internal-origin trust (Pro-tier MCP fix) ========================
+
+
+def _fake_request(headers: dict, peer: str = "127.0.0.1"):
+    """Minimal Starlette Request with given headers + TCP peer."""
+    from starlette.requests import Request
+
+    scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/v1/cwe/CWE-79",
+        "query_string": b"",
+        "headers": [(k.lower().encode(), v.encode()) for k, v in headers.items()],
+        "client": (peer, 12345),
+    }
+    return Request(scope)
+
+
+def test_internal_trust_token_exists_and_random():
+    from auth import INTERNAL_TRUST_TOKEN
+
+    assert isinstance(INTERNAL_TRUST_TOKEN, str)
+    assert len(INTERNAL_TRUST_TOKEN) >= 32
+
+
+def test_is_trusted_internal_accepts_valid_token_loopback():
+    import auth
+
+    req = _fake_request(
+        {"x-internal-auth": auth.INTERNAL_TRUST_TOKEN, "x-internal-tier": "pro"},
+        peer="127.0.0.1",
+    )
+    assert auth._is_trusted_internal(req) == "pro"
+
+    req_free = _fake_request(
+        {"x-internal-auth": auth.INTERNAL_TRUST_TOKEN, "x-internal-tier": "free"},
+        peer="::1",
+    )
+    assert auth._is_trusted_internal(req_free) == "free"
+
+
+def test_is_trusted_internal_rejects_spoofing():
+    import auth
+
+    # wrong token
+    assert auth._is_trusted_internal(_fake_request({"x-internal-auth": "bogus", "x-internal-tier": "pro"})) is None
+    # valid token but non-loopback real peer
+    assert (
+        auth._is_trusted_internal(
+            _fake_request(
+                {"x-internal-auth": auth.INTERNAL_TRUST_TOKEN, "x-internal-tier": "pro"},
+                peer="203.0.113.5",
+            )
+        )
+        is None
+    )
+    # valid token + loopback but invalid tier
+    assert (
+        auth._is_trusted_internal(
+            _fake_request({"x-internal-auth": auth.INTERNAL_TRUST_TOKEN, "x-internal-tier": "enterprise"})
+        )
+        is None
+    )
+    # no internal headers at all
+    assert auth._is_trusted_internal(_fake_request({})) is None
+
+
+def test_authenticate_sync_internal_trust_skips_consume():
+    import auth
+    from auth import authenticate_sync
+    from config import PRO_HOURLY_LIMIT
+
+    req = _fake_request(
+        {"x-internal-auth": auth.INTERNAL_TRUST_TOKEN, "x-internal-tier": "pro"},
+        peer="127.0.0.1",
+    )
+    ctx = authenticate_sync(req, "/v1/cwe/CWE-79", cost=1)
+    assert ctx.tier == "pro"
+    assert ctx.key_hash is None
+    assert ctx.ratelimit_limit == PRO_HOURLY_LIMIT
+    # short-circuit returned an AuthCtx (no HTTPException, no consume)
+    assert req.state.auth is ctx
+
+
+def test_headers_emit_internal_trust():
+    import auth
+
+    import mcp_server
+
+    tok = mcp_server._user_tier_var.set("pro")
+    try:
+        h = mcp_server._headers()
+    finally:
+        mcp_server._user_tier_var.reset(tok)
+    assert h["X-Internal-Auth"] == auth.INTERNAL_TRUST_TOKEN
+    assert h["X-Internal-Tier"] == "pro"
