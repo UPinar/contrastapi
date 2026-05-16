@@ -102,7 +102,7 @@ def api_capabilities():
         "auth": {
             "type": "none_required",
             "free_tier": {"requests_per_hour": 100},
-            "pro_tier": {"requests_per_hour": 1000, "header": "Authorization: Bearer cc_xxx"},
+            "pro_tier": {"requests_per_hour": 1000, "header": "Authorization: Bearer cc_xxx or X-API-Key: cc_xxx"},
         },
         "rate_limit_headers": [
             "X-RateLimit-Limit",

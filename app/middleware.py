@@ -20,19 +20,25 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 def _extract_key_from_scope(scope: Scope) -> str | None:
     """Scope-native equivalent of `auth.extract_key(request)`.
 
-    Reads only the Authorization header (parity with auth.extract_key — no
-    query param / cookie fallback). Used by RequestContextMiddleware for the
-    rare nginx-tarpit edge case where 429 is emitted before the auth path runs.
+    Reads Authorization (Bearer) then X-API-Key (parity with
+    auth.extract_key — no query param / cookie fallback). Used by
+    RequestContextMiddleware for the rare nginx-tarpit edge case where
+    429 is emitted before the auth path runs.
     """
+    bearer_token: str | None = None
+    apikey_token: str | None = None
     for name, value in scope.get("headers", ()):
         if name == b"authorization":
             auth = value.decode("latin-1")
             if auth.startswith("Bearer "):
                 token = auth[7:].strip()
                 if token.startswith(KEY_PREFIX) and len(token) == len(KEY_PREFIX) + KEY_LENGTH:
-                    return token
-            return None
-    return None
+                    bearer_token = token
+        elif name == b"x-api-key":
+            token = value.decode("latin-1").strip()
+            if token.startswith(KEY_PREFIX) and len(token) == len(KEY_PREFIX) + KEY_LENGTH:
+                apikey_token = token
+    return bearer_token or apikey_token
 
 
 class SecurityHeadersMiddleware:

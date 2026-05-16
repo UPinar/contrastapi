@@ -54,9 +54,10 @@ _bearer_scheme = HTTPBearer(
     auto_error=False,
     scheme_name="ContrastAPIKey",
     description=(
-        f"Optional. Pass `Authorization: Bearer cc_<48 hex>` for Pro tier "
-        f"({PRO_HOURLY_LIMIT}/hr). Omit for keyless Free tier "
-        f"({FREE_HOURLY_LIMIT}/hr/IP). Get a key at {UPGRADE_URL}."
+        f"Optional. Pass `Authorization: Bearer cc_<48 hex>` (or "
+        f"`X-API-Key: cc_<48 hex>`) for Pro tier ({PRO_HOURLY_LIMIT}/hr). "
+        f"Omit for keyless Free tier ({FREE_HOURLY_LIMIT}/hr/IP). "
+        f"Get a key at {UPGRADE_URL}."
     ),
 )
 
@@ -122,12 +123,15 @@ def _is_trusted_internal(request: Request) -> str | None:
 
 
 def extract_key(request: Request) -> str | None:
-    """Extract API key from Authorization: Bearer cc_xxx header."""
+    """Extract API key from Authorization: Bearer cc_xxx or X-API-Key: cc_xxx header."""
     auth = request.headers.get("authorization", "")
     if auth.startswith("Bearer "):
         token = auth[7:].strip()
         if token.startswith(KEY_PREFIX) and len(token) == len(KEY_PREFIX) + KEY_LENGTH:
             return token
+    api_key = request.headers.get("x-api-key", "").strip()
+    if api_key.startswith(KEY_PREFIX) and len(api_key) == len(KEY_PREFIX) + KEY_LENGTH:
+        return api_key
     return None
 
 
@@ -139,6 +143,15 @@ def _saw_bearer_attempt(request: Request) -> bool:
     if not auth.startswith("Bearer "):
         return False
     return auth[7:].strip().startswith(KEY_PREFIX)
+
+
+def _saw_apikey_attempt(request: Request) -> bool:
+    # X-API-Key parity with _saw_bearer_attempt: a malformed X-API-Key
+    # (starts cc_ but wrong length) must 401, not silently degrade to free.
+    api_key = request.headers.get("x-api-key", "").strip()
+    if not api_key:
+        return False
+    return api_key.startswith(KEY_PREFIX)
 
 
 def _privacy_opt_out(request: Request) -> bool:
@@ -193,7 +206,7 @@ def authenticate_sync(request: Request, endpoint: str, cost: int = 1) -> AuthCtx
     raw_key = extract_key(request)
     localhost = client_ip in ("127.0.0.1", "::1")
 
-    if not raw_key and _saw_bearer_attempt(request):
+    if not raw_key and (_saw_bearer_attempt(request) or _saw_apikey_attempt(request)):
         ctx = AuthCtx(
             tier="pro",
             key_hash=None,
@@ -337,7 +350,7 @@ async def aauthenticate(request: Request, endpoint: str, cost: int = 1) -> AuthC
     raw_key = extract_key(request)
     localhost = client_ip in ("127.0.0.1", "::1")
 
-    if not raw_key and _saw_bearer_attempt(request):
+    if not raw_key and (_saw_bearer_attempt(request) or _saw_apikey_attempt(request)):
         ctx = AuthCtx(
             tier="pro",
             key_hash=None,

@@ -444,3 +444,108 @@ class TestExtractKeyLength:
         request.query_params = {}
         result = extract_key(request)
         assert result is not None
+
+
+# --- extract_key X-API-Key header (Smithery mandates this header) ---
+
+
+def test_extract_key_x_api_key():
+    from auth import extract_key
+    from config import KEY_LENGTH
+
+    valid = "cc_" + "a" * KEY_LENGTH
+    request = MagicMock()
+    request.headers = {"x-api-key": valid}
+    assert extract_key(request) == valid
+
+
+def test_extract_key_x_api_key_wrong_prefix():
+    from auth import extract_key
+
+    request = MagicMock()
+    request.headers = {"x-api-key": "sk_wrongprefix"}
+    assert extract_key(request) is None
+
+
+def test_extract_key_x_api_key_empty():
+    from auth import extract_key
+
+    request = MagicMock()
+    request.headers = {"x-api-key": ""}
+    assert extract_key(request) is None
+
+
+def test_extract_key_x_api_key_too_short():
+    from auth import extract_key
+    from config import KEY_LENGTH
+
+    request = MagicMock()
+    request.headers = {"x-api-key": "cc_" + "a" * (KEY_LENGTH - 1)}
+    assert extract_key(request) is None
+
+
+def test_extract_key_x_api_key_too_long():
+    from auth import extract_key
+    from config import KEY_LENGTH
+
+    request = MagicMock()
+    request.headers = {"x-api-key": "cc_" + "a" * (KEY_LENGTH + 1)}
+    assert extract_key(request) is None
+
+
+def test_extract_key_x_api_key_exact_length():
+    from auth import extract_key
+    from config import KEY_LENGTH
+
+    request = MagicMock()
+    request.headers = {"x-api-key": "cc_" + "a" * KEY_LENGTH}
+    assert extract_key(request) is not None
+
+
+def test_extract_key_bearer_precedence_over_apikey():
+    from auth import extract_key
+    from config import KEY_LENGTH
+
+    request = MagicMock()
+    request.headers = {
+        "authorization": "Bearer cc_" + "a" * KEY_LENGTH,
+        "x-api-key": "cc_" + "b" * KEY_LENGTH,
+    }
+    assert extract_key(request) == "cc_" + "a" * KEY_LENGTH
+
+
+def test_authenticate_malformed_apikey_cc_401():
+    from auth import authenticate_sync as authenticate
+    from fastapi import HTTPException
+
+    for token in ("cc_BAD000", "cc_", "cc_x", "cc_" + "a" * 100):
+        request = MagicMock()
+        request.headers = {"x-api-key": token}
+        request.client = MagicMock()
+        request.client.host = "9.8.7.6"
+        with pytest.raises(HTTPException) as exc_info:
+            authenticate(request, "/v1/test")
+        assert exc_info.value.status_code == 401, f"token={token!r} should have raised 401"
+
+
+def test_extract_key_x_api_key_whitespace_tolerated():
+    from auth import extract_key
+    from config import KEY_LENGTH
+
+    valid = "cc_" + "a" * KEY_LENGTH
+    request = MagicMock()
+    request.headers = {"x-api-key": "  " + valid + "  "}
+    assert extract_key(request) == valid
+
+
+def test_authenticate_malformed_apikey_whitespace_401():
+    from auth import authenticate_sync as authenticate
+    from fastapi import HTTPException
+
+    request = MagicMock()
+    request.headers = {"x-api-key": "  cc_BAD  "}
+    request.client = MagicMock()
+    request.client.host = "9.8.7.6"
+    with pytest.raises(HTTPException) as exc_info:
+        authenticate(request, "/v1/test")
+    assert exc_info.value.status_code == 401
