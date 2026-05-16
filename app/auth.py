@@ -87,6 +87,10 @@ def generate_key() -> str:
 
 def hash_key(key: str) -> str:
     """SHA-256 hash of the raw key."""
+    # SHA-256 (not bcrypt/argon2) is deliberate: `key` is a high-entropy
+    # random token, and key_hash is a deterministic DB lookup index. Salted
+    # KDFs add no security for a ~192-bit random input and break indexed
+    # lookup. CodeQL py/weak-sensitive-data-hashing #109 dismissed (won't fix).
     return hashlib.sha256(key.encode()).hexdigest()
 
 

@@ -3340,6 +3340,82 @@ class TestFetchLiveHeaders:
         assert "error" in result
 
 
+# =========== fetch_live_page connection-release (cancel-without-await leak) ===========
+
+
+class _FakeStreamCM:
+    def __init__(self, scheme, exits, *, block):
+        self._scheme = scheme
+        self._exits = exits
+        self._block = block
+
+    async def __aenter__(self):
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.url = httpx.URL(f"{self._scheme}://example.com/")
+        if self._block:
+            resp.headers = httpx.Headers([("Content-Type", "text/html")])
+
+            async def _blocking_aiter():
+                await asyncio.Event().wait()
+                yield b""
+
+            resp.aiter_bytes = _blocking_aiter
+        else:
+            resp.headers = httpx.Headers([("Content-Type", "text/plain")])
+        return resp
+
+    async def __aexit__(self, *exc):
+        self._exits.append(self._scheme)
+        return False
+
+
+def _make_stream(blocking_scheme, exits):
+    def _factory(method, url, **kw):
+        scheme = "https" if url.startswith("https://") else "http"
+        return _FakeStreamCM(scheme, exits, block=(scheme == blocking_scheme))
+
+    return _factory
+
+
+class TestFetchLivePageConnectionRelease:
+    def test_path_a_https_wins_cancels_http_releases_connection(self):
+        from domain.recon import fetch_live_page
+
+        exits = []
+        with patch("domain.recon._ssrf_http.stream", new=MagicMock(side_effect=_make_stream("http", exits))):
+
+            async def _run():
+                res = await fetch_live_page("example.com")
+                return res, list(exits)
+
+            res, snapshot = asyncio.run(_run())
+        assert "headers" in res
+        assert set(snapshot) == {"https", "http"}
+
+    def test_path_b_http_wins_cancels_https_releases_connection(self):
+        from domain.recon import fetch_live_page
+
+        exits = []
+        with patch("domain.recon._ssrf_http.stream", new=MagicMock(side_effect=_make_stream("https", exits))):
+
+            async def _run():
+                res = await fetch_live_page("example.com")
+                return res, list(exits)
+
+            res, snapshot = asyncio.run(_run())
+        assert "headers" in res
+        assert set(snapshot) == {"https", "http"}
+
+
+class TestSsrfHttpPoolTimeout:
+    def test_pool_timeout_is_explicit(self):
+        from domain.recon import _ssrf_http
+
+        assert _ssrf_http.timeout.pool == 5.0
+        assert _ssrf_http.timeout.connect == 5.0
+
+
 # =========== scoring threat factor tests ===========
 
 

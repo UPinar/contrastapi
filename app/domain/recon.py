@@ -1147,7 +1147,7 @@ class _SSRFSafeAsyncTransport(httpx.AsyncHTTPTransport):
 
 _ssrf_http = httpx.AsyncClient(
     transport=_SSRFSafeAsyncTransport(),
-    timeout=httpx.Timeout(RECON_TIMEOUT, connect=5.0),
+    timeout=httpx.Timeout(RECON_TIMEOUT, connect=5.0, pool=5.0),
     headers={"User-Agent": USER_AGENT},
     # follow_redirects set per-request by callers
     max_redirects=5,
@@ -1261,6 +1261,7 @@ async def fetch_live_page(domain: str) -> dict:
             result = https_t.result()
             for p in pending:
                 p.cancel()
+            await asyncio.gather(*pending, return_exceptions=True)
             return result
         except Exception as e:
             errors["https"] = type(e).__name__
@@ -1283,6 +1284,7 @@ async def fetch_live_page(domain: str) -> dict:
             except (asyncio.TimeoutError, Exception):
                 if not https_t.done():
                     https_t.cancel()
+                    await asyncio.gather(https_t, return_exceptions=True)
                 return http_result
 
     logger.warning(
@@ -1924,8 +1926,10 @@ def _probe_dkim_posture(domain: str, selectors: list[str] | None = None, timeout
                 if len(verified) >= 3:
                     break
             except Exception:
+                # One bad/slow DKIM selector lookup must not abort the scan.
                 pass
     except TimeoutError:
+        # Overall as_completed deadline hit — use whatever selectors verified.
         pass
     finally:
         pool.shutdown(wait=False, cancel_futures=True)
