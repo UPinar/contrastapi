@@ -617,7 +617,6 @@ def _parse_mitre_cve(item: dict) -> dict:
             continue
         seen_urls.add(url)
         refs_with_tags.append({"url": url, "tags": [], "source": "mitre"})
-    refs = [r["url"] for r in refs_with_tags][:20]
 
     # CISA Vulnrichment (ADP) — backfill only empty CNA fields; CNA always wins.
     for adp in (containers.get("adp", []) or [])[:10]:
