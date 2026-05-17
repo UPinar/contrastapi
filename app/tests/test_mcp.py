@@ -1217,3 +1217,62 @@ class TestToolsListCache:
         # registry); slow path may itself error out on the malformed
         # notification, which is fine — we only assert the negative.
         assert b"_sentinel_gamma_" not in r.content
+
+
+class TestOutputSchemaSlim:
+    """Wire tools/list outputSchema: JSON-Schema annotation prose
+    (description/title/examples/default) dropped at schema level, but field/
+    model declarations under properties/$defs PRESERVED. Both fast-path cache
+    and cache-None lazy-rebuild path. Spec-valid (no dangling $ref)."""
+
+    # field NAMES that equal a JSON-Schema keyword — must survive slimming
+    # (regression guard for the keyword-vs-name over-prune defect).
+    _MUST_KEEP = (
+        ("cve_lookup", "CveResponse", "description"),
+        ("sigma_rule_lookup", "SigmaRule", "title"),
+        ("check_secrets", "CodeFinding", "description"),
+    )
+
+    def _assert_correct_slim(self, tools):
+        import json as _j
+        import re as _re
+
+        from config import MCP_TOOL_COUNT
+
+        assert len(tools) == MCP_TOOL_COUNT
+        bn = {t["name"]: t for t in tools}
+        for tool, model, field in self._MUST_KEEP:
+            osch = bn[tool]["outputSchema"]
+            defs = set((osch.get("$defs") or {}).keys())
+            for r in _re.findall(r"#/\$defs/([A-Za-z0-9_]+)", _j.dumps(osch)):
+                assert r in defs, f"{tool}: dangling $ref {r}"
+            props = osch["$defs"][model]["properties"]
+            assert field in props, f"{tool}.{model}.{field} wrongly deleted"
+        cve = bn["cve_lookup"]["outputSchema"]["$defs"]["CveResponse"]
+        assert "description" not in cve and "title" not in cve, "model-level prose not stripped"
+        fld = cve["properties"]["description"]
+        assert "description" not in fld and "title" not in fld, "field-level prose not stripped"
+        total = len(_j.dumps({"tools": tools}, separators=(",", ":")))
+        assert total < 400_000, f"slim ineffective: {total}B (expect ~295KB vs ~679KB)"
+
+    def test_slim_correct_fastpath(self, mcp_client):
+        r = mcp_client.post(
+            "/mcp/",
+            headers=MCP_HEADERS,
+            json={"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}},
+        )
+        assert r.status_code == 200
+        self._assert_correct_slim(r.json()["result"]["tools"])
+
+    def test_slim_correct_slowpath_cache_none(self, mcp_client, monkeypatch):
+        from core import mcp_proxy
+
+        monkeypatch.setattr(mcp_proxy, "_tools_list_result_bytes", None)
+        r = mcp_client.post(
+            "/mcp/",
+            headers=MCP_HEADERS,
+            json={"jsonrpc": "2.0", "id": 99, "method": "tools/list", "params": {}},
+        )
+        assert r.status_code == 200
+        assert r.json()["id"] == 99
+        self._assert_correct_slim(r.json()["result"]["tools"])
