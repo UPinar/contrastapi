@@ -487,7 +487,7 @@ def _parse_mitre_cve(item: dict) -> dict:
     desc = ""
     for d in cna.get("descriptions", []) or []:
         if d.get("lang", "").lower().startswith("en"):
-            desc = d.get("value", "") or ""
+            desc = (d.get("value", "") or "")[:4096]
             break
 
     # CVSS v3.1 → v3.0, skip other/v2
@@ -610,10 +610,139 @@ def _parse_mitre_cve(item: dict) -> dict:
         if not isinstance(r, dict):
             continue
         url = r.get("url")
-        if not isinstance(url, str) or not url or url in seen_urls:
+        if not isinstance(url, str) or not url:
+            continue
+        url = url[:2048]
+        if url in seen_urls:
             continue
         seen_urls.add(url)
         refs_with_tags.append({"url": url, "tags": [], "source": "mitre"})
+    refs = [r["url"] for r in refs_with_tags][:20]
+
+    # CISA Vulnrichment (ADP) — backfill only empty CNA fields; CNA always wins.
+    for adp in (containers.get("adp", []) or [])[:10]:
+        if not isinstance(adp, dict):
+            continue
+        if not desc:
+            for d in adp.get("descriptions", []) or []:
+                if d.get("lang", "").lower().startswith("en"):
+                    desc = (d.get("value", "") or "")[:4096]
+                    break
+        for metric in adp.get("metrics", []) or []:
+            if not isinstance(metric, dict):
+                continue
+            cvss_data = None
+            for key in ("cvssV3_1", "cvssV3_0"):
+                val = metric.get(key)
+                if isinstance(val, dict):
+                    cvss_data = val
+                    break
+            if cvss_data:
+                raw_score = cvss_data.get("baseScore")
+                adp_cvss_v3 = (
+                    raw_score if isinstance(raw_score, (int, float)) and not isinstance(raw_score, bool) else None
+                )
+                raw_vector = cvss_data.get("vectorString")
+                adp_cvss_vector = raw_vector if isinstance(raw_vector, str) else None
+                raw_sev = cvss_data.get("baseSeverity")
+                if isinstance(raw_sev, str):
+                    adp_severity = raw_sev.upper()
+                else:
+                    adp_severity = _severity_from_score(adp_cvss_v3)
+                if not any(s["source"] == "cisa-adp" for s in severity_sources):
+                    severity_sources.append(
+                        {"source": "cisa-adp", "severity": adp_severity, "cvss_v3": adp_cvss_v3, "cvss_v2": None}
+                    )
+                if severity is None:
+                    severity = adp_severity
+                    cvss_v3 = adp_cvss_v3
+                    cvss_vector = adp_cvss_vector
+                break
+        if cwe_id is None:
+            for pt in adp.get("problemTypes", []) or []:
+                for wd in pt.get("descriptions", []) or []:
+                    val = wd.get("cweId", "")
+                    if isinstance(val, str) and re.match(r"^CWE-\d+$", val):
+                        cwe_id = val
+                        break
+                if cwe_id:
+                    break
+        for aff in (adp.get("affected", []) or [])[:100]:
+            if not isinstance(aff, dict):
+                continue
+            vendor = aff.get("vendor") or ""
+            if not isinstance(vendor, str):
+                vendor = ""
+            if vendor.lower() == "n/a":
+                continue
+            product = aff.get("product") or ""
+            if not isinstance(product, str):
+                product = ""
+            vendor = vendor[:256]
+            product = product[:256]
+            versions = aff.get("versions", []) or []
+            cpes = aff.get("cpes", []) or []
+            if versions:
+                for v in versions[:50]:
+                    if not isinstance(v, dict):
+                        continue
+                    if v.get("status", "affected") == "unaffected":
+                        continue
+                    ver_start = v.get("version") or None
+                    ver_end = v.get("lessThan") or v.get("lessThanOrEqual") or None
+                    if isinstance(ver_start, str):
+                        ver_start = ver_start[:256]
+                    elif ver_start is not None:
+                        ver_start = None
+                    if isinstance(ver_end, str):
+                        ver_end = ver_end[:256]
+                    elif ver_end is not None:
+                        ver_end = None
+                    key = (vendor, product, ver_start, ver_end)
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    products.append(
+                        {
+                            "vendor": vendor or None,
+                            "product": product or None,
+                            "version_start": ver_start,
+                            "version_end": ver_end,
+                        }
+                    )
+            elif cpes:
+                for cpe in cpes[:20]:
+                    if not isinstance(cpe, str):
+                        continue
+                    parts = cpe.split(":")
+                    if len(parts) >= 6:
+                        cpe_ver = parts[5][:256]
+                        if cpe_ver and cpe_ver not in ("*", "-"):
+                            ver_start = cpe_ver
+                            ver_end = None
+                            key = (vendor, product, ver_start, ver_end)
+                            if key in seen:
+                                continue
+                            seen.add(key)
+                            products.append(
+                                {
+                                    "vendor": vendor or None,
+                                    "product": product or None,
+                                    "version_start": ver_start,
+                                    "version_end": ver_end,
+                                }
+                            )
+        for r in (adp.get("references", []) or [])[:20]:
+            if not isinstance(r, dict):
+                continue
+            url = r.get("url")
+            if not isinstance(url, str) or not url:
+                continue
+            url = url[:2048]
+            if url in seen_urls:
+                continue
+            seen_urls.add(url)
+            refs_with_tags.append({"url": url, "tags": [], "source": "cisa-adp"})
     refs = [r["url"] for r in refs_with_tags][:20]
 
     published = meta.get("datePublished")

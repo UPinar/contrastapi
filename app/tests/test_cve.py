@@ -3026,6 +3026,226 @@ class TestParseMitreCve:
         result = _parse_mitre_cve(record)
         assert result["cwe_id"] == "CWE-79"
 
+    def test_adp_backfills_when_cna_empty(self):
+        from cve.sync import _parse_mitre_cve
+
+        record = {
+            "cveMetadata": {"cveId": "CVE-2024-90001", "state": "PUBLISHED"},
+            "containers": {
+                "cna": {},
+                "adp": [
+                    {
+                        "descriptions": [{"lang": "en", "value": "ADP filled this"}],
+                        "metrics": [
+                            {"cvssV3_1": {"baseScore": 8.8, "vectorString": "CVSS:3.1/X", "baseSeverity": "HIGH"}}
+                        ],
+                        "problemTypes": [{"descriptions": [{"cweId": "CWE-89"}]}],
+                        "references": [{"url": "https://adp.example/1"}],
+                    }
+                ],
+            },
+        }
+        result = _parse_mitre_cve(record)
+        assert result["description"] == "ADP filled this"
+        assert result["cvss_v3"] == 8.8
+        assert result["severity"] == "HIGH"
+        assert result["cwe_id"] == "CWE-89"
+        assert "https://adp.example/1" in result["refs"]
+        assert {"source": "cisa-adp", "severity": "HIGH", "cvss_v3": 8.8, "cvss_v2": None} in result["severity_sources"]
+
+    def test_cna_scalars_win_over_adp(self):
+        from cve.sync import _parse_mitre_cve
+
+        record = {
+            "cveMetadata": {"cveId": "CVE-2024-90002", "state": "PUBLISHED"},
+            "containers": {
+                "cna": {
+                    "descriptions": [{"lang": "en", "value": "CNA desc"}],
+                    "metrics": [{"cvssV3_1": {"baseScore": 7.5, "baseSeverity": "HIGH"}}],
+                    "problemTypes": [{"descriptions": [{"cweId": "CWE-79"}]}],
+                },
+                "adp": [
+                    {
+                        "descriptions": [{"lang": "en", "value": "ADP desc"}],
+                        "metrics": [{"cvssV3_1": {"baseScore": 5.0, "baseSeverity": "MEDIUM"}}],
+                        "problemTypes": [{"descriptions": [{"cweId": "CWE-89"}]}],
+                    }
+                ],
+            },
+        }
+        result = _parse_mitre_cve(record)
+        assert result["description"] == "CNA desc"
+        assert result["cvss_v3"] == 7.5
+        assert result["severity"] == "HIGH"
+        assert result["cwe_id"] == "CWE-79"
+        sources = {s["source"] for s in result["severity_sources"]}
+        assert sources == {"mitre", "cisa-adp"}
+
+    def test_adp_refs_merged_and_deduped(self):
+        from cve.sync import _parse_mitre_cve
+
+        record = {
+            "cveMetadata": {"cveId": "CVE-2024-90003", "state": "PUBLISHED"},
+            "containers": {
+                "cna": {"references": [{"url": "https://x/a"}, {"url": "https://x/b"}]},
+                "adp": [{"references": [{"url": "https://x/b"}, {"url": "https://x/c"}]}],
+            },
+        }
+        result = _parse_mitre_cve(record)
+        assert result["refs"] == ["https://x/a", "https://x/b", "https://x/c"]
+
+    def test_adp_affected_products_merged(self):
+        from cve.sync import _parse_mitre_cve
+
+        record = {
+            "cveMetadata": {"cveId": "CVE-2024-90004", "state": "PUBLISHED"},
+            "containers": {
+                "cna": {"affected": [{"vendor": "acme", "product": "cna-prod", "versions": [{"version": "1.0"}]}]},
+                "adp": [{"affected": [{"vendor": "acme", "product": "adp-prod", "versions": [{"version": "2.0"}]}]}],
+            },
+        }
+        result = _parse_mitre_cve(record)
+        prods = {(p["vendor"], p["product"]) for p in result["affected_products"]}
+        assert ("acme", "cna-prod") in prods
+        assert ("acme", "adp-prod") in prods
+
+    def test_adp_single_cisa_source_when_multiple_adp_entries(self):
+        from cve.sync import _parse_mitre_cve
+
+        record = {
+            "cveMetadata": {"cveId": "CVE-2024-90005", "state": "PUBLISHED"},
+            "containers": {
+                "cna": {},
+                "adp": [
+                    {"metrics": [{"cvssV3_1": {"baseScore": 9.1, "baseSeverity": "CRITICAL"}}]},
+                    {"metrics": [{"cvssV3_1": {"baseScore": 4.0, "baseSeverity": "MEDIUM"}}]},
+                ],
+            },
+        }
+        result = _parse_mitre_cve(record)
+        cisa = [s for s in result["severity_sources"] if s["source"] == "cisa-adp"]
+        assert len(cisa) == 1
+        assert cisa[0]["cvss_v3"] == 9.1
+
+
+class TestBatch1ReviewHardening:
+    def test_adp_outer_cap_limits_entries(self):
+        from cve.sync import _parse_mitre_cve
+
+        record = {
+            "cveMetadata": {"cveId": "CVE-2024-90006", "state": "PUBLISHED"},
+            "containers": {
+                "cna": {},
+                "adp": [
+                    {"affected": [{"vendor": "v", "product": f"p{i}", "versions": [{"version": "1.0"}]}]}
+                    for i in range(11)
+                ],
+            },
+        }
+        result = _parse_mitre_cve(record)
+        prods = {(p["vendor"], p["product"]) for p in result["affected_products"]}
+        assert ("v", "p0") in prods
+        assert ("v", "p10") not in prods
+
+    def test_cna_description_length_capped(self):
+        from cve.sync import _parse_mitre_cve
+
+        record = {
+            "cveMetadata": {"cveId": "CVE-2024-90007", "state": "PUBLISHED"},
+            "containers": {"cna": {"descriptions": [{"lang": "en", "value": "A" * 5000}]}},
+        }
+        result = _parse_mitre_cve(record)
+        assert len(result["description"]) == 4096
+
+    def test_reference_url_length_capped(self):
+        from cve.sync import _parse_mitre_cve
+
+        long_url = "https://x/" + "a" * 3000
+        record = {
+            "cveMetadata": {"cveId": "CVE-2024-90008", "state": "PUBLISHED"},
+            "containers": {"cna": {"references": [{"url": long_url}]}},
+        }
+        result = _parse_mitre_cve(record)
+        assert len(result["refs"][0]) == 2048
+
+    def test_severity_sources_rejects_unknown_source(self):
+        from db import get_cve, upsert_cve_if_absent
+
+        upsert_cve_if_absent(
+            {
+                "cve_id": "CVE-2024-ADPSS3",
+                "description": "x",
+                "severity_sources": [
+                    {"source": "evilcorp", "severity": "LOW", "cvss_v3": 1.0, "cvss_v2": None},
+                    {"source": "cisa-adp", "severity": "HIGH", "cvss_v3": 8.8, "cvss_v2": None},
+                ],
+            }
+        )
+        srcs = {s["source"] for s in get_cve("CVE-2024-ADPSS3")["severity_sources"]}
+        assert "evilcorp" not in srcs
+        assert "cisa-adp" in srcs
+
+    def test_severity_sources_corrupt_existing_nonlist_safe(self):
+        # GREEN-stays (defensive, not RED): must not crash, must not resurrect bad data.
+        import json as _json
+
+        from db import get_cve, get_cve_db, upsert_cve, upsert_cve_if_absent
+
+        upsert_cve({"cve_id": "CVE-2024-ADPSS4", "description": "x"})
+        with get_cve_db() as con:
+            con.execute(
+                "UPDATE cves SET severity_sources = ? WHERE cve_id = ?",
+                (_json.dumps({"source": "nvd"}), "CVE-2024-ADPSS4"),
+            )
+        upsert_cve_if_absent(
+            {
+                "cve_id": "CVE-2024-ADPSS4",
+                "severity_sources": [{"source": "cisa-adp", "severity": "HIGH", "cvss_v3": 8.8, "cvss_v2": None}],
+            }
+        )
+        srcs = {s["source"] for s in get_cve("CVE-2024-ADPSS4")["severity_sources"]}
+        assert srcs == {"cisa-adp"}
+
+
+class TestAdpSeveritySourcesMerge:
+    def test_upsert_cve_if_absent_persists_severity_sources_on_insert(self):
+        from db import get_cve, upsert_cve_if_absent
+
+        inserted = upsert_cve_if_absent(
+            {
+                "cve_id": "CVE-2024-ADPSS1",
+                "description": "x",
+                "severity_sources": [{"source": "cisa-adp", "severity": "HIGH", "cvss_v3": 8.8, "cvss_v2": None}],
+            }
+        )
+        assert inserted is True
+        ss = get_cve("CVE-2024-ADPSS1")["severity_sources"]
+        assert {s["source"] for s in ss} == {"cisa-adp"}
+
+    def test_upsert_cve_if_absent_merges_severity_sources_preserving_nvd(self):
+        from db import get_cve, upsert_cve, upsert_cve_if_absent
+
+        upsert_cve(
+            {
+                "cve_id": "CVE-2024-ADPSS2",
+                "description": "nvd",
+                "severity_sources": [{"source": "nvd", "severity": "LOW", "cvss_v3": 3.1, "cvss_v2": None}],
+            }
+        )
+        inserted = upsert_cve_if_absent(
+            {
+                "cve_id": "CVE-2024-ADPSS2",
+                "severity_sources": [
+                    {"source": "mitre", "severity": "HIGH", "cvss_v3": 7.5, "cvss_v2": None},
+                    {"source": "cisa-adp", "severity": "HIGH", "cvss_v3": 7.8, "cvss_v2": None},
+                ],
+            }
+        )
+        assert inserted is False
+        ss = {s["source"]: s for s in get_cve("CVE-2024-ADPSS2")["severity_sources"]}
+        assert set(ss) == {"nvd", "mitre", "cisa-adp"}
+        assert ss["nvd"]["cvss_v3"] == 3.1
+
 
 class TestSeverityFromScore:
     def test_critical(self):

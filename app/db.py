@@ -1797,6 +1797,28 @@ def upsert_cve_if_absent(cve_data: dict) -> bool:
                             1 if p.get("vulnerable", True) else 0,
                         ),
                     )
+        incoming_sev = cve_data.get("severity_sources") or []
+        if incoming_sev:
+            allowed_sources = {"nvd", "mitre", "ghsa", "osv", "cisa-adp"}
+            row = con.execute("SELECT severity_sources FROM cves WHERE cve_id = ?", (cve_id,)).fetchone()
+            existing_sev = []
+            if row and row[0]:
+                try:
+                    existing_sev = json.loads(row[0]) or []
+                except (json.JSONDecodeError, TypeError):
+                    existing_sev = []
+            if not isinstance(existing_sev, list):
+                existing_sev = []
+            by_source = {
+                s["source"]: s for s in existing_sev if isinstance(s, dict) and s.get("source") in allowed_sources
+            }
+            for s in incoming_sev:
+                if isinstance(s, dict) and s.get("source") in allowed_sources:
+                    by_source[s["source"]] = s
+            con.execute(
+                "UPDATE cves SET severity_sources = ? WHERE cve_id = ?",
+                (json.dumps(list(by_source.values())), cve_id),
+            )
         return inserted
 
 
