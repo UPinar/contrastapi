@@ -1226,7 +1226,7 @@ MAX_HTML_SIZE = 65536  # 64KB
 
 
 async def fetch_live_page(domain: str) -> dict:
-    """Fetch HTTP headers AND HTML body (first 64KB) from a live domain (HTTPS/HTTP in parallel)."""
+    """Fetch HTTP headers AND HTML body (first 64KB) from a live domain (prefer HTTPS, fall back to HTTP on failure)."""
 
     async def _fetch(scheme):
         async with _ssrf_http.stream(
@@ -1250,42 +1250,18 @@ async def fetch_live_page(domain: str) -> dict:
                 html = raw.decode("utf-8", errors="ignore")
             return {"headers": headers, "html": html, "status_code": resp.status_code, "url": str(resp.url)}
 
-    https_t = asyncio.create_task(_fetch("https"))
-    http_t = asyncio.create_task(_fetch("http"))
+    # `except Exception` intentionally does NOT catch asyncio.CancelledError
+    # (BaseException): client-disconnect / caller wait_for cancellation
+    # propagates out instead of being mislabelled as a connection error.
     errors: dict[str, str] = {}
-
-    done, pending = await asyncio.wait({https_t, http_t}, return_when=asyncio.FIRST_COMPLETED)
-
-    if https_t in done:
-        try:
-            result = https_t.result()
-            for p in pending:
-                p.cancel()
-            await asyncio.gather(*pending, return_exceptions=True)
-            return result
-        except Exception as e:
-            errors["https"] = type(e).__name__
-            try:
-                return await http_t
-            except Exception as e2:
-                errors["http"] = type(e2).__name__
-    else:
-        try:
-            http_result = http_t.result()
-        except Exception as e:
-            errors["http"] = type(e).__name__
-            try:
-                return await https_t
-            except Exception as e2:
-                errors["https"] = type(e2).__name__
-        else:
-            try:
-                return await asyncio.wait_for(asyncio.shield(https_t), timeout=1.0)
-            except (asyncio.TimeoutError, Exception):
-                if not https_t.done():
-                    https_t.cancel()
-                    await asyncio.gather(https_t, return_exceptions=True)
-                return http_result
+    try:
+        return await _fetch("https")
+    except Exception as e:
+        errors["https"] = type(e).__name__
+    try:
+        return await _fetch("http")
+    except Exception as e:
+        errors["http"] = type(e).__name__
 
     logger.warning(
         "fetch_live_page failed: HTTPS=%s, HTTP=%s",

@@ -3378,34 +3378,43 @@ def _make_stream(blocking_scheme, exits):
     return _factory
 
 
-class TestFetchLivePageConnectionRelease:
-    def test_path_a_https_wins_cancels_http_releases_connection(self):
+class TestFetchLivePageSequential:
+    def test_https_success_skips_http(self):
         from domain.recon import fetch_live_page
 
         exits = []
-        with patch("domain.recon._ssrf_http.stream", new=MagicMock(side_effect=_make_stream("http", exits))):
-
-            async def _run():
-                res = await fetch_live_page("example.com")
-                return res, list(exits)
-
-            res, snapshot = asyncio.run(_run())
+        m_stream = MagicMock(side_effect=_make_stream("none", exits))
+        with patch("domain.recon._ssrf_http.stream", new=m_stream):
+            res = asyncio.run(fetch_live_page("example.com"))
+        called = [c.args[1] for c in m_stream.call_args_list]
         assert "headers" in res
-        assert set(snapshot) == {"https", "http"}
+        assert called and all(u.startswith("https://") for u in called)
+        assert exits == ["https"]
 
-    def test_path_b_http_wins_cancels_https_releases_connection(self):
+    def test_https_failure_falls_back_to_http(self):
         from domain.recon import fetch_live_page
 
         exits = []
-        with patch("domain.recon._ssrf_http.stream", new=MagicMock(side_effect=_make_stream("https", exits))):
 
-            async def _run():
-                res = await fetch_live_page("example.com")
-                return res, list(exits)
+        def _factory(method, url, **kw):
+            if url.startswith("https://"):
+                raise httpx.ConnectError("https down")
+            return _FakeStreamCM("http", exits, block=False)
 
-            res, snapshot = asyncio.run(_run())
+        with patch("domain.recon._ssrf_http.stream", new=MagicMock(side_effect=_factory)):
+            res = asyncio.run(fetch_live_page("example.com"))
         assert "headers" in res
-        assert set(snapshot) == {"https", "http"}
+        assert exits == ["http"]
+
+    def test_both_schemes_fail_returns_error(self):
+        from domain.recon import fetch_live_page
+
+        def _factory(method, url, **kw):
+            raise httpx.ConnectError("down")
+
+        with patch("domain.recon._ssrf_http.stream", new=MagicMock(side_effect=_factory)):
+            res = asyncio.run(fetch_live_page("example.com"))
+        assert res == {"error": "Could not connect to example.com"}
 
 
 class TestSsrfHttpPoolTimeout:
