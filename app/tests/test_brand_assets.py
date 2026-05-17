@@ -508,18 +508,19 @@ class TestBrandAssetsRoute:
             async def aiter_bytes(self):
                 yield b"<html><head></head></html>"
 
-            async def __aenter__(self):
-                return self
+            async def aclose(self):
+                return None
 
-            async def __aexit__(self, *a):
-                return False
-
-        def fake_stream(method, url, **kwargs):
+        def fake_build_request(method, url, **kwargs):
             captured["headers"] = kwargs.get("headers", {})
+            return MagicMock()
+
+        async def fake_send(request, *, stream=False, follow_redirects=False):
             return _FakeResp({})
 
         with patch("domain.brand_assets._ssrf_http") as mock_http:
-            mock_http.stream = MagicMock(side_effect=fake_stream)
+            mock_http.build_request = MagicMock(side_effect=fake_build_request)
+            mock_http.send = AsyncMock(side_effect=fake_send)
             asyncio.run(fetch_homepage_html("example.com"))
 
         assert captured["headers"].get("Accept-Encoding") == "identity"

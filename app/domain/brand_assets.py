@@ -18,13 +18,13 @@ characters cannot escape into agent prompts via `og:site_name` etc.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
 from urllib.parse import urljoin, urlparse
 
 from bs4 import BeautifulSoup
-from config import BRAND_ASSETS_TIMEOUT
 from domain.recon import _ssrf_http, _strip_control_chars
 
 logger = logging.getLogger("contrastapi")
@@ -364,9 +364,9 @@ async def fetch_homepage_html(domain: str) -> dict:
     for scheme in ("https", "http"):
         url = f"{scheme}://{domain}/"
         try:
-            async with _ssrf_http.stream(
-                "GET", url, timeout=BRAND_ASSETS_TIMEOUT, follow_redirects=True, headers=no_compression
-            ) as resp:
+            req = _ssrf_http.build_request("GET", url, headers=no_compression)
+            resp = await _ssrf_http.send(req, stream=True, follow_redirects=True)
+            try:
                 final_url = str(resp.url)
                 status_code = resp.status_code
                 cache_control = (resp.headers.get("Cache-Control") or "").lower()
@@ -388,6 +388,8 @@ async def fetch_homepage_html(domain: str) -> dict:
                     "status_code": status_code,
                     "cache_control": cache_control,
                 }
+            finally:
+                await asyncio.shield(resp.aclose())
         except Exception as exc:
             last_exc = exc
             logger.debug("brand_assets fetch failed %s://%s/: %s", scheme, domain, exc)

@@ -2486,7 +2486,10 @@ async def tech_fingerprint(
 ):
     """Technology fingerprinting — detect CMS, frameworks, servers, CDNs, analytics."""
     domain, resolved_ip = _validate_domain_input(domain)
-    page = await fetch_live_page(domain)
+    try:
+        page = await asyncio.wait_for(fetch_live_page(domain), timeout=13.0)
+    except (asyncio.TimeoutError, TimeoutError):
+        raise HTTPException(status_code=504, detail="Technology fingerprint timed out — target too slow") from None
     if "error" in page:
         raise HTTPException(status_code=504, detail=page["error"])
     from domain.tech import detect_technologies
@@ -2575,7 +2578,10 @@ async def domain_vulns(
     """Tech stack vulnerability scan — detect technologies, then look up CVEs for each."""
     domain, resolved_ip = _validate_domain_input(domain)
 
-    page = await fetch_live_page(domain)
+    try:
+        page = await asyncio.wait_for(fetch_live_page(domain), timeout=13.0)
+    except (asyncio.TimeoutError, TimeoutError):
+        raise HTTPException(status_code=504, detail="Vulnerability scan timed out — target too slow") from None
     if "error" in page:
         raise HTTPException(status_code=504, detail=page["error"])
 

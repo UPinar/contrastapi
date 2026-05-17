@@ -1147,7 +1147,7 @@ class _SSRFSafeAsyncTransport(httpx.AsyncHTTPTransport):
 
 _ssrf_http = httpx.AsyncClient(
     transport=_SSRFSafeAsyncTransport(),
-    timeout=httpx.Timeout(RECON_TIMEOUT, connect=5.0, pool=5.0),
+    timeout=httpx.Timeout(RECON_TIMEOUT, connect=5.0, pool=12.0),
     headers={"User-Agent": USER_AGENT},
     # follow_redirects set per-request by callers
     max_redirects=5,
@@ -1229,12 +1229,9 @@ async def fetch_live_page(domain: str) -> dict:
     """Fetch HTTP headers AND HTML body (first 64KB) from a live domain (prefer HTTPS, fall back to HTTP on failure)."""
 
     async def _fetch(scheme):
-        async with _ssrf_http.stream(
-            "GET",
-            f"{scheme}://{domain}/",
-            timeout=RECON_TIMEOUT,
-            follow_redirects=True,
-        ) as resp:
+        req = _ssrf_http.build_request("GET", f"{scheme}://{domain}/")
+        resp = await _ssrf_http.send(req, stream=True, follow_redirects=True)
+        try:
             headers = {k.lower(): v for k, v in resp.headers.items()}
             html = None
             content_type = headers.get("content-type", "")
@@ -1249,6 +1246,8 @@ async def fetch_live_page(domain: str) -> dict:
                 raw = b"".join(chunks)
                 html = raw.decode("utf-8", errors="ignore")
             return {"headers": headers, "html": html, "status_code": resp.status_code, "url": str(resp.url)}
+        finally:
+            await asyncio.shield(resp.aclose())
 
     # `except Exception` intentionally does NOT catch asyncio.CancelledError
     # (BaseException): client-disconnect / caller wait_for cancellation

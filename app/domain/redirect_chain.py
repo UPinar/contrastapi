@@ -19,11 +19,12 @@ Location headers can't leak into the JSON response.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from urllib.parse import urljoin, urlparse
 
-from config import REDIRECT_MAX_HOPS, REDIRECT_TIMEOUT
+from config import REDIRECT_MAX_HOPS
 from domain.recon import _ssrf_http, _strip_control_chars
 
 
@@ -124,14 +125,18 @@ async def walk_redirect_chain(start_url: str, max_hops: int = REDIRECT_MAX_HOPS)
         # skipping the body saves us from gigabyte-sized HTML pages on
         # hop_count == 1 single-fetch lookups.
         t0 = time.time()
-        async with _ssrf_http.stream("GET", current_url, follow_redirects=False, timeout=REDIRECT_TIMEOUT) as resp:
+        req = _ssrf_http.build_request("GET", current_url)
+        resp = await _ssrf_http.send(req, stream=True, follow_redirects=False)
+        try:
             latency_ms = int((time.time() - t0) * 1000)
             status_code = resp.status_code
             raw_location = resp.headers.get("location")
             response_url = str(resp.url)
-            # Drain just enough to release the connection cleanly. httpx will
-            # close the body on context exit so we don't actually need to
-            # iterate. Belt-and-braces — `resp.close()` is implicit on exit.
+            # Drain just enough to release the connection cleanly. Explicit
+            # aclose in the finally block is immune to mid-stream task
+            # cancellation (pattern-B, S251 leak hardening).
+        finally:
+            await asyncio.shield(resp.aclose())
 
         absolute_location: str | None = None
         if raw_location:

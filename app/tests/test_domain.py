@@ -3343,37 +3343,46 @@ class TestFetchLiveHeaders:
 # =========== fetch_live_page connection-release (cancel-without-await leak) ===========
 
 
-class _FakeStreamCM:
+class _FakeStreamResp:
     def __init__(self, scheme, exits, *, block):
         self._scheme = scheme
         self._exits = exits
         self._block = block
+        self.status_code = 200
+        self.url = httpx.URL(f"{scheme}://example.com/")
+        self.headers = httpx.Headers([("Content-Type", "text/html")] if block else [("Content-Type", "text/plain")])
 
-    async def __aenter__(self):
-        resp = MagicMock()
-        resp.status_code = 200
-        resp.url = httpx.URL(f"{self._scheme}://example.com/")
+    async def aiter_bytes(self):
         if self._block:
-            resp.headers = httpx.Headers([("Content-Type", "text/html")])
+            await asyncio.Event().wait()
+        for _ in range(0):
+            yield b""
 
-            async def _blocking_aiter():
-                await asyncio.Event().wait()
-                yield b""
-
-            resp.aiter_bytes = _blocking_aiter
-        else:
-            resp.headers = httpx.Headers([("Content-Type", "text/plain")])
-        return resp
-
-    async def __aexit__(self, *exc):
+    async def aclose(self):
         self._exits.append(self._scheme)
-        return False
+
+
+class _FakeSsrf:
+    def __init__(self, factory):
+        self._factory = factory
+        self.sent_urls = []
+        self.timeout = httpx.Timeout(5.0, connect=5.0, pool=12.0)
+
+    def build_request(self, method, url, **kw):
+        r = MagicMock()
+        r.method = method
+        r.url = url
+        return r
+
+    async def send(self, request, *, stream=False, follow_redirects=False):
+        self.sent_urls.append(str(request.url))
+        return self._factory(request.method, str(request.url))
 
 
 def _make_stream(blocking_scheme, exits):
     def _factory(method, url, **kw):
         scheme = "https" if url.startswith("https://") else "http"
-        return _FakeStreamCM(scheme, exits, block=(scheme == blocking_scheme))
+        return _FakeStreamResp(scheme, exits, block=(scheme == blocking_scheme))
 
     return _factory
 
@@ -3383,12 +3392,11 @@ class TestFetchLivePageSequential:
         from domain.recon import fetch_live_page
 
         exits = []
-        m_stream = MagicMock(side_effect=_make_stream("none", exits))
-        with patch("domain.recon._ssrf_http.stream", new=m_stream):
+        fake = _FakeSsrf(_make_stream("none", exits))
+        with patch("domain.recon._ssrf_http", fake):
             res = asyncio.run(fetch_live_page("example.com"))
-        called = [c.args[1] for c in m_stream.call_args_list]
         assert "headers" in res
-        assert called and all(u.startswith("https://") for u in called)
+        assert fake.sent_urls and all(u.startswith("https://") for u in fake.sent_urls)
         assert exits == ["https"]
 
     def test_https_failure_falls_back_to_http(self):
@@ -3399,9 +3407,9 @@ class TestFetchLivePageSequential:
         def _factory(method, url, **kw):
             if url.startswith("https://"):
                 raise httpx.ConnectError("https down")
-            return _FakeStreamCM("http", exits, block=False)
+            return _FakeStreamResp("http", exits, block=False)
 
-        with patch("domain.recon._ssrf_http.stream", new=MagicMock(side_effect=_factory)):
+        with patch("domain.recon._ssrf_http", _FakeSsrf(_factory)):
             res = asyncio.run(fetch_live_page("example.com"))
         assert "headers" in res
         assert exits == ["http"]
@@ -3412,7 +3420,7 @@ class TestFetchLivePageSequential:
         def _factory(method, url, **kw):
             raise httpx.ConnectError("down")
 
-        with patch("domain.recon._ssrf_http.stream", new=MagicMock(side_effect=_factory)):
+        with patch("domain.recon._ssrf_http", _FakeSsrf(_factory)):
             res = asyncio.run(fetch_live_page("example.com"))
         assert res == {"error": "Could not connect to example.com"}
 
@@ -3421,7 +3429,7 @@ class TestSsrfHttpPoolTimeout:
     def test_pool_timeout_is_explicit(self):
         from domain.recon import _ssrf_http
 
-        assert _ssrf_http.timeout.pool == 5.0
+        assert _ssrf_http.timeout.pool == 12.0
         assert _ssrf_http.timeout.connect == 5.0
 
 

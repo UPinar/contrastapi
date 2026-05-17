@@ -15,11 +15,12 @@ escape the API surface.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import math
 from urllib.parse import urlparse
 
-from config import ROBOTS_MAX_BYTES, ROBOTS_TIMEOUT
+from config import ROBOTS_MAX_BYTES
 from domain.recon import _ssrf_http, _strip_control_chars
 
 logger = logging.getLogger("contrastapi")
@@ -144,9 +145,9 @@ async def fetch_robots_txt(domain: str) -> dict:
     for scheme in ("https", "http"):
         url = f"{scheme}://{domain}/robots.txt"
         try:
-            async with _ssrf_http.stream(
-                "GET", url, timeout=ROBOTS_TIMEOUT, follow_redirects=True, headers=no_compression
-            ) as resp:
+            req = _ssrf_http.build_request("GET", url, headers=no_compression)
+            resp = await _ssrf_http.send(req, stream=True, follow_redirects=True)
+            try:
                 fetched_url = str(resp.url)
                 status_code = resp.status_code
                 buf = bytearray()
@@ -157,6 +158,8 @@ async def fetch_robots_txt(domain: str) -> dict:
                         break
                 # Best-effort decode — robots.txt MUST be UTF-8 per RFC 9309 §2.2.
                 body = bytes(buf[:ROBOTS_MAX_BYTES]).decode("utf-8", errors="replace")
+            finally:
+                await asyncio.shield(resp.aclose())
             break  # success on https; do not fall back to http
         except Exception as exc:
             last_exc = exc
