@@ -1,8 +1,10 @@
 """Integration tests for /v1/sigma/* REST endpoints."""
 
 from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
 import pytest
+from auth import AuthCtx
 from fastapi.testclient import TestClient
 from main import app
 from sigma import get_sigma_index
@@ -219,3 +221,65 @@ def test_sigma_bulk_summary_string():
     )
     data = r.json()
     assert "rules found" in data["summary"]
+
+
+def test_sigma_bulk_partial_fill_when_quota_low():
+    """Per-id consume: when remaining quota < input list, surplus lands in
+    skipped_due_to_rate_limit instead of failing the whole batch (parity with bulk_cve/ioc).
+
+    Patch target is `auth.aauthenticate` (async) even though sigma_bulk is a sync
+    route: require_auth() always returns an async dep that awaits aauthenticate(),
+    so this is the correct seam regardless of the handler's sync/async-ness.
+    consume_bulk runs against the real temp sqlite store (reset per-test by the
+    autouse temp_dbs fixture) — deterministic because available_budget is derived
+    from the mocked ratelimit_remaining, not the store."""
+    auth_ctx = AuthCtx(
+        tier="free",
+        key_hash=None,
+        client_ip="127.0.0.1",
+        ratelimit_limit=30,
+        ratelimit_remaining=1,  # require_auth paid 1 → 2 rule_ids processable
+        ratelimit_reset=0,
+        ratelimit_cost=1,
+    )
+    rule_ids = [
+        "195e1b9d-bfc2-4ffa-ab4e-35aef69815f8",
+        "00000000-0000-0000-0000-000000000000",
+        "abcd1234-5678-90ab-cdef-1234567890ab",
+        "11111111-2222-3333-4444-555555555555",
+        "22222222-3333-4444-5555-666666666666",
+    ]
+    with patch("auth.aauthenticate", new_callable=AsyncMock, return_value=auth_ctx):
+        r = client.post("/v1/sigma/bulk", json={"rule_ids": rule_ids})
+    assert r.status_code == 200
+    data = r.json()
+    assert data["total"] == 5
+    assert data["processed"] == 2
+    assert len(data["results"]) == 2
+    assert len(data["skipped_due_to_rate_limit"]) == 3
+    assert data["partial"] is True
+
+
+def test_sigma_bulk_skipped_ids_are_sanitized():
+    """skipped_due_to_rate_limit must not echo CRLF / bidi-override (reflected-echo guard)."""
+    auth_ctx = AuthCtx(
+        tier="free",
+        key_hash=None,
+        client_ip="127.0.0.1",
+        ratelimit_limit=30,
+        ratelimit_remaining=0,  # only the require_auth-paid unit → 1 processable
+        ratelimit_reset=0,
+        ratelimit_cost=1,
+    )
+    rule_ids = [
+        "195e1b9d-bfc2-4ffa-ab4e-35aef69815f8",
+        "abcd1234-5678-90ab-cdef-1234567890ab\r\nINJECTED",
+        "evil‮rab",
+    ]
+    with patch("auth.aauthenticate", new_callable=AsyncMock, return_value=auth_ctx):
+        r = client.post("/v1/sigma/bulk", json={"rule_ids": rule_ids})
+    assert r.status_code == 200
+    skipped = r.json()["skipped_due_to_rate_limit"]
+    assert len(skipped) == 2
+    assert all("\r" not in s and "\n" not in s for s in skipped)
+    assert all("‮" not in s for s in skipped)

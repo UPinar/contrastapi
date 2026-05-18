@@ -114,13 +114,16 @@ Use `exclude_id=` on search/reverse-lookup endpoints to skip the originating rec
 
 ## Bulk endpoints (when N round-trips become 1)
 
-| Tool | Free tier limit | Pro tier limit | Per-id rate-limit consume |
-|---|---:|---:|---|
-| `bulk_cve_lookup` | 10 | 50 | yes (1 unit/CVE) |
-| `bulk_ioc_lookup` | 10 | 50 | yes (1 unit/indicator) |
-| `bulk_atlas_technique_lookup` | 10 | 50 | yes (1 unit/technique) — v1.20.0+ |
+All bulk endpoints share **one fixed input cap of 50 ids per call** (Pydantic `max_length=50`), **identical for Free and Pro** — there is no tier-dependent batch size. The only per-tier difference is the hourly quota itself (Free 30/hr, Pro 500/hr): every bulk endpoint consumes 1 unit per id, so ids beyond the caller's remaining quota land in `skipped_due_to_rate_limit` rather than the batch being rejected.
 
-**Empty input → 200 + empty results** on all three (v1.21.0+ unified).
+| Tool | Max ids/call | Per-id rate-limit consume |
+|---|---:|---|
+| `bulk_cve_lookup` | 50 | yes (1 unit/CVE) |
+| `bulk_ioc_lookup` | 50 | yes (1 unit/indicator) |
+| `bulk_atlas_technique_lookup` | 50 | yes (1 unit/technique) — v1.20.0+ |
+| `bulk_sigma_rule_lookup` | 50 | yes (1 unit/rule) — v1.32.0+ |
+
+**Empty input → 200 + empty results** on cve/ioc/atlas (v1.21.0+ unified); `bulk_sigma_rule_lookup` requires ≥1 id (empty → 422).
 
 **Per-item status enum** (4-state, unified across all 3 bulk endpoints v1.21.0+):
 - `ok` — populated successfully

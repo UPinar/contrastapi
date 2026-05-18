@@ -55,7 +55,7 @@ Most endpoints cost 1 credit. Heavy orchestration endpoints cost more:
 | `cve.bulk([...])` | N× (per item) |
 | `ioc.bulk([...])` | N× (per item) |
 
-Bulk endpoints: free tier up to 10 items per call, Pro tier up to 50. Free tier: 30 credits/hour. Pro tier: 500 credits/hour.
+Bulk endpoints: up to 50 items per call (same cap for Free and Pro). Free tier: 30 credits/hour. Pro tier: 500 credits/hour.
 
 ### Domain Intelligence
 ```javascript

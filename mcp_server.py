@@ -1255,7 +1255,7 @@ async def bulk_cve_lookup(
     cve_ids: Annotated[
         list[str],
         Field(
-            description="List of CVE identifiers in format CVE-YYYY-NNNNN (e.g. ['CVE-2024-3094', 'CVE-2021-44228', 'CVE-2023-44487']). Maximum 10 per request for free tier, 50 for Pro."
+            description="List of CVE identifiers in format CVE-YYYY-NNNNN (e.g. ['CVE-2024-3094', 'CVE-2021-44228', 'CVE-2023-44487']). Maximum 50 per request (same cap for Free and Pro)."
         ),
     ],
     include_affected_products: Annotated[
@@ -1283,11 +1283,11 @@ async def bulk_cve_lookup(
         ),
     ] = True,
 ) -> BulkCveResponse | ErrorResponse:
-    """Batch query multiple CVEs (up to 10 free/50 pro): retrieve full CVE details for all in 1 request instead of N. By default each CVE's affected_products is truncated to the first 20 entries (total_products reports honest count) and references to the first 10 (total_references reports honest count); pass include_affected_products=true / include_full_references=true to return full lists. Pass include_reference_tags=true to receive references_full=[{url, tags, source}] per CVE in the batch. Pass include_severity_breakdown=true to receive severity_sources/consensus/disagreement per CVE. Use for dependency audits or bulk vulnerability enrichment; use cve_lookup for single CVE. Each successful item carries next_calls — chain with kev_detail (when kev.in_kev=true), cwe_lookup (when cwe_id is present), or exploit_lookup. Free: 30/hr (1 per item), Pro: 500/hr. Returns {results, total, successful, failed, timed_out, partial, summary}."""
+    """Batch query multiple CVEs (up to 50 per call, same for Free and Pro): retrieve full CVE details for all in 1 request instead of N. By default each CVE's affected_products is truncated to the first 20 entries (total_products reports honest count) and references to the first 10 (total_references reports honest count); pass include_affected_products=true / include_full_references=true to return full lists. Pass include_reference_tags=true to receive references_full=[{url, tags, source}] per CVE in the batch. Pass include_severity_breakdown=true to receive severity_sources/consensus/disagreement per CVE. Use for dependency audits or bulk vulnerability enrichment; use cve_lookup for single CVE. Each successful item carries next_calls — chain with kev_detail (when kev.in_kev=true), cwe_lookup (when cwe_id is present), or exploit_lookup. Free: 30/hr (1 per item), Pro: 500/hr. Returns {results, total, successful, failed, timed_out, partial, summary}."""
     if not isinstance(cve_ids, list) or not cve_ids:
         raise InvalidArgumentException("cve_ids must be a non-empty list")
     if len(cve_ids) > 50:
-        raise InvalidArgumentException("Too many cve_ids — max 50 per request (Pro tier) or 10 (free tier).")
+        raise InvalidArgumentException("Too many cve_ids — max 50 per request.")
     if not all(isinstance(cid, str) for cid in cve_ids):
         raise InvalidArgumentException("All cve_ids must be strings")
     body = {
@@ -1365,7 +1365,7 @@ async def bulk_atlas_technique_lookup(
     if not isinstance(technique_ids, list) or not technique_ids:
         raise InvalidArgumentException("technique_ids must be a non-empty list")
     if len(technique_ids) > 50:
-        raise InvalidArgumentException("Too many technique_ids — max 50 per request (Pro tier) or 10 (free tier).")
+        raise InvalidArgumentException("Too many technique_ids — max 50 per request.")
     if not all(isinstance(tid, str) for tid in technique_ids):
         raise InvalidArgumentException("All technique_ids must be strings")
     return BulkAtlasTechniqueResponse(**await _apost("/v1/atlas/techniques/bulk", {"technique_ids": technique_ids}))
@@ -1653,16 +1653,16 @@ async def bulk_sigma_rule_lookup(
     rule_ids: Annotated[
         list[str],
         Field(
-            description="List of Sigma rule UUIDs in RFC 4122 format. Up to 50 per call (Pro tier) or 10 (free tier). Each id counts as 1 request toward the rate limit. Per-item validation: invalid-format ids return status='invalid_format', unknown UUIDs return status='not_found' — the whole call does not fail.",
+            description="List of Sigma rule UUIDs in RFC 4122 format. Up to 50 per call (same cap for Free and Pro). Each rule_id counts as 1 request toward the hourly quota. Per-item validation: invalid-format ids return status='invalid_format', unknown UUIDs return status='not_found' — the whole call does not fail.",
             max_length=50,
         ),
     ],
 ) -> BulkSigmaRuleLookupResponse | ErrorResponse:
-    """Bulk Sigma rule lookup — retrieve full records for up to 50 rule UUIDs in a single request instead of N separate sigma_rule_lookup calls. Designed for triage workflows where multiple rule ids are known (e.g., from a SIEM alert batch or a tagged detection bundle). Each item is the same shape as sigma_rule_lookup with status ok/not_found/invalid_format and an error field when applicable. Free: 30/hr (1 per item, max 10 items free tier), Pro: 500/hr (max 50 items). Returns {results [{rule_id, status, rule, error}], total, successful, failed, partial, summary, next_calls}."""
+    """Bulk Sigma rule lookup — retrieve full records for up to 50 rule UUIDs in a single request instead of N separate sigma_rule_lookup calls. Designed for triage workflows where multiple rule ids are known (e.g., from a SIEM alert batch or a tagged detection bundle). Each item is the same shape as sigma_rule_lookup with status ok/not_found/invalid_format and an error field when applicable. Up to 50 rule ids per call (same cap for Free and Pro). Each rule_id consumes 1 unit of the hourly quota; ids beyond the caller's remaining quota land in skipped_due_to_rate_limit instead of failing the whole batch (parity with bulk_cve/ioc). Free: 30/hr, Pro: 500/hr. Returns {results [{rule_id, status, rule, error}], total, processed, skipped_due_to_rate_limit, successful, failed, partial, summary, next_calls}."""
     if not isinstance(rule_ids, list) or not rule_ids:
         raise InvalidArgumentException("rule_ids must be a non-empty list")
     if len(rule_ids) > 50:
-        raise InvalidArgumentException("Too many rule_ids — max 50 per request (Pro tier) or 10 (free tier).")
+        raise InvalidArgumentException("Too many rule_ids — max 50 per request.")
     if not all(isinstance(rid, str) for rid in rule_ids):
         raise InvalidArgumentException("All rule_ids must be strings")
     return BulkSigmaRuleLookupResponse(**await _apost("/v1/sigma/bulk", {"rule_ids": rule_ids}))
@@ -1731,15 +1731,15 @@ async def bulk_ioc_lookup(
     indicators: Annotated[
         list[str],
         Field(
-            description="List of indicators of compromise: IP addresses, domains, URLs, or file hashes (e.g. ['8.8.8.8', 'evil.com', 'd41d8cd98f00b204e9800998ecf8427e']). Maximum 10 per request for free tier, 50 for Pro. Each indicator type is auto-detected."
+            description="List of indicators of compromise: IP addresses, domains, URLs, or file hashes (e.g. ['8.8.8.8', 'evil.com', 'd41d8cd98f00b204e9800998ecf8427e']). Maximum 50 per request (same cap for Free and Pro). Each indicator type is auto-detected."
         ),
     ],
 ) -> BulkIocResponse | ErrorResponse:
-    """Batch query multiple IOCs (IP/domain/URL/hash, up to 10 free/50 pro) in 1 request: auto-detects type + queries abuse.ch feeds per-indicator. Per-type source coverage matches ioc_lookup: hash → ThreatFox only; IP → ThreatFox + Feodo + URLhaus; domain / URL → ThreatFox + URLhaus. Each result item carries its own verdict.sources_queried / sources_unavailable so partial failures are visible per indicator. Use for SOC alert triage or batch enrichment; use ioc_lookup for single indicator. Free: 30/hr (1 per item), Pro: 500/hr. Returns {results, total, successful, failed, timed_out, partial, summary}."""
+    """Batch query multiple IOCs (IP/domain/URL/hash, up to 50 per call, same for Free and Pro) in 1 request: auto-detects type + queries abuse.ch feeds per-indicator. Per-type source coverage matches ioc_lookup: hash → ThreatFox only; IP → ThreatFox + Feodo + URLhaus; domain / URL → ThreatFox + URLhaus. Each result item carries its own verdict.sources_queried / sources_unavailable so partial failures are visible per indicator. Use for SOC alert triage or batch enrichment; use ioc_lookup for single indicator. Free: 30/hr (1 per item), Pro: 500/hr. Returns {results, total, successful, failed, timed_out, partial, summary}."""
     if not isinstance(indicators, list) or not indicators:
         raise InvalidArgumentException("indicators must be a non-empty list")
     if len(indicators) > 50:
-        raise InvalidArgumentException("Too many indicators — max 50 per request (Pro tier) or 10 (free tier).")
+        raise InvalidArgumentException("Too many indicators — max 50 per request.")
     return BulkIocResponse(**await _apost("/v1/iocs/bulk", {"indicators": indicators}))
 
 
@@ -1793,15 +1793,15 @@ async def check_dependencies(
     packages: Annotated[
         list[dict],
         Field(
-            description="List of dependency packages to audit. Each item is an object with 'name' (required, max 200 chars, e.g. 'lodash', 'django', 'log4j-core') and optional 'version' (max 100 chars, e.g. '4.17.0', '2.14.1'). Only 'name' and 'version' fields are used; extra fields are ignored. Example: [{\"name\": \"lodash\", \"version\": \"4.17.0\"}, {\"name\": \"django\"}]. Maximum 10 per request for free tier, 50 for Pro."
+            description="List of dependency packages to audit. Each item is an object with 'name' (required, max 200 chars, e.g. 'lodash', 'django', 'log4j-core') and optional 'version' (max 100 chars, e.g. '4.17.0', '2.14.1'). Only 'name' and 'version' fields are used; extra fields are ignored. Example: [{\"name\": \"lodash\", \"version\": \"4.17.0\"}, {\"name\": \"django\"}]. Maximum 50 per request (same cap for Free and Pro)."
         ),
     ],
 ) -> DependenciesResponse | ErrorResponse:
-    """Audit project dependencies (npm/PyPI/Maven/RubyGems/etc.) against CVE database: find known vulnerabilities in your package list. Bulk query up to 10 free/50 pro packages. Use for dependency security scanning; use cve_lookup for single CVE. Free: 30/hr (1 per package), Pro: 500/hr. Returns {findings, total, by_severity, summary}. Each finding includes fixed_in (first patched version per NVD/MITRE version range) when a version range matched — omitted from wire when the range is open-ended or no input version was supplied; remediation copy then says 'Check if ... is affected ... and upgrade if so' instead of 'Upgrade to X.Y.Z or later'."""
+    """Audit project dependencies (npm/PyPI/Maven/RubyGems/etc.) against CVE database: find known vulnerabilities in your package list. Bulk query up to 50 packages per call (same for Free and Pro). Use for dependency security scanning; use cve_lookup for single CVE. Free: 30/hr (1 per package), Pro: 500/hr. Returns {findings, total, by_severity, summary}. Each finding includes fixed_in (first patched version per NVD/MITRE version range) when a version range matched — omitted from wire when the range is open-ended or no input version was supplied; remediation copy then says 'Check if ... is affected ... and upgrade if so' instead of 'Upgrade to X.Y.Z or later'."""
     if not isinstance(packages, list) or not packages:
         raise InvalidArgumentException("packages must be a non-empty list")
     if len(packages) > 50:
-        raise InvalidArgumentException("Too many packages. Maximum 50 per request (Pro tier) or 10 (free tier).")
+        raise InvalidArgumentException("Too many packages. Maximum 50 per request.")
     for pkg in packages:
         if not isinstance(pkg, dict):
             raise InvalidArgumentException(

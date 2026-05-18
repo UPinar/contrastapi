@@ -161,27 +161,66 @@ def sigma_bulk(
     body: BulkSigmaRuleLookupRequest,
     auth: Annotated[AuthCtx, Depends(require_auth("/v1/sigma/bulk"))],
 ) -> BulkSigmaRuleLookupResponse:
-    """Bulk lookup up to 50 Sigma rules by UUID."""
+    """Bulk lookup up to 50 Sigma rules by UUID. Each rule_id consumes 1 unit of the
+    per-hour quota; ids beyond the caller's remaining quota land in
+    `skipped_due_to_rate_limit` instead of failing the whole batch — parity with
+    bulk_cve_lookup / bulk_ioc_lookup (v1.27 dynamic budget)."""
+    import ratelimit
+    from config import FREE_HOURLY_LIMIT, PRO_HOURLY_LIMIT
+    from db import hash_client_ip
+    from validation import sanitize_echo
+
+    rule_ids = list(dict.fromkeys(body.rule_ids))
+    count = len(rule_ids)
+
+    if auth.tier == "pro":
+        store_key = f"pro:{auth.key_hash}"
+        limit = PRO_HOURLY_LIMIT
+    else:
+        store_key = f"free:{hash_client_ip(auth.client_ip)}"
+        limit = FREE_HOURLY_LIMIT
+
+    available_budget = auth.ratelimit_remaining + 1
+    processable = min(count, available_budget)
+    extra = processable - 1
+
+    if extra > 0 and not ratelimit.consume_bulk("api", store_key, extra, limit):
+        # Race: another worker drained quota between require_auth and here.
+        # Fall back to processing only the unit require_auth already paid for.
+        processable = 1
+
+    skipped_ids = [sanitize_echo(s) for s in rule_ids[processable:]]
+    rule_ids = rule_ids[:processable]
+
     idx = get_sigma_index()
     items: list[BulkSigmaRuleLookupItem] = []
-    for rid in body.rule_ids:
+    for rid in rule_ids:
         if not _is_uuid(rid):
-            items.append(BulkSigmaRuleLookupItem(rule_id=rid, status="invalid_format", error="not a UUID"))
+            items.append(
+                BulkSigmaRuleLookupItem(rule_id=sanitize_echo(rid), status="invalid_format", error="not a UUID")
+            )
             continue
         rule = idx.lookup_by_id(rid)
         if rule is None:
-            items.append(BulkSigmaRuleLookupItem(rule_id=rid, status="not_found", error="rule not in index"))
+            items.append(
+                BulkSigmaRuleLookupItem(rule_id=sanitize_echo(rid), status="not_found", error="rule not in index")
+            )
         else:
             items.append(BulkSigmaRuleLookupItem(rule_id=rid, status="ok", rule=rule))
 
+    processed = len(items)
+    skipped_count = len(skipped_ids)
+    total = processed + skipped_count
     successful = sum(1 for i in items if i.status == "ok")
-    failed = len(items) - successful
+    failed = processed - successful
     return BulkSigmaRuleLookupResponse(
         results=items,
-        total=len(items),
+        total=total,
+        processed=processed,
+        skipped_due_to_rate_limit=skipped_ids,
         successful=successful,
         failed=failed,
-        partial=failed > 0,
-        summary=f"{successful}/{len(items)} rules found",
+        partial=failed > 0 or skipped_count > 0,
+        summary=f"{successful}/{total} rules found",
         next_calls=None,
     )

@@ -23,7 +23,7 @@ GET  /v1/archive/{domain}         Web archive history (Wayback Machine snapshots
 GET  /v1/scan/headers/{domain}    Live HTTP security header scan
 GET  /v1/monitor/{domain}         Lightweight domain health check
 GET  /v1/domain/{domain}/vulns    Tech stack CVE scan
-POST /v1/domains/bulk             Bulk domain scan (10 free, 50 pro)
+POST /v1/domains/bulk             Bulk domain scan (max 50/call, same Free and Pro)  [cost: 1 per domain]
 ```
 
 ## IP & Network
@@ -53,7 +53,7 @@ GET  /v1/cve/{cve_id}/risk_score  Composite risk score (CVSS+EPSS+KEV+PoC fusion
 GET  /v1/cvss/details?vector=     Parse a CVSS v3.x vector string into per-metric breakdown + recomputed base score
 GET  /v1/cves?product=&severity=&kev=&epss_min=&sort=&offset=  Search CVEs (with pagination)
 GET  /v1/exploit/{cve_id}         Public exploit search (GitHub Advisory + Shodan)
-POST /v1/cves/bulk                Bulk CVE lookup (10 free, 50 pro)  [cost: N per item]  (body supports include_affected_products: bool)
+POST /v1/cves/bulk                Bulk CVE lookup (max 50/call, same Free and Pro)  [cost: 1 per item]  (body supports include_affected_products: bool)
 GET  /v1/kev/{cve_id}             CISA KEV detail (federal patch deadline, required action, ransomware association, CWE list)
 GET  /v1/cwe/{cwe_id}             MITRE CWE catalog (research view 1000) — description, mitigations, parent/child weakness chain, CVE count
 ```
@@ -70,7 +70,7 @@ GET  /v1/ioc/{indicator}          Unified IOC enrichment (IP, domain, URL, hash)
 GET  /v1/hash/{hash}              Malware hash reputation (MalwareBazaar)
 GET  /v1/password/{sha1}          Password breach check (HIBP, k-anonymity)
 GET  /v1/phishing/{url}           Phishing/malware URL check (URLhaus)
-POST /v1/iocs/bulk                Bulk IOC enrichment (10 free, 50 pro)  [cost: N per item]
+POST /v1/iocs/bulk                Bulk IOC enrichment (max 50/call, same Free and Pro)  [cost: 1 per item]
 ```
 
 ## OSINT

@@ -128,7 +128,18 @@ class BulkSigmaRuleLookupResponse(BaseSuccessResponse):
     )
     total: int = Field(
         default=0,
-        description="Total unique rule IDs submitted",
+        description="Total unique rule IDs submitted (== processed + len(skipped_due_to_rate_limit)).",
+    )
+    processed: int = Field(
+        default=0,
+        description="Count of items actually looked up (== len(results)). Equal to total unless dynamic-budget partial-fill kicked in.",
+    )
+    skipped_due_to_rate_limit: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Rule UUIDs not processed because the caller's remaining hourly quota was smaller "
+            "than the input list. Empty when full budget was available."
+        ),
     )
     successful: int = Field(
         default=0,
@@ -140,7 +151,7 @@ class BulkSigmaRuleLookupResponse(BaseSuccessResponse):
     )
     partial: bool = Field(
         default=False,
-        description="True when at least one item was not_found or invalid_format",
+        description="True when at least one item was not_found, invalid_format, or skipped due to rate limit.",
     )
     summary: str = Field(
         default="",
