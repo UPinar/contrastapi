@@ -114,15 +114,16 @@ except RateLimitError as exc:
 | `ioc` | `lookup`, `hash`, `phishing`, `bulk` |
 | `atlas` | `technique`, `technique_search`, `bulk_technique_lookup`, `case_study`, `case_study_search` |
 | `d3fend` | `defense`, `defense_search`, `defense_for_attack`, `coverage` |
-| `domain` | `report`, `dns`, `whois`, `subdomains`, `certs`, `ssl`, `tech`, `threat`, `monitor`, `vulns`, `audit`, `wayback`, `bulk` |
+| `domain` | `report`, `dns`, `whois`, `subdomains`, `certs`, `ssl`, `tech`, `threat`, `monitor`, `vulns`, `audit`, `wayback`, `robots`, `redirect`, `brand`, `seo`, `bulk` |
 | `ip` | `lookup`, `threat_report` |
 | `asn` | `lookup` |
-| `email` | `mx`, `disposable` |
+| `email` | `mx`, `disposable`, `security_posture`, `verify` |
 | `phone` | `lookup` |
 | `password` | `check` (k-anonymity SHA-1 prefix) |
 | `username` | `lookup` |
 | `check` | `secrets`, `injection`, `headers`, `dependencies` |
 | `scan` | `headers` (live HTTP scan) |
+| `sigma` | `lookup` (by UUID), `bulk` (≤50 rule IDs) |
 
 The async client (`AsyncContrastAPI`) exposes the same namespace surface 1:1 — every method is `async def`.
 
@@ -132,7 +133,7 @@ The async client (`AsyncContrastAPI`) exposes the same namespace surface 1:1 —
 | --- | --- | --- |
 | Sync | ✅ (Promise-based) | ✅ (`ContrastAPI`) |
 | Async | (Promise model) | ✅ (`AsyncContrastAPI`) |
-| Namespace count | 13 | 14 (adds `username`) |
+| Namespace count | 13 | 15 (adds `username`, `sigma`) |
 | `bulk_technique_lookup` (ATLAS) | (added in v1.4.0) | ✅ |
 | `wayback` archive lookup | (added in v1.4.0) | ✅ |
 | Typed errors | `Error` subclasses | full hierarchy with envelope fields |

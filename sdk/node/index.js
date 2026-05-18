@@ -114,6 +114,11 @@ function ContrastAPI(options = {}) {
       audit: (domain) => get(`/v1/audit/${enc(domain)}`),
       // v1.4.0: Wayback Machine archive lookup (parity with Python SDK).
       wayback: (domain) => get(`/v1/archive/${enc(domain)}`),
+      // v1.5.0: web-intel parity with Python SDK.
+      robots: (domain) => get(`/v1/robots/${enc(domain)}`),
+      redirect: (url) => get(`/v1/redirect/${encPath(url)}`),
+      brand: (domain) => get(`/v1/brand/${enc(domain)}`),
+      seo: (domain) => get(`/v1/seo/${enc(domain)}`),
     },
 
     // --- IP Intelligence ---
@@ -266,6 +271,10 @@ function ContrastAPI(options = {}) {
     email: {
       mx: (domain) => get(`/v1/email/mx/${enc(domain)}`),
       disposable: (email) => get(`/v1/email/disposable/${enc(email)}`),
+      // v1.5.0: parity with Python SDK.
+      securityPosture: (domain, opts = {}) =>
+        get(`/v1/email/security-posture/${enc(domain)}${opts.selectors ? "?selectors=" + encodeURIComponent(opts.selectors) : ""}`),
+      verify: (email) => get(`/v1/email/verify/${enc(email)}`),
     },
 
     // --- Phone ---
@@ -294,6 +303,17 @@ function ContrastAPI(options = {}) {
     // --- Headers (live scan) ---
     scan: {
       headers: (domain) => get(`/v1/scan/headers/${enc(domain)}`),
+    },
+
+    // --- Sigma Detection Rules (v1.5.0: parity with Python SDK) ---
+    sigma: {
+      lookup: (ruleId) => get(`/v1/sigma/${enc(ruleId)}`),
+      bulk: (ruleIds) => {
+        if (!Array.isArray(ruleIds) || !ruleIds.every(r => typeof r === "string")) {
+          throw new Error("ruleIds must be an array of strings");
+        }
+        return post("/v1/sigma/bulk", { rule_ids: ruleIds });
+      },
     },
 
     // --- Meta ---

@@ -1,5 +1,6 @@
 // ContrastAPI Node SDK — TypeScript declarations
 // v1.4.0: concrete response types mirror the v1.22.3 Python SDK + server schemas.
+// v1.5.0: +8 endpoints (web-intel, email posture/verify, sigma) mirror Python SDK v1.23.0.
 // Drift from `app/schemas.py` → silent KeyError downstream, so types are kept
 // loose at the leaf level (`any`) while top-level keys are enumerated.
 // Wire-exact field names; consult `app/schemas.py` for full nested shapes.
@@ -718,6 +719,14 @@ declare function ContrastAPI(options?: {
     audit(domain: string): Promise<AuditResponse>;
     /** v1.4.0: Wayback Machine archive lookup. */
     wayback(domain: string): Promise<WaybackResponse>;
+    /** v1.5.0: robots.txt parser. */
+    robots(domain: string): Promise<Record<string, any>>;
+    /** v1.5.0: redirect-chain walker (accepts a full URL). */
+    redirect(url: string): Promise<Record<string, any>>;
+    /** v1.5.0: brand assets (favicon / logo / OG image). */
+    brand(domain: string): Promise<Record<string, any>>;
+    /** v1.5.0: SEO audit (title / meta / canonical / OG / Twitter). */
+    seo(domain: string): Promise<Record<string, any>>;
   };
   ip: {
     lookup(ip: string): Promise<IpLookupResponse>;
@@ -765,6 +774,10 @@ declare function ContrastAPI(options?: {
   email: {
     mx(domain: string): Promise<EmailMxResponse>;
     disposable(email: string): Promise<DisposableResponse>;
+    /** v1.5.0: SPF/DMARC/DKIM posture with numeric score. Optional `selectors` (comma-separated) for DKIM. */
+    securityPosture(domain: string, opts?: { selectors?: string }): Promise<Record<string, any>>;
+    /** v1.5.0: deliverability / mailbox verification. */
+    verify(email: string): Promise<Record<string, any>>;
   };
   phone: {
     lookup(number: string): Promise<PhoneLookupResponse>;
@@ -784,6 +797,11 @@ declare function ContrastAPI(options?: {
   };
   scan: {
     headers(domain: string): Promise<ScanHeadersResponse>;
+  };
+  /** v1.5.0: Sigma detection-rule lookup. Parity with Python SDK. */
+  sigma: {
+    lookup(ruleId: string): Promise<Record<string, any>>;
+    bulk(ruleIds: string[]): Promise<Record<string, any>>;
   };
   status(): Promise<StatusResponse>;
   usage(): Promise<UsageResponse>;

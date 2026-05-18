@@ -9,9 +9,9 @@ Both classes accept the same options (`api_key`, `base_url`, `timeout`,
 `allow_insecure`) and expose the same namespace property names. Choose whichever
 matches your application's I/O model.
 
-All 14 namespaces (cve, cwe, ioc, atlas, d3fend, domain, ip, asn, email, phone,
-password, username, check, scan) are exposed as instance attributes. The async
-client mirrors the sync surface 1:1 — same names, async methods.
+All 15 namespaces (cve, cwe, ioc, atlas, d3fend, domain, ip, asn, email, phone,
+password, username, check, scan, sigma) are exposed as instance attributes. The
+async client mirrors the sync surface 1:1 — same names, async methods.
 """
 
 from __future__ import annotations
@@ -41,6 +41,7 @@ from .namespaces.intel import (
 )
 from .namespaces.ioc import AsyncIoc, Ioc
 from .namespaces.security import AsyncCheck, AsyncScan, Check, Scan
+from .namespaces.sigma import AsyncSigma, Sigma
 
 
 class ContrastAPI:
@@ -86,6 +87,7 @@ class ContrastAPI:
         self.username = Username(self._transport)
         self.check = Check(self._transport)
         self.scan = Scan(self._transport)
+        self.sigma = Sigma(self._transport)
 
     @property
     def version(self) -> str:
@@ -150,6 +152,7 @@ class AsyncContrastAPI:
         self.username = AsyncUsername(self._transport)
         self.check = AsyncCheck(self._transport)
         self.scan = AsyncScan(self._transport)
+        self.sigma = AsyncSigma(self._transport)
 
     @property
     def version(self) -> str:

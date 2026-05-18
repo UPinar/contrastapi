@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "contrastapi"
-version = "1.22.5"
+version = "1.23.0"
 description = "Official Python SDK for ContrastAPI — security intelligence for developers and AI agents"
 readme = "README.md"
 license = "MIT"

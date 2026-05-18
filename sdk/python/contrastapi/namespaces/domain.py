@@ -27,6 +27,12 @@ def _enc(value: str) -> str:
     return quote(str(value), safe="")
 
 
+def _enc_path(value: str) -> str:
+    if value is None or value == "":
+        raise ValueError("Missing required parameter")
+    return "/".join(quote(seg, safe="") for seg in str(value).split("/"))
+
+
 def _validate_domains(domains: list[str]) -> list[str]:
     if not isinstance(domains, list) or not all(isinstance(d, str) for d in domains):
         raise ValueError("domains must be a list of strings")
@@ -81,6 +87,18 @@ class Domain:
     def wayback(self, domain: str) -> WaybackResponse:
         return self._t.get(f"/v1/archive/{_enc(domain)}")
 
+    def robots(self, domain: str) -> dict[str, Any]:
+        return self._t.get(f"/v1/robots/{_enc(domain)}")
+
+    def redirect(self, url: str) -> dict[str, Any]:
+        return self._t.get(f"/v1/redirect/{_enc_path(url)}")
+
+    def brand(self, domain: str) -> dict[str, Any]:
+        return self._t.get(f"/v1/brand/{_enc(domain)}")
+
+    def seo(self, domain: str) -> dict[str, Any]:
+        return self._t.get(f"/v1/seo/{_enc(domain)}")
+
     def bulk(self, domains: list[str]) -> BulkDomainResponse:
         return self._t.post("/v1/domains/bulk", json_body={"domains": _validate_domains(domains)})
 
@@ -124,6 +142,18 @@ class AsyncDomain:
 
     async def wayback(self, domain: str) -> WaybackResponse:
         return await self._t.aget(f"/v1/archive/{_enc(domain)}")
+
+    async def robots(self, domain: str) -> dict[str, Any]:
+        return await self._t.aget(f"/v1/robots/{_enc(domain)}")
+
+    async def redirect(self, url: str) -> dict[str, Any]:
+        return await self._t.aget(f"/v1/redirect/{_enc_path(url)}")
+
+    async def brand(self, domain: str) -> dict[str, Any]:
+        return await self._t.aget(f"/v1/brand/{_enc(domain)}")
+
+    async def seo(self, domain: str) -> dict[str, Any]:
+        return await self._t.aget(f"/v1/seo/{_enc(domain)}")
 
     async def bulk(self, domains: list[str]) -> BulkDomainResponse:
         return await self._t.apost("/v1/domains/bulk", json_body={"domains": _validate_domains(domains)})

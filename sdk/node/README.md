@@ -72,6 +72,10 @@ api.domain.monitor("example.com")          // Domain monitoring
 api.domain.vulns("example.com")            // Known vulnerabilities
 api.domain.bulk(["a.com", "b.com"])        // Bulk domain reports
 api.domain.audit("example.com")            // Full audit (report + tech + headers) — 4 credits
+api.domain.robots("example.com")           // v1.5.0: robots.txt parser
+api.domain.redirect("https://bit.ly/3xyz") // v1.5.0: redirect-chain walker
+api.domain.brand("example.com")            // v1.5.0: brand assets (favicon/logo/OG)
+api.domain.seo("example.com")              // v1.5.0: SEO audit
 ```
 
 ### IP & ASN
@@ -133,6 +137,9 @@ api.ioc.bulk(["8.8.8.8", "evil.com"])      // Bulk IOC lookup — N credits
 ```javascript
 api.email.mx("example.com")                // MX + SPF/DMARC/DKIM
 api.email.disposable("user@tempmail.com")  // Disposable email check
+api.email.securityPosture("example.com")   // v1.5.0: SPF/DMARC/DKIM posture + score
+api.email.securityPosture("example.com", {selectors: "s1,s2"}) // custom DKIM selectors
+api.email.verify("user@example.com")       // v1.5.0: deliverability / mailbox verify
 api.phone.lookup("+1234567890")            // Phone validation
 api.username.lookup("octocat")             // v1.4.0: cross-platform username lookup
 ```
@@ -145,6 +152,12 @@ api.password.check("5baa61e4...")          // HIBP breach check (SHA1)
 ### Wayback Archive (v1.4.0)
 ```javascript
 api.domain.wayback("example.com")          // CDX snapshot history
+```
+
+### Sigma Detection Rules (v1.5.0)
+```javascript
+api.sigma.lookup("5013636e-7f4c-...")      // Sigma rule by UUID
+api.sigma.bulk(["uuid1", "uuid2"])         // Bulk lookup (≤50 rule IDs)
 ```
 
 ### Code Security

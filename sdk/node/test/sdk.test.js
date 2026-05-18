@@ -273,3 +273,86 @@ test("User-Agent header is contrastapi-node/<version>", async () => {
   await c.status();
   assert.match(helpers.calls()[0].headers["User-Agent"], /^contrastapi-node\/\d+\.\d+\.\d+/);
 });
+
+// --- v1.5.0: API-surface parity (8 endpoints) ---
+
+const RULE_ID = "11111111-2222-3333-4444-555555555555";
+
+test("domain.robots hits /v1/robots/{domain}", async () => {
+  helpers.mock("GET", "https://api.contrastcyber.com/v1/robots/example.com", { body: {} });
+  const c = newClient();
+  await c.domain.robots("example.com");
+  assert.equal(helpers.calls()[0].path, "/v1/robots/example.com");
+});
+
+test("domain.redirect preserves path separators in URL", async () => {
+  helpers.mock("GET", "https://api.contrastcyber.com/v1/redirect/https%3A//bit.ly/3xyz", {
+    body: { hops: [] },
+  });
+  const c = newClient();
+  await c.domain.redirect("https://bit.ly/3xyz");
+  assert.match(helpers.calls()[0].path, /bit\.ly\/3xyz/);
+});
+
+test("domain.brand hits /v1/brand/{domain}", async () => {
+  helpers.mock("GET", "https://api.contrastcyber.com/v1/brand/example.com", { body: {} });
+  const c = newClient();
+  await c.domain.brand("example.com");
+  assert.equal(helpers.calls()[0].path, "/v1/brand/example.com");
+});
+
+test("domain.seo hits /v1/seo/{domain}", async () => {
+  helpers.mock("GET", "https://api.contrastcyber.com/v1/seo/example.com", { body: {} });
+  const c = newClient();
+  await c.domain.seo("example.com");
+  assert.equal(helpers.calls()[0].path, "/v1/seo/example.com");
+});
+
+test("email.securityPosture hits /v1/email/security-posture/{domain} with no query by default", async () => {
+  helpers.mock("GET", "https://api.contrastcyber.com/v1/email/security-posture/example.com", {
+    body: {},
+  });
+  const c = newClient();
+  await c.email.securityPosture("example.com");
+  assert.equal(helpers.calls()[0].path, "/v1/email/security-posture/example.com");
+});
+
+test("email.securityPosture appends selectors query when provided", async () => {
+  helpers.mock(
+    "GET",
+    "https://api.contrastcyber.com/v1/email/security-posture/example.com?selectors=s1%2Cs2",
+    { body: {} },
+  );
+  const c = newClient();
+  await c.email.securityPosture("example.com", { selectors: "s1,s2" });
+  assert.match(helpers.calls()[0].path, /selectors=s1%2Cs2/);
+});
+
+test("email.verify hits /v1/email/verify/{email}", async () => {
+  helpers.mock("GET", "https://api.contrastcyber.com/v1/email/verify/user%40example.com", {
+    body: {},
+  });
+  const c = newClient();
+  await c.email.verify("user@example.com");
+  assert.match(helpers.calls()[0].path, /\/v1\/email\/verify\/user%40example\.com/);
+});
+
+test("sigma.lookup hits /v1/sigma/{rule_id}", async () => {
+  helpers.mock("GET", `https://api.contrastcyber.com/v1/sigma/${RULE_ID}`, { body: { rule: {} } });
+  const c = newClient();
+  await c.sigma.lookup(RULE_ID);
+  assert.equal(helpers.calls()[0].path, `/v1/sigma/${RULE_ID}`);
+});
+
+test("sigma.bulk POSTs rule_ids body", async () => {
+  helpers.mock("POST", "https://api.contrastcyber.com/v1/sigma/bulk", { body: { items: [] } });
+  const c = newClient();
+  await c.sigma.bulk([RULE_ID, "bad-id"]);
+  const body = JSON.parse(helpers.calls()[0].body);
+  assert.deepEqual(body.rule_ids, [RULE_ID, "bad-id"]);
+});
+
+test("sigma.bulk rejects non-array input", () => {
+  const c = newClient();
+  assert.throws(() => c.sigma.bulk(RULE_ID), /array of strings/);
+});

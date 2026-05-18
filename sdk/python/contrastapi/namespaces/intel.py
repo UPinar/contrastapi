@@ -4,6 +4,7 @@ ip, asn, email, phone, password, username.
 
 from __future__ import annotations
 
+from typing import Any
 from urllib.parse import quote
 
 from .._transport import _AsyncTransport, _SyncTransport
@@ -82,6 +83,13 @@ class Email:
     def disposable(self, email: str) -> DisposableResponse:
         return self._t.get(f"/v1/email/disposable/{_enc(email)}")
 
+    def security_posture(self, domain: str, *, selectors: str | None = None) -> dict[str, Any]:
+        params = {"selectors": selectors} if selectors else None
+        return self._t.get(f"/v1/email/security-posture/{_enc(domain)}", params=params)
+
+    def verify(self, email: str) -> dict[str, Any]:
+        return self._t.get(f"/v1/email/verify/{_enc(email)}")
+
 
 class AsyncEmail:
     def __init__(self, transport: _AsyncTransport) -> None:
@@ -92,6 +100,13 @@ class AsyncEmail:
 
     async def disposable(self, email: str) -> DisposableResponse:
         return await self._t.aget(f"/v1/email/disposable/{_enc(email)}")
+
+    async def security_posture(self, domain: str, *, selectors: str | None = None) -> dict[str, Any]:
+        params = {"selectors": selectors} if selectors else None
+        return await self._t.aget(f"/v1/email/security-posture/{_enc(domain)}", params=params)
+
+    async def verify(self, email: str) -> dict[str, Any]:
+        return await self._t.aget(f"/v1/email/verify/{_enc(email)}")
 
 
 # --- Phone ---
