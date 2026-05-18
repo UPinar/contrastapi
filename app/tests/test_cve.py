@@ -3579,8 +3579,10 @@ class TestSyncGhsa:
         from db import get_cve
 
         count = asyncio.run(sync_ghsa(full=False))
-        assert count == 0
-        assert get_cve("CVE-2024-80031") is None
+        # Boundary-equal advisory (updated_at == checkpoint) is now processed
+        # (idempotent upsert); only the strictly-older one stops the walk (S253 fix).
+        assert count == 1
+        assert get_cve("CVE-2024-80031") is not None
         assert get_cve("CVE-2024-80032") is None
 
     @patch("cve.sync._client", new_callable=AsyncMock)
@@ -7459,3 +7461,57 @@ class TestBulkCveLookupOuterHints:
         ]
         hints = _bulk_cve_lookup_outer_hints(results)
         assert hints == []
+
+
+class TestGhsaDeltaCheckpointSelfPin:
+    """S253: sync_ghsa must not self-pin. An advisory whose updated_at EQUALS
+    the checkpoint must be processed (idempotent), not trigger an immediate
+    stop that freezes the checkpoint and processes 0 forever."""
+
+    def test_boundary_equal_advisory_processed_older_stops(self):
+        import asyncio
+        from unittest.mock import MagicMock, patch
+
+        from cve import sync as ghsa_sync
+
+        PIN = "2026-05-17T21:17:01Z"
+        advisories = [
+            {"cve_id": "CVE-2026-45106", "updated_at": PIN, "html_url": "https://github.com/advisories/GHSA-6wxc"},
+            {
+                "cve_id": "CVE-2026-40000",
+                "updated_at": "2026-05-10T00:00:00Z",
+                "html_url": "https://github.com/advisories/GHSA-old",
+            },
+        ]
+
+        resp = MagicMock()
+        resp.raise_for_status = MagicMock()
+        resp.json = MagicMock(return_value=advisories)
+        resp.headers = {}
+
+        async def fake_get(url, params=None, headers=None, timeout=None):
+            return resp
+
+        recorded = {}
+
+        def fake_update_status(source, count, status="ok", checkpoint=None):
+            recorded["count"] = count
+            recorded["checkpoint"] = checkpoint
+
+        with (
+            patch.object(ghsa_sync._client, "get", side_effect=fake_get),
+            patch.object(ghsa_sync, "get_sync_checkpoint", return_value=PIN),
+            patch.object(ghsa_sync, "update_sync_status", side_effect=fake_update_status),
+            patch.object(ghsa_sync, "_github_headers", return_value={}),
+            patch.object(ghsa_sync, "_parse_ghsa_advisory", side_effect=lambda a: {"cve_id": a["cve_id"]}),
+            patch.object(ghsa_sync, "upsert_cve_if_absent", MagicMock(return_value=True)) as mock_upsert,
+            patch.object(ghsa_sync, "record_cve_source", MagicMock()) as mock_record,
+        ):
+            count = asyncio.run(ghsa_sync.sync_ghsa())
+
+        # Boundary advisory (updated_at == checkpoint) MUST be processed;
+        # the genuinely-older one (updated_at < checkpoint) MUST stop the walk.
+        assert count == 1, f"expected 1 (boundary processed, older stops), got {count}"
+        assert mock_upsert.call_count == 1
+        mock_record.assert_called_once_with("CVE-2026-45106", "ghsa", advisories[0]["html_url"])
+        assert recorded["count"] == 1

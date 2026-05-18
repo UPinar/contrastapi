@@ -1734,3 +1734,48 @@ class TestAuditDomainTxtFilter:
         r2 = client.get("/v1/audit/example.com?include_all_txt=true")
         assert r2.status_code == 200
         assert len(r2.json()["report"]["dns"]["txt"]) == 8
+
+
+class TestFetchLiveHeadersAbandonedTask:
+    """Losing HTTP task's exception must be retrieved when HTTPS wins (no asyncio orphan-task log pollution)."""
+
+    def test_losing_http_task_exception_retrieved(self):
+        """
+        Both schemes resolve in the same loop step: HTTPS succeeds, HTTP fails
+        (ConnectError, e.g. port 80 refused). fetch_live_headers returns the HTTPS
+        result; the abandoned HTTP task's exception MUST be retrieved so asyncio
+        does NOT call the loop exception handler with "Task exception was never
+        retrieved". Run on the handler-instrumented loop (NOT asyncio.run, which
+        builds its own loop and would bypass the handler → false GREEN).
+        """
+        import asyncio
+        import gc
+
+        https_resp = MagicMock()
+        https_resp.headers = {"content-type": "text/html"}
+        https_resp.status_code = 200
+        https_resp.url = "https://example.com/"
+
+        async def fake_safe_urlopen(domain, scheme, timeout, follow_redirects=True):
+            if scheme == "https":
+                return https_resp  # instant success
+            raise httpx.ConnectError("All addresses failed")  # instant failure, no await
+
+        recorded = []
+        loop = asyncio.new_event_loop()
+        try:
+            loop.set_exception_handler(lambda lp, ctx: recorded.append(ctx.get("message", "")))
+            with patch("domain.recon._safe_urlopen", new=fake_safe_urlopen):
+                from domain.recon import fetch_live_headers
+
+                result = loop.run_until_complete(fetch_live_headers("example.com"))
+                loop.run_until_complete(asyncio.sleep(0))
+                gc.collect()
+                loop.run_until_complete(asyncio.sleep(0))
+        finally:
+            loop.close()
+
+        assert result["status_code"] == 200
+        assert result["headers"]["content-type"] == "text/html"
+        orphan = [m for m in recorded if "never retrieved" in m.lower()]
+        assert not orphan, f"orphan-task log pollution detected: {orphan}"

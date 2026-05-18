@@ -362,6 +362,34 @@ def test_maintenance_runs():
     assert "cache_purged" in result
 
 
+def test_maintenance_partial_failure_resilience():
+    """Verify that a failure in one unit does NOT abort other units."""
+    import sqlite3
+    from unittest.mock import patch
+
+    from db import log_usage, maintenance
+
+    log_usage("1.2.3.4", "/v1/seed")  # ensure at least one row for normalize_endpoint path
+
+    # Simulate api_db failure (e.g., SQLITE_BUSY on normalize_endpoint)
+    original_normalize = None
+
+    def failing_normalize(ep):
+        raise sqlite3.OperationalError("database is locked")
+
+    with patch("db.normalize_endpoint", side_effect=failing_normalize):
+        result = maintenance()
+
+    # Verify partial failure: api unit failed, but cache + cve units still ran
+    assert result["status"] == "partial"
+    assert result["api_error"] == "OperationalError"
+    # Cache and CVE units must have run despite the api failure
+    assert "cache_purged" in result
+    assert "ip_cache_purged" in result
+    assert "cve_error" not in result
+    assert "cache_error" not in result
+
+
 # --- Usage stats ---
 
 

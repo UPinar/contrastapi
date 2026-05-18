@@ -746,47 +746,88 @@ def get_privacy_data(client_ip: str, key_hash: str | None = None) -> dict:
 
 
 def maintenance() -> dict:
-    """Run database maintenance: VACUUM, ANALYZE, purge old data."""
+    """Run database maintenance: purge old data + ANALYZE. Each unit is independently guarded so one SQLITE_BUSY does not abort the rest."""
     stats = {}
 
-    # Purge usage older than 90 days + normalize legacy endpoint paths
-    cutoff = (datetime.now(UTC) - timedelta(days=90)).isoformat()
-    with get_api_db() as con:
-        cur = con.execute("DELETE FROM api_usage WHERE called_at < ?", (cutoff,))
-        stats["usage_purged"] = cur.rowcount
+    # Unit 1: Purge usage older than 90 days + normalize legacy endpoint paths
+    try:
+        cutoff = (datetime.now(UTC) - timedelta(days=90)).isoformat()
+        with get_api_db() as con:
+            # Raise busy_timeout only for this maintenance run, then restore in
+            # finally. The thread-local connection is shared with the event-loop
+            # thread's ratelimit.py / log_usage path, so a leaked 30s timeout
+            # would stall the hot request path under lock contention.
+            con.execute("PRAGMA busy_timeout=30000")
+            try:
+                cur = con.execute("DELETE FROM api_usage WHERE called_at < ?", (cutoff,))
+                stats["usage_purged"] = cur.rowcount
 
-        # Retroactive normalize: strip path params from old records
-        rows = con.execute("SELECT DISTINCT endpoint FROM api_usage").fetchall()
-        normalized_count = 0
-        for (ep,) in rows:
-            clean = normalize_endpoint(ep)
-            if clean != ep:
-                con.execute("UPDATE api_usage SET endpoint = ? WHERE endpoint = ?", (clean, ep))
-                normalized_count += 1
-        stats["endpoints_normalized"] = normalized_count
-        con.execute("ANALYZE")
+                # Retroactive normalize: strip path params from old records
+                rows = con.execute("SELECT DISTINCT endpoint FROM api_usage").fetchall()
+                normalized_count = 0
+                for (ep,) in rows:
+                    clean = normalize_endpoint(ep)
+                    if clean != ep:
+                        con.execute("UPDATE api_usage SET endpoint = ? WHERE endpoint = ?", (clean, ep))
+                        normalized_count += 1
+                stats["endpoints_normalized"] = normalized_count
+                con.execute("ANALYZE")
+            finally:
+                # lock-free metadata reset; never let it mask the unit's error
+                try:
+                    con.execute("PRAGMA busy_timeout=5000")
+                except Exception:
+                    pass
+    except Exception as e:
+        stats["api_error"] = type(e).__name__
 
-    # Clear unclaimed pending keys older than 24 hours
-    stats["pending_keys_cleared"] = cleanup_expired_pending_keys(max_age_hours=24)
+    # Unit 2: Clear unclaimed pending keys older than 24 hours
+    try:
+        stats["pending_keys_cleared"] = cleanup_expired_pending_keys(max_age_hours=24)
+    except Exception as e:
+        stats["pending_keys_error"] = type(e).__name__
 
-    # Purge expired domain cache and IP cache
-    with get_cache_db() as con:
-        now = datetime.now(UTC)
+    # Unit 3: Purge expired domain cache and IP cache
+    try:
+        with get_cache_db() as con:
+            con.execute("PRAGMA busy_timeout=30000")
+            try:
+                now = datetime.now(UTC)
 
-        cache_cutoff = (now - timedelta(seconds=DOMAIN_CACHE_TTL)).isoformat()
-        cur = con.execute("DELETE FROM domain_cache WHERE fetched_at < ?", (cache_cutoff,))
-        stats["cache_purged"] = cur.rowcount
+                cache_cutoff = (now - timedelta(seconds=DOMAIN_CACHE_TTL)).isoformat()
+                cur = con.execute("DELETE FROM domain_cache WHERE fetched_at < ?", (cache_cutoff,))
+                stats["cache_purged"] = cur.rowcount
 
-        ip_cutoff = (now - timedelta(seconds=IP_CACHE_TTL)).isoformat()
-        cur = con.execute("DELETE FROM ip_cache WHERE fetched_at < ?", (ip_cutoff,))
-        stats["ip_cache_purged"] = cur.rowcount
-        con.execute("ANALYZE")
+                ip_cutoff = (now - timedelta(seconds=IP_CACHE_TTL)).isoformat()
+                cur = con.execute("DELETE FROM ip_cache WHERE fetched_at < ?", (ip_cutoff,))
+                stats["ip_cache_purged"] = cur.rowcount
+                con.execute("ANALYZE")
+            finally:
+                # lock-free metadata reset; never let it mask the unit's error
+                try:
+                    con.execute("PRAGMA busy_timeout=5000")
+                except Exception:
+                    pass
+    except Exception as e:
+        stats["cache_error"] = type(e).__name__
 
-    # ANALYZE on CVE db
-    with get_cve_db() as con:
-        con.execute("ANALYZE")
+    # Unit 4: ANALYZE on CVE db
+    try:
+        with get_cve_db() as con:
+            con.execute("PRAGMA busy_timeout=30000")
+            try:
+                con.execute("ANALYZE")
+            finally:
+                # lock-free metadata reset; never let it mask the unit's error
+                try:
+                    con.execute("PRAGMA busy_timeout=5000")
+                except Exception:
+                    pass
+    except Exception as e:
+        stats["cve_error"] = type(e).__name__
 
-    stats["status"] = "ok"
+    # Status: "ok" if no unit errored, else "partial"
+    stats["status"] = "ok" if not any(k.endswith("_error") for k in stats) else "partial"
     return stats
 
 

@@ -1023,12 +1023,20 @@ async def sync_ghsa(full: bool = False) -> int:
 
             for adv in advisories:
                 updated_at = adv.get("updated_at")
-                if updated_at and (newest_seen is None or updated_at > newest_seen):
-                    newest_seen = updated_at
 
-                if checkpoint and updated_at and updated_at <= checkpoint:
+                # Strict `<`: an advisory whose updated_at EQUALS the checkpoint
+                # is reprocessed (idempotent upsert), NOT treated as the stop
+                # boundary. With `<=` plus the newest_seen=top-item assignment,
+                # the checkpoint self-pinned to the newest advisory's updated_at
+                # and every subsequent run processed 0 (S253 deadlock).
+                if checkpoint and updated_at and updated_at < checkpoint:
                     stop = True
                     break
+
+                # Advance the high-water mark ONLY for advisories we did not
+                # stop on, so a stop-at-item-0 run cannot pin the checkpoint.
+                if updated_at and (newest_seen is None or updated_at > newest_seen):
+                    newest_seen = updated_at
 
                 if not adv.get("cve_id"):
                     continue

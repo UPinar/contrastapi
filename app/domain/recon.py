@@ -1186,6 +1186,11 @@ async def fetch_live_headers(domain: str) -> dict:
             result = https_t.result()
             for p in pending:
                 p.cancel()
+            # The losing HTTP task may have finished (ConnectError, e.g. port 80
+            # refused) racing the cancel above, or be cancelled — consume its
+            # outcome so asyncio does not log "Task exception was never
+            # retrieved" for the abandoned _try_scheme (~22/24h prod).
+            http_t.add_done_callback(lambda t: t.cancelled() or t.exception())
             return result
         except Exception as e:
             errors["https"] = type(e).__name__

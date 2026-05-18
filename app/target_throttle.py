@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 _STORE = "target_throttle"
 _DAILY_STORE = "target_throttle_daily"  # separate key prefix → 86400s rows survive 60s DELETEs
 # bundled PSL: avoid first-request network fetch + suffix-list cache pollution
-_extract = tldextract.TLDExtract(suffix_list_urls=())
+_extract = tldextract.TLDExtract(suffix_list_urls=(), cache_dir=None)
 _table_ready = [False]  # mutable container so a global rebind is unnecessary
 
 

@@ -28,7 +28,7 @@ from domain.brand_assets import _abs_url, _strip_control_chars
 # every <a href> on the page (up to _MAX_LINKS_COUNTED=2000) so we cache the
 # constructor too. `suffix_list_urls=()` disables the network refresh path —
 # we accept the bundled snapshot's freshness for the lifetime of the process.
-_psl = tldextract.TLDExtract(suffix_list_urls=())
+_psl = tldextract.TLDExtract(suffix_list_urls=(), cache_dir=None)
 
 logger = logging.getLogger("contrastapi")
 
