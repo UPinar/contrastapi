@@ -777,6 +777,7 @@ def maintenance() -> dict:
                 try:
                     con.execute("PRAGMA busy_timeout=5000")
                 except Exception:
+                    # intentional: lock-free metadata reset, must not mask the unit's error
                     pass
     except Exception as e:
         stats["api_error"] = type(e).__name__
@@ -807,6 +808,7 @@ def maintenance() -> dict:
                 try:
                     con.execute("PRAGMA busy_timeout=5000")
                 except Exception:
+                    # intentional: lock-free metadata reset, must not mask the unit's error
                     pass
     except Exception as e:
         stats["cache_error"] = type(e).__name__
@@ -822,6 +824,7 @@ def maintenance() -> dict:
                 try:
                     con.execute("PRAGMA busy_timeout=5000")
                 except Exception:
+                    # intentional: lock-free metadata reset, must not mask the unit's error
                     pass
     except Exception as e:
         stats["cve_error"] = type(e).__name__

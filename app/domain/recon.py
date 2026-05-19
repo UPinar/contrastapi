@@ -1164,7 +1164,13 @@ async def _safe_urlopen(domain: str, scheme: str, timeout: int, follow_redirects
 
 
 async def fetch_live_headers(domain: str) -> dict:
-    """Fetch HTTP response headers from a live domain (HTTPS/HTTP in parallel, first wins)."""
+    """Fetch HTTP response headers from a live domain. Sequential HTTPS-first, HTTP-fallback.
+
+    v1.33.12: race-and-cancel pattern removed. Cancelling a parallel `.get()` task
+    mid-flight leaks the httpcore pool slot (S253 reopen). Mirror v1.33.7
+    fetch_live_page sequential pattern: no second task, no loser, no mid-flight
+    cancel — the pooled connection is always returned.
+    """
 
     async def _try_scheme(scheme):
         resp = await _safe_urlopen(domain, scheme, RECON_TIMEOUT)
@@ -1174,50 +1180,15 @@ async def fetch_live_headers(domain: str) -> dict:
             "url": str(resp.url),
         }
 
-    https_t = asyncio.create_task(_try_scheme("https"))
-    http_t = asyncio.create_task(_try_scheme("http"))
     errors: dict[str, str] = {}
-
-    done, pending = await asyncio.wait({https_t, http_t}, return_when=asyncio.FIRST_COMPLETED)
-
-    if https_t in done:
-        # HTTPS finished first — return it (or fall back to HTTP on failure).
-        try:
-            result = https_t.result()
-            for p in pending:
-                p.cancel()
-            # The losing HTTP task may have finished (ConnectError, e.g. port 80
-            # refused) racing the cancel above, or be cancelled — consume its
-            # outcome so asyncio does not log "Task exception was never
-            # retrieved" for the abandoned _try_scheme (~22/24h prod).
-            http_t.add_done_callback(lambda t: t.cancelled() or t.exception())
-            return result
-        except Exception as e:
-            errors["https"] = type(e).__name__
-            try:
-                return await http_t
-            except Exception as e2:
-                errors["http"] = type(e2).__name__
-    else:
-        # HTTP finished first — give HTTPS up to 1s grace (matches sync semantics).
-        try:
-            http_result = http_t.result()
-        except Exception as e:
-            errors["http"] = type(e).__name__
-            try:
-                return await https_t
-            except Exception as e2:
-                errors["https"] = type(e2).__name__
-        else:
-            try:
-                # asyncio.shield: 1s wait_for cancels the waiter, NOT the inner
-                # task — preserves the sync `https_future.result(timeout=1.0)`
-                # behaviour where HTTPS keeps running regardless.
-                return await asyncio.wait_for(asyncio.shield(https_t), timeout=1.0)
-            except (asyncio.TimeoutError, Exception):
-                if not https_t.done():
-                    https_t.cancel()
-                return http_result
+    try:
+        return await _try_scheme("https")
+    except Exception as e:
+        errors["https"] = type(e).__name__
+    try:
+        return await _try_scheme("http")
+    except Exception as e2:
+        errors["http"] = type(e2).__name__
 
     logger.warning(
         "fetch_live_headers failed: HTTPS=%s, HTTP=%s",
@@ -1469,69 +1440,81 @@ async def full_domain_report(
             f_ab = asyncio.create_task(check_abuseipdb(resolved_ip))
             f_sh = asyncio.create_task(check_shodan(resolved_ip))
 
-    report["dns"] = await asyncio.wait_for(f_dns, timeout=RECON_TIMEOUT * 3)
-    report["reverse_dns"] = await asyncio.wait_for(f_rdns, timeout=RECON_TIMEOUT * 2)
-    report["ssl"] = await asyncio.wait_for(f_ssl, timeout=RECON_TIMEOUT * 2)
+    # v1.33.12: try/finally guard cancels any task left pending when an earlier
+    # await raises (e.g., f_subs TimeoutError on slow crt.sh). Without this,
+    # trailing tasks orphan, hold pool slots, and trigger 'Task exception was
+    # never retrieved' (S253 amplifier).
+    _all_tasks = [f_dns, f_rdns, f_ssl, f_headers, f_crtsh, f_whois, f_threat, f_subs, f_certs, f_ab, f_sh]
+    try:
+        report["dns"] = await asyncio.wait_for(f_dns, timeout=RECON_TIMEOUT * 3)
+        report["reverse_dns"] = await asyncio.wait_for(f_rdns, timeout=RECON_TIMEOUT * 2)
+        report["ssl"] = await asyncio.wait_for(f_ssl, timeout=RECON_TIMEOUT * 2)
 
-    if lite:
-        report["whois"] = {}
-        report["subdomains"] = {"subdomains": [], "count": 0}
-        report["certificates"] = {"total_certificates": 0, "certificates": []}
-        report["threat"] = {
-            "urlhaus_status": "skipped",
-            "url_count": 0,
-            "urls_online": 0,
-            "threat_types": [],
-            "tags": [],
-            "urls": [],
-        }
-    else:
-        report["whois"] = await asyncio.wait_for(f_whois, timeout=RECON_TIMEOUT * 2)
-        report["subdomains"] = await asyncio.wait_for(f_subs, timeout=CRTSH_TIMEOUT + RECON_TIMEOUT + 4)
-        report["certificates"] = await asyncio.wait_for(f_certs, timeout=CRTSH_TIMEOUT + RECON_TIMEOUT + 4)
-        report["threat"] = await asyncio.wait_for(f_threat, timeout=RECON_TIMEOUT * 2)
-
-    if enrich and cached_rep is not None:
-        report["reputation"] = cached_rep
-    elif f_ab is not None:
-        try:
-            reputation = {
-                "abuseipdb": await asyncio.wait_for(f_ab, timeout=RECON_TIMEOUT + 2),
-                "shodan": await asyncio.wait_for(f_sh, timeout=RECON_TIMEOUT + 2),
+        if lite:
+            report["whois"] = {}
+            report["subdomains"] = {"subdomains": [], "count": 0}
+            report["certificates"] = {"total_certificates": 0, "certificates": []}
+            report["threat"] = {
+                "urlhaus_status": "skipped",
+                "url_count": 0,
+                "urls_online": 0,
+                "threat_types": [],
+                "tags": [],
+                "urls": [],
             }
-            save_cached_ip(resolved_ip, reputation)  # sync sqlite OK in async — microsecond IO
-            report["reputation"] = reputation
-        except Exception as e:
-            logger.warning("Reputation enrichment failed: %s", type(e).__name__)
-            if client_ip:
-                await ratelimit.arefund("enrichment", hash_client_ip(client_ip))
-    elif not lite and resolved_ip and tier != "pro":
-        report["reputation"] = {
-            "abuseipdb": {
-                "status": "pro_only",
-                "reason": "AbuseIPDB enrichment requires Pro tier",
-                "upgrade_url": UPGRADE_URL,
-            },
-            "shodan": {
-                "status": "pro_only",
-                "reason": "Shodan enrichment requires Pro tier",
-                "upgrade_url": UPGRADE_URL,
-            },
-        }
+        else:
+            report["whois"] = await asyncio.wait_for(f_whois, timeout=RECON_TIMEOUT * 2)
+            report["subdomains"] = await asyncio.wait_for(f_subs, timeout=CRTSH_TIMEOUT + RECON_TIMEOUT + 4)
+            report["certificates"] = await asyncio.wait_for(f_certs, timeout=CRTSH_TIMEOUT + RECON_TIMEOUT + 4)
+            report["threat"] = await asyncio.wait_for(f_threat, timeout=RECON_TIMEOUT * 2)
 
-    # Email security uses DNS TXT records from dns_lookup (sequenced after f_dns)
-    txt_records = report["dns"].get("txt", [])
-    report["email_security"] = await asyncio.wait_for(
-        run_in_threadpool(email_security, domain, txt_records), timeout=RECON_TIMEOUT * 2
-    )
+        if enrich and cached_rep is not None:
+            report["reputation"] = cached_rep
+        elif f_ab is not None:
+            try:
+                reputation = {
+                    "abuseipdb": await asyncio.wait_for(f_ab, timeout=RECON_TIMEOUT + 2),
+                    "shodan": await asyncio.wait_for(f_sh, timeout=RECON_TIMEOUT + 2),
+                }
+                save_cached_ip(resolved_ip, reputation)  # sync sqlite OK in async — microsecond IO
+                report["reputation"] = reputation
+            except Exception as e:
+                logger.warning("Reputation enrichment failed: %s", type(e).__name__)
+                if client_ip:
+                    await ratelimit.arefund("enrichment", hash_client_ip(client_ip))
+        elif not lite and resolved_ip and tier != "pro":
+            report["reputation"] = {
+                "abuseipdb": {
+                    "status": "pro_only",
+                    "reason": "AbuseIPDB enrichment requires Pro tier",
+                    "upgrade_url": UPGRADE_URL,
+                },
+                "shodan": {
+                    "status": "pro_only",
+                    "reason": "Shodan enrichment requires Pro tier",
+                    "upgrade_url": UPGRADE_URL,
+                },
+            }
 
-    # Detect WAF from headers (already fetched in parallel)
-    header_result = await asyncio.wait_for(f_headers, timeout=RECON_TIMEOUT * 2)
+        # Email security uses DNS TXT records from dns_lookup (sequenced after f_dns)
+        txt_records = report["dns"].get("txt", [])
+        report["email_security"] = await asyncio.wait_for(
+            run_in_threadpool(email_security, domain, txt_records), timeout=RECON_TIMEOUT * 2
+        )
 
-    if "headers" in header_result:
-        report["waf"] = detect_waf(header_result["headers"])
-    else:
-        report["waf"] = {"detected": [], "waf_present": False}
+        # Detect WAF from headers (already fetched in parallel) — must stay inside try
+        # so the finally guard does not cancel f_headers before we read it.
+        header_result = await asyncio.wait_for(f_headers, timeout=RECON_TIMEOUT * 2)
+        if "headers" in header_result:
+            report["waf"] = detect_waf(header_result["headers"])
+        else:
+            report["waf"] = {"detected": [], "waf_present": False}
+    finally:
+        _pending = [t for t in _all_tasks if t is not None and not t.done()]
+        for t in _pending:
+            t.cancel()
+        if _pending:
+            await asyncio.gather(*_pending, return_exceptions=True)
 
     # Build summary
     ip = report["reverse_dns"].get("ip", "unknown")

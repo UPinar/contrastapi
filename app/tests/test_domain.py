@@ -3340,6 +3340,111 @@ class TestFetchLiveHeaders:
         assert "error" in result
 
 
+# =========== fetch_live_headers sequential (S253 race-and-cancel leak fix) ===========
+
+
+class TestFetchLiveHeadersSequential:
+    """v1.33.12: fetch_live_headers must be sequential HTTPS-first, HTTP-fallback.
+    Race-and-cancel pattern leaks _ssrf_http pool slots on cancel-mid-.get().
+    Same shape as v1.33.7 fetch_live_page fix."""
+
+    def test_https_success_skips_http(self):
+        from domain.recon import fetch_live_headers
+
+        resp = MagicMock()
+        resp.headers = httpx.Headers([("Content-Type", "text/html")])
+        resp.status_code = 200
+        resp.url = httpx.URL("https://example.com/")
+        with patch("domain.recon._ssrf_http.get", new_callable=AsyncMock) as mock_get:
+            mock_get.return_value = resp
+            result = asyncio.run(fetch_live_headers("example.com"))
+        assert "headers" in result
+        assert result["status_code"] == 200
+        assert mock_get.call_count == 1, (
+            f"sequential: HTTPS success must skip HTTP, got call_count={mock_get.call_count}"
+        )
+        assert "https://" in str(mock_get.call_args.args[0])
+
+    def test_https_fails_falls_back_to_http(self):
+        from domain.recon import fetch_live_headers
+
+        http_resp = MagicMock()
+        http_resp.headers = httpx.Headers([("Content-Type", "text/html")])
+        http_resp.status_code = 200
+        http_resp.url = httpx.URL("http://example.com/")
+        calls = []
+
+        async def _side_effect(url, **_kw):
+            calls.append(str(url))
+            if str(url).startswith("https://"):
+                raise httpx.ConnectError("HTTPS refused")
+            return http_resp
+
+        with patch("domain.recon._ssrf_http.get", side_effect=_side_effect):
+            result = asyncio.run(fetch_live_headers("example.com"))
+        assert "headers" in result
+        assert result["status_code"] == 200
+        assert len(calls) == 2, f"expected HTTPS+HTTP fallback, got {calls}"
+        assert calls[0].startswith("https://") and calls[1].startswith("http://")
+
+    def test_both_fail_returns_error(self):
+        from domain.recon import fetch_live_headers
+
+        with patch("domain.recon._ssrf_http.get", side_effect=httpx.ConnectError("denied")):
+            result = asyncio.run(fetch_live_headers("unreachable.test"))
+        assert "error" in result
+
+
+# =========== full_domain_report orphan-task cleanup (S253 amplifier fix) ===========
+
+
+class TestFullDomainReportOrphanCleanup:
+    """v1.33.12: when an early await raises (e.g., f_subs TimeoutError on slow crt.sh),
+    full_domain_report MUST cancel all remaining create_task'd tasks via try/finally
+    guard. Otherwise tasks orphan, hold pool slots, and re-fire 'Task exception was
+    never retrieved' (8x logged in prod 21:31:37)."""
+
+    def test_no_pending_tasks_after_early_failure(self, monkeypatch):
+        async def _hang(*_a, **_kw):
+            await asyncio.Event().wait()
+
+        async def _quick_crtsh(_q):
+            return ([], None)
+
+        async def _fail_enum(*_a, **_kw):
+            raise asyncio.TimeoutError("simulated crtsh slowness")
+
+        monkeypatch.setattr("domain.recon.dns_lookup", lambda d: {"a": [], "txt": [], "mx": [], "ns": []})
+        monkeypatch.setattr("domain.recon.reverse_dns", lambda d: {"ip": None})
+        monkeypatch.setattr("domain.recon.ssl_info", lambda d, ip: {})
+        monkeypatch.setattr("domain.recon.whois_lookup", lambda d: {})
+        monkeypatch.setattr("domain.recon.email_security", lambda d, txt: {"grade": "F"})
+        monkeypatch.setattr("domain.recon._fetch_crtsh", _quick_crtsh)
+        monkeypatch.setattr("domain.recon.enumerate_subdomains", _fail_enum)
+        monkeypatch.setattr("domain.recon.check_ct_logs", _hang)
+        monkeypatch.setattr("domain.threat.check_urlhaus", _hang)
+        monkeypatch.setattr("domain.recon.fetch_live_headers", _hang)
+
+        from domain.recon import full_domain_report
+
+        async def _run():
+            before = set(asyncio.all_tasks())
+            try:
+                await full_domain_report("example.com")
+            except Exception:
+                pass
+            await asyncio.sleep(0)  # let cancellation propagate one tick
+            after = set(asyncio.all_tasks())
+            new = after - before
+            return [t for t in new if not t.done()]
+
+        pending = asyncio.run(_run())
+        assert not pending, (
+            f"orphan tasks not cancelled: {[t.get_name() for t in pending]} "
+            f"(coros: {[t.get_coro().__qualname__ for t in pending]})"
+        )
+
+
 # =========== fetch_live_page connection-release (cancel-without-await leak) ===========
 
 
