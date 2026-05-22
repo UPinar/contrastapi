@@ -1,0 +1,33 @@
+# Smithery configuration — https://smithery.ai/docs/config#smitheryyaml
+#
+# ContrastAPI is primarily a self-hosted REMOTE MCP server: it runs at
+# https://api.contrastcyber.com/mcp/ (streamable-HTTP) and is registered with
+# Smithery via `smithery mcp publish <url>`. This stdio entry additionally lets
+# Smithery (or any client) spawn the thin proxy directly. Either way every tool
+# call is forwarded to the live ContrastAPI backend, where per-key rate limits
+# (Free 30/hr, Pro 500/hr) and billing are enforced — running the proxy
+# elsewhere does NOT bypass them.
+
+startCommand:
+  type: stdio
+
+configSchema:
+  type: object
+  required: []
+  properties:
+    apiKey:
+      type: string
+      description: "ContrastAPI key (cc_...). Optional — omit it to use the Free tier (30 requests/hour). Get one at https://contrastcyber.com/pricing"
+
+exampleConfig:
+  apiKey: cc_REPLACE_WITH_YOUR_KEY
+
+commandFunction: |-
+  (config) => ({
+    command: 'python3',
+    args: ['mcp_server.py'],
+    env: {
+      CONTRASTAPI_URL: 'https://api.contrastcyber.com',
+      CONTRASTAPI_KEY: config.apiKey || ''
+    }
+  })
