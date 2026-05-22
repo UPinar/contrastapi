@@ -87,6 +87,87 @@ def mcp_session_mgr() -> Any:
     return session_mgr
 
 
+def _leanify_output_schema(osch: dict) -> dict:
+    """Reduce a FastMCP outputSchema to a flat, single-level wire schema.
+
+    FastMCP derives a full `anyOf:[<Success $ref>, ErrorResponse]` + `$defs`
+    schema (~11 KB/tool) from the Pydantic return model — too large for the
+    Smithery catalog gateway in aggregate. Keep the success model's top-level
+    field names + primitive types only (no $defs/$ref/anyOf/prose, ~0.5 KB/tool)
+    so the tool still advertises its output shape while the whole tools/list
+    payload stays well under the gateway buffer. WIRE-only: returns a new dict
+    built from the model_dump()ed schema; never touches the FastMCP tool object.
+    """
+    if not isinstance(osch, dict):
+        return {"type": "object", "properties": {}, "required": []}
+    defs = osch.get("$defs", {})
+
+    def _resolve_success(node: object) -> "dict | None":
+        # node is the success|error union (anyOf), a direct $ref, or inline.
+        if not isinstance(node, dict):
+            return None
+        if "anyOf" in node:
+            for _arm in node["anyOf"]:
+                if not isinstance(_arm, dict):
+                    continue
+                _aref = _arm.get("$ref", "")
+                if _aref.startswith("#/$defs/"):
+                    _name = _aref.removeprefix("#/$defs/")
+                    if _name != "ErrorResponse":
+                        _model = defs.get(_name)
+                        if isinstance(_model, dict):
+                            return _model  # keep scanning arms if def is missing
+                elif _arm.get("type") == "object" and "properties" in _arm:
+                    return _arm  # inline success arm (not a $ref)
+            return None
+        _ref = node.get("$ref")
+        if isinstance(_ref, str) and _ref.startswith("#/$defs/"):
+            return defs.get(_ref.removeprefix("#/$defs/"))
+        return node
+
+    def _flatten(model: object) -> dict:
+        # one-level: field name -> {"type": <primitive>}; nested obj/array kept as type only.
+        if not isinstance(model, dict):
+            return {"type": "object"}
+        if model.get("type") == "array":
+            return {"type": "array"}
+        _props = {}
+        for _fname, _fs in (model.get("properties") or {}).items():
+            _ftype = _fs.get("type") if isinstance(_fs, dict) else None
+            if isinstance(_fs, dict) and isinstance(_fs.get("$ref"), str) and _fs["$ref"].startswith("#/$defs/"):
+                _ftype = (defs.get(_fs["$ref"].removeprefix("#/$defs/")) or {}).get("type", "object")
+            if _ftype is None:
+                _ftype = "object"
+            _props[_fname] = {"type": _ftype}
+        return {
+            "type": "object",
+            "properties": _props,
+            "required": [r for r in model.get("required", []) if r in _props],
+        }
+
+    # FastMCP wrap-result envelope: {properties:{result:{anyOf:[Success,Error]}},required:[result]}
+    _top = osch.get("properties")
+    if isinstance(_top, dict) and "result" in _top:
+        _s = _resolve_success(_top["result"])
+        if isinstance(_s, dict):
+            return {
+                "type": "object",
+                "properties": {"result": _flatten(_s)},
+                "required": [r for r in osch.get("required", ["result"]) if r == "result"],
+            }
+    # top-level union
+    if "anyOf" in osch:
+        _s = _resolve_success(osch)
+        if isinstance(_s, dict):
+            return _flatten(_s)
+    # already a plain object / array
+    if osch.get("type") == "object" and "properties" in osch:
+        return _flatten(osch)
+    if osch.get("type") == "array":
+        return {"type": "array"}
+    return {"type": "object", "properties": {}, "required": []}
+
+
 async def build_and_set_tools_list_cache() -> "int | None":
     """Pre-serialize the FastMCP tools/list result and stash it on the module.
 
@@ -105,13 +186,16 @@ async def build_and_set_tools_list_cache() -> "int | None":
     try:
         tools = await mod.mcp.list_tools()
         result = {"tools": [t.model_dump(mode="json", exclude_none=True) for t in tools]}
-        # S256: outputSchema is ~73% of the tools/list payload (~231KB/53 tools,
-        # FastMCP-derived). It is OPTIONAL per MCP spec and unused on the wire;
-        # stripping it cuts ~309KB → ~85KB so the Smithery catalog gateway stops
-        # dropping the response. tools/call validation + structuredContent are
-        # runtime concerns and unaffected.
+        # S256: the full FastMCP outputSchema was ~73% of the payload (~584KB
+        # raw / 231KB slimmed) and overflowed the Smithery catalog gateway. Keep
+        # a LEAN flat outputSchema (success model's top-level fields only,
+        # ~0.5KB/tool) so the tool still advertises its output shape AND the whole
+        # tools/list payload stays well under the buffer (~100KB). tools/call
+        # validation + structuredContent are runtime concerns and unaffected.
         for _t in result["tools"]:
-            _t.pop("outputSchema", None)
+            _osch = _t.get("outputSchema")
+            if isinstance(_osch, dict):
+                _t["outputSchema"] = _leanify_output_schema(_osch)
         _tools_list_result_bytes = _json.dumps(result, separators=(",", ":")).encode()
         logger.info("tools/list cache pre-serialized: %d bytes", len(_tools_list_result_bytes))
         return len(_tools_list_result_bytes)

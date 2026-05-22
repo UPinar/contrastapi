@@ -760,16 +760,19 @@ def test_mcp_tool_safe_catches_pydantic_validation_error(mcp_client, monkeypatch
     assert any("cve_lookup" in r.message for r in caplog.records), "expected schema-validation warning for cve_lookup"
 
 
-# --- S256: outputSchema stripped from tools/list to slim the wire payload ---
-# (Smithery catalog gateway reported tools/list 100% "Unavailable" buffering the
-# ~309KB body, 73% of which was outputSchema. outputSchema is OPTIONAL per the
-# MCP spec; the call contract — name + description + inputSchema — stays intact.)
+# --- S256: lean (flat) outputSchema reintroduced on tools/list ---
+# (Full FastMCP outputSchema was ~73% of a ~309KB payload → Smithery gateway
+# dropped it. We now emit a FLAT one-level schema — success model's top-level
+# fields only, no $defs/$ref/anyOf — so each tool advertises its output shape
+# AND the payload stays under the gateway buffer. Recovers Smithery's
+# "Output schemas" quality criterion (53/53).)
 
 
-def test_no_tool_emits_outputschema_and_contract_intact(mcp_client):
-    """tools/list must NOT carry outputSchema for any tool (payload-slim
-    invariant), yet every tool must still expose name + description +
-    inputSchema so agents keep a complete, understandable call contract."""
+def test_every_tool_emits_lean_outputschema_and_contract_intact(mcp_client):
+    """tools/list must carry a LEAN flat outputSchema for every tool (no
+    $defs/$ref/anyOf) and still expose name + description + inputSchema."""
+    import json as _j
+
     from config import MCP_TOOL_COUNT
 
     r = mcp_client.post(
@@ -780,8 +783,13 @@ def test_no_tool_emits_outputschema_and_contract_intact(mcp_client):
     tools = r.json()["result"]["tools"]
     assert len(tools) == MCP_TOOL_COUNT
     for t in tools:
-        assert "outputSchema" not in t, f"{t['name']} must not emit outputSchema"
         assert "name" in t and "description" in t and "inputSchema" in t, f"{t['name']} missing call contract"
+        osch = t.get("outputSchema")
+        assert isinstance(osch, dict) and "type" in osch, f"{t['name']} must emit outputSchema"
+        assert "$defs" not in osch and "anyOf" not in osch, f"{t['name']} outputSchema not flat"
+        assert "$ref" not in _j.dumps(osch), f"{t['name']} outputSchema has dangling $ref"
+        if osch.get("type") == "object":
+            assert osch.get("properties"), f"{t['name']} object outputSchema has empty properties"
 
 
 def test_closed_vs_open_world_split(mcp_client):
@@ -1099,8 +1107,8 @@ class TestToolsListCache:
 
         assert mcp_proxy._tools_list_result_bytes is not None
         assert isinstance(mcp_proxy._tools_list_result_bytes, bytes)
-        assert len(mcp_proxy._tools_list_result_bytes) > 1000  # 53 tools ~85KB
-        assert len(mcp_proxy._tools_list_result_bytes) < 120 * 1024  # S256: outputSchema stripped (was ~309KB)
+        assert len(mcp_proxy._tools_list_result_bytes) > 1000  # 53 tools ~100KB
+        assert len(mcp_proxy._tools_list_result_bytes) < 120 * 1024  # S256: lean outputSchema (was ~309KB full)
 
     def test_response_id_substitution_int(self, mcp_client):
         """Request id=777 must round-trip to response id=777."""
@@ -1214,36 +1222,51 @@ class TestToolsListCache:
         assert b"_sentinel_gamma_" not in r.content
 
 
-class TestNoOutputSchemaOnWire:
-    """S256: tools/list must carry NO outputSchema (the Smithery catalog gateway
-    drops the oversized body otherwise). Verified on both the fast-path cache and
-    the cache-None lazy-rebuild path. Call contract (name + description +
-    inputSchema) preserved; whole payload well under the Smithery buffer."""
+class TestLeanOutputSchemaOnWire:
+    """S256: tools/list carries a LEAN flat outputSchema per tool — the success
+    model's top-level fields only (no $defs/$ref/anyOf/prose). Recovers
+    Smithery's "Output schemas" quality criterion while keeping the payload far
+    under the catalog-gateway buffer. Verified on fast-path + cache-None path."""
 
-    _PAYLOAD_BUDGET = 120 * 1024  # ~85KB target after strip; was ~309KB
+    _PAYLOAD_BUDGET = 120 * 1024
+    _PER_TOOL_BUDGET = 2 * 1024
 
-    def _assert_no_outputschema(self, tools):
+    def _assert_lean_outputschema(self, tools):
         import json as _j
 
         from config import MCP_TOOL_COUNT
 
         assert len(tools) == MCP_TOOL_COUNT
+        total_props = 0
         for t in tools:
-            assert "outputSchema" not in t, f"{t['name']} must not emit outputSchema"
             assert "name" in t and "description" in t and "inputSchema" in t, f"{t['name']} missing call contract"
-        total = len(_j.dumps({"tools": tools}, separators=(",", ":")))
-        assert total < self._PAYLOAD_BUDGET, f"tools/list payload {total}B exceeds {self._PAYLOAD_BUDGET}B budget"
+            osch = t.get("outputSchema")
+            assert isinstance(osch, dict) and "type" in osch, f"{t['name']} must emit outputSchema"
+            assert "$defs" not in osch and "anyOf" not in osch, f"{t['name']} outputSchema not flat"
+            ob = len(_j.dumps(osch, separators=(",", ":")))
+            assert ob < self._PER_TOOL_BUDGET, f"{t['name']} outputSchema {ob}B exceeds {self._PER_TOOL_BUDGET}B"
+            _res = osch.get("properties", {}).get("result")
+            _inner = _res if isinstance(_res, dict) else osch
+            _fields = _inner.get("properties", {})
+            assert _fields or _inner.get("type") == "array", (
+                f"{t['name']} lean outputSchema emptied (no fields, not array)"
+            )
+            total_props += len(_fields)
+        assert total_props > 100, f"lean transform produced too few fields ({total_props}) — likely emptying schemas"
+        blob = _j.dumps({"tools": tools}, separators=(",", ":"))
+        assert "$ref" not in blob, "tools/list payload contains a dangling $ref"
+        assert len(blob.encode()) < self._PAYLOAD_BUDGET, f"payload exceeds {self._PAYLOAD_BUDGET}B"
 
-    def test_no_outputschema_fastpath(self, mcp_client):
+    def test_lean_outputschema_fastpath(self, mcp_client):
         r = mcp_client.post(
             "/mcp/",
             headers=MCP_HEADERS,
             json={"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}},
         )
         assert r.status_code == 200
-        self._assert_no_outputschema(r.json()["result"]["tools"])
+        self._assert_lean_outputschema(r.json()["result"]["tools"])
 
-    def test_no_outputschema_slowpath_cache_none(self, mcp_client, monkeypatch):
+    def test_lean_outputschema_slowpath_cache_none(self, mcp_client, monkeypatch):
         from core import mcp_proxy
 
         monkeypatch.setattr(mcp_proxy, "_tools_list_result_bytes", None)
@@ -1254,4 +1277,4 @@ class TestNoOutputSchemaOnWire:
         )
         assert r.status_code == 200
         assert r.json()["id"] == 99
-        self._assert_no_outputschema(r.json()["result"]["tools"])
+        self._assert_lean_outputschema(r.json()["result"]["tools"])
