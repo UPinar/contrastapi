@@ -74,7 +74,10 @@ async def check_shodan(ip: str) -> dict:
             params={"key": settings.shodan_api_key},
         )
         if resp.status_code == 403:
-            return {"status": "restricted", "reason": "IP not available on free tier"}
+            return {
+                "status": "restricted",
+                "reason": "IP not in Shodan dataset (requires Shodan membership or not in public index)",
+            }
         if resp.status_code == 429:
             return {"status": "rate_limited", "reason": "Shodan API rate limit exceeded"}
         resp.raise_for_status()
