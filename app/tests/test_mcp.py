@@ -760,13 +760,16 @@ def test_mcp_tool_safe_catches_pydantic_validation_error(mcp_client, monkeypatch
     assert any("cve_lookup" in r.message for r in caplog.records), "expected schema-validation warning for cve_lookup"
 
 
-# --- v1.22.0 outputSchema invariant: every tool emits anyOf success+error ---
+# --- S256: outputSchema stripped from tools/list to slim the wire payload ---
+# (Smithery catalog gateway reported tools/list 100% "Unavailable" buffering the
+# ~309KB body, 73% of which was outputSchema. outputSchema is OPTIONAL per the
+# MCP spec; the call contract — name + description + inputSchema — stays intact.)
 
 
-def test_every_tool_outputschema_is_anyof_union(mcp_client):
-    """Each of the MCP_TOOL_COUNT tools should declare an outputSchema whose top-level shape
-    is a Union of its specific response model and ErrorResponse, so MCP clients
-    can validate either arm structurally."""
+def test_no_tool_emits_outputschema_and_contract_intact(mcp_client):
+    """tools/list must NOT carry outputSchema for any tool (payload-slim
+    invariant), yet every tool must still expose name + description +
+    inputSchema so agents keep a complete, understandable call contract."""
     from config import MCP_TOOL_COUNT
 
     r = mcp_client.post(
@@ -776,18 +779,9 @@ def test_every_tool_outputschema_is_anyof_union(mcp_client):
     )
     tools = r.json()["result"]["tools"]
     assert len(tools) == MCP_TOOL_COUNT
-    missing = []
-    not_anyof = []
     for t in tools:
-        out = t.get("outputSchema") or {}
-        if not out:
-            missing.append(t["name"])
-            continue
-        defs = out.get("$defs") or {}
-        if "ErrorResponse" not in defs and "ErrorResponse" not in str(out):
-            not_anyof.append(t["name"])
-    assert not missing, f"tools missing outputSchema: {missing}"
-    assert not not_anyof, f"tools without ErrorResponse arm in outputSchema: {not_anyof}"
+        assert "outputSchema" not in t, f"{t['name']} must not emit outputSchema"
+        assert "name" in t and "description" in t and "inputSchema" in t, f"{t['name']} missing call contract"
 
 
 def test_closed_vs_open_world_split(mcp_client):
@@ -1105,7 +1099,8 @@ class TestToolsListCache:
 
         assert mcp_proxy._tools_list_result_bytes is not None
         assert isinstance(mcp_proxy._tools_list_result_bytes, bytes)
-        assert len(mcp_proxy._tools_list_result_bytes) > 1000  # 52 tools ~80KB
+        assert len(mcp_proxy._tools_list_result_bytes) > 1000  # 53 tools ~85KB
+        assert len(mcp_proxy._tools_list_result_bytes) < 120 * 1024  # S256: outputSchema stripped (was ~309KB)
 
     def test_response_id_substitution_int(self, mcp_client):
         """Request id=777 must round-trip to response id=777."""
@@ -1219,52 +1214,36 @@ class TestToolsListCache:
         assert b"_sentinel_gamma_" not in r.content
 
 
-class TestOutputSchemaSlim:
-    """Wire tools/list outputSchema: JSON-Schema annotation prose
-    (description/title/examples/default) dropped at schema level, but field/
-    model declarations under properties/$defs PRESERVED. Both fast-path cache
-    and cache-None lazy-rebuild path. Spec-valid (no dangling $ref)."""
+class TestNoOutputSchemaOnWire:
+    """S256: tools/list must carry NO outputSchema (the Smithery catalog gateway
+    drops the oversized body otherwise). Verified on both the fast-path cache and
+    the cache-None lazy-rebuild path. Call contract (name + description +
+    inputSchema) preserved; whole payload well under the Smithery buffer."""
 
-    # field NAMES that equal a JSON-Schema keyword — must survive slimming
-    # (regression guard for the keyword-vs-name over-prune defect).
-    _MUST_KEEP = (
-        ("cve_lookup", "CveResponse", "description"),
-        ("sigma_rule_lookup", "SigmaRule", "title"),
-        ("check_secrets", "CodeFinding", "description"),
-    )
+    _PAYLOAD_BUDGET = 120 * 1024  # ~85KB target after strip; was ~309KB
 
-    def _assert_correct_slim(self, tools):
+    def _assert_no_outputschema(self, tools):
         import json as _j
-        import re as _re
 
         from config import MCP_TOOL_COUNT
 
         assert len(tools) == MCP_TOOL_COUNT
-        bn = {t["name"]: t for t in tools}
-        for tool, model, field in self._MUST_KEEP:
-            osch = bn[tool]["outputSchema"]
-            defs = set((osch.get("$defs") or {}).keys())
-            for r in _re.findall(r"#/\$defs/([A-Za-z0-9_]+)", _j.dumps(osch)):
-                assert r in defs, f"{tool}: dangling $ref {r}"
-            props = osch["$defs"][model]["properties"]
-            assert field in props, f"{tool}.{model}.{field} wrongly deleted"
-        cve = bn["cve_lookup"]["outputSchema"]["$defs"]["CveResponse"]
-        assert "description" not in cve and "title" not in cve, "model-level prose not stripped"
-        fld = cve["properties"]["description"]
-        assert "description" not in fld and "title" not in fld, "field-level prose not stripped"
+        for t in tools:
+            assert "outputSchema" not in t, f"{t['name']} must not emit outputSchema"
+            assert "name" in t and "description" in t and "inputSchema" in t, f"{t['name']} missing call contract"
         total = len(_j.dumps({"tools": tools}, separators=(",", ":")))
-        assert total < 400_000, f"slim ineffective: {total}B (expect ~295KB vs ~679KB)"
+        assert total < self._PAYLOAD_BUDGET, f"tools/list payload {total}B exceeds {self._PAYLOAD_BUDGET}B budget"
 
-    def test_slim_correct_fastpath(self, mcp_client):
+    def test_no_outputschema_fastpath(self, mcp_client):
         r = mcp_client.post(
             "/mcp/",
             headers=MCP_HEADERS,
             json={"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}},
         )
         assert r.status_code == 200
-        self._assert_correct_slim(r.json()["result"]["tools"])
+        self._assert_no_outputschema(r.json()["result"]["tools"])
 
-    def test_slim_correct_slowpath_cache_none(self, mcp_client, monkeypatch):
+    def test_no_outputschema_slowpath_cache_none(self, mcp_client, monkeypatch):
         from core import mcp_proxy
 
         monkeypatch.setattr(mcp_proxy, "_tools_list_result_bytes", None)
@@ -1275,4 +1254,4 @@ class TestOutputSchemaSlim:
         )
         assert r.status_code == 200
         assert r.json()["id"] == 99
-        self._assert_correct_slim(r.json()["result"]["tools"])
+        self._assert_no_outputschema(r.json()["result"]["tools"])

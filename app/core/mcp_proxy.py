@@ -87,34 +87,6 @@ def mcp_session_mgr() -> Any:
     return session_mgr
 
 
-_SLIM_ANNOT_KEYS = ("description", "title", "examples", "default")
-_SLIM_NAME_MAPS = ("properties", "$defs", "definitions", "patternProperties")
-
-
-def _slim_output_schema(schema: object) -> None:
-    """Drop JSON-Schema annotation keywords (description/title/examples/default)
-    from a tool outputSchema in place. Keys inside properties/$defs/definitions/
-    patternProperties are field/model NAMES, not keywords — never popped; only
-    their subschema values are recursed. Keeps every field declaration +
-    type/required/$ref/$defs structure (0 dangling $ref, spec-valid; ~57% wire
-    reduction). WIRE-only: mutates the model_dump()ed dict, never the FastMCP
-    tool objects, so internal mcp.list_tools() and tools/call structuredContent
-    are unaffected.
-    """
-    if isinstance(schema, dict):
-        for _k in _SLIM_ANNOT_KEYS:
-            schema.pop(_k, None)
-        for _key, _val in schema.items():
-            if _key in _SLIM_NAME_MAPS and isinstance(_val, dict):
-                for _sub in _val.values():
-                    _slim_output_schema(_sub)
-            else:
-                _slim_output_schema(_val)
-    elif isinstance(schema, list):
-        for _v in schema:
-            _slim_output_schema(_v)
-
-
 async def build_and_set_tools_list_cache() -> "int | None":
     """Pre-serialize the FastMCP tools/list result and stash it on the module.
 
@@ -133,10 +105,13 @@ async def build_and_set_tools_list_cache() -> "int | None":
     try:
         tools = await mod.mcp.list_tools()
         result = {"tools": [t.model_dump(mode="json", exclude_none=True) for t in tools]}
+        # S256: outputSchema is ~73% of the tools/list payload (~231KB/53 tools,
+        # FastMCP-derived). It is OPTIONAL per MCP spec and unused on the wire;
+        # stripping it cuts ~309KB → ~85KB so the Smithery catalog gateway stops
+        # dropping the response. tools/call validation + structuredContent are
+        # runtime concerns and unaffected.
         for _t in result["tools"]:
-            _osch = _t.get("outputSchema")
-            if isinstance(_osch, dict):
-                _slim_output_schema(_osch)
+            _t.pop("outputSchema", None)
         _tools_list_result_bytes = _json.dumps(result, separators=(",", ":")).encode()
         logger.info("tools/list cache pre-serialized: %d bytes", len(_tools_list_result_bytes))
         return len(_tools_list_result_bytes)
