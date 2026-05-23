@@ -325,14 +325,21 @@ def _extract_tool_name(body_bytes: bytes) -> "str | None":
     return extracted[0] if extracted else None
 
 
-def _log_mcp_tool(name: str, params: "dict | None" = None) -> None:
+def _log_mcp_tool(
+    name: str,
+    params: "dict | None" = None,
+    status: "str | None" = None,
+    duration_ms: "int | None" = None,
+) -> None:
     """Append one JSON line to the tool usage log. Silent on any error.
 
-    Shape: `{ts, tool, params}` where ts is ISO 8601 with millisecond
-    precision and params is the metadata-only subset (filter / pagination /
-    sort keys; see `_ALLOWED_TOOL_PARAM_KEYS`). Status + duration_ms
-    intentionally deferred — capturing them requires wrapping the SSE-streamed
-    response, more invasive than fits this batch.
+    Shape: `{ts, tool, duration_ms?, status?, params?}` where ts is ISO 8601
+    with millisecond precision and params is the metadata-only subset (filter /
+    pagination / sort keys; see `_ALLOWED_TOOL_PARAM_KEYS`). `duration_ms` is
+    wall-clock dispatch->completion; `status` is coarse ("ok" | "error" |
+    "rate_limited"). Both are optional and omitted when None so older log
+    readers stay field-additive-safe. True HTTP 499 (client-closed) is not
+    observable app-side and is intentionally out of scope.
     """
     try:
         now = datetime.now(UTC)
@@ -340,6 +347,10 @@ def _log_mcp_tool(name: str, params: "dict | None" = None) -> None:
         # microseconds + offset which is fine but verbose for log scanning.
         ts = now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond // 1000:03d}Z"
         record: dict = {"ts": ts, "tool": name}
+        if duration_ms is not None:
+            record["duration_ms"] = duration_ms
+        if status is not None:
+            record["status"] = status
         if params:
             record["params"] = params
         line = _json.dumps(record, separators=(",", ":")) + "\n"
@@ -365,6 +376,8 @@ class _MCPIPForwardMiddleware:
             # below; reset in the finally block alongside _client_ip_var so the
             # tier value cannot bleed past the request scope.
             _tier_token = None
+            _tool_log = None
+            _tool_t0 = None
             raw_headers = scope.get("headers", [])
             headers_map = dict(raw_headers)
             # Priority: CF-Connecting-IP (Cloudflare) > X-Real-IP (nginx) > XFF
@@ -663,6 +676,9 @@ class _MCPIPForwardMiddleware:
                         }
                         _err_headers = [[b"content-type", b"application/json"]]
                         if _gate_exc.status_code == 429:
+                            _rl_tool = _extract_tool_call(full_body)
+                            if _rl_tool:
+                                _log_mcp_tool(_rl_tool[0], _rl_tool[1], status="rate_limited")
                             _auth_mcp = getattr(_gate_req.state, "auth", None)
                             _retry_after = (
                                 _auth_mcp.ratelimit_reset if _auth_mcp and _auth_mcp.ratelimit_reset > 0 else 60
@@ -686,10 +702,10 @@ class _MCPIPForwardMiddleware:
                         )
                         await send({"type": "http.response.body", "body": _err_body})
                         return
-                # Extract + log tool name + sanitized params — best-effort, never raises
-                extracted = _extract_tool_call(full_body)
-                if extracted:
-                    _log_mcp_tool(extracted[0], extracted[1])
+                # Extract tool name + sanitized params now, but log AFTER execution
+                # (finally block below) so status + duration_ms can be attached.
+                _tool_log = _extract_tool_call(full_body)
+                _tool_t0 = datetime.now(UTC)
                 # Replay receive: yield cached body once, then disconnect
                 _sent = {"done": False}
 
@@ -702,9 +718,16 @@ class _MCPIPForwardMiddleware:
                 receive = _replay_receive
             # Validate IP before storing — reject spoofed/malformed values
             token = self._client_ip_var.set(self._safe_ip(ip))
+            _tool_status = "ok"
             try:
                 await self.app(scope, receive, send)
+            except Exception:
+                _tool_status = "error"
+                raise
             finally:
+                if _tool_log is not None:
+                    _dur_ms = int((datetime.now(UTC) - _tool_t0).total_seconds() * 1000)
+                    _log_mcp_tool(_tool_log[0], _tool_log[1], status=_tool_status, duration_ms=_dur_ms)
                 self._client_ip_var.reset(token)
                 if _tier_token is not None:
                     self._user_tier_var.reset(_tier_token)

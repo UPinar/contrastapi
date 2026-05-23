@@ -177,6 +177,85 @@ def test_mcp_tool_call_cve_lookup(mcp_client, monkeypatch):
     assert parsed["cve_id"] == "CVE-2024-0001"
 
 
+def test_mcp_tool_call_logs_duration_and_status(mcp_client, monkeypatch, tmp_path):
+    """Integration: a real tools/call writes duration_ms + status='ok' to the audit log.
+
+    Locks the middleware finally-block wiring that the isolated _log_mcp_tool
+    unit tests do not exercise.
+    """
+    import json as _json
+
+    from core import mcp_proxy
+
+    mod = mcp_proxy._mcp_mod
+
+    async def mock_aget(path, params=None):
+        return {"cve_id": "CVE-2024-0001", "summary": "HIGH — Test CVE"}
+
+    monkeypatch.setattr(mod, "_aget", mock_aget)
+    log_path = tmp_path / "mcp_tools.jsonl"
+    monkeypatch.setattr(mcp_proxy, "_MCP_TOOL_LOG", str(log_path))
+
+    r = mcp_client.post(
+        "/mcp/",
+        headers=MCP_HEADERS,
+        json={
+            "jsonrpc": "2.0",
+            "id": 11,
+            "method": "tools/call",
+            "params": {"name": "cve_lookup", "arguments": {"cve_id": "CVE-2024-0001"}},
+        },
+    )
+    assert r.status_code == 200
+    lines = [ln for ln in log_path.read_text().splitlines() if ln.strip()]
+    record = _json.loads(lines[-1])
+    assert record["tool"] == "cve_lookup"
+    assert record["status"] == "ok"
+    assert isinstance(record["duration_ms"], int)
+    assert record["duration_ms"] >= 0
+
+
+def test_mcp_tool_call_logs_rate_limited_on_429(mcp_client, monkeypatch, tmp_path):
+    """Integration: a rate-limited tools/call writes status='rate_limited' with
+    sanitized params (no PII) to the audit log.
+
+    Locks the 429-gate logging path (mcp_proxy.py:679-681) — verifies it applies
+    the same allowlist sanitization as the normal path, so query inputs like
+    cve_id never reach the log.
+    """
+    import json as _json
+
+    from core import mcp_proxy
+    from fastapi import HTTPException
+
+    def deny(*args, **kwargs):
+        raise HTTPException(status_code=429, detail="rate limited")
+
+    monkeypatch.setattr(mcp_proxy, "_mcp_authenticate", deny)
+    log_path = tmp_path / "mcp_tools.jsonl"
+    monkeypatch.setattr(mcp_proxy, "_MCP_TOOL_LOG", str(log_path))
+
+    r = mcp_client.post(
+        "/mcp/",
+        headers=MCP_HEADERS,
+        json={
+            "jsonrpc": "2.0",
+            "id": 12,
+            "method": "tools/call",
+            "params": {"name": "cve_lookup", "arguments": {"cve_id": "CVE-2024-0001"}},
+        },
+    )
+    assert r.status_code == 429
+    lines = [ln for ln in log_path.read_text().splitlines() if ln.strip()]
+    record = _json.loads(lines[-1])
+    assert record["tool"] == "cve_lookup"
+    assert record["status"] == "rate_limited"
+    # cve_id is a query input (not in the allowlist) → must be dropped, so the
+    # params field is omitted entirely. Proves the 429 path does not leak PII.
+    assert "params" not in record
+    assert "CVE-2024-0001" not in lines[-1]
+
+
 def test_mcp_tool_call_whois_lookup_docstring_parity(mcp_client, monkeypatch):
     """whois_lookup docstring 'Returns {...}' field list must match actual response shape.
 
@@ -1091,6 +1170,31 @@ class TestMcpToolAuditLog:
         mcp_proxy._log_mcp_tool("kev_detail", {})
         record = _json.loads(log_path.read_text().strip())
         assert "params" not in record  # empty params dropped, keeps log compact
+
+    def test_log_mcp_tool_includes_status_and_duration(self, tmp_path, monkeypatch):
+        import json as _json
+
+        from core import mcp_proxy
+
+        log_path = tmp_path / "mcp_tools.jsonl"
+        monkeypatch.setattr(mcp_proxy, "_MCP_TOOL_LOG", str(log_path))
+        mcp_proxy._log_mcp_tool("domain_report", {"domain": "x"}, status="ok", duration_ms=3500)
+        record = _json.loads(log_path.read_text().strip())
+        assert record["tool"] == "domain_report"
+        assert record["status"] == "ok"
+        assert record["duration_ms"] == 3500
+
+    def test_log_mcp_tool_omits_status_and_duration_when_none(self, tmp_path, monkeypatch):
+        import json as _json
+
+        from core import mcp_proxy
+
+        log_path = tmp_path / "mcp_tools.jsonl"
+        monkeypatch.setattr(mcp_proxy, "_MCP_TOOL_LOG", str(log_path))
+        mcp_proxy._log_mcp_tool("kev_detail", {"id": "x"})
+        record = _json.loads(log_path.read_text().strip())
+        assert "status" not in record
+        assert "duration_ms" not in record
 
 
 # --- Tools/list pre-serialize cache (latency fix #1) ---
