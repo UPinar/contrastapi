@@ -510,6 +510,36 @@ def test_contrast_triage_default_perspective_is_blue(mcp_client):
     assert "threat_report" in text
 
 
+def test_contrast_triage_normalizes_invalid_perspective_to_blue(mcp_client):
+    """Invalid/placeholder perspective values default to 'blue' and render
+    successfully, instead of raising a literal_error."""
+    for bad in ("$2", "invalid", "", "  "):
+        r = mcp_client.post(
+            "/mcp/",
+            headers=MCP_HEADERS,
+            json={
+                "jsonrpc": "2.0",
+                "id": 143,
+                "method": "prompts/get",
+                "params": {
+                    "name": "contrast_triage",
+                    "arguments": {"target": "8.8.8.8", "perspective": bad},
+                },
+            },
+        )
+        assert r.status_code == 200, f"perspective={bad!r}: {r.text}"
+        text = "\n".join(m["content"]["text"] for m in r.json()["result"]["messages"])
+        assert "Defensive triage" in text, f"perspective={bad!r} should default to blue"
+        assert "threat_report" in text, f"perspective={bad!r} should surface blue chain"
+
+
+def test_contrast_triage_red_perspective_is_case_insensitive(mcp_client):
+    """Explicit 'red' in any casing / surrounding whitespace selects the red chain."""
+    for good in ("red", "Red", "RED", " red "):
+        text = _get_triage(mcp_client, "8.8.8.8", good)
+        assert "Red-team reconnaissance" in text, f"perspective={good!r} should be red"
+
+
 # === target-type detection unit tests ========================================
 
 

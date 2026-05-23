@@ -2200,8 +2200,8 @@ def contrast_triage(
         ),
     ],
     perspective: Annotated[
-        Literal["red", "blue"],
-        Field(description="'red' = offensive recon (attack surface). 'blue' = defensive triage (incident response)."),
+        str,
+        Field(description="'red' = offensive recon (attack surface). 'blue' = defensive triage (incident response). Any other value (including unsubstituted slash-command placeholders) defaults to 'blue'."),
     ] = "blue",
 ) -> str:
     """Build a tool chain tailored to the target type and perspective."""
@@ -2221,6 +2221,11 @@ def contrast_triage(
             "contrast_triage: target is empty. Provide an IP, domain, CVE-YYYY-NNNN, hash, "
             "ATLAS technique (AML.T####), ATT&CK T-code (T####), or CWE id (CWE-79)."
         )
+    # perspective is a forgiving str (not a strict Literal): slash-command MCP clients
+    # send the unsubstituted positional placeholder '$2' for an omitted optional arg,
+    # which a Literal would reject with a render-aborting ValidationError. Normalize to
+    # the safe default instead — mirrors the defensive `target` handling above.
+    perspective = "red" if (perspective or "").strip().lower() == "red" else "blue"
     target_type = _detect_target_type(target_clean)
     if target_type == "unknown":
         return (
