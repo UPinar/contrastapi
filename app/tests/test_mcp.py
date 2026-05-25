@@ -1382,3 +1382,124 @@ class TestLeanOutputSchemaOnWire:
         assert r.status_code == 200
         assert r.json()["id"] == 99
         self._assert_lean_outputschema(r.json()["result"]["tools"])
+
+
+class TestLeanOutputSchemaFieldTypes:
+    """Issue #38: anyOf-encoded optional fields (Pydantic `T | None`) must keep
+    their real primitive type in the lean outputSchema, not collapse to
+    {"type": "object"}. Exercises _leanify_output_schema directly with a crafted
+    FastMCP-style envelope so the per-field type mapping is deterministic."""
+
+    _FASTMCP_OSCH = {
+        "$defs": {
+            "Verdict": {"type": "object", "properties": {"label": {"type": "string"}}},
+            "ErrorResponse": {"type": "object", "properties": {"error": {"type": "string"}}},
+            "CveSuccess": {
+                "type": "object",
+                "properties": {
+                    "summary": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+                    "next_calls": {"anyOf": [{"type": "array", "items": {"type": "object"}}, {"type": "null"}]},
+                    "days_remaining": {"anyOf": [{"type": "integer"}, {"type": "null"}]},
+                    "cvss_v3": {"anyOf": [{"type": "number"}, {"type": "null"}]},
+                    "is_kev": {"anyOf": [{"type": "boolean"}, {"type": "null"}]},
+                    "verdict": {"anyOf": [{"$ref": "#/$defs/Verdict"}, {"type": "null"}]},
+                    "cve_id": {"type": "string"},
+                },
+                "required": ["cve_id"],
+            },
+        },
+        "properties": {"result": {"anyOf": [{"$ref": "#/$defs/CveSuccess"}, {"$ref": "#/$defs/ErrorResponse"}]}},
+        "required": ["result"],
+    }
+
+    def _leaned(self):
+        from core.mcp_proxy import _leanify_output_schema
+
+        out = _leanify_output_schema(self._FASTMCP_OSCH)
+        return out["properties"]["result"]["properties"]
+
+    def test_optional_string_keeps_string(self):
+        assert self._leaned()["summary"]["type"] == "string"
+
+    def test_optional_array_keeps_array(self):
+        assert self._leaned()["next_calls"]["type"] == "array"
+
+    def test_optional_integer_keeps_integer(self):
+        assert self._leaned()["days_remaining"]["type"] == "integer"
+
+    def test_optional_number_keeps_number(self):
+        assert self._leaned()["cvss_v3"]["type"] == "number"
+
+    def test_optional_boolean_keeps_boolean(self):
+        assert self._leaned()["is_kev"]["type"] == "boolean"
+
+    def test_optional_model_ref_stays_object(self):
+        assert self._leaned()["verdict"]["type"] == "object"
+
+    def test_plain_string_unaffected(self):
+        assert self._leaned()["cve_id"]["type"] == "string"
+
+    def test_schema_stays_flat(self):
+        import json as _json
+
+        from core.mcp_proxy import _leanify_output_schema
+
+        out = _leanify_output_schema(self._FASTMCP_OSCH)
+        blob = _json.dumps(out)
+        assert "$defs" not in out and "anyOf" not in blob and "$ref" not in blob
+
+
+class TestLeanOutputSchemaEdgeCases:
+    """Issue #38 hardening: shapes with no single representable flat type must
+    stay permissive ({} — validates any value) instead of a wrong
+    {"type": "object"}, and alternate encodings (type-as-list, $ref->union)
+    must still resolve to the real primitive."""
+
+    _OSCH = {
+        "$defs": {
+            "MaybeStr": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+        },
+        "type": "object",
+        "properties": {
+            "type_list": {"type": ["string", "null"]},
+            "mixed_union": {"anyOf": [{"type": "integer"}, {"type": "string"}]},
+            "ref_to_union": {"$ref": "#/$defs/MaybeStr"},
+            "any_field": {},
+        },
+        "required": [],
+    }
+
+    def _leaned(self):
+        from core.mcp_proxy import _leanify_output_schema
+
+        return _leanify_output_schema(self._OSCH)["properties"]
+
+    def test_type_list_picks_non_null(self):
+        assert self._leaned()["type_list"] == {"type": "string"}
+
+    def test_mixed_union_is_permissive(self):
+        # cannot be a single flat type -> {} so strict clients never reject
+        assert self._leaned()["mixed_union"] == {}
+
+    def test_ref_to_union_resolves(self):
+        assert self._leaned()["ref_to_union"] == {"type": "string"}
+
+    def test_any_field_is_permissive(self):
+        assert self._leaned()["any_field"] == {}
+
+    def test_cyclic_ref_does_not_recurse_forever(self):
+        # A mutual $ref cycle between two union-defs must terminate (cycle guard),
+        # not blow the stack, and fall back to a safe wire fragment.
+        from core.mcp_proxy import _leanify_output_schema
+
+        osch = {
+            "$defs": {
+                "A": {"anyOf": [{"$ref": "#/$defs/B"}, {"type": "null"}]},
+                "B": {"anyOf": [{"$ref": "#/$defs/A"}, {"type": "null"}]},
+            },
+            "type": "object",
+            "properties": {"f": {"$ref": "#/$defs/A"}},
+            "required": [],
+        }
+        out = _leanify_output_schema(osch)
+        assert out["properties"]["f"] in ({"type": "object"}, {})

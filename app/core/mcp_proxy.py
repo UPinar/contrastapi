@@ -125,6 +125,48 @@ def _leanify_output_schema(osch: dict) -> dict:
             return defs.get(_ref.removeprefix("#/$defs/"))
         return node
 
+    def _ftype_of(_fs: object, _seen: "frozenset[str]" = frozenset()) -> dict:
+        # Resolve one field schema to a flat single-level wire fragment, usually
+        # {"type": <primitive>}. Handles a direct `type` (str or list form), a
+        # `$ref` (incl. ref->union, cycle-guarded) and Pydantic's `anyOf`/`oneOf`
+        # encoding of `T | None` / unions. Returns a permissive {} (validates any
+        # value) for fields with no single representable type — `Any` ({}) or a
+        # mixed-type union — so strict MCP clients never reject a valid response.
+        # Genuine complex models stay {"type": "object"}. `_seen` tracks visited
+        # $def names so a cyclic ref-of-unions can't recurse forever.
+        if not isinstance(_fs, dict):
+            return {"type": "object"}
+        if not _fs:
+            return {}
+        _t = _fs.get("type")
+        if isinstance(_t, str):
+            return {"type": _t}
+        if isinstance(_t, list):
+            _nn = [x for x in _t if isinstance(x, str) and x != "null"]
+            return {"type": _nn[0]} if len(_nn) == 1 else {}
+        _ref = _fs.get("$ref")
+        if isinstance(_ref, str) and _ref.startswith("#/$defs/"):
+            _name = _ref.removeprefix("#/$defs/")
+            _d = defs.get(_name) or {}
+            if isinstance(_d.get("type"), str):
+                return {"type": _d["type"]}
+            if (isinstance(_d.get("anyOf"), list) or isinstance(_d.get("oneOf"), list)) and _name not in _seen:
+                return _ftype_of(_d, _seen | {_name})
+            return {"type": "object"}
+        for _uk in ("anyOf", "oneOf"):
+            _arms = _fs.get(_uk)
+            if isinstance(_arms, list):
+                _frags = [_ftype_of(_a, _seen) for _a in _arms if isinstance(_a, dict) and _a.get("type") != "null"]
+                if not _frags:
+                    return {"type": "object"}
+                _types = {f.get("type") for f in _frags}
+                if len(_types) == 1 and None not in _types:
+                    return {"type": next(iter(_types))}
+                if len(_frags) == 1:
+                    return _frags[0]
+                return {}
+        return {"type": "object"}
+
     def _flatten(model: object) -> dict:
         # one-level: field name -> {"type": <primitive>}; nested obj/array kept as type only.
         if not isinstance(model, dict):
@@ -133,12 +175,7 @@ def _leanify_output_schema(osch: dict) -> dict:
             return {"type": "array"}
         _props = {}
         for _fname, _fs in (model.get("properties") or {}).items():
-            _ftype = _fs.get("type") if isinstance(_fs, dict) else None
-            if isinstance(_fs, dict) and isinstance(_fs.get("$ref"), str) and _fs["$ref"].startswith("#/$defs/"):
-                _ftype = (defs.get(_fs["$ref"].removeprefix("#/$defs/")) or {}).get("type", "object")
-            if _ftype is None:
-                _ftype = "object"
-            _props[_fname] = {"type": _ftype}
+            _props[_fname] = _ftype_of(_fs)
         return {
             "type": "object",
             "properties": _props,
