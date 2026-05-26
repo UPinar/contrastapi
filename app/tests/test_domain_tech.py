@@ -225,7 +225,7 @@ class TestTechRoute:
 
 class TestMonitorRoute:
     @patch("db.get_cached_domain", return_value=None)
-    @patch("domain.routes.ssl_info", return_value={"grade": "A", "days_remaining": 90})
+    @patch("domain.recon.ssl_info", return_value={"grade": "A", "days_remaining": 90})
     @patch("domain.routes.quick_dns_a", return_value=["93.184.216.34"])
     @patch("domain.routes._validate_domain_input")
     def test_monitor_200_up(self, mock_validate, mock_dns, mock_ssl, mock_cache):
@@ -241,7 +241,7 @@ class TestMonitorRoute:
         assert "up" in data["summary"]
 
     @patch("db.get_cached_domain", return_value=None)
-    @patch("domain.routes.ssl_info", side_effect=Exception("TLS handshake failed"))
+    @patch("domain.recon.ssl_info", side_effect=Exception("TLS handshake failed"))
     @patch("domain.routes.quick_dns_a", return_value=[])
     @patch("domain.routes._validate_domain_input")
     def test_monitor_200_down(self, mock_validate, mock_dns, mock_ssl, mock_cache):
@@ -254,7 +254,7 @@ class TestMonitorRoute:
         assert "DOWN" in data["summary"]
 
     @patch("db.get_cached_domain")
-    @patch("domain.routes.ssl_info", return_value={"grade": "B", "days_remaining": 30})
+    @patch("domain.recon.ssl_info", return_value={"grade": "B", "days_remaining": 30})
     @patch("domain.routes.quick_dns_a", return_value=["1.2.3.4"])
     @patch("domain.routes._validate_domain_input")
     def test_monitor_dns_changed(self, mock_validate, mock_dns, mock_ssl, mock_cache):

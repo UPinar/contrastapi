@@ -1251,7 +1251,7 @@ class TestResponseModelFiltering:
 
     # --- whois: fresh fetch (not from cache) ---
     @patch("domain.routes._from_cache", return_value=None)
-    @patch("domain.routes.whois_lookup", return_value=MOCK_WHOIS_RESULT)
+    @patch("domain.recon.whois_lookup", return_value=MOCK_WHOIS_RESULT)
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     def test_whois_exclude_none(self, mock_validate, mock_whois, mock_cache):
         r = client.get("/v1/whois/example.com")
@@ -1311,7 +1311,7 @@ class TestResponseModelFiltering:
     # --- response_shape: exact key set validation ---
 
     @patch("domain.routes._from_cache", return_value=None)
-    @patch("domain.routes.whois_lookup", return_value=MOCK_WHOIS_RESULT)
+    @patch("domain.recon.whois_lookup", return_value=MOCK_WHOIS_RESULT)
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     def test_whois_response_shape(self, mock_validate, mock_whois, mock_cache):
         r = client.get("/v1/whois/example.com")

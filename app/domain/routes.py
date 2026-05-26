@@ -92,8 +92,8 @@ from domain.recon import (
     ip_enrichment,
     phone_lookup,
     quick_dns_a,
-    ssl_info,
-    whois_lookup,
+    ssl_info_async,
+    whois_lookup_async,
 )
 from domain.reputation import check_abuseipdb, check_shodan
 from domain.schemas import (
@@ -1773,7 +1773,7 @@ async def whois_endpoint(
         response = {"domain": domain, "whois": cached, "summary": _whois_summary(cached, domain)}
         response["next_calls"] = [h.model_dump() for h in _whois_lookup_pivot_hints(response)]
         return response
-    result = await run_in_threadpool(whois_lookup, domain)
+    result = await whois_lookup_async(domain)
     if "error" in result:
         raise HTTPException(status_code=504, detail=result["error"])
     response = {"domain": domain, "whois": result, "summary": _whois_summary(result, domain)}
@@ -2518,7 +2518,7 @@ async def domain_monitor(
     ssl_days = None
     ssl_grade = None
     try:
-        ssl_result = await run_in_threadpool(ssl_info, domain, resolved_ip)
+        ssl_result = await ssl_info_async(domain, resolved_ip)
         if "error" not in ssl_result:
             ssl_days = ssl_result.get("days_remaining")
             ssl_grade = ssl_result.get("grade")

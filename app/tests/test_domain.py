@@ -743,7 +743,7 @@ class TestDomainRoutes:
         r = client.get("/v1/dns/nonexistent.invalid")
         assert r.status_code == 404
 
-    @patch("domain.routes.whois_lookup", return_value=MOCK_WHOIS_RESULT)
+    @patch("domain.recon.whois_lookup", return_value=MOCK_WHOIS_RESULT)
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     def test_whois_200(self, mock_validate, mock_whois):
         r = client.get("/v1/whois/example.com")
@@ -758,7 +758,7 @@ class TestDomainRoutes:
         assert "name_servers" in whois
         assert whois["registrar"] == "Test Registrar"
 
-    @patch("domain.routes.whois_lookup", return_value={"error": "No WHOIS server"})
+    @patch("domain.recon.whois_lookup", return_value={"error": "No WHOIS server"})
     @patch("domain.routes.validate_domain", return_value="93.184.216.34")
     def test_whois_error(self, mock_validate, mock_whois):
         r = client.get("/v1/whois/example.dev")
@@ -5616,3 +5616,42 @@ class TestAuditDomainPivotHints:
 
         hints = _audit_domain_pivot_hints({"dns": {}}, "nxdomain.example")
         assert hints == []
+
+
+class TestReconExecutorIsolation:
+    """S260: whois/ssl run on a dedicated bounded executor, NOT the shared
+    AnyIO threadpool, so a /v1/domain flood can't starve cve_leading et al."""
+
+    def test_whois_ssl_executor_bounded_at_3(self):
+        from concurrent.futures import ThreadPoolExecutor
+
+        from domain.recon import _WHOIS_SSL_EXECUTOR
+
+        assert isinstance(_WHOIS_SSL_EXECUTOR, ThreadPoolExecutor)
+        assert _WHOIS_SSL_EXECUTOR._max_workers == 3
+
+    def test_whois_lookup_async_returns_underlying_result(self):
+        from domain import recon
+
+        with patch("domain.recon.whois_lookup", return_value={"registrar": "X"}):
+            out = asyncio.run(recon.whois_lookup_async("example.com"))
+        assert out == {"registrar": "X"}
+
+    def test_ssl_info_async_returns_underlying_result(self):
+        from domain import recon
+
+        with patch("domain.recon.ssl_info", return_value={"grade": "A"}):
+            out = asyncio.run(recon.ssl_info_async("example.com", "1.2.3.4"))
+        assert out == {"grade": "A"}
+
+    def test_whois_ssl_async_bypass_shared_threadpool(self):
+        from domain import recon
+
+        def _boom(*a, **k):
+            raise RuntimeError("shared run_in_threadpool must not be used by whois/ssl")
+
+        with patch("domain.recon.run_in_threadpool", side_effect=_boom):
+            with patch("domain.recon.whois_lookup", return_value={"registrar": "Y"}):
+                assert asyncio.run(recon.whois_lookup_async("example.com")) == {"registrar": "Y"}
+            with patch("domain.recon.ssl_info", return_value={"grade": "B"}):
+                assert asyncio.run(recon.ssl_info_async("example.com", None)) == {"grade": "B"}

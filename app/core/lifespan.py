@@ -163,9 +163,10 @@ def make_lifespan(get_mcp_session_mgr: Callable[[], Any]):
         from db import close_thread_connections
 
         close_thread_connections()
-        # Shut down the dedicated DNS executor used by the SSRF backend.
-        from domain.recon import _DNS_EXECUTOR
+        # Shut down the dedicated DNS + whois/ssl executors used by recon.
+        from domain.recon import _DNS_EXECUTOR, _WHOIS_SSL_EXECUTOR
 
         _DNS_EXECUTOR.shutdown(wait=False)
+        _WHOIS_SSL_EXECUTOR.shutdown(wait=False)
 
     return lifespan

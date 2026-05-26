@@ -1098,6 +1098,26 @@ async def _resolve_dns_async(host: str, timeout: float = 3.0):
     return await asyncio.wait_for(loop.run_in_executor(_DNS_EXECUTOR, fn), timeout=timeout)
 
 
+# Dedicated executor for blocking whois/ssl recon. Same isolation rationale as
+# _DNS_EXECUTOR: a /v1/domain flood of slow whois/ssl lookups must not saturate
+# the shared default threadpool that cve_leading and every other run_in_threadpool
+# consumer depends on. Bounded at 3 — the bound (not the timeout) is the protection,
+# since a run_in_executor thread runs to completion even after asyncio cancels it.
+_WHOIS_SSL_EXECUTOR = ThreadPoolExecutor(max_workers=3, thread_name_prefix="recon-whois-ssl")
+
+
+async def whois_lookup_async(domain: str) -> dict:
+    """whois_lookup on the dedicated recon executor (off the shared pool)."""
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(_WHOIS_SSL_EXECUTOR, whois_lookup, domain)
+
+
+async def ssl_info_async(domain: str, resolved_ip: str | None = None) -> dict:
+    """ssl_info on the dedicated recon executor (off the shared pool)."""
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(_WHOIS_SSL_EXECUTOR, ssl_info, domain, resolved_ip)
+
+
 class _SSRFSafeAsyncBackend(httpcore.AnyIOBackend):
     """Async network backend that validates all resolved IPs before connecting.
 
@@ -1412,7 +1432,7 @@ async def full_domain_report(
     # Fast modules (always run) — sync helpers in threadpool, async helpers awaited
     f_dns = asyncio.create_task(run_in_threadpool(dns_lookup, domain))
     f_rdns = asyncio.create_task(run_in_threadpool(reverse_dns, domain))
-    f_ssl = asyncio.create_task(run_in_threadpool(ssl_info, domain, resolved_ip))
+    f_ssl = asyncio.create_task(ssl_info_async(domain, resolved_ip))
     f_headers = asyncio.create_task(fetch_live_headers(domain))
 
     # Slow modules (skip in lite mode)
@@ -1420,7 +1440,7 @@ async def full_domain_report(
     f_ab = f_sh = None
     if not lite:
         f_crtsh = asyncio.create_task(_fetch_crtsh(f"%.{domain}"))
-        f_whois = asyncio.create_task(run_in_threadpool(whois_lookup, domain))
+        f_whois = asyncio.create_task(whois_lookup_async(domain))
         f_threat = asyncio.create_task(check_urlhaus(domain))
 
         async def _subs_with_crtsh():
