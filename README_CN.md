@@ -9,7 +9,7 @@
 [![contrastapi MCP server](https://glama.ai/mcp/servers/UPinar/contrastapi/badges/score.svg)](https://glama.ai/mcp/servers/UPinar/contrastapi)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-**面向 AI 智能体的安全情报 MCP 服务器。** CVE/KEV/CWE 查询（含 EPSS）、**综合风险评分（CVSS+EPSS+KEV+PoC 融合 — v1.29.1）**、**CVSS v3.x 向量解析（v1.29.1）**、域名审计、IP 威胁报告、IOC 增强、代码安全检查、**MITRE ATLAS（AI/ML 攻击）+ D3FEND（防御技术）**、**网站情报（robots.txt 解析、重定向链、邮箱校验、品牌资源、SEO 审计 — v1.25.0）**。**53 个工具 + 7 个 MCP 资源（ATLAS+D3FEND+CWE 目录浏览）+ 条件式分诊 Prompt，免费使用，无需 API 密钥，每小时 30 信用额度。**
+**面向 AI 智能体的安全情报 MCP 服务器。** CVE/KEV/CWE 查询（含 EPSS）、**综合风险评分（CVSS+EPSS+KEV+PoC 融合 — v1.29.1）**、**CVSS v3.x 向量解析（v1.29.1）**、域名审计、IP 威胁报告、IOC 增强、代码安全检查、**MITRE ATLAS（AI/ML 攻击）+ D3FEND（防御技术）**、**网站情报（robots.txt 解析、重定向链、邮箱校验、品牌资源、SEO 审计 — v1.25.0）**。**53 个工具 + 7 个 MCP 资源（ATLAS+D3FEND+CWE 目录浏览）+ 3 个 Prompt（安全审计、漏洞检查、条件式分诊），免费使用，无需 API 密钥，每小时 30 信用额度。**
 
 [English](README.md) · **在线服务：** [api.contrastcyber.com](https://api.contrastcyber.com)
 

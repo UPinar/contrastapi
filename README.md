@@ -9,7 +9,7 @@
 [![contrastapi MCP server](https://glama.ai/mcp/servers/UPinar/contrastapi/badges/score.svg)](https://glama.ai/mcp/servers/UPinar/contrastapi)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-**Security intelligence MCP server for AI agents.** CVE/KEV/CWE lookup with EPSS, **composite risk scoring (CVSS+EPSS+KEV+PoC fusion — v1.29.1)**, **CVSS v3.x vector parser (v1.29.1)**, domain audit, IP threat reports, IOC enrichment, code security, **MITRE ATLAS (AI/ML attacks) + D3FEND (defenses)**, **web intelligence (robots.txt, redirect-chain, email validation, brand-assets, SEO audit — v1.25.0)**. **53 tools + 7 Resources (ATLAS+D3FEND+CWE catalog browsing) + conditional triage Prompt, free, no API key, 30 credits/hour.**
+**Security intelligence MCP server for AI agents.** CVE/KEV/CWE lookup with EPSS, **composite risk scoring (CVSS+EPSS+KEV+PoC fusion — v1.29.1)**, **CVSS v3.x vector parser (v1.29.1)**, domain audit, IP threat reports, IOC enrichment, code security, **MITRE ATLAS (AI/ML attacks) + D3FEND (defenses)**, **web intelligence (robots.txt, redirect-chain, email validation, brand-assets, SEO audit — v1.25.0)**. **53 tools + 7 Resources (ATLAS+D3FEND+CWE catalog browsing) + 3 Prompts (security audit, vulnerability check, conditional triage), free, no API key, 30 credits/hour.**
 
 [中文](README_CN.md) · **Live:** [api.contrastcyber.com](https://api.contrastcyber.com)
 

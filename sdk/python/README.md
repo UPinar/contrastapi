@@ -2,7 +2,7 @@
 
 Official Python client for [ContrastAPI](https://api.contrastcyber.com) — security intelligence for developers and AI agents.
 
-53 MCP tools / 50+ HTTP endpoints: CVE / EPSS / KEV / CWE, MITRE ATLAS (AI/ML attacks) + bulk drill, MITRE D3FEND defenses, domain audit, IOC + threat intel, OSINT, code-security checks, and more. No API key required for the free tier (30 req/hr).
+53 MCP tools / 60+ HTTP endpoints: CVE / EPSS / KEV / CWE, MITRE ATLAS (AI/ML attacks) + bulk drill, MITRE D3FEND defenses, domain audit, IOC + threat intel, OSINT, code-security checks, and more. No API key required for the free tier (30 req/hr).
 
 ## Install
 
