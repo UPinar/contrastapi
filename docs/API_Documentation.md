@@ -3,6 +3,97 @@
 **Version:** 1.33.19  
 **Base URL:** `https://api.contrastcyber.com`
 
+## Endpoint Index
+
+**Domain Intelligence**
+
+- [Full Domain Report — `GET /v1/domain/{domain}`](#full-domain-report--get-v1domaindomain)
+- [Domain Audit — `GET /v1/audit/{domain}` &nbsp;`[cost: 6]`](#domain-audit--get-v1auditdomain-nbspcost-6)
+- [DNS Records — `GET /v1/dns/{domain}`](#dns-records--get-v1dnsdomain)
+- [WHOIS — `GET /v1/whois/{domain}`](#whois--get-v1whoisdomain)
+- [Subdomain Enumeration — `GET /v1/subdomains/{domain}`](#subdomain-enumeration--get-v1subdomainsdomain)
+- [Certificate Transparency — `GET /v1/certs/{domain}`](#certificate-transparency--get-v1certsdomain)
+- [SSL/TLS Analysis — `GET /v1/ssl/{domain}`](#ssltls-analysis--get-v1ssldomain)
+- [Technology Fingerprint — `GET /v1/tech/{domain}`](#technology-fingerprint--get-v1techdomain)
+- [URLhaus Domain Threat — `GET /v1/threat/{domain}`](#urlhaus-domain-threat--get-v1threatdomain)
+- [Wayback History — `GET /v1/archive/{domain}`](#wayback-history--get-v1archivedomain)
+- [HTTP Security Headers (live) — `GET /v1/scan/headers/{domain}`](#http-security-headers-live--get-v1scanheadersdomain)
+- [Domain Health Monitor — `GET /v1/monitor/{domain}`](#domain-health-monitor--get-v1monitordomain)
+- [Tech-Stack CVE Scan — `GET /v1/domain/{domain}/vulns` &nbsp;`[cost: 4]`](#tech-stack-cve-scan--get-v1domaindomainvulns-nbspcost-4)
+- [Bulk Domain Scan — `POST /v1/domains/bulk` &nbsp;`[cost: 1 per domain]`](#bulk-domain-scan--post-v1domainsbulk-nbspcost-1-per-domain)
+- [Email Security Posture — `GET /v1/email/security-posture/{domain}`](#email-security-posture--get-v1emailsecurity-posturedomain)
+- [Email Verify — `GET /v1/email/verify/{email}`](#email-verify--get-v1emailverifyemail)
+- [Mail Provider / MX — `GET /v1/email/mx/{domain}`](#mail-provider--mx--get-v1emailmxdomain)
+- [Disposable Email Check — `GET /v1/email/disposable/{email}`](#disposable-email-check--get-v1emaildisposableemail)
+- [robots.txt — `GET /v1/robots/{domain}`](#robotstxt--get-v1robotsdomain)
+- [Redirect Chain — `GET /v1/redirect/{url:path}`](#redirect-chain--get-v1redirecturlpath)
+- [Brand Assets — `GET /v1/brand/{domain}` &nbsp;`[cost: 2]`](#brand-assets--get-v1branddomain-nbspcost-2)
+- [SEO Audit — `GET /v1/seo/{domain}` &nbsp;`[cost: 2]`](#seo-audit--get-v1seodomain-nbspcost-2)
+
+**IP & Network Intelligence**
+
+- [IP Intelligence — `GET /v1/ip/{ip}`](#ip-intelligence--get-v1ipip)
+- [IP Threat Report — `GET /v1/threat-report/{ip}` &nbsp;`[cost: 6]`](#ip-threat-report--get-v1threat-reportip-nbspcost-6)
+- [ASN Lookup — `GET /v1/asn/{target}`](#asn-lookup--get-v1asntarget)
+
+**CVE Intelligence**
+
+- [CVE Details — `GET /v1/cve/{cve_id}`](#cve-details--get-v1cvecve_id)
+- [CVE Risk Score — `GET /v1/cve/{cve_id}/risk_score`](#cve-risk-score--get-v1cvecve_idrisk_score)
+- [CVSS Vector Parser — `GET /v1/cvss/details?vector=`](#cvss-vector-parser--get-v1cvssdetailsvector)
+- [CVE Search — `GET /v1/cves`](#cve-search--get-v1cves)
+- [Leading CVEs — `GET /v1/cve/leading`](#leading-cves--get-v1cveleading)
+- [Exploit Lookup — `GET /v1/exploit/{cve_id}`](#exploit-lookup--get-v1exploitcve_id)
+- [KEV Detail — `GET /v1/kev/{cve_id}`](#kev-detail--get-v1kevcve_id)
+- [CWE Lookup — `GET /v1/cwe/{cwe_id}`](#cwe-lookup--get-v1cwecwe_id)
+- [Bulk CVE Lookup — `POST /v1/cves/bulk` &nbsp;`[cost: 1 per ID]`](#bulk-cve-lookup--post-v1cvesbulk-nbspcost-1-per-id)
+
+**Threat Intelligence / IOC**
+
+- [IOC Lookup — `GET /v1/ioc/{indicator}`](#ioc-lookup--get-v1iocindicator)
+- [Hash Reputation — `GET /v1/hash/{hash}`](#hash-reputation--get-v1hashhash)
+- [Password Breach — `GET /v1/password/{sha1}`](#password-breach--get-v1passwordsha1)
+- [Phishing Check — `GET /v1/phishing/{url}`](#phishing-check--get-v1phishingurl)
+- [Bulk IOC — `POST /v1/iocs/bulk` &nbsp;`[cost: 1 per indicator]`](#bulk-ioc--post-v1iocsbulk-nbspcost-1-per-indicator)
+
+**OSINT**
+
+- [Phone Lookup — `GET /v1/phone/{number}`](#phone-lookup--get-v1phonenumber)
+- [Username Lookup — `GET /v1/username/{username}`](#username-lookup--get-v1usernameusername)
+
+**Code Security**
+
+- [Validate Security Headers — `POST /v1/check/headers`](#validate-security-headers--post-v1checkheaders)
+- [Detect Secrets — `POST /v1/check/secrets`](#detect-secrets--post-v1checksecrets)
+- [Detect Injection — `POST /v1/check/injection`](#detect-injection--post-v1checkinjection)
+- [Check Dependencies — `POST /v1/check/dependencies`](#check-dependencies--post-v1checkdependencies)
+
+**MITRE ATLAS**
+
+- [ATLAS Technique — `GET /v1/atlas/{technique_id}`](#atlas-technique--get-v1atlastechnique_id)
+- [ATLAS Technique Search — `GET /v1/atlas/techniques`](#atlas-technique-search--get-v1atlastechniques)
+- [Bulk ATLAS Technique — `POST /v1/atlas/techniques/bulk` &nbsp;`[cost: 1 per ID]`](#bulk-atlas-technique--post-v1atlastechniquesbulk-nbspcost-1-per-id)
+- [ATLAS Case Study — `GET /v1/atlas/case-studies/{case_study_id}`](#atlas-case-study--get-v1atlascase-studiescase_study_id)
+- [ATLAS Case Study Search — `GET /v1/atlas/case-studies`](#atlas-case-study-search--get-v1atlascase-studies)
+
+**MITRE D3FEND**
+
+- [D3FEND Defense — `GET /v1/d3fend/{defense_id}`](#d3fend-defense--get-v1d3fenddefense_id)
+- [D3FEND Defense Search — `GET /v1/d3fend/defenses`](#d3fend-defense-search--get-v1d3fenddefenses)
+- [Defenses for Attack — `GET /v1/d3fend/attack/{attack_technique_id}`](#defenses-for-attack--get-v1d3fendattackattack_technique_id)
+- [D3FEND Coverage — `POST /v1/d3fend/coverage` &nbsp;`[cost: 1 per T-code]`](#d3fend-coverage--post-v1d3fendcoverage-nbspcost-1-per-t-code)
+
+**Sigma Detection Rules**
+
+- [Sigma Rule — `GET /v1/sigma/{rule_id}`](#sigma-rule--get-v1sigmarule_id)
+- [Sigma Search — `GET /v1/sigma/search`](#sigma-search--get-v1sigmasearch)
+- [Bulk Sigma — `POST /v1/sigma/bulk` &nbsp;`[cost: 1 per UUID]`](#bulk-sigma--post-v1sigmabulk-nbspcost-1-per-uuid)
+
+**Meta**
+
+- [Status — `GET /v1/status`](#status--get-v1status)
+- [Usage — `GET /v1/usage`](#usage--get-v1usage)
+
 ## Authentication
 
 ```
@@ -129,6 +220,10 @@ Ethical guardrails apply to all web-intel endpoints (robots, redirect, brand, se
 One-call domain profile: DNS + reverse DNS + WHOIS + SSL + subdomains + Certificate Transparency + email security + WAF + URLhaus threat + composite risk grade + IP reputation. `verdict.sources_unavailable` flags any source that failed (CT logs frequently time out — see `certificates.crtsh_status`).
 
 ```bash
+# Free tier (no key, 30 credits/hr):
+curl https://api.contrastcyber.com/v1/domain/contrastcyber.com
+
+# Pro (500 credits/hr):
 curl https://api.contrastcyber.com/v1/domain/contrastcyber.com \
   -H "Authorization: Bearer $KEY"
 ```
@@ -236,6 +331,10 @@ curl https://api.contrastcyber.com/v1/domain/contrastcyber.com \
 Everything in the Full Domain Report **plus** technology fingerprint and the raw live response headers. Returns `report` (same shape as `GET /v1/domain/{domain}`), `technologies`, and `live_headers`.
 
 ```bash
+# Free tier (no key, 30 credits/hr):
+curl https://api.contrastcyber.com/v1/audit/contrastcyber.com
+
+# Pro (500 credits/hr):
 curl https://api.contrastcyber.com/v1/audit/contrastcyber.com \
   -H "Authorization: Bearer $KEY"
 ```
@@ -661,6 +760,10 @@ Fingerprints the tech stack, then bulk-looks-up known CVEs per detected technolo
 > The example below uses `wordpress.com` because its detectable stack (Nginx, WordPress) yields multiple CVEs including a KEV entry — a CDN-only target returns few or none.
 
 ```bash
+# Free tier (no key, 30 credits/hr):
+curl https://api.contrastcyber.com/v1/domain/wordpress.com/vulns
+
+# Pro (500 credits/hr):
 curl https://api.contrastcyber.com/v1/domain/wordpress.com/vulns \
   -H "Authorization: Bearer $KEY"
 ```
@@ -710,6 +813,7 @@ curl https://api.contrastcyber.com/v1/domain/wordpress.com/vulns \
 Scans up to **50** domains in one request. All-or-nothing on budget: if the batch cost exceeds remaining quota, the whole request is rejected with `429` before any work runs.
 
 ```bash
+# Free tier: omit the Authorization header (anonymous, 30 credits/hr).
 curl -X POST https://api.contrastcyber.com/v1/domains/bulk \
   -H "Authorization: Bearer $KEY" \
   -H "Content-Type: application/json" \
@@ -962,6 +1066,10 @@ curl https://api.contrastcyber.com/v1/redirect/http://contrastcyber.com
 Extracts brand assets from the homepage: favicon, `og:image`, `og:site_name`, theme-color. Target-derived strings carry the `_untrusted` suffix — do not execute or shell-out. `cache_respected=false` flags a `no-store`/`private` target.
 
 ```bash
+# Free tier (no key, 30 credits/hr):
+curl https://api.contrastcyber.com/v1/brand/contrastcyber.com
+
+# Pro (500 credits/hr):
 curl https://api.contrastcyber.com/v1/brand/contrastcyber.com \
   -H "Authorization: Bearer $KEY"
 ```
@@ -989,6 +1097,10 @@ curl https://api.contrastcyber.com/v1/brand/contrastcyber.com \
 10-rule composite SEO score (0–100) + `missing_signals`. Inspects title, meta description, heading structure, image alt coverage, link counts, OG tags, JSON-LD.
 
 ```bash
+# Free tier (no key, 30 credits/hr):
+curl https://api.contrastcyber.com/v1/seo/contrastcyber.com
+
+# Pro (500 credits/hr):
 curl https://api.contrastcyber.com/v1/seo/contrastcyber.com \
   -H "Authorization: Bearer $KEY"
 ```
@@ -1042,6 +1154,10 @@ curl https://api.contrastcyber.com/v1/seo/contrastcyber.com \
 Comprehensive IP profile: reverse DNS, ASN + holder, country, open ports, hostnames, known vulns (Shodan InternetDB enriched with local CVE severity), cloud provider, Tor-exit status, reputation (FireHOL on Free; +AbuseIPDB + Shodan on Pro), and a composite `risk_score` (0–100).
 
 ```bash
+# Free tier (no key, 30 credits/hr):
+curl https://api.contrastcyber.com/v1/ip/8.8.8.8
+
+# Pro (500 credits/hr):
 curl https://api.contrastcyber.com/v1/ip/8.8.8.8 \
   -H "Authorization: Bearer $KEY"
 ```
@@ -1105,6 +1221,10 @@ curl https://api.contrastcyber.com/v1/ip/8.8.8.8 \
 Orchestrated IP profile in one call: InternetDB enrichment + AbuseIPDB + Shodan + ASN (full prefix list) + Tor + cloud + FireHOL. Full parity with `GET /v1/ip` plus the announced-prefix ASN block.
 
 ```bash
+# Free tier (no key, 30 credits/hr):
+curl https://api.contrastcyber.com/v1/threat-report/8.8.8.8
+
+# Pro (500 credits/hr):
 curl https://api.contrastcyber.com/v1/threat-report/8.8.8.8 \
   -H "Authorization: Bearer $KEY"
 ```
@@ -1550,6 +1670,7 @@ Looks up up to **50** CVE IDs in one request (flat cap, all tiers). Invalid-form
 > **Body field is `cve_ids`** (not `ids`).
 
 ```bash
+# Free tier: omit the Authorization header (anonymous, 30 credits/hr).
 curl -X POST https://api.contrastcyber.com/v1/cves/bulk \
   -H "Authorization: Bearer $KEY" \
   -H "Content-Type: application/json" \
@@ -1708,6 +1829,7 @@ curl https://api.contrastcyber.com/v1/phishing/http://example.com
 Enriches up to **50** indicators in one request (mixed types allowed). All-or-nothing on budget.
 
 ```bash
+# Free tier: omit the Authorization header (anonymous, 30 credits/hr).
 curl -X POST https://api.contrastcyber.com/v1/iocs/bulk \
   -H "Authorization: Bearer $KEY" \
   -H "Content-Type: application/json" \
@@ -2017,6 +2139,7 @@ curl "https://api.contrastcyber.com/v1/atlas/techniques?keyword=prompt&limit=2"
 Looks up up to **50** technique IDs in one call.
 
 ```bash
+# Free tier: omit the Authorization header (anonymous, 30 credits/hr).
 curl -X POST https://api.contrastcyber.com/v1/atlas/techniques/bulk \
   -H "Authorization: Bearer $KEY" \
   -H "Content-Type: application/json" \
@@ -2205,6 +2328,7 @@ curl https://api.contrastcyber.com/v1/d3fend/attack/T1059
 Batch coverage breakdown for up to **500** ATT&CK T-codes — identifies which are defended vs undefended. Ideal for gap analysis against an ATT&CK navigator layer.
 
 ```bash
+# Free tier: omit the Authorization header (anonymous, 30 credits/hr).
 curl -X POST https://api.contrastcyber.com/v1/d3fend/coverage \
   -H "Authorization: Bearer $KEY" \
   -H "Content-Type: application/json" \
@@ -2336,6 +2460,7 @@ curl "https://api.contrastcyber.com/v1/sigma/search?query=mimikatz&limit=2"
 Looks up up to **50** rule UUIDs in one call. Per-item `status`: `ok` / `not_found` / `invalid_format`.
 
 ```bash
+# Free tier: omit the Authorization header (anonymous, 30 credits/hr).
 curl -X POST https://api.contrastcyber.com/v1/sigma/bulk \
   -H "Authorization: Bearer $KEY" \
   -H "Content-Type: application/json" \
