@@ -334,8 +334,14 @@ def _parse_whois(text: str) -> dict:
 # === Subdomains ===
 
 
-async def enumerate_subdomains(domain: str, crtsh_data: list | None = None) -> dict:
-    """Enumerate subdomains via DNS brute force + crt.sh CT logs."""
+async def enumerate_subdomains(domain: str, crtsh_data: list | None = None, crtsh_error: str | None = None) -> dict:
+    """Enumerate subdomains via DNS brute force + crt.sh CT logs.
+
+    When the caller pre-fetched crt.sh and surfaced an upstream failure (e.g.,
+    `crt_sh_timeout` from full_domain_report's shared f_crtsh task), pass that
+    string as `crtsh_error` so the response honestly reports `crtsh_status`
+    instead of masquerading as "ok" with an empty result.
+    """
     found_wordlist: set[str] = set()
     warnings: list[str] = []
 
@@ -354,7 +360,7 @@ async def enumerate_subdomains(domain: str, crtsh_data: list | None = None) -> d
         if result:
             found_wordlist.add(result)
 
-    found_crtsh, crtsh_warnings, crtsh_status = await _crtsh_subdomains(domain, crtsh_data)
+    found_crtsh, crtsh_warnings, crtsh_status = await _crtsh_subdomains(domain, crtsh_data, fetch_error=crtsh_error)
     warnings.extend(crtsh_warnings)
 
     all_found = sorted(found_wordlist | set(found_crtsh))
@@ -445,7 +451,9 @@ _CRTSH_STATUS_BY_ERROR = {
 }
 
 
-async def _crtsh_subdomains(domain: str, data: list | None = None) -> tuple[list, list, str]:
+async def _crtsh_subdomains(
+    domain: str, data: list | None = None, fetch_error: str | None = None
+) -> tuple[list, list, str]:
     """Extract subdomain names from crt.sh data.
 
     Returns:
@@ -454,10 +462,17 @@ async def _crtsh_subdomains(domain: str, data: list | None = None) -> tuple[list
         callers distinguish "CT lookup confirmed empty" from "CT lookup failed";
         the legacy (subs, warnings) shape conflated the two and downstream tools
         could not tell the difference between an actually-tiny domain and a
-        crt.sh outage.
+        crt.sh outage. The optional `fetch_error` argument lets the caller
+        propagate an upstream failure (e.g., crt_sh_timeout) when it pre-fetched
+        the data itself — mirrors check_ct_logs's `crtsh_error` parameter so
+        both halves of the recon report agree on whether crt.sh delivered.
     """
     warnings: list[str] = []
     status = "ok"
+    if fetch_error:
+        warnings.append(fetch_error)
+        status = _CRTSH_STATUS_BY_ERROR.get(fetch_error, "error")
+        return ([], warnings, status)
     if data is None:
         data, fetch_error = await _fetch_crtsh(f"%.{domain}")
         if fetch_error:
@@ -1446,11 +1461,21 @@ async def full_domain_report(
         async def _subs_with_crtsh():
             # asyncio.shield prevents cancellation of f_crtsh from propagating
             # back into the shared crtsh task — both _subs and _ct depend on it.
-            data, _ = await asyncio.wait_for(asyncio.shield(f_crtsh), timeout=CRTSH_TIMEOUT + 2)
-            return await enumerate_subdomains(domain, crtsh_data=data)
+            # Inner TimeoutError must be caught here so this closure's task
+            # completes cleanly with partial result; otherwise the unretrieved
+            # exception triggers 'Task exception was never retrieved' (S253 #1).
+            crtsh_err: str | None = None
+            try:
+                data, crtsh_err = await asyncio.wait_for(asyncio.shield(f_crtsh), timeout=CRTSH_TIMEOUT + 2)
+            except asyncio.TimeoutError:
+                data, crtsh_err = [], "crt_sh_timeout"
+            return await enumerate_subdomains(domain, crtsh_data=data, crtsh_error=crtsh_err)
 
         async def _ct_with_crtsh():
-            data, fetch_error = await asyncio.wait_for(asyncio.shield(f_crtsh), timeout=CRTSH_TIMEOUT + 2)
+            try:
+                data, fetch_error = await asyncio.wait_for(asyncio.shield(f_crtsh), timeout=CRTSH_TIMEOUT + 2)
+            except asyncio.TimeoutError:
+                data, fetch_error = [], "crt_sh_timeout"
             return await check_ct_logs(domain, data, crtsh_error=fetch_error)
 
         f_subs = asyncio.create_task(_subs_with_crtsh())

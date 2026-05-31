@@ -3445,6 +3445,53 @@ class TestFullDomainReportOrphanCleanup:
         )
 
 
+class TestCtCrtshInnerTimeoutOrphan:
+    """Regression for S253 #1 (113/24h prod orphan logs). When _fetch_crtsh
+    is slow enough that the INNER asyncio.wait_for(asyncio.shield(f_crtsh),
+    timeout=CRTSH_TIMEOUT+2) times out FIRST, the TimeoutError must be
+    caught INSIDE _ct_with_crtsh() and _subs_with_crtsh() so f_certs/f_subs
+    complete cleanly with partial results. Pre-fix: TimeoutError propagates
+    to f_certs task, outer wait_for at line ~1488 fails the whole report,
+    and asyncio logs 'Task exception was never retrieved'."""
+
+    def test_inner_crtsh_timeout_returns_partial_certificates(self, monkeypatch):
+        async def _hang_crtsh(_q):
+            await asyncio.Event().wait()
+            return ([], None)
+
+        async def _ok_threat(*_a, **_kw):
+            return {
+                "urlhaus_status": "ok",
+                "url_count": 0,
+                "urls_online": 0,
+                "threat_types": [],
+                "tags": [],
+                "urls": [],
+            }
+
+        async def _ok_headers(*_a, **_kw):
+            return {"headers": {}, "status": 200}
+
+        monkeypatch.setattr("domain.recon.CRTSH_TIMEOUT", 0)
+        monkeypatch.setattr("domain.recon.dns_lookup", lambda d: {"a": [], "txt": [], "mx": [], "ns": []})
+        monkeypatch.setattr("domain.recon.reverse_dns", lambda d: {"ip": None})
+        monkeypatch.setattr("domain.recon.ssl_info", lambda d, ip: {})
+        monkeypatch.setattr("domain.recon.whois_lookup", lambda d: {})
+        monkeypatch.setattr("domain.recon.email_security", lambda d, txt: {"grade": "F"})
+        monkeypatch.setattr("domain.recon._fetch_crtsh", _hang_crtsh)
+        monkeypatch.setattr("domain.recon.fetch_live_headers", _ok_headers)
+        monkeypatch.setattr("domain.threat.check_urlhaus", _ok_threat)
+
+        from domain.recon import full_domain_report
+
+        result = asyncio.run(full_domain_report("example.com"))
+
+        assert result["certificates"]["error"] == "crt_sh_timeout"
+        assert result["certificates"]["crtsh_status"] == "timeout"
+        assert result["certificates"]["total_certificates"] == 0
+        assert result["subdomains"]["crtsh_status"] == "timeout"
+
+
 # =========== fetch_live_page connection-release (cancel-without-await leak) ===========
 
 
