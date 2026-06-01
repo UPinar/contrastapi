@@ -1419,22 +1419,22 @@ class TestLeanOutputSchemaFieldTypes:
         return out["properties"]["result"]["properties"]
 
     def test_optional_string_keeps_string(self):
-        assert self._leaned()["summary"]["type"] == "string"
+        assert self._leaned()["summary"]["type"] == ["string", "null"]
 
     def test_optional_array_keeps_array(self):
-        assert self._leaned()["next_calls"]["type"] == "array"
+        assert self._leaned()["next_calls"]["type"] == ["array", "null"]
 
     def test_optional_integer_keeps_integer(self):
-        assert self._leaned()["days_remaining"]["type"] == "integer"
+        assert self._leaned()["days_remaining"]["type"] == ["integer", "null"]
 
     def test_optional_number_keeps_number(self):
-        assert self._leaned()["cvss_v3"]["type"] == "number"
+        assert self._leaned()["cvss_v3"]["type"] == ["number", "null"]
 
     def test_optional_boolean_keeps_boolean(self):
-        assert self._leaned()["is_kev"]["type"] == "boolean"
+        assert self._leaned()["is_kev"]["type"] == ["boolean", "null"]
 
     def test_optional_model_ref_stays_object(self):
-        assert self._leaned()["verdict"]["type"] == "object"
+        assert self._leaned()["verdict"]["type"] == ["object", "null"]
 
     def test_plain_string_unaffected(self):
         assert self._leaned()["cve_id"]["type"] == "string"
@@ -1475,14 +1475,14 @@ class TestLeanOutputSchemaEdgeCases:
         return _leanify_output_schema(self._OSCH)["properties"]
 
     def test_type_list_picks_non_null(self):
-        assert self._leaned()["type_list"] == {"type": "string"}
+        assert self._leaned()["type_list"] == {"type": ["string", "null"]}
 
     def test_mixed_union_is_permissive(self):
         # cannot be a single flat type -> {} so strict clients never reject
         assert self._leaned()["mixed_union"] == {}
 
     def test_ref_to_union_resolves(self):
-        assert self._leaned()["ref_to_union"] == {"type": "string"}
+        assert self._leaned()["ref_to_union"] == {"type": ["string", "null"]}
 
     def test_any_field_is_permissive(self):
         assert self._leaned()["any_field"] == {}
@@ -1502,4 +1502,4 @@ class TestLeanOutputSchemaEdgeCases:
             "required": [],
         }
         out = _leanify_output_schema(osch)
-        assert out["properties"]["f"] in ({"type": "object"}, {})
+        assert out["properties"]["f"] in ({"type": "object"}, {}, {"type": ["object", "null"]})

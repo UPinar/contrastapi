@@ -143,7 +143,9 @@ def _leanify_output_schema(osch: dict) -> dict:
             return {"type": _t}
         if isinstance(_t, list):
             _nn = [x for x in _t if isinstance(x, str) and x != "null"]
-            return {"type": _nn[0]} if len(_nn) == 1 else {}
+            if len(_nn) == 1:
+                return {"type": [_nn[0], "null"]} if "null" in _t else {"type": _nn[0]}
+            return {}
         _ref = _fs.get("$ref")
         if isinstance(_ref, str) and _ref.startswith("#/$defs/"):
             _name = _ref.removeprefix("#/$defs/")
@@ -156,15 +158,25 @@ def _leanify_output_schema(osch: dict) -> dict:
         for _uk in ("anyOf", "oneOf"):
             _arms = _fs.get(_uk)
             if isinstance(_arms, list):
+                _had_null = any(isinstance(_a, dict) and _a.get("type") == "null" for _a in _arms)
                 _frags = [_ftype_of(_a, _seen) for _a in _arms if isinstance(_a, dict) and _a.get("type") != "null"]
                 if not _frags:
-                    return {"type": "object"}
-                _types = {f.get("type") for f in _frags}
-                if len(_types) == 1 and None not in _types:
-                    return {"type": next(iter(_types))}
-                if len(_frags) == 1:
-                    return _frags[0]
-                return {}
+                    return {"type": "null"} if _had_null else {"type": "object"}
+                _prims = set()
+                _permissive = False
+                for _f in _frags:
+                    _ft = _f.get("type")
+                    if _ft is None:
+                        _permissive = True
+                    elif isinstance(_ft, list):
+                        _prims.update(_x for _x in _ft if _x != "null")
+                        _had_null = _had_null or "null" in _ft
+                    else:
+                        _prims.add(_ft)
+                if _permissive or len(_prims) != 1:
+                    return {}
+                _single = next(iter(_prims))
+                return {"type": [_single, "null"]} if _had_null else {"type": _single}
         return {"type": "object"}
 
     def _flatten(model: object) -> dict:
