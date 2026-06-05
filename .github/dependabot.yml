@@ -5,12 +5,6 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
-    ignore:
-      # MAL-2026-4750: entire 0.136.x line injects undocumented 'fastar' typosquat
-      # into [standard] (0.136.0/.1/.3 confirmed via PyPI metadata; only .3 has an
-      # OSV advisory). Hold here until a clean 0.137.x ships or upstream yanks 0.136.x.
-      - dependency-name: "fastapi"
-        versions: [">=0.136.0, <0.137.0"]
 
   - package-ecosystem: "github-actions"
     directory: "/"
