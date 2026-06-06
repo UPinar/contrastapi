@@ -55,6 +55,21 @@ def test_ssrf_http_pool_timeout_is_12s():
     assert _ssrf_http.timeout.pool == 12.0
 
 
+def test_ssrf_http_pool_reaps_idle_keepalive():
+    """Regression: the custom _SSRFSafeAsyncTransport skips super().__init__, so a
+    BARE AsyncConnectionPool defaulted to keepalive_expiry=None — idle keepalive
+    connections were never reaped, so server-closed sockets lingered in CLOSE_WAIT
+    and accumulated over uptime until the bounded pool exhausted (live-fetch routes
+    -> PoolTimeout -> 504, cleared only by the daily restart). The pool MUST set a
+    finite keepalive_expiry explicitly."""
+    from domain.recon import _ssrf_http
+
+    pool = _ssrf_http._transport._pool
+    assert pool._keepalive_expiry == 5.0, "idle keepalive must be reaped (was None -> CLOSE_WAIT leak)"
+    assert pool._max_keepalive_connections == 5
+    assert pool._max_connections == 10
+
+
 def test_fetch_live_page_acloses_on_midstream_cancel():
     from domain.recon import fetch_live_page
 

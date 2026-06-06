@@ -1177,7 +1177,19 @@ class _SSRFSafeAsyncTransport(httpx.AsyncHTTPTransport):
     """
 
     def __init__(self):
-        self._pool = httpcore.AsyncConnectionPool(network_backend=_SSRFSafeAsyncBackend())
+        # super().__init__ is skipped (see class docstring), so the pool limits
+        # httpx.AsyncHTTPTransport would normally apply are NOT inherited. A bare
+        # AsyncConnectionPool defaults to keepalive_expiry=None — idle keepalive
+        # connections are then NEVER reaped, so server-closed sockets linger in
+        # CLOSE_WAIT and accumulate over uptime (live-fetch endpoints eventually
+        # PoolTimeout -> 504; cleared only by the daily restart). Set limits
+        # explicitly: mirrors the _http client + stock httpx's 5.0s expiry.
+        self._pool = httpcore.AsyncConnectionPool(
+            network_backend=_SSRFSafeAsyncBackend(),
+            max_connections=10,
+            max_keepalive_connections=5,
+            keepalive_expiry=5.0,
+        )
 
 
 _ssrf_http = httpx.AsyncClient(
