@@ -45,6 +45,10 @@ _mcp_mod: Any = None  # set by init_mcp; raw mcp_server module — read via mcp_
 # concatenated via byte template at request time; eliminates ~80-120ms of
 # FastMCP Pydantic→JSON serialization per Smithery probe.
 _tools_list_result_bytes: "bytes | None" = None
+# Registered MCP tool names, populated at startup in build_and_set_tools_list_cache.
+# Scopes the first-swipe grant to REAL tools so format-valid garbage names can't
+# poison the per-identity swipe ledger. Empty until built → permissive fallback.
+_TOOL_NAMES: "frozenset[str]" = frozenset()
 # v1.32.4: Composite tools that invoke multiple internal sub-operations
 # inline pay a weighted credit cost so Free-tier users cannot draw N units
 # of upstream work while burning a single credit. Atomic tools (default)
@@ -228,12 +232,13 @@ async def build_and_set_tools_list_cache() -> "int | None":
     (mcp module missing, list_tools raised). Never raises — a None cache
     falls through to the FastMCP slow path.
     """
-    global _tools_list_result_bytes
+    global _tools_list_result_bytes, _TOOL_NAMES
     mod = mcp_module()
     if mod is None:
         return None
     try:
         tools = await mod.mcp.list_tools()
+        _TOOL_NAMES = frozenset(t.name for t in tools)
         result = {"tools": [t.model_dump(mode="json", exclude_none=True) for t in tools]}
         # S256: the full FastMCP outputSchema was ~73% of the payload (~584KB
         # raw / 231KB slimmed) and overflowed the Smithery catalog gateway. Keep
@@ -688,6 +693,7 @@ class _MCPIPForwardMiddleware:
                     # falls through to cost=1, but the downstream FastMCP dispatcher
                     # rejects it anyway — never reaches a registered tool.
                     _cost = 1
+                    _swipe_tool = None
                     try:
                         _params = _rpc.get("params") if isinstance(_rpc, dict) else None
                         if isinstance(_params, dict):
@@ -699,10 +705,15 @@ class _MCPIPForwardMiddleware:
                                 and _maybe_name.replace("_", "").isalnum()
                             ):
                                 _cost = _TOOL_COST.get(_maybe_name, 1)
+                                # Only real registered tools earn a swipe slot.
+                                # Fail-closed: an empty cache (build failed / not yet
+                                # built) grants no swipe rather than trusting any name.
+                                if _maybe_name in _TOOL_NAMES:
+                                    _swipe_tool = _maybe_name
                     except (AttributeError, TypeError):
                         _cost = 1
                     try:
-                        _mcp_authenticate(_gate_req, "/mcp/", cost=_cost)
+                        _mcp_authenticate(_gate_req, "/mcp/", cost=_cost, mcp_tool=_swipe_tool)
                         # Pattern B foundation: publish the resolved tier so MCP
                         # tool wrappers (audit_domain, threat_report — Batches
                         # 4-5) can gate Pro-only sub-calls without HTTP-hopping

@@ -31,7 +31,15 @@ import secrets
 from dataclasses import dataclass
 from typing import Literal
 
-from config import FREE_HOURLY_LIMIT, KEY_LENGTH, KEY_PREFIX, PRO_HOURLY_LIMIT, UPGRADE_URL
+from config import (
+    FIRST_SWIPE_ENABLED,
+    FIRST_SWIPE_MAX_TOOLS,
+    FREE_HOURLY_LIMIT,
+    KEY_LENGTH,
+    KEY_PREFIX,
+    PRO_HOURLY_LIMIT,
+    UPGRADE_URL,
+)
 from db import (
     aget_api_key,
     alog_usage,
@@ -43,7 +51,7 @@ from db import (
 )
 from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from ratelimit import aconsume_credits, aget_reset_time, consume_credits, get_reset_time
+from ratelimit import aconsume_credits, aget_reset_time, consume_credits, get_reset_time, try_redeem_first_swipe
 
 # OpenAPI security scheme. auto_error=False so /v1/* keyless endpoints stay
 # reachable without an Authorization header — actual auth + rate-limit decision
@@ -176,7 +184,7 @@ def _stash(request: Request, ctx: AuthCtx) -> None:
     request.state.auth = ctx
 
 
-def authenticate_sync(request: Request, endpoint: str, cost: int = 1) -> AuthCtx:
+def authenticate_sync(request: Request, endpoint: str, cost: int = 1, mcp_tool: str | None = None) -> AuthCtx:
     """Authenticate request synchronously. Returns AuthCtx.
 
     For Pro keys: verifies key, checks hourly limit (PRO_HOURLY_LIMIT).
@@ -286,7 +294,23 @@ def authenticate_sync(request: Request, endpoint: str, cost: int = 1) -> AuthCtx
     limit = FREE_HOURLY_LIMIT
     store_key = f"free:{hash_client_ip(client_ip)}"
 
-    if not localhost:
+    # v1.34.0 First-swipe: first keyless call to each distinct cost==1 MCP tool is
+    # exempt from the hourly counter (one-time). mcp_tool is non-None only on the MCP
+    # tools/call path (REST passes None). cost>1 composites excluded (real upstream $).
+    # Identity buckets IPv6 to /64 so one /64 can't farm unlimited grants.
+    from validation import swipe_ip_bucket
+
+    swipe_key = f"free:{hash_client_ip(swipe_ip_bucket(client_ip))}"
+    swipe = (
+        not localhost
+        and client_ip not in ("unknown", "")  # unidentifiable caller → no shared free grant
+        and mcp_tool is not None
+        and cost == 1
+        and FIRST_SWIPE_ENABLED
+        and try_redeem_first_swipe(swipe_key, mcp_tool, FIRST_SWIPE_MAX_TOOLS)
+    )
+
+    if not localhost and not swipe:
         allowed, remaining = consume_credits("api", store_key, cost, limit)
         reset_at = get_reset_time("api", store_key)
         if not allowed:
@@ -326,6 +350,10 @@ def authenticate_sync(request: Request, endpoint: str, cost: int = 1) -> AuthCtx
 
 async def aauthenticate(request: Request, endpoint: str, cost: int = 1) -> AuthCtx:
     """Async authentication path used by require_auth's FastAPI dep.
+
+    REST-only: intentionally has NO `mcp_tool` param and NO first-swipe logic — the
+    swipe is MCP-only and the MCP gate uses the sync `authenticate_sync`. Do not port
+    the swipe branch here without re-evaluating the MCP-only invariant.
 
     Mirrors authenticate_sync but awaits the aXxx helpers directly, eliminating
     the run_in_threadpool wrapper layer that previously dispatched the entire

@@ -69,6 +69,16 @@ def _free_bucket_count() -> int:
         return int(row[0])
 
 
+@pytest.fixture(autouse=True)
+def _disable_first_swipe(monkeypatch):
+    """This module tests the rate LIMITER. First-swipe (a separate feature, covered
+    end-to-end in test_first_swipe.py) is disabled here so each test sees the pure
+    gate counter without the one-time exemption interfering."""
+    import auth
+
+    monkeypatch.setattr(auth, "FIRST_SWIPE_ENABLED", False)
+
+
 def test_mcp_initialize_is_free(mcp_client):
     """initialize is a metadata handshake — no credit cost. Registry
     indexers probe this on every refresh; gating it would 429 them out

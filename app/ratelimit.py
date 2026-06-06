@@ -16,7 +16,7 @@ from fastapi.concurrency import run_in_threadpool
 
 
 def _ensure_table():
-    """Create rate_limits table if not exists."""
+    """Create rate_limits + first_swipe tables if not exist."""
     with get_api_db() as con:
         con.execute("""
             CREATE TABLE IF NOT EXISTS rate_limits (
@@ -25,6 +25,18 @@ def _ensure_table():
             )
         """)
         con.execute("CREATE INDEX IF NOT EXISTS idx_rl_key_ts ON rate_limits(key, ts)")
+        # v1.34.0 First-swipe ledger: one row per (identity, tool) the first time a
+        # keyless caller invokes that MCP tool. PK enforces "each tool once, ever"
+        # per identity. Lives here (not db.py) so _init() guarantees it for every
+        # ratelimit helper — the same invariant rate_limits relies on.
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS first_swipe (
+                store_key TEXT NOT NULL,
+                tool TEXT NOT NULL,
+                redeemed_at REAL NOT NULL,
+                PRIMARY KEY (store_key, tool)
+            )
+        """)
 
 
 _table_ready = [False]  # mutable container so a global rebind is unnecessary
@@ -185,6 +197,37 @@ async def aconsume_credits(
     return await run_in_threadpool(consume_credits, store_name, key, cost, max_requests, window_seconds)
 
 
+def try_redeem_first_swipe(key: str, tool: str, max_tools: int) -> bool:
+    """Atomically claim a one-time free first-swipe slot for (key, tool).
+
+    Returns True iff this is the caller's first call to `tool` AND they are still
+    under `max_tools` distinct redemptions — meaning the call should bypass the
+    rate-limit counter. Returns False if the tool was already redeemed or the cap
+    is reached (caller falls back to the normal hourly limit).
+
+    Race-safe across workers via BEGIN IMMEDIATE + INSERT OR IGNORE on the
+    (store_key, tool) PK — only one concurrent insert for the same tool wins.
+    """
+    _init()
+    now = time.time()
+    con = _get_conn(str(settings.api_db))
+    try:
+        con.execute("BEGIN IMMEDIATE")
+        cnt = con.execute("SELECT COUNT(*) FROM first_swipe WHERE store_key = ?", (key,)).fetchone()[0]
+        if cnt >= max_tools:
+            con.commit()
+            return False
+        cur = con.execute(
+            "INSERT OR IGNORE INTO first_swipe (store_key, tool, redeemed_at) VALUES (?, ?, ?)",
+            (key, tool, now),
+        )
+        con.commit()
+        return cur.rowcount == 1
+    except Exception:
+        con.rollback()
+        raise
+
+
 def get_reset_time(store_name: str, key: str, window_seconds: int = 3600) -> int:
     """Seconds until the oldest request in the window expires."""
     _init()
@@ -214,6 +257,7 @@ def reset(store_name: str | None = None) -> None:
             con.execute("DELETE FROM rate_limits WHERE key LIKE ?", (f"{store_name}:%",))
         else:
             con.execute("DELETE FROM rate_limits")
+            con.execute("DELETE FROM first_swipe")
 
 
 def refund(store_name: str, key: str) -> None:

@@ -237,6 +237,25 @@ def sanitize_echo(value: str) -> str:
 _TRUSTED_PROXIES = {"127.0.0.1", "::1", "::ffff:127.0.0.1"}
 
 
+def swipe_ip_bucket(ip: str) -> str:
+    """First-swipe identity bucket: IPv6 → its /64 network, IPv4 → exact.
+
+    A single attacker typically controls a whole IPv6 /64, so per-address keying
+    would make the one-time grant effectively unbounded. Malformed input falls
+    through unchanged (defensive)."""
+    try:
+        addr = ipaddress.ip_address(ip)
+        if addr.version == 6:
+            # IPv4-mapped (::ffff:a.b.c.d) → embedded IPv4; otherwise every mapped
+            # address would /64-collapse to "::" and share one bucket.
+            if addr.ipv4_mapped is not None:
+                return str(addr.ipv4_mapped)
+            return str(ipaddress.ip_network(f"{ip}/64", strict=False).network_address)
+    except ValueError:
+        pass
+    return ip
+
+
 def get_client_ip(request: Request) -> str:
     """Client IP — trust CF-Connecting-IP, X-Real-IP, X-Forwarded-For from known proxies."""
     direct_ip = request.client.host if request.client else "unknown"

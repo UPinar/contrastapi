@@ -782,6 +782,23 @@ def maintenance() -> dict:
     except Exception as e:
         stats["api_error"] = type(e).__name__
 
+    # Unit 1b: Purge first-swipe redemptions past TTL (365d) — bounds table growth
+    # and lets a long-dormant identity re-discover. redeemed_at is a unix REAL ts.
+    try:
+        swipe_cutoff = (datetime.now(UTC) - timedelta(days=365)).timestamp()
+        with get_api_db() as con:
+            con.execute("PRAGMA busy_timeout=30000")
+            try:
+                cur = con.execute("DELETE FROM first_swipe WHERE redeemed_at < ?", (swipe_cutoff,))
+                stats["first_swipe_purged"] = cur.rowcount
+            finally:
+                try:
+                    con.execute("PRAGMA busy_timeout=5000")
+                except Exception:
+                    pass
+    except Exception as e:
+        stats["first_swipe_error"] = type(e).__name__
+
     # Unit 2: Clear unclaimed pending keys older than 24 hours
     try:
         stats["pending_keys_cleared"] = cleanup_expired_pending_keys(max_age_hours=24)

@@ -68,6 +68,7 @@ _CLEANUP_SQL = [
     "DELETE FROM d3fend_defenses",
     "DELETE FROM d3fend_attack_mappings",
     "DELETE FROM cwes",
+    "DELETE FROM first_swipe",
 ]
 
 
