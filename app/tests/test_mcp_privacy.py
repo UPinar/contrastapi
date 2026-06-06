@@ -337,3 +337,49 @@ def test_metadata_keys_in_test_match_allowlist_exactly():
     assert not extra_in_test, (
         f"METADATA_KEYS tests keys not in allowlist: {extra_in_test}. Stale test entries — remove."
     )
+
+
+def test_log_record_includes_tier_when_provided(tmp_path, monkeypatch):
+    """NSA audit (#7): each MCP invocation records caller tier + key_hash so the
+    log answers 'who' (Free vs Pro / which key), not just 'what'. tier is not PII;
+    key_hash is a one-way SHA-256 digest."""
+    from core import mcp_proxy
+
+    log_path = tmp_path / "mcp_tools.jsonl"
+    monkeypatch.setattr(mcp_proxy, "_MCP_TOOL_LOG", str(log_path))
+
+    mcp_proxy._log_mcp_tool("cve_lookup", None, status="ok", duration_ms=5, tier="pro", key_hash="f" * 64)
+
+    record = _json.loads(log_path.read_text().strip())
+    assert record["tier"] == "pro"
+    assert record["key_hash"] == "f" * 64
+
+
+def test_log_record_omits_key_hash_when_none(tmp_path, monkeypatch):
+    """Free / keyless callers have key_hash=None — the field is omitted (keeps the
+    log field-additive-safe), but tier='free' is still recorded."""
+    from core import mcp_proxy
+
+    log_path = tmp_path / "mcp_tools.jsonl"
+    monkeypatch.setattr(mcp_proxy, "_MCP_TOOL_LOG", str(log_path))
+
+    mcp_proxy._log_mcp_tool("cve_lookup", None, status="ok", tier="free", key_hash=None)
+
+    record = _json.loads(log_path.read_text().strip())
+    assert record["tier"] == "free"
+    assert "key_hash" not in record
+
+
+def test_log_identity_adds_no_ip_or_raw_key(tmp_path, monkeypatch):
+    """Privacy regression: adding identity must not introduce a client IP or the
+    raw API key. key_hash is pseudonymous; the cc_ key itself must never appear."""
+    from core import mcp_proxy
+
+    log_path = tmp_path / "mcp_tools.jsonl"
+    monkeypatch.setattr(mcp_proxy, "_MCP_TOOL_LOG", str(log_path))
+
+    mcp_proxy._log_mcp_tool("ip_lookup", None, status="ok", tier="pro", key_hash="a" * 64)
+
+    raw = log_path.read_text()
+    assert "client_ip" not in raw
+    assert "cc_" not in raw

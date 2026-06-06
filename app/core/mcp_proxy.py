@@ -384,16 +384,20 @@ def _log_mcp_tool(
     params: "dict | None" = None,
     status: "str | None" = None,
     duration_ms: "int | None" = None,
+    tier: "str | None" = None,
+    key_hash: "str | None" = None,
 ) -> None:
     """Append one JSON line to the tool usage log. Silent on any error.
 
-    Shape: `{ts, tool, duration_ms?, status?, params?}` where ts is ISO 8601
-    with millisecond precision and params is the metadata-only subset (filter /
-    pagination / sort keys; see `_ALLOWED_TOOL_PARAM_KEYS`). `duration_ms` is
-    wall-clock dispatch->completion; `status` is coarse ("ok" | "error" |
-    "rate_limited"). Both are optional and omitted when None so older log
-    readers stay field-additive-safe. True HTTP 499 (client-closed) is not
-    observable app-side and is intentionally out of scope.
+    Shape: `{ts, tool, duration_ms?, status?, tier?, key_hash?, params?}` where
+    ts is ISO 8601 with millisecond precision and params is the metadata-only
+    subset (filter / pagination / sort keys; see `_ALLOWED_TOOL_PARAM_KEYS`).
+    `duration_ms` is wall-clock dispatch->completion; `status` is coarse ("ok" |
+    "error" | "rate_limited"). `tier` ("pro" | "free") and `key_hash` (one-way
+    SHA-256 digest of the API key — pseudonymous, never the raw cc_ key or an IP)
+    record caller identity per the NSA MCP audit. All optional and omitted when
+    None so older log readers stay field-additive-safe. True HTTP 499 (client-
+    closed) is not observable app-side and is intentionally out of scope.
     """
     try:
         now = datetime.now(UTC)
@@ -405,6 +409,10 @@ def _log_mcp_tool(
             record["duration_ms"] = duration_ms
         if status is not None:
             record["status"] = status
+        if tier is not None:
+            record["tier"] = tier
+        if key_hash is not None:
+            record["key_hash"] = key_hash
         if params:
             record["params"] = params
         line = _json.dumps(record, separators=(",", ":")) + "\n"
@@ -430,6 +438,7 @@ class _MCPIPForwardMiddleware:
             # below; reset in the finally block alongside _client_ip_var so the
             # tier value cannot bleed past the request scope.
             _tier_token = None
+            _auth_resolved = None
             _tool_log = None
             _tool_t0 = None
             raw_headers = scope.get("headers", [])
@@ -737,9 +746,15 @@ class _MCPIPForwardMiddleware:
                         _err_headers = [[b"content-type", b"application/json"]]
                         if _gate_exc.status_code == 429:
                             _rl_tool = _extract_tool_call(full_body)
-                            if _rl_tool:
-                                _log_mcp_tool(_rl_tool[0], _rl_tool[1], status="rate_limited")
                             _auth_mcp = getattr(_gate_req.state, "auth", None)
+                            if _rl_tool:
+                                _log_mcp_tool(
+                                    _rl_tool[0],
+                                    _rl_tool[1],
+                                    status="rate_limited",
+                                    tier=_auth_mcp.tier if _auth_mcp else None,
+                                    key_hash=_auth_mcp.key_hash if _auth_mcp else None,
+                                )
                             _retry_after = (
                                 _auth_mcp.ratelimit_reset if _auth_mcp and _auth_mcp.ratelimit_reset > 0 else 60
                             )
@@ -787,7 +802,14 @@ class _MCPIPForwardMiddleware:
             finally:
                 if _tool_log is not None:
                     _dur_ms = int((datetime.now(UTC) - _tool_t0).total_seconds() * 1000)
-                    _log_mcp_tool(_tool_log[0], _tool_log[1], status=_tool_status, duration_ms=_dur_ms)
+                    _log_mcp_tool(
+                        _tool_log[0],
+                        _tool_log[1],
+                        status=_tool_status,
+                        duration_ms=_dur_ms,
+                        tier=_auth_resolved.tier if _auth_resolved else None,
+                        key_hash=_auth_resolved.key_hash if _auth_resolved else None,
+                    )
                 self._client_ip_var.reset(token)
                 if _tier_token is not None:
                     self._user_tier_var.reset(_tier_token)
