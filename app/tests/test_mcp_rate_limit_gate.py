@@ -365,11 +365,12 @@ def test_tool_cost_map_completeness_for_composites():
     append to `COMPOSITE_TOOLS` here AND wire `_TOOL_COST[name] = COST_*` in
     `app/core/mcp_proxy.py`. If a composite drops off the map, Free-tier
     users get N upstream sub-calls for 1 credit."""
-    from config import COST_AUDIT, COST_TECH_CVE_AUDIT, COST_THREAT_REPORT
+    from config import COST_AUDIT, COST_SCAN, COST_TECH_CVE_AUDIT, COST_THREAT_REPORT
     from core import mcp_proxy
 
     COMPOSITE_TOOLS = [
         ("audit_domain", COST_AUDIT),
+        ("contrast_scan", COST_SCAN),
         ("threat_report", COST_THREAT_REPORT),
         ("tech_stack_cve_audit", COST_TECH_CVE_AUDIT),
     ]
@@ -475,6 +476,7 @@ def test_cost_constants_match_plan_a_values():
         COST_DOMAIN_VULNS,
         COST_GENERATE_RISK_REPORT,
         COST_PRIORITIZE_CVES,
+        COST_SCAN,
         COST_TECH_CVE_AUDIT,
         COST_THREAT_REPORT,
         COST_TRENDING_CVES,
@@ -489,6 +491,7 @@ def test_cost_constants_match_plan_a_values():
     assert COST_CVE_TIMELINE == 6
     assert COST_PRIORITIZE_CVES == 10
     assert COST_TRENDING_CVES == 5
+    assert COST_SCAN == 6, "Faz-2: 5 -> 6 (website scan composite)"
 
 
 def test_mcp_audit_domain_mcp_gate_consumes_six_after_pattern_b(mcp_client):
@@ -680,6 +683,148 @@ def test_mcp_audit_domain_wrapper_does_not_call_aget(mcp_client, monkeypatch):
     assert aget_audit_calls == [], (
         f"MCP audit_domain wrapper must not HTTP-hop to /v1/audit/...; got {aget_audit_calls}"
     )
+
+
+def test_mcp_contrast_scan_mcp_gate_consumes_six():
+    """Faz-2 Pattern B: the MCP contrast_scan wrapper calls `_contrast_scan_impl()`
+    directly (no HTTP hop to /v1/scan/{domain}), so the REST gate is bypassed for
+    MCP traffic. The MCP gate MUST therefore charge COST_SCAN (6) via
+    `_TOOL_COST["contrast_scan"]` so the credit price matches the REST endpoint's.
+    Mirrors the audit_domain (Batch 4) / threat_report (Batch 5) guards."""
+    from config import COST_SCAN
+    from core import mcp_proxy
+
+    assert mcp_proxy._TOOL_COST.get("contrast_scan") == COST_SCAN, (
+        f"contrast_scan must consume COST_SCAN={COST_SCAN} via the MCP gate; "
+        f"got {mcp_proxy._TOOL_COST.get('contrast_scan')!r}"
+    )
+
+
+def test_contrast_scan_impl_callable_directly():
+    """Pattern B contract: `_contrast_scan_impl(domain, *, tier, client_ip)` MUST be
+    importable from `app.scan.routes` and accept the keyword arguments the MCP
+    wrapper passes. Pure import-shape guard — does not invoke the function (would
+    hit real DNS + the scanner subprocess). Parity with the audit_domain /
+    threat_report shape tests."""
+    import inspect
+
+    from app.scan.routes import _contrast_scan_impl
+
+    sig = inspect.signature(_contrast_scan_impl)
+    params = sig.parameters
+    assert "domain" in params, "first positional must be `domain`"
+    for kw in ("tier", "client_ip"):
+        assert kw in params, f"_contrast_scan_impl must accept `{kw}` kwarg; missing"
+    assert inspect.iscoroutinefunction(_contrast_scan_impl), "_contrast_scan_impl must be async"
+
+
+def test_mcp_contrast_scan_wrapper_does_not_call_aget(mcp_client, monkeypatch):
+    """Pattern B behavior: MCP contrast_scan MUST call `_contrast_scan_impl` and
+    MUST NOT call `_aget("/v1/scan/...")`. Spy on both: assert _impl was called,
+    assert _aget was NOT called with a scan path. Also asserts the gate withdrew
+    exactly COST_SCAN credits for the single tools/call (charge==6, single gate,
+    no double-charge)."""
+    from config import COST_SCAN
+    from core import mcp_proxy
+
+    _reset_free_bucket()
+
+    mod = mcp_proxy._mcp_mod
+    from app.scan import routes as _scan_routes
+
+    impl_calls: list[dict] = []
+    aget_scan_calls: list[str] = []
+
+    async def _spy_impl(domain, *, tier="pro", client_ip=""):
+        impl_calls.append({"domain": domain, "tier": tier})
+        return {
+            "domain": domain,
+            "resolved_ip": "93.184.216.34",
+            "total_score": 50,
+            "max_score": 100,
+            "grade": "C",
+            "findings": [],
+            "findings_count": {"critical": 0, "high": 0, "medium": 0, "low": 0},
+            "headers": {},
+            "ssl": {},
+            "dns": {},
+            "redirect": {},
+            "disclosure": {},
+            "cookies": {},
+            "dnssec": {},
+            "methods": {},
+            "cors": {},
+            "html": {},
+            "csp_analysis": {},
+        }
+
+    real_aget = mod._aget
+
+    async def _spy_aget(path, params=None):
+        if path.startswith("/v1/scan/"):
+            aget_scan_calls.append(path)
+        return await real_aget(path, params=params)
+
+    monkeypatch.setattr(_scan_routes, "_contrast_scan_impl", _spy_impl)
+    monkeypatch.setattr(mod, "_aget", _spy_aget)
+
+    r = mcp_client.post(
+        "/mcp/",
+        headers=MCP_HEADERS,
+        json={
+            "jsonrpc": "2.0",
+            "id": 302,
+            "method": "tools/call",
+            "params": {"name": "contrast_scan", "arguments": {"domain": "example.com"}},
+        },
+    )
+
+    assert r.status_code == 200, r.text
+    assert len(impl_calls) == 1, f"_contrast_scan_impl must be called exactly once; got {len(impl_calls)}"
+    assert impl_calls[0]["domain"] == "example.com"
+    assert aget_scan_calls == [], f"MCP contrast_scan wrapper must not HTTP-hop to /v1/scan/...; got {aget_scan_calls}"
+    assert _free_bucket_count() == COST_SCAN, (
+        f"single contrast_scan tools/call must consume exactly COST_SCAN={COST_SCAN} credits; "
+        f"got {_free_bucket_count()}"
+    )
+
+
+def test_mcp_contrast_scan_throttle_429_maps_to_rate_limit(mcp_client, monkeypatch):
+    """Faz-2 review fix: a per-target throttle 429 raised inside _contrast_scan_impl
+    must surface on the MCP wire as `rate_limit_exceeded` (NOT upstream_error) and
+    carry the throttle's own Retry-After (~30s), with NO upgrade_url — the throttle
+    is tier-independent, so a Pro upsell CTA would be wrong."""
+    from fastapi import HTTPException
+    from tests.conftest import mcp_error_payload
+
+    from app.scan import routes as _scan_routes
+
+    _reset_free_bucket()
+
+    async def _throttled_impl(domain, *, tier="pro", client_ip=""):
+        raise HTTPException(
+            status_code=429,
+            detail=f"Target throttle: {domain} exceeded the per-domain limit. retry_after=30s",
+            headers={"Retry-After": "30"},
+        )
+
+    monkeypatch.setattr(_scan_routes, "_contrast_scan_impl", _throttled_impl)
+
+    r = mcp_client.post(
+        "/mcp/",
+        headers=MCP_HEADERS,
+        json={
+            "jsonrpc": "2.0",
+            "id": 303,
+            "method": "tools/call",
+            "params": {"name": "contrast_scan", "arguments": {"domain": "example.com"}},
+        },
+    )
+    assert r.status_code == 200, r.text
+    err = mcp_error_payload(r)["error"]
+    assert err["code"] == "rate_limit_exceeded", f"throttle 429 must map to rate_limit_exceeded; got {err}"
+    assert err["retry_after_seconds"] == 30
+    assert err.get("upgrade_url") is None, "per-target throttle must not carry a Pro upsell upgrade_url"
 
 
 def test_mcp_user_tier_var_module_attribute_exists():

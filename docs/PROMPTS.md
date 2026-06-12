@@ -86,6 +86,8 @@ Agents can chain tools naturally. Example single-prompt workflows:
 
 - *"Audit example.com, then look up CVEs for every technology detected"*
   → Agent runs `audit_domain` → parses `technologies` array → chains `cve_search` for each
+- *"Scan example.com for security misconfigurations, then map its attack surface and CVE-audit its tech stack"*
+  → Agent runs `contrast_scan` → reads `next_calls` → chains `subdomain_enum` (attack surface) + `tech_fingerprint` → `tech_stack_cve_audit`
 - *"Find all subdomains of example.com, check the SSL on each, and report any expiring in the next 30 days"*
   → Agent runs `subdomain_enum` → loops `ssl_check` → filters by `days_remaining < 30`
 - *"Enrich these 20 IPs and tell me which ones are in AbuseIPDB's high-risk bucket"*

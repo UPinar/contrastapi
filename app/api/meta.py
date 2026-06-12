@@ -9,6 +9,7 @@ from typing import Annotated
 from auth import AuthCtx, require_auth
 from config import (
     COST_AUDIT,
+    COST_SCAN,
     COST_TECH_CVE_AUDIT,
     COST_THREAT_REPORT,
     FREE_HOURLY_LIMIT,
@@ -292,6 +293,15 @@ def api_capabilities():
                         "blast_radius": "high",
                         "description": "Orchestrated domain audit: full report + tech fingerprint + live HTTP headers in one call",
                         "response_keys": ["domain", "report", "technologies", "live_headers", "summary"],
+                    },
+                    {
+                        "name": "contrast_scan",
+                        "method": "GET",
+                        "path": "/v1/scan/{domain}",
+                        "credit_cost": COST_SCAN,
+                        "blast_radius": "high",
+                        "description": "Active website security scan: C engine (11 modules — headers/SSL/DNS/CSP/cookies/CORS/DNSSEC/methods/redirect/disclosure/HTML) + severity-ranked findings + letter grade",
+                        "response_keys": ["domain", "resolved_ip", "grade", "findings", "findings_count", "summary"],
                     },
                     {
                         "name": "threat_report",

@@ -1,6 +1,6 @@
 # Tool Selection Guide
 
-> 53 MCP tools, 60+ HTTP endpoints. This guide answers "which tool for which question" in 4 decision trees. Skim this once; agents read tool docstrings — humans read this.
+> 54 MCP tools, 60+ HTTP endpoints. This guide answers "which tool for which question" in 4 decision trees. Skim this once; agents read tool docstrings — humans read this.
 
 ---
 
@@ -11,7 +11,8 @@ type unknown                       → ioc_lookup       (auto-detects IP/domain/
 type known: IP                     → threat_report    (IP-focused: AbuseIPDB+Shodan+ASN+FireHOL)
 type known: domain                 → threat_intel     (URLhaus single-source, fast)
 type known: hash                   → hash_lookup      (MalwareBazaar primary)
-need full posture (DNS+SSL+stack)  → audit_domain     (active scan, costs 6 credits)
+need full posture (DNS+SSL+stack)  → audit_domain     (recon + tech fingerprint + live headers, costs 6)
+need a security scan + grade       → contrast_scan    (11 active modules + severity findings + A–F grade, costs 6)
 need passive recon only            → domain_report    (DNS+WHOIS+SSL+threat status)
 ```
 
@@ -22,6 +23,7 @@ need passive recon only            → domain_report    (DNS+WHOIS+SSL+threat st
 | `threat_report` | "IP investigation with vulns + datacenter detection" | Domain-only target → use `domain_report` |
 | `domain_report` | "Passive DNS + WHOIS + SSL summary" | Need live HTTP headers / tech stack → use `audit_domain` |
 | `audit_domain` | "Full recon + active checks (live headers + tech)" | Just need DNS/threat status → use `domain_report` (cheaper) |
+| `contrast_scan` | "Active security scan: 11 modules, severity findings, A–F grade" | Just want recon/headers → use `audit_domain` / `scan_headers` |
 | `hash_lookup` | "Is this MD5/SHA1/SHA256 known malware?" | IOC type unknown → use `ioc_lookup` |
 
 **Rule of thumb:** if you'd ask a SOC analyst "is X malicious?", pass X to `ioc_lookup` first. Drill into a specific tool only when the type is obvious.

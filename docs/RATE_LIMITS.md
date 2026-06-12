@@ -12,7 +12,7 @@ the hourly quota.
 | Pro  | **500 credits/hour** | API key |
 
 Most endpoints cost 1 credit; aggregating endpoints (`audit_domain`,
-`threat_report`, bulk endpoints) cost more — see
+`contrast_scan`, `threat_report`, bulk endpoints) cost more — see
 [ENDPOINTS.md → Credit Costs](ENDPOINTS.md#credit-costs).
 
 ## 429 response

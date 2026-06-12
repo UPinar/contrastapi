@@ -13,7 +13,7 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 VERSION = "1.34.0"
-MCP_TOOL_COUNT = 53  # v1.33.0: +tech_stack_cve_audit (MCP-only composite)
+MCP_TOOL_COUNT = 54  # Faz-2: +contrast_scan (website-scanner composite)
 MCP_RESOURCE_COUNT = 7  # v1.23.0: atlas+d3fend+cwe (4 templates + 3 catalogs)
 MCP_PROMPT_COUNT = 3  # v1.23.0: security_audit, vulnerability_check, contrast_triage
 ENDPOINT_COUNT = "60+"
@@ -118,10 +118,10 @@ PRO_HOURLY_LIMIT = 500  # Pro key: 500 req/hr (S236, 16.7x Free, well above legi
 # v1.34.0 First-swipe: a keyless agent's FIRST call to each distinct MCP tool is
 # exempt from the hourly counter (one-time, permanent) so the common discovery
 # swipe (one call per tool) completes instead of 429-walling mid-list. MCP-only +
-# Free-only — Pro (500/hr) already clears a 53-tool swipe. Bounded to the tool
+# Free-only — Pro (500/hr) already clears a 54-tool swipe. Bounded to the tool
 # count per identity via the first_swipe PK.
 FIRST_SWIPE_ENABLED = True
-FIRST_SWIPE_MAX_TOOLS = MCP_TOOL_COUNT  # 53 — hard per-identity cap
+FIRST_SWIPE_MAX_TOOLS = MCP_TOOL_COUNT  # 54 — hard per-identity cap
 # v1.27: per-tier bulk caps removed; bulk endpoints partial-fill against the
 # caller's remaining hourly quota (Pydantic max_length=50 still bounds input).
 ENRICHMENT_DAILY_LIMIT = 10  # enriched scans per IP per day (protects external API quotas)
@@ -171,6 +171,7 @@ COST_GENERATE_RISK_REPORT = 15  # v1.32.4 NEW — N CVE risk-score + markdown (P
 COST_CVE_TIMELINE = 6  # v1.32.4 NEW — KEV + EPSS + PoC count + vendor advisory feeds
 COST_PRIORITIZE_CVES = 10  # v1.32.4 NEW — bulk_cve + per-item calculate_risk_score
 COST_TRENDING_CVES = 5  # v1.32.4 NEW — EPSS feed + cve_search (marketing/SEO funnel)
+COST_SCAN = 6  # Faz-2 5->6 — website scan: C binary (11 modules) + findings enrichment, composite
 
 # API key
 KEY_PREFIX = "cc_"
@@ -278,3 +279,9 @@ BULK_OVERALL_TIMEOUT = 120  # hard cap for entire bulk request; partial results 
 
 # Severity ordering
 SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
+SEVERITY_LEVELS = ("critical", "high", "medium", "low")
+
+# Website scanner engine (ContrastScan port — Faz-2: wired to /v1/scan + MCP contrast_scan)
+SCANNER_PATH = BASE_DIR.parent / "scanner" / "contrastscan"
+SCAN_TIMEOUT = 30  # seconds — hard cap on one scanner subprocess
+SCAN_CONCURRENCY = 3  # Faz-2 5->3 — max simultaneous scanner subprocesses (engine snapshots at import)

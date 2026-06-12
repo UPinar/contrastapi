@@ -122,9 +122,29 @@ async def api_error_handler(request: Request, exc: StarletteHTTPException):
         content["hint"] = f"Method {request.method} not allowed. Try POST for /v1/check/* endpoints."
 
     if exc.status_code == 429:
+        # A per-target throttle (robots_txt / seo_audit / brand_assets /
+        # redirect_chain / contrast_scan) raises HTTPException(429, headers=
+        # {"Retry-After": "<=60>"}) — a SERVER-side per-domain limit, NOT the
+        # caller's hourly quota. The caller already passed require_auth, so
+        # request.state.auth holds the *hourly* reset (~3599); honoring that here
+        # would tell a client to back off ~1h for a sub-minute throttle and
+        # mislabel it as a rate-limit with a Pro upsell. Detect the throttle by
+        # its explicit Retry-After header (caller-quota 429s never set one) and
+        # pass it through verbatim.
+        throttle_retry = (exc.headers or {}).get("Retry-After")
+        if throttle_retry is not None:
+            retry_seconds = int(throttle_retry)
+            error_kwargs["retry_after_seconds"] = retry_seconds
+            content["error_code"] = "target_throttle"
+            content["reset_in"] = retry_seconds
+            content["error"] = _error_envelope(**error_kwargs)
+            resp = JSONResponse(status_code=429, content=content)
+            resp.headers["Retry-After"] = str(retry_seconds)
+            return resp
+
         # Faz 3: read from request.state.auth (AuthCtx) — populated by
         # authenticate_sync BEFORE the 429 raise. Fallback for non-auth 429s
-        # (nginx tarpit zone, target_throttle) where AuthCtx wasn't built.
+        # (nginx tarpit zone) where AuthCtx wasn't built.
         auth_ctx_429: AuthCtx | None = getattr(request.state, "auth", None)
         reset_seconds = auth_ctx_429.ratelimit_reset if auth_ctx_429 else 0
         error_kwargs["retry_after_seconds"] = reset_seconds

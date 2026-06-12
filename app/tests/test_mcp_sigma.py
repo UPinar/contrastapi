@@ -42,11 +42,11 @@ def test_mcp_tools_list_includes_sigma_tools(mcp_client):
     assert "bulk_sigma_rule_lookup" in names
 
 
-def test_mcp_tools_list_count_bumped_to_53(mcp_client):
-    """MCP_TOOL_COUNT bumped 52 → 53 after v1.32.4 Batch 3: tech_stack_cve_audit."""
+def test_mcp_tools_list_count_bumped_to_54(mcp_client):
+    """MCP_TOOL_COUNT bumped 53 → 54 after Faz-2: contrast_scan (website scanner)."""
     from config import MCP_TOOL_COUNT
 
-    assert MCP_TOOL_COUNT == 53
+    assert MCP_TOOL_COUNT == 54
     r = mcp_client.post(
         "/mcp/",
         headers=MCP_HEADERS,

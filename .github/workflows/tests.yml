@@ -61,3 +61,22 @@ jobs:
           CONTRASTAPI_CVE_DB: /tmp/ci_cve.db
           CONTRASTAPI_CACHE_DB: /tmp/ci_cache.db
         run: cd app && python -m pytest tests/ -v --tb=short
+
+  c-scanner:
+    # The pytest suite fully mocks subprocess.run, so it never builds the C
+    # engine. This job is the only thing that catches a broken scanner build
+    # BEFORE the ARM server deploy (a build failure there = an outage). CI uses
+    # the -lcurl fallback (the server's curl-impersonate-chrome is not on apt);
+    # the SSRF/redirect logic is identical, only the curl handle setup differs.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install C build deps
+        run: sudo apt-get update && sudo apt-get install -y libcurl4-openssl-dev libssl-dev libcjson-dev
+
+      - name: Compile scanner — 0-warning gate (-Werror; production binary = monolithic src/contrastscan.c)
+        run: cd scanner && make CFLAGS="-Wall -Wextra -O2 -Werror"
+
+      - name: C unit tests (scoring)
+        run: cd scanner && make test CFLAGS="-Wall -Wextra -O2 -Werror" && ./test_scoring

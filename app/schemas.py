@@ -111,6 +111,7 @@ class PivotHint(BaseModel):
         "sigma_rule_lookup",
         "bulk_sigma_rule_lookup",
         "tech_stack_cve_audit",
+        "contrast_scan",
     ] = Field(
         description=(
             "Canonical MCP tool name to call next. Constrained to known operation_ids in "

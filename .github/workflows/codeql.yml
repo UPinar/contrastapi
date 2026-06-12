@@ -26,11 +26,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language: [ 'python' ]
+        # 'c-cpp' covers the security-critical scanner (curl/SSRF/redirect code).
+        language: [ 'python', 'c-cpp' ]
 
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+
+      - name: Install C build deps
+        if: matrix.language == 'c-cpp'
+        run: sudo apt-get update && sudo apt-get install -y libcurl4-openssl-dev libssl-dev libcjson-dev
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4
@@ -39,6 +44,10 @@ jobs:
           # security-and-quality = security-extended + maintainability queries
           # Test path exclusions live in the config file.
           config-file: ./.github/codeql/codeql-config.yml
+
+      - name: Build C scanner (c-cpp only — CodeQL traces this compile)
+        if: matrix.language == 'c-cpp'
+        run: cd scanner && make
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v4

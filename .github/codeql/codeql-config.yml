@@ -7,6 +7,7 @@ paths-ignore:
   - 'app/tests'
   - 'sdk/python/tests'
   - 'sdk/node/tests'
+  - 'scanner/tests'
   - 'plans'
 
 queries:

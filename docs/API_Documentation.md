@@ -9,6 +9,7 @@
 
 - [Full Domain Report — `GET /v1/domain/{domain}`](#full-domain-report--get-v1domaindomain)
 - [Domain Audit — `GET /v1/audit/{domain}` &nbsp;`[cost: 6]`](#domain-audit--get-v1auditdomain-nbspcost-6)
+- [Website Security Scan — `GET /v1/scan/{domain}` &nbsp;`[cost: 6]`](#website-security-scan--get-v1scandomain-nbspcost-6)
 - [DNS Records — `GET /v1/dns/{domain}`](#dns-records--get-v1dnsdomain)
 - [WHOIS — `GET /v1/whois/{domain}`](#whois--get-v1whoisdomain)
 - [Subdomain Enumeration — `GET /v1/subdomains/{domain}`](#subdomain-enumeration--get-v1subdomainsdomain)
@@ -148,6 +149,7 @@ Omit the header for free-tier (anonymous) access tracked by client IP. Malformed
 |---|---|---|
 | Most endpoints | 1 | Single upstream source |
 | `GET /v1/audit/{domain}` | 6 | DNS + WHOIS + SSL + CT + subdomains + tech + headers + email (9–11 sources) |
+| `GET /v1/scan/{domain}` | 6 | C scanner engine — 11 active modules (headers/SSL/DNS/CSP/cookies/CORS/DNSSEC/methods/redirect/disclosure/HTML) + findings |
 | `GET /v1/threat-report/{ip}` | 6 | IP enrich + AbuseIPDB + Shodan + ASN + Tor + cloud + FireHOL + CVE (8 sources) |
 | `GET /v1/domain/{domain}/vulns` | 4 | Tech fingerprint + bulk CVE per product |
 | `GET /v1/brand/{domain}` | 2 | Homepage fetch + robots.txt |
@@ -369,6 +371,64 @@ curl https://api.contrastcyber.com/v1/audit/contrastcyber.com \
   "summary": "contrastcyber.com resolves to 188.114.97.3. Security grade A (85/100). SSL grade A by Let's Encrypt. Behind Cloudflare. …"
 }
 ```
+
+---
+
+### Website Security Scan — `GET /v1/scan/{domain}` &nbsp;`[cost: 6]`
+
+Active website security scan: runs the ContrastScan C engine against the live site across **11 modules** — HTTP security headers, SSL/TLS, DNS, redirect chain, information disclosure, cookie flags, DNSSEC, HTTP methods, CORS, HTML hygiene, and deep CSP analysis — then enriches the raw result with **severity-ranked findings** and a **letter grade**. Use this for a hands-on misconfiguration scan; use `GET /v1/audit/{domain}` for passive recon (DNS/WHOIS/SSL/threat intel) and `GET /v1/scan/headers/{domain}` for headers only.
+
+The domain is DNS-resolved once and the scan is pinned to that IP (SSRF defense — bare IPs and private-resolving domains are rejected). Because the scan makes active outbound requests, a **per-target eTLD+1 throttle (60 req/min)** applies on top of your rate limit.
+
+```bash
+# Free tier (no key, 30 credits/hr):
+curl https://api.contrastcyber.com/v1/scan/contrastcyber.com
+
+# Pro (500 credits/hr):
+curl https://api.contrastcyber.com/v1/scan/contrastcyber.com \
+  -H "Authorization: Bearer $KEY"
+```
+
+#### Response fields
+
+| Field | Type | Description |
+|---|---|---|
+| `domain` | string | Scanned domain (lowercased, no scheme/path/port) |
+| `resolved_ip` | string | IP the scanner pinned for the scan (`127.0.0.1` for the self-domain bypass) |
+| `total_score` / `max_score` | integer | Aggregate security score across all modules / max achievable |
+| `grade` | string | Letter grade A–F derived from `total_score / max_score` |
+| `findings` | array | Severity-sorted findings (critical first); each carries `severity`, `category`, `title` + category-specific detail |
+| `findings_count` | object | Counts by severity: `{critical, high, medium, low}` |
+| `headers`, `ssl`, `dns`, `redirect`, `disclosure`, `cookies`, `dnssec`, `methods`, `cors`, `html`, `csp_analysis` | object | Per-module blocks: `{score, max, details}` |
+| `enterprise` | object \| null | Present only for known enterprise domains (large-org scoring caveat) |
+| `summary` | string | One-line scan summary |
+| `next_calls` | array | Pivot hints → `subdomain_enum`, `tech_fingerprint`, `audit_domain` |
+
+#### Example response
+
+```json
+{
+  "domain": "contrastcyber.com",
+  "resolved_ip": "188.114.97.3",
+  "total_score": 85,
+  "max_score": 100,
+  "grade": "A",
+  "findings": [
+    {"severity": "medium", "category": "headers", "title": "Permissions-Policy not set", "recommendation": "…"}
+  ],
+  "findings_count": {"critical": 0, "high": 0, "medium": 1, "low": 2},
+  "headers": {"score": 18, "max": 20, "details": {"…": "…"}},
+  "ssl": {"score": 10, "max": 10, "details": {"grade": "A", "…": "…"}},
+  "dns": {"score": 8, "max": 10, "details": {"…": "…"}},
+  "csp_analysis": {"score": 7, "max": 10, "details": {"…": "…"}},
+  "summary": "contrastcyber.com — security grade A (85/100), 0 critical / 0 high findings.",
+  "next_calls": [
+    {"tool": "subdomain_enum", "input": "contrastcyber.com", "reason": "Map attack surface — enumerate subdomains via crt.sh CT logs + DNS wordlist (passive)."}
+  ]
+}
+```
+
+> Active scan, self-identifying UA. It deliberately omits passive recon (WHOIS / subdomains / fingerprint) — chain `next_calls` or `GET /v1/audit/{domain}` for that.
 
 ---
 
@@ -2565,7 +2625,7 @@ curl https://api.contrastcyber.com/v1/usage \
 
 ## MCP Server
 
-Exposes **53 tools**, **7 resources**, and **3 prompts** over two transports:
+Exposes **54 tools**, **7 resources**, and **3 prompts** over two transports:
 
 | Transport | Use case |
 |---|---|

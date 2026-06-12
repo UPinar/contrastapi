@@ -65,6 +65,7 @@ Every authenticated response includes X-RateLimit-Cost so clients can budget cal
 ### Domain Intelligence
 - GET /v1/domain/{domain} — Full domain report (DNS + WHOIS + SSL + subdomains + WAF + email security + threat intel + risk score)
 - GET /v1/audit/{domain} — Orchestrated domain audit (full report + tech fingerprint + live headers in one call)
+- GET /v1/scan/{domain} — Active website security scan (C engine: 11 modules — headers/SSL/DNS/CSP/cookies/CORS/DNSSEC/methods/redirect/disclosure/HTML — + severity-ranked findings + letter grade)
 - GET /v1/threat-report/{ip} — Orchestrated IP threat report (Shodan + AbuseIPDB + ASN + enrichment)
 - GET /v1/dns/{domain} — DNS records (A, AAAA, MX, NS, TXT, CNAME, SOA)
 - GET /v1/whois/{domain} — WHOIS registration data

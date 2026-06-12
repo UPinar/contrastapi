@@ -12,6 +12,7 @@ Full list of 57+ REST endpoints. Base URL: `https://api.contrastcyber.com`
 ```
 GET  /v1/domain/{domain}          Full domain report (DNS + WHOIS + SSL + subs + WAF + reputation)
 GET  /v1/audit/{domain}           Comprehensive audit (full report + tech fingerprint + live headers)  [cost: 4]
+GET  /v1/scan/{domain}            Active website security scan — C engine (11 modules) + severity-ranked findings + grade  [cost: 6]
 GET  /v1/dns/{domain}             DNS records (A, AAAA, MX, NS, TXT, CNAME, SOA)
 GET  /v1/whois/{domain}           WHOIS registration data
 GET  /v1/subdomains/{domain}      Subdomain enumeration via wordlist DNS brute-force + Certificate Transparency logs (crt.sh)
@@ -154,6 +155,7 @@ Most endpoints consume **1 credit** per call. Aggregating endpoints that fan out
 |---|---|---|
 | Most endpoints | 1 | Single upstream call or cache hit |
 | `GET /v1/audit/{domain}` | 4 | Full report + tech fingerprint + live headers (parallel fan-out) |
+| `GET /v1/scan/{domain}` | 6 | C scanner engine (11 modules: headers/SSL/DNS/CSP/cookies/CORS/...) + severity-ranked findings |
 | `GET /v1/threat-report/{ip}` | 4 | Shodan + AbuseIPDB + ASN aggregated |
 | `GET /v1/brand/{domain}` | 2 | Homepage fetch + robots.txt fetch (parallel) + BS4 parse |
 | `GET /v1/seo/{domain}` | 2 | Homepage fetch + robots.txt fetch (parallel) + 10-rule scorer |

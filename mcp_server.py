@@ -136,6 +136,7 @@ from app.ioc.schemas import (  # noqa: E402
     PasswordResponse,
     PhishingResponse,
 )
+from app.scan.schemas import ScanResponse  # noqa: E402
 from app.schemas import ErrorResponse, TechStackCveAuditResponse  # noqa: E402
 from app.sigma.schemas import (  # noqa: E402
     BulkSigmaRuleLookupResponse,
@@ -553,6 +554,19 @@ def mcp_tool_safe(*, annotations: ToolAnnotations):
                 exc = UpstreamErrorException("Upstream response validation failed")
                 payload = ErrorResponse(error=exc.to_error_detail()).model_dump_json(exclude_none=True)
                 raise ToolError(payload) from None
+            except Exception as e:
+                # Defense in depth: any non-AppException that escapes a tool body
+                # (e.g. sqlite3.OperationalError under a DB-lock, an unmapped bug
+                # in a direct-call Pattern-B tool that does not HTTP-hop through
+                # _aget) must NOT reach the FastMCP wire raw — that would skip the
+                # isError envelope and ship an uncontrolled message. Convert to a
+                # sanitized UpstreamErrorException like the ValidationError arm.
+                # CancelledError is a BaseException subclass and is intentionally
+                # not caught here, so task cancellation still propagates.
+                logger.exception("mcp_tool %s raised unhandled %s", fn.__name__, type(e).__name__)
+                exc = UpstreamErrorException("Internal tool error")
+                payload = ErrorResponse(error=exc.to_error_detail()).model_dump_json(exclude_none=True)
+                raise ToolError(payload) from None
 
         return mcp.tool(annotations=annotations, structured_output=True)(wrapped)
 
@@ -694,6 +708,50 @@ async def audit_domain(
             raise UpstreamTimeoutException(detail) from None
         raise UpstreamErrorException(detail) from None
     return AuditResponse(**result)
+
+
+@mcp_tool_safe(annotations=_RO_OPEN_WORLD)
+async def contrast_scan(
+    domain: Annotated[
+        str,
+        Field(
+            description="Root domain to scan, without protocol or path (e.g. 'example.com'). Bare IPs and private-resolving domains are rejected."
+        ),
+    ],
+) -> ScanResponse | ErrorResponse:
+    """Active website security scan: runs the ContrastScan C engine (11 modules — HTTP security headers, SSL/TLS, DNS, redirect chain, information disclosure, cookie flags, DNSSEC, HTTP methods, CORS, HTML hygiene, deep CSP analysis) against the live site and enriches the raw result with severity-ranked vulnerability findings and a letter grade. Use for a hands-on misconfiguration scan; use audit_domain for passive recon (DNS/WHOIS/SSL/threat intel) and scan_headers for headers only. Active outbound fetch — a per-target eTLD+1 throttle (60 req/min) applies. Free: 30/hr (costs 6 credits), Pro: 500/hr. Returns {domain, resolved_ip, total_score, max_score, grade, findings, findings_count, headers, ssl, dns, redirect, disclosure, cookies, dnssec, methods, cors, html, csp_analysis, enterprise, summary, next_calls}."""
+    # Faz-2 Pattern B: call the shared internal helper directly instead of
+    # HTTP-hopping to /v1/scan/{domain} via _aget(). The MCP gate already
+    # charged COST_SCAN via _TOOL_COST["contrast_scan"]; a REST round-trip
+    # would double-charge and add ~50ms loopback latency.
+    from app.scan.routes import _contrast_scan_impl
+
+    try:
+        result = await _contrast_scan_impl(
+            _require_domain(domain),
+            tier=_get_user_tier(),
+            client_ip=_safe_ip(_client_ip_var.get()),
+        )
+    except HTTPException as e:
+        # _contrast_scan_impl raises FastAPI HTTPException for validation /
+        # throttle / scanner failure (REST contract). @mcp_tool_safe only
+        # catches AppException, so convert here: 400/422 → invalid_argument,
+        # 504 → upstream_timeout, anything else (429/500/502/503) →
+        # upstream_error.
+        detail = e.detail if isinstance(e.detail, str) else "Scan failed"
+        if e.status_code in (400, 422):
+            raise InvalidArgumentException(detail) from None
+        if e.status_code == 504:
+            raise UpstreamTimeoutException(detail) from None
+        if e.status_code == 429:
+            # Per-target eTLD+1 throttle (NOT the caller's rate limit). Surface as
+            # rate_limit_exceeded WITH the throttle's own Retry-After (~30-60s) so
+            # the agent backs off the right amount; no upgrade_url — this throttle
+            # is tier-independent, so a Pro upsell CTA would be wrong.
+            retry_after = int((e.headers or {}).get("Retry-After", "60"))
+            raise RateLimitExceededException(detail, retry_after=retry_after) from None
+        raise UpstreamErrorException(detail) from None
+    return ScanResponse(**result)
 
 
 @mcp_tool_safe(annotations=_RO_CLOSED_WORLD)

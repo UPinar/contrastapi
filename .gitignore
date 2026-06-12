@@ -32,3 +32,8 @@ cli_prompt_verify.md
 # Local-dev fallback artifacts (BASE_DIR-relative when env vars unset)
 app/mcp_tools.jsonl
 app/glama.json
+
+# Scanner binary (always built on server, never committed)
+scanner/contrastscan
+scanner/*.o
+scanner/build/

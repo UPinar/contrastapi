@@ -24,6 +24,7 @@ from auth import authenticate_sync as _mcp_authenticate
 from config import (
     BASE_DIR,
     COST_AUDIT,
+    COST_SCAN,
     COST_TECH_CVE_AUDIT,
     COST_THREAT_REPORT,
     FREE_HOURLY_LIMIT,
@@ -63,8 +64,11 @@ _TOOL_NAMES: "frozenset[str]" = frozenset()
 #
 # v1.32.4 Pattern B shipped: `audit_domain` (Batch 4) + `threat_report`
 # (Batch 5). `domain_vulns` still HTTP-hops via `_aget()` → stays out.
+# Faz-2: `contrast_scan` ships Pattern B from day one — its wrapper calls
+# `_contrast_scan_impl()` directly (app/scan/routes.py), never `_aget()`.
 _TOOL_COST: dict[str, int] = {
     "audit_domain": COST_AUDIT,
+    "contrast_scan": COST_SCAN,
     "threat_report": COST_THREAT_REPORT,
     "tech_stack_cve_audit": COST_TECH_CVE_AUDIT,
 }

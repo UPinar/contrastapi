@@ -839,6 +839,39 @@ def test_mcp_tool_safe_catches_pydantic_validation_error(mcp_client, monkeypatch
     assert any("cve_lookup" in r.message for r in caplog.records), "expected schema-validation warning for cve_lookup"
 
 
+def test_mcp_tool_safe_catches_unmapped_exception(mcp_client, monkeypatch):
+    """Faz-2 review fix: a non-AppException escaping a tool body (e.g. a
+    sqlite3.OperationalError under a DB-lock in a direct-call Pattern-B tool that
+    does not HTTP-hop through _aget) must surface as a sanitized `upstream_error`
+    ToolError, NOT leak the raw exception message onto the MCP wire."""
+    import sqlite3
+
+    from core import mcp_proxy
+
+    mod = mcp_proxy._mcp_mod
+
+    async def _boom(path, params=None):
+        raise sqlite3.OperationalError("database is locked DBLOCK-leaky-marker")
+
+    monkeypatch.setattr(mod, "_aget", _boom)
+
+    r = mcp_client.post(
+        "/mcp/",
+        headers=MCP_HEADERS,
+        json={
+            "jsonrpc": "2.0",
+            "id": 82,
+            "method": "tools/call",
+            "params": {"name": "cve_lookup", "arguments": {"cve_id": "CVE-2024-0001"}},
+        },
+    )
+    assert r.status_code == 200
+    err = mcp_error_payload(r)["error"]
+    assert err["code"] == "upstream_error"
+    assert err["message"] == "Internal tool error"
+    assert "leaky-marker" not in r.text, "raw exception message leaked to MCP wire"
+
+
 # --- S256: lean (flat) outputSchema reintroduced on tools/list ---
 # (Full FastMCP outputSchema was ~73% of a ~309KB payload → Smithery gateway
 # dropped it. We now emit a FLAT one-level schema — success model's top-level
