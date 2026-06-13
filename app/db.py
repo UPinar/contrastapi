@@ -795,6 +795,7 @@ def maintenance() -> dict:
                 try:
                     con.execute("PRAGMA busy_timeout=5000")
                 except Exception:
+                    # Best-effort reset; the connection is being released anyway.
                     pass
     except Exception as e:
         stats["first_swipe_error"] = type(e).__name__

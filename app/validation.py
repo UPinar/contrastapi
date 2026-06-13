@@ -252,6 +252,7 @@ def swipe_ip_bucket(ip: str) -> str:
                 return str(addr.ipv4_mapped)
             return str(ipaddress.ip_network(f"{ip}/64", strict=False).network_address)
     except ValueError:
+        # Malformed IP → return it unchanged; the bucket key falls back to the raw string.
         pass
     return ip
 

@@ -40,7 +40,7 @@
 #include <arpa/nameser.h> // ns_initparse, ns_parserr, NS_PACKETSZ
 #include <resolv.h>       // res_query
 #include <cjson/cJSON.h>  // cJSON_*
-#include <time.h>         // time, difftime
+#include <time.h>         // time, difftime, gmtime_r
 
 #include "../include/csp_util.h"  // csp_has_keyword, count_script_data_blocks
 
@@ -909,7 +909,8 @@ static void generate_date_selectors(void)
   for (int d = 0; d < MAX_DATE_SELECTORS; d++)
   {
     time_t t = now - (d * 86400);
-    struct tm *tm = gmtime(&t);
+    struct tm tmbuf;
+    struct tm *tm = gmtime_r(&t, &tmbuf);
     if (!tm) continue;
     snprintf(date_sel_buf[count], sizeof(date_sel_buf[count]),
              "%04d%02d%02d", tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday);
@@ -1108,7 +1109,8 @@ static int find_dkim_by_mx(const char *domain, const char *mx_host,
     /* monthly probe for last 5 years — 1st and 15th of each month */
     {
       time_t now = time(NULL);
-      struct tm *cur = gmtime(&now);
+      struct tm curbuf;
+      struct tm *cur = gmtime_r(&now, &curbuf);
       if (!cur) break;
       int start_year = cur->tm_year + 1900;
       int start_mon = cur->tm_mon + 1;
@@ -1252,7 +1254,8 @@ static cJSON *scan_dns(const char *domain)
   if (!has_dkim)
   {
     time_t now = time(NULL);
-    struct tm *cur = gmtime(&now);
+    struct tm curbuf;
+    struct tm *cur = gmtime_r(&now, &curbuf);
     if (!cur) goto dkim_done;
     int start_year = cur->tm_year + 1900;
     int start_mon = cur->tm_mon + 1;
