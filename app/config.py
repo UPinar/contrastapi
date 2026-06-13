@@ -18,7 +18,7 @@ MCP_RESOURCE_COUNT = 7  # v1.23.0: atlas+d3fend+cwe (4 templates + 3 catalogs)
 MCP_PROMPT_COUNT = 3  # v1.23.0: security_audit, vulnerability_check, contrast_triage
 ENDPOINT_COUNT = "60+"
 TEST_COUNT = 2446
-# Catalog row counts surfaced on landing/playground. Bump after `python -m cve.sync
+# Catalog row counts surfaced on the landing page. Bump after `python -m cve.sync
 # --source atlas` (ATLAS upstream cadence ~6 months) or `--source d3fend` (yearly).
 ATLAS_TECHNIQUE_COUNT = 167
 ATLAS_CASE_STUDY_COUNT = 57

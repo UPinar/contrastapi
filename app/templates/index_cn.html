@@ -3,6 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    html { background-color: #09090b; }
+    body { opacity: 0; animation: page-reveal 0.4s ease 0.25s forwards; }
+    body.ready { opacity: 1; animation: none; transition: opacity 0.4s ease; }
+    @keyframes page-reveal { to { opacity: 1; } }
+  </style>
   <title>ContrastAPI — 安全情报 API</title>
   <meta name="description" content="面向 AI 模型和开发者的安全情报 API 和 MCP 服务器，{{ tool_count }} 个工具。CVE 查询、域名侦察、威胁情报、代码安全。免费，无需 API 密钥。">
   <meta name="keywords" content="MCP 安全工具, API 安全扫描, CVE 查询, 域名情报, 威胁情报, AI 安全, MCP 服务器, 安全 API">
@@ -24,7 +30,7 @@
   <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
   <link rel="icon" type="image/png" sizes="192x192" href="/static/favicon-192.png">
   <link rel="stylesheet" href="/static/style.css?v=29">
-  <script src="/static/js/landing.js?v=2" defer></script>
+  <script src="/static/js/landing.js?v=4" defer></script>
   <link rel="alternate" type="text/plain" href="/llms.txt" title="LLM Discovery">
   <link rel="alternate" type="application/json" href="/openapi.json" title="OpenAPI Spec">
   <script type="application/ld+json">
@@ -60,7 +66,6 @@
     <p class="subtitle">CVE + EPSS + KEV 查询、域名侦察、IP 威胁报告、IOC 增强，以及代码安全扫描。结构化 JSON + LLM 优化摘要。支持 Claude Desktop、Cursor、VS Code，以及任何 MCP 兼容客户端（含 DeepSeek、Qwen）。</p>
     <div class="cta-group">
       <a href="#setup" class="btn-cta">30 秒内安装 →</a>
-      <a href="/playground" class="btn-cta-secondary">试用 Playground</a>
     </div>
     <div class="hero-curl-wrap">
       <pre class="hero-curl"><span class="prompt">$ </span><code>curl https://api.contrastcyber.com/v1/audit/example.com</code></pre>
@@ -74,10 +79,9 @@
   <!-- 信任标识 -->
   <section class="trust-strip" aria-label="信任标识">
     <div class="trust-strip-inner">
-      <span><strong>{{ test_count }}</strong> 项测试通过</span>
       <span><strong>{{ tool_count }}</strong> 工具 · <strong>{{ resource_count }}</strong> 资源 · <strong>{{ endpoint_count }}</strong> 接口</span>
       <span><a href="https://pypi.org/project/contrastapi/" target="_blank" rel="noopener">PyPI</a> · <a href="https://www.npmjs.com/package/contrastapi" target="_blank" rel="noopener">npm</a> · <a href="https://marketplace.visualstudio.com/items?itemName=ContrastAPI.contrastapi" target="_blank" rel="noopener">VS Code</a></span>
-      <span>MIT 许可 · 永久免费</span>
+      <span>MIT 许可</span>
     </div>
   </section>
 
@@ -485,14 +489,24 @@ c.atlas.bulk_technique_lookup(["AML.T0051"])</pre>
         <span class="endpoint-desc">每次调用 1 信用</span>
       </div>
       <div class="endpoint">
-        <span class="method post">4&times;</span>
+        <span class="method post">{{ cost_audit }}&times;</span>
         <span class="endpoint-path">/v1/audit/{domain}</span>
-        <span class="endpoint-desc">聚合 4 个上游数据源</span>
+        <span class="endpoint-desc">DNS + WHOIS + SSL + CT + 子域 + 响应头 + 技术栈 + 邮件</span>
       </div>
       <div class="endpoint">
-        <span class="method post">4&times;</span>
+        <span class="method post">{{ cost_scan }}&times;</span>
+        <span class="endpoint-path">/v1/scan/{domain}</span>
+        <span class="endpoint-desc">全站安全扫描 — 11 个模块 + 按严重度排序的发现项 + A&ndash;F 评级</span>
+      </div>
+      <div class="endpoint">
+        <span class="method post">{{ cost_threat }}&times;</span>
         <span class="endpoint-path">/v1/threat-report/{ip}</span>
         <span class="endpoint-desc">ASN + IP 信息富化 + Shodan InternetDB（Pro 版另含完整 Shodan + AbuseIPDB）</span>
+      </div>
+      <div class="endpoint">
+        <span class="method post">{{ cost_domain_vulns }}&times;</span>
+        <span class="endpoint-path">/v1/domain/vulns/{domain}</span>
+        <span class="endpoint-desc">技术栈识别 + 按检测到的产品批量查询 CVE</span>
       </div>
       <div class="endpoint">
         <span class="method post">N&times;</span>

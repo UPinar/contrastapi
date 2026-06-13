@@ -60,7 +60,7 @@ curl https://api.contrastcyber.com/v1/ip/1.1.1.1                 # ip_lookup —
 
 ## 文档
 
-**接口列表：** [docs/ENDPOINTS.md](docs/ENDPOINTS.md) · **OpenAPI：** [openapi.json](https://api.contrastcyber.com/openapi.json) · **Playground：** [/playground](https://api.contrastcyber.com/playground)
+**接口列表：** [docs/ENDPOINTS.md](docs/ENDPOINTS.md) · **OpenAPI：** [openapi.json](https://api.contrastcyber.com/openapi.json)
 
 <details>
 <summary>自部署 / 测试 / 技术栈</summary>

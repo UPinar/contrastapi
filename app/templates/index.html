@@ -3,6 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    html { background-color: #09090b; }
+    body { opacity: 0; animation: page-reveal 0.4s ease 0.25s forwards; }
+    body.ready { opacity: 1; animation: none; transition: opacity 0.4s ease; }
+    @keyframes page-reveal { to { opacity: 1; } }
+  </style>
   <title>ContrastAPI — Security Intelligence API</title>
   <meta name="description" content="Free security intelligence API and MCP server with {{ tool_count }} tools: CVE, domain recon, threat intel, MITRE ATLAS, D3FEND, code security. No API key required.">
   <meta property="og:title" content="ContrastAPI — {{ tool_count }} Security Tools for AI Agents">
@@ -23,7 +29,7 @@
   <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
   <link rel="icon" type="image/png" sizes="192x192" href="/static/favicon-192.png">
   <link rel="stylesheet" href="/static/style.css?v=29">
-  <script src="/static/js/landing.js?v=2" defer></script>
+  <script src="/static/js/landing.js?v=4" defer></script>
   <link rel="alternate" type="text/plain" href="/llms.txt" title="LLM Discovery">
   <link rel="alternate" type="application/json" href="/openapi.json" title="OpenAPI Spec">
   <script type="application/ld+json">
@@ -58,7 +64,6 @@
     <p class="subtitle">CVE + EPSS + KEV lookup, domain recon, IP threat reports, IOC enrichment, MITRE ATLAS (AI/ML attacks), D3FEND defenses, and code security. Structured JSON with LLM-optimized summaries. Works with Claude Desktop, Cursor, VS Code, and any MCP client.</p>
     <div class="cta-group">
       <a href="#setup" class="btn-cta">Install in 30 seconds →</a>
-      <a href="/playground" class="btn-cta-secondary">Try Playground</a>
     </div>
     <div class="hero-curl-wrap">
       <pre class="hero-curl"><span class="prompt">$ </span><code>curl https://api.contrastcyber.com/v1/audit/example.com</code></pre>
@@ -72,10 +77,9 @@
   <!-- Trust Strip -->
   <section class="trust-strip" aria-label="Trust signals">
     <div class="trust-strip-inner">
-      <span><strong>{{ test_count }}</strong> tests passing</span>
       <span><strong>{{ tool_count }}</strong> tools · <strong>{{ resource_count }}</strong> resources · <strong>{{ endpoint_count }}</strong> endpoints</span>
       <span><a href="https://pypi.org/project/contrastapi/" target="_blank" rel="noopener">PyPI</a> · <a href="https://www.npmjs.com/package/contrastapi" target="_blank" rel="noopener">npm</a> · <a href="https://marketplace.visualstudio.com/items?itemName=ContrastAPI.contrastapi" target="_blank" rel="noopener">VS Code</a></span>
-      <span>MIT licensed · Free forever</span>
+      <span>MIT licensed</span>
     </div>
   </section>
 
@@ -127,6 +131,11 @@
         <span class="method get">GET</span>
         <span class="endpoint-path">/v1/audit/{domain}</span>
         <span class="endpoint-desc">Full audit (report + tech + headers)</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/scan/{domain}</span>
+        <span class="endpoint-desc">Full-site security scan — 11 modules (headers/SSL/DNS/CSP/cookies/CORS/methods/DNSSEC), severity-ranked findings + A&ndash;F grade</span>
       </div>
       <div class="endpoint">
         <span class="method get">GET</span>
@@ -483,14 +492,24 @@ c.atlas.bulk_technique_lookup(["AML.T0051"])</pre>
         <span class="endpoint-desc">1 credit per call</span>
       </div>
       <div class="endpoint">
-        <span class="method post">4&times;</span>
+        <span class="method post">{{ cost_audit }}&times;</span>
         <span class="endpoint-path">/v1/audit/{domain}</span>
-        <span class="endpoint-desc">Aggregates 4 upstream sources</span>
+        <span class="endpoint-desc">DNS + WHOIS + SSL + CT + subdomains + headers + tech + email</span>
       </div>
       <div class="endpoint">
-        <span class="method post">4&times;</span>
+        <span class="method post">{{ cost_scan }}&times;</span>
+        <span class="endpoint-path">/v1/scan/{domain}</span>
+        <span class="endpoint-desc">Full-site security scan — 11 modules + severity-ranked findings + A&ndash;F grade</span>
+      </div>
+      <div class="endpoint">
+        <span class="method post">{{ cost_threat }}&times;</span>
         <span class="endpoint-path">/v1/threat-report/{ip}</span>
         <span class="endpoint-desc">ASN + IP enrichment + Shodan InternetDB (Pro adds full Shodan + AbuseIPDB)</span>
+      </div>
+      <div class="endpoint">
+        <span class="method post">{{ cost_domain_vulns }}&times;</span>
+        <span class="endpoint-path">/v1/domain/vulns/{domain}</span>
+        <span class="endpoint-desc">Tech fingerprint + bulk CVE lookup per detected product</span>
       </div>
       <div class="endpoint">
         <span class="method post">N&times;</span>

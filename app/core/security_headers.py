@@ -27,6 +27,24 @@ def _compute_jsonld_hash(template_path: Path) -> str:
     return "'sha256-" + base64.b64encode(digest).decode("ascii") + "'"
 
 
+def _compute_style_hash(template_path: Path) -> str:
+    """Return 'sha256-BASE64' CSP token for the first inline <style> block (anti-FOUC), or ''.
+
+    The block holds the body hidden until CSS loads, so it must be inline (it has
+    to apply before the stylesheet). Auto-hashing keeps style-src strict (no
+    'unsafe-inline') and never goes stale when the block is edited.
+    """
+    try:
+        content = template_path.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+    m = re.search(r"<style>(.*?)</style>", content, re.DOTALL)
+    if not m:
+        return ""
+    digest = hashlib.sha256(m.group(1).encode("utf-8")).digest()
+    return "'sha256-" + base64.b64encode(digest).decode("ascii") + "'"
+
+
 _TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 _JSONLD_HASHES = " ".join(
     h
@@ -36,10 +54,20 @@ _JSONLD_HASHES = " ".join(
     )
     if h
 )
+_STYLE_HASHES = " ".join(
+    dict.fromkeys(  # index + index_cn share the same anti-FOUC block — dedupe
+        h
+        for h in (
+            _compute_style_hash(_TEMPLATES_DIR / "index.html"),
+            _compute_style_hash(_TEMPLATES_DIR / "index_cn.html"),
+        )
+        if h
+    )
+)
 
 _CSP_POLICY = (
     "default-src 'self'; "
-    "style-src 'self' https://cdn.jsdelivr.net; "
+    f"style-src 'self' {_STYLE_HASHES} https://cdn.jsdelivr.net; "
     f"script-src 'self' {_JSONLD_HASHES} https://cdn.jsdelivr.net https://static.cloudflareinsights.com; "
     "img-src 'self' https://fastapi.tiangolo.com; "
     "connect-src 'self' https://cloudflareinsights.com; "

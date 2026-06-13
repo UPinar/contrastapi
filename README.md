@@ -60,7 +60,7 @@ Or ask your agent:
 
 ## Links
 
-**Endpoints:** [docs/ENDPOINTS.md](docs/ENDPOINTS.md) · **OpenAPI:** [openapi.json](https://api.contrastcyber.com/openapi.json) · **Playground:** [/playground](https://api.contrastcyber.com/playground)
+**Endpoints:** [docs/ENDPOINTS.md](docs/ENDPOINTS.md) · **OpenAPI:** [openapi.json](https://api.contrastcyber.com/openapi.json)
 
 <details>
 <summary>Also available on</summary>

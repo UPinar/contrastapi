@@ -1,6 +1,20 @@
 (function () {
   'use strict';
 
+  // Anti-FOUC: the inline <style> holds the body hidden (opacity:0) until we add
+  // .ready. The stylesheet is render-blocking, so the page is already styled by
+  // the time the DOM is parsed — reveal on DOMContentLoaded instead of waiting on
+  // webfonts, so a cold cache never lingers on the flat dark background. The CSS
+  // animation in the inline <style> is the JS-off failsafe.
+  (function () {
+    function show() { if (document.body) document.body.classList.add('ready'); }
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', show);
+    } else {
+      show();
+    }
+  })();
+
   var isZh = document.documentElement.lang && document.documentElement.lang.toLowerCase().indexOf('zh') === 0;
   var COPIED = isZh ? '已复制' : 'Copied';
   var COPY_CMD = isZh ? '复制命令' : 'Copy command';

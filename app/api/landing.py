@@ -1,4 +1,4 @@
-"""HTML landing pages: /, /bot, /cn, /welcome, /quickstart, /mcp-setup, /playground.
+"""HTML landing pages: /, /bot, /cn, /welcome, /quickstart, /mcp-setup, /pricing.
 
 All routes are include_in_schema=False (no OpenAPI surface). Templates live in
 core.templates singleton.
@@ -10,13 +10,16 @@ import uuid
 from config import (
     ATLAS_CASE_STUDY_COUNT,
     ATLAS_TECHNIQUE_COUNT,
+    COST_AUDIT,
+    COST_DOMAIN_VULNS,
+    COST_SCAN,
+    COST_THREAT_REPORT,
     D3FEND_DEFENSE_COUNT,
     ENDPOINT_COUNT,
     MCP_PROMPT_COUNT,
     MCP_RESOURCE_COUNT,
     MCP_TOOL_COUNT,
     TARGET_THROTTLE_PER_MIN,
-    TEST_COUNT,
     VERSION,
 )
 from core.templates import templates
@@ -49,10 +52,13 @@ def landing_page(request: Request):
             "resource_count": MCP_RESOURCE_COUNT,
             "prompt_count": MCP_PROMPT_COUNT,
             "endpoint_count": ENDPOINT_COUNT,
-            "test_count": TEST_COUNT,
             "atlas_technique_count": ATLAS_TECHNIQUE_COUNT,
             "atlas_case_study_count": ATLAS_CASE_STUDY_COUNT,
             "d3fend_defense_count": D3FEND_DEFENSE_COUNT,
+            "cost_audit": COST_AUDIT,
+            "cost_threat": COST_THREAT_REPORT,
+            "cost_scan": COST_SCAN,
+            "cost_domain_vulns": COST_DOMAIN_VULNS,
         },
     )
 
@@ -84,10 +90,13 @@ def landing_page_cn(request: Request):
             "resource_count": MCP_RESOURCE_COUNT,
             "prompt_count": MCP_PROMPT_COUNT,
             "endpoint_count": ENDPOINT_COUNT,
-            "test_count": TEST_COUNT,
             "atlas_technique_count": ATLAS_TECHNIQUE_COUNT,
             "atlas_case_study_count": ATLAS_CASE_STUDY_COUNT,
             "d3fend_defense_count": D3FEND_DEFENSE_COUNT,
+            "cost_audit": COST_AUDIT,
+            "cost_threat": COST_THREAT_REPORT,
+            "cost_scan": COST_SCAN,
+            "cost_domain_vulns": COST_DOMAIN_VULNS,
         },
     )
 
@@ -163,19 +172,6 @@ def mcp_setup(request: Request):
             "resource_count": MCP_RESOURCE_COUNT,
             "prompt_count": MCP_PROMPT_COUNT,
             "protocol_version": LATEST_PROTOCOL_VERSION,
-        },
-    )
-
-
-@router.get("/playground", response_class=HTMLResponse, include_in_schema=False)
-def playground(request: Request):
-    return templates.TemplateResponse(
-        request,
-        "playground.html",
-        {
-            "atlas_technique_count": ATLAS_TECHNIQUE_COUNT,
-            "atlas_case_study_count": ATLAS_CASE_STUDY_COUNT,
-            "d3fend_defense_count": D3FEND_DEFENSE_COUNT,
         },
     )
 
