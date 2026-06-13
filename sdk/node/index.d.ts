@@ -616,6 +616,29 @@ export interface ScanHeadersResponse extends BaseSuccess {
   summary?: string;
 }
 
+export interface ScanResponse extends BaseSuccess {
+  domain?: string;
+  resolved_ip?: string;
+  total_score?: number;
+  max_score?: number;
+  grade?: string;
+  findings?: Array<Record<string, any>>;
+  findings_count?: Record<string, number>;
+  headers?: Record<string, any>;
+  ssl?: Record<string, any>;
+  dns?: Record<string, any>;
+  redirect?: Record<string, any>;
+  disclosure?: Record<string, any>;
+  cookies?: Record<string, any>;
+  dnssec?: Record<string, any>;
+  methods?: Record<string, any>;
+  cors?: Record<string, any>;
+  html?: Record<string, any>;
+  csp_analysis?: Record<string, any>;
+  enterprise?: Record<string, any>;
+  summary?: string;
+}
+
 export interface DependenciesResponse extends BaseSuccess {
   findings?: Array<Record<string, any>>;
   total?: number;
@@ -797,6 +820,7 @@ declare function ContrastAPI(options?: {
   };
   scan: {
     headers(domain: string): Promise<ScanHeadersResponse>;
+    site(domain: string): Promise<ScanResponse>;
   };
   /** v1.5.0: Sigma detection-rule lookup. Parity with Python SDK. */
   sigma: {

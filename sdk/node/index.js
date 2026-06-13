@@ -300,9 +300,10 @@ function ContrastAPI(options = {}) {
       dependencies: (packages) => post("/v1/check/dependencies", { packages }),
     },
 
-    // --- Headers (live scan) ---
+    // --- Live scan ---
     scan: {
       headers: (domain) => get(`/v1/scan/headers/${enc(domain)}`),
+      site: (domain) => get(`/v1/scan/${enc(domain)}`),
     },
 
     // --- Sigma Detection Rules (v1.5.0: parity with Python SDK) ---

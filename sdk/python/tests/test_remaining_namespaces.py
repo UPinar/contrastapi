@@ -328,3 +328,13 @@ def test_scan_headers_url():
     with ContrastAPI() as client:
         client.scan.headers("example.com")
     assert route.called
+
+
+@respx.mock
+def test_scan_site_url():
+    route = respx.get("https://api.contrastcyber.com/v1/scan/example.com").mock(
+        return_value=httpx.Response(200, json={"grade": "A", "total_score": 95})
+    )
+    with ContrastAPI() as client:
+        client.scan.site("example.com")
+    assert route.called

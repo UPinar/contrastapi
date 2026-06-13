@@ -308,6 +308,16 @@ test("domain.seo hits /v1/seo/{domain}", async () => {
   assert.equal(helpers.calls()[0].path, "/v1/seo/example.com");
 });
 
+test("scan.site hits /v1/scan/{domain}", async () => {
+  helpers.mock("GET", "https://api.contrastcyber.com/v1/scan/example.com", {
+    body: { grade: "A", total_score: 95 },
+  });
+  const c = newClient();
+  const r = await c.scan.site("example.com");
+  assert.equal(helpers.calls()[0].path, "/v1/scan/example.com");
+  assert.equal(r.grade, "A");
+});
+
 test("email.securityPosture hits /v1/email/security-posture/{domain} with no query by default", async () => {
   helpers.mock("GET", "https://api.contrastcyber.com/v1/email/security-posture/example.com", {
     body: {},

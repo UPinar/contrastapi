@@ -11,6 +11,7 @@ from ..models import (
     CodeCheckResponse,
     DependenciesResponse,
     ScanHeadersResponse,
+    ScanResponse,
 )
 
 
@@ -62,6 +63,9 @@ class Scan:
     def headers(self, domain: str) -> ScanHeadersResponse:
         return self._t.get(f"/v1/scan/headers/{_enc(domain)}")
 
+    def site(self, domain: str) -> ScanResponse:
+        return self._t.get(f"/v1/scan/{_enc(domain)}")
+
 
 class AsyncCheck:
     def __init__(self, transport: _AsyncTransport) -> None:
@@ -92,3 +96,6 @@ class AsyncScan:
 
     async def headers(self, domain: str) -> ScanHeadersResponse:
         return await self._t.aget(f"/v1/scan/headers/{_enc(domain)}")
+
+    async def site(self, domain: str) -> ScanResponse:
+        return await self._t.aget(f"/v1/scan/{_enc(domain)}")

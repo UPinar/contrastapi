@@ -694,6 +694,31 @@ class ScanHeadersResponse(TypedDict, total=False):
     next_calls: list[PivotHint]
 
 
+class ScanResponse(TypedDict, total=False):
+    domain: str
+    resolved_ip: str
+    total_score: int
+    max_score: int
+    grade: str
+    findings: list[dict[str, Any]]
+    findings_count: dict[str, int]
+    headers: dict[str, Any]
+    ssl: dict[str, Any]
+    dns: dict[str, Any]
+    redirect: dict[str, Any]
+    disclosure: dict[str, Any]
+    cookies: dict[str, Any]
+    dnssec: dict[str, Any]
+    methods: dict[str, Any]
+    cors: dict[str, Any]
+    html: dict[str, Any]
+    csp_analysis: dict[str, Any]
+    enterprise: dict[str, Any]
+    summary: str
+    verdict: Verdict
+    next_calls: list[PivotHint]
+
+
 class DependenciesResponse(TypedDict, total=False):
     findings: list[dict[str, Any]]
     total: int

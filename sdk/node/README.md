@@ -167,6 +167,7 @@ api.check.injection(code, "javascript")    // SQL/command injection
 api.check.headers({"Content-Security-Policy": "..."})  // Header validation
 api.check.dependencies([{name: "lodash", version: "4.17.0"}])  // CVE check
 api.scan.headers("example.com")            // Live header scan
+api.scan.site("example.com")               // Full-site security scan (A–F grade)
 ```
 
 ### Meta

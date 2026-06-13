@@ -322,4 +322,4 @@ def test_usage_endpoint():
 
 def test_client_exposes_version_string():
     with ContrastAPI() as client:
-        assert client.version == "1.23.0"
+        assert client.version == "1.24.0"

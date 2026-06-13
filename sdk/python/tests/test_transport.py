@@ -22,7 +22,7 @@ from contrastapi import (
 
 
 def test_version_is_pinned():
-    assert __version__ == "1.23.0"
+    assert __version__ == "1.24.0"
 
 
 def test_default_base_url_is_https():
