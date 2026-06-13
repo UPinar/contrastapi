@@ -62,7 +62,7 @@ Every authenticated response includes X-RateLimit-Cost so clients can budget cal
 - GET /v1/exploit/{cve_id} — Public exploits and advisories (GitHub Advisory, ExploitDB)
 - GET /v1/kev/{cve_id} — CISA KEV detail (federal patch deadline, required action, ransomware association, CWE list)
 - GET /v1/cwe/{cwe_id} — MITRE CWE catalog (description, mitigations, parent/child weakness chain)
-- POST /v1/cves/bulk — Bulk CVE lookup (10 free, 50 pro per request)
+- POST /v1/cves/bulk — Bulk CVE lookup (up to 50 per request, same cap all tiers)
 
 ### Domain Intelligence
 - GET /v1/domain/{domain} — Full domain report (DNS + WHOIS + SSL + subdomains + WAF + email security + threat intel + risk score)
@@ -90,7 +90,7 @@ Every authenticated response includes X-RateLimit-Cost so clients can budget cal
 - GET /v1/hash/{file_hash} — Malware hash reputation via MalwareBazaar
 - GET /v1/password/{sha1_hash} — Password breach check via HIBP (k-anonymity)
 - GET /v1/phishing/{url} — Phishing/malware URL check via URLhaus
-- POST /v1/iocs/bulk — Bulk IOC enrichment (10 free, 50 pro per request)
+- POST /v1/iocs/bulk — Bulk IOC enrichment (up to 50 per request, same cap all tiers)
 
 ### MITRE ATLAS (AI/ML Threats)
 - GET /v1/atlas/{technique_id} — Lookup ATLAS technique (AML.T#### or AML.T####.###); sub-techniques inherit parent tactics

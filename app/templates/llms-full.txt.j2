@@ -40,7 +40,7 @@ GET /v1/cwe/{cwe_id} — MITRE CWE catalog entry. Accepts "CWE-79" or just "79".
 GET /v1/cve/leading — CVEs indexed before NVD (MITRE/GHSA-only feed, freshly published).
   Response keys: count, summary, results:[{cve_id, source, severity, ...}]
 
-POST /v1/cves/bulk — Bulk CVE lookup. Body: {"cve_ids":["CVE-2024-1234",...]} (max 10 free, 50 pro).
+POST /v1/cves/bulk — Bulk CVE lookup. Body: {"cve_ids":["CVE-2024-1234",...]} (max 50, same cap all tiers).
   Response keys: results:[{cve_id,status,cve,error}], total, successful, failed, summary
 
 ## Domain Intelligence
@@ -120,7 +120,7 @@ GET /v1/password/{sha1_hash} — Password breach check (HIBP k-anonymity). Full 
 GET /v1/phishing/{url} — Phishing/malware URL check (URLhaus). Must start with http(s)://.
   Response keys: url, host, is_malicious, urlhaus_host:{found,urls_online,url_count}, urlhaus_url:{found,threat,tags}, threat_level, summary
 
-POST /v1/iocs/bulk — Bulk IOC enrichment. Body: {"indicators":["8.8.8.8","evil.com",...]} (max 10 free, 50 pro).
+POST /v1/iocs/bulk — Bulk IOC enrichment. Body: {"indicators":["8.8.8.8","evil.com",...]} (max 50, same cap all tiers).
   Response keys: results:[{indicator,status,ioc:{type,threat_level,sources},error}], total, successful, failed, timed_out, partial, summary
 
 ## MITRE ATLAS (AI/ML Threats)
