@@ -3,10 +3,19 @@
 All include_in_schema=False (no OpenAPI surface).
 """
 
-from config import MCP_TOOL_COUNT, VERSION, settings
+from config import (
+    COST_AUDIT,
+    COST_DOMAIN_VULNS,
+    COST_SCAN,
+    COST_THREAT_REPORT,
+    MCP_TOOL_COUNT,
+    VERSION,
+    settings,
+)
 from core.templates import templates
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Response
+from mcp.types import LATEST_PROTOCOL_VERSION
 
 router = APIRouter()
 
@@ -17,7 +26,15 @@ def llms_txt(request: Request):
     return templates.TemplateResponse(
         request,
         "llms.txt.j2",
-        {"MCP_TOOL_COUNT": MCP_TOOL_COUNT},
+        {
+            # free_limit / pro_limit come from Jinja globals (core/templates.py);
+            # only MCP_TOOL_COUNT and the cost_* credit costs need passing here.
+            "MCP_TOOL_COUNT": MCP_TOOL_COUNT,
+            "cost_audit": COST_AUDIT,
+            "cost_threat": COST_THREAT_REPORT,
+            "cost_scan": COST_SCAN,
+            "cost_domain_vulns": COST_DOMAIN_VULNS,
+        },
         media_type="text/plain; charset=utf-8",
     )
 
@@ -28,7 +45,14 @@ def llms_full_txt(request: Request):
     return templates.TemplateResponse(
         request,
         "llms-full.txt.j2",
-        {"MCP_TOOL_COUNT": MCP_TOOL_COUNT},
+        {
+            # free_limit / pro_limit come from Jinja globals (core/templates.py).
+            "MCP_TOOL_COUNT": MCP_TOOL_COUNT,
+            "cost_audit": COST_AUDIT,
+            "cost_threat": COST_THREAT_REPORT,
+            "cost_scan": COST_SCAN,
+            "cost_domain_vulns": COST_DOMAIN_VULNS,
+        },
         media_type="text/plain; charset=utf-8",
     )
 
@@ -48,7 +72,7 @@ def mcp_server_card():
         content={
             "$schema": "https://modelcontextprotocol.io/schemas/server-card.json",
             "version": "1.0",
-            "protocolVersion": "2024-11-05",
+            "protocolVersion": LATEST_PROTOCOL_VERSION,
             "serverInfo": {
                 "name": "contrastapi",
                 "title": "ContrastAPI \u2014 Security Intelligence",
@@ -158,22 +182,39 @@ def oauth_authorization_server():
 
 @router.get("/robots.txt", response_class=PlainTextResponse, include_in_schema=False)
 def robots_txt():
-    """Allow AI crawlers and point to llms.txt."""
-    return (
-        "User-agent: *\n"
-        "Allow: /\n"
-        "\n"
-        "User-agent: GPTBot\n"
-        "Allow: /\n"
-        "\n"
-        "User-agent: ClaudeBot\n"
-        "Allow: /\n"
-        "\n"
-        "User-agent: Google-Extended\n"
-        "Allow: /\n"
-        "\n"
-        "Sitemap: https://api.contrastcyber.com/sitemap.xml\n"
+    """Allow all crawlers; explicitly welcome AI search/training bots. See /llms.txt."""
+    # AI search & training crawlers that read robots.txt — explicit opt-in
+    # (we want to be indexed). MCP/agent indexers hit /mcp/ directly and do
+    # not read robots, so they are not listed here (see /llms.txt instead).
+    ai_bots = (
+        "GPTBot",
+        "ChatGPT-User",
+        "OAI-SearchBot",
+        "ClaudeBot",
+        "Claude-SearchBot",
+        "Claude-User",
+        "anthropic-ai",
+        "Google-Extended",
+        "PerplexityBot",
+        "Applebot",
+        "Applebot-Extended",
+        "Amazonbot",
+        "Meta-ExternalAgent",
+        "CCBot",
+        "Bytespider",
     )
+    lines = [
+        "# ContrastCyber API — humans and AI agents both welcome.",
+        "# Machine-readable: /llms.txt  ·  MCP server: /mcp/  ·  Agent card: /.well-known/agent-card.json",
+        "",
+        "User-agent: *",
+        "Allow: /",
+        "",
+    ]
+    for bot in ai_bots:
+        lines += [f"User-agent: {bot}", "Allow: /", ""]
+    lines.append("Sitemap: https://api.contrastcyber.com/sitemap.xml")
+    return "\n".join(lines) + "\n"
 
 
 @router.get("/sitemap.xml", include_in_schema=False)

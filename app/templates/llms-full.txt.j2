@@ -1,12 +1,13 @@
 {# SECURITY: Jinja2Templates leaves autoescape OFF for .txt extensions.
-   This template currently only interpolates `MCP_TOOL_COUNT` (an integer
-   constant from app/config.py). DO NOT add user-controlled strings here
+   This template only interpolates integer constants from app/config.py
+   (MCP_TOOL_COUNT, free_limit, pro_limit, and the cost_* credit costs).
+   DO NOT add user-controlled strings here
    without enabling autoescape or applying the `|e` filter — silent SSTI
    would slip through. #}
 # ContrastAPI — Full API Reference
 
 > Security intelligence API. {{ MCP_TOOL_COUNT }} MCP tools. Base URL: https://api.contrastcyber.com
-> Auth: None required (100 req/hr). Pro: Authorization: Bearer cc_xxx (1000 req/hr).
+> Auth: None required ({{ free_limit }} req/hr). Pro: Authorization: Bearer cc_xxx ({{ pro_limit }} req/hr).
 > All responses JSON with a "summary" field optimized for LLM consumption.
 > OpenAPI spec: https://api.contrastcyber.com/openapi.json
 
@@ -79,6 +80,9 @@ GET /v1/threat/{domain} — Threat intelligence (URLhaus).
 
 GET /v1/tech/{domain} — Technology fingerprinting (CMS, frameworks, CDN).
   Response keys: domain, technologies:[{name,category,source,version}], categories, count, summary
+
+GET /v1/scan/{domain} — Active full-site security scan (C engine, 11 modules: headers/SSL/DNS/redirect/disclosure/cookies/DNSSEC/methods/CORS/HTML/deep-CSP) with severity-ranked findings and an A-F letter grade.
+  Response keys: domain, resolved_ip, total_score, max_score, grade, findings, findings_count:{critical,high,medium,low}, headers, ssl, dns, redirect, disclosure, cookies, dnssec, methods, cors, html, csp_analysis, summary
 
 GET /v1/scan/headers/{domain} — Live HTTP security header scan.
   Response keys: domain, status_code, url, score, grade, findings, headers_present, headers_missing, summary
@@ -224,6 +228,6 @@ GET /v1/seo/example.com →
 
 ## Rate Limits & Data Sources
 
-Keyless: 100 req/hr per IP. Pro: 1000 req/hr. Headers: X-RateLimit-{Limit,Remaining,Reset,Cost,Tier}, X-Request-ID.
-Credit costs: most endpoints = 1, /v1/audit and /v1/threat-report = 4, /v1/brand and /v1/seo = 2, bulk endpoints = N (one per item).
+Keyless: {{ free_limit }} req/hr per IP. Pro: {{ pro_limit }} req/hr. Headers: X-RateLimit-{Limit,Remaining,Reset,Cost,Tier}, X-Request-ID.
+Credit costs: most endpoints = 1; composite endpoints cost more — /v1/audit = {{ cost_audit }}, /v1/threat-report = {{ cost_threat }}, /v1/scan = {{ cost_scan }}, /v1/domain/vulns = {{ cost_domain_vulns }}; bulk endpoints = N (one per item).
 Data: NVD (340K+ CVEs), EPSS (323K+), CISA KEV (1500+), MITRE CWE (944), MITRE ATLAS (~167 techniques + ~57 case studies), MITRE D3FEND (~149 defenses), Shodan, URLhaus, ThreatFox, MalwareBazaar, GitHub Advisory DB, HIBP, Wayback Machine, crt.sh. CVE/EPSS/KEV synced every 2h. Others live.

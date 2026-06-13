@@ -12,6 +12,7 @@ from core.metrics import metrics, metrics_lock
 from db import has_pending_key, hash_client_ip
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
+from mcp.types import LATEST_PROTOCOL_VERSION
 from ratelimit import check_limit
 from validation import get_client_ip
 
@@ -99,7 +100,7 @@ def mcp_debug():
         {
             "endpoint": "https://api.contrastcyber.com/mcp/",
             "protocol": "MCP Streamable HTTP",
-            "protocol_version": "2024-11-05",
+            "protocol_version": LATEST_PROTOCOL_VERSION,
             "required_headers": {
                 "Content-Type": "application/json",
                 "Accept": "application/json, text/event-stream",
@@ -108,7 +109,7 @@ def mcp_debug():
                 "jsonrpc": "2.0",
                 "method": "initialize",
                 "params": {
-                    "protocolVersion": "2024-11-05",
+                    "protocolVersion": LATEST_PROTOCOL_VERSION,
                     "capabilities": {},
                     "clientInfo": {"name": "your-client", "version": "1.0"},
                 },

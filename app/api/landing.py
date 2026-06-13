@@ -28,6 +28,7 @@ from db import (
 )
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse
+from mcp.types import LATEST_PROTOCOL_VERSION
 from ratelimit import check_limit
 from validation import get_client_ip
 
@@ -161,6 +162,7 @@ def mcp_setup(request: Request):
             "tool_count": MCP_TOOL_COUNT,
             "resource_count": MCP_RESOURCE_COUNT,
             "prompt_count": MCP_PROMPT_COUNT,
+            "protocol_version": LATEST_PROTOCOL_VERSION,
         },
     )
 
