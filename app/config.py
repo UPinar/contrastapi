@@ -12,7 +12,7 @@ from pathlib import Path
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-VERSION = "1.34.0"
+VERSION = "1.34.1"
 MCP_TOOL_COUNT = 54  # Faz-2: +contrast_scan (website-scanner composite)
 MCP_RESOURCE_COUNT = 7  # v1.23.0: atlas+d3fend+cwe (4 templates + 3 catalogs)
 MCP_PROMPT_COUNT = 3  # v1.23.0: security_audit, vulnerability_check, contrast_triage
@@ -29,7 +29,11 @@ D3FEND_DEFENSE_COUNT = 149
 # context. Cache stores full set, response truncates per request.
 MAX_ASN_PREFIXES_DEFAULT = 50
 
-BASE_DIR = Path(__file__).parent
+# .resolve() is load-bearing: via the MCP `from app.*` path, config can be
+# imported through uvicorn's relative "." sys.path entry → relative __file__ →
+# the Path(".").parent == Path(".") trap silently breaks BASE_DIR.parent paths
+# (SCANNER_PATH pointed one level too deep → contrast_scan "Scanner not available").
+BASE_DIR = Path(__file__).resolve().parent
 
 
 class Settings(BaseSettings):
