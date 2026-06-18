@@ -370,15 +370,124 @@ def test_ipn_failed_status_ignored(client):
     assert get_key_by_order_id(order_id) is None
 
 
+def test_ipn_partially_paid_dust_short_provisions_key(client):
+    """actually_paid within 1% of pay_amount (dust rounding) auto-provisions."""
+    invoice = "dust_ok_inv"
+    order_id = _uuid()
+    body, sig = _canonical_sign(
+        {
+            "invoice_id": invoice,
+            "order_id": order_id,
+            "payment_status": "partially_paid",
+            "actually_paid": 15.02209,
+            "pay_amount": 15.02209752,
+        }
+    )
+    with (
+        patch("config.settings.nowpayments_ipn_secret", IPN_SECRET),
+        patch("crypto_billing._notify_telegram") as mock_tg,
+    ):
+        resp = client.post(
+            "/v1/billing/crypto/webhook",
+            content=body,
+            headers={"x-nowpayments-sig": sig},
+        )
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "provisioned"
+    mock_tg.assert_called_once()
+
+    from db import get_key_by_order_id
+
+    assert get_key_by_order_id(order_id) is not None
+
+
+def test_ipn_partially_paid_underpaid_alerts_no_provision(client):
+    """A real underpayment (<99%) alerts ops and provisions nothing."""
+    invoice = "dust_short_inv"
+    order_id = _uuid()
+    body, sig = _canonical_sign(
+        {
+            "invoice_id": invoice,
+            "order_id": order_id,
+            "payment_status": "partially_paid",
+            "actually_paid": 9.5,
+            "pay_amount": 15.0,
+        }
+    )
+    with (
+        patch("config.settings.nowpayments_ipn_secret", IPN_SECRET),
+        patch("crypto_billing._notify_telegram") as mock_tg,
+    ):
+        resp = client.post(
+            "/v1/billing/crypto/webhook",
+            content=body,
+            headers={"x-nowpayments-sig": sig},
+        )
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "ignored"
+    mock_tg.assert_called_once()
+
+    from db import get_key_by_order_id
+
+    assert get_key_by_order_id(order_id) is None
+
+
+@pytest.mark.parametrize("status", ["failed", "expired", "refunded"])
+def test_ipn_terminal_fail_states_alert_no_provision(client, status):
+    """failed/expired/refunded each fire an ops alert and provision nothing."""
+    order_id = _uuid()
+    body, sig = _canonical_sign({"invoice_id": f"term_{status}_inv", "order_id": order_id, "payment_status": status})
+    with (
+        patch("config.settings.nowpayments_ipn_secret", IPN_SECRET),
+        patch("crypto_billing._notify_telegram") as mock_tg,
+    ):
+        resp = client.post(
+            "/v1/billing/crypto/webhook",
+            content=body,
+            headers={"x-nowpayments-sig": sig},
+        )
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "ignored"
+    mock_tg.assert_called_once()
+
+    from db import get_key_by_order_id
+
+    assert get_key_by_order_id(order_id) is None
+
+
+@pytest.mark.parametrize("status", ["waiting", "confirming"])
+def test_ipn_intermediate_states_no_alert_no_provision(client, status):
+    """waiting/confirming stay silent no-ops (no alert, no provision)."""
+    order_id = _uuid()
+    body, sig = _canonical_sign({"invoice_id": f"mid_{status}_inv", "order_id": order_id, "payment_status": status})
+    with (
+        patch("config.settings.nowpayments_ipn_secret", IPN_SECRET),
+        patch("crypto_billing._notify_telegram") as mock_tg,
+    ):
+        resp = client.post(
+            "/v1/billing/crypto/webhook",
+            content=body,
+            headers={"x-nowpayments-sig": sig},
+        )
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "ignored"
+    mock_tg.assert_not_called()
+
+    from db import get_key_by_order_id
+
+    assert get_key_by_order_id(order_id) is None
+
+
 @pytest.mark.parametrize(
     "status",
-    ["confirming", "sending", "partially_paid", "expired", "refunded", "waiting"],
+    ["confirming", "sending", "waiting"],
 )
 def test_ipn_non_terminal_states_are_no_ops(client, status):
-    """Every NOWPayments state other than 'finished' must be a no-op.
+    """Intermediate NOWPayments states must be silent no-ops (no key, no alert).
 
-    Documented states: waiting, confirming, confirmed, sending, partially_paid,
-    finished, failed, refunded, expired. Only `finished` provisions a key.
+    Covers only the truly-silent states. partially_paid / expired / refunded /
+    failed now emit ops alerts and are exercised by their dedicated tests; only
+    `finished` (and dust-tolerant partially_paid) provisions a key.
     """
     invoice_id = f"state_{status}_inv"
     order_id = _uuid()

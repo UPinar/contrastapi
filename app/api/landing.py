@@ -22,6 +22,7 @@ from config import (
     TARGET_THROTTLE_PER_MIN,
     VERSION,
 )
+from core.notify import notify_telegram
 from core.templates import templates
 from db import (
     get_and_clear_pending_key,
@@ -120,6 +121,7 @@ def welcome_page(request: Request, order_id: str = ""):
     api_key = get_and_clear_pending_key(order_id)
 
     if api_key:
+        notify_telegram(f"🔑 <b>Crypto Pro key claimed</b>\nOrder: <code>{order_id}</code>")
         context = {"api_key": api_key, "error": None, "polling": False, "order_id": order_id}
     elif get_key_by_order_id(order_id):
         # Order exists but pending_key already consumed — already claimed

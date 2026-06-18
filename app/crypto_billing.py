@@ -49,6 +49,7 @@ INVOICE_CREATE_TIMEOUT = 10
 SUCCESS_URL = "https://api.contrastcyber.com/welcome"
 CANCEL_URL = "https://api.contrastcyber.com/pricing"
 ORDER_DESCRIPTION = "ContrastAPI Pro 30-day key"
+_PAID_TOLERANCE = 0.99
 
 # Allowlist for the redirect URL returned by NOWPayments — defense-in-depth
 # against a poisoned upstream response causing an open-redirect. Pinned to the
@@ -216,18 +217,70 @@ async def crypto_ipn(request: Request) -> dict:
     # for the same invoice_id would be silently dropped and the key never
     # provisioned.
     if payment_status != "finished":
-        logger.info(
-            "NOWPayments IPN ignored: invoice_id=%s order_id=%s payment_status=%s",
-            _safe(invoice_id),
-            order_id,
-            _safe(payment_status),
-        )
-        return {
-            "status": "ignored",
-            "invoice_id": invoice_id,
-            "order_id": order_id,
-            "payment_status": payment_status,
-        }
+        # NOWPayments flags a fully-paid invoice "partially_paid" when
+        # actually_paid is microscopically below pay_amount (dust rounding).
+        # Treat paid >= _PAID_TOLERANCE of the due amount as paid and fall
+        # through to provisioning; alert ops on a real shortfall.
+        if payment_status == "partially_paid":
+            try:
+                ratio = float(payload.get("actually_paid")) / float(payload.get("pay_amount"))
+            except (TypeError, ValueError, ZeroDivisionError):
+                ratio = 0.0
+            if ratio < _PAID_TOLERANCE:
+                _notify_telegram(
+                    f"<b>⚠️ Crypto underpaid</b>\n"
+                    f"Order: <code>{html.escape(order_id)}</code>\n"
+                    f"Paid: {ratio * 100:.1f}% of due"
+                )
+                logger.info(
+                    "NOWPayments IPN underpaid: invoice_id=%s order_id=%s ratio=%.4f",
+                    _safe(invoice_id),
+                    order_id,
+                    ratio,
+                )
+                return {
+                    "status": "ignored",
+                    "invoice_id": invoice_id,
+                    "order_id": order_id,
+                    "payment_status": payment_status,
+                }
+            logger.info(
+                "NOWPayments IPN partially_paid accepted within tolerance: invoice_id=%s order_id=%s ratio=%.4f",
+                _safe(invoice_id),
+                order_id,
+                ratio,
+            )
+        elif payment_status in ("failed", "expired", "refunded"):
+            _notify_telegram(
+                f"<b>⚠️ Crypto payment {html.escape(payment_status)}</b>\n"
+                f"Order: <code>{html.escape(order_id)}</code>\n"
+                f"Invoice: <code>{html.escape(invoice_id)}</code>"
+            )
+            logger.info(
+                "NOWPayments IPN ignored: invoice_id=%s order_id=%s payment_status=%s",
+                _safe(invoice_id),
+                order_id,
+                _safe(payment_status),
+            )
+            return {
+                "status": "ignored",
+                "invoice_id": invoice_id,
+                "order_id": order_id,
+                "payment_status": payment_status,
+            }
+        else:
+            logger.info(
+                "NOWPayments IPN ignored: invoice_id=%s order_id=%s payment_status=%s",
+                _safe(invoice_id),
+                order_id,
+                _safe(payment_status),
+            )
+            return {
+                "status": "ignored",
+                "invoice_id": invoice_id,
+                "order_id": order_id,
+                "payment_status": payment_status,
+            }
 
     # Replay protection keyed by invoice_id (stable per NOWPayments invoice).
     with _processed_lock:

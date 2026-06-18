@@ -331,6 +331,25 @@ _UUID_ONCE = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeee02"
 _UUID_INVALID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeee03"
 _UUID_CHECK = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeee04"
 _UUID_CLEANUP = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeee05"
+_UUID_NOTIFY = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeee06"
+
+
+def test_welcome_claim_notifies_telegram(client):
+    """A successful key claim on /welcome fires exactly one Telegram alert."""
+    payload = _make_payload("order_created", {"id": _UUID_NOTIFY}, event_id="evt_notify_1")
+    sig = _sign(payload)
+    with patch("config.settings.lemonsqueezy_webhook_secret", WEBHOOK_SECRET):
+        client.post(
+            "/webhooks/lemonsqueezy",
+            content=payload,
+            headers={"x-signature": sig},
+        )
+
+    with patch("api.landing.notify_telegram") as mock_tg:
+        resp = client.get("/welcome", params={"order_id": _UUID_NOTIFY})
+    assert resp.status_code == 200
+    mock_tg.assert_called_once()
+    assert _UUID_NOTIFY in mock_tg.call_args[0][0]
 
 
 def test_welcome_shows_key_after_purchase(client):
