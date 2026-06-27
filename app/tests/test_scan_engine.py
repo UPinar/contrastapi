@@ -397,9 +397,26 @@ class TestScanRoute:
         assert "enterprise" not in data
 
     def test_scan_route_registered_with_contrast_scan_operation_id(self):
-        matches = [r for r in app.routes if getattr(r, "path", "") == "/v1/scan/{domain}"]
-        assert len(matches) == 1, "GET /v1/scan/{domain} must be registered exactly once"
-        assert matches[0].operation_id == "contrast_scan"
+        # fastapi 0.137+ no longer surfaces nested-router routes as top-level
+        # APIRoute objects in app.routes; assert via the stable public OpenAPI
+        # contract instead. (A same-path+same-method duplicate collapses to one
+        # openapi entry and is invisible here; the operationId count below guards
+        # the realistic different-path alias / duplicate-id regression.)
+        spec = app.openapi()
+        path_item = spec["paths"].get("/v1/scan/{domain}")
+        assert path_item is not None, "GET /v1/scan/{domain} must be registered"
+        assert "get" in path_item, "GET /v1/scan/{domain} must expose GET"
+        http_methods = {"get", "post", "put", "delete", "patch", "options", "head", "trace"}
+        exposed = {m for m in path_item if m in http_methods}
+        assert exposed == {"get"}, "/v1/scan/{domain} must expose only GET"
+        assert path_item["get"]["operationId"] == "contrast_scan"
+        contrast_scan_ops = sum(
+            1
+            for item in spec["paths"].values()
+            for op in item.values()
+            if isinstance(op, dict) and op.get("operationId") == "contrast_scan"
+        )
+        assert contrast_scan_ops == 1, f"contrast_scan must map to exactly one operation; got {contrast_scan_ops}"
 
     def test_scan_route_rest_gate_charges_cost_scan(self, monkeypatch):
         """REST single-gate: one keyless GET /v1/scan/{domain} must withdraw exactly
