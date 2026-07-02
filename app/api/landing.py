@@ -107,9 +107,12 @@ def welcome_page(request: Request, order_id: str = ""):
     if not order_id:
         raise HTTPException(status_code=400, detail="Missing order_id")
 
-    # Validate order_id is a UUID
+    # Validate + normalize order_id to its canonical UUID string. Reassigning
+    # (not just validating) both fixes DB-key lookups for non-canonical input
+    # (upper-case / braces / urn:) and sanitizes the value for the log + notify
+    # sinks below — a canonical UUID has no CR/LF or control characters.
     try:
-        uuid.UUID(order_id)
+        order_id = str(uuid.UUID(order_id))
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid order_id format") from None
 
