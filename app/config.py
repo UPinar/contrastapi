@@ -12,7 +12,7 @@ from pathlib import Path
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-VERSION = "1.34.4"
+VERSION = "1.34.5"
 MCP_TOOL_COUNT = 54  # Faz-2: +contrast_scan (website-scanner composite)
 MCP_RESOURCE_COUNT = 7  # v1.23.0: atlas+d3fend+cwe (4 templates + 3 catalogs)
 MCP_PROMPT_COUNT = 3  # v1.23.0: security_audit, vulnerability_check, contrast_triage
@@ -119,13 +119,16 @@ settings = Settings()
 # Rate limits
 FREE_HOURLY_LIMIT = 30  # keyless: 30 req/hr per IP (S236, P90 of legit usage)
 PRO_HOURLY_LIMIT = 500  # Pro key: 500 req/hr (S236, 16.7x Free, well above legit human peak ~80/hr)
-# v1.34.0 First-swipe: a keyless agent's FIRST call to each distinct MCP tool is
-# exempt from the hourly counter (one-time, permanent) so the common discovery
-# swipe (one call per tool) completes instead of 429-walling mid-list. MCP-only +
-# Free-only — Pro (500/hr) already clears a 54-tool swipe. Bounded to the tool
-# count per identity via the first_swipe PK.
-FIRST_SWIPE_ENABLED = True
-FIRST_SWIPE_MAX_TOOLS = MCP_TOOL_COUNT  # 54 — hard per-identity cap
+FIRST_SWIPE_ENABLED = True  # feature flag for the IP-grace below (name kept from v1.34.0 for compat)
+# v1.34.x IP-grace: replaces the per-(identity,tool) first-swipe ledger with ONE
+# 24h grace window per keyless identity. The clock starts at the identity's first
+# eligible keyless cost==1 MCP call (not literal first HTTP contact) and never
+# resets; inside the window every cost==1 MCP tool meters against
+# GRACE_HOURLY_LIMIT on a separate namespace (DoS backstop) instead of the 30/hr
+# Free wall. After the window the identity permanently falls back to
+# FREE_HOURLY_LIMIT.
+GRACE_WINDOW_SECONDS = 86400  # 24h grace window (one per identity, never reset)
+GRACE_HOURLY_LIMIT = 120  # per-bucket ceiling DURING grace (DoS backstop, not the 30/hr wall)
 # v1.27: per-tier bulk caps removed; bulk endpoints partial-fill against the
 # caller's remaining hourly quota (Pydantic max_length=50 still bounds input).
 ENRICHMENT_DAILY_LIMIT = 10  # enriched scans per IP per day (protects external API quotas)

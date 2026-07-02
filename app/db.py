@@ -782,15 +782,16 @@ def maintenance() -> dict:
     except Exception as e:
         stats["api_error"] = type(e).__name__
 
-    # Unit 1b: Purge first-swipe redemptions past TTL (365d) — bounds table growth
-    # and lets a long-dormant identity re-discover. redeemed_at is a unix REAL ts.
+    # Unit 1b: Purge grace rows 365d after first grant (activity-independent —
+    # even a continuously active identity re-enters grace ~yearly). Bounds table
+    # growth. first_seen_at is a unix REAL ts; never reset in the hot path.
     try:
-        swipe_cutoff = (datetime.now(UTC) - timedelta(days=365)).timestamp()
+        grace_cutoff = (datetime.now(UTC) - timedelta(days=365)).timestamp()
         with get_api_db() as con:
             con.execute("PRAGMA busy_timeout=30000")
             try:
-                cur = con.execute("DELETE FROM first_swipe WHERE redeemed_at < ?", (swipe_cutoff,))
-                stats["first_swipe_purged"] = cur.rowcount
+                cur = con.execute("DELETE FROM new_ip_grace WHERE first_seen_at < ?", (grace_cutoff,))
+                stats["grace_purged"] = cur.rowcount
             finally:
                 try:
                     con.execute("PRAGMA busy_timeout=5000")
@@ -798,7 +799,7 @@ def maintenance() -> dict:
                     # Best-effort reset; the connection is being released anyway.
                     pass
     except Exception as e:
-        stats["first_swipe_error"] = type(e).__name__
+        stats["grace_error"] = type(e).__name__
 
     # Unit 2: Clear unclaimed pending keys older than 24 hours
     try:

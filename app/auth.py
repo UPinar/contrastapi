@@ -33,8 +33,9 @@ from typing import Literal
 
 from config import (
     FIRST_SWIPE_ENABLED,
-    FIRST_SWIPE_MAX_TOOLS,
     FREE_HOURLY_LIMIT,
+    GRACE_HOURLY_LIMIT,
+    GRACE_WINDOW_SECONDS,
     KEY_LENGTH,
     KEY_PREFIX,
     PRO_HOURLY_LIMIT,
@@ -51,7 +52,7 @@ from db import (
 )
 from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from ratelimit import aconsume_credits, aget_reset_time, consume_credits, get_reset_time, try_redeem_first_swipe
+from ratelimit import aconsume_credits, aget_reset_time, consume_credits, get_reset_time, is_ip_in_grace
 
 # OpenAPI security scheme. auto_error=False so /v1/* keyless endpoints stay
 # reachable without an Authorization header — actual auth + rate-limit decision
@@ -291,28 +292,39 @@ def authenticate_sync(request: Request, endpoint: str, cost: int = 1, mcp_tool: 
 
     # Keyless — IP rate limit (sliding window). Hash IP to keep rate_limits
     # table privacy-safe (raw IP would otherwise sit on disk for up to 1h).
-    limit = FREE_HOURLY_LIMIT
-    store_key = f"free:{hash_client_ip(client_ip)}"
-
-    # v1.34.0 First-swipe: first keyless call to each distinct cost==1 MCP tool is
-    # exempt from the hourly counter (one-time). mcp_tool is non-None only on the MCP
-    # tools/call path (REST passes None). cost>1 composites excluded (real upstream $).
-    # Identity buckets IPv6 to /64 so one /64 can't farm unlimited grants.
-    from validation import swipe_ip_bucket
-
-    swipe_key = f"free:{hash_client_ip(swipe_ip_bucket(client_ip))}"
-    swipe = (
+    # v1.34.x IP-grace: each keyless identity gets ONE GRACE_WINDOW_SECONDS
+    # window; the clock starts at its first eligible keyless cost==1 MCP call
+    # (not literal first HTTP contact) and never resets. Inside the window every
+    # cost==1 MCP tool meters against GRACE_HOURLY_LIMIT on the "grace"
+    # namespace instead of the 30/hr Free wall (DoS backstop). mcp_tool is
+    # non-None only on the MCP tools/call path (REST passes None); cost>1
+    # composites are never graced (real upstream $). Identity buckets IPv6 to
+    # /64 so one /64 can't farm unlimited grants.
+    in_grace = False
+    grace_key = ""
+    if (
         not localhost
         and client_ip not in ("unknown", "")  # unidentifiable caller → no shared free grant
         and mcp_tool is not None
         and cost == 1
         and FIRST_SWIPE_ENABLED
-        and try_redeem_first_swipe(swipe_key, mcp_tool, FIRST_SWIPE_MAX_TOOLS)
-    )
+    ):
+        from validation import swipe_ip_bucket
 
-    if not localhost and not swipe:
-        allowed, remaining = consume_credits("api", store_key, cost, limit)
-        reset_at = get_reset_time("api", store_key)
+        # Key computed only on the eligible path — REST calls skip the HMAC + parse.
+        grace_key = f"grace:{hash_client_ip(swipe_ip_bucket(client_ip))}"
+        in_grace = is_ip_in_grace(grace_key, GRACE_WINDOW_SECONDS)
+
+    # In-grace cost==1 calls meter against the high GRACE_HOURLY_LIMIT on the
+    # "grace" namespace; everything else against the normal FREE_HOURLY_LIMIT.
+    if in_grace:
+        rl_ns, rl_key, limit = "grace", grace_key, GRACE_HOURLY_LIMIT
+    else:
+        rl_ns, rl_key, limit = "api", f"free:{hash_client_ip(client_ip)}", FREE_HOURLY_LIMIT
+
+    if not localhost:
+        allowed, remaining = consume_credits(rl_ns, rl_key, cost, limit)
+        reset_at = get_reset_time(rl_ns, rl_key)
         if not allowed:
             ctx = AuthCtx(
                 tier="free",
@@ -351,9 +363,9 @@ def authenticate_sync(request: Request, endpoint: str, cost: int = 1, mcp_tool: 
 async def aauthenticate(request: Request, endpoint: str, cost: int = 1) -> AuthCtx:
     """Async authentication path used by require_auth's FastAPI dep.
 
-    REST-only: intentionally has NO `mcp_tool` param and NO first-swipe logic — the
-    swipe is MCP-only and the MCP gate uses the sync `authenticate_sync`. Do not port
-    the swipe branch here without re-evaluating the MCP-only invariant.
+    REST-only: intentionally has NO `mcp_tool` param and NO IP-grace logic — the
+    grace is MCP-only and the MCP gate uses the sync `authenticate_sync`. Do not port
+    the grace branch here without re-evaluating the MCP-only invariant.
 
     Mirrors authenticate_sync but awaits the aXxx helpers directly, eliminating
     the run_in_threadpool wrapper layer that previously dispatched the entire

@@ -71,9 +71,9 @@ def _free_bucket_count() -> int:
 
 @pytest.fixture(autouse=True)
 def _disable_first_swipe(monkeypatch):
-    """This module tests the rate LIMITER. First-swipe (a separate feature, covered
-    end-to-end in test_first_swipe.py) is disabled here so each test sees the pure
-    gate counter without the one-time exemption interfering."""
+    """This module tests the rate LIMITER. IP-grace (a separate feature, covered
+    end-to-end in test_ip_grace.py) is disabled here so each test sees the pure
+    gate counter without the grace exemption interfering."""
     import auth
 
     monkeypatch.setattr(auth, "FIRST_SWIPE_ENABLED", False)
