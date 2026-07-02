@@ -129,18 +129,34 @@ def _maybe_alert(etld1_value: str, count: int) -> None:
     _fire_alert(etld1_value, count)
 
 
+def _mask_target(value: str) -> str:
+    """Fully censor the throttled target before it leaves to Telegram.
+
+    privacy.html §2.3/§6: query inputs (domains, IPs) are never shared with
+    third parties; §4 only discloses the per-eTLD+1 *count*. The full value
+    stays recoverable server-side via the target_throttle_alerts table.
+    Only the target *type* survives (zero query-input data, triage signal).
+
+    example.com   -> ***
+    8.8.8.8/IPv6  -> (ip-target)   (etld1() falls back to the raw IP)
+    empty         -> ?
+    """
+    if not value:
+        return "?"
+    if ":" in value or value.replace(".", "").isdigit():
+        return "(ip-target)"
+    return "***"
+
+
 def _fire_alert(etld1_value: str, count: int) -> None:
     """Best-effort Telegram alert. Swallows all exceptions (never breaks request)."""
     try:
         from core.notify import notify_telegram as _notify_telegram
     except Exception as exc:  # pragma: no cover — import guard
-        logger.warning("target_throttle alert: import notify_telegram failed (%s)", exc)
+        logger.warning("target_throttle alert: import notify_telegram failed (%s)", type(exc).__name__)
         return
-    # Defense-in-depth length cap. tldextract output is already constrained to
-    # PSL-valid characters [a-z0-9.-], but a malformed extract could in theory
-    # carry junk; keep the Telegram payload bounded.
-    safe = etld1_value[:100] if etld1_value else "?"
+    safe = _mask_target(etld1_value)
     try:
         _notify_telegram(f"🎯 target_throttle: {safe} hit {count} req/24h")
     except Exception as exc:  # pragma: no cover — best-effort
-        logger.warning("target_throttle alert: notify failed for %s (%s)", safe, exc)
+        logger.warning("target_throttle alert: notify failed for %s (%s)", safe, type(exc).__name__)

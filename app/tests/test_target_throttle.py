@@ -185,6 +185,35 @@ def test_daily_alert_fires_once_per_day():
     assert fire_calls[0][0] == "victim.com"
 
 
+# --- Telegram alert masking ---
+
+
+def test_mask_target():
+    """Query inputs never leave to Telegram unmasked"""
+    import target_throttle
+
+    assert target_throttle._mask_target("example.com") == "***"
+    assert target_throttle._mask_target("victim.co.uk") == "***"
+    assert target_throttle._mask_target("8.8.8.8") == "(ip-target)"
+    assert target_throttle._mask_target("2a01:4f8::1") == "(ip-target)"
+    assert target_throttle._mask_target("localhost") == "***"
+    assert target_throttle._mask_target("") == "?"
+
+
+def test_fire_alert_masks_target():
+    """The Telegram payload must not contain the raw target domain."""
+    import target_throttle
+
+    sent = []
+    with patch("core.notify.notify_telegram", side_effect=lambda msg: sent.append(msg)):
+        target_throttle._fire_alert("victim.com", 500)
+
+    assert len(sent) == 1
+    assert "victim" not in sent[0]
+    assert "***" in sent[0]
+    assert "500" in sent[0]
+
+
 # --- /bot landing route ---
 
 

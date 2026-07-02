@@ -147,7 +147,7 @@ async def walk_redirect_chain(start_url: str, max_hops: int = REDIRECT_MAX_HOPS)
                 # rejecting non-HTTP schemes here gives a cleaner error path.
                 _validate_url(absolute_location)
             except ValueError as exc:
-                logger.info("redirect_chain: rejecting hop %d redirect (%s)", hop_num + 1, exc)
+                logger.info("redirect_chain: rejecting hop %d redirect (%s)", hop_num + 1, type(exc).__name__)
                 absolute_location = None
 
         hops.append(

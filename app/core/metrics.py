@@ -25,7 +25,7 @@ _PATH_NORMALIZE = re.compile(
 _MAX_TRACKED_PATHS = 200
 
 _LOG_SANITIZE = re.compile(
-    r"/v1/(phone|email/mx|email/disposable|ip|domain|dns|whois|subdomains|certs|ssl|threat|tech|monitor|ioc|phishing|scan/headers|asn|password|archive|username|cve|cves|exploit|hash|epss)(?:/(lookup|search|leading|bulk|report))?/[^?]+",
+    r"/v1/(phone|email/security-posture|email/verify|email/mx|email/disposable|ip|domain|dns|whois|subdomains|certs|ssl|threat-report|threat|tech|monitor|ioc|phishing|scan/headers|scan|redirect|robots|brand|seo|audit|kev|atlas/case-studies|atlas|d3fend/attack|d3fend|sigma|cwe|asn|password|archive|username|cve|cves|exploit|hash|epss)(?:/(lookup|search|leading|bulk|report))?/[^?]+",
     re.IGNORECASE,
 )
 

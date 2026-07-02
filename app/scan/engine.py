@@ -41,7 +41,7 @@ def run_scan(domain: str, resolved_ip: str | None = None) -> dict:
             cmd.append(resolved_ip)
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=SCAN_TIMEOUT)
     except subprocess.TimeoutExpired as exc:
-        logger.warning("Scan timeout: %s", domain)
+        logger.warning("Scan timeout")
         raise HTTPException(status_code=504, detail="Scan timed out") from exc
     except FileNotFoundError as exc:
         logger.error("Scanner binary not found: %s", SCANNER_PATH)
@@ -50,13 +50,13 @@ def run_scan(domain: str, resolved_ip: str | None = None) -> dict:
         _scan_semaphore.release()
 
     if result.returncode != 0:
-        logger.warning("Scan failed: %s (exit %d)", domain, result.returncode)
+        logger.warning("Scan failed (exit %d)", result.returncode)
         raise HTTPException(status_code=502, detail="Scan failed")
 
     try:
         return json.loads(result.stdout)
     except json.JSONDecodeError as exc:
-        logger.error("Invalid scanner JSON for %s", domain)
+        logger.error("Invalid scanner JSON")
         raise HTTPException(status_code=502, detail="Scan failed") from exc
 
 

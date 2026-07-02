@@ -216,6 +216,26 @@ class TestRunScan:
             engine.run_scan("example.com", PUBLIC_IP)
         assert exc_info.value.status_code == 504
 
+    def test_failure_logs_omit_domain(self, monkeypatch, caplog):
+        """privacy.html §2.2: query inputs (scan targets) never reach the journal."""
+        import logging
+
+        def fake_run(cmd, **kwargs):
+            raise subprocess.TimeoutExpired(cmd=cmd, timeout=engine.SCAN_TIMEOUT)
+
+        monkeypatch.setattr(engine.subprocess, "run", fake_run)
+        with caplog.at_level(logging.WARNING), pytest.raises(HTTPException):
+            engine.run_scan("secret-target.example", PUBLIC_IP)
+        assert "Scan timeout" in caplog.text
+        assert "secret-target.example" not in caplog.text
+
+        caplog.clear()
+        monkeypatch.setattr(engine.subprocess, "run", lambda cmd, **kw: _Proc(3, ""))
+        with caplog.at_level(logging.WARNING), pytest.raises(HTTPException):
+            engine.run_scan("secret-target.example", PUBLIC_IP)
+        assert "Scan failed" in caplog.text
+        assert "secret-target.example" not in caplog.text
+
     def test_missing_binary_maps_to_500(self, monkeypatch):
         def fake_run(cmd, **kwargs):
             raise FileNotFoundError(cmd[0])

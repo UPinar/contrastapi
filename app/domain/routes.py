@@ -1372,7 +1372,7 @@ async def robots_txt_endpoint(
         result = await fetch_robots_txt(cleaned)
     except Exception as exc:
         kind = _exception_kind(exc)
-        logger.info("robots.txt fetch failed for %s [%s]: %s", cleaned, kind, exc)
+        logger.info("robots.txt fetch failed [%s]", kind)
         raise HTTPException(
             status_code=502,
             detail=f"robots.txt fetch failed: {kind}",
@@ -1471,9 +1471,7 @@ async def redirect_chain_endpoint(
         from domain.robots import _exception_kind
 
         kind = _exception_kind(exc)
-        # Strip CR/LF on user-controlled url before logging (log-injection defense).
-        safe_url = url.replace("\r", "").replace("\n", "")
-        logger.info("redirect_chain fetch failed for %s [%s]: %s", safe_url, kind, exc)
+        logger.info("redirect_chain fetch failed [%s]", kind)
         raise HTTPException(status_code=502, detail=f"redirect_chain fetch failed: {kind}") from exc
 
     hop_count = result["hop_count"]
@@ -1548,9 +1546,7 @@ async def brand_assets_endpoint(
             if not (500 <= sc < 600):
                 await asave_cached_domain(f"robots:{cleaned}", robots_payload)
         except Exception as exc:
-            logger.debug(
-                "brand_assets: robots.txt fetch failed (allow-fail-open) %s [%s]", cleaned, _exception_kind(exc)
-            )
+            logger.debug("brand_assets: robots.txt fetch failed (allow-fail-open) [%s]", _exception_kind(exc))
             robots_payload = {"user_agents": {}, "sitemaps": [], "host": None}
 
     allowed, blocking_pat = homepage_allowed(robots_payload)
@@ -1564,7 +1560,7 @@ async def brand_assets_endpoint(
         page = await fetch_homepage_html(cleaned)
     except Exception as exc:
         kind = _exception_kind(exc)
-        logger.info("brand_assets fetch failed for %s [%s]: %s", cleaned, kind, exc)
+        logger.info("brand_assets fetch failed [%s]", kind)
         raise HTTPException(
             status_code=502,
             detail=f"brand_assets fetch failed: {kind}",
@@ -1663,7 +1659,7 @@ async def seo_audit_endpoint(
             if not (500 <= sc < 600):
                 await asave_cached_domain(f"robots:{cleaned}", robots_payload)
         except Exception as exc:
-            logger.debug("seo_audit: robots.txt fetch failed (allow-fail-open) %s [%s]", cleaned, _exception_kind(exc))
+            logger.debug("seo_audit: robots.txt fetch failed (allow-fail-open) [%s]", _exception_kind(exc))
             robots_payload = {"user_agents": {}, "sitemaps": [], "host": None}
 
     allowed_path, blocking_pat = homepage_allowed(robots_payload)
@@ -1677,7 +1673,7 @@ async def seo_audit_endpoint(
         page = await fetch_homepage_html(cleaned)
     except Exception as exc:
         kind = _exception_kind(exc)
-        logger.info("seo_audit fetch failed for %s [%s]: %s", cleaned, kind, exc)
+        logger.info("seo_audit fetch failed [%s]", kind)
         raise HTTPException(
             status_code=502,
             detail=f"seo_audit fetch failed: {kind}",

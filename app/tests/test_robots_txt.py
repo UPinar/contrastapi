@@ -227,6 +227,20 @@ class TestRobotsTxtRoute:
         # Structured error code from _exception_kind
         assert "unknown_error" in msg
 
+    @patch("domain.robots.fetch_robots_txt", new_callable=AsyncMock, side_effect=RuntimeError("connect failed"))
+    @patch("db.get_cached_domain", return_value=None)
+    @patch("domain.routes.validate_domain", return_value="93.184.216.34")
+    def test_robots_fetch_failure_log_omits_domain(self, mock_validate, mock_cache, mock_fetch, caplog):
+        """privacy.html §2.2: the queried domain and exception message never reach the journal."""
+        import logging
+
+        with caplog.at_level(logging.INFO):
+            r = client.get("/v1/robots/blackhole.example.com")
+        assert r.status_code == 502
+        assert "robots.txt fetch failed" in caplog.text
+        assert "blackhole.example.com" not in caplog.text
+        assert "connect failed" not in caplog.text
+
     @patch("domain.robots.fetch_robots_txt", new_callable=AsyncMock)
     @patch("db.get_cached_domain", return_value=None)
     @patch("db.save_cached_domain")

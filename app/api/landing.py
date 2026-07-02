@@ -143,7 +143,9 @@ def welcome_page(request: Request, order_id: str = ""):
         )
     except (ValueError, OSError) as exc:
         if api_key:
-            logger.error("Template render failed for order %s: %s, returning plain text fallback", order_id, exc)
+            logger.error(
+                "Template render failed for order %s: %s, returning plain text fallback", order_id, type(exc).__name__
+            )
             return PlainTextResponse(
                 f"Your API key: {api_key}\n\nSave this key now. It will not be shown again.",
                 media_type="text/plain",
