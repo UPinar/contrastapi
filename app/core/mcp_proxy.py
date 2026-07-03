@@ -51,8 +51,8 @@ _tools_list_result_bytes: "bytes | None" = None
 # poison the per-identity swipe ledger. Empty until built → permissive fallback.
 _TOOL_NAMES: "frozenset[str]" = frozenset()
 # v1.32.4: Composite tools that invoke multiple internal sub-operations
-# inline pay a weighted credit cost so Free-tier users cannot draw N units
-# of upstream work while burning a single credit. Atomic tools (default)
+# inline pay a weighted token cost so Free-tier users cannot draw N units
+# of upstream work while burning a single token. Atomic tools (default)
 # are absent from the map and fall through to cost=1.
 #
 # Tools listed here charge the MCP gate the mapped cost. For tools that
@@ -557,7 +557,7 @@ class _MCPIPForwardMiddleware:
                     return
                 full_body = b"".join(body_chunks)
                 # Parse JSON-RPC method to decide whether this request
-                # consumes a credit. Only `tools/call` runs a tool and
+                # consumes a token. Only `tools/call` runs a tool and
                 # therefore costs CPU/DB/external-API — metadata methods
                 # (initialize, tools/list, resources/list, prompts/list,
                 # ping, notifications/*, completion/complete) just return

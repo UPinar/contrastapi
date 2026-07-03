@@ -145,7 +145,7 @@ async def aconsume_bulk(store_name: str, key: str, count: int, max_requests: int
     return await run_in_threadpool(consume_bulk, store_name, key, count, max_requests, window_seconds)
 
 
-def consume_credits(
+def consume_tokens(
     store_name: str, key: str, cost: int, max_requests: int, window_seconds: int = 3600
 ) -> tuple[bool, int]:
     """Atomically consume `cost` rate limit slots. Returns (allowed, remaining).
@@ -185,10 +185,10 @@ def consume_credits(
         raise
 
 
-async def aconsume_credits(
+async def aconsume_tokens(
     store_name: str, key: str, cost: int, max_requests: int, window_seconds: int = 3600
 ) -> tuple[bool, int]:
-    return await run_in_threadpool(consume_credits, store_name, key, cost, max_requests, window_seconds)
+    return await run_in_threadpool(consume_tokens, store_name, key, cost, max_requests, window_seconds)
 
 
 def is_ip_in_grace(store_key: str, window_seconds: int) -> bool:

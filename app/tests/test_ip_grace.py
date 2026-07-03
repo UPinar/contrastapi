@@ -199,11 +199,11 @@ def test_pro_key_not_graced():
     from config import PRO_HOURLY_LIMIT
     from db import save_api_key
     from fastapi import HTTPException
-    from ratelimit import consume_credits
+    from ratelimit import consume_tokens
 
     key = generate_key()
     save_api_key(hash_key(key))
-    consume_credits("api", f"pro:{hash_key(key)}", PRO_HOURLY_LIMIT, PRO_HOURLY_LIMIT)
+    consume_tokens("api", f"pro:{hash_key(key)}", PRO_HOURLY_LIMIT, PRO_HOURLY_LIMIT)
     req = _kreq("5.5.5.5", {"authorization": f"Bearer {key}"})
     with pytest.raises(HTTPException) as e:
         authenticate(req, "/mcp/", cost=1, mcp_tool="dns_lookup")

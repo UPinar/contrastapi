@@ -47,7 +47,7 @@ ENDPOINT_HINTS = [
     ("/v1/scan/", "GET /v1/scan/headers/{domain} — e.g., /v1/scan/headers/example.com"),
     (
         "/v1/",
-        "Full docs: https://github.com/UPinar/contrastapi/blob/main/docs/ENDPOINTS.md — "
+        "Full docs: https://github.com/UPinar/contrastapi/blob/main/docs/API_Documentation.md — "
         "Try: /v1/domain/example.com, /v1/cve/CVE-2024-3094, /v1/ip/8.8.8.8",
     ),
 ]
@@ -74,7 +74,7 @@ _STATUS_TO_ERROR_CODE: dict[int, str] = {
     502: "upstream_error",
     504: "upstream_timeout",
 }
-_DOCS_URL = "https://github.com/UPinar/contrastapi/blob/main/docs/ENDPOINTS.md"
+_DOCS_URL = "https://github.com/UPinar/contrastapi/blob/main/docs/API_Documentation.md"
 # ErrorDetail.message has max_length=500 (schemas.py); HTTPException.detail is
 # free-form so guard at the wire boundary, mirroring MCP's `mcp_tool_safe`.
 _ERROR_MESSAGE_MAX_LEN = 500

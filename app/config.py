@@ -12,8 +12,8 @@ from pathlib import Path
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-VERSION = "1.34.7"
-MCP_TOOL_COUNT = 54  # Faz-2: +contrast_scan (website-scanner composite)
+VERSION = "1.35.0"
+MCP_TOOL_COUNT = 55  # +geo_audit (AI-visibility readiness); Faz-2: +contrast_scan
 MCP_RESOURCE_COUNT = 7  # v1.23.0: atlas+d3fend+cwe (4 templates + 3 catalogs)
 MCP_PROMPT_COUNT = 3  # v1.23.0: security_audit, vulnerability_check, contrast_triage
 ENDPOINT_COUNT = "60+"
@@ -162,7 +162,7 @@ REDIRECT_TIMEOUT = 5  # seconds per hop
 BRAND_ASSETS_TIMEOUT = 5  # seconds, separate from RECON_TIMEOUT
 BRAND_ASSETS_CACHE_TTL = 3600  # 1h via DOMAIN_CACHE_TTL pathway
 
-# Endpoint credit costs — based on upstream API calls per request.
+# Endpoint token costs — based on upstream API calls per request.
 # Default is 1 (single upstream). Orchestration endpoints cost more because
 # they aggregate multiple sources. Transparent pricing, surfaced via X-RateLimit-Cost header.
 #

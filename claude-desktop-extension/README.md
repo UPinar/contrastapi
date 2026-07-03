@@ -1,10 +1,10 @@
 # ContrastAPI Security Tools — Claude Desktop Extension
 
-54 security tools for Claude, with **no signup and no API key required**. This extension is a thin local bridge to the hosted [ContrastAPI](https://api.contrastcyber.com) MCP server (`https://api.contrastcyber.com/mcp/`).
+55 security tools for Claude, with **no signup and no API key required**. This extension is a thin local bridge to the hosted [ContrastAPI](https://api.contrastcyber.com) MCP server (`https://api.contrastcyber.com/mcp/`).
 
 ## What you get
 
-All 54 tools are **read-only** lookups — no writes, no destructive actions — and each carries a human-readable title (e.g. `cve_lookup` → "CVE Lookup").
+All 55 tools are **read-only** lookups — no writes, no destructive actions — and each carries a human-readable title (e.g. `cve_lookup` → "CVE Lookup").
 
 - **Vulnerability intelligence** — `cve_lookup`, `cve_search`, `cve_leading`, `bulk_cve_lookup`, `kev_detail`, `exploit_lookup`, `get_cvss_details`, `cwe_lookup`, `calculate_risk_score`
 - **Threat intelligence** — `ioc_lookup`, `bulk_ioc_lookup`, `hash_lookup`, `ip_lookup`, `threat_intel`, `threat_report`, `phishing_check`

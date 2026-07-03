@@ -1,4 +1,4 @@
-# ContrastAPI — 为 AI 智能体打造的 54 个安全工具 + 7 个 MCP 资源
+# ContrastAPI — 为 AI 智能体打造的 55 个安全工具 + 7 个 MCP 资源
 
 <p align="center">
   <img src="app/static/banner.png" alt="ContrastAPI Banner" width="100%">
@@ -9,13 +9,18 @@
 [![contrastapi MCP server](https://glama.ai/mcp/servers/UPinar/contrastapi/badges/score.svg)](https://glama.ai/mcp/servers/UPinar/contrastapi)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-**面向 AI 智能体的安全情报 MCP 服务器。** CVE/KEV/CWE 查询（含 EPSS）、**综合风险评分（CVSS+EPSS+KEV+PoC 融合 — v1.29.1）**、**CVSS v3.x 向量解析（v1.29.1）**、域名审计、IP 威胁报告、IOC 增强、代码安全检查、**MITRE ATLAS（AI/ML 攻击）+ D3FEND（防御技术）**、**网站情报（robots.txt 解析、重定向链、邮箱校验、品牌资源、SEO 审计 — v1.25.0）**。**54 个工具 + 7 个 MCP 资源（ATLAS+D3FEND+CWE 目录浏览）+ 3 个 Prompt（安全审计、漏洞检查、条件式分诊），免费使用，无需 API 密钥，每小时 30 信用额度。**
+**为 AI 智能体打造的安全情报。** 让你的智能体获得有据可依的漏洞、威胁与攻击面答案 —— 依托权威数据源（NVD、CISA KEV、FIRST EPSS、MITRE ATLAS 与 D3FEND），而非臆测。CVE/KEV/CWE 查询（含 EPSS 利用概率与综合风险评分）、域名与 IP 调查、IOC 增强、代码安全检查、实时网站情报。**55 个工具、7 个资源、3 个 Prompt —— 免费、无需 API 密钥、无需注册。**
 
 [English](README.md) · **在线服务：** [api.contrastcyber.com](https://api.contrastcyber.com)
 
 支持 **DeepSeek**、**Qwen（通义千问）** 等支持 MCP 协议的 AI 模型。
 
 ---
+
+## 文档
+
+- **[API 文档](docs/API_Documentation.md)** — REST 参考：60+ 端点、认证、速率限制、Token 计费与响应封装。
+- **[MCP 文档](docs/MCP_Documentation.md)** — MCP 工具选择指南、7 个资源、3 个 Prompt 及可直接复制的智能体提示词。
 
 ## 快速接入（MCP）
 
@@ -39,28 +44,11 @@ pip install contrastapi      # Python 3.10+ — 同步 + 异步、类型化响�
 npm install contrastapi      # Node 14+ — 具体 TypeScript 类型、14 个命名空间
 ```
 
-两个 SDK 均覆盖全部 60+ HTTP 端点 / 54 个 MCP 工具（CVE/KEV/CWE、ATLAS、D3FEND、Sigma 检测规则、邮箱安全姿态、域名、IP、IOC、代码安全、网站情报等），响应结构与服务端完全一致，并提供与 v1.22.2+ 错误信封对应的类型化异常层级。v1.23.0 新增 MCP 资源（ATLAS+D3FEND+CWE 目录浏览，详见 [docs/resources.md](docs/resources.md)）和条件式分诊 Prompt（详见 [docs/PROMPTS.md#contrast-triage-v1230](docs/PROMPTS.md)）。v1.25.0 新增 5 个网站情报工具（`robots_txt`、`redirect_chain`、`email_verify`、`brand_assets`、`seo_audit`），并明确声明伦理底线（按目标 eTLD+1 限速、遵守 robots.txt、不进行 SMTP 探测）。
+两个 SDK 覆盖每一个 HTTP 端点与 MCP 工具 —— CVE/KEV/CWE、ATLAS、D3FEND、Sigma 检测规则、邮箱安全姿态、域名、IP、IOC、代码安全、网站情报 —— 响应结构与服务端完全一致，并提供与 API 错误信封对应的类型化异常层级。同时提供用于浏览 ATLAS、D3FEND、CWE 目录的 MCP 资源（详见 [docs/MCP_Documentation.md](docs/MCP_Documentation.md#mcp-resources)）以及条件式分诊 Prompt（详见 [docs/MCP_Documentation.md#contrast-triage](docs/MCP_Documentation.md#contrast-triage)）。网站情报工具 —— `robots_txt`、`redirect_chain`、`email_verify`、`brand_assets`、`seo_audit`、`geo_audit` —— 均遵循明确的伦理底线：按目标限速、遵守 robots.txt、不进行 SMTP 探测。
 
-## 立即试用
+## 链接
 
-```bash
-curl 'https://api.contrastcyber.com/v1/cves?product=openssl&kev=true'  # cve_search — 按产品检索 CVE，仅 KEV
-curl https://api.contrastcyber.com/v1/domain/example.com         # domain_report — DNS+WHOIS+SSL+子域+情报，一次调用
-curl https://api.contrastcyber.com/v1/cve/CVE-2021-44228         # cve_lookup — 完整记录（CVSS+EPSS+KEV+CWE）
-curl https://api.contrastcyber.com/v1/exploit/CVE-2021-44228     # exploit_lookup — 公开 PoC / 漏洞利用可用性
-curl https://api.contrastcyber.com/v1/ip/1.1.1.1                 # ip_lookup — 信誉、地理位置、ASN、威胁情报
-```
-
-或者直接问智能体：
-
-- *"检索 KEV 收录的 OpenSSL CVE，然后拉取 EPSS 最高那个的完整记录。"*
-- *"为 example.com 跑一份完整域名报告 — DNS、WHOIS、SSL、子域和威胁情报，一次调用。"*
-- *"CVE-2021-44228 是否有公开的漏洞利用或 PoC？"*
-- *"1.1.1.1 的信誉、所属国家和 ASN 是什么 — 是否被任何威胁源标记？"*
-
-## 文档
-
-**接口列表：** [docs/ENDPOINTS.md](docs/ENDPOINTS.md) · **OpenAPI：** [openapi.json](https://api.contrastcyber.com/openapi.json)
+**OpenAPI：** [openapi.json](https://api.contrastcyber.com/openapi.json)
 
 <details>
 <summary>自部署 / 测试 / 技术栈</summary>
@@ -69,7 +57,7 @@ curl https://api.contrastcyber.com/v1/ip/1.1.1.1                 # ip_lookup —
 git clone https://github.com/UPinar/contrastapi.git
 cd contrastapi && python3 -m venv venv && venv/bin/pip install -r requirements.txt
 cd app && ../venv/bin/uvicorn main:app --port 8002
-cd app && python -m pytest tests/ -q  # 1886 个测试
+cd app && python -m pytest tests/ -q  # 2636 个测试
 ```
 
 Python 3.12 · FastAPI · uvicorn · `mcp-python-sdk` Streamable HTTP 挂载于 `/mcp` · SQLite WAL · dnspython + SSRF 安全后端。

@@ -1,6 +1,6 @@
 {# SECURITY: Jinja2Templates leaves autoescape OFF for .txt extensions.
    This template only interpolates integer constants from app/config.py
-   (MCP_TOOL_COUNT, free_limit, pro_limit, and the cost_* credit costs).
+   (MCP_TOOL_COUNT, free_limit, pro_limit, and the cost_* token costs).
    DO NOT add user-controlled strings here
    without enabling autoescape or applying the `|e` filter — silent SSTI
    would slip through. #}
@@ -10,7 +10,7 @@
 
 - [Quick Start](https://api.contrastcyber.com/quickstart)
 - [MCP Setup](https://api.contrastcyber.com/mcp-setup)
-- [API Documentation](https://github.com/UPinar/contrastapi/blob/main/docs/ENDPOINTS.md)
+- [API Documentation](https://github.com/UPinar/contrastapi/blob/main/docs/API_Documentation.md)
 - [OpenAPI Spec](https://api.contrastcyber.com/openapi.json)
 - [Full API Reference](https://api.contrastcyber.com/llms-full.txt)
 
@@ -39,15 +39,15 @@ No API key needed. Free: {{ free_limit }} requests/hour per IP.
 API key ({{ pro_limit }} req/hr): pass `Authorization: Bearer cc_xxx` header.
 Rate limit headers returned: X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset, X-RateLimit-Cost, X-RateLimit-Tier.
 
-## Credit Costs
+## Token Costs
 
-Most endpoints cost 1 credit per call. Aggregating endpoints that fan out to multiple upstream sources cost more:
-- `GET /v1/audit/{domain}` — {{ cost_audit }} credits (DNS + WHOIS + SSL + CT + subdomains + headers + tech + email)
-- `GET /v1/threat-report/{ip}` — {{ cost_threat }} credits (IP enrich + AbuseIPDB + Shodan + ASN + Tor + cloud + FireHOL + CVE)
-- `GET /v1/scan/{domain}` — {{ cost_scan }} credits (full-site security scan: C engine 11 modules + findings enrichment)
-- `GET /v1/domain/vulns/{domain}` — {{ cost_domain_vulns }} credits (tech fingerprint + bulk CVE per product)
-- `POST /v1/cves/bulk`, `POST /v1/iocs/bulk`, `POST /v1/atlas/techniques/bulk` — 1 credit per item in the request
-- All other endpoints — 1 credit
+Most endpoints cost 1 token per call. Aggregating endpoints that fan out to multiple upstream sources cost more:
+- `GET /v1/audit/{domain}` — {{ cost_audit }} tokens (DNS + WHOIS + SSL + CT + subdomains + headers + tech + email)
+- `GET /v1/threat-report/{ip}` — {{ cost_threat }} tokens (IP enrich + AbuseIPDB + Shodan + ASN + Tor + cloud + FireHOL + CVE)
+- `GET /v1/scan/{domain}` — {{ cost_scan }} tokens (full-site security scan: C engine 11 modules + findings enrichment)
+- `GET /v1/domain/vulns/{domain}` — {{ cost_domain_vulns }} tokens (tech fingerprint + bulk CVE per product)
+- `POST /v1/cves/bulk`, `POST /v1/iocs/bulk`, `POST /v1/atlas/techniques/bulk` — 1 token per item in the request
+- All other endpoints — 1 token
 
 Every authenticated response includes X-RateLimit-Cost so clients can budget calls transparently.
 
@@ -110,8 +110,9 @@ Single-page audits with explicit ethical floor: per-target eTLD+1 throttle (60/m
 - GET /v1/robots/{domain} — Parsed robots.txt (sitemaps, per-UA allow/disallow, crawl-delay, RFC 9309)
 - GET /v1/redirect/{url:path} — Walk URL redirect chain hop-by-hop, SSRF-guarded at every hop (deobfuscate URL shorteners, audit phishing links)
 - GET /v1/email/verify/{email} — Combined email validation: syntax + MX + disposable + role + free-provider (no SMTP RCPT TO probing — ethical declined)
-- GET /v1/brand/{domain} — Public brand assets from homepage <head> (favicon, og:image, theme-color, og:site_name, JSON-LD logo) [cost: 2]
-- GET /v1/seo/{domain} — One-page SEO audit + 0-100 composite score (10 rules) + missing_signals list of concrete fixes [cost: 2]
+- GET /v1/brand/{domain} — Public brand assets from homepage <head> (favicon, og:image, theme-color, og:site_name, JSON-LD logo) [cost: 1]
+- GET /v1/seo/{domain} — One-page SEO audit + 0-100 composite score (10 rules) + missing_signals list of concrete fixes [cost: 1]
+- GET /v1/geo/{domain} — Deterministic GEO / AI-visibility readiness audit + 0-100 score (7 rules: llms.txt, AI-crawler access, schema.org, SSR-vs-SPA, discovery, headings, comparison) + missing_signals [cost: 1]
 
 ### Code Security
 - POST /v1/check/headers — Validate HTTP security headers (JSON body: {"headers": {...}})
@@ -136,7 +137,7 @@ check_secrets, check_injection, check_dependencies, check_headers,
 atlas_technique_lookup, atlas_technique_search, bulk_atlas_technique_lookup, atlas_case_study_lookup, atlas_case_study_search,
 d3fend_defense_lookup, d3fend_defense_search, d3fend_defense_for_attack, d3fend_attack_coverage,
 sigma_rule_lookup, bulk_sigma_rule_lookup,
-robots_txt, redirect_chain, brand_assets, seo_audit, contrast_scan.
+robots_txt, redirect_chain, brand_assets, seo_audit, geo_audit, contrast_scan.
 
 ### MCP Resources (catalog browsing, no rate limit)
 - atlas://catalog, atlas://technique/{technique_id}, atlas://case-study/{case_study_id}

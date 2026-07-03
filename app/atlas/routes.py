@@ -1,6 +1,6 @@
 """MITRE ATLAS API routes — /v1/atlas/* (AI/ML attack catalog).
 
-Static catalog endpoints sourced from the synced ATLAS YAML. All credit-cost = 1
+Static catalog endpoints sourced from the synced ATLAS YAML. All token-cost = 1
 (default). Free tier: no API key required.
 
 Route order is significant: `/techniques`, `/case-studies`, and `/case-studies/{id}`

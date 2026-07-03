@@ -17,23 +17,21 @@ def test_landing_page_200():
     assert "ContrastAPI" in r.text
 
 
-def test_setup_pages_link_to_tool_selection_guide():
-    """v1.23.0: docs strip moved off the landing footer (visual cleanup) and onto
-    /quickstart + /mcp-setup so the doc links live alongside the install steps."""
+def test_setup_pages_link_to_docs():
+    """Docs strip on /quickstart + /mcp-setup links the two consolidated docs
+    (API_Documentation.md + MCP_Documentation.md) alongside the install steps."""
     for path in ("/quickstart", "/mcp-setup"):
         r = client.get(path)
         assert r.status_code == 200, path
-        assert "tool-selection-guide.md" in r.text, f"{path} missing tool-selection-guide link"
-        assert "ENDPOINTS.md" in r.text, f"{path} missing endpoints link"
-        assert "PROMPTS.md" in r.text, f"{path} missing prompts link"
-        assert "resources.md" in r.text, f"{path} missing resources link"
+        assert "API_Documentation.md" in r.text, f"{path} missing API docs link"
+        assert "MCP_Documentation.md" in r.text, f"{path} missing MCP docs link"
 
 
-def test_tool_selection_guide_file_exists():
-    """v1.21.0: docs/tool-selection-guide.md is checked into the repo."""
+def test_mcp_documentation_file_exists():
+    """docs/MCP_Documentation.md is checked into the repo and carries the tool-selection guide."""
     from pathlib import Path
 
-    guide = Path(__file__).parent.parent.parent / "docs" / "tool-selection-guide.md"
+    guide = Path(__file__).parent.parent.parent / "docs" / "MCP_Documentation.md"
     assert guide.exists(), f"Missing {guide}"
     text = guide.read_text()
     # Sanity-check: guide covers the 4 decision-tree scenarios
@@ -507,17 +505,17 @@ def test_x_ratelimit_tier_header_pro():
             con.execute("DELETE FROM api_keys WHERE key_hash = ?", (key_hash,))
 
 
-# --- X-RateLimit-Cost header (weighted credits) ---
+# --- X-RateLimit-Cost header (weighted tokens) ---
 
 
 def test_x_ratelimit_cost_default_one():
-    """Standard endpoints consume 1 credit."""
+    """Standard endpoints consume 1 token."""
     r = client.get("/v1/ioc/xxx")
     assert r.headers.get("X-RateLimit-Cost") == "1"
 
 
 def test_x_ratelimit_cost_audit_matches_constant():
-    """audit_domain consumes COST_AUDIT credits — header value tracks the
+    """audit_domain consumes COST_AUDIT tokens — header value tracks the
     canonical config constant, not a hardcoded integer."""
     from config import COST_AUDIT
 
@@ -528,7 +526,7 @@ def test_x_ratelimit_cost_audit_matches_constant():
 
 
 def test_x_ratelimit_cost_threat_report_matches_constant():
-    """threat_report consumes COST_THREAT_REPORT credits."""
+    """threat_report consumes COST_THREAT_REPORT tokens."""
     from config import COST_THREAT_REPORT
 
     r = client.get("/v1/threat-report/8.8.8.8")
@@ -536,7 +534,7 @@ def test_x_ratelimit_cost_threat_report_matches_constant():
 
 
 def test_threat_report_cost_exhausts_free_limit():
-    """threat-report costs COST_THREAT_REPORT credits; (FREE_HOURLY_LIMIT // cost) calls fit, next exhausts.
+    """threat-report costs COST_THREAT_REPORT tokens; (FREE_HOURLY_LIMIT // cost) calls fit, next exhausts.
 
     Uses X-Forwarded-For to get a non-localhost IP so rate limiting actually enforces.
     Hits an invalid IP so authenticate() runs but the handler exits fast with 400.

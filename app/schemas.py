@@ -95,6 +95,7 @@ class PivotHint(BaseModel):
         "redirect_chain",
         "brand_assets",
         "seo_audit",
+        "geo_audit",
         "phone_lookup",
         "username_lookup",
         "password_check",

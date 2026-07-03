@@ -1,6 +1,6 @@
 """Tests for the /mcp/ app-layer rate-limit gate.
 
-Only `tools/call` consumes a credit — metadata methods (initialize,
+Only `tools/call` consumes a token — metadata methods (initialize,
 tools/list, resources/list, prompts/list, ping, notifications/*) are
 free so registry indexers (Smithery / Glama / mcp.so / PulseMCP) and
 normal MCP clients can probe capabilities without burning the hourly
@@ -57,7 +57,7 @@ def _reset_free_bucket() -> None:
 
 
 def _free_bucket_count() -> int:
-    """Count active credits in the Free testclient bucket."""
+    """Count active tokens in the Free testclient bucket."""
     from db import get_api_db
 
     store_key = _free_store_key()
@@ -80,7 +80,7 @@ def _disable_first_swipe(monkeypatch):
 
 
 def test_mcp_initialize_is_free(mcp_client):
-    """initialize is a metadata handshake — no credit cost. Registry
+    """initialize is a metadata handshake — no token cost. Registry
     indexers probe this on every refresh; gating it would 429 them out
     within minutes and break automated catalog discovery.
     """
@@ -128,7 +128,7 @@ def test_mcp_ping_is_free(mcp_client):
         json={"jsonrpc": "2.0", "id": 1, "method": "ping", "params": {}},
     )
     # FastMCP may 200 (ping handler) or return a method-not-found error,
-    # but either way the gate must not burn a credit.
+    # but either way the gate must not burn a token.
     assert _free_bucket_count() == 0
 
 
@@ -156,7 +156,7 @@ def test_mcp_batch_request_rejected(mcp_client):
     body = r.json()
     assert body["error"]["code"] == -32600
     assert "Batch" in body["error"]["message"]
-    # No credit burned (batch rejected at our middleware before gate).
+    # No token burned (batch rejected at our middleware before gate).
     assert _free_bucket_count() == 0
 
 
@@ -170,21 +170,21 @@ def test_mcp_method_case_mismatch_does_not_bypass_gate(mcp_client):
 
     payload = {**TOOL_CALL_PAYLOAD, "method": "Tools/Call"}
     r = mcp_client.post("/mcp/", headers=MCP_HEADERS, json=payload)
-    # Gate sees method != "tools/call" → no credit. Downstream FastMCP
+    # Gate sees method != "tools/call" → no token. Downstream FastMCP
     # rejects (method-not-found). Either response is acceptable; the
-    # invariant is "no credit burned for a malformed/unrecognized method
+    # invariant is "no token burned for a malformed/unrecognized method
     # name regardless of casing".
     assert _free_bucket_count() == 0
 
 
-def test_mcp_tools_call_consumes_credit(mcp_client):
-    """tools/call runs a tool and consumes one credit on the free bucket."""
+def test_mcp_tools_call_consumes_token(mcp_client):
+    """tools/call runs a tool and consumes one token on the free bucket."""
     _reset_free_bucket()
     before = _free_bucket_count()
 
     r = mcp_client.post("/mcp/", headers=MCP_HEADERS, json=TOOL_CALL_PAYLOAD)
     # tool may succeed (200) or return JSON-RPC error inside body, but the
-    # gate has already burned the credit either way.
+    # gate has already burned the token either way.
     assert r.status_code == 200
 
     after = _free_bucket_count()
@@ -291,7 +291,7 @@ def test_mcp_non_429_error_has_no_data_field(mcp_client):
 
 
 def test_mcp_get_is_exempt_from_gate(mcp_client):
-    """GET /mcp/ — SSE listen + discovery info — must NOT consume a credit.
+    """GET /mcp/ — SSE listen + discovery info — must NOT consume a token.
 
     A normal MCP client opens an SSE listen loop and reconnects every 15s
     (the retry directive we emit). 240 reconnects/hr would 429 a Free user
@@ -334,7 +334,7 @@ def test_mcp_pro_key_higher_limit(mcp_client):
 
 
 # v1.32.4 variable-cost infrastructure — composite tools (added in later
-# batches) consume more than one credit per call. The map ships empty in
+# batches) consume more than one token per call. The map ships empty in
 # this batch; tests below monkeypatch a known-good atomic tool into the
 # map to exercise the lookup path without depending on a composite tool
 # being registered yet.
@@ -364,7 +364,7 @@ def test_tool_cost_map_completeness_for_composites():
     with the matching `COST_*` constant. When adding a new composite tool,
     append to `COMPOSITE_TOOLS` here AND wire `_TOOL_COST[name] = COST_*` in
     `app/core/mcp_proxy.py`. If a composite drops off the map, Free-tier
-    users get N upstream sub-calls for 1 credit."""
+    users get N upstream sub-calls for 1 token."""
     from config import COST_AUDIT, COST_SCAN, COST_TECH_CVE_AUDIT, COST_THREAT_REPORT
     from core import mcp_proxy
 
@@ -386,12 +386,12 @@ def test_mcp_unknown_tool_defaults_to_cost_1(mcp_client):
 
     r = mcp_client.post("/mcp/", headers=MCP_HEADERS, json=TOOL_CALL_PAYLOAD)
     assert r.status_code == 200
-    assert _free_bucket_count() == 1, "atomic tool call should consume exactly 1 credit"
+    assert _free_bucket_count() == 1, "atomic tool call should consume exactly 1 token"
 
 
 def test_mcp_mapped_tool_consumes_mapped_cost(mcp_client, monkeypatch):
     """When a tool name appears in _TOOL_COST, the gate must withdraw that
-    many credits in a single tools/call. Uses cve_lookup (real registered
+    many tokens in a single tools/call. Uses cve_lookup (real registered
     tool) monkeypatched to cost=5 — proves the lookup path works end-to-end
     before composite tools land in Batches 2 and 3."""
     from core import mcp_proxy
@@ -401,7 +401,7 @@ def test_mcp_mapped_tool_consumes_mapped_cost(mcp_client, monkeypatch):
 
     r = mcp_client.post("/mcp/", headers=MCP_HEADERS, json=TOOL_CALL_PAYLOAD)
     assert r.status_code == 200
-    assert _free_bucket_count() == 5, "single tools/call on a cost-5 tool must consume 5 credits"
+    assert _free_bucket_count() == 5, "single tools/call on a cost-5 tool must consume 5 tokens"
 
 
 def test_mcp_mapped_tool_429_after_fewer_calls(mcp_client, monkeypatch):
@@ -460,7 +460,7 @@ def test_mcp_malformed_tool_name_falls_back_to_cost_1(mcp_client, monkeypatch):
         mcp_client.post("/mcp/", headers=MCP_HEADERS, json=payload)
         assert _free_bucket_count() <= 1, (
             f"malformed name {payload['params']['name']!r} must not trigger cost=5 lookup; "
-            f"got {_free_bucket_count()} credits consumed"
+            f"got {_free_bucket_count()} tokens consumed"
         )
 
 
@@ -498,7 +498,7 @@ def test_mcp_audit_domain_mcp_gate_consumes_six_after_pattern_b(mcp_client):
     """v1.32.4 Batch 4 Pattern B inversion: the MCP audit_domain wrapper now calls
     `_audit_domain_impl()` directly (no HTTP hop to /v1/audit/{domain}), so the
     REST gate is bypassed for MCP traffic. The MCP gate MUST therefore charge
-    COST_AUDIT (6) via `_TOOL_COST["audit_domain"]` so the credit price matches
+    COST_AUDIT (6) via `_TOOL_COST["audit_domain"]` so the token price matches
     the REST endpoint's. Replaces the pre-Batch-4 guard that asserted the OPPOSITE
     (`audit_domain` NOT in `_TOOL_COST`) — that contract was valid only while the
     wrapper still HTTP-hopped via `_aget()` and double-charging was the risk."""
@@ -515,7 +515,7 @@ def test_mcp_threat_report_mcp_gate_consumes_six_after_pattern_b(mcp_client):
     """v1.32.4 Batch 5/5 Pattern B inversion: the MCP threat_report wrapper now
     calls `_threat_report_impl()` directly (no HTTP hop to /v1/threat-report/{ip}),
     so the REST gate is bypassed for MCP traffic. The MCP gate MUST charge
-    COST_THREAT_REPORT (6) via `_TOOL_COST["threat_report"]` so the credit price
+    COST_THREAT_REPORT (6) via `_TOOL_COST["threat_report"]` so the token price
     matches the REST endpoint's. Mirrors the audit_domain (Batch 4) guard."""
     from config import COST_THREAT_REPORT
     from core import mcp_proxy
@@ -689,7 +689,7 @@ def test_mcp_contrast_scan_mcp_gate_consumes_six():
     """Faz-2 Pattern B: the MCP contrast_scan wrapper calls `_contrast_scan_impl()`
     directly (no HTTP hop to /v1/scan/{domain}), so the REST gate is bypassed for
     MCP traffic. The MCP gate MUST therefore charge COST_SCAN (6) via
-    `_TOOL_COST["contrast_scan"]` so the credit price matches the REST endpoint's.
+    `_TOOL_COST["contrast_scan"]` so the token price matches the REST endpoint's.
     Mirrors the audit_domain (Batch 4) / threat_report (Batch 5) guards."""
     from config import COST_SCAN
     from core import mcp_proxy
@@ -722,7 +722,7 @@ def test_mcp_contrast_scan_wrapper_does_not_call_aget(mcp_client, monkeypatch):
     """Pattern B behavior: MCP contrast_scan MUST call `_contrast_scan_impl` and
     MUST NOT call `_aget("/v1/scan/...")`. Spy on both: assert _impl was called,
     assert _aget was NOT called with a scan path. Also asserts the gate withdrew
-    exactly COST_SCAN credits for the single tools/call (charge==6, single gate,
+    exactly COST_SCAN tokens for the single tools/call (charge==6, single gate,
     no double-charge)."""
     from config import COST_SCAN
     from core import mcp_proxy
@@ -784,8 +784,7 @@ def test_mcp_contrast_scan_wrapper_does_not_call_aget(mcp_client, monkeypatch):
     assert impl_calls[0]["domain"] == "example.com"
     assert aget_scan_calls == [], f"MCP contrast_scan wrapper must not HTTP-hop to /v1/scan/...; got {aget_scan_calls}"
     assert _free_bucket_count() == COST_SCAN, (
-        f"single contrast_scan tools/call must consume exactly COST_SCAN={COST_SCAN} credits; "
-        f"got {_free_bucket_count()}"
+        f"single contrast_scan tools/call must consume exactly COST_SCAN={COST_SCAN} tokens; got {_free_bucket_count()}"
     )
 
 
@@ -895,9 +894,9 @@ def test_mcp_triggers_list_returns_empty_array(mcp_client):
     assert "error" not in body, f"triggers/list must not return JSON-RPC error: {body}"
 
 
-def test_mcp_triggers_list_does_not_consume_credit(mcp_client):
+def test_mcp_triggers_list_does_not_consume_token(mcp_client):
     """triggers/list is a metadata / health probe — it must NOT consume
-    rate-limit credits (would amplify the Smithery score penalty rather
+    rate-limit tokens (would amplify the Smithery score penalty rather
     than fix it). The fast-path returns BEFORE the tools/call gate."""
     _reset_free_bucket()
     initial = _free_bucket_count()
@@ -908,7 +907,7 @@ def test_mcp_triggers_list_does_not_consume_credit(mcp_client):
     )
     assert r.status_code == 200
     assert _free_bucket_count() == initial, (
-        f"triggers/list must not consume credits; was {initial}, now {_free_bucket_count()}"
+        f"triggers/list must not consume tokens; was {initial}, now {_free_bucket_count()}"
     )
 
 
@@ -952,8 +951,8 @@ def test_mcp_smithery_events_list_returns_empty_array(mcp_client):
     assert "error" not in body, f"ai.smithery/events/list must not return JSON-RPC error: {body}"
 
 
-def test_mcp_smithery_events_list_does_not_consume_credit(mcp_client):
-    """Smithery probes ~100x/day. Each one must be free — burning credits
+def test_mcp_smithery_events_list_does_not_consume_token(mcp_client):
+    """Smithery probes ~100x/day. Each one must be free — burning tokens
     on a passive health-check would tank Free-tier user quotas. The fast-
     path returns BEFORE the tools/call gate."""
     _reset_free_bucket()
@@ -965,13 +964,13 @@ def test_mcp_smithery_events_list_does_not_consume_credit(mcp_client):
     )
     assert r.status_code == 200
     assert _free_bucket_count() == initial, (
-        f"ai.smithery/events/list must not consume credits; was {initial}, now {_free_bucket_count()}"
+        f"ai.smithery/events/list must not consume tokens; was {initial}, now {_free_bucket_count()}"
     )
 
 
 def test_mcp_tech_stack_cve_audit_cost_consumed_once(mcp_client, monkeypatch):
     """v1.32.4 Batch 3: a single `tools/call` for `tech_stack_cve_audit` must
-    consume exactly COST_TECH_CVE_AUDIT (10) credits."""
+    consume exactly COST_TECH_CVE_AUDIT (10) tokens."""
     from config import COST_TECH_CVE_AUDIT
 
     _reset_free_bucket()
@@ -1003,7 +1002,7 @@ def test_mcp_tech_stack_cve_audit_cost_consumed_once(mcp_client, monkeypatch):
 
     assert r.status_code == 200, r.text
     assert _free_bucket_count() == COST_TECH_CVE_AUDIT, (
-        f"tech_stack_cve_audit must consume exactly {COST_TECH_CVE_AUDIT} credits; got {_free_bucket_count()}"
+        f"tech_stack_cve_audit must consume exactly {COST_TECH_CVE_AUDIT} tokens; got {_free_bucket_count()}"
     )
 
 

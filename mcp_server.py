@@ -101,6 +101,7 @@ from app.domain.schemas import (  # noqa: E402
     EmailMxResponse,
     EmailSecurityPostureResponse,
     EmailVerifyResponse,
+    GeoAuditResponse,
     IpLookupResponse,
     PhoneLookupResponse,
     RedirectChainResponse,
@@ -711,7 +712,7 @@ async def audit_domain(
         ),
     ] = False,
 ) -> AuditResponse | ErrorResponse:
-    """Perform comprehensive domain audit: combines domain_report + live HTTP security headers + technology fingerprinting. By default report.dns.txt is filtered to security-relevant entries (SPF, DMARC, DKIM, MTA-STS, TLS-RPT) and report.dns.total_txt_records reports the honest pre-filter count; pass include_all_txt=true for the raw TXT list. Use when you need the full picture (recon + active checks); use domain_report for passive-only assessment. Response carries next_calls — chain with subdomain_enum (always emitted) and ssl_check (when an A record resolves) for the residual recon depth (tech_fingerprint already inline as `technologies`). Free: 30/hr (costs 6 credits), Pro: 500/hr. Returns {domain, report, technologies, live_headers, summary, next_calls}."""
+    """Perform comprehensive domain audit: combines domain_report + live HTTP security headers + technology fingerprinting. By default report.dns.txt is filtered to security-relevant entries (SPF, DMARC, DKIM, MTA-STS, TLS-RPT) and report.dns.total_txt_records reports the honest pre-filter count; pass include_all_txt=true for the raw TXT list. Use when you need the full picture (recon + active checks); use domain_report for passive-only assessment. Response carries next_calls — chain with subdomain_enum (always emitted) and ssl_check (when an A record resolves) for the residual recon depth (tech_fingerprint already inline as `technologies`). Free: 30/hr (costs 6 tokens), Pro: 500/hr. Returns {domain, report, technologies, live_headers, summary, next_calls}."""
     # v1.32.4 Pattern B: call the shared internal helper directly instead of
     # HTTP-hopping to /v1/audit/{domain} via _aget(). The MCP gate already
     # charged COST_AUDIT via _TOOL_COST["audit_domain"]; a REST round-trip
@@ -748,7 +749,7 @@ async def contrast_scan(
         ),
     ],
 ) -> ScanResponse | ErrorResponse:
-    """Active website security scan: runs the ContrastScan C engine (11 modules — HTTP security headers, SSL/TLS, DNS, redirect chain, information disclosure, cookie flags, DNSSEC, HTTP methods, CORS, HTML hygiene, deep CSP analysis) against the live site and enriches the raw result with severity-ranked vulnerability findings and a letter grade. Use for a hands-on misconfiguration scan; use audit_domain for passive recon (DNS/WHOIS/SSL/threat intel) and scan_headers for headers only. Active outbound fetch — a per-target eTLD+1 throttle (60 req/min) applies. Free: 30/hr (costs 6 credits), Pro: 500/hr. Returns {domain, resolved_ip, total_score, max_score, grade, findings, findings_count, headers, ssl, dns, redirect, disclosure, cookies, dnssec, methods, cors, html, csp_analysis, enterprise, summary, next_calls}."""
+    """Active website security scan: runs the ContrastScan C engine (11 modules — HTTP security headers, SSL/TLS, DNS, redirect chain, information disclosure, cookie flags, DNSSEC, HTTP methods, CORS, HTML hygiene, deep CSP analysis) against the live site and enriches the raw result with severity-ranked vulnerability findings and a letter grade. Use for a hands-on misconfiguration scan; use audit_domain for passive recon (DNS/WHOIS/SSL/threat intel) and scan_headers for headers only. Active outbound fetch — a per-target eTLD+1 throttle (60 req/min) applies. Free: 30/hr (costs 6 tokens), Pro: 500/hr. Returns {domain, resolved_ip, total_score, max_score, grade, findings, findings_count, headers, ssl, dns, redirect, disclosure, cookies, dnssec, methods, cors, html, csp_analysis, enterprise, summary, next_calls}."""
     # Faz-2 Pattern B: call the shared internal helper directly instead of
     # HTTP-hopping to /v1/scan/{domain} via _aget(). The MCP gate already
     # charged COST_SCAN via _TOOL_COST["contrast_scan"]; a REST round-trip
@@ -794,7 +795,7 @@ async def tech_stack_cve_audit(
         ),
     ],
 ) -> TechStackCveAuditResponse | ErrorResponse:
-    """Composite tech-stack + CVE audit (MCP-only, no REST endpoint). Detects technologies on the target domain, queries CVE database for known vulnerabilities per product, enriches top-10 CVE candidates with CISA KEV federal patch deadlines, and checks public exploit / PoC availability. Identical for every tier — all data is sourced from local DB mirrors (no Shodan/AbuseIPDB), so there is no tier gating. CVE candidate batch: 50. Cost: 10 credits per call — Free 30/hr ≈ 3 audits, Pro 500/hr ≈ 50 audits. Returns {domain, technologies, cves_by_tech, kev_findings, exploit_findings, summary, next_calls}."""
+    """Composite tech-stack + CVE audit (MCP-only, no REST endpoint). Detects technologies on the target domain, queries CVE database for known vulnerabilities per product, enriches top-10 CVE candidates with CISA KEV federal patch deadlines, and checks public exploit / PoC availability. Identical for every tier — all data is sourced from local DB mirrors (no Shodan/AbuseIPDB), so there is no tier gating. CVE candidate batch: 50. Cost: 10 tokens per call — Free 30/hr ≈ 3 audits, Pro 500/hr ≈ 50 audits. Returns {domain, technologies, cves_by_tech, kev_findings, exploit_findings, summary, next_calls}."""
     from app.domain.routes import _tech_stack_cve_audit_impl
 
     try:
@@ -823,7 +824,7 @@ async def threat_report(
         ),
     ],
 ) -> ThreatReportResponse | ErrorResponse:
-    """Query comprehensive threat profile for an IP: Shodan host data, AbuseIPDB reputation, ASN/geolocation, and open ports. Use for IP investigation and SOC alert triage; for domain data use domain_report. Note: nested asn block always returns at most 50 IPv4/IPv6 prefixes — call asn_lookup with include_full_prefixes=True for the full announced-prefixes list. enrichment.vulns is severity-aware list[VulnInfo] (cve_id + severity + cvss_v3) — Phase 2 v1.16.0 BREAKING; pre-1.16 it was list[str] of CVE IDs. Free: 30/hr (costs 6 credits), Pro: 500/hr. Returns {ip, enrichment, abuseipdb, shodan, asn, threat_level}."""
+    """Query comprehensive threat profile for an IP: Shodan host data, AbuseIPDB reputation, ASN/geolocation, and open ports. Use for IP investigation and SOC alert triage; for domain data use domain_report. Note: nested asn block always returns at most 50 IPv4/IPv6 prefixes — call asn_lookup with include_full_prefixes=True for the full announced-prefixes list. enrichment.vulns is severity-aware list[VulnInfo] (cve_id + severity + cvss_v3) — Phase 2 v1.16.0 BREAKING; pre-1.16 it was list[str] of CVE IDs. Free: 30/hr (costs 6 tokens), Pro: 500/hr. Returns {ip, enrichment, abuseipdb, shodan, asn, threat_level}."""
     # v1.32.4 Pattern B: call the shared internal helper directly instead of
     # HTTP-hopping to /v1/threat-report/{ip} via _aget(). The MCP gate already
     # charged COST_THREAT_REPORT via _TOOL_COST["threat_report"]; a REST round
@@ -1049,6 +1050,19 @@ async def seo_audit(
 ) -> SeoAuditResponse | ErrorResponse:
     """One-shot SEO audit of a domain's homepage with a 0-100 composite score + a `missing_signals` list of concrete fixes. Use BEFORE pitching SEO work to a prospect, when triaging a lead's marketing maturity, or as a structured pre-flight before deeper auditing tools (Lighthouse / SEMrush). 10 audit rules each worth 10 pts: title present, title length 30-60 chars (Google SERP truncation window), meta description present, meta description length 50-160, exactly one H1, canonical link, >=3 OG tags, JSON-LD present, image alt-text coverage (proportional), HTTPS. Strictly homepage-only — we do NOT crawl the site. Ethical floor: target's robots.txt is honoured — `Disallow: /` for ContrastAPI OR `*` returns 403 `error.code = robots_txt_disallow` and we DO NOT fetch. `Cache-Control: no-store`/`private` skips our cache write (`cache_respected=false` in the response). Per-target eTLD+1 throttle (60 req/min) prevents weaponising via subdomain rotation. All target-derived strings/lists are `_untrusted`. Free: 30/hr, Pro: 500/hr. Returns {domain, fetched_url, status_code, title_untrusted, meta_description_untrusted, canonical_url, h1_untrusted, h1_count, h2_count, h3_count, images_total, images_missing_alt, internal_link_count, external_link_count, og_tags, json_ld_present, score, missing_signals, cache_respected, summary}. Returns 502 on DNS/TCP/TLS failure; 403 `robots_txt_disallow` when the target opted out."""
     return SeoAuditResponse(**await _aget(f"/v1/seo/{_require_domain(domain)}"))
+
+
+@mcp_tool_safe(annotations=_RO_OPEN_WORLD)
+async def geo_audit(
+    domain: Annotated[
+        str,
+        Field(
+            description="Registrable domain to audit for AI-visibility / GEO readiness (e.g. 'example.com', 'shopify.com'). No scheme, no path, no port. Strictly homepage-only — the bot fetches https://<domain>/ with HTTP fallback (we do NOT crawl)."
+        ),
+    ],
+) -> GeoAuditResponse | ErrorResponse:
+    """Deterministic GEO / AI-visibility readiness audit of a domain's homepage with a 0-100 score + a `missing_signals` fix list. Answers "can AI assistants (ChatGPT, Claude, Perplexity, Google AI) discover, crawl, and recommend this site?" using STRUCTURAL signals ONLY — no LLM is queried, fully deterministic. 7 weighted rules: llms.txt present (15), AI-crawler robots.txt access — 9 crawlers incl. GPTBot/ClaudeBot/PerplexityBot/Google-Extended/CCBot (25 — the dominant signal; blocking = invisible to that AI surface), schema.org @type coverage Organization/Product/FAQPage (20), server-side rendering vs client-only SPA (15 — a JS-only SPA serves AI crawlers empty HTML), discovery signals og/canonical/sitemap (10), semantic headings single-H1 + H2 structure (10), competitor-comparison content (5). Use to triage why a brand is absent from AI recommendations, as a pre-flight before GEO/AEO content work, or to score a prospect's AI-readiness. Strictly homepage-only — we do NOT crawl. Ethical floor: target's robots.txt is honoured — `Disallow: /` for ContrastAPI returns 403 `error.code = robots_txt_disallow` and we DO NOT fetch. `Cache-Control: no-store`/`private` skips our cache write (`cache_respected=false`). Per-target eTLD+1 throttle (60 req/min). Free: 30/hr, Pro: 500/hr. Returns {domain, fetched_url, status_code, llms_txt_present, ai_crawlers_total, ai_crawlers_allowed, ai_crawlers_blocked, schema_types, client_side_rendered, render_framework, has_canonical, og_tag_count, sitemap_count, h1_count, h2_count, comparison_content, score, missing_signals, cache_respected, summary}. Returns 502 on DNS/TCP/TLS failure; 403 `robots_txt_disallow` when the target opted out."""
+    return GeoAuditResponse(**await _aget(f"/v1/geo/{_require_domain(domain)}"))
 
 
 @mcp_tool_safe(annotations=_RO_OPEN_WORLD)

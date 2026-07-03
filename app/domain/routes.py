@@ -108,6 +108,7 @@ from domain.schemas import (
     EmailMxResponse,
     EmailSecurityPostureResponse,
     EmailVerifyResponse,
+    GeoAuditResponse,
     IpLookupResponse,
     MonitorResponse,
     PhoneLookupResponse,
@@ -221,7 +222,7 @@ def api_root(auth: Annotated[AuthCtx, Depends(require_auth("/v1"))]):
     """Available endpoints when someone hits /v1/ directly."""
     return {
         "api": "ContrastAPI",
-        "docs": "https://github.com/UPinar/contrastapi/blob/main/docs/ENDPOINTS.md",
+        "docs": "https://github.com/UPinar/contrastapi/blob/main/docs/API_Documentation.md",
         "endpoints": {
             "domain": {"path": "/v1/domain/example.com", "method": "GET", "description": "Full security report"},
             "dns": {"path": "/v1/dns/example.com", "method": "GET", "description": "DNS records"},
@@ -780,6 +781,33 @@ def _seo_audit_pivot_hints(record: dict) -> list[PivotHint]:
                 tool="brand_assets",
                 input=domain,
                 reason="Low SEO score often correlates with missing branding signals (favicon, og:image, site_name).",
+            )
+        )
+    return hints
+
+
+def _geo_audit_pivot_hints(record: dict) -> list[PivotHint]:
+    """Always 2: seo_audit + robots_txt. Conditional: brand_assets (score<50)."""
+    domain = record["domain"]
+    hints: list[PivotHint] = [
+        PivotHint(
+            tool="seo_audit",
+            input=domain,
+            reason="Classic on-page SEO score — complements GEO readiness with SERP-facing signals.",
+        ),
+        PivotHint(
+            tool="robots_txt",
+            input=domain,
+            reason="Inspect the exact robots.txt rules gating AI crawlers (GPTBot, ClaudeBot, PerplexityBot).",
+        ),
+    ]
+    score = record.get("score", 100)
+    if score < 50:
+        hints.append(
+            PivotHint(
+                tool="brand_assets",
+                input=domain,
+                reason="Low GEO score often pairs with weak structured branding (og:image, logo, site_name).",
             )
         )
     return hints
@@ -1437,7 +1465,7 @@ async def redirect_chain_endpoint(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    # Auth + 1 API credit was consumed by require_auth. Apply the *start* host's throttle.
+    # Auth + 1 API token was consumed by require_auth. Apply the *start* host's throttle.
     start_host = (_urlparse_local(url).hostname or "").lower()
     if start_host:
         allowed, retry = consume_target_throttle(start_host)
@@ -1701,6 +1729,114 @@ async def seo_audit_endpoint(
         "summary": summary,
     }
     result["next_calls"] = [h.model_dump() for h in _seo_audit_pivot_hints(result)]
+
+    if cache_respected:
+        await asave_cached_domain(cache_key, result)
+    return result
+
+
+@router.get(
+    "/geo/{domain}",
+    operation_id="geo_audit",
+    response_model=GeoAuditResponse,
+    response_model_exclude_none=True,
+)
+async def geo_audit_endpoint(
+    domain: DomainPath,
+    auth: Annotated[AuthCtx, Depends(require_auth("/v1/geo"))],
+):
+    """Audit a domain's AI-visibility / GEO readiness and emit a 0-100 score.
+
+    Deterministic + structural ONLY — no LLM is queried. 7 weighted
+    rules: llms.txt present (15), AI-crawler robots access (25),
+    schema.org @type coverage (20), server-side rendering (15), discovery
+    signals OG/canonical/sitemap (10), semantic headings (10), comparison
+    content (5). `missing_signals` lists the gaps.
+
+    Same ethical floor as seo_audit: target's robots.txt is honoured
+    (Disallow `/` for our UA → 403, no fetch); per-target eTLD+1 throttle
+    (60 req/min) consumed BEFORE the cache lookup; `Cache-Control:
+    no-store`/`private` skips the cache write.
+    """
+    from target_throttle import consume_target_throttle
+
+    cleaned, _resolved_ip = _validate_domain_input(domain)
+
+    allowed, retry_after = consume_target_throttle(cleaned)
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Target throttle: {cleaned} exceeded the per-domain limit. retry_after={retry_after}s",
+            headers={"Retry-After": str(retry_after)},
+        )
+
+    cache_key = f"geo:{cleaned}"
+    cached = await aget_cached_domain(cache_key)
+    if cached:
+        return cached
+
+    from domain.brand_assets import fetch_homepage_html, homepage_allowed
+    from domain.geo_audit import _extract_geo, _score_geo, evaluate_ai_crawlers, fetch_llms_txt
+    from domain.robots import _exception_kind, fetch_robots_txt
+
+    robots_payload = await aget_cached_domain(f"robots:{cleaned}")
+    if robots_payload is None:
+        try:
+            robots_payload = await fetch_robots_txt(cleaned)
+            sc = robots_payload.get("status_code", 0)
+            if not (500 <= sc < 600):
+                await asave_cached_domain(f"robots:{cleaned}", robots_payload)
+        except Exception as exc:
+            logger.debug("geo_audit: robots.txt fetch failed (allow-fail-open) [%s]", _exception_kind(exc))
+            robots_payload = {"user_agents": {}, "sitemaps": [], "host": None}
+
+    allowed_path, blocking_pat = homepage_allowed(robots_payload)
+    if not allowed_path:
+        raise HTTPException(
+            status_code=403,
+            detail=f"robots_txt_disallow: target site forbids '{blocking_pat}' for ContrastAPI; we will not fetch /",
+        )
+
+    try:
+        page = await fetch_homepage_html(cleaned)
+    except Exception as exc:
+        kind = _exception_kind(exc)
+        logger.info("geo_audit fetch failed [%s]", kind)
+        raise HTTPException(
+            status_code=502,
+            detail=f"geo_audit fetch failed: {kind}",
+        ) from exc
+
+    parsed = _extract_geo(page["html"])
+
+    crawlers_total, crawlers_allowed, crawlers_blocked = evaluate_ai_crawlers(robots_payload)
+    parsed["ai_crawlers_total"] = crawlers_total
+    parsed["ai_crawlers_allowed"] = crawlers_allowed
+    parsed["ai_crawlers_blocked"] = crawlers_blocked
+    parsed["sitemap_count"] = len(robots_payload.get("sitemaps") or [])
+    parsed["llms_txt_present"] = await fetch_llms_txt(cleaned)
+
+    score, missing = _score_geo(parsed)
+
+    cc = page["cache_control"]
+    cache_respected = not any(token in cc for token in ("no-store", "private"))
+
+    summary_parts: list[str] = [f"{cleaned} GEO score={score}/100"]
+    if missing:
+        summary_parts.append(f"missing:{','.join(missing[:5])}{'...' if len(missing) > 5 else ''}")
+    summary = " — ".join(summary_parts)
+
+    result = {
+        "domain": cleaned,
+        "fetched_url": page["url"],
+        "status_code": page["status_code"],
+        **parsed,
+        "score": score,
+        "missing_signals": missing,
+        "cache_respected": cache_respected,
+        "summary": summary,
+    }
+    result["next_calls"] = [h.model_dump() for h in _geo_audit_pivot_hints(result)]
 
     if cache_respected:
         await asave_cached_domain(cache_key, result)
@@ -2333,7 +2469,7 @@ async def ip_lookup(
     ):
         reputation_attempted = True
         firehol_attempted = True
-        # Credit-refund correctness: acheck_limit consumed 1 enrichment credit.
+        # Token-refund correctness: acheck_limit consumed 1 enrichment token.
         # If the gather() fails OR the request is cancelled mid-await (client
         # disconnect → asyncio.CancelledError, which is NOT an Exception
         # subclass on Python 3.8+), we must refund before propagating, else
@@ -2978,8 +3114,8 @@ async def bulk_domain_report(
         limit = FREE_HOURLY_LIMIT
 
     # Order matters: acquire the concurrency slot BEFORE consuming bulk quota.
-    # The opposite order leaves a window where extra credits are debited but the
-    # request 503s on semaphore exhaustion — credits silently lost.
+    # The opposite order leaves a window where extra tokens are debited but the
+    # request 503s on semaphore exhaustion — tokens silently lost.
     if not _bulk_semaphore.acquire(blocking=False):
         raise HTTPException(
             status_code=503,
@@ -3323,8 +3459,8 @@ async def _threat_report_impl(
         logger.warning("threat_report: ASN lookup failed: %s", type(e).__name__)
         asn_data = {"error": "lookup_failed"}
 
-    # Bug I3: threat_report (Pro, 4-credit) used to return strictly LESS
-    # passive intel than ip_lookup (1-credit) — no PTR, asn_name, country,
+    # Bug I3: threat_report (Pro, 4-token) used to return strictly LESS
+    # passive intel than ip_lookup (1-token) — no PTR, asn_name, country,
     # cloud_provider, tor_exit, firehol, risk_score, or verdict. Bring it up
     # to ip_lookup parity by embedding the cheap-to-fetch passive fields here
     # so SOC triage callers do not need a second ip_lookup call to fill in
@@ -3578,7 +3714,7 @@ async def _tech_stack_cve_audit_impl(
     KEV lookup + exploit lookup via direct in-process calls. No tier gating:
     every data source here is a local DB mirror (CVE/KEV/ExploitDB) — not
     Shodan/AbuseIPDB — so CVE batch depth (50) and exploit findings are
-    identical for all tiers; monetization is the per-call credit cost +
+    identical for all tiers; monetization is the per-call token cost +
     hourly rate limit only. `tier` is kept for Pattern B signature symmetry
     but no longer affects the output."""
     from domain.recon import fetch_live_headers

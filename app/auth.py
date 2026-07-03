@@ -9,7 +9,7 @@ Architecture (Faz 3 + Faz 4):
     for tier/key_hash/client_ip + 4 ratelimit_* fields. Stashed on
     request.state.auth before raising 401/429.
   - aauthenticate() — async core used by require_auth's FastAPI dep. Awaits
-    aget_api_key / aconsume_credits / aget_reset_time / atouch_api_key /
+    aget_api_key / aconsume_tokens / aget_reset_time / atouch_api_key /
     alog_usage; pure-CPU helpers (hash_key, hash_client_ip, extract_key,
     _privacy_opt_out, _stash) stay direct calls.
   - authenticate_sync() — sync core preserved for the MCP ASGI gate (sync
@@ -52,7 +52,7 @@ from db import (
 )
 from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from ratelimit import aconsume_credits, aget_reset_time, consume_credits, get_reset_time, is_ip_in_grace
+from ratelimit import aconsume_tokens, aget_reset_time, consume_tokens, get_reset_time, is_ip_in_grace
 
 # OpenAPI security scheme. auto_error=False so /v1/* keyless endpoints stay
 # reachable without an Authorization header — actual auth + rate-limit decision
@@ -253,7 +253,7 @@ def authenticate_sync(request: Request, endpoint: str, cost: int = 1, mcp_tool: 
         store_key = f"pro:{kh}"
 
         if not localhost:
-            allowed, remaining = consume_credits("api", store_key, cost, limit)
+            allowed, remaining = consume_tokens("api", store_key, cost, limit)
             reset_at = get_reset_time("api", store_key)
             if not allowed:
                 ctx = AuthCtx(
@@ -323,7 +323,7 @@ def authenticate_sync(request: Request, endpoint: str, cost: int = 1, mcp_tool: 
         rl_ns, rl_key, limit = "api", f"free:{hash_client_ip(client_ip)}", FREE_HOURLY_LIMIT
 
     if not localhost:
-        allowed, remaining = consume_credits(rl_ns, rl_key, cost, limit)
+        allowed, remaining = consume_tokens(rl_ns, rl_key, cost, limit)
         reset_at = get_reset_time(rl_ns, rl_key)
         if not allowed:
             ctx = AuthCtx(
@@ -427,7 +427,7 @@ async def aauthenticate(request: Request, endpoint: str, cost: int = 1) -> AuthC
         store_key = f"pro:{kh}"
 
         if not localhost:
-            allowed, remaining = await aconsume_credits("api", store_key, cost, limit)
+            allowed, remaining = await aconsume_tokens("api", store_key, cost, limit)
             reset_at = await aget_reset_time("api", store_key)
             if not allowed:
                 ctx = AuthCtx(
@@ -468,7 +468,7 @@ async def aauthenticate(request: Request, endpoint: str, cost: int = 1) -> AuthC
     store_key = f"free:{hash_client_ip(client_ip)}"
 
     if not localhost:
-        allowed, remaining = await aconsume_credits("api", store_key, cost, limit)
+        allowed, remaining = await aconsume_tokens("api", store_key, cost, limit)
         reset_at = await aget_reset_time("api", store_key)
         if not allowed:
             ctx = AuthCtx(

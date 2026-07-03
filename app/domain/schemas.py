@@ -1103,6 +1103,75 @@ class SeoAuditResponse(BaseSuccessResponse):
     summary: str = Field(default="", description="One-line human-readable summary.")
 
 
+class GeoAuditResponse(BaseSuccessResponse):
+    """Deterministic GEO / AI-visibility readiness audit of a domain's homepage (0-100).
+
+    Answers "can AI assistants discover, crawl, and recommend this site?"
+    using structural signals ONLY — NO LLM is queried. AI-native cousin
+    of `seo_audit`. Same ethical floor: robots.txt honoured (Disallow `/`
+    for our UA → 403, no fetch).
+
+    Score = 7 weighted rules: llms.txt present (15), AI-crawler robots
+    access (25), schema.org @type coverage (20), server-side rendering
+    (15), discovery signals OG/canonical/sitemap (10), semantic headings
+    (10), comparison content (5). `missing_signals` names each gap.
+    """
+
+    domain: str = Field(description="Queried domain (echoed).")
+    fetched_url: str = Field(description="Final URL we fetched (post-redirects).")
+    status_code: int = Field(description="HTTP status returned by the homepage fetch.")
+
+    llms_txt_present: bool = Field(
+        default=False,
+        description="True if https://<domain>/llms.txt returns 200 with a non-empty body (emerging AI-context standard).",
+    )
+    ai_crawlers_total: int = Field(
+        default=0, description="Number of AI crawler user-agents checked against robots.txt."
+    )
+    ai_crawlers_allowed: int = Field(
+        default=0, description="How many of those AI crawlers are permitted to fetch path '/'."
+    )
+    ai_crawlers_blocked: list[str] = Field(
+        default_factory=list,
+        description="AI crawler tokens explicitly disallowed by robots.txt (e.g. 'GPTBot'). Blocking = invisible to that AI surface.",
+    )
+
+    schema_types: list[str] = Field(
+        default_factory=list,
+        description="Distinct valuable schema.org @types found in JSON-LD (Organization, Product, FAQPage, SoftwareApplication, WebSite, BreadcrumbList).",
+    )
+    client_side_rendered: bool = Field(
+        default=False,
+        description="True if the homepage appears to be a client-only SPA (framework marker + near-empty server HTML) — AI crawlers may see no content.",
+    )
+    render_framework: str | None = Field(
+        default=None,
+        description="SPA framework marker detected in the served HTML, if any (informational; one of a fixed known set).",
+    )
+
+    has_canonical: bool = Field(default=False, description="True if a `<link rel='canonical'>` is present.")
+    og_tag_count: int = Field(default=0, description="Number of `<meta property='og:*'>` tags (capped at 50).")
+    sitemap_count: int = Field(default=0, description="Number of Sitemap: entries declared in robots.txt.")
+    h1_count: int = Field(default=0, description="Total `<h1>` tags found.")
+    h2_count: int = Field(default=0, description="Total `<h2>` tags found.")
+    comparison_content: bool = Field(
+        default=False,
+        description="True if the page shows competitor-comparison signals ('vs', 'versus', 'compare', 'alternative').",
+    )
+
+    score: int = Field(description="Composite 0-100 GEO-readiness score across 7 weighted rules.")
+    missing_signals: list[str] = Field(
+        default_factory=list,
+        description="Rule-IDs that did NOT earn full points. Subset of: llms_txt_missing, ai_crawlers_blocked, schema_org_missing, schema_org_sparse, client_side_rendered, og_missing, canonical_missing, sitemap_missing, h1_not_single, no_h2_structure, comparison_content_missing.",
+    )
+
+    cache_respected: bool = Field(
+        default=True,
+        description="True if we wrote the result to our cache. False when the target sent `Cache-Control: no-store`/`private`.",
+    )
+    summary: str = Field(default="", description="One-line human-readable summary.")
+
+
 class CipherInfo(BaseModel):
     model_config = {"extra": "allow"}
 
@@ -1662,7 +1731,7 @@ class ThreatReportResponse(BaseSuccessResponse):
         description="One-line human summary combining threat_level, port count, vuln count, and abuse signal.",
     )
     # Bug I3: passive intel parity with ip_lookup. threat_report (Pro,
-    # 4-credit) used to omit fields that the cheaper ip_lookup (1-credit)
+    # 4-token) used to omit fields that the cheaper ip_lookup (1-token)
     # already returned, so SOC triage callers needed a second hop just to
     # see PTR / asn_name / country / cloud / Tor / FireHOL / risk_score.
     ptr: str | None = Field(default=None, description="Reverse DNS PTR for the IP, or null when unresolvable.")

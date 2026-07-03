@@ -1,7 +1,7 @@
 """MITRE D3FEND API routes — /v1/d3fend/* (defense technique catalog).
 
 Static catalog endpoints sourced from the synced D3FEND mappings JSON. Free tier:
-no API key required, credit-cost = 1.
+no API key required, token-cost = 1.
 
 Route order is significant: `/defenses`, `/attack/{id}`, `/coverage` are registered
 BEFORE the catch-all `/{defense_id}` — otherwise FastAPI would treat 'defenses' or

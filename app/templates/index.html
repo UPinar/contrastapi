@@ -35,21 +35,36 @@
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
-    "@type": "WebAPI",
-    "name": "ContrastAPI",
-    "description": "Security intelligence API for AI models and developers. CVE lookup with EPSS/KEV enrichment, domain reconnaissance, threat intelligence, and code security verification.",
-    "url": "https://api.contrastcyber.com",
-    "documentation": "https://github.com/UPinar/contrastapi/blob/main/docs/ENDPOINTS.md",
-    "provider": {
-      "@type": "Organization",
-      "name": "ContrastCyber",
-      "url": "https://contrastcyber.com"
-    },
-    "termsOfService": "https://contrastcyber.com",
-    "availableChannel": {
-      "@type": "ServiceChannel",
-      "serviceUrl": "https://api.contrastcyber.com/v1/"
-    }
+    "@graph": [
+      {
+        "@type": "WebAPI",
+        "name": "ContrastAPI",
+        "description": "Security intelligence API for AI models and developers. CVE lookup with EPSS/KEV enrichment, domain reconnaissance, threat intelligence, and code security verification.",
+        "url": "https://api.contrastcyber.com",
+        "documentation": "https://github.com/UPinar/contrastapi/blob/main/docs/API_Documentation.md",
+        "provider": {
+          "@type": "Organization",
+          "name": "ContrastCyber",
+          "url": "https://contrastcyber.com"
+        },
+        "termsOfService": "https://contrastcyber.com",
+        "availableChannel": {
+          "@type": "ServiceChannel",
+          "serviceUrl": "https://api.contrastcyber.com/v1/"
+        }
+      },
+      {
+        "@type": "Organization",
+        "name": "ContrastCyber",
+        "url": "https://contrastcyber.com",
+        "description": "Security intelligence for AI agents and developers."
+      },
+      {
+        "@type": "WebSite",
+        "name": "ContrastAPI",
+        "url": "https://api.contrastcyber.com"
+      }
+    ]
   }
   </script>
 </head>
@@ -479,9 +494,9 @@ c.atlas.bulk_technique_lookup(["AML.T0051"])</pre>
     </div>
   </section>
 
-  <!-- Credit Costs -->
+  <!-- Token Costs -->
   <section class="endpoints endpoints-mt">
-    <h2 class="section-title">Credit Costs</h2>
+    <h2 class="section-title">Token Costs</h2>
     <p class="endpoints-lede">
       Transparent pricing — every response includes <code class="code-accent">X-RateLimit-Cost</code> so you can budget calls.
     </p>
@@ -489,7 +504,7 @@ c.atlas.bulk_technique_lookup(["AML.T0051"])</pre>
       <div class="endpoint">
         <span class="method get">1&times;</span>
         <span class="endpoint-path">Most endpoints</span>
-        <span class="endpoint-desc">1 credit per call</span>
+        <span class="endpoint-desc">1 token per call</span>
       </div>
       <div class="endpoint">
         <span class="method post">{{ cost_audit }}&times;</span>
@@ -514,7 +529,7 @@ c.atlas.bulk_technique_lookup(["AML.T0051"])</pre>
       <div class="endpoint">
         <span class="method post">N&times;</span>
         <span class="endpoint-path">Bulk endpoints</span>
-        <span class="endpoint-desc">N credits for N items in the request</span>
+        <span class="endpoint-desc">N tokens for N items in the request
       </div>
     </div>
   </section>

@@ -29,7 +29,7 @@ PUBLIC_IP = "93.184.216.34"
 
 # Faz-2 route tests — module-level client mirrors test_domain.py:18. Keyless
 # requests authenticate as Free tier ("testclient" IP); first-swipe never
-# applies on the REST path (mcp_tool is None), so credit counts are pure.
+# applies on the REST path (mcp_tool is None), so token counts are pure.
 client = TestClient(app)
 
 
@@ -440,7 +440,7 @@ class TestScanRoute:
 
     def test_scan_route_rest_gate_charges_cost_scan(self, monkeypatch):
         """REST single-gate: one keyless GET /v1/scan/{domain} must withdraw exactly
-        COST_SCAN credits from the Free bucket (require_auth cost wiring), and the
+        COST_SCAN tokens from the Free bucket (require_auth cost wiring), and the
         impl must not charge again. Key derivation mirrors
         test_mcp_rate_limit_gate._free_store_key."""
         from unittest.mock import AsyncMock

@@ -28,7 +28,7 @@ def llms_txt(request: Request):
         "llms.txt.j2",
         {
             # free_limit / pro_limit come from Jinja globals (core/templates.py);
-            # only MCP_TOOL_COUNT and the cost_* credit costs need passing here.
+            # only MCP_TOOL_COUNT and the cost_* token costs need passing here.
             "MCP_TOOL_COUNT": MCP_TOOL_COUNT,
             "cost_audit": COST_AUDIT,
             "cost_threat": COST_THREAT_REPORT,
@@ -104,7 +104,7 @@ def mcp_server_card():
             },
             "auth": "none",
             "tools_count": MCP_TOOL_COUNT,
-            "documentation": "https://github.com/UPinar/contrastapi/blob/main/docs/ENDPOINTS.md",
+            "documentation": "https://github.com/UPinar/contrastapi/blob/main/docs/API_Documentation.md",
         },
         headers={"Cache-Control": "public, max-age=600"},
     )

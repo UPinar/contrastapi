@@ -133,7 +133,7 @@ def mcp_debug():
                 },
             ],
             "tools_count": MCP_TOOL_COUNT,
-            "docs": "https://github.com/UPinar/contrastapi/blob/main/docs/ENDPOINTS.md",
+            "docs": "https://github.com/UPinar/contrastapi/blob/main/docs/API_Documentation.md",
             "setup_guide": "https://api.contrastcyber.com/mcp-setup",
         }
     )

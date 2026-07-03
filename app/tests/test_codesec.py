@@ -977,7 +977,7 @@ class TestDependenciesRoute:
             assert len(data["skipped_due_to_rate_limit"]) == 4
 
     def test_deduplicates_repeat_packages(self):
-        """Duplicate (name, version) pairs are collapsed before charging — prevents 10x credit waste on same pkg."""
+        """Duplicate (name, version) pairs are collapsed before charging — prevents 10x token waste on same pkg."""
         from unittest.mock import AsyncMock, patch
 
         with (
@@ -992,7 +992,7 @@ class TestDependenciesRoute:
             assert mock_consume.call_args.args[2] == 1
 
     def test_single_package_skips_consume_bulk(self):
-        """count=1 → authenticate()'s 1 credit is enough, consume_bulk must NOT be called."""
+        """count=1 → authenticate()'s 1 token is enough, consume_bulk must NOT be called."""
         from unittest.mock import AsyncMock, patch
 
         with (

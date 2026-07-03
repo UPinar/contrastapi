@@ -1,4 +1,4 @@
-# ContrastAPI — 54 Security Tools + 7 MCP Resources for AI Agents
+# ContrastAPI — 55 Security Tools + 7 MCP Resources for AI Agents
 
 <p align="center">
   <img src="app/static/banner.png" alt="ContrastAPI Banner" width="100%">
@@ -10,11 +10,16 @@
 [![contrastapi MCP server](https://glama.ai/mcp/servers/UPinar/contrastapi/badges/score.svg)](https://glama.ai/mcp/servers/UPinar/contrastapi)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-**Security intelligence MCP server for AI agents.** CVE/KEV/CWE lookup with EPSS, **composite risk scoring (CVSS+EPSS+KEV+PoC fusion — v1.29.1)**, **CVSS v3.x vector parser (v1.29.1)**, domain audit, IP threat reports, IOC enrichment, code security, **MITRE ATLAS (AI/ML attacks) + D3FEND (defenses)**, **web intelligence (robots.txt, redirect-chain, email validation, brand-assets, SEO audit — v1.25.0)**. **54 tools + 7 Resources (ATLAS+D3FEND+CWE catalog browsing) + 3 Prompts (security audit, vulnerability check, conditional triage), free, no API key, 30 credits/hour.**
+**Security intelligence, built for AI agents.** Give your agent grounded answers about vulnerabilities, threats, and attack surface — backed by authoritative sources (NVD, CISA KEV, FIRST EPSS, MITRE ATLAS & D3FEND), never guesswork. CVE/KEV/CWE lookup with EPSS exploit-probability and composite risk scoring, domain & IP investigation, IOC enrichment, code-security checks, and live web intelligence. **55 tools, 7 Resources, and 3 Prompts — free, no API key, no signup.**
 
 [中文](README_CN.md) · **Live:** [api.contrastcyber.com](https://api.contrastcyber.com)
 
 ---
+
+## Documentation
+
+- **[API Documentation](docs/API_Documentation.md)** — REST reference: 60+ endpoints, authentication, rate limits, token costs, and response envelope.
+- **[MCP Documentation](docs/MCP_Documentation.md)** — MCP tool-selection guide, 7 Resources, 3 Prompts, and copy-paste agent prompts.
 
 ## Setup (MCP)
 
@@ -35,7 +40,7 @@ Restart your agent. Other clients (Python SDK, Node SDK, cURL, VS Code): **[mcp-
 
 ### Claude Desktop — one-click extension
 
-Grab the `.mcpb` file from the **[latest release](https://github.com/UPinar/contrastapi/releases/latest)** and double-click it (or Claude Desktop → **Settings → Extensions → Install Extension…**). No signup, no API key — all 54 tools ready immediately.
+Grab the `.mcpb` file from the **[latest release](https://github.com/UPinar/contrastapi/releases/latest)** and double-click it (or Claude Desktop → **Settings → Extensions → Install Extension…**). No signup, no API key — all 55 tools ready immediately.
 
 ## SDKs
 
@@ -44,30 +49,11 @@ pip install contrastapi      # Python 3.10+ — sync + async, typed responses, s
 npm install contrastapi      # Node 14+ — concrete TypeScript types, 14 namespaces
 ```
 
-Both SDKs cover all 60+ HTTP endpoints / 54 MCP tools (CVE/KEV/CWE, ATLAS, D3FEND, Sigma rules, email security posture, domain, IP, IOC, code-security, web-intel, etc.) with the same wire-exact response shapes and a typed exception hierarchy mirroring the v1.22.2+ error envelope. v1.23.0 adds MCP Resources (ATLAS+D3FEND+CWE catalog browsing — see [docs/resources.md](docs/resources.md)) and a conditional triage Prompt (see [docs/PROMPTS.md#contrast-triage-v1230](docs/PROMPTS.md)). v1.25.0 adds 5 web-intelligence tools (`robots_txt`, `redirect_chain`, `email_verify`, `brand_assets`, `seo_audit`) with explicit ethical-floor guardrails (per-target eTLD+1 throttle, robots.txt respected, no SMTP probing).
-
-## Try it
-
-```bash
-curl 'https://api.contrastcyber.com/v1/cves?product=openssl&kev=true'  # cve_search — CVEs by product, KEV-only filter
-curl https://api.contrastcyber.com/v1/domain/example.com         # domain_report — DNS+WHOIS+SSL+subdomains+intel, one call
-curl https://api.contrastcyber.com/v1/scan/example.com           # contrast_scan — active scan, 11 modules + letter grade + findings
-curl https://api.contrastcyber.com/v1/cve/CVE-2021-44228         # cve_lookup — full record (CVSS+EPSS+KEV+CWE)
-curl https://api.contrastcyber.com/v1/exploit/CVE-2021-44228     # exploit_lookup — public PoC / exploit availability
-curl https://api.contrastcyber.com/v1/ip/1.1.1.1                 # ip_lookup — reputation, geo, ASN, threat intel
-```
-
-Or ask your agent:
-
-- *"Search for KEV-listed OpenSSL CVEs, then pull the full record for the highest-EPSS one."*
-- *"Run a full domain report for example.com — DNS, WHOIS, SSL, subdomains, and threat intel in one call."*
-- *"Scan example.com for security misconfigurations and give me a letter grade with the top findings."*
-- *"Does CVE-2021-44228 have a public exploit or PoC available?"*
-- *"What's the reputation, country, and ASN for 1.1.1.1 — is it flagged in any threat feed?"*
+Both SDKs cover every HTTP endpoint and MCP tool — CVE/KEV/CWE, ATLAS, D3FEND, Sigma rules, email security posture, domain, IP, IOC, code security, and web intelligence — with wire-exact response shapes and a typed exception hierarchy that mirrors the API error envelope. They also expose MCP Resources for browsing the ATLAS, D3FEND, and CWE catalogs (see [docs/MCP_Documentation.md](docs/MCP_Documentation.md#mcp-resources)) and a conditional triage Prompt (see [docs/MCP_Documentation.md#contrast-triage](docs/MCP_Documentation.md#contrast-triage)). Web-intelligence tools — `robots_txt`, `redirect_chain`, `email_verify`, `brand_assets`, `seo_audit`, `geo_audit` — ship with an explicit ethical floor: per-target throttling, robots.txt respected, no SMTP probing.
 
 ## Links
 
-**Endpoints:** [docs/ENDPOINTS.md](docs/ENDPOINTS.md) · **OpenAPI:** [openapi.json](https://api.contrastcyber.com/openapi.json)
+**OpenAPI:** [openapi.json](https://api.contrastcyber.com/openapi.json)
 
 <details>
 <summary>Also available on</summary>
