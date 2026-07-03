@@ -1,0 +1,287 @@
+{
+  "manifest_version": "0.3",
+  "name": "contrastapi",
+  "display_name": "ContrastAPI Security Tools",
+  "version": "1.34.7",
+  "description": "54 keyless security tools: CVE/KEV, threat intel, DNS/SSL, email posture, Sigma, MITRE.",
+  "long_description": "ContrastAPI gives Claude 54 security tools with no signup and no API key: vulnerability intelligence (CVE lookup/search, KEV, exploits, CVSS, CWE), threat intelligence (IOC/hash/IP/domain reputation, phishing, threat reports), infrastructure recon (DNS, WHOIS, SSL, subdomains, tech fingerprinting, security headers), email security posture (SPF/DMARC/MX, disposable detection), MITRE ATT&CK/ATLAS/D3FEND mappings, Sigma detection rules, and website scanning. Free tier works out of the box (keyless, rate-limited per IP); an optional Pro key raises limits. This extension is a thin stdio bridge to the hosted API at api.contrastcyber.com — no data is stored locally.",
+  "author": {
+    "name": "UPinar",
+    "email": "contact@contrastcyber.com",
+    "url": "https://github.com/UPinar"
+  },
+  "homepage": "https://api.contrastcyber.com",
+  "documentation": "https://github.com/UPinar/contrastapi#readme",
+  "support": "https://github.com/UPinar/contrastapi/issues",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/UPinar/contrastapi"
+  },
+  "license": "MIT",
+  "icon": "icon.png",
+  "server": {
+    "type": "node",
+    "entry_point": "server/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": [
+        "${__dirname}/server/index.js"
+      ],
+      "env": {
+        "CONTRASTAPI_API_KEY": "${user_config.api_key}"
+      }
+    }
+  },
+  "user_config": {
+    "api_key": {
+      "type": "string",
+      "title": "Pro API key (optional)",
+      "description": "Optional ContrastAPI Pro key (cc_...) for higher rate limits. Leave empty to use the free keyless tier.",
+      "sensitive": true,
+      "required": false
+    }
+  },
+  "tools": [
+    {
+      "name": "domain_report",
+      "description": "Query DNS, WHOIS, SSL, subdomains, and threat intel for a domain in one call."
+    },
+    {
+      "name": "audit_domain",
+      "description": "Perform comprehensive domain audit: combines domain_report + live HTTP security headers + technology fingerprinting."
+    },
+    {
+      "name": "contrast_scan",
+      "description": "Active website security scan: runs the ContrastScan C engine (11 modules — HTTP security headers, SSL/TLS, DNS, redirect chain, information disclosure, cookie…"
+    },
+    {
+      "name": "tech_stack_cve_audit",
+      "description": "Composite tech-stack + CVE audit (MCP-only, no REST endpoint)."
+    },
+    {
+      "name": "threat_report",
+      "description": "Query comprehensive threat profile for an IP: Shodan host data, AbuseIPDB reputation, ASN/geolocation, and open ports."
+    },
+    {
+      "name": "dns_lookup",
+      "description": "Query all DNS record types (A, AAAA, MX, NS, TXT, CNAME, SOA) for a domain."
+    },
+    {
+      "name": "whois_lookup",
+      "description": "Retrieve WHOIS registration data: registrar, creation/expiry dates, nameservers, status."
+    },
+    {
+      "name": "ssl_check",
+      "description": "Analyze SSL/TLS certificate: grade (A/B/C/D/F), protocol version, cipher suite, chain, expiry, Subject Alternative Names, and structured validation findings."
+    },
+    {
+      "name": "subdomain_enum",
+      "description": "Discover subdomains using passive methods: Certificate Transparency logs + DNS brute-force (no active probing)."
+    },
+    {
+      "name": "tech_fingerprint",
+      "description": "Detect website technology stack: CMS, frameworks, CDN, analytics tools, web servers, languages (via HTTP headers + HTML analysis)."
+    },
+    {
+      "name": "threat_intel",
+      "description": "Check domain against abuse.ch URLhaus for known malware-distribution URLs (single source — for multi-feed correlation use ioc_lookup which adds ThreatFox and,…"
+    },
+    {
+      "name": "wayback_lookup",
+      "description": "Retrieve Wayback Machine snapshots for a domain: first capture, latest, total count, snapshot list."
+    },
+    {
+      "name": "scan_headers",
+      "description": "Perform live HTTP GET and analyze security headers: CSP, HSTS, X-Frame-Options, X-Content-Type-Options, Permissions-Policy, Referrer-Policy."
+    },
+    {
+      "name": "email_mx",
+      "description": "Analyze email security: MX records, SPF policy, DMARC policy, DKIM probe across common+date-based selectors, mail provider, grade."
+    },
+    {
+      "name": "email_security_posture",
+      "description": "Analyze domain email authentication posture: SPF, DMARC, DKIM with numeric score and findings."
+    },
+    {
+      "name": "email_disposable",
+      "description": "Check if email address uses a known disposable/temporary provider (Guerrilla Mail, Temp Mail, Mailinator, etc.)."
+    },
+    {
+      "name": "email_verify",
+      "description": "One-call email validation combining syntax + MX records + disposable check + role-address detection (admin@/info@/...) + free-provider classification…"
+    },
+    {
+      "name": "robots_txt",
+      "description": "Fetch + parse the target domain's robots.txt — sitemaps, per-User-agent allow/disallow rules, crawl-delay, Host directive."
+    },
+    {
+      "name": "redirect_chain",
+      "description": "Walk an HTTP redirect chain hop-by-hop, returning per-hop {url, status_code, location, latency_ms}."
+    },
+    {
+      "name": "brand_assets",
+      "description": "Scrape a domain's homepage `<head>` for public brand assets — favicon, og:image, theme-color, og:site_name, JSON-LD `Organization.logo`."
+    },
+    {
+      "name": "seo_audit",
+      "description": "One-shot SEO audit of a domain's homepage with a 0-100 composite score + a `missing_signals` list of concrete fixes."
+    },
+    {
+      "name": "phone_lookup",
+      "description": "Validate and analyze phone number: country, region, carrier, line type (mobile/landline/VoIP), timezone, formatted versions."
+    },
+    {
+      "name": "ip_lookup",
+      "description": "Query comprehensive IP intelligence: reverse DNS, ASN + holder name + country inline (RIPE Stat, Phase 1), open ports, hostnames, vulnerabilities (Shodan…"
+    },
+    {
+      "name": "asn_lookup",
+      "description": "Look up Autonomous System Number (ASN) for a domain or IP: AS number, organization, IPv4/IPv6 prefixes."
+    },
+    {
+      "name": "cve_lookup",
+      "description": "Retrieve detailed CVE data by ID: description, CVSS v3.1 + vector, CVSS v2 (always emitted), EPSS score + percentile, CISA KEV status (expanded: due_date,…"
+    },
+    {
+      "name": "calculate_risk_score",
+      "description": "Composite CVE risk score (0-100) — fuses CVSS, EPSS, KEV, and PoC into a single agent-ready triage signal."
+    },
+    {
+      "name": "get_cvss_details",
+      "description": "Parse a CVSS v3.x vector string into a per-metric breakdown plus a recomputed base score."
+    },
+    {
+      "name": "cve_search",
+      "description": "Search CVE database with filters: product/vendor, severity, published date range, EPSS score, CWE, CVSS range, CISA KEV status."
+    },
+    {
+      "name": "cve_leading",
+      "description": "List CVEs indexed from MITRE/GHSA BEFORE NVD publication (early-warning, freshest data)."
+    },
+    {
+      "name": "exploit_lookup",
+      "description": "Search public exploits/PoC for a specific CVE across three sources: (1) GitHub Advisory Database (sources.github.advisories[]), (2) Shodan CVEDB references…"
+    },
+    {
+      "name": "bulk_cve_lookup",
+      "description": "Batch query multiple CVEs (up to 50 per call, same for Free and Pro): retrieve full CVE details for all in 1 request instead of N."
+    },
+    {
+      "name": "kev_detail",
+      "description": "Look up CISA KEV (Known Exploited Vulnerabilities) full record for a CVE."
+    },
+    {
+      "name": "cwe_lookup",
+      "description": "Look up MITRE CWE (Common Weakness Enumeration) catalog record from research view 1000."
+    },
+    {
+      "name": "atlas_technique_lookup",
+      "description": "Look up a MITRE ATLAS technique — the AI/ML adversarial attack catalog."
+    },
+    {
+      "name": "bulk_atlas_technique_lookup",
+      "description": "Bulk ATLAS technique lookup — retrieve full records for up to 50 techniques in a single request instead of N separate atlas_technique_lookup calls."
+    },
+    {
+      "name": "atlas_technique_search",
+      "description": "Search the MITRE ATLAS catalog of AI/ML attack techniques by keyword, tactic, or maturity."
+    },
+    {
+      "name": "atlas_case_study_lookup",
+      "description": "Look up a MITRE ATLAS case study — a documented real-world AI/ML attack incident."
+    },
+    {
+      "name": "atlas_case_study_search",
+      "description": "Search ATLAS case studies (real-world AI/ML attack incidents) by keyword or referenced technique."
+    },
+    {
+      "name": "d3fend_defense_lookup",
+      "description": "Look up a MITRE D3FEND defense technique."
+    },
+    {
+      "name": "d3fend_defense_search",
+      "description": "Search the MITRE D3FEND catalog of defensive techniques by keyword, tactic, or targeted artifact."
+    },
+    {
+      "name": "d3fend_defense_for_attack",
+      "description": "Reverse lookup: given an ATT&CK T-code, return D3FEND defenses that mitigate it."
+    },
+    {
+      "name": "d3fend_attack_coverage",
+      "description": "Batch coverage breakdown: given a list of ATT&CK T-codes, return distinct defense counts per D3FEND tactic + identify which techniques have NO D3FEND mapping…"
+    },
+    {
+      "name": "sigma_rule_lookup",
+      "description": "Look up a single Sigma detection rule by UUID from the SigmaHQ corpus (~3,200 rules, refreshed daily at 02:00 UTC)."
+    },
+    {
+      "name": "bulk_sigma_rule_lookup",
+      "description": "Bulk Sigma rule lookup — retrieve full records for up to 50 rule UUIDs in a single request instead of N separate sigma_rule_lookup calls."
+    },
+    {
+      "name": "ioc_lookup",
+      "description": "Enrich Indicator of Compromise (IP/domain/URL/hash) by auto-detecting type and querying abuse.ch feeds."
+    },
+    {
+      "name": "hash_lookup",
+      "description": "Query MalwareBazaar for file hash (MD5/SHA1/SHA256): malware family, file type, size, tags, first/last seen, download count."
+    },
+    {
+      "name": "password_check",
+      "description": "Check if SHA-1 hash appears in Have I Been Pwned (HIBP) breach dataset using k-anonymity (5-char prefix only, full hash never leaves tool)."
+    },
+    {
+      "name": "phishing_check",
+      "description": "Query URLhaus for a specific URL and its host."
+    },
+    {
+      "name": "bulk_ioc_lookup",
+      "description": "Batch query multiple IOCs (IP/domain/URL/hash, up to 50 per call, same for Free and Pro) in 1 request: auto-detects type + queries abuse.ch feeds per-indicator."
+    },
+    {
+      "name": "check_secrets",
+      "description": "Scan source code (or snippet) for hardcoded secrets — cloud provider keys, API tokens, connection strings, private keys, passwords."
+    },
+    {
+      "name": "check_injection",
+      "description": "Scan source code for injection vulnerabilities: SQL injection, command injection, path traversal via unsafe string concatenation/unsanitized input."
+    },
+    {
+      "name": "check_dependencies",
+      "description": "Audit project dependencies (npm/PyPI/Maven/RubyGems/etc.) against CVE database: find known vulnerabilities in your package list."
+    },
+    {
+      "name": "username_lookup",
+      "description": "Search for username across 15+ social/dev platforms (GitHub, Reddit, X/Twitter, LinkedIn, Instagram, TikTok, Discord, YouTube, Keybase, HackerOne, etc.)."
+    },
+    {
+      "name": "check_headers",
+      "description": "Validate HTTP security headers you provide (JSON): CSP, HSTS, X-Frame-Options, X-Content-Type-Options, Permissions-Policy, Referrer-Policy against best…"
+    }
+  ],
+  "keywords": [
+    "security",
+    "cve",
+    "kev",
+    "threat-intel",
+    "dns",
+    "ssl",
+    "mitre",
+    "sigma",
+    "osint",
+    "vulnerability"
+  ],
+  "privacy_policies": [
+    "https://api.contrastcyber.com/privacy"
+  ],
+  "compatibility": {
+    "platforms": [
+      "darwin",
+      "win32",
+      "linux"
+    ],
+    "runtimes": {
+      "node": ">=18.0.0"
+    }
+  }
+}

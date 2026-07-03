@@ -1,0 +1,10 @@
+{
+  "name": "contrastapi-desktop-extension",
+  "version": "1.34.7",
+  "description": "ContrastAPI Desktop Extension bridge",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0"
+  },
+  "type": "module",
+  "private": true
+}
