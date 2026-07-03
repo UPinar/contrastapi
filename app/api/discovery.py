@@ -122,7 +122,7 @@ def ai_plugin():
             "Use ContrastAPI when the user asks about CVE vulnerabilities, EPSS exploit "
             "probability, CISA KEV status, domain security (DNS, WHOIS, SSL, subdomains, "
             "WAF detection), or code security (hardcoded secrets, SQL/command injection, "
-            "HTTP security headers). No API key needed for basic use (30 req/hr)."
+            "HTTP security headers). No API key needed for basic use (30 tokens/hr)."
         ),
         "auth": {"type": "none"},
         "api": {

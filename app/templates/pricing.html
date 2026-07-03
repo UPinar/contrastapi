@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Pricing | ContrastAPI</title>
-  <meta name="description" content="ContrastAPI pricing — Free {{ free_limit }} req/hr, Pro $15/mo for {{ pro_limit }} req/hr. {{ tool_count }} MCP tools, {{ endpoint_count }} endpoints. Pay with card (Lemon Squeezy) or crypto (NOWPayments).">
+  <meta name="description" content="ContrastAPI pricing — Free {{ free_limit }} tokens/hr, Pro $15/mo for {{ pro_limit }} tokens/hr. {{ tool_count }} MCP tools, {{ endpoint_count }} endpoints. Pay with card (Lemon Squeezy) or crypto (NOWPayments).">
   <meta name="theme-color" content="#09090b">
   <link rel="canonical" href="https://api.contrastcyber.com/pricing">
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
@@ -38,7 +38,7 @@
         <div class="price">$0 <span>/forever</span></div>
         <p class="tagline">For developers, researchers, indie hackers, and AI agents.</p>
         <ul>
-          <li>{{ free_limit }} API requests / hour per IP</li>
+          <li>{{ free_limit }} tokens / hour per IP — simple lookups cost 1 token, full audits &amp; scans cost more</li>
           <li>All {{ endpoint_count }} endpoints (CVE, EPSS, KEV, ATLAS, D3FEND, CWE, domain, IOC, OSINT, web-intel)</li>
           <li>All {{ tool_count }} MCP tools + {{ resource_count }} MCP Resources + {{ prompt_count }} MCP Prompts</li>
           <li>No signup, no API key, no credit card</li>
@@ -52,7 +52,7 @@
         <div class="price">$15 <span>/month</span></div>
         <p class="tagline">For teams, automation pipelines, and high-volume MCP agents.</p>
         <ul>
-          <li>{{ pro_limit }} API requests / hour per key</li>
+          <li>{{ pro_limit }} tokens / hour per key</li>
           <li>Enrichment fields enabled (Shodan, AbuseIPDB, full IP intel) &mdash; subject to upstream provider availability and shared-key daily caps; we expand quotas as the customer base grows</li>
           <li>API key authentication (X-API-Key header or Bearer token)</li>
           <li>30-day key validity (crypto) or recurring monthly (card)</li>
@@ -67,7 +67,7 @@
       <h2>FAQ</h2>
       <dl>
         <dt>Is the Free tier really free?</dt>
-        <dd>Yes. No credit card, no signup, no trial period. {{ free_limit }} requests/hour per IP, forever. Every endpoint and every MCP tool is available — Pro just raises the rate limit and unlocks Pro-only enrichment fields (Shodan, AbuseIPDB).</dd>
+        <dd>Yes. No credit card, no signup, no trial period. {{ free_limit }} tokens/hour per IP, forever. Every endpoint and every MCP tool is available — Pro just raises the rate limit and unlocks Pro-only enrichment fields (Shodan, AbuseIPDB).</dd>
 
         <dt>What's actually behind the API?</dt>
         <dd>{{ endpoint_count }} REST endpoints covering CVE/EPSS/KEV lookup, composite risk scoring (CVSS+EPSS+KEV+PoC fusion), CVSS v3.x vector parsing, MITRE CWE / ATLAS / D3FEND catalog browsing, domain reconnaissance (DNS, WHOIS, SSL, subdomains, CT logs), IOC and threat intelligence (URLhaus, AbuseIPDB, Shodan, FireHOL, Tor exit list), code security analysis (secrets, injection, headers), and web intelligence (robots.txt parsing, redirect-chain walking, email validation, brand asset scraping, SEO audit). All exposed as {{ tool_count }} MCP tools for AI agents (Claude, Cursor, Copilot, etc.).</dd>

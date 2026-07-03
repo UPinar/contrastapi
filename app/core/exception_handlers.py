@@ -58,7 +58,7 @@ def _upgrade_cta() -> dict:
     return {
         "pro_limit": PRO_HOURLY_LIMIT,
         "url": UPGRADE_URL,
-        "message": f"Designed for automation — unlock {PRO_HOURLY_LIMIT} req/hr with Pro ($15/mo).",
+        "message": f"Designed for automation — unlock {PRO_HOURLY_LIMIT} tokens/hr with Pro ($15/mo).",
     }
 
 

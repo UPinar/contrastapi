@@ -81,7 +81,7 @@ print(r.json()['findings'])</code></div>
     if [ "$GRADE" = "F" ]; then echo "Security grade F!" && exit 1; fi</code></div>
 
     <h2><span class="num">5</span> With a Pro API Key <span class="section-optional">(optional)</span></h2>
-    <p>Free tier is {{ free_limit }} req/hr. Add an <code>Authorization: Bearer cc_...</code> header to unlock {{ pro_limit }} req/hr
+    <p>Free tier is {{ free_limit }} tokens/hr. Add an <code>Authorization: Bearer cc_...</code> header to unlock {{ pro_limit }} tokens/hr
     and full <strong>AbuseIPDB + Shodan</strong> reputation enrichment on <code>/v1/domain/</code>,
     <code>/v1/ip/</code>, and <code>/v1/threat-report/</code>.</p>
 
@@ -111,9 +111,6 @@ print(r.json()['reputation']['shodan']['ports'])</code></div>
   run: |
     curl -H "Authorization: Bearer $CONTRASTAPI_API_KEY" \
       https://api.contrastcyber.com/v1/threat-report/$TARGET_IP{% endraw %}</code></div>
-
-    <p>Get a Pro key ($15/mo): <a href="/pricing">api.contrastcyber.com/pricing</a>
-    &mdash; or email <a href="#" data-copy-email="contact@contrastcyber.com">contact@contrastcyber.com</a>.</p>
 
   </div>
 

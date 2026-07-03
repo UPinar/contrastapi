@@ -43,9 +43,9 @@
 
     <h2>4. Free &amp; Pro Plans</h2>
     <h3>4.1 Free Tier</h3>
-    <p>No API key, no signup. Rate limited to <strong>{{ free_limit }} requests per hour per IP address</strong>. Available for personal and commercial use. Some Pro-only enrichment fields (Shodan, AbuseIPDB) are omitted from responses.</p>
+    <p>No API key, no signup. Rate limited to <strong>{{ free_limit }} tokens per hour per IP address</strong>. Available for personal and commercial use. Some Pro-only enrichment fields (Shodan, AbuseIPDB) are omitted from responses.</p>
     <h3>4.2 Pro Plan</h3>
-    <p>Pro keys provide <strong>{{ pro_limit }} requests per hour per key</strong> and enable enrichment fields (Shodan, AbuseIPDB, full IP intel) where available. Enrichment is provided through shared upstream API keys subject to daily provider caps; quotas are expanded as the customer base grows. Subscriptions are billed at the current rate via our payment processors:</p>
+    <p>Pro keys provide <strong>{{ pro_limit }} tokens per hour per key</strong> and enable enrichment fields (Shodan, AbuseIPDB, full IP intel) where available. Enrichment is provided through shared upstream API keys subject to daily provider caps; quotas are expanded as the customer base grows. Subscriptions are billed at the current rate via our payment processors:</p>
     <ul>
       <li><strong>Card payments</strong> via Lemon Squeezy (recurring monthly billing until cancelled)</li>
       <li><strong>Crypto payments</strong> via NOWPayments (one-time invoices for 30-day key validity; renew by paying again)</li>
@@ -53,7 +53,7 @@
     <p>By subscribing you agree to keep your API key confidential — you are responsible for all usage under your key — and not to share or resell it. We may revoke API keys that violate these terms without refund. Pricing and rate limits may be adjusted with 30 days notice to existing subscribers.</p>
 
     <h2>5. Rate Limits &amp; Throttles</h2>
-    <p>Free: {{ free_limit }} requests/hour per IP. Pro: {{ pro_limit }} requests/hour per key. In addition to per-caller limits, the Service enforces a per-target throttle (60 requests per minute per registrable domain) on web-intelligence endpoints to protect third-party origins. Pro subscribers will receive 30 days notice before structural rate limit changes.</p>
+    <p>Free: {{ free_limit }} tokens/hour per IP. Pro: {{ pro_limit }} tokens/hour per key. In addition to per-caller limits, the Service enforces a per-target throttle (60 requests per minute per registrable domain) on web-intelligence endpoints to protect third-party origins. Pro subscribers will receive 30 days notice before structural rate limit changes.</p>
 
     <h2>6. Abusive Usage</h2>
     <p>We reserve the right to block, throttle, or ban any IP address, ASN, API key, or user engaging in abusive usage, including but not limited to: automated scraping beyond rate limits, credential stuffing, distributed key-cycling, request-per-minute spikes targeting third-party origins, or any activity that degrades the Service for other users. Bans are enforced at the nginx layer and may apply to a single IP, an IP range, or a CIDR.</p>

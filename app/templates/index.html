@@ -77,23 +77,13 @@
     <div class="pill">{{ tool_count }} TOOLS · {{ resource_count }} RESOURCES · {{ endpoint_count }} ENDPOINTS · MCP SERVER</div>
     <h1>{{ tool_count }} security tools,<br><span class="gradient">one JSON config.</span></h1>
     <p class="subtitle">CVE + EPSS + KEV lookup, domain recon, IP threat reports, IOC enrichment, MITRE ATLAS (AI/ML attacks), D3FEND defenses, and code security. Structured JSON with LLM-optimized summaries. Works with Claude Desktop, Cursor, VS Code, and any MCP client.</p>
-    <div class="cta-group">
-      <a href="#setup" class="btn-cta">Install in 30 seconds →</a>
-    </div>
-    <div class="hero-curl-wrap">
-      <pre class="hero-curl"><span class="prompt">$ </span><code>curl https://api.contrastcyber.com/v1/audit/example.com</code></pre>
-      <button type="button" class="copy-btn" aria-label="Copy command">
-        <svg class="icon-copy" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-        <svg class="icon-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
-      </button>
-    </div>
   </section>
 
   <!-- Trust Strip -->
   <section class="trust-strip" aria-label="Trust signals">
     <div class="trust-strip-inner">
       <span><strong>{{ tool_count }}</strong> tools · <strong>{{ resource_count }}</strong> resources · <strong>{{ endpoint_count }}</strong> endpoints</span>
-      <span><a href="https://pypi.org/project/contrastapi/" target="_blank" rel="noopener">PyPI</a> · <a href="https://www.npmjs.com/package/contrastapi" target="_blank" rel="noopener">npm</a> · <a href="https://marketplace.visualstudio.com/items?itemName=ContrastAPI.contrastapi" target="_blank" rel="noopener">VS Code</a></span>
+      <span><a href="https://pypi.org/project/contrastapi/" target="_blank" rel="noopener">PyPI</a> · <a href="https://www.npmjs.com/package/contrastapi" target="_blank" rel="noopener">npm</a> · <a href="https://marketplace.visualstudio.com/items?itemName=ContrastAPI.contrastapi" target="_blank" rel="noopener">VS Code</a> · <a href="/mcp-setup">Claude Desktop</a></span>
       <span>MIT licensed</span>
     </div>
   </section>
@@ -132,6 +122,11 @@
         <span class="method get">GET</span>
         <span class="endpoint-path">/v1/seo/{domain}</span>
         <span class="endpoint-desc">One-page SEO audit + 0-100 composite score (10 rules) + concrete missing_signals</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/v1/geo/{domain}</span>
+        <span class="endpoint-desc">GEO / AI-visibility readiness audit + 0-100 score (7 rules: llms.txt, AI-crawler access, schema.org, SSR-vs-SPA) + missing_signals — no LLM queried</span>
       </div>
     </div>
 
