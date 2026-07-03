@@ -17,6 +17,7 @@ import importlib.util
 import json as _json
 import logging
 import re as _re
+import time
 from datetime import UTC, datetime
 from typing import Any
 
@@ -34,6 +35,8 @@ from config import (
     VERSION,
     settings,
 )
+from core.channel import classify_channel
+from db import hash_client_ip
 from fastapi import FastAPI, HTTPException
 from starlette.requests import Request as _MCPStarletteRequest
 
@@ -313,6 +316,38 @@ _TOOL_PARAM_VALUE_MAX_LEN = 64
 # key-allowlist and land on disk).
 _METADATA_VALUE_SHAPE = _re.compile(r"^[A-Za-z0-9._\-:,]+$")
 
+# --- Channel attribution (regulars charts) ---
+# initialize is the ONLY message carrying clientInfo (stateless_http →
+# unrecoverable downstream), so the middleware sniffs it and remembers the
+# coarse label per hashed identity until the tools/call that logs usage.
+# Bounded + TTL'd, in-memory only; raw names never stored.
+_CHANNEL_TTL_SECONDS = 86400.0
+_CHANNEL_CAP = 4096
+_client_channel: "dict[str, tuple[str, float]]" = {}
+
+
+def _remember_channel(ip_hash: str, label: str) -> None:
+    now = time.time()
+    if len(_client_channel) >= _CHANNEL_CAP:
+        expired = [k for k, (_, ts) in _client_channel.items() if now - ts > _CHANNEL_TTL_SECONDS]
+        for k in expired:
+            _client_channel.pop(k, None)
+        while len(_client_channel) >= _CHANNEL_CAP:
+            # dicts iterate in insertion order → drops the oldest entry (FIFO).
+            _client_channel.pop(next(iter(_client_channel)), None)
+    _client_channel[ip_hash] = (label, now)
+
+
+def _recall_channel(ip_hash: str) -> "str | None":
+    entry = _client_channel.get(ip_hash)
+    if entry is None:
+        return None
+    label, ts = entry
+    if time.time() - ts > _CHANNEL_TTL_SECONDS:
+        _client_channel.pop(ip_hash, None)
+        return None
+    return label
+
 
 def _sanitize_tool_params(args: object) -> dict:
     """Filter MCP tool arguments to the allowlist + shape-check values.
@@ -390,10 +425,11 @@ def _log_mcp_tool(
     duration_ms: "int | None" = None,
     tier: "str | None" = None,
     key_hash: "str | None" = None,
+    client: "str | None" = None,
 ) -> None:
     """Append one JSON line to the tool usage log. Silent on any error.
 
-    Shape: `{ts, tool, duration_ms?, status?, tier?, key_hash?, params?}` where
+    Shape: `{ts, tool, duration_ms?, status?, tier?, key_hash?, client?, params?}` where
     ts is ISO 8601 with millisecond precision and params is the metadata-only
     subset (filter / pagination / sort keys; see `_ALLOWED_TOOL_PARAM_KEYS`).
     `duration_ms` is wall-clock dispatch->completion; `status` is coarse ("ok" |
@@ -417,6 +453,8 @@ def _log_mcp_tool(
             record["tier"] = tier
         if key_hash is not None:
             record["key_hash"] = key_hash
+        if client is not None:
+            record["client"] = client
         if params:
             record["params"] = params
         line = _json.dumps(record, separators=(",", ":")) + "\n"
@@ -445,6 +483,7 @@ class _MCPIPForwardMiddleware:
             _auth_resolved = None
             _tool_log = None
             _tool_t0 = None
+            _tool_client = None
             raw_headers = scope.get("headers", [])
             headers_map = dict(raw_headers)
             # Priority: CF-Connecting-IP (Cloudflare) > X-Real-IP (nginx) > XFF
@@ -594,6 +633,17 @@ class _MCPIPForwardMiddleware:
                     await send({"type": "http.response.body", "body": _batch_err})
                     return
                 _method = _rpc.get("method") if isinstance(_rpc, dict) else None
+                # Channel attribution: sniff clientInfo.name off the already-
+                # parsed initialize body and remember its coarse label.
+                if _method == "initialize":
+                    try:
+                        _ci = _rpc.get("params", {}).get("clientInfo", {})
+                        _ci_name = _ci.get("name") if isinstance(_ci, dict) else None
+                    except AttributeError:
+                        _ci_name = None
+                    if isinstance(_ci_name, str) and _ci_name:
+                        _ua_hdr = (headers_map.get(b"user-agent") or b"").decode("latin-1")
+                        _remember_channel(hash_client_ip(ip), classify_channel(_ci_name, _ua_hdr or None))
                 # Lazy-rebuild: a tools/list with an id but a None cache
                 # (startup build failed / test cleared) would otherwise fall
                 # to the fat FastMCP slow path. Rebuild the slim cache once so
@@ -700,6 +750,14 @@ class _MCPIPForwardMiddleware:
                         )
                 if _method == "tools/call":
                     _gate_req = _MCPStarletteRequest(scope)
+                    # Channel attribution: prefer the initialize-sniffed label,
+                    # else classify the UA. Read by auth._request_channel via
+                    # request.state on the log_usage path.
+                    _ua_hdr = (headers_map.get(b"user-agent") or b"").decode("latin-1")
+                    _gate_req.state.channel = _recall_channel(hash_client_ip(ip)) or classify_channel(
+                        None, _ua_hdr or None
+                    )
+                    _tool_client = _gate_req.state.channel
                     # Cost lookup with input validation mirroring _extract_tool_call
                     # (line 185): bound length and alphanumeric+underscore only. An
                     # oversized or whitespace/control-laden name from a crafted body
@@ -758,6 +816,7 @@ class _MCPIPForwardMiddleware:
                                     status="rate_limited",
                                     tier=_auth_mcp.tier if _auth_mcp else None,
                                     key_hash=_auth_mcp.key_hash if _auth_mcp else None,
+                                    client=_tool_client,
                                 )
                             _retry_after = (
                                 _auth_mcp.ratelimit_reset if _auth_mcp and _auth_mcp.ratelimit_reset > 0 else 60
@@ -813,6 +872,7 @@ class _MCPIPForwardMiddleware:
                         duration_ms=_dur_ms,
                         tier=_auth_resolved.tier if _auth_resolved else None,
                         key_hash=_auth_resolved.key_hash if _auth_resolved else None,
+                        client=_tool_client,
                     )
                 self._client_ip_var.reset(token)
                 if _tier_token is not None:

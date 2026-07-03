@@ -162,9 +162,22 @@ def init_api_db():
                 key_hash TEXT,
                 client_ip TEXT NOT NULL,
                 endpoint TEXT NOT NULL,
-                called_at TEXT NOT NULL
+                called_at TEXT NOT NULL,
+                channel TEXT
             )
         """)
+        # Migration: add channel for runtime attribution (regulars charts).
+        # workers=2 x blue/green start concurrently and PRAGMA→ALTER is not
+        # atomic — the losing racer tolerates "duplicate column name" ONLY;
+        # anything else (e.g. "database is locked") must surface, or the
+        # column stays missing and every log_usage INSERT 500s the auth path.
+        usage_cols = {r[1] for r in con.execute("PRAGMA table_info(api_usage)").fetchall()}
+        if "channel" not in usage_cols:
+            try:
+                con.execute("ALTER TABLE api_usage ADD COLUMN channel TEXT")
+            except sqlite3.OperationalError as e:
+                if "duplicate column" not in str(e):
+                    raise
         con.execute("CREATE INDEX IF NOT EXISTS idx_usage_ip ON api_usage(client_ip, called_at)")
         con.execute("CREATE INDEX IF NOT EXISTS idx_usage_key ON api_usage(key_hash, called_at)")
         con.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_keys_order ON api_keys(order_id) WHERE order_id IS NOT NULL")
@@ -632,19 +645,19 @@ def normalize_endpoint(endpoint: str) -> str:
     return ep
 
 
-def log_usage(client_ip: str, endpoint: str, key_hash: str | None = None) -> None:
+def log_usage(client_ip: str, endpoint: str, key_hash: str | None = None, channel: str | None = None) -> None:
     now = datetime.now(UTC).isoformat()
     ip_hash = hash_client_ip(client_ip)
     endpoint = normalize_endpoint(endpoint)
     with get_api_db() as con:
         con.execute(
-            "INSERT INTO api_usage (key_hash, client_ip, endpoint, called_at) VALUES (?, ?, ?, ?)",
-            (key_hash, ip_hash, endpoint, now),
+            "INSERT INTO api_usage (key_hash, client_ip, endpoint, called_at, channel) VALUES (?, ?, ?, ?, ?)",
+            (key_hash, ip_hash, endpoint, now, channel),
         )
 
 
-async def alog_usage(client_ip: str, endpoint: str, key_hash: str | None = None) -> None:
-    await run_in_threadpool(log_usage, client_ip, endpoint, key_hash)
+async def alog_usage(client_ip: str, endpoint: str, key_hash: str | None = None, channel: str | None = None) -> None:
+    await run_in_threadpool(log_usage, client_ip, endpoint, key_hash, channel)
 
 
 def get_total_requests() -> int:

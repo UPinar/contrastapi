@@ -41,6 +41,7 @@ from config import (
     PRO_HOURLY_LIMIT,
     UPGRADE_URL,
 )
+from core.channel import classify_channel
 from db import (
     aget_api_key,
     alog_usage,
@@ -185,6 +186,18 @@ def _stash(request: Request, ctx: AuthCtx) -> None:
     request.state.auth = ctx
 
 
+def _request_channel(request: Request) -> str:
+    """Channel label for the usage row. The MCP gate stashes the
+    initialize-sniffed label on request.state.channel; REST paths (and any
+    gate miss) classify the User-Agent directly. isinstance guards keep
+    mock-shaped requests (test fixtures) from leaking non-str into sqlite."""
+    ch = getattr(request.state, "channel", None)
+    if isinstance(ch, str):
+        return ch
+    ua = request.headers.get("user-agent")
+    return classify_channel(None, ua if isinstance(ua, str) else None)
+
+
 def authenticate_sync(request: Request, endpoint: str, cost: int = 1, mcp_tool: str | None = None) -> AuthCtx:
     """Authenticate request synchronously. Returns AuthCtx.
 
@@ -276,7 +289,7 @@ def authenticate_sync(request: Request, endpoint: str, cost: int = 1, mcp_tool: 
 
         touch_api_key(kh)
         if not localhost and not _privacy_opt_out(request):
-            log_usage(client_ip, endpoint, key_hash=kh)
+            log_usage(client_ip, endpoint, key_hash=kh, channel=_request_channel(request))
 
         ctx = AuthCtx(
             tier="pro",
@@ -345,7 +358,7 @@ def authenticate_sync(request: Request, endpoint: str, cost: int = 1, mcp_tool: 
         reset_at = 0
 
     if not localhost and not _privacy_opt_out(request):
-        log_usage(client_ip, endpoint)
+        log_usage(client_ip, endpoint, channel=_request_channel(request))
 
     ctx = AuthCtx(
         tier="free",
@@ -450,7 +463,7 @@ async def aauthenticate(request: Request, endpoint: str, cost: int = 1) -> AuthC
 
         await atouch_api_key(kh)
         if not localhost and not _privacy_opt_out(request):
-            await alog_usage(client_ip, endpoint, key_hash=kh)
+            await alog_usage(client_ip, endpoint, key_hash=kh, channel=_request_channel(request))
 
         ctx = AuthCtx(
             tier="pro",
@@ -490,7 +503,7 @@ async def aauthenticate(request: Request, endpoint: str, cost: int = 1) -> AuthC
         reset_at = 0
 
     if not localhost and not _privacy_opt_out(request):
-        await alog_usage(client_ip, endpoint)
+        await alog_usage(client_ip, endpoint, channel=_request_channel(request))
 
     ctx = AuthCtx(
         tier="free",

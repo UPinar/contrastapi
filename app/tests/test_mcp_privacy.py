@@ -165,6 +165,22 @@ def test_log_record_contains_no_pii(tmp_path, monkeypatch):
     assert record.get("params") == {"limit": 10}
 
 
+def test_log_record_client_channel(tmp_path, monkeypatch):
+    """`client` field carries the coarse channel enum label; omitted when None
+    so older log readers stay field-additive-safe. Never a raw UA/clientInfo."""
+    from core import mcp_proxy
+
+    log_path = tmp_path / "mcp_tools.jsonl"
+    monkeypatch.setattr(mcp_proxy, "_MCP_TOOL_LOG", str(log_path))
+
+    mcp_proxy._log_mcp_tool("cve_lookup", client="cursor")
+    mcp_proxy._log_mcp_tool("cve_lookup")
+
+    lines = [_json.loads(ln) for ln in log_path.read_text().splitlines()]
+    assert lines[0]["client"] == "cursor"
+    assert "client" not in lines[1]
+
+
 def test_pii_value_substring_scan_in_log_line(tmp_path, monkeypatch):
     """Defense in depth: even if a PII key gets re-added later, the value
     substring scan catches the leak. Pins the contract that no recognizable

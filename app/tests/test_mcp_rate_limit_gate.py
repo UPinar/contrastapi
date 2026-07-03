@@ -1184,3 +1184,45 @@ def test_headers_emit_internal_trust():
         mcp_server._user_tier_var.reset(tok)
     assert h["X-Internal-Auth"] == auth.INTERNAL_TRUST_TOKEN
     assert h["X-Internal-Tier"] == "pro"
+
+
+def test_mcp_initialize_clientinfo_sets_channel(mcp_client):
+    """initialize clientInfo.name is remembered per hashed identity and
+    attributed to the next tools/call usage row (api_usage.channel)."""
+    from core import mcp_proxy
+    from db import get_api_db
+
+    _reset_free_bucket()
+    mcp_proxy._client_channel.clear()
+
+    init = {
+        **INIT_PAYLOAD,
+        "params": {**INIT_PAYLOAD["params"], "clientInfo": {"name": "cursor", "version": "1.0"}},
+    }
+    r = mcp_client.post("/mcp/", headers=MCP_HEADERS, json=init)
+    assert r.status_code == 200
+    r = mcp_client.post("/mcp/", headers=MCP_HEADERS, json=TOOL_CALL_PAYLOAD)
+    assert r.status_code == 200
+
+    with get_api_db() as con:
+        row = con.execute("SELECT channel FROM api_usage WHERE endpoint = '/mcp' ORDER BY id DESC LIMIT 1").fetchone()
+    assert row is not None
+    assert row[0] == "cursor"
+
+
+def test_mcp_tools_call_channel_ua_fallback(mcp_client):
+    """Empty TTL map → tools/call classifies the User-Agent instead. The
+    Starlette TestClient UA matches no known runtime → 'other'."""
+    from core import mcp_proxy
+    from db import get_api_db
+
+    _reset_free_bucket()
+    mcp_proxy._client_channel.clear()
+
+    r = mcp_client.post("/mcp/", headers=MCP_HEADERS, json=TOOL_CALL_PAYLOAD)
+    assert r.status_code == 200
+
+    with get_api_db() as con:
+        row = con.execute("SELECT channel FROM api_usage WHERE endpoint = '/mcp' ORDER BY id DESC LIMIT 1").fetchone()
+    assert row is not None
+    assert row[0] == "other"
