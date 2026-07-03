@@ -163,6 +163,35 @@ _RO_OPEN_WORLD = ToolAnnotations(
     idempotentHint=True,
     openWorldHint=True,
 )
+
+# Human-readable display titles (MCP `Tool.title`). Derived from each tool's
+# function name so every tool gets a title with no per-callsite edits — the
+# Anthropic Connectors / Desktop-Extension directory requires each tool to
+# carry a `title` alongside its read-only hint. Acronyms are upper-cased; a
+# small override map covers names mechanical title-casing gets wrong.
+_TITLE_ACRONYMS = frozenset(
+    {"asn", "cve", "cwe", "cvss", "dns", "ioc", "ip", "kev", "mx", "seo", "ssl", "whois", "atlas", "d3fend"}
+)
+_TITLE_OVERRIDES = {"robots_txt": "Robots.txt"}
+# Short connector words stay lowercase mid-title (never as the first word).
+_TITLE_LOWER = frozenset({"for", "of", "the", "and", "to", "in", "on", "with", "a", "an", "vs"})
+
+
+def _tool_title(name: str) -> str:
+    """Derive a human-readable MCP tool title from a snake_case function name."""
+    if name in _TITLE_OVERRIDES:
+        return _TITLE_OVERRIDES[name]
+    words = []
+    for i, p in enumerate(name.split("_")):
+        if p in _TITLE_ACRONYMS:
+            words.append(p.upper())
+        elif i > 0 and p in _TITLE_LOWER:
+            words.append(p)
+        else:
+            words.append(p.capitalize())
+    return " ".join(words)
+
+
 logger = logging.getLogger("contrastapi.mcp")
 
 # Carries the real client IP from MCP HTTP handler to internal API calls,
@@ -568,7 +597,7 @@ def mcp_tool_safe(*, annotations: ToolAnnotations):
                 payload = ErrorResponse(error=exc.to_error_detail()).model_dump_json(exclude_none=True)
                 raise ToolError(payload) from None
 
-        return mcp.tool(annotations=annotations, structured_output=True)(wrapped)
+        return mcp.tool(annotations=annotations, title=_tool_title(fn.__name__), structured_output=True)(wrapped)
 
     return decorator
 

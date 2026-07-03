@@ -923,6 +923,28 @@ def test_closed_vs_open_world_split(mcp_client):
     assert len(closed) + len(open_) == MCP_TOOL_COUNT
 
 
+def test_every_tool_has_display_title(mcp_client):
+    """Every tool must expose a non-empty human-readable `title` — required by the
+    Anthropic Connectors / Desktop-Extension directory. Acronyms stay upper-cased."""
+    from config import MCP_TOOL_COUNT
+
+    r = mcp_client.post(
+        "/mcp/",
+        headers=MCP_HEADERS,
+        json={"jsonrpc": "2.0", "id": 92, "method": "tools/list", "params": {}},
+    )
+    tools = r.json()["result"]["tools"]
+    assert len(tools) == MCP_TOOL_COUNT
+    titles = {t["name"]: t.get("title") for t in tools}
+    for name, title in titles.items():
+        assert title, f"{name} missing display title"
+        assert title[0].isupper(), f"{name} title not capitalized: {title!r}"
+    assert titles["cve_lookup"] == "CVE Lookup"
+    assert titles["dns_lookup"] == "DNS Lookup"
+    assert titles["robots_txt"] == "Robots.txt"
+    assert titles["d3fend_defense_for_attack"] == "D3FEND Defense for Attack"
+
+
 # --- v1.22.0 bulk length cap (defense-in-depth alongside Pydantic max_length=50) ---
 
 
