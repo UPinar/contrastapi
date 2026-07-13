@@ -56,10 +56,23 @@ import httpx  # noqa: E402  (must follow sys.path patch above)
 # silently dead. Resolvable in every context: _APP_DIR is on sys.path (above).
 from auth import INTERNAL_TRUST_TOKEN  # noqa: E402
 from fastapi import HTTPException  # noqa: E402
-from mcp.server.fastmcp import FastMCP  # noqa: E402
-from mcp.server.fastmcp.exceptions import ToolError  # noqa: E402
+
+try:  # mcp>=2: FastMCP became MCPServer, exceptions moved, types split into mcp_types
+    from mcp.server.mcpserver import MCPServer as _MCPServerImpl
+    from mcp.server.mcpserver.exceptions import ResourceNotFoundError as _ResourceNotFoundExc
+    from mcp.server.mcpserver.exceptions import ToolError
+    from mcp_types import ToolAnnotations
+
+    _MCP_SDK_V2 = True
+except ModuleNotFoundError:
+    from mcp.server.fastmcp import FastMCP as _MCPServerImpl
+    from mcp.server.fastmcp.exceptions import ToolError
+    from mcp.types import ToolAnnotations
+
+    # v1: FastMCP surfaces ValueError from a resource handler as not-found.
+    _ResourceNotFoundExc = ValueError
+    _MCP_SDK_V2 = False
 from mcp.server.transport_security import TransportSecuritySettings  # noqa: E402
-from mcp.types import ToolAnnotations  # noqa: E402
 from pydantic import Field, ValidationError  # noqa: E402
 
 from app.atlas.schemas import (  # noqa: E402
@@ -218,33 +231,47 @@ def _get_user_tier() -> str:
     return _user_tier_var.get()
 
 
-mcp = FastMCP(
-    "contrastapi",
-    stateless_http=True,
-    json_response=True,  # JSON instead of SSE — Cloudflare compatible
-    # Mounted at /mcp in FastAPI — sub-app route must be "/"
-    streamable_http_path="/",
-    transport_security=TransportSecuritySettings(
-        enable_dns_rebinding_protection=False,  # nginx handles this
-    ),
-)
-# FastMCP doesn't accept a `version` kwarg, so the lowlevel Server falls back
-# to the installed `mcp` package version (currently 1.27.0) for serverInfo.
-# Pin it to OUR application version so MCP clients and indexers can tell which
-# release of ContrastAPI they're talking to. We poke the private `_mcp_server`
-# attribute because FastMCP does not expose a setter; if a future SDK upgrade
-# renames or restructures it, log the failure (don't block startup) so we can
-# notice the silent revert to the package version.
-try:
-    from app.config import VERSION as _APP_VERSION
+from app.config import VERSION as _APP_VERSION  # noqa: E402
 
-    mcp._mcp_server.version = _APP_VERSION
-except Exception as _ver_pin_exc:  # pragma: no cover - metadata, never block startup
-    logger.warning(
-        "Failed to pin MCP serverInfo.version to app.config.VERSION (%s); "
-        "serverInfo will fall back to the installed mcp package version.",
-        _ver_pin_exc,
+_TRANSPORT_SECURITY = TransportSecuritySettings(
+    enable_dns_rebinding_protection=False,  # nginx handles this
+)
+if _MCP_SDK_V2:
+    # v2: ctor takes identity only; transport kwargs move to the
+    # streamable_http_app() builder. init_mcp (app/core/mcp_proxy.py) reads
+    # MCP_HTTP_APP_KWARGS when building the HTTP app. Omitting
+    # transport_security there would auto-enable localhost-only DNS-rebinding
+    # protection and reject production Host headers.
+    mcp = _MCPServerImpl("contrastapi", version=_APP_VERSION)
+    MCP_HTTP_APP_KWARGS = {
+        "stateless_http": True,
+        "json_response": True,  # JSON instead of SSE — Cloudflare compatible
+        # Mounted at /mcp in FastAPI — sub-app route must be "/"
+        "streamable_http_path": "/",
+        "transport_security": _TRANSPORT_SECURITY,
+    }
+else:
+    mcp = _MCPServerImpl(
+        "contrastapi",
+        stateless_http=True,
+        json_response=True,  # JSON instead of SSE — Cloudflare compatible
+        # Mounted at /mcp in FastAPI — sub-app route must be "/"
+        streamable_http_path="/",
+        transport_security=_TRANSPORT_SECURITY,
     )
+    MCP_HTTP_APP_KWARGS = {}
+    # FastMCP doesn't accept a `version` kwarg, so the lowlevel Server falls
+    # back to the installed `mcp` package version for serverInfo. Pin it to
+    # OUR application version by poking the private `_mcp_server` attribute;
+    # log on failure (don't block startup) so we notice a silent revert.
+    try:
+        mcp._mcp_server.version = _APP_VERSION
+    except Exception as _ver_pin_exc:  # pragma: no cover - metadata, never block startup
+        logger.warning(
+            "Failed to pin MCP serverInfo.version to app.config.VERSION (%s); "
+            "serverInfo will fall back to the installed mcp package version.",
+            _ver_pin_exc,
+        )
 
 # Use local API if running on the server, otherwise use public API
 API_BASE = os.environ.get("CONTRASTAPI_URL", "http://localhost:8002")
@@ -1974,8 +2001,13 @@ async def check_headers(
 # so even the 944-row CWE table fits in a single read.
 
 
-def _resource_not_found(kind: str, ident: str) -> ValueError:
-    """FastMCP surfaces ValueError from a resource as a not-found error.
+def _resource_not_found(kind: str, ident: str) -> Exception:
+    """Build the exception the SDK maps to a resource not-found error.
+
+    v1 FastMCP surfaces ValueError from a resource as not-found; v2 swallows
+    ValueError into a generic template error (message lost) and instead
+    passes ResourceNotFoundError through with the message intact (SEP-2164).
+    `_ResourceNotFoundExc` resolves to the right type per SDK at import time.
 
     Centralized here so the message format stays consistent across all four
     detail-resource handlers and so it never embeds raw user input verbatim
@@ -1984,7 +2016,7 @@ def _resource_not_found(kind: str, ident: str) -> ValueError:
     future validator that loosens its regex must not be able to smuggle a
     multi-KB string through this error sink unbounded.
     """
-    return ValueError(f"{kind} not found: {ident[:100]}")
+    return _ResourceNotFoundExc(f"{kind} not found: {ident[:100]}")
 
 
 @mcp.resource(

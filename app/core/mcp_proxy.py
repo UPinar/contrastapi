@@ -246,7 +246,10 @@ async def build_and_set_tools_list_cache() -> "int | None":
     try:
         tools = await mod.mcp.list_tools()
         _TOOL_NAMES = frozenset(t.name for t in tools)
-        result = {"tools": [t.model_dump(mode="json", exclude_none=True) for t in tools]}
+        # by_alias: v2 Tool fields are snake_case with camelCase wire aliases;
+        # without it the cache would serialize input_schema/output_schema.
+        # No observable diff under v1 (only Tool.meta has an alias and it is None for all registered tools).
+        result = {"tools": [t.model_dump(mode="json", by_alias=True, exclude_none=True) for t in tools]}
         # S256: the full FastMCP outputSchema was ~73% of the payload (~584KB
         # raw / 231KB slimmed) and overflowed the Smithery catalog gateway. Keep
         # a LEAN flat outputSchema (success model's top-level fields only,
@@ -887,10 +890,13 @@ def _sterilize_fastmcp_tool_errors() -> None:
     where `e` is a Pydantic ValidationError whose `__str__` appends the docs URL —
     leaks the Pydantic minor version (CWE-200). We wrap `Tool.run` once at startup.
     """
-    try:
-        import mcp.server.fastmcp.tools.base as _tool_base
-    except ImportError:
-        return
+    try:  # mcp>=2 relocated the tool base module; same Tool.run wrap-line either way
+        import mcp.server.mcpserver.tools.base as _tool_base
+    except ModuleNotFoundError:
+        try:
+            import mcp.server.fastmcp.tools.base as _tool_base
+        except ImportError:
+            return
     if getattr(_tool_base.Tool, "_contrast_sterilized", False):
         return
     _orig_run = _tool_base.Tool.run
@@ -935,9 +941,13 @@ def init_mcp(app: FastAPI) -> None:
         client_ip_var = mod._client_ip_var
         user_tier_var = mod._user_tier_var
         safe_ip = mod._safe_ip
-        starlette_app = instance.streamable_http_app()
+        starlette_app = instance.streamable_http_app(**mod.MCP_HTTP_APP_KWARGS)
         session_mgr = instance.session_manager
         _sterilize_fastmcp_tool_errors()
         app.mount("/mcp", _MCPIPForwardMiddleware(starlette_app, client_ip_var, safe_ip, user_tier_var))
-    except ImportError:
-        logger.warning("MCP server not available (mcp package not installed)")
+    except Exception:
+        # Degrade to no-mount instead of crashing app boot: during the SDK
+        # migration window a half-ported module raises non-ImportError types,
+        # and a running API without /mcp (healthcheck alarms on the 404) beats
+        # a crash-looping service.
+        logger.error("MCP server not available (import or app build failed)", exc_info=True)
