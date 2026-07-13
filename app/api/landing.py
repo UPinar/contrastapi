@@ -32,7 +32,12 @@ from db import (
 )
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse
-from mcp.types import LATEST_PROTOCOL_VERSION
+
+try:
+    from mcp.types import LATEST_PROTOCOL_VERSION
+except ModuleNotFoundError:  # mcp>=2 moved protocol types to the standalone mcp_types package
+    from mcp_types import LATEST_PROTOCOL_VERSION
+
 from ratelimit import check_limit
 from validation import get_client_ip
 

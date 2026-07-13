@@ -6,6 +6,7 @@ __pycache__/
 *.db-wal
 *.db-shm
 venv/
+venv_mcp2/
 .env
 test_*.db
 .mcpregistry_*

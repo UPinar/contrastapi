@@ -15,7 +15,11 @@ from config import (
 from core.templates import templates
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Response
-from mcp.types import LATEST_PROTOCOL_VERSION
+
+try:
+    from mcp.types import LATEST_PROTOCOL_VERSION
+except ModuleNotFoundError:  # mcp>=2 moved protocol types to the standalone mcp_types package
+    from mcp_types import LATEST_PROTOCOL_VERSION
 
 router = APIRouter()
 
@@ -204,7 +208,7 @@ def robots_txt():
         "Bytespider",
     )
     lines = [
-        "# ContrastCyber API — humans and AI agents both welcome.",
+        "# ContrastAPI — humans and AI agents both welcome.",
         "# Machine-readable: /llms.txt  ·  MCP server: /mcp/  ·  Agent card: /.well-known/agent-card.json",
         "",
         "User-agent: *",

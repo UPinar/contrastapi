@@ -12,7 +12,12 @@ from core.metrics import metrics, metrics_lock
 from db import has_pending_key, hash_client_ip
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
-from mcp.types import LATEST_PROTOCOL_VERSION
+
+try:
+    from mcp.types import LATEST_PROTOCOL_VERSION
+except ModuleNotFoundError:  # mcp>=2 moved protocol types to the standalone mcp_types package
+    from mcp_types import LATEST_PROTOCOL_VERSION
+
 from ratelimit import check_limit
 from validation import get_client_ip
 
