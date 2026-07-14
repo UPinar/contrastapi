@@ -87,6 +87,14 @@ _SMITHERY_PROBE_RESULT: dict[str, bytes] = {
     "ai.smithery/events/list": b'{"events":[]}',
 }
 
+# Protocol versions that still use the initialize handshake. Mirrors the SDK's
+# HANDSHAKE_PROTOCOL_VERSIONS (mcp_types.version), hardcoded because the v1 SDK
+# has no such constant and the handshake era is closed — 2026-07-28 removed it,
+# so every later revision is modern by construction. A request carrying one of
+# these (or no version header at all) is legacy era and keeps the tools/list
+# fast-path; anything else must reach the SDK.
+_HANDSHAKE_PROTOCOL_VERSIONS: "frozenset[str]" = frozenset({"2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25"})
+
 
 def mcp_module() -> Any:
     """Return the loaded MCP server module (raw mcp_server.py), or None if MCP failed to load."""
@@ -647,6 +655,18 @@ class _MCPIPForwardMiddleware:
                     if isinstance(_ci_name, str) and _ci_name:
                         _ua_hdr = (headers_map.get(b"user-agent") or b"").decode("latin-1")
                         _remember_channel(hash_client_ip(ip), classify_channel(_ci_name, _ua_hdr or None))
+                # Era gate: the tools/list byte cache is a legacy-era artifact.
+                # A 2026-07-28 request must reach the SDK, which stamps the
+                # spec-required `resultType` and enforces the Mcp-Method routing
+                # header (SEP-2243) — both of which the fast-path would skip,
+                # answering a header/body mismatch with a valid 200. The SDK
+                # routes eras on this same header, so mirror its signal exactly:
+                # first occurrence (headers_map would collapse to the LAST, which
+                # a duplicate header could use to desync us from the SDK), and a
+                # handshake-era VALUE still counts as legacy — 2025-era clients
+                # send this header after initialize and must keep the fast-path.
+                _pv = next((v for k, v in raw_headers if k == b"mcp-protocol-version"), None)
+                _is_modern_era = _pv is not None and _pv.decode("latin-1") not in _HANDSHAKE_PROTOCOL_VERSIONS
                 # Lazy-rebuild: a tools/list with an id but a None cache
                 # (startup build failed / test cleared) would otherwise fall
                 # to the fat FastMCP slow path. Rebuild the slim cache once so
@@ -654,6 +674,7 @@ class _MCPIPForwardMiddleware:
                 # rebuild (FastMCP broken) falls through.
                 if (
                     _method == "tools/list"
+                    and not _is_modern_era
                     and _tools_list_result_bytes is None
                     and isinstance(_rpc, dict)
                     and "id" in _rpc
@@ -668,6 +689,7 @@ class _MCPIPForwardMiddleware:
                 # response, FastMCP handles that correctly).
                 if (
                     _method == "tools/list"
+                    and not _is_modern_era
                     and _tools_list_result_bytes is not None
                     and isinstance(_rpc, dict)
                     and "id" in _rpc
