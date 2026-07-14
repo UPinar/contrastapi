@@ -925,6 +925,33 @@ def _sterilize_fastmcp_tool_errors() -> None:
     _tool_base.Tool._contrast_sterilized = True
 
 
+def _drop_otel_middleware(instance: Any) -> None:
+    """Opt out of the SDK's default OpenTelemetry tracing middleware (mcp>=2).
+
+    The v2 lowlevel Server seeds `middleware` with [OpenTelemetryMiddleware,
+    RequestStateBoundary]; the SDK sanctions removal ("Drop it from this list
+    to opt out"). It is inert without an OTel SDK/exporter, but mcp_tools.jsonl
+    is our audit log of record and we do not want a tracer in the dispatch
+    chain that a transitive dependency could light up. RequestStateBoundary is
+    preserved — it owns the request-state codec. No-op on v1 (no such list).
+
+    Matched by defining module as well as class name: the SDK marks the seed
+    provisional, and a rename would make a name-only filter silently fail open.
+    """
+    low = getattr(instance, "_lowlevel_server", None)
+    mw = getattr(low, "middleware", None)
+    if not isinstance(mw, list):
+        return
+    kept = [
+        m
+        for m in mw
+        if not (type(m).__module__.startswith("mcp.server._otel") or type(m).__name__ == "OpenTelemetryMiddleware")
+    ]
+    if len(kept) != len(mw):
+        low.middleware = kept
+        logger.info("Dropped OpenTelemetry middleware from the MCP dispatch chain")
+
+
 def init_mcp(app: FastAPI) -> None:
     """Load the MCP server module, mount its Starlette app at /mcp.
 
@@ -941,6 +968,7 @@ def init_mcp(app: FastAPI) -> None:
         client_ip_var = mod._client_ip_var
         user_tier_var = mod._user_tier_var
         safe_ip = mod._safe_ip
+        _drop_otel_middleware(instance)
         starlette_app = instance.streamable_http_app(**mod.MCP_HTTP_APP_KWARGS)
         session_mgr = instance.session_manager
         _sterilize_fastmcp_tool_errors()

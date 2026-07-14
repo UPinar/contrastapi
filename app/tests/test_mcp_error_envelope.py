@@ -10,8 +10,8 @@ import json as json_lib
 import httpx
 import pytest
 
-mcp_server = pytest.importorskip("mcp_server", reason="mcp_server module not on path")
-from mcp_server import _extract_upstream_message  # noqa: E402
+pytest.importorskip("mcp", reason="mcp package not installed")
+from mcp_server import _extract_upstream_message
 
 
 def _make_resp(status_code: int, body) -> httpx.Response:
@@ -67,3 +67,47 @@ def test_extract_message_status_fallback_when_unparseable():
     """Non-JSON body → 'Error N' fallback (defensive against HTML error pages)."""
     resp = _make_resp(500, "<html>500 Internal</html>")
     assert _extract_upstream_message(resp) == "Error 500"
+
+
+class TestNoOpenTelemetryMiddleware:
+    """The SDK installs an OTel tracing middleware by default; we opt out.
+
+    Inert today (no exporter installed) but it must not sit in the dispatch
+    chain: our own mcp_tools.jsonl is the audit log of record. RequestStateBoundary
+    must survive the removal — it owns the request-state codec.
+    """
+
+    def test_drop_removes_tracer_and_keeps_request_state(self):
+        """Deterministic: build a fresh v2 server and drop directly.
+
+        No app fixture, so this never skips vacuously in an isolated or
+        partitioned run. The pre-assert is the canary: if the SDK stops
+        seeding a tracer (or renames its module), it fires instead of the
+        opt-out quietly becoming a no-op.
+        """
+        pytest.importorskip("mcp.server.mcpserver", reason="v1 SDK has no middleware list")
+        from core.mcp_proxy import _drop_otel_middleware
+        from mcp.server.mcpserver import MCPServer
+
+        server = MCPServer("otel-probe")
+        seeded = [type(m) for m in server._lowlevel_server.middleware]
+        assert any(t.__module__.startswith("mcp.server._otel") for t in seeded), (
+            "SDK no longer seeds an OTel tracer — revisit the opt-out"
+        )
+
+        _drop_otel_middleware(server)
+
+        kept = [type(m) for m in server._lowlevel_server.middleware]
+        assert not any(t.__module__.startswith("mcp.server._otel") for t in kept)
+        assert any(t.__name__ == "RequestStateBoundary" for t in kept)
+
+    def test_mounted_instance_has_no_tracer(self):
+        """The live mounted server — skips only when MCP isn't loaded at all."""
+        from core import mcp_proxy
+
+        mod = mcp_proxy.mcp_module()
+        if mod is None or not getattr(mod, "_MCP_SDK_V2", False):
+            pytest.skip("v1 SDK has no middleware list")
+        names = [type(m).__name__ for m in mod.mcp._lowlevel_server.middleware]
+        assert "OpenTelemetryMiddleware" not in names
+        assert "RequestStateBoundary" in names
