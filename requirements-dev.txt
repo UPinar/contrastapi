@@ -1,5 +1,5 @@
 # Test-only dependencies — not shipped to production (see requirements.txt)
 pytest-asyncio==1.4.0
 pytest-cov==7.1.0
-pytest-socket==0.7.0
+pytest-socket==0.8.0
 respx==0.23.1
