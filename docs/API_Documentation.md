@@ -246,7 +246,7 @@ curl https://api.contrastcyber.com/v1/domain/contrastcyber.com \
 | `email_security` | object | `spf`, `dmarc`, `dkim_selectors`, `dkim_status`, `grade`, `issues` |
 | `waf` | object | `detected` (array), `waf_present` (bool) |
 | `threat` | object | URLhaus: `urlhaus_status`, `url_count`, `urls_online`, `threat_types`, `tags`, `urls` |
-| `risk` | object | `score`, `max_score`, `grade`, `factors[]` (per-dimension scoring) |
+| `risk` | object | `score`, `max_score`, `grade`, `factors[]` (per-dimension scoring). `max_score` is **not always 100** — a dimension we could not measure is dropped from the denominator instead of penalizing the domain, so observed values are 100, 95, 90, 85, 80 and 75 (crt.sh failure drops the CT factor, an unverifiable DKIM selector trims the email factor, wildcard DNS can drop the subdomain factor). Always compute percentages against `max_score`, never against a literal 100. |
 | `risk_score` | integer | Composite 0–`max_score` (top-level convenience copy) |
 | `reputation` | object | `abuseipdb` (Pro), `shodan` (Pro) |
 | `verdict` | object | Falsifiability metadata; `sources_unavailable`, `completeness` |
@@ -539,6 +539,7 @@ curl https://api.contrastcyber.com/v1/subdomains/contrastcyber.com
 | `sources` | array | `wordlist`, `crtsh` |
 | `found_via_wordlist` | integer | Count from DNS brute-force |
 | `found_via_crtsh` | integer | Count from CT logs |
+| `wildcard_status` | string | `absent` \| `present` \| `undetermined` — result of two synthetic negative-control DNS probes. Anything other than `absent` means `count` is unverified: under `present` the wordlist plane is discarded and `count` is a CT-log lower bound. |
 | `crtsh_status` | string | `ok` / `timeout` |
 | `summary` | string | Count one-liner |
 

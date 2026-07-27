@@ -112,31 +112,41 @@ def score_domain(report: dict) -> dict:
     # Subdomains exposure (max 10 when enumeration is trustworthy, 0 under wildcard DNS)
     subs = report.get("subdomains", {})
     sub_count = subs.get("count", 0)
-    if subs.get("wildcard_detected"):
-        # Wildcard DNS answers every name, so the count measures our wordlist, not the
-        # target. Same rationale as the CT branch below: exclude from max rather than
-        # penalize the domain for something we could not measure.
-        factors.append(
-            {
-                "name": "Subdomain Exposure",
-                "score": 0,
-                "max": 0,
-                "detail": "Wildcard DNS (*.domain) — enumeration unreliable, exposure unknown",
-            }
+    wildcard_status = subs.get("wildcard_status", "absent")
+    # One-sided exclusion, applied identically to BOTH non-absent states. Whenever the probe
+    # is not "absent" the recon layer has already withheld the wordlist plane, so the
+    # surviving count is CT-log-attested — a lower bound on real exposure, not a fabrication.
+    # Excluding it unconditionally would let a sprawling zone outrank a measured one
+    # (monotonicity inversion), so we exclude only when the count is too low to be evidence:
+    # scoring it there would award a bogus "Minimal subdomain exposure" 10/10 to a zone we
+    # could not enumerate. Above the threshold the count is real evidence and must still
+    # penalize — otherwise a target could improve its grade by making itself unmeasurable.
+    if wildcard_status != "absent" and sub_count <= 5:
+        unknown_detail = (
+            "Wildcard DNS (*.domain) — enumeration unreliable, exposure unknown"
+            if wildcard_status == "present"
+            else "Wildcard DNS undetermined — enumeration unverified, exposure unknown"
         )
+        factors.append({"name": "Subdomain Exposure", "score": 0, "max": 0, "detail": unknown_detail})
     else:
+        if wildcard_status == "present":
+            wildcard_note = " (lower bound — wildcard DNS)"
+        elif wildcard_status == "undetermined":
+            wildcard_note = " (lower bound — wildcard undetermined)"
+        else:
+            wildcard_note = ""
         if sub_count <= 5:
             sub_score = 10
             sub_detail = "Minimal subdomain exposure"
         elif sub_count <= 15:
             sub_score = 7
-            sub_detail = f"{sub_count} subdomains (moderate exposure)"
+            sub_detail = f"{sub_count} subdomains (moderate exposure){wildcard_note}"
         elif sub_count <= 30:
             sub_score = 4
-            sub_detail = f"{sub_count} subdomains (high exposure)"
+            sub_detail = f"{sub_count} subdomains (high exposure){wildcard_note}"
         else:
             sub_score = 2
-            sub_detail = f"{sub_count} subdomains (very high exposure)"
+            sub_detail = f"{sub_count} subdomains (very high exposure){wildcard_note}"
         score += sub_score
         factors.append({"name": "Subdomain Exposure", "score": sub_score, "max": 10, "detail": sub_detail})
 

@@ -53,7 +53,7 @@ jobs:
           cache: 'pip'
 
       - name: Install dependencies
-        run: pip install -q -r requirements.txt
+        run: pip install -q -r requirements.txt -r requirements-dev.txt
 
       - name: Run tests
         env:

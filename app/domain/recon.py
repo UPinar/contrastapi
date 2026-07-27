@@ -101,6 +101,10 @@ WAF_SIGNATURES = {
     "Varnish": {"header": "x-varnish"},
 }
 
+# RFC 1035 wire limit for a fully-qualified name. Deliberately NOT config.MAX_DOMAIN_LENGTH:
+# that is our input-validation cap, this is what the resolver itself will refuse locally.
+_MAX_DNS_NAME_LEN = 253
+
 COMMON_SUBDOMAINS = [
     "www",
     "mail",
@@ -352,24 +356,53 @@ async def enumerate_subdomains(domain: str, crtsh_data: list | None = None, crts
             return fqdn
         return None
 
-    # Negative-control probe, issued in the same gather (no added wall-clock): a label
-    # that cannot legitimately exist. If the zone answers it, we have wildcard DNS and
-    # every wordlist "hit" is an artefact. Per-IP filtering is deliberately NOT used —
-    # behind an anycast CDN a genuine app.<domain> shares the wildcard's address set, so
-    # comparing IPs would drop real hosts and still admit fakes under rotation. When the
-    # zone answers everything the wordlist plane measured nothing: discard it and report
-    # CT-log evidence only.
-    probe_label = f"nx{time.time_ns():x}"
+    # Negative-control probe: a label that cannot legitimately exist. If the zone answers
+    # it, we have wildcard DNS and every wordlist "hit" is an artefact. Per-IP filtering is
+    # deliberately NOT used — behind an anycast CDN a genuine app.<domain> shares the
+    # wildcard's address set, so comparing IPs would drop real hosts and still admit fakes
+    # under rotation. Unlike _resolve_sub, a PRIVATE answer counts as a hit: an RFC1918
+    # reply to an impossible name still proves a catch-all (split-horizon zones).
+    # Tri-state, because _dns_call_with_timeout reports a timeout as a sentinel rather than
+    # a raise: collapsing that into "absent" fails OPEN and silently restores the
+    # fabricated-count bug. The length guard closes the same hole for long targets, where
+    # the probe FQDN would exceed the wire limit and be refused before leaving the host.
+    def _probe_wildcard(label):
+        fqdn = f"{label}.{domain}"
+        if len(fqdn) > _MAX_DNS_NAME_LEN:
+            return "undetermined"
+        result, err = _dns_call_with_timeout(socket.gethostbyname, fqdn)
+        if result and not err:
+            return "present"
+        # Only an authoritative "this name does not exist" proves absence. A resolver
+        # reporting SERVFAIL/REFUSED/temporary-failure (EAI_AGAIN, EAI_FAIL) means we could
+        # not measure, and treating that as absence is the same fail-open as a timeout.
+        if isinstance(err, socket.gaierror) and err.errno in (socket.EAI_NONAME, socket.EAI_NODATA):
+            return "absent"
+        return "undetermined"
+
+    # Two distinct labels: one dropped or pattern-matched answer must not decide alone.
+    probe_labels = [f"nx{time.time_ns():x}", f"zq{time.time_ns():x}"]
     gather_results = await asyncio.gather(
-        run_in_threadpool(_resolve_sub, probe_label),
+        *[run_in_threadpool(_probe_wildcard, label) for label in probe_labels],
         *[run_in_threadpool(_resolve_sub, sub) for sub in COMMON_SUBDOMAINS],
         return_exceptions=False,
     )
-    wildcard_detected = gather_results[0] is not None
-    if wildcard_detected:
-        warnings.append("wildcard_dns")
+    probe_verdicts = gather_results[: len(probe_labels)]
+    if "present" in probe_verdicts:
+        wildcard_status = "present"
+    elif "undetermined" in probe_verdicts:
+        wildcard_status = "undetermined"
     else:
-        for result in gather_results[1:]:
+        wildcard_status = "absent"
+    if wildcard_status == "present":
+        warnings.append("wildcard_dns")
+    elif wildcard_status == "undetermined":
+        warnings.append("wildcard_undetermined")
+    # Keep the wordlist plane ONLY on a proven-absent catch-all. Under "undetermined" we
+    # cannot tell a real host from an artefact, and publishing one would put fabricated
+    # hostnames into subdomains[] and into the ssl_check pivot hints an agent then follows.
+    if wildcard_status == "absent":
+        for result in gather_results[len(probe_labels) :]:
             if result:
                 found_wordlist.add(result)
 
@@ -393,10 +426,15 @@ async def enumerate_subdomains(domain: str, crtsh_data: list | None = None, crts
         # Be explicit in the human summary so agents reading it know the count
         # is wordlist-only, not the full picture.
         summary += f" (CT logs {crtsh_status})"
-    if wildcard_detected:
+    if wildcard_status == "present":
         summary += (
             f" — wildcard DNS (*.{domain}) detected: every name resolves, so DNS brute-force"
-            " carries no signal and was discarded; count reflects CT-log evidence only"
+            " carries no signal and was discarded; count is a CT-log lower bound"
+        )
+    elif wildcard_status == "undetermined":
+        summary += (
+            " — wildcard DNS could not be determined (negative-control probe unanswered or"
+            " target name too long to probe); treat the count as unverified"
         )
     if warnings:
         summary += f" [{'; '.join(warnings)}]"
@@ -408,7 +446,7 @@ async def enumerate_subdomains(domain: str, crtsh_data: list | None = None, crts
         "found_via_wordlist": len(found_wordlist),
         "found_via_crtsh": len(found_crtsh),
         "crtsh_status": crtsh_status,
-        "wildcard_detected": wildcard_detected,
+        "wildcard_status": wildcard_status,
         "warnings": warnings,
         "summary": summary,
     }
@@ -1606,17 +1644,26 @@ async def full_domain_report(
     report["risk"] = score_domain(report)
     risk_grade = report["risk"]["grade"]
     risk_score = report["risk"]["score"]
+    risk_max = report["risk"]["max_score"]
 
     threat_count = report.get("threat", {}).get("url_count", 0)
     threat_str = f"WARNING: {threat_count} URLhaus entries" if threat_count > 0 else ""
 
+    sub_wildcard = (report.get("subdomains", {}) or {}).get("wildcard_status", "absent")
+    if sub_wildcard == "present":
+        sub_str = f"{sub_count} subdomains found (CT-log lower bound; wildcard DNS)"
+    elif sub_wildcard == "undetermined":
+        sub_str = f"{sub_count} subdomains found (unverified; wildcard check inconclusive)"
+    else:
+        sub_str = f"{sub_count} subdomains found"
+
     report["summary"] = (
         f"{domain} resolves to {ip}. "
-        f"Security grade {risk_grade} ({risk_score}/100). "
+        f"Security grade {risk_grade} ({risk_score}/{risk_max}). "
         f"SSL grade {ssl_grade} by {ssl_issuer}. "
         f"{waf_str} "
         f"Email security: {email_grade}. "
-        f"{sub_count} subdomains found"
+        f"{sub_str}"
         f"{'. ' + threat_str if threat_str else ''}"
     )
 

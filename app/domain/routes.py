@@ -358,6 +358,9 @@ def _domain_verdict(report: dict, age_seconds: int, lite: bool) -> Verdict:
         certs = report.get("certificates", {}) or {}
         if certs.get("error"):
             unavailable.append("ct_logs")
+        subs = report.get("subdomains", {}) or {}
+        if subs.get("wildcard_status", "absent") != "absent":
+            unavailable.append("subdomains")
         if "reputation" in report:
             queried.append("reputation")
             # If reputation fetch failed, report["reputation"] is absent — we cannot

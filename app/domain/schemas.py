@@ -138,6 +138,10 @@ class SubdomainsInfo(BaseModel):
     )
     found_via_wordlist: int | None = Field(default=None, description="Count discovered via DNS brute-force wordlist.")
     found_via_crtsh: int | None = Field(default=None, description="Count discovered via crt.sh CT log query.")
+    wildcard_status: Literal["absent", "present", "undetermined"] | None = Field(
+        default=None,
+        description="Wildcard-DNS probe result; anything other than 'absent' means count is unverified.",
+    )
     warnings: list[str] | None = Field(
         default=None,
         description="Non-fatal warnings (e.g. 'crt.sh timeout', 'result truncated').",
@@ -270,9 +274,13 @@ class RiskInfo(BaseModel):
     max_score: int | None = Field(
         default=None,
         description=(
-            "Maximum achievable score (100 by default; drops by the corresponding factor's max "
-            "when an upstream source fails — e.g. crt.sh timeout excludes the CT factor and "
-            "max_score becomes 90, so grade is computed against the available signals)."
+            "Maximum achievable score, 100 by default. It drops by a factor's max when that "
+            "signal could not be measured, so grade reflects the available signals instead of "
+            "penalizing the domain for our blind spot. Observed values are 100, 95, 90, 85, 80 "
+            "and 75: a crt.sh failure excludes the 10-point CT factor, an unverifiable DKIM "
+            "selector trims the email factor 25->20, and wildcard DNS can exclude the 10-point "
+            "subdomain factor. ALWAYS compute percentages against this field, never against a "
+            "literal 100."
         ),
     )
     grade: Literal["A", "B", "C", "D", "F"] | None = Field(default=None, description="Letter grade derived from score.")
@@ -1429,14 +1437,16 @@ class SubdomainsResponse(BaseSuccessResponse):
     warnings: list[str] = Field(default_factory=list)
     found_via_wordlist: int = 0
     found_via_crtsh: int = 0
-    wildcard_detected: bool = Field(
-        default=False,
+    wildcard_status: Literal["absent", "present", "undetermined"] = Field(
+        default="absent",
         description=(
-            "True when the zone answers a synthetic negative-control label, i.e. wildcard DNS "
-            "(*.domain) is in effect. DNS brute-force then cannot distinguish a real host from "
-            "the catch-all, so wordlist results are discarded (found_via_wordlist=0) and count "
-            "reflects certificate-transparency evidence only. Treat the real subdomain surface "
-            "as UNKNOWN, not small — and do NOT score exposure from this count."
+            "Result of two synthetic negative-control DNS probes. 'absent' = no catch-all, the "
+            "wordlist plane is trustworthy. 'present' = wildcard DNS (*.domain) answers every "
+            "name, so brute-force cannot distinguish a real host from the catch-all; wordlist "
+            "results are discarded (found_via_wordlist=0) and count is a certificate-transparency "
+            "LOWER BOUND — the real surface is UNKNOWN, not small. 'undetermined' = a probe went "
+            "unanswered or the target name was too long to probe, so the count is unverified and "
+            "may contain artefacts. Treat anything other than 'absent' as a measurement caveat."
         ),
     )
     crtsh_status: Literal["ok", "timeout", "rate_limited", "unavailable", "error"] = Field(

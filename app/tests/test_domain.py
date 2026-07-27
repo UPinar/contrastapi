@@ -1,6 +1,7 @@
 """Tests for domain intelligence module — recon.py + routes.py"""
 
 import asyncio
+import itertools
 import json
 import socket
 import ssl
@@ -199,7 +200,10 @@ class TestFetchCrtsh:
         from domain.recon import enumerate_subdomains
 
         with patch("domain.recon._fetch_crtsh", return_value=([], "crt_sh_timeout")):
-            with patch("domain.recon.socket.gethostbyname", side_effect=socket.gaierror):
+            with patch(
+                "domain.recon.socket.gethostbyname",
+                side_effect=socket.gaierror(socket.EAI_NONAME, "not found"),
+            ):
                 result = asyncio.run(enumerate_subdomains("example.com"))
         assert result["warnings"] == ["crt_sh_timeout"]
         assert result["sources"] == []
@@ -211,7 +215,10 @@ class TestFetchCrtsh:
         from domain.recon import enumerate_subdomains
 
         with patch("domain.recon._fetch_crtsh", return_value=([], None)):
-            with patch("domain.recon.socket.gethostbyname", side_effect=socket.gaierror):
+            with patch(
+                "domain.recon.socket.gethostbyname",
+                side_effect=socket.gaierror(socket.EAI_NONAME, "not found"),
+            ):
                 result = asyncio.run(enumerate_subdomains("example.com"))
         assert result["warnings"] == []
         # Bug N: confirmed-empty path emits crtsh_status='ok' so agents can trust the count
@@ -233,7 +240,10 @@ class TestFetchCrtsh:
         assert len(large_data) > CRTSH_MAX_RESULTS
 
         with patch("domain.recon._fetch_crtsh", return_value=(large_data[:CRTSH_MAX_RESULTS], None)):
-            with patch("domain.recon.socket.gethostbyname", side_effect=socket.gaierror):
+            with patch(
+                "domain.recon.socket.gethostbyname",
+                side_effect=socket.gaierror(socket.EAI_NONAME, "not found"),
+            ):
                 result = asyncio.run(enumerate_subdomains("example.com"))
         assert len(result["subdomains"]) <= 50
 
@@ -256,7 +266,10 @@ class TestSubdomainEnumCrtshStatus:
         from domain.recon import enumerate_subdomains
 
         with patch("domain.recon._fetch_crtsh", return_value=([], fetch_error)):
-            with patch("domain.recon.socket.gethostbyname", side_effect=socket.gaierror):
+            with patch(
+                "domain.recon.socket.gethostbyname",
+                side_effect=socket.gaierror(socket.EAI_NONAME, "not found"),
+            ):
                 result = asyncio.run(enumerate_subdomains("example.com"))
         assert result["crtsh_status"] == expected_status
         assert fetch_error in result["warnings"]
@@ -266,7 +279,10 @@ class TestSubdomainEnumCrtshStatus:
         # the fetch and must report status='ok' regardless of empty/non-empty.
         from domain.recon import enumerate_subdomains
 
-        with patch("domain.recon.socket.gethostbyname", side_effect=socket.gaierror):
+        with patch(
+            "domain.recon.socket.gethostbyname",
+            side_effect=socket.gaierror(socket.EAI_NONAME, "not found"),
+        ):
             result = asyncio.run(enumerate_subdomains("example.com", crtsh_data=[]))
         assert result["crtsh_status"] == "ok"
 
@@ -275,7 +291,10 @@ class TestSubdomainEnumCrtshStatus:
 
         data = [{"name_value": "api.example.com\nweb.example.com"}]
         with patch("domain.recon._fetch_crtsh", return_value=(data, None)):
-            with patch("domain.recon.socket.gethostbyname", side_effect=socket.gaierror):
+            with patch(
+                "domain.recon.socket.gethostbyname",
+                side_effect=socket.gaierror(socket.EAI_NONAME, "not found"),
+            ):
                 result = asyncio.run(enumerate_subdomains("example.com"))
         assert result["crtsh_status"] == "ok"
         assert result["found_via_crtsh"] >= 1
@@ -2465,47 +2484,119 @@ class TestDomainScoring:
         # Domain with everything else ok should NOT be penalized for our outage
         assert result["grade"] in ("A", "B"), f"got {result['grade']} score={result['score']}/{result['max_score']}"
 
-    def test_wildcard_subdomains_excludes_factor_from_max(self):
-        """Wildcard DNS makes enumeration unmeasurable — exclude the factor from max
-        instead of penalizing 30 fabricated hits (mirrors the CT-failure branch)."""
+    _WILDCARD_BASE = {
+        "ssl": {"grade": "A"},
+        "email_security": {"spf": "v=spf1 -all", "dmarc": "v=DMARC1; p=reject", "dkim_selectors": ["google"]},
+        "waf": {"waf_present": False},
+        "dns": {"ns": ["a.ns"], "mx": [{"host": "m"}], "a": ["1.2.3.4"]},
+        "whois": {"registrar": "MarkMonitor", "creation_date": "2007-01-01"},
+        "certificates": {"total_certificates": 3, "certificates": []},
+    }
+
+    def test_wildcard_low_count_excludes_factor_from_max(self):
+        """Wildcard + low surviving count: excluding beats awarding a bogus
+        'Minimal subdomain exposure' 10/10 to a zone we could not enumerate."""
         from domain.scoring import score_domain
 
-        report = {
-            "ssl": {"grade": "A"},
-            "email_security": {"spf": "v=spf1 -all", "dmarc": "v=DMARC1; p=reject", "dkim_selectors": ["google"]},
-            "waf": {"waf_present": False},
-            "dns": {"ns": ["a.ns"], "mx": [{"host": "m"}], "a": ["1.2.3.4"]},
-            "whois": {"registrar": "MarkMonitor", "creation_date": "2007-01-01"},
-            "subdomains": {"count": 30, "wildcard_detected": True},
-            "certificates": {"total_certificates": 3, "certificates": []},
-        }
+        report = {**self._WILDCARD_BASE, "subdomains": {"count": 3, "wildcard_status": "present"}}
         result = score_domain(report)
         sub_factor = next(f for f in result["factors"] if f["name"] == "Subdomain Exposure")
-        assert sub_factor["max"] == 0, "wildcard must exclude the factor from max"
+        assert sub_factor["max"] == 0, "wildcard + low count must exclude the factor from max"
         assert sub_factor["score"] == 0
         assert "Wildcard DNS" in sub_factor["detail"]
-        assert "high exposure" not in sub_factor["detail"], "must not report a fabricated count"
-        # max_score drops from 100 to 90 (Subdomain 10pt removed)
+        assert "Minimal" not in sub_factor["detail"], "must not award an unmeasurable zone"
         assert result["max_score"] == 90
 
-    def test_no_wildcard_keeps_subdomain_threshold_ladder(self):
-        """Regression: without the flag the existing threshold ladder is unchanged."""
+    def test_wildcard_high_count_still_penalizes_ct_attested_sprawl(self):
+        """One-sided: under wildcard the wordlist is already discarded upstream, so a
+        high count is CT-attested evidence — a lower bound. Excluding it would let a
+        sprawling zone outrank a measured one (monotonicity inversion)."""
         from domain.scoring import score_domain
 
-        report = {
-            "ssl": {"grade": "A"},
-            "email_security": {"spf": "v=spf1 -all", "dmarc": "v=DMARC1; p=reject", "dkim_selectors": ["google"]},
-            "waf": {"waf_present": False},
-            "dns": {"ns": ["a.ns"], "mx": [{"host": "m"}], "a": ["1.2.3.4"]},
-            "whois": {"registrar": "MarkMonitor", "creation_date": "2007-01-01"},
-            "subdomains": {"count": 30},
-            "certificates": {"total_certificates": 3, "certificates": []},
-        }
+        report = {**self._WILDCARD_BASE, "subdomains": {"count": 200, "wildcard_status": "present"}}
+        result = score_domain(report)
+        sub_factor = next(f for f in result["factors"] if f["name"] == "Subdomain Exposure")
+        assert sub_factor["max"] == 10, "CT-attested sprawl must stay in the denominator"
+        assert sub_factor["score"] == 2
+        assert "lower bound" in sub_factor["detail"]
+        assert result["max_score"] == 100
+
+    def test_wildcard_undetermined_low_count_excludes_factor_from_max(self):
+        """Probe guarded or timed out and nothing much survived — exclude rather than
+        award 'Minimal subdomain exposure' for a zone we could not verify."""
+        from domain.scoring import score_domain
+
+        report = {**self._WILDCARD_BASE, "subdomains": {"count": 3, "wildcard_status": "undetermined"}}
+        result = score_domain(report)
+        sub_factor = next(f for f in result["factors"] if f["name"] == "Subdomain Exposure")
+        assert sub_factor["max"] == 0
+        assert "undetermined" in sub_factor["detail"].lower()
+        assert result["max_score"] == 90
+
+    def test_wildcard_undetermined_high_count_still_penalizes(self):
+        """Symmetry with 'present': the exclusion is one-sided for BOTH non-absent
+        states, so an unverifiable zone cannot upgrade its grade by staying
+        unverifiable. Excluding here made 'undetermined' the grade-optimal state for a
+        sprawling zone, which any target could reach by dropping our probes."""
+        from domain.scoring import score_domain
+
+        report = {**self._WILDCARD_BASE, "subdomains": {"count": 200, "wildcard_status": "undetermined"}}
+        result = score_domain(report)
+        sub_factor = next(f for f in result["factors"] if f["name"] == "Subdomain Exposure")
+        assert sub_factor["max"] == 10, "unverified sprawl must stay in the denominator"
+        assert sub_factor["score"] == 2
+        assert "lower bound" in sub_factor["detail"]
+        assert result["max_score"] == 100
+
+    def test_no_wildcard_keeps_subdomain_threshold_ladder(self):
+        """Regression: with wildcard absent the existing threshold ladder is unchanged."""
+        from domain.scoring import score_domain
+
+        report = {**self._WILDCARD_BASE, "subdomains": {"count": 30, "wildcard_status": "absent"}}
         result = score_domain(report)
         sub_factor = next(f for f in result["factors"] if f["name"] == "Subdomain Exposure")
         assert sub_factor["max"] == 10
         assert sub_factor["score"] == 4
         assert sub_factor["detail"] == "30 subdomains (high exposure)"
+
+    def test_missing_wildcard_key_defaults_to_absent_ladder(self):
+        """Legacy/cached report sections have no wildcard_status — must fall back to
+        the ladder, not to an exclusion."""
+        from domain.scoring import score_domain
+
+        report = {**self._WILDCARD_BASE, "subdomains": {"count": 30}}
+        result = score_domain(report)
+        sub_factor = next(f for f in result["factors"] if f["name"] == "Subdomain Exposure")
+        assert sub_factor["max"] == 10
+        assert result["max_score"] == 100
+
+    @staticmethod
+    def _pct(result):
+        return round(result["score"] * 100 / result["max_score"])
+
+    def _score_at(self, count, status):
+        from domain.scoring import score_domain
+
+        return score_domain({**self._WILDCARD_BASE, "subdomains": {"count": count, "wildcard_status": status}})
+
+    def test_unmeasurable_never_beats_measured_grade_at_same_posture(self):
+        """An unmeasurable zone must never outscore the same zone measured. Covers BOTH
+        non-absent states — excluding only 'present' left 'undetermined' as a free
+        grade upgrade for any target that drops negative-control queries."""
+        for status in ("present", "undetermined"):
+            for count in (0, 3, 5, 6, 16, 31, 200):
+                measured = self._pct(self._score_at(count, "absent"))
+                unknown = self._pct(self._score_at(count, status))
+                assert unknown <= measured, f"{status} at count={count}: {unknown}% must not beat measured {measured}%"
+
+    def test_more_subdomains_never_improves_grade_within_a_status(self):
+        """Count-monotonicity: acquiring another subdomain must never raise the score.
+        The exclusion threshold is a cliff, so a mismatched boundary makes count=6
+        outscore count=5 in the very branch meant to prevent that."""
+        for status in ("absent", "present", "undetermined"):
+            pcts = [self._pct(self._score_at(c, status)) for c in (0, 3, 5, 6, 16, 31, 200)]
+            for lower, higher in itertools.pairwise(pcts):
+                assert higher <= lower, f"status={status}: more subdomains raised the score ({pcts})"
 
     def test_email_dkim_unverifiable_excludes_5pt_from_max(self):
         """When dkim_status=='unverifiable', email factor max drops 25→20.
@@ -3918,7 +4009,7 @@ class TestFullDomainReport:
         m_threat.return_value = {"url_count": 0, "urls_online": 0}
         m_email.return_value = {"grade": "B"}
         m_headers.return_value = {"headers": {"server": "nginx"}}
-        m_score.return_value = {"grade": "A", "score": 90, "factors": []}
+        m_score.return_value = {"grade": "A", "score": 90, "max_score": 100, "factors": []}
 
         result = asyncio.run(full_domain_report("example.com", resolved_ip="1.2.3.4", client_ip="10.0.0.1"))
         assert result["domain"] == "example.com"
@@ -3928,7 +4019,7 @@ class TestFullDomainReport:
         assert result["subdomains"]["count"] == 1
         assert "summary" in result
 
-    @patch("domain.scoring.score_domain", return_value={"grade": "B", "score": 70, "factors": []})
+    @patch("domain.scoring.score_domain", return_value={"grade": "B", "score": 70, "max_score": 100, "factors": []})
     @patch("domain.recon.fetch_live_headers", new_callable=AsyncMock, return_value={"headers": {}})
     @patch("domain.recon.email_security", return_value={"grade": "C"})
     @patch("domain.threat.check_urlhaus", return_value={"url_count": 0, "urls_online": 0}, new_callable=AsyncMock)
@@ -3969,7 +4060,7 @@ class TestFullDomainReport:
         assert result["reputation"]["abuseipdb"]["status"] == "pro_only"
         assert result["reputation"]["shodan"]["status"] == "pro_only"
 
-    @patch("domain.scoring.score_domain", return_value={"grade": "A", "score": 90, "factors": []})
+    @patch("domain.scoring.score_domain", return_value={"grade": "A", "score": 90, "max_score": 100, "factors": []})
     @patch("domain.recon.fetch_live_headers", new_callable=AsyncMock, return_value={"headers": {}})
     @patch("domain.recon.email_security", return_value={"grade": "A"})
     @patch("domain.threat.check_urlhaus", return_value={"url_count": 0, "urls_online": 0}, new_callable=AsyncMock)
@@ -4039,7 +4130,7 @@ class TestFullDomainReport:
         from domain.recon import full_domain_report
 
         m_headers.return_value = {"headers": {"server": "cloudflare"}}
-        m_score.return_value = {"grade": "C", "score": 55, "factors": []}
+        m_score.return_value = {"grade": "C", "score": 55, "max_score": 100, "factors": []}
         result = asyncio.run(full_domain_report("example.com", resolved_ip="5.5.5.5"))
         summary = result["summary"]
         assert "example.com" in summary
@@ -4376,7 +4467,7 @@ class TestEnumerateSubdomains:
                 return "93.184.216.34"
             if fqdn == "api.example.com":
                 return "93.184.216.35"
-            raise socket.gaierror("not found")
+            raise socket.gaierror(socket.EAI_NONAME, "not found")
 
         mock_resolve.side_effect = gethostbyname_side
         result = asyncio.run(enumerate_subdomains("example.com"))
@@ -4396,7 +4487,7 @@ class TestEnumerateSubdomains:
                 return "192.168.1.1"  # private
             if fqdn == "api.example.com":
                 return "8.8.8.8"  # public
-            raise socket.gaierror("not found")
+            raise socket.gaierror(socket.EAI_NONAME, "not found")
 
         mock_resolve.side_effect = gethostbyname_side
         result = asyncio.run(enumerate_subdomains("example.com"))
@@ -4421,7 +4512,7 @@ class TestEnumerateSubdomains:
         def gethostbyname_side(fqdn):
             if fqdn == "www.example.com":
                 return "93.184.216.34"
-            raise socket.gaierror("not found")
+            raise socket.gaierror(socket.EAI_NONAME, "not found")
 
         mock_resolve.side_effect = gethostbyname_side
         result = asyncio.run(enumerate_subdomains("example.com"))
@@ -4429,68 +4520,106 @@ class TestEnumerateSubdomains:
 
 
 class TestSubdomainWildcardDetection:
-    """Wildcard DNS (*.domain) makes every wordlist guess 'resolve'. The wordlist
-    plane then measures nothing and must be discarded, not reported as findings."""
+    """Wildcard DNS (*.domain) makes DNS brute-force meaningless — every wordlist
+    label 'resolves'. Two synthetic negative-control probes detect it, and the result
+    is tri-state because a guarded or timed-out probe proves nothing either way."""
 
-    @patch("domain.recon._fetch_crtsh", return_value=([{"name_value": "ct.example.com"}], None), new_callable=AsyncMock)
-    @patch("domain.recon.socket.gethostbyname")
-    def test_wildcard_discards_wordlist_and_flags(self, mock_resolve, mock_crtsh):
+    @pytest.mark.asyncio
+    async def test_wildcard_present_discards_wordlist_and_flags(self):
         from domain.recon import enumerate_subdomains
 
-        # Wildcard zone: EVERY name resolves, including the negative-control probe.
-        mock_resolve.return_value = "93.184.216.34"
-        result = asyncio.run(enumerate_subdomains("example.com"))
-
-        assert result["wildcard_detected"] is True
-        assert result["found_via_wordlist"] == 0, "wordlist hits are artefacts under wildcard"
-        assert result["subdomains"] == ["ct.example.com"], "only CT-log evidence survives"
-        assert result["count"] == 1
+        with patch("domain.recon._dns_call_with_timeout", return_value=("93.184.216.34", None)):
+            result = await enumerate_subdomains("example.com", crtsh_data=[])
+        assert result["wildcard_status"] == "present"
+        assert "wildcard_detected" not in result, "tri-state replaces the boolean"
+        assert result["found_via_wordlist"] == 0
         assert "wildcard_dns" in result["warnings"]
-        assert "wildcard" in result["summary"].lower()
+        assert "wildcard DNS" in result["summary"]
 
-    @patch("domain.recon._fetch_crtsh", return_value=([], None), new_callable=AsyncMock)
-    @patch("domain.recon.socket.gethostbyname")
-    def test_no_wildcard_keeps_wordlist(self, mock_resolve, mock_crtsh):
+    @pytest.mark.asyncio
+    async def test_wildcard_absent_keeps_wordlist(self):
         from domain.recon import enumerate_subdomains
 
-        def gethostbyname_side(fqdn):
-            if fqdn in ("www.example.com", "api.example.com"):
-                return "93.184.216.34"
-            raise socket.gaierror("not found")
+        def _fake(func, *args):
+            fqdn = args[0]
+            if fqdn.startswith("www."):
+                return "93.184.216.34", None
+            return None, socket.gaierror(socket.EAI_NONAME, "NXDOMAIN")
 
-        mock_resolve.side_effect = gethostbyname_side
-        result = asyncio.run(enumerate_subdomains("example.com"))
-
-        assert result["wildcard_detected"] is False
-        assert result["found_via_wordlist"] == 2
+        with patch("domain.recon._dns_call_with_timeout", side_effect=_fake):
+            result = await enumerate_subdomains("example.com", crtsh_data=[])
+        assert result["wildcard_status"] == "absent"
+        assert result["found_via_wordlist"] == 1
+        assert "www.example.com" in result["subdomains"]
         assert "wildcard_dns" not in result["warnings"]
 
-    @patch("domain.recon._fetch_crtsh", return_value=([], None), new_callable=AsyncMock)
-    @patch("domain.recon.socket.gethostbyname")
-    def test_probe_is_one_extra_synthetic_label(self, mock_resolve, mock_crtsh):
-        """Exactly one extra lookup, and it must not be a COMMON_SUBDOMAINS entry."""
+    @pytest.mark.asyncio
+    async def test_two_probes_issued_with_distinct_labels(self):
         from domain.recon import COMMON_SUBDOMAINS, enumerate_subdomains
 
-        mock_resolve.side_effect = socket.gaierror("not found")
-        asyncio.run(enumerate_subdomains("example.com"))
+        seen = []
 
-        queried = [c.args[0] for c in mock_resolve.call_args_list]
-        assert len(queried) == len(COMMON_SUBDOMAINS) + 1, "exactly one extra probe lookup"
-        probes = [q for q in queried if q.split(".")[0] not in COMMON_SUBDOMAINS]
-        assert len(probes) == 1
-        assert probes[0].endswith(".example.com")
+        def _fake(func, *args):
+            seen.append(args[0])
+            return None, socket.gaierror(socket.EAI_NONAME, "NXDOMAIN")
 
-    @patch("domain.recon._fetch_crtsh", return_value=([], None), new_callable=AsyncMock)
-    @patch("domain.recon.socket.gethostbyname")
-    def test_private_ip_catchall_is_not_wildcard(self, mock_resolve, mock_crtsh):
-        """A catch-all pointing at RFC1918 is already dropped by is_private_ip, so no
-        answer survived and it must NOT be classified as wildcard."""
+        with patch("domain.recon._dns_call_with_timeout", side_effect=_fake):
+            await enumerate_subdomains("example.com", crtsh_data=[])
+        assert len(seen) == len(COMMON_SUBDOMAINS) + 2, "exactly two extra probe lookups"
+        probes = [s for s in seen if not any(s.startswith(f"{c}.") for c in COMMON_SUBDOMAINS)]
+        assert len(probes) == 2
+        assert probes[0] != probes[1], "one cached answer must not be able to decide both probes"
+        for p in probes:
+            label = p.split(".")[0]
+            assert p.endswith(".example.com")
+            assert len(label) <= 63 and label[0].isalpha() and label.isalnum()
+
+    @pytest.mark.asyncio
+    async def test_probe_timeout_is_undetermined_not_absent(self):
+        """Fail-CLOSED: a timed-out probe must not be read as 'no wildcard'.
+        _dns_call_with_timeout returns a sentinel, so timeout and NXDOMAIN arrive
+        identically unless the error is inspected."""
+        from domain.recon import COMMON_SUBDOMAINS, enumerate_subdomains
+
+        wordlist_prefixes = tuple(f"{c}." for c in COMMON_SUBDOMAINS)
+
+        def _fake(func, *args):
+            fqdn = args[0]
+            if fqdn.startswith(wordlist_prefixes):
+                return None, socket.gaierror(socket.EAI_NONAME, "NXDOMAIN")
+            return None, TimeoutError("DNS call timed out")
+
+        with patch("domain.recon._dns_call_with_timeout", side_effect=_fake):
+            result = await enumerate_subdomains("example.com", crtsh_data=[])
+        assert result["wildcard_status"] == "undetermined"
+        assert "wildcard_undetermined" in result["warnings"]
+        assert "could not be determined" in result["summary"]
+        assert result["found_via_wordlist"] == 0, "an unverified catch-all must not publish wordlist hits"
+
+    @pytest.mark.asyncio
+    async def test_oversized_probe_fqdn_is_undetermined_not_absent(self):
+        """The 253-octet bypass: a long target made the probe locally invalid, which
+        read as 'no wildcard' and restored the fabricated-count bug."""
         from domain.recon import enumerate_subdomains
 
-        mock_resolve.return_value = "192.168.1.1"
-        result = asyncio.run(enumerate_subdomains("example.com"))
+        long_domain = ".".join(["a" * 59] * 4) + ".com"
+        assert 236 <= len(long_domain) <= 249, f"fixture must sit in the bypass window, got {len(long_domain)}"
+        with patch("domain.recon._dns_call_with_timeout", return_value=("93.184.216.34", None)) as m:
+            result = await enumerate_subdomains(long_domain, crtsh_data=[])
+        assert result["wildcard_status"] == "undetermined"
+        assert "wildcard_undetermined" in result["warnings"]
+        probed = [c.args[1] for c in m.call_args_list]
+        assert all(len(p) <= 253 for p in probed), "must not emit a name the resolver rejects locally"
 
-        assert result["wildcard_detected"] is False
+    @pytest.mark.asyncio
+    async def test_private_ip_catchall_IS_wildcard(self):
+        """An RFC1918 answer to a name that cannot exist still proves a catch-all.
+        Private-IP filtering is right for wordlist hits, wrong for the control."""
+        from domain.recon import enumerate_subdomains
+
+        with patch("domain.recon._dns_call_with_timeout", return_value=("10.0.0.1", None)):
+            result = await enumerate_subdomains("example.com", crtsh_data=[])
+        assert result["wildcard_status"] == "present"
         assert result["found_via_wordlist"] == 0
 
 
@@ -5261,7 +5390,7 @@ class TestProOnlyEnrichment:
 
     # --- full_domain_report unit tests ---
 
-    @patch("domain.scoring.score_domain", return_value={"grade": "A", "score": 90, "factors": []})
+    @patch("domain.scoring.score_domain", return_value={"grade": "A", "score": 90, "max_score": 100, "factors": []})
     @patch("domain.recon.fetch_live_headers", new_callable=AsyncMock, return_value={"headers": {}})
     @patch("domain.recon.email_security", return_value={"grade": "A"})
     @patch("domain.threat.check_urlhaus", return_value={"url_count": 0, "urls_online": 0}, new_callable=AsyncMock)
@@ -5317,7 +5446,7 @@ class TestProOnlyEnrichment:
         assert result["reputation"]["shodan"]["status"] == "pro_only"
         assert result["reputation"]["shodan"]["upgrade_url"] == "https://api.contrastcyber.com/pricing"
 
-    @patch("domain.scoring.score_domain", return_value={"grade": "A", "score": 90, "factors": []})
+    @patch("domain.scoring.score_domain", return_value={"grade": "A", "score": 90, "max_score": 100, "factors": []})
     @patch("domain.recon.fetch_live_headers", new_callable=AsyncMock, return_value={"headers": {}})
     @patch("domain.recon.email_security", return_value={"grade": "A"})
     @patch("domain.threat.check_urlhaus", return_value={"url_count": 0, "urls_online": 0}, new_callable=AsyncMock)
