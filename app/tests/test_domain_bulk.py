@@ -1337,6 +1337,7 @@ class TestResponseModelFiltering:
             "warnings",
             "found_via_wordlist",
             "found_via_crtsh",
+            "wildcard_detected",
             "crtsh_status",
             "next_calls",
         }

@@ -352,13 +352,26 @@ async def enumerate_subdomains(domain: str, crtsh_data: list | None = None, crts
             return fqdn
         return None
 
-    dns_results = await asyncio.gather(
+    # Negative-control probe, issued in the same gather (no added wall-clock): a label
+    # that cannot legitimately exist. If the zone answers it, we have wildcard DNS and
+    # every wordlist "hit" is an artefact. Per-IP filtering is deliberately NOT used —
+    # behind an anycast CDN a genuine app.<domain> shares the wildcard's address set, so
+    # comparing IPs would drop real hosts and still admit fakes under rotation. When the
+    # zone answers everything the wordlist plane measured nothing: discard it and report
+    # CT-log evidence only.
+    probe_label = f"nx{time.time_ns():x}"
+    gather_results = await asyncio.gather(
+        run_in_threadpool(_resolve_sub, probe_label),
         *[run_in_threadpool(_resolve_sub, sub) for sub in COMMON_SUBDOMAINS],
         return_exceptions=False,
     )
-    for result in dns_results:
-        if result:
-            found_wordlist.add(result)
+    wildcard_detected = gather_results[0] is not None
+    if wildcard_detected:
+        warnings.append("wildcard_dns")
+    else:
+        for result in gather_results[1:]:
+            if result:
+                found_wordlist.add(result)
 
     found_crtsh, crtsh_warnings, crtsh_status = await _crtsh_subdomains(domain, crtsh_data, fetch_error=crtsh_error)
     warnings.extend(crtsh_warnings)
@@ -380,6 +393,11 @@ async def enumerate_subdomains(domain: str, crtsh_data: list | None = None, crts
         # Be explicit in the human summary so agents reading it know the count
         # is wordlist-only, not the full picture.
         summary += f" (CT logs {crtsh_status})"
+    if wildcard_detected:
+        summary += (
+            f" — wildcard DNS (*.{domain}) detected: every name resolves, so DNS brute-force"
+            " carries no signal and was discarded; count reflects CT-log evidence only"
+        )
     if warnings:
         summary += f" [{'; '.join(warnings)}]"
 
@@ -390,6 +408,7 @@ async def enumerate_subdomains(domain: str, crtsh_data: list | None = None, crts
         "found_via_wordlist": len(found_wordlist),
         "found_via_crtsh": len(found_crtsh),
         "crtsh_status": crtsh_status,
+        "wildcard_detected": wildcard_detected,
         "warnings": warnings,
         "summary": summary,
     }

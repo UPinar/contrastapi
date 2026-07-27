@@ -1429,6 +1429,16 @@ class SubdomainsResponse(BaseSuccessResponse):
     warnings: list[str] = Field(default_factory=list)
     found_via_wordlist: int = 0
     found_via_crtsh: int = 0
+    wildcard_detected: bool = Field(
+        default=False,
+        description=(
+            "True when the zone answers a synthetic negative-control label, i.e. wildcard DNS "
+            "(*.domain) is in effect. DNS brute-force then cannot distinguish a real host from "
+            "the catch-all, so wordlist results are discarded (found_via_wordlist=0) and count "
+            "reflects certificate-transparency evidence only. Treat the real subdomain surface "
+            "as UNKNOWN, not small — and do NOT score exposure from this count."
+        ),
+    )
     crtsh_status: Literal["ok", "timeout", "rate_limited", "unavailable", "error"] = Field(
         default="ok",
         description=(

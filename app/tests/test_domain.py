@@ -2465,6 +2465,48 @@ class TestDomainScoring:
         # Domain with everything else ok should NOT be penalized for our outage
         assert result["grade"] in ("A", "B"), f"got {result['grade']} score={result['score']}/{result['max_score']}"
 
+    def test_wildcard_subdomains_excludes_factor_from_max(self):
+        """Wildcard DNS makes enumeration unmeasurable — exclude the factor from max
+        instead of penalizing 30 fabricated hits (mirrors the CT-failure branch)."""
+        from domain.scoring import score_domain
+
+        report = {
+            "ssl": {"grade": "A"},
+            "email_security": {"spf": "v=spf1 -all", "dmarc": "v=DMARC1; p=reject", "dkim_selectors": ["google"]},
+            "waf": {"waf_present": False},
+            "dns": {"ns": ["a.ns"], "mx": [{"host": "m"}], "a": ["1.2.3.4"]},
+            "whois": {"registrar": "MarkMonitor", "creation_date": "2007-01-01"},
+            "subdomains": {"count": 30, "wildcard_detected": True},
+            "certificates": {"total_certificates": 3, "certificates": []},
+        }
+        result = score_domain(report)
+        sub_factor = next(f for f in result["factors"] if f["name"] == "Subdomain Exposure")
+        assert sub_factor["max"] == 0, "wildcard must exclude the factor from max"
+        assert sub_factor["score"] == 0
+        assert "Wildcard DNS" in sub_factor["detail"]
+        assert "high exposure" not in sub_factor["detail"], "must not report a fabricated count"
+        # max_score drops from 100 to 90 (Subdomain 10pt removed)
+        assert result["max_score"] == 90
+
+    def test_no_wildcard_keeps_subdomain_threshold_ladder(self):
+        """Regression: without the flag the existing threshold ladder is unchanged."""
+        from domain.scoring import score_domain
+
+        report = {
+            "ssl": {"grade": "A"},
+            "email_security": {"spf": "v=spf1 -all", "dmarc": "v=DMARC1; p=reject", "dkim_selectors": ["google"]},
+            "waf": {"waf_present": False},
+            "dns": {"ns": ["a.ns"], "mx": [{"host": "m"}], "a": ["1.2.3.4"]},
+            "whois": {"registrar": "MarkMonitor", "creation_date": "2007-01-01"},
+            "subdomains": {"count": 30},
+            "certificates": {"total_certificates": 3, "certificates": []},
+        }
+        result = score_domain(report)
+        sub_factor = next(f for f in result["factors"] if f["name"] == "Subdomain Exposure")
+        assert sub_factor["max"] == 10
+        assert sub_factor["score"] == 4
+        assert sub_factor["detail"] == "30 subdomains (high exposure)"
+
     def test_email_dkim_unverifiable_excludes_5pt_from_max(self):
         """When dkim_status=='unverifiable', email factor max drops 25→20.
 
@@ -4384,6 +4426,72 @@ class TestEnumerateSubdomains:
         mock_resolve.side_effect = gethostbyname_side
         result = asyncio.run(enumerate_subdomains("example.com"))
         assert result["subdomains"].count("www.example.com") == 1
+
+
+class TestSubdomainWildcardDetection:
+    """Wildcard DNS (*.domain) makes every wordlist guess 'resolve'. The wordlist
+    plane then measures nothing and must be discarded, not reported as findings."""
+
+    @patch("domain.recon._fetch_crtsh", return_value=([{"name_value": "ct.example.com"}], None), new_callable=AsyncMock)
+    @patch("domain.recon.socket.gethostbyname")
+    def test_wildcard_discards_wordlist_and_flags(self, mock_resolve, mock_crtsh):
+        from domain.recon import enumerate_subdomains
+
+        # Wildcard zone: EVERY name resolves, including the negative-control probe.
+        mock_resolve.return_value = "93.184.216.34"
+        result = asyncio.run(enumerate_subdomains("example.com"))
+
+        assert result["wildcard_detected"] is True
+        assert result["found_via_wordlist"] == 0, "wordlist hits are artefacts under wildcard"
+        assert result["subdomains"] == ["ct.example.com"], "only CT-log evidence survives"
+        assert result["count"] == 1
+        assert "wildcard_dns" in result["warnings"]
+        assert "wildcard" in result["summary"].lower()
+
+    @patch("domain.recon._fetch_crtsh", return_value=([], None), new_callable=AsyncMock)
+    @patch("domain.recon.socket.gethostbyname")
+    def test_no_wildcard_keeps_wordlist(self, mock_resolve, mock_crtsh):
+        from domain.recon import enumerate_subdomains
+
+        def gethostbyname_side(fqdn):
+            if fqdn in ("www.example.com", "api.example.com"):
+                return "93.184.216.34"
+            raise socket.gaierror("not found")
+
+        mock_resolve.side_effect = gethostbyname_side
+        result = asyncio.run(enumerate_subdomains("example.com"))
+
+        assert result["wildcard_detected"] is False
+        assert result["found_via_wordlist"] == 2
+        assert "wildcard_dns" not in result["warnings"]
+
+    @patch("domain.recon._fetch_crtsh", return_value=([], None), new_callable=AsyncMock)
+    @patch("domain.recon.socket.gethostbyname")
+    def test_probe_is_one_extra_synthetic_label(self, mock_resolve, mock_crtsh):
+        """Exactly one extra lookup, and it must not be a COMMON_SUBDOMAINS entry."""
+        from domain.recon import COMMON_SUBDOMAINS, enumerate_subdomains
+
+        mock_resolve.side_effect = socket.gaierror("not found")
+        asyncio.run(enumerate_subdomains("example.com"))
+
+        queried = [c.args[0] for c in mock_resolve.call_args_list]
+        assert len(queried) == len(COMMON_SUBDOMAINS) + 1, "exactly one extra probe lookup"
+        probes = [q for q in queried if q.split(".")[0] not in COMMON_SUBDOMAINS]
+        assert len(probes) == 1
+        assert probes[0].endswith(".example.com")
+
+    @patch("domain.recon._fetch_crtsh", return_value=([], None), new_callable=AsyncMock)
+    @patch("domain.recon.socket.gethostbyname")
+    def test_private_ip_catchall_is_not_wildcard(self, mock_resolve, mock_crtsh):
+        """A catch-all pointing at RFC1918 is already dropped by is_private_ip, so no
+        answer survived and it must NOT be classified as wildcard."""
+        from domain.recon import enumerate_subdomains
+
+        mock_resolve.return_value = "192.168.1.1"
+        result = asyncio.run(enumerate_subdomains("example.com"))
+
+        assert result["wildcard_detected"] is False
+        assert result["found_via_wordlist"] == 0
 
 
 # =========== whois_lookup success path tests ===========

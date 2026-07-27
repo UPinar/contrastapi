@@ -109,23 +109,36 @@ def score_domain(report: dict) -> dict:
         }
     )
 
-    # Subdomains exposure (max 10)
+    # Subdomains exposure (max 10 when enumeration is trustworthy, 0 under wildcard DNS)
     subs = report.get("subdomains", {})
     sub_count = subs.get("count", 0)
-    if sub_count <= 5:
-        sub_score = 10
-        sub_detail = "Minimal subdomain exposure"
-    elif sub_count <= 15:
-        sub_score = 7
-        sub_detail = f"{sub_count} subdomains (moderate exposure)"
-    elif sub_count <= 30:
-        sub_score = 4
-        sub_detail = f"{sub_count} subdomains (high exposure)"
+    if subs.get("wildcard_detected"):
+        # Wildcard DNS answers every name, so the count measures our wordlist, not the
+        # target. Same rationale as the CT branch below: exclude from max rather than
+        # penalize the domain for something we could not measure.
+        factors.append(
+            {
+                "name": "Subdomain Exposure",
+                "score": 0,
+                "max": 0,
+                "detail": "Wildcard DNS (*.domain) — enumeration unreliable, exposure unknown",
+            }
+        )
     else:
-        sub_score = 2
-        sub_detail = f"{sub_count} subdomains (very high exposure)"
-    score += sub_score
-    factors.append({"name": "Subdomain Exposure", "score": sub_score, "max": 10, "detail": sub_detail})
+        if sub_count <= 5:
+            sub_score = 10
+            sub_detail = "Minimal subdomain exposure"
+        elif sub_count <= 15:
+            sub_score = 7
+            sub_detail = f"{sub_count} subdomains (moderate exposure)"
+        elif sub_count <= 30:
+            sub_score = 4
+            sub_detail = f"{sub_count} subdomains (high exposure)"
+        else:
+            sub_score = 2
+            sub_detail = f"{sub_count} subdomains (very high exposure)"
+        score += sub_score
+        factors.append({"name": "Subdomain Exposure", "score": sub_score, "max": 10, "detail": sub_detail})
 
     # Certificate transparency (max 10 when available, 0 when crt.sh fetch failed)
     certs = report.get("certificates", {})
@@ -207,11 +220,12 @@ def score_domain(report: dict) -> dict:
         factors.append({"name": "IP Reputation", "score": 0, "max": 0, "detail": "Reputation data unavailable"})
 
     # Dynamic max from positive factor caps (penalty factors have max=0, excluded).
-    # Falls to 90 when CT fetch failed; grade is computed from percentage so the
-    # domain isn't penalized for an upstream outage. The `or 100` fallback is
+    # Falls to 90 when CT fetch failed or wildcard DNS made subdomain enumeration
+    # unmeasurable (80 when both); grade is computed from percentage so the domain
+    # isn't penalized for a blind spot on our side. The `or 100` fallback is
     # defensive — only triggers if every positive-cap factor flips to max=0
-    # simultaneously (currently impossible: SSL/Email/WAF/DNS/WHOIS/Subdomains
-    # always emit max>0, only CT has a zero-max path).
+    # simultaneously (currently impossible: SSL/Email/WAF/DNS/WHOIS always emit
+    # max>0; CT and Subdomain Exposure are the two zero-max paths).
     max_score = sum(f["max"] for f in factors if f["max"] > 0) or 100
     pct = round(score * 100 / max_score)
     grade = _score_to_grade(pct)
