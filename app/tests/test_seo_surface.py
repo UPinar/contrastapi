@@ -36,6 +36,15 @@ def test_indexable_pages_declare_canonical():
         assert f'rel="canonical" href="{canonical}"' in r.text, f"{path} missing canonical {canonical}"
 
 
+def test_indexable_pages_declare_meta_description():
+    for path in CANONICAL_PAGES:
+        body = client.get(path).text
+        marker = '<meta name="description" content="'
+        assert marker in body, f"{path} declares no meta description"
+        content = body.split(marker, 1)[1].split('"', 1)[0]
+        assert len(content) >= 50, f"{path} meta description is too thin to be a search snippet"
+
+
 def test_trailing_slash_redirects_are_permanent():
     no_redirect = TestClient(app, follow_redirects=False)
     for page in SLASH_REDIRECT_PAGES:
@@ -50,7 +59,12 @@ def test_sitemap_lists_only_indexable_html_pages():
 
     assert locs, "sitemap has no <loc> entries"
     # .txt/.json are agent-discovery surfaces (robots.txt, /.well-known) — crawlers
-    # fetch but never index them, so advertising them only inflates GSC noise.
+    # fetch but never index them, so a sitemap entry can never resolve to a result.
     for loc in locs:
         assert not loc.endswith((".txt", ".json")), f"sitemap advertises non-indexable {loc}"
         assert loc in CANONICAL_PAGES.values(), f"sitemap lists {loc}, which declares no canonical"
+    # And the reverse: an indexable page missing from the sitemap is left to be
+    # discovered by chance.
+    assert set(locs) == set(CANONICAL_PAGES.values()), (
+        f"sitemap is missing {sorted(set(CANONICAL_PAGES.values()) - set(locs))}"
+    )
