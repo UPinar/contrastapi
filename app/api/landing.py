@@ -31,7 +31,7 @@ from db import (
     hash_client_ip,
 )
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import HTMLResponse, PlainTextResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 
 try:
     from mcp.types import LATEST_PROTOCOL_VERSION
@@ -201,3 +201,17 @@ def terms_page(request: Request):
 @router.get("/privacy", response_class=HTMLResponse, include_in_schema=False)
 def privacy_page(request: Request):
     return templates.TemplateResponse(request, "privacy.html")
+
+
+def _slash_redirect(target: str):
+    """301 to `target`. Starlette's built-in redirect_slashes answers 307
+    (temporary), which search engines re-crawl instead of consolidating."""
+
+    def redirect():
+        return RedirectResponse(target, status_code=301)
+
+    return redirect
+
+
+for _page in ("quickstart", "mcp-setup", "pricing", "terms", "privacy"):
+    router.add_api_route(f"/{_page}/", _slash_redirect(f"/{_page}"), methods=["GET"], include_in_schema=False)
