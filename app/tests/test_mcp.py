@@ -650,6 +650,16 @@ def test_mcp_get_sse_accept_no_trailing_slash_returns_405(mcp_client):
     assert r.headers.get("allow") == "POST"
 
 
+def test_mcp_get_combined_accept_returns_405(mcp_client):
+    """The standard MCP client Accept header (`application/json, text/event-stream`)
+    also hits the 405 branch on GET: the SSE offer in the combined header is what
+    matters, not an exact match. Pins the substring dispatch in the middleware."""
+    r = mcp_client.get("/mcp/", headers={"Accept": "application/json, text/event-stream"})
+    assert r.status_code == 405
+    assert r.headers.get("allow") == "POST"
+    assert r.headers.get("vary") == "Accept"
+
+
 def test_mcp_get_json_accept_still_returns_health(mcp_client):
     """Scope guard: the 405 applies ONLY to the SSE branch. Discovery clients
     sending Accept: application/json keep the buffered health JSON unchanged."""

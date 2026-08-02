@@ -37,6 +37,7 @@ from webhooks import router as webhooks_router
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logging.getLogger("httpx").setLevel(logging.WARNING)  # suppress HTTP request logs (API keys in URLs)
+logging.getLogger("httpx2").setLevel(logging.WARNING)  # same, for the httpx2 fork pulled in by mcp>=2
 logger = logging.getLogger("contrastapi")
 
 
