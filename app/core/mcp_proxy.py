@@ -508,19 +508,28 @@ class _MCPIPForwardMiddleware:
             if scope.get("method") in ("GET", "HEAD"):
                 accept = headers_map.get(b"accept", b"").decode("latin-1").lower()
                 if "text/event-stream" in accept:
-                    # SSE-expecting client (undici, EventSource): send retry directive only.
-                    # Sets reconnect window to 15s (default 3s), cutting per-agent GET surge ~80%.
-                    sse_body = b"retry: 15000\n\n"
+                    # MCP Streamable HTTP: a server that offers no server-initiated SSE
+                    # stream on GET MUST answer 405 so the client stops polling. The
+                    # previous 200 + `retry: 15000` frame was a finite body, which clients
+                    # read as a dropped stream — they ignored the retry hint and reconnected
+                    # in a tight loop.
+                    sse_body = _json.dumps(
+                        {
+                            "error": "method_not_allowed",
+                            "detail": "This MCP server is POST-only (streamable-http); no server-initiated SSE stream is offered on GET.",
+                            "docs": "https://api.contrastcyber.com/mcp-setup",
+                        }
+                    ).encode()
                     await send(
                         {
                             "type": "http.response.start",
-                            "status": 200,
+                            "status": 405,
                             "headers": [
-                                [b"content-type", b"text/event-stream"],
+                                [b"content-type", b"application/json"],
+                                [b"allow", b"POST"],
                                 [b"cache-control", b"no-cache"],
                                 [b"content-length", str(len(sse_body)).encode()],
                                 [b"vary", b"Accept"],
-                                [b"x-mcp-keepalive-interval", b"15"],
                             ],
                         }
                     )

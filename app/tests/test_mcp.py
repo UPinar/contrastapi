@@ -626,27 +626,38 @@ def test_mcp_get_no_trailing_slash_returns_health(mcp_client):
     assert data["tools"] == MCP_TOOL_COUNT
 
 
-def test_mcp_get_sse_accept_returns_retry_frame(mcp_client):
-    """GET /mcp/ with Accept: text/event-stream returns an SSE priming frame
-    with retry: 15000 — tells spec-compliant SSE clients (undici, EventSource)
-    to wait 15s between reconnect attempts instead of the default 3s.
-    Cuts undici-driven GET /mcp/ surge ~80%."""
+def test_mcp_get_sse_accept_returns_405(mcp_client):
+    """GET /mcp/ with Accept: text/event-stream MUST return 405 Method Not Allowed.
+
+    MCP Streamable HTTP requires a server offering no server-initiated SSE stream
+    on GET to answer 405 so compliant clients stop polling. The former
+    200 + `retry: 15000` frame was a finite body that clients read as a dropped
+    stream: they ignored the retry hint and reconnected in a tight loop."""
     r = mcp_client.get("/mcp/", headers={"Accept": "text/event-stream"})
-    assert r.status_code == 200
-    assert r.headers["content-type"] == "text/event-stream"
-    assert r.headers.get("cache-control") == "no-cache"
-    assert r.headers.get("x-mcp-keepalive-interval") == "15"
+    assert r.status_code == 405
+    assert r.headers.get("allow") == "POST"
     assert r.headers.get("vary") == "Accept"
-    assert r.text == "retry: 15000\n\n"
+    assert r.headers.get("content-type") == "application/json"
+    assert "retry:" not in r.text
+    assert "x-mcp-keepalive-interval" not in r.headers
 
 
-def test_mcp_get_sse_accept_no_trailing_slash(mcp_client):
-    """GET /mcp (no trailing slash) with SSE Accept also returns the retry frame —
+def test_mcp_get_sse_accept_no_trailing_slash_returns_405(mcp_client):
+    """GET /mcp (no trailing slash) with SSE Accept also 405s —
     FastAPI 307-redirects to /mcp/, TestClient follows."""
     r = mcp_client.get("/mcp", headers={"Accept": "text/event-stream"})
+    assert r.status_code == 405
+    assert r.headers.get("allow") == "POST"
+
+
+def test_mcp_get_json_accept_still_returns_health(mcp_client):
+    """Scope guard: the 405 applies ONLY to the SSE branch. Discovery clients
+    sending Accept: application/json keep the buffered health JSON unchanged."""
+    from config import MCP_TOOL_COUNT
+
+    r = mcp_client.get("/mcp/", headers={"Accept": "application/json"})
     assert r.status_code == 200
-    assert r.headers["content-type"] == "text/event-stream"
-    assert "retry: 15000" in r.text
+    assert r.json()["tools"] == MCP_TOOL_COUNT
 
 
 # --- /mcp.json discovery manifest (root-level alias) ---
