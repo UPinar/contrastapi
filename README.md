@@ -1,5 +1,7 @@
 # ContrastAPI — 55 Security Tools + 7 MCP Resources for AI Agents
 
+[![MCP Queen operational grade](https://mcpqueen.com/badge/com.contrastcyber/api.svg)](https://mcpqueen.com/s/com.contrastcyber/api)
+
 <p align="center">
   <img src="app/static/banner.png" alt="ContrastAPI Banner" width="100%">
 </p>
