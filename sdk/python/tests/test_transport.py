@@ -151,7 +151,7 @@ def test_429_raises_rate_limit_error_with_retry_after():
                     "code": "rate_limit_exceeded",
                     "message": "Hourly limit reached",
                     "retry_after_seconds": 60,
-                    "upgrade_url": "https://contrastcyber.com/pricing",
+                    "upgrade_url": "https://api.contrastcyber.com/pricing",
                 },
             },
         )
@@ -160,7 +160,7 @@ def test_429_raises_rate_limit_error_with_retry_after():
         client.cve.lookup("CVE-2021-44228")
     err = exc_info.value
     assert err.retry_after_seconds == 60
-    assert err.upgrade_url == "https://contrastcyber.com/pricing"
+    assert err.upgrade_url == "https://api.contrastcyber.com/pricing"
 
 
 @respx.mock

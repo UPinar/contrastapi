@@ -17,7 +17,7 @@ configSchema:
   properties:
     apiKey:
       type: string
-      description: "ContrastAPI key (cc_...). Optional — omit it to use the Free tier (30 requests/hour). Get one at https://contrastcyber.com/pricing"
+      description: "ContrastAPI key (cc_...). Optional — omit it to use the Free tier (30 requests/hour). Get one at https://api.contrastcyber.com/pricing"
 
 exampleConfig:
   apiKey: cc_REPLACE_WITH_YOUR_KEY

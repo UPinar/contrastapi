@@ -146,7 +146,7 @@ All bulk tools share **one fixed input cap of 50 ids per call** (Pydantic `max_l
 | Search/listing tools | 1 | DB query |
 | `password_check` | 1 | HIBP k-anonymity |
 
-Free tier: 30 tokens/hour (no API key). Pro: 500/hr ($15/mo at https://contrastcyber.com/pricing).
+Free tier: 30 tokens/hour (no API key). Pro: 500/hr ($15/mo at https://api.contrastcyber.com/pricing).
 
 ### Web Intelligence chains (v1.25.0)
 

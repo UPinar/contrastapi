@@ -5,7 +5,6 @@
 </p>
 
 [![MCP](https://img.shields.io/badge/MCP-55_tools-purple.svg)](https://modelcontextprotocol.io)
-[![smithery badge](https://smithery.ai/badge/contrastcyber/contrastapi)](https://smithery.ai/servers/contrastcyber/contrastapi)
 [![contrastapi MCP server](https://glama.ai/mcp/servers/UPinar/contrastapi/badges/score.svg)](https://glama.ai/mcp/servers/UPinar/contrastapi)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 

@@ -400,7 +400,7 @@ def _http_error_to_app_exception(resp: httpx.Response) -> AppException:
     """
     status = resp.status_code
     detail = _extract_upstream_message(resp)
-    upgrade = "https://contrastcyber.com/pricing"
+    upgrade = "https://api.contrastcyber.com/pricing"
     if status == 404:
         return NotFoundException(detail)
     if status == 429:

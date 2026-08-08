@@ -6,7 +6,6 @@
 
 [![MCP](https://img.shields.io/badge/MCP-55_tools-purple.svg)](https://modelcontextprotocol.io)
 [![Install in Claude Desktop](https://img.shields.io/badge/Claude_Desktop-Install_Extension-d97757.svg)](https://github.com/UPinar/contrastapi/releases/latest)
-[![smithery badge](https://smithery.ai/badge/contrastcyber/contrastapi)](https://smithery.ai/servers/contrastcyber/contrastapi)
 [![contrastapi MCP server](https://glama.ai/mcp/servers/UPinar/contrastapi/badges/score.svg)](https://glama.ai/mcp/servers/UPinar/contrastapi)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 

@@ -73,7 +73,7 @@ Pass an API key as the first positional argument or as `api_key=`:
 client = ContrastAPI("cc_<your-key>")            # 500 req/hr (Pro tier)
 ```
 
-Get a key at [contrastcyber.com/pricing](https://contrastcyber.com/pricing).
+Get a key at [api.contrastcyber.com/pricing](https://api.contrastcyber.com/pricing).
 
 ## Exception model
 
@@ -101,7 +101,7 @@ try:
 except RateLimitError as exc:
     print(exc.message)                  # "Hourly limit reached"
     print(exc.retry_after_seconds)      # 60 (capped at 3600)
-    print(exc.upgrade_url)              # "https://contrastcyber.com/pricing"
+    print(exc.upgrade_url)              # "https://api.contrastcyber.com/pricing"
     print(exc.extras)                   # back-compat top-level fields (tier, limit, ...)
 ```
 
@@ -156,7 +156,7 @@ The transport hard-caps response bodies at 10 MB, sends a `User-Agent: contrasta
 ## Links
 
 - API docs: https://api.contrastcyber.com/docs
-- Pricing & API key: https://contrastcyber.com/pricing
+- Pricing & API key: https://api.contrastcyber.com/pricing
 - Source: https://github.com/UPinar/contrastapi
 - Issues: https://github.com/UPinar/contrastapi/issues
 
