@@ -155,7 +155,7 @@ The transport hard-caps response bodies at 10 MB, sends a `User-Agent: contrasta
 
 ## Links
 
-- API docs: https://api.contrastcyber.com/docs
+- API docs: https://github.com/UPinar/contrastapi/blob/main/docs/API_Documentation.md
 - Pricing & API key: https://api.contrastcyber.com/pricing
 - Source: https://github.com/UPinar/contrastapi
 - Issues: https://github.com/UPinar/contrastapi/issues

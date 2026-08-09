@@ -34,7 +34,7 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://contrastcyber.com"
-Documentation = "https://api.contrastcyber.com/docs"
+Documentation = "https://github.com/UPinar/contrastapi/blob/main/docs/API_Documentation.md"
 Repository = "https://github.com/UPinar/contrastapi"
 Issues = "https://github.com/UPinar/contrastapi/issues"
 

@@ -99,7 +99,7 @@ def test_400_raises_invalid_argument_error_with_envelope():
                 "error": {
                     "code": "invalid_argument",
                     "message": "Invalid CVE ID format",
-                    "docs_url": "https://api.contrastcyber.com/docs",
+                    "docs_url": "https://github.com/UPinar/contrastapi/blob/main/docs/API_Documentation.md",
                 },
             },
         )
@@ -110,7 +110,7 @@ def test_400_raises_invalid_argument_error_with_envelope():
     assert err.status_code == 400
     assert err.code == "invalid_argument"
     assert err.message == "Invalid CVE ID format"
-    assert err.docs_url == "https://api.contrastcyber.com/docs"
+    assert err.docs_url == "https://github.com/UPinar/contrastapi/blob/main/docs/API_Documentation.md"
 
 
 @respx.mock
