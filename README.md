@@ -1,5 +1,7 @@
 # ContrastAPI — 55 Security Tools + 7 MCP Resources for AI Agents
 
+[![MCP Toplist](https://mcptoplist.com/badge/com.contrastcyber%2Fapi.svg)](https://mcptoplist.com/server/com.contrastcyber%2Fapi)
+
 <p align="center">
   <img src="app/static/banner.png" alt="ContrastAPI Banner" width="100%">
 </p>
