@@ -15,7 +15,7 @@ cvss==3.6
 mcp==2.0.0
 mcp-types==2.0.0
 pyjwt==2.13.0
-pydantic-settings==2.14.2
+pydantic-settings==2.15.0
 PyYAML>=6.0.3
 tldextract>=5.3.2
 beautifulsoup4>=4.15.0
