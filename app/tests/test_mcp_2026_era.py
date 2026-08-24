@@ -158,3 +158,104 @@ class TestEraGate:
         from mcp_types.version import HANDSHAKE_PROTOCOL_VERSIONS
 
         assert frozenset(HANDSHAKE_PROTOCOL_VERSIONS) == _HANDSHAKE_PROTOCOL_VERSIONS
+
+
+class TestSubscriptionsListenBoundary:
+    """We implement no subscriptions, so the SDK's SSE branch stays shut."""
+
+    def test_listen_is_refused_before_the_sse_branch(self, mcp_client):
+        """`subscriptions/listen` is the only method the SDK routes to SSE.
+
+        The gate answers it with the SDK's own -32601 envelope rather than
+        letting a stream open that nothing would ever feed.
+        """
+        r = _modern(mcp_client, "subscriptions/listen", 11)
+        assert r.status_code == 404
+        assert r.json()["error"]["code"] == -32601
+        assert r.json()["id"] == 11
+
+    def test_listen_with_a_notification_filter_does_not_hold_the_connection(self, mcp_client):
+        """The availability guard: with a filter the SDK commits an endless stream.
+
+        It is keyless and unmetered, and its ping cadence defeats a proxy
+        idle-read timeout, so a few hundred of these exhaust the worker slots.
+        A hang is the defect being guarded, so the call runs on a daemon thread
+        and the deadline is the assertion.
+        """
+        import threading
+
+        outcome = {}
+
+        def _post():
+            try:
+                outcome["response"] = mcp_client.post(
+                    "/mcp/",
+                    headers={**MODERN_HEADERS, "mcp-method": "subscriptions/listen"},
+                    json={
+                        "jsonrpc": "2.0",
+                        "id": 12,
+                        "method": "subscriptions/listen",
+                        "params": {"_meta": META, "notifications": {"toolsListChanged": True}},
+                    },
+                )
+            except Exception as exc:
+                outcome["error"] = exc
+
+        caller = threading.Thread(target=_post, daemon=True)
+        caller.start()
+        caller.join(timeout=5)
+        assert not caller.is_alive(), "listen held the connection open — the SSE branch is reachable"
+        assert "error" not in outcome, f"listen raised: {outcome.get('error')!r}"
+        assert outcome["response"].json()["error"]["code"] == -32601
+
+    def test_gate_defers_to_the_real_receive_after_the_body_replay(self):
+        """Pins the ASGI contract whose breach produced the bare-500 outage.
+
+        Once the buffered body has been replayed, the closure must hand the real
+        channel back. A synthetic `http.disconnect` made any handler watching for
+        a disconnect cancel before answering, and uvicorn turned that into a
+        21-byte `Internal Server Error`. This guard drives the middleware
+        directly, so it keeps working even though no method reaches the SDK's
+        SSE branch any more.
+        """
+        import asyncio
+        import contextvars
+
+        from core.mcp_proxy import _MCPIPForwardMiddleware
+
+        body = b'{"jsonrpc":"2.0","id":13,"method":"resources/list","params":{}}'
+        seen = []
+
+        async def downstream(scope, receive, send):
+            seen.append(await receive())
+            seen.append(await receive())
+            await send({"type": "http.response.start", "status": 200, "headers": []})
+            await send({"type": "http.response.body", "body": b"{}"})
+
+        reads = {"count": 0}
+
+        async def real_receive():
+            reads["count"] += 1
+            if reads["count"] == 1:
+                return {"type": "http.request", "body": body, "more_body": False}
+            return {"type": "probe.sentinel"}
+
+        async def send(message):
+            return None
+
+        middleware = _MCPIPForwardMiddleware(
+            downstream,
+            contextvars.ContextVar("probe_client_ip", default=None),
+            lambda value: value or "203.0.113.9",
+            contextvars.ContextVar("probe_user_tier", default=None),
+        )
+        scope = {
+            "type": "http",
+            "method": "POST",
+            "path": "/",
+            "headers": [(b"content-type", b"application/json"), (b"x-real-ip", b"203.0.113.9")],
+        }
+        asyncio.run(middleware(scope, real_receive, send))
+
+        assert seen[0]["body"] == body
+        assert seen[1] == {"type": "probe.sentinel"}

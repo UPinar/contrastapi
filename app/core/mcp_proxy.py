@@ -782,6 +782,40 @@ class _MCPIPForwardMiddleware:
                             _method,
                             type(_tg_exc).__name__,
                         )
+                # `subscriptions/listen` is the one method the SDK routes to its
+                # SSE branch even under json_response, and that branch holds the
+                # connection open, ping-feeding it so a proxy idle-read timeout
+                # cannot reap it. We implement no subscriptions, and the token
+                # gate below only charges tools/call, so an unauthenticated
+                # caller would pin a worker slot for free. Answer with the SDK's
+                # own -32601 envelope before it ever opens the stream.
+                # Notifications (no id, or a null id) fall through: the SDK
+                # rejects them as INVALID_REQUEST without taking the SSE branch.
+                if (
+                    _method == "subscriptions/listen"
+                    and isinstance(_rpc, dict)
+                    and "id" in _rpc
+                    and _rpc["id"] is not None
+                ):
+                    _listen_body = _json.dumps(
+                        {
+                            "jsonrpc": "2.0",
+                            "id": _rpc["id"],
+                            "error": {"code": -32601, "message": "Method not found", "data": _method},
+                        }
+                    ).encode()
+                    await send(
+                        {
+                            "type": "http.response.start",
+                            "status": 404,
+                            "headers": [
+                                [b"content-type", b"application/json"],
+                                [b"content-length", str(len(_listen_body)).encode()],
+                            ],
+                        }
+                    )
+                    await send({"type": "http.response.body", "body": _listen_body})
+                    return
                 if _method == "tools/call":
                     _gate_req = _MCPStarletteRequest(scope)
                     # Channel attribution: prefer the initialize-sniffed label,
@@ -878,14 +912,21 @@ class _MCPIPForwardMiddleware:
                 # (finally block below) so status + duration_ms can be attached.
                 _tool_log = _extract_tool_call(full_body)
                 _tool_t0 = datetime.now(UTC)
-                # Replay receive: yield cached body once, then disconnect
+                # Replay receive: yield the cached body once, then defer to the
+                # real channel.
                 _sent = {"done": False}
+                _orig_receive = receive
 
                 async def _replay_receive():
                     if not _sent["done"]:
                         _sent["done"] = True
                         return {"type": "http.request", "body": full_body, "more_body": False}
-                    return {"type": "http.disconnect"}
+                    # Buffered body already replayed; hand the real channel back
+                    # so a disconnect watcher blocks until the client actually
+                    # goes away. A synthetic http.disconnect cancelled every
+                    # SSE-branch handler before it answered, which uvicorn
+                    # turned into a bare 500.
+                    return await _orig_receive()
 
                 receive = _replay_receive
             # Validate IP before storing — reject spoofed/malformed values
