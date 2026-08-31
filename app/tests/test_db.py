@@ -871,3 +871,39 @@ class TestCacheKeyVersioning:
         payload, age = result
         assert payload == {"x": 1}
         assert age >= 0
+
+
+def test_cwe_count_query_uses_index(monkeypatch):
+    """cwe_lookup counts CVEs per weakness; unindexed this is a full catalog scan.
+
+    Plans the SQL count_cves_for_cwe actually issues (captured via trace), not a
+    copy of it, so the guard follows the query if it is ever rewritten.
+    """
+    import contextlib
+
+    import db
+
+    captured: list[str] = []
+    real_get_cve_db = db.get_cve_db
+
+    @contextlib.contextmanager
+    def traced_get_cve_db():
+        with real_get_cve_db() as con:
+            con.set_trace_callback(captured.append)
+            try:
+                yield con
+            finally:
+                con.set_trace_callback(None)
+
+    monkeypatch.setattr(db, "get_cve_db", traced_get_cve_db)
+    db.count_cves_for_cwe("CWE-79")
+
+    selects = [sql for sql in captured if sql.lstrip().upper().startswith("SELECT")]
+    assert selects, f"count_cves_for_cwe issued no SELECT; captured: {captured}"
+    sql = selects[-1]
+
+    with real_get_cve_db() as con:
+        plan = con.execute("EXPLAIN QUERY PLAN " + sql, ("CWE-79",) * sql.count("?")).fetchall()
+    detail = " ".join(str(row[-1]) for row in plan)
+    assert "SCAN cves" not in detail, f"cwe_id count fell back to a full scan: {detail}"
+    assert "idx_cves_cwe" in detail, f"expected idx_cves_cwe in plan, got: {detail}"

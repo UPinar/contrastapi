@@ -211,6 +211,7 @@ def init_cve_db():
         con.execute("CREATE INDEX IF NOT EXISTS idx_cves_published ON cves(published)")
         con.execute("CREATE INDEX IF NOT EXISTS idx_cves_epss ON cves(epss_score)")
         con.execute("CREATE INDEX IF NOT EXISTS idx_cves_kev ON cves(in_kev)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_cves_cwe ON cves(cwe_id)")
         # Migration: add cwes JSON-array column if missing (existing installs); backfill from cwe_id.
         cve_cols = {row[1] for row in con.execute("PRAGMA table_info(cves)")}
         if "cwes" not in cve_cols:
