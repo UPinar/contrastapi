@@ -10,7 +10,7 @@ idna==3.18
 msgpack==1.2.1
 pytest==9.1.1
 phonenumbers==9.0.36
-cryptography==50.0.0
+cryptography==50.0.1
 cvss==3.6
 mcp==2.0.0
 mcp-types==2.0.0
