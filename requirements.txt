@@ -12,7 +12,7 @@ pytest==9.1.1
 phonenumbers==9.0.36
 cryptography==50.0.0
 cvss==3.6
-mcp==2.0.0
+mcp==2.1.1
 mcp-types==2.0.0
 pyjwt==2.13.0
 pydantic-settings==2.15.0
