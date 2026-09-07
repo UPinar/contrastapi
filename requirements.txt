@@ -7,7 +7,7 @@ python-multipart==0.0.32
 dnspython==2.8.0
 httpx==0.28.1
 idna==3.19
-msgpack==1.2.1
+msgpack==1.2.2
 pytest==9.1.1
 phonenumbers==9.0.36
 cryptography==50.0.1
