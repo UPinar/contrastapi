@@ -13,7 +13,7 @@ phonenumbers==9.0.38
 cryptography==50.0.1
 cvss==3.6
 mcp==2.1.1
-mcp-types==2.1.1
+mcp-types==2.2.0
 pyjwt==2.13.0
 pydantic-settings==2.15.0
 PyYAML>=6.0.3
