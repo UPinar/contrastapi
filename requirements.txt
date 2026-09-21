@@ -14,7 +14,7 @@ cryptography==50.0.1
 cvss==3.6
 mcp==2.1.1
 mcp-types==2.1.1
-pyjwt==2.13.0
+pyjwt==2.14.0
 pydantic-settings==2.15.0
 PyYAML>=6.0.3
 tldextract>=5.3.2
