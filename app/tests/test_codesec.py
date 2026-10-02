@@ -1280,6 +1280,50 @@ class TestDependencyRangeMatching:
         assert len(findings) == 20
         assert "CVE-2099-RNGWIDE" not in findings
 
+    def test_nvd_exact_version_cpe_does_not_evict_true_match(self):
+        # NVD CPEs that name one version (no range fields) used to be stored open-ended:
+        # 21 newer "1.2 only" CVEs matched 2.14.1 and filled the 20-finding cap.
+        from cve.sync import _parse_nvd_cve
+        from db import upsert_cve
+
+        for i in range(21):
+            item = {
+                "cve": {
+                    "id": f"CVE-2099-NVDX{i:02d}",
+                    "published": f"2099-03-{i + 1:02d}T00:00:00Z",
+                    "configurations": [
+                        {"nodes": [{"cpeMatch": [{"criteria": "cpe:2.3:a:apache:nvd-exact:1.2:*:*:*:*:*:*:*"}]}]}
+                    ],
+                }
+            }
+            upsert_cve(_parse_nvd_cve(item))
+        self._seed(
+            "CVE-2099-NVDTRUE",
+            [{"vendor": "apache", "product": "nvd-exact", "version_start": "2.0", "version_end": "2.15.0"}],
+        )
+        assert set(self._findings("nvd-exact", "2.14.1")) == {"CVE-2099-NVDTRUE"}
+        assert len(self._findings("nvd-exact", "1.2")) == 20
+
+    @pytest.mark.parametrize(
+        ("version", "flagged"),
+        [("1.2", True), ("1.2.0", True), ("1.2.0.0", True), ("1.2.1", False), ("1.1.9", False)],
+    )
+    def test_exact_version_ignores_trailing_zero_components(self, version, flagged):
+        # A CPE names "1.2"; the same release written "1.2.0" must still match it.
+        self._seed(
+            "CVE-2099-RNGZERO",
+            [{"vendor": "apache", "product": "rng-zero", "version_start": "1.2", "version_end_including": "1.2"}],
+        )
+        assert ("CVE-2099-RNGZERO" in self._findings("rng-zero", version)) is flagged
+
+    @pytest.mark.parametrize(("version", "flagged"), [("2", True), ("3.0.0", False)])
+    def test_range_ends_ignore_trailing_zero_components(self, version, flagged):
+        self._seed(
+            "CVE-2099-RNGZERO2",
+            [{"vendor": "apache", "product": "rng-zero2", "version_start": "2.0.0", "version_end": "3"}],
+        )
+        assert ("CVE-2099-RNGZERO2" in self._findings("rng-zero2", version)) is flagged
+
 
 class TestOpenApiCodesec:
     def test_operation_ids_present(self):

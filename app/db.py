@@ -1006,6 +1006,20 @@ async def asave_cached_ip(ip: str, result: dict) -> None:
 def upsert_cve(cve_data: dict) -> None:
     now = datetime.now(UTC).isoformat()
     with get_cve_db() as con:
+        # NVD sends no products for a CVE still awaiting analysis: keep what MITRE/GHSA/OSV
+        # stored instead of wiping it. A rejected CVE still clears its products.
+        kept_products_json = None
+        if not cve_data.get("affected_products") and cve_data.get("vulnerability_status") != "Rejected":
+            row = con.execute("SELECT affected_products FROM cves WHERE cve_id = ?", (cve_data["cve_id"],)).fetchone()
+            if row and row[0]:
+                try:
+                    stored = json.loads(row[0])
+                except (json.JSONDecodeError, TypeError):
+                    stored = None
+                if isinstance(stored, list) and any(
+                    isinstance(p, dict) and (p.get("vendor") or p.get("product")) for p in stored
+                ):
+                    kept_products_json = row[0]
         con.execute(
             """
             INSERT OR REPLACE INTO cves
@@ -1030,7 +1044,7 @@ def upsert_cve(cve_data: dict) -> None:
                 cve_data.get("epss_percentile"),
                 cve_data.get("in_kev", 0),
                 cve_data.get("kev_date_added"),
-                json.dumps(cve_data.get("affected_products", [])),
+                kept_products_json or json.dumps(cve_data.get("affected_products", [])),
                 json.dumps(cve_data.get("refs", [])),
                 cve_data.get("summary"),
                 cve_data.get("vulnerability_status"),
@@ -1043,6 +1057,8 @@ def upsert_cve(cve_data: dict) -> None:
                 now,
             ),
         )
+        if kept_products_json is not None:
+            return  # the kept products' cve_products rows stay as they are
         con.execute("DELETE FROM cve_products WHERE cve_id = ?", (cve_data["cve_id"],))
         for p in cve_data.get("affected_products", []):
             vendor = p.get("vendor")
@@ -1234,13 +1250,16 @@ async def asearch_cves(**kwargs) -> tuple[list[dict], int]:
 
 def _parse_version(v: str) -> tuple:
     """Parse version string into numeric tuple for correct comparison.
-    '2.14.1' → (2, 14, 1), handles non-numeric parts gracefully."""
+    '2.14.1' → (2, 14, 1, 0, 0, 0, 0, 0), handles non-numeric parts gracefully.
+    Short versions are padded with zeros, so '1.2.0' and '1.2' compare equal while a
+    non-numeric part ('0-beta') still raises TypeError against a number in its slot."""
     parts = []
     for p in v.split("."):
         try:
             parts.append(int(p))
         except ValueError:
             parts.append(p)
+    parts.extend([0] * (8 - len(parts)))
     return tuple(parts)
 
 
@@ -1441,6 +1460,7 @@ def search_cves_by_products_bulk(products: list[str], limit_per_product: int = 2
           SELECT DISTINCT cve_id, LOWER(product) AS matched
           FROM cve_products
           WHERE LOWER(product) IN ({placeholders})
+            AND (vulnerable = 1 OR vulnerable IS NULL)
         ),
         ranked AS (
           SELECT c.*, h.matched,

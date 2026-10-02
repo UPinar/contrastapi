@@ -249,14 +249,16 @@ def _parse_nvd_cve(item: dict) -> dict:
                         continue
                     ver_start = match.get("versionStartIncluding")
                     ver_end = match.get("versionEndExcluding") or match.get("versionEndIncluding")
-                    # Fallback: extract version from CPE string (field 6)
+                    ver_end_including = None
+                    # Fallback: a CPE naming one version (field 6) affects that version only
                     if not ver_start and not ver_end and len(parts) >= 6:
                         cpe_ver = parts[5]
                         if cpe_ver and cpe_ver not in ("*", "-"):
                             ver_start = cpe_ver
                             ver_end = None
+                            ver_end_including = cpe_ver
                     vulnerable = bool(match.get("vulnerable", True))
-                    key = (vendor, product, ver_start, ver_end, vulnerable)
+                    key = (vendor, product, ver_start, ver_end, ver_end_including, vulnerable)
                     if key in seen:
                         continue
                     seen.add(key)
@@ -266,6 +268,7 @@ def _parse_nvd_cve(item: dict) -> dict:
                             "product": product,
                             "version_start": ver_start,
                             "version_end": ver_end,
+                            "version_end_including": ver_end_including,
                             "cpe_part": cpe_part,
                             "vulnerable": vulnerable,
                         }
@@ -601,7 +604,7 @@ def _parse_mitre_cve(item: dict) -> dict:
                     }
                 )
         elif cpes:
-            # CPE fallback: extract version from field index 5 (0-based)
+            # CPE fallback: the version at field index 5 (0-based) is the only one affected
             for cpe in cpes[:20]:
                 if not isinstance(cpe, str):
                     continue
@@ -611,7 +614,7 @@ def _parse_mitre_cve(item: dict) -> dict:
                     if cpe_ver and cpe_ver not in ("*", "-"):
                         ver_start = cpe_ver
                         ver_end = None
-                        key = (vendor, product, ver_start, ver_end, None)
+                        key = (vendor, product, ver_start, ver_end, cpe_ver)
                         if key in seen:
                             continue
                         seen.add(key)
@@ -621,6 +624,7 @@ def _parse_mitre_cve(item: dict) -> dict:
                                 "product": product or None,
                                 "version_start": ver_start,
                                 "version_end": ver_end,
+                                "version_end_including": cpe_ver,
                             }
                         )
 
@@ -754,7 +758,7 @@ def _parse_mitre_cve(item: dict) -> dict:
                         if cpe_ver and cpe_ver not in ("*", "-"):
                             ver_start = cpe_ver
                             ver_end = None
-                            key = (vendor, product, ver_start, ver_end, None)
+                            key = (vendor, product, ver_start, ver_end, cpe_ver)
                             if key in seen:
                                 continue
                             seen.add(key)
@@ -764,6 +768,7 @@ def _parse_mitre_cve(item: dict) -> dict:
                                     "product": product or None,
                                     "version_start": ver_start,
                                     "version_end": ver_end,
+                                    "version_end_including": cpe_ver,
                                 }
                             )
         for r in (adp.get("references", []) or [])[:20]:

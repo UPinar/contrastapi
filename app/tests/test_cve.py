@@ -1566,6 +1566,38 @@ class TestParseNvdCve:
         result = _parse_nvd_cve(item)
         assert len(result["refs"]) == 20
 
+    def test_cpe_version_without_range_names_one_version(self):
+        # A CPE carrying a version and no range fields affects that version only. The
+        # open-ended "1.2" next to it must survive the dedupe, not be folded into it.
+        from cve.sync import _parse_nvd_cve
+
+        item = {
+            "cve": {
+                "id": "CVE-2024-5555",
+                "configurations": [
+                    {
+                        "nodes": [
+                            {
+                                "cpeMatch": [
+                                    {"criteria": "cpe:2.3:a:apache:log4j:1.2:*:*:*:*:*:*:*", "vulnerable": True},
+                                    {
+                                        "criteria": "cpe:2.3:a:apache:log4j:*:*:*:*:*:*:*:*",
+                                        "versionStartIncluding": "1.2",
+                                        "vulnerable": True,
+                                    },
+                                ]
+                            }
+                        ]
+                    }
+                ],
+            }
+        }
+        products = _parse_nvd_cve(item)["affected_products"]
+        assert [(p["version_start"], p["version_end"], p["version_end_including"]) for p in products] == [
+            ("1.2", None, "1.2"),
+            ("1.2", None, None),
+        ]
+
 
 class TestSyncNvd:
     @patch("cve.sync._nvd_request", new_callable=AsyncMock)
@@ -2212,6 +2244,95 @@ class TestCveProductsTable:
         with get_cve_db() as con:
             rows = con.execute("SELECT product FROM cve_products WHERE cve_id = ?", ("CVE-2024-PROD2",)).fetchall()
         assert [r[0] for r in rows] == ["new"]
+
+    @staticmethod
+    def _product_rows(cve_id):
+        from db import get_cve_db
+
+        with get_cve_db() as con:
+            rows = con.execute("SELECT product FROM cve_products WHERE cve_id = ? ORDER BY product", (cve_id,))
+            return [r[0] for r in rows.fetchall()]
+
+    @pytest.mark.parametrize("status", ["Awaiting Analysis", "Undergoing Analysis", "Received", "Deferred", None])
+    @pytest.mark.parametrize(
+        "incoming",
+        [pytest.param({"affected_products": []}, id="empty-list"), pytest.param({}, id="key-absent")],
+    )
+    def test_upsert_cve_without_products_keeps_existing(self, incoming, status):
+        # NVD re-touches a CVE it has not analysed (or sends no status) with no CPEs; the
+        # GHSA/MITRE products already stored must survive in the JSON and in cve_products.
+        from db import get_cve, upsert_cve, upsert_cve_if_absent
+
+        ghsa = [{"vendor": "python", "product": "PyJWT", "version_end": "2.14.0"}]
+        upsert_cve_if_absent({"cve_id": "CVE-2099-KEEP1", "affected_products": ghsa})
+        nvd = {"cve_id": "CVE-2099-KEEP1", "description": "nvd text", **incoming}
+        if status is not None:
+            nvd["vulnerability_status"] = status
+        upsert_cve(nvd)
+        row = get_cve("CVE-2099-KEEP1")
+        assert row["description"] == "nvd text"
+        assert row["affected_products"] == ghsa
+        assert self._product_rows("CVE-2099-KEEP1") == ["PyJWT"]
+
+    def test_upsert_cve_with_products_replaces_filled_ones(self):
+        from db import get_cve, upsert_cve, upsert_cve_if_absent
+
+        upsert_cve_if_absent(
+            {"cve_id": "CVE-2099-KEEP2", "affected_products": [{"vendor": "python", "product": "PyJWT"}]}
+        )
+        nvd = [{"vendor": "jpadilla", "product": "pyjwt", "version_end": "2.14.0", "cpe_part": "a", "vulnerable": True}]
+        upsert_cve({"cve_id": "CVE-2099-KEEP2", "vulnerability_status": "Analyzed", "affected_products": nvd})
+        assert get_cve("CVE-2099-KEEP2")["affected_products"] == nvd
+        assert self._product_rows("CVE-2099-KEEP2") == ["pyjwt"]
+
+    def test_upsert_cve_rejected_clears_products(self):
+        from db import get_cve, upsert_cve, upsert_cve_if_absent
+
+        upsert_cve_if_absent(
+            {"cve_id": "CVE-2099-KEEP3", "affected_products": [{"vendor": "python", "product": "PyJWT"}]}
+        )
+        upsert_cve({"cve_id": "CVE-2099-KEEP3", "vulnerability_status": "Rejected", "affected_products": []})
+        assert get_cve("CVE-2099-KEEP3")["affected_products"] == []
+        assert self._product_rows("CVE-2099-KEEP3") == []
+
+    @pytest.mark.parametrize("stored", ["not json", '{"vendor": "x"}'])
+    def test_upsert_cve_overwrites_unreadable_stored_products(self, stored):
+        from db import get_cve, get_cve_db, upsert_cve
+
+        with get_cve_db() as con:
+            con.execute("INSERT INTO cves (cve_id, affected_products) VALUES (?, ?)", ("CVE-2099-KEEP4", stored))
+        upsert_cve({"cve_id": "CVE-2099-KEEP4", "affected_products": []})
+        assert get_cve("CVE-2099-KEEP4")["affected_products"] == []
+
+    @pytest.mark.parametrize("stored", ['[{"vendor": null, "product": null, "version_start": "1.0"}]', '[1, "x"]'])
+    def test_upsert_cve_does_not_keep_products_without_names(self, stored):
+        # A stored list with no usable entry must not lock the CVE: the empty NVD touch
+        # clears it, and a later MITRE/GHSA/OSV fill can still land.
+        from db import get_cve, get_cve_db, upsert_cve, upsert_cve_if_absent
+
+        with get_cve_db() as con:
+            con.execute("INSERT INTO cves (cve_id, affected_products) VALUES (?, ?)", ("CVE-2099-KEEP6", stored))
+        upsert_cve({"cve_id": "CVE-2099-KEEP6", "vulnerability_status": "Deferred", "affected_products": []})
+        assert get_cve("CVE-2099-KEEP6")["affected_products"] == []
+        upsert_cve_if_absent(
+            {"cve_id": "CVE-2099-KEEP6", "affected_products": [{"vendor": "python", "product": "PyJWT"}]}
+        )
+        assert self._product_rows("CVE-2099-KEEP6") == ["PyJWT"]
+
+    def test_first_filled_products_survive_nvd_touch_and_later_fill(self):
+        # Pins first-wins among MITRE/GHSA/OSV: an empty NVD touch in between must not
+        # hand the slot to whichever source writes next.
+        from db import get_cve, upsert_cve, upsert_cve_if_absent
+
+        upsert_cve_if_absent(
+            {"cve_id": "CVE-2099-KEEP5", "affected_products": [{"vendor": "python", "product": "PyJWT"}]}
+        )
+        upsert_cve({"cve_id": "CVE-2099-KEEP5", "vulnerability_status": "Awaiting Analysis", "affected_products": []})
+        upsert_cve_if_absent(
+            {"cve_id": "CVE-2099-KEEP5", "affected_products": [{"vendor": "jpadilla", "product": "pyjwt"}]}
+        )
+        assert get_cve("CVE-2099-KEEP5")["affected_products"] == [{"vendor": "python", "product": "PyJWT"}]
+        assert self._product_rows("CVE-2099-KEEP5") == ["PyJWT"]
 
     def test_upsert_cve_if_absent_populates_on_insert(self):
         from db import get_cve_db, upsert_cve_if_absent
@@ -3210,10 +3331,9 @@ class TestMitreRangeTextVersions:
         assert ends == ["1.0", "2.0"]
 
     @pytest.mark.parametrize("cpe_side", ["cna", "adp"])
-    def test_cpe_fallback_still_dedupes_against_bare_version(self, cpe_side):
-        # GREEN-stays regression guard: the dedup key grew a fifth element, the CPE keys must follow it.
-        from cve.sync import _parse_mitre_cve
-
+    def test_cpe_exact_version_kept_apart_from_bare_version(self, cpe_side):
+        # A CPE names exactly one version (start == inclusive end); a bare version is
+        # still stored open-ended, so the two bounds differ and both entries stay.
         by_version = {"vendor": "jpadilla", "product": "pyjwt", "versions": [{"version": "1.0", "status": "affected"}]}
         by_cpe = {"vendor": "jpadilla", "product": "pyjwt", "cpes": ["cpe:2.3:a:jpadilla:pyjwt:1.0:*:*:*:*:*:*:*"]}
         cna_aff, adp_aff = (by_cpe, by_version) if cpe_side == "cna" else (by_version, by_cpe)
@@ -3221,8 +3341,52 @@ class TestMitreRangeTextVersions:
             "cveMetadata": {"cveId": "CVE-2026-90101", "state": "PUBLISHED"},
             "containers": {"cna": {"affected": [cna_aff]}, "adp": [{"affected": [adp_aff]}]},
         }
-        products = _parse_mitre_cve(record)["affected_products"]
-        assert [(p["version_start"], p["version_end"]) for p in products] == [("1.0", None)]
+        bounds = _mitre_bounds(record)
+        assert len(bounds) == 2
+        assert set(bounds) == {("1.0", None, None), ("1.0", None, "1.0")}
+
+    @pytest.mark.parametrize("container", ["cna", "adp"])
+    def test_cpe_fallback_names_one_version(self, container):
+        from cve.sync import _parse_mitre_cve
+
+        affected = [{"vendor": "acme", "product": "widget", "cpes": ["cpe:2.3:a:acme:widget:1.5:*:*:*:*:*:*:*"]}]
+        if container == "cna":
+            containers = {"cna": {"affected": affected}}
+        else:
+            containers = {"cna": {}, "adp": [{"affected": affected}]}
+        record = {"cveMetadata": {"cveId": "CVE-2026-90103", "state": "PUBLISHED"}, "containers": containers}
+        assert _parse_mitre_cve(record)["affected_products"] == [
+            {
+                "vendor": "acme",
+                "product": "widget",
+                "version_start": "1.5",
+                "version_end": None,
+                "version_end_including": "1.5",
+            }
+        ]
+
+    def test_same_cpe_in_cna_and_adp_dedupes(self):
+        def affected():
+            return {"vendor": "jpadilla", "product": "pyjwt", "cpes": ["cpe:2.3:a:jpadilla:pyjwt:1.0:*:*:*:*:*:*:*"]}
+
+        record = {
+            "cveMetadata": {"cveId": "CVE-2026-90104", "state": "PUBLISHED"},
+            "containers": {"cna": {"affected": [affected()]}, "adp": [{"affected": [affected()]}]},
+        }
+        assert _mitre_bounds(record) == [("1.0", None, "1.0")]
+
+    @pytest.mark.parametrize("cpe_side", ["cna", "adp"])
+    def test_cpe_exact_version_dedupes_against_exact_range_text(self, cpe_side):
+        # "= 1.0" range text and a CPE naming 1.0 carry the same bounds, so their dedupe
+        # keys must have the same shape and collapse into one entry.
+        by_text = {"vendor": "jpadilla", "product": "pyjwt", "versions": [{"version": "= 1.0", "status": "affected"}]}
+        by_cpe = {"vendor": "jpadilla", "product": "pyjwt", "cpes": ["cpe:2.3:a:jpadilla:pyjwt:1.0:*:*:*:*:*:*:*"]}
+        cna_aff, adp_aff = (by_cpe, by_text) if cpe_side == "cna" else (by_text, by_cpe)
+        record = {
+            "cveMetadata": {"cveId": "CVE-2026-90105", "state": "PUBLISHED"},
+            "containers": {"cna": {"affected": [cna_aff]}, "adp": [{"affected": [adp_aff]}]},
+        }
+        assert _mitre_bounds(record) == [("1.0", None, "1.0")]
 
     @pytest.mark.parametrize("container", ["cna", "adp"])
     @pytest.mark.parametrize(
@@ -8027,6 +8191,39 @@ class TestProductSearchMatching:
         assert [r["cve_id"] for r in result.get("bulk-sa", [])] == ["CVE-2099-BSHARED"]
         assert [r["cve_id"] for r in result.get("bulk-sb", [])] == ["CVE-2099-BSHARED"]
 
+    def test_bulk_skips_platform_only_rows(self):
+        # NVD lists the platform a vulnerable product runs on with vulnerable=0. 61 newer
+        # platform-only CVEs used to take the whole over-fetch window (20 * 3); rows from
+        # before the vulnerable column existed (NULL) still count as vulnerable.
+        from db import get_cve_db, search_cves_by_products_bulk, upsert_cve
+
+        for i in range(61):
+            upsert_cve(
+                {
+                    "cve_id": f"CVE-2099-BPLAT{i:02d}",
+                    "published": f"2099-06-{i % 28 + 1:02d}T{i // 28:02d}:00:00Z",
+                    "affected_products": [{"vendor": "linux", "product": "bulk-plat", "vulnerable": False}],
+                }
+            )
+        upsert_cve(
+            {
+                "cve_id": "CVE-2099-BPLATV",
+                "published": "2099-01-02T00:00:00Z",
+                "affected_products": [{"vendor": "linux", "product": "bulk-plat", "vulnerable": True}],
+            }
+        )
+        upsert_cve(
+            {
+                "cve_id": "CVE-2099-BPLATN",
+                "published": "2099-01-01T00:00:00Z",
+                "affected_products": [{"vendor": "linux", "product": "bulk-plat"}],
+            }
+        )
+        with get_cve_db() as con:
+            con.execute("UPDATE cve_products SET vulnerable = NULL WHERE cve_id = ?", ("CVE-2099-BPLATN",))
+        rows = search_cves_by_products_bulk(["bulk-plat"], limit_per_product=20).get("bulk-plat", [])
+        assert [r["cve_id"] for r in rows] == ["CVE-2099-BPLATV", "CVE-2099-BPLATN"]
+
     @pytest.mark.parametrize(("version", "found"), [("10.5.0", True), ("10.5.1", False)])
     def test_like_search_honours_inclusive_end(self, version, found):
         from db import search_cves_by_product, upsert_cve
@@ -8048,3 +8245,20 @@ class TestProductSearchMatching:
         )
         ids = [c["cve_id"] for c in search_cves_by_product("like-incl", version)]
         assert ("CVE-2099-LIKE1" in ids) is found
+
+    @pytest.mark.parametrize(
+        ("left", "right"),
+        [("1.2.0", "1.2"), ("1.0.0", "1"), ("0.0", "0"), ("2.0.0.0", "2.0")],
+    )
+    def test_parse_version_drops_trailing_zero_components(self, left, right):
+        from db import _parse_version
+
+        assert _parse_version(left) == _parse_version(right)
+
+    def test_parse_version_keeps_order_and_prerelease_uncomparable(self):
+        from db import _parse_version
+
+        assert _parse_version("1.10") > _parse_version("1.9.9")
+        assert _parse_version("1.2.1") > _parse_version("1.2")
+        with pytest.raises(TypeError):
+            _parse_version("2.0.0") > _parse_version("2.0.0-beta.1")
