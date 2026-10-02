@@ -1387,10 +1387,13 @@ def search_cves_by_product(product: str, version: str | None = None, limit: int 
                     continue
                 vs = prod.get("version_start")
                 ve = prod.get("version_end")
+                vei = prod.get("version_end_including")
                 try:
                     if vs and parsed_ver < _parse_version(vs):
                         continue
                     if ve and parsed_ver >= _parse_version(ve):
+                        continue
+                    if vei and parsed_ver > _parse_version(vei):
                         continue
                 except TypeError:
                     continue  # incomparable version formats
@@ -1422,8 +1425,10 @@ def search_cves_by_products_bulk(products: list[str], limit_per_product: int = 2
     idx_products_product_lower), not LIKE substring match. Callers that
     need substring matching must use search_cves_by_product.
 
-    Over-fetches limit_per_product * 3 per product so callers can apply
-    additional filtering (e.g. version ranges) without losing results.
+    Over-fetches limit_per_product * 3 distinct CVEs per product so callers can
+    apply additional filtering (e.g. version ranges) without losing results.
+    Ranking runs over distinct (cve_id, product) pairs, not cve_products rows: one
+    CVE with many rows for the same product must not use up the other CVEs' slots.
     """
     products_lower = list({_normalize_product(p).strip().lower() for p in products if p and p.strip()})
     if not products_lower:
@@ -1432,15 +1437,19 @@ def search_cves_by_products_bulk(products: list[str], limit_per_product: int = 2
         raise ValueError(f"Too many products for bulk lookup: {len(products_lower)} (max 500)")
     placeholders = ",".join(["?"] * len(products_lower))
     sql = f"""
-        WITH ranked AS (
-          SELECT c.*, LOWER(p.product) AS matched,
+        WITH product_hits AS (
+          SELECT DISTINCT cve_id, LOWER(product) AS matched
+          FROM cve_products
+          WHERE LOWER(product) IN ({placeholders})
+        ),
+        ranked AS (
+          SELECT c.*, h.matched,
                  ROW_NUMBER() OVER (
-                   PARTITION BY LOWER(p.product)
+                   PARTITION BY h.matched
                    ORDER BY c.published DESC
                  ) AS rn
-          FROM cves c
-          JOIN cve_products p ON c.cve_id = p.cve_id
-          WHERE LOWER(p.product) IN ({placeholders})
+          FROM product_hits h
+          JOIN cves c ON c.cve_id = h.cve_id
         )
         SELECT * FROM ranked WHERE rn <= ?
     """

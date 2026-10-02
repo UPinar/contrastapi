@@ -2,6 +2,7 @@
 
 from unittest.mock import AsyncMock, patch
 
+import pytest
 from fastapi.testclient import TestClient
 from main import app
 
@@ -380,3 +381,76 @@ class TestVulnsRoute:
         data = r.json()
         assert data["total_cves"] == 1, f"alias collision: log4j CVE dropped — {data}"
         assert data["vulnerabilities"][0]["cves"][0]["cve_id"] == "CVE-2021-44228"
+
+
+class TestVulnsRangeMatching:
+    """domain_vulns honours the inclusive end and the exact version, and matches the
+    product exactly (not by substring)."""
+
+    @staticmethod
+    def _total_cves(mock_validate, mock_page, mock_search, mock_detect, version, products):
+        mock_validate.return_value = ("range.com", "1.2.3.4")
+        mock_page.return_value = {"headers": {}, "html": "", "status_code": 200}
+        mock_detect.return_value = {"technologies": [{"name": "rngtech", "version": version}]}
+        mock_search.return_value = {
+            "rngtech": [
+                {
+                    "cve_id": "CVE-2099-RNGD1",
+                    "severity": "HIGH",
+                    "cvss_v3": 7.5,
+                    "epss_score": 0.1,
+                    "in_kev": False,
+                    "affected_products": products,
+                }
+            ]
+        }
+        r = client.get("/v1/domain/range.com/vulns")
+        assert r.status_code == 200
+        return r.json()["total_cves"]
+
+    @pytest.mark.parametrize(("version", "expected"), [("10.5.0", 1), ("10.5.1", 0)])
+    @patch("domain.tech.detect_technologies")
+    @patch("db.search_cves_by_products_bulk")
+    @patch("domain.routes.fetch_live_page", new_callable=AsyncMock)
+    @patch("domain.routes._validate_domain_input")
+    def test_inclusive_end(self, mock_validate, mock_page, mock_search, mock_detect, version, expected):
+        products = [{"product": "rngtech", "version_start": "10.2.0", "version_end_including": "10.5.0"}]
+        total = self._total_cves(mock_validate, mock_page, mock_search, mock_detect, version, products)
+        assert total == expected
+
+    @pytest.mark.parametrize(("version", "expected"), [("2.12.0", 0), ("2.13.0", 1), ("2.14.0", 0)])
+    @patch("domain.tech.detect_technologies")
+    @patch("db.search_cves_by_products_bulk")
+    @patch("domain.routes.fetch_live_page", new_callable=AsyncMock)
+    @patch("domain.routes._validate_domain_input")
+    def test_exact_version(self, mock_validate, mock_page, mock_search, mock_detect, version, expected):
+        products = [{"product": "rngtech", "version_start": "2.13.0", "version_end_including": "2.13.0"}]
+        total = self._total_cves(mock_validate, mock_page, mock_search, mock_detect, version, products)
+        assert total == expected
+
+    @patch("domain.tech.detect_technologies")
+    @patch("db.search_cves_by_products_bulk")
+    @patch("domain.routes.fetch_live_page", new_callable=AsyncMock)
+    @patch("domain.routes._validate_domain_input")
+    def test_product_match_is_exact_not_substring(self, mock_validate, mock_page, mock_search, mock_detect):
+        products = [
+            {"product": "rngtech", "version_start": "5.0", "version_end": "6.0"},
+            {"product": "rngtech-plugin", "version_start": "0.1", "version_end": "1.5"},
+        ]
+        total = self._total_cves(mock_validate, mock_page, mock_search, mock_detect, "1.0", products)
+        assert total == 0
+
+    @patch("domain.tech.detect_technologies")
+    @patch("db.search_cves_by_products_bulk")
+    @patch("domain.routes.fetch_live_page", new_callable=AsyncMock)
+    @patch("domain.routes._validate_domain_input")
+    def test_later_range_matches_after_excluded_and_uncomparable_ends(
+        self, mock_validate, mock_page, mock_search, mock_detect
+    ):
+        products = [
+            {"product": "rngtech", "version_end_including": "1.5"},
+            {"product": "rngtech", "version_end_including": "2.0.0-beta.1"},
+            {"product": "rngtech", "version_start": "1.9", "version_end": "2.3"},
+        ]
+        total = self._total_cves(mock_validate, mock_page, mock_search, mock_detect, "2.0.0", products)
+        assert total == 1

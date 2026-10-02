@@ -7938,3 +7938,113 @@ class TestGhsaDeltaCheckpointSelfPin:
         assert mock_upsert.call_count == 1
         mock_record.assert_called_once_with("CVE-2026-45106", "ghsa", advisories[0]["html_url"])
         assert recorded["count"] == 1
+
+
+class TestProductSearchMatching:
+    """search_cves_by_products_bulk over-fetches DISTINCT CVEs (not product rows);
+    search_cves_by_product honours the inclusive end."""
+
+    def test_bulk_over_fetch_counts_distinct_cves_not_product_rows(self):
+        from db import search_cves_by_products_bulk, upsert_cve
+
+        upsert_cve(
+            {
+                "cve_id": "CVE-2099-BWIDE",
+                "published": "2099-12-01T00:00:00Z",
+                "affected_products": [
+                    {"vendor": "python", "product": "bulk-wide", "version_start": f"1.{i}", "version_end": f"1.{i}.9"}
+                    for i in range(70)
+                ],
+            }
+        )
+        for i in range(30):
+            upsert_cve(
+                {
+                    "cve_id": f"CVE-2099-BW{i:02d}",
+                    "published": f"2099-01-{i + 1:02d}T00:00:00Z",
+                    "affected_products": [{"vendor": "python", "product": "bulk-wide"}],
+                }
+            )
+        rows = search_cves_by_products_bulk(["bulk-wide"], limit_per_product=20)["bulk-wide"]
+        assert {r["cve_id"] for r in rows} == {"CVE-2099-BWIDE"} | {f"CVE-2099-BW{i:02d}" for i in range(30)}
+        assert len(rows) == 31
+
+    def test_bulk_over_fetch_keeps_newest_distinct_cves(self):
+        from db import search_cves_by_products_bulk, upsert_cve
+
+        # IDs run opposite to publish time, so ranking by cve_id instead of
+        # published would pick a different 60 and a different order.
+        for i in range(65):
+            upsert_cve(
+                {
+                    "cve_id": f"CVE-2099-BCAP{64 - i:02d}",
+                    "published": f"2099-01-01T{i // 60:02d}:{i % 60:02d}:00Z",
+                    "affected_products": [
+                        {"vendor": "python", "product": "bulk-cap", "version_start": "1.0"},
+                        {"vendor": "python", "product": "bulk-cap", "version_start": "2.0"},
+                    ],
+                }
+            )
+        rows = search_cves_by_products_bulk(["bulk-cap"], limit_per_product=20)["bulk-cap"]
+        assert [r["cve_id"] for r in rows] == [f"CVE-2099-BCAP{n:02d}" for n in range(60)]
+
+    def test_bulk_ranks_each_product_separately(self):
+        from db import search_cves_by_products_bulk, upsert_cve
+
+        for i in range(60):
+            upsert_cve(
+                {
+                    "cve_id": f"CVE-2099-BPA{i:02d}",
+                    "published": f"2099-06-{i % 28 + 1:02d}T{i // 28:02d}:00:00Z",
+                    "affected_products": [{"vendor": "python", "product": "bulk-pa"}],
+                }
+            )
+        upsert_cve(
+            {
+                "cve_id": "CVE-2099-BPB",
+                "published": "2099-01-01T00:00:00Z",
+                "affected_products": [{"vendor": "python", "product": "bulk-pb"}],
+            }
+        )
+        result = search_cves_by_products_bulk(["bulk-pa", "bulk-pb"], limit_per_product=20)
+        assert [r["cve_id"] for r in result.get("bulk-pb", [])] == ["CVE-2099-BPB"]
+        assert len(result["bulk-pa"]) == 60
+
+    def test_bulk_lists_cve_under_every_queried_product(self):
+        from db import search_cves_by_products_bulk, upsert_cve
+
+        upsert_cve(
+            {
+                "cve_id": "CVE-2099-BSHARED",
+                "published": "2099-01-01T00:00:00Z",
+                "affected_products": [
+                    {"vendor": "python", "product": "bulk-sa"},
+                    {"vendor": "python", "product": "bulk-sb"},
+                ],
+            }
+        )
+        result = search_cves_by_products_bulk(["bulk-sa", "bulk-sb"], limit_per_product=20)
+        assert [r["cve_id"] for r in result.get("bulk-sa", [])] == ["CVE-2099-BSHARED"]
+        assert [r["cve_id"] for r in result.get("bulk-sb", [])] == ["CVE-2099-BSHARED"]
+
+    @pytest.mark.parametrize(("version", "found"), [("10.5.0", True), ("10.5.1", False)])
+    def test_like_search_honours_inclusive_end(self, version, found):
+        from db import search_cves_by_product, upsert_cve
+
+        upsert_cve(
+            {
+                "cve_id": "CVE-2099-LIKE1",
+                "published": "2099-01-01T00:00:00Z",
+                "affected_products": [
+                    {
+                        "vendor": "nodejs",
+                        "product": "like-incl",
+                        "version_start": "10.2.0",
+                        "version_end": None,
+                        "version_end_including": "10.5.0",
+                    }
+                ],
+            }
+        )
+        ids = [c["cve_id"] for c in search_cves_by_product("like-incl", version)]
+        assert ("CVE-2099-LIKE1" in ids) is found

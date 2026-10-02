@@ -2752,13 +2752,16 @@ async def domain_vulns(
             if parsed_ver:
                 matched = False
                 for prod in cve.get("affected_products", []):
-                    if key not in (prod.get("product") or "").lower():
+                    if (prod.get("product") or "").lower() != key:
                         continue
                     vs, ve = prod.get("version_start"), prod.get("version_end")
+                    vei = prod.get("version_end_including")
                     try:
                         if vs and parsed_ver < parse_version(vs):
                             continue
                         if ve and parsed_ver >= parse_version(ve):
+                            continue
+                        if vei and parsed_ver > parse_version(vei):
                             continue
                     except TypeError:
                         continue

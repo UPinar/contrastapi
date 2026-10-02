@@ -3,6 +3,7 @@
 import re
 from unittest.mock import MagicMock, patch
 
+import pytest
 from auth import AuthCtx
 from codesec.headers import MAX_HEADER_VALUE_DEFAULT, check_headers
 from codesec.injection import detect_injection
@@ -1133,6 +1134,151 @@ class TestDependenciesRoute:
         assert any(f["cve_id"] == "CVE-2021-44228" for f in findings), (
             f"Maven artifactId 'log4j-core' should alias to 'log4j' and find CVE-2021-44228, got findings: {findings}"
         )
+
+
+class TestDependencyRangeMatching:
+    """GHSA/MITRE ranges in check_dependencies: the inclusive end and the exact version
+    are honoured, the product match is exact (not substring), and neither over-matching
+    newer advisories nor one CVE with many product rows pushes a true match out."""
+
+    @staticmethod
+    def _seed(cve_id, products, published="2099-01-01T00:00:00Z"):
+        from db import upsert_cve
+
+        upsert_cve(
+            {
+                "cve_id": cve_id,
+                "description": "range matching test",
+                "severity": "HIGH",
+                "published": published,
+                "affected_products": products,
+            }
+        )
+
+    @staticmethod
+    def _findings(name, version):
+        r = client.post("/v1/check/dependencies", json={"packages": [{"name": name, "version": version}]})
+        assert r.status_code == 200
+        return {f["cve_id"]: f for f in r.json()["findings"]}
+
+    @pytest.mark.parametrize(("version", "flagged"), [("2.13.0", True), ("2.14.0", False)])
+    def test_ghsa_shaped_range_reports_patched_version(self, version, flagged):
+        # GHSA "<= 2.13.0" with first_patched_version 2.14.0, stored as Batch 1 does.
+        self._seed(
+            "CVE-2099-RNG01",
+            [
+                {
+                    "vendor": "python",
+                    "product": "PyJWT",
+                    "version_start": None,
+                    "version_end": "2.14.0",
+                    "version_end_including": "2.13.0",
+                    "ecosystem": "pip",
+                }
+            ],
+        )
+        findings = self._findings("pyjwt", version)
+        assert ("CVE-2099-RNG01" in findings) is flagged
+        if flagged:
+            assert findings["CVE-2099-RNG01"]["fixed_in"] == "2.14.0"
+
+    @pytest.mark.parametrize(("version", "flagged"), [("10.5.0", True), ("10.5.1", False)])
+    def test_inclusive_end_without_patched_version(self, version, flagged):
+        self._seed(
+            "CVE-2099-RNG02",
+            [
+                {
+                    "vendor": "nodejs",
+                    "product": "rng-incl",
+                    "version_start": "10.2.0",
+                    "version_end": None,
+                    "version_end_including": "10.5.0",
+                }
+            ],
+        )
+        findings = self._findings("rng-incl", version)
+        assert ("CVE-2099-RNG02" in findings) is flagged
+        if flagged:
+            assert "fixed_in" not in findings["CVE-2099-RNG02"]
+
+    @pytest.mark.parametrize(("version", "flagged"), [("2.12.0", False), ("2.13.0", True), ("2.14.0", False)])
+    def test_exact_version_matches_only_itself(self, version, flagged):
+        # "= 2.13.0" with no patched version → version_start == version_end_including.
+        self._seed(
+            "CVE-2099-RNG03",
+            [
+                {
+                    "vendor": "python",
+                    "product": "rng-exact",
+                    "version_start": "2.13.0",
+                    "version_end": None,
+                    "version_end_including": "2.13.0",
+                }
+            ],
+        )
+        assert ("CVE-2099-RNG03" in self._findings("rng-exact", version)) is flagged
+
+    def test_product_match_is_exact_not_substring(self):
+        # Fetched via its "rng-req" row, but only the "rng-req-toolbelt" entry covers
+        # 1.0 — the old substring check matched it and reported the wrong package's fix.
+        self._seed(
+            "CVE-2099-RNG04",
+            [
+                {"vendor": "python", "product": "rng-req", "version_start": "5.0", "version_end": "6.0"},
+                {"vendor": "python", "product": "rng-req-toolbelt", "version_start": "0.1", "version_end": "1.5"},
+            ],
+        )
+        assert "CVE-2099-RNG04" not in self._findings("rng-req", "1.0")
+
+    def test_over_matching_newer_advisories_do_not_evict_true_match(self):
+        # 20 newer advisories bounded only by "<= 1.0" fill the 20-finding cap when the
+        # inclusive end is ignored; the older true match must still be reported.
+        for i in range(20):
+            self._seed(
+                f"CVE-2099-RNGE{i:02d}",
+                [{"vendor": "python", "product": "rng-evict", "version_end_including": "1.0"}],
+                published=f"2099-02-{i + 1:02d}T00:00:00Z",
+            )
+        self._seed(
+            "CVE-2099-RNGTRUE",
+            [{"vendor": "python", "product": "rng-evict", "version_start": "2.0", "version_end": "3.0"}],
+        )
+        assert set(self._findings("rng-evict", "2.5")) == {"CVE-2099-RNGTRUE"}
+
+    def test_later_range_matches_after_excluded_and_uncomparable_ends(self):
+        # GHSA lists several ranges per package. A range excluded by its inclusive end
+        # and one whose end cannot be compared (prerelease → TypeError) must each skip
+        # only themselves — never end the scan or fail the request.
+        self._seed(
+            "CVE-2099-RNG05",
+            [
+                {"vendor": "python", "product": "rng-multi", "version_end_including": "1.5"},
+                {"vendor": "python", "product": "rng-multi", "version_end_including": "2.0.0-beta.1"},
+                {"vendor": "python", "product": "rng-multi", "version_start": "1.9", "version_end": "2.3"},
+            ],
+        )
+        findings = self._findings("rng-multi", "2.0.0")
+        assert findings["CVE-2099-RNG05"]["fixed_in"] == "2.3"
+
+    def test_cve_with_many_product_rows_does_not_hide_others(self):
+        # 70 product rows on the newest CVE used to take every over-fetch slot (20 * 3).
+        self._seed(
+            "CVE-2099-RNGWIDE",
+            [
+                {"vendor": "python", "product": "rng-wide", "version_start": f"1.{i}", "version_end": f"1.{i}.9"}
+                for i in range(70)
+            ],
+            published="2099-12-01T00:00:00Z",
+        )
+        for i in range(30):
+            self._seed(
+                f"CVE-2099-RNGW{i:02d}",
+                [{"vendor": "python", "product": "rng-wide", "version_start": "0.1", "version_end": "9.0"}],
+                published=f"2099-01-{i + 1:02d}T00:00:00Z",
+            )
+        findings = self._findings("rng-wide", "5.0")
+        assert len(findings) == 20
+        assert "CVE-2099-RNGWIDE" not in findings
 
 
 class TestOpenApiCodesec:
