@@ -3128,6 +3128,149 @@ class TestParseMitreCve:
         assert cisa[0]["cvss_v3"] == 9.1
 
 
+def _mitre_record_with_versions(container, versions):
+    affected = [{"vendor": "jpadilla", "product": "pyjwt", "versions": versions}]
+    if container == "cna":
+        containers = {"cna": {"affected": affected}}
+    else:
+        containers = {"cna": {}, "adp": [{"affected": affected}]}
+    return {"cveMetadata": {"cveId": "CVE-2026-90100", "state": "PUBLISHED"}, "containers": containers}
+
+
+def _mitre_bounds(record):
+    from cve.sync import _parse_mitre_cve
+
+    products = _parse_mitre_cve(record)["affected_products"]
+    return [(p["version_start"], p["version_end"], p["version_end_including"]) for p in products]
+
+
+class TestMitreRangeTextVersions:
+    @pytest.mark.parametrize("container", ["cna", "adp"])
+    @pytest.mark.parametrize(
+        "version, expected",
+        [
+            ("< 2.14.0", (None, "2.14.0", None)),
+            (">= 2.4.0, < 2.14.0", ("2.4.0", "2.14.0", None)),
+            ("<= 2.13.0", (None, None, "2.13.0")),
+            ("= 2.13.0", ("2.13.0", None, "2.13.0")),
+            ("  < 2.14.0", (None, "2.14.0", None)),
+        ],
+    )
+    def test_range_text_parsed_into_bounds(self, container, version, expected):
+        from cve.sync import _parse_mitre_cve
+
+        record = _mitre_record_with_versions(container, [{"version": version, "status": "affected"}])
+        start, end, end_including = expected
+        assert _parse_mitre_cve(record)["affected_products"] == [
+            {
+                "vendor": "jpadilla",
+                "product": "pyjwt",
+                "version_start": start,
+                "version_end": end,
+                "version_end_including": end_including,
+            }
+        ]
+
+    @pytest.mark.parametrize("container", ["cna", "adp"])
+    @pytest.mark.parametrize(
+        "version", ["< ", "<= >1.0", "< 1.0 || >= 3.0", pytest.param("= " + "9" * 300, id="version-over-256-chars")]
+    )
+    def test_malformed_range_text_dropped_not_stored(self, container, version):
+        from cve.sync import _parse_mitre_cve
+
+        record = _mitre_record_with_versions(
+            container, [{"version": version, "status": "affected"}, {"version": "1.0", "lessThan": "2.0"}]
+        )
+        products = _parse_mitre_cve(record)["affected_products"]
+        assert [(p["version_start"], p["version_end"]) for p in products] == [("1.0", "2.0")]
+
+    @pytest.mark.parametrize("container", ["cna", "adp"])
+    def test_bare_version_keeps_less_than_end(self, container):
+        from cve.sync import _parse_mitre_cve
+
+        record = _mitre_record_with_versions(container, [{"version": "1.0", "lessThan": "2.0", "status": "affected"}])
+        assert _parse_mitre_cve(record)["affected_products"] == [
+            {
+                "vendor": "jpadilla",
+                "product": "pyjwt",
+                "version_start": "1.0",
+                "version_end": "2.0",
+                "version_end_including": None,
+            }
+        ]
+
+    @pytest.mark.parametrize("container", ["cna", "adp"])
+    def test_inclusive_ranges_kept_apart(self, container):
+        from cve.sync import _parse_mitre_cve
+
+        record = _mitre_record_with_versions(
+            container, [{"version": "<= 1.0", "status": "affected"}, {"version": "<= 2.0", "status": "affected"}]
+        )
+        ends = [p["version_end_including"] for p in _parse_mitre_cve(record)["affected_products"]]
+        assert ends == ["1.0", "2.0"]
+
+    @pytest.mark.parametrize("cpe_side", ["cna", "adp"])
+    def test_cpe_fallback_still_dedupes_against_bare_version(self, cpe_side):
+        # GREEN-stays regression guard: the dedup key grew a fifth element, the CPE keys must follow it.
+        from cve.sync import _parse_mitre_cve
+
+        by_version = {"vendor": "jpadilla", "product": "pyjwt", "versions": [{"version": "1.0", "status": "affected"}]}
+        by_cpe = {"vendor": "jpadilla", "product": "pyjwt", "cpes": ["cpe:2.3:a:jpadilla:pyjwt:1.0:*:*:*:*:*:*:*"]}
+        cna_aff, adp_aff = (by_cpe, by_version) if cpe_side == "cna" else (by_version, by_cpe)
+        record = {
+            "cveMetadata": {"cveId": "CVE-2026-90101", "state": "PUBLISHED"},
+            "containers": {"cna": {"affected": [cna_aff]}, "adp": [{"affected": [adp_aff]}]},
+        }
+        products = _parse_mitre_cve(record)["affected_products"]
+        assert [(p["version_start"], p["version_end"]) for p in products] == [("1.0", None)]
+
+    @pytest.mark.parametrize("container", ["cna", "adp"])
+    @pytest.mark.parametrize(
+        "entry",
+        [
+            pytest.param({"lessThan": "2.0", "status": "affected"}, id="version-missing"),
+            pytest.param({"version": 5, "lessThan": "2.0"}, id="version-not-str"),
+        ],
+    )
+    def test_missing_or_non_str_version_keeps_less_than_end(self, container, entry):
+        assert _mitre_bounds(_mitre_record_with_versions(container, [entry])) == [(None, "2.0", None)]
+
+    @pytest.mark.parametrize("container", ["cna", "adp"])
+    @pytest.mark.parametrize(
+        "entry, expected",
+        [
+            pytest.param({"version": "<= 2.0", "lessThan": "3.0"}, (None, None, "2.0"), id="inclusive-over-less-than"),
+            pytest.param({"version": ">= 1.0", "lessThanOrEqual": "3.0"}, ("1.0", None, None), id="no-upper-over-lte"),
+        ],
+    )
+    def test_range_text_overrides_less_than(self, container, entry, expected):
+        # Pins the deliberate precedence: range text supplies all three bounds, lessThan* on the same entry is ignored.
+        assert _mitre_bounds(_mitre_record_with_versions(container, [entry])) == [expected]
+
+    def test_same_range_text_in_cna_and_adp_dedupes(self):
+        def affected():
+            return {"vendor": "jpadilla", "product": "pyjwt", "versions": [{"version": "<= 2.0"}, {"version": "< 3.0"}]}
+
+        record = {
+            "cveMetadata": {"cveId": "CVE-2026-90102", "state": "PUBLISHED"},
+            "containers": {"cna": {"affected": [affected()]}, "adp": [{"affected": [affected()]}]},
+        }
+        assert _mitre_bounds(record) == [(None, None, "2.0"), (None, "3.0", None)]
+
+    @pytest.mark.parametrize("container", ["cna", "adp"])
+    def test_unaffected_range_text_skipped(self, container):
+        record = _mitre_record_with_versions(
+            container,
+            [{"version": ">= 2.14.0", "status": "unaffected"}, {"version": "< 2.14.0", "status": "affected"}],
+        )
+        assert _mitre_bounds(record) == [(None, "2.14.0", None)]
+
+    @pytest.mark.parametrize("container", ["cna", "adp"])
+    def test_inclusive_bound_does_not_leak_to_next_entry(self, container):
+        record = _mitre_record_with_versions(container, [{"version": "<= 1.0"}, {"version": "1.5"}])
+        assert _mitre_bounds(record) == [(None, None, "1.0"), ("1.5", None, None)]
+
+
 class TestBatch1ReviewHardening:
     def test_adp_outer_cap_limits_entries(self):
         from cve.sync import _parse_mitre_cve
@@ -3447,6 +3590,286 @@ class TestParseGhsaAdvisory:
             "references": [f"https://example.com/{i}" for i in range(25)],
         }
         assert len(_parse_ghsa_advisory(item)["refs"]) == 20
+
+
+class TestParseRangeExpression:
+    @pytest.mark.parametrize(
+        "expr, expected",
+        [
+            (">= 2.4.0, < 2.14.0", ("2.4.0", "2.14.0", None)),
+            ("<= 2.13.0", (None, None, "2.13.0")),
+            ("= 2.13.0", ("2.13.0", None, "2.13.0")),
+            ("< 1.0", (None, "1.0", None)),
+            (">= 10.2.0, <= 10.5.0", ("10.2.0", None, "10.5.0")),
+            ("> 1.0, < 2.0", ("1.0", "2.0", None)),
+            (">= 1.0 , < 2.0", ("1.0", "2.0", None)),
+            ("<2.0", (None, "2.0", None)),
+            ("<  2.0", (None, "2.0", None)),
+        ],
+    )
+    def test_comparator_forms(self, expr, expected):
+        from cve.sync import _parse_range_expression
+
+        start, end, end_including = expected
+        assert _parse_range_expression(expr) == {
+            "version_start": start,
+            "version_end": end,
+            "version_end_including": end_including,
+        }
+
+    @pytest.mark.parametrize(
+        "expr",
+        [
+            None,
+            "",
+            "   ",
+            "2.13.0",
+            "~> 1.0",
+            ">= ",
+            "<=",
+            "< >1.0",
+            "> <1.0",
+            "< 1.0 || > 3.0",
+            123,
+            pytest.param("< " + "9" * 600, id="over-512-chars-single-version"),
+            pytest.param("< " + "9" * 300, id="version-over-256-chars"),
+            pytest.param(", ".join(["< 1.0"] * 100), id="over-512-chars-valid-parts"),
+        ],
+    )
+    def test_malformed_returns_none(self, expr):
+        from cve.sync import _parse_range_expression
+
+        assert _parse_range_expression(expr) is None
+
+
+def _ghsa_vuln(name, version_range, patched, ecosystem="pip"):
+    return {
+        "package": {"ecosystem": ecosystem, "name": name},
+        "vulnerable_version_range": version_range,
+        "first_patched_version": patched,
+        "vulnerable_functions": [],
+    }
+
+
+class TestGhsaAffectedProducts:
+    def test_inclusive_upper_bound_keeps_patched_as_exclusive_end(self):
+        from cve.sync import _extract_products_from_ghsa_vulnerabilities
+
+        products = _extract_products_from_ghsa_vulnerabilities([_ghsa_vuln("PyJWT", "<= 2.13.0", "2.14.0")])
+        assert products == [
+            {
+                "vendor": "python",
+                "product": "PyJWT",
+                "version_start": None,
+                "version_end": "2.14.0",
+                "version_end_including": "2.13.0",
+            }
+        ]
+
+    def test_bounded_range(self):
+        from cve.sync import _extract_products_from_ghsa_vulnerabilities
+
+        products = _extract_products_from_ghsa_vulnerabilities([_ghsa_vuln("urllib3", ">= 1.10.3, < 2.8.0", "2.8.0")])
+        assert products == [
+            {
+                "vendor": "python",
+                "product": "urllib3",
+                "version_start": "1.10.3",
+                "version_end": "2.8.0",
+                "version_end_including": None,
+            }
+        ]
+
+    def test_no_patched_version_leaves_end_open(self):
+        from cve.sync import _extract_products_from_ghsa_vulnerabilities
+
+        products = _extract_products_from_ghsa_vulnerabilities([_ghsa_vuln("PyJWT", "<= 2.13.0", None)])
+        assert products[0]["version_end"] is None
+        assert products[0]["version_end_including"] == "2.13.0"
+
+    def test_range_bound_wins_over_patched(self):
+        from cve.sync import _extract_products_from_ghsa_vulnerabilities
+
+        products = _extract_products_from_ghsa_vulnerabilities([_ghsa_vuln("foo", "< 2.0", "1.9.5")])
+        assert products[0]["version_end"] == "2.0"
+
+    def test_null_range_uses_patched_as_end(self):
+        from cve.sync import _extract_products_from_ghsa_vulnerabilities
+
+        products = _extract_products_from_ghsa_vulnerabilities([_ghsa_vuln("foo", None, "1.2.3")])
+        assert products == [
+            {
+                "vendor": "python",
+                "product": "foo",
+                "version_start": None,
+                "version_end": "1.2.3",
+                "version_end_including": None,
+            }
+        ]
+
+    def test_multi_package_dedupe_and_ecosystem_vendor(self):
+        from cve.sync import _extract_products_from_ghsa_vulnerabilities
+
+        vulns = [
+            _ghsa_vuln("ip-address", "<= 10.7.0", "10.7.1", ecosystem="npm"),
+            _ghsa_vuln("PyJWT", "<= 2.13.0", "2.14.0"),
+            _ghsa_vuln("ip-address", "<= 10.7.0", "10.7.1", ecosystem="npm"),
+            _ghsa_vuln("some/action", "< 3.0.0", "3.0.0", ecosystem="actions"),
+        ]
+        products = _extract_products_from_ghsa_vulnerabilities(vulns)
+        assert [(p["vendor"], p["product"]) for p in products] == [
+            ("nodejs", "ip-address"),
+            ("python", "PyJWT"),
+            ("actions", "some/action"),
+        ]
+
+    def test_malformed_entries_skipped(self):
+        from cve.sync import _extract_products_from_ghsa_vulnerabilities
+
+        vulns = [
+            "not-a-dict",
+            {"package": "nope"},
+            {"package": {"ecosystem": "pip", "name": "  "}},
+            _ghsa_vuln("bad-range", "~> 1.0", "1.1"),
+            _ghsa_vuln("good", "< 1.0", "1.0"),
+        ]
+        assert [p["product"] for p in _extract_products_from_ghsa_vulnerabilities(vulns)] == ["good"]
+        assert _extract_products_from_ghsa_vulnerabilities(None) == []
+        assert _extract_products_from_ghsa_vulnerabilities({"package": {}}) == []
+
+    def test_capped_at_100(self):
+        from cve.sync import _extract_products_from_ghsa_vulnerabilities
+
+        vulns = [_ghsa_vuln(f"pkg{i}", "< 1.0", "1.0") for i in range(150)]
+        assert len(_extract_products_from_ghsa_vulnerabilities(vulns)) == 100
+
+    def test_parse_ghsa_advisory_carries_products(self):
+        from cve.sync import _parse_ghsa_advisory
+
+        item = {
+            "cve_id": "CVE-2026-102268",
+            "summary": "PEM detection bypass",
+            "updated_at": "2026-09-29T23:30:00Z",
+            "vulnerabilities": [_ghsa_vuln("PyJWT", "<= 2.13.0", "2.14.0")],
+        }
+        assert _parse_ghsa_advisory(item)["affected_products"] == [
+            {
+                "vendor": "python",
+                "product": "PyJWT",
+                "version_start": None,
+                "version_end": "2.14.0",
+                "version_end_including": "2.13.0",
+            }
+        ]
+
+    @patch("cve.sync._client", new_callable=AsyncMock)
+    def test_sync_ghsa_persists_products(self, mock_client):
+        advisories = [
+            {
+                "cve_id": "CVE-2024-80091",
+                "summary": "jwt bug",
+                "published_at": "2026-09-29T00:00:00Z",
+                "updated_at": "2026-09-29T23:30:00Z",
+                "html_url": "https://github.com/advisories/GHSA-9191",
+                "vulnerabilities": [_ghsa_vuln("PyJWT", "<= 2.13.0", "2.14.0")],
+            }
+        ]
+        mock_client.get.side_effect = [_mk_ghsa_resp(advisories)]
+
+        from cve.sync import sync_ghsa
+        from db import get_cve, get_cve_db
+
+        assert asyncio.run(sync_ghsa(full=False)) == 1
+        assert get_cve("CVE-2024-80091")["affected_products"][0]["version_end_including"] == "2.13.0"
+        with get_cve_db() as con:
+            rows = con.execute(
+                "SELECT vendor, product, version_start, version_end FROM cve_products WHERE cve_id = ?",
+                ("CVE-2024-80091",),
+            ).fetchall()
+        assert [tuple(r) for r in rows] == [("python", "PyJWT", None, "2.14.0")]
+
+    def test_same_package_ranges_kept_apart(self):
+        from cve.sync import _extract_products_from_ghsa_vulnerabilities
+
+        vulns = [
+            _ghsa_vuln("django", ">= 3.2, < 3.2.25", "3.2.25"),
+            _ghsa_vuln("django", ">= 4.2, < 4.2.14", "4.2.14"),
+            _ghsa_vuln("django", "< 4.2.14", "4.2.14"),
+            _ghsa_vuln("django", "<= 4.2.14", "4.2.14"),
+        ]
+        products = _extract_products_from_ghsa_vulnerabilities(vulns)
+        assert [(p["version_start"], p["version_end"], p["version_end_including"]) for p in products] == [
+            ("3.2", "3.2.25", None),
+            ("4.2", "4.2.14", None),
+            (None, "4.2.14", None),
+            (None, "4.2.14", "4.2.14"),
+        ]
+
+    @pytest.mark.parametrize("blank", ["", "   "])
+    def test_blank_range_treated_like_null(self, blank):
+        from cve.sync import _extract_products_from_ghsa_vulnerabilities
+
+        assert _extract_products_from_ghsa_vulnerabilities(
+            [_ghsa_vuln("foo", blank, "1.2.3")]
+        ) == _extract_products_from_ghsa_vulnerabilities([_ghsa_vuln("foo", None, "1.2.3")])
+
+    def test_non_string_fields_do_not_raise(self):
+        from cve.sync import _extract_products_from_ghsa_vulnerabilities
+
+        vulns = [
+            {
+                "package": {"ecosystem": None, "name": "x"},
+                "vulnerable_version_range": "<= 1.0",
+                "first_patched_version": 123,
+            },
+            {"package": {"ecosystem": "pip", "name": 123}, "vulnerable_version_range": "< 1.0"},
+        ]
+        assert _extract_products_from_ghsa_vulnerabilities(vulns) == [
+            {"vendor": None, "product": "x", "version_start": None, "version_end": None, "version_end_including": "1.0"}
+        ]
+
+    def test_strings_stripped_and_truncated(self):
+        from cve.sync import _extract_products_from_ghsa_vulnerabilities
+
+        products = _extract_products_from_ghsa_vulnerabilities(
+            [
+                _ghsa_vuln("  PyJWT  ", "<= 2.13.0", " 2.14.0 ", ecosystem="PIP"),
+                _ghsa_vuln("a" * 300, "<= 1.0", "9" * 300, ecosystem="x" * 100),
+                _ghsa_vuln("blank-patched", "<= 1.0", "  "),
+            ]
+        )
+        assert (products[0]["vendor"], products[0]["product"], products[0]["version_end"]) == (
+            "python",
+            "PyJWT",
+            "2.14.0",
+        )
+        assert (len(products[1]["vendor"]), len(products[1]["product"]), len(products[1]["version_end"])) == (
+            64,
+            256,
+            256,
+        )
+        assert products[2]["version_end"] is None
+
+    @pytest.mark.parametrize(
+        "ghsa, osv",
+        [
+            ("pip", "PyPI"),
+            ("npm", "npm"),
+            ("maven", "Maven"),
+            ("go", "Go"),
+            ("rubygems", "RubyGems"),
+            ("nuget", "NuGet"),
+            ("rust", "crates.io"),
+            ("composer", "Packagist"),
+            ("erlang", "Hex"),
+            ("pub", "Pub"),
+            ("swift", "SwiftURL"),
+        ],
+    )
+    def test_ecosystem_vendor_matches_osv(self, ghsa, osv):
+        from cve.sync import _GHSA_ECOSYSTEM_VENDOR, _OSV_ECOSYSTEM_VENDOR
+
+        assert _GHSA_ECOSYSTEM_VENDOR[ghsa] == _OSV_ECOSYSTEM_VENDOR[osv]
 
 
 def _mk_ghsa_resp(advisories, next_url=None, remaining=None):

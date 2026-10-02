@@ -101,6 +101,21 @@ _OSV_ECOSYSTEM_VENDOR: dict[str, str] = {
     "SwiftURL": "apple",
 }
 
+# GHSA ecosystem names (lowercased) -> the pseudo-vendors OSV uses for the same ecosystems, so vendor= filters agree.
+_GHSA_ECOSYSTEM_VENDOR: dict[str, str] = {
+    "pip": "python",
+    "npm": "nodejs",
+    "maven": "apache",
+    "go": "golang",
+    "rubygems": "ruby-lang",
+    "nuget": "microsoft",
+    "rust": "rust-lang",
+    "composer": "php",
+    "erlang": "erlang",
+    "pub": "google",
+    "swift": "apple",
+}
+
 
 # --- NVD Sync ---
 
@@ -555,6 +570,15 @@ def _parse_mitre_cve(item: dict) -> dict:
                     continue
                 ver_start = v.get("version") or None
                 ver_end = v.get("lessThan") or v.get("lessThanOrEqual") or None
+                ver_end_including = None
+                if isinstance(ver_start, str) and ver_start.lstrip().startswith(("<", ">", "=")):
+                    # GitHub-CNA range text ("< 2.14.0"): parse it, never store it as a version
+                    bounds = _parse_range_expression(ver_start)
+                    if bounds is None:
+                        continue
+                    ver_start = bounds["version_start"]
+                    ver_end = bounds["version_end"]
+                    ver_end_including = bounds["version_end_including"]
                 if isinstance(ver_start, str):
                     ver_start = ver_start[:256]
                 elif ver_start is not None:
@@ -563,7 +587,7 @@ def _parse_mitre_cve(item: dict) -> dict:
                     ver_end = ver_end[:256]
                 elif ver_end is not None:
                     ver_end = None
-                key = (vendor, product, ver_start, ver_end)
+                key = (vendor, product, ver_start, ver_end, ver_end_including)
                 if key in seen:
                     continue
                 seen.add(key)
@@ -573,6 +597,7 @@ def _parse_mitre_cve(item: dict) -> dict:
                         "product": product or None,
                         "version_start": ver_start,
                         "version_end": ver_end,
+                        "version_end_including": ver_end_including,
                     }
                 )
         elif cpes:
@@ -586,7 +611,7 @@ def _parse_mitre_cve(item: dict) -> dict:
                     if cpe_ver and cpe_ver not in ("*", "-"):
                         ver_start = cpe_ver
                         ver_end = None
-                        key = (vendor, product, ver_start, ver_end)
+                        key = (vendor, product, ver_start, ver_end, None)
                         if key in seen:
                             continue
                         seen.add(key)
@@ -689,6 +714,15 @@ def _parse_mitre_cve(item: dict) -> dict:
                         continue
                     ver_start = v.get("version") or None
                     ver_end = v.get("lessThan") or v.get("lessThanOrEqual") or None
+                    ver_end_including = None
+                    if isinstance(ver_start, str) and ver_start.lstrip().startswith(("<", ">", "=")):
+                        # GitHub-CNA range text ("< 2.14.0"): parse it, never store it as a version
+                        bounds = _parse_range_expression(ver_start)
+                        if bounds is None:
+                            continue
+                        ver_start = bounds["version_start"]
+                        ver_end = bounds["version_end"]
+                        ver_end_including = bounds["version_end_including"]
                     if isinstance(ver_start, str):
                         ver_start = ver_start[:256]
                     elif ver_start is not None:
@@ -697,7 +731,7 @@ def _parse_mitre_cve(item: dict) -> dict:
                         ver_end = ver_end[:256]
                     elif ver_end is not None:
                         ver_end = None
-                    key = (vendor, product, ver_start, ver_end)
+                    key = (vendor, product, ver_start, ver_end, ver_end_including)
                     if key in seen:
                         continue
                     seen.add(key)
@@ -707,6 +741,7 @@ def _parse_mitre_cve(item: dict) -> dict:
                             "product": product or None,
                             "version_start": ver_start,
                             "version_end": ver_end,
+                            "version_end_including": ver_end_including,
                         }
                     )
             elif cpes:
@@ -719,7 +754,7 @@ def _parse_mitre_cve(item: dict) -> dict:
                         if cpe_ver and cpe_ver not in ("*", "-"):
                             ver_start = cpe_ver
                             ver_end = None
-                            key = (vendor, product, ver_start, ver_end)
+                            key = (vendor, product, ver_start, ver_end, None)
                             if key in seen:
                                 continue
                             seen.add(key)
@@ -921,10 +956,81 @@ async def sync_mitre(full: bool = False) -> int:
 
 GHSA_MAX_PAGES = 20
 _GHSA_LINK_NEXT_RE = re.compile(r'<([^>]+)>\s*;\s*rel="next"')
+_RANGE_COMPARATOR_RE = re.compile(r"^\s*(>=|<=|>|<|=)\s*([^\s<>=]\S{0,255})\s*$")
+
+
+def _parse_range_expression(expr: object) -> dict | None:
+    """Parse a comparator range such as ">= 2.4.0, < 2.14.0" (comma = AND).
+
+    Returns version_start (inclusive; ">" is widened to inclusive), version_end
+    (exclusive) and version_end_including, each None when absent. Returns None when
+    expr is not a well-formed comparator list, so callers never store raw range text
+    as a version."""
+    if not isinstance(expr, str) or not expr.strip() or len(expr) > 512:
+        return None
+    bounds: dict[str, str | None] = {"version_start": None, "version_end": None, "version_end_including": None}
+    for part in expr.split(","):
+        m = _RANGE_COMPARATOR_RE.match(part)
+        if not m:
+            return None
+        op, ver = m.group(1), m.group(2)
+        if op in (">=", ">"):
+            bounds["version_start"] = ver
+        elif op == "<":
+            bounds["version_end"] = ver
+        elif op == "<=":
+            bounds["version_end_including"] = ver
+        else:
+            bounds["version_start"] = ver
+            bounds["version_end_including"] = ver
+    return bounds
+
+
+def _extract_products_from_ghsa_vulnerabilities(vulns: object) -> list[dict]:
+    """Map GHSA vulnerabilities[] to affected_products dicts (OSV extractor keys plus version_end_including).
+
+    version_end is the range's exclusive bound, else first_patched_version, so existing
+    matchers and fixed_in keep their exclusive-end meaning; "<= X" is kept as
+    version_end_including. An entry whose range does not parse is skipped."""
+    out: list[dict] = []
+    seen: set[tuple] = set()
+    if not isinstance(vulns, list):
+        return out
+    for v in vulns[:100]:
+        if not isinstance(v, dict):
+            continue
+        pkg = v.get("package")
+        if not isinstance(pkg, dict):
+            continue
+        name = pkg.get("name")
+        if not isinstance(name, str) or not name.strip():
+            continue
+        ecosystem = pkg.get("ecosystem")
+        ecosystem = ecosystem.lower() if isinstance(ecosystem, str) else ""
+        vendor = _GHSA_ECOSYSTEM_VENDOR.get(ecosystem, ecosystem)[:64] or None
+        product = name.strip()[:256]
+
+        expr = v.get("vulnerable_version_range")
+        if expr is None or (isinstance(expr, str) and not expr.strip()):
+            bounds = {"version_start": None, "version_end": None, "version_end_including": None}
+        else:
+            bounds = _parse_range_expression(expr)
+            if bounds is None:
+                continue
+        patched = v.get("first_patched_version")
+        if not bounds["version_end"] and isinstance(patched, str) and patched.strip():
+            bounds["version_end"] = patched.strip()[:256]
+
+        key = (vendor, product, bounds["version_start"], bounds["version_end"], bounds["version_end_including"])
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({"vendor": vendor, "product": product, **bounds})
+    return out
 
 
 def _parse_ghsa_advisory(item: dict) -> dict:
-    """Parse GHSA advisory: description, references, timestamps, severity_sources entry.
+    """Parse GHSA advisory: description, references, timestamps, affected packages, severity_sources entry.
 
     severity/cvss_v3/cvss_vector remain None on the cves row (NVD/MITRE own them
     via COALESCE in upsert_cve_if_absent); GHSA's own severity is captured in
@@ -965,7 +1071,7 @@ def _parse_ghsa_advisory(item: dict) -> dict:
         "cwe_id": None,
         "published": item.get("published_at"),
         "modified": item.get("updated_at"),
-        "affected_products": [],
+        "affected_products": _extract_products_from_ghsa_vulnerabilities(item.get("vulnerabilities")),
         "refs": refs,
         "refs_with_tags": refs_with_tags,
         "total_references_upstream": total_references_upstream,
