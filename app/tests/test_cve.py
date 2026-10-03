@@ -4381,6 +4381,326 @@ class TestSyncOsv:
         assert "CVE-2026-91010" not in result
         assert "CVE-2026-91012" not in result
 
+    def test_osv_last_affected_becomes_inclusive_end(self):
+        from cve.sync import _extract_products_from_osv_affected
+
+        affected = [
+            {
+                "package": {"ecosystem": "PyPI", "name": "pyjwt"},
+                "ranges": [{"type": "ECOSYSTEM", "events": [{"introduced": "0"}, {"last_affected": "2.13.0"}]}],
+            }
+        ]
+        assert _extract_products_from_osv_affected(affected) == [
+            {
+                "vendor": "python",
+                "product": "pyjwt",
+                "version_start": None,
+                "version_end": None,
+                "version_end_including": "2.13.0",
+            }
+        ]
+
+    def test_osv_and_ghsa_extractors_agree_on_the_same_advisory(self):
+        """OSV's copy of a GHSA advisory must store the same product rows as the GHSA sync."""
+        from cve.sync import _extract_products_from_ghsa_vulnerabilities, _extract_products_from_osv_affected
+
+        ghsa_vulns = [
+            {
+                "package": {"ecosystem": "pip", "name": "pyjwt"},
+                "vulnerable_version_range": ">= 2.10.0, < 2.10.1",
+                "first_patched_version": "2.10.1",
+            },
+            {
+                "package": {"ecosystem": "npm", "name": "yayson"},
+                "vulnerable_version_range": "<= 4.2.0",
+                "first_patched_version": None,
+            },
+            {
+                "package": {"ecosystem": "composer", "name": "wp-graphql/wp-graphql"},
+                "vulnerable_version_range": "< 2.22.2",
+                "first_patched_version": None,
+            },
+        ]
+        osv_affected = [
+            {
+                "package": {"ecosystem": "PyPI", "name": "pyjwt"},
+                "ranges": [{"type": "ECOSYSTEM", "events": [{"introduced": "2.10.0"}, {"fixed": "2.10.1"}]}],
+            },
+            {
+                "package": {"ecosystem": "npm", "name": "yayson"},
+                "ranges": [{"type": "SEMVER", "events": [{"introduced": "0"}, {"last_affected": "4.2.0"}]}],
+            },
+            # GHSA "< X" with no patched version: OSV keeps only "introduced", the bound sits in database_specific
+            {
+                "package": {"ecosystem": "Packagist", "name": "wp-graphql/wp-graphql"},
+                "ranges": [{"type": "ECOSYSTEM", "events": [{"introduced": "0"}]}],
+                "database_specific": {"last_known_affected_version_range": "< 2.22.2"},
+            },
+        ]
+        assert _extract_products_from_osv_affected(osv_affected) == _extract_products_from_ghsa_vulnerabilities(
+            ghsa_vulns
+        )
+
+    def test_ghsa_missing_products_selector(self):
+        from db import get_ghsa_cves_missing_products, record_cve_source
+
+        url = "https://github.com/advisories/GHSA-{}"
+        _seed_cve(cve_id="CVE-2026-91020", affected_products=[], published="2026-05-01T00:00:00Z")
+        record_cve_source("CVE-2026-91020", "ghsa", url.format("aaaa-2222-3333"))
+        _seed_cve(cve_id="CVE-2026-91021", affected_products=[], published="2026-06-01T00:00:00Z")
+        record_cve_source("CVE-2026-91021", "ghsa", url.format("bbbb-2222-3333"))
+        # products already present: nothing to backfill
+        _seed_cve(cve_id="CVE-2026-91022", published="2026-07-01T00:00:00Z")
+        record_cve_source("CVE-2026-91022", "ghsa", url.format("cccc-2222-3333"))
+        # empty products but GHSA never covered it: OSV has no package data for it
+        _seed_cve(cve_id="CVE-2026-91023", affected_products=[], published="2026-08-01T00:00:00Z")
+        record_cve_source("CVE-2026-91023", "nvd")
+
+        assert get_ghsa_cves_missing_products(limit=10) == [
+            ("CVE-2026-91021", url.format("bbbb-2222-3333")),
+            ("CVE-2026-91020", url.format("aaaa-2222-3333")),
+        ]
+        assert get_ghsa_cves_missing_products(limit=1) == [("CVE-2026-91021", url.format("bbbb-2222-3333"))]
+
+    # distinct CVE ids per case: cve_sources is not reset between tests
+    @pytest.mark.parametrize(
+        "cve_id, extra_aliases",
+        [("CVE-2026-91030", []), ("CVE-2026-91034", ["CVE-2026-91099"])],
+        ids=["single-cve", "cve-listed-second"],
+    )
+    @patch("cve.sync._client", new_callable=AsyncMock)
+    def test_osv_backfills_empty_products_by_ghsa_id(self, mock_client, cve_id, extra_aliases):
+        from cve.sync import sync_osv
+        from db import get_cve, get_cve_sources, record_cve_source
+
+        _seed_cve(cve_id=cve_id, affected_products=[], published="2026-09-01T00:00:00Z")
+        record_cve_source(cve_id, "ghsa", _PYJWT_GHSA_URL)
+        low_cvss = [{"type": "CVSS_V3", "score": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:N/A:N"}]
+        mock_client.get.return_value = _build_osv_resp(
+            _osv_pyjwt_ghsa_record([*extra_aliases, cve_id], severity=low_cvss)
+        )
+
+        asyncio.run(sync_osv(full=False))
+
+        assert [c.args[0] for c in mock_client.get.call_args_list] == [
+            "https://api.osv.dev/v1/vulns/GHSA-75c5-xw7c-p5pm"
+        ]
+        assert get_cve(cve_id)["affected_products"] == [
+            {
+                "vendor": "python",
+                "product": "pyjwt",
+                "version_start": "2.10.0",
+                "version_end": "2.10.1",
+                "version_end_including": None,
+            }
+        ]
+        assert get_cve("CVE-2026-91099") is None
+        row = get_cve(cve_id)
+        # products filled, NVD-owned fields untouched: fill-if-empty, not a replace
+        assert (row["cvss_v3"], row["severity"], row["description"]) == (8.8, "HIGH", "Test buffer overflow in nginx")
+        osv = next(s for s in get_cve_sources(cve_id) if s["source"] == "osv")
+        assert osv["source_url"] == "https://osv.dev/vulnerability/GHSA-75c5-xw7c-p5pm"
+
+    @pytest.mark.parametrize(
+        "cve_id, aliases, extra",
+        [
+            ("CVE-2026-91031", ["CVE-2026-91098"], {}),
+            ("CVE-2026-91033", ["CVE-2026-91033"], {"withdrawn": "2026-09-02T00:00:00Z"}),
+        ],
+        ids=["record-for-another-cve", "withdrawn"],
+    )
+    @patch("cve.sync._client", new_callable=AsyncMock)
+    def test_osv_ghsa_backfill_skips_foreign_or_withdrawn_record(self, mock_client, cve_id, aliases, extra):
+        from cve.sync import sync_osv
+        from db import get_cve, get_cve_sources, record_cve_source
+
+        _seed_cve(cve_id=cve_id, affected_products=[], published="2026-09-01T00:00:00Z")
+        record_cve_source(cve_id, "ghsa", _PYJWT_GHSA_URL)
+        mock_client.get.return_value = _build_osv_resp(_osv_pyjwt_ghsa_record(aliases, **extra))
+
+        asyncio.run(sync_osv(full=False))
+
+        # the GHSA path must have fetched, otherwise "nothing was written" proves nothing
+        assert mock_client.get.call_count == 1
+        assert get_cve(cve_id)["affected_products"] == []
+        assert get_cve("CVE-2026-91098") is None
+        assert all(s["source"] != "osv" for s in get_cve_sources(cve_id))
+
+    @patch("cve.sync._client", new_callable=AsyncMock)
+    def test_osv_ghsa_backfill_never_fetches_unrecognised_url(self, mock_client):
+        from cve.sync import sync_osv
+        from db import get_cve, record_cve_source
+
+        cve_id = "CVE-2026-91032"
+        _seed_cve(cve_id=cve_id, affected_products=[], published="2026-09-01T00:00:00Z")
+        record_cve_source(cve_id, "ghsa", _PYJWT_GHSA_URL + "/../../v1/query")
+        mock_client.get.return_value = _build_osv_resp(_osv_pyjwt_ghsa_record([cve_id]))
+
+        asyncio.run(sync_osv(full=False))
+
+        assert mock_client.get.call_count == 0
+        assert get_cve(cve_id)["affected_products"] == []
+
+    @pytest.mark.parametrize(
+        "url, expected",
+        [
+            ("https://github.com/advisories/GHSA-75c5-xw7c-p5pm", "GHSA-75c5-xw7c-p5pm"),
+            (None, None),
+            (42, None),
+            ("https://github.com/advisories/GHSA-75c5-xw7c", None),
+            ("https://evil.example/?u=https://github.com/advisories/GHSA-75c5-xw7c-p5pm", None),
+            ("https://github.com/advisories/GHSA-75c5-xw7c-p5pm/../../v1/query", None),
+            ("https://github.com/advisories/GHSA-75c5-xw7c-../.", None),
+            ("https://github.com/advisories/GHSA-75c5-xw7c-p5p/", None),
+        ],
+        ids=[
+            "advisory-url",
+            "none",
+            "not-a-string",
+            "short-id",
+            "url-in-query",
+            "path-traversal",
+            "dots-in-id",
+            "slash-in-id",
+        ],
+    )
+    def test_ghsa_id_from_url_accepts_only_advisory_urls(self, url, expected):
+        from cve.sync import _ghsa_id_from_url
+
+        assert _ghsa_id_from_url(url) == expected
+
+    @pytest.mark.parametrize(
+        "events, database_specific, bounds",
+        [
+            ([{"introduced": "0"}], {"last_known_affected_version_range": "< 2.22.2"}, (None, "2.22.2", None)),
+            (
+                [{"introduced": "0"}, {"fixed": "1.5"}],
+                {"last_known_affected_version_range": "< 9.9"},
+                (None, "1.5", None),
+            ),
+            (
+                [{"introduced": "0"}, {"last_affected": "1.5"}],
+                {"last_known_affected_version_range": "< 9.9"},
+                (None, None, "1.5"),
+            ),
+            ([{"introduced": "0"}], {"last_known_affected_version_range": "not a range"}, (None, None, None)),
+            ([{"introduced": "0"}], "not-a-dict", (None, None, None)),
+        ],
+        ids=["fills-missing-end", "event-end-wins", "event-inclusive-end-wins", "unparseable-range", "non-dict"],
+    )
+    def test_osv_last_known_affected_range_fills_only_a_missing_end(self, events, database_specific, bounds):
+        from cve.sync import _extract_products_from_osv_affected
+
+        affected = [
+            {
+                "package": {"ecosystem": "Packagist", "name": "wp-graphql/wp-graphql"},
+                "ranges": [{"type": "ECOSYSTEM", "events": events}],
+                "database_specific": database_specific,
+            }
+        ]
+        (row,) = _extract_products_from_osv_affected(affected)
+        assert (row["version_start"], row["version_end"], row["version_end_including"]) == bounds
+
+    def test_osv_entries_differing_only_in_last_affected_stay_apart(self):
+        from cve.sync import _extract_products_from_osv_affected
+
+        affected = [
+            {
+                "package": {"ecosystem": "PyPI", "name": "pyjwt"},
+                "ranges": [{"type": "ECOSYSTEM", "events": [{"introduced": "0"}, {"last_affected": end}]}],
+            }
+            for end in ("1.2", "2.3")
+        ]
+        rows = _extract_products_from_osv_affected(affected)
+        assert [r["version_end_including"] for r in rows] == ["1.2", "2.3"]
+
+    def test_ghsa_missing_products_selector_matches_fill_condition(self):
+        from db import get_cve_db, get_ghsa_cves_missing_products, record_cve_source
+
+        stored = {"CVE-2026-91060": None, "CVE-2026-91061": "[ ]", "CVE-2026-91062": "{not json"}
+        for cve_id, raw in stored.items():
+            _seed_cve(cve_id=cve_id, published="2026-09-01T00:00:00Z")
+            record_cve_source(cve_id, "ghsa", _PYJWT_GHSA_URL)
+            with get_cve_db() as con:
+                con.execute("UPDATE cves SET affected_products = ? WHERE cve_id = ?", (raw, cve_id))
+
+        # NULL and whitespace-empty are fillable; malformed JSON is skipped and must not break the query
+        assert sorted(c for c, _ in get_ghsa_cves_missing_products()) == ["CVE-2026-91060", "CVE-2026-91061"]
+
+    @patch("cve.sync._client", new_callable=AsyncMock)
+    def test_osv_ghsa_backfill_ignores_record_without_products(self, mock_client):
+        from cve.sync import sync_osv
+        from db import get_cve, get_cve_sources, record_cve_source
+
+        cve_id = "CVE-2026-91063"
+        _seed_cve(cve_id=cve_id, affected_products=[], published="2026-09-01T00:00:00Z")
+        record_cve_source(cve_id, "ghsa", _PYJWT_GHSA_URL)
+        mock_client.get.return_value = _build_osv_resp(_osv_pyjwt_ghsa_record([cve_id], affected=[]))
+
+        assert asyncio.run(sync_osv(full=False)) == 0
+        assert mock_client.get.call_count == 1
+        assert get_cve(cve_id)["affected_products"] == []
+        assert all(s["source"] != "osv" for s in get_cve_sources(cve_id))
+
+    @pytest.mark.parametrize(
+        "kind, bad_cve, good_cve",
+        [
+            ("not-found", "CVE-2026-91070", "CVE-2026-91071"),
+            ("no-aliases", "CVE-2026-91072", "CVE-2026-91073"),
+            ("unparseable", "CVE-2026-91074", "CVE-2026-91075"),
+            ("withdrawn", "CVE-2026-91076", "CVE-2026-91077"),
+            ("unrecognised-url", "CVE-2026-91078", "CVE-2026-91079"),
+        ],
+    )
+    @patch("cve.sync._client", new_callable=AsyncMock)
+    def test_osv_ghsa_backfill_continues_past_a_bad_row(self, mock_client, kind, bad_cve, good_cve):
+        from cve.sync import sync_osv
+        from db import get_cve, record_cve_source
+
+        bad_url = "https://github.com/advisories/GHSA-2222-3333-4444"
+        bad_record = {
+            "not-found": None,
+            "no-aliases": {"id": "GHSA-2222-3333-4444", "summary": "no aliases"},
+            "unparseable": {"id": "GHSA-2222-3333-4444", "aliases": [bad_cve], "affected": 5},
+            "withdrawn": _osv_pyjwt_ghsa_record([bad_cve], withdrawn="2026-09-02T00:00:00Z"),
+            "unrecognised-url": None,
+        }[kind]
+        # the bad row is newer, so it is processed first
+        _seed_cve(cve_id=bad_cve, affected_products=[], published="2026-09-02T00:00:00Z")
+        record_cve_source(bad_cve, "ghsa", bad_url + "/.." if kind == "unrecognised-url" else bad_url)
+        _seed_cve(cve_id=good_cve, affected_products=[], published="2026-09-01T00:00:00Z")
+        record_cve_source(good_cve, "ghsa", _PYJWT_GHSA_URL)
+
+        def fake_get(url, timeout):
+            if url.endswith("GHSA-75c5-xw7c-p5pm"):
+                return _build_osv_resp(_osv_pyjwt_ghsa_record([good_cve]))
+            return _build_osv_resp(bad_record or {}, status_code=200 if bad_record else 404)
+
+        mock_client.get.side_effect = fake_get
+
+        assert asyncio.run(sync_osv(full=False)) == 1
+        assert get_cve(good_cve)["affected_products"][0]["product"] == "pyjwt"
+        assert get_cve(bad_cve)["affected_products"] == []
+
+
+_PYJWT_GHSA_URL = "https://github.com/advisories/GHSA-75c5-xw7c-p5pm"
+
+
+def _osv_pyjwt_ghsa_record(aliases: list, **extra) -> dict:
+    """OSV's copy of a GHSA advisory: package ranges live here, not on the CVE-id record."""
+    return {
+        "id": "GHSA-75c5-xw7c-p5pm",
+        "aliases": aliases,
+        "summary": "PyJWT issuer check bypass",
+        "affected": [
+            {
+                "package": {"ecosystem": "PyPI", "name": "pyjwt"},
+                "ranges": [{"type": "ECOSYSTEM", "events": [{"introduced": "2.10.0"}, {"fixed": "2.10.1"}]}],
+            }
+        ],
+        **extra,
+    }
+
 
 class TestOpenApiCveRoutes:
     def test_openapi_has_cve_operations(self):

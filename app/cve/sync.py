@@ -42,6 +42,7 @@ from db import (
     amark_kev_removed,
     get_cve,
     get_cves_needing_osv_backfill,
+    get_ghsa_cves_missing_products,
     get_last_successful_sync,
     get_sync_checkpoint,
     init_all_dbs,
@@ -75,7 +76,7 @@ _client = httpx.AsyncClient(
     cookies=httpx.Cookies(),
 )
 
-OSV_API_URL = "https://api.osv.dev/v1/vulns/{cve_id}"
+OSV_API_URL = "https://api.osv.dev/v1/vulns/{vuln_id}"
 OSV_MAX_PER_RUN = 500
 OSV_INTER_REQUEST_SLEEP = 0.1
 
@@ -1583,6 +1584,7 @@ def _extract_products_from_osv_affected(affected: list) -> list[dict]:
 
         ver_start: str | None = None
         ver_end: str | None = None
+        ver_end_including: str | None = None
         for rng in (a.get("ranges") or [])[:10]:
             for ev in (rng.get("events") or [])[:20]:
                 if isinstance(ev, dict):
@@ -1594,7 +1596,18 @@ def _extract_products_from_osv_affected(affected: list) -> list[dict]:
                         v = ev.get("fixed")
                         if isinstance(v, str):
                             ver_end = v[:256]
-        key = (vendor, product, ver_start, ver_end)
+                    if "last_affected" in ev and not ver_end_including:
+                        v = ev.get("last_affected")
+                        if isinstance(v, str):
+                            ver_end_including = v[:256]
+        db_specific = a.get("database_specific")
+        if not ver_end and not ver_end_including and isinstance(db_specific, dict):
+            # GHSA "< X" with no patched version: OSV keeps only "introduced", the bound sits here
+            bounds = _parse_range_expression(db_specific.get("last_known_affected_version_range"))
+            if bounds:
+                ver_end = bounds["version_end"]
+                ver_end_including = bounds["version_end_including"]
+        key = (vendor, product, ver_start, ver_end, ver_end_including)
         if key in seen:
             continue
         seen.add(key)
@@ -1604,6 +1617,7 @@ def _extract_products_from_osv_affected(affected: list) -> list[dict]:
                 "product": product,
                 "version_start": ver_start,
                 "version_end": ver_end,
+                "version_end_including": ver_end_including,
             }
         )
     return out
@@ -1684,27 +1698,40 @@ def _parse_osv_vulnerability(vuln: dict) -> dict:
     }
 
 
-async def _fetch_osv_vulnerability(cve_id: str) -> dict | None:
-    """Fetch a single CVE from OSV.dev. Returns parsed JSON dict on 200, None on 404/error."""
+async def _fetch_osv_vulnerability(vuln_id: str) -> dict | None:
+    """Fetch one OSV.dev record by id (CVE-... or GHSA-...). Returns parsed JSON dict on 200, None on 404/error."""
     try:
-        resp = await _client.get(OSV_API_URL.format(cve_id=cve_id), timeout=10.0)
+        resp = await _client.get(OSV_API_URL.format(vuln_id=vuln_id), timeout=10.0)
     except (httpx.TimeoutException, httpx.ConnectError, httpx.NetworkError) as e:
-        log.warning("OSV network error for %s: %s", cve_id, type(e).__name__)
+        log.warning("OSV network error for %s: %s", vuln_id, type(e).__name__)
         return None
 
     if resp.status_code == 404:
         return None
     if resp.status_code >= 400:
-        log.warning("OSV %d for %s", resp.status_code, cve_id)
+        log.warning("OSV %d for %s", resp.status_code, vuln_id)
         return None
     if len(resp.content) > 5 * 1024 * 1024:
-        log.warning("OSV response too large for %s: %d bytes", cve_id, len(resp.content))
+        log.warning("OSV response too large for %s: %d bytes", vuln_id, len(resp.content))
         return None
     try:
         return resp.json()
     except json.JSONDecodeError:
-        log.warning("OSV parse error for %s", cve_id)
+        log.warning("OSV parse error for %s", vuln_id)
         return None
+
+
+_GHSA_ADVISORY_URL_RE = re.compile(r"https://github[.]com/advisories/(GHSA(?:-[0-9a-z]{4}){3})")
+
+
+def _ghsa_id_from_url(url: object) -> str | None:
+    """Return the GHSA id of a github.com/advisories URL as sync_ghsa stores it, else None.
+
+    The id goes into the OSV request path, so anything but the exact advisory URL is refused."""
+    if not isinstance(url, str):
+        return None
+    m = _GHSA_ADVISORY_URL_RE.fullmatch(url)
+    return m.group(1) if m else None
 
 
 async def sync_osv(full: bool = False) -> int:
@@ -1712,7 +1739,9 @@ async def sync_osv(full: bool = False) -> int:
 
     Delta-only: selects CVEs with incomplete CVSS/CWE published on/after
     2026-04-15, fetches per-CVE, upserts via upsert_cve_if_absent (NVD strong
-    fields always win). `full=True` raises NotImplementedError.
+    fields always win). Also fills empty affected_products of GHSA-covered CVEs:
+    OSV keeps package ranges under the GHSA id, not the CVE id, so those rows are
+    fetched by advisory id. `full=True` raises NotImplementedError.
 
     Returns count of CVEs with non-empty OSV data merged.
     """
@@ -1725,7 +1754,8 @@ async def sync_osv(full: bool = False) -> int:
 
     try:
         cve_ids = get_cves_needing_osv_backfill(limit=OSV_MAX_PER_RUN)
-        if not cve_ids:
+        ghsa_rows = get_ghsa_cves_missing_products(limit=OSV_MAX_PER_RUN)
+        if not cve_ids and not ghsa_rows:
             update_sync_status("osv", 0, "ok")
             log.info("OSV sync complete: 0 CVEs needed backfill")
             return 0
@@ -1753,6 +1783,35 @@ async def sync_osv(full: bool = False) -> int:
                 "osv",
                 f"https://osv.dev/vulnerability/{vuln.get('id') or cve_data['cve_id']}",
             )
+            count += 1
+            await asyncio.sleep(OSV_INTER_REQUEST_SLEEP)
+
+        for cve_id, advisory_url in ghsa_rows:
+            ghsa_id = _ghsa_id_from_url(advisory_url)
+            if ghsa_id is None:
+                continue
+            vuln = await _fetch_osv_vulnerability(ghsa_id)
+            aliases = vuln.get("aliases") if isinstance(vuln, dict) else None
+            if not isinstance(aliases, list) or cve_id not in aliases or vuln.get("withdrawn"):
+                await asyncio.sleep(OSV_INTER_REQUEST_SLEEP)
+                continue
+
+            try:
+                cve_data = _parse_osv_vulnerability(vuln)
+            except Exception as e:
+                log.warning("OSV parse error for %s: %s", ghsa_id, e)
+                await asyncio.sleep(OSV_INTER_REQUEST_SLEEP)
+                continue
+
+            if not cve_data.get("affected_products"):
+                # no products to fill: recording a source or counting it would report progress that did not happen
+                await asyncio.sleep(OSV_INTER_REQUEST_SLEEP)
+                continue
+
+            # an advisory may alias several CVEs; the parser picks the first, the row we selected wins
+            cve_data["cve_id"] = cve_id
+            upsert_cve_if_absent(cve_data)
+            record_cve_source(cve_id, "osv", f"https://osv.dev/vulnerability/{ghsa_id}")
             count += 1
             await asyncio.sleep(OSV_INTER_REQUEST_SLEEP)
 

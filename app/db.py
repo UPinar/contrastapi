@@ -2090,6 +2090,30 @@ def get_cves_needing_osv_backfill(limit: int = 500, since: str = "2026-04-15") -
     return [r[0] for r in rows]
 
 
+def get_ghsa_cves_missing_products(limit: int = 500) -> list[tuple[str, str]]:
+    """Return (cve_id, GHSA advisory URL) for GHSA-covered CVEs whose affected_products is empty.
+
+    OSV keeps package ranges under the GHSA id, not the CVE id, so the OSV backfill
+    fetches these by the advisory URL sync_ghsa stored in cve_sources. "Empty" matches
+    upsert_cve_if_absent's fill condition, so every selected row is one it would fill.
+    Ordered by published DESC.
+    """
+    with get_cve_db() as con:
+        rows = con.execute(
+            """
+            SELECT c.cve_id, s.source_url FROM cves c
+            JOIN cve_sources s ON s.cve_id = c.cve_id AND s.source = 'ghsa'
+            WHERE c.affected_products IS NULL
+               OR c.affected_products = '[]'
+               OR (json_valid(c.affected_products) = 1 AND json_array_length(c.affected_products) = 0)
+            ORDER BY c.published DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+    return [(r[0], r[1]) for r in rows]
+
+
 def upsert_exploits(batch: list[dict]) -> int:
     """Batch-upsert ExploitDB rows. Returns number of rows written."""
     if not batch:
