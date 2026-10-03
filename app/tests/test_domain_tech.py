@@ -428,6 +428,62 @@ class TestVulnsRangeMatching:
         total = self._total_cves(mock_validate, mock_page, mock_search, mock_detect, version, products)
         assert total == expected
 
+    @pytest.mark.parametrize(
+        ("version_start", "version", "expected"),
+        [("1.2", "1.2.17", 1), ("1.2", "1.3", 0), ("1.2", "1.20", 0), ("1.0", "1.2.5", 0)],
+    )
+    @patch("domain.tech.detect_technologies")
+    @patch("db.search_cves_by_products_bulk")
+    @patch("domain.routes.fetch_live_page", new_callable=AsyncMock)
+    @patch("domain.routes._validate_domain_input")
+    def test_exact_version_is_a_release_line(
+        self, mock_validate, mock_page, mock_search, mock_detect, version_start, version, expected
+    ):
+        # start == end ("1.2") covers 1.2.17; a ranged "1.0 .. <= 1.2" stops at 1.2.
+        products = [{"product": "rngtech", "version_start": version_start, "version_end_including": "1.2"}]
+        total = self._total_cves(mock_validate, mock_page, mock_search, mock_detect, version, products)
+        assert total == expected
+
+    @pytest.mark.parametrize(("version", "expected"), [("2.12.0", 1), ("2.14.0", 0)])
+    @patch("domain.tech.detect_technologies")
+    @patch("db.search_cves_by_products_bulk")
+    @patch("domain.routes.fetch_live_page", new_callable=AsyncMock)
+    @patch("domain.routes._validate_domain_input")
+    def test_inclusive_end_without_start_covers_lower_versions(
+        self, mock_validate, mock_page, mock_search, mock_detect, version, expected
+    ):
+        # GHSA "<= 2.13.0" has no start: every lower version is affected, not just the 2.13 line.
+        products = [{"product": "rngtech", "version_end_including": "2.13.0"}]
+        total = self._total_cves(mock_validate, mock_page, mock_search, mock_detect, version, products)
+        assert total == expected
+
+    @pytest.mark.parametrize(("version", "expected"), [("2.5.1", 1), ("2.5.10", 0)])
+    @patch("domain.tech.detect_technologies")
+    @patch("db.search_cves_by_products_bulk")
+    @patch("domain.routes.fetch_live_page", new_callable=AsyncMock)
+    @patch("domain.routes._validate_domain_input")
+    def test_enumerated_patch_versions_keep_exact_entry_strict(
+        self, mock_validate, mock_page, mock_search, mock_detect, version, expected
+    ):
+        products = [
+            {"product": "rngtech", "version_start": "2.5", "version_end_including": "2.5"},
+            {"product": "rngtech", "version_start": "2.5.1", "version_end_including": "2.5.1"},
+        ]
+        total = self._total_cves(mock_validate, mock_page, mock_search, mock_detect, version, products)
+        assert total == expected
+
+    @patch("domain.tech.detect_technologies")
+    @patch("db.search_cves_by_products_bulk")
+    @patch("domain.routes.fetch_live_page", new_callable=AsyncMock)
+    @patch("domain.routes._validate_domain_input")
+    def test_other_products_versions_do_not_enumerate_a_line(self, mock_validate, mock_page, mock_search, mock_detect):
+        products = [
+            {"product": "rngtech", "version_start": "3.1", "version_end_including": "3.1"},
+            {"product": "othertech", "version_start": "3.1.4", "version_end_including": "3.1.4"},
+        ]
+        total = self._total_cves(mock_validate, mock_page, mock_search, mock_detect, "3.1.7", products)
+        assert total == 1
+
     @patch("domain.tech.detect_technologies")
     @patch("db.search_cves_by_products_bulk")
     @patch("domain.routes.fetch_live_page", new_callable=AsyncMock)

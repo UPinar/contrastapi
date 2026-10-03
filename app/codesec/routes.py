@@ -9,7 +9,14 @@ from codesec.headers import check_headers
 from codesec.injection import detect_injection
 from codesec.schemas import CheckHeadersResponse, CodeCheckResponse, DependenciesResponse, ScanHeadersResponse
 from codesec.secrets import detect_secrets
-from db import _normalize_product, _parse_version, asearch_cves_by_products_bulk, hash_client_ip
+from db import (
+    _above_end_including,
+    _enumerated_lines,
+    _normalize_product,
+    _parse_version,
+    asearch_cves_by_products_bulk,
+    hash_client_ip,
+)
 from domain.recon import fetch_live_headers
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from fastapi.concurrency import run_in_threadpool
@@ -388,9 +395,11 @@ async def check_dependencies_endpoint(
             fix_version: str | None = None
             if parsed_ver:
                 matched = False
-                for prod in cve.get("affected_products", []):
-                    if (prod.get("product") or "").lower() != pkg_name_norm:
-                        continue
+                product_entries = [
+                    p for p in cve.get("affected_products", []) if (p.get("product") or "").lower() == pkg_name_norm
+                ]
+                enumerated_lines = _enumerated_lines(product_entries)
+                for prod in product_entries:
                     vs = prod.get("version_start")
                     ve = prod.get("version_end")
                     vei = prod.get("version_end_including")
@@ -399,7 +408,7 @@ async def check_dependencies_endpoint(
                             continue
                         if ve and parsed_ver >= _parse_version(ve):
                             continue
-                        if vei and parsed_ver > _parse_version(vei):
+                        if vei and _above_end_including(parsed_ver, vs, vei, enumerated_lines):
                             continue
                     except TypeError:
                         continue

@@ -8247,6 +8247,69 @@ class TestProductSearchMatching:
         assert ("CVE-2099-LIKE1" in ids) is found
 
     @pytest.mark.parametrize(
+        ("version_start", "version", "found"),
+        [("1.2", "1.2.17", True), ("1.2", "1.3", False), ("1.0", "1.2.5", False)],
+    )
+    def test_like_search_exact_version_is_a_release_line(self, version_start, version, found):
+        from db import search_cves_by_product, upsert_cve
+
+        upsert_cve(
+            {
+                "cve_id": "CVE-2099-LIKE2",
+                "published": "2099-01-01T00:00:00Z",
+                "affected_products": [
+                    {
+                        "vendor": "apache",
+                        "product": "like-line",
+                        "version_start": version_start,
+                        "version_end_including": "1.2",
+                    }
+                ],
+            }
+        )
+        ids = [c["cve_id"] for c in search_cves_by_product("like-line", version)]
+        assert ("CVE-2099-LIKE2" in ids) is found
+
+    @pytest.mark.parametrize(("version", "found"), [("2.5.1", True), ("2.5.10", False)])
+    def test_like_search_enumerated_patch_versions_keep_exact_entry_strict(self, version, found):
+        from db import search_cves_by_product, upsert_cve
+
+        upsert_cve(
+            {
+                "cve_id": "CVE-2099-LIKE3",
+                "published": "2099-01-01T00:00:00Z",
+                "affected_products": [
+                    {
+                        "vendor": "apache",
+                        "product": "like-enum",
+                        "version_start": "2.5",
+                        "version_end_including": "2.5",
+                    },
+                    {
+                        "vendor": "apache",
+                        "product": "like-enum",
+                        "version_start": "2.5.1",
+                        "version_end_including": "2.5.1",
+                    },
+                ],
+            }
+        )
+        ids = [c["cve_id"] for c in search_cves_by_product("like-enum", version)]
+        assert ("CVE-2099-LIKE3" in ids) is found
+
+    def test_enumerated_lines_are_dotted_prefixes_of_starts(self):
+        from db import _enumerated_lines
+
+        entries = [
+            {"version_start": "2.5.1"},
+            {"version_start": "1.20"},
+            {"version_start": None},
+            {"version_start": 7},
+            {},
+        ]
+        assert _enumerated_lines(entries) == {"2", "2.5", "1"}
+
+    @pytest.mark.parametrize(
         ("left", "right"),
         [("1.2.0", "1.2"), ("1.0.0", "1"), ("0.0", "0"), ("2.0.0.0", "2.0")],
     )

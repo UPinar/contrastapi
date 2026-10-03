@@ -1161,7 +1161,7 @@ class TestDependencyRangeMatching:
         assert r.status_code == 200
         return {f["cve_id"]: f for f in r.json()["findings"]}
 
-    @pytest.mark.parametrize(("version", "flagged"), [("2.13.0", True), ("2.14.0", False)])
+    @pytest.mark.parametrize(("version", "flagged"), [("2.12.0", True), ("2.13.0", True), ("2.14.0", False)])
     def test_ghsa_shaped_range_reports_patched_version(self, version, flagged):
         # GHSA "<= 2.13.0" with first_patched_version 2.14.0, stored as Batch 1 does.
         self._seed(
@@ -1201,8 +1201,10 @@ class TestDependencyRangeMatching:
         if flagged:
             assert "fixed_in" not in findings["CVE-2099-RNG02"]
 
-    @pytest.mark.parametrize(("version", "flagged"), [("2.12.0", False), ("2.13.0", True), ("2.14.0", False)])
-    def test_exact_version_matches_only_itself(self, version, flagged):
+    @pytest.mark.parametrize(
+        ("version", "flagged"), [("2.12.0", False), ("2.13.0", True), ("2.13.1", False), ("2.14.0", False)]
+    )
+    def test_exact_version_excludes_neighbour_releases(self, version, flagged):
         # "= 2.13.0" with no patched version → version_start == version_end_including.
         self._seed(
             "CVE-2099-RNG03",
@@ -1306,7 +1308,7 @@ class TestDependencyRangeMatching:
 
     @pytest.mark.parametrize(
         ("version", "flagged"),
-        [("1.2", True), ("1.2.0", True), ("1.2.0.0", True), ("1.2.1", False), ("1.1.9", False)],
+        [("1.2", True), ("1.2.0", True), ("1.2.0.0", True), ("1.3", False), ("1.1.9", False)],
     )
     def test_exact_version_ignores_trailing_zero_components(self, version, flagged):
         # A CPE names "1.2"; the same release written "1.2.0" must still match it.
@@ -1315,6 +1317,141 @@ class TestDependencyRangeMatching:
             [{"vendor": "apache", "product": "rng-zero", "version_start": "1.2", "version_end_including": "1.2"}],
         )
         assert ("CVE-2099-RNGZERO" in self._findings("rng-zero", version)) is flagged
+
+    @pytest.mark.parametrize(
+        ("version", "flagged"),
+        [
+            ("1.2", True),
+            ("1.2.1", True),
+            ("1.2.17", True),
+            ("1.1.9", False),
+            ("1.3", False),
+            ("1.20", False),
+            ("2.14.1", False),
+        ],
+    )
+    def test_exact_version_cpe_matches_its_release_line(self, version, flagged):
+        # NVD CPE "log4j:1.2" (CVE-2021-4104) means the 1.2 line: 1.2.17 is affected,
+        # 1.3 / 1.20 / 2.x are not. Seeded through the NVD parser, as prod stores it.
+        from cve.sync import _parse_nvd_cve
+        from db import upsert_cve
+
+        item = {
+            "cve": {
+                "id": "CVE-2099-NVDLINE",
+                "published": "2099-01-01T00:00:00Z",
+                "configurations": [
+                    {"nodes": [{"cpeMatch": [{"criteria": "cpe:2.3:a:apache:nvd-line:1.2:*:*:*:*:*:*:*"}]}]}
+                ],
+            }
+        }
+        upsert_cve(_parse_nvd_cve(item))
+        assert ("CVE-2099-NVDLINE" in self._findings("nvd-line", version)) is flagged
+
+    @pytest.mark.parametrize(
+        ("start", "end", "version", "flagged"),
+        [
+            ("1.0", "1.2", "1.2", True),
+            ("1.0", "1.2", "1.2.5", False),
+            ("1.2", "1.2.5", "1.2.3", True),
+            ("1.2.0", "1.2", "1.2.5", False),
+        ],
+    )
+    def test_inclusive_range_end_is_not_a_release_line(self, start, end, version, flagged):
+        # Only start == end, spelled the same, names a release line; "1.0 .. <= 1.2" stops at 1.2.
+        self._seed(
+            "CVE-2099-RNGLINE",
+            [{"vendor": "apache", "product": "rng-line", "version_start": start, "version_end_including": end}],
+        )
+        assert ("CVE-2099-RNGLINE" in self._findings("rng-line", version)) is flagged
+
+    @pytest.mark.parametrize(("version", "flagged"), [("2", True), ("2.5", True), ("3.0", False)])
+    def test_single_component_exact_version_covers_its_major_line(self, version, flagged):
+        # Accepted cost of the release-line rule: an exact "2" covers every 2.x release.
+        self._seed(
+            "CVE-2099-RNGMAJOR",
+            [{"vendor": "apache", "product": "rng-major", "version_start": "2", "version_end_including": "2"}],
+        )
+        assert ("CVE-2099-RNGMAJOR" in self._findings("rng-major", version)) is flagged
+
+    @pytest.mark.parametrize(
+        ("version", "flagged"), [("2.5", True), ("2.5.0", True), ("2.5.1", True), ("2.5.10", False), ("2.6", False)]
+    )
+    def test_enumerated_patch_versions_keep_exact_entry_strict(self, version, flagged):
+        # NVD lists "2.5, 2.5.1, 2.5.2" (struts CVE-2016-8738 shape): "2.5" is that release, not the 2.5 line.
+        from cve.sync import _parse_nvd_cve
+        from db import upsert_cve
+
+        cpes = [f"cpe:2.3:a:apache:nvd-enum:{v}:*:*:*:*:*:*:*" for v in ("2.5", "2.5.1", "2.5.2")]
+        item = {
+            "cve": {
+                "id": "CVE-2099-NVDENUM",
+                "published": "2099-01-01T00:00:00Z",
+                "configurations": [{"nodes": [{"cpeMatch": [{"criteria": c} for c in cpes]}]}],
+            }
+        }
+        upsert_cve(_parse_nvd_cve(item))
+        assert ("CVE-2099-NVDENUM" in self._findings("nvd-enum", version)) is flagged
+
+    def test_other_products_versions_do_not_enumerate_a_line(self):
+        # Only the same product's entries count: "rng-noise 3.1.4" leaves "rng-solo 3.1" a release line.
+        self._seed(
+            "CVE-2099-RNGSOLO",
+            [
+                {"vendor": "apache", "product": "rng-solo", "version_start": "3.1", "version_end_including": "3.1"},
+                {
+                    "vendor": "apache",
+                    "product": "rng-noise",
+                    "version_start": "3.1.4",
+                    "version_end_including": "3.1.4",
+                },
+            ],
+        )
+        assert "CVE-2099-RNGSOLO" in self._findings("rng-solo", "3.1.7")
+
+    def test_enumerated_line_needs_a_dotted_prefix(self):
+        # "2.50.1" enumerates "2" and "2.50", not "2.5": the exact "2.5" still covers 2.5.3.
+        self._seed(
+            "CVE-2099-RNGDOT",
+            [
+                {"vendor": "apache", "product": "rng-dot", "version_start": "2.5", "version_end_including": "2.5"},
+                {
+                    "vendor": "apache",
+                    "product": "rng-dot",
+                    "version_start": "2.50.1",
+                    "version_end_including": "2.50.1",
+                },
+            ],
+        )
+        assert "CVE-2099-RNGDOT" in self._findings("rng-dot", "2.5.3")
+
+    def test_exact_sibling_does_not_narrow_a_ranged_end(self):
+        # The enumerated-line rule only applies to exact entries: "1.0 .. <= 1.2" still covers 1.1.
+        self._seed(
+            "CVE-2099-RNGRANGE",
+            [
+                {"vendor": "apache", "product": "rng-range", "version_start": "1.0", "version_end_including": "1.2"},
+                {
+                    "vendor": "apache",
+                    "product": "rng-range",
+                    "version_start": "1.2.3",
+                    "version_end_including": "1.2.3",
+                },
+            ],
+        )
+        assert "CVE-2099-RNGRANGE" in self._findings("rng-range", "1.1")
+
+    @pytest.mark.parametrize(("version", "flagged"), [("2.14", True), ("2.14.0", True), ("2.14.1", False)])
+    def test_trailing_zero_sibling_keeps_exact_entry_strict(self, version, flagged):
+        # Accepted (review 4c-2): "2.14" beside "2.14.0" (nasm CVE-2018-16517 shape) reads as listed releases.
+        self._seed(
+            "CVE-2099-RNGTZ",
+            [
+                {"vendor": "nasm", "product": "rng-tz", "version_start": "2.14", "version_end_including": "2.14"},
+                {"vendor": "nasm", "product": "rng-tz", "version_start": "2.14.0", "version_end_including": "2.14.0"},
+            ],
+        )
+        assert ("CVE-2099-RNGTZ" in self._findings("rng-tz", version)) is flagged
 
     @pytest.mark.parametrize(("version", "flagged"), [("2", True), ("3.0.0", False)])
     def test_range_ends_ignore_trailing_zero_components(self, version, flagged):

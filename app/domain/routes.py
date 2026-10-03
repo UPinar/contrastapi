@@ -2720,7 +2720,13 @@ async def domain_vulns(
     if "error" in page:
         raise HTTPException(status_code=504, detail=page["error"])
 
-    from db import asearch_cves_by_products_bulk, normalize_product, parse_version
+    from db import (
+        _above_end_including,
+        _enumerated_lines,
+        asearch_cves_by_products_bulk,
+        normalize_product,
+        parse_version,
+    )
     from domain.tech import detect_technologies
 
     tech_result = detect_technologies(page["headers"], page.get("html"))
@@ -2751,9 +2757,11 @@ async def domain_vulns(
         for cve in raw:
             if parsed_ver:
                 matched = False
-                for prod in cve.get("affected_products", []):
-                    if (prod.get("product") or "").lower() != key:
-                        continue
+                product_entries = [
+                    p for p in cve.get("affected_products", []) if (p.get("product") or "").lower() == key
+                ]
+                enumerated_lines = _enumerated_lines(product_entries)
+                for prod in product_entries:
                     vs, ve = prod.get("version_start"), prod.get("version_end")
                     vei = prod.get("version_end_including")
                     try:
@@ -2761,7 +2769,7 @@ async def domain_vulns(
                             continue
                         if ve and parsed_ver >= parse_version(ve):
                             continue
-                        if vei and parsed_ver > parse_version(vei):
+                        if vei and _above_end_including(parsed_ver, vs, vei, enumerated_lines):
                             continue
                     except TypeError:
                         continue

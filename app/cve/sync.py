@@ -250,7 +250,7 @@ def _parse_nvd_cve(item: dict) -> dict:
                     ver_start = match.get("versionStartIncluding")
                     ver_end = match.get("versionEndExcluding") or match.get("versionEndIncluding")
                     ver_end_including = None
-                    # Fallback: a CPE naming one version (field 6) affects that version only
+                    # Fallback: a CPE naming one version (field 6) affects that release line (1.2 → 1.2.x)
                     if not ver_start and not ver_end and len(parts) >= 6:
                         cpe_ver = parts[5]
                         if cpe_ver and cpe_ver not in ("*", "-"):
@@ -604,7 +604,7 @@ def _parse_mitre_cve(item: dict) -> dict:
                     }
                 )
         elif cpes:
-            # CPE fallback: the version at field index 5 (0-based) is the only one affected
+            # CPE fallback: the version at field index 5 (0-based) names the affected release line
             for cpe in cpes[:20]:
                 if not isinstance(cpe, str):
                     continue

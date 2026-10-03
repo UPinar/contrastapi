@@ -1266,6 +1266,36 @@ def _parse_version(v: str) -> tuple:
 parse_version = _parse_version
 
 
+def _enumerated_lines(entries: list[dict]) -> set[str]:
+    """Release lines whose sub-versions the entries list by version_start ('2.5.1' -> '2', '2.5').
+    An exact entry for such a line ('2.5' beside 2.5.1 ... 2.5.5, NVD enumerating patches)
+    means that release alone, not the whole line."""
+    lines = set()
+    for entry in entries:
+        start = entry.get("version_start")
+        if isinstance(start, str):
+            parts = start.split(".")
+            lines.update(".".join(parts[:i]) for i in range(1, len(parts)))
+    return lines
+
+
+def _above_end_including(
+    parsed_ver: tuple, version_start: str | None, version_end_including: str, enumerated_lines: set[str]
+) -> bool:
+    """True when parsed_ver lies past an inclusive upper end. An exact-version entry
+    (start == end, e.g. NVD CPE 'log4j:1.2') names a release line: '1.2' covers 1.2,
+    1.2.0 and 1.2.17 but not 1.3 or 1.20 - unless the same CVE lists sub-versions of it
+    for the product (see _enumerated_lines), then it is that release alone. A ranged end
+    raises TypeError like any _parse_version comparison when the two cannot be ordered."""
+    end = _parse_version(version_end_including)
+    if version_start == version_end_including:
+        if version_end_including in enumerated_lines:
+            return parsed_ver != end
+        n = len(version_end_including.split("."))
+        return parsed_ver[:n] != end[:n]
+    return parsed_ver > end
+
+
 def get_related_cves_by_product(
     product: str,
     vendor: str | None = None,
@@ -1401,9 +1431,11 @@ def search_cves_by_product(product: str, version: str | None = None, limit: int 
         if parsed_ver:
             # Check version ranges from affected_products using numeric comparison
             matched = False
-            for prod in cve.get("affected_products", []):
-                if product.lower() not in (prod.get("product") or "").lower():
-                    continue
+            product_entries = [
+                p for p in cve.get("affected_products", []) if product.lower() in (p.get("product") or "").lower()
+            ]
+            enumerated_lines = _enumerated_lines(product_entries)
+            for prod in product_entries:
                 vs = prod.get("version_start")
                 ve = prod.get("version_end")
                 vei = prod.get("version_end_including")
@@ -1412,7 +1444,7 @@ def search_cves_by_product(product: str, version: str | None = None, limit: int 
                         continue
                     if ve and parsed_ver >= _parse_version(ve):
                         continue
-                    if vei and parsed_ver > _parse_version(vei):
+                    if vei and _above_end_including(parsed_ver, vs, vei, enumerated_lines):
                         continue
                 except TypeError:
                     continue  # incomparable version formats
