@@ -413,9 +413,10 @@ async def check_dependencies_endpoint(
                     except TypeError:
                         continue
                     matched = True
-                    # version_end is the first patched release per NVD/MITRE semantics.
-                    # Open-ended ranges (no upper bound) leave fix_version None and the
-                    # generic remediation copy is emitted instead.
+                    # version_end is the range's exclusive upper bound, usually the first
+                    # patched release. Ranges without one (open-ended, or bounded only by
+                    # version_end_including) leave fix_version None and the generic
+                    # remediation copy is emitted instead.
                     fix_version = ve or None
                     break
                 if not matched and cve.get("affected_products"):

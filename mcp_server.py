@@ -1925,7 +1925,7 @@ async def check_dependencies(
         ),
     ],
 ) -> DependenciesResponse | ErrorResponse:
-    """Audit project dependencies (npm/PyPI/Maven/RubyGems/etc.) against CVE database: find known vulnerabilities in your package list. Bulk query up to 50 packages per call (same for Free and Pro). Use for dependency security scanning; use cve_lookup for single CVE. Free: 30/hr (1 per package), Pro: 500/hr. Returns {findings, total, by_severity, summary}. Each finding includes fixed_in (first patched version per NVD/MITRE version range) when a version range matched — omitted from wire when the range is open-ended or no input version was supplied; remediation copy then says 'Check if ... is affected ... and upgrade if so' instead of 'Upgrade to X.Y.Z or later'."""
+    """Audit project dependencies (npm/PyPI/Maven/RubyGems/etc.) against CVE database: find known vulnerabilities in your package list. Bulk query up to 50 packages per call (same for Free and Pro). Use for dependency security scanning; use cve_lookup for single CVE. Free: 30/hr (1 per package), Pro: 500/hr. Returns {findings, total, by_severity, summary}. Each finding includes fixed_in (first release outside the matched vulnerable range: its exclusive upper bound from NVD, MITRE, GitHub advisory or OSV data, usually the first patched version) when a version range matched — omitted from wire when the range has no exclusive upper bound or no input version was supplied; remediation copy then says 'Check if ... is affected ... and upgrade if so' instead of 'Upgrade to X.Y.Z or later'."""
     if not isinstance(packages, list) or not packages:
         raise InvalidArgumentException("packages must be a non-empty list")
     if len(packages) > 50:

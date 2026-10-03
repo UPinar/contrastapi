@@ -173,9 +173,11 @@ class DepFinding(BaseModel):
     fixed_in: str | None = Field(
         default=None,
         description=(
-            "First patched release per NVD/MITRE version range data (CVE affected_products[].version_end). "
-            "Excluded from the wire (response_model_exclude_none=True) when the matched range is open-ended "
-            "or no input version was supplied — in those cases inspect remediation copy."
+            "First release outside the matched vulnerable range: the range's exclusive upper bound "
+            "(CVE affected_products[].version_end from NVD, MITRE, GitHub advisory or OSV data; usually the "
+            "first patched release). Excluded from the wire (response_model_exclude_none=True) when the matched "
+            "range has no exclusive upper bound (open-ended, or bounded only by an inclusive last-affected "
+            "version) or no input version was supplied — in those cases inspect remediation copy."
         ),
     )
     remediation: str = ""

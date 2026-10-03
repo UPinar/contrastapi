@@ -1480,6 +1480,8 @@ def search_cves_by_products_bulk(products: list[str], limit_per_product: int = 2
     apply additional filtering (e.g. version ranges) without losing results.
     Ranking runs over distinct (cve_id, product) pairs, not cve_products rows: one
     CVE with many rows for the same product must not use up the other CVEs' slots.
+    Platform-only rows (vulnerable = 0) are excluded; NULL (rows written before the
+    flag existed) counts as vulnerable.
     """
     products_lower = list({_normalize_product(p).strip().lower() for p in products if p and p.strip()})
     if not products_lower:

@@ -330,7 +330,10 @@ class CveResponse(BaseSuccessResponse):
     affected_products: list[dict] = Field(
         default_factory=list,
         description=(
-            "CPE affected products. Truncated to first 20 by default. "
+            "Affected products: vendor/product entries from NVD and MITRE, plus package entries from "
+            "GitHub advisories and OSV (vendor = ecosystem such as 'python' or 'nodejs', product = package "
+            "name). Entries may carry version_start (inclusive), version_end (exclusive) and "
+            "version_end_including. Truncated to first 20 by default. "
             "For GET /v1/cve/{cve_id}, use ?include_affected_products=true; "
             'for POST /v1/cves/bulk, set body field "include_affected_products": true.'
         ),
