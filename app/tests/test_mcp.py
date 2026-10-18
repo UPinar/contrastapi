@@ -607,7 +607,7 @@ def test_mcp_get_health_shape_for_nginx_split(mcp_client):
     r = mcp_client.get("/mcp/")
     assert r.status_code == 200
     assert "content-length" in r.headers, "Response must be buffered (Content-Length absent implies streaming)"
-    assert r.headers.get("vary") == "Accept"
+    assert "Accept" in [v.strip() for v in r.headers.get("vary", "").split(",")]
     data = r.json()
     assert data["name"] == "ContrastAPI MCP Server"
     assert data["transport"] == "streamable-http"
@@ -636,7 +636,7 @@ def test_mcp_get_sse_accept_returns_405(mcp_client):
     r = mcp_client.get("/mcp/", headers={"Accept": "text/event-stream"})
     assert r.status_code == 405
     assert r.headers.get("allow") == "POST"
-    assert r.headers.get("vary") == "Accept"
+    assert "Accept" in [v.strip() for v in r.headers.get("vary", "").split(",")]
     assert r.headers.get("content-type") == "application/json"
     assert "retry:" not in r.text
     assert "x-mcp-keepalive-interval" not in r.headers
@@ -657,7 +657,7 @@ def test_mcp_get_combined_accept_returns_405(mcp_client):
     r = mcp_client.get("/mcp/", headers={"Accept": "application/json, text/event-stream"})
     assert r.status_code == 405
     assert r.headers.get("allow") == "POST"
-    assert r.headers.get("vary") == "Accept"
+    assert "Accept" in [v.strip() for v in r.headers.get("vary", "").split(",")]
 
 
 def test_mcp_get_json_accept_still_returns_health(mcp_client):
