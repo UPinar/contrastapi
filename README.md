@@ -1,73 +1,76 @@
-# ContrastAPI — 55 Security Tools + 7 MCP Resources for AI Agents
+# ContrastAPI
 
-<p align="center">
-  <img src="app/static/banner.png" alt="ContrastAPI Banner" width="100%">
-</p>
+ContrastAPI serves security data and monitoring to AI agents and to people. It answers as
+a REST API and as an MCP server. Every endpoint works without an API key, within a free
+hourly credit budget, except monitoring and the saving of your own vendor keys, which need
+a Pro API key.
+Ask about a CVE, a package version, a domain or an IP address, and get an answer built
+from public sources such as NVD, CISA KEV, FIRST EPSS, OSV and MITRE. Put CVEs, packages,
+domains and IP addresses on a watchlist, and read the changes to them as events.
 
-[![MCP](https://img.shields.io/badge/MCP-55_tools-purple.svg)](https://modelcontextprotocol.io)
-[![Install in Claude Desktop](https://img.shields.io/badge/Claude_Desktop-Install_Extension-d97757.svg)](https://github.com/UPinar/contrastapi/releases/latest)
-[![contrastapi MCP server](https://glama.ai/mcp/servers/UPinar/contrastapi/badges/score.svg)](https://glama.ai/mcp/servers/UPinar/contrastapi)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+This repository holds the server. It is written in C and reads its data from PostgreSQL.
 
-**Security intelligence, built for AI agents.** Give your agent grounded answers about vulnerabilities, threats, and attack surface — backed by authoritative sources (NVD, CISA KEV, FIRST EPSS, MITRE ATLAS & D3FEND), never guesswork. CVE/KEV/CWE lookup with EPSS exploit-probability and composite risk scoring, domain & IP investigation, IOC enrichment, code-security checks, and live web intelligence. **55 tools, 7 Resources, and 3 Prompts — free, no API key, no signup.**
+Live service: [api.contrastcyber.com](https://api.contrastcyber.com)
 
-[中文](README_CN.md) · **Live:** [api.contrastcyber.com](https://api.contrastcyber.com)
+## When to use
 
----
+Each row names the MCP tool. The REST endpoint has the same name.
+
+| You want to | Use |
+|---|---|
+| Read one CVE: CVSS, EPSS, CISA KEV, CWE, affected products and a risk score | `cve_lookup`, `cve_lookup_bulk`, `cve_products`, `cve_risk_score` |
+| Read a CISA KEV entry or a CWE weakness | `kev_lookup`, `cwe_lookup` |
+| Decode and score a CVSS v3 vector | `cvss_calculator` |
+| See whether a CVE has public exploits or a Metasploit module | `cve_exploit` |
+| Rank the CVEs of a vendor or product by risk | `cpe_search` for the name, then `cve_triage`, `cve_triage_bulk` or `product_exposure` |
+| Find CVEs by severity, CWE, EPSS, KEV or date | `cve_search`, `cve_leading` |
+| Check a dependency version for advisories and malicious packages | `package_check`, `package_check_bulk` (npm, PyPI, Maven, Go, NuGet, RubyGems, crates.io, Packagist, SwiftURL) |
+| Check a domain: DNS, mail auth (SPF, DKIM, DMARC), TLS, security headers, WHOIS | `dns_lookup`, `email_auth_check`, `ssl_check`, `headers_check`, `whois_lookup` |
+| Check an email address: does its domain take mail, is it disposable | `email_address_check` |
+| List the Wayback Machine captures of a host name | `wayback_lookup` |
+| Find subdomains, or a subdomain open to takeover | `subdomain_enum`, `cert_search`, `dns_takeover_check` |
+| Look up an IP address or an ASN | `ip_lookup`, `asn_lookup` |
+| Find the D3FEND defenses for an ATT&CK technique | `d3fend_for_attack` |
+| Check a Windows driver against LOLDrivers | `driver_lookup`, `driver_lookup_bulk` |
+| Check whether a password hash is in a breach list | `password_check` (it takes the SHA-1, never the password) |
+| Get told when a CVE, package, domain or IP you watch changes | `watchlist_edit`, `watchlist_events` (Pro API key) |
+| Read the metadata of an image file | `POST /image_inspect` (REST only, not an MCP tool) |
+| Save your own Shodan and AbuseIPDB keys for `ip_lookup` | `vendor_key_edit` (Pro API key) |
+| Check the server and its data feeds, or what it keeps about you | `health`, `privacy_my_data` |
+
+When not to use it:
+
+- It does not scan a target for vulnerabilities or run exploits. It reports what public
+  sources say, and what a domain's own DNS, TLS and HTTP answers show.
+- It serves no exploit code. `cve_exploit` lists references to it.
+- An answer is as fresh as its source's last sync, not live. `/health` shows when each
+  feed was last updated.
 
 ## Documentation
 
-- **[API Documentation](docs/API_Documentation.md)** — REST reference: 60+ endpoints, authentication, rate limits, token costs, and response envelope.
-- **[MCP Documentation](docs/MCP_Documentation.md)** — MCP tool-selection guide, 7 Resources, 3 Prompts, and copy-paste agent prompts.
+- [API documentation](docs/API_Documentation.md): every REST endpoint, its parameters,
+  its answer and its errors, and the credit cost of each call.
+- [MCP documentation](docs/MCP_Documentation.md): the MCP tools, the protocol versions the
+  server speaks, and how to connect a client.
+- [contrastapi-clients](https://github.com/UPinar/contrastapi-clients): the SDKs for Python
+  and Node, the Claude Desktop extension and the VS Code extension, under the MIT license.
 
-## Setup (MCP)
+## Where the data comes from
 
-### Any MCP client
+The sources and their licenses are listed in
+[Data sources and licenses](docs/API_Documentation.md#data-sources-and-licenses).
 
-```json
-{
-  "mcpServers": {
-    "contrastapi": {
-      "command": "npx",
-      "args": ["-y", "mcp-remote", "https://api.contrastcyber.com/mcp/"]
-    }
-  }
-}
-```
+## Contributing
 
-Restart your agent. Other clients (Python SDK, Node SDK, cURL, VS Code): **[mcp-setup](https://api.contrastcyber.com/mcp-setup)** · **[quickstart](https://api.contrastcyber.com/quickstart)**
+Bug reports and pull requests are welcome. Read [CONTRIBUTING.md](.github/CONTRIBUTING.md) first.
+A pull request needs a signed [Contributor License Agreement](.github/CLA.md). Report a security
+problem as [SECURITY.md](.github/SECURITY.md) describes, not in a public issue.
 
-### Claude Desktop — one-click extension
+## License
 
-Grab the `.mcpb` file from the **[latest release](https://github.com/UPinar/contrastapi/releases/latest)** and double-click it (or Claude Desktop → **Settings → Extensions → Install Extension…**). No signup, no API key — all 55 tools ready immediately.
+The server is licensed under the [GNU Affero General Public License v3.0](LICENSE).
+If you run a changed copy as a network service, the AGPL asks you to offer its source
+to the users of that service.
 
-## SDKs
-
-```bash
-pip install contrastapi      # Python 3.10+ — sync + async, typed responses, shortcut helpers
-npm install contrastapi      # Node 14+ — concrete TypeScript types, 14 namespaces
-```
-
-Both SDKs cover every HTTP endpoint and MCP tool — CVE/KEV/CWE, ATLAS, D3FEND, Sigma rules, email security posture, domain, IP, IOC, code security, and web intelligence — with wire-exact response shapes and a typed exception hierarchy that mirrors the API error envelope. They also expose MCP Resources for browsing the ATLAS, D3FEND, and CWE catalogs (see [docs/MCP_Documentation.md](docs/MCP_Documentation.md#mcp-resources)) and a conditional triage Prompt (see [docs/MCP_Documentation.md#contrast-triage](docs/MCP_Documentation.md#contrast-triage)). Web-intelligence tools — `robots_txt`, `redirect_chain`, `email_verify`, `brand_assets`, `seo_audit`, `geo_audit` — ship with an explicit ethical floor: per-target throttling, robots.txt respected, no SMTP probing.
-
-## Links
-
-**OpenAPI:** [openapi.json](https://api.contrastcyber.com/openapi.json)
-
-<details>
-<summary>Also available on</summary>
-
-[Smithery](https://smithery.ai/servers/contrastcyber/contrastapi) · [npm](https://www.npmjs.com/package/contrastapi) · [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=ContrastAPI.contrastapi) · [Awesome OSINT MCP](https://github.com/soxoj/awesome-osint-mcp-servers) · [RapidAPI](https://rapidapi.com/UPinar/api/contrastapi)
-
-</details>
-
-<details>
-<summary>Multi-agent verdict metadata</summary>
-
-Responses include a `verdict` block — `deterministic`, `falsifiable_fields`, `data_age_seconds`, `sources_queried` / `sources_unavailable`, `completeness` — so a verifier agent can independently re-derive specific fields from the upstream authority (NVD, RDAP, CT logs, URLhaus). Probe `GET /v1/capabilities` for `"verdict_metadata": true`.
-
-CVE responses also embed `next_calls: list[PivotHint]` — `{tool, input, reason}` triples that suggest the next MCP tool to call (e.g. `kev_detail` when `kev.in_kev=true`, `cwe_lookup` when `cwe_id` is set). Agents chain workflows without manual prompting.
-
-</details>
-
-MIT
+Code, word lists and fonts by other authors keep their own licenses. [NOTICE](NOTICE)
+lists them.

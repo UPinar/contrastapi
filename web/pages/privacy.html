@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Privacy Policy | ContrastAPI</title>
+  <meta name="description" content="The privacy policy for the ContrastAPI security data API and MCP server.">
+  <meta property="og:title" content="Privacy Policy | ContrastAPI">
+  <meta property="og:description" content="The privacy policy for the ContrastAPI security data API and MCP server.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://api.contrastcyber.com/privacy">
+  <meta property="og:image" content="https://api.contrastcyber.com/static/og-image.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="ContrastAPI: security data and monitoring API and MCP server">
+  <meta property="og:site_name" content="ContrastAPI">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Privacy Policy | ContrastAPI">
+  <meta name="twitter:description" content="The privacy policy for the ContrastAPI security data API and MCP server.">
+  <meta name="twitter:image" content="https://api.contrastcyber.com/static/og-image.png">
+  <meta name="theme-color" content="#e9ebee" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#06101d" media="(prefers-color-scheme: dark)">
+  <link rel="canonical" href="https://api.contrastcyber.com/privacy">
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="/static/favicon-192.png">
+  <script src="/static/js/theme-init.js?v=@@THEME_INIT_JS_VERSION@@"></script>
+  <link rel="stylesheet" href="/static/style.css?v=@@STYLE_CSS_VERSION@@">
+  <link rel="stylesheet" href="/static/css/page.css?v=@@PAGE_CSS_VERSION@@">
+  <script src="/static/js/landing.js?v=@@LANDING_JS_VERSION@@" defer></script>
+</head>
+<body>
+  @@NAV@@
+
+  <main class="page">
+    <h1>Privacy Policy</h1>
+    <p class="subtitle">Last updated: 2026-11-09</p>
+
+    <h2 class="section-title">1. Introduction</h2>
+    <p class="endpoints-lede">ContrastCyber ("we", "us") operates <strong>ContrastAPI</strong> at api.contrastcyber.com. This Privacy Policy covers the data we handle when you call the API, over REST or over MCP. It also covers the web pages at api.contrastcyber.com, the website at contrastcyber.com and its CVE pages.</p>
+
+    <h2 class="section-title">2. Data We Collect</h2>
+    <p class="endpoints-lede"><strong>2.1 Rate limiting.</strong> Each request is charged to a credit budget, and the database keeps one row for each budget.</p>
+    <ul class="freshness-list">
+      <li>A request without an API key is metered by an HMAC-SHA256 of your IP address. The HMAC is keyed with a server secret. It is a pseudonym, not anonymous data.</li>
+      <li>For an IPv6 address, the HMAC covers only the /64 prefix. So all addresses in one /64 share one budget.</li>
+      <li>A request with an active API key is metered by the SHA-256 of the key. Its IP address is not hashed and not stored in the database. Section 2.7 says what the web server logs.</li>
+      <li>The row holds the hash, whether the hash belongs to an API key, the number of credits used and the hour the row is for. We delete the row at most @@RL_RETENTION_MAX_MINUTES@@ minutes after that hour starts. A cleanup job deletes old rows every @@MAINTENANCE_INTERVAL_MINUTES@@ minutes. If the server is down or the cleanup fails, a row can stay longer.</li>
+    </ul>
+    <p class="endpoints-lede"><strong>2.2 API keys.</strong> An API key row holds the SHA-256 of the key. It also holds when the key was created, whether it is active and when it expires. It never holds the key itself.</p>
+    <p class="endpoints-lede">A Pro key can also keep vendor keys, one Shodan key and one AbuseIPDB key. Without a Pro key, the Service stores nothing of this kind.</p>
+    <ul class="freshness-list">
+      <li>A vendor key row holds the id of your key's row, the vendor name, the key you saved and when you saved it. The key is stored sealed, encrypted with AES-256-GCM, and no answer shows it again.</li>
+      <li>You change or delete a vendor key through a link that works for 15 minutes. The Service keeps one manage link row for each link it shows you. The row holds the SHA-256 of the link, the id of your key's row, a fingerprint of your key and the end of the link. It never holds the link itself. A save through the link deletes its row once every change of the save passed.</li>
+    </ul>
+    <p class="endpoints-lede"><strong>2.3 Monitoring (watchlist).</strong> A Pro key can keep a monitoring list. Without a Pro key, the Service stores nothing of this kind.</p>
+    <ul class="freshness-list">
+      <li>An item holds the id of your key's row, the endpoint it watches and the values you gave for it. Those values are a CVE id, a vendor and product pair with an optional version, some CVE search filters, a package ecosystem and name with an optional version, a domain name, or an IP address.</li>
+      <li>A package item makes no scan and holds no value that a scan read. A change event of a package holds the advisory and the package, and it names no key. Once an event matches an item, the item holds a reference to the event.</li>
+      <li>A domain item also holds its registered domain and the time of its next scan. It holds the values its scans read, such as the name servers, the mail servers and the certificate's end date. Those values hold no certificate and no IP address.</li>
+      <li>A domain name that any list watches has one shared row, and that row names no key. A change event of the name holds the change, when it was confirmed, and the value before and after it. A new certificate issuer needs no confirming scan, so its event holds when the scan read it.</li>
+      <li>An IP item holds the IP address you gave. An IP address can be personal data, such as the address of a home connection. The item also holds when it was last compared, and two values of that comparison. One value is the DROP listings that hold the address. The other is the hosting class of the address. The item also holds a new hosting class that a comparison saw and has not confirmed yet, with when that class was first seen. A change event of an address holds the address, the change, when it was recorded, and the value before and after it. A DROP event also holds the date and the copyright text of the list.</li>
+    </ul>
+    <p class="endpoints-lede">The Service scans each watched domain name about once a day. It compares each watched IP address with its local lists about every 15 minutes, after one of the lists has a newer sync, and sends no request to the address. You read the change events yourself, with <code>watchlist_events</code>.</p>
+    <p class="endpoints-lede"><strong>2.4 Kept answers.</strong> These endpoints keep their answer for a while: <code>/ssl_check/</code>, <code>/headers_check/</code>, <code>/whois_lookup/</code>, <code>/wayback_lookup/</code>, <code>/cert_search/</code> and <code>/subdomain_enum/</code>. A kept answer is stored under its host name or registrable domain, in lower case. Any caller who asks the same question in that time gets it. The row holds no API key, no credit budget and no IP address of the caller. The application keeps no other answer, and every API answer carries <code>Cache-Control: no-store</code>.</p>
+    <p class="endpoints-lede"><strong>2.5 Counts of our own requests.</strong> The Service counts the requests it sends to each upstream source, such as Cert Spotter or an RDAP server. A count names the source or its host, and a time window. So an RDAP count tells which registry was asked in a minute, but not which domain or by whom. A count holds nothing else about a request or a caller. Two kinds are the exception. A count of the headers scans names the registered domain of a watched name. The payment limits of section 2.10 count under an HMAC of a client address, of a paying account or of a payment.</p>
+    <p class="endpoints-lede"><strong>2.6 Usage log.</strong> The server writes one line to its usage log for each connection. A line holds the time to the second, the port of the server, whether the request came over REST, MCP or the web, and the name of the endpoint, web file or MCP method it asked for, if any. It holds the tier, the HTTP status, how the request ended and how long it took. It holds the size of the answer, the credits the request was charged and the item count of a bulk request. It holds no IP address, no API key, no query, no body and no argument value. A request may name an endpoint that does not exist. The line then writes that name only when it is a short lower-case word.</p>
+    <p class="endpoints-lede"><strong>2.7 Web server and network.</strong></p>
+    <ul class="freshness-list">
+      <li>The web server's access log holds the raw IP address, the request path without its query, the user agent and the referer of each request.</li>
+      <li>The web server logs nothing about a <code>/password_check/</code> request, because its path holds a password's SHA-1. An <code>/email_address_check/</code> path holds an e-mail address, and the access log keeps it as it keeps any other path.</li>
+      <li>The host's security tooling keeps the raw IP address of a request it flags or blocks.</li>
+      <li>The website at contrastcyber.com uses the same web server and the same access log. Its own program also writes one line for each request: the method, the path, the status and the duration. That line holds no IP address.</li>
+    </ul>
+    <p class="endpoints-lede"><strong>2.8 Values you send.</strong> The application stores no path, query, body or looked-up value of a request in its database, except the items above. These endpoints take extra care:</p>
+    <ul class="freshness-list">
+      <li><code>/password_check/</code> takes the SHA-1 hash of a password, not the password. It sends Have I Been Pwned only the first 5 hex digits of that hash. It keeps no answer.</li>
+      <li><code>/image_inspect</code> holds your image in memory while it answers. It writes the image, its hash and the answer to no disk, log, cache or database. It sends the image to one other process: the exif service on the same host.</li>
+    </ul>
+    <p class="endpoints-lede"><strong>2.9 Requests we send for you.</strong> Some endpoints ask another host about the value you send. Only that value, or a part of it, leaves the server. The one addition is your own vendor key, as described below. For example, <code>/whois_lookup/</code> sends the registered domain to the RDAP server of its registry. <code>/cert_search/</code> sends the host name to Cert Spotter. <code>/password_check/</code> sends the first 5 hex digits of the hash. These requests carry our User-Agent. They carry neither your IP address nor your API key. A Pro key that saved a vendor key adds requests of its own. <code>/ip_lookup/</code> sends your own vendor key and the looked-up address to Shodan at <code>api.shodan.io</code> and to AbuseIPDB at <code>api.abuseipdb.com</code>, for each vendor whose key you saved. When you save a key, the server checks it. It sends the Shodan key to Shodan, and the AbuseIPDB key with the address <code>127.0.0.1</code> to AbuseIPDB. A status request sends each saved key to its vendor the same way. The <a href="/bot">bot page</a> lists each of these requests.</p>
+
+    <p class="endpoints-lede"><strong>2.10 Pay per call (x402).</strong> A request without an API key may pay for one call with USDC on Solana. The payment itself is public on Solana. Anyone can read the transfer there, with its amount and its wallets. The Service keeps the following about a payment.</p>
+    <ul class="freshness-list">
+      <li>The ledger row of a payment holds an HMAC-SHA256 of the payment message, an HMAC-SHA256 of the paying token account, a status and the time of the last reserve. Both HMACs are keyed with a server secret. While the payment is pending, the row also holds the transaction signature. The row holds no wallet address, no amount and no endpoint. The status is reserved, settled, pending or released.</li>
+      <li>The payment limits count under an HMAC-SHA256 of your IP address for 60 seconds, of the paying token account for 1 hour, and of the payment for 60 seconds. A count names no endpoint and no amount.</li>
+      <li>The usage log line of a paid request names the tier x402. It holds no payer and no payment.</li>
+    </ul>
+    <p class="endpoints-lede">The facilitator that verifies a payment and sends it to Solana runs on the same host as the API server. It uses a Solana RPC provider for both steps, so that provider receives the signed transaction. When you retry a pending payment, the server asks the provider whether the transaction is confirmed. That request holds the transaction signature, which is public on Solana. The provider also sees the address of our server. See section 9.</p>
+
+    <h2 class="section-title">3. What We Do Not Collect</h2>
+    <ul class="freshness-list">
+      <li>The application sets no cookie.</li>
+      <li>The theme button keeps your choice, light or dark, in the local storage of your browser under the name <code>theme</code>. The browser never sends it to us.</li>
+      <li>Our pages load no script, font or image from another host. Their Content-Security-Policy allows only this site.</li>
+      <li>We use no third-party analytics and no advertising tracker.</li>
+      <li>The free tier needs no signup. Our database holds no name and no e-mail address of a user. It holds no payment data of a user either, apart from the hashes that section 2.10 describes and the Pro orders of section 8.</li>
+      <li>The application derives no location from the IP address a request comes from.</li>
+      <li>We do not sell or rent your data. We share it only with the recipients that sections 2.9, 8 and 9 name, and the companies that host our server and our e-mail.</li>
+    </ul>
+
+    <h2 class="section-title">4. Check It Yourself</h2>
+    <p class="endpoints-lede">The Service has an endpoint that shows the hash it meters you by:</p>
+    <p class="endpoints-lede"><code>curl https://api.contrastcyber.com/privacy_my_data</code></p>
+    <p class="endpoints-lede">The answer shows your tier, your credit budget and the hash your request was metered by. With a Pro key, it also shows whether a Shodan key and an AbuseIPDB key are stored, and the link that opens the page where you change them. It links to this policy, which says what is stored and for how long. The MCP tool <code>privacy_my_data</code> gives the same answer.</p>
+
+    <h2 class="section-title">5. Do Not Track &amp; Global Privacy Control</h2>
+    <p class="endpoints-lede">The Service does not act on the Do Not Track (DNT) or Global Privacy Control (Sec-GPC) header. It keeps no analytics profile that these signals could switch off. The rate-limit row of section 2.1 is needed to meter every request.</p>
+
+    <h2 class="section-title">6. How We Use Data</h2>
+    <ul class="freshness-list">
+      <li><strong>Rate limiting:</strong> the hash of your IP address or of your API key meters your credits.</li>
+      <li><strong>API keys:</strong> the key row tells whether a key is active and not expired.</li>
+      <li><strong>Monitoring:</strong> the items of a list tell the Service which change events to give that list.</li>
+      <li><strong>Upstream limits:</strong> the counts of section 2.5 keep our requests to each upstream source within its limits. They are keyed by the source, not by you.</li>
+      <li><strong>Pay per call:</strong> the ledger of section 2.10 tells whether a payment was used already, holds one wallet to one payment at a time, and limits payment attempts.</li>
+      <li><strong>Operations:</strong> the usage log shows how the Service is used and where it fails.</li>
+    </ul>
+
+    <h2 class="section-title">7. Data Retention</h2>
+    <ul class="freshness-list">
+      <li><strong>Rate-limit rows:</strong> at most @@RL_RETENTION_MAX_MINUTES@@ minutes from the start of their hour.</li>
+      <li><strong>Kept answers:</strong> an answer of <code>/ssl_check/</code>, <code>/headers_check/</code> or <code>/whois_lookup/</code> stays one hour. An answer of <code>/wayback_lookup/</code> or <code>/cert_search/</code> stays one day. A <code>/subdomain_enum/</code> answer with Certificate Transparency names stays one day. Without them it stays 10 minutes, or the wait it names. The first purge after that time deletes the row.</li>
+      <li><strong>Monitoring items and feed position:</strong> until you remove them, clear the list or the key is deleted. A key that expired more than 30 days ago loses its list at the next purge. A key that we revoke expires at that moment, so it loses its list 30 days later. The scans of a name run only for the items of an active key.</li>
+      <li><strong>Vendor keys:</strong> until you delete them or the key is deleted. The first purge after your API key has been expired for 30 days deletes them.</li>
+      <li><strong>Vendor key manage links:</strong> the first purge after the link has ended deletes its row.</li>
+      <li><strong>Change events:</strong> the first purge after an event is 90 days old deletes it.</li>
+      <li><strong>Counts of our own requests:</strong> the first purge after a window has been over for 35 days deletes a count. A per-minute registry count is deleted by the first purge after its minute ends.</li>
+      <li><strong>Payment ledger rows:</strong> the first purge after a row is 1 hour old deletes it. A payment-limit count is deleted by the first purge after its window of 60 seconds or 1 hour ends.</li>
+      <li><strong>Payment events:</strong> a payment processor sends us an event when an order is paid, cancelled, resumed, expired or refunded. The first purge after an event is 365 days old deletes it, if it names an order we hold or no order at all. The latest cancel or resume of an order is kept while we hold the order. An event of an order we do not hold yet is kept until that order comes.</li>
+      <li><strong>Usage log:</strong> about @@USAGELOG_RETENTION_DAYS@@ days. A new file starts each day, and the last @@USAGELOG_RETENTION_DAYS@@ are kept. While the access log keeps a request, the time of a usage log line can match it to that request's IP address.</li>
+      <li><strong>Web server access log:</strong> up to about 48 hours.</li>
+      <li><strong>API key rows:</strong> while the key exists. An expired key no longer works, but its row stays until we delete it. To have your key row deleted, write to us. Deleting a key also deletes its monitoring list and its vendor keys. The order row of a Pro key stays. It keeps the processor's order and subscription numbers and the claim code, and it is marked revoked. So a payment event sent to us again cannot create a new key.</li>
+    </ul>
+
+    <h2 class="section-title">8. Payment Processors</h2>
+    <p class="endpoints-lede">We use two payment processors for Pro subscriptions:</p>
+    <ul class="freshness-list">
+      <li><strong>Lemon Squeezy</strong> handles card payments. It receives the payment data you give it directly. See <a href="https://www.lemonsqueezy.com/privacy" target="_blank" rel="noopener">Lemon Squeezy's Privacy Policy</a>.</li>
+      <li><strong>NOWPayments</strong> handles cryptocurrency payments. It receives the invoice and payment data. See the <a href="https://nowpayments.io/privacy-policy" target="_blank" rel="noopener">NOWPayments Privacy Policy</a>.</li>
+    </ul>
+    <p class="endpoints-lede">For Pro subscriptions, the API server's database holds no card data and no wallet data. It holds a row for each order: the processor's order and subscription numbers, the claim code, the row of the key it gave, the order's status and its times. It also holds the payment events of section 7. When we delete a key row, its order row stays, marked revoked, with no key. It keeps the processor's order and subscription numbers and the claim code. So a replayed payment event cannot create a new key. We share no usage data, IP address, query or answer with either processor.</p>
+    <p class="endpoints-lede">A payment per call (section 2.10) goes through no payment processor. It is a transfer on Solana. The facilitator on our own host verifies it and sends it to Solana. A Solana RPC provider receives the signed transaction when we verify and send it. It receives the transaction signature of a pending payment when we check it.</p>
+
+    <h2 class="section-title">9. International Data Transfers</h2>
+    <p class="endpoints-lede">Our server is located in Germany (EU). If you use the Service from outside the EU, this EU server handles your requests. Payment processors run their own infrastructure in their own jurisdictions. The upstream sources of section 2.9 receive only the name a request asks about. Shodan and AbuseIPDB also receive your own vendor key. The Solana RPC provider of section 2.10 receives the signed transaction and its signature.</p>
+
+    <h2 class="section-title">10. GDPR (EU/EEA Users)</h2>
+    <p class="endpoints-lede">If you are in the European Union or the European Economic Area:</p>
+    <ul class="freshness-list">
+      <li><strong>Legal basis:</strong> we process data on the basis of legitimate interest (Article 6(1)(f) GDPR). That interest is to operate and secure a public API, to prevent abuse and to understand overall usage. For Pro subscribers, we process key and monitoring data to perform the contract (Article 6(1)(b)).</li>
+      <li><strong>Data minimization:</strong> we collect only what we need. The database stores your IP address as a keyed hash, for rate limiting and for the payment limits of section 2.10. An IP address you add to a monitoring list is stored as a plain address, not as a hash.</li>
+      <li><strong>Your rights:</strong> you have the right to access, rectification, erasure, restriction of processing, data portability and objection.</li>
+      <li><strong>Right to erasure:</strong> on the free tier, call <code>/privacy_my_data</code> to see the hash your rate-limit row is kept under. The rate-limit row is deleted within @@RL_RETENTION_MAX_MINUTES@@ minutes of the start of its hour. On the Pro plan, write to us to delete your key row and its monitoring list. We process requests within 30 days.</li>
+      <li><strong>Complaints:</strong> you have the right to lodge a complaint with the data protection authority of your country.</li>
+      <li><strong>Data Protection Officer:</strong> given our small scale and minimal data processing, we have not appointed a DPO. Contact us directly about any privacy concern.</li>
+    </ul>
+
+    <h2 class="section-title">11. KVKK (Turkish Users)</h2>
+    <p class="endpoints-lede">If you are in Turkey, we respect your rights under the Personal Data Protection Law (KVKK, Law No. 6698). You have the right to learn whether your personal data is processed, and to request information about that processing. You have the right to learn its purpose and whether the data is used for that purpose. You have the right to know the third parties that receive the data. You have the right to request correction or deletion, and to ask that third parties be told of it. You have the right to object to a result against you that comes only from automated analysis. You have the right to claim compensation for damage from unlawful processing. Our server is in Germany, so your data is processed outside Turkey, and section 9 names the other recipients. Write to us at the address below to use these rights. You can also apply to the Personal Data Protection Board.</p>
+
+    <h2 class="section-title">12. Security</h2>
+    <p class="endpoints-lede">Requests to api.contrastcyber.com travel over HTTPS. The host runs security tooling that blocks abusive traffic. Section 2.7 says what that tooling keeps.</p>
+
+    <h2 class="section-title">13. Children's Privacy</h2>
+    <p class="endpoints-lede">Our Service is not directed at children under 16. We do not knowingly collect data from children. If you believe a child has used our Service, contact us and we will delete any associated data.</p>
+
+    <h2 class="section-title">14. Changes</h2>
+    <p class="endpoints-lede">We may update this Privacy Policy. We post each change on this page with a new date. We announce material changes on this website.</p>
+
+    <h2 class="section-title">15. Contact</h2>
+    <p class="endpoints-lede">For privacy questions, or to use your rights, write to <a href="mailto:contact@contrastcyber.com">contact@contrastcyber.com</a>.</p>
+  </main>
+
+  @@FOOTER@@
+  <script src="/static/js/theme.js?v=@@THEME_JS_VERSION@@"></script>
+</body>
+</html>

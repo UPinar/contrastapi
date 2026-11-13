@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CVE, Package, Domain &amp; IP Monitoring API | ContrastAPI</title>
+  <meta name="description" content="Security monitoring API: watch CVEs, packages, domains and IP addresses, then read their change events over REST and MCP. KEV, EPSS, DNS, TLS and more.">
+  <meta property="og:title" content="CVE, Package, Domain &amp; IP Monitoring API | ContrastAPI">
+  <meta property="og:description" content="Security monitoring API: watch CVEs, packages, domains and IP addresses, then read their change events over REST and MCP. KEV, EPSS, DNS, TLS and more.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://api.contrastcyber.com/security-monitoring-api">
+  <meta property="og:image" content="https://api.contrastcyber.com/static/og-image.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="ContrastAPI: security data and monitoring API and MCP server">
+  <meta property="og:site_name" content="ContrastAPI">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="CVE, Package, Domain &amp; IP Monitoring API | ContrastAPI">
+  <meta name="twitter:description" content="Security monitoring API: watch CVEs, packages, domains and IP addresses, then read their change events over REST and MCP. KEV, EPSS, DNS, TLS and more.">
+  <meta name="twitter:image" content="https://api.contrastcyber.com/static/og-image.png">
+  <meta name="theme-color" content="#e9ebee" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#06101d" media="(prefers-color-scheme: dark)">
+  <link rel="canonical" href="https://api.contrastcyber.com/security-monitoring-api">
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="/static/favicon-192.png">
+  <script src="/static/js/theme-init.js?v=@@THEME_INIT_JS_VERSION@@"></script>
+  <link rel="stylesheet" href="/static/style.css?v=@@STYLE_CSS_VERSION@@">
+  <link rel="stylesheet" href="/static/css/page.css?v=@@PAGE_CSS_VERSION@@">
+  <script src="/static/js/landing.js?v=@@LANDING_JS_VERSION@@" defer></script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      {
+        "@type": "Question",
+        "name": "Does monitoring need a key?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Yes. watchlist_edit and watchlist_events need a Pro API key. Each call costs 1 credit."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Does the server send the events to me?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "No. You pull them with watchlist_events when you want them. The server keeps your position, so a plain call reads only the events after the last batch."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "What happens if I lose an answer?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Call watchlist_events with repeat=true. It answers the last batch again and leaves the position where it is."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "How long are events kept?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "90 days. Older events are deleted."
+        }
+      }
+    ]
+  }
+  </script>
+</head>
+<body>
+  @@NAV@@
+
+  <main class="page">
+    <h1 class="capability-title">Security Monitoring API: CVE, Package, Domain &amp; IP Watchlist</h1>
+    <p class="subtitle">Watch the CVEs, products, CVE searches, packages, domains and IP addresses you care about, and read what changed. A CVE item hears when it enters CISA KEV, when its EPSS score climbs or when an exploit appears. A package item hears new advisories and fixes. A domain item hears DNS, TLS, WHOIS, header and certificate changes. An IP item hears when the address enters or leaves the DROP list, and when its hosting changes. Monitoring needs a Pro key and works over REST and as MCP tools, for developers and AI agents.</p>
+    <h2>What you can ask</h2>
+    <div class="endpoint-group">
+      <div class="endpoint">
+        <span class="method post">POST</span>
+        <span class="endpoint-path">/watchlist_edit</span>
+        <span class="endpoint-desc">MCP <code>watchlist_edit</code>. Add, remove, list or clear the items your key watches. <a href="https://github.com/UPinar/contrastapi/blob/main/docs/API_Documentation.md#watchlist-edit-post-watchlist_edit">API docs</a></span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/watchlist_events</span>
+        <span class="endpoint-desc">MCP <code>watchlist_events</code>. The change events that match your items, oldest first, grouped by item. <a href="https://github.com/UPinar/contrastapi/blob/main/docs/API_Documentation.md#watchlist-events-get-watchlist_events">API docs</a></span>
+      </div>
+    </div>
+    <h2>Example</h2>
+    <div class="code-block"><span class="lang">bash</span><code>curl -X POST https://api.contrastcyber.com/watchlist_edit -H "X-API-Key: $KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"action":"add","endpoint":"package_check","ecosystem":"npm","name":"lodash","version":"4.17.20"}'
+
+curl https://api.contrastcyber.com/watchlist_events -H "X-API-Key: $KEY"</code></div>
+    <p>Example response of the second call, trimmed; the values are an example:</p>
+    <div class="code-block"><span class="lang">json</span><code>{
+  "limit": 20, "cursor": null, "repeat": false, "next_cursor": "14", "has_more": false,
+  "items": [
+    {"item": {"endpoint": "package_check", "ecosystem": "npm", "name": "lodash", "version": "4.17.20"}, "events": [
+      {"event": "fix_available", "changed_at": "2026-10-21T05:06:07Z", "advisory_id": "GHSA-35jh-r3h4-6jhm", "fixed_version": "4.17.21", "affects_version": true},
+      {"event": "kev_added", "changed_at": "2026-10-22T06:07:08Z", "cve_id": "CVE-2021-23337"}
+    ]}
+  ],
+  "cves": {
+    "CVE-2021-23337": {"risk_score": 61.2, "label": "HIGH", "in_kev": true, "kev_patch_deadline": "2026-11-12"}
+  }
+}</code></div>
+    <h2>From an agent</h2>
+    <p>Your agent calls these MCP tools: <code>watchlist_edit</code> and <code>watchlist_events</code>. Connect once with the <a href="/mcp-setup">MCP setup</a>, then ask in plain words.</p>
+    <ul>
+      <li>&ldquo;Watch lodash 4.17.20 on npm and tell me when a fix comes out.&rdquo;</li>
+      <li>&ldquo;Watch every critical Apache CVE and tell me when one enters KEV.&rdquo;</li>
+      <li>&ldquo;What changed on example.com since you last checked?&rdquo;</li>
+    </ul>
+    <h2>Limits</h2>
+    <p>Each call of <code>watchlist_edit</code> or <code>watchlist_events</code> costs 1 credit and needs a Pro key. A Pro key gets @@RL_KEY_CREDIT_LIMIT@@ credits per hour. A watchlist holds at most 100 items that are not package items, and at most 500 package items. One answer holds at most 100 events. Events older than 90 days are deleted.</p>
+    <h2>What each item watches</h2>
+    <p>An item names one endpoint and the values that endpoint takes: a CVE ID, a vendor and product pair, some <code>cve_search</code> filters, a domain, a package, or an IP address. The endpoint sets the events the item can emit:</p>
+    <table class="watch-events">
+      <thead><tr><th>Watched endpoint</th><th>Events</th></tr></thead>
+      <tbody>
+        <tr><td><code>cve_lookup</code></td><td><code>cve_added</code> <code>kev_added</code> <code>kev_removed</code> <code>epss_level_up</code> <code>epss_level_down</code> <code>cvss_added</code> <code>cvss_risk_band_changed</code> <code>exploit_published</code> <code>product_added</code> <code>product_removed</code> <code>ransomware_linked</code> <code>vendor_advisory_published</code> <code>patch_published</code> <code>cve_disputed</code> <code>cve_rejected</code> <code>metasploit_added</code> <code>nuclei_template_added</code> <code>exploitdb_added</code> <code>ssvc_added</code> <code>ssvc_changed</code> <code>github_poc_added</code> <code>description_changed</code> <code>cvss_score_changed</code> <code>cwe_changed</code> <code>kev_updated</code> <code>ghsa_linked</code></td></tr>
+        <tr><td><code>product_exposure</code></td><td><code>cve_added</code> <code>kev_added</code> <code>kev_removed</code> <code>epss_level_up</code> <code>epss_level_down</code> <code>cvss_added</code> <code>cvss_risk_band_changed</code> <code>exploit_published</code> <code>product_added</code> <code>product_removed</code> <code>ransomware_linked</code> <code>vendor_advisory_published</code> <code>patch_published</code> <code>cve_disputed</code> <code>cve_rejected</code> <code>metasploit_added</code> <code>nuclei_template_added</code> <code>exploitdb_added</code> <code>ssvc_added</code> <code>ssvc_changed</code> <code>github_poc_added</code> <code>description_changed</code> <code>cvss_score_changed</code> <code>cwe_changed</code> <code>kev_updated</code> <code>ghsa_linked</code> <code>eol_approaching</code> <code>eol_reached</code> <code>eol_date_changed</code></td></tr>
+        <tr><td><code>cve_search</code></td><td><code>cve_added</code> <code>kev_added</code> <code>kev_removed</code> <code>epss_level_up</code> <code>epss_level_down</code> <code>cvss_added</code> <code>cvss_risk_band_changed</code> <code>exploit_published</code> <code>product_added</code> <code>product_removed</code> <code>ransomware_linked</code> <code>vendor_advisory_published</code> <code>patch_published</code> <code>cve_disputed</code> <code>cve_rejected</code> <code>metasploit_added</code> <code>nuclei_template_added</code> <code>exploitdb_added</code> <code>ssvc_added</code> <code>ssvc_changed</code> <code>github_poc_added</code> <code>description_changed</code> <code>cvss_score_changed</code> <code>cwe_changed</code> <code>kev_updated</code> <code>ghsa_linked</code> <code>epss_above_min</code> <code>epss_below_min</code></td></tr>
+        <tr><td><code>kev_lookup</code></td><td><code>kev_added</code> <code>kev_removed</code> <code>ransomware_linked</code> <code>kev_updated</code></td></tr>
+        <tr><td><code>cve_exploit</code></td><td><code>exploit_published</code> <code>metasploit_added</code> <code>exploitdb_added</code> <code>github_poc_added</code></td></tr>
+        <tr><td><code>package_check</code></td><td><code>advisory_added</code> <code>fix_available</code> <code>malware_added</code> <code>kev_added</code> <code>ransomware_linked</code> <code>eol_approaching</code> <code>eol_reached</code> <code>eol_date_changed</code></td></tr>
+        <tr><td><code>dns_lookup</code></td><td><code>domain_not_found</code> <code>domain_found</code> <code>ns_changed</code> <code>mx_changed</code> <code>ip_address_not_public</code> <code>ip_address_lost</code> <code>ip_address_restored</code> <code>cname_takeover_detected</code> <code>cname_takeover_resolved</code> <code>email_auth_degraded</code> <code>hosting_changed</code></td></tr>
+        <tr><td><code>ssl_check</code></td><td><code>cert_expiring</code> <code>cert_invalid</code> <code>cert_listed</code> <code>tls_downgraded</code></td></tr>
+        <tr><td><code>whois_lookup</code></td><td><code>domain_expiring</code> <code>registrar_changed</code> <code>transfer_lock_removed</code> <code>dnssec_disabled</code></td></tr>
+        <tr><td><code>headers_check</code></td><td><code>security_header_removed</code></td></tr>
+        <tr><td><code>cert_search</code></td><td><code>cert_unexpected</code></td></tr>
+        <tr><td><code>ip_lookup</code></td><td><code>drop_listed</code> <code>drop_unlisted</code> <code>hosting_changed</code></td></tr>
+      </tbody>
+    </table>
+    <p>A CVE event comes when the server loads a feed that changes the CVE. A <code>cve_search</code> item must set at least one filter. It tests each filter against the CVE as it is now.</p>
+    <p>A package item names an ecosystem and a package name, and may name one version. An item with a version hears an advisory event only when the advisory affects that version, or when the server cannot tell. The events <code>kev_added</code> and <code>ransomware_linked</code> are CVE events. They reach the item when an advisory of its package lists the CVE as an alias. The three end-of-life events reach it when its package maps to an endoflife.date product. One <code>watchlist_edit</code> call with a list of packages adds or removes many package items.</p>
+    <p>A domain item gets a scan of its own. A <code>dns_lookup</code>, <code>ssl_check</code>, <code>headers_check</code> or <code>cert_search</code> item is scanned once a day. A <code>whois_lookup</code> item is scanned once a week, and once a day within 30 days of the registration&rsquo;s end. A change becomes an event after a later scan sees it again, except a new certificate issuer, which becomes an event at once.</p>
+    <p>An item sees only the events after the moment it was added. The <a href="/cve-api">CVE</a>, <a href="/package-vulnerability-api">package</a>, <a href="/domain-monitoring-api">domain</a> and <a href="/ip-intelligence-api">IP</a> pages give the details of each kind.</p>
+    <h2>Reading the events</h2>
+    <p>The server keeps the position of your key in the events. A plain call of <code>watchlist_events</code> reads the events after the last batch and moves the position past them. <code>has_more</code> says whether more events wait. <code>repeat=true</code> answers the last batch again and leaves the position where it is. <code>cursor</code> takes the <code>next_cursor</code> of an earlier answer. It reads the events after it again and leaves the position where it is. The answer groups the events by item. Its <code>cves</code> map gives the risk score, KEV state and exploit flags of each CVE as they are now. Its <code>domains</code> map gives the DNS values of each domain that a <code>dns_lookup</code> item watches.</p>
+    <h2>Data sources</h2>
+    <ul>
+      <li><strong>CVE events:</strong> the CVE, KEV, EPSS and exploit feeds that the <a href="/cve-api">CVE API</a> page lists, as the server loads them.</li>
+      <li><strong>Package events:</strong> the OSV.dev advisory feeds that the <a href="/package-vulnerability-api">package API</a> page lists. A package event answer names the source and licence of its advisories.</li>
+      <li><strong>Domain events:</strong> the DNS, TLS, RDAP/WHOIS, header and Certificate Transparency scans that the <a href="/domain-monitoring-api">domain API</a> page lists.</li>
+      <li><strong>IP events:</strong> the DROP list, IPtoASN and the cloud and CDN ranges that the <a href="/ip-intelligence-api">IP API</a> page lists, as the server loads them.</li>
+    </ul>
+    <div class="faq">
+      <h2>FAQ</h2>
+      <dl>
+        <dt>Does monitoring need a key?</dt>
+        <dd>Yes. watchlist_edit and watchlist_events need a Pro API key. Each call costs 1 credit.</dd>
+        <dt>Does the server send the events to me?</dt>
+        <dd>No. You pull them with watchlist_events when you want them. The server keeps your position, so a plain call reads only the events after the last batch.</dd>
+        <dt>What happens if I lose an answer?</dt>
+        <dd>Call watchlist_events with repeat=true. It answers the last batch again and leaves the position where it is.</dd>
+        <dt>How long are events kept?</dt>
+        <dd>90 days. Older events are deleted.</dd>
+      </dl>
+    </div>
+    <h2>Docs and source</h2>
+    <ul>
+      <li><a href="https://github.com/UPinar/contrastapi/blob/main/docs/API_Documentation.md">API documentation</a></li>
+      <li><a href="https://github.com/UPinar/contrastapi/blob/main/docs/MCP_Documentation.md">MCP documentation</a></li>
+      <li><a href="https://github.com/UPinar/contrastapi">Source code on GitHub</a></li>
+    </ul>
+  </main>
+
+  @@FOOTER@@
+  <script src="/static/js/theme.js?v=@@THEME_JS_VERSION@@"></script>
+</body>
+</html>

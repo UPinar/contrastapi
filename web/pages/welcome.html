@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Your Pro key | ContrastAPI</title>
+  <meta name="robots" content="noindex">
+  <meta name="referrer" content="no-referrer">
+  <meta name="theme-color" content="#e9ebee" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#06101d" media="(prefers-color-scheme: dark)">
+  <link rel="canonical" href="https://api.contrastcyber.com/welcome">
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="/static/favicon-192.png">
+  <script src="/static/js/theme-init.js?v=@@THEME_INIT_JS_VERSION@@"></script>
+  <link rel="stylesheet" href="/static/style.css?v=@@STYLE_CSS_VERSION@@">
+  <link rel="stylesheet" href="/static/css/page.css?v=@@PAGE_CSS_VERSION@@">
+  <script src="/static/js/landing.js?v=@@LANDING_JS_VERSION@@" defer></script>
+  <script src="/static/js/welcome.js?v=@@WELCOME_JS_VERSION@@" defer></script>
+</head>
+<body>
+  <div class="glow"></div>
+
+  @@NAV@@
+
+  <div class="page">
+    <h1>Your ContrastAPI <span>Pro key</span></h1>
+    <p id="welcome-status" class="subtitle" role="status" aria-live="polite">Getting your key…</p>
+
+    <div id="welcome-key" hidden>
+      <div class="tier featured">
+        <h2><label for="welcome-key-field">API key</label></h2>
+        <input id="welcome-key-field" type="text" readonly autocomplete="off" spellcheck="false" class="key-field">
+        <button id="welcome-copy" type="button" class="tier-cta primary">Copy</button>
+        <p>Save it now. It is shown only once; we keep only a hash.</p>
+        <p>Send it in the X-API-Key header. Every endpoint is in the <a href="https://github.com/UPinar/contrastapi/blob/main/docs/API_Documentation.md">API documentation</a>.</p>
+      </div>
+    </div>
+
+    <p id="welcome-support" hidden>Contact support: <a href="mailto:contact@contrastcyber.com">contact@contrastcyber.com</a></p>
+  </div>
+
+  @@FOOTER@@
+  <script src="/static/js/theme.js?v=@@THEME_JS_VERSION@@"></script>
+</body>
+</html>

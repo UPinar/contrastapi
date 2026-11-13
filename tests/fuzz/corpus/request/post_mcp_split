@@ -1,0 +1,9 @@
+POST /mcp HTTP/1.1
+Host: api
+Content-Type: application/json
+Mcp-Method: tools/call
+Mcp-Name: dns_lookup
+MCP-Protocol-Version: 2025-06-18
+Content-Length: 114
+
+{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"dns_lookup","arguments":{"domain":"example.com"}}}

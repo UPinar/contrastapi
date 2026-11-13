@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Domain Intelligence &amp; Monitoring API | ContrastAPI</title>
+  <meta name="description" content="Domain intelligence API: DNS, TLS, SPF, DMARC and DKIM, security headers, WHOIS and subdomains over REST and MCP. A Pro key adds domain monitoring.">
+  <meta property="og:title" content="Domain Intelligence &amp; Monitoring API | ContrastAPI">
+  <meta property="og:description" content="Domain intelligence API: DNS, TLS, SPF, DMARC and DKIM, security headers, WHOIS and subdomains over REST and MCP. A Pro key adds domain monitoring.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://api.contrastcyber.com/domain-monitoring-api">
+  <meta property="og:image" content="https://api.contrastcyber.com/static/og-image.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="ContrastAPI: security data and monitoring API and MCP server">
+  <meta property="og:site_name" content="ContrastAPI">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Domain Intelligence &amp; Monitoring API | ContrastAPI">
+  <meta name="twitter:description" content="Domain intelligence API: DNS, TLS, SPF, DMARC and DKIM, security headers, WHOIS and subdomains over REST and MCP. A Pro key adds domain monitoring.">
+  <meta name="twitter:image" content="https://api.contrastcyber.com/static/og-image.png">
+  <meta name="theme-color" content="#e9ebee" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#06101d" media="(prefers-color-scheme: dark)">
+  <link rel="canonical" href="https://api.contrastcyber.com/domain-monitoring-api">
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="/static/favicon-192.png">
+  <script src="/static/js/theme-init.js?v=@@THEME_INIT_JS_VERSION@@"></script>
+  <link rel="stylesheet" href="/static/style.css?v=@@STYLE_CSS_VERSION@@">
+  <link rel="stylesheet" href="/static/css/page.css?v=@@PAGE_CSS_VERSION@@">
+  <script src="/static/js/landing.js?v=@@LANDING_JS_VERSION@@" defer></script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      {
+        "@type": "Question",
+        "name": "Does the domain API need a key?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "No. Every domain tool works without a key, within the hourly credit limit. Only monitoring needs a Pro key."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Can it find subdomain takeover risks?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Yes. dns_takeover_check follows the CNAME chain of a host name. For the services it knows, it says whether a dangling CNAME can be taken over."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "How do I check SPF, DMARC and DKIM?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Call email_auth_check with a domain. Each check comes back as pass, warn or fail. Add dkim_selector to check one DKIM selector."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Can I watch a domain for changes?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Yes, with a Pro key. Add the domain with watchlist_edit and read the change events with watchlist_events."
+        }
+      }
+    ]
+  }
+  </script>
+</head>
+<body>
+  @@NAV@@
+
+  <main class="page">
+    <h1 class="capability-title">Domain Intelligence &amp; Monitoring API</h1>
+    <p class="subtitle">Check a domain from DNS to TLS to mail authentication. The tools cover DNS records, subdomain takeover, SPF, DMARC and DKIM, certificates, security headers, WHOIS and subdomains. They are free without an API key and work over REST and as MCP tools, for developers and AI agents. With a Pro key you can also monitor a domain and read its change events. The recon tools (subdomains, certificates, WHOIS) double as OSINT.</p>
+    <h2>What you can ask</h2>
+    <div class="endpoint-group">
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/dns_lookup/{domain}</span>
+        <span class="endpoint-desc">MCP <code>dns_lookup</code>. The DNS records of a domain: A, AAAA, MX, NS, TXT, CNAME, SOA and CAA. <a href="https://github.com/UPinar/contrastapi/blob/main/docs/API_Documentation.md#dns-lookup-get-dns_lookupdomain">API docs</a></span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/dns_takeover_check/{domain}</span>
+        <span class="endpoint-desc">MCP <code>dns_takeover_check</code>. Whether a dangling CNAME lets someone take over a host name. <a href="https://github.com/UPinar/contrastapi/blob/main/docs/API_Documentation.md#dns-takeover-check-get-dns_takeover_checkdomain">API docs</a></span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/email_auth_check/{domain}</span>
+        <span class="endpoint-desc">MCP <code>email_auth_check</code>. SPF, DMARC, DKIM, MX and MTA-STS checks, each pass, warn or fail. <a href="https://github.com/UPinar/contrastapi/blob/main/docs/API_Documentation.md#email-auth-check-get-email_auth_checkdomain">API docs</a></span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/email_address_check/{email}</span>
+        <span class="endpoint-desc">MCP <code>email_address_check</code>. Whether the domain of an e-mail address takes mail, and whether the address is disposable. No mail is sent. <a href="https://github.com/UPinar/contrastapi/blob/main/docs/API_Documentation.md#email-address-check-get-email_address_checkemail">API docs</a></span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/ssl_check/{domain}</span>
+        <span class="endpoint-desc">MCP <code>ssl_check</code>. The TLS certificate and TLS settings of a host on port 443. <a href="https://github.com/UPinar/contrastapi/blob/main/docs/API_Documentation.md#ssl-check-get-ssl_checkdomain">API docs</a></span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/headers_check/{domain}</span>
+        <span class="endpoint-desc">MCP <code>headers_check</code>. Rates the security headers of the home page of a host. <a href="https://github.com/UPinar/contrastapi/blob/main/docs/API_Documentation.md#headers-check-get-headers_checkdomain">API docs</a></span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/whois_lookup/{domain}</span>
+        <span class="endpoint-desc">MCP <code>whois_lookup</code>. The registration of a domain over RDAP or WHOIS: registrar, dates, status, name servers, DNSSEC. <a href="https://github.com/UPinar/contrastapi/blob/main/docs/API_Documentation.md#whois-lookup-get-whois_lookupdomain">API docs</a></span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/wayback_lookup/{domain}</span>
+        <span class="endpoint-desc">MCP <code>wayback_lookup</code>. When the Wayback Machine captured the home page of a host. <a href="https://github.com/UPinar/contrastapi/blob/main/docs/API_Documentation.md#wayback-lookup-get-wayback_lookupdomain">API docs</a></span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/cert_search/{domain}</span>
+        <span class="endpoint-desc">MCP <code>cert_search</code>. The unexpired certificates that Certificate Transparency logs hold for a host name, as far as the first 5 pages of Cert Spotter show. <a href="https://github.com/UPinar/contrastapi/blob/main/docs/API_Documentation.md#cert-search-get-cert_searchdomain">API docs</a></span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/subdomain_enum/{domain}</span>
+        <span class="endpoint-desc">MCP <code>subdomain_enum</code>. The subdomains of a domain from Certificate Transparency and DNS. <a href="https://github.com/UPinar/contrastapi/blob/main/docs/API_Documentation.md#subdomain-enum-get-subdomain_enumdomain">API docs</a></span>
+      </div>
+    </div>
+    <h2>Example</h2>
+    <div class="code-block"><span class="lang">bash</span><code>curl https://api.contrastcyber.com/dns_takeover_check/shop.example.com</code></div>
+    <p>Example response, trimmed; the values are an example:</p>
+    <div class="code-block"><span class="lang">json</span><code>{
+  "hostname": "shop.example.com",
+  "cname": "shop-example.cloudapp.net",
+  "chain": ["shop-example.cloudapp.net"],
+  "target_exists": false,
+  "dangling": true,
+  "provider": "Microsoft Azure",
+  "takeover_possible": true,
+  "summary": "shop.example.com points to shop-example.cloudapp.net, which does not exist. Microsoft Azure lets anyone claim that name, so shop.example.com can be taken over."
+}</code></div>
+    <h2>From an agent</h2>
+    <p>Your agent calls these MCP tools: <code>dns_lookup</code>, <code>dns_takeover_check</code>, <code>email_auth_check</code>, <code>email_address_check</code>, <code>ssl_check</code>, <code>headers_check</code>, <code>whois_lookup</code>, <code>wayback_lookup</code>, <code>cert_search</code> and <code>subdomain_enum</code>. Connect once with the <a href="/mcp-setup">MCP setup</a>, then ask in plain words.</p>
+    <ul>
+      <li>&ldquo;Is shop.example.com open to subdomain takeover?&rdquo;</li>
+      <li>&ldquo;Does example.com have a valid DMARC policy and an SPF record?&rdquo;</li>
+      <li>&ldquo;List the subdomains of example.com and check which certificates expire soon.&rdquo;</li>
+    </ul>
+    <h2>Limits</h2>
+    <p>Without a key you get @@RL_ANON_CREDIT_LIMIT@@ credits per hour. A Pro key gets @@RL_KEY_CREDIT_LIMIT@@ credits per hour. These tools have no bulk form.</p>
+    <h2>Monitor it</h2>
+    <p>A Pro key can watch a domain. Add an item with <code>watchlist_edit</code>. Then read its change events with <code>watchlist_events</code>. You pull the events when you want them.</p>
+    <p>A <code>dns_lookup</code> item gets a DNS scan of its name once a day. An <code>ssl_check</code> item gets a TLS scan once a day. A <code>whois_lookup</code> item gets an RDAP/WHOIS scan once a week, and once a day within 30 days of the registration&rsquo;s end. A <code>headers_check</code> item gets a headers scan once a day: it reads the site&rsquo;s robots.txt, and then its home page unless robots.txt disallows it. A <code>cert_search</code> item gets a certificate scan once a day. A change becomes an event after a later scan sees it again, except a new certificate issuer, which becomes an event at once. A problem that the first scan of a new <code>dns_lookup</code>, <code>ssl_check</code> or <code>whois_lookup</code> item reads becomes an event at once. The first scan of a new <code>headers_check</code> or <code>cert_search</code> item only sets its baseline and writes no event.</p>
+    <p>Each item watches one endpoint. The endpoint sets the events the item can emit:</p>
+    <table class="watch-events">
+      <thead><tr><th>Watched endpoint</th><th>Events</th></tr></thead>
+      <tbody>
+        <tr><td><code>dns_lookup</code></td><td><code>domain_not_found</code> <code>domain_found</code> <code>ns_changed</code> <code>mx_changed</code> <code>ip_address_not_public</code> <code>ip_address_lost</code> <code>ip_address_restored</code> <code>cname_takeover_detected</code> <code>cname_takeover_resolved</code> <code>email_auth_degraded</code> <code>hosting_changed</code></td></tr>
+        <tr><td><code>ssl_check</code></td><td><code>cert_expiring</code> <code>cert_invalid</code> <code>cert_listed</code> <code>tls_downgraded</code></td></tr>
+        <tr><td><code>whois_lookup</code></td><td><code>domain_expiring</code> <code>registrar_changed</code> <code>transfer_lock_removed</code> <code>dnssec_disabled</code></td></tr>
+        <tr><td><code>headers_check</code></td><td><code>security_header_removed</code></td></tr>
+        <tr><td><code>cert_search</code></td><td><code>cert_unexpected</code></td></tr>
+      </tbody>
+    </table>
+    <p>See <a href="/pricing">pricing</a> for the Pro key. The <a href="/security-monitoring-api">security monitoring page</a> lists every watched endpoint and its events.</p>
+    <h2>Data sources</h2>
+    <ul>
+      <li><strong>DNS, TLS and header checks:</strong> asked live when you call. <code>ssl_check</code> and <code>headers_check</code> keep an answer for one hour. A watched <code>dns_lookup</code> item makes the server ask DNS in the background, and a watched <code>ssl_check</code> item makes it open a TLS handshake in the background. A watched <code>headers_check</code> item makes it read the site&rsquo;s <code>robots.txt</code> and home page once a day.</li>
+      <li><strong>RDAP and WHOIS registries:</strong> asked live. <code>whois_lookup</code> keeps an answer that holds a registration for one hour. A watched <code>whois_lookup</code> item makes the server ask the registry in the background. Each registry sets the terms of its own server.</li>
+      <li><strong>Wayback Machine (Internet Archive), CDX server:</strong> Internet Archive Terms of Use. Asked live. An answer is kept for one day.</li>
+      <li><strong>Cert Spotter (SSLMate):</strong> SSLMate Terms of Service. Asked live. An answer is kept for one day. A watched <code>cert_search</code> item makes the server ask in the background.</li>
+      <li><strong>Can I take over XYZ?:</strong> CC BY 4.0. Local copy, used by <code>dns_takeover_check</code>.</li>
+      <li><strong>disposable-email-domains:</strong> CC0 1.0. Local copy, used by <code>email_address_check</code>.</li>
+      <li><strong>SSL Blacklist (abuse.ch):</strong> CC0 1.0. Local copy, used by <code>ssl_check</code>.</li>
+      <li><strong>SecLists</strong> (MIT) <strong>and commonspeak2</strong> (Apache-2.0): the common names of <code>subdomain_enum</code>.</li>
+    </ul>
+    <div class="faq">
+      <h2>FAQ</h2>
+      <dl>
+        <dt>Does the domain API need a key?</dt>
+        <dd>No. Every domain tool works without a key, within the hourly credit limit. Only monitoring needs a Pro key.</dd>
+        <dt>Can it find subdomain takeover risks?</dt>
+        <dd>Yes. dns_takeover_check follows the CNAME chain of a host name. For the services it knows, it says whether a dangling CNAME can be taken over.</dd>
+        <dt>How do I check SPF, DMARC and DKIM?</dt>
+        <dd>Call email_auth_check with a domain. Each check comes back as pass, warn or fail. Add dkim_selector to check one DKIM selector.</dd>
+        <dt>Can I watch a domain for changes?</dt>
+        <dd>Yes, with a Pro key. Add the domain with watchlist_edit and read the change events with watchlist_events.</dd>
+      </dl>
+    </div>
+    <h2>Docs and source</h2>
+    <ul>
+      <li><a href="https://github.com/UPinar/contrastapi/blob/main/docs/API_Documentation.md">API documentation</a></li>
+      <li><a href="https://github.com/UPinar/contrastapi/blob/main/docs/MCP_Documentation.md">MCP documentation</a></li>
+      <li><a href="https://github.com/UPinar/contrastapi">Source code on GitHub</a></li>
+    </ul>
+  </main>
+
+  @@FOOTER@@
+  <script src="/static/js/theme.js?v=@@THEME_JS_VERSION@@"></script>
+</body>
+</html>

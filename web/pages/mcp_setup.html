@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MCP Setup for Claude, Cursor and VS Code | ContrastAPI</title>
+  <meta name="description" content="Connect the ContrastAPI security MCP server to Claude, Cursor, VS Code, Windsurf and agent frameworks. Config snippets for each. Free tier, no key.">
+  <meta property="og:title" content="MCP Setup for Claude, Cursor and VS Code | ContrastAPI">
+  <meta property="og:description" content="Connect the ContrastAPI security MCP server to Claude, Cursor, VS Code, Windsurf and agent frameworks. Config snippets for each. Free tier, no key.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://api.contrastcyber.com/mcp-setup">
+  <meta property="og:image" content="https://api.contrastcyber.com/static/og-image.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="ContrastAPI: security data and monitoring API and MCP server">
+  <meta property="og:site_name" content="ContrastAPI">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="MCP Setup for Claude, Cursor and VS Code | ContrastAPI">
+  <meta name="twitter:description" content="Connect the ContrastAPI security MCP server to Claude, Cursor, VS Code, Windsurf and agent frameworks. Config snippets for each. Free tier, no key.">
+  <meta name="twitter:image" content="https://api.contrastcyber.com/static/og-image.png">
+  <meta name="theme-color" content="#e9ebee" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#06101d" media="(prefers-color-scheme: dark)">
+  <link rel="canonical" href="https://api.contrastcyber.com/mcp-setup">
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="/static/favicon-192.png">
+  <script src="/static/js/theme-init.js?v=@@THEME_INIT_JS_VERSION@@"></script>
+  <link rel="stylesheet" href="/static/style.css?v=@@STYLE_CSS_VERSION@@">
+  <link rel="stylesheet" href="/static/css/page.css?v=@@PAGE_CSS_VERSION@@">
+  <script src="/static/js/landing.js?v=@@LANDING_JS_VERSION@@" defer></script>
+</head>
+<body>
+  <div class="glow"></div>
+
+  @@NAV@@
+
+  <div class="page">
+    <h1>MCP <span>Setup</span></h1>
+    <p class="subtitle">Give your AI agent security data tools. One JSON config, or one command.</p>
+
+    <h2><span class="num">1</span> Claude Desktop</h2>
+    <p>In Claude Desktop, open Settings, then Developer, then Edit Config. The file is <code>~/Library/Application Support/Claude/claude_desktop_config.json</code> on macOS and <code>%APPDATA%\Claude\claude_desktop_config.json</code> on Windows:</p>
+    <div class="code-block"><span class="lang">json</span><code>{
+  "mcpServers": {
+    "contrastapi": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://api.contrastcyber.com/mcp/"]
+    }
+  }
+}</code></div>
+    <p>Restart Claude Desktop. Done.</p>
+
+    <h2><span class="num">2</span> Cursor</h2>
+    <p>Add to <code>.cursor/mcp.json</code> in your project root:</p>
+    <div class="code-block"><span class="lang">json</span><code>{
+  "mcpServers": {
+    "contrastapi": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://api.contrastcyber.com/mcp/"]
+    }
+  }
+}</code></div>
+
+    <h2><span class="num">3</span> Claude Code</h2>
+    <p>Run this command in your terminal:</p>
+    <div class="code-block"><span class="lang">bash</span><code>claude mcp add --transport http contrastapi https://api.contrastcyber.com/mcp/</code></div>
+    <p>Or add a project file named <code>.mcp.json</code> in your project root:</p>
+    <div class="code-block"><span class="lang">json</span><code>{
+  "mcpServers": {
+    "contrastapi": {
+      "type": "http",
+      "url": "https://api.contrastcyber.com/mcp/"
+    }
+  }
+}</code></div>
+
+    <h2><span class="num">4</span> VS Code</h2>
+    <p>VS Code has its own MCP file. Add it as <code>.vscode/mcp.json</code> in your workspace. Its top-level key is <code>servers</code>, not <code>mcpServers</code>:</p>
+    <div class="code-block"><span class="lang">json</span><code>{
+  "servers": {
+    "contrastapi": {
+      "type": "http",
+      "url": "https://api.contrastcyber.com/mcp/"
+    }
+  }
+}</code></div>
+
+    <h2><span class="num">5</span> Windsurf</h2>
+    <p>Add to <code>~/.codeium/windsurf/mcp_config.json</code>:</p>
+    <div class="code-block"><span class="lang">json</span><code>{
+  "mcpServers": {
+    "contrastapi": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://api.contrastcyber.com/mcp/"]
+    }
+  }
+}</code></div>
+
+    <h2><span class="num">6</span> OpenClaw</h2>
+    <p>Run this command in your terminal (adds ContrastAPI to OpenClaw's gateway config):</p>
+    <div class="code-block"><span class="lang">bash</span><code>openclaw mcp set contrastapi '{"url":"https://api.contrastcyber.com/mcp/","transport":"streamable-http"}'</code></div>
+    <p>Or edit your OpenClaw config directly and add under <code>mcp.servers</code>:</p>
+    <div class="code-block"><span class="lang">json</span><code>{
+  "mcp": {
+    "servers": {
+      "contrastapi": {
+        "url": "https://api.contrastcyber.com/mcp/",
+        "transport": "streamable-http"
+      }
+    }
+  }
+}</code></div>
+
+    <h2><span class="num">7</span> OpenCode</h2>
+    <p>Add to <code>opencode.json</code> in your project root, or to <code>~/.config/opencode/opencode.json</code>:</p>
+    <div class="code-block"><span class="lang">json</span><code>{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "contrastapi": {
+      "type": "remote",
+      "url": "https://api.contrastcyber.com/mcp/"
+    }
+  }
+}</code></div>
+
+    <h2><span class="num">8</span> Any MCP Client (HTTP)</h2>
+    <p>Use the remote HTTP transport directly. The server answers plain JSON: no SSE stream, no session id.</p>
+    <div class="code-block"><span class="lang">http</span><code>POST https://api.contrastcyber.com/mcp/
+Content-Type: application/json
+Accept: application/json, text/event-stream
+
+{"jsonrpc":"2.0","id":1,"method":"initialize",
+ "params":{"protocolVersion":"@@MCP_PROTOCOL_VERSION@@",
+   "capabilities":{},
+   "clientInfo":{"name":"my-app","version":"1.0"}}}</code></div>
+
+    <h2><span class="num">9</span> From agent frameworks</h2>
+    <p>Each snippet connects to the same server URL. Read the key from the environment. On the free tier, leave out the line that sets the Authorization header.</p>
+
+    <p><strong>OpenAI Agents SDK</strong> (Python):</p>
+    <div class="code-block"><span class="lang">python</span><code>import os
+from agents import Agent
+from agents.mcp import MCPServerStreamableHttp
+
+server = MCPServerStreamableHttp(
+    name="contrastapi",
+    params={
+        "url": "https://api.contrastcyber.com/mcp/",
+        "headers": {"Authorization": f"Bearer {os.environ['CONTRASTAPI_API_KEY']}"},
+    },
+)
+# Use it as: async with server: agent = Agent(name="Analyst", mcp_servers=[server])</code></div>
+
+    <p><strong>LangChain</strong> (<code>langchain-mcp-adapters</code>):</p>
+    <div class="code-block"><span class="lang">python</span><code>import os
+from langchain_mcp_adapters.client import MultiServerMCPClient
+
+client = MultiServerMCPClient({
+    "contrastapi": {
+        "transport": "http",
+        "url": "https://api.contrastcyber.com/mcp/",
+        "headers": {"Authorization": f"Bearer {os.environ['CONTRASTAPI_API_KEY']}"},
+    }
+})
+tools = await client.get_tools()</code></div>
+
+    <p><strong>Vercel AI SDK</strong> (TypeScript):</p>
+    <div class="code-block"><span class="lang">javascript</span><code>import { createMCPClient } from '@ai-sdk/mcp';
+
+const mcpClient = await createMCPClient({
+  transport: {
+    type: 'http',
+    url: 'https://api.contrastcyber.com/mcp/',
+    headers: { Authorization: `Bearer ${process.env.CONTRASTAPI_API_KEY}` },
+  },
+});
+const tools = await mcpClient.tools();</code></div>
+
+    <p><strong>n8n</strong>: add the MCP Client Tool node to an AI Agent node. Enter the server URL in the Endpoint field, choose the HTTP Streamable transport, and choose Bearer authentication for a key.</p>
+    <p><strong>Dify</strong>: install the ContrastAPI tool plugin from the Dify Marketplace.</p>
+
+    <h2><span class="num">10</span> Pro API Key <span class="section-optional">(optional)</span></h2>
+    <p>Free tier (@@RL_ANON_CREDIT_LIMIT@@ credits/hr) works without a key. Add a Pro key to unlock @@RL_KEY_CREDIT_LIMIT@@ credits/hr and the <a href="/security-monitoring-api">monitoring</a> tools <code>watchlist_edit</code> and <code>watchlist_events</code>.
+    The server reads the key from <code>Authorization: Bearer</code> or <code>X-API-Key</code>.</p>
+
+    <p><strong>stdio transport</strong> (Claude Desktop, Cursor, Windsurf, Cline):
+    pass the key via mcp-remote's <code>--header</code> flag; <code>env</code> holds the raw value:</p>
+    <div class="code-block"><span class="lang">json</span><code>{
+  "mcpServers": {
+    "contrastapi": {
+      "command": "npx",
+      "args": [
+        "-y", "mcp-remote", "https://api.contrastcyber.com/mcp/",
+        "--header", "Authorization: Bearer ${CONTRASTAPI_API_KEY}"
+      ],
+      "env": { "CONTRASTAPI_API_KEY": "contrastapi_..." }
+    }
+  }
+}</code></div>
+
+    <p><strong>HTTP transport</strong> (OpenClaw, generic HTTP clients):
+    add <code>headers</code>:</p>
+    <div class="code-block"><span class="lang">json</span><code>{
+  "mcpServers": {
+    "contrastapi": {
+      "url": "https://api.contrastcyber.com/mcp/",
+      "headers": { "Authorization": "Bearer contrastapi_..." }
+    }
+  }
+}</code></div>
+
+    <p><strong>Claude Code</strong>: add <code>--header</code> to the command:</p>
+    <div class="code-block"><span class="lang">bash</span><code>claude mcp add --transport http contrastapi https://api.contrastcyber.com/mcp/ \
+  --header "Authorization: Bearer $CONTRASTAPI_API_KEY"</code></div>
+
+    <p><strong>VS Code</strong>: ask for the key with an input variable, so it is not stored in the file:</p>
+    <div class="code-block"><span class="lang">json</span><code>{
+  "inputs": [
+    { "type": "promptString", "id": "contrastapi-key", "description": "ContrastAPI key", "password": true }
+  ],
+  "servers": {
+    "contrastapi": {
+      "type": "http",
+      "url": "https://api.contrastcyber.com/mcp/",
+      "headers": { "Authorization": "Bearer ${input:contrastapi-key}" }
+    }
+  }
+}</code></div>
+
+    <p><strong>OpenCode</strong>: read the key from the environment, and set <code>oauth</code> to
+    <code>false</code> so a refused key is not taken for an OAuth prompt:</p>
+    <div class="code-block"><span class="lang">json</span><code>{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "contrastapi": {
+      "type": "remote",
+      "url": "https://api.contrastcyber.com/mcp/",
+      "oauth": false,
+      "headers": { "Authorization": "Bearer {env:CONTRASTAPI_API_KEY}" }
+    }
+  }
+}</code></div>
+
+  </div>
+
+  @@FOOTER@@
+  <script src="/static/js/theme.js?v=@@THEME_JS_VERSION@@"></script>
+</body>
+</html>

@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ContrastAPI: Security Data &amp; Monitoring API, MCP Server</title>
+  <meta name="description" content="Security data and monitoring API and MCP server: CVE, EPSS and KEV, package (SBOM) vulnerabilities, domain and IP intelligence.">
+  <meta property="og:title" content="ContrastAPI: Security Data &amp; Monitoring API, MCP Server">
+  <meta property="og:description" content="Security data and monitoring API and MCP server: CVE, EPSS and KEV, package (SBOM) vulnerabilities, domain and IP intelligence.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://api.contrastcyber.com/">
+  <meta property="og:image" content="https://api.contrastcyber.com/static/og-image.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="ContrastAPI: security data and monitoring API and MCP server">
+  <meta property="og:site_name" content="ContrastAPI">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="ContrastAPI: Security Data &amp; Monitoring API, MCP Server">
+  <meta name="twitter:description" content="Security data and monitoring API and MCP server: CVE, EPSS and KEV, package (SBOM) vulnerabilities, domain and IP intelligence.">
+  <meta name="twitter:image" content="https://api.contrastcyber.com/static/og-image.png">
+  <meta name="msvalidate.01" content="FF2D74F962D3EB9B4CD7B81481A4C873">
+  <meta name="theme-color" content="#e9ebee" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#06101d" media="(prefers-color-scheme: dark)">
+  <link rel="canonical" href="https://api.contrastcyber.com/">
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="/static/favicon-192.png">
+  <script src="/static/js/theme-init.js?v=@@THEME_INIT_JS_VERSION@@"></script>
+  <link rel="stylesheet" href="/static/style.css?v=@@STYLE_CSS_VERSION@@">
+  <script src="/static/js/landing.js?v=@@LANDING_JS_VERSION@@" defer></script>
+  <link rel="alternate" type="text/plain" href="/llms.txt" title="LLM Discovery">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "WebAPI",
+        "name": "ContrastAPI",
+        "description": "Security data and monitoring API and MCP server. CVE lookup with EPSS and CISA KEV, risk scoring, triage and public exploits; open-source package advisories and malicious packages from OSV.dev; vulnerable and malicious Windows drivers from LOLDrivers; DNS records, subdomain takeover, email authentication and TLS certificate checks; the security headers of a web site; whether an email address takes mail and is disposable; domain registrations over RDAP or WHOIS; the Wayback Machine captures of a host name; the unexpired certificates that Certificate Transparency logs hold for a host name; the subdomains of a domain from Certificate Transparency and DNS; the AS, country, cloud range and Tor exit of an IP address, and the prefixes of an AS; MITRE D3FEND defenses; CWE, CVSS, breached passwords and image metadata. A Pro key adds monitoring: it watches CVEs, packages, domains and IP addresses and keeps their change events.",
+        "url": "https://api.contrastcyber.com/",
+        "documentation": "https://github.com/UPinar/contrastapi/blob/main/docs/API_Documentation.md",
+        "sameAs": ["https://github.com/UPinar/contrastapi"],
+        "provider": {
+          "@type": "Organization",
+          "name": "ContrastCyber",
+          "url": "https://contrastcyber.com"
+        },
+        "termsOfService": "https://api.contrastcyber.com/terms",
+        "availableChannel": {
+          "@type": "ServiceChannel",
+          "serviceUrl": "https://api.contrastcyber.com/"
+        }
+      },
+      {
+        "@type": "Organization",
+        "name": "ContrastCyber",
+        "url": "https://contrastcyber.com",
+        "description": "Security data and monitoring for developers and AI agents.",
+        "logo": "https://api.contrastcyber.com/static/logo-ph.png",
+        "sameAs": ["https://github.com/UPinar/contrastapi"]
+      },
+      {
+        "@type": "WebSite",
+        "name": "ContrastAPI",
+        "url": "https://api.contrastcyber.com/"
+      },
+      {
+        "@type": "FAQPage",
+        "mainEntity": [
+          {
+            "@type": "Question",
+            "name": "Do I need an API key?",
+            "acceptedAnswer": { "@type": "Answer", "text": "For monitoring (the watchlist tools) and for saving your own vendor keys. Every other endpoint works without authentication on the free tier. Just send requests. Pro users send their key in the Authorization: Bearer header or the X-API-Key header." }
+          },
+          {
+            "@type": "Question",
+            "name": "What happens when I hit the rate limit?",
+            "acceptedAnswer": { "@type": "Answer", "text": "You'll get a 429 response with a Retry-After header: the seconds until your hourly budget resets. The free tier has @@RL_ANON_CREDIT_LIMIT@@ credits per hour; a Pro key has @@RL_KEY_CREDIT_LIMIT@@." }
+          },
+          {
+            "@type": "Question",
+            "name": "How do I check that the API is up?",
+            "acceptedAnswer": { "@type": "Answer", "text": "Call /health. It reports the database's freshness and the sync state of each data feed, and it costs no credit." }
+          }
+        ]
+      }
+    ]
+  }
+  </script>
+</head>
+<body class="home">
+  <div class="glow"></div>
+
+  @@NAV@@
+
+  <section class="hero">
+    <div class="pill">SECURITY DATA · REST API · MCP SERVER</div>
+    <h1>Security data and monitoring<br><span class="gradient">for developers and AI agents.</span></h1>
+    <p class="subtitle">Security data as structured JSON over REST and MCP: CVE, EPSS and KEV, package (SBOM) vulnerabilities, domain and IP intelligence. A Pro key watches CVEs, packages, domains and IP addresses, and you read what changed as events. The free tier needs no API key.</p>
+  </section>
+
+  <!-- Endpoints -->
+  <section class="endpoints">
+    <h2 class="section-title">CVE Intelligence</h2>
+    <p class="endpoints-lede">Look up, search and rank CVEs with EPSS and KEV. See <a href="/cve-api">CVE, EPSS &amp; KEV API with Monitoring</a>.</p>
+    <div class="endpoint-group">
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/cve_lookup/{cve_id}</span>
+        <span class="endpoint-desc">CVE details + EPSS + KEV; <code>?include_ghsa=true</code> adds the GitHub Security Advisory</span>
+      </div>
+      <div class="endpoint">
+        <span class="method post">POST</span>
+        <span class="endpoint-path">/cve_lookup_bulk</span>
+        <span class="endpoint-desc">Bulk CVE lookup (up to @@CVELOOKUPBULK_MAX_IDS@@ IDs per request)</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/cve_products/{cve_id}</span>
+        <span class="endpoint-desc">The products a CVE affects, one page at a time, vulnerable ones first</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/cve_search</span>
+        <span class="endpoint-desc">Search CVEs (paginated)</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/cve_leading</span>
+        <span class="endpoint-desc">Top CVEs ranked by EPSS, then CVSS: a quick exploit-probability briefing</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/kev_lookup/{cve_id}</span>
+        <span class="endpoint-desc">CISA KEV entry (due date, required action, ransomware use, CWE list)</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/cwe_lookup/{cwe_id}</span>
+        <span class="endpoint-desc">MITRE CWE catalog (description, mitigations, examples, parent CWE)</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/cve_risk_score/{cve_id}</span>
+        <span class="endpoint-desc">Composite risk score (exploitability + impact + evidence, 0-100) + label</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/cve_exploit/{cve_id}</span>
+        <span class="endpoint-desc">Public exploit intelligence: GitHub PoCs, Metasploit modules, NVD exploit references, ExploitDB entries</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/cve_triage</span>
+        <span class="endpoint-desc">CVEs ranked by composite risk score: what to patch first</span>
+      </div>
+      <div class="endpoint">
+        <span class="method post">POST</span>
+        <span class="endpoint-path">/cve_triage_bulk</span>
+        <span class="endpoint-desc">Rank your own list of CVE IDs by composite risk score (up to @@CVETRIAGEBULK_MAX_IDS@@ IDs)</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/product_exposure</span>
+        <span class="endpoint-desc">CVE exposure of one product: severity/KEV/PoC counts, worst scores, top CVEs by risk, and its end of life dates</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/cpe_search</span>
+        <span class="endpoint-desc">Find CPE vendor and product names, ranked by vulnerable CVE count</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/cvss_calculator</span>
+        <span class="endpoint-desc">Decode a CVSS v3.0/v3.1 vector into its base metrics + recomputed scores</span>
+      </div>
+    </div>
+
+    <h2 class="section-title">Package Vulnerabilities (SBOM)</h2>
+    <p class="endpoints-lede">Check packages from your SBOM or lock file. See <a href="/package-vulnerability-api">Package &amp; SBOM Vulnerability API with Monitoring</a>.</p>
+    <div class="endpoint-group">
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/package_check</span>
+        <span class="endpoint-desc">A package of nine ecosystems against OSV.dev advisories and malicious packages, with the version that fixes it</span>
+      </div>
+      <div class="endpoint">
+        <span class="method post">POST</span>
+        <span class="endpoint-path">/package_check_bulk</span>
+        <span class="endpoint-desc">Many packages with exact versions at once (up to @@PACKAGECHECKBULK_MAX_ITEMS@@ packages per request)</span>
+      </div>
+    </div>
+
+    <h2 class="section-title">Credential Checks</h2>
+    <div class="endpoint-group">
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/password_check/{sha1_hash}</span>
+        <span class="endpoint-desc">Password SHA-1 lookup in Have I Been Pwned (only the first 5 hex digits leave the server)</span>
+      </div>
+    </div>
+
+    <h2 class="section-title">Domain Intelligence</h2>
+    <p class="endpoints-lede">DNS, mail authentication, TLS, headers, registration and certificate data of a domain. See <a href="/domain-monitoring-api">Domain Intelligence &amp; Monitoring API</a>.</p>
+    <div class="endpoint-group">
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/dns_lookup/{domain}</span>
+        <span class="endpoint-desc">DNS records (A, AAAA, MX, NS, TXT, CNAME, SOA, CAA), non-public addresses and the services TXT records name</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/dns_takeover_check/{domain}</span>
+        <span class="endpoint-desc">A dangling CNAME, and whether a known service lets anyone claim its target</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/email_auth_check/{domain}</span>
+        <span class="endpoint-desc">SPF, DMARC, DKIM, MX and MTA-STS records, with a pass, warn or fail for each check</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/email_address_check/{email}</span>
+        <span class="endpoint-desc">Whether an email address's domain takes mail, and whether the address is disposable; no mail is sent</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/ssl_check/{domain}</span>
+        <span class="endpoint-desc">The TLS version, cipher and certificate on port 443: whether the certificate is trusted, whether the SSL Blacklist lists it, and the days until it expires</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/headers_check/{domain}</span>
+        <span class="endpoint-desc">The security headers of a web site's home page, rated: CSP, HSTS, X-Frame-Options, Set-Cookie and five more, each with its issues and a fix</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/whois_lookup/{domain}</span>
+        <span class="endpoint-desc">The registrar, dates, status values and name servers of a domain, over RDAP, or over WHOIS for a TLD without RDAP; no registrant or contact data</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/wayback_lookup/{domain}</span>
+        <span class="endpoint-desc">When the Wayback Machine first and last captured a host's home page, and its latest 10 capture days, each with a link</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/cert_search/{domain}</span>
+        <span class="endpoint-desc">The unexpired certificates that Certificate Transparency logs hold for a host name, from Cert Spotter, read up to 5 pages: up to 10 whose validity starts last, each with its issuer, validity, revocation and DNS names</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/subdomain_enum/{domain}</span>
+        <span class="endpoint-desc">The subdomains of a registrable domain, from Certificate Transparency, DNS guesses of 94 common names and the domain's MX, NS and SPF records: up to 50 names, each with its sources, and a wildcard DNS check</span>
+      </div>
+    </div>
+
+    <h2 class="section-title">IP Intelligence</h2>
+    <p class="endpoints-lede">The AS, country, cloud range and Tor exit of an address. See <a href="/ip-intelligence-api">IP &amp; ASN Intelligence API with Monitoring</a>.</p>
+    <div class="endpoint-group">
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/ip_lookup/{ip_address}</span>
+        <span class="endpoint-desc">The AS, the country, the cloud or CDN range, the Tor exit and the hijacked-netblock listing of a public IPv4 or IPv6 address, and its PTR name</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/asn_lookup/{target}</span>
+        <span class="endpoint-desc">An autonomous system by its number or by an address it holds: its name, its country and its IPv4 and IPv6 prefixes</span>
+      </div>
+    </div>
+
+    <h2 class="section-title">Image Inspection</h2>
+    <div class="endpoint-group">
+      <div class="endpoint">
+        <span class="method post">POST</span>
+        <span class="endpoint-path">/image_inspect</span>
+        <span class="endpoint-desc">The format, the SHA-256, the signatures of other files hidden in an image of up to 16 MiB, its metadata and the indicators drawn from it</span>
+      </div>
+    </div>
+
+    <h2 class="section-title">Threat Defense</h2>
+    <div class="endpoint-group">
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/d3fend_for_attack/{attack_technique_id}</span>
+        <span class="endpoint-desc">MITRE D3FEND defenses that counter a MITRE ATT&amp;CK technique and its sub-techniques, counted by tactic</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/driver_lookup/{file_hash}</span>
+        <span class="endpoint-desc">A driver file hash in the LOLDrivers catalog of vulnerable and malicious drivers, with the matching driver files and detection rules. The rules are context, not for blocking.</span>
+      </div>
+      <div class="endpoint">
+        <span class="method post">POST</span>
+        <span class="endpoint-path">/driver_lookup_bulk</span>
+        <span class="endpoint-desc">Many driver file hashes in the LOLDrivers catalog at once (up to @@DRIVERLOOKUPBULK_MAX_IDS@@ hashes per request)</span>
+      </div>
+    </div>
+
+    <h2 class="section-title">Monitoring (watchlist)</h2>
+    <p class="endpoints-lede">Monitoring needs an API key. Add CVEs, products, CVE searches, packages, domains and IP addresses to the watchlist of your key. The server records change events for them. You read the events with <code>watchlist_events</code>. See <a href="/security-monitoring-api">Security Monitoring API</a>.</p>
+    <div class="endpoint-group">
+      <div class="endpoint">
+        <span class="method post">POST</span>
+        <span class="endpoint-path">/watchlist_edit</span>
+        <span class="endpoint-desc">Add, remove, list or clear the CVEs, products, CVE searches, packages, domains and IP addresses your key watches</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/watchlist_events</span>
+        <span class="endpoint-desc">The CVE, package, end-of-life, domain and IP changes that match your watchlist, oldest first; the server keeps your position</span>
+      </div>
+    </div>
+
+    <h2 class="section-title">Operations</h2>
+    <div class="endpoint-group">
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/health</span>
+        <span class="endpoint-desc">API health + data freshness and the sync state of each feed</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/privacy_my_data</span>
+        <span class="endpoint-desc">The hash you are metered by and the rate limit left this hour</span>
+      </div>
+      <div class="endpoint">
+        <span class="method post">POST</span>
+        <span class="endpoint-path">/vendor_key_edit</span>
+        <span class="endpoint-desc">Save, delete or check your Shodan and AbuseIPDB keys (Pro)</span>
+      </div>
+      <div class="endpoint">
+        <span class="method post">POST</span>
+        <span class="endpoint-path">/mcp</span>
+        <span class="endpoint-desc">MCP server: every endpoint above but /image_inspect, as a tool over JSON-RPC 2.0</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 30-Second Setup -->
+  <section id="setup" class="endpoints setup-section" aria-labelledby="setup-title">
+    <h2 id="setup-title" class="section-title">Setup</h2>
+    <div class="setup-cards">
+      <div class="setup-card">
+        <h3>1. MCP (Claude / Cursor / VS Code)</h3>
+        <pre>{
+  "mcpServers": {
+    "contrastapi": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote",
+        "https://api.contrastcyber.com/mcp/"]
+    }
+  }
+}</pre>
+        <a href="/mcp-setup">Full MCP guide →</a>
+      </div>
+      <div class="setup-card">
+        <h3>2. cURL</h3>
+        <div class="copy-wrap"><pre>curl https://api.contrastcyber.com/cve_lookup/CVE-2024-3094</pre><button type="button" class="copy-btn" aria-label="Copy command"><svg class="icon-copy" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><svg class="icon-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg></button></div>
+        <div class="copy-wrap"><pre>curl https://api.contrastcyber.com/cve_leading?limit=5</pre><button type="button" class="copy-btn" aria-label="Copy command"><svg class="icon-copy" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><svg class="icon-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg></button></div>
+        <a href="/quickstart">Quick start guide →</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Credit Costs -->
+  <section id="costs" class="endpoints endpoints-mt">
+    <h2 class="section-title">Credit costs</h2>
+    <p class="endpoints-lede">
+      Transparent pricing: each answer that spends credits carries <code class="code-accent">X-RateLimit-Remaining</code> so you can budget calls. An MCP <code>tools/call</code> costs the same as its REST endpoint.
+    </p>
+    <div class="endpoint-group">
+      <div class="endpoint">
+        <span class="method get">0&times;</span>
+        <span class="endpoint-path">/health</span>
+        <span class="endpoint-desc">Free health and data freshness check</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">1&times;</span>
+        <span class="endpoint-path">Most endpoints</span>
+        <span class="endpoint-desc">1 credit per call</span>
+      </div>
+      <div class="endpoint">
+        <span class="method post">2&times;</span>
+        <span class="endpoint-path">/image_inspect</span>
+        <span class="endpoint-desc">An image body of up to 16 MiB, read whole</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">2&times;</span>
+        <span class="endpoint-path">/cert_search/{domain}</span>
+        <span class="endpoint-desc">Requests to Cert Spotter, one for each page, that carry this server's API key</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">2&times;</span>
+        <span class="endpoint-path">/subdomain_enum/{domain}</span>
+        <span class="endpoint-desc">Up to 99 DNS questions, and a request to Cert Spotter that carries this server's API key</span>
+      </div>
+      <div class="endpoint">
+        <span class="method post">N&times;</span>
+        <span class="endpoint-path">Bulk endpoints</span>
+        <span class="endpoint-desc">1 credit per well-formed CVE ID or file hash, or per package that is not skipped, in the request, at least 1</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- FAQ -->
+  <section class="auth-section">
+    <div class="faq">
+      <h2>FAQ</h2>
+      <dl>
+        <dt>Do I need an API key?</dt>
+        <dd>For monitoring (the watchlist tools) and for saving your own vendor keys. Every other endpoint works without authentication on the free tier. Just send requests. Pro users send their key in the Authorization: Bearer header or the X-API-Key header.</dd>
+
+        <dt>What happens when I hit the rate limit?</dt>
+        <dd>You'll get a 429 response with a Retry-After header: the seconds until your hourly budget resets. The free tier has @@RL_ANON_CREDIT_LIMIT@@ credits per hour; a Pro key has @@RL_KEY_CREDIT_LIMIT@@.</dd>
+
+        <dt>How do I check that the API is up?</dt>
+        <dd>Call /health. It reports the database's freshness and the sync state of each data feed, and it costs no credit.</dd>
+      </dl>
+    </div>
+  </section>
+
+  <section class="auth-section">
+    <h2 class="section-title">Data Freshness</h2>
+    <ul class="freshness-list">
+      <li><strong>CVE / EPSS / KEV / CWE:</strong> synced from NVD, FIRST EPSS, CISA KEV and MITRE CWE into the local database. /health shows when each feed was last synced and whether that sync succeeded.</li>
+      <li><strong>Exploit and detection data:</strong> /cve_exploit reads local copies of the PoC-in-GitHub list, the Metasploit module list and the Exploit Database list. A GitHub repository is listed, but it is not counted as proof of a public exploit. /cve_lookup and the <code>has_nuclei_template</code> filter of /cve_search and /cve_leading read a local copy of the Nuclei template list.</li>
+      <li><strong>Product names:</strong> next to the CPE names of NVD, the affected products carry the names a CNA gives. The NVD record holds the CNA's names in free text. The CVE List of the CVE Program (cvelistV5) holds the CNA's CPE names.</li>
+      <li><strong>Advisory data:</strong> <code>?include_ghsa=true</code>, /package_check and /package_check_bulk read a local copy of the OSV.dev export.</li>
+      <li><strong>End-of-life dates:</strong> the <code>eol</code> member of /product_exposure, /package_check and /package_check_bulk reads a local copy of the endoflife.date data (MIT).</li>
+      <li><strong>Leaked passwords:</strong> /password_check asks the Pwned Passwords range API of Have I Been Pwned when it is asked. It sends only the first five characters of the SHA-1 hash.</li>
+      <li><strong>Driver data:</strong> /driver_lookup and /driver_lookup_bulk read a local copy of the LOLDrivers catalog.</li>
+      <li><strong>IP data:</strong> /ip_lookup reads local copies of the IPtoASN list, the DB-IP Lite country list (<a href="https://db-ip.com">IP Geolocation by DB-IP</a>), the published address ranges of cloud and CDN providers, the Tor exit list and a list of hijacked netblocks. /asn_lookup reads the same copy of the IPtoASN list. For a Pro key that saved its own Shodan or AbuseIPDB key, /ip_lookup also asks Shodan and AbuseIPDB when it is asked.</li>
+      <li><strong>Email data:</strong> /email_address_check reads a local copy of the disposable-email-domains blocklist (CC0 1.0). It asks its own DNS resolver about the address's domain when it is asked.</li>
+      <li><strong>Defense data:</strong> /d3fend_for_attack reads a local copy of the MITRE D3FEND catalog. The copy is refreshed every week from MITRE.</li>
+      <li><strong>TLS checks:</strong> /ssl_check connects to the host when it is asked. It keeps a successful answer for one hour when it could read the SSL Blacklist and the list holds rows, and <code>checked_at</code> says when the check ran.</li>
+      <li><strong>Header checks:</strong> /headers_check fetches the home page of the host when it is asked. It keeps each successful answer for one hour under the host name and the choice of whole values. The answer holds the address of the page without its query, the site's status, the target of a redirect it did not follow and the security headers the site sent. It holds no Set-Cookie value, only counts: how many cookies the site set, and how many have each issue. Any caller who makes the same request in that hour gets it, and <code>checked_at</code> says when the fetch ran.</li>
+      <li><strong>Domain registrations:</strong> /whois_lookup asks the RDAP server of the TLD when it is asked. It finds that server in a copy of IANA's RDAP bootstrap file. A TLD without an RDAP server is asked over WHOIS, when the registry's terms allow it. It keeps each answer that holds a registration for one hour.</li>
+      <li><strong>Web archive captures:</strong> /wayback_lookup asks the CDX server of the Internet Archive's Wayback Machine when it is asked. It reads only the list of captures, and it keeps each answer that holds that list for one day.</li>
+      <li><strong>Certificate Transparency:</strong> /cert_search asks SSLMate's Cert Spotter when it is asked. Cert Spotter lists only unexpired certificates. The server keeps each answer that holds the certificate list for one day.</li>
+      <li><strong>Subdomains:</strong> /subdomain_enum asks its own DNS resolver and Cert Spotter when it is asked. It keeps each answer under the registrable domain: for one day when it holds the names of Cert Spotter, and otherwise for 10 minutes, or for the wait it names when that is longer. An answer whose wildcard verdict is undetermined is kept for 10 minutes.</li>
+    </ul>
+  </section>
+
+  <section class="auth-section">
+    <h2 class="section-title">Docs and source</h2>
+    <ul class="freshness-list">
+      <li><a href="https://github.com/UPinar/contrastapi/blob/main/docs/API_Documentation.md">API documentation</a></li>
+      <li><a href="https://github.com/UPinar/contrastapi/blob/main/docs/MCP_Documentation.md">MCP documentation</a></li>
+      <li><a href="https://github.com/UPinar/contrastapi">Source code on GitHub</a></li>
+    </ul>
+  </section>
+
+  @@FOOTER@@
+  <script src="/static/js/theme.js?v=@@THEME_JS_VERSION@@"></script>
+</body>
+</html>

@@ -1,0 +1,90 @@
+Sources of the files in tests/version_keys/fixtures/ and of the reference modules in
+tests/version_keys/. Each entry names the origin. A copied or ported file also names its
+license and a date.
+
+The Apache License 2.0 that the copied and ported files carry is in
+tests/version_keys/LICENSE-APACHE-2.0, copied unmodified from google/osv-scalibr.
+
+Fixtures copied from google/osv-scalibr
+  Upstream directory: https://github.com/google/osv-scalibr/tree/main/semantic/testdata
+  License: Apache-2.0 (google/osv-scalibr). Each file is copied unmodified. On 2026-10-30 each
+  was byte-identical to upstream main at commit d3f328446ec5. The files carry no copyright line.
+
+scalibr_pypi-versions.txt, scalibr_pypi-versions-generated.txt
+  Origin: semantic/testdata/pypi-versions.txt and pypi-versions-generated.txt of osv-scalibr.
+  License: Apache-2.0. Fetched 2026-10-27.
+
+scalibr_maven-versions.txt, scalibr_maven-versions-generated.txt
+  Origin: semantic/testdata/maven-versions.txt and maven-versions-generated.txt of osv-scalibr.
+  License: Apache-2.0. Fetched 2026-10-28.
+
+scalibr_nuget-versions.txt
+  Origin: semantic/testdata/nuget-versions.txt of osv-scalibr.
+  License: Apache-2.0. Local copy dated 2026-10-28.
+
+scalibr_rubygems-versions.txt
+  Origin: semantic/testdata/rubygems-versions.txt of osv-scalibr.
+  License: Apache-2.0. Fetched 2026-10-28.
+  The RubyGems reference is not scalibr. It is Ruby's own Gem::Version (rubygems_ref.rb).
+
+scalibr_packagist-versions.txt
+  Origin: semantic/testdata/packagist-versions.txt of osv-scalibr.
+  License: Apache-2.0. Local copy dated 2026-10-28.
+  Its first block comes from php-src, as its first line says:
+  https://github.com/php/php-src/blob/master/ext/standard/tests/versioning/version_compare.phpt
+  (PHP License). A later block comes from composer/semver, as its own comment line says:
+  https://github.com/composer/semver/blob/main/tests/ComparatorTest.php (MIT).
+
+Corpora
+  Each corpus holds the distinct version strings of one ecosystem's OSV advisories (range
+  events + listed versions) in a copy of the service's database on the date below. The
+  strings come from OSV records. docs/API_Documentation.md § Data sources and licenses
+  names each OSV source and its license.
+
+pypi_corpus.txt
+  Distinct version strings of the PyPI OSV advisories (range events + listed versions) in a
+  copy of the service's database on 2026-10-27.
+
+maven_corpus.txt
+  Distinct version strings of the Maven OSV advisories (range events + listed versions) in a
+  copy of the service's database on 2026-10-28.
+
+nuget_corpus.txt
+  Distinct version strings of the NuGet OSV advisories (range events + listed versions) in a
+  copy of the service's database on 2026-10-28.
+
+rubygems_corpus.txt
+  Distinct version strings of the RubyGems OSV advisories (range events + listed versions) in
+  a copy of the service's database on 2026-10-28.
+
+packagist_corpus.txt
+  Distinct version strings of the Packagist OSV advisories (range events + listed versions) in
+  a copy of the service's database on 2026-10-28.
+
+Reference modules (in tests/version_keys/)
+
+maven_ref.py
+  Origin: a Python port of semantic/version-maven.go of google/osv-scalibr.
+  License: Apache-2.0. Ported 2026-10-28.
+  Upstream copyright notice: Copyright 2026 Google LLC.
+
+nuget_ref.py
+  Origin: a Python port of semantic/version-nuget.go, semantic/version-semver-like.go and the
+  build compare of semantic/version-semver.go of google/osv-scalibr.
+  License: Apache-2.0. Ported 2026-10-28.
+  Upstream copyright notice: Copyright 2026 Google LLC.
+
+packagist_ref.py
+  Origin: osv_compare follows osv/ecosystems/packagist.py of google/osv.dev.
+  KEYED, composer_normalize and composer_compare are written for these tests.
+  License: Apache-2.0. Ported 2026-10-28.
+  Upstream copyright notice: Copyright 2025 Google LLC.
+
+rubygems_ref.rb
+  Origin: written for these tests. It calls Ruby's own Gem::Version.
+  Measured with ruby 3.2.3 and rubygems 3.4.20.
+
+packagist_php_ref.php
+  Origin: written for these tests. It calls PHP's version_compare and Composer's
+  VersionParser. The parser comes from the Debian package php-composer-semver (composer/semver,
+  MIT). Measured with PHP 8.3.6 and php-composer-semver 3.4.0.

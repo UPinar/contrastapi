@@ -1,0 +1,1 @@
+v=spf1 include:_spf.example.com ip4:192.0.2.0/24 -all

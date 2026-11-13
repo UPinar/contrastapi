@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Security Data API Quick Start | ContrastAPI</title>
+  <meta name="description" content="ContrastAPI quick start: copy-paste cURL, Node.js, Python and CI examples for CVE, EPSS and KEV data. Free tier, no API key. Also over MCP.">
+  <meta property="og:title" content="Security Data API Quick Start | ContrastAPI">
+  <meta property="og:description" content="ContrastAPI quick start: copy-paste cURL, Node.js, Python and CI examples for CVE, EPSS and KEV data. Free tier, no API key. Also over MCP.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://api.contrastcyber.com/quickstart">
+  <meta property="og:image" content="https://api.contrastcyber.com/static/og-image.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="ContrastAPI: security data and monitoring API and MCP server">
+  <meta property="og:site_name" content="ContrastAPI">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Security Data API Quick Start | ContrastAPI">
+  <meta name="twitter:description" content="ContrastAPI quick start: copy-paste cURL, Node.js, Python and CI examples for CVE, EPSS and KEV data. Free tier, no API key. Also over MCP.">
+  <meta name="twitter:image" content="https://api.contrastcyber.com/static/og-image.png">
+  <meta name="theme-color" content="#e9ebee" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#06101d" media="(prefers-color-scheme: dark)">
+  <link rel="canonical" href="https://api.contrastcyber.com/quickstart">
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="/static/favicon-192.png">
+  <script src="/static/js/theme-init.js?v=@@THEME_INIT_JS_VERSION@@"></script>
+  <link rel="stylesheet" href="/static/style.css?v=@@STYLE_CSS_VERSION@@">
+  <link rel="stylesheet" href="/static/css/page.css?v=@@PAGE_CSS_VERSION@@">
+  <script src="/static/js/landing.js?v=@@LANDING_JS_VERSION@@" defer></script>
+</head>
+<body>
+  <div class="glow"></div>
+
+  @@NAV@@
+
+  <div class="page">
+    <h1>Quick <span>Start</span></h1>
+    <p class="subtitle">Copy-paste examples for your first API call. No API key required.</p>
+
+    <h2><span class="num">1</span> cURL</h2>
+    <p>Copy, paste, run.</p>
+    <div class="code-block"><span class="lang">bash</span><code>curl https://api.contrastcyber.com/cve_lookup/CVE-2024-3094</code></div>
+
+    <div class="code-block"><span class="lang">bash</span><code># Search: critical CVEs in CISA KEV, newest first
+curl "https://api.contrastcyber.com/cve_search?severity=CRITICAL&amp;in_kev=true&amp;limit=5"
+
+# What to patch first for one vendor
+curl "https://api.contrastcyber.com/cve_triage?vendor=apache&amp;min_risk_score=70"
+
+# Public exploits for a CVE (1 credit)
+curl https://api.contrastcyber.com/cve_exploit/CVE-2021-44228
+
+# Bulk lookup
+curl -X POST https://api.contrastcyber.com/cve_lookup_bulk \
+  -H "Content-Type: application/json" \
+  -d '{"cve_ids": ["CVE-2021-44228", "CVE-2024-3094"]}'</code></div>
+
+    <h2><span class="num">2</span> Node.js</h2>
+    <p><span class="pill-inline">npm</span> No SDK needed. Just fetch. Call the API from a server, not from a browser page: it sends no CORS headers.</p>
+    <div class="code-block"><span class="lang">javascript</span><code>// CVE lookup
+const res = await fetch('https://api.contrastcyber.com/cve_lookup/CVE-2024-3094');
+const vuln = await res.json();
+console.log(vuln.severity);     // "CRITICAL", "HIGH", "MEDIUM", "LOW" or "NONE"
+console.log(vuln.epss_score);   // 0.0 - 1.0
+console.log(vuln.in_kev);       // true or false
+
+// Composite risk score
+const risk = await fetch('https://api.contrastcyber.com/cve_risk_score/CVE-2024-3094');
+console.log((await risk.json()).label);  // "CRITICAL", "HIGH", "MEDIUM" or "LOW"</code></div>
+
+    <h2><span class="num">3</span> Python</h2>
+    <div class="code-block"><span class="lang">python</span><code>import requests
+
+# Leading CVEs by exploitation probability
+r = requests.get('https://api.contrastcyber.com/cve_leading', params={'limit': 5})
+print(r.json())
+
+# Rank your own CVE list by risk
+r = requests.post('https://api.contrastcyber.com/cve_triage_bulk',
+    json={'cve_ids': ['CVE-2021-44228', 'CVE-2014-0160', 'CVE-2017-0144']})
+print(r.json())</code></div>
+
+    <p>Call it from code over MCP: agent frameworks can use the same data as tools. See <a href="/mcp-setup">MCP setup</a>.</p>
+
+    <h2><span class="num">4</span> CI: fail on KEV CVEs</h2>
+    <p>Your scanner step writes the CVE IDs it found to <code>cves.txt</code>, one per line. This step fails the build when one of them is in CISA KEV.
+    Without a key, a run spends the @@RL_ANON_CREDIT_LIMIT@@ credits per hour of its runner's IP address, one per ID, so a longer list fails as unchecked. A key raises the budget to @@RL_KEY_CREDIT_LIMIT@@ credits per hour. It sends each ID once, because a request that names an ID twice is refused.
+    It also fails when an ID was not checked: the budget did not cover it, or the line is not a well-formed CVE ID.</p>
+    <div class="code-block"><span class="lang">yaml</span><code># .github/workflows/security.yml
+# cves.txt: one CVE ID per line, written by your scanner step
+- name: Fail when a found CVE is in CISA KEV
+  env:
+    CONTRASTAPI_API_KEY: ${{ secrets.CONTRASTAPI_API_KEY }}
+  run: |
+    test -e cves.txt
+    grep -q . cves.txt || exit 0
+    sort -u cves.txt | grep . | split -l @@CVELOOKUPBULK_MAX_IDS@@ - batch_
+    for f in batch_*; do
+      jq -Rn '{cve_ids: [inputs]}' "$f" | curl -sf -X POST https://api.contrastcyber.com/cve_lookup_bulk \
+        -H "Authorization: Bearer $CONTRASTAPI_API_KEY" \
+        -H "Content-Type: application/json" -d @- > "$f.json"
+      jq -e '(.not_processed | length == 0) and .skipped == 0' "$f.json" > /dev/null
+    done
+    jq -r '.results[] | select(.in_kev) | .cve_id' batch_*.json | tee kev.txt
+    test ! -s kev.txt</code></div>
+
+    <h2><span class="num">5</span> With a Pro API Key <span class="section-optional">(optional)</span></h2>
+    <p>Free tier is @@RL_ANON_CREDIT_LIMIT@@ credits/hr. Add an <code>Authorization: Bearer contrastapi_...</code> header, or an <code>X-API-Key: contrastapi_...</code> header, to unlock @@RL_KEY_CREDIT_LIMIT@@ credits/hr and <a href="/security-monitoring-api">monitoring</a> of CVEs, packages, domains and IP addresses.</p>
+
+    <div class="code-block"><span class="lang">bash</span><code># cURL with Pro key
+curl -H "Authorization: Bearer $CONTRASTAPI_API_KEY" \
+  https://api.contrastcyber.com/cve_exploit/CVE-2021-44228</code></div>
+
+    <div class="code-block"><span class="lang">javascript</span><code>// Node.js, key from env
+const res = await fetch('https://api.contrastcyber.com/cve_exploit/CVE-2021-44228', {
+  headers: { 'Authorization': `Bearer ${process.env.CONTRASTAPI_API_KEY}` }
+});
+console.log(res.headers.get('X-RateLimit-Remaining'));  // credits left this hour</code></div>
+
+    <div class="code-block"><span class="lang">python</span><code>import os, requests
+
+headers = {'Authorization': f'Bearer {os.environ["CONTRASTAPI_API_KEY"]}'}
+r = requests.get('https://api.contrastcyber.com/cve_exploit/CVE-2021-44228', headers=headers)
+print(r.headers['X-RateLimit-Remaining'])</code></div>
+
+  </div>
+
+  @@FOOTER@@
+  <script src="/static/js/theme.js?v=@@THEME_JS_VERSION@@"></script>
+</body>
+</html>

@@ -1,0 +1,31 @@
+name: RDAP bootstrap
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+jobs:
+  compare:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Download the bootstrap file
+        run: |
+          curl -fsS --max-time 60 -o "$RUNNER_TEMP/dns.json" https://data.iana.org/rdap/dns.json
+
+      - name: Compare the servers with the copy
+        run: |
+          python3 -I tests/rdap_bootstrap/gen_rdap_table.py --servers tests/rdap_bootstrap/dns.json > "$RUNNER_TEMP/copy_servers.txt"
+          python3 -I tests/rdap_bootstrap/gen_rdap_table.py --servers "$RUNNER_TEMP/dns.json" > "$RUNNER_TEMP/current_servers.txt"
+          if ! diff -u "$RUNNER_TEMP/copy_servers.txt" "$RUNNER_TEMP/current_servers.txt"; then
+            echo "FAIL: the RDAP servers of IANA's file differ from the copy in tests/rdap_bootstrap. Run make rdap-update."; exit 1
+          fi
+          echo "PASS: the RDAP servers of IANA's file are the copy's"

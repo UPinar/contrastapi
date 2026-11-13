@@ -1,0 +1,148 @@
+ContrastAPI
+Copyright (C) 2026 UPinar
+
+ContrastAPI is licensed under the GNU Affero General Public License, version 3.
+The full text is in LICENSE.
+
+This repository also holds code, word lists, fonts and data that other people wrote.
+Each item below names its source, its authors and its license. Where a license asks
+for its text to travel with the work, the text is in this file or in the named file.
+
+The data that the hosted service serves comes from public catalogs and feeds. Their
+licenses and terms are listed in docs/API_Documentation.md, section
+"Data sources and licenses".
+
+
+------------------------------------------------------------------------------
+1. picohttpparser
+   Files:   src/picohttpparser.c, src/picohttpparser.h
+   Source:  https://github.com/h2o/picohttpparser
+   License: MIT or the Perl license (this repository uses it under MIT)
+   Copyright (c) 2009-2014 Kazuho Oku, Tokuhiro Matsuno, Daisuke Murase,
+                           Shigeo Mitsunari
+   The full MIT text is at the top of both files.
+
+
+------------------------------------------------------------------------------
+2. Unity, a test framework for C
+   Files:   tests/unity/unity.c, tests/unity/unity.h, tests/unity/unity_internals.h
+   Source:  https://github.com/ThrowTheSwitch/Unity
+   License: MIT
+
+   Copyright (c) 2007-26 Mike Karlesky, Mark VanderVoord, & Greg Williams
+
+   Permission is hereby granted, free of charge, to any person obtaining a copy
+   of this software and associated documentation files (the "Software"), to deal
+   in the Software without restriction, including without limitation the rights
+   to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+   copies of the Software, and to permit persons to whom the Software is
+   furnished to do so, subject to the following conditions:
+
+   The above copyright notice and this permission notice shall be included in
+   all copies or substantial portions of the Software.
+
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+   AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+   THE SOFTWARE.
+
+
+------------------------------------------------------------------------------
+3. Public Suffix List
+   Files:   tests/psl/public_suffix_list.dat, and src/etld_table.c, which
+            tests/psl/gen_etld_table.py generates from it
+   Source:  https://publicsuffix.org
+   License: Mozilla Public License, v. 2.0
+   This Source Code Form is subject to the terms of the Mozilla Public License,
+   v. 2.0. If a copy of the MPL was not distributed with this file, You can
+   obtain one at https://mozilla.org/MPL/2.0/.
+
+
+------------------------------------------------------------------------------
+4. nuclei-templates, dns/txt-service-detect.yaml
+   Files:   src/dns_table.c (the TXT service patterns)
+   Source:  https://github.com/projectdiscovery/nuclei-templates
+   License: MIT
+   Copyright (c) 2025 ProjectDiscovery, Inc.
+   The full MIT text is at the top of src/dns_table.c.
+
+
+------------------------------------------------------------------------------
+5. Can I take over XYZ?
+   Files:   src/dns_table.c (the takeover fingerprints)
+   Source:  https://github.com/EdOverflow/can-i-take-over-xyz, by EdOverflow
+   License: Creative Commons Attribution 4.0 International
+            https://creativecommons.org/licenses/by/4.0/
+   The entries in this repository are changed from the original.
+
+
+------------------------------------------------------------------------------
+6. SecLists, Discovery/DNS/subdomains-top1million-5000.txt
+   Files:   src/subdomain.c (part of the subdomain word list)
+   Source:  https://github.com/danielmiessler/SecLists
+   License: MIT
+   Copyright (c) 2018 Daniel Miessler
+
+   Permission is hereby granted, free of charge, to any person obtaining a copy
+   of this software and associated documentation files (the "Software"), to deal
+   in the Software without restriction, including without limitation the rights
+   to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+   copies of the Software, and to permit persons to whom the Software is
+   furnished to do so, subject to the following conditions:
+
+   The above copyright notice and this permission notice shall be included in
+   all copies or substantial portions of the Software.
+
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+   AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+   THE SOFTWARE.
+
+
+------------------------------------------------------------------------------
+7. commonspeak2-wordlists, subdomains/subdomains.txt
+   Files:   src/subdomain.c (part of the subdomain word list)
+   Source:  https://github.com/assetnote/commonspeak2-wordlists, by Assetnote
+   License: Apache License, Version 2.0
+   The license text is in tests/version_keys/LICENSE-APACHE-2.0.
+
+
+------------------------------------------------------------------------------
+8. osv-scalibr test fixtures and ported comparators
+   Files:   tests/version_keys/
+   Source:  https://github.com/google/osv-scalibr
+   License: Apache License, Version 2.0
+   The license text is in tests/version_keys/LICENSE-APACHE-2.0. The origin of each
+   file is in tests/version_keys/fixtures/SOURCES.txt.
+
+
+------------------------------------------------------------------------------
+9. Geist Mono font
+   Files:   web/static/fonts/geist-mono.woff2
+   Source:  https://github.com/vercel/geist-font
+   License: SIL Open Font License, Version 1.1
+   Copyright 2026 The Geist Project Authors
+   The license text is in web/static/fonts/OFL.txt.
+
+
+------------------------------------------------------------------------------
+10. IANA registries
+   Files:   tests/rdap_bootstrap/dns.json (src/external/rdap_table.c is generated
+            from it) and tests/ipguard_registry/
+   Source:  https://www.iana.org/protocols, the RDAP bootstrap file and the
+            special-purpose address registries
+
+
+------------------------------------------------------------------------------
+11. WHOIS terms of use
+   Files:   tests/whois_terms/
+   These files are copies of the terms of use that WHOIS servers send with their
+   answers. Each text belongs to the registry or registrar that publishes it. A
+   weekly workflow compares each server's current terms with its copy. A change in
+   the terms fails the workflow, so a person reads the new terms.

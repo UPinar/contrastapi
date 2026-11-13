@@ -6,7 +6,6 @@ on:
   pull_request:
     branches: [ main ]
   schedule:
-    # Pazartesi 07:00 UTC (Red Team Scan'den 1h sonra, conflict yok)
     - cron: '0 7 * * 1'
 
 permissions:
@@ -20,36 +19,29 @@ concurrency:
 
 jobs:
   analyze:
-    name: Analyze (${{ matrix.language }})
-    runs-on: ubuntu-latest
+    name: Analyze (c-cpp)
+    if: github.repository == 'UPinar/contrastapi'
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        # 'c-cpp' covers the security-critical scanner (curl/SSRF/redirect code).
-        language: [ 'python', 'c-cpp' ]
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v7
+      - uses: actions/checkout@v7
 
-      - name: Install C build deps
-        if: matrix.language == 'c-cpp'
-        run: sudo apt-get update && sudo apt-get install -y libcurl4-openssl-dev libssl-dev libcjson-dev
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpq-dev libssl-dev libcurl4-openssl-dev pkg-config
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4
         with:
-          languages: ${{ matrix.language }}
-          # security-and-quality = security-extended + maintainability queries
-          # Test path exclusions live in the config file.
-          config-file: ./.github/codeql/codeql-config.yml
+          languages: c-cpp
+          build-mode: manual
+          queries: security-and-quality
 
-      - name: Build C scanner (c-cpp only — CodeQL traces this compile)
-        if: matrix.language == 'c-cpp'
-        run: cd scanner && make
+      - name: Build
+        run: make
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v4
         with:
-          category: "/language:${{ matrix.language }}"
+          category: "/language:c-cpp"

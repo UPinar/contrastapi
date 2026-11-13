@@ -1,0 +1,46 @@
+name: exiftool tags
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+jobs:
+  list:
+    runs-on: ubuntu-24.04
+    permissions: {}
+    timeout-minutes: 15
+
+    steps:
+      - name: Download exiftool and list its tags
+        run: |
+          mkdir -p "$RUNNER_TEMP/exiftool"
+          curl -fsSL --max-time 120 -o "$RUNNER_TEMP/exiftool.tar.gz" \
+            https://github.com/exiftool/exiftool/archive/refs/heads/master.tar.gz
+          tar -xzf "$RUNNER_TEMP/exiftool.tar.gz" -C "$RUNNER_TEMP/exiftool" --strip-components=1
+          perl "$RUNNER_TEMP/exiftool/exiftool" -config "" -listx > "$RUNNER_TEMP/listx.xml"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: listx
+          path: ${{ runner.temp }}/listx.xml
+
+  compare:
+    needs: list
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: listx
+          path: ${{ runner.temp }}/listx
+
+      - name: Compare the Author group with the table
+        run: python3 -I tests/exif_author_tags/check.py "$RUNNER_TEMP/listx/listx.xml" tests/test_exifclient.c

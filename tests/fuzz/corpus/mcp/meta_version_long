@@ -1,0 +1,4 @@
+2026-07-28
+tools/call
+dns_lookup
+{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"dns_lookup","arguments":{"domain":"example.com"},"_meta":{"io.modelcontextprotocol/protocolVersion":"22222222222222222222222222222222222222222","io.modelcontextprotocol/clientInfo":{},"io.modelcontextprotocol/clientCapabilities":{}}}}

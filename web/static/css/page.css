@@ -1,0 +1,108 @@
+.page { max-inline-size: 52rem; margin-inline: auto; padding: 3rem 2rem; position: relative; z-index: 1; }
+.page h1 { font-size: 2.25rem; font-weight: 800; letter-spacing: -0.04em; margin-block-end: 0.5rem; }
+.page h1 span { color: var(--primary); }
+.page h1.capability-title { margin-block-end: 1.25rem; }
+.page .subtitle { color: var(--text-dim); margin: 0 0 3rem; max-width: none; }
+.page h2 { font-size: 1.1rem; margin: 2.5rem 0 1rem; padding-block-end: 0.5rem; border-block-end: 1px solid var(--border); }
+.page h2 .num { color: var(--primary); }
+.page p { color: var(--text-muted); margin-block-end: 1rem; }
+.page ul, .page ol { color: var(--text-muted); margin: 0 0 1rem; padding-inline-start: 1.5rem; }
+.page li { margin-block-end: 0.4rem; line-height: 1.5; }
+.code-block { display: flex; flex-direction: column; background: var(--bg-code); border: 1px solid var(--border); border-radius: 0.5rem; padding: 0.5rem 1.25rem 1rem; margin-block-end: 1.5rem; }
+.code-block code { display: block; overflow-x: auto; color: var(--text); font-size: 0.75rem; white-space: pre; font-family: var(--font-mono); }
+.code-block .lang { align-self: flex-end; margin-block-end: 0.25rem; color: var(--primary); font-size: 0.75rem; text-transform: uppercase; }
+.pill-inline { display: inline-block; background: var(--tint-primary); color: var(--primary); border: 1px solid var(--tint-primary-edge); border-radius: 4px; padding: 0.1rem 0.5rem; font-size: 0.75rem; }
+.pill-inline.green { background: var(--tint-green); color: var(--green-on-tint); border-color: var(--tint-green-edge); }
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+.grid .card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 0.5rem; padding: 1.25rem; }
+.grid .card h3 { font-size: 0.95rem; margin-block-end: 0.5rem; }
+.grid .card p { font-size: 0.85rem; margin: 0; }
+.grid .card a { color: var(--primary); }
+.grid .card a:visited { color: var(--primary); }
+.tools-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin: 1rem 0; }
+.tool { background: var(--bg-card); border: 1px solid var(--border-dim); border-radius: 0.375rem; padding: 0.5rem 0.75rem; font-size: 0.8rem; }
+.tool .name { color: var(--primary); }
+.tool .desc { color: var(--text-dim); font-size: 0.75rem; }
+
+.tier-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; margin: 1.5rem 0 2.5rem; }
+.tier { background: var(--bg-card); border: 1px solid var(--border); border-radius: 0.625rem; padding: 1.75rem 1.5rem; display: flex; flex-direction: column; }
+.tier.featured { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary); }
+.tier-badge { align-self: flex-end; margin-block-end: 0.5rem; background: var(--primary); color: var(--on-primary); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 700; padding: 0.2rem 0.55rem; border-radius: 999px; }
+.tier h2 { font-size: 1rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.08em; margin: 0 0 0.5rem; padding: 0; border: 0; font-weight: 600; }
+.tier .price { font-size: 2.5rem; font-weight: 800; color: var(--text); letter-spacing: -0.04em; line-height: 1; margin-block-end: 1.5rem; }
+.tier .price span { font-size: 0.95rem; color: var(--text-dim); font-weight: 400; letter-spacing: 0; margin-inline-start: 0.25rem; }
+.tier .price:has(+ .price-alt) { margin-block-end: 0.6rem; }
+.tier .price-alt { font-size: 1.25rem; font-weight: 700; color: var(--text); letter-spacing: -0.02em; line-height: 1; margin-block-end: 1.5rem; }
+.tier .price-alt span { font-size: 0.85rem; color: var(--text-dim); font-weight: 400; letter-spacing: 0; }
+.tier .price-alt span:last-child { margin-inline-start: 0.2rem; }
+.tier .price-alt span:only-child { margin-inline-start: 0; }
+.tier ul { list-style: none; padding: 0; margin: 0 0 1.5rem; display: flex; flex-direction: column; gap: 0.55rem; flex: 1; }
+.tier li { display: flex; align-items: flex-start; gap: 0.55rem; font-size: 0.85rem; color: var(--text-muted); line-height: 1.5; }
+.tier li::before { content: '✓'; flex-shrink: 0; color: var(--primary); font-weight: 700; line-height: 1.5; min-width: 0.75rem; }
+:is(.tier, .vendor-form) .tier-cta { display: block; width: 100%; padding: 0.75rem 1rem; border-radius: 0.5rem; text-align: center; font-family: var(--font-mono); font-size: 0.85rem; font-weight: 600; text-decoration: none; cursor: pointer; border: 1px solid var(--border); background: transparent; color: var(--text); transition: background 0.15s, border-color 0.15s; margin-block-end: 0.5rem; }
+/* key-field is the read-only box of the /welcome page that shows a new API key.
+   No rule of style.css or page.css gives an input a background or a border, so without
+   it the browser draws a white box. */
+.tier .key-field { display: block; inline-size: 100%; box-sizing: border-box; padding: 0.75rem 1rem; margin-block-end: 0.75rem; border: 1px solid var(--border); border-radius: 0.5rem; background: var(--bg); color: var(--text); font-family: var(--font-mono); font-size: 0.85rem; }
+.tier .key-field:focus { outline: 2px solid var(--focus); outline-offset: 2px; }
+/* vendor-form is the form of the /vendor-keys page. Its two vendor blocks and the Save
+   button stand apart. A hidden form stays hidden. */
+.vendor-form:not([hidden]) { display: flex; flex-direction: column; gap: 1rem; }
+.vendor-form p { margin: 0; }
+.vendor-form > .tier-cta { margin-block: 0.5rem 0; }
+/* The Save button is disabled while the form holds no change, so a waiting cursor there
+   would look like a request that never ends. */
+.vendor-form > .tier-cta:disabled { cursor: not-allowed; }
+/* The status line under the heading is hidden when it has nothing to say. The help and the
+   form then keep their own room below the heading. */
+.vendor-help, .vendor-form { margin-block-start: 1.5rem; }
+/* vendor-expiry is the line that says how long the link still works. It stands first in the
+   form, so a user sees it before typing a key. */
+.vendor-form .vendor-expiry { color: var(--primary); font-weight: 700; }
+.vendor-form .vendor-expiry:empty { display: none; }
+/* vendor-state is the state line of a vendor block on the /vendor-keys page. */
+.tier .vendor-state { margin-block-end: 0.75rem; font-size: 0.85rem; }
+.tier .vendor-state.bad { color: var(--red); }
+.tier .vendor-state.ok { color: var(--green); }
+/* vendor-result is the answer to the key just sent, under its field. */
+.tier .vendor-result { margin: -0.25rem 0 0.75rem; font-size: 0.85rem; font-weight: 700; color: var(--text-muted); }
+.tier .vendor-result.bad { color: var(--red); }
+.tier .vendor-result.ok { color: var(--green); }
+.tier label:not([hidden]):has(> input[type="checkbox"]) { display: flex; align-items: center; gap: 0.5rem; margin-block-end: 0.5rem; font-size: 0.85rem; color: var(--text-muted); }
+:is(.tier, .vendor-form) .tier-cta:hover:not(:disabled) { border-color: var(--primary); background: var(--bg-hover); }
+:is(.tier, .vendor-form) .tier-cta.primary { background: var(--primary); border-color: var(--primary); color: var(--on-primary); }
+:is(.tier, .vendor-form) .tier-cta.primary:hover:not(:disabled) { background: var(--primary-hover); border-color: var(--primary-hover); }
+:is(.tier, .vendor-form) .tier-cta:disabled { opacity: 0.6; }
+.tier .tier-cta:disabled { cursor: wait; }
+.tier .cta-note { font-size: 0.75rem; color: var(--text-dim); text-align: center; margin: 0 0 0.75rem; line-height: 1.4; }
+
+/* .page .faq takes the width of the page column. The narrow centred box of style.css is
+   made for the home page, which has no .page column. */
+.page .faq { max-inline-size: none; margin-inline: 0; }
+.faq dl { margin: 1rem 0 0; }
+.faq dt { color: var(--text); font-weight: 600; font-size: 0.95rem; margin-block-start: 1.25rem; margin-block-end: 0.4rem; }
+.faq dd { margin: 0; color: var(--text-muted); font-size: 0.9rem; line-height: 1.6; }
+
+/* All in-page links (paragraphs, lists, FAQ, dd, ul, ol) keep the primary
+   blue color even after visit. The UA :visited purple breaks the design. */
+.page a:not(.btn-cta):not(.btn-cta-secondary):not(.btn-pro):not(.tier-cta) { color: var(--primary); text-decoration: none; }
+.page a:not(.btn-cta):not(.btn-cta-secondary):not(.btn-pro):not(.tier-cta):visited { color: var(--primary); }
+.page a:not(.btn-cta):not(.btn-cta-secondary):not(.btn-pro):not(.tier-cta):hover { text-decoration: underline; }
+
+@media (max-width: 600px) { .grid { grid-template-columns: 1fr; } .tools-grid { grid-template-columns: 1fr; } .tier-grid { grid-template-columns: 1fr; } .page h1 { font-size: 1.75rem; } }
+.watch-events { inline-size: 100%; border-collapse: collapse; margin-block-end: 1.5rem; font-size: 0.85rem; }
+.watch-events th, .watch-events td { text-align: start; vertical-align: top; padding: 0.75rem; border-block-end: 1px solid var(--border); }
+.watch-events th { color: var(--text); font-weight: 600; }
+/* Only the body cells get the tall line: the chips wrap there. Both headers keep one line
+   height, so they sit on the same baseline. */
+.watch-events th:first-child, .watch-events td:first-child { white-space: nowrap; }
+.watch-events td { line-height: 2; }
+.watch-events code { margin-inline-end: 0.25rem; }
+/* Below 640px the two columns do not fit a 360px screen: the endpoint and its events stack.
+   Each row names its endpoint, so the header row hides. */
+@media (max-width: 639px) {
+  .watch-events thead { display: none; }
+  .watch-events, .watch-events tbody, .watch-events tr, .watch-events td { display: block; }
+  .watch-events td:first-child { border-block-end: 0; padding-block-end: 0; }
+  .watch-events code { overflow-wrap: anywhere; }
+}

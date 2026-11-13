@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CVE, EPSS &amp; KEV API with Monitoring | ContrastAPI</title>
+  <meta name="description" content="Free CVE API: CVSS, EPSS and CISA KEV status, CVE search, risk scoring and exploit data over REST and MCP. A Pro key adds monitoring of CVEs you watch.">
+  <meta property="og:title" content="CVE, EPSS &amp; KEV API with Monitoring | ContrastAPI">
+  <meta property="og:description" content="Free CVE API: CVSS, EPSS and CISA KEV status, CVE search, risk scoring and exploit data over REST and MCP. A Pro key adds monitoring of CVEs you watch.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://api.contrastcyber.com/cve-api">
+  <meta property="og:image" content="https://api.contrastcyber.com/static/og-image.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="ContrastAPI: security data and monitoring API and MCP server">
+  <meta property="og:site_name" content="ContrastAPI">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="CVE, EPSS &amp; KEV API with Monitoring | ContrastAPI">
+  <meta name="twitter:description" content="Free CVE API: CVSS, EPSS and CISA KEV status, CVE search, risk scoring and exploit data over REST and MCP. A Pro key adds monitoring of CVEs you watch.">
+  <meta name="twitter:image" content="https://api.contrastcyber.com/static/og-image.png">
+  <meta name="theme-color" content="#e9ebee" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#06101d" media="(prefers-color-scheme: dark)">
+  <link rel="canonical" href="https://api.contrastcyber.com/cve-api">
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="/static/favicon-192.png">
+  <script src="/static/js/theme-init.js?v=@@THEME_INIT_JS_VERSION@@"></script>
+  <link rel="stylesheet" href="/static/style.css?v=@@STYLE_CSS_VERSION@@">
+  <link rel="stylesheet" href="/static/css/page.css?v=@@PAGE_CSS_VERSION@@">
+  <script src="/static/js/landing.js?v=@@LANDING_JS_VERSION@@" defer></script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      {
+        "@type": "Question",
+        "name": "Is the CVE API free?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Yes. Every CVE tool works without a key, within the hourly credit limit. Only monitoring needs a Pro key."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Does it show whether a CVE is in the CISA KEV catalog?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Yes. cve_lookup returns in_kev and the KEV date. kev_lookup returns the due date, the required action and the ransomware flag."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "How do I rank CVEs by how likely they are to be exploited?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Use cve_leading for the top EPSS scores. Use cve_triage or cve_triage_bulk to rank your own vendors, products or CVE IDs by risk score."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Can an AI agent use it?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Yes. Each tool is also an MCP tool with the same name, so Claude, Cursor and other MCP clients can call it."
+        }
+      }
+    ]
+  }
+  </script>
+</head>
+<body>
+  @@NAV@@
+
+  <main class="page">
+    <h1 class="capability-title">CVE, EPSS &amp; KEV API with Monitoring</h1>
+    <p class="subtitle">Ask for one CVE or search many. A CVE record carries the CVSS score, the EPSS exploitation probability and the CISA KEV status. The tools are free without an API key. They work over REST and as MCP tools, for developers and AI agents. With a Pro key you can also monitor CVEs and read their change events.</p>
+    <h2>What you can ask</h2>
+    <div class="endpoint-group">
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/cve_lookup/{cve_id}</span>
+        <span class="endpoint-desc">MCP <code>cve_lookup</code>. One CVE with CVSS, EPSS, KEV status, CWE, references, CISA SSVC and Nuclei templates. <a href="https://github.com/UPinar/contrastapi/blob/main/docs/API_Documentation.md#cve-lookup-get-cve_lookupcve_id">API docs</a></span>
+      </div>
+      <div class="endpoint">
+        <span class="method post">POST</span>
+        <span class="endpoint-path">/cve_lookup_bulk</span>
+        <span class="endpoint-desc">MCP <code>cve_lookup_bulk</code>. Many CVEs in one request. <a href="https://github.com/UPinar/contrastapi/blob/main/docs/API_Documentation.md#cve-lookup-bulk-post-cve_lookup_bulk">API docs</a></span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/cve_products/{cve_id}</span>
+        <span class="endpoint-desc">MCP <code>cve_products</code>. The products a CVE affects, one page at a time. <a href="https://github.com/UPinar/contrastapi/blob/main/docs/API_Documentation.md#cve-products-get-cve_productscve_id">API docs</a></span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/cve_search</span>
+        <span class="endpoint-desc">MCP <code>cve_search</code>. Search CVEs by vendor, product, severity, KEV, EPSS and more. <a href="https://github.com/UPinar/contrastapi/blob/main/docs/API_Documentation.md#cve-search-get-cve_search">API docs</a></span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/cve_triage</span>
+        <span class="endpoint-desc">MCP <code>cve_triage</code>. Rank the CVEs of a vendor or product by risk score, to see what to patch first. <a href="https://github.com/UPinar/contrastapi/blob/main/docs/API_Documentation.md#cve-triage-get-cve_triage">API docs</a></span>
+      </div>
+      <div class="endpoint">
+        <span class="method post">POST</span>
+        <span class="endpoint-path">/cve_triage_bulk</span>
+        <span class="endpoint-desc">MCP <code>cve_triage_bulk</code>. Rank a list of CVE IDs by risk score. <a href="https://github.com/UPinar/contrastapi/blob/main/docs/API_Documentation.md#cve-triage-bulk-post-cve_triage_bulk">API docs</a></span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/cve_risk_score/{cve_id}</span>
+        <span class="endpoint-desc">MCP <code>cve_risk_score</code>. A risk score from 0 to 100 for one CVE, with a label. <a href="https://github.com/UPinar/contrastapi/blob/main/docs/API_Documentation.md#cve-risk-score-get-cve_risk_scorecve_id">API docs</a></span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/cve_leading</span>
+        <span class="endpoint-desc">MCP <code>cve_leading</code>. The CVEs most likely to be exploited, ranked by EPSS. <a href="https://github.com/UPinar/contrastapi/blob/main/docs/API_Documentation.md#leading-cves-get-cve_leading">API docs</a></span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/kev_lookup/{cve_id}</span>
+        <span class="endpoint-desc">MCP <code>kev_lookup</code>. The CISA KEV entry of a CVE: due date, required action, ransomware use. <a href="https://github.com/UPinar/contrastapi/blob/main/docs/API_Documentation.md#kev-lookup-get-kev_lookupcve_id">API docs</a></span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/cve_exploit/{cve_id}</span>
+        <span class="endpoint-desc">MCP <code>cve_exploit</code>. Public exploit data: GitHub PoCs, Metasploit modules, NVD exploit references, ExploitDB. <a href="https://github.com/UPinar/contrastapi/blob/main/docs/API_Documentation.md#cve-exploit-get-cve_exploitcve_id">API docs</a></span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/cwe_lookup/{cwe_id}</span>
+        <span class="endpoint-desc">MCP <code>cwe_lookup</code>. A MITRE CWE weakness with its mitigations. <a href="https://github.com/UPinar/contrastapi/blob/main/docs/API_Documentation.md#cwe-lookup-get-cwe_lookupcwe_id">API docs</a></span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/product_exposure</span>
+        <span class="endpoint-desc">MCP <code>product_exposure</code>. The CVE exposure of one vendor and product, with its end of life dates from endoflife.date. <a href="https://github.com/UPinar/contrastapi/blob/main/docs/API_Documentation.md#product-exposure-get-product_exposure">API docs</a></span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/cpe_search</span>
+        <span class="endpoint-desc">MCP <code>cpe_search</code>. Find the vendor and product names that CVE filters accept. <a href="https://github.com/UPinar/contrastapi/blob/main/docs/API_Documentation.md#cpe-search-get-cpe_search">API docs</a></span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/cvss_calculator</span>
+        <span class="endpoint-desc">MCP <code>cvss_calculator</code>. Decode a CVSS v3 vector and recompute its scores. <a href="https://github.com/UPinar/contrastapi/blob/main/docs/API_Documentation.md#cvss-calculator-get-cvss_calculator">API docs</a></span>
+      </div>
+    </div>
+    <h2>Example</h2>
+    <p>Look up one CVE:</p>
+    <div class="code-block"><span class="lang">bash</span><code>curl https://api.contrastcyber.com/cve_lookup/CVE-2021-44228</code></div>
+    <p>Example response, trimmed; the values are an example:</p>
+    <div class="code-block"><span class="lang">json</span><code>{
+  "cve_id": "CVE-2021-44228",
+  "severity": "CRITICAL",
+  "cvss_v3": 10.0,
+  "published_time": "2021-12-10T00:00:00Z",
+  "epss_score": 0.97566,
+  "epss_percentile": 0.99970,
+  "cwe_id": "CWE-20",
+  "in_kev": true,
+  "kev_date_added": "2021-12-10",
+  "poc_count": 11,
+  "has_metasploit_module": true,
+  "ransomware_campaign": "Known"
+}</code></div>
+    <h2>From an agent</h2>
+    <p>Your agent calls these MCP tools: <code>cve_lookup</code>, <code>cve_lookup_bulk</code>, <code>cve_products</code>, <code>cve_search</code>, <code>cve_leading</code>, <code>cve_triage</code>, <code>cve_triage_bulk</code>, <code>cve_risk_score</code>, <code>kev_lookup</code>, <code>cve_exploit</code>, <code>cwe_lookup</code>, <code>product_exposure</code>, <code>cpe_search</code> and <code>cvss_calculator</code>. Connect once with the <a href="/mcp-setup">MCP setup</a>, then ask in plain words.</p>
+    <ul>
+      <li>&ldquo;Is CVE-2024-3094 in KEV, and how likely is exploitation?&rdquo;</li>
+      <li>&ldquo;Which Apache CVEs are in KEV and should I patch first?&rdquo;</li>
+      <li>&ldquo;Is there a public exploit for CVE-2021-44228?&rdquo;</li>
+    </ul>
+    <h2>Limits</h2>
+    <p>Without a key you get @@RL_ANON_CREDIT_LIMIT@@ credits per hour. A Pro key gets @@RL_KEY_CREDIT_LIMIT@@ credits per hour. <code>cve_lookup_bulk</code> takes up to @@CVELOOKUPBULK_MAX_IDS@@ CVE IDs per request. <code>cve_triage_bulk</code> takes up to @@CVETRIAGEBULK_MAX_IDS@@.</p>
+    <h2>Monitor it</h2>
+    <p>A Pro key can watch CVEs. Add an item with <code>watchlist_edit</code>. Then read its change events with <code>watchlist_events</code>. You pull the events when you want them.</p>
+    <p>Each item watches one endpoint. The endpoint sets the events the item can emit:</p>
+    <table class="watch-events">
+      <thead><tr><th>Watched endpoint</th><th>Events</th></tr></thead>
+      <tbody>
+        <tr><td><code>cve_lookup</code></td><td><code>cve_added</code> <code>kev_added</code> <code>kev_removed</code> <code>epss_level_up</code> <code>epss_level_down</code> <code>cvss_added</code> <code>cvss_risk_band_changed</code> <code>exploit_published</code> <code>product_added</code> <code>product_removed</code> <code>ransomware_linked</code> <code>vendor_advisory_published</code> <code>patch_published</code> <code>cve_disputed</code> <code>cve_rejected</code> <code>metasploit_added</code> <code>nuclei_template_added</code> <code>exploitdb_added</code> <code>ssvc_added</code> <code>ssvc_changed</code> <code>github_poc_added</code> <code>description_changed</code> <code>cvss_score_changed</code> <code>cwe_changed</code> <code>kev_updated</code> <code>ghsa_linked</code></td></tr>
+        <tr><td><code>product_exposure</code></td><td><code>cve_added</code> <code>kev_added</code> <code>kev_removed</code> <code>epss_level_up</code> <code>epss_level_down</code> <code>cvss_added</code> <code>cvss_risk_band_changed</code> <code>exploit_published</code> <code>product_added</code> <code>product_removed</code> <code>ransomware_linked</code> <code>vendor_advisory_published</code> <code>patch_published</code> <code>cve_disputed</code> <code>cve_rejected</code> <code>metasploit_added</code> <code>nuclei_template_added</code> <code>exploitdb_added</code> <code>ssvc_added</code> <code>ssvc_changed</code> <code>github_poc_added</code> <code>description_changed</code> <code>cvss_score_changed</code> <code>cwe_changed</code> <code>kev_updated</code> <code>ghsa_linked</code> <code>eol_approaching</code> <code>eol_reached</code> <code>eol_date_changed</code></td></tr>
+        <tr><td><code>cve_search</code></td><td><code>cve_added</code> <code>kev_added</code> <code>kev_removed</code> <code>epss_level_up</code> <code>epss_level_down</code> <code>cvss_added</code> <code>cvss_risk_band_changed</code> <code>exploit_published</code> <code>product_added</code> <code>product_removed</code> <code>ransomware_linked</code> <code>vendor_advisory_published</code> <code>patch_published</code> <code>cve_disputed</code> <code>cve_rejected</code> <code>metasploit_added</code> <code>nuclei_template_added</code> <code>exploitdb_added</code> <code>ssvc_added</code> <code>ssvc_changed</code> <code>github_poc_added</code> <code>description_changed</code> <code>cvss_score_changed</code> <code>cwe_changed</code> <code>kev_updated</code> <code>ghsa_linked</code> <code>epss_above_min</code> <code>epss_below_min</code></td></tr>
+        <tr><td><code>kev_lookup</code></td><td><code>kev_added</code> <code>kev_removed</code> <code>ransomware_linked</code> <code>kev_updated</code></td></tr>
+        <tr><td><code>cve_exploit</code></td><td><code>exploit_published</code> <code>metasploit_added</code> <code>exploitdb_added</code> <code>github_poc_added</code></td></tr>
+      </tbody>
+    </table>
+    <p>The EPSS levels are 0.05, 0.1, 0.2, 0.3, 0.5, 0.7 and 0.9. An <code>epss_level_up</code> event comes when the EPSS score reaches a level above the one the CVE holds. An <code>epss_level_down</code> event comes when the score falls under 0.8 times a level the CVE holds. A <code>cve_search</code> item that sets min_epss also hears <code>epss_above_min</code>, when the score rises from under min_epss to min_epss or above, and <code>epss_below_min</code>, when it falls from min_epss or above to under it. min_epss takes at most three decimals there. A <code>cve_search</code> item must set at least one filter. A <code>product_exposure</code> item takes a vendor and a product, and may take one version. The version makes it a separate item from the same pair without one. It does not narrow the CVE events. It picks the release cycles of the three end-of-life events. See <a href="/pricing">pricing</a> for the Pro key. The <a href="/security-monitoring-api">security monitoring page</a> lists every watched endpoint and its events.</p>
+    <h2>Data sources</h2>
+    <ul>
+      <li><strong>NVD, FIRST EPSS, CISA KEV, MITRE CWE:</strong> a local copy. <code>/health</code> shows the sync state of each feed.</li>
+      <li><strong>CVE List (cvelistV5):</strong> CVE Program Terms of Use. It adds the product names that CNAs give. Local copy.</li>
+      <li><strong>PoC-in-GitHub:</strong> CC0 1.0. Local copy. A GitHub repository is listed but not counted as proof of an exploit.</li>
+      <li><strong>Exploit Database:</strong> GPL-2.0-only, metadata only. Local copy.</li>
+      <li><strong>Metasploit module list:</strong> BSD-3-Clause, metadata only. Local copy.</li>
+      <li><strong>nuclei-templates:</strong> MIT. Local copy.</li>
+      <li><strong>endoflife.date:</strong> MIT. Local copy, read in the <code>eol</code> member of <code>product_exposure</code> and in the end-of-life events of <code>watchlist_events</code>.</li>
+      <li><strong>GitHub Advisory Database, through OSV.dev:</strong> CC BY 4.0. Local copy, read with <code>?include_ghsa=true</code>.</li>
+    </ul>
+    <p>To read CVEs from the CISA KEV catalog as web pages, open the <a href="https://contrastcyber.com/security/kev">Known Exploited Vulnerabilities list</a> on contrastcyber.com.</p>
+    <div class="faq">
+      <h2>FAQ</h2>
+      <dl>
+        <dt>Is the CVE API free?</dt>
+        <dd>Yes. Every CVE tool works without a key, within the hourly credit limit. Only monitoring needs a Pro key.</dd>
+        <dt>Does it show whether a CVE is in the CISA KEV catalog?</dt>
+        <dd>Yes. cve_lookup returns in_kev and the KEV date. kev_lookup returns the due date, the required action and the ransomware flag.</dd>
+        <dt>How do I rank CVEs by how likely they are to be exploited?</dt>
+        <dd>Use cve_leading for the top EPSS scores. Use cve_triage or cve_triage_bulk to rank your own vendors, products or CVE IDs by risk score.</dd>
+        <dt>Can an AI agent use it?</dt>
+        <dd>Yes. Each tool is also an MCP tool with the same name, so Claude, Cursor and other MCP clients can call it.</dd>
+      </dl>
+    </div>
+    <h2>Docs and source</h2>
+    <ul>
+      <li><a href="https://github.com/UPinar/contrastapi/blob/main/docs/API_Documentation.md">API documentation</a></li>
+      <li><a href="https://github.com/UPinar/contrastapi/blob/main/docs/MCP_Documentation.md">MCP documentation</a></li>
+      <li><a href="https://github.com/UPinar/contrastapi">Source code on GitHub</a></li>
+    </ul>
+  </main>
+
+  @@FOOTER@@
+  <script src="/static/js/theme.js?v=@@THEME_JS_VERSION@@"></script>
+</body>
+</html>

@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Your vendor keys | ContrastAPI</title>
+  <meta name="robots" content="noindex">
+  <meta name="referrer" content="no-referrer">
+  <meta name="theme-color" content="#e9ebee" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#06101d" media="(prefers-color-scheme: dark)">
+  <link rel="canonical" href="https://api.contrastcyber.com/vendor-keys">
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="/static/favicon-192.png">
+  <script src="/static/js/theme-init.js?v=@@THEME_INIT_JS_VERSION@@"></script>
+  <link rel="stylesheet" href="/static/style.css?v=@@STYLE_CSS_VERSION@@">
+  <link rel="stylesheet" href="/static/css/page.css?v=@@PAGE_CSS_VERSION@@">
+  <script src="/static/js/landing.js?v=@@LANDING_JS_VERSION@@" defer></script>
+  <script src="/static/js/vendor_keys.js?v=@@VENDOR_KEYS_JS_VERSION@@" defer></script>
+</head>
+<body>
+  <div class="glow"></div>
+
+  @@NAV@@
+
+  <div class="page">
+    <h1>Your <span>vendor keys</span></h1>
+    <p id="vendor-status" class="subtitle" role="status" aria-live="polite">Checking your link…</p>
+
+    <div id="vendor-help" class="vendor-help" hidden>
+      <p>You need a manage link to open this page. Get one from <code>/privacy_my_data</code> with your Pro API key: it is the <code>manage_url</code> in the answer. An agent with your key can get it for you too.</p>
+      <p>A link works for 15 minutes. After one successful save it stops working, and you ask for a new one.</p>
+    </div>
+
+    <form id="vendor-form" class="vendor-form" hidden autocomplete="off">
+      <p id="vendor-expiry" class="vendor-expiry"></p>
+      <p>The saved key is used for your own /ip_lookup calls and to check it on this page. It is stored encrypted and never shown again. Using a key under the vendor's terms is your responsibility.</p>
+
+      <div class="tier featured">
+        <h2><label for="vendor-shodan-key">Shodan key</label></h2>
+        <p id="vendor-shodan-state" class="vendor-state"></p>
+        <input id="vendor-shodan-key" type="text" autocomplete="off" maxlength="128" spellcheck="false" autocapitalize="off" data-1p-ignore data-lpignore="true" data-bwignore class="key-field">
+        <p id="vendor-shodan-result" class="vendor-result" role="status" aria-live="polite" hidden></p>
+        <label id="vendor-shodan-delete-label" hidden><input id="vendor-shodan-delete" type="checkbox"> Delete the saved Shodan key</label>
+      </div>
+
+      <div class="tier featured">
+        <h2><label for="vendor-abuseipdb-key">AbuseIPDB key</label></h2>
+        <p id="vendor-abuseipdb-state" class="vendor-state"></p>
+        <input id="vendor-abuseipdb-key" type="text" autocomplete="off" maxlength="128" spellcheck="false" autocapitalize="off" data-1p-ignore data-lpignore="true" data-bwignore class="key-field">
+        <p id="vendor-abuseipdb-result" class="vendor-result" role="status" aria-live="polite" hidden></p>
+        <label id="vendor-abuseipdb-delete-label" hidden><input id="vendor-abuseipdb-delete" type="checkbox"> Delete the saved AbuseIPDB key</label>
+      </div>
+
+      <button id="vendor-save" type="submit" class="tier-cta primary" disabled>Save</button>
+    </form>
+  </div>
+
+  @@FOOTER@@
+  <script src="/static/js/theme.js?v=@@THEME_JS_VERSION@@"></script>
+</body>
+</html>

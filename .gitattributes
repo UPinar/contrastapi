@@ -1,1 +1,3 @@
-deploy/nginx/api.contrastcyber.com linguist-detectable=false
+*.h linguist-language=C
+*.c linguist-language=C
+tests/*.cpp linguist-detectable=false

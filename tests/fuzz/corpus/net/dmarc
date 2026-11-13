@@ -1,0 +1,1 @@
+v=DMARC1; p=reject; rua=mailto:d@example.com; pct=100

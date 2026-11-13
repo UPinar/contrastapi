@@ -1,0 +1,69 @@
+{
+  "arguments": [
+    "-config",
+    "",
+    "-api",
+    "RequestTags=JPEGQualityEstimate",
+    "-json",
+    "-G1",
+    "-n",
+    "-struct",
+    "-"
+  ],
+  "images": {
+    "exif_gps.jpg": {
+      "present": {
+        "IFD0:Make": "Canon",
+        "IFD0:Model": "EOS R5",
+        "IFD0:Software": "Adobe Photoshop 25.0",
+        "IFD0:ModifyDate": "2026:01:02 03:04:05",
+        "ExifIFD:DateTimeOriginal": "2026:01:02 03:04:05",
+        "ExifIFD:OffsetTimeOriginal": "+03:00",
+        "Composite:GPSLatitude": 41.0082,
+        "Composite:GPSLongitude": 28.9784,
+        "Composite:GPSDateTime": "2026:01:02 12:00:00Z",
+        "File:JPEGQualityEstimate": null
+      },
+      "absent": [
+        "XMP-xmp:CreatorTool",
+        "XMP-iptcExt:DigitalSourceType"
+      ]
+    },
+    "xmp_creator_tool.jpg": {
+      "present": {
+        "XMP-xmp:CreatorTool": "Adobe Firefly",
+        "XMP-iptcExt:DigitalSourceType": "http://cv.iptc.org/newscodes/digitalsourcetype/trainedAlgorithmicMedia",
+        "File:JPEGQualityEstimate": null
+      },
+      "absent": [
+        "IFD0:Make",
+        "IFD0:Model",
+        "IFD0:Software",
+        "IFD0:ModifyDate",
+        "ExifIFD:DateTimeOriginal",
+        "ExifIFD:OffsetTimeOriginal",
+        "Composite:GPSLatitude",
+        "Composite:GPSLongitude",
+        "Composite:GPSDateTime"
+      ]
+    },
+    "plain.jpg": {
+      "present": {
+        "File:JPEGQualityEstimate": null
+      },
+      "absent": [
+        "IFD0:Make",
+        "IFD0:Model",
+        "IFD0:Software",
+        "IFD0:ModifyDate",
+        "ExifIFD:DateTimeOriginal",
+        "ExifIFD:OffsetTimeOriginal",
+        "Composite:GPSLatitude",
+        "Composite:GPSLongitude",
+        "Composite:GPSDateTime",
+        "XMP-xmp:CreatorTool",
+        "XMP-iptcExt:DigitalSourceType"
+      ]
+    }
+  }
+}

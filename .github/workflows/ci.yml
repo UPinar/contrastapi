@@ -1,0 +1,462 @@
+name: CI
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+    branches: [ master, main ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpq-dev libssl-dev libcurl4-openssl-dev pkg-config cppcheck g++
+
+      - name: Build (zero warnings)
+        run: make
+
+      - name: Test suite
+        run: make test
+
+      - name: cppcheck
+        run: >
+          cppcheck --enable=warning,style
+          --error-exitcode=1
+          -I src
+          --suppress=missingIncludeSystem
+          --suppress=variableScope
+          --suppress=unreadVariable:src/picohttpparser.c
+          --suppress=constParameterCallback:src/http.c
+          src/
+
+      - name: checksec (gate)
+        run: |
+          sudo apt-get install -y checksec jq
+          checksec --output=json --file=bin/contrastapi > /tmp/cs.json
+          fail=0
+          for key in canary nx pie; do
+            val=$(jq -r --arg k "$key" '.[] | .[$k]' /tmp/cs.json)
+            [ "$val" = "yes" ] || { echo "FAIL: $key (got: $val)"; fail=1; }
+          done
+          relro=$(jq -r '.[] | .relro' /tmp/cs.json)
+          [ "$relro" = "full" ] || { echo "FAIL: full relro (got: $relro)"; fail=1; }
+          fortify=$(jq -r '.[] | .fortify_source' /tmp/cs.json)
+          [ "$fortify" = "yes" ] || { echo "FAIL: fortify_source (got: $fortify)"; fail=1; }
+          [ "$fail" -eq 0 ] && echo "PASS: canary nx pie full-relro fortify"
+          exit "$fail"
+
+      - name: Test registration (RUN_TEST list matches the definitions)
+        run: |
+          fail=0
+          for test_file in tests/test_*.c tests/test_*.cpp; do
+            grep -oE '^(static )?void test_[A-Za-z0-9_]+\(void\)' "$test_file" \
+              | sed 's/^static //; s/^void //; s/(void)$//' | sort -u > /tmp/defined.txt
+            case "$test_file" in
+              *.cpp) g++ -std=gnu++17 -E -P -Isrc -Itests $(pkg-config --cflags libpq) "$test_file" ;;
+              *)     gcc -E -P -Isrc -Itests $(pkg-config --cflags libpq) "$test_file" ;;
+            esac | grep -oE 'UnityDefaultTestRun\(test_[A-Za-z0-9_]+' \
+              | sed 's/^UnityDefaultTestRun(//' | sort > /tmp/registered.txt
+            sort -u /tmp/registered.txt > /tmp/registered_uniq.txt
+
+            missing=$(comm -23 /tmp/defined.txt /tmp/registered_uniq.txt)
+            unknown=$(comm -13 /tmp/defined.txt /tmp/registered_uniq.txt)
+            duplicated=$(uniq -d /tmp/registered.txt)
+
+            if [ -n "$missing" ]; then
+              echo "FAIL: $test_file defines these tests but never runs them:"; echo "$missing"; fail=1
+            fi
+            if [ -n "$unknown" ]; then
+              echo "FAIL: $test_file registers tests it does not define:"; echo "$unknown"; fail=1
+            fi
+            if [ -n "$duplicated" ]; then
+              echo "FAIL: $test_file registers the same test more than once:"; echo "$duplicated"; fail=1
+            fi
+          done
+          [ "$fail" -eq 0 ] && echo "PASS: every defined test is registered exactly once"
+          exit "$fail"
+
+      - name: Error codes (the API docs name exactly the codes src/handler.c sends)
+        run: |
+          tr -s '\n\t ' '   ' < src/handler.c > /tmp/handler_flat.c
+          {
+            grep -oE 'static_sendError\([a-z_]+, [0-9]{3}, "[^"]*", "[a-z_]+"' /tmp/handler_flat.c | sed -E 's/.*"([a-z_]+)"$/\1/' || true
+            grep -oE 'static_sendRetryAfterError\([a-z_]+, [0-9]{3}, "[^"]*", "[a-z_]+"' /tmp/handler_flat.c | sed -E 's/.*"([a-z_]+)"$/\1/' || true
+            grep -oE 'static_sendPaymentOffer\([a-z_]+, [a-z_]+, [a-z_]+, "[a-z_]+"' /tmp/handler_flat.c | sed -E 's/.*"([a-z_]+)"$/\1/' || true
+            grep -oE 'static_errorBody\("[a-z_]+"' /tmp/handler_flat.c | sed -E 's/.*\("([a-z_]+)"/\1/' || true
+            grep -oE '"code":"[a-z_]+"' /tmp/handler_flat.c | sed -E 's/.*:"([a-z_]+)"/\1/' || true
+          } | sort -u > /tmp/code_codes.txt
+          { grep -oE 'static_sendError\([a-z_]+, [0-9]{3}, "[^"]*", "[a-z_]+"' /tmp/handler_flat.c \
+            | sed -E 's/^static_sendError\([a-z_]+, ([0-9]{3}), .*"([a-z_]+)"$/\1 \2/' || true
+            grep -oE 'static_sendRetryAfterError\([a-z_]+, [0-9]{3}, "[^"]*", "[a-z_]+"' /tmp/handler_flat.c \
+            | sed -E 's/^static_sendRetryAfterError\([a-z_]+, ([0-9]{3}), .*"([a-z_]+)"$/\1 \2/' || true
+            grep -oE 'static_sendPaymentOffer\([a-z_]+, [a-z_]+, [a-z_]+, "[a-z_]+"' /tmp/handler_flat.c \
+            | sed -E 's/^.*"([a-z_]+)"$/402 \1/' || true; } | sort -u > /tmp/code_pairs.txt
+          { sed -n '/^## Error codes$/,/^## HTTP status codes$/p' docs/API_Documentation.md \
+            | grep -oE '^\| [0-9]{3} +\| `[a-z_]+` \|' | sed -E 's/^\| ([0-9]{3}) +\| `([a-z_]+)`.*/\1 \2/' || true; } > /tmp/table_rows.txt
+          cut -d' ' -f2 /tmp/table_rows.txt | sort -u > /tmp/table_codes.txt
+          {
+            grep -oE '\| [0-9]{3} +\| `[a-z_]+` \|' docs/API_Documentation.md | sed -E 's/.*`([a-z_]+)`.*/\1/' || true
+            grep -oE '"code":"[a-z_]+"' docs/API_Documentation.md | sed -E 's/.*:"([a-z_]+)"/\1/' || true
+          } | sort -u > /tmp/cell_codes.txt
+          fail=0
+          if [ ! -s /tmp/code_codes.txt ]; then
+            echo "FAIL: no error code found in src/handler.c"; fail=1
+          fi
+          if ! diff /tmp/code_codes.txt /tmp/table_codes.txt; then
+            echo "FAIL: the Error codes table and src/handler.c name different codes"; fail=1
+          fi
+          dup=$(cut -d' ' -f2 /tmp/table_rows.txt | sort | uniq -d)
+          if [ -n "$dup" ]; then
+            echo "FAIL: the Error codes table lists a code twice: $dup"; fail=1
+          fi
+          wrong=$(sort -u /tmp/table_rows.txt | comm -23 /tmp/code_pairs.txt -)
+          if [ -n "$wrong" ]; then
+            echo "FAIL: the Error codes table gives a different status for: $wrong"; fail=1
+          fi
+          stray=$(comm -13 /tmp/code_codes.txt /tmp/cell_codes.txt)
+          if [ -n "$stray" ]; then
+            echo "FAIL: the API docs name a code src/handler.c never sends: $stray"; fail=1
+          fi
+          [ "$fail" -eq 0 ] && echo "PASS: the API docs name exactly the error codes src/handler.c sends"
+          exit "$fail"
+
+      - name: One run caller (only endpoint_runRow in src/endpoint.c calls a row's run)
+        run: |
+          fail=0
+          : > /tmp/run_reads.txt
+          for f in $(find src -name '*.c' ! -path src/endpoint_table.c | sort); do
+            code=$(gcc -std=gnu17 -w -fpreprocessed -dD -E -P "$f") || { echo "FAIL: cannot strip the comments of $f"; fail=1; continue; }
+            printf '%s\n' "$code" | grep -w 'm_runFunction' | grep -vE 'm_runFunction *[!=]= *NULL' \
+              | sed "s#^#$f: #" >> /tmp/run_reads.txt || true
+          done
+          outside=$(grep -v '^src/endpoint\.c: ' /tmp/run_reads.txt || true)
+          if [ -n "$outside" ]; then
+            echo "FAIL: code outside src/endpoint.c reads a row's m_runFunction:"; echo "$outside"; fail=1
+          fi
+          inside=$(grep -c '^src/endpoint\.c: ' /tmp/run_reads.txt || true)
+          if [ "$inside" -ne 1 ]; then
+            echo "FAIL: src/endpoint.c reads m_runFunction $inside times, not once"; fail=1
+          fi
+          direct=""
+          for f in $(find src -name '*.[ch]' ! -path 'src/endpoint_run*.c' ! -path src/endpoint_run.h | sort); do
+            code=$(gcc -std=gnu17 -w -fpreprocessed -dD -E -P -x c "$f") || { echo "FAIL: cannot strip the comments of $f"; fail=1; continue; }
+            hit=$(printf '%s' "$code" | tr '\n' ' ' | grep -oE 'endpoint_[A-Za-z0-9_]+Run[[:space:]]*\(' || true)
+            [ -n "$hit" ] && direct="$direct$f: $hit"$'\n'
+          done
+          if [ -n "$direct" ]; then
+            echo "FAIL: a run is called by name outside the src/endpoint_run*.c files:"; printf '%s' "$direct"; fail=1
+          fi
+          [ "$fail" -eq 0 ] && echo "PASS: endpoint_runRow is the only caller of a row's run"
+          exit "$fail"
+
+      - name: Doc links (every relative link in docs/ names a tracked file and heading)
+        run: |
+          fail=0
+          checked=0
+          for doc in docs/*.md; do
+            links=$( {
+              grep -oE '\]\([^)#: ]*(#[^) ]*)?[) ]' "$doc" | sed -E 's/^\]\(//; s/[) ]$//' || true
+              grep -oE '^\[[^]]+\]: +[^ ]+' "$doc" | sed -E 's/^\[[^]]+\]: +//' || true
+              grep -oE '<a href="[^"]+"' "$doc" | sed -E 's/^<a href="//; s/"$//' || true
+            } | grep -vE '^[a-z]+:' | sort -u || true )
+            for link in $links; do
+              checked=$((checked + 1))
+              target=${link%%#*}
+              anchor=""
+              case "$link" in *'#'*) anchor=${link#*#} ;; esac
+              path=$doc
+              if [ -n "$target" ]; then
+                path=$(realpath -m --relative-to=. "$(dirname "$doc")/$target")
+                if ! git ls-files --error-unmatch "$path" > /dev/null 2>&1; then
+                  echo "FAIL: $doc links to $target, which is not a tracked file"; fail=1; continue
+                fi
+              fi
+              if [ -n "$anchor" ] && [ "${path##*.}" = "md" ]; then
+                slugs=$(grep -E '^#{1,6} ' "$path" | LC_ALL=C sed -E 's/^#+ +//; s/ +$//' | LC_ALL=C tr 'A-Z' 'a-z' \
+                  | LC_ALL=C sed -E 's/[^a-z0-9 _-]//g; s/ /-/g' || true)
+                if ! printf '%s\n' "$slugs" | grep -xF -- "$anchor" > /dev/null; then
+                  echo "FAIL: $doc links to $link, and $path has no such heading"; fail=1
+                fi
+              fi
+            done
+          done
+          if [ "$checked" -eq 0 ]; then
+            echo "FAIL: no relative link found in docs/"; fail=1
+          fi
+          [ "$fail" -eq 0 ] && echo "PASS: every relative link in docs/ names a tracked file and heading"
+          exit "$fail"
+
+      - name: Public Suffix List (src/etld_table.c is what the generator writes from tests/psl)
+        run: |
+          make etld-table
+          if ! git diff --exit-code -- src/etld_table.c; then
+            echo "FAIL: src/etld_table.c differs from what tests/psl/gen_etld_table.py writes. Run make etld-table and commit the table."; exit 1
+          fi
+          echo "PASS: src/etld_table.c is what the generator writes from tests/psl"
+          for name in VERSION COMMIT; do
+            sed "s#^// $name: .*#// $name: */int/**/x;/*#" tests/psl/public_suffix_list.dat > "$RUNNER_TEMP/bad_list.dat"
+            if python3 -I tests/psl/gen_etld_table.py "$RUNNER_TEMP/bad_list.dat" "$RUNNER_TEMP/bad_table.c"; then
+              echo "FAIL: the generator wrote a table from a list whose $name line could inject C code"; exit 1
+            fi
+            echo "PASS: the generator refuses a $name line of another form"
+          done
+
+      - name: RDAP bootstrap (src/external/rdap_table.c is what the generator writes from tests/rdap_bootstrap)
+        run: |
+          make rdap-table
+          if ! git diff --exit-code -- src/external/rdap_table.c; then
+            echo "FAIL: src/external/rdap_table.c differs from what tests/rdap_bootstrap/gen_rdap_table.py writes. Run make rdap-table and commit the table."; exit 1
+          fi
+          echo "PASS: src/external/rdap_table.c is what the generator writes from tests/rdap_bootstrap"
+          sed 's#"publication": *"[^"]*"#"publication": "*/int/**/x;/*"#' tests/rdap_bootstrap/dns.json > "$RUNNER_TEMP/bad_publication.json"
+          sed 's#"https://rdap.verisign.com/com/v1/"#"https://rdap.verisign.com/\\"x/"#' tests/rdap_bootstrap/dns.json > "$RUNNER_TEMP/bad_url.json"
+          sed 's#"services": \[#"services": [[["com"], ["https://evil.example/"]],#' tests/rdap_bootstrap/dns.json > "$RUNNER_TEMP/bad_duplicate_tld.json"
+          sed 's#"services": \[#"services": [[["Evil.TLD"], ["https://evil.example/"]],#' tests/rdap_bootstrap/dns.json > "$RUNNER_TEMP/bad_tld.json"
+          sed 's#"services": \[#"services": [[["evil\\n"], ["https://evil.example/"]],#' tests/rdap_bootstrap/dns.json > "$RUNNER_TEMP/bad_tld_line_end.json"
+          for bad in bad_publication bad_url bad_duplicate_tld bad_tld bad_tld_line_end; do
+            if python3 -I tests/rdap_bootstrap/gen_rdap_table.py "$RUNNER_TEMP/$bad.json" "$RUNNER_TEMP/bad_table.c"; then
+              echo "FAIL: the generator wrote a table from $bad.json, which breaks a rule of the generator"; exit 1
+            fi
+            echo "PASS: the generator refuses $bad.json"
+          done
+
+      - name: IANA registry (ipguard agrees with the snapshot of the special-purpose registries)
+        run: make ipguard-registry
+
+      - name: tools/list document (bin/tools_list writes JSON that lists tools)
+        run: |
+          make -s tools-list > "$RUNNER_TEMP/tools_list.json"
+          python3 -I -c 'import json, sys; tools = json.load(open(sys.argv[1]))["result"]["tools"]; sys.exit(0 if isinstance(tools, list) and tools else "FAIL: result.tools is not a non-empty list")' "$RUNNER_TEMP/tools_list.json"
+
+      - name: OpenAPI document (bin/openapi writes JSON with OpenAPI 3.1.0 and a non-empty paths object)
+        run: |
+          make -s openapi > "$RUNNER_TEMP/openapi.json"
+          python3 -I -c 'import json, sys; doc = json.load(open(sys.argv[1])); paths = doc.get("paths"); sys.exit(0 if doc.get("openapi") == "3.1.0" and isinstance(paths, dict) and paths else "FAIL: openapi is not 3.1.0 or paths is not a non-empty object")' "$RUNNER_TEMP/openapi.json"
+
+      - name: Column names (each C column list equals the RETURNS TABLE of its api function, names and types)
+        run: |
+          make column-names
+          cp -r src "$RUNNER_TEMP/cn_src" && cp -r sql "$RUNNER_TEMP/cn_sql"
+          broken() {
+            if python3 -I tests/column_names/check.py "$1" "$2"; then
+              echo "FAIL: check.py passed a tree with $3"; exit 1
+            fi
+          }
+          cp -r sql "$RUNNER_TEMP/sql_name"  && sed -i 's/cwe_last_id             text,/cwe_newest_id           text,/' "$RUNNER_TEMP/sql_name/fn_health.sql"
+          broken src "$RUNNER_TEMP/sql_name" "a renamed SQL column"
+          cp -r src "$RUNNER_TEMP/src_name"  && sed -i 's/"cwe_last_id"/"cwe_newest_id"/' "$RUNNER_TEMP/src_name/db.c"
+          broken "$RUNNER_TEMP/src_name" sql "a renamed C column"
+          cp -r sql "$RUNNER_TEMP/sql_type"  && sed -i 's/cve_count               bigint,/cve_count               text,/' "$RUNNER_TEMP/sql_type/fn_health.sql"
+          broken src "$RUNNER_TEMP/sql_type" "a count column of type text"
+          cp -r sql "$RUNNER_TEMP/sql_jsonb" && sed -i 's/notes                text,/notes                jsonb,/' "$RUNNER_TEMP/sql_jsonb/fn_kev_lookup.sql"
+          broken src "$RUNNER_TEMP/sql_jsonb" "an escaped column of type jsonb"
+          cp -r sql "$RUNNER_TEMP/sql_text"  && sed -i 's/matches            jsonb)/matches            text)/' "$RUNNER_TEMP/sql_text/fn_driver_lookup.sql"
+          broken src "$RUNNER_TEMP/sql_text" "a raw-embedded column of type text"
+          cp -r src "$RUNNER_TEMP/src_swap"  && sed -i 's/X(CVETRIAGE_COLUMN_EPSS_SCORE, "epss_score")/X(CVETRIAGE_COLUMN_EPSS_SCORE, "cvss_v3")  /; s/X(CVETRIAGE_COLUMN_CVSS_V3,    "cvss_v3")/X(CVETRIAGE_COLUMN_CVSS_V3,    "epss_score")/' "$RUNNER_TEMP/src_swap/db.c"
+          broken "$RUNNER_TEMP/src_swap" sql "two swapped C names"
+          cp -r src "$RUNNER_TEMP/src_as"    && sed -i 's/AS purged_event_count"/AS purged_count"/' "$RUNNER_TEMP/src_as/db_watchlist.c"
+          broken "$RUNNER_TEMP/src_as" sql "an AS name that differs from the checked name"
+          mkdir -p "$RUNNER_TEMP/src_empty/external"
+          for f in db db_watchlist ratelimit quota cache throttle serialize cve_exploit; do : > "$RUNNER_TEMP/src_empty/$f.c"; done
+          broken "$RUNNER_TEMP/src_empty" sql "no query at all"
+          cp -r src "$RUNNER_TEMP/src_unread" && sed -i 's/dbhelper_fetchColInt(res, 0, HEALTH_COLUMN_CVE_COUNT,/static_readLater(res, 0, HEALTH_COLUMN_CVE_COUNT,/' "$RUNNER_TEMP/src_unread/db.c"
+          broken "$RUNNER_TEMP/src_unread" sql "a column read by no known reader"
+          cp -r src "$RUNNER_TEMP/src_unused" && printf '%s\n' 'enum { FOO_COLUMN_A, };' 'static const char* const FOO_COLUMN_NAMES[] = { "a", };' >> "$RUNNER_TEMP/src_unused/db.c"
+          broken "$RUNNER_TEMP/src_unused" sql "a column list no call checks"
+          cp -r sql "$RUNNER_TEMP/sql_bigint" && sed -i 's/poc_count                   integer,/poc_count                   bigint,/' "$RUNNER_TEMP/sql_bigint/fn_cve_lookup.sql"
+          broken src "$RUNNER_TEMP/sql_bigint" "a bigint count that BIGINT_COUNTS does not list"
+          cp -r src "$RUNNER_TEMP/src_escaped" && sed -i 's/jsonbuf_appendJsonText(json_buf, record->mp_cveTags/jsonbuf_appendEscaped(json_buf, record->mp_cveTags/' "$RUNNER_TEMP/src_escaped/serialize.c"
+          broken "$RUNNER_TEMP/src_escaped" sql "a raw-embedded column that serialize.c escapes"
+          cp -r src "$RUNNER_TEMP/src_literal" && printf '%s\n' 'void static_probe(void) { static_send("SELECT * FROM api.fn_health()"); }' >> "$RUNNER_TEMP/src_literal/db.c"
+          broken "$RUNNER_TEMP/src_literal" sql "a query literal outside every classified call"
+          cp -r src "$RUNNER_TEMP/src_comment" && sed -i '1i /* "SELECT * FROM api.fn_nothing($1)" */' "$RUNNER_TEMP/src_comment/db.c"
+          python3 -I tests/column_names/check.py "$RUNNER_TEMP/src_comment" sql
+          echo "PASS: check.py matches src/ with sql/, and refuses each of the thirteen broken copies"
+
+      - name: Grant lists (sql/grants.sql against the calls of src/)
+        run: |
+          extra_args=""
+          make grant-lists
+          broken() {
+            if python3 -I tests/grants/check.py "$1" "$2" $extra_args; then
+              echo "FAIL: check.py passed a tree with $3"; exit 1
+            fi
+          }
+          cp -r src "$RUNNER_TEMP/gl_src" && sed -i 's/"SELECT \* FROM api.fn_health()"/"SELECT * FROM api.fn_health_renamed()"/' "$RUNNER_TEMP/gl_src/db.c"
+          cmp -s src/db.c "$RUNNER_TEMP/gl_src/db.c" && { echo "FAIL: the sed changed no call in db.c"; exit 1; }
+          broken "$RUNNER_TEMP/gl_src" sql "a renamed api function call"
+          mkdir -p "$RUNNER_TEMP/gl_tree" && cp -r sql "$RUNNER_TEMP/gl_tree/sql" && cp schema.sql "$RUNNER_TEMP/gl_tree/"
+          sed -i "/^    'api.fn_health',\$/d" "$RUNNER_TEMP/gl_tree/sql/grants.sql"
+          cmp -s sql/grants.sql "$RUNNER_TEMP/gl_tree/sql/grants.sql" && { echo "FAIL: the sed deleted no line of grants.sql"; exit 1; }
+          broken src "$RUNNER_TEMP/gl_tree/sql" "a deleted line of api_role_functions"
+          cp -r src "$RUNNER_TEMP/gl_call" && sed -i 's/"SELECT \* FROM api.fn_health()"/"SELECT * FROM fn_health()"/' "$RUNNER_TEMP/gl_call/db.c"
+          cmp -s src/db.c "$RUNNER_TEMP/gl_call/db.c" && { echo "FAIL: the sed changed no call in db.c"; exit 1; }
+          broken "$RUNNER_TEMP/gl_call" sql "a listed api function no literal calls"
+          mkdir -p "$RUNNER_TEMP/gl_create" && cp -r sql "$RUNNER_TEMP/gl_create/sql" && cp schema.sql "$RUNNER_TEMP/gl_create/"
+          sed -i 's/^CREATE FUNCTION api.fn_health()/CREATE FUNCTION api.fn_health_renamed()/' "$RUNNER_TEMP/gl_create/sql/fn_health.sql"
+          cmp -s sql/fn_health.sql "$RUNNER_TEMP/gl_create/sql/fn_health.sql" && { echo "FAIL: the sed renamed no CREATE FUNCTION"; exit 1; }
+          broken src "$RUNNER_TEMP/gl_create/sql" "a listed function with no CREATE FUNCTION"
+          mkdir -p "$RUNNER_TEMP/gl_twice" && cp -r sql "$RUNNER_TEMP/gl_twice/sql" && cp schema.sql "$RUNNER_TEMP/gl_twice/"
+          sed -i "s/^    'api.fn_health',\$/    'api.fn_health',\n    'api.fn_health',/" "$RUNNER_TEMP/gl_twice/sql/grants.sql"
+          cmp -s sql/grants.sql "$RUNNER_TEMP/gl_twice/sql/grants.sql" && { echo "FAIL: the sed added no line to grants.sql"; exit 1; }
+          broken src "$RUNNER_TEMP/gl_twice/sql" "a name listed twice in api_role_functions"
+          echo "PASS: check.py matches sql/grants.sql with the calls, and refuses each broken copy"
+
+      - name: Env names (no tracked file names a server env var with the old CONTRAST_ prefix)
+        run: |
+          make env-names
+          old_name="CONTRAST""_IP_SECRET"
+          sed -i "s/\"CONTRASTAPI_IP_SECRET\"/\"$old_name\"/" src/config.c
+          git diff --quiet -- src/config.c && { echo "FAIL: the sed put no old name back"; exit 1; }
+          if make env-names; then echo "FAIL: env-names passed a tree with $old_name"; exit 1; fi
+          git checkout -- src/config.c
+
+      - name: exiftool Author group (check.py reads table and tag groups, and refuses one name more or one less)
+        run: |
+          names=$(sed -n '/AUTHOR_GROUP_TAGS\[\] = {/,/^};/s/^ *{ "\([^"]*\)".*/\1/p' tests/test_exifclient.c)
+          listing() {
+            echo "<table name='XMP::x' g0='XMP' g1='XMP-x' g2='Author'>"
+            for name in "$@"; do echo " <tag id='$name' name='$name' type='string' writable='true'>"; done
+            echo "</table>"
+          }
+          first=$(echo "$names" | head -1)
+          tag_groups() {
+            echo "<table name='XMP::x' g0='XMP' g1='XMP-x' g2='Author'>"
+            for name in $(echo "$names" | sed 1d); do echo " <tag id='$name' name='$name' type='string' writable='true'>"; done
+            echo " <tag id='InAuthorTable' name='InAuthorTable' type='date' writable='true' g2='Time'>"
+            echo "</table>"
+            echo "<table name='XMP::y' g0='XMP' g1='XMP-y' g2='Other'>"
+            echo " <tag id='$first' name='$first' type='string' writable='true' g2='Author'>"
+            echo " <tag id='InOtherTable' name='InOtherTable' type='string' writable='true'>"
+            echo "</table>"
+          }
+          listing $names > "$RUNNER_TEMP/listx_same.xml"
+          tag_groups > "$RUNNER_TEMP/listx_tag_groups.xml"
+          listing $names NewAuthorTag > "$RUNNER_TEMP/listx_more.xml"
+          listing $(echo "$names" | sed 1d) > "$RUNNER_TEMP/listx_less.xml"
+          python3 -I tests/exif_author_tags/check.py "$RUNNER_TEMP/listx_same.xml" tests/test_exifclient.c
+          python3 -I tests/exif_author_tags/check.py "$RUNNER_TEMP/listx_tag_groups.xml" tests/test_exifclient.c
+          for case in more less; do
+            if python3 -I tests/exif_author_tags/check.py "$RUNNER_TEMP/listx_$case.xml" tests/test_exifclient.c; then
+              echo "FAIL: check.py passed a listing with one name $case than the table"; exit 1
+            fi
+          done
+          echo "PASS: check.py reads table and tag groups, and refuses one name more or one name less than the table"
+
+      - name: Exiftool fixture scripts (compile)
+        run: |
+          python3 -I -m py_compile tests/fixtures/check_exiftool.py tests/fixtures/make_fixtures.py
+
+      - name: Generator scripts (compile)
+        run: |
+          python3 -I -m py_compile tests/dns_gen/*.py tests/jsoncanon/*.py
+
+
+      - name: C dialect pin (src/*.c needs a gnu standard for raw string literals)
+        run: make clean && make CC="gcc -std=c17" bin/contrastapi
+
+      - name: ASan + UBSan
+        run: make clean && make test SANITIZE=1
+
+      - name: TSan (worker pool, upstream and raw-body threads, maintenance thread, acceptor, TLS probe and usage log race check)
+        run: |
+          make clean
+          make TSAN=1 bin/test_worker bin/test_upstream bin/test_rawbody bin/test_maintenance bin/test_acceptor bin/test_tlsprobe bin/test_usagelog
+          setarch -R ./bin/test_worker 2>&1 | tee tsan.log
+          setarch -R ./bin/test_upstream 2>&1 | tee -a tsan.log
+          setarch -R ./bin/test_rawbody 2>&1 | tee -a tsan.log
+          setarch -R ./bin/test_maintenance 2>&1 | tee -a tsan.log
+          setarch -R ./bin/test_acceptor 2>&1 | tee -a tsan.log
+          setarch -R ./bin/test_tlsprobe 2>&1 | tee -a tsan.log
+          setarch -R ./bin/test_usagelog 2>&1 | tee -a tsan.log
+          if grep -q "ThreadSanitizer:" tsan.log; then
+            echo "FAIL: ThreadSanitizer reported a data race in the worker pool, the upstream or raw-body threads, the maintenance thread, the acceptor, the TLS probe or the usage log"
+            exit 1
+          fi
+          echo "PASS: worker pool, upstream and raw-body threads, maintenance thread, acceptor, TLS probe and usage log race-clean under TSan"
+
+  fuzz:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install clang
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-20 libclang-rt-20-dev libpq-dev libssl-dev pkg-config
+
+      - name: Build the fuzz harnesses
+        run: make -j"$(nproc)" fuzz
+
+      - name: Replay the seeds
+        run: make fuzz-replay
+
+  sql:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: postgres
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install the PostgreSQL client, python3-packaging and ruby
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client python3-packaging ruby
+
+      - name: SQL tests
+        run: |
+          psql -X -d postgres -f sql/roles.sql
+          createdb contrastapi_test
+          make test-sql
+
+      - name: SQL lock tests (parallel sessions on a throwaway database)
+        run: make test-sql-lock
+
+      - name: init-db builds an empty database, and refuses to run twice
+        run: |
+          createdb contrastapi_ci
+          make init-db DB=contrastapi_ci
+          if make init-db DB=contrastapi_ci; then
+            echo "FAIL: init-db ran again on a database that has its tables"; exit 1
+          fi
+          echo "PASS: init-db refused a database that has its tables"
+
+      - name: db-apply runs twice
+        run: |
+          make db-apply DB=contrastapi_ci
+          make db-apply DB=contrastapi_ci
+
+      - name: Version keys against their references (make version-keys)
+        run: make version-keys DB=contrastapi_ci
+
+      - name: Schema version (src/db.h needs the version api.fn_schema_version() answers)
+        run: |
+          required=$(sed -nE 's/^#define DB_REQUIRED_SCHEMA_VERSION +([0-9]+)$/\1/p' src/db.h)
+          found=$(psql -X -At -d contrastapi_ci -c 'SELECT api.fn_schema_version()')
+          if [ -z "$required" ] || [ "$required" != "$found" ]; then
+            echo "FAIL: src/db.h needs schema version '$required', api.fn_schema_version() answers '$found'"; exit 1
+          fi
+          echo "PASS: src/db.h and api.fn_schema_version() both say version $found"

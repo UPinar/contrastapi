@@ -1,0 +1,41 @@
+name: IANA registry
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+jobs:
+  compare:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpq-dev pkg-config
+
+      - name: Download the registries
+        run: |
+          mkdir -p "$RUNNER_TEMP/iana"
+          for version in 4 6; do
+            curl -fsS --max-time 60 -o "$RUNNER_TEMP/iana/iana-ipv$version-special-registry-1.csv" \
+              "https://www.iana.org/assignments/iana-ipv$version-special-registry/iana-ipv$version-special-registry-1.csv"
+          done
+
+      - name: Compare with the snapshot
+        run: |
+          fail=0
+          for version in 4 6; do
+            file="iana-ipv$version-special-registry-1.csv"
+            if ! diff -u "tests/ipguard_registry/$file" "$RUNNER_TEMP/iana/$file"; then
+              echo "FAIL: $file differs from the snapshot"
+              fail=1
+            fi
+          done
+          make bin/ipguard_ask
+          python3 -I tests/ipguard_registry/check.py "$RUNNER_TEMP/iana" bin/ipguard_ask || fail=1
+          [ "$fail" -eq 0 ] && echo "PASS: the snapshot matches IANA's registries, and ipguard agrees with them"
+          exit "$fail"

@@ -1,0 +1,3 @@
+Domain Information over Whois protocol
+Whoisd Server Version: 3.10.2
+>>> Terms: Data provided for information purposes only.

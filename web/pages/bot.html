@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ContrastAPI Bot: Webmaster Information</title>
+  <meta name="description" content="ContrastAPI bot: the User-Agent of the outbound requests of ContrastAPI, what they fetch, and how to contact us about them.">
+  <meta property="og:title" content="ContrastAPI Bot: Webmaster Information">
+  <meta property="og:description" content="ContrastAPI bot: the User-Agent of the outbound requests of ContrastAPI, what they fetch, and how to contact us about them.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://api.contrastcyber.com/bot">
+  <meta property="og:image" content="https://api.contrastcyber.com/static/og-image.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="ContrastAPI: security data and monitoring API and MCP server">
+  <meta property="og:site_name" content="ContrastAPI">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="ContrastAPI Bot: Webmaster Information">
+  <meta name="twitter:description" content="ContrastAPI bot: the User-Agent of the outbound requests of ContrastAPI, what they fetch, and how to contact us about them.">
+  <meta name="twitter:image" content="https://api.contrastcyber.com/static/og-image.png">
+  <meta name="theme-color" content="#e9ebee" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#06101d" media="(prefers-color-scheme: dark)">
+  <link rel="canonical" href="https://api.contrastcyber.com/bot">
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="/static/favicon-192.png">
+  <script src="/static/js/theme-init.js?v=@@THEME_INIT_JS_VERSION@@"></script>
+  <link rel="stylesheet" href="/static/style.css?v=@@STYLE_CSS_VERSION@@">
+  <script src="/static/js/landing.js?v=@@LANDING_JS_VERSION@@" defer></script>
+</head>
+<body>
+  @@NAV@@
+
+  <section class="hero">
+    <div class="pill">WEBMASTER INFORMATION</div>
+    <h1>ContrastAPI <span class="gradient">Bot</span></h1>
+    <p class="subtitle">
+      This page describes the outbound requests of ContrastAPI.
+      Our API server identifies itself with this User-Agent:
+      <code class="ua">@@HTTP_USER_AGENT@@</code>
+    </p>
+  </section>
+
+  <section class="endpoints">
+    <h2 class="section-title">Who we are</h2>
+    <p class="endpoints-lede">
+      ContrastAPI is a security data and monitoring API.
+      Our API server sends HTTP requests for the endpoints below, and for the status of a pending payment.
+      It asks Have I Been Pwned at <code>api.pwnedpasswords.com</code> about the
+      first 5 hex digits of a password hash when a caller asks
+      <code>/password_check</code>. When <code>api.pwnedpasswords.com</code> answers 429, the
+      server asks it nothing more for the wait its Retry-After header names, and at most one
+      hour. A missing Retry-After header counts as 60 seconds. It asks an RDAP
+      server about a domain name when a caller asks <code>/whois_lookup</code>. For a TLD
+      without an RDAP server, it may ask the TLD's WHOIS server on TCP port 43 instead.
+      It asks the Wayback Machine at <code>web.archive.org</code> about a host name when a caller asks
+      <code>/wayback_lookup</code>. It asks Cert Spotter at <code>api.certspotter.com</code> about
+      a host name when a caller asks <code>/cert_search</code>, and about a domain and the names
+      under it when a caller asks <code>/subdomain_enum</code>. It fetches the home page of a host
+      name when a caller asks <code>/headers_check</code>.
+      When a caller asks <code>/dns_lookup</code>, <code>/dns_takeover_check</code>,
+      <code>/email_auth_check</code>, <code>/email_address_check</code> or <code>/subdomain_enum</code>,
+      the server asks its own DNS resolver about the name. The resolver may then
+      ask the name's name servers. No HTTP request goes to the name.
+      When a caller asks <code>/ip_lookup</code>, the server asks its resolver for the PTR name of the
+      address. No request goes to the address. When the caller's Pro key has saved a vendor key,
+      the server also asks Shodan at <code>api.shodan.io</code> and AbuseIPDB at
+      <code>api.abuseipdb.com</code> about the address, each with the caller's own key. A
+      Pro user saves a vendor key with <code>/vendor_key_edit</code>. The server then checks the
+      key. It sends a Shodan key to Shodan. It sends an AbuseIPDB key to AbuseIPDB with the
+      address <code>127.0.0.1</code>, because AbuseIPDB has no call that checks a key alone. A status
+      request sends each saved key to its vendor the same way. The server follows no redirect from either host.
+    </p>
+    <p class="endpoints-lede">
+      When a caller asks <code>/crypto_checkout</code>, the server sends one POST over HTTPS to
+      <code>api.nowpayments.io</code> to open an invoice. It carries the User-Agent above.
+    </p>
+    <p class="endpoints-lede">
+      A caller without an API key may pay for a call with x402, in USDC on Solana. When the caller
+      retries a payment whose settle was still pending, the server asks a Solana RPC provider
+      whether the transaction is confirmed. That is one POST over HTTPS with a JSON-RPC
+      <code>getSignatureStatuses</code> call. The call holds the transaction signature, which is
+      public on Solana, and nothing else about the caller. It carries the User-Agent above. The
+      server follows no redirect, and the request ends after 5 seconds. The operator names the
+      provider in the server settings, and this page does not list its host. No other request
+      of the API server asks the provider. The x402 facilitator on the same host also asks a Solana
+      RPC provider, to verify and settle a payment, as the privacy policy describes. The server also talks to the x402 facilitator, a program on the same
+      host, over a Unix socket. That traffic never leaves the host.
+    </p>
+    <p class="endpoints-lede">
+      When a caller asks <code>/ssl_check</code>, the server asks its resolver for the
+      addresses of the host name. It then opens a TLS connection to port 443 of one of them.
+      It connects only to an address that is globally reachable. The handshake names the host
+      (SNI) and offers the ALPN protocols h2 and http/1.1. The server reads the certificate and
+      closes the connection. It sends no HTTP request. A TLS handshake carries no User-Agent,
+      so the User-Agent above does not appear in it. It looks up the certificate in the SSL
+      Blacklist of abuse.ch, in our own database, so no request goes to abuse.ch. The server keeps
+      a successful answer for one hour when it could read that list and the list holds rows. A
+      repeat request in that hour usually gets the kept answer.
+    </p>
+    <p class="endpoints-lede">
+      When a caller asks <code>/headers_check</code>, the server sends one GET request for
+      <code>/</code> to the host name the caller gave, over HTTPS on port 443. It connects only to
+      an address that is globally reachable, and it verifies the certificate. The request carries
+      the User-Agent above and no cookie. The server reads the response headers, and at most
+      64 KiB of the body, which it does not use. It reads the cookies your site sets with
+      Set-Cookie, to rate their Secure, HttpOnly and SameSite attributes. It never sends a cookie
+      back. No answer shows a cookie value, and the server keeps none. An answer holds only
+      counts: how many cookies the site set, and how many have each issue. It follows a
+      redirect only when the target is HTTPS on port 443 and on the same host name or its www
+      pair, such as <code>example.com</code> and <code>www.example.com</code>, at most 5 times. It
+      follows no redirect to another host. The whole fetch, redirects included, ends after 5
+      seconds. The server keeps each successful answer of <code>/headers_check</code> for one
+      hour, and a repeat request in that hour usually gets the kept answer. For a caller's
+      request, the server does not read <code>robots.txt</code>: it fetches only the page a
+      browser opens first, and only while the caller waits for it. The background scan of a watch
+      item reads <code>robots.txt</code>, as a paragraph below describes.
+    </p>
+    <p class="endpoints-lede">
+      When a caller asks <code>/whois_lookup</code>, the server sends a GET request over HTTPS
+      to the RDAP server of the domain's TLD. IANA's RDAP bootstrap file names that server, such
+      as <code>rdap.verisign.com</code> for .com. The request names the registered domain, not a
+      host name under it. It carries the User-Agent above. The RDAP server may redirect it to
+      another HTTPS server, at most 5 times. The server sends at most 30 requests in each minute
+      to one RDAP server. It counts them by the host name of the server, and all callers share
+      that count. When an RDAP server answers 429, the server sends it no request for the wait its
+      Retry-After header names, and at most one hour. A missing Retry-After header counts as 60
+      seconds. It keeps each answer that holds a
+      registration for one hour, and a repeat request in that hour usually gets the kept answer.
+    </p>
+    <p class="endpoints-lede">
+      A TLD that has no RDAP server is asked over WHOIS (RFC 3912), on TCP port 43, when its
+      registry's terms allow our queries. We read the terms of each WHOIS server on 2026-10-25,
+      and a weekly check compares them with the text we read. The query is the registered domain
+      and a line end. WHOIS has no headers, so the query carries no User-Agent. The server
+      connects only to an address that is globally reachable. It sends at most 10 queries in each
+      minute to one WHOIS server, and all callers share that count. It asks only these WHOIS
+      servers:
+      <code>whois.afilias-srs.net</code>,
+      <code>whois.amnic.net</code>,
+      <code>whois.dmdomains.dm</code>,
+      <code>whois.domreg.lt</code>,
+      <code>whois.identitydigital.services</code>,
+      <code>whois.isoc.org.il</code>,
+      <code>whois.mynic.my</code>,
+      <code>whois.nic.ac</code>,
+      <code>whois.nic.ag</code>,
+      <code>whois.nic.io</code>,
+      <code>whois.nic.ls</code>,
+      <code>whois.nic.me</code>,
+      <code>whois.nic.mn</code>,
+      <code>whois.nic.net.sa</code>,
+      <code>whois.nic.sh</code>,
+      <code>whois.nic.tc</code>,
+      <code>whois.nixiregistry.in</code> and
+      <code>whois.punktum.dk</code>.
+      It keeps each answer that holds a registration for one hour, as for RDAP.
+    </p>
+    <p class="endpoints-lede">
+      A Pro API key can also watch a domain with a <code>whois_lookup</code> watchlist item. The
+      server then asks the registry about that registered domain in the background, with no
+      caller waiting. It uses the same RDAP and WHOIS servers, the same request, and for RDAP the
+      same User-Agent as above. A WHOIS query carries none. It asks once a week for each name,
+      and once a day while the registration ends within 30 days. It asks once more soon after an
+      item is added. It takes at most 10 RDAP requests a minute to one host and
+      3 WHOIS queries a minute to one server for these watch scans. They count inside the same
+      per-host count that <code>/whois_lookup</code> callers use, so callers keep the rest. A
+      watch scan asks at most 10000 times a day for all keys together. It keeps no answer. It
+      keeps only four values of the registration for the item: its end date, the registrar, the
+      transfer lock and whether the delegation is signed. A held RDAP server is not asked, as
+      above. WHOIS has no encryption, so a party on the path between us and a WHOIS server could
+      forge its answer.
+    </p>
+    <p class="endpoints-lede">
+      A Pro API key can also watch a site with a <code>headers_check</code> watchlist item. The
+      server then reads two URLs of that site in the background, with no caller waiting, once a
+      day for each name. It sends one GET request for <code>/robots.txt</code> first. It reads the
+      group of that file for our product token, <code>ContrastAPI</code>. When that group
+      disallows <code>/</code>, the server sends no request for the home page and reads nothing
+      else. A <code>robots.txt</code> that answers 404 or another 4xx status counts as no
+      restriction. Any other answer, such as a 5xx status or no answer in 5 seconds, means no
+      scan that day. Otherwise it sends one GET request for <code>/</code>. Both requests are
+      HTTPS on port 443 and carry the User-Agent above and no cookie. They follow redirects as the
+      <code>/headers_check</code> paragraph above describes. The server keeps no page and no
+      header value. It keeps only the address the home page ended on and the names of the
+      security headers the page sent, to tell the item owner that one went missing. The server
+      starts at most 10 such fetches in each minute for the names under one registered domain,
+      for all keys together, so at most 5 scans. Each fetch may follow up to 5 redirects. It runs
+      at most 20000 such scans a day for all keys together.
+    </p>
+    <p class="endpoints-lede">
+      A Pro API key can also watch the certificates of a name with a <code>cert_search</code>
+      watchlist item. The server then asks Cert Spotter at <code>api.certspotter.com</code>
+      about the name in the background, once a day, in the same way as for
+      <code>/cert_search</code>, and asks its own DNS resolver for the CAA records of the name and
+      of its parents. No request goes to the site. The server sends Cert Spotter at most 20 of
+      these requests in each hour. They have a limit of their own, apart from the 80 requests
+      an hour of <code>/cert_search</code> callers, so the two together stay within the 100
+      requests an hour that Cert Spotter allows.
+    </p>
+    <p class="endpoints-lede">
+      When a caller asks <code>/wayback_lookup</code>, the server sends one or two GET requests
+      over HTTPS to the CDX server of the Wayback Machine at <code>web.archive.org</code>. Each
+      request names the host name the caller gave, and asks only for the list of its captures. The
+      server never asks for a captured page. Each request carries the User-Agent above. The server
+      sends at most 2 such requests in each 10-second window of the clock. When
+      <code>web.archive.org</code> answers 429, the server sends it none for the wait its
+      Retry-After header names, and at most one hour. A missing Retry-After header counts as 60
+      seconds. It keeps each answer that holds the capture list for one day, and a
+      repeat request in that day usually gets the kept answer.
+    </p>
+    <p class="endpoints-lede">
+      When a caller asks <code>/cert_search</code>, the server sends GET requests over HTTPS to
+      the Certificate Search API of SSLMate's Cert Spotter at <code>api.certspotter.com</code>:
+      one request for each page of the answer, and at most 6 for one call. Each request names the
+      host name the caller gave, and asks for the unexpired certificates that Certificate
+      Transparency logs hold for it. Each request after the first also names, with
+      <code>&amp;after=</code>, the last certificate of the page before it. No request goes to the
+      host name itself. Each request carries the User-Agent above and our API key for Cert
+      Spotter, in its Authorization header. If Cert Spotter redirects a request to another host,
+      the key does not go with it. The server sends at most 80 such requests for its callers in
+      each hour of the clock. When
+      <code>api.certspotter.com</code> answers 429, the server sends it none for the wait its
+      Retry-After header names, and at most one hour. A missing Retry-After header counts as 60
+      seconds. It keeps each answer that holds the certificate list for one day, and a repeat
+      request in that day usually gets the kept answer.
+    </p>
+    <p class="endpoints-lede">
+      When a caller asks <code>/subdomain_enum</code>, the server asks its own DNS resolver first.
+      It asks for the A records of two random names under the domain, to find a wildcard
+      record. It asks for the MX, NS and TXT records of the domain. It asks for the A records of
+      94 common names under the domain, such as <code>www</code> and <code>mail</code>. These are
+      at most 99 DNS questions, and they all end within 2 seconds. The resolver may then ask the
+      domain's name servers. No HTTP request goes to the domain or to a name under it. Then the
+      server sends one GET request over HTTPS to Cert Spotter at <code>api.certspotter.com</code>.
+      The request names the registered domain and asks for the unexpired certificates of every
+      name under it. It carries the User-Agent above and our API key for Cert Spotter, as for
+      <code>/cert_search</code>. The server sends at most 5 such requests in each hour of the
+      clock. When <code>api.certspotter.com</code> answers 429 to one, the server sends none of
+      them for the wait its Retry-After header names, and at most one hour. It keeps each answer
+      for one day when it holds the names of Cert Spotter. It keeps any other answer for 10
+      minutes, or for the wait it names when that is longer. It keeps an answer whose wildcard
+      verdict is undetermined for 10 minutes. A repeat request in that time usually gets the
+      kept answer.
+    </p>
+    <p class="endpoints-lede">
+      A paying user can put a domain name on a watch list. The server then scans that name
+      without a caller waiting: once a day, or once a week for a <code>whois_lookup</code>
+      item until 30 days before the end of its registration, and then once a day. A new item is due at once. An add moves the scan time of no other item. A changed value
+      is checked again one hour later, once. When that scan also drops the pending change of
+      another value, the check waits for the next regular scan instead. A value that changes
+      again meanwhile waits for the next regular scan. For a <code>dns_lookup</code> item, it asks its
+      own DNS resolver about the name. For an <code>ssl_check</code> item, it asks the resolver
+      for the name's addresses and opens one TLS handshake to port 443 of one of them, as the
+      <code>/ssl_check</code> paragraph above describes. It then looks the certificate up in the SSL Blacklist in our own database. For a
+      <code>whois_lookup</code> item, it asks the registry of the name over RDAP or WHOIS, as the
+      paragraph on <code>whois_lookup</code> watch items above describes, with the limits given there.
+      For a <code>headers_check</code> item, it reads <code>robots.txt</code> and the home page of the name, as
+      the paragraph on <code>headers_check</code> watch items above describes. For a
+      <code>cert_search</code> item, it asks Cert Spotter and its own DNS resolver, as the paragraph
+      on <code>cert_search</code> watch items above describes. For the other items, it sends no HTTP request to the
+      name. It follows no link, so it crawls no page. The server runs at most 200000 DNS
+      scans a day and at most 20000 TLS scans a day for all keys together.
+    </p>
+
+    <h2 class="section-title">What we don't do</h2>
+    <div class="endpoint-group rules">
+      <div class="endpoint">
+        <span class="method get">RULE</span>
+        <span class="endpoint-path">Our API server fetches your site only for <code>/headers_check</code> and for the daily scan of a <code>headers_check</code> watch item: one GET of <code>/</code>, one GET of <code>/robots.txt</code> for the scan, and the redirects it follows on the same host name or its www pair. Its other HTTP hosts are <code>api.pwnedpasswords.com</code>, <code>web.archive.org</code>, <code>api.certspotter.com</code>, <code>api.shodan.io</code>, <code>api.abuseipdb.com</code>, <code>api.nowpayments.io</code>, the RDAP servers that IANA lists for each TLD, the HTTPS servers those redirect to, and the Solana RPC provider that the operator configures. Its WHOIS queries go to TCP port 43 of the 18 WHOIS servers listed above, and to no other host. A <code>/ssl_check</code> handshake reads your certificate and sends no HTTP request.</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">RULE</span>
+        <span class="endpoint-path">Our API server sends GET requests over HTTPS only, with three exceptions: the invoice POST to <code>api.nowpayments.io</code>, also over HTTPS, the JSON-RPC POST to the Solana RPC provider, also over HTTPS, and the requests to the x402 facilitator, plain HTTP over a Unix socket on the same host. It sends no PUT or DELETE, and no plain HTTP request to another host. A WHOIS query on TCP port 43 is not HTTP: it is one line of plain text, as RFC 3912 defines it.</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">RULE</span>
+        <span class="endpoint-path">Our API server follows no link and crawls no page. Its background work is a scan of each name that a paying user watches. A <code>headers_check</code> watch reads <code>robots.txt</code> and the home page of the name about once a day. It sends no request for the home page when <code>robots.txt</code> disallows <code>/</code> for <code>ContrastAPI</code>. A <code>cert_search</code> watch asks Cert Spotter and the DNS resolver, and sends no request to the name. A <code>dns_lookup</code> watch asks its own DNS resolver about the name, about once a day. An <code>ssl_check</code> watch asks the resolver for the name's addresses and opens one TLS handshake to port 443 of one of them, about once a day. A handshake reads the certificate and sends no HTTP request. A <code>whois_lookup</code> watch asks the registry of the name over RDAP or WHOIS once a week, and once a day while its registration ends within 30 days, as above. Every other outbound request happens only while a caller's request waits for it.</span>
+      </div>
+    </div>
+
+    <h2 class="section-title">Our data sync</h2>
+    <p class="endpoints-lede">
+      A separate sync job fills our database from public feeds: NVD, the CVE List of the CVE
+      Program, CISA KEV, FIRST EPSS, MITRE CWE, the OSV.dev export, the Metasploit module,
+      Nuclei template and PoC-in-GitHub lists on GitHub, the Exploit Database list of public
+      exploits from the exploit-database repository on GitLab, the LOLDrivers catalog of loldrivers.io,
+      the disposable-email-domains blocklist, the SSL Blacklist of abuse.ch, the release cycles of endoflife.date, the MITRE D3FEND catalog of d3fend.mitre.org, and these IP lists:
+      IPtoASN, DB-IP IP to Country Lite, the Spamhaus DROP lists, the Tor Project's exit list,
+      and the address ranges that AWS, Google, Microsoft Azure, Cloudflare, Fastly, bunny.net and Gcore
+      publish. It never calls exploit-db.com. It sends its own User-Agent:
+      <code class="ua">ContrastAPI-Sync (+https://api.contrastcyber.com/bot; contact@contrastcyber.com)</code>
+    </p>
+
+    <h2 class="section-title">Abuse contact</h2>
+    <p class="endpoints-lede">
+      If you believe ContrastAPI is hitting your site abusively, email
+      contact@contrastcyber.com with the registered domain and a short
+      window of access-log lines.
+    </p>
+  </section>
+
+  @@FOOTER@@
+  <script src="/static/js/theme.js?v=@@THEME_JS_VERSION@@"></script>
+</body>
+</html>

@@ -1,0 +1,121 @@
+#ifndef HEADER_CHECK_H
+#define HEADER_CHECK_H
+
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+
+typedef enum {
+  HEADER_CHECK_HEADER_CONTENT_SECURITY_POLICY = 0,
+  HEADER_CHECK_HEADER_STRICT_TRANSPORT_SECURITY,
+  HEADER_CHECK_HEADER_X_CONTENT_TYPE_OPTIONS,
+  HEADER_CHECK_HEADER_X_FRAME_OPTIONS,
+  HEADER_CHECK_HEADER_REFERRER_POLICY,
+  HEADER_CHECK_HEADER_PERMISSIONS_POLICY,
+  HEADER_CHECK_HEADER_X_XSS_PROTECTION,
+  HEADER_CHECK_HEADER_SET_COOKIE,
+  HEADER_CHECK_HEADER_ACCESS_CONTROL_ALLOW_ORIGIN,
+  HEADER_CHECK_HEADER_CONTENT_SECURITY_POLICY_REPORT_ONLY,
+  HEADER_CHECK_HEADER_ACCESS_CONTROL_ALLOW_CREDENTIALS,
+  HEADER_CHECK_HEADER_COUNT
+} HeaderCheckHeader_t;
+
+#define HEADER_CHECK_RULE_COUNT 9
+
+typedef enum {
+  HEADER_CHECK_SEVERITY_HIGH = 0,
+  HEADER_CHECK_SEVERITY_MEDIUM,
+  HEADER_CHECK_SEVERITY_LOW,
+  HEADER_CHECK_SEVERITY_COUNT
+} HeaderCheckSeverity_t;
+
+typedef enum {
+  HEADER_CHECK_RESULT_PASS = 0,
+  HEADER_CHECK_RESULT_WARN,
+  HEADER_CHECK_RESULT_FAIL,
+  HEADER_CHECK_RESULT_MISSING,
+  HEADER_CHECK_RESULT_COUNT
+} HeaderCheckResult_t;
+
+typedef enum {
+  HEADER_CHECK_ISSUE_CSP_REPORT_ONLY = 0,
+  HEADER_CHECK_ISSUE_CSP_NO_SCRIPT_DIRECTIVE,
+  HEADER_CHECK_ISSUE_CSP_WILDCARD,
+  HEADER_CHECK_ISSUE_CSP_UNSAFE_INLINE,
+  HEADER_CHECK_ISSUE_CSP_UNSAFE_EVAL,
+  HEADER_CHECK_ISSUE_CSP_HTTP_SCRIPT_SOURCE,
+  HEADER_CHECK_ISSUE_CSP_DATA_SCRIPT_SOURCE,
+  HEADER_CHECK_ISSUE_CSP_BROAD_SOURCE,
+  HEADER_CHECK_ISSUE_CSP_NO_OBJECT_SRC,
+  HEADER_CHECK_ISSUE_CSP_NO_BASE_URI,
+  HEADER_CHECK_ISSUE_CSP_REPEATED_DIRECTIVE,
+  HEADER_CHECK_ISSUE_HSTS_NO_MAX_AGE,
+  HEADER_CHECK_ISSUE_HSTS_MALFORMED_MAX_AGE,
+  HEADER_CHECK_ISSUE_HSTS_SHORT_MAX_AGE,
+  HEADER_CHECK_ISSUE_HSTS_NO_INCLUDE_SUBDOMAINS,
+  HEADER_CHECK_ISSUE_HSTS_MULTIPLE_HEADERS,
+  HEADER_CHECK_ISSUE_XCTO_INVALID,
+  HEADER_CHECK_ISSUE_XFO_INVALID,
+  HEADER_CHECK_ISSUE_REFERRER_NO_KNOWN_POLICY,
+  HEADER_CHECK_ISSUE_REFERRER_UNSAFE_URL,
+  HEADER_CHECK_ISSUE_REFERRER_NO_REFERRER_WHEN_DOWNGRADE,
+  HEADER_CHECK_ISSUE_REFERRER_ORIGIN,
+  HEADER_CHECK_ISSUE_REFERRER_ORIGIN_WHEN_CROSS_ORIGIN,
+  HEADER_CHECK_ISSUE_PERMISSIONS_MALFORMED,
+  HEADER_CHECK_ISSUE_PERMISSIONS_WILDCARD,
+  HEADER_CHECK_ISSUE_XXP_FILTER_ENABLED,
+  HEADER_CHECK_ISSUE_COOKIE_NO_SECURE,
+  HEADER_CHECK_ISSUE_COOKIE_INVALID_SAMESITE,
+  HEADER_CHECK_ISSUE_COOKIE_SAMESITE_NONE_WITHOUT_SECURE,
+  HEADER_CHECK_ISSUE_COOKIE_BROKEN_PREFIX,
+  HEADER_CHECK_ISSUE_COOKIE_SESSION_WITHOUT_HTTPONLY,
+  HEADER_CHECK_ISSUE_COOKIE_CSRF_WITHOUT_SAMESITE,
+  HEADER_CHECK_ISSUE_COOKIE_NOT_ALL_CHECKED,
+  HEADER_CHECK_ISSUE_CORS_NULL_ORIGIN,
+  HEADER_CHECK_ISSUE_CORS_WILDCARD_WITH_CREDENTIALS,
+  HEADER_CHECK_ISSUE_CORS_MULTIPLE_ORIGINS,
+  HEADER_CHECK_ISSUE_KIND_COUNT
+} HeaderCheckIssueKind_t;
+
+#define HEADER_CHECK_MAX_ISSUE_COUNT 71
+
+#define HEADER_CHECK_ISSUE_TEXT_SIZE 128
+
+#define HEADER_CHECK_ISSUE_DETAIL_SIZE 16
+
+#define HEADER_CHECK_SHOWN_VALUE_MAX_CODE_POINTS 500
+
+typedef struct {
+  HeaderCheckIssueKind_t m_kind;
+  char                   ma_detail[HEADER_CHECK_ISSUE_DETAIL_SIZE];
+} HeaderCheckIssue_t;
+
+typedef struct {
+  HeaderCheckHeader_t   m_header;
+  HeaderCheckSeverity_t m_severity;
+  HeaderCheckResult_t   m_result;
+  const char*           mp_value;
+  size_t                m_valueLen;
+  size_t                m_valueCodePointCount;
+  size_t                m_shownValueLen;
+  bool                  m_isValueCut;
+  size_t                m_cookieCount;
+  HeaderCheckIssue_t    ma_issues[HEADER_CHECK_MAX_ISSUE_COUNT];
+  int                   m_issueCount;
+} HeaderCheckFinding_t;
+
+typedef struct {
+  HeaderCheckFinding_t ma_findings[HEADER_CHECK_RULE_COUNT];
+} HeaderCheckReport_t;
+
+extern const char* const header_check_capturedHeaderNames[HEADER_CHECK_HEADER_COUNT + 1];
+
+void        header_check_evaluate        (char* const* captured_values, size_t set_cookie_copy_count, HeaderCheckReport_t* report_out);
+const char* header_check_headerName      (HeaderCheckHeader_t header);
+const char* header_check_severityName    (HeaderCheckSeverity_t severity);
+const char* header_check_resultName      (HeaderCheckResult_t result);
+const char* header_check_ruleRemediation (HeaderCheckHeader_t rule);
+size_t      header_check_writeIssueText  (const HeaderCheckIssue_t* issue, char* text_out, size_t text_out_size);
+size_t      header_check_shownLength     (const char* text, size_t* code_point_count_out);
+
+#endif

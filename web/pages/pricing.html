@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pricing | ContrastAPI</title>
+  <meta name="description" content="ContrastAPI pricing: @@RL_ANON_CREDIT_LIMIT@@ credits an hour free without a key. A Pro key adds a higher limit and monitoring of CVEs, packages, domains and IP addresses.">
+  <meta property="og:title" content="Pricing | ContrastAPI">
+  <meta property="og:description" content="ContrastAPI pricing: @@RL_ANON_CREDIT_LIMIT@@ credits an hour free without a key. A Pro key adds a higher limit and monitoring of CVEs, packages, domains and IP addresses.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://api.contrastcyber.com/pricing">
+  <meta property="og:image" content="https://api.contrastcyber.com/static/og-image.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="ContrastAPI: security data and monitoring API and MCP server">
+  <meta property="og:site_name" content="ContrastAPI">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Pricing | ContrastAPI">
+  <meta name="twitter:description" content="ContrastAPI pricing: @@RL_ANON_CREDIT_LIMIT@@ credits an hour free without a key. A Pro key adds a higher limit and monitoring of CVEs, packages, domains and IP addresses.">
+  <meta name="twitter:image" content="https://api.contrastcyber.com/static/og-image.png">
+  <meta name="theme-color" content="#e9ebee" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#06101d" media="(prefers-color-scheme: dark)">
+  <link rel="canonical" href="https://api.contrastcyber.com/pricing">
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="/static/favicon-192.png">
+  <script src="/static/js/theme-init.js?v=@@THEME_INIT_JS_VERSION@@"></script>
+  <link rel="stylesheet" href="/static/style.css?v=@@STYLE_CSS_VERSION@@">
+  <link rel="stylesheet" href="/static/css/page.css?v=@@PAGE_CSS_VERSION@@">
+  <script src="/static/js/landing.js?v=@@LANDING_JS_VERSION@@" defer></script>
+  <script src="/static/js/crypto_checkout.js?v=@@CRYPTO_CHECKOUT_JS_VERSION@@" defer></script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      {
+        "@type": "Question",
+        "name": "Is the Free tier really free?",
+        "acceptedAnswer": { "@type": "Answer", "text": "Yes. @@RL_ANON_CREDIT_LIMIT@@ credits/hour per IPv4 address or IPv6 /64. Every endpoint and every MCP tool is open to all callers, except monitoring (the watchlist tools), which needs an API key. Pro also raises the hourly credit budget." }
+      },
+      {
+        "@type": "Question",
+        "name": "What's actually behind the API?",
+        "acceptedAnswer": { "@type": "Answer", "text": "Security data in one API: CVEs (EPSS, CISA KEV, risk scores, affected products), public exploits, open-source package advisories, vulnerable Windows drivers, domains (DNS, subdomain takeover, email authentication, email address checks, TLS, security headers, RDAP/WHOIS, Wayback Machine captures, subdomains, certificates), IP addresses and autonomous systems, CWE, CVSS vectors and D3FEND, breached passwords and image metadata. A Pro key adds monitoring of CVEs, products, CVE searches, packages, domains and IP addresses. Every endpoint but /image_inspect is also an MCP tool. See every endpoint." }
+      },
+      {
+        "@type": "Question",
+        "name": "How do I use this with Claude / Cursor / an MCP client?",
+        "acceptedAnswer": { "@type": "Answer", "text": "See the MCP setup guide. One JSON config, streamable-http transport, no key required for the Free tier." }
+      },
+      {
+        "@type": "Question",
+        "name": "How do I check that the API is up?",
+        "acceptedAnswer": { "@type": "Answer", "text": "Real-time health is reported at /health, with the sync state of each data feed. It costs no credit." }
+      },
+      {
+        "@type": "Question",
+        "name": "Can I pay per call without a key?",
+        "acceptedAnswer": { "@type": "Answer", "text": "Yes, on the endpoints and MCP tools that take payment. See the API documentation. When the free credits of a request without a key are spent, a REST endpoint answers 402 with the price, and an MCP tool call gets a tool result that holds the price. One credit costs $@@PRICING_X402_USD_PER_CREDIT@@, paid in USDC on Solana with x402. A REST call is charged only when it answers 200. An MCP call is charged only when its tool result is served." }
+      }
+    ]
+  }
+  </script>
+</head>
+<body>
+  <div class="glow"></div>
+
+  @@NAV@@
+
+  <div class="page">
+    <h1>Simple <span>Pricing</span></h1>
+    <p class="subtitle">Security data and monitoring API and MCP server. It is free without a key. A Pro key gives higher limits and monitoring.</p>
+
+    <div class="tier-grid">
+      <div class="tier">
+        <h2>Free</h2>
+        <div class="price">$0 <span>/month</span></div>
+        <div class="price-alt"><span>no key needed</span></div>
+        <ul>
+          <li><span>@@RL_ANON_CREDIT_LIMIT@@ credits / hour per IPv4 address or IPv6 /64. <a href="/#costs">See endpoint costs</a></span></li>
+          <li>All endpoints and MCP tools, except monitoring (the watchlist tools), which needs a key</li>
+          <li>Pay per call with x402: $@@PRICING_X402_USD_PER_CREDIT@@ per credit, in USDC on Solana</li>
+          <li>JSON responses</li>
+        </ul>
+        <a href="/quickstart" class="tier-cta">Start Calling for Free</a>
+      </div>
+
+      <div class="tier featured">
+        <h2>Pro</h2>
+        <div class="price">$@@PRICING_PRO_MONTHLY_USD@@ <span>/month</span></div>
+        <div class="price-alt"><span>or</span> $@@PRICING_PRO_YEARLY_USD@@ <span>/year</span></div>
+        <ul>
+          <li>Monitoring (the watchlist tools) of CVEs, products, CVE searches, packages, domains and IP addresses</li>
+          <li>Save your own Shodan and AbuseIPDB keys. ip_lookup queries them for you and adds internet exposure and reputation to its answer</li>
+          <li>@@RL_KEY_CREDIT_LIMIT@@ credits / hour per key</li>
+          <li>API key authentication (X-API-Key header or Bearer token)</li>
+        </ul>
+        <a href="https://contrastcyber.lemonsqueezy.com/checkout/buy/da64b10b-457d-4162-ae96-8e0e6e83f368" class="tier-cta primary">💳 Pay with Card</a>
+        <button type="button" id="crypto-checkout-btn" class="tier-cta primary">₿ Pay with Crypto</button>
+        <p id="crypto-checkout-error" class="cta-note" role="alert" hidden></p>
+      </div>
+    </div>
+
+    <div class="faq">
+      <h2>FAQ</h2>
+      <dl>
+        <dt>Is the Free tier really free?</dt>
+        <dd>Yes. @@RL_ANON_CREDIT_LIMIT@@ credits/hour per IPv4 address or IPv6 /64. Every endpoint and every MCP tool is open to all callers, except monitoring (the watchlist tools), which needs an API key. Pro also raises the hourly credit budget.</dd>
+
+        <dt>What's actually behind the API?</dt>
+        <dd>Security data in one API: CVEs (EPSS, CISA KEV, risk scores, affected products), public exploits, open-source package advisories, vulnerable Windows drivers, domains (DNS, subdomain takeover, email authentication, email address checks, TLS, security headers, RDAP/WHOIS, Wayback Machine captures, subdomains, certificates), IP addresses and autonomous systems, CWE, CVSS vectors and D3FEND, breached passwords and image metadata. A Pro key adds monitoring of CVEs, products, CVE searches, packages, domains and IP addresses. Every endpoint but /image_inspect is also an MCP tool. <a href="/">See every endpoint</a>.</dd>
+
+        <dt>How do I use this with Claude / Cursor / an MCP client?</dt>
+        <dd>See the <a href="/mcp-setup">MCP setup guide</a>. One JSON config, streamable-http transport, no key required for the Free tier.</dd>
+
+        <dt>How do I check that the API is up?</dt>
+        <dd>Real-time health is reported at <code>/health</code>, with the sync state of each data feed. It costs no credit.</dd>
+
+        <dt>Can I pay per call without a key?</dt>
+        <dd>Yes, on the endpoints and MCP tools that take payment. See the <a href="https://github.com/UPinar/contrastapi/blob/main/docs/API_Documentation.md#pay-per-call-x402">API documentation</a>. When the free credits of a request without a key are spent, a REST endpoint answers 402 with the price, and an MCP tool call gets a tool result that holds the price. One credit costs $@@PRICING_X402_USD_PER_CREDIT@@, paid in USDC on Solana with x402. A REST call is charged only when it answers 200. An MCP call is charged only when its tool result is served.</dd>
+      </dl>
+    </div>
+  </div>
+
+  @@FOOTER@@
+  <script src="/static/js/theme.js?v=@@THEME_JS_VERSION@@"></script>
+</body>
+</html>

@@ -1,0 +1,27 @@
+name: Public Suffix List
+
+on:
+  schedule:
+    - cron: "0 6 1 * *"
+  workflow_dispatch:
+
+jobs:
+  compare:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Download the list
+        run: |
+          curl -fsS --max-time 60 -o "$RUNNER_TEMP/public_suffix_list.dat" \
+            https://publicsuffix.org/list/public_suffix_list.dat
+
+      - name: Compare the ICANN rules with the copy
+        run: |
+          python3 -I tests/psl/gen_etld_table.py --rules tests/psl/public_suffix_list.dat > "$RUNNER_TEMP/copy_rules.txt"
+          python3 -I tests/psl/gen_etld_table.py --rules "$RUNNER_TEMP/public_suffix_list.dat" > "$RUNNER_TEMP/current_rules.txt"
+          if ! diff -u "$RUNNER_TEMP/copy_rules.txt" "$RUNNER_TEMP/current_rules.txt"; then
+            echo "FAIL: the ICANN rules of the list differ from the copy in tests/psl. Run make etld-update."; exit 1
+          fi
+          echo "PASS: the ICANN rules of the list are the copy's"

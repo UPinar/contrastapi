@@ -1,0 +1,172 @@
+# ContrastAPI
+
+> Security data and monitoring API and MCP server, for developers and AI agents. It covers CVE, EPSS and KEV data, package (SBOM) vulnerabilities, domain and IP intelligence, and monitoring of CVEs, packages, domains and IP addresses. A free tier needs no API key.
+
+- [Quick Start](https://api.contrastcyber.com/quickstart)
+- [MCP Setup](https://api.contrastcyber.com/mcp-setup)
+- [Full API Reference](https://api.contrastcyber.com/llms-full.txt)
+- [CVE pages](https://contrastcyber.com/security/): CVE records as web pages, with a CISA KEV list and lists by month
+
+
+## When to Use This API
+
+Use ContrastAPI when you need to:
+- Look up CVE details, severity, CVSS v3/v4, EPSS exploit probability, or CISA KEV status
+- Look up many CVEs at once (up to @@CVELOOKUPBULK_MAX_IDS@@ per request), or risk-rank them (up to @@CVETRIAGEBULK_MAX_IDS@@ per request)
+- Search CVEs by vendor, product, severity, CWE, CVSS, EPSS, KEV membership, ransomware use, and publish date
+- Decide what to patch first with a composite risk score (exploitability + impact + evidence)
+- Find public exploits for a CVE: GitHub PoC repositories, Metasploit modules, NVD exploit references, and ExploitDB entries. A GitHub repository is listed but not counted as proof of a public exploit
+- See the whole CVE exposure of one vendor and product, with the support dates of the product from endoflife.date
+- Find the exact CPE vendor and product names to filter by
+- Read a CISA KEV entry (due date, required action, known ransomware use)
+- Browse the MITRE CWE catalog for weakness descriptions, mitigations, and examples
+- Decode a CVSS v3.0/v3.1 vector and recompute its scores
+- Monitor CVEs, products, CVE searches, packages, domains and IP addresses with a watchlist on an API key, and read the CVE, package, end-of-life, domain and IP change events that match it with watchlist_events
+- See every product a CVE affects, with its version ranges, one page at a time
+- Get the leading CVEs of a product, ranked by EPSS and then CVSS
+- Check an open-source package version against OSV.dev advisories and the OpenSSF list of malicious packages, or many at once (up to @@PACKAGECHECKBULK_MAX_ITEMS@@ per request)
+- Check whether a password's SHA-1 hash is in Have I Been Pwned's Pwned Passwords list
+- Read a domain's DNS records, or check a host name for subdomain takeover
+- Check a domain's SPF, DMARC, DKIM, MX and MTA-STS records, with the DMARC policy that applies to it
+- Check an email address without sending mail: whether its domain takes mail, and whether it is disposable
+- Check the TLS certificate and settings of a host name on port 443: whether the certificate is trusted, when it expires, the TLS version and the cipher, and whether the SSL Blacklist of abuse.ch lists it
+- Check the security headers of a web site: Content-Security-Policy, Strict-Transport-Security, X-Frame-Options, Set-Cookie and five more, each rated pass, warn, fail or missing, with its issues and a fix
+- Look up the registration of a domain name over RDAP, or over WHOIS for a TLD without RDAP: its registrar, when it was registered and when it expires, its status values and its name servers
+- See when the Internet Archive's Wayback Machine first and last captured the home page of a host name, and its latest capture days
+- List the unexpired certificates that Certificate Transparency logs hold for a host name: the issuer, the validity, the revocation and the DNS names of each
+- List the subdomains of a registrable domain from Certificate Transparency, DNS guesses of 94 common names and the domain's MX, NS and SPF records, with a wildcard DNS check
+- Look up a public IP address: its AS, its country, the cloud or CDN range that holds it, whether it is a Tor exit or on the DROP list, and its PTR name
+- Look up an autonomous system (AS) by its number or by an address it holds: its name, its country and its IPv4 and IPv6 prefixes
+- Find the MITRE D3FEND defenses that counter a MITRE ATT&CK technique
+- Check a Windows driver file hash against the LOLDrivers catalog of vulnerable and malicious drivers (up to @@DRIVERLOOKUPBULK_MAX_IDS@@ per request)
+- Inspect an image: its format, the file signatures hidden in it and its metadata (REST only)
+
+## Authentication
+
+No API key needed, except for monitoring (the watchlist tools). Free: @@RL_ANON_CREDIT_LIMIT@@ credits/hour per IPv4 address or IPv6 /64.
+API key (@@RL_KEY_CREDIT_LIMIT@@ credits/hour): pass `Authorization: Bearer contrastapi_xxx` or `X-API-Key: contrastapi_xxx` header.
+Rate limit headers returned by requests that cost credits: X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset-Machine, X-RateLimit-Reset-Human. A 429 also carries Retry-After.
+Pay per call: a request without an API key can pay for one call with x402, in USDC on Solana, on the endpoints and tools that take payment. On REST, when its free credits are spent, the answer is 402 with a PAYMENT-REQUIRED header. Retry the same request with a PAYMENT-SIGNATURE header. One credit costs $@@PRICING_X402_USD_PER_CREDIT@@. On REST the call is charged only when it answers 200, and then the answer carries a PAYMENT-RESPONSE header. On MCP, a tools/call over its budget gets a tool result that holds the price. Retry the same call with the payment in params._meta["x402/payment"]. MCP ignores the PAYMENT-SIGNATURE header. The call is charged only on a successful tool result, and that result carries the receipt in result._meta["x402/payment-response"]. A request with an API key ignores the payment.
+
+## Credit Costs
+
+Most endpoints cost 1 credit per call. These differ:
+- `POST /image_inspect`: 2 credits (an image body of up to 16 MiB)
+- `GET /cert_search/{domain}`: 2 credits (keyed requests to Cert Spotter, one for each page)
+- `GET /subdomain_enum/{domain}`: 2 credits (up to 99 DNS questions and a keyed request to Cert Spotter)
+- `POST /cve_lookup_bulk`, `POST /cve_triage_bulk`: 1 credit per well-formed CVE ID in the request, at least 1
+- `POST /driver_lookup_bulk`: 1 credit per well-formed hash in the request, at least 1
+- `POST /package_check_bulk`: 1 credit per package in the request that is not skipped and that the work budget serves, at least 1
+- `GET /health`: 0 credits
+- MCP `tools/call`: the price of the matching endpoint; `tools/list` 1 credit; `initialize` and `ping` 0 credits
+
+## Endpoints
+
+### CVE Intelligence
+- GET /cve_lookup/{cve_id}: Full CVE record (CVSS, EPSS, KEV, CWE, references, CISA SSVC, Nuclei detection templates); `?include_ghsa=true` adds the GitHub Security Advisory
+- POST /cve_lookup_bulk: Bulk CVE lookup, body `{"cve_ids": [...]}` (up to @@CVELOOKUPBULK_MAX_IDS@@ IDs)
+- GET /cve_products/{cve_id}?vendor=&product=&limit=&offset=: The products a CVE affects, one page at a time, vulnerable ones first; the first page is the affected_products of /cve_lookup
+- GET /cve_search?vendor=&product=&severity=&cwe_id=&min_cvss=&min_epss=&in_kev=&known_ransomware=&has_nuclei_template=&published_after=&published_before=&include_rejected=&sort=&limit=&offset=: Search and filter CVEs (paginated); Rejected CVEs are left out unless include_rejected=true; sort by published_time (default, newest first), epss or cvss; a product filter answer carries product_filter_note
+- GET /cve_leading?vendor=&product=&min_epss=&in_kev=&known_ransomware=&has_nuclei_template=&include_rejected=&limit=: Top CVEs ranked by EPSS, then CVSS, with a verdict; Rejected CVEs are left out unless include_rejected=true; a product filter answer carries product_filter_note
+- GET /kev_lookup/{cve_id}: CISA KEV entry (date added, due date, required action, known ransomware use, CWE list)
+- GET /cwe_lookup/{cwe_id}: MITRE CWE record (description, mitigations, examples, parent CWE)
+- GET /cve_risk_score/{cve_id}: Composite risk score 0-100 (exploitability + impact + evidence) with label
+- GET /cve_exploit/{cve_id}: Public exploit intelligence (GitHub PoCs, Metasploit modules, NVD exploit references, ExploitDB entries)
+- GET /cve_triage?vendor=&product=&min_risk_score=&include_rejected=&limit=&offset=: CVEs ranked by composite risk score; lean rows (cve_id, risk_score, label); Rejected CVEs are left out unless include_rejected=true; a product filter answer carries product_filter_note
+- POST /cve_triage_bulk: Rank a list of CVE IDs by composite risk score, body `{"cve_ids": [...]}` (up to @@CVETRIAGEBULK_MAX_IDS@@ IDs)
+- GET /product_exposure?vendor=&product=&version=&include_rejected=: CVE exposure of one vendor+product: severity/KEV/PoC counts, max/avg CVSS, max EPSS, worst risk score, top CVEs by risk; eol gives the endoflife.date support dates of the product and, with a version, of its release cycle (null when the dates are unknown); Rejected CVEs are left out unless include_rejected=true; the answer carries product_filter_note
+- GET /cpe_search?search=&limit=&offset=: CPE vendor and product names that hold a text, ranked by vulnerable CVE count
+- GET /cvss_calculator?vector=: Decode a CVSS v3.0/v3.1 vector; recompute base, temporal and environmental scores
+
+### Package Vulnerabilities (SBOM)
+- GET /package_check?ecosystem=&name=&version=&limit=&offset=: A package of npm, PyPI, Maven, Go, NuGet, RubyGems, crates.io, Packagist or SwiftURL against the OSV.dev advisories of GitHub, Go, PyPA and RustSec, and the OpenSSF list of malicious packages; with version, whether it is affected and the version that fixes it; eol gives the endoflife.date support dates of the package, and of its release cycle with a version (null when the package maps to no product there)
+- POST /package_check_bulk: Many packages with exact versions at once, body `{"items": [{"ecosystem": ..., "name": ..., "version": ...}]}` (up to @@PACKAGECHECKBULK_MAX_ITEMS@@ packages); each result names fixed_version, malicious, up to 10 advisory ids and a short eol; packages past the credit budget or the work budget come back in not_processed, not charged
+
+### Credential Checks
+- GET /password_check/{sha1_hash}: Whether a password's SHA-1 is in Have I Been Pwned's Pwned Passwords list, and how often the list has seen it; only the first 5 hex digits leave the server
+
+### Domain Intelligence
+- GET /dns_lookup/{domain}: A, AAAA, MX, NS, TXT, CNAME, SOA and CAA records, the addresses that are not public, and the services TXT records name
+- GET /dns_takeover_check/{domain}: Subdomain takeover check: whether a host name's CNAME points to a name that does not exist, and whether a known service lets anyone claim that name (takeover_possible is null when the check cannot tell)
+- GET /email_auth_check/{domain}: Mail authentication check: the SPF record, the DMARC record that applies (RFC 9989 tree walk), the DKIM keys, the MX hosts and the MTA-STS record, with pass, warn or fail for each check. Optional: dkim_selector
+- GET /email_address_check/{email}: Email address check without sending mail: whether the domain exists and takes mail (MX hosts, its own address when it has no MX, or a null MX), and whether the disposable-email-domains blocklist (CC0 1.0) names the domain or a parent of it. The path segment is percent-decoded, so name%40example.com is name@example.com. A list that is not loaded yet answers null, and unavailable names it
+- GET /ssl_check/{domain}: TLS check on port 443: the TLS version, the cipher, the key exchange and the ALPN protocol, whether the certificate is trusted and why not, the revocation status from a stapled OCSP response, the days until it expires, its key and DNS names, the chain the server sent, and whether the SSL Blacklist of abuse.ch lists the certificate; a successful answer is kept for one hour, unless the list could not be read or holds no row yet
+- GET /headers_check/{domain}: Security headers of a web site: the server sends one GET to https://<domain>/, follows up to 5 redirects that stay on the host name or its www pair, and rates Content-Security-Policy, Strict-Transport-Security, X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Permissions-Policy, X-XSS-Protection, Set-Cookie and Access-Control-Allow-Origin, each with a severity, a result of pass, warn, fail or missing, its issues, its value and a remediation when it does not pass; the Set-Cookie finding shows no value, and cookie_count says how many cookies the site set, of which the first 50 are rated; a value is cut after 500 code points unless include_full_header_values=true, and so are url and redirect_to; a site that answers 4xx or 5xx is rated too; a redirect to another host is not followed and redirect_to shows it; redirect_limit_reached marks a chain the 5-redirect limit stopped on the site; a successful answer up to 1024 KiB is kept for one hour. Optional: include_full_header_values
+- GET /whois_lookup/{domain}: Domain registration over RDAP, which replaced WHOIS for generic TLDs in 2025, or over WHOIS on TCP port 43 for a TLD without an RDAP server whose registry's terms allow it: the registrar and its IANA Registrar ID, the dates of registration, last change and expiry, the status values, the name servers and whether the delegation is signed with DNSSEC; a name under a registered domain asks about the registered domain; a TLD with neither server answers available false with reason no_registry_server; a server past its per-minute limit, which all callers share, answers available false with reason quota_exhausted and retry_after_seconds; no registrant or contact data; an answer with a registration is kept for one hour
+- GET /wayback_lookup/{domain}: Wayback Machine captures of a host name's home page: the first and the last capture day, the years between them, and the latest 10 capture days, each with the HTTP status, the media type and a link to the capture; the server reads only the capture list of the Internet Archive's CDX server and never fetches a captured page; no count of all captures; an answer with the capture list is kept for one day
+- GET /cert_search/{domain}: Unexpired certificates that Certificate Transparency logs hold for a host name, wildcard certificates that match it included, from SSLMate's Cert Spotter: its answer read page by page up to 5 pages, with complete true only when the walk reaches the empty page that ends it, certificate_count for every certificate read, and up to 10 certificates whose validity starts last among those read, each with its SHA-256, its issuer and the CAA domains that allow it, its validity, whether it is revoked, and its first 20 DNS names; when the cap of 5 pages stops the walk, complete is false and a newer certificate may be missing from the list; a call sends up to 6 requests to Cert Spotter and the server sends at most 100 in each hour, for all callers, and a call past that, or cut by it or by a 429 after some pages, answers available false with retry_after_seconds and no part of the list; an answer with the certificate list is kept for one day
+- GET /subdomain_enum/{domain}: Subdomains of a registrable domain, from three sources: the certificates SSLMate's Cert Spotter lists for the domain and every name under it (the first page of its answer), DNS A questions for 94 common names, and the hosts the domain's MX, NS and SPF records name; a name under a domain asks about its registrable domain, and a public suffix is refused; wildcard_dns is absent, present or undetermined, and the common names that resolved are kept only when it is absent; subdomains lists up to 50 names, those DNS confirms first, then by name, each with its hostname and its sources certificate_logs, dns_wordlist or dns_records; subdomain_count counts every name found, up to 1000, so 1000 means 1000 or more; when certificate_logs_available is true, certificate_logs_complete is true only when Cert Spotter's first page is empty; the server sends at most 5 such requests to Cert Spotter in each hour, for all callers, and a request past that, or one Cert Spotter asks to wait, answers certificate_logs_available false with certificate_logs_reason quota_exhausted and retry_after_seconds; a Cert Spotter that gives no usable answer in 3 seconds, or a server without a Cert Spotter key, answers certificate_logs_reason upstream_error; either way the DNS names are listed; an answer with the Cert Spotter names is kept for one day, a quota_exhausted answer for its retry_after_seconds and at least 10 minutes, and an upstream_error answer for 10 minutes; an answer whose wildcard_dns is undetermined is kept for 10 minutes; retry_after_seconds is the wait when the answer was made, so a kept answer can name a longer wait than is left
+
+### IP Intelligence
+- GET /ip_lookup/{ip_address}: IP lookup: the server looks up a public IPv4 or IPv6 address in its local copies of IPtoASN, DB-IP Lite (IP Geolocation by DB-IP, https://db-ip.com), the published address ranges of cloud and CDN providers, the Tor exit list and the DROP list. It answers the AS number, name and country, the country of the address, the cloud provider and service, is_cdn, is_datacenter, is_tor_exit, the DROP prefixes that list it, and the PTR name. A list that is not loaded yet answers null, and unavailable names it. A Pro caller with its own stored Shodan or AbuseIPDB key gets internet_exposure or reputation filled; otherwise each slot says why it is empty in reason. With both keys an answer can take about 9 seconds, and about 12 with a free Shodan key
+- GET /asn_lookup/{target}: AS lookup: the target is an AS number, such as AS15169 or 15169, or a public IPv4 or IPv6 address. The server reads its local copy of IPtoASN and answers the AS number, name and registration country, the prefix that holds the address, the count of IPv4 and IPv6 prefixes and one page of each family in address order. The prefixes are derived from IPtoASN ranges, not taken from BGP. Optional: limit (1-50, default 50) and offset (default 0) pick the page of each family; next_offset starts the next page
+
+### Image Inspection
+- POST /image_inspect: The format, the SHA-256, the signatures of other files hidden in an image, the metadata exiftool reads from it and the indicators drawn from that metadata; the body is the image itself, up to 16 MiB; no MCP tool
+
+### Threat Defense
+- GET /d3fend_for_attack/{attack_technique_id}: MITRE D3FEND defenses that counter a MITRE ATT&CK technique, such as T1055, and its sub-techniques, with a count for each D3FEND tactic
+- GET /driver_lookup/{file_hash}?include_commands=: A Windows driver file hash (MD5, SHA1, SHA256 or Authentihash) in the LOLDrivers catalog of vulnerable and malicious drivers: each matching driver file, its driver's category and detection rules (the rules are context, not for blocking: block on the file and Authenticode hashes)
+- POST /driver_lookup_bulk: Many driver file hashes in the LOLDrivers catalog at once, body `{"hashes": [...]}` (up to @@DRIVERLOOKUPBULK_MAX_IDS@@ hashes)
+
+### Watchlist (API key required)
+- POST /watchlist_edit: Add, remove, list or clear the items of the key's watchlist, body `{"action": "add", "endpoint": "cve_search", ...}`; an item names a watchable endpoint and the values it watches: a CVE id, a vendor and product with an optional version, cve_search filters, a package_check ecosystem, name and optional version, or a dns_lookup, ssl_check, whois_lookup, headers_check or cert_search domain, or an ip_lookup IP address; a packages array (up to 500 package items) with action add or remove adds or removes many package items in one call, all or nothing, and a refusal lists every element with a problem
+- GET /watchlist_events?limit=&cursor=&repeat=: The CVE, package, end-of-life, domain and IP changes that match the watchlist, oldest first, grouped by item, with a `cves` map, a `domains` map, an `advisories` map and an `attribution` array; the server keeps the position
+
+### Meta
+- GET /health: API health, database freshness, and the sync state of each upstream feed (0 credits)
+- GET /privacy_my_data: What the server keeps about the caller: the hash its credit budget is counted under, the rate limit left this hour, and a link to the privacy policy. For a Pro key it shows whether a Shodan key and an AbuseIPDB key are stored, and a link to change them
+- POST /vendor_key_edit: Save, delete or check the Shodan and AbuseIPDB keys of a Pro API key, by the key itself or by a manage link
+
+An unknown query parameter is refused with HTTP 400.
+
+## MCP (Model Context Protocol)
+
+ContrastAPI is available as an MCP server.
+MCP tools: cve_lookup, cve_lookup_bulk, cve_products, cve_search, cve_leading, kev_lookup, cwe_lookup,
+cve_risk_score, cve_exploit, cve_triage, cve_triage_bulk, product_exposure, cpe_search,
+cvss_calculator, watchlist_edit, watchlist_events, password_check, dns_lookup, dns_takeover_check,
+email_auth_check, email_address_check, ssl_check, headers_check, whois_lookup, wayback_lookup, cert_search, subdomain_enum,
+ip_lookup, asn_lookup, d3fend_for_attack, driver_lookup, driver_lookup_bulk, package_check, package_check_bulk,
+health, privacy_my_data, vendor_key_edit.
+
+### HTTP Transport (remote)
+POST https://api.contrastcyber.com/mcp/
+Headers: Content-Type: application/json
+Body: JSON-RPC 2.0 (initialize, tools/list, tools/call)
+Responses are plain JSON: no SSE stream, no session id.
+
+## For agent builders
+
+- Transport: plain JSON over streamable HTTP. A request gets one JSON object back. There is no SSE stream and no session id.
+- `initialize` is optional. The server is stateless, so `tools/call` works without a handshake.
+- `tools/list` costs 1 credit. Call it once and keep the catalogue. `initialize` and `ping` cost nothing.
+- Budgeting: an answer that costs credits carries `X-RateLimit-Remaining`. A `tools/call` costs what its REST endpoint costs.
+- Bulk tools return a partial result when your credits run short. The ids or packages the budget did not cover come back in `not_processed`, and they are not charged.
+- Capability pages: [CVE, EPSS & KEV API with Monitoring](https://api.contrastcyber.com/cve-api), [Package & SBOM Vulnerability API with Monitoring](https://api.contrastcyber.com/package-vulnerability-api), [Domain Intelligence & Monitoring API](https://api.contrastcyber.com/domain-monitoring-api), [IP & ASN Intelligence API with Monitoring](https://api.contrastcyber.com/ip-intelligence-api), [Security Monitoring API: CVE, Package, Domain & IP Watchlist](https://api.contrastcyber.com/security-monitoring-api)
+- [MCP setup](https://api.contrastcyber.com/mcp-setup)
+- [MCP documentation](https://github.com/UPinar/contrastapi/blob/main/docs/MCP_Documentation.md)
+- [API documentation](https://github.com/UPinar/contrastapi/blob/main/docs/API_Documentation.md)
+- [Source code on GitHub](https://github.com/UPinar/contrastapi)
+
+## Quick Examples
+
+### CVE Lookup
+GET https://api.contrastcyber.com/cve_lookup/CVE-2024-3094
+→ Returns severity, CVSS v3/v4, description, EPSS score, KEV status, CWEs, references, affected products
+
+### CISA KEV Detail
+GET https://api.contrastcyber.com/kev_lookup/CVE-2021-44228
+→ Returns date added, due date, required action, known ransomware use, CWE list
+
+### Patch Priority
+GET https://api.contrastcyber.com/cve_triage?vendor=apache&min_risk_score=70
+→ Returns CVEs ranked by composite risk score, highest first
+
+### Product Exposure
+GET https://api.contrastcyber.com/product_exposure?vendor=cisco&product=ios
+→ Returns severity/KEV/PoC counts, worst scores, and the top CVEs by risk for that product, and its end of life dates (add &version=22.21.1 for one release cycle)
+
+### Exploit Intelligence
+GET https://api.contrastcyber.com/cve_exploit/CVE-2021-44228
+→ Returns GitHub PoC repositories, Metasploit modules, NVD exploit references, and ExploitDB entries

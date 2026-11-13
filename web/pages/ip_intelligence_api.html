@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IP &amp; ASN Intelligence API with Monitoring | ContrastAPI</title>
+  <meta name="description" content="Free IP and ASN lookup API: AS number, country, cloud and CDN range, Tor exit and DROP listing over REST and MCP. A Pro key adds monitoring of IPs you watch.">
+  <meta property="og:title" content="IP &amp; ASN Intelligence API with Monitoring | ContrastAPI">
+  <meta property="og:description" content="Free IP and ASN lookup API: AS number, country, cloud and CDN range, Tor exit and DROP listing over REST and MCP. A Pro key adds monitoring of IPs you watch.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://api.contrastcyber.com/ip-intelligence-api">
+  <meta property="og:image" content="https://api.contrastcyber.com/static/og-image.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="ContrastAPI: security data and monitoring API and MCP server">
+  <meta property="og:site_name" content="ContrastAPI">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="IP &amp; ASN Intelligence API with Monitoring | ContrastAPI">
+  <meta name="twitter:description" content="Free IP and ASN lookup API: AS number, country, cloud and CDN range, Tor exit and DROP listing over REST and MCP. A Pro key adds monitoring of IPs you watch.">
+  <meta name="twitter:image" content="https://api.contrastcyber.com/static/og-image.png">
+  <meta name="theme-color" content="#e9ebee" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#06101d" media="(prefers-color-scheme: dark)">
+  <link rel="canonical" href="https://api.contrastcyber.com/ip-intelligence-api">
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="/static/favicon-192.png">
+  <script src="/static/js/theme-init.js?v=@@THEME_INIT_JS_VERSION@@"></script>
+  <link rel="stylesheet" href="/static/style.css?v=@@STYLE_CSS_VERSION@@">
+  <link rel="stylesheet" href="/static/css/page.css?v=@@PAGE_CSS_VERSION@@">
+  <script src="/static/js/landing.js?v=@@LANDING_JS_VERSION@@" defer></script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      {
+        "@type": "Question",
+        "name": "Does it support IPv6?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Yes. ip_lookup and asn_lookup take public IPv4 and IPv6 addresses."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Can I tell if an IP is a Tor exit or a cloud address?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Yes. ip_lookup returns is_tor_exit, and the cloud provider, the service and is_cdn when a published range holds the address."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Are the AS prefixes the same as BGP announcements?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Not always. asn_lookup derives its prefixes from IPtoASN ranges, so they can differ from what the AS announces in BGP."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Does it need an API key?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "No. Both tools work without a key, within the hourly credit limit."
+        }
+      }
+    ]
+  }
+  </script>
+</head>
+<body>
+  @@NAV@@
+
+  <main class="page">
+    <h1 class="capability-title">IP &amp; ASN Intelligence API with Monitoring</h1>
+    <p class="subtitle">Look up a public IP address or an autonomous system. The answer names the AS, the country, the cloud or CDN range and whether the address is a Tor exit. The tools are free without an API key and work over REST and as MCP tools, for developers and AI agents.</p>
+    <h2>What you can ask</h2>
+    <div class="endpoint-group">
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/ip_lookup/{ip_address}</span>
+        <span class="endpoint-desc">MCP <code>ip_lookup</code>. The AS, country, cloud or CDN range, Tor exit status, DROP listing and PTR name of a public IP address. A Pro caller fills the Shodan and AbuseIPDB slots with its own key. <a href="https://github.com/UPinar/contrastapi/blob/main/docs/API_Documentation.md#ip-lookup-get-ip_lookupip_address">API docs</a></span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
+        <span class="endpoint-path">/asn_lookup/{target}</span>
+        <span class="endpoint-desc">MCP <code>asn_lookup</code>. An autonomous system by AS number or by an address it holds: name, country and prefixes. <a href="https://github.com/UPinar/contrastapi/blob/main/docs/API_Documentation.md#asn-lookup-get-asn_lookuptarget">API docs</a></span>
+      </div>
+    </div>
+    <h2>Example</h2>
+    <div class="code-block"><span class="lang">bash</span><code>curl https://api.contrastcyber.com/ip_lookup/8.8.8.8</code></div>
+    <p>Example response, trimmed; the values are an example:</p>
+    <div class="code-block"><span class="lang">json</span><code>{
+  "ip_address": "8.8.8.8",
+  "asn": 15169,
+  "asn_name": "GOOGLE",
+  "asn_country": "US",
+  "geo_country": "US",
+  "cloud_provider": "google",
+  "cloud_service": "google",
+  "is_cdn": false,
+  "is_datacenter": true,
+  "is_tor_exit": false,
+  "listed_on": [],
+  "ptr": "dns.google"
+}</code></div>
+    <h2>From an agent</h2>
+    <p>Your agent calls these MCP tools: <code>ip_lookup</code> and <code>asn_lookup</code>. Connect once with the <a href="/mcp-setup">MCP setup</a>, then ask in plain words.</p>
+    <ul>
+      <li>&ldquo;Which AS and country does 8.8.8.8 belong to?&rdquo;</li>
+      <li>&ldquo;Is this IP address a Tor exit or a cloud address?&rdquo;</li>
+      <li>&ldquo;List the prefixes of AS15169.&rdquo;</li>
+      <li>&ldquo;Tell me when 8.8.8.8 lands on the DROP list or moves to another host.&rdquo;</li>
+    </ul>
+    <h2>Limits</h2>
+    <p>Without a key you get @@RL_ANON_CREDIT_LIMIT@@ credits per hour. A Pro key gets @@RL_KEY_CREDIT_LIMIT@@ credits per hour. These tools have no bulk form.</p>
+    <h2>Monitor it</h2>
+    <p>A Pro key can watch public IP addresses, one address per item. Add an item with <code>watchlist_edit</code>. Then read its change events with <code>watchlist_events</code>. You pull the events when you want them.</p>
+    <p>An IP item names one address and makes no request to it. The server compares the address with its local lists about every 15 minutes, after one of the lists is updated. An event says when the address lands on the DROP list, when it leaves the list, and when its hosting changes, such as from one AS to a cloud range. The hosting event comes after the new class is seen twice. A DROP event also carries the date and the copyright text of the list. They stay with the data, as the list asks.</p>
+    <table class="watch-events">
+      <thead><tr><th>Watched endpoint</th><th>Events</th></tr></thead>
+      <tbody>
+        <tr><td><code>ip_lookup</code></td><td><code>drop_listed</code> <code>drop_unlisted</code> <code>hosting_changed</code></td></tr>
+      </tbody>
+    </table>
+    <p>See <a href="/pricing">pricing</a> for the Pro key. The <a href="/security-monitoring-api">security monitoring page</a> lists every watched endpoint and its events.</p>
+    <h2>Data sources</h2>
+    <ul>
+      <li><strong>IPtoASN:</strong> PDDL 1.0. Local copy. <code>/health</code> shows the sync state of each feed.</li>
+      <li><strong>DB-IP IP to Country Lite:</strong> CC BY 4.0. <a href="https://db-ip.com">IP Geolocation by DB-IP</a>. Local copy.</li>
+      <li><strong>Tor bulk exit list (The Tor Project):</strong> local copy.</li>
+      <li><strong>DROP list:</strong> free under the DROP Fair Use Policy. Local copy.</li>
+      <li><strong>Cloud and CDN ranges:</strong> the address ranges that AWS, Google, Microsoft Azure, Cloudflare, Fastly, Bunny and Gcore publish. Local copy.</li>
+      <li><strong>PTR names:</strong> asked live from the server's own DNS resolver.</li>
+      <li><strong>Shodan and AbuseIPDB:</strong> asked live, only for a Pro key that saved its own Shodan or AbuseIPDB key at <a href="/vendor-keys">vendor keys</a>. They fill the <code>internet_exposure</code> and <code>reputation</code> members.</li>
+    </ul>
+    <div class="faq">
+      <h2>FAQ</h2>
+      <dl>
+        <dt>Does it support IPv6?</dt>
+        <dd>Yes. ip_lookup and asn_lookup take public IPv4 and IPv6 addresses.</dd>
+        <dt>Can I tell if an IP is a Tor exit or a cloud address?</dt>
+        <dd>Yes. ip_lookup returns is_tor_exit, and the cloud provider, the service and is_cdn when a published range holds the address.</dd>
+        <dt>Are the AS prefixes the same as BGP announcements?</dt>
+        <dd>Not always. asn_lookup derives its prefixes from IPtoASN ranges, so they can differ from what the AS announces in BGP.</dd>
+        <dt>Does it need an API key?</dt>
+        <dd>No. Both tools work without a key, within the hourly credit limit.</dd>
+      </dl>
+    </div>
+    <h2>Docs and source</h2>
+    <ul>
+      <li><a href="https://github.com/UPinar/contrastapi/blob/main/docs/API_Documentation.md">API documentation</a></li>
+      <li><a href="https://github.com/UPinar/contrastapi/blob/main/docs/MCP_Documentation.md">MCP documentation</a></li>
+      <li><a href="https://github.com/UPinar/contrastapi">Source code on GitHub</a></li>
+    </ul>
+  </main>
+
+  @@FOOTER@@
+  <script src="/static/js/theme.js?v=@@THEME_JS_VERSION@@"></script>
+</body>
+</html>

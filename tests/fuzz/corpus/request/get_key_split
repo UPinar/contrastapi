@@ -1,0 +1,5 @@
+GET /cve_lookup/CVE-2024-3094?include_ghsa=true HTTP/1.1
+Host: api
+Authorization: Bearer cc_KEY
+X-Real-IP: 203.0.113.7
+

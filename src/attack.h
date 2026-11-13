@@ -1,0 +1,7 @@
+#ifndef ATTACK_H
+#define ATTACK_H
+
+#define ATTACK_TECHNIQUE_ID_MIN_LEN  5
+#define ATTACK_TECHNIQUE_ID_MAX_LEN  9
+
+#endif

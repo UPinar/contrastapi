@@ -1,0 +1,83 @@
+#ifndef WEB_ASSETS_H
+#define WEB_ASSETS_H
+
+#include <stdint.h>
+
+extern const unsigned char web_assets_styleCss[];
+extern const uint64_t      web_assets_styleCssByteCount;
+extern const unsigned char web_assets_pageCss[];
+extern const uint64_t      web_assets_pageCssByteCount;
+extern const unsigned char web_assets_landingJs[];
+extern const uint64_t      web_assets_landingJsByteCount;
+extern const unsigned char web_assets_welcomeJs[];
+extern const uint64_t      web_assets_welcomeJsByteCount;
+extern const unsigned char web_assets_cryptoCheckoutJs[];
+extern const uint64_t      web_assets_cryptoCheckoutJsByteCount;
+extern const unsigned char web_assets_vendorKeysJs[];
+extern const uint64_t      web_assets_vendorKeysJsByteCount;
+extern const unsigned char web_assets_themeInitJs[];
+extern const uint64_t      web_assets_themeInitJsByteCount;
+extern const unsigned char web_assets_themeJs[];
+extern const uint64_t      web_assets_themeJsByteCount;
+extern const unsigned char web_assets_geistMonoWoff2[];
+extern const uint64_t      web_assets_geistMonoWoff2ByteCount;
+extern const unsigned char web_assets_faviconSvg[];
+extern const uint64_t      web_assets_faviconSvgByteCount;
+extern const unsigned char web_assets_favicon32Png[];
+extern const uint64_t      web_assets_favicon32PngByteCount;
+extern const unsigned char web_assets_favicon192Png[];
+extern const uint64_t      web_assets_favicon192PngByteCount;
+extern const unsigned char web_assets_appleTouchIconPng[];
+extern const uint64_t      web_assets_appleTouchIconPngByteCount;
+extern const unsigned char web_assets_ogImagePng[];
+extern const uint64_t      web_assets_ogImagePngByteCount;
+extern const unsigned char web_assets_logoPhPng[];
+extern const uint64_t      web_assets_logoPhPngByteCount;
+extern const unsigned char web_assets_logoNavPng[];
+extern const uint64_t      web_assets_logoNavPngByteCount;
+extern const unsigned char web_assets_faviconIco[];
+extern const uint64_t      web_assets_faviconIcoByteCount;
+extern const unsigned char web_assets_robotsTxt[];
+extern const uint64_t      web_assets_robotsTxtByteCount;
+extern const unsigned char web_assets_serverCardJson[];
+extern const uint64_t      web_assets_serverCardJsonByteCount;
+extern const unsigned char web_assets_indexHtml[];
+extern const uint64_t      web_assets_indexHtmlByteCount;
+extern const unsigned char web_assets_quickstartHtml[];
+extern const uint64_t      web_assets_quickstartHtmlByteCount;
+extern const unsigned char web_assets_mcpSetupHtml[];
+extern const uint64_t      web_assets_mcpSetupHtmlByteCount;
+extern const unsigned char web_assets_pricingHtml[];
+extern const uint64_t      web_assets_pricingHtmlByteCount;
+extern const unsigned char web_assets_botHtml[];
+extern const uint64_t      web_assets_botHtmlByteCount;
+extern const unsigned char web_assets_cveApiHtml[];
+extern const uint64_t      web_assets_cveApiHtmlByteCount;
+extern const unsigned char web_assets_packageVulnerabilityApiHtml[];
+extern const uint64_t      web_assets_packageVulnerabilityApiHtmlByteCount;
+extern const unsigned char web_assets_domainMonitoringApiHtml[];
+extern const uint64_t      web_assets_domainMonitoringApiHtmlByteCount;
+extern const unsigned char web_assets_ipIntelligenceApiHtml[];
+extern const uint64_t      web_assets_ipIntelligenceApiHtmlByteCount;
+extern const unsigned char web_assets_securityMonitoringApiHtml[];
+extern const uint64_t      web_assets_securityMonitoringApiHtmlByteCount;
+extern const unsigned char web_assets_termsHtml[];
+extern const uint64_t      web_assets_termsHtmlByteCount;
+extern const unsigned char web_assets_privacyHtml[];
+extern const uint64_t      web_assets_privacyHtmlByteCount;
+extern const unsigned char web_assets_welcomeHtml[];
+extern const uint64_t      web_assets_welcomeHtmlByteCount;
+extern const unsigned char web_assets_vendorKeysHtml[];
+extern const uint64_t      web_assets_vendorKeysHtmlByteCount;
+extern const unsigned char web_assets_navHtml[];
+extern const uint64_t      web_assets_navHtmlByteCount;
+extern const unsigned char web_assets_footerHtml[];
+extern const uint64_t      web_assets_footerHtmlByteCount;
+extern const unsigned char web_assets_llmsTxt[];
+extern const uint64_t      web_assets_llmsTxtByteCount;
+extern const unsigned char web_assets_sitemapXml[];
+extern const uint64_t      web_assets_sitemapXmlByteCount;
+extern const unsigned char web_assets_apiDocumentationMd[];
+extern const uint64_t      web_assets_apiDocumentationMdByteCount;
+
+#endif

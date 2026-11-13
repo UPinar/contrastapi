@@ -1,0 +1,4 @@
+2026-07-28
+tools/call
+cve_lookup
+{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"cve_lookup","arguments":{"cve_id":"CVE-2021-44228"},"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{},"io.modelcontextprotocol/clientCapabilities":{},"x402/payment":{"x402Version":2,"payload":{}}}}}

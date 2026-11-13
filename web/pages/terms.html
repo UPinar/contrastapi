@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Terms of Service | ContrastAPI</title>
+  <meta name="description" content="The terms of service for the ContrastAPI security data API and MCP server.">
+  <meta property="og:title" content="Terms of Service | ContrastAPI">
+  <meta property="og:description" content="The terms of service for the ContrastAPI security data API and MCP server.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://api.contrastcyber.com/terms">
+  <meta property="og:image" content="https://api.contrastcyber.com/static/og-image.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="ContrastAPI: security data and monitoring API and MCP server">
+  <meta property="og:site_name" content="ContrastAPI">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Terms of Service | ContrastAPI">
+  <meta name="twitter:description" content="The terms of service for the ContrastAPI security data API and MCP server.">
+  <meta name="twitter:image" content="https://api.contrastcyber.com/static/og-image.png">
+  <meta name="theme-color" content="#e9ebee" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#06101d" media="(prefers-color-scheme: dark)">
+  <link rel="canonical" href="https://api.contrastcyber.com/terms">
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="/static/favicon-192.png">
+  <script src="/static/js/theme-init.js?v=@@THEME_INIT_JS_VERSION@@"></script>
+  <link rel="stylesheet" href="/static/style.css?v=@@STYLE_CSS_VERSION@@">
+  <link rel="stylesheet" href="/static/css/page.css?v=@@PAGE_CSS_VERSION@@">
+  <script src="/static/js/landing.js?v=@@LANDING_JS_VERSION@@" defer></script>
+</head>
+<body>
+  @@NAV@@
+
+  <main class="page">
+    <h1>Terms of Service</h1>
+    <p class="subtitle">Last updated: 2026-11-10</p>
+
+    <h2 class="section-title">1. Service Description</h2>
+    <p class="endpoints-lede">ContrastCyber ("we", "us") operates <strong>ContrastAPI</strong> at api.contrastcyber.com and the website at contrastcyber.com with its CVE pages (together, the "Service"). The Service is open to consumers and to businesses. ContrastAPI is a security data and monitoring API and MCP server. It answers questions about CVEs, public exploits, software packages, Windows drivers, domain names, TLS certificates, e-mail domains, IP addresses and image metadata. You can call it over REST, as the <a href="/quickstart">API quickstart</a> shows. You can also call it as a Model Context Protocol (MCP) server, as the <a href="/mcp-setup">MCP setup guide</a> shows. The Service is provided as is, with no warranty.</p>
+
+    <h2 class="section-title">2. Informational Only</h2>
+    <p class="endpoints-lede">Every result of ContrastAPI is for information only. It is <strong>not a substitute for a professional security audit</strong>. CVE scores, exploit flags, IP address flags and domain checks come from public data sources and from our own rules. They may be incomplete, out of date, or wrong for your situation. Do not rely on our results alone for production security decisions, incident response or compliance attestation.</p>
+
+    <h2 class="section-title">3. Acceptable Use</h2>
+    <p class="endpoints-lede">The Service reads public information. That includes vulnerability databases, DNS records, TLS certificates, domain registration data, Certificate Transparency logs, web archive capture lists, HTTP response headers and public block lists. We make no exploit attempt and no login or password attempt. We make no SMTP connection. The <a href="/bot">bot page</a> lists every request the Service sends to another host. You agree not to:</p>
+    <ul class="freshness-list">
+      <li>Use the Service for any illegal purpose.</li>
+      <li>Try to overwhelm or disrupt the Service, for example with a DDoS attack or with automated requests beyond your hourly credits.</li>
+      <li>Get around the rate limits, the authentication, or the limits the Service sets on its own requests to an upstream source.</li>
+      <li>Resell raw API responses as a competing security data service without our written permission.</li>
+      <li>Use results to help an attack, harassment, doxxing or unauthorized intrusion against a third party.</li>
+      <li>Share, transfer or publish your Pro API key, or embed it in client-side code, a public repository or shared infrastructure.</li>
+      <li>Use a lookup, such as the e-mail address check, to harvest personal data for marketing, profiling or stalking.</li>
+    </ul>
+
+    <h2 class="section-title">4. Free &amp; Pro Plans</h2>
+    <p class="endpoints-lede"><strong>4.1 Free tier.</strong> The free tier needs no API key and no signup. It allows @@RL_ANON_CREDIT_LIMIT@@ credits per hour for each IPv4 address or IPv6 /64. You may use it for personal and commercial work. Every endpoint and MCP tool is open on the free tier, except the monitoring (watchlist) tools. Those need a Pro key.</p>
+    <p class="endpoints-lede"><strong>4.2 Pro plan.</strong> A Pro key allows @@RL_KEY_CREDIT_LIMIT@@ credits per hour for each key. It also opens monitoring (watchlist) of CVEs, products, CVE searches, packages, domain names and IP addresses. You read its change events yourself, with <code>watchlist_events</code>. The <a href="/pricing">pricing page</a> shows the current price. Subscriptions are billed through our payment processors:</p>
+    <ul class="freshness-list">
+      <li>Card payments go through Lemon Squeezy. They are billed monthly or yearly, as you choose, until you cancel.</li>
+      <li>Crypto payments go through NOWPayments. Each one is a one-time invoice for a key that works for 30 days. You renew it by paying again.</li>
+    </ul>
+    <p class="endpoints-lede">If you are not satisfied with a card subscription, ask for a refund within 7 days of your first payment. You then get it in full. A full refund ends your key at once. Renewals are not refunded. Crypto payments are not refunded. You can cancel at any time. Your key then keeps working until the end of the period you paid for.</p>
+    <p class="endpoints-lede">Nothing in these Terms limits a right that mandatory consumer law gives you.</p>
+    <p class="endpoints-lede">By subscribing, you agree to keep your API key confidential. You are responsible for all usage under your key. You agree not to share or resell it. We may revoke an API key that violates these Terms, without refund. We may change prices and rate limits. We give existing subscribers 30 days notice before such a change.</p>
+    <p class="endpoints-lede"><strong>4.3 Pay per call.</strong> A request without an API key may pay for one call with USDC on Solana, through the x402 protocol, on the REST endpoints and MCP tools that take payment. The price is the credit cost of the call at $@@PRICING_X402_USD_PER_CREDIT@@ per credit. The Service charges a payment only when the call is served: on a REST endpoint, when it answers 200, and on an MCP tool, when the tool result is served. Any other answer releases a payment that is not settled, and nothing is charged. A payment can be pending, which means the Service has not yet learned its result. Retry the call with the same payment, and do not sign a second one. A pending payment that the network has confirmed is paid, even when the call that found it was not served. A retry with the same payment then serves the call. One wallet can have one payment in flight at a time. The Service has no function that refunds a settled payment. If a payment was charged and the call was not served, write to us (see section 16), and we refund it by hand. This rule is for pay-per-call payments only. It does not change the rule above that crypto payments for a Pro key are not refunded.</p>
+
+    <h2 class="section-title">5. Rate Limits</h2>
+    <p class="endpoints-lede">The free tier allows @@RL_ANON_CREDIT_LIMIT@@ credits per hour for each IPv4 address or IPv6 /64. A Pro key allows @@RL_KEY_CREDIT_LIMIT@@ credits per hour for each key. Each call costs credits, as the <a href="/#costs">credit costs</a> list shows. The budget resets at the start of each hour. The Service also caps its own requests to each upstream source, such as an RDAP server or Cert Spotter. All callers share each of those caps, so one caller can use up a cap for everyone. The <a href="/bot">bot page</a> describes them.</p>
+
+    <h2 class="section-title">6. Abusive Usage</h2>
+    <p class="endpoints-lede">We may block, throttle or ban any IP address, network, API key or user engaged in abusive usage. Abusive usage includes, but is not limited to, these acts: automated scraping beyond the rate limits, credential stuffing, cycling through many keys or addresses, bursts of requests aimed at a third party, and any activity that degrades the Service for other users. A block may cover one IP address, an address range or an API key.</p>
+
+    <h2 class="section-title">7. Service Availability</h2>
+    <p class="endpoints-lede">The Service may change, be interrupted or be discontinued without notice. We do not guarantee uptime or availability, and we offer no service level agreement (SLA). We may add, change or remove endpoints and tools. Our data comes from public sources, and it can lag behind them. The <code>/health</code> endpoint reports the freshness of each data source. If we discontinue the Service, we refund the unused prepaid part of a card subscription. Crypto payments are not refunded, as section 4.2 says.</p>
+
+    <h2 class="section-title">8. Data Collection</h2>
+    <p class="endpoints-lede">The <a href="/privacy">Privacy Policy</a> describes in full what the Service stores. In short:</p>
+    <ul class="freshness-list">
+      <li>The rate limiter stores a keyed hash of your IP address, or a hash of your API key, with a credit count. That row stays at most @@RL_RETENTION_MAX_MINUTES@@ minutes from the start of its hour.</li>
+      <li>An API key is stored as its SHA-256 hash. The database never holds the key itself.</li>
+      <li>The usage log holds one line for each connection. A line holds no IP address, no API key, no query, no body and no argument value.</li>
+      <li>Some answers are kept for a while and served to any caller who asks the same question. Such a kept answer holds no API key and no IP address of the caller.</li>
+      <li>A Pro key's monitoring list holds the items you add to it.</li>
+    </ul>
+    <p class="endpoints-lede">You can call <code>GET /privacy_my_data</code> at any time. It returns the hash the Service metered your request by, and it links to the Privacy Policy.</p>
+
+    <h2 class="section-title">9. Third-Party Lookups</h2>
+    <p class="endpoints-lede">Many endpoints look up data about third-party domain names, host names, IP addresses, e-mail addresses or organizations. You are responsible for making sure that your use of these lookups follows the laws that apply to you. Those may include data protection, anti-stalking, computer misuse and telecommunications laws. We do not check whether you are allowed to look up a given target. Some answers hold data from public catalogs and services. Their own terms and licences govern that data. The <a href="https://github.com/UPinar/contrastapi/blob/main/docs/API_Documentation.md#data-sources-and-licenses" target="_blank" rel="noopener">data sources and licenses</a> section of the API documentation lists them.</p>
+    <p class="endpoints-lede">A Pro key can save its own Shodan key or AbuseIPDB key, and <code>ip_lookup</code> then asks that vendor with it. The answer holds the vendor's data, from Shodan or from AbuseIPDB. The key owner is responsible for using a saved key under the terms of that vendor.</p>
+
+    <h2 class="section-title">10. Intellectual Property</h2>
+    <p class="endpoints-lede">Catalog data belongs to its publishers. Examples are the CVE List, NIST NVD, CISA KEV, FIRST EPSS, MITRE CWE and MITRE D3FEND. Each publisher licenses its data under its own terms. The API documentation names the licence or the terms of each source.</p>
+
+    <h2 class="section-title">11. Disclaimer of Warranties</h2>
+    <p class="endpoints-lede">THE SERVICE IS PROVIDED "AS IS" WITHOUT WARRANTIES OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT. WE DO NOT WARRANT THAT THE SERVICE WILL BE UNINTERRUPTED, ERROR-FREE, OR FREE OF HARMFUL COMPONENTS. WE MAKE NO GUARANTEES ABOUT THE ACCURACY, COMPLETENESS, OR RELIABILITY OF ANY RESULTS, INCLUDING THIRD-PARTY THREAT DATA AND CVE METADATA.</p>
+
+    <h2 class="section-title">12. Limitation of Liability</h2>
+    <p class="endpoints-lede">TO THE EXTENT THE LAW ALLOWS, IN NO EVENT SHALL CONTRASTCYBER BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR PUNITIVE DAMAGES ARISING FROM YOUR USE OF THE SERVICE, INCLUDING BUT NOT LIMITED TO: DATA LOSS, SECURITY BREACHES RESULTING FROM RELIANCE ON API RESULTS, BUSINESS INTERRUPTION, MISSED VULNERABILITIES, OR LOSS OF PROFITS. TO THE EXTENT THE LAW ALLOWS, OUR TOTAL LIABILITY SHALL NOT EXCEED THE AMOUNT YOU PAID US IN THE 12 MONTHS PRECEDING THE CLAIM.</p>
+
+    <h2 class="section-title">13. Indemnification</h2>
+    <p class="endpoints-lede">You agree to indemnify and hold harmless ContrastCyber from any claims, damages or expenses that arise from your use of the Service, from your violation of these Terms, or from your violation of a third party's rights. Such a violation includes an unauthorized lookup against a person or an organization.</p>
+
+    <h2 class="section-title">14. Governing Law</h2>
+    <p class="endpoints-lede">The laws of the Republic of Turkey govern these Terms. The courts of Istanbul, Turkey, resolve any dispute. If you are a consumer, this choice does not take away the mandatory protections of the country where you live, or your right to go to its courts where that law gives it.</p>
+
+    <h2 class="section-title">15. Changes to Terms</h2>
+    <p class="endpoints-lede">We may update these Terms at any time. When you keep using the Service, you accept the updated Terms. We announce material changes on this website.</p>
+
+    <h2 class="section-title">16. Contact</h2>
+    <p class="endpoints-lede">For questions about these Terms, write to <a href="mailto:contact@contrastcyber.com">contact@contrastcyber.com</a>.</p>
+  </main>
+
+  @@FOOTER@@
+  <script src="/static/js/theme.js?v=@@THEME_JS_VERSION@@"></script>
+</body>
+</html>

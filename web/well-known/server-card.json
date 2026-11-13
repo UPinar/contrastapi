@@ -1,0 +1,31 @@
+{
+  "$schema": "https://modelcontextprotocol.io/schemas/server-card.json",
+  "version": "1.0",
+  "protocolVersion": "@@MCP_PROTOCOL_VERSION@@",
+  "serverInfo": {
+    "name": "contrastapi",
+    "title": "ContrastAPI: Security Data & Monitoring API, MCP Server",
+    "description": "@@MCP_SERVER_INSTRUCTIONS@@",
+    "version": "@@VERSION@@",
+    "homepage": "https://api.contrastcyber.com/",
+    "repository": "https://github.com/UPinar/contrastapi"
+  },
+  "transport": [
+    {
+      "type": "streamable-http",
+      "url": "https://api.contrastcyber.com/mcp/"
+    }
+  ],
+  "capabilities": {
+    "tools": true,
+    "resources": false,
+    "prompts": false
+  },
+  "provider": {
+    "name": "ContrastCyber",
+    "url": "https://contrastcyber.com"
+  },
+  "auth": "none",
+  "tools_count": @@TOOL_COUNT@@,
+  "documentation": "https://github.com/UPinar/contrastapi/blob/main/docs/MCP_Documentation.md"
+}

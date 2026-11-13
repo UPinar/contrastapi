@@ -1,0 +1,1069 @@
+/* === ContrastAPI Styles === */
+
+/* Self-hosted Geist Mono (variable, all weights) */
+@font-face {
+  font-family: 'Geist Mono';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('/static/fonts/geist-mono.woff2') format('woff2');
+}
+
+/* Theme. Every colour of the site is a token here. :root holds the light palette.
+   The dark palette comes two ways: from the device setting through the media query,
+   and from the theme button through data-theme on <html>. theme-init.js sets
+   data-theme before the first paint, and theme.js sets it on a click. A stored
+   "light" choice beats a dark device, so the media block skips [data-theme="light"].
+   The two dark blocks hold the same values; a change goes into both.
+   color-scheme tells the browser which theme its own parts take: scrollbars and
+   form fields. The dark palette is navy, the light one a dimmed neutral grey. Each
+   text colour reaches 4.5:1 (WCAG 2) on the backgrounds it sits on; a colour added
+   later is measured where it is set. */
+:root {
+  color-scheme: light;
+  --bg:            #e9ebee;
+  --bg-card:       #f3f4f6;
+  /* --bg-hover is the fill under a hovered link or row. --text-muted on it is 6.46
+     light and 6.28 dark. */
+  --bg-hover:      #e1e4e8;
+  --bg-code:       #e2e5e9;
+  /* --bg-code-inline is the fill of an inline <code>. --text-muted on it
+     is 6.40 light and 6.06 dark. */
+  --bg-code-inline: #e0e3e7;
+  --border:        #d0d4d9;
+  /* --border-dim is a card edge. It is decoration, so it has no contrast floor. */
+  --border-dim:    #d9dce1;
+  --text:          #14171b;
+  --text-muted:    #4a4f57;
+  --text-dim:      var(--text-muted);
+  --primary:       #025a8b;
+  /* --primary-hover is a filled button under the pointer. --on-primary on it
+     is 9.95 light and 11.45 dark. */
+  --primary-hover: #014670;
+  --on-primary:    #ffffff;
+  --focus:         var(--primary);
+  --gold:          #985306;
+  --green:         #137337;
+  /* --green-on-tint is green text on a green-tinted badge. In the light theme --green
+     is 4.35 there and this one is 5.71 or more. The dark --green is 7.36 there. */
+  --green-on-tint: #0f5f2d;
+  --red:           #b91c1c;
+  --yellow:        #905806;
+  --orange:        #b43c0b;
+  --code-key:      #025a8b;
+  --code-str:      #1d6b3f;
+  --code-num:      #985306;
+  --code-bool:     #6d3fc0;
+  --grid-line:     rgba(20, 23, 27, 0.05);
+  --shadow-card:   0 1px 3px rgba(20, 23, 27, 0.08);
+  /* The tints mix a colour into the clear background, so they follow the theme. */
+  --tint-primary:  color-mix(in srgb, var(--primary) 10%, transparent);
+  --tint-primary-strong: color-mix(in srgb, var(--primary) 15%, transparent);
+  --tint-primary-edge: color-mix(in srgb, var(--primary) 30%, transparent);
+  --tint-green:    color-mix(in srgb, var(--green) 10%, transparent);
+  --tint-green-edge: color-mix(in srgb, var(--green) 20%, transparent);
+  --glow:          color-mix(in srgb, var(--primary) 8%, transparent);
+  --font-mono:  'Geist Mono', 'JetBrains Mono', 'Fira Code', 'SF Mono', monospace;
+  --ease:       cubic-bezier(.2,.7,.3,1);
+  --speed:      0.24s;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg:            #06101d;
+    --bg-card:       #0c1a2c;
+    --bg-hover:      #12233a;
+    --bg-code:       #0a1626;
+    --bg-code-inline: #16263b;
+    --border:        #1c2c42;
+    --border-dim:    #15243a;
+    --text:          #e6eef7;
+    --text-muted:    #93a5ba;
+    --primary:       #38bdf8;
+    --primary-hover: #7dd3fc;
+    --on-primary:    #06101d;
+    --gold:          #f2b544;
+    --green:         #4ade80;
+    --green-on-tint: #4ade80;
+    --red:           #f87171;
+    --yellow:        #facc15;
+    --orange:        #fb923c;
+    --code-key:      #38bdf8;
+    --code-str:      #6ee7a8;
+    --code-num:      #f2b544;
+    --code-bool:     #c4a5ff;
+    --grid-line:     rgba(230, 238, 247, 0.03);
+    --shadow-card:   0 1px 3px rgba(0, 0, 0, 0.4);
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg:            #06101d;
+  --bg-card:       #0c1a2c;
+  --bg-hover:      #12233a;
+  --bg-code:       #0a1626;
+  --bg-code-inline: #16263b;
+  --border:        #1c2c42;
+  --border-dim:    #15243a;
+  --text:          #e6eef7;
+  --text-muted:    #93a5ba;
+  --primary:       #38bdf8;
+  --primary-hover: #7dd3fc;
+  --on-primary:    #06101d;
+  --gold:          #f2b544;
+  --green:         #4ade80;
+  --green-on-tint: #4ade80;
+  --red:           #f87171;
+  --yellow:        #facc15;
+  --orange:        #fb923c;
+  --code-key:      #38bdf8;
+  --code-str:      #6ee7a8;
+  --code-num:      #f2b544;
+  --code-bool:     #c4a5ff;
+  --grid-line:     rgba(230, 238, 247, 0.03);
+  --shadow-card:   0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: var(--font-mono);
+  /* The grid is part of the body background, not a fixed layer of its own. Firefox
+     can paint a fixed ::before layer over cards and text; a background always stays
+     under the content. */
+  background-color: var(--bg);
+  background-image:
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size: 3rem 3rem;
+  background-attachment: fixed;
+  color: var(--text);
+  min-block-size: 100vh;
+  overflow-x: hidden;
+  font-size: 0.875rem;
+}
+
+/* A body that holds a .page part is a flex column, so on a page shorter than the window
+   the .page part takes the spare height and the footer stays at the bottom. In a flex
+   column a child with auto side margins shrinks to its content, so every child in the flow
+   takes the full width again. Its max-inline-size still caps it. .glow is fixed and keeps
+   its own width. The home page and /bot have no .page part: a flex column would add up the
+   margins between their sections, which normal flow lets overlap. */
+body:has(> .page) { display: flex; flex-direction: column; }
+body:has(> .page) > *:not(.glow) { inline-size: 100%; }
+body > .page { flex-grow: 1; }
+
+/* Nav. The markup order is logo, theme button, hamburger, links. On a narrow screen
+   the theme button takes the spare width before it, so it and the hamburger stand at
+   the right end. The opened links wrap to a row of their own below. From 640px on
+   the hamburger hides, the links move before the theme button through order, and
+   they take the spare width instead. No item is positioned out of the flow. */
+nav {
+  position: relative;
+  z-index: 50;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 0.5rem;
+  max-inline-size: 68.75rem;
+  margin-inline: auto;
+  padding-block: 1rem;
+  padding-inline: 1.25rem;
+  /* Transparent, so the background grid runs on behind the nav and the open menu. */
+  background-color: transparent;
+}
+
+.logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.3125rem 0.75rem 0.3125rem 0.375rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--bg-card);
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  text-decoration: none;
+  color: var(--text);
+  transition: border-color 0.15s;
+}
+
+/* The logo image sits on the card fill of the box. On the dark page fill the navy
+   edge of the octagon would vanish. */
+.logo img { display: block; inline-size: 1.75rem; block-size: 1.75rem; }
+.logo-text span { color: var(--primary); }
+.logo:hover { border-color: var(--primary); }
+.logo:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+/* .theme-btn and .hamburger share one box: a 2.25rem square with a thin edge on the
+   card fill. The theme button shows the theme a click switches to. */
+.theme-btn,
+.hamburger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-inline-size: 2.25rem;
+  min-block-size: 2.25rem;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--bg-card);
+  color: var(--text);
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+
+.theme-btn:hover,
+.hamburger:hover { border-color: var(--primary); }
+
+.theme-btn:focus-visible,
+.hamburger:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+.theme-btn {
+  margin-inline-start: auto;
+  font: 600 1rem / 1 system-ui, "Segoe UI", Roboto, Ubuntu, sans-serif;
+}
+
+/* Hero CTA */
+.btn-cta {
+  display: inline-block;
+  margin-block-start: 0.75rem;
+  padding: 0.85rem 1.75rem;
+  border-radius: 0.5rem;
+  background: var(--primary);
+  color: var(--on-primary);
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background 0.2s, transform 0.1s;
+  white-space: nowrap;
+}
+
+.btn-cta:hover { background: var(--primary-hover); }
+.btn-cta:active { transform: scale(0.98); }
+
+.nav-links {
+  display: none;
+  flex-basis: 100%;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  padding-block-start: 1.5rem;
+  padding-block-end: 0.5rem;
+  border-block-start: 1px solid var(--border);
+  margin-block-start: 1rem;
+}
+
+.nav-links.open { display: flex; }
+
+.nav-links a {
+  display: inline;
+  color: var(--text-muted);
+  text-decoration: none;
+  font-size: 0.85rem;
+  font-weight: 500;
+  padding: 0.6rem 1.5rem;
+  border-radius: 0.5rem;
+  transition: color 0.2s, background-color 0.2s;
+}
+
+.nav-links a:visited { color: var(--text-muted); text-decoration: none; }
+.nav-links a:hover {
+  color: var(--text);
+  background-color: var(--bg-hover);
+}
+
+.nav-links a:focus-visible {
+  color: var(--text);
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* Hamburger: its box is the shared rule above. */
+.hamburger { z-index: 20; }
+
+/* The three lines of the icon stay in the flow. ::before is the top line and ::after
+   the bottom one, at the two ends of a flex column. The middle line is a gradient strip
+   across the centre of the column. */
+.hamburger__lines {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  width: 1.25rem;
+  height: 0.875rem;
+  background: linear-gradient(var(--text-muted), var(--text-muted)) center / 100% 0.125rem no-repeat;
+  transition: background-size 0.24s;
+}
+
+.hamburger__lines::before,
+.hamburger__lines::after {
+  content: "";
+  height: 0.125rem;
+  background-color: var(--text-muted);
+  border-radius: 0.125rem;
+  transition: transform 0.24s;
+  transform-origin: 50% 50%;
+}
+
+.hamburger[aria-expanded="true"] .hamburger__lines {
+  background-size: 0 0.125rem;
+}
+
+.hamburger[aria-expanded="true"] .hamburger__lines::before {
+  transform: translateY(0.375rem) rotate(45deg);
+}
+
+.hamburger[aria-expanded="true"] .hamburger__lines::after {
+  transform: translateY(-0.375rem) rotate(-45deg);
+}
+
+/* Hero */
+.glow {
+  position: fixed;
+  top: -12.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 43.75rem;
+  height: 31.25rem;
+  background: radial-gradient(ellipse, var(--glow) 0%, transparent 70%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.hero {
+  position: relative;
+  z-index: 10;
+  text-align: center;
+  max-width: 42rem;
+  margin: 0 auto;
+  padding: 4rem 2rem 2rem;
+}
+
+.pill {
+  display: inline-block;
+  padding: 0.3rem 0.9rem;
+  border-radius: 6.25rem;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  letter-spacing: 0.05em;
+  margin-block-end: 1.75rem;
+}
+
+h1 {
+  font-size: 2.25rem;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  line-height: 1.15;
+  margin-block-end: 1.25rem;
+}
+
+h1 .gradient { color: var(--primary); }
+
+.subtitle {
+  font-size: 0.95rem;
+  line-height: 1.7;
+  color: var(--text-muted);
+  max-width: 30rem;
+  margin: 0 auto 2.5rem;
+}
+
+.api-counter {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin: -1.5rem 0 0.5rem;
+  opacity: 0.7;
+}
+
+/* Endpoints */
+.endpoints {
+  position: relative;
+  z-index: 10;
+  max-width: 52rem;
+  margin: 0 auto;
+  padding: 0 2rem;
+}
+
+.section-title {
+  font-size: 1rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text);
+  margin-block-end: 1rem;
+  margin-block-start: 2.5rem;
+}
+
+.section-title:first-child { margin-block-start: 0; }
+
+.endpoint-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-block-end: 1rem;
+}
+
+.endpoint {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 0.75rem;
+  row-gap: 0.25rem;
+  padding: 0.75rem 1rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--border-dim);
+  background: var(--bg-card);
+  transition: border-color 0.2s, background 0.2s;
+  align-items: start;
+}
+.endpoint .method { align-self: center; grid-row: 1 / span 2; }
+.endpoint .endpoint-path { grid-column: 2; grid-row: 1; min-width: 0; }
+.endpoint .endpoint-desc { grid-column: 2; grid-row: 2; padding-inline-start: 0; }
+/* Solo path (no description): center the path vertically next to method. */
+.endpoint .endpoint-path:only-of-type { grid-row: 1 / span 2; align-self: center; }
+
+.endpoint:hover {
+  border-color: var(--border);
+  background: var(--bg-hover);
+}
+
+.method {
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 0.2rem 0.5rem;
+  border-radius: 0.25rem;
+  min-width: 2.75rem;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.method.get  { background: var(--tint-green);          color: var(--green-on-tint); }
+.method.post { background: var(--tint-primary-strong); color: var(--primary); }
+
+.endpoint-path {
+  font-size: 0.85rem;
+  color: var(--text);
+  font-weight: 700;
+  overflow-wrap: anywhere;
+  word-break: break-all;
+  line-height: 1.5;
+}
+
+/* Rule-list variant (e.g. /bot "What we don't do"). It has the same card chrome,
+   but the text is a sentence, not a path, so word-break:break-all would
+   chop mid-word. Let it wrap on natural word boundaries instead. */
+.endpoint-group.rules .endpoint-path {
+  overflow-wrap: normal;
+  word-break: normal;
+  color: var(--text-dim);
+  font-weight: 400;
+}
+
+.endpoint-desc {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  flex-basis: 100%;
+  padding-inline-start: 3.5rem;  /* aligns under path: method min-width + gap */
+  margin: 0;
+  line-height: 1.5;
+}
+
+.section-optional {
+  /* A token, not opacity: opacity 0.6 gives 4.42:1 on the light background, below 4.5. */
+  color: var(--text-muted);
+  font-size: 0.75em;
+  font-weight: normal;
+}
+
+/* Paragraph links inside .page (quickstart, mcp-setup) match the setup-card link color.
+   :not(.btn-cta) preserves CTA button styling. */
+.page p a:not(.btn-cta) {
+  color: var(--primary);
+  text-decoration: none;
+  font-weight: 500;
+}
+.page p a:not(.btn-cta):hover { text-decoration: underline; }
+.page p a:not(.btn-cta):visited { color: var(--primary); }
+
+/* v1.23.0 docs strip on /quickstart + /mcp-setup. The :visited override is needed
+   because the UA visited stylesheet would otherwise paint the link purple. */
+.docs-strip a, .docs-strip a:visited {
+  color: var(--primary);
+  text-decoration: none;
+  font-weight: 500;
+}
+.docs-strip a:hover { text-decoration: underline; }
+
+/* Code examples */
+.example-section {
+  position: relative;
+  z-index: 10;
+  max-width: 52rem;
+  margin: 3rem auto 0;
+  padding: 0 2rem;
+}
+
+pre {
+  background: var(--bg-code);
+  border: 1px solid var(--border-dim);
+  border-radius: 0.75rem;
+  padding: 1.25rem;
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  line-height: 1.7;
+  color: var(--text-muted);
+  margin-block-end: 1rem;
+}
+
+.key  { color: var(--code-key); }
+.str  { color: var(--code-str); }
+.num  { color: var(--code-num); }
+.bool { color: var(--code-bool); }
+
+code {
+  background: var(--bg-code-inline);
+  padding: 0.15rem 0.4rem;
+  border-radius: 0.25rem;
+  font-size: 0.75rem;
+  font-family: inherit;
+}
+
+/* Auth section */
+.auth-section {
+  position: relative;
+  z-index: 10;
+  max-width: 52rem;
+  margin: 3rem auto 0;
+  padding: 0 2rem;
+}
+
+.auth-tiers {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+.tier {
+  padding: 1.5rem;
+  border-radius: 0.75rem;
+  border: 1px solid var(--border-dim);
+  background: var(--bg-card);
+}
+
+.tier h3 {
+  font-size: 0.9rem;
+  font-weight: 700;
+  margin-block-end: 0.25rem;
+}
+
+.tier .price {
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  margin-block-end: 1rem;
+}
+
+.tier ul {
+  list-style: none;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.tier ul li {
+  padding: 0.3rem 0;
+}
+
+.tier ul li::before {
+  content: '✓ ';
+  color: var(--green);
+}
+
+.tier.pro {
+  border-color: var(--tint-primary-edge);
+}
+
+.btn-pro {
+  display: inline-block;
+  margin-block-start: 1rem;
+  padding: 0.6rem 1.25rem;
+  border-radius: 0.375rem;
+  background: var(--primary);
+  color: var(--on-primary);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background 0.2s, transform 0.1s;
+}
+
+.btn-pro:hover { background: var(--primary-hover); }
+.btn-pro:active { transform: scale(0.98); }
+
+/* FAQ */
+.faq { max-inline-size: 45rem; margin-inline: auto; margin-block: 3rem; }
+.faq h2 { color: var(--text); font-size: 1.1rem; margin-block-end: 1rem; }
+.faq dt { color: var(--text-muted); font-size: 0.9rem; font-weight: 600; margin-block-start: 1rem; }
+.faq dd { color: var(--text-muted); font-size: 0.85rem; margin-block-start: 0.3rem; }
+
+/* Footer: the same layout as the Go site. Link groups stand side by side under their
+   labels. Below a line, the legal links and the copyright sit at the two edges. */
+footer {
+  position: relative;
+  z-index: 10;
+  text-align: start;
+  padding-block: 2rem;
+  padding-inline: 1.25rem;
+  color: var(--text-dim);
+  font-size: 0.75rem;
+  border-block-start: 1px solid var(--border-dim);
+  max-inline-size: 68.75rem;
+  margin-inline: auto;
+  margin-block-start: 2rem;
+}
+
+footer a, footer a:visited { color: var(--text-dim); text-decoration: none; transition: color 0.2s; }
+footer a:hover { color: var(--text-muted); }
+
+.footer-links { display: flex; flex-wrap: wrap; gap: 0.25rem 1.5rem; }
+.footer-links a { padding-block: 0.25rem; }
+
+/* .footer-groups sets the link groups side by side. Each .footer-group is a column under
+   its .footer-label heading. */
+.footer-groups { display: flex; flex-wrap: wrap; gap: 1.5rem 5rem; }
+.footer-group { display: flex; flex-direction: column; align-items: flex-start; }
+.footer-group a, .footer-group a:visited { color: var(--text-muted); padding-block: 0.25rem; }
+.footer-group a:hover { color: var(--text); }
+.footer-label { color: var(--text); font-size: 0.75rem; font-weight: 700; letter-spacing: 0.08em; margin-block-end: 0.5rem; text-transform: uppercase; }
+
+.footer-divider { margin-block: 1.25rem; border: 0; border-block-start: 1px solid var(--border-dim); }
+
+/* .footer-site holds the site links: terms, privacy, the bot page and contact. */
+.footer-site { font-size: 0.75rem; }
+
+/* .footer-bottom keeps the legal links and the copyright on one line, at the two edges. */
+.footer-bottom { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 0.5rem 1.5rem; }
+
+footer p { color: var(--text-dim); margin: 0; }
+
+/* Desktop (640px+) */
+@media screen and (min-width: 640px) {
+  nav {
+    flex-wrap: nowrap;
+    column-gap: 1.75rem;
+    padding: 1.25rem 2rem;
+  }
+
+  .hamburger { display: none; }
+
+  .theme-btn {
+    order: 2;
+    margin-inline-start: 0;
+  }
+
+  .nav-links {
+    order: 1;
+    display: flex;
+    flex-basis: auto;
+    flex-direction: row;
+    align-items: center;
+    gap: 1.75rem;
+    padding: 0;
+    border: none;
+    margin: 0;
+    margin-inline-start: auto;
+  }
+
+  .nav-links a {
+    font-size: 0.8rem;
+    padding: 0;
+    border-radius: 0;
+  }
+
+  .nav-links a:hover {
+    background-color: transparent;
+  }
+
+  footer {
+    padding-inline: 2rem;
+  }
+}
+
+/* Mobile */
+@media (max-width: 639px) {
+  h1 { font-size: 1.75rem; }
+  .subtitle { font-size: 0.85rem; }
+  .hero { padding: 3rem 1.25rem 1.5rem; }
+  .endpoints, .example-section, .auth-section { padding: 0 1.25rem; }
+  .endpoint-desc { display: none; }
+  .auth-tiers { grid-template-columns: 1fr; }
+  footer { padding: 1.5rem 1.25rem; }
+  /* As on the Go site: the link groups sit closer, and the legal links and the copyright
+     stack and centre. */
+  .footer-groups { gap: 1.5rem 2.5rem; }
+  .footer-bottom { flex-direction: column; }
+}
+
+/* Shared page container (docs / legal pages: quickstart, mcp-setup, pricing, terms, privacy) */
+.page { max-inline-size: 64rem; margin-inline: auto; padding: 3rem 2rem; position: relative; z-index: 1; }
+.page h1 { font-size: 2.25rem; font-weight: 800; letter-spacing: -0.04em; margin-block-end: 0.5rem; }
+.page h1 span { color: var(--primary); }
+.page .subtitle { color: var(--text-dim); margin: 0 0 3rem; max-width: none; }
+
+@media (max-width: 639px) {
+  .page h1 { font-size: 1.75rem; }
+}
+
+/* ============================================ */
+/* Landing v10: Hero CTAs, Trust Strip, Setup, Use Cases */
+/* ============================================ */
+
+/* Nav GitHub star: high specificity wins without !important */
+.nav-links a.gh-star {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  border: 1px solid var(--border);
+  padding: 0.35rem 0.75rem;
+  border-radius: 0.375rem;
+  background: var(--bg-card);
+  color: var(--text);
+  font-size: 0.75rem;
+  line-height: 1;
+  transition: background 0.2s, border-color 0.2s;
+}
+.nav-links a.gh-star:hover {
+  background: var(--bg-hover);
+  border-color: var(--primary);
+  color: var(--text);
+}
+
+/* Hero CTA group (2 buttons side by side) */
+.cta-group {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 1rem;
+}
+
+.btn-cta-secondary {
+  display: inline-block;
+  padding: 0.85rem 1.75rem;
+  border-radius: 0.5rem;
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background 0.2s, border-color 0.2s, transform 0.1s;
+  white-space: nowrap;
+}
+.btn-cta-secondary:hover {
+  background: var(--bg-hover);
+  border-color: var(--primary);
+}
+.btn-cta-secondary:active { transform: scale(0.98); }
+
+.cta-group .btn-cta {
+  margin-block-start: 0;
+}
+
+.cta-microcopy {
+  margin: 0.9rem auto 0;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  max-width: 32rem;
+}
+
+/* Hero curl one-liner */
+.hero-curl-wrap {
+  position: relative;
+  margin: 1.5rem auto 0;
+  max-width: 38rem;
+}
+.hero-curl {
+  margin: 0;
+  background: var(--bg-code);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  padding: 0.85rem 2.6rem 0.85rem 1.1rem;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--text);
+  text-align: start;
+  overflow-x: auto;
+  white-space: pre;
+}
+.hero-curl .prompt { color: var(--text-muted); user-select: none; }
+.hero-curl code { font: inherit; color: inherit; background: none; padding: 0; }
+
+/* A copy-wrap is one box: the command scrolls in its pre, and the copy button sits next
+   to it at the right end of the row. */
+.copy-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  background: var(--bg-code);
+  border: 1px solid var(--border-dim);
+  border-radius: 0.375rem;
+  margin: 0 0 0.6rem;
+  padding-inline-end: 0.45rem;
+}
+div.copy-wrap > pre { flex: 1; min-width: 0; margin: 0; background: none; border: 0; }
+.copy-wrap .copy-btn,
+.hero-curl-wrap .copy-btn {
+  flex-shrink: 0;
+  width: 1.75rem;
+  height: 1.75rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 0.3rem;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+.copy-wrap .copy-btn:hover,
+.hero-curl-wrap .copy-btn:hover { background: var(--bg-hover); color: var(--text); border-color: var(--border); }
+.copy-wrap .copy-btn:focus-visible,
+.hero-curl-wrap .copy-btn:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.copy-wrap .copy-btn .icon-check,
+.hero-curl-wrap .copy-btn .icon-check { display: none; color: var(--green); }
+.copy-wrap .copy-btn.copied .icon-copy,
+.hero-curl-wrap .copy-btn.copied .icon-copy { display: none; }
+.copy-wrap .copy-btn.copied .icon-check,
+.hero-curl-wrap .copy-btn.copied .icon-check { display: inline; }
+.copy-wrap .copy-btn.copied,
+.hero-curl-wrap .copy-btn.copied { color: var(--green); }
+
+/* Trust Strip (post-hero social proof) */
+.trust-strip {
+  position: relative;
+  z-index: 10;
+  max-width: 52rem;
+  margin: 2rem auto 3rem;
+  padding: 0 2rem;
+}
+.trust-strip-inner {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.6rem 1.5rem;
+  padding: 0.9rem 1.25rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border-dim);
+  border-radius: 0.5rem;
+  font-size: 0.78rem;
+  color: var(--text);
+}
+.trust-strip-inner span { white-space: nowrap; }
+.trust-strip-inner strong { color: var(--primary); font-weight: 700; }
+.trust-strip-inner a {
+  color: var(--text);
+  text-decoration: underline;
+  text-decoration-color: var(--border);
+  text-underline-offset: 3px;
+}
+.trust-strip-inner a:hover { text-decoration-color: var(--primary); }
+
+/* 30-Second Setup cards */
+.setup-section { margin-bottom: 3rem; }
+.setup-section .section-title { margin-bottom: 1.25rem; }
+.setup-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+.setup-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-dim);
+  border-radius: 0.5rem;
+  padding: 1.1rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  box-shadow: var(--shadow-card);
+  min-width: 0;
+  overflow: hidden;
+}
+.setup-card h3 {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text);
+  margin: 0 0 0.75rem;
+  letter-spacing: -0.01em;
+}
+.setup-card pre {
+  background: var(--bg-code);
+  border: 1px solid var(--border-dim);
+  border-radius: 0.375rem;
+  padding: 0.7rem 0.85rem;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--text);
+  overflow-x: auto;
+  margin: 0 0 0.6rem;
+  white-space: pre;
+  line-height: 1.55;
+  max-width: 100%;
+  min-width: 0;
+}
+.setup-card a {
+  margin-top: auto;
+  font-size: 0.75rem;
+  color: var(--primary);
+  text-decoration: none;
+  font-weight: 600;
+}
+.setup-card a:hover { text-decoration: underline; }
+.setup-card-note {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin: 0 0 0.6rem;
+  line-height: 1.5;
+}
+.setup-card-badge {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  margin-left: 0.4rem;
+  text-transform: uppercase;
+}
+.setup-card-tag {
+  font-size: 0.75rem;
+  color: var(--green);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  margin-left: 0.3rem;
+  vertical-align: middle;
+}
+
+/* GitHub CTA */
+.github-cta {
+  position: relative;
+  z-index: 10;
+  max-width: 52rem;
+  margin: 0 auto;
+  padding: 0 2rem 2rem;
+}
+.github-cta-inner {
+  text-align: center;
+  padding: 2rem 1rem;
+  border: 1px solid var(--border-dim);
+  border-radius: 0.5rem;
+  background: var(--bg-card);
+}
+.github-cta-text {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  margin: 0 0 1rem;
+}
+.btn-github {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.65rem 1.5rem;
+  background: var(--text);
+  color: var(--bg);
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  font-weight: 600;
+  border-radius: 0.5rem;
+  text-decoration: none;
+  transition: background 0.2s var(--ease);
+}
+.btn-github:hover { background: color-mix(in srgb, var(--text) 85%, var(--bg)); }
+
+/* Use Cases cards */
+.use-cases-section { margin-top: 3rem; margin-bottom: 3rem; }
+.use-cases-section .section-title { margin-bottom: 1.25rem; }
+.use-cases {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+.use-case {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  padding: 1.1rem 1.25rem;
+  box-shadow: var(--shadow-card);
+  min-width: 0;
+  overflow: hidden;
+}
+.use-case h3 {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--text);
+  margin: 0 0 0.6rem;
+  letter-spacing: -0.01em;
+}
+.use-case p {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  line-height: 1.65;
+  margin: 0;
+}
+.use-case code {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--primary);
+  background: var(--tint-primary);
+  padding: 0.1rem 0.35rem;
+  border-radius: 0.25rem;
+}
+.use-case em {
+  color: var(--text);
+  font-style: italic;
+}
+
+/* Mobile responsive */
+@media (max-width: 767px) {
+  .setup-cards, .use-cases { grid-template-columns: 1fr; }
+  .hero-curl { font-size: 0.75rem; padding: 0.75rem 0.9rem; }
+  .cta-group { flex-direction: column; align-items: stretch; }
+  .cta-group .btn-cta, .cta-group .btn-cta-secondary { text-align: center; }
+  .trust-strip { margin: 1.5rem auto 2rem; }
+  .trust-strip-inner { gap: 0.5rem 1rem; font-size: 0.75rem; padding: 0.75rem 1rem; }
+}
+
+/* CSP Phase 2: utility classes replacing inline style attrs */
+.endpoints-mt { margin-top: 3rem; }
+.endpoints-lede { color: var(--text-muted); font-size: 0.9rem; margin: 0.5rem 0 1rem 0.5rem; }
+.endpoints-lede a { color: var(--primary); text-decoration: none; }
+.endpoints-lede a:visited { color: var(--primary); }
+.endpoints-lede a:hover { text-decoration: underline; }
+.code-accent { color: var(--primary); }
+.freshness-note { color: var(--text-muted); margin: 0.5rem 0; font-size: 0.8rem; }
+.freshness-list { color: var(--text-muted); margin: 0.75rem 0 0; padding-inline-start: 1.5rem; font-size: 0.85rem; line-height: 1.6; list-style-position: outside; }
+.freshness-list li { margin-block-end: 0.4rem; padding-inline-start: 0.25rem; }
+.freshness-list strong { color: var(--text); font-weight: 600; }
+.freshness-list a, .freshness-list a:visited { color: var(--primary); text-decoration: none; }
+.freshness-list a:hover { text-decoration: underline; }
+.pg-input-grow { flex: 1; }
+.pg-input-narrow { max-width: 5rem; }
+
+/* Home page: every section starts 3rem below the content of the one above it. */
+body.home .hero { padding-bottom: 0; }
+body.home .hero .subtitle { margin-bottom: 0; }
+body.home > section:not(.hero) { margin-top: 3rem; margin-bottom: 0; }
+body.home > section > .section-title:first-child { margin-block-start: 0; }
+body.home .section-title { margin-block-start: 3rem; }
+body.home footer { margin-top: 3rem; }
+
+/* A User-Agent on /bot stands on a line of its own and is not broken, so a reader can
+   match it against a log line. A narrow screen gets a smaller font. If the line is still
+   wider than its box, it scrolls inside the box and the page keeps its width. */
+code.ua { display: block; width: fit-content; max-width: 100%; overflow-x: auto; white-space: nowrap; margin: 0.5rem 0 0; }
+.hero code.ua { margin: 0.5rem auto 0; }
+@media (max-width: 480px) { code.ua { font-size: 0.75rem; } }
