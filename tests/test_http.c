@@ -501,7 +501,7 @@ void test_file_url_is_refused(void)
 
 void test_every_request_ignores_proxies_and_names_the_bot_page(void)
 {
-  TEST_ASSERT_EQUAL_STRING("ContrastAPI/1.0.0 (+https://api.contrastcyber.com/bot; contact@contrastcyber.com)", HTTP_USER_AGENT);
+  TEST_ASSERT_EQUAL_STRING("ContrastAPI/2.0.0 (+https://api.contrastcyber.com/bot; contact@contrastcyber.com)", HTTP_USER_AGENT);
 
   HttpResponse_t resp = http_GET("https://example.invalid/", 3000, NULL);
   TEST_ASSERT_NOT_NULL(g_proxy);
