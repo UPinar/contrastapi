@@ -253,8 +253,16 @@ static void static_addIssuer(CertSpotterCertificateList_t* list, const CertSpott
 
   size_t key_len = 0;
   for (int i = 0; i < candidate.m_caaDomainCount; i++)
-    key_len += (size_t)snprintf(candidate.ma_key + key_len, sizeof(candidate.ma_key) - key_len, "%s%s", i > 0 ? "," : "", candidate.ma_caaDomains[i]);
-  assert(key_len <= CERTSPOTTER_ISSUER_KEY_MAX_LEN);
+  {
+    size_t key_room = sizeof(candidate.ma_key) - key_len;
+    int    written  = snprintf(candidate.ma_key + key_len, key_room, "%s%s", i > 0 ? "," : "", candidate.ma_caaDomains[i]);
+    if (written < 0 || (size_t)written >= key_room)
+    {
+      list->m_isIssuerDropped = true;
+      return;
+    }
+    key_len += (size_t)written;
+  }
   if (candidate.m_caaDomainCount == 0)
     snprintf(candidate.ma_key, sizeof(candidate.ma_key), "%s", certificate->ma_issuer);
 

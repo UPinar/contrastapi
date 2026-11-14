@@ -19,7 +19,13 @@ jobs:
           sudo apt-get install -y libpq-dev libssl-dev libcurl4-openssl-dev pkg-config cppcheck g++
 
       - name: Build (zero warnings)
-        run: make
+        shell: bash
+        run: |
+          make 2>&1 | tee build.log
+          if grep -n 'warning:' build.log; then
+            echo "the build printed the warnings above"
+            exit 1
+          fi
 
       - name: Test suite
         run: make test

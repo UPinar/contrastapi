@@ -4,6 +4,11 @@ CXX     = g++
 # gnu* standard rather than a c* one. The pin sits on the C compile rule only:
 # TEST_CXXFLAGS inherits CFLAGS, and g++ warns when handed a C -std flag.
 CSTD    = -std=gnu17
+# CWARN holds the warnings that go beyond -Wall -Wextra. It sits on the C compile rules
+# only: -Wstrict-prototypes and -Wmissing-prototypes are C flags, and g++ warns when it
+# gets them. The tests/test_*.c files go without it too. A Unity test function is not
+# static and has no prototype, so -Wmissing-prototypes would name every one of them.
+CWARN   = -Wshadow -Wstrict-prototypes -Wmissing-prototypes -Wformat=2 -Wvla -Wdouble-promotion -Walloca -Wduplicated-cond -Wnull-dereference
 # -MMD -MP: her derleme kendi header bagimliliklarini bir .d dosyasina yazar ve
 # asagida -include ile geri okunur. Bunlar olmadan kurallar yalnizca .c dosyasina
 # baglanir (.c ya da .cpp): cve.h'deki bir #define degisince hicbir sey yeniden derlenmez ve
@@ -59,7 +64,7 @@ $(TARGET): $(OBJS) | bin
 
 obj/%.o: src/%.c
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) $(CSTD) -Isrc -c -o $@ $<
+	$(CC) $(CFLAGS) $(CWARN) $(CSTD) -Isrc -c -o $@ $<
 
 # Each object of src/watchlist/ keeps each function and each object in a section of its own.
 # A lane object holds the value writers of its lane and the scan of its lane. bin/test_watchlist_domain
@@ -200,19 +205,19 @@ OPENAPI_TABLE_OBJS     = obj/endpoint.o obj/endpoint_table.o obj/endpoint_run.o 
                          $(STUB_OBJ) $(CVE_EXPLOIT_STUB_OBJ) $(HIBP_STUB_OBJ) $(DNS_STUB_OBJ) obj/usagelog.o obj/bytes.o
 
 $(UNITY_OBJ): tests/unity/unity.c
-	$(CC) $(TEST_CFLAGS) -c -o $@ $<
+	$(CC) $(TEST_CFLAGS) $(CWARN) -c -o $@ $<
 
 $(STUB_OBJ): tests/db_stub.c
-	$(CC) $(TEST_CFLAGS) -c -o $@ $<
+	$(CC) $(TEST_CFLAGS) $(CWARN) -c -o $@ $<
 
 $(RL_STUB_OBJ): tests/ratelimit_stub.c
-	$(CC) $(TEST_CFLAGS) -c -o $@ $<
+	$(CC) $(TEST_CFLAGS) $(CWARN) -c -o $@ $<
 
 $(REQUEST_TEXT_OBJ): tests/request_text.c
-	$(CC) $(TEST_CFLAGS) -c -o $@ $<
+	$(CC) $(TEST_CFLAGS) $(CWARN) -c -o $@ $<
 
 $(PQ_FAKE_OBJ): tests/pq_fake.c
-	$(CC) $(TEST_CFLAGS) -c -o $@ $<
+	$(CC) $(TEST_CFLAGS) $(CWARN) -c -o $@ $<
 
 # --wrap=RAND_bytes: the bytes of a generated key are fixed, and the random source can fail.
 bin/test_auth: tests/test_auth.c obj/auth.o obj/validate.o obj/ipguard.o obj/picohttpparser.o $(REQUEST_TEXT_OBJ) obj/bytes.o $(UNITY_OBJ) | bin
@@ -712,70 +717,70 @@ bin/test_tlsprobe: tests/test_tlsprobe.c obj/tlsprobe.o obj/datetime.o obj/dns.o
 	  -Wl,--wrap=ERR_peek_last_error,--wrap=SSL_ctrl -lssl -lcrypto -lresolv
 
 $(CVE_EXPLOIT_STUB_OBJ): tests/cve_exploit_stub.c
-	$(CC) $(TEST_CFLAGS) -c -o $@ $<
+	$(CC) $(TEST_CFLAGS) $(CWARN) -c -o $@ $<
 
 $(HTTP_STUB_OBJ): tests/http_stub.c
-	$(CC) $(TEST_CFLAGS) -c -o $@ $<
+	$(CC) $(TEST_CFLAGS) $(CWARN) -c -o $@ $<
 
 $(HIBP_STUB_OBJ): tests/hibp_stub.c
-	$(CC) $(TEST_CFLAGS) -c -o $@ $<
+	$(CC) $(TEST_CFLAGS) $(CWARN) -c -o $@ $<
 
 $(DNS_STUB_OBJ): tests/dns_stub.c
-	$(CC) $(TEST_CFLAGS) -c -o $@ $<
+	$(CC) $(TEST_CFLAGS) $(CWARN) -c -o $@ $<
 
 $(EXIFCLIENT_STUB_OBJ): tests/exifclient_stub.c
-	$(CC) $(TEST_CFLAGS) -c -o $@ $<
+	$(CC) $(TEST_CFLAGS) $(CWARN) -c -o $@ $<
 
 $(EMAILCHECK_STUB_OBJ): tests/emailcheck_stub.c
-	$(CC) $(TEST_CFLAGS) -c -o $@ $<
+	$(CC) $(TEST_CFLAGS) $(CWARN) -c -o $@ $<
 
 $(TLSPROBE_STUB_OBJ): tests/tlsprobe_stub.c
-	$(CC) $(TEST_CFLAGS) -c -o $@ $<
+	$(CC) $(TEST_CFLAGS) $(CWARN) -c -o $@ $<
 
 $(CACHE_STUB_OBJ): tests/cache_stub.c
-	$(CC) $(TEST_CFLAGS) -c -o $@ $<
+	$(CC) $(TEST_CFLAGS) $(CWARN) -c -o $@ $<
 
 $(RDAP_STUB_OBJ): tests/rdap_stub.c
-	$(CC) $(TEST_CFLAGS) -c -o $@ $<
+	$(CC) $(TEST_CFLAGS) $(CWARN) -c -o $@ $<
 
 $(WAYBACK_STUB_OBJ): tests/wayback_stub.c
-	$(CC) $(TEST_CFLAGS) -c -o $@ $<
+	$(CC) $(TEST_CFLAGS) $(CWARN) -c -o $@ $<
 
 $(CERTSPOTTER_STUB_OBJ): tests/certspotter_stub.c
-	$(CC) $(TEST_CFLAGS) -c -o $@ $<
+	$(CC) $(TEST_CFLAGS) $(CWARN) -c -o $@ $<
 
 $(SHODAN_STUB_OBJ): tests/shodan_stub.c
-	$(CC) $(TEST_CFLAGS) -c -o $@ $<
+	$(CC) $(TEST_CFLAGS) $(CWARN) -c -o $@ $<
 
 $(NOWPAYMENTS_STUB_OBJ): tests/nowpayments_stub.c
-	$(CC) $(TEST_CFLAGS) -c -o $@ $<
+	$(CC) $(TEST_CFLAGS) $(CWARN) -c -o $@ $<
 
 $(ABUSEIPDB_STUB_OBJ): tests/abuseipdb_stub.c
-	$(CC) $(TEST_CFLAGS) -c -o $@ $<
+	$(CC) $(TEST_CFLAGS) $(CWARN) -c -o $@ $<
 
 $(SUBDOMAIN_STUB_OBJ): tests/subdomain_stub.c
-	$(CC) $(TEST_CFLAGS) -c -o $@ $<
+	$(CC) $(TEST_CFLAGS) $(CWARN) -c -o $@ $<
 
 $(HEADER_FETCH_STUB_OBJ): tests/header_fetch_stub.c
-	$(CC) $(TEST_CFLAGS) -c -o $@ $<
+	$(CC) $(TEST_CFLAGS) $(CWARN) -c -o $@ $<
 
 $(QUOTA_STUB_OBJ): tests/quota_stub.c
-	$(CC) $(TEST_CFLAGS) -c -o $@ $<
+	$(CC) $(TEST_CFLAGS) $(CWARN) -c -o $@ $<
 
 $(THROTTLE_STUB_OBJ): tests/throttle_stub.c
-	$(CC) $(TEST_CFLAGS) -c -o $@ $<
+	$(CC) $(TEST_CFLAGS) $(CWARN) -c -o $@ $<
 
 $(WHOIS_STUB_OBJ): tests/whois_stub.c
-	$(CC) $(TEST_CFLAGS) -c -o $@ $<
+	$(CC) $(TEST_CFLAGS) $(CWARN) -c -o $@ $<
 
 $(X402_FACILITATOR_STUB_OBJ): tests/x402_facilitator_stub.c
-	$(CC) $(TEST_CFLAGS) -c -o $@ $<
+	$(CC) $(TEST_CFLAGS) $(CWARN) -c -o $@ $<
 
 $(X402_SOLANA_RPC_STUB_OBJ): tests/x402_solana_rpc_stub.c
-	$(CC) $(TEST_CFLAGS) -c -o $@ $<
+	$(CC) $(TEST_CFLAGS) $(CWARN) -c -o $@ $<
 
 $(X402_LEDGER_STUB_OBJ): tests/x402_ledger_stub.c
-	$(CC) $(TEST_CFLAGS) -c -o $@ $<
+	$(CC) $(TEST_CFLAGS) $(CWARN) -c -o $@ $<
 
 bin/test_cve_exploit: tests/test_cve_exploit.c obj/request.o obj/receive.o obj/upstream.o obj/rawbody.o obj/picohttpparser.o obj/auth.o \
   obj/router.o obj/pages.o obj/pages_table.o obj/web_assets.o obj/endpoint.o obj/endpoint_table.o obj/endpoint_run.o obj/endpoint_run_watchlist.o obj/endpoint_run_billing.o obj/jsoncanon.o $(NOWPAYMENTS_STUB_OBJ) $(VENDORKEY_RUN_OBJS) obj/billing.o obj/datetime.o obj/auth.o obj/registryask.o obj/registryask_table.o obj/endpoint_weight.o obj/imagescan.o obj/imageindicator.o $(EXIFCLIENT_STUB_OBJ) $(EMAILCHECK_STUB_OBJ) obj/emailcheck_table.o $(TLSPROBE_STUB_OBJ) $(CACHE_STUB_OBJ) $(RDAP_STUB_OBJ) $(WAYBACK_STUB_OBJ) $(CERTSPOTTER_STUB_OBJ) $(SUBDOMAIN_STUB_OBJ) $(HEADER_FETCH_STUB_OBJ) $(QUOTA_STUB_OBJ) $(THROTTLE_STUB_OBJ) $(X402_PAID_PATH_TEST_OBJS) $(WHOIS_STUB_OBJ) obj/monotonic.o obj/etld.o obj/etld_table.o obj/watchlist/watchlist.o obj/handler.o obj/cvss.o obj/response.o obj/validate.o \

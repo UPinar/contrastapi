@@ -153,6 +153,7 @@ static void static_sendResponse(int client_fd, int status_code, const char* stat
     "X-Content-Type-Options: nosniff\r\n"
     "X-Frame-Options: DENY\r\n"
     "Referrer-Policy: no-referrer\r\n"
+    "Permissions-Policy: camera=(), microphone=(), geolocation=()\r\n"
     "%s"
     "Cache-Control: %s\r\n"
     "%s"

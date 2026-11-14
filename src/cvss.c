@@ -157,6 +157,8 @@ static double static_metricWeight(const char* metric_letters, int metric_index, 
 {
   const CvssMetricValue_t* row = static_findMetricValue(metric_index, metric_letters[metric_index]);
   assert(row != NULL);
+  if (row == NULL)
+    return 0.0;
   return scope_changed ? row->m_weightScopeChanged : row->m_weight;
 }
 
@@ -167,7 +169,7 @@ static double static_modifiedMetricWeight(const char* metric_letters, int modifi
   return static_metricWeight(metric_letters, modified_index, scope_changed);
 }
 
-static const char* static_severityForScore(double score)
+static const char* static_findSeverity(double score)
 {
   if (score <= 0.0)
     return "NONE";
@@ -185,6 +187,11 @@ static void static_copyMetricLabel(char* label_out, int metric_index, const char
 {
   const CvssMetricValue_t* row = static_findMetricValue(metric_index, metric_letters[metric_index]);
   assert(row != NULL && row->mp_label != NULL);
+  if (row == NULL || row->mp_label == NULL)
+  {
+    label_out[0] = '\0';
+    return;
+  }
   size_t label_len = strlen(row->mp_label);
   assert(label_len < CVSS_LABEL_LEN);
   memcpy(label_out, row->mp_label, label_len + 1);
@@ -324,7 +331,7 @@ CvssParseStatus_t cvss_parse(const char* vector, CvssResult_t* result_out)
   static_copyMetricLabel(result_out->ma_integrityImpact,       CVSS_METRIC_I,  metric_letters);
   static_copyMetricLabel(result_out->ma_availabilityImpact,    CVSS_METRIC_A,  metric_letters);
 
-  const char* base_severity = static_severityForScore(result_out->m_baseScore);
+  const char* base_severity = static_findSeverity(result_out->m_baseScore);
   memcpy(result_out->ma_baseSeverity, base_severity, strlen(base_severity) + 1);
 
   return CVSS_OK;

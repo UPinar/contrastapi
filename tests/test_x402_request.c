@@ -1268,7 +1268,7 @@ void test_payment_required_line_for_a_64_byte_path(void)
     json);
 }
 
-_Static_assert(1152 + 536 <= 2048, "the PAYMENT-REQUIRED line and the other 536 bytes of a 402 head must fit 2048 bytes");
+_Static_assert(1152 + 598 <= 2048, "the PAYMENT-REQUIRED line and the other 598 bytes of a 402 head must fit 2048 bytes");
 
 void test_payment_required_longest_line_fits_its_buffer(void)
 {

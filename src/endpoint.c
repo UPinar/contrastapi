@@ -1723,6 +1723,9 @@ void endpoint_limitWorkToCharge(const Endpoint_t* endpoint, EndpointAnyParams_t*
       return;
   }
 
+  if (kept_count == NULL || not_processed_count == NULL)
+    return;
+
   if ((unsigned int)*kept_count <= charged_credit_count)
     return;
 

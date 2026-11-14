@@ -38,10 +38,10 @@ _Static_assert(X402_REQUEST_RECEIPT_LINE_BUF_SIZE >=
                  sizeof("\r\n"),
                "X402_REQUEST_RECEIPT_LINE_BUF_SIZE must fit the longest PAYMENT-RESPONSE line");
 
-_Static_assert(X402_REQUEST_PAYMENT_REQUIRED_LINE_BUF_SIZE + 536 <= 2048,
-               "a PAYMENT-REQUIRED line and the other 536 bytes of a head must fit 2048 bytes");
-_Static_assert(X402_REQUEST_RECEIPT_LINE_BUF_SIZE + 536 <= 2048,
-               "a PAYMENT-RESPONSE line and the other 536 bytes of a head must fit 2048 bytes");
+_Static_assert(X402_REQUEST_PAYMENT_REQUIRED_LINE_BUF_SIZE + 598 <= 2048,
+               "a PAYMENT-REQUIRED line and the other 598 bytes of a head must fit 2048 bytes");
+_Static_assert(X402_REQUEST_RECEIPT_LINE_BUF_SIZE + 598 <= 2048,
+               "a PAYMENT-RESPONSE line and the other 598 bytes of a head must fit 2048 bytes");
 
 static const ThrottleRule_t X402_REQUEST_FAILED_ATTEMPT_THROTTLE_RULE = { "x402_failed_attempt", 60, 10 };
 

@@ -1545,7 +1545,7 @@ curl https://api.contrastcyber.com/cwe_lookup/CWE-89
 | `status`                 | string         | MITRE's status of the entry, such as `Draft`, `Incomplete` or `Stable` (empty string if not recorded) |
 | `description`            | string         | Full CWE description |
 | `extended_description`   | string \| null | Additional context beyond the main description; null if not recorded |
-| `likelihood_of_exploit`  | string         | Likelihood of exploitation (e.g. `"High"`; empty string if not recorded) |
+| `likelihood_of_exploit`  | string         | MITRE's likelihood that the weakness is exploited: `High`, `Medium`, `Low` or `Unknown` (empty string if MITRE gives none, or gives another value) |
 | `mitigations`            | array \| null  | Mitigation strategies; null if not recorded |
 | `examples`               | array \| null  | Observed CVE examples for this weakness; null if not recorded |
 | `parent_cwe`             | string         | Primary parent CWE ID (empty string if none) |
@@ -1565,7 +1565,7 @@ curl https://api.contrastcyber.com/cwe_lookup/CWE-89
   "status": "Stable",
   "description": "The product constructs all or part of an SQL command using externally-influenced input...",
   "extended_description": null,
-  "likelihood_of_exploit": "",
+  "likelihood_of_exploit": "High",
   "mitigations": [
     "Architecture and Design: Use a vetted library or framework that does not allow this weakness to occur...",
     "Implementation: Use parameterized queries or prepared statements..."
@@ -5357,7 +5357,7 @@ A feed whose name, time or status cannot be read is left out of `db.feeds`. The 
 ```json
 {
   "status": "ok",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "db": {
     "nvd": {
       "cve_count": 251430,
@@ -5391,7 +5391,7 @@ A feed whose name, time or status cannot be read is left out of `db.feeds`. The 
 When the database cannot be read, the answer is HTTP 503 with a `Retry-After: 5` header and this body:
 
 ```json
-{"status":"unavailable","version":"2.0.0","db":null}
+{"status":"unavailable","version":"2.0.1","db":null}
 ```
 
 ---
@@ -5918,7 +5918,7 @@ request target counts the bytes as sent.
 | 503  | The server is busy with requests to outside services (`upstream_busy`). The response carries `Retry-After: 5`. It costs no credits and carries no `X-RateLimit-*` headers. A request that the endpoint refuses for its method, its parameter names or its values gets that refusal instead. The 503 comes before the API key is read, so a request with a malformed, unknown, revoked or expired key gets it too | the endpoints that ask an outside service, `/mcp` |
 | 503  | Every place for an image request is in use (`raw_body_busy`). The response carries `Retry-After: 10`, the deadline that the head and the body share. It costs no credits | `/image_inspect` |
 | 503  | The payment cannot be settled now (`payment_unavailable`). The response carries `Retry-After: 5` | every endpoint that takes payment |
-| 503  | The database cannot be read. The body is `{"status":"unavailable","version":"2.0.0","db":null}` and the response carries `Retry-After: 5` | `/health` |
+| 503  | The database cannot be read. The body is `{"status":"unavailable","version":"2.0.1","db":null}` and the response carries `Retry-After: 5` | `/health` |
 | 504  | No TLS server or site was reached at the host name. `message` says why | `/ssl_check/`, `/headers_check/` |
 
 ---

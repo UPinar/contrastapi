@@ -209,6 +209,7 @@ void test_send_writes_the_file_with_its_own_headers(void)
                            "X-Content-Type-Options: nosniff\r\n"
                            "X-Frame-Options: DENY\r\n"
                            "Referrer-Policy: no-referrer\r\n"
+                           "Permissions-Policy: camera=(), microphone=(), geolocation=()\r\n"
                            "Cache-Control: max-age=300\r\n"
                            "Content-Security-Policy: default-src 'self'\r\n"
                            "Connection: close\r\n"
