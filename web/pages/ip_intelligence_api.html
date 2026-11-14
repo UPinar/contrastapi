@@ -118,7 +118,7 @@
     <p>Without a key you get @@RL_ANON_CREDIT_LIMIT@@ credits per hour. A Pro key gets @@RL_KEY_CREDIT_LIMIT@@ credits per hour. These tools have no bulk form.</p>
     <h2>Monitor it</h2>
     <p>A Pro key can watch public IP addresses, one address per item. Add an item with <code>watchlist_edit</code>. Then read its change events with <code>watchlist_events</code>. You pull the events when you want them.</p>
-    <p>An IP item names one address and makes no request to it. The server compares the address with its local lists about every 15 minutes, after one of the lists is updated. An event says when the address lands on the DROP list, when it leaves the list, and when its hosting changes, such as from one AS to a cloud range. The hosting event comes after the new class is seen twice. A DROP event also carries the date and the copyright text of the list. They stay with the data, as the list asks.</p>
+    <p>An IP item names one address and makes no request to it. The server compares the address with its local lists about every 15 minutes, after one of the lists is updated. An event says when the address lands on the DROP list, when it leaves the list, and when its hosting changes, such as from one AS to a cloud range. The hosting event comes when the new class is seen again after both hosting lists were updated. A DROP event also carries the date and the copyright text of the list. They stay with the data, as the list asks.</p>
     <table class="watch-events">
       <thead><tr><th>Watched endpoint</th><th>Events</th></tr></thead>
       <tbody>

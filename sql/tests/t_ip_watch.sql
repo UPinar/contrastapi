@@ -232,11 +232,15 @@ BEGIN
   UPDATE ip_asn_prefix SET asn = 64502 WHERE prefix = '192.0.2.0/24';
   PERFORM pg_temp.t_ipw_run();
   ASSERT pg_temp.t_ipw_value(plain_id, 'hosting') = 'AS64500|AS64502', 'S7 a different value becomes the candidate';
-  ASSERT (SELECT wiiv.candidate_seen_at FROM watchlist_item_ip_value AS wiiv WHERE wiiv.item_id = plain_id AND wiiv.value_kind = 'hosting') = now(),
-         'S7 the candidate is first seen now';
+  ASSERT (SELECT wiiv.candidate_seen_at FROM watchlist_item_ip_value AS wiiv WHERE wiiv.item_id = plain_id AND wiiv.value_kind = 'hosting') > statement_timestamp(),
+         'S7 the candidate is first seen after the start of the statement';
   ASSERT pg_temp.t_ipw_events(plain_id) = '{}', 'S7 a candidate writes no event';
   PERFORM pg_temp.t_ipw_run();
-  ASSERT pg_temp.t_ipw_value(plain_id, 'hosting') = 'AS64502|null', 'S7 the candidate seen again becomes the current value';
+  ASSERT pg_temp.t_ipw_value(plain_id, 'hosting') = 'AS64500|AS64502' AND pg_temp.t_ipw_events(plain_id) = '{}',
+         'S7 the candidate seen again before both hosting lists are newer stays a candidate';
+  UPDATE watchlist_item_ip_value SET candidate_seen_at = now() - interval '2 hours' WHERE item_id = plain_id AND value_kind = 'hosting';
+  PERFORM pg_temp.t_ipw_run();
+  ASSERT pg_temp.t_ipw_value(plain_id, 'hosting') = 'AS64502|null', 'S7 the candidate seen again after both hosting lists becomes the current value';
   ASSERT pg_temp.t_ipw_events(plain_id) = '{"hosting_changed|AS64500|AS64502"}', 'S7 the confirmed change writes hosting_changed';
   ASSERT (SELECT ice.drop_list_time IS NULL AND ice.drop_copyright IS NULL FROM ip_change_event AS ice
             JOIN watchlist_event_ref AS wer ON wer.event_id = ice.event_id WHERE wer.item_id = plain_id),
@@ -371,7 +375,7 @@ BEGIN
   ASSERT (SELECT count(*) FROM regexp_matches(writer_source, 'INSERT INTO public\.ip_change_event', 'g')) = 1
      AND after_lock ~ 'INSERT INTO public\.ip_change_event AS ice .*INSERT INTO public\.watchlist_event_ref',
          'S13 one statement after the lock writes the events, then the refs';
-  ASSERT after_lock !~ '(public\.watchlist_item_ip|public\.watchlist_item |public\.ip_drop_list_prefix|public\.upstream_feed_sync|api\.fn_ip_hosting_classes)',
+  ASSERT after_lock !~ '(public\.watchlist_item_ip|public\.watchlist_item |public\.ip_drop_list_prefix|public\.upstream_feed_sync|public\.ip_cloud_range|public\.ip_asn_prefix|api\.fn_ip_hosting_classes)',
          'S13 no item, value row or IP list is read or written after the lock';
   ASSERT writer_source !~ 'nextval', 'S13 the writer takes no number of the event sequence itself';
   ASSERT writer_source ~ 'FOR NO KEY UPDATE OF wii, wi SKIP LOCKED', 'S13 the writer locks each item and its child row, and skips a held one';
@@ -634,6 +638,62 @@ BEGIN
          'S23 the check is the sync time ahead of now()';
   ASSERT api.fn_ip_watch_write_values(100) = 0, 'S23 the next call finds the item not due';
   UPDATE upstream_feed_sync SET last_synced = now() - interval '1 hour' WHERE feed_name = 'iptoasn';
+  PERFORM pg_temp.t_ipw_reset();
+END
+$$;
+
+CREATE FUNCTION pg_temp.t_ipw_hosting_case(p_iptoasn_at timestamptz, p_iptoasn_status text,
+                                           p_aws_at timestamptz, p_google_at timestamptz) RETURNS void LANGUAGE sql AS $$
+  UPDATE upstream_feed_sync SET last_synced = p_iptoasn_at, last_status = p_iptoasn_status WHERE feed_name = 'iptoasn';
+  UPDATE ip_cloud_range SET synced_at = CASE provider WHEN 'aws' THEN p_aws_at ELSE p_google_at END;
+  UPDATE watchlist_item_ip_value SET candidate_seen_at = now() - interval '2 hours' WHERE candidate_value IS NOT NULL;
+  SELECT pg_temp.t_ipw_run();
+$$;
+
+DO $$
+DECLARE
+  as_id    bigint;
+  cloud_id bigint;
+  seen_at  timestamptz := now() - interval '2 hours';
+  older_at timestamptz := now() - interval '3 hours';
+  newer_at timestamptz := now() - interval '1 hour';
+  c        record;
+BEGIN
+  PERFORM pg_temp.t_ipw_reset();
+  as_id    := pg_temp.t_ipw_add('192.0.2.201');
+  cloud_id := pg_temp.t_ipw_add('198.51.100.6');
+  INSERT INTO ip_cloud_range (provider, service, prefix, is_cdn, synced_at) VALUES ('google', 'gce', '203.0.113.0/26', false, now());
+  PERFORM pg_temp.t_ipw_run();
+  UPDATE ip_asn_prefix SET asn = 64502 WHERE prefix = '192.0.2.0/24';
+  UPDATE ip_cloud_range SET service = 'lambda' WHERE provider = 'aws';
+  PERFORM pg_temp.t_ipw_run();
+  ASSERT pg_temp.t_ipw_value(as_id, 'hosting') = 'AS64500|AS64502' AND pg_temp.t_ipw_value(cloud_id, 'hosting') = 'aws/ec2|aws/lambda',
+         'S24 each item holds a candidate';
+  FOR c IN SELECT * FROM (VALUES
+      ('a newer DROP list alone',                  older_at, 'ok',    older_at, older_at),
+      ('a newer IPtoASN list alone',               newer_at, 'ok',    older_at, older_at),
+      ('newer cloud ranges alone',                 older_at, 'ok',    newer_at, newer_at),
+      ('one newer cloud provider of two',          newer_at, 'ok',    newer_at, older_at),
+      ('a failed IPtoASN sync',                    newer_at, 'error', newer_at, newer_at),
+      ('an IPtoASN sync at the candidate moment',  seen_at,  'ok',    newer_at, newer_at),
+      ('cloud ranges synced at that moment',       newer_at, 'ok',    seen_at,  seen_at)) AS t (label, iptoasn_at, iptoasn_status, aws_at, google_at) LOOP
+    PERFORM pg_temp.t_ipw_hosting_case(c.iptoasn_at, c.iptoasn_status, c.aws_at, c.google_at);
+    ASSERT pg_temp.t_ipw_value(as_id, 'hosting') = 'AS64500|AS64502' AND pg_temp.t_ipw_value(cloud_id, 'hosting') = 'aws/ec2|aws/lambda'
+       AND pg_temp.t_ipw_events(as_id) = '{}' AND pg_temp.t_ipw_events(cloud_id) = '{}',
+           'S24 ' || c.label || ' keeps both candidates and writes no event';
+    ASSERT (SELECT array_agg(wiiv.candidate_seen_at) FROM watchlist_item_ip_value AS wiiv WHERE wiiv.value_kind = 'hosting')
+           = ARRAY[seen_at, seen_at],
+           'S24 ' || c.label || ' keeps the candidate_seen_at of both candidates';
+  END LOOP;
+  PERFORM pg_temp.t_ipw_hosting_case(newer_at, 'ok', newer_at, newer_at);
+  ASSERT pg_temp.t_ipw_value(as_id, 'hosting') = 'AS64502|null' AND pg_temp.t_ipw_events(as_id) = '{"hosting_changed|AS64500|AS64502"}',
+         'S24 a newer sync of both lists makes the AS candidate the current value';
+  ASSERT pg_temp.t_ipw_value(cloud_id, 'hosting') = 'aws/lambda|null' AND pg_temp.t_ipw_events(cloud_id) = '{"hosting_changed|aws/ec2|aws/lambda"}',
+         'S24 a newer sync of both lists makes the cloud candidate the current value';
+  DELETE FROM ip_cloud_range WHERE provider = 'google';
+  UPDATE ip_cloud_range SET service = 'ec2', synced_at = now() WHERE provider = 'aws';
+  UPDATE ip_asn_prefix SET asn = 64500 WHERE prefix = '192.0.2.0/24';
+  UPDATE upstream_feed_sync SET last_synced = now() - interval '1 hour', last_status = 'ok' WHERE feed_name = 'iptoasn';
   PERFORM pg_temp.t_ipw_reset();
 END
 $$;

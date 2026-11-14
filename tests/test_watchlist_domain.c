@@ -192,21 +192,36 @@ void test_constants_hold_their_values(void)
   TEST_ASSERT_EQUAL_INT(4, WATCHLIST_DNS_LOOKUP_DNS_PRESENCE_ANSWER_COUNT);
 }
 
+static DNSTAKEOVERCHECKRecord_t static_takeoverRecord(int chain_length, bool is_target_found, const DnsTakeoverSuffix_t* matched_suffix)
+{
+  DNSTAKEOVERCHECKRecord_t record;
+  memset(&record, 0, sizeof(record));
+  memcpy(record.ma_hostname, "www.example.com", sizeof("www.example.com"));
+  for (int i = 0; i < chain_length; i++)
+    snprintf(record.ma_hostnameChain[i], sizeof(record.ma_hostnameChain[i]), "c%d.trydiscourse.com", i);
+  record.m_hostnameChainLength = chain_length;
+  record.m_isTargetFound       = is_target_found;
+  record.mp_matchedSuffix      = matched_suffix;
+  return record;
+}
+
 void test_dns_presence_all_nxdomain_is_not_found(void)
 {
   DnsAnswer_t answers[5] = { { 0 } };
   for (int i = 0; i < 4; i++)
     answers[i].m_status = DNS_ANSWER_NXDOMAIN;
   answers[4].m_status = DNS_ANSWER_OK;
+  DNSTAKEOVERCHECKRecord_t no_chain = static_takeoverRecord(0, false, NULL);
 
   WatchlistDomainValue_t value;
   static_fillValue(&value);
-  TEST_ASSERT_TRUE(watchlist_dns_lookup_tryWriteDnsPresence(answers, &value));
+  TEST_ASSERT_TRUE(watchlist_dns_lookup_tryWriteDnsPresence(answers, DNS_LOOKUP_NOT_FOUND, &no_chain, &value));
   static_assertValue(&value, "not_found", 1, 1, SHA256_OF_NOT_FOUND);
 }
 
 void test_dns_presence_one_ok_answer_is_found(void)
 {
+  DNSTAKEOVERCHECKRecord_t no_chain = static_takeoverRecord(0, false, NULL);
   for (int ok_index = 0; ok_index < 4; ok_index++)
   {
     DnsAnswer_t answers[4] = { { 0 } };
@@ -218,13 +233,14 @@ void test_dns_presence_one_ok_answer_is_found(void)
 
     WatchlistDomainValue_t value;
     static_fillValue(&value);
-    TEST_ASSERT_TRUE(watchlist_dns_lookup_tryWriteDnsPresence(answers, &value));
+    TEST_ASSERT_TRUE(watchlist_dns_lookup_tryWriteDnsPresence(answers, DNS_LOOKUP_NOT_FOUND, &no_chain, &value));
     static_assertValue(&value, "found", 1, 1, SHA256_OF_FOUND);
   }
 }
 
 void test_dns_presence_not_public_name_answer_is_found(void)
 {
+  DNSTAKEOVERCHECKRecord_t no_chain = static_takeoverRecord(0, false, NULL);
   for (int not_public_index = 0; not_public_index < 4; not_public_index += 3)
   {
     DnsAnswer_t answers[4] = { { 0 } };
@@ -234,13 +250,14 @@ void test_dns_presence_not_public_name_answer_is_found(void)
 
     WatchlistDomainValue_t value;
     static_fillValue(&value);
-    TEST_ASSERT_TRUE(watchlist_dns_lookup_tryWriteDnsPresence(answers, &value));
+    TEST_ASSERT_TRUE(watchlist_dns_lookup_tryWriteDnsPresence(answers, DNS_LOOKUP_NOT_FOUND, &no_chain, &value));
     static_assertValue(&value, "found", 1, 1, SHA256_OF_FOUND);
   }
 }
 
 void test_dns_presence_error_without_ok_answer_has_no_value(void)
 {
+  DNSTAKEOVERCHECKRecord_t no_chain = static_takeoverRecord(0, false, NULL);
   for (int i = 0; i < NOT_OK_STATUS_COUNT; i++)
   {
     if (NOT_OK_STATUSES[i] == DNS_ANSWER_NOT_PUBLIC_NAME)
@@ -254,9 +271,55 @@ void test_dns_presence_error_without_ok_answer_has_no_value(void)
 
       WatchlistDomainValue_t value;
       static_fillValue(&value);
-      TEST_ASSERT_FALSE(watchlist_dns_lookup_tryWriteDnsPresence(answers, &value));
+      TEST_ASSERT_FALSE(watchlist_dns_lookup_tryWriteDnsPresence(answers, DNS_LOOKUP_NOT_FOUND, &no_chain, &value));
       static_assertUntouched(&value);
     }
+  }
+}
+
+void test_dns_presence_cname_of_the_name_is_found(void)
+{
+  static const DnsAnswerStatus_t round_statuses[2] = { DNS_ANSWER_NXDOMAIN, DNS_ANSWER_TIMEOUT };
+  for (int r = 0; r < 2; r++)
+  {
+    for (int chain_length = 1; chain_length <= 2; chain_length++)
+    {
+      DnsAnswer_t answers[4] = { { 0 } };
+      for (int j = 0; j < 4; j++)
+        answers[j].m_status = round_statuses[r];
+      DNSTAKEOVERCHECKRecord_t chain = static_takeoverRecord(chain_length, false, NULL);
+
+      WatchlistDomainValue_t value;
+      static_fillValue(&value);
+      TEST_ASSERT_TRUE(watchlist_dns_lookup_tryWriteDnsPresence(answers, DNS_LOOKUP_OK, &chain, &value));
+      static_assertValue(&value, "found", 1, 1, SHA256_OF_FOUND);
+    }
+  }
+}
+
+void test_dns_presence_all_nxdomain_needs_the_cname_question_to_find_nothing(void)
+{
+  static const struct {
+    DnsLookupStatus_t m_takeoverStatus;
+    int               m_chainLength;
+  } cases[] = {
+    { DNS_LOOKUP_OK,           0 },
+    { DNS_LOOKUP_NO_ANSWER,    0 },
+    { DNS_LOOKUP_NO_ANSWER,    1 },
+    { DNS_LOOKUP_NO_MEMORY,    1 },
+    { DNS_LOOKUP_INVALID_NAME, 0 },
+  };
+  for (size_t c = 0; c < sizeof(cases) / sizeof(cases[0]); c++)
+  {
+    DnsAnswer_t answers[4] = { { 0 } };
+    for (int j = 0; j < 4; j++)
+      answers[j].m_status = DNS_ANSWER_NXDOMAIN;
+    DNSTAKEOVERCHECKRecord_t chain = static_takeoverRecord(cases[c].m_chainLength, false, NULL);
+
+    WatchlistDomainValue_t value;
+    static_fillValue(&value);
+    TEST_ASSERT_FALSE(watchlist_dns_lookup_tryWriteDnsPresence(answers, cases[c].m_takeoverStatus, &chain, &value));
+    static_assertUntouched(&value);
   }
 }
 
@@ -833,19 +896,6 @@ void test_hosting_ip_addresses_fit_with_their_nul(void)
 
 static const DnsTakeoverSuffix_t DISCOURSE = { "Discourse", "trydiscourse.com" };
 
-static DNSTAKEOVERCHECKRecord_t static_takeoverRecord(int chain_length, bool is_target_found, const DnsTakeoverSuffix_t* matched_suffix)
-{
-  DNSTAKEOVERCHECKRecord_t record;
-  memset(&record, 0, sizeof(record));
-  memcpy(record.ma_hostname, "www.example.com", sizeof("www.example.com"));
-  for (int i = 0; i < chain_length; i++)
-    snprintf(record.ma_hostnameChain[i], sizeof(record.ma_hostnameChain[i]), "c%d.trydiscourse.com", i);
-  record.m_hostnameChainLength = chain_length;
-  record.m_isTargetFound       = is_target_found;
-  record.mp_matchedSuffix      = matched_suffix;
-  return record;
-}
-
 void test_cname_takeover_lookup_status_other_than_ok_has_no_value(void)
 {
   static const DnsLookupStatus_t statuses[] = { DNS_LOOKUP_NOT_FOUND, DNS_LOOKUP_NO_ANSWER, DNS_LOOKUP_INVALID_NAME, DNS_LOOKUP_NO_MEMORY };
@@ -959,7 +1009,7 @@ void test_dns_values_failed_sha256_leaves_the_value_untouched(void)
       else if (call == 1)
         is_written = watchlist_dns_lookup_tryWriteMxRecords(&mx_answer, &value);
       else if (call == 2)
-        is_written = watchlist_dns_lookup_tryWriteDnsPresence(presence_answers, &value);
+        is_written = watchlist_dns_lookup_tryWriteDnsPresence(presence_answers, DNS_LOOKUP_NOT_FOUND, &record, &value);
       else if (call == 3)
         is_written = watchlist_dns_lookup_tryWriteIpAddressReachability(&nxdomain, &nxdomain, &value);
       else if (call == 4)
@@ -2045,7 +2095,7 @@ void test_cert_issuers_empty_set_is_an_empty_value(void)
 
 void test_registration_gate_test_count(void)
 {
-  TEST_ASSERT_EQUAL_INT_MESSAGE(88, (int)Unity.NumberOfTests,
+  TEST_ASSERT_EQUAL_INT_MESSAGE(90, (int)Unity.NumberOfTests,
     "RUN_TEST list and test definitions have drifted apart - a test may be unregistered");
 }
 
@@ -2057,6 +2107,8 @@ int main(void)
   RUN_TEST(test_dns_presence_one_ok_answer_is_found);
   RUN_TEST(test_dns_presence_not_public_name_answer_is_found);
   RUN_TEST(test_dns_presence_error_without_ok_answer_has_no_value);
+  RUN_TEST(test_dns_presence_cname_of_the_name_is_found);
+  RUN_TEST(test_dns_presence_all_nxdomain_needs_the_cname_question_to_find_nothing);
   RUN_TEST(test_ns_names_are_lowercase_sorted_unique_without_trailing_dot);
   RUN_TEST(test_ns_names_sha256_is_taken_of_the_text);
   RUN_TEST(test_ns_names_sort_in_strcmp_byte_order_of_lowercase_names);

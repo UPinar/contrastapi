@@ -67,10 +67,14 @@ bool watchlist_dns_lookup_scanNextDomains(PGconn* conn)
 
 #define WATCHLIST_DNS_LOOKUP_MX_PREFIX_SIZE 6
 
-bool watchlist_dns_lookup_tryWriteDnsPresence(const DnsAnswer_t* answers, WatchlistDomainValue_t* value_out)
+bool watchlist_dns_lookup_tryWriteDnsPresence(const DnsAnswer_t* answers, DnsLookupStatus_t takeover_status, const DNSTAKEOVERCHECKRecord_t* takeover_record, WatchlistDomainValue_t* value_out)
 {
-  assert(answers   != NULL);
-  assert(value_out != NULL);
+  assert(answers         != NULL);
+  assert(takeover_record != NULL);
+  assert(value_out       != NULL);
+
+  if (takeover_status == DNS_LOOKUP_OK && takeover_record->m_hostnameChainLength > 0)
+    return watchlist_domain_tryWriteState("found", value_out);
 
   bool is_all_nxdomain = true;
   for (int i = 0; i < WATCHLIST_DNS_LOOKUP_DNS_PRESENCE_ANSWER_COUNT; i++)
@@ -81,7 +85,7 @@ bool watchlist_dns_lookup_tryWriteDnsPresence(const DnsAnswer_t* answers, Watchl
       is_all_nxdomain = false;
   }
 
-  if (!is_all_nxdomain)
+  if (!is_all_nxdomain || takeover_status != DNS_LOOKUP_NOT_FOUND)
     return false;
 
   return watchlist_domain_tryWriteState("not_found", value_out);
@@ -325,17 +329,17 @@ static void static_readDnsValues(const WatchlistDomainScanClaim_t* claim, WATCHL
   DnsAnswer_t answers[WATCHLIST_DNS_LOOKUP_DNS_PRESENCE_ANSWER_COUNT];
   dns_askQuestions(questions, WATCHLIST_DNS_LOOKUP_QUESTION_COUNT, DNS_LOOKUP_DEADLINE_MS, answers);
 
-  values->m_dnsPresenceValue.m_hasValue           = watchlist_dns_lookup_tryWriteDnsPresence(answers, &values->m_dnsPresenceValue.m_value);
   values->m_nsValue.m_hasValue                    = watchlist_dns_lookup_tryWriteNsNames(&answers[WATCHLIST_DNS_LOOKUP_QUESTION_NS], &values->m_nsValue.m_value);
   values->m_mxValue.m_hasValue                    = watchlist_dns_lookup_tryWriteMxRecords(&answers[WATCHLIST_DNS_LOOKUP_QUESTION_MX], &values->m_mxValue.m_value);
   values->m_ipAddressReachabilityValue.m_hasValue = watchlist_dns_lookup_tryWriteIpAddressReachability(&answers[WATCHLIST_DNS_LOOKUP_QUESTION_A], &answers[WATCHLIST_DNS_LOOKUP_QUESTION_AAAA], &values->m_ipAddressReachabilityValue.m_value);
   watchlist_dns_lookup_writeHostingIpAddresses(&answers[WATCHLIST_DNS_LOOKUP_QUESTION_A], &answers[WATCHLIST_DNS_LOOKUP_QUESTION_AAAA], values->ma_hostingIpAddresses, sizeof(values->ma_hostingIpAddresses));
-  for (int i = 0; i < WATCHLIST_DNS_LOOKUP_DNS_PRESENCE_ANSWER_COUNT; i++)
-    dns_answerFree(&answers[i]);
 
   DNSTAKEOVERCHECKRecord_t takeover_record;
   DnsLookupStatus_t takeover_status = dns_checkTakeover(claim->ma_domain, &takeover_record);
   values->m_cnameTakeoverValue.m_hasValue = watchlist_dns_lookup_tryWriteCnameTakeover(takeover_status, &takeover_record, &values->m_cnameTakeoverValue.m_value);
+  values->m_dnsPresenceValue.m_hasValue   = watchlist_dns_lookup_tryWriteDnsPresence(answers, takeover_status, &takeover_record, &values->m_dnsPresenceValue.m_value);
+  for (int i = 0; i < WATCHLIST_DNS_LOOKUP_DNS_PRESENCE_ANSWER_COUNT; i++)
+    dns_answerFree(&answers[i]);
 
   static_readEmailAuthValue(claim->ma_domain, values);
   values->m_questionCount = dns_readQuestionCount();

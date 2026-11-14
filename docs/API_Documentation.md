@@ -2374,7 +2374,7 @@ becomes `\u0000`, and a byte that is not part of a whole UTF-8 character becomes
 
 | Reason | Meaning |
 |--------|---------|
-| `nxdomain` | The resolver answered that the name does not exist. Another record type of the name got an answer |
+| `nxdomain` | The resolver answered that the name does not exist. Another record type of the name got an answer. A name whose CNAME points to a name that does not exist can get this reason too, while `cname` shows the CNAME. [DNS Takeover Check](#dns-takeover-check-get-dns_takeover_checkdomain) tells whether it dangles |
 | `server_error` | The resolver answered with another error code. A SERVFAIL, NOTIMP or REFUSED answer counts only once the question has been sent as many times as there are name servers. A send that got no answer counts too |
 | `truncated` | The answer did not fit in UDP, and the answer over TCP could not be read |
 | `malformed_answer` | The answer could not be read, or it held more than 256 records |
@@ -4513,9 +4513,11 @@ before it, by the ICANN section of the Public Suffix List. `example.com` and `sh
 names under `example.com`. A name watched by items of several endpoints counts once.
 A name that is itself a public suffix, such as `co.uk`, is refused, on a remove too.
 
-An add of a `dns_lookup`, `ssl_check`, `headers_check` or `cert_search` item asks DNS one A question for its name first. The add is
-refused when DNS answers that the name does not exist (NXDOMAIN). An answer with no A record, an
-error and a timeout do not refuse it. A remove asks no DNS question.
+An add of a `dns_lookup`, `ssl_check`, `headers_check` or `cert_search` item asks DNS one CNAME question for its name first. The add is
+refused when DNS answers that the name does not exist (NXDOMAIN). The resolver does not follow a
+CNAME for a CNAME question. So a name whose CNAME points to a name that does not exist is accepted,
+and a `dns_lookup` item of it can report the takeover. An answer with no CNAME record, an error and a timeout do
+not refuse it. A remove asks no DNS question.
 
 An add of a `whois_lookup` item asks no DNS question. Its name must be a registered domain: the
 public suffix and one label before it, by the ICANN section of the Public Suffix List. The registry
@@ -5039,8 +5041,8 @@ watched the name. An item that holds no value of a kind sees no change of that k
 
 | Event | When | `previous` | `current` |
 |-------|------|------------|-----------|
-| `domain_not_found` | The NS, MX, A and AAAA questions of the name all answer NXDOMAIN | `"found"`, or `null` for a first value | `"not_found"` |
-| `domain_found` | One of those questions answers again | `"not_found"` | `"found"` |
+| `domain_not_found` | The NS, MX, A and AAAA questions of the name all answer NXDOMAIN, and so does the CNAME question of the name | `"found"`, or `null` for a first value | `"not_found"` |
+| `domain_found` | One of the NS, MX, A and AAAA questions answers again, or the CNAME chain of the name is followed to its end and holds a name | `"not_found"` | `"found"` |
 | `ns_changed` | The set of NS names changed | array of names | array of names |
 | `mx_changed` | The set of MX records changed. A new priority of a host is a change | array of MX lines | array of MX lines |
 | `ip_address_not_public` | An A or AAAA address is not public, or a record leads to a name only a local network can answer | `"public"` or `"empty"`, or `null` for a first value | `"not_public"` |
@@ -5134,7 +5136,7 @@ hosting class of the address, written as the hosting classes of the domain event
 |-------|------|------------|-----------|
 | `drop_listed` | A DROP listing holds the address, and none did. The first comparison writes it too, when the address is already listed. A first comparison of an unlisted address writes nothing | `[]`, or `null` for a first value | array of listings |
 | `drop_unlisted` | No DROP listing holds the address, and one did | array of listings | `[]` |
-| `hosting_changed` | The hosting class of the address changed, and the next comparison saw the new class again | array of one class | array of one class |
+| `hosting_changed` | The hosting class of the address changed, and a comparison saw the new class again after the IPtoASN list and every provider of the cloud ranges were updated since the class first showed | array of one class | array of one class |
 
 A listing is an object `{"prefix":"192.0.2.0/24","listing_id":"SBL1"}`. A `drop_listed` or
 `drop_unlisted` event also holds `list_time` and `copyright`. They are the date and the copyright
@@ -5146,11 +5148,14 @@ event. The server stores the new listing. While the server's copy of the DROP li
 comparison writes no DROP event and keeps the stored value. An empty list never reads as unlisted.
 
 A hosting class needs a confirmation. A different class becomes a candidate, and the item keeps its
-value. The next comparison that sees the candidate again writes `hosting_changed`. A third class
-replaces the candidate. The old class seen again clears it, and writes no event. The first hosting
-class of an item writes no event. A comparison writes no hosting class when a list it reads is
-older than 7 days. It writes none for an address outside the cloud ranges either, when the last
-update of the IPtoASN list failed. The item keeps its stored value then.
+value. A later comparison that sees the candidate again writes `hosting_changed`, but only after
+the IPtoASN list and every provider of the cloud ranges were updated since the candidate first
+showed. An update of the DROP list alone confirms nothing. So a hosting list that is wrong for one
+update writes no event. A third class replaces the candidate. The old class seen again clears it,
+and writes no event. The first hosting class of an item writes no event. A comparison writes no
+hosting class when a list it reads is older than 7 days. It writes none for an address outside the
+cloud ranges either, when the last update of the IPtoASN list failed. The item keeps its stored
+value then.
 
 An item hears only the events of its own address. The server deletes an IP event 90 days after it
 was written.
@@ -5231,7 +5236,7 @@ curl "https://api.contrastcyber.com/watchlist_events?limit=50" -H "X-API-Key: $K
 | `attribution` | array | The source, the `license`, the `url` and a `notice` of each source of the advisories of the package events of the page, once each, as [Package Check](#package-check-get-package_check) writes them. It also names `endoflife.date`, under `MIT`, when the page holds an end-of-life event. The sources are in alphabetical order. `[]` when the page holds no package event and no end-of-life event |
 | `domains` | object | One entry per domain name of the page, keyed by the name, in the order the answer first names each. `{}` when there is none. Each value below is the current value of its kind, and `null` for a kind that has no value yet. The DNS kinds are `null` too unless an item of endpoint `dns_lookup` of the calling key watches the name, and they show the values of that item. The entry holds no TLS or RDAP/WHOIS value; the events carry those. A change that waits for its confirming scan is not in it. The answer gives no scan time |
 | `domains[].registered_domain` | string | The registered domain of the name, which the limit of 20 names counts by |
-| `domains[].dns_presence` | string or null | `"not_found"` when the NS, MX, A and AAAA questions all answered NXDOMAIN, `"found"` when one of them answered, as the `domain_not_found` and `domain_found` events name them |
+| `domains[].dns_presence` | string or null | `"not_found"` when the NS, MX, A and AAAA questions all answered NXDOMAIN and so did the CNAME question of the name, `"found"` when one of the NS, MX, A and AAAA questions answered, or the CNAME chain of the name was followed to its end and holds a name, as the `domain_not_found` and `domain_found` events name them |
 | `domains[].ns`, `domains[].mx` | array or null | The NS names and the MX lines |
 | `domains[].ip_address_reachability` | string or null | `"public"`, `"not_public"` or `"empty"`, as the IP address events name them |
 | `domains[].cname_takeover` | string or null | `"none"`, `"vulnerable"`, or `"vulnerable "` and the provider |
@@ -5357,7 +5362,7 @@ A feed whose name, time or status cannot be read is left out of `db.feeds`. The 
 ```json
 {
   "status": "ok",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "db": {
     "nvd": {
       "cve_count": 251430,
@@ -5391,7 +5396,7 @@ A feed whose name, time or status cannot be read is left out of `db.feeds`. The 
 When the database cannot be read, the answer is HTTP 503 with a `Retry-After: 5` header and this body:
 
 ```json
-{"status":"unavailable","version":"2.0.1","db":null}
+{"status":"unavailable","version":"2.0.2","db":null}
 ```
 
 ---
@@ -5918,7 +5923,7 @@ request target counts the bytes as sent.
 | 503  | The server is busy with requests to outside services (`upstream_busy`). The response carries `Retry-After: 5`. It costs no credits and carries no `X-RateLimit-*` headers. A request that the endpoint refuses for its method, its parameter names or its values gets that refusal instead. The 503 comes before the API key is read, so a request with a malformed, unknown, revoked or expired key gets it too | the endpoints that ask an outside service, `/mcp` |
 | 503  | Every place for an image request is in use (`raw_body_busy`). The response carries `Retry-After: 10`, the deadline that the head and the body share. It costs no credits | `/image_inspect` |
 | 503  | The payment cannot be settled now (`payment_unavailable`). The response carries `Retry-After: 5` | every endpoint that takes payment |
-| 503  | The database cannot be read. The body is `{"status":"unavailable","version":"2.0.1","db":null}` and the response carries `Retry-After: 5` | `/health` |
+| 503  | The database cannot be read. The body is `{"status":"unavailable","version":"2.0.2","db":null}` and the response carries `Retry-After: 5` | `/health` |
 | 504  | No TLS server or site was reached at the host name. `message` says why | `/ssl_check/`, `/headers_check/` |
 
 ---

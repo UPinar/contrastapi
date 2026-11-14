@@ -5,6 +5,8 @@ CREATE FUNCTION api.fn_ip_watch_write_values(p_item_row_count integer)
 AS $$
 DECLARE
   newest_list_synced_at      timestamptz;
+  iptoasn_synced_at          timestamptz;
+  cloud_synced_at            timestamptz;
   is_drop_list_on            boolean;
   newest_drop_list_time      timestamptz;
   newest_drop_copyright      text;
@@ -26,6 +28,12 @@ BEGIN
     FROM public.upstream_feed_sync AS ufs
    WHERE ufs.feed_name IN ('drop_list', 'iptoasn', 'cloud_ranges')
      AND ufs.last_status = 'ok';
+  SELECT ufs.last_synced INTO iptoasn_synced_at
+    FROM public.upstream_feed_sync AS ufs
+   WHERE ufs.feed_name = 'iptoasn'
+     AND ufs.last_status = 'ok';
+  SELECT min(icr.synced_at) INTO cloud_synced_at
+    FROM public.ip_cloud_range AS icr;
   SELECT idlp.list_time, idlp.copyright INTO newest_drop_list_time, newest_drop_copyright
     FROM public.ip_drop_list_prefix AS idlp
    ORDER BY idlp.list_time DESC, idlp.copyright
@@ -97,18 +105,20 @@ BEGIN
            SET candidate_value = NULL, candidate_seen_at = NULL
          WHERE wiiv.item_id = taken_item_ids[taken_index] AND wiiv.value_kind = 'hosting';
       ELSIF hosting_value = stored.candidate_value THEN
-        UPDATE public.watchlist_item_ip_value AS wiiv
-           SET current_value = hosting_value, candidate_value = NULL, candidate_seen_at = NULL
-         WHERE wiiv.item_id = taken_item_ids[taken_index] AND wiiv.value_kind = 'hosting';
-        transition_item_ids        := transition_item_ids || taken_item_ids[taken_index];
-        transition_api_key_ids     := transition_api_key_ids || taken_api_key_ids[taken_index];
-        transition_ip_addresses    := transition_ip_addresses || taken_ip_addresses[taken_index];
-        transition_event_types     := transition_event_types || 'hosting_changed'::text;
-        transition_previous_values := transition_previous_values || stored.current_value;
-        transition_current_values  := transition_current_values || hosting_value;
+        IF iptoasn_synced_at > stored.candidate_seen_at AND cloud_synced_at > stored.candidate_seen_at THEN
+          UPDATE public.watchlist_item_ip_value AS wiiv
+             SET current_value = hosting_value, candidate_value = NULL, candidate_seen_at = NULL
+           WHERE wiiv.item_id = taken_item_ids[taken_index] AND wiiv.value_kind = 'hosting';
+          transition_item_ids        := transition_item_ids         || taken_item_ids[taken_index];
+          transition_api_key_ids     := transition_api_key_ids      || taken_api_key_ids[taken_index];
+          transition_ip_addresses    := transition_ip_addresses     || taken_ip_addresses[taken_index];
+          transition_event_types     := transition_event_types      || 'hosting_changed'::text;
+          transition_previous_values := transition_previous_values  || stored.current_value;
+          transition_current_values  := transition_current_values   || hosting_value;
+        END IF;
       ELSE
         UPDATE public.watchlist_item_ip_value AS wiiv
-           SET candidate_value = hosting_value, candidate_seen_at = now()
+           SET candidate_value = hosting_value, candidate_seen_at = clock_timestamp()
          WHERE wiiv.item_id = taken_item_ids[taken_index] AND wiiv.value_kind = 'hosting';
       END IF;
     END IF;

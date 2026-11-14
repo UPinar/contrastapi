@@ -193,7 +193,7 @@ static WATCHLISTEDITAction_t static_WATCHLISTEDITFindAction(const WATCHLISTEDITP
 
 static bool static_WATCHLISTEDITIsNxdomain(const char* domain_name)
 {
-  const DnsQuestion_t question = { domain_name, DNS_RECORD_TYPE_A };
+  const DnsQuestion_t question = { domain_name, DNS_RECORD_TYPE_CNAME };
   DnsAnswer_t         answer;
   dns_askQuestions(&question, 1, DNS_LOOKUP_DEADLINE_MS, &answer);
   bool is_nxdomain = answer.m_status == DNS_ANSWER_NXDOMAIN;

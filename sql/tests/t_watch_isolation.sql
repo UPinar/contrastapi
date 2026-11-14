@@ -872,7 +872,7 @@ CREATE FUNCTION pg_temp.t_isolation_ip_read(p_key_hash text) RETURNS jsonb LANGU
                                  FILTER (WHERE x.event_type IS NOT NULL), '[]')
                  FROM api.fn_watchlist_events(p_key_hash, 0, false, 100, 100, 600) WITH ORDINALITY AS x),
     'values', (SELECT coalesce(jsonb_agg(jsonb_build_object('kind', wiiv.value_kind, 'current', wiiv.current_value,
-                                                            'candidate', wiiv.candidate_value, 'seen_at', wiiv.candidate_seen_at)
+                                                            'candidate', wiiv.candidate_value, 'has_seen_at', wiiv.candidate_seen_at IS NOT NULL)
                                          ORDER BY wiiv.value_kind), '[]')
                  FROM watchlist_item_ip_value AS wiiv
                  JOIN watchlist_item_ip AS wii ON wii.item_id = wiiv.item_id
@@ -912,6 +912,7 @@ BEGIN
           WHEN 'remove'     THEN PERFORM count(*) FROM api.fn_watchlist_edit_ip_lookup(key_hash, 'remove', address, 100);
           WHEN 'clear'      THEN PERFORM count(*) FROM api.fn_watchlist_clear(key_hash);
           WHEN 'run'        THEN UPDATE watchlist_item_ip SET checked_at = checked_at - interval '2 hours';
+                                 UPDATE watchlist_item_ip_value SET candidate_seen_at = candidate_seen_at - interval '2 hours';
                                  PERFORM api.fn_ip_watch_write_values(100);
           WHEN 'unlist'     THEN DELETE FROM ip_drop_list_prefix WHERE prefix = '192.0.2.0/25';
           WHEN 'relist'     THEN INSERT INTO ip_drop_list_prefix (prefix, listing_id, regional_registry, list_time, copyright)

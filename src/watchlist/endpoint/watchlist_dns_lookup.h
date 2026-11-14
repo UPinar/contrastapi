@@ -11,7 +11,7 @@
 
 #define WATCHLIST_DNS_LOOKUP_DNS_PRESENCE_ANSWER_COUNT 4
 
-bool watchlist_dns_lookup_tryWriteDnsPresence           (const DnsAnswer_t* answers, WatchlistDomainValue_t* value_out);
+bool watchlist_dns_lookup_tryWriteDnsPresence           (const DnsAnswer_t* answers, DnsLookupStatus_t takeover_status, const DNSTAKEOVERCHECKRecord_t* takeover_record, WatchlistDomainValue_t* value_out);
 bool watchlist_dns_lookup_tryWriteNsNames               (const DnsAnswer_t* ns_answer, WatchlistDomainValue_t* value_out);
 bool watchlist_dns_lookup_tryWriteMxRecords             (const DnsAnswer_t* mx_answer, WatchlistDomainValue_t* value_out);
 bool watchlist_dns_lookup_tryWriteIpAddressReachability (const DnsAnswer_t* a_answer, const DnsAnswer_t* aaaa_answer, WatchlistDomainValue_t* value_out);

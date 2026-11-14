@@ -1494,6 +1494,44 @@ void test_scanNextDnsDomains_sends_the_public_addresses_whatever_the_cname_chain
   }
 }
 
+void test_scanNextDnsDomains_dangling_cname_is_found(void)
+{
+  static const struct {
+    const char*       mp_name;
+    DnsLookupStatus_t m_takeoverStatus;
+    bool              m_hasTakeoverChain;
+    const char*       mp_presence;
+    const char*       mp_takeover;
+  } cases[] = {
+    { "dangling", DNS_LOOKUP_OK,        true,  "found",     "vulnerable Example Cloud" },
+    { "gone",     DNS_LOOKUP_NOT_FOUND, false, "not_found", NULL                       },
+  };
+  for (size_t c = 0; c < sizeof(cases) / sizeof(cases[0]); c++)
+  {
+    setUp();
+    static_queueOneClaim(static_claim("a.example.com", "u1"));
+    g_dnsAnswers[DNS_RECORD_TYPE_NS]   = (FakeDnsAnswer_t){ DNS_ANSWER_NXDOMAIN, 0, false };
+    g_dnsAnswers[DNS_RECORD_TYPE_MX]   = (FakeDnsAnswer_t){ DNS_ANSWER_NXDOMAIN, 0, false };
+    g_dnsAnswers[DNS_RECORD_TYPE_A]    = (FakeDnsAnswer_t){ DNS_ANSWER_NXDOMAIN, 0, false };
+    g_dnsAnswers[DNS_RECORD_TYPE_AAAA] = (FakeDnsAnswer_t){ DNS_ANSWER_NXDOMAIN, 0, false };
+    g_takeoverStatus   = cases[c].m_takeoverStatus;
+    g_hasTakeoverChain = cases[c].m_hasTakeoverChain;
+
+    TEST_ASSERT_TRUE_MESSAGE(watchlist_dns_lookup_scanNextDomains(FAKE_CONN), cases[c].mp_name);
+
+    TEST_ASSERT_EQUAL_INT_MESSAGE(1, g_dnsRecordCallCount, cases[c].mp_name);
+    const RecordedDnsScan_t* recorded = &g_dnsRecords[0];
+    TEST_ASSERT_TRUE_MESSAGE(recorded->ma_hasValue[DNS_KIND_DNS_PRESENCE], cases[c].mp_name);
+    TEST_ASSERT_EQUAL_STRING_MESSAGE(cases[c].mp_presence, recorded->ma_valueTexts[DNS_KIND_DNS_PRESENCE], cases[c].mp_name);
+    TEST_ASSERT_TRUE_MESSAGE(recorded->ma_hasValue[DNS_KIND_IP_ADDRESS_REACHABILITY], cases[c].mp_name);
+    TEST_ASSERT_EQUAL_STRING_MESSAGE("empty", recorded->ma_valueTexts[DNS_KIND_IP_ADDRESS_REACHABILITY], cases[c].mp_name);
+    TEST_ASSERT_EQUAL_MESSAGE(cases[c].mp_takeover != NULL, recorded->ma_hasValue[DNS_KIND_CNAME_TAKEOVER], cases[c].mp_name);
+    if (cases[c].mp_takeover != NULL)
+      TEST_ASSERT_EQUAL_STRING_MESSAGE(cases[c].mp_takeover, recorded->ma_valueTexts[DNS_KIND_CNAME_TAKEOVER], cases[c].mp_name);
+    static_assertEverythingFreed();
+  }
+}
+
 void test_scanNextDnsDomains_sends_an_address_list_of_the_value_max_len(void)
 {
   static char long_a[] = "93.184.216.34";
@@ -2914,7 +2952,7 @@ void test_docs_name_the_headers_and_ct_scan_limits(void)
 
 void test_registration_gate_test_count(void)
 {
-  int expected_test_count = 66;
+  int expected_test_count = 67;
   TEST_ASSERT_EQUAL_INT_MESSAGE(expected_test_count, (int)Unity.NumberOfTests,
     "RUN_TEST list and test definitions have drifted apart - a test may be unregistered");
 }
@@ -2936,6 +2974,7 @@ int main(void)
   RUN_TEST(test_scanNextDnsDomains_name_that_is_not_public_is_asked_nothing);
   RUN_TEST(test_scanNextDnsDomains_records_the_question_count_of_each_domain);
   RUN_TEST(test_scanNextDnsDomains_sends_the_public_addresses_whatever_the_cname_chain_holds);
+  RUN_TEST(test_scanNextDnsDomains_dangling_cname_is_found);
   RUN_TEST(test_scanNextDnsDomains_sends_an_address_list_of_the_value_max_len);
   RUN_TEST(test_scanNextTlsDomains_probes_each_claimed_domain_and_records_four_values);
   RUN_TEST(test_scanNextTlsDomains_claim_with_no_domain_ends_the_run);

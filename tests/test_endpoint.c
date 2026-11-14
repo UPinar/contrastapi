@@ -4245,6 +4245,7 @@ void test_WATCHLISTEDITRun_asks_dns_only_for_the_add_of_a_domain_item(void)
     { "{\"action\":\"add\",\"endpoint\":\"ssl_check\",\"domain\":\"shop.example.org\"}",    DNS_ANSWER_NXDOMAIN,      0, ENDPOINT_RUN_REFUSED,  NOT_IN_DNS_MESSAGE, 1, "shop.example.org" },
     { "{\"action\":\"add\",\"endpoint\":\"headers_check\",\"domain\":\"Web.Example.org\"}", DNS_ANSWER_NXDOMAIN,      0, ENDPOINT_RUN_REFUSED,  NOT_IN_DNS_MESSAGE, 1, "web.example.org" },
     { "{\"action\":\"add\",\"endpoint\":\"headers_check\",\"domain\":\"www.example.org\"}", DNS_ANSWER_OK,            1, ENDPOINT_RUN_DB_ERROR, NULL,               1, "www.example.org" },
+    { "{\"action\":\"add\",\"endpoint\":\"dns_lookup\",\"domain\":\"Dangling.Example.net\"}", DNS_ANSWER_OK,          1, ENDPOINT_RUN_DB_ERROR, NULL,               1, "dangling.example.net" },
     { "{\"action\":\"remove\",\"endpoint\":\"headers_check\",\"domain\":\"gone.example.org\"}", DNS_ANSWER_NXDOMAIN,  0, ENDPOINT_RUN_DB_ERROR, NULL,               0, NULL },
     { "{\"action\":\"add\",\"endpoint\":\"cert_search\",\"domain\":\"Ct.Example.org\"}",   DNS_ANSWER_NXDOMAIN,      0, ENDPOINT_RUN_REFUSED,  NOT_IN_DNS_MESSAGE, 1, "ct.example.org" },
     { "{\"action\":\"add\",\"endpoint\":\"cert_search\",\"domain\":\"www.example.org\"}",  DNS_ANSWER_OK,            1, ENDPOINT_RUN_DB_ERROR, NULL,               1, "www.example.org" },
@@ -4284,7 +4285,7 @@ void test_WATCHLISTEDITRun_asks_dns_only_for_the_add_of_a_domain_item(void)
     if (cases[i].m_askCount > 0)
     {
       TEST_ASSERT_EQUAL_INT_MESSAGE(1, g_fakeAskQuestionCount, cases[i].mp_object);
-      TEST_ASSERT_EQUAL_INT_MESSAGE(DNS_RECORD_TYPE_A, g_fakeAskType, cases[i].mp_object);
+      TEST_ASSERT_EQUAL_INT_MESSAGE(DNS_RECORD_TYPE_CNAME, g_fakeAskType, cases[i].mp_object);
       TEST_ASSERT_EQUAL_INT_MESSAGE(DNS_LOOKUP_DEADLINE_MS, g_fakeAskDeadlineMs, cases[i].mp_object);
       TEST_ASSERT_EQUAL_STRING_MESSAGE(cases[i].mp_askName, g_fakeAskName, cases[i].mp_object);
     }
