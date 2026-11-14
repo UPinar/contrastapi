@@ -985,6 +985,13 @@ test: $(TEST_BINS)
 # then aborts without an ASan report.
 FUZZ_CC      ?= clang-20
 FUZZ_SECONDS ?= 60
+# FUZZ_INPUT_SECONDS is the time one input may run before libFuzzer reports it as a
+# timeout. libFuzzer's own limit is 1200 seconds, and -max_total_time does not stop an
+# input that is running, so a hang would hold a run for 20 minutes.
+FUZZ_INPUT_SECONDS ?= 25
+# FUZZ_RUN_OPTS adds libFuzzer flags to every harness of fuzz-run. fuzz.yml passes
+# -fork=1 -ignore_crashes=1 there, so a crash does not end the run early.
+FUZZ_RUN_OPTS ?=
 FUZZ_WORK    ?= obj/fuzz/work
 FUZZ_CFLAGS   = -g -O1 -Wall -Wextra -Wformat-nonliteral -fno-omit-frame-pointer -pthread \
                 -fsanitize=address,undefined -fno-sanitize-recover=undefined -MMD -MP \
@@ -1094,16 +1101,21 @@ fuzz: $(FUZZ_BINS)
 # it is given. It writes a crashing input to -artifact_prefix.
 fuzz-run: $(FUZZ_BINS)
 	$(foreach name,$(FUZZ_NAMES),mkdir -p $(FUZZ_WORK)/$(name) && \
-	  bin/fuzz_$(name) -max_total_time=$(FUZZ_SECONDS) $(FUZZ_OPTS_$(name)) -artifact_prefix=$(FUZZ_WORK)/$(name)- \
+	  bin/fuzz_$(name) -max_total_time=$(FUZZ_SECONDS) -timeout=$(FUZZ_INPUT_SECONDS) $(FUZZ_RUN_OPTS) $(FUZZ_OPTS_$(name)) -artifact_prefix=$(FUZZ_WORK)/$(name)- \
 	  $(FUZZ_WORK)/$(name) tests/fuzz/corpus/$(name) && ) true
 
 # fuzz-replay runs each harness once over its seeds in tests/fuzz/corpus/, with no fuzzing.
 # CI runs it. A seed that crashes fails the target.
 fuzz-replay: $(FUZZ_BINS)
 	$(foreach name,$(FUZZ_NAMES),mkdir -p $(FUZZ_WORK) && \
-	  bin/fuzz_$(name) -runs=0 $(FUZZ_OPTS_$(name)) -artifact_prefix=$(FUZZ_WORK)/$(name)- tests/fuzz/corpus/$(name) && ) true
+	  bin/fuzz_$(name) -runs=0 -timeout=$(FUZZ_INPUT_SECONDS) $(FUZZ_OPTS_$(name)) -artifact_prefix=$(FUZZ_WORK)/$(name)- tests/fuzz/corpus/$(name) && ) true
 
-.PHONY: fuzz fuzz-run fuzz-replay
+# fuzz-names prints the harness names on one line. The workflow fuzz.yml builds its job
+# list from it, so a name added to FUZZ_NAMES gets its fuzz job with no workflow change.
+fuzz-names:
+	@echo $(FUZZ_NAMES)
+
+.PHONY: fuzz fuzz-run fuzz-replay fuzz-names
 
 FUZZ_OBJS = $(sort $(FUZZ_SERVER_OBJS) $(FUZZ_JSONREAD_OBJS) $(FUZZ_QUERY_OBJS) $(FUZZ_NET_OBJS) $(FUZZ_DNS_OBJS) $(FUZZ_X402_OBJS) $(FUZZ_X402_SOLANA_OBJS) $(FUZZ_X402_FACILITATOR_OBJS) $(FUZZ_X402_SOLANA_RPC_OBJS))
 FUZZ_DEPS = $(FUZZ_BINS:=.d) $(FUZZ_OBJS:.o=.d)

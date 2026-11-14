@@ -1,0 +1,99 @@
+name: Fuzz
+
+on:
+  push:
+    branches: [ master, main ]
+  schedule:
+    - cron: "30 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fuzz-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+env:
+  FUZZ_REPORT_RECIPIENT: age1kmpsx3slrc20r8cy3mn8rqnhnnmvzffhk5u8cxr3m0e3x5yg3qqstuyuxk
+
+jobs:
+  harnesses:
+    if: github.repository == 'UPinar/contrastapi'
+    runs-on: ubuntu-24.04
+    outputs:
+      names: ${{ steps.list.outputs.names }}
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: List the harnesses
+        id: list
+        run: echo "names=$(make -s fuzz-names | jq -cR 'split(" ")')" >> "$GITHUB_OUTPUT"
+
+  fuzz:
+    needs: harnesses
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        name: ${{ fromJSON(needs.harnesses.outputs.names) }}
+    env:
+      FUZZ_SECONDS: ${{ github.event_name == 'schedule' && '600' || '60' }}
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install clang and age
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-20 libclang-rt-20-dev libpq-dev libssl-dev pkg-config age
+
+      - name: Restore the inputs of earlier runs
+        uses: actions/cache/restore@v6
+        with:
+          path: obj/fuzz/work/${{ matrix.name }}
+          key: fuzz-corpus-${{ matrix.name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: fuzz-corpus-${{ matrix.name }}-
+
+      - name: Build the harness
+        run: make -j"$(nproc)" bin/fuzz_${{ matrix.name }}
+
+      - name: Fuzz
+        id: fuzz
+        shell: bash
+        run: |
+          name='${{ matrix.name }}'
+          report="$RUNNER_TEMP/report"
+          mkdir -p "$report"
+          status=0
+          make fuzz-run FUZZ_NAMES="$name" FUZZ_SECONDS="$FUZZ_SECONDS" \
+            FUZZ_RUN_OPTS='-fork=1 -ignore_crashes=1' > "$report/fuzz.log" 2>&1 || status=$?
+          findings=0
+          for file in obj/fuzz/work/"$name"-*; do
+            [ -f "$file" ] || continue
+            cp "$file" "$report/"
+            findings=$((findings + 1))
+            sha="${file##*-}"
+            find "obj/fuzz/work/$name" -type f -exec sha1sum {} + \
+              | awk -v sha="$sha" '$1 == sha { print $2 }' | xargs -r rm -f --
+          done
+          printf 'harness %s\nseconds %s\nexit %s\nfindings %s\ncommit %s\n' \
+            "$name" "$FUZZ_SECONDS" "$status" "$findings" "$GITHUB_SHA" > "$report/status"
+          tar -czf - -C "$RUNNER_TEMP" report | age -r "$FUZZ_REPORT_RECIPIENT" -o "$RUNNER_TEMP/report.tar.gz.age"
+          echo "fuzz_$name: report written"
+
+      - name: Upload the encrypted report
+        uses: actions/upload-artifact@v7
+        with:
+          name: report-${{ matrix.name }}
+          path: ${{ runner.temp }}/report.tar.gz.age
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Save the inputs for the next run
+        uses: actions/cache/save@v6
+        with:
+          path: obj/fuzz/work/${{ matrix.name }}
+          key: fuzz-corpus-${{ matrix.name }}-${{ github.run_id }}-${{ github.run_attempt }}

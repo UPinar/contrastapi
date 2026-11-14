@@ -41,7 +41,7 @@ createdb contrastapi_test
 make test-sql DB_TEST=contrastapi_test
 ```
 
-CI runs these and more: cppcheck, a TSan run, the fuzz seeds, and checks that the docs,
+CI runs these and more: cppcheck, a TSan run, the fuzz seeds, a fuzz run of each harness (fuzz.yml), and checks that the docs,
 the column lists and the grants agree with the code. A pull request needs a green CI run.
 
 ## What a change needs
