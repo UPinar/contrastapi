@@ -616,3 +616,45 @@ BEGIN
   PERFORM set_config('contrastapi.cve_events', coalesce(saved_events_option, ''), true);
 END
 $$;
+
+DO $$
+DECLARE
+  saved_events_option text := current_setting('contrastapi.cve_events', true);
+BEGIN
+  PERFORM set_config('contrastapi.cve_events', 'off', true);
+  INSERT INTO cves (cve_id, published_time, cna_published_at, nvd_published_at) VALUES
+    ('CVE-2012-0701', '2012-07-07', '2012-07-07 10:00:00+00', '2012-07-07 11:00:00+00'),
+    ('CVE-2012-0702', '2012-07-07', NULL,                     '2012-07-07 12:00:00+00'),
+    ('CVE-2012-0703', '2012-07-07', NULL,                     NULL),
+    ('CVE-2012-0704', '2012-07-07', '2012-07-07 09:00:00+00', '2012-07-07 13:00:00+00'),
+    ('CVE-2012-0705', '2012-07-07', NULL,                     NULL),
+    ('CVE-2012-0706', '2012-07-06', '2012-07-09 00:00:00+00', '2012-07-09 00:00:00+00');
+  ASSERT (SELECT array_agg(right(s.cve_id, 2))
+            FROM api.fn_cve_search(NULL, NULL, NULL, NULL, NULL, NULL, '2012-07-07', '2012-07-07', NULL, NULL, NULL, false,
+                                   NULL, 100, 0) AS s)
+         = '{02,01,04,03,05}',
+         'within one day the later publication time comes first, the CNA time before the NVD time, and a CVE with no time last';
+  ASSERT (SELECT array_agg(right(s.cve_id, 2))
+            FROM api.fn_cve_search(NULL, NULL, NULL, NULL, NULL, NULL, '2012-07-07', '2012-07-07', NULL, NULL, NULL, false,
+                                   'epss', 100, 0) AS s)
+         = '{01,02,03,04,05}',
+         'sort epss does not read the publication time';
+  ASSERT (SELECT array_agg(right(s.cve_id, 2))
+            FROM api.fn_cve_search(NULL, NULL, NULL, NULL, NULL, NULL, '2012-07-06', '2012-07-07', NULL, NULL, NULL, false,
+                                   NULL, 100, 0) AS s)
+         = '{02,01,04,03,05,06}',
+         'an older day comes after a newer one, even when its publication time is later';
+  ASSERT (SELECT array_agg(right(s.cve_id, 2))
+            FROM api.fn_cve_search(NULL, NULL, NULL, NULL, NULL, NULL, '2012-07-07', '2012-07-07', NULL, NULL, NULL, false,
+                                   'cvss', 100, 0) AS s)
+         = '{01,02,03,04,05}',
+         'sort cvss does not read the publication time';
+  ASSERT (SELECT array_agg(right(s.cve_id, 2))
+            FROM api.fn_cve_search(NULL, NULL, NULL, NULL, NULL, NULL, '2012-07-06', '2012-07-07', NULL, NULL, NULL, false,
+                                   NULL, 2, 2) AS s)
+         = '{04,03}',
+         'a page cut by LIMIT and OFFSET follows the same order';
+  DELETE FROM cves WHERE cve_id LIKE 'CVE-2012-07%';
+  PERFORM set_config('contrastapi.cve_events', coalesce(saved_events_option, ''), true);
+END
+$$;

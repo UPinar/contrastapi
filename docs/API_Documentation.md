@@ -537,7 +537,7 @@ curl "https://api.contrastcyber.com/cve_products/CVE-2021-44228?vendor=cisco&lim
 
 Searches CVEs by vendor, product, severity, scores, KEV status, weakness class and date, one page at a time. A call costs 1 credit. The data comes from NVD, EPSS, CISA KEV and nuclei-templates; see [Data sources and licenses](#data-sources-and-licenses).
 
-The newest CVEs come first. `sort=epss` or `sort=cvss` orders them by exploitation probability or by CVSS score instead. CVEs that tie on the sort key come in `cve_id` order, so `offset` cuts the same pages from the same data.
+The newest CVEs come first. Within one day, the CVE published at the later time comes first, and the CVEs whose time is not known follow. `sort=epss` or `sort=cvss` orders them by exploitation probability or by CVSS score instead. CVEs that tie on the sort key come in `cve_id` order, so `offset` cuts the same pages from the same data.
 
 ```bash
 curl "https://api.contrastcyber.com/cve_search"
@@ -5362,7 +5362,7 @@ A feed whose name, time or status cannot be read is left out of `db.feeds`. The 
 ```json
 {
   "status": "ok",
-  "version": "2.0.2",
+  "version": "2.0.3",
   "db": {
     "nvd": {
       "cve_count": 251430,
@@ -5396,7 +5396,7 @@ A feed whose name, time or status cannot be read is left out of `db.feeds`. The 
 When the database cannot be read, the answer is HTTP 503 with a `Retry-After: 5` header and this body:
 
 ```json
-{"status":"unavailable","version":"2.0.2","db":null}
+{"status":"unavailable","version":"2.0.3","db":null}
 ```
 
 ---
@@ -5923,7 +5923,7 @@ request target counts the bytes as sent.
 | 503  | The server is busy with requests to outside services (`upstream_busy`). The response carries `Retry-After: 5`. It costs no credits and carries no `X-RateLimit-*` headers. A request that the endpoint refuses for its method, its parameter names or its values gets that refusal instead. The 503 comes before the API key is read, so a request with a malformed, unknown, revoked or expired key gets it too | the endpoints that ask an outside service, `/mcp` |
 | 503  | Every place for an image request is in use (`raw_body_busy`). The response carries `Retry-After: 10`, the deadline that the head and the body share. It costs no credits | `/image_inspect` |
 | 503  | The payment cannot be settled now (`payment_unavailable`). The response carries `Retry-After: 5` | every endpoint that takes payment |
-| 503  | The database cannot be read. The body is `{"status":"unavailable","version":"2.0.2","db":null}` and the response carries `Retry-After: 5` | `/health` |
+| 503  | The database cannot be read. The body is `{"status":"unavailable","version":"2.0.3","db":null}` and the response carries `Retry-After: 5` | `/health` |
 | 504  | No TLS server or site was reached at the host name. `message` says why | `/ssl_check/`, `/headers_check/` |
 
 ---

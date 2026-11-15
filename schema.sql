@@ -189,6 +189,8 @@ CREATE TABLE cves (
   has_exploitdb           BOOLEAN     NOT NULL DEFAULT FALSE,
   epss_level              SMALLINT    NOT NULL DEFAULT 0,
   nvd_last_modified_at    TIMESTAMPTZ,
+  nvd_published_at        TIMESTAMPTZ,
+  cna_published_at        TIMESTAMPTZ,
   CONSTRAINT cves_cve_id_format CHECK (cve_id ~ '^CVE-[0-9]{4}-[0-9]{4,15}$'),
   CONSTRAINT cves_cvss_v3_range CHECK (cvss_v3 >= 0 AND cvss_v3 <= 10),
   CONSTRAINT cves_cvss_v4_range CHECK (cvss_v4 >= 0 AND cvss_v4 <= 10),

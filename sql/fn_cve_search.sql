@@ -64,7 +64,7 @@ BEGIN
     || ' ORDER BY '
     || CASE p_sort WHEN 'epss' THEN 'c.epss_score DESC'
                    WHEN 'cvss' THEN 'effective.cvss DESC'
-                   ELSE 'c.published_time DESC' END
+                   ELSE 'c.published_time DESC, coalesce(c.cna_published_at, c.nvd_published_at) DESC NULLS LAST' END
     || ', c.cve_id ASC LIMIT $12 OFFSET $13'
     USING p_severity,
           p_min_cvss,
