@@ -784,8 +784,9 @@ void test_tools_list_is_the_whole_catalogue(void)
       R"json("has_nuclei_template":{"type":"boolean","const":true,"description":"Only CVEs with a Nuclei detection template"},)json"
       R"json("published_after":{"type":"string","maxLength":31,"description":"YYYY-MM-DD"},)json"
       R"json("published_before":{"type":"string","maxLength":31,"description":"YYYY-MM-DD"},)json"
+      R"json("kev_added_after":{"type":"string","maxLength":31,"description":"YYYY-MM-DD; only CVEs added to CISA KEV on or after this date and still in it"},)json"
       R"json("include_rejected":{"type":"boolean","description":"Also list the CVEs that NVD marks Rejected"},)json"
-      R"json("sort":{"type":"string","enum":["published_time","epss","cvss"],"maxLength":15},)json"
+      R"json("sort":{"type":"string","enum":["published_time","epss","cvss","kev_date_added"],"maxLength":15,"description":"kev_date_added needs in_kev=true or kev_added_after"},)json"
       R"json("limit":{"type":"integer","minimum":1,"maximum":100,"default":20},)json"
       R"json("offset":{"type":"integer","minimum":0,"maximum":10000,"default":0})json"
       R"json(},"additionalProperties":false})json"
@@ -4904,6 +4905,65 @@ void test_tool_CVESEARCH_impossible_calendar_date_rejected(void)
   static_assertToolRefusedBeforeDb(response, status, R"(published_after must be a valid calendar date in YYYY-MM-DD form")", g_stub_CVESEARCH_call_count);
 }
 
+void test_tool_CVESEARCH_bad_kev_added_after_rejected(void)
+{
+  g_stub_CVESEARCH_status = DB_OK;
+  int status;
+  char* response = static_dispatch(R"({"jsonrpc":"2.0","id":86,"method":"tools/call",)"
+                     R"("params":{"name":"cve_search","arguments":{"kev_added_after":"2020-13-99"}}})", &status);
+  static_assertToolRefusedBeforeDb(response, status, R"("text":"kev_added_after must be a valid calendar date in YYYY-MM-DD form"}],"isError":true)", g_stub_CVESEARCH_call_count);
+
+  response = static_dispatch(R"({"jsonrpc":"2.0","id":87,"method":"tools/call",)"
+                     R"("params":{"name":"cve_search","arguments":{"kev_added_after":""}}})", &status);
+  static_assertToolRefusedBeforeDb(response, status, R"("text":"kev_added_after must be a valid calendar date in YYYY-MM-DD form"}],"isError":true)", g_stub_CVESEARCH_call_count);
+
+  response = static_dispatch(R"({"jsonrpc":"2.0","id":88,"method":"tools/call",)"
+                     R"("params":{"name":"cve_search","arguments":{"kev_added_after":"2026-02-31"}}})", &status);
+  static_assertToolRefusedBeforeDb(response, status, R"("text":"kev_added_after must be a valid calendar date in YYYY-MM-DD form"}],"isError":true)", g_stub_CVESEARCH_call_count);
+}
+
+void test_tool_CVESEARCH_kev_date_refusals_come_before_db(void)
+{
+  g_stub_CVESEARCH_status = DB_OK;
+  int status;
+  char* response = static_dispatch(R"({"jsonrpc":"2.0","id":90,"method":"tools/call",)"
+                     R"("params":{"name":"cve_search","arguments":{"kev_added_after":"2024-03-10","in_kev":false}}})", &status);
+  static_assertToolRefusedBeforeDb(response, status, R"("text":"kev_added_after lists only CVEs that are in KEV, so it cannot be used with in_kev=false"}],"isError":true)", g_stub_CVESEARCH_call_count);
+
+  response = static_dispatch(R"({"jsonrpc":"2.0","id":91,"method":"tools/call",)"
+                     R"("params":{"name":"cve_search","arguments":{"sort":"kev_date_added"}}})", &status);
+  static_assertToolRefusedBeforeDb(response, status, R"("text":"sort=kev_date_added orders only CVEs that are in KEV: add in_kev=true or kev_added_after"}],"isError":true)", g_stub_CVESEARCH_call_count);
+
+  response = static_dispatch(R"({"jsonrpc":"2.0","id":92,"method":"tools/call",)"
+                     R"("params":{"name":"cve_search","arguments":{"sort":"kev_date_added","in_kev":false}}})", &status);
+  static_assertToolRefusedBeforeDb(response, status, R"("text":"sort=kev_date_added orders only CVEs that are in KEV: add in_kev=true or kev_added_after"}],"isError":true)", g_stub_CVESEARCH_call_count);
+
+  response = static_dispatch(R"({"jsonrpc":"2.0","id":93,"method":"tools/call",)"
+                     R"("params":{"name":"cve_search","arguments":{"sort":"kev_date_added","in_kev":false,"kev_added_after":"2024-03-10"}}})", &status);
+  static_assertToolRefusedBeforeDb(response, status, R"("text":"kev_added_after lists only CVEs that are in KEV, so it cannot be used with in_kev=false"}],"isError":true)", g_stub_CVESEARCH_call_count);
+}
+
+void test_tool_CVESEARCH_kev_date_filter_and_sort_run_for_kev_only_requests(void)
+{
+  static const char* const bodies[] = {
+    R"({"jsonrpc":"2.0","id":94,"method":"tools/call","params":{"name":"cve_search","arguments":{"sort":"kev_date_added","in_kev":true}}})",
+    R"({"jsonrpc":"2.0","id":95,"method":"tools/call","params":{"name":"cve_search","arguments":{"sort":"kev_date_added","kev_added_after":"2024-03-10"}}})",
+    R"({"jsonrpc":"2.0","id":96,"method":"tools/call","params":{"name":"cve_search","arguments":{"kev_added_after":"2024-03-11"}}})",
+    R"({"jsonrpc":"2.0","id":97,"method":"tools/call","params":{"name":"cve_search","arguments":{"kev_added_after":"2024-03-12","in_kev":true}}})",
+  };
+  g_stub_CVESEARCH_status = DB_OK;
+  for (size_t i = 0; i < sizeof(bodies) / sizeof(bodies[0]); i++)
+  {
+    int status;
+    char* response = static_dispatch(bodies[i], &status);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(200, status, bodies[i]);
+    TEST_ASSERT_NULL_MESSAGE(strstr(response, R"("isError":true)"), bodies[i]);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(response, R"("result":)"), bodies[i]);
+    TEST_ASSERT_EQUAL_INT_MESSAGE((int)i + 1, g_stub_CVESEARCH_call_count, bodies[i]);
+    free(response);
+  }
+}
+
 void test_tool_CVESEARCH_impossible_calendar_published_before_rejected(void)
 {
   int status;
@@ -4920,7 +4980,7 @@ void test_tool_CVESEARCH_bad_sort_rejected(void)
                      R"("params":{"name":"cve_search","arguments":{"sort":"nope"}}})", &status);
   TEST_ASSERT_EQUAL_INT(200, status);
   static_assertContains(response, R"("isError":true)");
-  static_assertContains(response, R"(sort must be published_time, epss, or cvss")");
+  static_assertContains(response, R"(sort must be published_time, epss, cvss, or kev_date_added")");
   free(response);
 }
 
@@ -5042,6 +5102,17 @@ void test_tool_CVESEARCH_severity_too_long_is_tool_error(void)
   TEST_ASSERT_EQUAL_INT(200, status);
   static_assertContains(response, R"("isError":true)");
   static_assertContains(response, R"(severity is too long")");
+  free(response);
+}
+
+void test_tool_CVESEARCH_kev_added_after_too_long_is_tool_error(void)
+{
+  int status;
+  char* response;
+  static_dispatchOverlongArg("cve_search", "kev_added_after", CVELOOKUP_PUBLISHED_LEN + 1, 102, &response, &status);
+  TEST_ASSERT_EQUAL_INT(200, status);
+  static_assertContains(response, R"("isError":true)");
+  static_assertContains(response, R"(kev_added_after is too long")");
   free(response);
 }
 
@@ -5879,7 +5950,7 @@ void test_tools_list_boolean_filter_schemas(void)
   free(response);
 }
 
-#define TEST_TOOLS_LIST_MAX_BYTE_COUNT 28672
+#define TEST_TOOLS_LIST_MAX_BYTE_COUNT 29184
 
 #define TEST_MCP_TOOL_DESCRIPTION_MAX_LEN 240
 
@@ -7215,7 +7286,7 @@ void test_mcp_server_instructions_name_x402_pay_per_call(void)
 
 void test_registration_gate_test_count(void)
 {
-  TEST_ASSERT_EQUAL_INT_MESSAGE(402, (int)Unity.NumberOfTests,
+  TEST_ASSERT_EQUAL_INT_MESSAGE(406, (int)Unity.NumberOfTests,
     "RUN_TEST list and test definitions have drifted apart - a test may be unregistered");
 }
 
@@ -7784,6 +7855,9 @@ int main(void)
   RUN_TEST(test_tool_CVESEARCH_bad_published_after_rejected);
   RUN_TEST(test_tool_CVESEARCH_bad_published_before_rejected);
   RUN_TEST(test_tool_CVESEARCH_impossible_calendar_date_rejected);
+  RUN_TEST(test_tool_CVESEARCH_bad_kev_added_after_rejected);
+  RUN_TEST(test_tool_CVESEARCH_kev_date_refusals_come_before_db);
+  RUN_TEST(test_tool_CVESEARCH_kev_date_filter_and_sort_run_for_kev_only_requests);
   RUN_TEST(test_tool_CVESEARCH_impossible_calendar_published_before_rejected);
   RUN_TEST(test_tool_CVESEARCH_bad_sort_rejected);
   RUN_TEST(test_tool_CVETRIAGE_wildcard_vendor_rejected);
@@ -7968,6 +8042,7 @@ int main(void)
   RUN_TEST(test_parse_routing_headers_too_long_version_leaves_method_flag_set);
   RUN_TEST(test_tool_CVESEARCH_severity_too_long_is_tool_error);
   RUN_TEST(test_tool_CVESEARCH_published_after_too_long_is_tool_error);
+  RUN_TEST(test_tool_CVESEARCH_kev_added_after_too_long_is_tool_error);
   RUN_TEST(test_tool_CVESEARCH_published_before_too_long_is_tool_error);
   RUN_TEST(test_tool_CVESEARCH_vendor_too_long_does_not_silently_drop_filter);
   RUN_TEST(test_tool_CVESEARCH_cwe_id_too_long_is_tool_error);

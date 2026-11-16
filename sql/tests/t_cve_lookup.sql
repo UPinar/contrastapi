@@ -109,6 +109,21 @@ BEGIN
 END
 $$;
 
+UPDATE cves SET kev_date_added = '2021-11-03' WHERE cve_id = 'CVE-2001-0001';
+UPDATE cves SET kev_date_added = '2020-05-05' WHERE cve_id = 'CVE-2001-0002';
+DO $$
+BEGIN
+  ASSERT (SELECT kev_date_added FROM t_cve_lookup_call) = '2021-11-03',
+         'kev_date_added is the KEV date of a CVE in KEV';
+  ASSERT (SELECT kev_date_added FROM api.fn_cve_lookup(ARRAY['CVE-2001-0002'], 30, 5, 20, 10, 20)) = '',
+         'kev_date_added is empty for a CVE that left KEV, though its cves row keeps the date';
+  ASSERT (SELECT kev_date_added FROM api.fn_cve_lookup(ARRAY['CVE-2001-0004'], 30, 5, 20, 10, 20)) = '',
+         'kev_date_added is empty for a CVE in KEV whose row holds no date';
+  ASSERT (SELECT kev_date_added FROM api.fn_cve_lookup(ARRAY['CVE-2001-0003'], 30, 5, 20, 10, 20)) = '',
+         'kev_date_added is empty for a CVE that was never in KEV';
+END
+$$;
+
 DO $$
 DECLARE
   saved_time_zone text := current_setting('TimeZone');

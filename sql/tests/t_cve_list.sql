@@ -65,7 +65,8 @@ CREATE TEMP TABLE t_cve_search_case (
   product               text,
   sort                  text,
   expected              text[],
-  has_nuclei_template   boolean);
+  has_nuclei_template   boolean,
+  kev_added_after       date);
 INSERT INTO t_cve_search_case VALUES
   ('no filter, no sort',  NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
    '{03,02,01,05,04,06,07,08,09,10}'),
@@ -112,6 +113,9 @@ INSERT INTO t_cve_search_case VALUES
    '{03,02,01,05,04,06,07,08,09,10}', false),
   ('every filter and has_nuclei_template', 'HIGH', 7.0, 0.3, true, true, 'CWE-79', '2020-01-01',
    '2020-01-01', 'acme', 'widget', 'cvss', '{01}', true);
+INSERT INTO t_cve_search_case VALUES
+  ('kev_added_after and an empty KEV date', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+   NULL, NULL, '{}', NULL, '2000-01-01');
 
 DO $$
 DECLARE
@@ -122,14 +126,14 @@ BEGIN
               FROM api.fn_cve_search(c.severity, c.min_cvss, c.min_epss, c.in_kev,
                                      c.known_ransomware, c.cwe_id, c.published_after,
                                      c.published_before, c.vendor, c.product, c.has_nuclei_template,
-                                     false, c.sort, 100, 0)
+                                     false, c.kev_added_after, c.sort, 100, 0)
                    AS s)
            = c.expected,
            'api.fn_cve_search, ' || c.label;
     ASSERT api.fn_cve_search_match_count(c.severity, c.min_cvss, c.min_epss, c.in_kev,
                                          c.known_ransomware, c.cwe_id, c.published_after,
                                          c.published_before, c.vendor, c.product, c.has_nuclei_template,
-                                         false)
+                                         false, c.kev_added_after)
            = cardinality(c.expected),
            'api.fn_cve_search_match_count, ' || c.label;
   END LOOP;
@@ -139,29 +143,29 @@ $$;
 DO $$
 BEGIN
   ASSERT (SELECT array_agg(right(s.cve_id, 2))
-            FROM api.fn_cve_search(NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, false,
+            FROM api.fn_cve_search(NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, false, NULL,
                                    NULL, 2, 1) AS s)
          = '{02,01}',
          'api.fn_cve_search answers p_row_count rows after skipping p_row_offset rows';
   ASSERT (SELECT count(*)
-            FROM api.fn_cve_search(NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, false,
+            FROM api.fn_cve_search(NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, false, NULL,
                                    NULL, NULL, 0)) = 0,
          'api.fn_cve_search answers no row for a NULL row count';
   ASSERT (SELECT count(*)
-            FROM api.fn_cve_search(NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, false,
+            FROM api.fn_cve_search(NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, false, NULL,
                                    NULL, 100, NULL)) = 0,
          'api.fn_cve_search answers no row for a NULL row offset';
   ASSERT (SELECT ROW(s.severity, s.cvss_v3, s.epss_score, s.epss_percentile, s.in_kev,
                      s.published_time, s.cwe_id, s.cvss_v4, s.has_cvss_v4, s.has_cvss_v3,
                      s.cvss_v3_source, s.cvss_v4_source, s.cwe_source)
-            FROM api.fn_cve_search(NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, false,
+            FROM api.fn_cve_search(NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, false, NULL,
                                    NULL, 100, 0) AS s
            WHERE s.cve_id = 'CVE-2002-0004')
          = ROW('LOW'::text, 3.1::real, 0.5::real, 0.64::real, false, '2019-05-05'::date,
                'CWE-20'::text, 9.9::real, true, true, 'cna'::text, 'adp'::text, 'other'::text),
          'each column of api.fn_cve_search holds its own cves value';
   ASSERT (SELECT ROW(s.has_cvss_v4, s.has_cvss_v3)
-            FROM api.fn_cve_search(NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, false,
+            FROM api.fn_cve_search(NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, false, NULL,
                                    NULL, 100, 0) AS s
            WHERE s.cve_id = 'CVE-2002-0003')
          = ROW(true, false),
@@ -221,7 +225,7 @@ BEGIN
   ASSERT (SELECT array_agg(l ORDER BY l.cve_id)
             FROM api.fn_cve_leading(NULL, NULL, NULL, NULL, NULL, NULL, false, 100) AS l)
          = (SELECT array_agg(s ORDER BY s.cve_id)
-              FROM api.fn_cve_search(NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, false,
+              FROM api.fn_cve_search(NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, false, NULL,
                                      NULL, 100, 0) AS s),
          'each row of api.fn_cve_leading holds the values api.fn_cve_search answers for it';
 END
@@ -315,9 +319,9 @@ END
 $$;
 
 PREPARE t_cve_search_query AS
-  SELECT * FROM api.fn_cve_search($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15);
+  SELECT * FROM api.fn_cve_search($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16);
 PREPARE t_cve_search_match_count_query AS
-  SELECT api.fn_cve_search_match_count($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) AS cve_count;
+  SELECT api.fn_cve_search_match_count($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) AS cve_count;
 PREPARE t_cve_leading_query AS SELECT * FROM api.fn_cve_leading($1, $2, $3, $4, $5, $6, $7, $8);
 PREPARE t_cve_leading_match_count_query AS
   SELECT api.fn_cve_leading_match_count($1, $2, $3, $4, $5, $6, $7) AS cve_count;
@@ -326,10 +330,10 @@ PREPARE t_cve_triage_match_count_query AS
   SELECT api.fn_cve_triage_match_count($1, $2, $3, $4) AS cve_count;
 CREATE TEMP TABLE t_cve_search_answer AS
   EXECUTE t_cve_search_query('HIGH', '7.00', '0.300000', 'true', 'true', 'CWE-79', '2020-01-01',
-                             '2020-01-01', 'acme', 'widget', 'true', 'false', 'cvss', '100', '0');
+                             '2020-01-01', 'acme', 'widget', 'true', 'false', NULL, 'cvss', '100', '0');
 CREATE TEMP TABLE t_cve_search_match_count_answer AS
   EXECUTE t_cve_search_match_count_query('HIGH', '7.00', '0.300000', 'true', 'true', 'CWE-79',
-                                   '2020-01-01', '2020-01-01', 'acme', 'widget', 'true', 'false');
+                                   '2020-01-01', '2020-01-01', 'acme', 'widget', 'true', 'false', NULL);
 CREATE TEMP TABLE t_cve_leading_answer AS
   EXECUTE t_cve_leading_query('0.300000', 'false', NULL, NULL, NULL, NULL, 'false', '2');
 CREATE TEMP TABLE t_cve_leading_match_count_answer AS
@@ -364,16 +368,16 @@ $$;
 DO $$
 BEGIN
   ASSERT pg_get_function_result('api.fn_cve_search(text, real, real, boolean, boolean, text,'
-                                ' date, date, text, text, boolean, boolean, text, integer, integer)'::regprocedure)
+                                ' date, date, text, text, boolean, boolean, date, text, integer, integer)'::regprocedure)
          = 'TABLE(cve_id text, severity text, cvss_v3 real, epss_score real, '
            'epss_percentile real, in_kev boolean, published_time date, cwe_id text, '
            'cvss_v4 real, has_cvss_v4 boolean, has_cvss_v3 boolean, cvss_v3_source text, '
-           'cvss_v4_source text, cwe_source text)',
+           'cvss_v4_source text, cwe_source text, kev_date_added text)',
          'api.fn_cve_search answers the list columns, with the types of their cves columns';
   ASSERT pg_get_function_result('api.fn_cve_leading(real, boolean, boolean, text, text,'
                                 ' boolean, boolean, integer)'::regprocedure)
          = pg_get_function_result('api.fn_cve_search(text, real, real, boolean, boolean, text,'
-                                  ' date, date, text, text, boolean, boolean, text, integer, integer)'::regprocedure),
+                                  ' date, date, text, text, boolean, boolean, date, text, integer, integer)'::regprocedure),
          'api.fn_cve_leading answers the columns of api.fn_cve_search';
   ASSERT pg_get_function_result('api.fn_cve_triage(text, text, double precision, boolean,'
                                 ' integer, integer)'::regprocedure)
@@ -381,7 +385,7 @@ BEGIN
          'api.fn_cve_triage answers the columns of api.fn_cve_triage_bulk';
   ASSERT (SELECT array_agg(DISTINCT pg_get_function_result(oid)) FROM pg_proc
           WHERE oid IN ('api.fn_cve_search_match_count(text, real, real, boolean, boolean,'
-                        ' text, date, date, text, text, boolean, boolean)'::regprocedure,
+                        ' text, date, date, text, text, boolean, boolean, date)'::regprocedure,
                         'api.fn_cve_leading_match_count(real, boolean, boolean, text,'
                         ' text, boolean, boolean)'::regprocedure,
                         'api.fn_cve_triage_match_count(text, text,'
@@ -398,10 +402,10 @@ DO $$
 BEGIN
   ASSERT (SELECT array_agg(right(s.cve_id, 2))
             FROM api.fn_cve_search(NULL, NULL, NULL, NULL, true, NULL, NULL, NULL, 'acme',
-                                   'widget', true, false, NULL, 100, 0) AS s)
+                                   'widget', true, false, NULL, NULL, 100, 0) AS s)
          = '{01}'
      AND api.fn_cve_search_match_count(NULL, NULL, NULL, NULL, true, NULL, NULL, NULL, 'acme',
-                                       'widget', true, false) = 1,
+                                       'widget', true, false, NULL) = 1,
          'the list functions read the tables of public while temporary tables share their names';
 END
 $$;
@@ -504,15 +508,15 @@ BEGIN
 
   ASSERT (SELECT array_agg(s.cve_id ORDER BY s.cve_id)
             FROM api.fn_cve_search(NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'rj', 'rj', NULL,
-                                   false, NULL, 100, 0) AS s) = not_rejected
+                                   false, NULL, NULL, 100, 0) AS s) = not_rejected
      AND api.fn_cve_search_match_count(NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'rj', 'rj',
-                                       NULL, false) = 2,
+                                       NULL, false, NULL) = 2,
          'api.fn_cve_search and its total leave a Rejected CVE out for false';
   ASSERT (SELECT array_agg(s.cve_id ORDER BY s.cve_id)
             FROM api.fn_cve_search(NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'rj', 'rj', NULL,
-                                   true, NULL, 100, 0) AS s) = all_three
+                                   true, NULL, NULL, 100, 0) AS s) = all_three
      AND api.fn_cve_search_match_count(NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'rj', 'rj',
-                                       NULL, true) = 3,
+                                       NULL, true, NULL) = 3,
          'api.fn_cve_search and its total keep a Rejected CVE for true';
 
   ASSERT (SELECT array_agg(l.cve_id ORDER BY l.cve_id)
@@ -630,31 +634,195 @@ BEGIN
     ('CVE-2012-0705', '2012-07-07', NULL,                     NULL),
     ('CVE-2012-0706', '2012-07-06', '2012-07-09 00:00:00+00', '2012-07-09 00:00:00+00');
   ASSERT (SELECT array_agg(right(s.cve_id, 2))
-            FROM api.fn_cve_search(NULL, NULL, NULL, NULL, NULL, NULL, '2012-07-07', '2012-07-07', NULL, NULL, NULL, false,
+            FROM api.fn_cve_search(NULL, NULL, NULL, NULL, NULL, NULL, '2012-07-07', '2012-07-07', NULL, NULL, NULL, false, NULL,
                                    NULL, 100, 0) AS s)
          = '{02,01,04,03,05}',
          'within one day the later publication time comes first, the CNA time before the NVD time, and a CVE with no time last';
   ASSERT (SELECT array_agg(right(s.cve_id, 2))
-            FROM api.fn_cve_search(NULL, NULL, NULL, NULL, NULL, NULL, '2012-07-07', '2012-07-07', NULL, NULL, NULL, false,
+            FROM api.fn_cve_search(NULL, NULL, NULL, NULL, NULL, NULL, '2012-07-07', '2012-07-07', NULL, NULL, NULL, false, NULL,
                                    'epss', 100, 0) AS s)
          = '{01,02,03,04,05}',
          'sort epss does not read the publication time';
   ASSERT (SELECT array_agg(right(s.cve_id, 2))
-            FROM api.fn_cve_search(NULL, NULL, NULL, NULL, NULL, NULL, '2012-07-06', '2012-07-07', NULL, NULL, NULL, false,
+            FROM api.fn_cve_search(NULL, NULL, NULL, NULL, NULL, NULL, '2012-07-06', '2012-07-07', NULL, NULL, NULL, false, NULL,
                                    NULL, 100, 0) AS s)
          = '{02,01,04,03,05,06}',
          'an older day comes after a newer one, even when its publication time is later';
   ASSERT (SELECT array_agg(right(s.cve_id, 2))
-            FROM api.fn_cve_search(NULL, NULL, NULL, NULL, NULL, NULL, '2012-07-07', '2012-07-07', NULL, NULL, NULL, false,
+            FROM api.fn_cve_search(NULL, NULL, NULL, NULL, NULL, NULL, '2012-07-07', '2012-07-07', NULL, NULL, NULL, false, NULL,
                                    'cvss', 100, 0) AS s)
          = '{01,02,03,04,05}',
          'sort cvss does not read the publication time';
   ASSERT (SELECT array_agg(right(s.cve_id, 2))
-            FROM api.fn_cve_search(NULL, NULL, NULL, NULL, NULL, NULL, '2012-07-06', '2012-07-07', NULL, NULL, NULL, false,
+            FROM api.fn_cve_search(NULL, NULL, NULL, NULL, NULL, NULL, '2012-07-06', '2012-07-07', NULL, NULL, NULL, false, NULL,
                                    NULL, 2, 2) AS s)
          = '{04,03}',
          'a page cut by LIMIT and OFFSET follows the same order';
   DELETE FROM cves WHERE cve_id LIKE 'CVE-2012-07%';
+  PERFORM set_config('contrastapi.cve_events', coalesce(saved_events_option, ''), true);
+END
+$$;
+
+DO $$
+DECLARE
+  saved_events_option text := current_setting('contrastapi.cve_events', true);
+BEGIN
+  PERFORM set_config('contrastapi.cve_events', 'off', true);
+  INSERT INTO cves (cve_id, in_kev, kev_date_added, published_time, epss_score) VALUES
+    ('CVE-2013-0801', true,  '2024-03-10', '2013-01-05', 0.50),
+    ('CVE-2013-0802', true,  '2024-03-09', '2013-01-04', 0.60),
+    ('CVE-2013-0803', true,  '2024-03-12', '2013-01-03', 0.20),
+    ('CVE-2013-0804', false, '2024-03-15', '2013-01-06', 0.90),
+    ('CVE-2013-0805', true,  '',           '2013-01-07', 0.80),
+    ('CVE-2013-0806', true,  '2024-03-12', '2013-01-02', 0.70),
+    ('CVE-2013-0807', true,  '2024-03-11', '2013-01-01', 0.05);
+  INSERT INTO cve_products (cve_id, vendor, product, is_vulnerable) VALUES
+    ('CVE-2013-0801', 'kv', 'kp', true),
+    ('CVE-2013-0802', 'kv', 'kp', true),
+    ('CVE-2013-0803', 'kv', 'kp', true),
+    ('CVE-2013-0804', 'kv', 'kp', true),
+    ('CVE-2013-0805', 'kv', 'kp', true),
+    ('CVE-2013-0806', 'kw', 'kp', true),
+    ('CVE-2013-0807', 'kv', 'kp', true);
+  PERFORM set_config('contrastapi.cve_events', coalesce(saved_events_option, ''), true);
+END
+$$;
+
+PREPARE t_cve_search_kev_query AS
+  SELECT * FROM api.fn_cve_search($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16);
+PREPARE t_cve_search_kev_match_count_query AS
+  SELECT api.fn_cve_search_match_count($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) AS cve_count;
+CREATE TEMP TABLE t_cve_search_kev_answer AS
+  EXECUTE t_cve_search_kev_query(NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'false',
+                                 '2024-03-10', 'kev_date_added', '100', '0');
+CREATE TEMP TABLE t_cve_search_kev_match_count_answer AS
+  EXECUTE t_cve_search_kev_match_count_query(NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+                                             NULL, 'false', '2024-03-10');
+DEALLOCATE t_cve_search_kev_query;
+DEALLOCATE t_cve_search_kev_match_count_query;
+
+DO $$
+DECLARE
+  saved_events_option text := current_setting('contrastapi.cve_events', true);
+BEGIN
+  ASSERT (SELECT array_agg(right(cve_id, 4)) FROM t_cve_search_kev_answer) = '{0803,0806,0807,0801}'
+     AND (SELECT cve_count FROM t_cve_search_kev_match_count_answer) = 4,
+         'the /cve_search calls db.c sends with kev_added_after and sort kev_date_added answer the page and the total';
+
+  ASSERT (SELECT array_agg(right(s.cve_id, 4))
+            FROM api.fn_cve_search(NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, false,
+                                   '2024-03-10', 'kev_date_added', 100, 0) AS s)
+         = '{0803,0806,0807,0801}',
+         'kev_added_after keeps the KEV dates from the bound on, newest first, a tie in cve_id order';
+  ASSERT api.fn_cve_search_match_count(NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+                                       false, '2024-03-10') = 4,
+         'api.fn_cve_search_match_count counts the CVEs of the kev_added_after page';
+  ASSERT (SELECT array_agg(right(s.cve_id, 4))
+            FROM api.fn_cve_search(NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, false,
+                                   '2024-03-10', NULL, 100, 0) AS s)
+         = '{0801,0803,0806,0807}',
+         'kev_added_after with the default sort orders by published_time';
+  ASSERT (SELECT array_agg(right(s.cve_id, 4))
+            FROM api.fn_cve_search(NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, false,
+                                   '2024-03-12', 'kev_date_added', 100, 0) AS s)
+         = '{0803,0806}'
+     AND api.fn_cve_search_match_count(NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+                                       false, '2024-03-12') = 2,
+         'a CVE added on the bound itself is kept';
+  ASSERT (SELECT count(*)
+            FROM api.fn_cve_search(NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, false,
+                                   '2024-03-13', 'kev_date_added', 100, 0)) = 0
+     AND api.fn_cve_search_match_count(NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+                                       false, '2024-03-13') = 0,
+         'a CVE that left KEV is left out though its kept date is after the bound';
+  ASSERT (SELECT array_agg(right(s.cve_id, 4))
+            FROM api.fn_cve_search(NULL, NULL, 0.1, NULL, NULL, NULL, NULL, NULL, 'kv', NULL, NULL, false,
+                                   '2024-03-10', 'kev_date_added', 100, 0) AS s)
+         = '{0803,0801}'
+     AND api.fn_cve_search_match_count(NULL, NULL, 0.1, NULL, NULL, NULL, NULL, NULL, 'kv', NULL, NULL,
+                                       false, '2024-03-10') = 2,
+         'kev_added_after joins the vendor and min_epss filters';
+  ASSERT (SELECT array_agg(s.cve_id)
+            FROM api.fn_cve_search(NULL, NULL, NULL, true, NULL, NULL, NULL, NULL, NULL, NULL, NULL, false,
+                                   NULL, 'kev_date_added', 100, 0) AS s)
+         = '{CVE-2013-0803,CVE-2013-0806,CVE-2013-0807,CVE-2013-0801,CVE-2013-0802,'
+           'CVE-2002-0001,CVE-2002-0002,CVE-2013-0805}',
+         'sort kev_date_added puts an empty KEV date last, and ties come in cve_id order';
+  ASSERT (SELECT array_agg(right(s.cve_id, 4))
+            FROM api.fn_cve_search(NULL, NULL, NULL, true, NULL, NULL, NULL, NULL, NULL, NULL, NULL, false,
+                                   NULL, 'kev_date_added', 2, 1) AS s)
+         = '{0806,0807}',
+         'a kev_date_added page cut by LIMIT and OFFSET follows the same order';
+  ASSERT (SELECT array_agg(right(s.cve_id, 4))
+            FROM api.fn_cve_search(NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'kv', NULL, NULL, false,
+                                   NULL, 'kev_date_added', 100, 0) AS s)
+         = '{0803,0807,0801,0802,0804,0805}',
+         'sort kev_date_added with no KEV filter puts a CVE that left KEV after every dated row, though its kept date is the newest';
+
+  ASSERT (SELECT array_agg(right(l.cve_id, 4))
+            FROM api.fn_cve_leading(NULL, NULL, NULL, 'kv', 'kp', NULL, false, 2) AS l)
+         = '{0804,0805}'
+     AND api.fn_cve_leading_match_count(NULL, NULL, NULL, 'kv', 'kp', NULL, false) = 6,
+         'api.fn_cve_leading answers p_row_count rows by EPSS score after the renumbering';
+  ASSERT (SELECT array_agg(t.cve_id ORDER BY t.ordinality)
+            FROM api.fn_cve_triage('kv', 'kp', NULL, false, 2, 1) WITH ORDINALITY AS t)
+         = (SELECT (array_agg(t.cve_id ORDER BY t.ordinality))[2:3]
+              FROM api.fn_cve_triage('kv', 'kp', NULL, false, 100, 0) WITH ORDINALITY AS t)
+     AND api.fn_cve_triage_match_count('kv', 'kp', NULL, false) = 6,
+         'api.fn_cve_triage answers p_row_count rows after skipping p_row_offset rows after the renumbering';
+
+  ASSERT (SELECT array_agg(s.kev_date_added ORDER BY s.cve_id)
+            FROM api.fn_cve_search(NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'kv', 'kp', NULL, false,
+                                   NULL, NULL, 100, 0) AS s
+           WHERE s.cve_id IN ('CVE-2013-0801', 'CVE-2013-0804', 'CVE-2013-0805'))
+         = ARRAY['2024-03-10', '', '']::text[],
+         'api.fn_cve_search answers the KEV date of a CVE in KEV, and '''' for a CVE that left KEV or has no date';
+  ASSERT (SELECT array_agg(l.kev_date_added ORDER BY l.cve_id)
+            FROM api.fn_cve_leading(NULL, NULL, NULL, 'kv', 'kp', NULL, false, 100) AS l
+           WHERE l.cve_id IN ('CVE-2013-0801', 'CVE-2013-0804', 'CVE-2013-0805'))
+         = ARRAY['2024-03-10', '', '']::text[],
+         'api.fn_cve_leading answers the KEV date of a CVE in KEV, and '''' for a CVE that left KEV or has no date';
+  ASSERT (SELECT s.kev_date_added
+            FROM api.fn_cve_search(NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'other', 'widget', NULL, false,
+                                   NULL, NULL, 100, 0) AS s
+           WHERE s.cve_id = 'CVE-2002-0003') = ''
+     AND (SELECT l.kev_date_added
+            FROM api.fn_cve_leading(NULL, NULL, NULL, 'other', 'widget', NULL, false, 100) AS l
+           WHERE l.cve_id = 'CVE-2002-0003') = '',
+         'both lists answer '''' as the KEV date of a CVE that was never in KEV';
+
+  PERFORM set_config('contrastapi.cve_events', 'off', true);
+  DELETE FROM cve_products WHERE vendor IN ('kv', 'kw');
+  DELETE FROM cves WHERE cve_id LIKE 'CVE-2013-08%';
+  PERFORM set_config('contrastapi.cve_events', coalesce(saved_events_option, ''), true);
+END
+$$;
+
+DO $$
+DECLARE
+  saved_events_option text := current_setting('contrastapi.cve_events', true);
+  saved_time_zone     text := current_setting('TimeZone');
+BEGIN
+  PERFORM set_config('contrastapi.cve_events', 'off', true);
+  INSERT INTO cves (cve_id, in_kev, kev_date_added, published_time) VALUES
+    ('CVE-2013-0901', true, '2011-12-30', '2011-12-01');
+  INSERT INTO cve_products (cve_id, vendor, product, is_vulnerable) VALUES
+    ('CVE-2013-0901', 'tz', 'tz', true);
+  PERFORM set_config('contrastapi.cve_events', coalesce(saved_events_option, ''), true);
+
+  PERFORM set_config('TimeZone', 'Pacific/Apia', true);
+  ASSERT (SELECT array_agg(s.cve_id)
+            FROM api.fn_cve_search(NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'tz', 'tz', NULL, false,
+                                   DATE '2011-12-30', 'kev_date_added', 100, 0) AS s)
+         = '{CVE-2013-0901}'
+     AND api.fn_cve_search_match_count(NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'tz', 'tz', NULL,
+                                       false, DATE '2011-12-30') = 1,
+         'kev_added_after keeps a CVE added on the bound in a session zone that skipped that day';
+  PERFORM set_config('TimeZone', saved_time_zone, true);
+
+  PERFORM set_config('contrastapi.cve_events', 'off', true);
+  DELETE FROM cve_products WHERE vendor = 'tz';
+  DELETE FROM cves WHERE cve_id = 'CVE-2013-0901';
   PERFORM set_config('contrastapi.cve_events', coalesce(saved_events_option, ''), true);
 END
 $$;

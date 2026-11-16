@@ -295,7 +295,7 @@ void test_HEALTH_serializes_every_section(void)
   char* body = static_finishJsonBuf(json_buf);
 
   TEST_ASSERT_EQUAL_STRING(
-    R"({"status":"ok","version":"2.0.4","db":{)"
+    R"({"status":"ok","version":"2.0.5","db":{)"
       R"("nvd":{"cve_count":312000,"last_added":{"cve_id":"CVE-2026-1234",)"
         R"("published_time":"2026-08-29T10:00:00Z"}},)"
       R"("kev":{"entry_count":1300,"last_added":{"cve_id":"CVE-2026-9999",)"
@@ -316,7 +316,7 @@ void test_HEALTH_null_db_serializes_unavailable_and_null_db(void)
   char* body = static_finishJsonBuf(json_buf);
 
   TEST_ASSERT_EQUAL_STRING(
-    R"({"status":"unavailable","version":"2.0.4","db":null})" "\n", body);
+    R"({"status":"unavailable","version":"2.0.5","db":null})" "\n", body);
   free(body);
 }
 
@@ -378,7 +378,7 @@ void test_HEALTH_every_string_is_escaped_through_its_own_class(void)
   char* body = static_finishJsonBuf(json_buf);
 
   TEST_ASSERT_EQUAL_STRING(
-    R"({"status":"ok","version":"2.0.4","db":{)"
+    R"({"status":"ok","version":"2.0.5","db":{)"
       R"("nvd":{"cve_count":1,"last_added":{"cve_id":"CVE-\"1","published_time":"2026\\08"}},)"
       R"("kev":{"entry_count":2,"last_added":{"cve_id":"CVE\n9","date_added":"2026\t28"}},)"
       R"("cwe":{"entry_count":3,"last_updated":{"cwe_id":"CWE\b79","updated_at":"2026)" "\\u0001" R"(27"}},)"
@@ -662,10 +662,10 @@ void test_CVESEARCH_golden_two_items(void)
   TEST_ASSERT_EQUAL_STRING(
     R"({"total":57,"limit":20,"offset":40,"next_offset":42,"results":[)"
       R"({"cve_id":"CVE-2021-44228","severity":"CRITICAL","cvss_v3":10.0,)"
-        R"("cvss_v3_source":null,"cvss_v4":null,"cvss_v4_source":null,"epss_score":0.97564,"epss_percentile":0.99977,"in_kev":true,)"
+        R"("cvss_v3_source":null,"cvss_v4":null,"cvss_v4_source":null,"epss_score":0.97564,"epss_percentile":0.99977,"in_kev":true,"kev_date_added":null,)"
         R"("published_time":"2021-12-10","cwe_id":"CWE-917","cwe_source":null},)"
       R"({"cve_id":"CVE-2024-3400","severity":"HIGH","cvss_v3":8.5,)"
-        R"("cvss_v3_source":null,"cvss_v4":null,"cvss_v4_source":null,"epss_score":0.50000,"epss_percentile":0.90000,"in_kev":false,)"
+        R"("cvss_v3_source":null,"cvss_v4":null,"cvss_v4_source":null,"epss_score":0.50000,"epss_percentile":0.90000,"in_kev":false,"kev_date_added":null,)"
         R"("published_time":"2024-04-12","cwe_id":"CWE-77","cwe_source":null})"
     R"(]})" "\n", body);
   free(body);
@@ -690,7 +690,7 @@ void test_CVESEARCH_golden_escapes_every_class(void)
   TEST_ASSERT_EQUAL_STRING(
     R"({"total":1,"limit":20,"offset":0,"next_offset":1,"results":[)"
       R"({"cve_id":"CVE-2021-44228","severity":"CRITICAL","cvss_v3":10.0,)"
-        R"("cvss_v3_source":null,"cvss_v4":null,"cvss_v4_source":null,"epss_score":0.90000,"epss_percentile":0.99000,"in_kev":true,)"
+        R"("cvss_v3_source":null,"cvss_v4":null,"cvss_v4_source":null,"epss_score":0.90000,"epss_percentile":0.99000,"in_kev":true,"kev_date_added":null,)"
         R"("published_time":"\" \\ \n \t \b \f \r \u0007 \u001f",)"
         R"("cwe_id":"CWE-917","cwe_source":null})"
     R"(]})" "\n", body);
@@ -717,7 +717,7 @@ void test_CVESEARCH_golden_next_offset_clamped_at_int_max(void)
   TEST_ASSERT_EQUAL_STRING(
     R"({"total":2147483647,"limit":1,"offset":2147483647,"next_offset":2147483647,"results":[)"
       R"({"cve_id":"CVE-2021-44228","severity":"LOW","cvss_v3":0.0,)"
-        R"("cvss_v3_source":null,"cvss_v4":null,"cvss_v4_source":null,"epss_score":0.00000,"epss_percentile":0.00000,"in_kev":false,)"
+        R"("cvss_v3_source":null,"cvss_v4":null,"cvss_v4_source":null,"epss_score":0.00000,"epss_percentile":0.00000,"in_kev":false,"kev_date_added":null,)"
         R"("published_time":"","cwe_id":"","cwe_source":null})"
     R"(]})" "\n", body);
   free(body);
@@ -741,10 +741,10 @@ void test_CVELEADING_golden_critical_verdict(void)
       R"("summary":"2 CVEs ranked by exploitation probability; CVE-2021-44228 leads at 97.6% (EPSS, next 30 days). 1 in CISA KEV.",)"
       R"("results":[)"
       R"({"cve_id":"CVE-2021-44228","severity":"CRITICAL","cvss_v3":10.0,)"
-        R"("cvss_v3_source":null,"cvss_v4":null,"cvss_v4_source":null,"epss_score":0.97564,"epss_percentile":0.99977,"in_kev":true,)"
+        R"("cvss_v3_source":null,"cvss_v4":null,"cvss_v4_source":null,"epss_score":0.97564,"epss_percentile":0.99977,"in_kev":true,"kev_date_added":null,)"
         R"("published_time":"2021-12-10","cwe_id":"CWE-917","cwe_source":null},)"
       R"({"cve_id":"CVE-2024-3400","severity":"HIGH","cvss_v3":8.5,)"
-        R"("cvss_v3_source":null,"cvss_v4":null,"cvss_v4_source":null,"epss_score":0.50000,"epss_percentile":0.90000,"in_kev":false,)"
+        R"("cvss_v3_source":null,"cvss_v4":null,"cvss_v4_source":null,"epss_score":0.50000,"epss_percentile":0.90000,"in_kev":false,"kev_date_added":null,)"
         R"("published_time":"2024-04-12","cwe_id":"CWE-77","cwe_source":null})"
     R"(]})" "\n", body);
   free(body);
@@ -771,7 +771,7 @@ void test_CVELEADING_golden_high_verdict(void)
       R"("summary":"1 CVE ranked by exploitation probability; CVE-2024-3400 leads at 20.0% (EPSS, next 30 days). 0 in CISA KEV.",)"
       R"("results":[)"
       R"({"cve_id":"CVE-2024-3400","severity":"HIGH","cvss_v3":8.5,)"
-        R"("cvss_v3_source":null,"cvss_v4":null,"cvss_v4_source":null,"epss_score":0.20000,"epss_percentile":0.85000,"in_kev":false,)"
+        R"("cvss_v3_source":null,"cvss_v4":null,"cvss_v4_source":null,"epss_score":0.20000,"epss_percentile":0.85000,"in_kev":false,"kev_date_added":null,)"
         R"("published_time":"2024-04-12","cwe_id":"CWE-77","cwe_source":null})"
     R"(]})" "\n", body);
   free(body);
@@ -798,7 +798,7 @@ void test_CVELEADING_golden_moderate_verdict(void)
       R"("summary":"1 CVE ranked by exploitation probability; CVE-2024-3400 leads at 5.0% (EPSS, next 30 days). 0 in CISA KEV.",)"
       R"("results":[)"
       R"({"cve_id":"CVE-2024-3400","severity":"MEDIUM","cvss_v3":5.5,)"
-        R"("cvss_v3_source":null,"cvss_v4":null,"cvss_v4_source":null,"epss_score":0.05000,"epss_percentile":0.60000,"in_kev":false,)"
+        R"("cvss_v3_source":null,"cvss_v4":null,"cvss_v4_source":null,"epss_score":0.05000,"epss_percentile":0.60000,"in_kev":false,"kev_date_added":null,)"
         R"("published_time":"2024-04-12","cwe_id":"CWE-77","cwe_source":null})"
     R"(]})" "\n", body);
   free(body);
@@ -1134,10 +1134,65 @@ void test_CVESEARCH_golden_sources(void)
   TEST_ASSERT_EQUAL_STRING(
     R"({"total":57,"limit":20,"offset":40,"next_offset":42,"results":[)"
       R"({"cve_id":"CVE-2021-44228","severity":"CRITICAL","cvss_v3":10.0,)"
-        R"("cvss_v3_source":"nvd","cvss_v4":null,"cvss_v4_source":"cna","epss_score":0.97564,"epss_percentile":0.99977,"in_kev":true,)"
+        R"("cvss_v3_source":"nvd","cvss_v4":null,"cvss_v4_source":"cna","epss_score":0.97564,"epss_percentile":0.99977,"in_kev":true,"kev_date_added":null,)"
         R"("published_time":"2021-12-10","cwe_id":"CWE-917","cwe_source":"adp"},)"
       R"({"cve_id":"CVE-2024-3400","severity":"HIGH","cvss_v3":8.5,)"
-        R"("cvss_v3_source":"other","cvss_v4":null,"cvss_v4_source":null,"epss_score":0.50000,"epss_percentile":0.90000,"in_kev":false,)"
+        R"("cvss_v3_source":"other","cvss_v4":null,"cvss_v4_source":null,"epss_score":0.50000,"epss_percentile":0.90000,"in_kev":false,"kev_date_added":null,)"
+        R"("published_time":"2024-04-12","cwe_id":"CWE-77","cwe_source":null})"
+    R"(]})" "\n", body);
+  free(body);
+}
+
+void test_CVESEARCH_golden_kev_date_added(void)
+{
+  CveListItem_t items[2];
+  static_fillGoldenListPair(items);
+  strncpy(items[0].ma_kevDateAdded, "2026-11-04", CVELOOKUP_PUBLISHED_LEN);
+  CveListResult_t results = { .m_total = 57, .m_count = 2, .mp_items = items };
+  CVESEARCHParams_t params;
+  memset(&params, 0, sizeof(params));
+  params.m_limit  = 20;
+  params.m_offset = 40;
+
+  JsonBuf_t* json_buf = static_newJsonBuf(JSONBUF_INITIAL_CAP, JSONBUF_DEFAULT_CEILING);
+  serialize_CVESEARCH_response(&results, &params, json_buf);
+  char* body = static_finishJsonBuf(json_buf);
+
+  TEST_ASSERT_EQUAL_STRING(
+    R"({"total":57,"limit":20,"offset":40,"next_offset":42,"results":[)"
+      R"({"cve_id":"CVE-2021-44228","severity":"CRITICAL","cvss_v3":10.0,)"
+        R"("cvss_v3_source":null,"cvss_v4":null,"cvss_v4_source":null,"epss_score":0.97564,"epss_percentile":0.99977,"in_kev":true,"kev_date_added":"2026-11-04",)"
+        R"("published_time":"2021-12-10","cwe_id":"CWE-917","cwe_source":null},)"
+      R"({"cve_id":"CVE-2024-3400","severity":"HIGH","cvss_v3":8.5,)"
+        R"("cvss_v3_source":null,"cvss_v4":null,"cvss_v4_source":null,"epss_score":0.50000,"epss_percentile":0.90000,"in_kev":false,"kev_date_added":null,)"
+        R"("published_time":"2024-04-12","cwe_id":"CWE-77","cwe_source":null})"
+    R"(]})" "\n", body);
+  free(body);
+}
+
+void test_CVELEADING_golden_kev_date_added(void)
+{
+  CveListItem_t items[2];
+  static_fillGoldenListPair(items);
+  strncpy(items[0].ma_kevDateAdded, "2026-11-04", CVELOOKUP_PUBLISHED_LEN);
+  CveListResult_t results = { .m_total = 12, .m_count = 2, .mp_items = items };
+  CVELEADINGParams_t params;
+  memset(&params, 0, sizeof(params));
+  params.m_limit = 20;
+
+  JsonBuf_t* json_buf = static_newJsonBuf(JSONBUF_INITIAL_CAP, JSONBUF_DEFAULT_CEILING);
+  serialize_CVELEADING_response(&results, &params, json_buf);
+  char* body = static_finishJsonBuf(json_buf);
+
+  TEST_ASSERT_EQUAL_STRING(
+    R"({"count":2,"total":12,"limit":20,"verdict":"critical",)"
+      R"("summary":"2 CVEs ranked by exploitation probability; CVE-2021-44228 leads at 97.6% (EPSS, next 30 days). 1 in CISA KEV.",)"
+      R"("results":[)"
+      R"({"cve_id":"CVE-2021-44228","severity":"CRITICAL","cvss_v3":10.0,)"
+        R"("cvss_v3_source":null,"cvss_v4":null,"cvss_v4_source":null,"epss_score":0.97564,"epss_percentile":0.99977,"in_kev":true,"kev_date_added":"2026-11-04",)"
+        R"("published_time":"2021-12-10","cwe_id":"CWE-917","cwe_source":null},)"
+      R"({"cve_id":"CVE-2024-3400","severity":"HIGH","cvss_v3":8.5,)"
+        R"("cvss_v3_source":null,"cvss_v4":null,"cvss_v4_source":null,"epss_score":0.50000,"epss_percentile":0.90000,"in_kev":false,"kev_date_added":null,)"
         R"("published_time":"2024-04-12","cwe_id":"CWE-77","cwe_source":null})"
     R"(]})" "\n", body);
   free(body);
@@ -2603,10 +2658,10 @@ void test_PRODUCTEXPOSURE_golden_eol_no_series(void)
 
 #define CVE_LIST_GOLDEN_ITEM_PAIR \
   R"({"cve_id":"CVE-2021-44228","severity":"CRITICAL","cvss_v3":10.0,)" \
-    R"("cvss_v3_source":null,"cvss_v4":null,"cvss_v4_source":null,"epss_score":0.97564,"epss_percentile":0.99977,"in_kev":true,)" \
+    R"("cvss_v3_source":null,"cvss_v4":null,"cvss_v4_source":null,"epss_score":0.97564,"epss_percentile":0.99977,"in_kev":true,"kev_date_added":null,)" \
     R"("published_time":"2021-12-10","cwe_id":"CWE-917","cwe_source":null},)" \
   R"({"cve_id":"CVE-2024-3400","severity":"HIGH","cvss_v3":8.5,)" \
-    R"("cvss_v3_source":null,"cvss_v4":null,"cvss_v4_source":null,"epss_score":0.50000,"epss_percentile":0.90000,"in_kev":false,)" \
+    R"("cvss_v3_source":null,"cvss_v4":null,"cvss_v4_source":null,"epss_score":0.50000,"epss_percentile":0.90000,"in_kev":false,"kev_date_added":null,)" \
     R"("published_time":"2024-04-12","cwe_id":"CWE-77","cwe_source":null})"
 
 void test_CVESEARCH_golden_product_filter_note(void)
@@ -4809,10 +4864,10 @@ void test_CVELEADING_golden_kev_count_includes_last_item(void)
       R"("summary":"2 CVEs ranked by exploitation probability; CVE-2021-44228 leads at 97.6% (EPSS, next 30 days). 2 in CISA KEV.",)"
       R"("results":[)"
       R"({"cve_id":"CVE-2021-44228","severity":"CRITICAL","cvss_v3":10.0,)"
-        R"("cvss_v3_source":null,"cvss_v4":null,"cvss_v4_source":null,"epss_score":0.97564,"epss_percentile":0.99977,"in_kev":true,)"
+        R"("cvss_v3_source":null,"cvss_v4":null,"cvss_v4_source":null,"epss_score":0.97564,"epss_percentile":0.99977,"in_kev":true,"kev_date_added":null,)"
         R"("published_time":"2021-12-10","cwe_id":"CWE-917","cwe_source":null},)"
       R"({"cve_id":"CVE-2024-3400","severity":"HIGH","cvss_v3":8.5,)"
-        R"("cvss_v3_source":null,"cvss_v4":null,"cvss_v4_source":null,"epss_score":0.50000,"epss_percentile":0.90000,"in_kev":true,)"
+        R"("cvss_v3_source":null,"cvss_v4":null,"cvss_v4_source":null,"epss_score":0.50000,"epss_percentile":0.90000,"in_kev":true,"kev_date_added":null,)"
         R"("published_time":"2024-04-12","cwe_id":"CWE-77","cwe_source":null})"
     R"(]})" "\n", body);
   free(body);
@@ -4839,7 +4894,7 @@ void test_CVELEADING_golden_critical_band_lower_edge(void)
       R"("summary":"1 CVE ranked by exploitation probability; CVE-2024-3400 leads at 50.0% (EPSS, next 30 days). 0 in CISA KEV.",)"
       R"("results":[)"
       R"({"cve_id":"CVE-2024-3400","severity":"HIGH","cvss_v3":8.5,)"
-        R"("cvss_v3_source":null,"cvss_v4":null,"cvss_v4_source":null,"epss_score":0.50000,"epss_percentile":0.90000,"in_kev":false,)"
+        R"("cvss_v3_source":null,"cvss_v4":null,"cvss_v4_source":null,"epss_score":0.50000,"epss_percentile":0.90000,"in_kev":false,"kev_date_added":null,)"
         R"("published_time":"2024-04-12","cwe_id":"CWE-77","cwe_source":null})"
     R"(]})" "\n", body);
   free(body);
@@ -4866,7 +4921,7 @@ void test_CVELEADING_clamps_nonfinite_top_epss(void)
       R"("summary":"1 CVE ranked by exploitation probability; CVE-2024-3400 leads at 0.0% (EPSS, next 30 days). 0 in CISA KEV.",)"
       R"("results":[)"
       R"({"cve_id":"CVE-2024-3400","severity":"HIGH","cvss_v3":8.5,)"
-        R"("cvss_v3_source":null,"cvss_v4":null,"cvss_v4_source":null,"epss_score":0.00000,"epss_percentile":0.85000,"in_kev":false,)"
+        R"("cvss_v3_source":null,"cvss_v4":null,"cvss_v4_source":null,"epss_score":0.00000,"epss_percentile":0.85000,"in_kev":false,"kev_date_added":null,)"
         R"("published_time":"2024-04-12","cwe_id":"CWE-77","cwe_source":null})"
     R"(]})" "\n", body);
   free(body);
@@ -4893,7 +4948,7 @@ void test_CVELEADING_clamps_out_of_range_item_fields(void)
       R"("summary":"1 CVE ranked by exploitation probability; CVE-2021-44228 leads at 100.0% (EPSS, next 30 days). 1 in CISA KEV.",)"
       R"("results":[)"
       R"({"cve_id":"CVE-2021-44228","severity":"CRITICAL","cvss_v3":10.0,)"
-        R"("cvss_v3_source":null,"cvss_v4":null,"cvss_v4_source":null,"epss_score":1.00000,"epss_percentile":1.00000,"in_kev":true,)"
+        R"("cvss_v3_source":null,"cvss_v4":null,"cvss_v4_source":null,"epss_score":1.00000,"epss_percentile":1.00000,"in_kev":true,"kev_date_added":null,)"
         R"("published_time":"2021-12-10","cwe_id":"CWE-917","cwe_source":null})"
     R"(]})" "\n", body);
   free(body);
@@ -4920,7 +4975,7 @@ void test_CVELEADING_clamps_negative_and_infinite_item_fields(void)
       R"("summary":"1 CVE ranked by exploitation probability; CVE-2024-3400 leads at 0.0% (EPSS, next 30 days). 0 in CISA KEV.",)"
       R"("results":[)"
       R"({"cve_id":"CVE-2024-3400","severity":"HIGH","cvss_v3":0.0,)"
-        R"("cvss_v3_source":null,"cvss_v4":null,"cvss_v4_source":null,"epss_score":0.00000,"epss_percentile":0.00000,"in_kev":false,)"
+        R"("cvss_v3_source":null,"cvss_v4":null,"cvss_v4_source":null,"epss_score":0.00000,"epss_percentile":0.00000,"in_kev":false,"kev_date_added":null,)"
         R"("published_time":"2024-04-12","cwe_id":"CWE-77","cwe_source":null})"
     R"(]})" "\n", body);
   free(body);
@@ -4947,7 +5002,7 @@ void test_CVELEADING_clamps_infinite_top_epss_drives_verdict(void)
       R"("summary":"1 CVE ranked by exploitation probability; CVE-2024-3400 leads at 0.0% (EPSS, next 30 days). 0 in CISA KEV.",)"
       R"("results":[)"
       R"({"cve_id":"CVE-2024-3400","severity":"HIGH","cvss_v3":0.0,)"
-        R"("cvss_v3_source":null,"cvss_v4":null,"cvss_v4_source":null,"epss_score":0.00000,"epss_percentile":0.85000,"in_kev":false,)"
+        R"("cvss_v3_source":null,"cvss_v4":null,"cvss_v4_source":null,"epss_score":0.00000,"epss_percentile":0.85000,"in_kev":false,"kev_date_added":null,)"
         R"("published_time":"2024-04-12","cwe_id":"CWE-77","cwe_source":null})"
     R"(]})" "\n", body);
   free(body);
@@ -4974,7 +5029,7 @@ void test_CVELEADING_clamps_negative_zero_to_positive_zero(void)
       R"("summary":"1 CVE ranked by exploitation probability; CVE-2024-3400 leads at 0.0% (EPSS, next 30 days). 0 in CISA KEV.",)"
       R"("results":[)"
       R"({"cve_id":"CVE-2024-3400","severity":"HIGH","cvss_v3":0.0,)"
-        R"("cvss_v3_source":null,"cvss_v4":null,"cvss_v4_source":null,"epss_score":0.00000,"epss_percentile":0.42000,"in_kev":false,)"
+        R"("cvss_v3_source":null,"cvss_v4":null,"cvss_v4_source":null,"epss_score":0.00000,"epss_percentile":0.42000,"in_kev":false,"kev_date_added":null,)"
         R"("published_time":"2024-04-12","cwe_id":"CWE-77","cwe_source":null})"
     R"(]})" "\n", body);
   free(body);
@@ -5048,7 +5103,7 @@ void test_CVESEARCH_item_escapes_every_field_through_the_shared_writer(void)
   TEST_ASSERT_EQUAL_STRING(
     R"({"total":1,"limit":20,"offset":0,"next_offset":1,"results":[)"
       R"({"cve_id":"CVE-\"1\"","severity":"HI\\GH","cvss_v3":8.5,)"
-        R"("cvss_v3_source":null,"cvss_v4":null,"cvss_v4_source":null,"epss_score":0.50000,"epss_percentile":0.90000,"in_kev":false,)"
+        R"("cvss_v3_source":null,"cvss_v4":null,"cvss_v4_source":null,"epss_score":0.50000,"epss_percentile":0.90000,"in_kev":false,"kev_date_added":null,)"
         R"("published_time":"2024\t04","cwe_id":"CWE\n77\u0001","cwe_source":null})"
     R"(]})" "\n", body);
   free(body);
@@ -5082,7 +5137,7 @@ void test_CVELEADING_envelope_summary_escapes_the_repeated_cve_id(void)
       R"("summary":"1 CVE ranked by exploitation probability; CVE-\"1\" leads at 50.0% (EPSS, next 30 days). 0 in CISA KEV.",)"
       R"("results":[)"
       R"({"cve_id":"CVE-\"1\"","severity":"HIGH","cvss_v3":8.5,)"
-        R"("cvss_v3_source":null,"cvss_v4":null,"cvss_v4_source":null,"epss_score":0.50000,"epss_percentile":0.90000,"in_kev":false,)"
+        R"("cvss_v3_source":null,"cvss_v4":null,"cvss_v4_source":null,"epss_score":0.50000,"epss_percentile":0.90000,"in_kev":false,"kev_date_added":null,)"
         R"("published_time":"2024-04-12","cwe_id":"CWE-77","cwe_source":null})"
     R"(]})" "\n", body);
   free(body);
@@ -5114,7 +5169,7 @@ void test_CVESEARCH_publishes_out_of_range_epss_unclamped(void)
   TEST_ASSERT_EQUAL_STRING(
     R"({"total":1,"limit":20,"offset":0,"next_offset":1,"results":[)"
       R"({"cve_id":"CVE-2021-44228","severity":"CRITICAL","cvss_v3":10.0,)"
-        R"("cvss_v3_source":null,"cvss_v4":null,"cvss_v4_source":null,"epss_score":1.50000,"epss_percentile":1.25000,"in_kev":true,)"
+        R"("cvss_v3_source":null,"cvss_v4":null,"cvss_v4_source":null,"epss_score":1.50000,"epss_percentile":1.25000,"in_kev":true,"kev_date_added":null,)"
         R"("published_time":"2021-12-10","cwe_id":"CWE-917","cwe_source":null})"
     R"(]})" "\n", body);
   free(body);
@@ -5435,7 +5490,7 @@ void test_PRODUCTEXPOSURE_top_cve_count_past_its_array_is_clamped(void)
 
 void test_registration_gate_test_count(void)
 {
-  TEST_ASSERT_EQUAL_INT_MESSAGE(317, (int)Unity.NumberOfTests,
+  TEST_ASSERT_EQUAL_INT_MESSAGE(319, (int)Unity.NumberOfTests,
     "RUN_TEST list and test definitions have drifted apart - a test may be unregistered");
 }
 
@@ -10285,6 +10340,7 @@ int main(void)
   RUN_TEST(test_CVESEARCH_golden_empty);
   RUN_TEST(test_CVESEARCH_golden_two_items);
   RUN_TEST(test_CVESEARCH_golden_sources);
+  RUN_TEST(test_CVESEARCH_golden_kev_date_added);
   RUN_TEST(test_CVESEARCH_golden_escapes_every_class);
   RUN_TEST(test_CVESEARCH_golden_next_offset_clamped_at_int_max);
   RUN_TEST(test_CVELEADING_golden_critical_verdict);
@@ -10425,6 +10481,7 @@ int main(void)
   RUN_TEST(test_CVELOOKUPBULK_over_ceiling_hands_back_no_body);
   RUN_TEST(test_CVELOOKUP_record_escapes_every_string_field);
   RUN_TEST(test_CVELEADING_golden_kev_count_includes_last_item);
+  RUN_TEST(test_CVELEADING_golden_kev_date_added);
   RUN_TEST(test_CVELEADING_golden_critical_band_lower_edge);
   RUN_TEST(test_CVELEADING_clamps_nonfinite_top_epss);
   RUN_TEST(test_CVELEADING_clamps_out_of_range_item_fields);

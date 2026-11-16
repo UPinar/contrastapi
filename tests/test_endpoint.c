@@ -2013,6 +2013,77 @@ void test_PASSWORDCHECKRun_refuses_a_value_that_is_not_a_hash(void)
   jsonbuf_destroy(json_buf);
 }
 
+void test_gates_write_kev_added_after_and_the_kev_date_added_sort(void)
+{
+  const Endpoint_t* endpoint = endpoint_findByHttpPath("/cve_search", NULL);
+  TEST_ASSERT_NOT_NULL(endpoint);
+
+  CVESEARCHParams_t params;
+  memset(&params, 0, sizeof(params));
+  EndpointGateResult_t gate_result = endpoint_restQueryGate(endpoint, "?kev_added_after=2024-03-10&published_after=2020-01-01&sort=kev_date_added", &params, sizeof(params));
+  TEST_ASSERT_EQUAL_INT(ENDPOINT_GATE_OK, gate_result.m_status);
+  TEST_ASSERT_EQUAL_STRING("2024-03-10",     params.ma_kevAddedAfter);
+  TEST_ASSERT_EQUAL_STRING("2020-01-01",     params.ma_publishedAfter);
+  TEST_ASSERT_EQUAL_STRING("kev_date_added", params.ma_sort);
+
+  const char* args = "{\"kev_added_after\":\"2024-03-11\",\"published_before\":\"2021-02-02\",\"sort\":\"kev_date_added\"}";
+  JsonReadSpan_t span = { args, strlen(args) };
+  memset(&params, 0, sizeof(params));
+  gate_result = endpoint_mcpArgsGate(endpoint, span, &params, sizeof(params));
+  TEST_ASSERT_EQUAL_INT(ENDPOINT_GATE_OK, gate_result.m_status);
+  TEST_ASSERT_EQUAL_STRING("2024-03-11",     params.ma_kevAddedAfter);
+  TEST_ASSERT_EQUAL_STRING("2021-02-02",     params.ma_publishedBefore);
+  TEST_ASSERT_EQUAL_STRING("",               params.ma_publishedAfter);
+  TEST_ASSERT_EQUAL_STRING("kev_date_added", params.ma_sort);
+}
+
+void test_CVESEARCHRun_refuses_kev_date_requests_outside_kev(void)
+{
+  static const struct {
+    const char*         mp_kevAddedAfter;
+    CveKevFilter_t      m_kevFilter;
+    const char*         mp_sort;
+    EndpointRunStatus_t m_status;
+    const char*         mp_message;
+  } cases[] = {
+    { "2024-03-10", CVE_KEV_FILTER_NOT_IN_KEV,  "",               ENDPOINT_RUN_REFUSED,  CVESEARCH_KEV_ADDED_AFTER_NOT_IN_KEV_REFUSAL_MESSAGE },
+    { "",           CVE_KEV_FILTER_ANY,         "kev_date_added", ENDPOINT_RUN_REFUSED,  CVESEARCH_KEV_DATE_ADDED_SORT_REFUSAL_MESSAGE },
+    { "",           CVE_KEV_FILTER_NOT_IN_KEV,  "kev_date_added", ENDPOINT_RUN_REFUSED,  CVESEARCH_KEV_DATE_ADDED_SORT_REFUSAL_MESSAGE },
+    { "2024-03-10", CVE_KEV_FILTER_NOT_IN_KEV,  "kev_date_added", ENDPOINT_RUN_REFUSED,  CVESEARCH_KEV_ADDED_AFTER_NOT_IN_KEV_REFUSAL_MESSAGE },
+    { "",           CVE_KEV_FILTER_ONLY_IN_KEV, "kev_date_added", ENDPOINT_RUN_DB_ERROR, NULL },
+    { "2024-03-10", CVE_KEV_FILTER_ANY,         "kev_date_added", ENDPOINT_RUN_DB_ERROR, NULL },
+    { "2024-03-11", CVE_KEV_FILTER_ANY,         "",               ENDPOINT_RUN_DB_ERROR, NULL },
+    { "2024-03-12", CVE_KEV_FILTER_ONLY_IN_KEV, "epss",           ENDPOINT_RUN_DB_ERROR, NULL },
+    { "",           CVE_KEV_FILTER_NOT_IN_KEV,  "cvss",           ENDPOINT_RUN_DB_ERROR, NULL },
+  };
+  TEST_ASSERT_EQUAL_STRING("kev_added_after lists only CVEs that are in KEV, so it cannot be used with in_kev=false",
+                           CVESEARCH_KEV_ADDED_AFTER_NOT_IN_KEV_REFUSAL_MESSAGE);
+  TEST_ASSERT_EQUAL_STRING("sort=kev_date_added orders only CVEs that are in KEV: add in_kev=true or kev_added_after",
+                           CVESEARCH_KEV_DATE_ADDED_SORT_REFUSAL_MESSAGE);
+  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+  {
+    char label[64];
+    snprintf(label, sizeof(label), "case %zu", i);
+    EndpointAnyParams_t params;
+    memset(&params, 0, sizeof(params));
+    snprintf(params.m_cveSearch.ma_kevAddedAfter, sizeof(params.m_cveSearch.ma_kevAddedAfter), "%s", cases[i].mp_kevAddedAfter);
+    snprintf(params.m_cveSearch.ma_sort, sizeof(params.m_cveSearch.ma_sort), "%s", cases[i].mp_sort);
+    params.m_cveSearch.m_kevFilter = cases[i].m_kevFilter;
+    params.m_cveSearch.m_minCvss   = -1.0;
+    params.m_cveSearch.m_minEpss   = -1.0;
+    params.m_cveSearch.m_limit     = 20;
+    JsonBuf_t* json_buf = jsonbuf_create(JSONBUF_INITIAL_CAP, JSONBUF_DEFAULT_CEILING);
+    TEST_ASSERT_NOT_NULL(json_buf);
+    const char* message = NULL;
+    TEST_ASSERT_EQUAL_INT_MESSAGE(cases[i].m_status, endpoint_CVESEARCHRun(NULL, &params, json_buf, &message), label);
+    if (cases[i].mp_message == NULL)
+      TEST_ASSERT_NULL_MESSAGE(message, label);
+    else
+      TEST_ASSERT_EQUAL_STRING_MESSAGE(cases[i].mp_message, message, label);
+    jsonbuf_destroy(json_buf);
+  }
+}
+
 static void static_padBulkObject(char* out, size_t len)
 {
   static const char head[] = "{\"cve_ids\":[\"CVE-2021-44228\"";
@@ -4421,7 +4492,7 @@ void test_appendSchemaBounds_prints_each_bound_as_its_exact_double(void)
 
 void test_registration_gate_test_count(void)
 {
-  TEST_ASSERT_EQUAL_INT_MESSAGE(222, (int)Unity.NumberOfTests,
+  TEST_ASSERT_EQUAL_INT_MESSAGE(224, (int)Unity.NumberOfTests,
     "RUN_TEST list and test definitions have drifted apart - a test may be unregistered");
 }
 
@@ -7648,6 +7719,8 @@ int main(void)
   RUN_TEST(test_writeGateRefusalMessage_missing_text_path_segment_names_its_param);
   RUN_TEST(test_writeGateRefusalMessage_missing_query_id_names_its_param);
   RUN_TEST(test_PASSWORDCHECKRun_refuses_a_value_that_is_not_a_hash);
+  RUN_TEST(test_gates_write_kev_added_after_and_the_kev_date_added_sort);
+  RUN_TEST(test_CVESEARCHRun_refuses_kev_date_requests_outside_kev);
   RUN_TEST(test_DNSLOOKUPRun_refuses_a_name_that_is_not_public);
   RUN_TEST(test_DNSTAKEOVERCHECKRun_refuses_a_name_that_is_not_public);
   RUN_TEST(test_EMAILAUTHCHECKRun_refusal_names_what_was_refused);

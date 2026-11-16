@@ -10,6 +10,7 @@ CREATE FUNCTION api.fn_cve_search(p_severity            text,
                                   p_product             text,
                                   p_has_nuclei_template boolean,
                                   p_include_rejected    boolean,
+                                  p_kev_added_after     date,
                                   p_sort                text,
                                   p_cve_row_count       integer,
                                   p_cve_row_offset      integer)
@@ -26,7 +27,8 @@ CREATE FUNCTION api.fn_cve_search(p_severity            text,
                  has_cvss_v3     boolean,
                  cvss_v3_source  text,
                  cvss_v4_source  text,
-                 cwe_source      text)
+                 cwe_source      text,
+                 kev_date_added  text)
   LANGUAGE plpgsql STABLE SECURITY DEFINER
   SET search_path = pg_catalog
 AS $$
@@ -35,20 +37,21 @@ BEGIN
     RETURN;
   END IF;
   RETURN QUERY EXECUTE
-    $q$SELECT c.cve_id                 AS cve_id,
-              c.severity               AS severity,
-              c.cvss_v3                AS cvss_v3,
-              c.epss_score             AS epss_score,
-              c.epss_percentile        AS epss_percentile,
-              c.in_kev                 AS in_kev,
-              c.published_time         AS published_time,
-              c.cwe_id                 AS cwe_id,
-              c.cvss_v4                AS cvss_v4,
-              (c.cvss_v4_vector <> '') AS has_cvss_v4,
-              (c.cvss_v3_vector <> '') AS has_cvss_v3,
-              c.cvss_v3_source         AS cvss_v3_source,
-              c.cvss_v4_source         AS cvss_v4_source,
-              c.cwe_source             AS cwe_source$q$
+    $q$SELECT c.cve_id                                             AS cve_id,
+              c.severity                                           AS severity,
+              c.cvss_v3                                            AS cvss_v3,
+              c.epss_score                                         AS epss_score,
+              c.epss_percentile                                    AS epss_percentile,
+              c.in_kev                                             AS in_kev,
+              c.published_time                                     AS published_time,
+              c.cwe_id                                             AS cwe_id,
+              c.cvss_v4                                            AS cvss_v4,
+              (c.cvss_v4_vector <> '')                             AS has_cvss_v4,
+              (c.cvss_v3_vector <> '')                             AS has_cvss_v3,
+              c.cvss_v3_source                                     AS cvss_v3_source,
+              c.cvss_v4_source                                     AS cvss_v4_source,
+              c.cwe_source                                         AS cwe_source,
+              CASE WHEN c.in_kev THEN c.kev_date_added ELSE '' END AS kev_date_added$q$
     || api.fn_cve_list_from_where(p_severity            => p_severity,
                                   p_min_cvss            => p_min_cvss,
                                   p_min_epss            => p_min_epss,
@@ -59,13 +62,15 @@ BEGIN
                                   p_published_before    => p_published_before,
                                   p_vendor              => p_vendor,
                                   p_product             => p_product,
+                                  p_kev_added_after     => p_kev_added_after,
                                   p_has_nuclei_template => p_has_nuclei_template,
                                   p_include_rejected    => p_include_rejected)
     || ' ORDER BY '
-    || CASE p_sort WHEN 'epss' THEN 'c.epss_score DESC'
-                   WHEN 'cvss' THEN 'effective.cvss DESC'
+    || CASE p_sort WHEN 'epss'           THEN 'c.epss_score DESC'
+                   WHEN 'cvss'           THEN 'effective.cvss DESC'
+                   WHEN 'kev_date_added' THEN $q$CASE WHEN c.in_kev THEN c.kev_date_added ELSE '' END DESC$q$
                    ELSE 'c.published_time DESC, coalesce(c.cna_published_at, c.nvd_published_at) DESC NULLS LAST' END
-    || ', c.cve_id ASC LIMIT $12 OFFSET $13'
+    || ', c.cve_id ASC LIMIT $13 OFFSET $14'
     USING p_severity,
           p_min_cvss,
           p_min_epss,
@@ -77,6 +82,7 @@ BEGIN
           p_vendor,
           p_product,
           NULL::double precision,
+          p_kev_added_after,
           p_cve_row_count,
           p_cve_row_offset;
 END
@@ -93,7 +99,8 @@ CREATE FUNCTION api.fn_cve_search_match_count(p_severity            text,
                                               p_vendor              text,
                                               p_product             text,
                                               p_has_nuclei_template boolean,
-                                              p_include_rejected    boolean)
+                                              p_include_rejected    boolean,
+                                              p_kev_added_after     date)
   RETURNS bigint
   LANGUAGE sql STABLE SECURITY DEFINER
   SET search_path = pg_catalog
@@ -107,5 +114,6 @@ CREATE FUNCTION api.fn_cve_search_match_count(p_severity            text,
                                      p_published_before    => p_published_before,
                                      p_vendor              => p_vendor,
                                      p_product             => p_product,
+                                     p_kev_added_after     => p_kev_added_after,
                                      p_has_nuclei_template => p_has_nuclei_template,
                                      p_include_rejected    => p_include_rejected);

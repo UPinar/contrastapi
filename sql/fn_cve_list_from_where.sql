@@ -9,6 +9,7 @@ CREATE FUNCTION api.fn_cve_list_from_where(p_severity            text           
                                            p_vendor              text             DEFAULT NULL,
                                            p_product             text             DEFAULT NULL,
                                            p_min_risk_score      double precision DEFAULT NULL,
+                                           p_kev_added_after     date             DEFAULT NULL,
                                            p_has_nuclei_template boolean          DEFAULT NULL,
                                            p_include_rejected    boolean          DEFAULT NULL)
   RETURNS text
@@ -61,6 +62,10 @@ BEGIN
   IF p_min_risk_score IS NOT NULL THEN
     conditions := array_append(conditions, 'scored.risk_score >= $11');
   END IF;
+  IF p_kev_added_after IS NOT NULL THEN
+    conditions := array_append(conditions,
+      $q$(c.in_kev AND c.kev_date_added >= to_char($12::timestamp, 'YYYY-MM-DD'))$q$);
+  END IF;
   IF p_has_nuclei_template THEN
     conditions := array_append(conditions, 'c.has_nuclei_template');
   END IF;
@@ -86,6 +91,7 @@ CREATE FUNCTION api.fn_cve_list_match_count(p_severity            text          
                                             p_vendor              text             DEFAULT NULL,
                                             p_product             text             DEFAULT NULL,
                                             p_min_risk_score      double precision DEFAULT NULL,
+                                            p_kev_added_after     date             DEFAULT NULL,
                                             p_has_nuclei_template boolean          DEFAULT NULL,
                                             p_include_rejected    boolean          DEFAULT NULL)
   RETURNS bigint
@@ -108,6 +114,7 @@ BEGIN
                                   p_vendor              => p_vendor,
                                   p_product             => p_product,
                                   p_min_risk_score      => p_min_risk_score,
+                                  p_kev_added_after     => p_kev_added_after,
                                   p_has_nuclei_template => p_has_nuclei_template,
                                   p_include_rejected    => p_include_rejected)
     INTO cve_count
@@ -121,7 +128,8 @@ BEGIN
           p_published_before,
           p_vendor,
           p_product,
-          p_min_risk_score;
+          p_min_risk_score,
+          p_kev_added_after;
   RETURN cve_count;
 END
 $$;

@@ -28,7 +28,7 @@
 #include "validate.h"
 
 static const char* const CVSS_SEVERITY_VALUES[]      = { "CRITICAL", "HIGH", "MEDIUM", "LOW", "NONE", NULL };
-static const char* const CVESEARCH_SORT_VALUES[]     = { "published_time", "epss", "cvss", NULL };
+static const char* const CVESEARCH_SORT_VALUES[]     = { "published_time", "epss", "cvss", CVESEARCH_SORT_KEV_DATE_ADDED, NULL };
 static const char* const WATCHLIST_ACTION_VALUES[]   = { "add", "remove", NULL };
 static const char* const VENDORKEYEDIT_ACTION_VALUES[] = { "apply", "status", NULL };
 static const char* const WATCHLIST_ENDPOINT_VALUES[] = { "cve_lookup", "kev_lookup", "cve_exploit", "product_exposure", "cve_search", "dns_lookup", "ssl_check", "whois_lookup", "headers_check", "cert_search", "package_check", "ip_lookup", NULL };
@@ -128,12 +128,20 @@ static const EndpointParamSpec_t SPEC_PUBLISHED_BEFORE = {
   .mp_message           = "published_before must be a valid calendar date in YYYY-MM-DD form",
 };
 
+static const EndpointParamSpec_t SPEC_KEV_ADDED_AFTER = {
+  .mp_name              = "kev_added_after",
+  .m_type               = ENDPOINT_PARAM_TYPE_STRING,
+  .m_maxLen             = CVELOOKUP_PUBLISHED_LEN,
+  .m_validatorFunction  = validate_date,
+  .mp_message           = "kev_added_after must be a valid calendar date in YYYY-MM-DD form",
+};
+
 static const EndpointParamSpec_t SPEC_SORT = {
   .mp_name              = "sort",
   .m_type               = ENDPOINT_PARAM_TYPE_ENUM,
   .m_maxLen             = CVESEARCH_SORT_LEN - 1,
   .mp_enumValues        = CVESEARCH_SORT_VALUES,
-  .mp_message           = "sort must be published_time, epss, or cvss",
+  .mp_message           = "sort must be published_time, epss, cvss, or kev_date_added",
 };
 
 static const EndpointParamSpec_t SPEC_LIMIT = {
@@ -698,6 +706,14 @@ static const EndpointParam_t CVESEARCH_PARAMS[] = {
     .m_size               = MACRO_FIELD_SIZE(CVESEARCHParams_t, ma_publishedBefore),
   },
   {
+    .mp_spec              = &SPEC_KEV_ADDED_AFTER,
+    .m_sources            = ENDPOINT_PARAM_SRC_REST_QUERY | ENDPOINT_PARAM_SRC_MCP_ARG,
+    .m_isRequired         = false,
+    .mp_mcpArgDescription = "YYYY-MM-DD; only CVEs added to CISA KEV on or after this date and still in it",
+    .m_offset             = offsetof(CVESEARCHParams_t, ma_kevAddedAfter),
+    .m_size               = MACRO_FIELD_SIZE(CVESEARCHParams_t, ma_kevAddedAfter),
+  },
+  {
     .mp_spec              = &SPEC_INCLUDE_REJECTED,
     .m_sources            = ENDPOINT_PARAM_SRC_REST_QUERY | ENDPOINT_PARAM_SRC_MCP_ARG,
     .m_isRequired         = false,
@@ -709,7 +725,7 @@ static const EndpointParam_t CVESEARCH_PARAMS[] = {
     .mp_spec              = &SPEC_SORT,
     .m_sources            = ENDPOINT_PARAM_SRC_REST_QUERY | ENDPOINT_PARAM_SRC_MCP_ARG,
     .m_isRequired         = false,
-    .mp_mcpArgDescription = NULL,
+    .mp_mcpArgDescription = "kev_date_added needs in_kev=true or kev_added_after",
     .m_offset             = offsetof(CVESEARCHParams_t, ma_sort),
     .m_size               = MACRO_FIELD_SIZE(CVESEARCHParams_t, ma_sort),
   },

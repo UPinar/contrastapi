@@ -19,7 +19,8 @@ CREATE FUNCTION api.fn_cve_leading(p_min_epss            real,
                  has_cvss_v3     boolean,
                  cvss_v3_source  text,
                  cvss_v4_source  text,
-                 cwe_source      text)
+                 cwe_source      text,
+                 kev_date_added  text)
   LANGUAGE plpgsql STABLE SECURITY DEFINER
   SET search_path = pg_catalog
 AS $$
@@ -28,20 +29,21 @@ BEGIN
     RETURN;
   END IF;
   RETURN QUERY EXECUTE
-    $q$SELECT c.cve_id                 AS cve_id,
-              c.severity               AS severity,
-              c.cvss_v3                AS cvss_v3,
-              c.epss_score             AS epss_score,
-              c.epss_percentile        AS epss_percentile,
-              c.in_kev                 AS in_kev,
-              c.published_time         AS published_time,
-              c.cwe_id                 AS cwe_id,
-              c.cvss_v4                AS cvss_v4,
-              (c.cvss_v4_vector <> '') AS has_cvss_v4,
-              (c.cvss_v3_vector <> '') AS has_cvss_v3,
-              c.cvss_v3_source         AS cvss_v3_source,
-              c.cvss_v4_source         AS cvss_v4_source,
-              c.cwe_source             AS cwe_source$q$
+    $q$SELECT c.cve_id                                             AS cve_id,
+              c.severity                                           AS severity,
+              c.cvss_v3                                            AS cvss_v3,
+              c.epss_score                                         AS epss_score,
+              c.epss_percentile                                    AS epss_percentile,
+              c.in_kev                                             AS in_kev,
+              c.published_time                                     AS published_time,
+              c.cwe_id                                             AS cwe_id,
+              c.cvss_v4                                            AS cvss_v4,
+              (c.cvss_v4_vector <> '')                             AS has_cvss_v4,
+              (c.cvss_v3_vector <> '')                             AS has_cvss_v3,
+              c.cvss_v3_source                                     AS cvss_v3_source,
+              c.cvss_v4_source                                     AS cvss_v4_source,
+              c.cwe_source                                         AS cwe_source,
+              CASE WHEN c.in_kev THEN c.kev_date_added ELSE '' END AS kev_date_added$q$
     || api.fn_cve_list_from_where(p_min_epss            => p_min_epss,
                                   p_in_kev              => p_in_kev,
                                   p_known_ransomware    => p_known_ransomware,
@@ -49,7 +51,7 @@ BEGIN
                                   p_product             => p_product,
                                   p_has_nuclei_template => p_has_nuclei_template,
                                   p_include_rejected    => p_include_rejected)
-    || ' ORDER BY c.epss_score DESC, c.cvss_v3 DESC,    c.cve_id ASC LIMIT $12'
+    || ' ORDER BY c.epss_score DESC, c.cvss_v3 DESC,    c.cve_id ASC LIMIT $13'
     USING NULL::text,
           NULL::real,
           p_min_epss,
@@ -61,6 +63,7 @@ BEGIN
           p_vendor,
           p_product,
           NULL::double precision,
+          NULL::date,
           p_cve_row_count;
 END
 $$;

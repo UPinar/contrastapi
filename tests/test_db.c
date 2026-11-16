@@ -1321,16 +1321,17 @@ static void static_queueTotalAnswer(const char* total)
   answer->ma_cells[0][0]    = total;
 }
 
-#define LIST_ROW_COLUMN_COUNT 14
+#define LIST_ROW_COLUMN_COUNT 15
 
 static const char* const g_listRowValues[LIST_ROW_COLUMN_COUNT] = {
   "CVE-2021-44228", "CRITICAL", "10.0", "0.97566", "0.99970", "t", "2021-12-10", "CWE-917",
-  "9.3", "t", "t", "adp", "other", "nvd"
+  "9.3", "t", "t", "adp", "other", "nvd", "2026-11-04"
 };
 
 static const char* const g_listColumnNames[LIST_ROW_COLUMN_COUNT] = {
   "cve_id", "severity", "cvss_v3", "epss_score", "epss_percentile", "in_kev", "published_time",
-  "cwe_id", "cvss_v4", "has_cvss_v4", "has_cvss_v3", "cvss_v3_source", "cvss_v4_source", "cwe_source"
+  "cwe_id", "cvss_v4", "has_cvss_v4", "has_cvss_v3", "cvss_v3_source", "cvss_v4_source", "cwe_source",
+  "kev_date_added"
 };
 
 static FakeAnswer_t* static_queueListAnswers(void)
@@ -1357,6 +1358,7 @@ void test_CVESEARCH_fixed_size_field_past_its_limit_is_error(void)
     FIELD_LIMIT(1, 1, 11, CVELOOKUP_SOURCE_LEN,   CveListItem_t, ma_cvssV3Source),
     FIELD_LIMIT(1, 1, 12, CVELOOKUP_SOURCE_LEN,   CveListItem_t, ma_cvssV4Source),
     FIELD_LIMIT(1, 1, 13, CVELOOKUP_SOURCE_LEN,   CveListItem_t, ma_cweSource),
+    FIELD_LIMIT(1, 1, 14, CVELOOKUP_PUBLISHED_LEN, CveListItem_t, ma_kevDateAdded),
   };
 
   for (size_t f = 0; f < sizeof(fields) / sizeof(fields[0]); f++)
@@ -1414,6 +1416,42 @@ void test_CVESEARCH_reads_each_source_column(void)
   TEST_ASSERT_EQUAL_STRING("other", results.mp_items[0].ma_cvssV4Source);
   TEST_ASSERT_EQUAL_STRING("nvd",   results.mp_items[0].ma_cweSource);
   db_CveListResultFree(&results);
+}
+
+void test_CVE_lists_read_the_kev_date_added_column(void)
+{
+  for (int is_leading = 0; is_leading <= 1; is_leading++)
+  {
+    static_resetFake();
+    FakeAnswer_t* page = static_queueListAnswers();
+    page->ma_cells[1][14] = "";
+    CveListResult_t results;
+    memset(&results, 0, sizeof(results));
+    DbStatus_t db_status = DB_ERROR;
+    if (is_leading)
+    {
+      CVELEADINGParams_t params;
+      memset(&params, 0, sizeof(params));
+      params.m_minEpss = -1.0;
+      params.m_limit   = 2;
+      db_status = db_CVELEADING(FAKE_CONN, &params, &results);
+    }
+    else
+    {
+      CVESEARCHParams_t params;
+      memset(&params, 0, sizeof(params));
+      params.m_minCvss = -1.0;
+      params.m_minEpss = -1.0;
+      params.m_limit   = 2;
+      db_status = db_CVESEARCH(FAKE_CONN, &params, &results);
+    }
+
+    TEST_ASSERT_EQUAL_INT(DB_OK, db_status);
+    TEST_ASSERT_EQUAL_INT(2, results.m_count);
+    TEST_ASSERT_EQUAL_STRING("2026-11-04", results.mp_items[0].ma_kevDateAdded);
+    TEST_ASSERT_EQUAL_STRING("",           results.mp_items[1].ma_kevDateAdded);
+    db_CveListResultFree(&results);
+  }
 }
 
 #define TRIAGE_ROW_COLUMN_COUNT        5
@@ -3094,9 +3132,9 @@ static void static_assertCall(int call_index, const char* command, const char* c
 }
 
 #define CVESEARCH_TOTAL_CALL \
-  "SELECT api.fn_cve_search_match_count($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) AS cve_count"
+  "SELECT api.fn_cve_search_match_count($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) AS cve_count"
 #define CVESEARCH_PAGE_CALL \
-  "SELECT * FROM api.fn_cve_search($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)"
+  "SELECT * FROM api.fn_cve_search($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)"
 #define CVELEADING_TOTAL_CALL \
   "SELECT api.fn_cve_leading_match_count($1, $2, $3, $4, $5, $6, $7) AS cve_count"
 #define CVELEADING_PAGE_CALL  "SELECT * FROM api.fn_cve_leading($1, $2, $3, $4, $5, $6, $7, $8)"
@@ -3109,7 +3147,7 @@ void test_CVE_lists_send_each_filter_in_its_own_parameter(void)
 {
   static const char* const search_values[] = {
     "HIGH", "7.50", "0.250000", "true", "true", "CWE-79", "2020-01-01", "2021-01-01", "v", "p",
-    "true", "true", "cvss", "2", "40"
+    "true", "true", "2024-03-10", "cvss", "2", "40"
   };
   static const char* const leading_values[] = { "0.250000", "false", "true", "v", "p", "true", "true", "2" };
   static const char* const triage_values[]  = { "v", "p", "0.0000", "true", "2", "40" };
@@ -3125,6 +3163,7 @@ void test_CVE_lists_send_each_filter_in_its_own_parameter(void)
   static_setText(search_params.ma_vendor,          sizeof(search_params.ma_vendor),          "v");
   static_setText(search_params.ma_product,         sizeof(search_params.ma_product),         "p");
   static_setText(search_params.ma_sort,            sizeof(search_params.ma_sort),            "cvss");
+  static_setText(search_params.ma_kevAddedAfter,   sizeof(search_params.ma_kevAddedAfter),   "2024-03-10");
   search_params.m_minCvss           = 7.5;
   search_params.m_minEpss           = 0.25;
   search_params.m_kevFilter         = CVE_KEV_FILTER_ONLY_IN_KEV;
@@ -3136,8 +3175,8 @@ void test_CVE_lists_send_each_filter_in_its_own_parameter(void)
   g_queuedAnswers[0].ma_cells[0][0] = "42";
   memset(&results, 0, sizeof(results));
   TEST_ASSERT_EQUAL_INT(DB_OK, db_CVESEARCH(FAKE_CONN, &search_params, &results));
-  static_assertCall(0, CVESEARCH_TOTAL_CALL, search_values, 12);
-  static_assertCall(1, CVESEARCH_PAGE_CALL,  search_values, 15);
+  static_assertCall(0, CVESEARCH_TOTAL_CALL, search_values, 13);
+  static_assertCall(1, CVESEARCH_PAGE_CALL,  search_values, 16);
   db_CveListResultFree(&results);
 
   static_resetFake();
@@ -3180,7 +3219,7 @@ void test_CVE_lists_send_each_filter_in_its_own_parameter(void)
 void test_CVE_lists_send_an_unset_filter_as_null(void)
 {
   static const char* const search_values[] = {
-    NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, "false", NULL, "2", "0"
+    NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, "false", NULL, NULL, "2", "0"
   };
   static const char* const leading_values[] = { NULL, NULL, NULL, NULL, NULL, NULL, "false", "2" };
   static const char* const triage_values[]  = { NULL, NULL, NULL, "false", "2", "0" };
@@ -3194,8 +3233,8 @@ void test_CVE_lists_send_an_unset_filter_as_null(void)
   search_params.m_limit   = 2;
   memset(&results, 0, sizeof(results));
   TEST_ASSERT_EQUAL_INT(DB_OK, db_CVESEARCH(FAKE_CONN, &search_params, &results));
-  static_assertCall(0, CVESEARCH_TOTAL_CALL, search_values, 12);
-  static_assertCall(1, CVESEARCH_PAGE_CALL,  search_values, 15);
+  static_assertCall(0, CVESEARCH_TOTAL_CALL, search_values, 13);
+  static_assertCall(1, CVESEARCH_PAGE_CALL,  search_values, 16);
   db_CveListResultFree(&results);
 
   static_resetFake();
@@ -12682,7 +12721,7 @@ void test_recordCtScan_refuses_any_other_answer(void)
 
 void test_registration_gate_test_count(void)
 {
-  TEST_ASSERT_EQUAL_INT_MESSAGE(267, (int)Unity.NumberOfTests,
+  TEST_ASSERT_EQUAL_INT_MESSAGE(268, (int)Unity.NumberOfTests,
     "RUN_TEST list and test definitions have drifted apart - a test may be unregistered");
 }
 
@@ -12726,6 +12765,7 @@ int main(void)
   RUN_TEST(test_CVELOOKUP_ssvc_value_past_its_limit_is_refused_by_its_reader);
   RUN_TEST(test_CVESEARCH_fixed_size_field_past_its_limit_is_error);
   RUN_TEST(test_CVESEARCH_reads_each_source_column);
+  RUN_TEST(test_CVE_lists_read_the_kev_date_added_column);
   RUN_TEST(test_list_queries_refuse_a_null_connection);
   RUN_TEST(test_triage_items_read_the_label_from_its_column);
   RUN_TEST(test_CVERISKSCORE_columns_land_in_their_own_fields);

@@ -35,7 +35,7 @@
 _Static_assert(DB_INT64_PARAM_BUF_SIZE >= sizeof("-9223372036854775808"),
                "DB_INT64_PARAM_BUF_SIZE must hold every int64_t in decimal text");
 
-#define DB_CVESEARCH_FILTER_COUNT  12
+#define DB_CVESEARCH_FILTER_COUNT  13
 #define DB_CVELEADING_FILTER_COUNT  7
 #define DB_CVETRIAGE_FILTER_COUNT   4
 #define DB_CPESEARCH_FILTER_COUNT   1
@@ -56,7 +56,8 @@ _Static_assert(DB_INT64_PARAM_BUF_SIZE >= sizeof("-9223372036854775808"),
   X(CVESEARCH_COLUMN_HAS_CVSS_V3,     "has_cvss_v3")     \
   X(CVESEARCH_COLUMN_CVSS_V3_SOURCE,  "cvss_v3_source")  \
   X(CVESEARCH_COLUMN_CVSS_V4_SOURCE,  "cvss_v4_source")  \
-  X(CVESEARCH_COLUMN_CWE_SOURCE,      "cwe_source")
+  X(CVESEARCH_COLUMN_CWE_SOURCE,      "cwe_source")      \
+  X(CVESEARCH_COLUMN_KEV_DATE_ADDED,  "kev_date_added")
 enum { CVESEARCH_COLUMNS(DBHELPER_COLUMN_INDEX) };
 static const char* const CVESEARCH_COLUMN_NAMES[] = { CVESEARCH_COLUMNS(DBHELPER_COLUMN_NAME) };
 
@@ -1248,19 +1249,20 @@ DbStatus_t db_CVESEARCH(PGconn* conn, const CVESEARCHParams_t* params, CveListRe
     dbhelper_textOrNull(params->ma_product),
     params->m_hasNucleiTemplate ? "true" : NULL,
     params->m_isRejectedIncluded ? "true" : "false",
+    dbhelper_textOrNull(params->ma_kevAddedAfter),
     dbhelper_textOrNull(params->ma_sort),
     dbhelper_intParam(row_count,  sizeof(row_count),  params->m_limit),
     dbhelper_intParam(row_offset, sizeof(row_offset), params->m_offset),
   };
 
-  if (!static_tryReadMatchCount(conn, "SELECT api.fn_cve_search_match_count($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) AS cve_count",
+  if (!static_tryReadMatchCount(conn, "SELECT api.fn_cve_search_match_count($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) AS cve_count",
                                 "cve_count", DB_CVESEARCH_FILTER_COUNT, param_values, &results_out->m_total))
   {
     return DB_ERROR;
   }
   if (params->m_offset >= results_out->m_total)
     return DB_OK;
-  return static_CVESEARCHReadPage(conn, "SELECT * FROM api.fn_cve_search($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)",
+  return static_CVESEARCHReadPage(conn, "SELECT * FROM api.fn_cve_search($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)",
                                   DBHELPER_PARAM_COUNT(param_values), param_values, results_out);
 }
 
@@ -2469,7 +2471,8 @@ static bool static_CVESEARCHFillItem(PGresult* res, int row_index, CveListItem_t
          dbhelper_fetchColStr(res, row_index, CVESEARCH_COLUMN_CWE_ID,         item->ma_cweId, CVELOOKUP_CWE_ID_LEN)            &&
          dbhelper_fetchColStr(res, row_index, CVESEARCH_COLUMN_CVSS_V3_SOURCE, item->ma_cvssV3Source, CVELOOKUP_SOURCE_LEN)     &&
          dbhelper_fetchColStr(res, row_index, CVESEARCH_COLUMN_CVSS_V4_SOURCE, item->ma_cvssV4Source, CVELOOKUP_SOURCE_LEN)     &&
-         dbhelper_fetchColStr(res, row_index, CVESEARCH_COLUMN_CWE_SOURCE,     item->ma_cweSource, CVELOOKUP_SOURCE_LEN);
+         dbhelper_fetchColStr(res, row_index, CVESEARCH_COLUMN_CWE_SOURCE,     item->ma_cweSource, CVELOOKUP_SOURCE_LEN)        &&
+         dbhelper_fetchColStr(res, row_index, CVESEARCH_COLUMN_KEV_DATE_ADDED, item->ma_kevDateAdded, CVELOOKUP_PUBLISHED_LEN);
 }
 
 static DbStatus_t static_CVETRIAGEReadPage(PGconn* conn, const char* query, int param_count, const char** param_values, CVETRIAGEResult_t* results_out)

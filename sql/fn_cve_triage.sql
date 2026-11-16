@@ -27,7 +27,7 @@ BEGIN
                                   p_min_risk_score   => p_min_risk_score,
                                   p_include_rejected => p_include_rejected)
     || ' ORDER BY scored.risk_score DESC, c.epss_score DESC, c.cvss_v3 DESC, c.cve_id ASC'
-    || ' LIMIT $12 OFFSET $13'
+    || ' LIMIT $13 OFFSET $14'
     USING NULL::text,
           NULL::real,
           NULL::real,
@@ -39,6 +39,7 @@ BEGIN
           p_vendor,
           p_product,
           p_min_risk_score,
+          NULL::date,
           p_cve_row_count,
           p_cve_row_offset;
 END

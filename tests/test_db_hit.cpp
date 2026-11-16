@@ -2631,6 +2631,64 @@ void test_CVESEARCH_published_after_impossible_calendar_date_never_reaches_db(vo
   TEST_ASSERT_EQUAL_INT(1, static_countResponses(buf));
 }
 
+void test_CVESEARCH_kev_date_requests_outside_kev_are_refused_on_both_transports(void)
+{
+  static const struct { const char* mp_query; const char* mp_args; const char* mp_message; } cases[] = {
+    { "kev_added_after=2024-03-10&in_kev=false", R"({"kev_added_after":"2024-03-10","in_kev":false})",
+      "kev_added_after lists only CVEs that are in KEV, so it cannot be used with in_kev=false" },
+    { "sort=kev_date_added", R"({"sort":"kev_date_added"})",
+      "sort=kev_date_added orders only CVEs that are in KEV: add in_kev=true or kev_added_after" },
+    { "sort=kev_date_added&in_kev=false", R"({"sort":"kev_date_added","in_kev":false})",
+      "sort=kev_date_added orders only CVEs that are in KEV: add in_kev=true or kev_added_after" },
+    { "sort=kev_date_added&in_kev=false&kev_added_after=2024-03-10", R"({"sort":"kev_date_added","in_kev":false,"kev_added_after":"2024-03-10"})",
+      "kev_added_after lists only CVEs that are in KEV, so it cannot be used with in_kev=false" },
+  };
+  g_stub_api_key_state    = DB_API_KEY_ACTIVE;
+  g_stub_CVESEARCH_status = DB_OK;
+  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+  {
+    char req[512];
+    char buf[RESP_BUF];
+    char expected[512];
+    snprintf(req, sizeof(req), "GET /cve_search?%s HTTP/1.1\r\nX-API-Key: " VALID_KEY "\r\n\r\n", cases[i].mp_query);
+    static_callRequestHandle(req, buf, sizeof(buf));
+    TEST_ASSERT_EQUAL_INT_MESSAGE(1, static_countResponses(buf), cases[i].mp_query);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "HTTP/1.1 400 Bad Request\r\n"), cases[i].mp_query);
+    snprintf(expected, sizeof(expected), R"({"error":{"code":"bad_request","message":"%s"}})" "\n", cases[i].mp_message);
+    TEST_ASSERT_EQUAL_STRING_MESSAGE(expected, static_responseBody(buf), cases[i].mp_query);
+
+    snprintf(req, sizeof(req), "POST /mcp HTTP/1.1\r\nX-API-Key: " VALID_KEY "\r\nContent-Type: application/json\r\n\r\n"
+             R"({"jsonrpc":"2.0","id":61,"method":"tools/call","params":{"name":"cve_search","arguments":%s}})", cases[i].mp_args);
+    static_callRequestHandle(req, buf, sizeof(buf));
+    TEST_ASSERT_EQUAL_INT_MESSAGE(1, static_countResponses(buf), cases[i].mp_args);
+    snprintf(expected, sizeof(expected), R"({"jsonrpc":"2.0","id":61,"result":{"content":[{"type":"text","text":"%s"}],"isError":true}})", cases[i].mp_message);
+    TEST_ASSERT_EQUAL_STRING_MESSAGE(expected, static_responseBody(buf), cases[i].mp_args);
+  }
+  TEST_ASSERT_EQUAL_INT(0, g_stub_CVESEARCH_call_count);
+}
+
+void test_CVESEARCH_kev_date_requests_inside_kev_reach_db(void)
+{
+  static const char* const queries[] = {
+    "sort=kev_date_added&in_kev=true",
+    "sort=kev_date_added&kev_added_after=2024-03-10",
+    "kev_added_after=2024-03-11",
+    "kev_added_after=2024-03-12&in_kev=true",
+  };
+  g_stub_api_key_state    = DB_API_KEY_ACTIVE;
+  g_stub_CVESEARCH_status = DB_OK;
+  for (size_t i = 0; i < sizeof(queries) / sizeof(queries[0]); i++)
+  {
+    char req[256];
+    char buf[RESP_BUF];
+    snprintf(req, sizeof(req), "GET /cve_search?%s HTTP/1.1\r\nX-API-Key: " VALID_KEY "\r\n\r\n", queries[i]);
+    static_callRequestHandle(req, buf, sizeof(buf));
+    TEST_ASSERT_EQUAL_INT_MESSAGE(1, static_countResponses(buf), queries[i]);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "HTTP/1.1 200"), queries[i]);
+    TEST_ASSERT_EQUAL_INT_MESSAGE((int)i + 1, g_stub_CVESEARCH_call_count, queries[i]);
+  }
+}
+
 void test_CVESEARCH_published_before_impossible_calendar_date_never_reaches_db(void)
 {
   g_stub_CVESEARCH_status = DB_OK;
@@ -2903,7 +2961,7 @@ void test_HEALTH_db_error_answers_503_with_retry_after(void)
   TEST_ASSERT_EQUAL_INT(1, static_countResponses(buf));
   TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 503 Service Unavailable\r\n"));
   TEST_ASSERT_NOT_NULL(strstr(buf, "\r\nRetry-After: 5\r\n"));
-  TEST_ASSERT_NOT_NULL(strstr(buf, R"({"status":"unavailable","version":"2.0.4","db":null})"));
+  TEST_ASSERT_NOT_NULL(strstr(buf, R"({"status":"unavailable","version":"2.0.5","db":null})"));
   TEST_ASSERT_NULL(strstr(buf, R"("cve_count")"));
 }
 
@@ -2917,7 +2975,7 @@ void test_HEALTH_db_not_found_also_answers_503(void)
   static_callRequestHandle(req, buf, sizeof(buf));
   TEST_ASSERT_EQUAL_INT(1, static_countResponses(buf));
   TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 503 Service Unavailable\r\n"));
-  TEST_ASSERT_NOT_NULL(strstr(buf, R"({"status":"unavailable","version":"2.0.4","db":null})"));
+  TEST_ASSERT_NOT_NULL(strstr(buf, R"({"status":"unavailable","version":"2.0.5","db":null})"));
   TEST_ASSERT_NULL(strstr(buf, R"("cve_count")"));
 }
 
@@ -12007,6 +12065,57 @@ void test_docs_include_rejected_refusal_matches_the_server(void)
   free(mcp_text);
 }
 
+void test_docs_cve_search_kev_date_refusals_match_the_server(void)
+{
+  static const struct { const char* mp_query; const char* mp_anchor; const char* mp_message; bool m_isInMcpDocs; } cases[] = {
+    { "kev_added_after=2026-02-30",               "kev_added_after must be",         "kev_added_after must be a valid calendar date in YYYY-MM-DD form",                            true  },
+    { "kev_added_after=2026-11-01&in_kev=false",  "kev_added_after lists only",      "kev_added_after lists only CVEs that are in KEV, so it cannot be used with in_kev=false",     true  },
+    { "sort=kev_date_added",                      "sort=kev_date_added orders only", "sort=kev_date_added orders only CVEs that are in KEV: add in_kev=true or kev_added_after",    false },
+    { "sort=newest",                              "sort must be",                    "sort must be published_time, epss, cvss, or kev_date_added",                                  false },
+  };
+  g_stub_api_key_state = DB_API_KEY_ACTIVE;
+  char* api_text = static_readDocsFile(DOCS_API_PATH);
+  char* mcp_text = static_readDocsFile(DOCS_MCP_PATH);
+  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+  {
+    char request[256];
+    char buf[RESP_BUF];
+    char message[256];
+    snprintf(request, sizeof(request), "GET /cve_search?%s HTTP/1.1\r\nX-API-Key: " VALID_KEY "\r\n\r\n", cases[i].mp_query);
+    static_callRequestHandle(request, buf, sizeof(buf));
+    static_errorMessageOf(buf, message, sizeof(message));
+    TEST_ASSERT_EQUAL_STRING_MESSAGE(cases[i].mp_message, message, cases[i].mp_query);
+
+    static_assertEveryMention(api_text, cases[i].mp_anchor, message, '"');
+    if (cases[i].m_isInMcpDocs)
+      static_assertEveryMention(mcp_text, cases[i].mp_anchor, message, '"');
+  }
+  free(api_text);
+  free(mcp_text);
+}
+
+void test_docs_cve_search_tables_name_the_kev_date_parameter_sort_and_member(void)
+{
+  char* api_text = static_readDocsFile(DOCS_API_PATH);
+  TEST_ASSERT_NOT_NULL(strstr(api_text, "\n| `kev_added_after` "));
+  TEST_ASSERT_NOT_NULL(strstr(api_text, "`published_time` (default) / `epss` / `cvss` / `kev_date_added` |"));
+  TEST_ASSERT_NOT_NULL(strstr(api_text, "\n| `kev_date_added` | string or null "));
+  free(api_text);
+  char* mcp_text = static_readDocsFile(DOCS_MCP_PATH);
+  TEST_ASSERT_NOT_NULL(strstr(mcp_text, "\n| `kev_added_after` | string |"));
+  TEST_ASSERT_NOT_NULL(strstr(mcp_text, "`published_time` (default) \\| `epss` \\| `cvss` \\| `kev_date_added` |"));
+  TEST_ASSERT_NOT_NULL(strstr(mcp_text, R"("in_kev":true, "kev_date_added":"2026-05-14", "published_time")"));
+  char length_copy[64];
+  snprintf(length_copy, sizeof(length_copy), "`kev_added_after` %d,", CVELOOKUP_PUBLISHED_LEN);
+  TEST_ASSERT_NOT_NULL(strstr(mcp_text, length_copy));
+  free(mcp_text);
+  api_text = static_readDocsFile(DOCS_API_PATH);
+  TEST_ASSERT_NOT_NULL(strstr(api_text, "\n| `kev_added_after`     | date   |"));
+  snprintf(length_copy, sizeof(length_copy), "`kev_added_after` %d (`/cve_search` only)", CVELOOKUP_PUBLISHED_LEN);
+  TEST_ASSERT_NOT_NULL(strstr(api_text, length_copy));
+  free(api_text);
+}
+
 void test_docs_ransomware_campaign_is_not_an_enrichment(void)
 {
   static const char* const paths[] = {
@@ -12429,10 +12538,11 @@ void test_enum_values_in_the_endpoint_table_are_accepted(void)
 
       for (int k = 0; spec->mp_enumValues[k] != NULL; k++)
       {
+        bool is_kev_date_added_sort = strcmp(spec->mp_name, "sort") == 0 && strcmp(spec->mp_enumValues[k], CVESEARCH_SORT_KEV_DATE_ADDED) == 0;
         if (param->m_sources & ENDPOINT_PARAM_SRC_REST_QUERY)
         {
           char req[512];
-          static_restRequestFor(endpoint, param, spec->mp_enumValues[k], req, sizeof(req));
+          static_restRequestFor(endpoint, param, is_kev_date_added_sort ? CVESEARCH_SORT_KEV_DATE_ADDED "&in_kev=true" : spec->mp_enumValues[k], req, sizeof(req));
           char buf[RESP_BUF];
           static_callRequestHandle(req, buf, sizeof(buf));
           TEST_ASSERT_EQUAL_INT_MESSAGE(1, static_countResponses(buf), req);
@@ -12441,7 +12551,7 @@ void test_enum_values_in_the_endpoint_table_are_accepted(void)
         if (param->m_sources & ENDPOINT_PARAM_SRC_MCP_ARG)
         {
           char value[64];
-          int written = snprintf(value, sizeof(value), "\"%s\"", spec->mp_enumValues[k]);
+          int written = snprintf(value, sizeof(value), "\"%s\"%s", spec->mp_enumValues[k], is_kev_date_added_sort ? ",\"in_kev\":true" : "");
           TEST_ASSERT_TRUE(written > 0 && (size_t)written < sizeof(value));
           char* answer = static_mcpToolCall(endpoint->mp_mcpToolName, spec->mp_name, value);
           TEST_ASSERT_NULL_MESSAGE(strstr(answer, R"("isError":true)"), value);
@@ -12672,7 +12782,7 @@ void test_rest_and_mcp_refuse_a_value_with_one_text(void)
       checked++;
     }
   }
-  TEST_ASSERT_EQUAL_INT(54, checked);
+  TEST_ASSERT_EQUAL_INT(55, checked);
 }
 
 static void static_restGet(const char* path_and_query, char* buf, size_t len)
@@ -12878,7 +12988,7 @@ void test_rest_bool_and_enum_near_misses_are_refused(void)
     { "/cve_search?severity=high",              "severity must be CRITICAL, HIGH, MEDIUM, LOW, or NONE" },
     { "/cve_search?severity=HIG",               "severity must be CRITICAL, HIGH, MEDIUM, LOW, or NONE" },
     { "/cve_search?severity=",                  "severity must be CRITICAL, HIGH, MEDIUM, LOW, or NONE" },
-    { "/cve_search?sort=EPSS",                  "sort must be published_time, epss, or cvss" },
+    { "/cve_search?sort=EPSS",                  "sort must be published_time, epss, cvss, or kev_date_added" },
   };
   g_stub_CVESEARCH_status  = DB_OK;
   g_stub_CVELEADING_status = DB_OK;
@@ -13012,7 +13122,7 @@ void test_rest_unknown_param_name_messages_name_only_the_table(void)
   static_restGet("/cve_search?zzSECRETzz=1", buf, sizeof(buf));
   static_assertRefusedWith(buf, "unknown query parameter; this endpoint takes severity, vendor, product, cwe_id, "
                                 "min_cvss, min_epss, in_kev, known_ransomware, has_nuclei_template, published_after, "
-                                "published_before, include_rejected, sort, limit, offset", "/cve_search?zzSECRETzz=1");
+                                "published_before, kev_added_after, include_rejected, sort, limit, offset", "/cve_search?zzSECRETzz=1");
   TEST_ASSERT_NULL(strstr(buf, "zzSECRETzz"));
 
   static_restGet("/health?_=1", buf, sizeof(buf));
@@ -14582,7 +14692,7 @@ void test_api_key_claim_refuses_an_order_id_that_is_not_a_uuid(void)
 
 void test_registration_gate_test_count(void)
 {
-  int expected_test_count = 750;
+  int expected_test_count = 754;
   TEST_ASSERT_EQUAL_INT_MESSAGE(expected_test_count, (int)Unity.NumberOfTests,
     "RUN_TEST list and test definitions have drifted apart - a test may be unregistered");
 }
@@ -15731,13 +15841,13 @@ void test_rest_and_mcp_refuse_every_table_value_alike(void)
       plus++;
     }
   }
-  TEST_ASSERT_EQUAL_INT(76, too_long);
+  TEST_ASSERT_EQUAL_INT(77, too_long);
   TEST_ASSERT_EQUAL_INT(54, missing);
-  TEST_ASSERT_EQUAL_INT(75, refused);
-  TEST_ASSERT_EQUAL_INT(21, control);
-  TEST_ASSERT_EQUAL_INT(21, plus);
-  TEST_ASSERT_EQUAL_INT(55, encoding);
-  TEST_ASSERT_EQUAL_INT(21, invalid_utf8);
+  TEST_ASSERT_EQUAL_INT(76, refused);
+  TEST_ASSERT_EQUAL_INT(22, control);
+  TEST_ASSERT_EQUAL_INT(22, plus);
+  TEST_ASSERT_EQUAL_INT(56, encoding);
+  TEST_ASSERT_EQUAL_INT(22, invalid_utf8);
 }
 
 void test_rest_and_mcp_refuse_a_non_boolean_include_rejected_alike(void)
@@ -20786,6 +20896,8 @@ int main(void)
   RUN_TEST(test_CVESEARCH_published_after_invalid_returns_400);
   RUN_TEST(test_CVESEARCH_published_before_invalid_returns_400);
   RUN_TEST(test_CVESEARCH_published_after_impossible_calendar_date_never_reaches_db);
+  RUN_TEST(test_CVESEARCH_kev_date_requests_outside_kev_are_refused_on_both_transports);
+  RUN_TEST(test_CVESEARCH_kev_date_requests_inside_kev_reach_db);
   RUN_TEST(test_CVESEARCH_published_before_impossible_calendar_date_never_reaches_db);
   RUN_TEST(test_CVESEARCH_vendor_percent_never_reaches_db);
 
@@ -21188,6 +21300,8 @@ int main(void)
   RUN_TEST(test_docs_cve_lookup_refusals_match_the_server);
   RUN_TEST(test_docs_mcp_argument_refusals_match_the_server);
   RUN_TEST(test_docs_include_rejected_refusal_matches_the_server);
+  RUN_TEST(test_docs_cve_search_kev_date_refusals_match_the_server);
+  RUN_TEST(test_docs_cve_search_tables_name_the_kev_date_parameter_sort_and_member);
   RUN_TEST(test_docs_ransomware_campaign_is_not_an_enrichment);
   RUN_TEST(test_mcp_credit_cost_unreadable_method_is_1);
   RUN_TEST(test_bulk_skips_an_element_that_is_not_a_cve_id);

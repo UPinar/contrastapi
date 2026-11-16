@@ -366,7 +366,8 @@ static void static_cveListWriteItem(const CveListItem_t* item, JsonBuf_t* json_b
   jsonbuf_appendFormat(json_buf, R"("epss_score":%.5f,)", item->m_epssScore);
   jsonbuf_appendFormat(json_buf, R"("epss_percentile":%.5f,)", item->m_epssPercentile);
   jsonbuf_appendFormat(json_buf, R"("in_kev":%s,)", item->m_inKev ? "true" : "false");
-  jsonbuf_appendFormat(json_buf, R"("published_time":")");
+  static_writeTextOrNull("kev_date_added", item->ma_kevDateAdded, json_buf);
+  jsonbuf_appendFormat(json_buf, R"(,"published_time":")");
   jsonbuf_appendEscaped(json_buf, item->ma_publishedTime);
   jsonbuf_appendFormat(json_buf, R"(","cwe_id":")");
   jsonbuf_appendEscaped(json_buf, item->ma_cweId);

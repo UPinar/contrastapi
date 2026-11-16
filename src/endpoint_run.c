@@ -158,9 +158,29 @@ EndpointRunStatus_t endpoint_CVEPRODUCTSRun(PGconn* conn, const EndpointAnyParam
   return ENDPOINT_RUN_OK;
 }
 
+static const char* static_CVESEARCHKevRefusal(const CVESEARCHParams_t* params)
+{
+  bool has_kev_added_after     = params->ma_kevAddedAfter[0] != '\0';
+  bool is_kev_date_added_sort  = strcmp(params->ma_sort, CVESEARCH_SORT_KEV_DATE_ADDED) == 0;
+  bool is_only_in_kev_filtered = params->m_kevFilter == CVE_KEV_FILTER_ONLY_IN_KEV;
+
+  if (has_kev_added_after && params->m_kevFilter == CVE_KEV_FILTER_NOT_IN_KEV)
+    return CVESEARCH_KEV_ADDED_AFTER_NOT_IN_KEV_REFUSAL_MESSAGE;
+  if (is_kev_date_added_sort && !has_kev_added_after && !is_only_in_kev_filtered)
+    return CVESEARCH_KEV_DATE_ADDED_SORT_REFUSAL_MESSAGE;
+  return NULL;
+}
+
 EndpointRunStatus_t endpoint_CVESEARCHRun(PGconn* conn, const EndpointAnyParams_t* params, JsonBuf_t* json_buf, const char** message_out)
 {
-  (void)message_out;
+  assert(message_out != NULL);
+
+  const char* refusal = static_CVESEARCHKevRefusal(&params->m_cveSearch);
+  if (refusal != NULL)
+  {
+    *message_out = refusal;
+    return ENDPOINT_RUN_REFUSED;
+  }
 
   CveListResult_t results;
   memset(&results, 0, sizeof(results));

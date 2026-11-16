@@ -240,7 +240,7 @@ curl "https://api.contrastcyber.com/cve_lookup/CVE-2021-44228?include_ghsa=true"
 | `cwe_source`             | string or null    | Who gave `cwe_id`, with the classes and the order of `cvss_v3_source`; null when the source is not known |
 | `cwes`                   | array             | All associated CWE identifiers |
 | `in_kev`                 | boolean           | Whether the CVE is in the CISA KEV list |
-| `kev_date_added`         | string (date)     | Date added to KEV; empty string if not in KEV |
+| `kev_date_added`         | string (date)     | Date CISA added the CVE to KEV, as `YYYY-MM-DD`; empty string when the CVE is not in KEV now, or when KEV holds no date for it |
 | `vulnerability_status`   | string            | NVD status (e.g. `Analyzed`, `Modified`). A CVE that NVD has not published yet has an empty string, or `Rejected` when the CNA rejected it |
 | `affected_products`      | array             | The first 20 products the CVE names, one object per product and version range. The vulnerable ones come first, and each group sorts by vendor, then by product. They are the first page of [CVE Products](#cve-products-get-cve_productscve_id); see [Affected products](#affected-products) |
 | `affected_product_count` | integer           | Number of products the CVE names, also the ones `affected_products` leaves out |
@@ -569,7 +569,7 @@ curl "https://api.contrastcyber.com/cve_products/CVE-2021-44228?vendor=cisco&lim
 
 Searches CVEs by vendor, product, severity, scores, KEV status, weakness class and date, one page at a time. A call costs 1 credit. The data comes from NVD, the CVE List, EPSS, CISA KEV and nuclei-templates; see [Data sources and licenses](#data-sources-and-licenses).
 
-The newest CVEs come first. Within one day, the CVE published at the later time comes first, and the CVEs whose time is not known follow. `sort=epss` or `sort=cvss` orders them by exploitation probability or by CVSS score instead. CVEs that tie on the sort key come in `cve_id` order, so `offset` cuts the same pages from the same data.
+The newest CVEs come first. Within one day, the CVE published at the later time comes first, and the CVEs whose time is not known follow. `sort=epss` or `sort=cvss` orders them by exploitation probability or by CVSS score instead. `sort=kev_date_added` puts the newest KEV entry first. CVEs that tie on the sort key come in `cve_id` order, so `offset` cuts the same pages from the same data.
 
 ```bash
 curl "https://api.contrastcyber.com/cve_search"
@@ -579,6 +579,9 @@ curl "https://api.contrastcyber.com/cve_search?in_kev=true&sort=epss&limit=50"
 
 # critical Apache CVEs since 2024
 curl "https://api.contrastcyber.com/cve_search?vendor=apache&severity=CRITICAL&published_after=2024-01-01&sort=epss"
+
+# CVEs that entered KEV since a date, newest KEV entry first
+curl "https://api.contrastcyber.com/cve_search?kev_added_after=2026-11-01&sort=kev_date_added"
 ```
 
 ### Parameters
@@ -596,8 +599,9 @@ curl "https://api.contrastcyber.com/cve_search?vendor=apache&severity=CRITICAL&p
 | `cwe_id`              | string | `CWE-89`          | Weakness class |
 | `published_after`     | date   | `2024-01-01`      | Published on or after this date (YYYY-MM-DD) |
 | `published_before`    | date   | `2024-12-31`      | Published on or before this date (YYYY-MM-DD) |
+| `kev_added_after`     | date   | `2026-11-01`      | In the CISA KEV list now, and added to it on or after this date (YYYY-MM-DD) |
 | `include_rejected`    | bool   | `true`            | Also list the CVEs that NVD marks Rejected; `true` or `false`, default `false` (Rejected CVEs left out) |
-| `sort`                | enum   | `epss`            | Sort order: `published_time` (default) / `epss` / `cvss` |
+| `sort`                | enum   | `epss`            | Sort order: `published_time` (default) / `epss` / `cvss` / `kev_date_added` |
 | `limit`               | int    | `20`              | Page size, default: 20, max: 100 |
 | `offset`              | int    | `0`               | Starting offset, 0–10000 (default: 0) |
 
@@ -607,6 +611,9 @@ Rules for the values:
 - `min_cvss` and `min_epss` include their bound. A number must follow the JSON number grammar of RFC 8259. These spellings break it and are refused with 400: `0x1p3`, `%2B9`, `.5`, `9.`, `05`, `1.e0`. `%2B9` is `+9` percent-encoded, because a bare `+` in a query value reads as a space. `nan`, `inf`, an empty value and a value that overflows or underflows a double (`1e999`, `1e-999`) are refused too.
 - `cwe_id` is `CWE-` followed by 1 to 5 digits. A value longer than 16 characters answers 400 with `"cwe_id is too long"`. Any other value that is not a CWE ID, an empty `cwe_id=` included, answers 400 with `"cwe_id must be CWE-N"`.
 - A date must name a day that exists. Month lengths and leap years count, and there is no year 0. So `2026-02-31` and `2023-02-29` answer `400`, and `2024-02-29` is accepted.
+- `kev_added_after` keeps the CVEs that are in the CISA KEV catalog now and whose KEV date is on or after the date. A bad date answers `400` with `"kev_added_after must be a valid calendar date in YYYY-MM-DD form"`.
+- `kev_added_after` with `in_kev=false` answers `400` with `"kev_added_after lists only CVEs that are in KEV, so it cannot be used with in_kev=false"`.
+- `sort=kev_date_added` orders the CVEs by the date CISA added them to KEV, newest first. It needs `in_kev=true` or `kev_added_after`. Without one of them the answer is `400` with `"sort=kev_date_added orders only CVEs that are in KEV: add in_kev=true or kev_added_after"`. Any other `sort` value answers `400` with `"sort must be published_time, epss, cvss, or kev_date_added"`.
 - `known_ransomware=true` keeps the CVEs that CISA KEV marks with `known_ransomware_use = true`.
 - `has_nuclei_template=true` keeps the CVEs that have a template in the local copy of nuclei-templates. `/cve_lookup` lists them in [`nuclei_templates`](#the-nuclei_templates-object). While the copy holds no template, no CVE matches.
 - `include_rejected=true` also lists the CVEs with the NVD status `Rejected`, and `total` counts them too. Any value other than `true` or `false` answers `400`. The answer does not echo the parameter, and the price does not change. `/cve_lookup/{cve_id}` answers a Rejected CVE either way and shows its `vulnerability_status`.
@@ -631,6 +638,7 @@ Rules for the values:
       "epss_score": 0.97566,
       "epss_percentile": 0.99970,
       "in_kev": true,
+      "kev_date_added": "2021-12-10",
       "published_time": "2021-12-10T00:00:00Z",
       "cwe_id": "CWE-20",
       "cwe_source": "cna"
@@ -661,6 +669,7 @@ Each object of `results` holds:
 | `epss_score`     | float         | EPSS probability of exploitation in the next 30 days (0.0–1.0); 0.0 when no usable score is known, as for a CVE the EPSS feed has left out for 7 days |
 | `epss_percentile`| float         | EPSS percentile rank (0.0–1.0); 0.0 when no usable score is known |
 | `in_kev`         | boolean           | Whether the CVE is in the CISA KEV list |
+| `kev_date_added` | string or null    | The date CISA added the CVE to KEV, as `YYYY-MM-DD`; null when the CVE is not in KEV now, or when KEV holds no date for it |
 | `published_time` | string (datetime) | Published timestamp (ISO 8601) |
 | `cwe_id`         | string            | The CWE identifier shown first: the first CWE of the source `cwe_source` names |
 | `cwe_source`     | string or null    | Who gave `cwe_id`, with the same classes; null when the source is not known |
@@ -773,6 +782,7 @@ Each result has the fields of a [CVE Search](#cve-search-get-cve_search) result.
       "epss_score": 0.97490,
       "epss_percentile": 0.99970,
       "in_kev": true,
+      "kev_date_added": "2021-12-10",
       "published_time": "2021-12-10T00:00:00Z",
       "cwe_id": "CWE-20",
       "cwe_source": "cna"
@@ -880,7 +890,7 @@ curl "https://api.contrastcyber.com/cve_triage?vendor=apache&min_risk_score=70&l
 
 | Endpoint | Ranking key | Use it when |
 |----------|-------------|-------------|
-| `/cve_search` | single axis: `published_time` / `epss` / `cvss` | you want to **search/filter** and sort on one column |
+| `/cve_search` | single axis: `published_time` / `epss` / `cvss` / `kev_date_added` | you want to **search/filter** and sort on one column |
 | `/cve_leading` | `epss DESC, cvss DESC` (two-key) | you want a quick exploit-probability briefing |
 | **`/cve_triage`** | **composite risk_score** (EPSS + KEV + Metasploit + CVSS + PoC) | you want a **remediation order** that uses every signal |
 
@@ -5408,7 +5418,7 @@ A feed whose name, time or status cannot be read is left out of `db.feeds`. The 
 ```json
 {
   "status": "ok",
-  "version": "2.0.4",
+  "version": "2.0.5",
   "db": {
     "nvd": {
       "cve_count": 251430,
@@ -5442,7 +5452,7 @@ A feed whose name, time or status cannot be read is left out of `db.feeds`. The 
 When the database cannot be read, the answer is HTTP 503 with a `Retry-After: 5` header and this body:
 
 ```json
-{"status":"unavailable","version":"2.0.4","db":null}
+{"status":"unavailable","version":"2.0.5","db":null}
 ```
 
 ---
@@ -5927,7 +5937,7 @@ request target counts the bytes as sent.
 |------|---------|-----------|
 | 200  | Success | all |
 | 400  | The server refuses a query parameter, a path value or a request body. Some cases: a query parameter name the endpoint does not read, a name sent twice, or a segment without `=`, such as `?vendor`; a value out of range or in the wrong form, such as `limit=abc` or `min_cvss=nan`; a value that is not valid percent-encoding, holds a control character or is not valid UTF-8; a body that is not a JSON object, or a bulk body that breaks its rules. `message` names the reason. See the Errors table of each endpoint | all |
-| 400  | A query parameter is longer than its field; body message `"<name> is too long"`. The value is refused, never truncated. Longest accepted values, in decoded bytes: `vendor`, `product` and `search` 128 bytes, the `version` of `/product_exposure` 128 bytes, `vector` 127, `sort` 15, `severity` 16, `cwe_id` 16, `published_after` / `published_before` 31 (`/cve_search` only), every numeric parameter 31, and the `ecosystem`, `name` and `version` of `/package_check` 16, 256 and 128. A boolean parameter such as `include_ghsa` is read up to 31 bytes too, but it accepts only `true` or `false` | all that read a query value |
+| 400  | A query parameter is longer than its field; body message `"<name> is too long"`. The value is refused, never truncated. Longest accepted values, in decoded bytes: `vendor`, `product` and `search` 128 bytes, the `version` of `/product_exposure` 128 bytes, `vector` 127, `sort` 15, `severity` 16, `cwe_id` 16, `published_after` / `published_before` / `kev_added_after` 31 (`/cve_search` only), every numeric parameter 31, and the `ecosystem`, `name` and `version` of `/package_check` 16, 256 and 128. A boolean parameter such as `include_ghsa` is read up to 31 bytes too, but it accepts only `true` or `false` | all that read a query value |
 | 400  | The request's framing is malformed: a `Content-Length` that is not one header of decimal digits (`"Content-Length must be one decimal number"`; a second `Content-Length` header is refused even when it repeats the value), `Content-Length` sent with `Transfer-Encoding` (`"send Content-Length or Transfer-Encoding, not both"`), or a body that holds a NUL byte (`"request body must not contain a NUL byte"`). `/image_inspect` takes a body with a NUL. Answered before authentication, so it carries no `X-RateLimit-*` headers and costs no credits | all |
 | 400  | A `PAYMENT-SIGNATURE` header on an endpoint that takes no payment; body code `payment_not_offered`. See [Pay per call (x402)](#pay-per-call-x402) | every endpoint that takes no payment |
 | 400  | A query parameter name that the endpoint does not read. A percent-encoded spelling of a known name is unknown too, because names are compared byte for byte. The body message lists the query parameters the endpoint takes, e.g. `"unknown query parameter; this endpoint takes include_ghsa"` on `/cve_lookup/`. An endpoint that reads none answers `"this endpoint takes no query parameters"`, so `/health?_=1` and `POST /mcp?x=1` are refused too. The message never repeats the name that was sent | all |
@@ -5976,7 +5986,7 @@ request target counts the bytes as sent.
 | 503  | The server is busy with requests to outside services (`upstream_busy`). The response carries `Retry-After: 5`. It costs no credits and carries no `X-RateLimit-*` headers. A request that the endpoint refuses for its method, its parameter names or its values gets that refusal instead. The 503 comes before the API key is read, so a request with a malformed, unknown, revoked or expired key gets it too | the endpoints that ask an outside service, `/mcp` |
 | 503  | Every place for an image request is in use (`raw_body_busy`). The response carries `Retry-After: 10`, the deadline that the head and the body share. It costs no credits | `/image_inspect` |
 | 503  | The payment cannot be settled now (`payment_unavailable`). The response carries `Retry-After: 5` | every endpoint that takes payment |
-| 503  | The database cannot be read. The body is `{"status":"unavailable","version":"2.0.4","db":null}` and the response carries `Retry-After: 5` | `/health` |
+| 503  | The database cannot be read. The body is `{"status":"unavailable","version":"2.0.5","db":null}` and the response carries `Retry-After: 5` | `/health` |
 | 504  | No TLS server or site was reached at the host name. `message` says why | `/ssl_check/`, `/headers_check/` |
 
 ---

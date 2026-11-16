@@ -420,7 +420,7 @@ static void test_cve_search_query_params_carry_their_schemas(void)
 {
   JsonReadSpan_t operation  = static_at(g_root, "paths", "/cve_search", "get", NULL);
   JsonReadSpan_t parameters = static_at(operation, "parameters", NULL);
-  TEST_ASSERT_EQUAL_size_t(15, static_elementCount(parameters));
+  TEST_ASSERT_EQUAL_size_t(16, static_elementCount(parameters));
   static_assertKeyAbsent(operation, "requestBody");
 
   static_assertRaw(static_findParameter(parameters, "severity"),
@@ -439,7 +439,11 @@ static void test_cve_search_query_params_carry_their_schemas(void)
   static_assertRaw(static_at(static_findParameter(parameters, "vendor"), "schema", NULL),
                    "{\"type\":\"string\",\"maxLength\":128}");
   static_assertRaw(static_at(static_findParameter(parameters, "sort"), "schema", NULL),
-                   "{\"type\":\"string\",\"enum\":[\"published_time\",\"epss\",\"cvss\"],\"maxLength\":15}");
+                   "{\"type\":\"string\",\"enum\":[\"published_time\",\"epss\",\"cvss\",\"kev_date_added\"],\"maxLength\":15}");
+  static_assertRaw(static_findParameter(parameters, "kev_added_after"),
+                   "{\"name\":\"kev_added_after\",\"in\":\"query\",\"required\":false,"
+                   "\"description\":\"YYYY-MM-DD; only CVEs added to CISA KEV on or after this date and still in it\","
+                   "\"schema\":{\"type\":\"string\",\"maxLength\":31}}");
   static_assertRaw(static_findParameter(parameters, "include_rejected"),
                    "{\"name\":\"include_rejected\",\"in\":\"query\",\"required\":false,"
                    "\"description\":\"Also list the CVEs that NVD marks Rejected\","

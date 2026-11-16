@@ -98,6 +98,9 @@ typedef struct {
 #define CVESEARCH_VENDOR_LEN  128
 #define CVESEARCH_PRODUCT_LEN 128
 #define CVESEARCH_SORT_LEN    16
+#define CVESEARCH_SORT_KEV_DATE_ADDED "kev_date_added"
+#define CVESEARCH_KEV_ADDED_AFTER_NOT_IN_KEV_REFUSAL_MESSAGE "kev_added_after lists only CVEs that are in KEV, so it cannot be used with in_kev=false"
+#define CVESEARCH_KEV_DATE_ADDED_SORT_REFUSAL_MESSAGE "sort=kev_date_added orders only CVEs that are in KEV: add in_kev=true or kev_added_after"
 #define CVE_LIST_DEFAULT_LIMIT      20
 #define CVE_LIST_MAX_LIMIT         100
 #define CVE_LIST_RANKED_MAX_LIMIT   50
@@ -121,6 +124,7 @@ typedef struct {
   char           ma_cweId[CVELOOKUP_CWE_ID_LEN + 1];
   char           ma_publishedAfter[CVELOOKUP_PUBLISHED_LEN + 1];
   char           ma_publishedBefore[CVELOOKUP_PUBLISHED_LEN + 1];
+  char           ma_kevAddedAfter[CVELOOKUP_PUBLISHED_LEN + 1];
   bool           m_isRejectedIncluded;
   char           ma_sort[CVESEARCH_SORT_LEN];
   int            m_limit;
@@ -150,6 +154,7 @@ typedef struct {
   double m_epssScore;
   double m_epssPercentile;
   bool   m_inKev;
+  char   ma_kevDateAdded[CVELOOKUP_PUBLISHED_LEN + 1];
   char   ma_publishedTime[CVELOOKUP_PUBLISHED_LEN + 1];
   char   ma_cweId[CVELOOKUP_CWE_ID_LEN + 1];
   char   ma_cweSource[CVELOOKUP_SOURCE_LEN + 1];

@@ -401,7 +401,7 @@ void test_HEALTH_no_db_answers_503(void)
   static_runEndpointWithQuery("/health", "", buf, sizeof(buf));
   TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 503 Service Unavailable\r\n"));
   TEST_ASSERT_NOT_NULL(strstr(buf, "\r\nRetry-After: 5\r\n"));
-  TEST_ASSERT_NOT_NULL(strstr(buf, "{\"status\":\"unavailable\",\"version\":\"2.0.4\",\"db\":null}"));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "{\"status\":\"unavailable\",\"version\":\"2.0.5\",\"db\":null}"));
 }
 
 void test_CVELOOKUP_null_param_400(void)
@@ -803,6 +803,23 @@ void test_CVESEARCH_published_after_impossible_calendar_date_returns_400(void)
   TEST_ASSERT_NOT_NULL(strstr(buf, "published_after must be a valid calendar date"));
 }
 
+void test_CVESEARCH_kev_added_after_invalid_returns_400(void)
+{
+  static const char* const queries[] = {
+    "?kev_added_after=31-13-9999",
+    "?kev_added_after=",
+    "?kev_added_after=2026-02-31",
+  };
+  g_conn = FAKE_CONN;
+  for (size_t i = 0; i < sizeof(queries) / sizeof(queries[0]); i++)
+  {
+    char buf[RESP_BUF];
+    static_runEndpointWithQuery("/cve_search", queries[i], buf, sizeof(buf));
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "HTTP/1.1 400"), queries[i]);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "kev_added_after must be a valid calendar date in YYYY-MM-DD form"), queries[i]);
+  }
+}
+
 void test_CVESEARCH_vendor_wildcard_returns_400(void)
 {
   g_conn = FAKE_CONN;
@@ -865,6 +882,17 @@ void test_CVESEARCH_published_after_too_long_says_too_long(void)
   static_runEndpointWithQuery("/cve_search", query_str, buf, sizeof(buf));
   TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 400"));
   TEST_ASSERT_NOT_NULL(strstr(buf, "published_after is too long"));
+}
+
+void test_CVESEARCH_kev_added_after_too_long_says_too_long(void)
+{
+  g_conn = FAKE_CONN;
+  char query_str[96];
+  char buf[RESP_BUF];
+  static_buildLongQuery(query_str, sizeof(query_str), "?kev_added_after=", 32, '2');
+  static_runEndpointWithQuery("/cve_search", query_str, buf, sizeof(buf));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 400"));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "kev_added_after is too long"));
 }
 
 void test_CVESEARCH_sort_too_long_says_too_long(void)
@@ -2156,12 +2184,14 @@ int main(void)
   RUN_TEST(test_CVESEARCH_in_kev_invalid_returns_400);
   RUN_TEST(test_CVESEARCH_published_after_invalid_returns_400);
   RUN_TEST(test_CVESEARCH_published_after_impossible_calendar_date_returns_400);
+  RUN_TEST(test_CVESEARCH_kev_added_after_invalid_returns_400);
   RUN_TEST(test_CVESEARCH_vendor_wildcard_returns_400);
   RUN_TEST(test_CVESEARCH_known_ransomware_invalid_returns_400);
   RUN_TEST(test_CVESEARCH_sort_invalid_returns_400);
   RUN_TEST(test_CVESEARCH_offset_negative_returns_400);
   RUN_TEST(test_CVESEARCH_severity_too_long_says_too_long);
   RUN_TEST(test_CVESEARCH_published_after_too_long_says_too_long);
+  RUN_TEST(test_CVESEARCH_kev_added_after_too_long_says_too_long);
   RUN_TEST(test_CVESEARCH_sort_too_long_says_too_long);
   RUN_TEST(test_CVESEARCH_limit_too_long_says_too_long);
 
