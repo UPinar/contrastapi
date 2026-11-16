@@ -756,7 +756,7 @@ void test_tools_list_is_the_whole_catalogue(void)
       R"json("cve_id":{"type":"string","maxLength":24,"description":"CVE ID, e.g. CVE-2021-44228"},)json"
       R"json("include_ghsa":{"type":"boolean","description":"Add the GitHub Security Advisory of the CVE, from the local copy of the GitHub Advisory Database"})json"
       R"json(},"required":["cve_id"],"additionalProperties":false})json"
-      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"CVE Intelligence"}})json",
+      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":true},"_meta":{"com.contrastcyber/category":"CVE Intelligence"}})json",
     R"json({"name":"cve_lookup_bulk","title":"Bulk CVE Lookup","description":"Look up many CVEs at once, each with the fields of cve_lookup. Ids beyond the remaining credits come back in not_processed.",)json"
       R"json("inputSchema":{"type":"object","properties":{)json"
       R"json("cve_ids":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":50,"description":"CVE IDs"})json"
@@ -812,12 +812,12 @@ void test_tools_list_is_the_whole_catalogue(void)
       R"json("cwe_id":{"type":"string","maxLength":16,"description":"CWE ID, e.g. CWE-79"})json"
       R"json(},"required":["cwe_id"],"additionalProperties":false})json"
       R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"CVE Intelligence"}})json",
-    R"json({"name":"cve_risk_score","title":"CVE Risk Score","description":"Composite risk score of a CVE, from 0 to 100, for patch priority. It reads EPSS, CISA KEV, Metasploit, CVSS, NVD exploit references and ExploitDB. has_public_poc is null when no source names an exploit.",)json"
+    R"json({"name":"cve_risk_score","title":"CVE Risk Score","description":"Composite risk score of a CVE, from 0 to 100, for patch priority. It reads EPSS, CISA KEV, Metasploit, CVSS, NVD and CNA exploit references, and ExploitDB. has_public_poc is null when no source names an exploit.",)json"
       R"json("inputSchema":{"type":"object","properties":{)json"
       R"json("cve_id":{"type":"string","maxLength":24,"description":"CVE ID"})json"
       R"json(},"required":["cve_id"],"additionalProperties":false})json"
       R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"CVE Intelligence"}})json",
-    R"json({"name":"cve_exploit","title":"CVE Exploit Intelligence","description":"Public exploit intelligence (GitHub PoCs, Metasploit, NVD exploit references, ExploitDB). GitHub PoC repositories are listed but not counted as proof of a public exploit.",)json"
+    R"json({"name":"cve_exploit","title":"CVE Exploit Intelligence","description":"Public exploit intelligence (GitHub PoCs, Metasploit, NVD and CNA exploit references, ExploitDB). GitHub PoC repositories are listed but not counted as proof of a public exploit.",)json"
       R"json("inputSchema":{"type":"object","properties":{)json"
       R"json("cve_id":{"type":"string","maxLength":24,"description":"CVE ID"})json"
       R"json(},"required":["cve_id"],"additionalProperties":false})json"
@@ -942,7 +942,7 @@ void test_tools_list_is_the_whole_catalogue(void)
       R"json("domain":{"type":"string","maxLength":253,"description":"Domain name, such as example.com; www.example.com asks about example.com"})json"
       R"json(},"required":["domain"],"additionalProperties":false})json"
       R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":true},"_meta":{"com.contrastcyber/category":"Domain Intelligence"}})json",
-    R"json({"name":"wayback_lookup","title":"Wayback Machine Lookup","description":"List when the Wayback Machine captured a host's home page: the first and last capture, the years between them and the latest 10 captures with links.",)json"
+    R"json({"name":"wayback_lookup","title":"Wayback Machine Lookup","description":"List when the Wayback Machine captured a host's home page: the first and last capture, the years between them (archive span, not domain age) and the latest 10 captures with links.",)json"
       R"json("inputSchema":{"type":"object","properties":{)json"
       R"json("domain":{"type":"string","maxLength":253,"description":"Host name, such as example.com"})json"
       R"json(},"required":["domain"],"additionalProperties":false})json"
@@ -3962,7 +3962,7 @@ void test_tool_WHOISLOOKUP_answer(void)
   TEST_ASSERT_EQUAL_INT(200, status);
   TEST_ASSERT_EQUAL_STRING(
     R"({"jsonrpc":"2.0","id":74,"result":{"content":[{"type":"text","text":")"
-    R"({\"domain\":\"example.co.uk\",\"available\":true,\"rdap_server\":\"https://rdap.example.test/\",)"
+    R"({\"domain\":\"example.co.uk\",\"available\":true,\"registered\":true,\"rdap_server\":\"https://rdap.example.test/\",)"
     R"(\"whois_server\":null,)"
     R"(\"registrar_name\":\"Stub Registrar LLC\",\"registrar_iana_id\":1234,)"
     R"(\"created_at\":\"2001-02-03T04:05:06Z\",\"updated_at\":\"2025-06-07T08:09:10Z\",\"expires_at\":\"2030-11-12T13:14:15Z\",)"
@@ -4030,9 +4030,9 @@ void test_tool_WHOISLOOKUP_unavailable_answers_and_errors(void)
     const char*      mp_response;
   } cases[] = {
     { false, THROTTLE_CHARGED, RDAP_OK,
-      R"({"jsonrpc":"2.0","id":79,"result":{"content":[{"type":"text","text":"{\"domain\":\"example.co.uk\",\"available\":false,\"reason\":\"no_registry_server\",\"retry_after_seconds\":null}\n"}],"isError":false}})" },
+      R"({"jsonrpc":"2.0","id":79,"result":{"content":[{"type":"text","text":"{\"domain\":\"example.co.uk\",\"available\":false,\"registered\":null,\"reason\":\"no_registry_server\",\"retry_after_seconds\":null}\n"}],"isError":false}})" },
     { true, THROTTLE_REFUSED, RDAP_OK,
-      R"({"jsonrpc":"2.0","id":79,"result":{"content":[{"type":"text","text":"{\"domain\":\"example.co.uk\",\"available\":false,\"reason\":\"quota_exhausted\",\"retry_after_seconds\":17}\n"}],"isError":false}})" },
+      R"({"jsonrpc":"2.0","id":79,"result":{"content":[{"type":"text","text":"{\"domain\":\"example.co.uk\",\"available\":false,\"registered\":null,\"reason\":\"quota_exhausted\",\"retry_after_seconds\":17}\n"}],"isError":false}})" },
     { true, THROTTLE_ERROR, RDAP_OK,
       R"({"jsonrpc":"2.0","id":79,"error":{"code":-32603,"message":"Internal error: database query failed"}})" },
     { true, THROTTLE_CHARGED, RDAP_NOT_REGISTERED,

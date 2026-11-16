@@ -58,7 +58,12 @@
       <code>/wayback_lookup</code>. It asks Cert Spotter at <code>api.certspotter.com</code> about
       a host name when a caller asks <code>/cert_search</code>, and about a domain and the names
       under it when a caller asks <code>/subdomain_enum</code>. It fetches the home page of a host
-      name when a caller asks <code>/headers_check</code>.
+      name when a caller asks <code>/headers_check</code>. It asks the CVE Services of CVE.org at
+      <code>cveawg.mitre.org</code> about a CVE id when a caller asks <code>/cve_lookup</code>
+      for an id that our data does not hold. It sends only the id. A small rate limit for the
+      whole server bounds these requests. When <code>cveawg.mitre.org</code> answers 429, the
+      server asks it nothing more for the wait its Retry-After header names, and at most one
+      hour. A missing Retry-After header counts as 60 seconds.
       When a caller asks <code>/dns_lookup</code>, <code>/dns_takeover_check</code>,
       <code>/email_auth_check</code>, <code>/email_address_check</code> or <code>/subdomain_enum</code>,
       the server asks its own DNS resolver about the name. The resolver may then
@@ -268,7 +273,7 @@
     <div class="endpoint-group rules">
       <div class="endpoint">
         <span class="method get">RULE</span>
-        <span class="endpoint-path">Our API server fetches your site only for <code>/headers_check</code> and for the daily scan of a <code>headers_check</code> watch item: one GET of <code>/</code>, one GET of <code>/robots.txt</code> for the scan, and the redirects it follows on the same host name or its www pair. Its other HTTP hosts are <code>api.pwnedpasswords.com</code>, <code>web.archive.org</code>, <code>api.certspotter.com</code>, <code>api.shodan.io</code>, <code>api.abuseipdb.com</code>, <code>api.nowpayments.io</code>, the RDAP servers that IANA lists for each TLD, the HTTPS servers those redirect to, and the Solana RPC provider that the operator configures. Its WHOIS queries go to TCP port 43 of the 18 WHOIS servers listed above, and to no other host. A <code>/ssl_check</code> handshake reads your certificate and sends no HTTP request.</span>
+        <span class="endpoint-path">Our API server fetches your site only for <code>/headers_check</code> and for the daily scan of a <code>headers_check</code> watch item: one GET of <code>/</code>, one GET of <code>/robots.txt</code> for the scan, and the redirects it follows on the same host name or its www pair. Its other HTTP hosts are <code>api.pwnedpasswords.com</code>, <code>web.archive.org</code>, <code>api.certspotter.com</code>, <code>cveawg.mitre.org</code>, <code>api.shodan.io</code>, <code>api.abuseipdb.com</code>, <code>api.nowpayments.io</code>, the RDAP servers that IANA lists for each TLD, the HTTPS servers those redirect to, and the Solana RPC provider that the operator configures. Its WHOIS queries go to TCP port 43 of the 18 WHOIS servers listed above, and to no other host. A <code>/ssl_check</code> handshake reads your certificate and sends no HTTP request.</span>
       </div>
       <div class="endpoint">
         <span class="method get">RULE</span>

@@ -21,8 +21,6 @@
 
 static const QuotaRule_t WATCHLIST_WHOIS_LOOKUP_DAILY_QUOTA_RULE = { "domain_scan_rdap_whois", 86400, 10000 };
 
-static int64_t g_rdapWhoisCapLineDay = -1;
-
 typedef struct {
   WatchlistDomainScanValue_t m_registrationExpiryValue;
   WatchlistDomainScanValue_t m_registrarValue;
@@ -39,7 +37,6 @@ bool watchlist_whois_lookup_scanNextDomains(PGconn* conn)
   const WatchlistDomainScanLane_t lane = {
     .mp_laneName    = DB_DOMAIN_WATCH_LANE_RDAP_WHOIS,
     .m_scanFunction = static_scanRdapWhoisDomain,
-    .mp_capLineDay  = &g_rdapWhoisCapLineDay,
     .m_capEvent     = USAGELOG_EVENT_RDAP_WHOIS_SCAN_CAP_REACHED,
   };
 

@@ -305,6 +305,36 @@ void test_cveId_sequence_16digits_invalid(void)
   TEST_ASSERT_FALSE(validate_cveId("CVE-2021-1234567890123456"));
 }
 
+void test_isCveIdInCveSyntax_4digit_sequence_with_leading_zeros_is_in_syntax(void)
+{
+  TEST_ASSERT_TRUE(validate_isCveIdInCveSyntax("CVE-2027-0001"));
+  TEST_ASSERT_TRUE(validate_isCveIdInCveSyntax("CVE-2027-0000"));
+}
+
+void test_isCveIdInCveSyntax_5digit_sequence_is_in_syntax_without_a_leading_zero(void)
+{
+  TEST_ASSERT_TRUE(validate_isCveIdInCveSyntax("CVE-2021-10000"));
+  TEST_ASSERT_FALSE(validate_isCveIdInCveSyntax("CVE-2021-01000"));
+}
+
+void test_isCveIdInCveSyntax_padded_sequences_are_not_in_syntax(void)
+{
+  TEST_ASSERT_FALSE(validate_isCveIdInCveSyntax("CVE-2021-044228"));
+  TEST_ASSERT_FALSE(validate_isCveIdInCveSyntax("CVE-2021-00001"));
+}
+
+void test_isCveIdInCveSyntax_15digit_sequence_follows_its_first_digit(void)
+{
+  TEST_ASSERT_FALSE(validate_isCveIdInCveSyntax("CVE-2021-012345678901234"));
+  TEST_ASSERT_TRUE(validate_isCveIdInCveSyntax("CVE-2021-123456789012345"));
+}
+
+void test_isCveIdInCveSyntax_year_with_a_leading_zero_does_not_count(void)
+{
+  TEST_ASSERT_TRUE(validate_isCveIdInCveSyntax("CVE-0999-12345"));
+  TEST_ASSERT_TRUE(validate_isCveIdInCveSyntax("CVE-0999-0123"));
+}
+
 void test_cweId_null_invalid(void)
 {
   TEST_ASSERT_FALSE(validate_cweId(NULL));
@@ -1222,6 +1252,11 @@ int main(void)
   RUN_TEST(test_cveId_trailing_space_invalid);
   RUN_TEST(test_cveId_sequence_15digits_valid);
   RUN_TEST(test_cveId_sequence_16digits_invalid);
+  RUN_TEST(test_isCveIdInCveSyntax_4digit_sequence_with_leading_zeros_is_in_syntax);
+  RUN_TEST(test_isCveIdInCveSyntax_5digit_sequence_is_in_syntax_without_a_leading_zero);
+  RUN_TEST(test_isCveIdInCveSyntax_padded_sequences_are_not_in_syntax);
+  RUN_TEST(test_isCveIdInCveSyntax_15digit_sequence_follows_its_first_digit);
+  RUN_TEST(test_isCveIdInCveSyntax_year_with_a_leading_zero_does_not_count);
 
   RUN_TEST(test_cweId_null_invalid);
   RUN_TEST(test_cweId_empty_string_invalid);

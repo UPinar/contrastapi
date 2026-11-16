@@ -1,7 +1,6 @@
 #include <assert.h>
 #include <stdbool.h>
 #include <stddef.h>
-#include <stdint.h>
 #include <string.h>
 
 #include "watchlist_ssl_check.h"
@@ -14,8 +13,6 @@
 #include "usagelog.h"
 
 static const QuotaRule_t WATCHLIST_SSL_CHECK_DAILY_QUOTA_RULE = { "domain_scan_tls", 86400, 20000 };
-
-static int64_t g_tlsCapLineDay = -1;
 
 typedef struct {
   WatchlistDomainScanValue_t m_certificateExpiryValue;
@@ -32,7 +29,6 @@ bool watchlist_ssl_check_scanNextDomains(PGconn* conn)
   const WatchlistDomainScanLane_t lane = {
     .mp_laneName    = DB_DOMAIN_WATCH_LANE_TLS,
     .m_scanFunction = static_scanTlsDomain,
-    .mp_capLineDay  = &g_tlsCapLineDay,
     .m_capEvent     = USAGELOG_EVENT_TLS_SCAN_CAP_REACHED,
   };
 

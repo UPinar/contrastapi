@@ -213,7 +213,7 @@ void test_raw_body_busy_503(void)
   static_callRefusal(REFUSAL_RAW_BODY_BUSY, NULL, 0, buf, sizeof(buf));
   TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 503 Service Unavailable\r\n"));
   TEST_ASSERT_NOT_NULL(strstr(buf, "\r\nRetry-After: 10\r\n"));
-  TEST_ASSERT_EQUAL_STRING("{\"error\":{\"code\":\"raw_body_busy\",\"message\":\"too many raw request bodies at once\"}}\n", static_bodyOf(buf));
+  TEST_ASSERT_EQUAL_STRING("{\"error\":{\"code\":\"raw_body_busy\",\"message\":\"too many raw request bodies at once\",\"retry_after_seconds\":10}}\n", static_bodyOf(buf));
 }
 
 void test_rate_limited_429(void)
@@ -222,8 +222,64 @@ void test_rate_limited_429(void)
   static_callRefusal(REFUSAL_RATE_LIMITED, NULL, 42, buf, sizeof(buf));
   TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 429 Too Many Requests\r\n"));
   TEST_ASSERT_NOT_NULL(strstr(buf, "\r\nRetry-After: 42\r\n"));
-  TEST_ASSERT_NOT_NULL(strstr(buf, "\"code\":\"rate_limited\""));
-  TEST_ASSERT_NOT_NULL(strstr(buf, "\"message\":\"rate limit exceeded\""));
+  TEST_ASSERT_EQUAL_STRING("{\"error\":{\"code\":\"rate_limited\",\"message\":\"rate limit exceeded\",\"retry_after_seconds\":42}}\n", static_bodyOf(buf));
+}
+
+void test_upstream_busy_503_body_names_the_wait(void)
+{
+  char buf[RESP_BUF];
+  static_callHandler(handler_upstreamBusy, buf, sizeof(buf));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 503 Service Unavailable\r\n"));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\r\nRetry-After: 5\r\n"));
+  TEST_ASSERT_EQUAL_STRING("{\"error\":{\"code\":\"upstream_busy\",\"message\":\"upstream service busy\",\"retry_after_seconds\":5}}\n", static_bodyOf(buf));
+}
+
+void test_mcp_upstream_busy_message_is_unchanged(void)
+{
+  char buf[RESP_BUF];
+  int fds[2];
+  TEST_ASSERT_EQUAL_INT(0, socketpair(AF_UNIX, SOCK_STREAM, 0, fds));
+  handler_mcpUpstreamBusy(fds[1], "{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"tools/list\"}");
+  close(fds[1]);
+  ssize_t n = read(fds[0], buf, sizeof(buf) - 1);
+  buf[n > 0 ? n : 0] = '\0';
+  close(fds[0]);
+  TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 503 Service Unavailable\r\n"));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\r\nRetry-After: 5\r\n"));
+  TEST_ASSERT_EQUAL_STRING("{\"jsonrpc\":\"2.0\",\"id\":5,\"error\":{\"code\":-32003,\"message\":\"upstream service busy\",\"data\":{\"retry_after_seconds\":5}}}", static_bodyOf(buf));
+}
+
+static void static_callRetryAfterSender(void (*sender)(int, unsigned int), unsigned int retry_after_sec, char* buf, size_t len)
+{
+  int fds[2];
+  TEST_ASSERT_EQUAL_INT(0, socketpair(AF_UNIX, SOCK_STREAM, 0, fds));
+  sender(fds[1], retry_after_sec);
+  close(fds[1]);
+  ssize_t n = read(fds[0], buf, len - 1);
+  buf[n > 0 ? n : 0] = '\0';
+  close(fds[0]);
+}
+
+void test_payment_retry_after_errors_name_the_wait_in_the_body(void)
+{
+  struct { void (*mp_sender)(int, unsigned int); const char* mp_status; const char* mp_body; } cases[] = {
+    { handler_paymentPending,     "HTTP/1.1 402 Payment Required\r\n",
+      "{\"error\":{\"code\":\"payment_pending\",\"message\":\"The payment is pending: retry with the same payment.\",\"retry_after_seconds\":37}}\n" },
+    { handler_paymentBusy,        "HTTP/1.1 429 Too Many Requests\r\n",
+      "{\"error\":{\"code\":\"payment_busy\",\"message\":\"This payment or another one from its wallet is in flight: retry shortly.\",\"retry_after_seconds\":37}}\n" },
+    { handler_paymentLimited,     "HTTP/1.1 429 Too Many Requests\r\n",
+      "{\"error\":{\"code\":\"payment_limited\",\"message\":\"Too many payment attempts: retry later.\",\"retry_after_seconds\":37}}\n" },
+    { handler_paymentUnavailable, "HTTP/1.1 503 Service Unavailable\r\n",
+      "{\"error\":{\"code\":\"payment_unavailable\",\"message\":\"Payments are unavailable right now: retry shortly.\",\"retry_after_seconds\":37}}\n" },
+  };
+  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+  {
+    char buf[RESP_BUF];
+    static_callRetryAfterSender(cases[i].mp_sender, 37, buf, sizeof(buf));
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, cases[i].mp_status), buf);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "\r\nRetry-After: 37\r\n"), buf);
+    TEST_ASSERT_EQUAL_STRING(cases[i].mp_body, static_bodyOf(buf));
+  }
 }
 
 void test_mcp_unauthorized_401(void)
@@ -248,8 +304,17 @@ void test_mcp_rate_limited_429(void)
   static_callRefusal(REFUSAL_RATE_LIMITED, "{\"jsonrpc\":\"2.0\",\"id\":\"q\",\"method\":\"tools/list\"}", 42, buf, sizeof(buf));
   TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 429 Too Many Requests\r\n"));
   TEST_ASSERT_NOT_NULL(strstr(buf, "\r\nRetry-After: 42\r\n"));
-  TEST_ASSERT_EQUAL_STRING("{\"jsonrpc\":\"2.0\",\"id\":\"q\",\"error\":{\"code\":-32000,\"message\":\"rate limit exceeded\","
+  TEST_ASSERT_EQUAL_STRING("{\"jsonrpc\":\"2.0\",\"id\":\"q\",\"error\":{\"code\":-32000,\"message\":\"rate limit exceeded: retry in 42 seconds\","
                            "\"data\":{\"retry_after_seconds\":42}}}", static_bodyOf(buf));
+}
+
+void test_mcp_rate_limited_429_names_the_largest_wait(void)
+{
+  char buf[RESP_BUF];
+  static_callRefusal(REFUSAL_RATE_LIMITED, "{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"tools/list\"}", 4294967295u, buf, sizeof(buf));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\r\nRetry-After: 4294967295\r\n"));
+  TEST_ASSERT_EQUAL_STRING("{\"jsonrpc\":\"2.0\",\"id\":9,\"error\":{\"code\":-32000,\"message\":\"rate limit exceeded: retry in 4294967295 seconds\","
+                           "\"data\":{\"retry_after_seconds\":4294967295}}}", static_bodyOf(buf));
 }
 
 void test_mcp_internal_error_500(void)
@@ -267,6 +332,14 @@ void test_unauthorized_401(void)
   TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 401 Unauthorized\r\n"));
   TEST_ASSERT_NOT_NULL(strstr(buf, "\"code\":\"unauthorized\""));
   TEST_ASSERT_NOT_NULL(strstr(buf, "\"message\":\"Invalid API key\""));
+}
+
+void test_unauthorized_401_body_names_no_wait(void)
+{
+  char buf[RESP_BUF];
+  static_callHandler(handler_unauthorized, buf, sizeof(buf));
+  TEST_ASSERT_NULL(strstr(buf, "Retry-After"));
+  TEST_ASSERT_EQUAL_STRING("{\"error\":{\"code\":\"unauthorized\",\"message\":\"Invalid API key\"}}\n", static_bodyOf(buf));
 }
 
 void test_api_key_inactive_401(void)
@@ -328,7 +401,7 @@ void test_HEALTH_no_db_answers_503(void)
   static_runEndpointWithQuery("/health", "", buf, sizeof(buf));
   TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 503 Service Unavailable\r\n"));
   TEST_ASSERT_NOT_NULL(strstr(buf, "\r\nRetry-After: 5\r\n"));
-  TEST_ASSERT_NOT_NULL(strstr(buf, "{\"status\":\"unavailable\",\"version\":\"2.0.3\",\"db\":null}"));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "{\"status\":\"unavailable\",\"version\":\"2.0.4\",\"db\":null}"));
 }
 
 void test_CVELOOKUP_null_param_400(void)
@@ -1737,12 +1810,84 @@ void test_mcp_payment_required_is_a_tool_result_with_the_offer(void)
   static_callMcpPaymentAnswer(MCP_PAYMENT_ANSWER_REQUIRED, 30, false, buf);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "HTTP/1.1 200 OK\r\n"), buf);
   TEST_ASSERT_NOT_NULL(strstr(buf, "\r\nRetry-After: 30\r\n"));
-  static_assertMcpPaymentOffer(static_bodyOf(buf), "Payment required: pay with x402 or retry after the reset.");
+  static_assertMcpPaymentOffer(static_bodyOf(buf), "Payment required: pay with x402 or retry in 30 seconds.");
   TEST_ASSERT_NULL(strstr(buf, "resultType"));
 
   static_callMcpPaymentAnswer(MCP_PAYMENT_ANSWER_REQUIRED, 30, true, buf);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "HTTP/1.1 200 OK\r\n"), buf);
   TEST_ASSERT_NOT_NULL(strstr(buf, "\"resultType\":\"complete\""));
+  x402_request_start(NULL);
+}
+
+void test_mcp_payment_required_sends_retry_after_for_a_short_wait(void)
+{
+  static_startX402();
+  char buf[RESP_BUF];
+  static_callMcpPaymentAnswer(MCP_PAYMENT_ANSWER_REQUIRED, 1, false, buf);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "\r\nRetry-After: 1\r\n"), buf);
+
+  static_callMcpPaymentAnswer(MCP_PAYMENT_ANSWER_REQUIRED, 0, false, buf);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "HTTP/1.1 200 OK\r\n"), buf);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "\r\nRetry-After: 0\r\n"), buf);
+  static_assertMcpPaymentOffer(static_bodyOf(buf), "Payment required: pay with x402 or retry in 0 seconds.");
+  x402_request_start(NULL);
+}
+
+void test_mcp_payment_required_names_the_largest_wait(void)
+{
+  static_startX402();
+  char buf[RESP_BUF];
+  static_callMcpPaymentAnswer(MCP_PAYMENT_ANSWER_REQUIRED, 4294967295u, false, buf);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "HTTP/1.1 200 OK\r\n"), buf);
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\r\nRetry-After: 4294967295\r\n"));
+  static_assertMcpPaymentOffer(static_bodyOf(buf), "Payment required: pay with x402 or retry in 4294967295 seconds.");
+  TEST_ASSERT_NOT_NULL(strstr(static_bodyOf(buf), "\"text\":\"{\\\"x402Version\\\":2,\\\"error\\\":\\\"Payment required: pay with x402 or retry in 4294967295 seconds.\\\""));
+  x402_request_start(NULL);
+}
+
+static void static_callRestPaymentOffer(bool is_required, unsigned int retry_after_sec, char* buf)
+{
+  const Endpoint_t* row = endpoint_findByMcpName("cve_lookup");
+  TEST_ASSERT_NOT_NULL(row);
+  int fds[2];
+  TEST_ASSERT_EQUAL_INT(0, socketpair(AF_UNIX, SOCK_STREAM, 0, fds));
+  if (is_required)
+    handler_paymentRequired(fds[1], row, 1, retry_after_sec);
+  else
+    handler_paymentRefused(fds[1], row, 1);
+  close(fds[1]);
+  ssize_t read_len = read(fds[0], buf, RESP_BUF - 1);
+  buf[read_len > 0 ? read_len : 0] = '\0';
+  close(fds[0]);
+}
+
+void test_payment_required_body_names_the_wait(void)
+{
+  static_startX402();
+  char buf[RESP_BUF];
+  static_callRestPaymentOffer(true, 73, buf);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "HTTP/1.1 402 Payment Required\r\n"), buf);
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\r\nPAYMENT-REQUIRED: "));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\r\nRetry-After: 73\r\n"));
+  TEST_ASSERT_EQUAL_STRING("{\"error\":{\"code\":\"payment_required\",\"message\":\"Payment required: pay with x402 or retry in 73 seconds.\",\"retry_after_seconds\":73}}\n", static_bodyOf(buf));
+
+  static_callRestPaymentOffer(true, 4294967295u, buf);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "HTTP/1.1 402 Payment Required\r\n"), buf);
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\r\nPAYMENT-REQUIRED: "));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\r\nRetry-After: 4294967295\r\n"));
+  TEST_ASSERT_EQUAL_STRING("{\"error\":{\"code\":\"payment_required\",\"message\":\"Payment required: pay with x402 or retry in 4294967295 seconds.\",\"retry_after_seconds\":4294967295}}\n", static_bodyOf(buf));
+  x402_request_start(NULL);
+}
+
+void test_payment_refused_body_names_no_wait(void)
+{
+  static_startX402();
+  char buf[RESP_BUF];
+  static_callRestPaymentOffer(false, 0, buf);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "HTTP/1.1 402 Payment Required\r\n"), buf);
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\r\nPAYMENT-REQUIRED: "));
+  TEST_ASSERT_NULL(strstr(buf, "Retry-After"));
+  TEST_ASSERT_EQUAL_STRING("{\"error\":{\"code\":\"payment_refused\",\"message\":\"The payment was refused.\"}}\n", static_bodyOf(buf));
   x402_request_start(NULL);
 }
 
@@ -1970,11 +2115,16 @@ int main(void)
   RUN_TEST(test_IMAGEINSPECT_refuses_a_body_that_is_no_known_image);
   RUN_TEST(test_IMAGEINSPECT_hash_failure_answers_500);
   RUN_TEST(test_rate_limited_429);
+  RUN_TEST(test_upstream_busy_503_body_names_the_wait);
+  RUN_TEST(test_mcp_upstream_busy_message_is_unchanged);
+  RUN_TEST(test_payment_retry_after_errors_name_the_wait_in_the_body);
   RUN_TEST(test_mcp_unauthorized_401);
   RUN_TEST(test_mcp_api_key_inactive_401);
   RUN_TEST(test_mcp_rate_limited_429);
+  RUN_TEST(test_mcp_rate_limited_429_names_the_largest_wait);
   RUN_TEST(test_mcp_internal_error_500);
   RUN_TEST(test_unauthorized_401);
+  RUN_TEST(test_unauthorized_401_body_names_no_wait);
   RUN_TEST(test_api_key_inactive_401);
   RUN_TEST(test_uri_too_long_414);
   RUN_TEST(test_framing_refusals_413_431_501);
@@ -2097,6 +2247,10 @@ int main(void)
   RUN_TEST(test_paid_run_that_fails_releases_and_does_not_close);
   RUN_TEST(test_paid_gate_refusal_releases_the_payment);
   RUN_TEST(test_mcp_payment_required_is_a_tool_result_with_the_offer);
+  RUN_TEST(test_mcp_payment_required_sends_retry_after_for_a_short_wait);
+  RUN_TEST(test_mcp_payment_required_names_the_largest_wait);
+  RUN_TEST(test_payment_required_body_names_the_wait);
+  RUN_TEST(test_payment_refused_body_names_no_wait);
   RUN_TEST(test_mcp_payment_required_with_x402_off_is_internal_error);
   RUN_TEST(test_mcp_payment_refused_is_the_offer_with_its_text);
   RUN_TEST(test_mcp_payment_already_used_is_the_offer_with_its_text);

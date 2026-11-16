@@ -12,6 +12,7 @@
 #include "macro.h"
 #include "pricing.h"
 #include "emailcheck.h"
+#include "external/cveservices.h"
 #include "header_check.h"
 
 #define PRIVACYMYDATA_UTC_TIME_BUF_SIZE 32
@@ -672,6 +673,52 @@ void serialize_error_response(const char* code, const char* message, JsonBuf_t* 
   jsonbuf_appendFormat(json_buf, R"(","message":")");
   jsonbuf_appendEscaped(json_buf, message);
   jsonbuf_appendFormat(json_buf, R"("}})" "\n");
+}
+
+void serialize_errorWithRetryAfter_response(const char* code, const char* message, unsigned int retry_after_sec, JsonBuf_t* json_buf)
+{
+  assert(json_buf != NULL);
+
+  jsonbuf_appendFormat(json_buf, R"({"error":{"code":")");
+  jsonbuf_appendEscaped(json_buf, code);
+  jsonbuf_appendFormat(json_buf, R"(","message":")");
+  jsonbuf_appendEscaped(json_buf, message);
+  jsonbuf_appendFormat(json_buf, R"(","retry_after_seconds":%u}})" "\n", retry_after_sec);
+}
+
+static const char* static_CVELOOKUPIdStateMessage(CveServicesCveIdState_t state)
+{
+  switch (state)
+  {
+    case CVESERVICES_CVE_ID_STATE_PUBLISHED:   return "CVE not found; CVE.org has published it and our data does not have it yet; retry later";
+    case CVESERVICES_CVE_ID_STATE_RESERVED:    return "CVE not found; CVE.org lists the id as reserved, not published yet";
+    case CVESERVICES_CVE_ID_STATE_REJECTED:    return "CVE not found; CVE.org lists it as rejected";
+    case CVESERVICES_CVE_ID_STATE_UNKNOWN_ID:  return "CVE not found; CVE.org has no such id";
+    case CVESERVICES_CVE_ID_STATE_NOT_CHECKED: break;
+  }
+  return NULL;
+}
+
+void serialize_CVELOOKUP_notFoundResponse(CveServicesCveIdState_t state, JsonBuf_t* json_buf)
+{
+  assert(json_buf != NULL);
+
+  const char* name    = cveservices_cveIdStateName(state);
+  const char* message = static_CVELOOKUPIdStateMessage(state);
+  if (name == NULL)
+  {
+    serialize_error_response("not_found", "CVE not found", json_buf);
+    return;
+  }
+
+  jsonbuf_appendFormat(json_buf, R"({"error":{"code":"not_found","message":")");
+  jsonbuf_appendEscaped(json_buf, message);
+  jsonbuf_appendFormat(json_buf, R"(","cve_org_state":")");
+  jsonbuf_appendEscaped(json_buf, name);
+  if (state == CVESERVICES_CVE_ID_STATE_PUBLISHED)
+    jsonbuf_appendFormat(json_buf, R"(","retry_after_seconds":%u}})" "\n", (unsigned int)CVELOOKUP_PUBLISHED_RETRY_AFTER_SECONDS);
+  else
+    jsonbuf_appendFormat(json_buf, R"("}})" "\n");
 }
 
 void serialize_CVERISKSCORE_response(const CVERISKSCORERecord_t* record, JsonBuf_t* json_buf)
@@ -1673,7 +1720,7 @@ void serialize_WHOISLOOKUP_response(const WHOISLOOKUPRecord_t* record, JsonBuf_t
   jsonbuf_appendEscaped(json_buf, record->ma_domain);
   if (record->m_unavailableReason != WHOISLOOKUP_UNAVAILABLE_NONE)
   {
-    jsonbuf_appendFormat(json_buf, R"(","available":false,"reason":"%s","retry_after_seconds":)",
+    jsonbuf_appendFormat(json_buf, R"(","available":false,"registered":null,"reason":"%s","retry_after_seconds":)",
                          static_WHOISLOOKUPUnavailableReasonText(record->m_unavailableReason));
     if (record->m_unavailableReason == WHOISLOOKUP_UNAVAILABLE_QUOTA_EXHAUSTED)
       jsonbuf_appendFormat(json_buf, "%u}\n", record->m_retryAfterSeconds);
@@ -1683,7 +1730,7 @@ void serialize_WHOISLOOKUP_response(const WHOISLOOKUPRecord_t* record, JsonBuf_t
   }
 
   const RdapRegistration_t* registration = &record->m_registration;
-  jsonbuf_appendFormat(json_buf, R"(","available":true,)");
+  jsonbuf_appendFormat(json_buf, R"(","available":true,"registered":true,)");
   static_writeTextOrNull("rdap_server", record->mp_rdapServerBaseUrl != NULL ? record->mp_rdapServerBaseUrl : "", json_buf);
   jsonbuf_appendFormat(json_buf, ",");
   static_writeTextOrNull("whois_server", record->mp_whoisServerHost != NULL ? record->mp_whoisServerHost : "", json_buf);
@@ -2124,8 +2171,8 @@ static void static_EMAILAUTHCHECKWriteDkim(const EMAILAUTHCHECKRecord_t* record,
     return;
   }
 
-  jsonbuf_appendFormat(json_buf, R"("dkim":{"available":true,"key_status":"%s","selector_source":"%s","tested_selectors":[)",
-                       KEY_STATUS_NAMES[record->m_dkimKeyStatus], SOURCE_NAMES[record->m_dkimSelectorSource]);
+  jsonbuf_appendFormat(json_buf, R"("dkim":{"available":true,"key_status":"%s","usable_key_count":%d,"selector_source":"%s","tested_selectors":[)",
+                       KEY_STATUS_NAMES[record->m_dkimKeyStatus], record->m_dkimUsableKeyCount, SOURCE_NAMES[record->m_dkimSelectorSource]);
   for (int i = 0; i < record->m_dkimSelectorCount; i++)
   {
     jsonbuf_appendFormat(json_buf, i > 0 ? ",\"" : "\"");
@@ -2191,7 +2238,7 @@ void serialize_EMAILAUTHCHECK_response(const EMAILAUTHCHECKRecord_t* record, Jso
     jsonbuf_appendFormat(json_buf, R"("mta_sts":{"available":true,"record_found":%s},)", record->m_hasMtaStsRecord ? "true" : "false");
 
   int result_counts[EMAILCHECK_RESULT_COUNT] = { 0, 0, 0 };
-  jsonbuf_appendFormat(json_buf, R"("checks":[)");
+  jsonbuf_appendFormat(json_buf, R"("no_mail_domain":%s,"checks":[)", record->m_isNoMailDomain ? "true" : "false");
   for (int i = 0; i < record->m_checkCount; i++)
   {
     EmailCheckItem_t check = record->ma_checks[i];

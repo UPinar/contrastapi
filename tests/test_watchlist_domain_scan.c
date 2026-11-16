@@ -611,13 +611,38 @@ DbStatus_t __wrap_db_recordRdapWhoisScan(PGconn* conn, const DbRdapWhoisScanReco
   return g_rdapWhoisRecordStatus;
 }
 
+#define FAKE_INSTANCE_PORT 8002
+
 static UsageLogEvent_t g_usageEvents[8];
 static int             g_usageEventCount;
 
-void __wrap_usagelog_writeEvent(UsageLogEvent_t event)
+static void static_readUsageEvents(void)
 {
-  TEST_ASSERT_TRUE(g_usageEventCount < 8);
-  g_usageEvents[g_usageEventCount++] = event;
+  static const struct {
+    UsageLogEvent_t m_event;
+    const char*     mp_linePrefix;
+  } cap_lines[] = {
+    { USAGELOG_EVENT_DNS_SCAN_CAP_REACHED,        "{\"log_format_version\":1,\"type\":\"dns_scan_cap_reached\","        },
+    { USAGELOG_EVENT_TLS_SCAN_CAP_REACHED,        "{\"log_format_version\":1,\"type\":\"tls_scan_cap_reached\","        },
+    { USAGELOG_EVENT_RDAP_WHOIS_SCAN_CAP_REACHED, "{\"log_format_version\":1,\"type\":\"rdap_whois_scan_cap_reached\"," },
+    { USAGELOG_EVENT_HEADERS_SCAN_CAP_REACHED,    "{\"log_format_version\":1,\"type\":\"headers_scan_cap_reached\","    },
+    { USAGELOG_EVENT_CT_SCAN_CAP_REACHED,         "{\"log_format_version\":1,\"type\":\"ct_scan_cap_reached\","         },
+  };
+  static char lines[USAGELOG_DRAIN_BUF_SIZE];
+  usagelog_drainLines(lines, sizeof(lines));
+  for (char* line = strtok(lines, "\n"); line != NULL; line = strtok(NULL, "\n"))
+  {
+    bool is_cap_line = false;
+    for (size_t i = 0; i < sizeof(cap_lines) / sizeof(cap_lines[0]) && !is_cap_line; i++)
+    {
+      if (strncmp(line, cap_lines[i].mp_linePrefix, strlen(cap_lines[i].mp_linePrefix)) != 0)
+        continue;
+      TEST_ASSERT_TRUE(g_usageEventCount < 8);
+      g_usageEvents[g_usageEventCount++] = cap_lines[i].m_event;
+      is_cap_line = true;
+    }
+    TEST_ASSERT_TRUE_MESSAGE(is_cap_line, line);
+  }
 }
 
 #define FAKE_NOW_EPOCH 1793404800
@@ -644,6 +669,7 @@ static void static_resetRdapWhoisFakes(void)
   g_rdapWhoisRecordCallCount         = 0;
   g_rdapWhoisRecordStatus            = DB_OK;
   g_isEveryRdapWhoisRecordOnFakeConn = true;
+  static_readUsageEvents();
   g_usageEventCount                  = 0;
 }
 
@@ -1897,6 +1923,7 @@ void test_scanNextRdapWhoisDomains_records_the_four_values_of_a_registration(voi
   TEST_ASSERT_TRUE(g_isEveryRdapWhoisRecordOnFakeConn);
   TEST_ASSERT_EQUAL_INT(0, g_tlsRecordCallCount);
   TEST_ASSERT_EQUAL_INT(0, g_probeCallCount);
+  static_readUsageEvents();
   TEST_ASSERT_EQUAL_INT(0, g_usageEventCount);
 }
 
@@ -2203,6 +2230,7 @@ void test_scanNextHeadersDomains_fetches_robots_then_home_page_and_records_the_v
   TEST_ASSERT_TRUE(g_isEveryQuotaOnFakeConn);
   TEST_ASSERT_TRUE(g_isEveryThrottleOnFakeConn);
   TEST_ASSERT_TRUE(g_isEveryHeadersRecordOnFakeConn);
+  static_readUsageEvents();
   TEST_ASSERT_EQUAL_INT(0, g_usageEventCount);
 }
 
@@ -2562,6 +2590,7 @@ void test_scanNextCtDomains_spent_share_defers_and_ends_the_run(void)
   TEST_ASSERT_EQUAL_INT64(FAKE_NOW_EPOCH + 214 * 86400, (int64_t)g_lastWindowNow);
   TEST_ASSERT_EQUAL_STRING("domain_scan_ct", g_lastQuotaRule.mp_sourceName);
   TEST_ASSERT_EQUAL_UINT(20, g_lastQuotaRule.m_callLimit);
+  static_readUsageEvents();
   TEST_ASSERT_EQUAL_INT(1, g_usageEventCount);
   TEST_ASSERT_EQUAL_INT(USAGELOG_EVENT_CT_SCAN_CAP_REACHED, g_usageEvents[0]);
 }
@@ -2709,6 +2738,7 @@ void test_everyLane_full_breaker_writes_one_cap_line_a_day(void)
 
       TEST_ASSERT_TRUE_MESSAGE(CAP_LANES[k].m_run(FAKE_CONN), message);
 
+      static_readUsageEvents();
       for (int i = 0; i < g_usageEventCount; i++)
         TEST_ASSERT_EQUAL_INT_MESSAGE(CAP_LANES[k].m_capEvent, g_usageEvents[i], message);
       line_count += g_usageEventCount;
@@ -2727,6 +2757,7 @@ void test_everyLane_writes_its_own_cap_line_on_a_day_another_lane_wrote_one(void
 
     TEST_ASSERT_TRUE_MESSAGE(lane->m_run(FAKE_CONN), lane->mp_name);
 
+    static_readUsageEvents();
     TEST_ASSERT_EQUAL_INT_MESSAGE(1, g_usageEventCount, lane->mp_name);
     TEST_ASSERT_EQUAL_INT_MESSAGE(lane->m_capEvent, g_usageEvents[0], lane->mp_name);
   }
@@ -2742,6 +2773,7 @@ void test_everyLane_failed_breaker_call_writes_no_cap_line(void)
 
     TEST_ASSERT_FALSE_MESSAGE(CAP_LANES[k].m_run(FAKE_CONN), CAP_LANES[k].mp_name);
 
+    static_readUsageEvents();
     TEST_ASSERT_EQUAL_INT_MESSAGE(0, g_usageEventCount, CAP_LANES[k].mp_name);
   }
 }
@@ -2959,6 +2991,7 @@ void test_registration_gate_test_count(void)
 
 int main(void)
 {
+  usagelog_start(FAKE_INSTANCE_PORT);
   UNITY_BEGIN();
   RUN_TEST(test_scanNextDnsDomains_scans_each_claimed_domain_and_records_each_kind);
   RUN_TEST(test_scanNextDnsDomains_claim_with_no_domain_ends_the_run);

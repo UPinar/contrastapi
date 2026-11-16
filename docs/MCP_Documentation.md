@@ -153,7 +153,7 @@ The modern era has no handshake. Discovery is a plain request, and it costs no c
     "cacheScope":"public", "ttlMs":3600000,
     "supportedVersions":["2026-07-28"],
     "capabilities":{ "tools":{} },
-    "serverInfo":{ "name":"contrastapi", "title":"ContrastAPI", "version":"2.0.3" },
+    "serverInfo":{ "name":"contrastapi", "title":"ContrastAPI", "version":"2.0.4" },
     "instructions":"ContrastAPI is a security data and monitoring server, with watchlists of CVEs, packages, domains and IP addresses. Call cve_lookup for a CVE, package_check for a package, dns_lookup for a domain and ip_lookup for an IP address. Call watchlist_edit and watchlist_events for monitoring, which needs an API key. A Pro API key is sold at https://api.contrastcyber.com/pricing. It looks up, searches and scores CVE, KEV and CWE records. It gives public exploit intelligence. It decodes and scores a CVSS v3 vector. It checks a password's SHA-1 against Have I Been Pwned. It reads a domain's DNS records and checks a host name for a dangling CNAME. It checks a domain's SPF, DMARC, DKIM and MTA-STS records. It checks whether an e-mail address's domain takes mail and whether the address is disposable. It checks the TLS certificate and settings of a host name and rates the security headers of a web site. It looks up the registration of a domain name over RDAP or WHOIS. It lists the Wayback Machine captures of a host name. It lists the unexpired certificates that Certificate Transparency logs hold for a host name. It lists the subdomains of a registrable domain from Certificate Transparency and DNS. It names the MITRE D3FEND defenses that counter a MITRE ATT&CK technique. It finds a driver file hash in the LOLDrivers catalog. It looks up the AS, the country, the cloud range, the Tor exit and the DROP listing of a public IP address. It looks up an AS by its number or by an address it holds. It checks a package or a list of packages of nine ecosystems against OSV.dev advisories and malicious packages. It gives the end-of-life dates of a product or a package from endoflife.date. The watchlist keeps CVE, package, domain and IP items for an API key, and watchlist_events reads their change events. A Pro API key can save its own Shodan and AbuseIPDB keys with vendor_key_edit, and ip_lookup then adds their answers. It says what it keeps about the caller. A call with no API key and no credits left can pay per call with x402 in USDC on Solana."
   } }
 ```
@@ -260,7 +260,7 @@ still served, but its reply carries `"id":null`.
   "result":{
     "protocolVersion":"2025-11-25",
     "capabilities":{ "tools":{} },
-    "serverInfo":{ "name":"contrastapi", "title":"ContrastAPI", "version":"2.0.3" },
+    "serverInfo":{ "name":"contrastapi", "title":"ContrastAPI", "version":"2.0.4" },
     "instructions":"ContrastAPI is a security data and monitoring server, with watchlists of CVEs, packages, domains and IP addresses. Call cve_lookup for a CVE, package_check for a package, dns_lookup for a domain and ip_lookup for an IP address. Call watchlist_edit and watchlist_events for monitoring, which needs an API key. A Pro API key is sold at https://api.contrastcyber.com/pricing. It looks up, searches and scores CVE, KEV and CWE records. It gives public exploit intelligence. It decodes and scores a CVSS v3 vector. It checks a password's SHA-1 against Have I Been Pwned. It reads a domain's DNS records and checks a host name for a dangling CNAME. It checks a domain's SPF, DMARC, DKIM and MTA-STS records. It checks whether an e-mail address's domain takes mail and whether the address is disposable. It checks the TLS certificate and settings of a host name and rates the security headers of a web site. It looks up the registration of a domain name over RDAP or WHOIS. It lists the Wayback Machine captures of a host name. It lists the unexpired certificates that Certificate Transparency logs hold for a host name. It lists the subdomains of a registrable domain from Certificate Transparency and DNS. It names the MITRE D3FEND defenses that counter a MITRE ATT&CK technique. It finds a driver file hash in the LOLDrivers catalog. It looks up the AS, the country, the cloud range, the Tor exit and the DROP listing of a public IP address. It looks up an AS by its number or by an address it holds. It checks a package or a list of packages of nine ecosystems against OSV.dev advisories and malicious packages. It gives the end-of-life dates of a product or a package from endoflife.date. The watchlist keeps CVE, package, domain and IP items for an API key, and watchlist_events reads their change events. A Pro API key can save its own Shodan and AbuseIPDB keys with vendor_key_edit, and ip_lookup then adds their answers. It says what it keeps about the caller. A call with no API key and no credits left can pay per call with x402 in USDC on Solana."
   } }
 ```
@@ -292,6 +292,7 @@ deletes nothing. `watchlist_edit` adds and removes items.
 Every `annotations` member ends with `openWorldHint`. It is true when the tool's request can call a
 service outside this server.
 `watchlist_edit` is true because the add of a `dns_lookup`, `ssl_check`, `headers_check` or `cert_search` item asks the DNS resolver.
+`cve_lookup` is true because a miss may ask CVE.org about the id.
 
 Do not approve a call without asking only because its tool's `readOnlyHint` is true. When the tool's
 `openWorldHint` is true too, the call can ask a service outside this server, and its arguments
@@ -623,6 +624,12 @@ tool description tells a model that does not know its level to read `high`. `hig
 urgent decision than `low` or `medium`. The advice to read `high` is ours, not CISA's. Table 8 of the CISA SSVC
 Guide defines the levels.
 
+When our data does not hold the CVE, the server may ask CVE.org about the id, as
+[`GET /cve_lookup`](API_Documentation.md#cveorg-state-of-a-missing-cve) describes. When CVE.org names
+the state of the id, the call is a tool error (`isError` true). Its text is the REST body of the
+`404`, byte for byte, with `cve_org_state` in the `error` object. Otherwise the tool error text is
+`CVE not found`. A client acts on `cve_org_state` only when it is present.
+
 ---
 
 ### `cve_lookup_bulk` — many CVEs at once
@@ -938,7 +945,7 @@ curl -sX POST https://api.contrastcyber.com/mcp \
 | `cve_id` | string | ✅ | CVE ID |
 
 1 credit. Mirrors [`GET /cve_exploit/{cve_id}`](API_Documentation.md#cve-exploit-get-cve_exploitcve_id).
-The tool description is: "Public exploit intelligence (GitHub PoCs, Metasploit, NVD exploit references, ExploitDB). GitHub PoC repositories are listed but not counted as proof of a public exploit."
+The tool description is: "Public exploit intelligence (GitHub PoCs, Metasploit, NVD and CNA exploit references, ExploitDB). GitHub PoC repositories are listed but not counted as proof of a public exploit."
 The GitHub source is a local copy of the nomi-sec PoC-in-GitHub list, so its `count` is the number of
 repositories the list names for the CVE. A repository shows attention, not proof, so `has_public_exploit`
 ignores it. The fourth source is a local copy of the Exploit Database list (GPL-2.0-only), with up to 5
@@ -1121,7 +1128,7 @@ curl -sX POST https://api.contrastcyber.com/mcp \
 Mirrors [`GET /dns_lookup/{domain}`](API_Documentation.md#dns-lookup-get-dns_lookupdomain).
 The server asks its own resolver for the A, AAAA, MX, NS, TXT, CNAME, SOA and CAA records of the
 domain, all at once, within 5 seconds. The answer also lists the addresses that are not public, and
-the services that TXT records name. A record type whose question failed is null in `records` and
+the services that TXT records name. A name in `services` means a TXT record holds the word of that service. It does not mean the service is in use. The service `google-workspace` is listed only when the MX answer also holds a Google mail host. A record type whose question failed is null in `records` and
 listed with its reason in `unavailable`. A domain the resolver says does not exist is the tool
 `isError` `"domain does not exist"`, where REST answers `404`. When no record type is answered for
 another reason, the call is the protocol error `-32603` with
@@ -1191,7 +1198,7 @@ Mirrors [`GET /email_auth_check/{domain}`](API_Documentation.md#email-auth-check
 The server reads the records through its own resolver, in two rounds that share 5 seconds. A
 domain without one DMARC record of its own gets the record the tree walk of RFC 9989 finds above it. The
 answer holds each record, the DKIM keys of the selectors tried, the mail providers, and the
-checks, each with `pass`, `warn` or `fail` and a severity. A domain the resolver says does not
+checks, each with `pass`, `warn` or `fail` and a severity. The answer also says with `no_mail_domain` whether the domain takes and sends no mail. A domain the resolver says does not
 exist is the tool `isError` `"domain does not exist"`, where REST answers `404`. When no question of
 the first round gets a NOERROR or an NXDOMAIN answer, the call is the protocol error `-32603` with
 `"Internal error: upstream unavailable"`, where REST answers `502`. Each of these calls still costs
@@ -1211,9 +1218,9 @@ curl -sX POST https://api.contrastcyber.com/mcp \
 { "domain":"example.com",
   "spf":{ "available":true, "record_count":1, "record":"v=spf1 include:_spf.google.com ~all", "terms":[ … ], "dns_lookup_term_count":1, … },
   "dmarc":{ "available":true, "record_name":"_dmarc.example.com", "source":"domain", "applied_policy":"quarantine", … },
-  "dkim":{ "available":true, "key_status":"found", "selector_source":"provider", "tested_selectors":["google"], "keys":[ … ] },
+  "dkim":{ "available":true, "key_status":"found", "usable_key_count":1, "selector_source":"provider", "tested_selectors":["google"], "keys":[ … ] },
   "mx":{ "available":true, "null_mx":false, "hosts":[ … ] }, "mail_providers":["Google Workspace"],
-  "mta_sts":{ "available":true, "record_found":false },
+  "mta_sts":{ "available":true, "record_found":false }, "no_mail_domain":false,
   "checks":[ { "id":"spf_record", "result":"pass", "severity":"high", "detail":"The domain has one SPF record." }, … ],
   "check_counts":{ "pass":20, "warn":1, "fail":0 } }
 ```
@@ -1481,10 +1488,10 @@ Registrar ID. It gives the dates when the domain was registered, last changed an
 status values and its name servers. It also says whether the delegation is signed with DNSSEC. It
 holds no registrant and no contact. An answer that holds a registration is kept for one hour.
 
-A TLD with neither server, such as `de`, answers `available` false with the `reason`
+A TLD with neither server, such as `de`, answers `available` false and `registered` null, with the `reason`
 `no_registry_server`. The server sends at most 30 requests in each minute to one RDAP server, and
 at most 10 queries to one WHOIS server. All callers share the limit of a server, so one caller can
-use up its minute for everyone. A call past that limit answers `available` false with the `reason`
+use up its minute for everyone. A call past that limit answers `available` false and `registered` null, with the `reason`
 `quota_exhausted`. So does a call to an RDAP server that answered 429 and is held for the wait its
 `Retry-After` header names. `retry_after_seconds` then says how many seconds to wait. It is null
 for any other reason. Neither answer is an error.
@@ -1509,7 +1516,7 @@ curl -sX POST https://api.contrastcyber.com/mcp \
 ```
 ```jsonc
 // decoded payload (the values are an example; the registrar, its id, the dates and the name servers are made up):
-{ "domain":"example.com", "available":true, "rdap_server":"https://rdap.verisign.com/com/v1/", "whois_server":null,
+{ "domain":"example.com", "available":true, "registered":true, "rdap_server":"https://rdap.verisign.com/com/v1/", "whois_server":null,
   "registrar_name":"Example Registrar, Inc.", "registrar_iana_id":1234,
   "created_at":"1997-03-21T05:00:00Z", "updated_at":"2026-02-11T16:20:43Z", "expires_at":"2027-03-20T04:00:00Z",
   "status":["client delete prohibited","client transfer prohibited"], "status_count":2,
@@ -1530,7 +1537,7 @@ The server asks the CDX server of the Internet Archive's Wayback Machine when it
 page of the host name. It asks about the name itself, not about its registrable domain. The answer
 gives the first and the last capture day, and the years between them. It lists the latest 10
 capture days, each with the HTTP status and the media type of the captured answer and a link to the
-capture. It holds no count of all captures. An answer that holds the capture list is kept for one
+capture. It holds no count of all captures. The years are the span of the captures, not the age of the domain. `created_at` of `whois_lookup` gives the registration date. An answer that holds the capture list is kept for one
 day.
 
 A host the Wayback Machine never captured answers an empty `latest_captures`, with `first_seen`,
@@ -2120,7 +2127,7 @@ curl -sX POST https://api.contrastcyber.com/mcp -H "X-API-Key: $KEY" \
 ```
 ```jsonc
 // result.content[0].text (decoded):
-{ "status":"ok", "version":"2.0.3",
+{ "status":"ok", "version":"2.0.4",
   "db":{ "nvd":{ "cve_count":352507, "last_added":{ "cve_id":"CVE-2026-47782", "published_time":"2026-05-31" } },
          "kev":{ "entry_count":1592, "last_added":{ "cve_id":"CVE-2026-42897", "date_added":"2026-05-15" } },
          "cwe":{ "entry_count":944, "last_updated":{ "cwe_id":"CWE-1434", "updated_at":"2026-05-20T14:07:56Z" } },
@@ -2200,6 +2207,7 @@ curl -sX POST https://api.contrastcyber.com/mcp -H "X-API-Key: $KEY" \
 |---|---|
 | Invalid CVE format | `{"jsonrpc":"2.0","id":17,"result":{"content":[{"type":"text","text":"CVE ID must be CVE-YYYY-NNNN[N...]"}],"isError":true}}` |
 | CVE not found | `{"jsonrpc":"2.0","id":20,"result":{"content":[{"type":"text","text":"CVE not found"}],"isError":true}}` |
+| CVE not found, state known | `{"jsonrpc":"2.0","id":20,"result":{"content":[{"type":"text","text":"{\"error\":{\"code\":\"not_found\",\"message\":\"CVE not found; CVE.org lists it as rejected\",\"cve_org_state\":\"rejected\"}}\n"}],"isError":true}}` |
 | Missing required `cve_id` | `{"jsonrpc":"2.0","id":18,"error":{"code":-32602,"message":"Invalid params: missing CVE ID"}}` |
 | Unknown tool | `{"jsonrpc":"2.0","id":19,"error":{"code":-32602,"message":"Unknown tool"}}` |
 | Malformed JSON | `{"jsonrpc":"2.0","id":null,"error":{"code":-32700,"message":"Parse error"}}` |
@@ -2229,7 +2237,7 @@ The request itself was malformed or could not be routed, or it was refused befor
 | `-32603` | Internal error | database unavailable / a stored record the server cannot read (`cve_lookup_bulk`, `cve_triage_bulk` and `driver_lookup_bulk` count such an id or hash in `failed` instead) / an upstream service that gave no usable answer, with the message `"Internal error: upstream unavailable"` (REST answers 502) / serialization failure / a tool result too large for the 16 MiB response once escaped into the envelope. HTTP **500** instead of 200 when a request that costs credits finds no database connection, when the API key lookup fails, when the rate-limit query fails, or when the answer cannot be allocated. That message is `"internal server error"` |
 | `-32001` | Unauthorized | HTTP **401**: the API key is malformed, or no such key exists. The message is `"Invalid API key"`, as on REST |
 | `-32004` | API key inactive | HTTP **401**: the API key was revoked or has expired. The message is `"API key expired or revoked"`, as on REST. The call is charged like a call with an unknown key |
-| `-32000` | Rate limit exceeded | HTTP **429**: the credit budget is spent. The message is `"rate limit exceeded"`, as on REST. `data.retry_after_seconds` gives the seconds until the budget resets, and so does the `Retry-After` header |
+| `-32000` | Rate limit exceeded | HTTP **429**: the credit budget is spent. The message is `"rate limit exceeded: retry in N seconds"`, where N is the seconds of the `Retry-After` header. `data.retry_after_seconds` gives the seconds until the budget resets, and so does the `Retry-After` header |
 | `-32003` | Upstream busy | HTTP **503**: the server is too busy to ask an outside service. A `password_check`, `dns_lookup`, `dns_takeover_check`, `email_auth_check`, `email_address_check`, `ssl_check`, `headers_check`, `whois_lookup`, `wayback_lookup`, `cert_search`, `subdomain_enum` or `ip_lookup` call can get it. So can a `vendor_key_edit` apply that brings a key and a `vendor_key_edit` status that brings a link, because they ask Shodan or AbuseIPDB. So can a `watchlist_edit` add of a `dns_lookup`, `ssl_check`, `headers_check` or `cert_search` item that names a `domain`, because it asks DNS about the name. The message is `"upstream service busy"`, as on REST. `data.retry_after_seconds` is 5, and so is the `Retry-After` header. The call costs no credits. A call the tool would refuse gets that refusal instead. A `watchlist_edit` add of a `dns_lookup`, `ssl_check`, `headers_check` or `cert_search` item that names a `domain` is the exception: it can get `-32003` before its key and its item shape are checked |
 | `-32000` | Payment busy or limited | HTTP **429**: the payment, or another payment of its wallet, is in flight, or the client, the payment or the paying token account is over a payment limit. The messages are `"This payment or another one from its wallet is in flight: retry shortly."` and `"Too many payment attempts: retry later."`. `data.retry_after_seconds` and the `Retry-After` header give the wait. See [Pay per call (x402) over MCP](#pay-per-call-x402-over-mcp) |
 | `-32003` | Payments unavailable | HTTP **503**: both settle places are taken, or the facilitator gave no answer to the verify. The message is `"Payments are unavailable right now: retry shortly."`. `data.retry_after_seconds` and the `Retry-After` header give the wait |

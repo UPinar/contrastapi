@@ -57,6 +57,12 @@ _Static_assert(DNS_RECORD_TYPE_PTR == DNS_LOOKUP_DOMAIN_RECORD_TYPE_COUNT, "DNS_
 
 #define DNS_REVERSE_NAME_SIZE (32 * 2 + sizeof("ip6.arpa"))
 
+#define DNS_GOOGLE_WORKSPACE_SERVICE_NAME "google-workspace"
+
+static const char* const DNS_GOOGLE_MX_SUFFIXES[] = { "google.com", "googlemail.com" };
+
+#define DNS_GOOGLE_MX_SUFFIX_COUNT (sizeof(DNS_GOOGLE_MX_SUFFIXES) / sizeof(DNS_GOOGLE_MX_SUFFIXES[0]))
+
 #define DNS_QUESTION_MESSAGE_BUFFER_SIZE 512
 
 #define DNS_EDNS_OPT_SIZE 11
@@ -150,6 +156,7 @@ static void                       static_resendOverdueUdpQuestions (const DnsQue
 
 static bool                       static_tryFindNonPublicAddresses (DNSLOOKUPRecord_t* record);
 static void                       static_findTxtServices           (DNSLOOKUPRecord_t* record);
+static bool                       static_hasGoogleMx               (const DnsAnswer_t* mx_answer);
 
 static const DnsTakeoverSuffix_t* static_findTakeoverSuffix        (const char* hostname);
 
@@ -1084,9 +1091,12 @@ static bool static_tryFindNonPublicAddresses(DNSLOOKUPRecord_t* record)
 
 static void static_findTxtServices(DNSLOOKUPRecord_t* record)
 {
-  const DnsAnswer_t* txt_answer = &record->ma_answers[DNS_RECORD_TYPE_TXT];
+  const DnsAnswer_t* txt_answer    = &record->ma_answers[DNS_RECORD_TYPE_TXT];
+  bool               has_google_mx = static_hasGoogleMx(&record->ma_answers[DNS_RECORD_TYPE_MX]);
   for (int i = 0; i < DNS_TXT_SERVICE_COUNT; i++)
   {
+    if (!has_google_mx && strcmp(dns_txtServices[i].mp_serviceName, DNS_GOOGLE_WORKSPACE_SERVICE_NAME) == 0)
+      continue;
     const char* evidence = dns_txtServices[i].mp_evidence;
     for (int j = 0; j < txt_answer->m_recordCount; j++)
     {
@@ -1097,6 +1107,24 @@ static void static_findTxtServices(DNSLOOKUPRecord_t* record)
       }
     }
   }
+}
+
+static bool static_hasGoogleMx(const DnsAnswer_t* mx_answer)
+{
+  assert(mx_answer != NULL);
+
+  for (int i = 0; i < mx_answer->m_recordCount; i++)
+  {
+    const char* hostname = mx_answer->mp_mxRecords[i].mp_hostname;
+    if (strchr(hostname, '\\') != NULL)
+      continue;
+    for (size_t j = 0; j < DNS_GOOGLE_MX_SUFFIX_COUNT; j++)
+    {
+      if (bytes_isNameUnderSuffix(hostname, strlen(hostname), DNS_GOOGLE_MX_SUFFIXES[j]))
+        return true;
+    }
+  }
+  return false;
 }
 
 static const DnsTakeoverSuffix_t* static_findTakeoverSuffix(const char* hostname)

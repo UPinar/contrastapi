@@ -3,16 +3,16 @@ INSERT INTO github_poc_repos (cve_id, repo_full_name, star_count) VALUES
   ('CVE-2001-0032', 'b-owner/poc', 0);
 INSERT INTO cves (cve_id, cvss_v3, cvss_v3_vector, cvss_v4, cvss_v4_vector, epss_score, in_kev, refs) VALUES
   ('CVE-2001-0031', 9.8, 'CVSS:3.1/AV:N', 2.0, 'CVSS:4.0/AV:N', 0.5, true,
-   '[{"url": "https://a.example", "tags": ["Exploit"]}]'),
+   '[{"url": "https://a.example", "nvd_tags": ["Exploit"]}]'),
   ('CVE-2001-0032', 0.0, '', 8.0, 'CVSS:4.0/AV:N', 0.5, false, '[]'),
   ('CVE-2001-0033', 5.5, 'CVSS:3.1/AV:N', 0.0, '', 0.2, false,
    '[{"url": "https://packetstormsecurity.com/files/33/x.html"},
-     {"url": "https://packetstorm.news/files/id/34", "tags": ["Third Party Advisory"]}]'),
+     {"url": "https://packetstorm.news/files/id/34", "nvd_tags": ["Third Party Advisory"]}]'),
   ('CVE-2001-0034', 6.1, 'CVSS:3.1/AV:N', 0.0, '', 0.3, false,
-   '[{"url": "https://b.example", "tags": ["Exploit"]},
+   '[{"url": "https://b.example", "nvd_tags": ["Exploit"]},
      {"url": "https://www.exploit-db.com/exploits/41"},
-     {"url": "https://www.exploit-db.com/exploits/42", "tags": []},
-     {"url": "https://www.exploit-db.com/exploits/43", "tags": ["Third Party Advisory"]}]');
+     {"url": "https://www.exploit-db.com/exploits/42", "nvd_tags": []},
+     {"url": "https://www.exploit-db.com/exploits/43", "nvd_tags": ["Third Party Advisory"]}]');
 INSERT INTO metasploit_modules (cve_id, module_name) VALUES ('CVE-2001-0031', 'm1');
 
 CREATE TEMP VIEW t_cve_risk_breakdown_call AS SELECT * FROM api.fn_cve_risk_breakdown('CVE-2001-0031');

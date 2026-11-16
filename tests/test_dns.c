@@ -106,14 +106,21 @@ static void static_putBytes(const void* bytes, size_t byte_count)
 
 static void static_putName(const char* dotted_name)
 {
-  const char* label = dotted_name;
-  while (*label != '\0')
+  const char* cursor = dotted_name;
+  while (*cursor != '\0')
   {
-    const char* dot = strchr(label, '.');
-    size_t label_len = dot != NULL ? (size_t)(dot - label) : strlen(label);
+    char   label[UINT8_MAX];
+    size_t label_len = 0;
+    while (*cursor != '\0' && *cursor != '.' && label_len < sizeof(label))
+    {
+      if (*cursor == '\\' && cursor[1] != '\0')
+        cursor++;
+      label[label_len++] = *cursor++;
+    }
     static_put8((uint8_t)label_len);
     static_putBytes(label, label_len);
-    label += label_len + (dot != NULL ? 1 : 0);
+    if (*cursor == '.')
+      cursor++;
   }
   static_put8(0);
 }
@@ -2351,11 +2358,25 @@ static const char* g_lookupTxt[4];
 static size_t      g_lookupTxtLen[4];
 static int         g_lookupTxtCount = 0;
 
+static const char* g_lookupMx[2];
+static int         g_lookupMxCount = 0;
+
 static void static_putTxtString(const char* text, size_t text_len)
 {
   static_putRecordHead(WIRE_TYPE_TXT, WIRE_CLASS_IN, (uint16_t)(1 + text_len));
   static_put8((uint8_t)text_len);
   static_putBytes(text, text_len);
+}
+
+static void static_putMxRecord(const char* hostname)
+{
+  static_putRecordHead(WIRE_TYPE_MX, WIRE_CLASS_IN, 0);
+  size_t data_start = g_messageLen;
+  static_put16(10);
+  static_putName(hostname);
+  size_t data_len = g_messageLen - data_start;
+  g_message[data_start - 2] = (uint8_t)(data_len >> 8);
+  g_message[data_start - 1] = (uint8_t)(data_len & 0xFF);
 }
 
 static void static_answerLookup(const FakeSentQuery_t* sent)
@@ -2399,6 +2420,12 @@ static void static_answerLookup(const FakeSentQuery_t* sent)
     for (int i = 0; i < g_lookupTxtCount; i++)
       static_putTxtString(g_lookupTxt[i], g_lookupTxtLen[i]);
   }
+  else if (type == WIRE_TYPE_MX)
+  {
+    static_startReplyTo(sent->ma_query, FLAGS_ANSWER, RCODE_NOERROR, (uint16_t)g_lookupMxCount);
+    for (int i = 0; i < g_lookupMxCount; i++)
+      static_putMxRecord(g_lookupMx[i]);
+  }
   else if (type == WIRE_TYPE_SOA || type == WIRE_TYPE_CAA || type == WIRE_TYPE_CNAME || type == WIRE_TYPE_NS)
   {
     static_startReplyTo(sent->ma_query, FLAGS_ANSWER, RCODE_NOERROR, 0);
@@ -2418,6 +2445,8 @@ static void static_resetLookup(void)
   g_lookupTxt[0]    = "v=spf1 -all";
   g_lookupTxtLen[0] = 11;
   g_lookupTxtCount  = 1;
+  g_lookupMx[0]     = "mx.example.com";
+  g_lookupMxCount   = 1;
   g_answerer        = static_answerLookup;
 }
 
@@ -2601,6 +2630,7 @@ void test_lookupDomain_lists_the_services_txt_records_name(void)
   g_lookupTxt[2] = "google-site-verification=ghi";      g_lookupTxtLen[2] = 28;
   g_lookupTxt[3] = "Keybase-Site-Verification=jkl";     g_lookupTxtLen[3] = 29;
   g_lookupTxtCount = 4;
+  g_lookupMx[0]    = "aspmx.l.google.com";
   DNSLOOKUPRecord_t record;
   TEST_ASSERT_EQUAL_INT(DNS_LOOKUP_OK, dns_lookupDomain("example.com", &record));
   TEST_ASSERT_EQUAL_INT(2, record.m_serviceCount);
@@ -2642,6 +2672,7 @@ void test_lookupDomain_finds_every_txt_service_by_its_whole_evidence(void)
       g_lookupTxt[0]    = cut == 2 ? evidence + 1 : evidence;
       g_lookupTxtLen[0] = strlen(evidence) - (cut == 0 ? 0 : 1);
       g_lookupTxtCount  = 1;
+      g_lookupMx[0]     = "aspmx.l.google.com";
       DNSLOOKUPRecord_t record;
       TEST_ASSERT_EQUAL_INT_MESSAGE(DNS_LOOKUP_OK, dns_lookupDomain("example.com", &record), evidence);
       bool is_listed = false;
@@ -2651,6 +2682,74 @@ void test_lookupDomain_finds_every_txt_service_by_its_whole_evidence(void)
       dns_DNSLOOKUPRecordFree(&record);
     }
   }
+}
+
+void test_lookupDomain_lists_google_workspace_only_with_a_google_mx(void)
+{
+  static const struct {
+    const char* ma_mx[2];
+    int         m_mxCount;
+    uint8_t     m_mxRcode;
+    bool        m_isListed;
+  } cases[] = {
+    { { "aspmx.l.google.com" },                    1, RCODE_NOERROR,  true  },
+    { { "ALT1.ASPMX.L.GOOGLE.COM" },               1, RCODE_NOERROR,  true  },
+    { { "google.com" },                            1, RCODE_NOERROR,  true  },
+    { { "alt1.gmr-smtp-in.l.googlemail.com" },     1, RCODE_NOERROR,  true  },
+    { { "mx.example.net", "aspmx.l.google.com" },  2, RCODE_NOERROR,  true  },
+    { { "aspmx.l.google.com", "mx.example.net" },  2, RCODE_NOERROR,  true  },
+    { { NULL },                                    0, RCODE_NOERROR,  false },
+    { { "mx.example.net" },                        1, RCODE_NOERROR,  false },
+    { { "" },                                      1, RCODE_NOERROR,  false },
+    { { "notgoogle.com" },                         1, RCODE_NOERROR,  false },
+    { { "mx.notgooglemail.com" },                  1, RCODE_NOERROR,  false },
+    { { "google.com.evil.example" },               1, RCODE_NOERROR,  false },
+    { { "aspmx.l.google.com" },                    1, RCODE_SERVFAIL, false },
+  };
+  for (size_t c = 0; c < sizeof(cases) / sizeof(cases[0]); c++)
+  {
+    char message[16];
+    snprintf(message, sizeof(message), "case %zu", c);
+    static_resetLookup();
+    g_lookupTxt[0] = "google-site-verification=abc";     g_lookupTxtLen[0] = 28;
+    g_lookupTxt[1] = "flexera-domain-verification=def";  g_lookupTxtLen[1] = 31;
+    g_lookupTxtCount = 2;
+    g_lookupMx[0]    = cases[c].ma_mx[0];
+    g_lookupMx[1]    = cases[c].ma_mx[1];
+    g_lookupMxCount  = cases[c].m_mxCount;
+    g_lookupRcodes[DNS_RECORD_TYPE_MX] = cases[c].m_mxRcode;
+    DNSLOOKUPRecord_t record;
+    TEST_ASSERT_EQUAL_INT_MESSAGE(DNS_LOOKUP_OK, dns_lookupDomain("example.com", &record), message);
+    int index = 0;
+    if (cases[c].m_isListed)
+    {
+      TEST_ASSERT_EQUAL_INT_MESSAGE(2, record.m_serviceCount, message);
+      TEST_ASSERT_EQUAL_PTR_MESSAGE(static_txtService("google-workspace"), record.ma_services[index++], message);
+    }
+    else
+    {
+      TEST_ASSERT_EQUAL_INT_MESSAGE(1, record.m_serviceCount, message);
+    }
+    TEST_ASSERT_EQUAL_PTR_MESSAGE(static_txtService("flexera"), record.ma_services[index], message);
+    dns_DNSLOOKUPRecordFree(&record);
+  }
+}
+
+void test_lookupDomain_does_not_list_google_workspace_for_a_dot_inside_a_label(void)
+{
+  static_resetLookup();
+  g_lookupTxt[0] = "google-site-verification=abc";     g_lookupTxtLen[0] = 28;
+  g_lookupTxt[1] = "flexera-domain-verification=def";  g_lookupTxtLen[1] = 31;
+  g_lookupTxtCount = 2;
+  g_lookupMx[0]    = "evil\\.google.com";
+  g_lookupMxCount  = 1;
+  DNSLOOKUPRecord_t record;
+  TEST_ASSERT_EQUAL_INT(DNS_LOOKUP_OK, dns_lookupDomain("example.com", &record));
+  TEST_ASSERT_EQUAL_INT(1, record.ma_answers[DNS_RECORD_TYPE_MX].m_recordCount);
+  TEST_ASSERT_EQUAL_STRING("evil\\.google.com", record.ma_answers[DNS_RECORD_TYPE_MX].mp_mxRecords[0].mp_hostname);
+  TEST_ASSERT_EQUAL_INT(1, record.m_serviceCount);
+  TEST_ASSERT_EQUAL_PTR(static_txtService("flexera"), record.ma_services[0]);
+  dns_DNSLOOKUPRecordFree(&record);
 }
 
 #define TXT_SERVICES_HASH 0xa13e62b2e62a3a36ULL
@@ -3157,6 +3256,8 @@ int main(void)
   RUN_TEST(test_lookupDomain_lists_the_services_txt_records_name);
   RUN_TEST(test_txtServices_entries_are_safe_to_write_raw);
   RUN_TEST(test_lookupDomain_finds_every_txt_service_by_its_whole_evidence);
+  RUN_TEST(test_lookupDomain_lists_google_workspace_only_with_a_google_mx);
+  RUN_TEST(test_lookupDomain_does_not_list_google_workspace_for_a_dot_inside_a_label);
   RUN_TEST(test_txtServices_table_is_pinned);
   RUN_TEST(test_checkTakeover_asks_each_name_of_the_chain);
   RUN_TEST(test_checkTakeover_suffix_must_end_at_a_dot);

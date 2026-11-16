@@ -178,6 +178,7 @@ typedef union {
 typedef enum {
   ENDPOINT_RUN_OK = 0,
   ENDPOINT_RUN_NOT_FOUND,
+  ENDPOINT_RUN_NOT_FOUND_WITH_BODY,
   ENDPOINT_RUN_REFUSED,
   ENDPOINT_RUN_REFUSED_WITH_BODY,
   ENDPOINT_RUN_DEGRADED,
@@ -247,6 +248,7 @@ typedef struct {
   bool                            m_isDbRequired;
   bool                            m_callsUpstream;
   EndpointCallsUpstreamFunction_t m_callsUpstreamFunction;
+  bool                            m_callsUpstreamOnMiss;
   size_t                          m_jsonCeiling;
 } Endpoint_t;
 

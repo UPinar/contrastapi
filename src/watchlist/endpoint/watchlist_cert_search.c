@@ -1,7 +1,6 @@
 #include <assert.h>
 #include <stdbool.h>
 #include <stddef.h>
-#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 #include <strings.h>
@@ -22,8 +21,6 @@ static const QuotaRule_t WATCHLIST_CERT_SEARCH_HOURLY_QUOTA_RULE = { "domain_sca
 
 #define WATCHLIST_CERT_SEARCH_CAA_MAX_NAME_COUNT DNS_MAX_QUESTION_COUNT
 
-static int64_t g_ctCapLineDay = -1;
-
 static bool                         static_isIssuerKeyValidAsLine           (const char* key);
 static void                         static_sortIssuersByKey                 (const CertSpotterCertificateList_t* list, const CertSpotterIssuer_t** sorted_out);
 static bool                         static_isIssuerPermitted                (const DnsAnswer_t* host_set, const DnsAnswer_t* wildcard_set, const CertSpotterIssuer_t* issuer);
@@ -42,7 +39,6 @@ bool watchlist_cert_search_scanNextDomains(PGconn* conn)
   const WatchlistDomainScanLane_t lane = {
     .mp_laneName    = DB_DOMAIN_WATCH_LANE_CT,
     .m_scanFunction = static_scanCtDomain,
-    .mp_capLineDay  = &g_ctCapLineDay,
     .m_capEvent     = USAGELOG_EVENT_CT_SCAN_CAP_REACHED,
   };
 

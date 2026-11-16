@@ -37,6 +37,9 @@
 #define CVELOOKUP_GHSA_PACKAGE_MAX_ROWS 32
 #define CVELOOKUP_GHSA_MAX_LEN          (1024 * 1024)
 
+#define CVELOOKUP_CVE_FEED_INTERVAL_SECONDS       7200
+#define CVELOOKUP_PUBLISHED_RETRY_AFTER_SECONDS   CVELOOKUP_CVE_FEED_INTERVAL_SECONDS
+
 typedef struct {
   char                   ma_cveId[CVELOOKUP_ID_MAX_LEN + 1];
   char                   ma_description[CVELOOKUP_DESC_MAX_LEN + 1];

@@ -55,6 +55,7 @@ A trailing slash is not significant: `/cve_search`, `/cve_search/` and `/cve_sea
 - [Web files](#web-files)
 - [Pay per call (x402)](#pay-per-call-x402)
 - [Response headers](#response-headers)
+- [The available member](#the-available-member)
 - [Text encoding](#text-encoding)
 - [Error codes](#error-codes)
 - [HTTP status codes](#http-status-codes)
@@ -203,6 +204,8 @@ A Pro key can save its own Shodan key and its own AbuseIPDB key. [IP Lookup](#ip
 
 Returns the full record of one CVE: CVSS scores, EPSS, KEV status, references and affected products. A call costs 1 credit. The data comes from NVD and the other feeds of [Data sources and licenses](#data-sources-and-licenses).
 
+When our data does not hold the CVE, the answer is `404`. The server may ask CVE.org about the id first, and then the `404` names what CVE.org says. See [CVE.org state of a missing CVE](#cveorg-state-of-a-missing-cve).
+
 A CVE can name thousands of products and hundreds of references. The record holds the first 20 affected products, the vulnerable ones first, with their total count and the vendors that have the most of them. [CVE Products](#cve-products-get-cve_productscve_id) lists the others, one page at a time. The record also holds the first 20 references, with their total count.
 
 ```bash
@@ -223,14 +226,14 @@ curl "https://api.contrastcyber.com/cve_lookup/CVE-2021-44228?include_ghsa=true"
 | Field                    | Type              | Description |
 |--------------------------|-------------------|-------------|
 | `cve_id`                 | string            | CVE identifier |
-| `severity`               | string            | CRITICAL / HIGH / MEDIUM / LOW / NONE. It is the label given by the source of the CVSS v3 score shown, else of the v4 score shown, else of the first CVSS v2 metric in the NVD record |
+| `severity`               | string            | CRITICAL / HIGH / MEDIUM / LOW / NONE / UNKNOWN. It is the band of the CVSS v3 score shown, else of the v4 score shown: `NONE` for 0.0, `LOW` up to 3.9, `MEDIUM` up to 6.9, `HIGH` up to 8.9 and `CRITICAL` from 9.0. A CVE that shows neither score takes its label from NVD, such as the label of its first CVSS v2 metric. It is `UNKNOWN` while no label is known |
 | `cvss_v3`                | float or null     | CVSS v3 base score (0.0–10.0); null when the CVE has no CVSS v3 vector |
 | `cvss_v3_vector`         | string or null    | CVSS v3 vector string; null when the CVE has none |
 | `cvss_v3_source`         | string or null    | Who gave the CVSS v3 score shown: `nvd`, `cna` (the CNA that assigned the CVE), `adp` (the CISA ADP) or `other`. When more than one of them scored the CVE, the score shown is the CNA's, else NVD's, else the ADP's. null when the source is not known |
 | `cvss_v4`                | float or null     | CVSS v4 base score (0.0–10.0); null when the CVE has no CVSS v4 vector |
 | `cvss_v4_vector`         | string or null    | CVSS v4 vector string; null when the CVE has none |
 | `cvss_v4_source`         | string or null    | Who gave the CVSS v4 score shown, with the classes and the order of `cvss_v3_source`. The v4 metric is chosen on its own, so the two classes can differ |
-| `published_time`         | string (datetime) | NVD published timestamp (ISO 8601) |
+| `published_time`         | string (datetime) | The earlier of the dates on which the CNA and NVD published the CVE (ISO 8601) |
 | `epss_score`             | float             | EPSS probability of exploitation in the next 30 days (0.0–1.0). 0.0 when no usable score is known, as for a CVE the EPSS feed has left out for 7 days |
 | `epss_percentile`        | float             | EPSS percentile rank (0.0–1.0). 0.0 when no usable score is known, as for `epss_score` |
 | `cwe_id`                 | string            | The CWE identifier shown first: the first CWE of the source `cwe_source` names |
@@ -238,16 +241,16 @@ curl "https://api.contrastcyber.com/cve_lookup/CVE-2021-44228?include_ghsa=true"
 | `cwes`                   | array             | All associated CWE identifiers |
 | `in_kev`                 | boolean           | Whether the CVE is in the CISA KEV list |
 | `kev_date_added`         | string (date)     | Date added to KEV; empty string if not in KEV |
-| `vulnerability_status`   | string            | NVD status (e.g. `Analyzed`, `Modified`) |
+| `vulnerability_status`   | string            | NVD status (e.g. `Analyzed`, `Modified`). A CVE that NVD has not published yet has an empty string, or `Rejected` when the CNA rejected it |
 | `affected_products`      | array             | The first 20 products the CVE names, one object per product and version range. The vulnerable ones come first, and each group sorts by vendor, then by product. They are the first page of [CVE Products](#cve-products-get-cve_productscve_id); see [Affected products](#affected-products) |
 | `affected_product_count` | integer           | Number of products the CVE names, also the ones `affected_products` leaves out |
 | `product_count_by_vendor`| object            | At most 10 vendors, the ones with the most products, each with its number of products, such as `{"cisco": 258, "apache": 4}`. A tie goes to the vendor that sorts first. The members are not in the order of their counts. A product with no vendor is not counted. The object is empty when the CVE names no vendor |
-| `refs`                   | array             | The first 20 reference URLs with tags, sorted by URL |
+| `refs`                   | array             | The first 20 reference URLs with tags, sorted by URL. The tags of a reference are the tags NVD gave it and the tags the CNA gave it, each listed once |
 | `ref_count`              | integer           | Number of references of the CVE, also the ones `refs` leaves out |
-| `poc_count`              | integer           | Number of references tagged `"Exploit"`. The public PoC count of [`/cve_risk_score`](#cve-risk-score-get-cve_risk_scorecve_id) is another number: it also counts the Exploit-DB exploits and Packet Storm files that carry no `"Exploit"` tag, and one ExploitDB entry when the NVD record lists no exploit reference |
+| `poc_count`              | integer           | Number of references tagged `"Exploit"` by NVD or by the CNA. The public PoC count of [`/cve_risk_score`](#cve-risk-score-get-cve_risk_scorecve_id) is another number: it also counts the Exploit-DB exploits and Packet Storm files that carry no `"Exploit"` tag, and one ExploitDB entry when the NVD and CNA records list no exploit reference |
 | `vendor_advisory_count`  | integer           | Number of references tagged `"Vendor Advisory"` |
 | `epss_trend`             | array             | The newest 30 rows of the EPSS history, newest first, each entry `{epss_date, score, percentile}`; empty array if no history |
-| `cve_tags`               | array             | NVD-assigned CVE tags (e.g. `"unsupported-when-assigned"`); empty array if none |
+| `cve_tags`               | array             | CVE tags that NVD or the CNA gave (e.g. `"unsupported-when-assigned"`); empty array if none |
 | `has_metasploit_module`  | boolean or null   | Whether at least one Metasploit module targets this CVE; `null` while the Metasploit feed has not been loaded |
 | `metasploit_module_count`| integer or null   | Number of Metasploit modules targeting this CVE (0 if none); `null` while the Metasploit feed has not been loaded |
 | `nuclei_templates`       | object            | The Nuclei templates that detect this CVE. See [The `nuclei_templates` object](#the-nuclei_templates-object). |
@@ -402,12 +405,41 @@ With `?include_ghsa=true` and an advisory found, `ghsa` is an object. The `affec
 }
 ```
 
+### CVE.org state of a missing CVE
+
+When our data does not hold the CVE, the server may ask CVE.org about the id. It asks the CVE Services at `cveawg.mitre.org`. It sends the id and nothing else: no IP address and no API key. It reads only the state of the id. It never reads a record from CVE.org. [Data sources and licenses](#data-sources-and-licenses) lists the source.
+
+The answer is still `404`, and the call still costs 1 credit. When CVE.org names the state of the id, the `error` object gains the member `cve_org_state`. It holds one of four values. The `message` of each value is fixed.
+
+| `cve_org_state` | `message` |
+|-----------------|-----------|
+| `published` | `CVE not found; CVE.org has published it and our data does not have it yet; retry later` |
+| `reserved` | `CVE not found; CVE.org lists the id as reserved, not published yet` |
+| `rejected` | `CVE not found; CVE.org lists it as rejected` |
+| `unknown_id` | `CVE not found; CVE.org has no such id` |
+
+A `published` answer also holds `retry_after_seconds`. It is the time between two runs of our feeds, in seconds, so the record may be here after it. The number may change. The other three states hold no `retry_after_seconds`, because they have no record to wait for. The response has no `Retry-After` header.
+
+```json
+{"error":{"code":"not_found","message":"CVE not found; CVE.org has published it and our data does not have it yet; retry later","cve_org_state":"published","retry_after_seconds":7200}}
+```
+
+```json
+{"error":{"code":"not_found","message":"CVE not found; CVE.org lists it as rejected","cve_org_state":"rejected"}}
+```
+
+The member is optional. A `404` without `cve_org_state` is the plain miss `{"error":{"code":"not_found","message":"CVE not found"}}`. It means that the server did not check, not that CVE.org has no such id. The server does not check when CVE.org cannot be asked or does not answer. A small rate limit for the whole server also bounds these requests. So the same id may come with the member at one time and without it at another. Act on `cve_org_state` only when it is present.
+
+An id whose sequence has 5 digits or more and starts with `0` is no id that CVE.org issues. It is answered `unknown_id` with no request to CVE.org.
+
+An id that our data holds is answered as before, and nothing is sent to CVE.org.
+
 ### Error responses
 
 | Status | When |
 |--------|------|
 | `400`  | The CVE ID format is invalid, or `include_ghsa` is not `true` or `false` |
-| `404`  | The CVE is not in the database |
+| `404`  | The CVE is not in the database. The body may name the state of the id at CVE.org; see [CVE.org state of a missing CVE](#cveorg-state-of-a-missing-cve) |
 | `500`  | A database error, or a stored value that cannot be read. A failed advisory lookup still answers `200`; see `ghsa` |
 
 ---
@@ -535,7 +567,7 @@ curl "https://api.contrastcyber.com/cve_products/CVE-2021-44228?vendor=cisco&lim
 
 ## CVE Search: `GET /cve_search`
 
-Searches CVEs by vendor, product, severity, scores, KEV status, weakness class and date, one page at a time. A call costs 1 credit. The data comes from NVD, EPSS, CISA KEV and nuclei-templates; see [Data sources and licenses](#data-sources-and-licenses).
+Searches CVEs by vendor, product, severity, scores, KEV status, weakness class and date, one page at a time. A call costs 1 credit. The data comes from NVD, the CVE List, EPSS, CISA KEV and nuclei-templates; see [Data sources and licenses](#data-sources-and-licenses).
 
 The newest CVEs come first. Within one day, the CVE published at the later time comes first, and the CVEs whose time is not known follow. `sort=epss` or `sort=cvss` orders them by exploitation probability or by CVSS score instead. CVEs that tie on the sort key come in `cve_id` order, so `offset` cuts the same pages from the same data.
 
@@ -621,7 +653,7 @@ Each object of `results` holds:
 | Field            | Type          | Description |
 |------------------|---------------|-------------|
 | `cve_id`         | string        | CVE identifier |
-| `severity`       | string        | CRITICAL / HIGH / MEDIUM / LOW / NONE |
+| `severity`       | string        | CRITICAL / HIGH / MEDIUM / LOW / NONE / UNKNOWN |
 | `cvss_v3`        | float or null | CVSS v3 base score (0.0–10.0); null when the CVE has no CVSS v3 vector |
 | `cvss_v3_source` | string or null | Who gave the CVSS v3 score: `nvd`, `cna`, `adp` or `other`, as in [CVE Lookup](#cve-lookup-get-cve_lookupcve_id); null when the source is not known |
 | `cvss_v4`        | float or null | CVSS v4 base score (0.0–10.0); null when the CVE has no CVSS v4 vector |
@@ -669,7 +701,7 @@ With `vendor=apache`, the body holds `product_filter_note` before `results`. `re
 
 ## Leading CVEs: `GET /cve_leading`
 
-Returns the CVEs most likely to be exploited, ranked by EPSS score (highest first), then by `cvss_v3` (highest first), then by `cve_id`. A call costs 1 credit. The data comes from EPSS, NVD and CISA KEV; see [Data sources and licenses](#data-sources-and-licenses). The list has one page: `limit` sets its length.
+Returns the CVEs most likely to be exploited, ranked by EPSS score (highest first), then by `cvss_v3` (highest first), then by `cve_id`. A call costs 1 credit. The data comes from EPSS, NVD, the CVE List and CISA KEV; see [Data sources and licenses](#data-sources-and-licenses). The list has one page: `limit` sets its length.
 
 ```bash
 curl https://api.contrastcyber.com/cve_leading
@@ -780,7 +812,7 @@ curl https://api.contrastcyber.com/cve_risk_score/CVE-2021-44228
 - **Impact** is the CVSS base score × 3: v3 when the CVE has a v3 vector, else v4. A score of 10.0 gives the full 30 points.
 - **Evidence** grows with the logarithm of the public PoC count. 100 PoCs give the full 10 points, and 1 PoC gives about 1.5 points.
 
-The public PoC count is the number of exploit references in the NVD record. When the NVD record lists none and ExploitDB lists the CVE, the count is 1. An exploit reference is a reference that NVD tags `Exploit`, a GitHub link among them. A link to an Exploit-DB exploit or a Packet Storm file is one too, whatever its tags. The `count` of the NVD source of [`/cve_exploit`](#cve-exploit-get-cve_exploitcve_id) counts the same references. These do not count: the GitHub repositories that `/cve_exploit` lists from PoC-in-GitHub, the Metasploit module of the exploitability part and the Nuclei template flag. An exploit reference still counts when it links to a Metasploit module or a Nuclei template.
+The public PoC count is the number of exploit references in the NVD record and the CNA record. When they list none and ExploitDB lists the CVE, the count is 1. An exploit reference is a reference that NVD or the CNA tags `Exploit`, a GitHub link among them. A link to an Exploit-DB exploit or a Packet Storm file is one too, whatever its tags. The `count` of the NVD source of [`/cve_exploit`](#cve-exploit-get-cve_exploitcve_id) counts the same references. These do not count: the GitHub repositories that `/cve_exploit` lists from PoC-in-GitHub, the Metasploit module of the exploitability part and the Nuclei template flag. An exploit reference still counts when it links to a Metasploit module or a Nuclei template.
 
 The final score is capped at 100 and rounded to one decimal place. `/cve_triage`, `/cve_triage_bulk`, `/product_exposure` and `/watchlist_events` show the same score for a CVE.
 
@@ -799,7 +831,7 @@ The final score is capped at 100 and rounded to one decimal place. `/cve_triage`
 |--------------------------------|---------|-------------|
 | `score`                        | float   | Composite risk score (0.0–100.0, 1 decimal place) |
 | `label`                        | string  | Risk label: `CRITICAL` / `HIGH` / `MEDIUM` / `LOW` |
-| `has_public_poc`               | boolean or null | `true` when the NVD record has an exploit reference, a Metasploit module exists for the CVE, or ExploitDB lists the CVE. `null` when none is found in our sources. Never `false`, because a PoC can exist that our sources do not name |
+| `has_public_poc`               | boolean or null | `true` when the NVD or CNA record has an exploit reference, a Metasploit module exists for the CVE, or ExploitDB lists the CVE. `null` when none is found in our sources. Never `false`, because a PoC can exist that our sources do not name |
 | `components`                           | object  | Breakdown of the three additive components |
 | `components.exploitability.score`      | float   | Exploitability score achieved (0–60) |
 | `components.exploitability.max`        | float   | Maximum possible exploitability (always 60.00) |
@@ -984,7 +1016,7 @@ Returns the public exploits and proofs of concept (PoC) of one CVE. A call costs
 
 - the GitHub repositories that the nomi-sec PoC-in-GitHub list names for the CVE,
 - the Metasploit modules that target the CVE,
-- the exploit references of the CVE's NVD record,
+- the exploit references of the CVE's NVD and CNA records,
 - the Exploit Database list of public exploits.
 
 The server reads its own copy of each source. See [Data sources and licenses](#data-sources-and-licenses).
@@ -1052,9 +1084,9 @@ The modules come from the [Metasploit Framework module metadata](https://github.
 | Field         | Type    | Description |
 |---------------|---------|-------------|
 | `source`      | string  | Always `"nvd"` |
-| `available`   | boolean | `true` when the CVE's local NVD record was read. `false` when the database lookup failed, when the record's `in_kev` or the count of its exploit references cannot be read, or when the CVE has no local NVD record |
-| `reason`      | string  | Present only when `available` is `false`: `"database_error"` when the lookup failed or the record cannot be read, `"cve_not_in_database"` when the CVE has no local NVD record |
-| `count`       | integer | Exploit references in the CVE's NVD record, never fewer than the URLs in `top_results`; `0` when unavailable. A reference counts when NVD tags it `Exploit`, or when its URL is an Exploit-DB exploit (`exploit-db.com/exploits/<n>`) or a Packet Storm file (`packetstormsecurity.com`, `.org` or `.net`, or `packetstorm.news`, with `/files/<n>`, `/files/view/<n>`, `/files/id/<n>` or `/<YYMM>-exploits/…`). The URL may use `http` or `https`, an optional `www.` and any letter case. A mirror host does not count. A Packet Storm file counts even when it holds an advisory. `poc_count` of [CVE Lookup](#cve-lookup-get-cve_lookupcve_id) and the `exploit_published` event of the watch list follow NVD's `Exploit` tag only |
+| `available`   | boolean | `true` when the CVE's local row was read. `false` when the database lookup failed, when the row's `in_kev` or the count of its exploit references cannot be read, or when the CVE has no local row |
+| `reason`      | string  | Present only when `available` is `false`: `"database_error"` when the lookup failed or the row cannot be read, `"cve_not_in_database"` when the CVE has no local row |
+| `count`       | integer | Exploit references in the CVE's NVD and CNA records, never fewer than the URLs in `top_results`; `0` when unavailable. A reference counts when NVD or the CNA tags it `Exploit`, or when its URL is an Exploit-DB exploit (`exploit-db.com/exploits/<n>`) or a Packet Storm file (`packetstormsecurity.com`, `.org` or `.net`, or `packetstorm.news`, with `/files/<n>`, `/files/view/<n>`, `/files/id/<n>` or `/<YYMM>-exploits/…`). The URL may use `http` or `https`, an optional `www.` and any letter case. A mirror host does not count. A Packet Storm file counts even when it holds an advisory. `poc_count` of [CVE Lookup](#cve-lookup-get-cve_lookupcve_id) and the `exploit_published` event of the watch list follow the `Exploit` tag of NVD or the CNA only |
 | `top_results` | array   | Up to 5 of those references, in the record's order, tagged or not (see below); empty when unavailable. A URL longer than 256 bytes is counted but not listed |
 
 ##### `top_results[]` item fields (NVD)
@@ -1074,7 +1106,7 @@ The modules come from the [Metasploit Framework module metadata](https://github.
 | `count`       | integer | ExploitDB entries for this CVE, never fewer than the entries in `top_results`; `0` when unavailable |
 | `top_results` | array   | Up to 5 entries: verified ones first, then the newest `date_published`. Among entries of the same `verified` value, an entry with no date comes last, and the higher `edb_id` comes first among equal dates (see below); empty when unavailable |
 
-The entries come from `files_exploits.csv` of the [exploit-database repository](https://gitlab.com/exploit-database/exploitdb) on GitLab, under GPL-2.0-only. Only their metadata is kept, no exploit code. Any entry counts toward `has_public_exploit`, verified or not. An entry is listed even when the CVE has no NVD record here.
+The entries come from `files_exploits.csv` of the [exploit-database repository](https://gitlab.com/exploit-database/exploitdb) on GitLab, under GPL-2.0-only. Only their metadata is kept, no exploit code. Any entry counts toward `has_public_exploit`, verified or not. An entry is listed even when the CVE has no local row.
 
 ##### `top_results[]` item fields (ExploitDB)
 
@@ -1168,7 +1200,7 @@ The author and the advisory link of an entry are not served.
 | CVE ID format invalid | 400 | `invalid_cve_id` |
 | The response body could not be built | 500 | `internal_error` |
 
-A missing NVD record is not a 404 here: the NVD source answers `"cve_not_in_database"`.
+A CVE with no local row is not a 404 here: the NVD source answers `"cve_not_in_database"`.
 
 ---
 
@@ -1265,7 +1297,7 @@ A product that endoflife.date lists, asked with a `version`:
   `product_named_by` `cna`.
 - Each CVE counts once in the counts and averages, even when it names the product in many
   CPE rows.
-- `poc_backed_count` counts the CVEs for which `has_public_poc` of `/cve_risk_score` is `true`. Such a CVE has an exploit reference in its NVD record, a Metasploit module or an ExploitDB entry. An exploit reference is a reference tagged `Exploit`, or an Exploit-DB exploit or a Packet Storm file. It is not the `poc_count` of `/cve_lookup`.
+- `poc_backed_count` counts the CVEs for which `has_public_poc` of `/cve_risk_score` is `true`. Such a CVE has an exploit reference in its NVD or CNA record, a Metasploit module or an ExploitDB entry. An exploit reference is a reference tagged `Exploit`, or an Exploit-DB exploit or a Packet Storm file. It is not the `poc_count` of `/cve_lookup`.
 - `worst_risk_score` and each `top_cves[].risk_score` use the same composite score as
   [`/cve_triage`](#cve-triage-get-cve_triage) and `/cve_risk_score` (0–100; label CRITICAL/HIGH/MEDIUM/LOW).
 - `top_cves` holds up to 10 CVEs in the order of `/cve_triage`: `risk_score` first,
@@ -2286,7 +2318,7 @@ same way, as the times the password was seen.
 | `400`  | No hash after `/password_check/` | `{"error":{"code":"bad_request","message":"sha1_hash is required"}}` |
 | `500`  | The server could not check whether Have I Been Pwned asked it to wait | `{"error":{"code":"internal_error","message":"internal server error"}}` |
 | `502`  | Have I Been Pwned gave no answer the server can read: no answer, a status other than 200, a body without a readable line, a body whose line for the hash cannot be read, or a body with a NUL byte. A 429 answers `502` too, and so does each request while its hold lasts | `{"error":{"code":"upstream_unavailable","message":"upstream service unavailable"}}` |
-| `503`  | The server is busy with requests to outside services. Try again after the `Retry-After` wait | `{"error":{"code":"upstream_busy","message":"upstream service busy"}}` |
+| `503`  | The server is busy with requests to outside services. Try again after the `Retry-After` wait | `{"error":{"code":"upstream_busy","message":"upstream service busy","retry_after_seconds":5}}` |
 
 A refused hash pays its 1 credit, and so do a `502` and a `500`. A `503` costs nothing. A failed
 answer is never reported as "not found", because that would tell you a leaked password is safe.
@@ -2302,7 +2334,7 @@ its own resolver, the one `/etc/resolv.conf` names, for all eight types at once.
 The server also finds two things in the records. `non_public_addresses` lists the A and AAAA
 addresses that cannot be reached from the internet, such as `10.0.0.7`. `services` lists the
 services that a TXT record names. A service asks its customer to publish a TXT record with a word
-the service picked, such as `google-site-verification` for Google.
+the service picked, such as `google-site-verification` for Google. A name in `services` means a TXT record holds the word of that service. It does not mean the service is in use. The service `google-workspace` is listed only when the MX answer also holds a Google mail host.
 
 ```bash
 curl https://api.contrastcyber.com/dns_lookup/example.com
@@ -2328,7 +2360,7 @@ trailing dot, an IP address, a URL and a port are refused.
   "records": {
     "a": ["93.184.215.14"],
     "aaaa": ["2606:2800:21f:cb07:6820:80da:af6b:8b2c"],
-    "mx": [],
+    "mx": [{"priority": 10, "host": "aspmx.l.google.com"}],
     "ns": ["a.iana-servers.net", "b.iana-servers.net"],
     "txt": ["v=spf1 -all", "google-site-verification=abc123"],
     "total_txt_records": 2,
@@ -2339,7 +2371,7 @@ trailing dot, an IP address, a URL and a port are refused.
   "unavailable": {"caa": "timeout"},
   "non_public_addresses": [],
   "services": [{"name": "google-workspace", "evidence": "google-site-verification"}],
-  "summary": "1 A, 1 AAAA, 2 NS, 2 TXT, 1 SOA records for example.com; 1 record type unavailable"
+  "summary": "1 A, 1 AAAA, 2 NS, 1 MX, 2 TXT, 1 SOA records for example.com; 1 record type unavailable"
 }
 ```
 
@@ -2357,7 +2389,7 @@ trailing dot, an IP address, a URL and a port are refused.
 | `records.caa` | array of objects, or null | One `{"flags": 0, "tag": "issue", "value": "letsencrypt.org"}` for each CAA record (RFC 8659). The flag 128 marks a critical record |
 | `unavailable` | object | Each record type whose question failed, with its reason. It is `{}` when every question was answered |
 | `non_public_addresses` | array of strings | The addresses of `a` and `aaaa` that are not globally reachable, such as `10.0.0.7` or `fd00::1` |
-| `services` | array of objects | One `{"name": ..., "evidence": ...}` for each service a TXT record names. `evidence` is the word the record holds |
+| `services` | array of objects | One `{"name": ..., "evidence": ...}` for each service a TXT record names. `evidence` is the word the record holds. `google-workspace` is listed only when `records.mx` also holds a host that is `google.com`, `googlemail.com` or a name under one |
 | `summary` | string | The record count of each type, and the number of types that are unavailable |
 
 An empty array means the resolver answered, and the domain has no record of that type. `null` means
@@ -2390,7 +2422,7 @@ for its UDP answer. A longer answer is asked again over TCP, within the same 5 s
 `services` comes from the file `dns/txt-service-detect.yaml` of
 [nuclei-templates](https://github.com/projectdiscovery/nuclei-templates) (MIT license). It holds 96
 services and their words. A word matches anywhere in a TXT record. Case must match. A service is listed
-once, even when several records name it.
+once, even when several records name it. The word `google-site-verification` shows control of the domain, not Google Workspace. So that service is listed only when the answer also holds an MX host that is `google.com`, `googlemail.com` or a name under one. The case of the host name does not matter, and `notgoogle.com` does not count.
 
 ### Errors
 
@@ -2400,7 +2432,7 @@ once, even when several records name it.
 | `400`  | No domain after `/dns_lookup/` | `{"error":{"code":"bad_request","message":"domain is required"}}` |
 | `404`  | No record type was answered, and the resolver said the domain does not exist | `{"error":{"code":"not_found","message":"domain does not exist"}}` |
 | `502`  | No record type was answered, and the resolver did not say the domain does not exist | `{"error":{"code":"upstream_unavailable","message":"upstream service unavailable"}}` |
-| `503`  | The server is busy with requests to outside services. Try again after the `Retry-After` wait | `{"error":{"code":"upstream_busy","message":"upstream service busy"}}` |
+| `503`  | The server is busy with requests to outside services. Try again after the `Retry-After` wait | `{"error":{"code":"upstream_busy","message":"upstream service busy","retry_after_seconds":5}}` |
 
 A refused domain pays its 1 credit, and so do a `404` and a `502`. A `503` costs nothing. A record
 type that cannot be read is never shown as an empty list.
@@ -2480,7 +2512,7 @@ exist, but the check cannot say whether anyone can claim it.
 | `400`  | No host name after `/dns_takeover_check/` | `{"error":{"code":"bad_request","message":"domain is required"}}` |
 | `404`  | The resolver answered the CNAME question that the host name does not exist | `{"error":{"code":"not_found","message":"hostname does not exist"}}` |
 | `502`  | A CNAME question of the chain failed with an answer other than NXDOMAIN, or got no answer in 5 seconds. Or the chain holds more than 8 targets, or a target that is not a public domain name | `{"error":{"code":"upstream_unavailable","message":"upstream service unavailable"}}` |
-| `503`  | The server is busy with requests to outside services. Try again after the `Retry-After` wait | `{"error":{"code":"upstream_busy","message":"upstream service busy"}}` |
+| `503`  | The server is busy with requests to outside services. Try again after the `Retry-After` wait | `{"error":{"code":"upstream_busy","message":"upstream service busy","retry_after_seconds":5}}` |
 
 A refused host name pays its 1 credit, and so do a `404` and a `502`. A `503` costs nothing.
 
@@ -2553,6 +2585,7 @@ curl "https://api.contrastcyber.com/email_auth_check/example.com?dkim_selector=g
   "dkim": {
     "available": true,
     "key_status": "found",
+    "usable_key_count": 1,
     "selector_source": "provider",
     "tested_selectors": [
       "google"
@@ -2588,6 +2621,7 @@ curl "https://api.contrastcyber.com/email_auth_check/example.com?dkim_selector=g
     "available": true,
     "record_found": false
   },
+  "no_mail_domain": false,
   "checks": [
     {
       "id": "spf_record",
@@ -2633,6 +2667,7 @@ The example shows 4 of its 21 checks. The table under **Checks** lists them all.
 | `mx` | object | `available`, `null_mx` and `hosts`. `null_mx` is true when an MX record is a null MX (RFC 7505). A null MX says that the domain takes no mail. `hosts` lists every other MX record, with its `priority` and `host` |
 | `mail_providers` | array of strings | The mail providers that the MX hosts and the SPF record's `include` and `redirect` domains name, each once, with the MX hosts first. The server knows 32 providers |
 | `mta_sts` | object | `available`, and `record_found`: true when `_mta-sts.<domain>` holds one MTA-STS record. RFC 8461 counts two such records as none. A record counts when it starts with `v=STSv1`, then spaces or tabs and a `;`. The server reads only the version, so a record counts with or without an `id=` field. RFC 8461 asks for an `id=` field |
+| `no_mail_domain` | boolean | True when the domain says it takes and sends no mail. Its `mx` holds a null MX and no host. Its one SPF record holds the single term `-all`, as in `v=spf1 -all`. Its `dmarc.applied_policy` is `reject`. A failed MX, SPF or DMARC question makes it false. A failed DKIM or MTA-STS question does not. When it is true, `checks` holds no DKIM check, no `mta_sts` check and no `dmarc_reporting` check |
 | `checks` | array of objects | The checks the answers allow, in the order of the table below. Each has an `id`, a `result` (`pass`, `warn` or `fail`), a `severity` (`high`, `medium` or `low`, fixed for each check) and a `detail`, a sentence fixed for each check and result |
 | `check_counts` | object | The number of checks with each result: `pass`, `warn` and `fail` |
 
@@ -2641,6 +2676,8 @@ left out. An NXDOMAIN answer does not fail a section: it says that the name hold
 reason is `server_error`, `truncated`, `malformed_answer`, `not_public_name`, `timeout` or
 `no_resolver`, as in [DNS Lookup](#dns-lookup-get-dns_lookupdomain). A name longer than 253 bytes
 is not asked, and its section's reason is `bad_question`.
+
+A domain whose `no_mail_domain` is true has no DKIM check, no `mta_sts` check and no `dmarc_reporting` check, though its sections say what DNS holds. It sends no mail to sign and takes no mail to protect. Its SPF record must be exactly the one term `-all`. A record with any other term, such as `v=spf1 include:_spf.example.net -all`, makes `no_mail_domain` false.
 
 **`spf`**
 
@@ -2691,6 +2728,7 @@ out and another question is answered.
 |-------|------|-------------|
 | `available` | boolean | False when the question of the given selector failed, or when the question of every chosen selector failed |
 | `key_status` | string | `found` when a selector holds a key record. `not_found` when the given selector holds none. `unknown` when none of the chosen selectors holds one: the domain may sign with a selector the server cannot guess |
+| `usable_key_count` | integer | `usable_key_count` is the number of selectors whose key has `state` `present`. It is 0 when none does |
 | `selector_source` | string | `given`, `provider` or `common` |
 | `tested_selectors` | array of strings | The selectors asked |
 | `keys` | array of objects | The key of each selector that holds one. `selector` names the selector. `state` is `present`, `revoked`, `unreadable` or `unknown_type`. `key_type` is the `k` tag, or `rsa` when the record has none. `key_bits` is the size of an rsa key, or 256 for an ed25519 key. It is null when `state` is not `present`. `test_mode` is true when the `t` tag holds `y` |
@@ -2746,7 +2784,7 @@ judge every `present` key and give the worst result. A key that is not `present`
 | `400`  | `<dkim_selector>._domainkey.<domain>` is longer than 253 bytes | `{"error":{"code":"bad_request","message":"dkim_selector and domain make a name longer than 253 bytes"}}` |
 | `404`  | The TXT or the MX question of the domain got NXDOMAIN, and neither of the two got a NOERROR answer | `{"error":{"code":"not_found","message":"domain does not exist"}}` |
 | `502`  | No question of the first round got a NOERROR or an NXDOMAIN answer in 5 seconds | `{"error":{"code":"upstream_unavailable","message":"upstream service unavailable"}}` |
-| `503`  | The server is busy with requests to outside services. Try again after the `Retry-After` wait | `{"error":{"code":"upstream_busy","message":"upstream service busy"}}` |
+| `503`  | The server is busy with requests to outside services. Try again after the `Retry-After` wait | `{"error":{"code":"upstream_busy","message":"upstream service busy","retry_after_seconds":5}}` |
 
 A refused value pays its 1 credit, and so do a `404` and a `502`. A `503` costs nothing.
 
@@ -2811,7 +2849,7 @@ zero, such as `08.8.8.8`, a host name and a CIDR prefix are refused too.
 | `asn` | integer \| null | The AS number of the IPtoASN prefix that holds the address. `null` when no prefix holds it |
 | `asn_name` | string \| null | The name IPtoASN gives the AS |
 | `asn_country` | string \| null | The country the AS is registered in, as two capital letters. `null` when IPtoASN names no country |
-| `geo_country` | string \| null | The country the address is in, from DB-IP Lite, as two capital letters. It can differ from `asn_country`. `null` when no DB-IP prefix holds the address |
+| `geo_country` | string \| null | The country the address is in, from DB-IP Lite, as two capital letters. It can differ from `asn_country`. For an address with `is_cdn` `true`, it is the country DB-IP Lite lists for the range, not the place of the edge that answers. `null` when no DB-IP prefix holds the address |
 | `cloud_provider` | string \| null | `aws`, `google`, `azure`, `cloudflare`, `fastly`, `bunny` or `gcore`, when a range the provider publishes holds the address. `null` when no range holds it |
 | `cloud_service` | string \| null | The service of that range, such as `ec2`, `cloudfront` or `azurefrontdoor_frontend` |
 | `is_cdn` | boolean \| null | `true` when the range that `cloud_provider` names belongs to a content delivery network. `false` when that range does not, such as `aws/ec2`. `null` when no range holds the address, or while the cloud ranges are not loaded. The loaded CDN lists do not cover every CDN, so an address that no range holds can still be a CDN edge |
@@ -2821,7 +2859,7 @@ zero, such as `08.8.8.8`, a host name and a CIDR prefix are refused too.
 | `ptr` | string \| null | The first PTR name of the address, without its trailing dot. `null` when the address has no PTR name, or when the question failed |
 | `reputation` | object | The AbuseIPDB slot. It holds the report of AbuseIPDB, or says why it is empty. See [The vendor slots](#the-vendor-slots) |
 | `internet_exposure` | object | The Shodan slot. It holds the host of Shodan, or says why it is empty. See [The vendor slots](#the-vendor-slots) |
-| `unavailable` | object | Each list that is not loaded yet, with the reason `not_synced`, and `ptr` with a reason when the PTR question failed. It is `{}` when every part was answered |
+| `unavailable` | object | Each list that is not loaded yet, with the reason `not_synced`, and `ptr` with a reason when the PTR question failed. It is `{}` when every part was answered. It never lists `reputation` or `internet_exposure`: a vendor slot says why it is empty in its own `available` `false` and `reason` |
 
 When more than one prefix of IPtoASN, DB-IP Lite or the cloud ranges holds the address, the
 longest prefix wins. Two cloud ranges of one length are ordered by `is_cdn`, a CDN first, then by
@@ -2941,7 +2979,7 @@ string as [Text encoding](#text-encoding) says.
 | `400`  | The address is not a globally reachable IPv4 or IPv6 address, as the Parameters section above says | `{"error":{"code":"bad_request","message":"Provide a public IPv4 or IPv6 address, such as 8.8.8.8 or 2001:4860:4860::8888."}}` |
 | `400`  | No address after `/ip_lookup/` | `{"error":{"code":"bad_request","message":"ip_address is required"}}` |
 | `500`  | The database is unavailable or the query failed, or a stored value cannot be read | `{"error":{"code":"internal_error","message":"internal server error"}}` |
-| `503`  | The server is busy with requests to outside services. Try again after the `Retry-After` wait | `{"error":{"code":"upstream_busy","message":"upstream service busy"}}` |
+| `503`  | The server is busy with requests to outside services. Try again after the `Retry-After` wait | `{"error":{"code":"upstream_busy","message":"upstream service busy","retry_after_seconds":5}}` |
 
 A refused address pays its 1 credit, and so does a failed query. A `503` costs nothing. A failed
 query asks the resolver and the vendors nothing.
@@ -3119,7 +3157,7 @@ next domain of a service that rotates them, or a user's own domain with a catch-
 | `400`  | No address after `/email_address_check/` | `{"error":{"code":"bad_request","message":"email is required"}}` |
 | `500`  | The database is unavailable or the query failed, or a stored value cannot be read | `{"error":{"code":"internal_error","message":"internal server error"}}` |
 | `502`  | The MX question got no NOERROR or NXDOMAIN answer in 5 seconds, or the domain has no MX record and its A and AAAA answers hold no address while one of them failed | `{"error":{"code":"upstream_unavailable","message":"upstream service unavailable"}}` |
-| `503`  | The server is busy with requests to outside services. Try again after the `Retry-After` wait | `{"error":{"code":"upstream_busy","message":"upstream service busy"}}` |
+| `503`  | The server is busy with requests to outside services. Try again after the `Retry-After` wait | `{"error":{"code":"upstream_busy","message":"upstream service busy","retry_after_seconds":5}}` |
 
 A refused address pays its 1 credit, and so do a failed query and a `502`. A `503` costs nothing.
 A failed query asks the resolver nothing.
@@ -3250,7 +3288,7 @@ are made up.
 | `checked_at` | string | When the check ran, in UTC, as `YYYY-MM-DDTHH:MM:SSZ`. A kept answer keeps the time of its own check |
 | `protocol` | string, or null | The TLS version the handshake agreed, as OpenSSL names it, such as `TLSv1.3` or `TLSv1.2` |
 | `cipher` | object, or null | `name` is the cipher as OpenSSL names it, such as `TLS_AES_256_GCM_SHA384`. `bits` is its strength in bits |
-| `key_exchange` | object, or null | `group` is the group of the key exchange, such as `x25519` or `secp256r1`. A key exchange without a named group, such as the DHE of TLS 1.2, gives the type of the server's temporary key instead, such as `DH`. `bits` is the size of that temporary key. It is null when the server sent no temporary key, as in RSA key exchange |
+| `key_exchange` | object, or null | `group` is the group of the key exchange, such as `x25519` or `secp256r1`. A key exchange without a named group, such as the DHE of TLS 1.2, gives the type of the server's temporary key instead, such as `DH`. `bits` is the size of that temporary key as OpenSSL reports it: `x25519` shows 253 in the example above. It is null when the server sent no temporary key, as in RSA key exchange |
 | `alpn_protocol` | string, or null | The ALPN protocol the server picked, such as `h2` or `http/1.1`, the two the check offers. OpenSSL does not check that the server picked one of them. It is null when the server picked none, or a name longer than 15 bytes |
 | `secure_renegotiation` | boolean, or null | True when the server sent the `renegotiation_info` extension of RFC 5746, and false when it did not. It is null for TLS 1.3, which has no renegotiation |
 | `trusted` | boolean | True when `problems` is empty. It does not depend on `revocation` |
@@ -3269,7 +3307,7 @@ A text the server cannot read is null. So is a name longer than 512 bytes.
 | Field | Type | Description |
 |-------|------|-------------|
 | `subject` | string, or null | The common name of the subject |
-| `issuer` | string, or null | The organization of the issuer. It is the issuer's common name when the issuer names no organization, or one longer than 512 bytes |
+| `issuer` | string, or null | The organization of the issuer. It is the issuer's common name when the issuer names no organization, or one longer than 512 bytes. `chain[0].issuer` holds the issuer's whole name, as RFC 2253 writes it |
 | `serial_number` | string, or null | The serial number in upper case hex. A serial number whose hex text is longer than 40 characters is null |
 | `sha256_fingerprint` | string | The SHA-256 digest of the certificate's DER bytes, as 64 hex digits in lower case |
 | `sha1_fingerprint` | string | The SHA-1 digest of the certificate's DER bytes, as 40 hex digits in lower case. The SSL Blacklist names a certificate by this digest |
@@ -3325,7 +3363,7 @@ checked with 300 seconds of slack.
 | `400`  | No address of the host name is globally reachable, or its records lead to a name only a local network can answer. The server opens no connection | `{"error":{"code":"bad_request","message":"hostname has no globally reachable address"}}` |
 | `404`  | The resolver said the host name does not exist, or that it has no A or AAAA record | `{"error":{"code":"not_found","message":"hostname does not exist"}}` |
 | `502`  | The resolver gave no answer the server can use, such as a timeout or SERVFAIL, and no answer held an address | `{"error":{"code":"upstream_unavailable","message":"upstream service unavailable"}}` |
-| `503`  | The server is busy with requests to outside services. Try again after the `Retry-After` wait | `{"error":{"code":"upstream_busy","message":"upstream service busy"}}` |
+| `503`  | The server is busy with requests to outside services. Try again after the `Retry-After` wait | `{"error":{"code":"upstream_busy","message":"upstream service busy","retry_after_seconds":5}}` |
 | `504`  | The server reached no TLS server at the host name. The message says why, as the table below lists | `{"error":{"code":"target_unreachable","message":"no address of the host name took a connection on port 443"}}` |
 
 | `504` message | When |
@@ -3636,7 +3674,7 @@ issue below warns, and it names no origin.
 | `400`  | `include_full_header_values` is neither `true` nor `false` | `{"error":{"code":"bad_request","message":"include_full_header_values must be true or false"}}` |
 | `400`  | The server refused an address of the host name, because it is not globally reachable, and no other address took the connection. The message is in the table below | `{"error":{"code":"bad_request","message":"hostname resolves to an address that is not globally reachable"}}` |
 | `502`  | The fetch failed in another way, such as an answer with more than 16 copies of one header the check reads, other than `Set-Cookie` | `{"error":{"code":"upstream_unavailable","message":"upstream service unavailable"}}` |
-| `503`  | The server is busy with requests to outside services. Try again after the `Retry-After` wait | `{"error":{"code":"upstream_busy","message":"upstream service busy"}}` |
+| `503`  | The server is busy with requests to outside services. Try again after the `Retry-After` wait | `{"error":{"code":"upstream_busy","message":"upstream service busy","retry_after_seconds":5}}` |
 | `504`  | The site gave no answer. The message says why, as the table below lists | `{"error":{"code":"target_unreachable","message":"the host name did not resolve"}}` |
 
 | Message | Status | When |
@@ -3671,7 +3709,7 @@ server is asked over WHOIS when the server's table of WHOIS servers names one, a
 table lists 37 TLDs on 18 WHOIS servers. A server was listed only after its terms were read, and
 every week the terms are read again. A TLD of the table that gets an RDAP server in IANA's file is
 asked over RDAP once the copy holds that server. A domain under a TLD in neither table, such as
-`de` and `tr`, gets `available` false with the reason `no_registry_server`. The server then sends
+`de` and `tr`, gets `available` false and `registered` null, with the reason `no_registry_server`. The server then sends
 no request.
 
 **How it asks.** An RDAP request uses HTTPS only and follows at most 5 redirects, each to HTTPS.
@@ -3686,7 +3724,7 @@ TLDs of one host share one count. `com` and `net` share the host `rdap.verisign.
 Verisign and of most listed WHOIS servers forbid high-volume, automated queries. The background
 scans of watched names use the same counts, but they take at most 10 RDAP requests a minute to one
 host and 3 WHOIS queries a minute to one server. So callers keep the rest of each count. A request
-past the limit gets `available` false with the reason `quota_exhausted`, and `retry_after_seconds`
+past the limit gets `available` false and `registered` null, with the reason `quota_exhausted`, and `retry_after_seconds`
 holds the seconds left in the minute. The limit of a server is shared by all callers, and no tier
 has a share of its own. So one caller can use up a server's minute for everyone.
 
@@ -3723,6 +3761,7 @@ servers are made up.
 {
   "domain": "example.com",
   "available": true,
+  "registered": true,
   "rdap_server": "https://rdap.verisign.com/com/v1/",
   "whois_server": null,
   "registrar_name": "Example Registrar, Inc.",
@@ -3750,19 +3789,20 @@ A domain under a TLD that the server asks over WHOIS names the WHOIS server inst
 A domain under a TLD in neither table gets an answer without a registration:
 
 ```json
-{"domain":"example.de","available":false,"reason":"no_registry_server","retry_after_seconds":null}
+{"domain":"example.de","available":false,"registered":null,"reason":"no_registry_server","retry_after_seconds":null}
 ```
 
 A request past the limit of its server gets the wait in seconds:
 
 ```json
-{"domain":"example.com","available":false,"reason":"quota_exhausted","retry_after_seconds":42}
+{"domain":"example.com","available":false,"registered":null,"reason":"quota_exhausted","retry_after_seconds":42}
 ```
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `domain` | string | The registrable domain the server asked about, in lower case |
 | `available` | boolean | True when the answer holds the registration. It does not tell whether the domain is free to register |
+| `registered` | boolean, or null | `registered` is true when the answer holds the registration. It is null when the server could not ask the registry, and `reason` says why. A domain that is not registered answers `404`, so it is never false |
 | `reason` | string | Why the answer holds no registration, below. It is present only when `available` is false |
 | `retry_after_seconds` | integer, or null | The seconds to wait before the server asks that registry's server again. It is an integer for `quota_exhausted`, and null for any other reason. It is present only when `available` is false |
 | `rdap_server` | string, or null | The base URL of the RDAP server, as IANA's file names it. It is null when the server asked a WHOIS server |
@@ -3776,7 +3816,7 @@ A request past the limit of its server gets the wait in seconds:
 | `name_server_count` | integer | How many name servers the answer held, without the ones left out. It counts the ones past the first 16 too |
 | `dnssec_signed` | boolean, or null | `delegationSigned` of the `secureDNS` member. It is null when the answer does not say |
 
-An answer without a registration holds only `domain`, `available`, `reason` and
+An answer without a registration holds only `domain`, `available`, `registered`, `reason` and
 `retry_after_seconds`. The server reads no entity but the registrar, so the answer holds no
 registrant and no contact. An answer with a registration names one server: one of `rdap_server`
 and `whois_server` is a string, and the other is null.
@@ -3828,7 +3868,7 @@ that the server can read wins.
 | `500`  | The server could not count the request, or could not check whether the RDAP server asked it to wait. This can happen for any name the server accepts | `{"error":{"code":"internal_error","message":"internal server error"}}` |
 | `502`  | The RDAP server gave no answer the server can use, such as no answer within 5000 ms, a status other than 200, 404 or 429, a body longer than 256 KiB, or a body that is not an RDAP domain object | `{"error":{"code":"upstream_unavailable","message":"upstream service unavailable"}}` |
 | `502`  | The WHOIS server gave no answer the server can use, such as no address that took the connection, no whole answer within 5000 ms, a reset connection, an answer longer than 65536 bytes, or an answer whose domain line does not name the registrable domain or names another domain too | `{"error":{"code":"upstream_unavailable","message":"upstream service unavailable"}}` |
-| `503`  | The server is busy with requests to outside services. Try again after the `Retry-After` wait | `{"error":{"code":"upstream_busy","message":"upstream service busy"}}` |
+| `503`  | The server is busy with requests to outside services. Try again after the `Retry-After` wait | `{"error":{"code":"upstream_busy","message":"upstream service busy","retry_after_seconds":5}}` |
 
 A refused name pays its 1 credit, and so do a `404`, a `502` and a `500`. A `503` costs nothing.
 
@@ -3939,10 +3979,10 @@ A request past the limit gets an answer without the capture list:
 | `retry_after_seconds` | integer | The seconds to wait before the server sends the CDX server a request again. It is present only when `available` is false |
 | `first_seen` | string, or null | The day of the earliest capture, as `YYYY-MM-DD` in UTC. It is null when the host has no capture |
 | `last_seen` | string, or null | The day of the latest capture, as `YYYY-MM-DD` in UTC. It is null when the host has no capture |
-| `years_online` | integer, or null | The year of `last_seen` minus the year of `first_seen`. It is at least 1, so a host captured in one year only gets 1. It is null when the host has no capture |
+| `years_online` | integer, or null | The year of `last_seen` minus the year of `first_seen`. It is at least 1, so a host captured in one year only gets 1. It is null when the host has no capture. It is the span of the archive's captures, not the age of the domain. `created_at` of [`/whois_lookup`](#whois-lookup-get-whois_lookupdomain) gives the registration date |
 | `latest_captures` | array of objects | The latest capture days, at most 10, the latest first. Each day holds one capture. The array is empty when the host has no capture |
 | `latest_captures[].captured_at` | string | The time of the capture in UTC, such as `2026-10-24T16:22:30Z` |
-| `latest_captures[].http_status` | integer, or null | The HTTP status of the captured answer. It is null when the CDX server wrote `-` |
+| `latest_captures[].http_status` | integer, or null | The HTTP status of the captured answer. It is null when the CDX server wrote `-`, that is, when the archive lists no status for the capture |
 | `latest_captures[].media_type` | string, or null | The media type of the captured answer. It is null when the CDX server wrote `-`, a value that is not a string, or one longer than 127 bytes |
 | `latest_captures[].url` | string | The link to the capture: `https://web.archive.org/web/`, the capture time as 14 digits, `/` and the host name |
 | `archive_url` | string | The link to the host's home page on the Wayback Machine: `https://web.archive.org/web/*/` and the host name |
@@ -3964,7 +4004,7 @@ An answer without the capture list holds only `domain`, `available`, `reason` an
 | `400`  | No host name after `/wayback_lookup/` | `{"error":{"code":"bad_request","message":"domain is required"}}` |
 | `500`  | The server could not count the CDX request, or could not check whether the CDX server asked it to wait | `{"error":{"code":"internal_error","message":"internal server error"}}` |
 | `502`  | The CDX server gave no answer the server can use, such as no answer before the 10000 ms deadline, a status other than 200 or 429, a body longer than 64 KiB, a body that is not a list of captures, more captures than the server asked for, or no earliest capture in the answer of the second request | `{"error":{"code":"upstream_unavailable","message":"upstream service unavailable"}}` |
-| `503`  | The server is busy with requests to outside services. Try again after the `Retry-After` wait | `{"error":{"code":"upstream_busy","message":"upstream service busy"}}` |
+| `503`  | The server is busy with requests to outside services. Try again after the `Retry-After` wait | `{"error":{"code":"upstream_busy","message":"upstream service busy","retry_after_seconds":5}}` |
 
 A refused name pays its 1 credit, and so do a `502` and a `500`. A `503` costs nothing.
 
@@ -4109,7 +4149,7 @@ An answer without the certificate list holds no `complete`. It holds only `domai
 | `400`  | No host name after `/cert_search/` | `{"error":{"code":"bad_request",…}}`, with the message of the same row in [Wayback Lookup](#wayback-lookup-get-wayback_lookupdomain) |
 | `500`  | The server could not count the request, or could not check whether Cert Spotter asked it to wait | `{"error":{"code":"internal_error","message":"internal server error"}}` |
 | `502`  | Cert Spotter gave no answer the server can use, such as no answer within 10000 ms to any request of the walk, a status other than 200 or 429, a body longer than 2097152 bytes, or a body that is not a JSON array. The server also answers `502` when it has no API key for Cert Spotter | `{"error":{"code":"upstream_unavailable","message":"upstream service unavailable"}}` |
-| `503`  | The server is busy with requests to outside services. Try again after the `Retry-After` wait | `{"error":{"code":"upstream_busy","message":"upstream service busy"}}` |
+| `503`  | The server is busy with requests to outside services. Try again after the `Retry-After` wait | `{"error":{"code":"upstream_busy","message":"upstream service busy","retry_after_seconds":5}}` |
 
 A refused name pays its 2 credits, and so do a `502` and a `500`. A `503` costs nothing.
 
@@ -4263,7 +4303,7 @@ A request past the limit still gets the DNS names:
 | `400`  | No domain after `/subdomain_enum/` | `{"error":{"code":"bad_request",…}}`, with the message of the same row in [Wayback Lookup](#wayback-lookup-get-wayback_lookupdomain) |
 | `400`  | The name is a public suffix, such as `co.uk`. The server asks no DNS question and sends no request | `{"error":{"code":"bad_request",…}}`, with the message of the same row in [WHOIS Lookup](#whois-lookup-get-whois_lookupdomain) |
 | `500`  | The server could not count the request, or could not check whether Cert Spotter asked it to wait. The server then asks no DNS question. A public suffix can get this `500` too | `{"error":{"code":"internal_error","message":"internal server error"}}` |
-| `503`  | The server is busy with requests to outside services. Try again after the `Retry-After` wait | `{"error":{"code":"upstream_busy","message":"upstream service busy"}}` |
+| `503`  | The server is busy with requests to outside services. Try again after the `Retry-After` wait | `{"error":{"code":"upstream_busy","message":"upstream service busy","retry_after_seconds":5}}` |
 
 A refused name pays its 2 credits, and so does a `500`. A `503` costs nothing. No answer of Cert Spotter makes the request fail. The answer then
 lists the DNS names, with `certificate_logs_available` false.
@@ -4411,7 +4451,7 @@ bytes, a 5-byte signature is expected about 0.000015 times.
 | `405`  | A method other than `POST`. The `Allow` header is `POST` | `{"error":{"code":"method_not_allowed","message":"method not allowed for this endpoint"}}` |
 | `413`  | `Content-Length` announces more than 16 MiB | `{"error":{"code":"content_too_large","message":"request body too large"}}` |
 | `502`  | exiftool gave no answer the server can use: no connection, a cut or late answer, one longer than the server reads, or one that is not exiftool's JSON | `{"error":{"code":"upstream_unavailable","message":"upstream service unavailable"}}` |
-| `503`  | Every place for an image request is in use. The response carries `Retry-After: 10`. The server then reads and drops what the client still sends, as after a `413` | `{"error":{"code":"raw_body_busy","message":"too many raw request bodies at once"}}` |
+| `503`  | Every place for an image request is in use. The response carries `Retry-After: 10`. The server then reads and drops what the client still sends, as after a `413` | `{"error":{"code":"raw_body_busy","message":"too many raw request bodies at once","retry_after_seconds":10}}` |
 
 A refused image pays its 2 credits, and so does a `502`. A `413` and a `503` cost nothing, because
 they are answered from the head, before the API key is read.
@@ -4710,7 +4750,7 @@ The answer of a package list edit, here an `add` of two packages of which the li
 | `400`  | An add of a new `package_check` item, or a package list `add` that adds one, that would make the package items of the list weigh more than 100000. A list at the package item cap answers the `400` above instead. An add of an item the list holds answers that item | `{"error":{"code":"bad_request","message":"watchlist package items weigh at most 100000: each weighs 100 plus the OSV rows of its package and 1 per 20 versions those rows list"}}` |
 | `400`  | An add of a domain item whose name would be the key's 21st name under its registered domain. A list of 100 items that are not package items answers the `400` above instead | `{"error":{"code":"bad_request","message":"limit: at most 20 watched names per registered domain per key"}}` |
 | `405`  | A method other than `POST` | `Allow: POST` |
-| `503`  | An add of a `dns_lookup`, `ssl_check`, `headers_check` or `cert_search` item while the server is busy with requests to outside services, because the add asks DNS about the name. Such an add gets it also without a Pro key or with a wrong item shape. No other call of this endpoint gets this `503` | `{"error":{"code":"upstream_busy","message":"upstream service busy"}}` |
+| `503`  | An add of a `dns_lookup`, `ssl_check`, `headers_check` or `cert_search` item while the server is busy with requests to outside services, because the add asks DNS about the name. Such an add gets it also without a Pro key or with a wrong item shape. No other call of this endpoint gets this `503` | `{"error":{"code":"upstream_busy","message":"upstream service busy","retry_after_seconds":5}}` |
 
 ---
 
@@ -4770,12 +4810,13 @@ When some events come:
 - `exploitdb_added`: a CVE that had no ExploitDB entry gets one. The first load of the ExploitDB list writes none.
 - `github_poc_added`: a CVE gets its first GitHub PoC repository in the nomi-sec list. The first load of the list writes none, and neither does a CVE that is not in the CVE data. A CVE that loses all its repositories and gets one back writes the event again.
 - A `metasploit_added`, `nuclei_template_added` or `exploitdb_added` event can come later than the module, template or entry it follows.
+- `exploit_published`, `metasploit_added`, `nuclei_template_added` and `exploitdb_added`: a CVE that enters the CVE data after its exploit data exists writes none of them. It writes `cve_added`, and `kev_added` if it is in KEV. A `cve_exploit` item does not hear `cve_added`. The four events come only when a later change turns the flag on or raises the count from 0.
 - `description_changed`: the description text changes. Four changes write none: a change of whitespace alone (at the ends, or in the length of a run of it), the first text of a CVE that came with none, a new text of a CVE that is or becomes Rejected, and a text that replaces the short description that the KEV feed wrote before NVD published the CVE.
 - `cvss_score_changed`: a CVE that had a CVSS vector changes a score or the vector and stays in the same severity band, or its last vector is removed.
 - `cwe_changed`: the set of the CWE ids of the CVE changes. A new order of the same ids writes none.
 - `kev_updated`: a CVE that stays in KEV gets another due date, required action or vulnerability name, or another date added.
 - `ghsa_linked`: a GitHub advisory newly names the CVE. Each advisory writes its own event, and an advisory that drops the CVE and names it again writes another.
-- `exploit_published` follows NVD's `Exploit` tag only. It does not count the Exploit-DB and Packet Storm references that `/cve_exploit` counts.
+- `exploit_published` follows the `Exploit` tag of NVD or the CNA only. A CVE row that is first written with a reference tagged `Exploit` also writes `exploit_published`. It writes `vendor_advisory_published` and `patch_published` the same way for a reference tagged `Vendor Advisory` or `Patch`. It does not count the Exploit-DB and Packet Storm references that `/cve_exploit` counts.
 - `ssvc_added`: CISA gives an SSVC assessment to a CVE that has none. `ssvc_changed`: the exploitation, automatable or technical impact value of the assessment changes. Neither carries a value: the `ssvc` object of [CVE Lookup](#cve-lookup-get-cve_lookupcve_id) gives the assessment now.
 
 EPSS events. The EPSS levels are 0.05, 0.1, 0.2, 0.3, 0.5, 0.7 and 0.9. An `epss_level_up` event
@@ -4783,7 +4824,9 @@ comes when the EPSS score reaches a level above the one the CVE holds. An `epss_
 comes when the score falls under 0.8 times a level the CVE holds. So a score that falls back a
 little after it reaches a level writes no level event. A score set to 0 because the EPSS feed has
 left the CVE out for 7 days writes no EPSS event. Each of the two carries both scores, and a move
-past more than one level writes one event.
+past more than one level writes one event. When the feed scores a CVE set to 0 again, the server
+first puts back the last score it had in the past 365 days. So a return with the same score writes
+no EPSS event, and a return with another score writes its events from that last score.
 
 A `cve_search` item that sets `min_epss` also hears two events of its own. An `epss_above_min`
 event comes when the EPSS score rises from under the `min_epss` of the item to `min_epss` or above.
@@ -4845,10 +4888,13 @@ product. The server writes them when it loads the release cycles of
   another. A date that appears or goes away is not a move and writes no event.
 
 A cycle whose `eol_date` is today writes both `eol_approaching` and `eol_reached`. A cycle that is
-new in the data is told the same way as any other. The first load of the data writes no event,
-and neither does a load that runs with change events switched off. A load still records what it saw,
-so a later load does not tell the same state again. When a load writes several events for one cycle,
-they come in this order: `eol_date_changed`, `eol_approaching`, `eol_reached`.
+new in the data writes `eol_reached` only when its end is at most 30 days past, and never when it
+has no `eol_date`. So a new product does not tell the old ends of its cycles as news. A cycle or a
+product that endoflife.date leaves out and lists again counts as new: it can write `eol_approaching`
+again, and `eol_reached` again when its end is at most 30 days past. The first load of the data
+writes no event, and neither does a load that runs with change events switched off. A load still
+records what it saw, so a later load does not tell the same state again. When a load writes several
+events for one cycle, they come in this order: `eol_date_changed`, `eol_approaching`, `eol_reached`.
 
 A `product_exposure` item hears the events of the endoflife.date product that
 [`/product_exposure`](#the-eol-member) shows for its `vendor` and `product`. A pair that maps to no
@@ -5229,7 +5275,7 @@ curl "https://api.contrastcyber.com/watchlist_events?limit=50" -H "X-API-Key: $K
 | `cves[].in_kev` | boolean | Whether the CVE is in the CISA KEV catalog now |
 | `cves[].kev_patch_deadline` | string or null | The patch deadline of the CVE's KEV entry. An entry with no deadline gives `""`. `null` when the database holds no KEV entry for the CVE |
 | `cves[].known_ransomware` | boolean | Whether the KEV entry records ransomware use. `false` without an entry |
-| `cves[].has_metasploit`, `cves[].poc_count` | boolean, integer | Whether a Metasploit module exists, and the number of references tagged `"Exploit"`. `poc_count` counts only those tagged references. `risk_score` reads the public PoC count of [`/cve_risk_score`](#cve-risk-score-get-cve_risk_scorecve_id) instead: the exploit references in the NVD record, also those with no `"Exploit"` tag, or 1 when the NVD record lists none and ExploitDB lists the CVE |
+| `cves[].has_metasploit`, `cves[].poc_count` | boolean, integer | Whether a Metasploit module exists, and the number of references tagged `"Exploit"` by NVD or by the CNA. `poc_count` counts only those tagged references. `risk_score` reads the public PoC count of [`/cve_risk_score`](#cve-risk-score-get-cve_risk_scorecve_id) instead: the exploit references in the NVD and CNA records, also those with no `"Exploit"` tag, or 1 when those records list none and ExploitDB lists the CVE |
 | `advisories` | object | One entry per advisory of the package events of the page, keyed by advisory id, in the order the answer first names each. `{}` when there is none |
 | `advisories[].source` | string or null | The source of the advisory: `ghsa`, `go`, `pysec`, `rustsec` or `mal`. `null` when the server no longer holds the advisory |
 | `advisories[].aliases` | array | The other ids of the advisory, such as CVE ids. `[]` when the server no longer holds the advisory |
@@ -5362,7 +5408,7 @@ A feed whose name, time or status cannot be read is left out of `db.feeds`. The 
 ```json
 {
   "status": "ok",
-  "version": "2.0.3",
+  "version": "2.0.4",
   "db": {
     "nvd": {
       "cve_count": 251430,
@@ -5396,7 +5442,7 @@ A feed whose name, time or status cannot be read is left out of `db.feeds`. The 
 When the database cannot be read, the answer is HTTP 503 with a `Retry-After: 5` header and this body:
 
 ```json
-{"status":"unavailable","version":"2.0.3","db":null}
+{"status":"unavailable","version":"2.0.4","db":null}
 ```
 
 ---
@@ -5584,7 +5630,7 @@ Each refusal text starts with its code and holds no value of the request.
 | `400`  | A member that appears twice | `{"error":{"code":"bad_request","message":"action appears more than once"}}`, and the same for the other members |
 | `405`  | A method other than `POST` | `Allow: POST` |
 | `500`  | The database is unavailable or a query failed, a key could not be sealed, or the link could not be hashed | `{"error":{"code":"internal_error","message":"internal server error"}}` |
-| `503`  | An apply that brings a key, or a status that brings a link, while the server is busy with requests to outside services. A delete-only apply and a status without a link never get it | `{"error":{"code":"upstream_busy","message":"upstream service busy"}}` |
+| `503`  | An apply that brings a key, or a status that brings a link, while the server is busy with requests to outside services. A delete-only apply and a status without a link never get it | `{"error":{"code":"upstream_busy","message":"upstream service busy","retry_after_seconds":5}}` |
 
 See [HTTP status codes](#http-status-codes).
 
@@ -5721,18 +5767,18 @@ A bulk request is paid at full price for every id. There is no partial charge. `
 | 429 | `payment_limited` | A client, a payment or a paying token account is over one of its limits. | `Retry-After` (seconds until the limit lets the client try again) |
 | 503 | `payment_unavailable` | Both settle places are taken, or the facilitator gave no answer to the verify. | `Retry-After: 5` |
 
-Each body has the shape of every other error. These are the bodies, byte for byte:
+Each body has the shape of every other error. A REST body sent with `Retry-After` also holds `retry_after_seconds`, with the same seconds. These are the bodies, byte for byte:
 
 ```json
-{"error":{"code":"payment_required","message":"Payment required: pay with x402 or retry after the reset."}}
+{"error":{"code":"payment_required","message":"Payment required: pay with x402 or retry in 120 seconds.","retry_after_seconds":120}}
 {"error":{"code":"payment_refused","message":"The payment was refused."}}
 {"error":{"code":"payment_already_used","message":"This payment was already used."}}
-{"error":{"code":"payment_pending","message":"The payment is pending: retry with the same payment."}}
+{"error":{"code":"payment_pending","message":"The payment is pending: retry with the same payment.","retry_after_seconds":10}}
 {"error":{"code":"payment_invalid","message":"The payment header is not valid."}}
 {"error":{"code":"payment_not_offered","message":"This endpoint does not accept payment."}}
-{"error":{"code":"payment_busy","message":"This payment or another one from its wallet is in flight: retry shortly."}}
-{"error":{"code":"payment_limited","message":"Too many payment attempts: retry later."}}
-{"error":{"code":"payment_unavailable","message":"Payments are unavailable right now: retry shortly."}}
+{"error":{"code":"payment_busy","message":"This payment or another one from its wallet is in flight: retry shortly.","retry_after_seconds":5}}
+{"error":{"code":"payment_limited","message":"Too many payment attempts: retry later.","retry_after_seconds":37}}
+{"error":{"code":"payment_unavailable","message":"Payments are unavailable right now: retry shortly.","retry_after_seconds":5}}
 ```
 
 The header value may be up to 3416 bytes long. A long request target together with such a header can make the request head too large. The server then answers `431`.
@@ -5783,7 +5829,7 @@ Every request that is charged credits carries the following rate limit headers, 
 | `X-RateLimit-Reset-Machine`  | integer | Unix timestamp when the budget resets (next hour boundary) |
 | `X-RateLimit-Reset-Human`    | string  | Time remaining until reset in `HH:MM:SS` format (e.g. `00:39:38`) |
 
-A 429 also carries a `Retry-After` header with the seconds until the budget resets. A payment (x402) carries the two headers below. A paid answer carries no `X-RateLimit-*` headers. See [Pay per call (x402)](#pay-per-call-x402).
+A 429 also carries a `Retry-After` header with the seconds until the budget resets, and its body holds the same seconds as `retry_after_seconds`. A payment (x402) carries the two headers below. A paid answer carries no `X-RateLimit-*` headers. See [Pay per call (x402)](#pay-per-call-x402).
 
 | Header             | Type   | Description |
 |--------------------|--------|-------------|
@@ -5791,6 +5837,12 @@ A 429 also carries a `Retry-After` header with the seconds until the budget rese
 | `PAYMENT-RESPONSE` | string | On a paid `200`: base64 of the JSON with `success`, `transaction` and `network` |
 
 `POST /cve_lookup_bulk` costs 1 credit per well-formed ID, so `X-RateLimit-Remaining` after a 10-ID request drops by 10. With fewer credits left than IDs, the request is charged the credits that remain and lists the IDs it did not process in `not_processed`. Use this header to decide how many IDs to batch in the next call.
+
+---
+
+## The available member
+
+The `available` member says whether that source or lookup answered. It says nothing about the thing looked up, such as a domain being free or a feature being present. `false` comes with a `reason`. In the `data_source` object of a bulk call that looked up nothing, `available` is `null`.
 
 ---
 
@@ -5817,7 +5869,7 @@ A text member of a JSON body (the `/mcp` arguments, the `/watchlist_edit` body) 
 A REST endpoint answers an error with a JSON body of this shape:
 
 ```json
-{"error":{"code":"rate_limited","message":"rate limit exceeded"}}
+{"error":{"code":"rate_limited","message":"rate limit exceeded","retry_after_seconds":42}}
 ```
 
 `code` names the error for a program to match. `message` explains it to a person. This table lists every `code` the server sends. `/health` is an exception: its 503 carries the health body, not this shape. See [Health](#health).
@@ -5836,12 +5888,12 @@ A REST endpoint answers an error with a JSON body of this shape:
 | 402 | `payment_refused` | The payment was refused. The answer carries a new `PAYMENT-REQUIRED` header. |
 | 402 | `payment_already_used` | The payment was settled already. The answer carries a new `PAYMENT-REQUIRED` header. |
 | 402 | `payment_pending` | The settle has no result yet. Retry with the same payment. The response carries `Retry-After: 10`. |
-| 404 | `not_found` | Neither an endpoint nor a web file serves the path, or the CVE, KEV entry, CWE, domain, host name or AS does not exist, or the domain is not registered. |
+| 404 | `not_found` | Neither an endpoint nor a web file serves the path, or the CVE, KEV entry, CWE, domain, host name or AS does not exist, or the domain is not registered. A `/cve_lookup/` 404 may add `cve_org_state`, and `retry_after_seconds` for the state `published`, to its `error` object. |
 | 405 | `method_not_allowed` | The endpoint or web file does not accept the HTTP method. The `Allow` header lists the methods it accepts. |
 | 410 | `gone` | `POST /api_key_claim` names an order whose key was claimed already, whose 24-hour claim window has passed, or that was refunded or has ended. `message` says which. |
 | 413 | `content_too_large` | The body that `Content-Length` announces is longer than the endpoint takes. Any request may carry a body that fits, with its head, in 4095 bytes. A POST to a row that reads a JSON body may also carry as many bytes as its JSON object limit: 2048, or 65536 on `/package_check_bulk` and `/watchlist_edit`. A POST to `/mcp` may carry 69632 bytes, a POST to `/image_inspect` 16 MiB, a POST to `/webhook_lemonsqueezy` 64 KiB (65536 bytes), and a POST to `/webhook_nowpayments` 64 KiB (65536 bytes). |
 | 414 | `uri_too_long` | The request target is longer than 1023 bytes, or the request line does not fit in 4095 bytes. |
-| 429 | `rate_limited` | The caller's credit budget is spent. |
+| 429 | `rate_limited` | The caller's credit budget is spent. The `Retry-After` header and `retry_after_seconds` give the seconds until the budget resets. |
 | 429 | `payment_busy` | The payment, or another payment of its wallet, is in flight. The response carries `Retry-After: 5`. |
 | 429 | `payment_limited` | A client, a payment or a paying token account is over one of its payment limits. The `Retry-After` header gives the wait. |
 | 431 | `request_header_fields_too_large` | The request has more than 64 header lines, or its head does not fit in 4095 bytes. |
@@ -5853,7 +5905,7 @@ A REST endpoint answers an error with a JSON body of this shape:
 | 503 | `payment_unavailable` | Both settle places are taken, or the facilitator gave no answer to the verify. The response carries `Retry-After: 5`. |
 | 504 | `target_unreachable` | `/ssl_check/` reached no TLS server at the host name. No address took a connection on port 443, the deadline of the check passed, or the TLS handshake failed. `/headers_check/` got no answer from the site: the host name did not resolve, no address took a connection on port 443, the deadline passed, or the TLS handshake failed. `message` says why. |
 
-`POST /mcp` uses this shape for its 400, 405, 413, 414, 431 and 501 answers. Its 400 refuses a query parameter on the URL, or the request's framing. Its 401, 429, 500 and 503 answers keep their HTTP status, but the body is a JSON-RPC `error` object with the `message` this table's row sends. A JSON-RPC fault on `/mcp` answers a JSON-RPC `error` object too. Its `code` is a number. The `ssl_check` and `headers_check` tools answer a `target_unreachable` case with a tool result that has `isError` and the same `message`. See [MCP: `POST /mcp`](#mcp-post-mcp).
+`POST /mcp` uses this shape for its 400, 405, 413, 414, 431 and 501 answers. Its 400 refuses a query parameter on the URL, or the request's framing. Its 401, 429, 500 and 503 answers keep their HTTP status, but the body is a JSON-RPC `error` object with the `message` this table's row sends. The `rate_limited` 429 `message` also names the wait, as in `rate limit exceeded: retry in 42 seconds`. A JSON-RPC fault on `/mcp` answers a JSON-RPC `error` object too. Its `code` is a number. The `ssl_check` and `headers_check` tools answer a `target_unreachable` case with a tool result that has `isError` and the same `message`. See [MCP: `POST /mcp`](#mcp-post-mcp).
 
 [HTTP status codes](#http-status-codes) lists each REST case with the endpoints it applies to.
 
@@ -5910,6 +5962,7 @@ request target counts the bytes as sent.
 | 404  | The TXT or the MX question of the domain got NXDOMAIN, and neither of the two got a NOERROR answer; body `{"error":{"code":"not_found","message":"domain does not exist"}}` | `/email_auth_check/{domain}` |
 | 404  | The resolver said the host name does not exist, or that it has no A or AAAA record; body `{"error":{"code":"not_found","message":"hostname does not exist"}}` | `/ssl_check/{domain}` |
 | 404  | The RDAP server answered 404 for the registrable domain, or the WHOIS server answered with its text for a name no one has registered; body `{"error":{"code":"not_found","message":"domain is not registered"}}`. The request still pays its credit | `/whois_lookup/{domain}` |
+| 404  | The CVE is not in our data, and CVE.org names the state of the id; body `{"error":{"code":"not_found","message":"CVE not found; CVE.org lists it as rejected","cve_org_state":"rejected"}}`. The state `published` adds `retry_after_seconds`, and there is no `Retry-After` header. The request pays 1 credit as any other `404` of this endpoint. See [CVE.org state of a missing CVE](#cveorg-state-of-a-missing-cve) | `/cve_lookup/{cve_id}` |
 | 405  | HTTP method not allowed; `Allow` header lists permitted methods. An endpoint takes no `HEAD`, and a web file's `Allow` is `GET, HEAD`. An answer to a `HEAD` request leaves its body out, a `405` too, and its `Content-Length` still counts the body. A refusal that comes before routing keeps its body: a `400` for `Content-Length` or `Transfer-Encoding`, a `413`, a `414`, a `431` or a `501`. The `400` for a body with a NUL comes after routing, so its answer to a `HEAD` request has no body | all |
 | 410  | The key of the order was claimed already, its 24-hour claim window has passed, or the order was refunded or has ended | `/api_key_claim` |
 | 413  | The body that `Content-Length` announces is longer than the endpoint takes. Any request may carry a body that fits, with its head, in 4095 bytes. A POST to a row that reads a JSON body may also carry as many bytes as its JSON object limit: 2048, or 65536 on `/package_check_bulk` and `/watchlist_edit`. A POST to `/mcp` may carry 69632 bytes, a POST to `/image_inspect` 16 MiB, a POST to `/webhook_lemonsqueezy` 64 KiB (65536 bytes), and a POST to `/webhook_nowpayments` 64 KiB (65536 bytes). The body is `{"error":{"code":"content_too_large",…}}`. Answered from the head, before the body is read, so it carries no `X-RateLimit-*` headers and costs no credits | all |
@@ -5923,7 +5976,7 @@ request target counts the bytes as sent.
 | 503  | The server is busy with requests to outside services (`upstream_busy`). The response carries `Retry-After: 5`. It costs no credits and carries no `X-RateLimit-*` headers. A request that the endpoint refuses for its method, its parameter names or its values gets that refusal instead. The 503 comes before the API key is read, so a request with a malformed, unknown, revoked or expired key gets it too | the endpoints that ask an outside service, `/mcp` |
 | 503  | Every place for an image request is in use (`raw_body_busy`). The response carries `Retry-After: 10`, the deadline that the head and the body share. It costs no credits | `/image_inspect` |
 | 503  | The payment cannot be settled now (`payment_unavailable`). The response carries `Retry-After: 5` | every endpoint that takes payment |
-| 503  | The database cannot be read. The body is `{"status":"unavailable","version":"2.0.3","db":null}` and the response carries `Retry-After: 5` | `/health` |
+| 503  | The database cannot be read. The body is `{"status":"unavailable","version":"2.0.4","db":null}` and the response carries `Retry-After: 5` | `/health` |
 | 504  | No TLS server or site was reached at the host name. `message` says why | `/ssl_check/`, `/headers_check/` |
 
 ---
@@ -5979,7 +6032,7 @@ request target counts the bytes as sent.
 | `POST /mcp` (any other method, e.g. `resources/list`) | 1 credit |
 | `POST /mcp` (`tools/call`)                        | cost of the matching endpoint (e.g. `cve_lookup` = 1, bulk = per-id) |
 
-The price belongs to the route, not to the ID. A request that reaches a route pays that route's price even when the handler refuses it: `POST /image_inspect` with an empty body answers `400` and still costs the route's 2 credits. The per-ID price is charged only when the bulk body is accepted. A request refused for its query parameter names pays the route's price, so `POST /cve_lookup_bulk?x=1` costs 1 credit whatever its body holds. A bulk body that is refused costs 1 credit, not 1 credit per ID, and so does a bulk `tools/call` that the tool refuses. An accepted bulk request pays for its well-formed IDs only, and at least 1 credit, so `{"cve_ids":["foo"]}` answers 200 and costs 1 credit. A bulk request with fewer credits left than its price is charged the credits that remain, at least 1, and serves that many IDs. Every other request is charged its whole price or refused with 429. A path that no route serves costs 1 credit, unless it is a [web file](#web-files), which costs nothing. A request with a method its route does not take answers `405` and pays the route's price, so `GET /image_inspect` costs 2 credits. `GET /mcp` and `DELETE /mcp` answer `405` and cost 0 credits. An MCP client may send a `GET` to open a stream and a `DELETE` to end a session, and this server has neither. A body is priced only on `POST`, so a bulk endpoint called with any other method costs 1 credit, and so does `/mcp` with a method other than `POST`, `GET` or `DELETE`. A `503` because the server is busy costs nothing, and so does a `503` because every place for an image request is in use.
+The price belongs to the route, not to the ID. A request that reaches a route pays that route's price even when the handler refuses it: `POST /image_inspect` with an empty body answers `400` and still costs the route's 2 credits. The per-ID price is charged only when the bulk body is accepted. A request refused for its query parameter names pays the route's price, so `POST /cve_lookup_bulk?x=1` costs 1 credit whatever its body holds. A bulk body that is refused costs 1 credit, not 1 credit per ID, and so does a bulk `tools/call` that the tool refuses. An accepted bulk request pays for its well-formed IDs only, and at least 1 credit, so `{"cve_ids":["foo"]}` answers 200 and costs 1 credit. A bulk request with fewer credits left than its price is charged the credits that remain, at least 1, and serves that many IDs. Every other request is charged its whole price or refused with 429. A path that no route serves costs 0 credits, and so does a [web file](#web-files). A request with a refused API key on such a path still pays 1 credit for the key check. A request with a method its route does not take answers `405` and pays the route's price, so `GET /image_inspect` costs 2 credits. `GET /mcp` and `DELETE /mcp` answer `405` and cost 0 credits. An MCP client may send a `GET` to open a stream and a `DELETE` to end a session, and this server has neither. A body is priced only on `POST`, so a bulk endpoint called with any other method costs 1 credit, and so does `/mcp` with a method other than `POST`, `GET` or `DELETE`. A `503` because the server is busy costs nothing, and so does a `503` because every place for an image request is in use.
 
 ---
 
@@ -6018,7 +6071,7 @@ server reads apart from NVD. An element whose name normalizes to nothing, such a
 ## Data sources and licenses
 
 Some answers hold data from catalogs and archives that their authors publish under a license or
-terms of use. The table names twenty-five of them, the license or the terms of each and the
+terms of use. The table names twenty-six of them, the license or the terms of each and the
 endpoint that serves it.
 
 | Source | License | Served by |
@@ -6036,7 +6089,8 @@ endpoint that serves it.
 | [RustSec advisory database](https://github.com/rustsec/advisory-db), through OSV.dev | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/); an advisory may name [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) instead | `/package_check`, `/package_check_bulk` |
 | [OpenSSF Malicious Packages](https://github.com/ossf/malicious-packages), through OSV.dev | [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) | `/package_check`, `/package_check_bulk` |
 | [Can I take over XYZ?](https://github.com/EdOverflow/can-i-take-over-xyz) by EdOverflow | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) | `/dns_takeover_check/` |
-| [CVE List](https://github.com/CVEProject/cvelistV5) | [CVE Program Terms of Use](https://www.cve.org/Legal/TermsOfUse), Copyright © 1999–2026 The MITRE Corporation | the `cna` and `cna_cpe` elements of `affected_products` and of `/cve_products`, and the rows they give `/cve_search`, `/cve_triage`, `/cve_leading`, `/product_exposure` and `/cpe_search` |
+| [CVE List](https://github.com/CVEProject/cvelistV5) | [CVE Program Terms of Use](https://www.cve.org/Legal/TermsOfUse), Copyright © 1999–2026 The MITRE Corporation | the description, CWE, CVSS scores, SSVC assessment, dates, reference tags and CVE tags that a CVE record gives a CVE row. A field of an equal or better source class replaces the stored one, and a CVE that NVD has not published yet takes them all. A full sync reads the GitHub release zip. A delta reads each changed record through the CVE Services API, else through GitHub. The CVE List also gives the `cna` and `cna_cpe` elements of `affected_products` and of `/cve_products`, and the rows they give `/cve_search`, `/cve_triage`, `/cve_leading`, `/product_exposure` and `/cpe_search` |
+| [CVE Services](https://cveawg.mitre.org/api-docs/) of the CVE Program | [CVE Program Terms of Use](https://www.cve.org/Legal/TermsOfUse), Copyright © 1999–2026 The MITRE Corporation; only the state of an id is read | `cve_org_state` of a `404` from `/cve_lookup/` |
 | [IPtoASN](https://iptoasn.com/) | [PDDL 1.0](https://opendatacommons.org/licenses/pddl/1-0/) | `asn`, `asn_name`, `asn_country` and part of `is_datacenter` of `/ip_lookup/`; every field of `/asn_lookup/` but `target` |
 | [DB-IP IP to Country Lite](https://db-ip.com/db/lite.php) | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/); <a href='https://db-ip.com'>IP Geolocation by DB-IP</a> | `geo_country` of `/ip_lookup/` |
 | [Tor bulk exit list](https://check.torproject.org/torbulkexitlist) of The Tor Project | The list names no license. [Tor Metrics](https://metrics.torproject.org/), the Tor Project's data site, publishes its data under [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) | `is_tor_exit` of `/ip_lookup/` |

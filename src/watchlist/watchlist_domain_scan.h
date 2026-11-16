@@ -2,7 +2,6 @@
 #define WATCHLIST_DOMAIN_SCAN_H
 
 #include <stdbool.h>
-#include <stdint.h>
 #include <libpq-fe.h>
 
 #include "usagelog.h"
@@ -28,7 +27,6 @@ typedef WatchlistDomainScanOutcome_t (*WatchlistDomainScanLaneScanFunction_t)(PG
 typedef struct {
   const char*                           mp_laneName;
   WatchlistDomainScanLaneScanFunction_t m_scanFunction;
-  int64_t*                              mp_capLineDay;
   UsageLogEvent_t                       m_capEvent;
 } WatchlistDomainScanLane_t;
 

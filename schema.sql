@@ -185,6 +185,7 @@ CREATE TABLE cves (
   cvss_v3_source          TEXT        NOT NULL DEFAULT '',
   cvss_v4_source          TEXT        NOT NULL DEFAULT '',
   cwe_source              TEXT        NOT NULL DEFAULT '',
+  description_source      TEXT        NOT NULL DEFAULT '',
   exploit_ref_count       INTEGER     NOT NULL DEFAULT 0,
   has_exploitdb           BOOLEAN     NOT NULL DEFAULT FALSE,
   epss_level              SMALLINT    NOT NULL DEFAULT 0,
@@ -199,9 +200,10 @@ CREATE TABLE cves (
   CONSTRAINT cves_ssvc_automatable_known      CHECK (ssvc_automatable IN ('no', 'yes')),
   CONSTRAINT cves_ssvc_technical_impact_known CHECK (ssvc_technical_impact IN ('partial', 'total')),
   CONSTRAINT cves_ssvc_version_known          CHECK (ssvc_version IN ('2.0.3')),
-  CONSTRAINT cves_cvss_v3_source_known        CHECK (cvss_v3_source IN ('', 'nvd', 'cna', 'adp', 'other')),
-  CONSTRAINT cves_cvss_v4_source_known        CHECK (cvss_v4_source IN ('', 'nvd', 'cna', 'adp', 'other')),
-  CONSTRAINT cves_cwe_source_known            CHECK (cwe_source     IN ('', 'nvd', 'cna', 'adp', 'other')),
+  CONSTRAINT cves_cvss_v3_source_known        CHECK (cvss_v3_source     IN ('', 'nvd', 'cna', 'adp', 'other')),
+  CONSTRAINT cves_cvss_v4_source_known        CHECK (cvss_v4_source     IN ('', 'nvd', 'cna', 'adp', 'other')),
+  CONSTRAINT cves_cwe_source_known            CHECK (cwe_source         IN ('', 'nvd', 'cna', 'adp', 'other')),
+  CONSTRAINT cves_description_source_known    CHECK (description_source IN ('', 'nvd', 'cna', 'adp', 'other')),
   CONSTRAINT cves_ssvc_all_or_none CHECK (num_nulls(ssvc_exploitation, ssvc_automatable, ssvc_technical_impact, ssvc_version) IN (0, 4)),
   CONSTRAINT cves_ssvc_scored_at_needs_values CHECK (ssvc_scored_at IS NULL OR ssvc_version IS NOT NULL),
   CONSTRAINT cves_refs_objects CHECK (
@@ -219,31 +221,55 @@ CREATE INDEX idx_cves_cwe_id         ON cves(cwe_id) INCLUDE (vulnerability_stat
 CREATE INDEX idx_cves_poc_count      ON cves(poc_count);
 CREATE INDEX idx_cves_nuclei_published ON cves (published_time DESC, cve_id) INCLUDE (severity, vulnerability_status) WHERE has_nuclei_template;
 
+CREATE FUNCTION public.fn_jsonb_array_or_empty(p_value jsonb) RETURNS jsonb
+  LANGUAGE sql IMMUTABLE SECURITY INVOKER
+  SET search_path = pg_catalog
+  RETURN CASE WHEN jsonb_typeof(p_value) = 'array' THEN p_value ELSE '[]'::jsonb END;
+
+CREATE FUNCTION public.fn_jsonb_array_union(p_first jsonb, p_second jsonb) RETURNS jsonb
+  LANGUAGE sql IMMUTABLE SECURITY INVOKER
+  SET search_path = pg_catalog
+  BEGIN ATOMIC
+    WITH listed AS (
+      SELECT element.original, 1 AS list_order, element.position
+        FROM jsonb_array_elements(public.fn_jsonb_array_or_empty(p_first)) WITH ORDINALITY AS element (original, position)
+      UNION ALL
+      SELECT element.original, 2 AS list_order, element.position
+        FROM jsonb_array_elements(public.fn_jsonb_array_or_empty(p_second)) WITH ORDINALITY AS element (original, position)),
+    first_place AS (
+      SELECT DISTINCT ON (l.original) l.original, l.list_order, l.position
+        FROM listed AS l
+       ORDER BY l.original, l.list_order, l.position)
+
+    SELECT coalesce(jsonb_agg(fp.original ORDER BY fp.list_order, fp.position), '[]'::jsonb)
+      FROM first_place AS fp;
+  END;
+
+CREATE FUNCTION public.fn_cve_ref_tags(p_ref jsonb) RETURNS jsonb
+  LANGUAGE sql IMMUTABLE SECURITY INVOKER
+  RETURN public.fn_jsonb_array_union(p_ref -> 'nvd_tags', p_ref -> 'cna_tags');
+
+CREATE FUNCTION public.fn_source_class_rank(p_class text) RETURNS integer
+  LANGUAGE sql IMMUTABLE SECURITY INVOKER
+  SET search_path = pg_catalog
+  RETURN CASE p_class WHEN 'cna' THEN 1 WHEN 'nvd' THEN 2 WHEN 'adp' THEN 3 WHEN 'other' THEN 4 ELSE 5 END;
+
 CREATE FUNCTION public.fn_cve_ref_is_exploit(p_ref jsonb) RETURNS boolean
   LANGUAGE sql IMMUTABLE SECURITY INVOKER
-  RETURN coalesce(p_ref -> 'tags' @> '["Exploit"]'
+  RETURN coalesce(public.fn_cve_ref_tags(p_ref) @> '["Exploit"]'
                   OR p_ref ->> 'url' ~* '^https?://(www\.)?(exploit-db\.com/exploits/[0-9]+|(packetstormsecurity\.(com|org|net)|packetstorm\.news)/(files/(view/|id/)?[0-9]+|[0-9]{4}-exploits/.))',
                   false);
 
 CREATE FUNCTION fn_cves_update_ref_counts()
 RETURNS TRIGGER LANGUAGE plpgsql SET search_path = pg_catalog AS $$
 BEGIN
-  NEW.poc_count := (
-    SELECT COUNT(*) FROM jsonb_array_elements(NEW.refs) AS r
-    WHERE r->'tags' @> '["Exploit"]'
-  );
-  NEW.exploit_ref_count := (
-    SELECT COUNT(*) FROM jsonb_array_elements(NEW.refs) AS r
-    WHERE public.fn_cve_ref_is_exploit(r)
-  );
-  NEW.vendor_advisory_count := (
-    SELECT COUNT(*) FROM jsonb_array_elements(NEW.refs) AS r
-    WHERE r->'tags' @> '["Vendor Advisory"]'
-  );
-  NEW.patch_count := (
-    SELECT COUNT(*) FROM jsonb_array_elements(NEW.refs) AS r
-    WHERE r->'tags' @> '["Patch"]'
-  );
+  SELECT count(*) FILTER (WHERE ref.tags @> '["Exploit"]'),
+         count(*) FILTER (WHERE public.fn_cve_ref_is_exploit(ref.original)),
+         count(*) FILTER (WHERE ref.tags @> '["Vendor Advisory"]'),
+         count(*) FILTER (WHERE ref.tags @> '["Patch"]')
+    INTO NEW.poc_count, NEW.exploit_ref_count, NEW.vendor_advisory_count, NEW.patch_count
+    FROM (SELECT element.original, public.fn_cve_ref_tags(element.original) AS tags
+            FROM jsonb_array_elements(NEW.refs) AS element (original)) AS ref;
   RETURN NEW;
 END;
 $$;
@@ -903,11 +929,6 @@ CREATE TABLE domain_watch_lane (
   PRIMARY KEY (domain_name, lane_name),
   CONSTRAINT domain_watch_lane_name_known CHECK (lane_name IN ('dns', 'tls', 'rdap_whois', 'headers', 'ct'))
 );
-
-CREATE FUNCTION public.fn_jsonb_array_or_empty(p_value jsonb) RETURNS jsonb
-  LANGUAGE sql IMMUTABLE SECURITY INVOKER
-  SET search_path = pg_catalog
-  RETURN CASE WHEN jsonb_typeof(p_value) = 'array' THEN p_value ELSE '[]'::jsonb END;
 
 CREATE FUNCTION public.fn_cve_product_is_vulnerable(p_product jsonb) RETURNS boolean
   LANGUAGE sql IMMUTABLE SECURITY INVOKER

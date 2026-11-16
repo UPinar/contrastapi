@@ -40,6 +40,7 @@ bool validate_searchString        (const char* search_string);
 bool validate_searchQuery         (const char* search_query);
 bool validate_date                (const char* date_str);
 bool validate_cveId               (const char* cve_id);
+bool validate_isCveIdInCveSyntax  (const char* cve_id);
 bool validate_cweId               (const char* cwe_id);
 bool validate_sha1Hex             (const char* sha1_hex);
 bool validate_fileHashHex         (const char* file_hash_hex);

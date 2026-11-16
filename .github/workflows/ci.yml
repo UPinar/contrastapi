@@ -94,7 +94,7 @@ jobs:
             grep -oE 'static_sendError\([a-z_]+, [0-9]{3}, "[^"]*", "[a-z_]+"' /tmp/handler_flat.c | sed -E 's/.*"([a-z_]+)"$/\1/' || true
             grep -oE 'static_sendRetryAfterError\([a-z_]+, [0-9]{3}, "[^"]*", "[a-z_]+"' /tmp/handler_flat.c | sed -E 's/.*"([a-z_]+)"$/\1/' || true
             grep -oE 'static_sendPaymentOffer\([a-z_]+, [a-z_]+, [a-z_]+, "[a-z_]+"' /tmp/handler_flat.c | sed -E 's/.*"([a-z_]+)"$/\1/' || true
-            grep -oE 'static_errorBody\("[a-z_]+"' /tmp/handler_flat.c | sed -E 's/.*\("([a-z_]+)"/\1/' || true
+            grep -oE 'static_errorBody(WithRetryAfter)?\("[a-z_]+"' /tmp/handler_flat.c | sed -E 's/.*\("([a-z_]+)"/\1/' || true
             grep -oE '"code":"[a-z_]+"' /tmp/handler_flat.c | sed -E 's/.*:"([a-z_]+)"/\1/' || true
           } | sort -u > /tmp/code_codes.txt
           { grep -oE 'static_sendError\([a-z_]+, [0-9]{3}, "[^"]*", "[a-z_]+"' /tmp/handler_flat.c \

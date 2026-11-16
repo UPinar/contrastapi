@@ -2,6 +2,7 @@
 #include <fcntl.h>
 #include <pthread.h>
 #include <stdatomic.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -16,6 +17,8 @@
 
 #define TEST_TIME             ((time_t)1761352000)
 #define TEST_TIME_TEXT        "2025-10-25T00:26:40Z"
+#define TEST_DAY_START        ((time_t)1761350400)
+#define TEST_SECONDS_PER_DAY  86400
 #define TEST_INSTANCE_PORT    8002
 
 #define THREAD_COUNT          4
@@ -23,11 +26,22 @@
 
 static int64_t g_nowMs = 0;
 
+static time_t g_nowEpoch = TEST_TIME;
+
+static atomic_bool        g_isClockBarrierArmed = false;
+static pthread_barrier_t  g_clockBarrier;
+static __thread bool      t_hasWaitedAtClock    = false;
+
 time_t __wrap_time(time_t* time_out)
 {
+  if (atomic_load(&g_isClockBarrierArmed) && !t_hasWaitedAtClock)
+  {
+    t_hasWaitedAtClock = true;
+    pthread_barrier_wait(&g_clockBarrier);
+  }
   if (time_out != NULL)
-    *time_out = TEST_TIME;
-  return TEST_TIME;
+    *time_out = g_nowEpoch;
+  return g_nowEpoch;
 }
 
 int64_t __wrap_monotonic_nowMs(void)
@@ -174,6 +188,7 @@ static void static_restoreStderr(void)
 
 void setUp(void)
 {
+  g_nowEpoch = TEST_TIME;
   memset(g_lines, 0, sizeof(g_lines));
   atomic_store(&g_nextWriteErrno, 0);
   atomic_store(&g_nextWriteByteLimit, -1);
@@ -223,6 +238,7 @@ void test_each_event_becomes_one_exact_line(void)
   usagelog_writeEvent(USAGELOG_EVENT_RDAP_WHOIS_SCAN_CAP_REACHED);
   usagelog_writeEvent(USAGELOG_EVENT_HEADERS_SCAN_CAP_REACHED);
   usagelog_writeEvent(USAGELOG_EVENT_CT_SCAN_CAP_REACHED);
+  usagelog_writeEvent(USAGELOG_EVENT_CVE_SERVICES_CAP_REACHED);
 
   size_t line_byte_count = usagelog_drainLines(g_lines, sizeof(g_lines));
   const char* expected =
@@ -234,9 +250,113 @@ void test_each_event_becomes_one_exact_line(void)
     "{\"log_format_version\":1,\"type\":\"tls_scan_cap_reached\",\"time\":\"" TEST_TIME_TEXT "\",\"instance_port\":8002}\n"
     "{\"log_format_version\":1,\"type\":\"rdap_whois_scan_cap_reached\",\"time\":\"" TEST_TIME_TEXT "\",\"instance_port\":8002}\n"
     "{\"log_format_version\":1,\"type\":\"headers_scan_cap_reached\",\"time\":\"" TEST_TIME_TEXT "\",\"instance_port\":8002}\n"
-    "{\"log_format_version\":1,\"type\":\"ct_scan_cap_reached\",\"time\":\"" TEST_TIME_TEXT "\",\"instance_port\":8002}\n";
+    "{\"log_format_version\":1,\"type\":\"ct_scan_cap_reached\",\"time\":\"" TEST_TIME_TEXT "\",\"instance_port\":8002}\n"
+    "{\"log_format_version\":1,\"type\":\"cve_services_cap_reached\",\"time\":\"" TEST_TIME_TEXT "\",\"instance_port\":8002}\n";
   TEST_ASSERT_EQUAL_STRING(expected, g_lines);
   TEST_ASSERT_EQUAL_size_t(strlen(expected), line_byte_count);
+}
+
+void test_event_once_per_day_writes_one_line_a_day(void)
+{
+  static_startLog();
+  g_nowEpoch = TEST_DAY_START + 10 * TEST_SECONDS_PER_DAY;
+
+  usagelog_writeEventOncePerDay(USAGELOG_EVENT_CVE_SERVICES_CAP_REACHED);
+  usagelog_drainLines(g_lines, sizeof(g_lines));
+  TEST_ASSERT_EQUAL_STRING("{\"log_format_version\":1,\"type\":\"cve_services_cap_reached\",\"time\":\"2025-11-04T00:00:00Z\",\"instance_port\":8002}\n", g_lines);
+
+  usagelog_writeEventOncePerDay(USAGELOG_EVENT_CVE_SERVICES_CAP_REACHED);
+  TEST_ASSERT_EQUAL_size_t(0, usagelog_drainLines(g_lines, sizeof(g_lines)));
+}
+
+void test_event_once_per_day_keeps_a_day_for_each_kind(void)
+{
+  static const struct {
+    UsageLogEvent_t m_event;
+    const char*     mp_type;
+  } kinds[] = {
+    { USAGELOG_EVENT_START,                       "start"                       },
+    { USAGELOG_EVENT_STOP,                        "stop"                        },
+    { USAGELOG_EVENT_DB_DOWN,                     "db_down"                     },
+    { USAGELOG_EVENT_DB_UP,                       "db_up"                       },
+    { USAGELOG_EVENT_DNS_SCAN_CAP_REACHED,        "dns_scan_cap_reached"        },
+    { USAGELOG_EVENT_TLS_SCAN_CAP_REACHED,        "tls_scan_cap_reached"        },
+    { USAGELOG_EVENT_RDAP_WHOIS_SCAN_CAP_REACHED, "rdap_whois_scan_cap_reached" },
+    { USAGELOG_EVENT_HEADERS_SCAN_CAP_REACHED,    "headers_scan_cap_reached"    },
+    { USAGELOG_EVENT_CT_SCAN_CAP_REACHED,         "ct_scan_cap_reached"         },
+    { USAGELOG_EVENT_CVE_SERVICES_CAP_REACHED,    "cve_services_cap_reached"    },
+  };
+  enum { KIND_COUNT = sizeof(kinds) / sizeof(kinds[0]) };
+  static_startLog();
+  g_nowEpoch = TEST_DAY_START + 12 * TEST_SECONDS_PER_DAY;
+
+  for (int i = 0; i < KIND_COUNT; i++)
+    usagelog_writeEventOncePerDay(kinds[i].m_event);
+  usagelog_drainLines(g_lines, sizeof(g_lines));
+  TEST_ASSERT_EQUAL_INT(KIND_COUNT, static_countLines(g_lines));
+  int i = 0;
+  for (char* line = strtok(g_lines, "\n"); line != NULL; line = strtok(NULL, "\n"), i++)
+  {
+    char expected[64];
+    snprintf(expected, sizeof(expected), "\"type\":\"%s\",", kinds[i].mp_type);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(line, expected), line);
+  }
+
+  for (int k = 0; k < KIND_COUNT; k++)
+    usagelog_writeEventOncePerDay(kinds[k].m_event);
+  TEST_ASSERT_EQUAL_size_t(0, usagelog_drainLines(g_lines, sizeof(g_lines)));
+}
+
+void test_event_once_per_day_writes_again_on_the_next_utc_day(void)
+{
+  static const struct {
+    time_t m_secondOfDays;
+    int    m_lineCount;
+  } calls[] = {
+    { 0,                         1 },
+    { TEST_SECONDS_PER_DAY - 1,  0 },
+    { TEST_SECONDS_PER_DAY,      1 },
+    { TEST_SECONDS_PER_DAY + 60, 0 },
+  };
+  static_startLog();
+  time_t first_day = TEST_DAY_START + 14 * TEST_SECONDS_PER_DAY;
+  for (size_t c = 0; c < sizeof(calls) / sizeof(calls[0]); c++)
+  {
+    g_nowEpoch = first_day + calls[c].m_secondOfDays;
+    usagelog_writeEventOncePerDay(USAGELOG_EVENT_DNS_SCAN_CAP_REACHED);
+    usagelog_drainLines(g_lines, sizeof(g_lines));
+    char message[32];
+    snprintf(message, sizeof(message), "call %zu", c);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(calls[c].m_lineCount, static_countLines(g_lines), message);
+  }
+}
+
+static void* static_writeEventOncePerDayLines(void* unused_arg)
+{
+  (void)unused_arg;
+  for (int i = 0; i < LINES_PER_THREAD; i++)
+    usagelog_writeEventOncePerDay(USAGELOG_EVENT_TLS_SCAN_CAP_REACHED);
+  return NULL;
+}
+
+void test_threads_write_one_event_line_on_a_new_day(void)
+{
+  static_startLog();
+  g_nowEpoch = TEST_DAY_START + 16 * TEST_SECONDS_PER_DAY;
+  TEST_ASSERT_EQUAL_INT(0, pthread_barrier_init(&g_clockBarrier, NULL, THREAD_COUNT));
+  atomic_store(&g_isClockBarrierArmed, true);
+
+  pthread_t threads[THREAD_COUNT];
+  for (int i = 0; i < THREAD_COUNT; i++)
+    TEST_ASSERT_EQUAL_INT(0, pthread_create(&threads[i], NULL, static_writeEventOncePerDayLines, NULL));
+  for (int i = 0; i < THREAD_COUNT; i++)
+    pthread_join(threads[i], NULL);
+  atomic_store(&g_isClockBarrierArmed, false);
+  pthread_barrier_destroy(&g_clockBarrier);
+
+  usagelog_drainLines(g_lines, sizeof(g_lines));
+  TEST_ASSERT_EQUAL_INT(1, static_countLines(g_lines));
+  TEST_ASSERT_NOT_NULL(strstr(g_lines, "\"type\":\"tls_scan_cap_reached\","));
 }
 
 void test_rest_record_becomes_one_exact_line(void)
@@ -418,19 +538,20 @@ void test_every_run_status_has_its_text(void)
 {
   static_startLog();
   const struct { EndpointRunStatus_t m_status; const char* mp_text; } run_statuses[] = {
-    { ENDPOINT_RUN_OK,                 ",\"run_status\":\"ok\","                 },
-    { ENDPOINT_RUN_NOT_FOUND,          ",\"run_status\":\"not_found\","          },
-    { ENDPOINT_RUN_REFUSED,            ",\"run_status\":\"refused\","            },
-    { ENDPOINT_RUN_REFUSED_WITH_BODY,  ",\"run_status\":\"refused_with_body\"," },
-    { ENDPOINT_RUN_DEGRADED,           ",\"run_status\":\"degraded\","           },
-    { ENDPOINT_RUN_DB_ERROR,           ",\"run_status\":\"db_error\","           },
-    { ENDPOINT_RUN_UPSTREAM_ERROR,     ",\"run_status\":\"upstream_error\","     },
-    { ENDPOINT_RUN_TARGET_UNREACHABLE, ",\"run_status\":\"target_unreachable\"," },
-    { ENDPOINT_RUN_NO_MEMORY,          ",\"run_status\":\"no_memory\","          },
-    { ENDPOINT_RUN_NO_CONNECTION,      ",\"run_status\":\"no_connection\","      },
-    { ENDPOINT_RUN_NO_CREDIT_BUDGET,   ",\"run_status\":\"no_credit_budget\","   },
-    { ENDPOINT_RUN_UNAUTHORIZED,       ",\"run_status\":\"unauthorized\","       },
-    { ENDPOINT_RUN_GONE,               ",\"run_status\":\"gone\","               },
+    { ENDPOINT_RUN_OK,                  ",\"run_status\":\"ok\","                  },
+    { ENDPOINT_RUN_NOT_FOUND,           ",\"run_status\":\"not_found\","           },
+    { ENDPOINT_RUN_NOT_FOUND_WITH_BODY, ",\"run_status\":\"not_found_with_body\"," },
+    { ENDPOINT_RUN_REFUSED,             ",\"run_status\":\"refused\","             },
+    { ENDPOINT_RUN_REFUSED_WITH_BODY,   ",\"run_status\":\"refused_with_body\","   },
+    { ENDPOINT_RUN_DEGRADED,            ",\"run_status\":\"degraded\","            },
+    { ENDPOINT_RUN_DB_ERROR,            ",\"run_status\":\"db_error\","            },
+    { ENDPOINT_RUN_UPSTREAM_ERROR,      ",\"run_status\":\"upstream_error\","      },
+    { ENDPOINT_RUN_TARGET_UNREACHABLE,  ",\"run_status\":\"target_unreachable\","  },
+    { ENDPOINT_RUN_NO_MEMORY,           ",\"run_status\":\"no_memory\","           },
+    { ENDPOINT_RUN_NO_CONNECTION,       ",\"run_status\":\"no_connection\","       },
+    { ENDPOINT_RUN_NO_CREDIT_BUDGET,    ",\"run_status\":\"no_credit_budget\","    },
+    { ENDPOINT_RUN_UNAUTHORIZED,        ",\"run_status\":\"unauthorized\","        },
+    { ENDPOINT_RUN_GONE,                ",\"run_status\":\"gone\","                },
   };
   for (size_t i = 0; i < sizeof(run_statuses) / sizeof(run_statuses[0]); i++)
   {
@@ -1038,7 +1159,7 @@ void test_retention_days_are_90(void)
 
 void test_registration_gate_test_count(void)
 {
-  TEST_ASSERT_EQUAL_INT_MESSAGE(47, (int)Unity.NumberOfTests,
+  TEST_ASSERT_EQUAL_INT_MESSAGE(51, (int)Unity.NumberOfTests,
     "RUN_TEST list and test definitions have drifted apart - a test may be unregistered");
 }
 
@@ -1072,6 +1193,10 @@ int main(void)
   RUN_TEST(test_lines_that_exactly_fill_the_buffer_all_fit);
   RUN_TEST(test_threads_commit_whole_lines_at_once);
   RUN_TEST(test_each_event_becomes_one_exact_line);
+  RUN_TEST(test_event_once_per_day_writes_one_line_a_day);
+  RUN_TEST(test_event_once_per_day_keeps_a_day_for_each_kind);
+  RUN_TEST(test_event_once_per_day_writes_again_on_the_next_utc_day);
+  RUN_TEST(test_threads_write_one_event_line_on_a_new_day);
   RUN_TEST(test_stop_writes_the_waiting_lines_to_a_new_file);
   RUN_TEST(test_file_writer_writes_at_each_interval);
   RUN_TEST(test_file_writer_appends_to_the_file);

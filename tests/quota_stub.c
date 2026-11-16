@@ -17,11 +17,15 @@ int         g_stub_QUOTA_mark_count     = 0;
 PGconn*     g_stub_QUOTA_last_mark_conn = NULL;
 QuotaRule_t g_stub_QUOTA_last_mark_rule = { NULL, 0, 0 };
 
+QuotaRule_t g_stub_QUOTA_reserve_rules[QUOTA_STUB_RESERVE_STATUS_MAX_COUNT];
+
 QuotaStatus_t quota_dbReserve(PGconn* conn, const QuotaRule_t* rule)
 {
   g_stub_QUOTA_reserve_count++;
   g_stub_QUOTA_last_reserve_conn = conn;
   g_stub_QUOTA_last_reserve_rule = *rule;
+  if (g_stub_QUOTA_reserve_count <= QUOTA_STUB_RESERVE_STATUS_MAX_COUNT)
+    g_stub_QUOTA_reserve_rules[g_stub_QUOTA_reserve_count - 1] = *rule;
   if (g_stub_QUOTA_reserve_count <= g_stub_QUOTA_reserve_status_count)
     return g_stub_QUOTA_reserve_statuses[g_stub_QUOTA_reserve_count - 1];
   return g_stub_QUOTA_reserve_status;

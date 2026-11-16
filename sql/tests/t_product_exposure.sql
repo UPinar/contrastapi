@@ -1,6 +1,6 @@
 INSERT INTO cves (cve_id, severity, cvss_v3, cvss_v3_vector, epss_score, in_kev, published_time, refs) VALUES
   ('CVE-2001-0061', 'CRITICAL', 9.8, 'CVSS:3.1/AV:N', 0.91234, true,  '2001-01-03',
-   '[{"url": "https://a.example", "tags": ["Exploit"]}]'),
+   '[{"url": "https://a.example", "nvd_tags": ["Exploit"]}]'),
   ('CVE-2001-0062', 'HIGH',     7.25, 'CVSS:3.1/AV:N', 0.5,   false, '2001-01-05', '[]'),
   ('CVE-2001-0065', 'MEDIUM',   0.0, '',              0.25,  false, '2001-01-04', '[]'),
   ('CVE-2001-0066', 'LOW',      7.25, 'CVSS:3.1/AV:N', 0.5,   false, '2001-01-01', '[]'),
@@ -30,11 +30,11 @@ INSERT INTO cve_products (cve_id, vendor, product, is_vulnerable) VALUES
 INSERT INTO cves (cve_id, severity, cvss_v3, cvss_v3_vector, epss_score, in_kev, refs) VALUES
   ('CVE-2001-0074', 'MEDIUM', 5.0, 'CVSS:3.1/AV:N', 0.1,   false,
    '[{"url": "https://packetstormsecurity.com/files/741/x.html"},
-     {"url": "https://packetstormsecurity.com/files/742/x.html", "tags": ["Third Party Advisory"]},
+     {"url": "https://packetstormsecurity.com/files/742/x.html", "nvd_tags": ["Third Party Advisory"]},
      {"url": "https://packetstorm.news/files/id/743"},
-     {"url": "https://packetstormsecurity.org/2401-exploits/x.txt", "tags": []}]'),
+     {"url": "https://packetstormsecurity.org/2401-exploits/x.txt", "nvd_tags": []}]'),
   ('CVE-2001-0075', 'MEDIUM', 5.0, 'CVSS:3.1/AV:N', 0.1,   false,
-   '[{"url": "https://www.exploit-db.com/exploits/75"}, {"url": "https://www.exploit-db.com/exploits/76", "tags": []}]'),
+   '[{"url": "https://www.exploit-db.com/exploits/75"}, {"url": "https://www.exploit-db.com/exploits/76", "nvd_tags": []}]'),
   ('CVE-2001-0076', 'MEDIUM', 5.0, 'CVSS:3.1/AV:N', 0.102, false, '[]');
 INSERT INTO cve_products (cve_id, vendor, product, is_vulnerable) VALUES
   ('CVE-2001-0074', 'v2001', 'p2004', true),
@@ -59,7 +59,7 @@ INSERT INTO cves (cve_id, severity, cvss_v3, cvss_v3_vector, epss_score, in_kev,
   SELECT format('CVE-2001-01%s', lpad(i::text, 2, '0')),
          CASE WHEN i = 1 THEN 'CRITICAL' WHEN i <= 3 THEN 'HIGH' WHEN i <= 6 THEN 'MEDIUM' ELSE 'LOW' END,
          10.0 - i * 0.5, 'CVSS:3.1/AV:N', i * 0.05, i <= 5, date '2012-01-01' + i,
-         CASE WHEN i <= 6 THEN format('[{"url": "https://x%s.example", "tags": ["Exploit"]}]', i)::jsonb ELSE '[]'::jsonb END
+         CASE WHEN i <= 6 THEN format('[{"url": "https://x%s.example", "nvd_tags": ["Exploit"]}]', i)::jsonb ELSE '[]'::jsonb END
     FROM generate_series(1, 10) AS i;
 INSERT INTO cve_products (cve_id, vendor, product, is_vulnerable)
   SELECT format('CVE-2001-01%s', lpad(i::text, 2, '0')), 'v2001', 'p2012', true
@@ -261,7 +261,7 @@ $$;
 
 INSERT INTO cves (cve_id, severity, cvss_v3, cvss_v3_vector, epss_score, in_kev, published_time, refs, vulnerability_status) VALUES
   ('CVE-2011-0611', 'CRITICAL', 9.5, 'CVSS:3.1/AV:N', 0.9, true,  '2011-01-09',
-   '[{"url": "https://r.example", "tags": ["Exploit"]}]', 'Rejected'),
+   '[{"url": "https://r.example", "nvd_tags": ["Exploit"]}]', 'Rejected'),
   ('CVE-2011-0612', 'MEDIUM',   4.0, 'CVSS:3.1/AV:N', 0.2, false, '2011-01-02', '[]', ''),
   ('CVE-2011-0613', 'HIGH',     7.0, 'CVSS:3.1/AV:N', 0.4, false, '2011-01-03', '[]', 'Analyzed');
 INSERT INTO cve_products (cve_id, vendor, product, is_vulnerable) VALUES

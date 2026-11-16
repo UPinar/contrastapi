@@ -32,6 +32,7 @@
 #include "external/certspotter.h"
 #include "subdomain.h"
 #include "external/wayback.h"
+#include "cveidstate.h"
 #include "jsonbuf.h"
 #include "validate.h"
 #include "d3fend.h"
@@ -92,7 +93,14 @@ EndpointRunStatus_t endpoint_CVELOOKUPRun(PGconn* conn, const EndpointAnyParams_
   {
     db_CVELOOKUPRecordFree(record);
     free(record);
-    return db_status == DB_NOT_FOUND ? ENDPOINT_RUN_NOT_FOUND : ENDPOINT_RUN_DB_ERROR;
+    if (db_status != DB_NOT_FOUND)
+      return ENDPOINT_RUN_DB_ERROR;
+
+    CveServicesCveIdState_t state = cveidstate_dbFind(conn, cve_lookup_params->ma_cveId);
+    if (state == CVESERVICES_CVE_ID_STATE_NOT_CHECKED)
+      return ENDPOINT_RUN_NOT_FOUND;
+    serialize_CVELOOKUP_notFoundResponse(state, json_buf);
+    return ENDPOINT_RUN_NOT_FOUND_WITH_BODY;
   }
 
   if (cve_lookup_params->m_isGhsaIncluded)

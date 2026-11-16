@@ -1,6 +1,6 @@
 INSERT INTO cves (cve_id, cve_description, cvss_v3, cvss_v3_vector, in_kev, refs) VALUES
   ('CVE-2001-0001', 'in KEV, known ransomware', 9.8, 'CVSS:3.1/AV:N', true,
-   '[{"url": "https://a.example", "tags": ["Exploit"]}, {"url": "https://b.example", "tags": ["Vendor Advisory"]}]'),
+   '[{"url": "https://a.example", "nvd_tags": ["Exploit"]}, {"url": "https://b.example", "nvd_tags": ["Vendor Advisory"]}]'),
   ('CVE-2001-0002', 'left KEV', 7.5, 'CVSS:3.1/AV:N', false, '[]'),
   ('CVE-2001-0003', 'never in KEV', 5.0, 'CVSS:3.1/AV:N', false, '[]'),
   ('CVE-2001-0004', 'in KEV, no known ransomware', 6.1, 'CVSS:3.1/AV:N', true, '[]'),
@@ -170,13 +170,17 @@ INSERT INTO cves (cve_id, affected_products, refs) VALUES
      {"vendor": "", "product": "p4", "is_vulnerable": true},
      {"vendor": "b", "product": "p5", "is_vulnerable": true},
      {"vendor": "a", "product": "p6", "is_vulnerable": true}]',
-   '[{"url": "https://r3.example", "tags": [], "source": "nvd"},
-     {"url": "https://r2.example", "tags": ["Patch"], "source": "cna"},
-     {"url": "https://r4.example", "tags": [], "source": "nvd"},
-     {"url": "https://r1.example", "tags": ["exploit"], "source": "nvd"},
-     {"url": "https://Rz.example", "tags": [], "source": "nvd"},
-     {"url": "https://r1.example", "tags": ["Patch"], "source": "nvd"}]'),
-  ('CVE-2001-0006', '[7]', '[]');
+   '[{"url": "https://r3.example", "nvd_tags": [], "source": "nvd"},
+     {"url": "https://r2.example", "nvd_tags": ["Patch"], "source": "cna"},
+     {"url": "https://r4.example", "nvd_tags": [], "source": "nvd"},
+     {"url": "https://r1.example", "nvd_tags": ["exploit"], "source": "nvd"},
+     {"url": "https://Rz.example", "nvd_tags": [], "source": "nvd"},
+     {"url": "https://r1.example", "nvd_tags": ["Patch"], "source": "z"}]'),
+  ('CVE-2001-0006', '[7]', '[]'),
+  ('CVE-2001-0007', '[]',
+   '[{"url": "https://u2.example", "cna_tags": ["Patch"]},
+     {"url": "https://u1.example", "nvd_tags": ["Vendor Advisory", "Patch"], "cna_tags": ["Patch", "Exploit"], "source": "nvd"},
+     {"url": "https://u3.example", "nvd_tags": [], "source": "nvd"}]');
 
 DO $$
 BEGIN
@@ -205,6 +209,10 @@ BEGIN
          = '[{"url": "https://Rz.example", "tags": []}, {"url": "https://r1.example", "tags": ["Patch"]},
              {"url": "https://r1.example", "tags": ["exploit"]}]'::jsonb,
          'refs holds the first p_ref_row_count references by url, each without its source key';
+  ASSERT (SELECT refs FROM api.fn_cve_lookup(ARRAY['CVE-2001-0007'], 30, 5, 20, 10, 20))
+         = '[{"url": "https://u1.example", "tags": ["Vendor Advisory", "Patch", "Exploit"]}, {"url": "https://u2.example", "tags": ["Patch"]},
+             {"url": "https://u3.example", "tags": []}]'::jsonb,
+         'each reference answers its url and the union of nvd_tags and cna_tags as tags, with no other key';
   ASSERT (SELECT ref_count FROM api.fn_cve_lookup(ARRAY['CVE-2001-0005'], 30, 5, 20, 10, 3)) = 6,
          'ref_count counts every reference, not only the listed ones';
   ASSERT (SELECT refs = '[]' AND ref_count = 0 FROM api.fn_cve_lookup(ARRAY['CVE-2001-0003'], 30, 5, 20, 10, 20)),

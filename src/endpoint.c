@@ -1801,6 +1801,7 @@ EndpointRunResult_t endpoint_runRow(const Endpoint_t* endpoint, EndpointAnyParam
 
   run_result.m_status = endpoint->m_runFunction(conn, params, json_buf, &run_result.mp_message);
   assert(run_result.m_status != ENDPOINT_RUN_NOT_FOUND || endpoint->mp_notFoundMessage != NULL);
+  assert(run_result.m_status != ENDPOINT_RUN_NOT_FOUND_WITH_BODY || endpoint->mp_notFoundMessage != NULL);
   assert(run_result.m_status != ENDPOINT_RUN_REFUSED   || run_result.mp_message != NULL);
   assert(run_result.m_status != ENDPOINT_RUN_TARGET_UNREACHABLE || run_result.mp_message != NULL);
   assert(run_result.m_status != ENDPOINT_RUN_UNAUTHORIZED || run_result.mp_message != NULL);
@@ -1808,8 +1809,9 @@ EndpointRunResult_t endpoint_runRow(const Endpoint_t* endpoint, EndpointAnyParam
   assert(run_result.m_status != ENDPOINT_RUN_NO_CONNECTION);
   assert(run_result.m_status != ENDPOINT_RUN_NO_CREDIT_BUDGET);
 
-  if (run_result.m_status == ENDPOINT_RUN_OK                ||
-      run_result.m_status == ENDPOINT_RUN_REFUSED_WITH_BODY ||
+  if (run_result.m_status == ENDPOINT_RUN_OK                  ||
+      run_result.m_status == ENDPOINT_RUN_NOT_FOUND_WITH_BODY ||
+      run_result.m_status == ENDPOINT_RUN_REFUSED_WITH_BODY   ||
       run_result.m_status == ENDPOINT_RUN_DEGRADED)
   {
     run_result.mp_body = jsonbuf_finish(json_buf);

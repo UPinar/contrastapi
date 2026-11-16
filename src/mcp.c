@@ -746,7 +746,8 @@ static void static_appendMcpRequiredList(const Endpoint_t* endpoint, JsonBuf_t* 
 
 static void static_appendMcpToolAnnotations(const Endpoint_t* endpoint, JsonBuf_t* json_buf)
 {
-  const char* open_world = (endpoint->m_callsUpstream || endpoint->m_callsUpstreamFunction != NULL) ? "true" : "false";
+  bool is_open_world_hint = endpoint->m_callsUpstream || endpoint->m_callsUpstreamFunction != NULL || endpoint->m_callsUpstreamOnMiss;
+  const char* open_world = is_open_world_hint ? "true" : "false";
 
   switch (endpoint->m_mcpToolEffect)
   {
@@ -966,6 +967,7 @@ static void static_runTool(const Endpoint_t* endpoint, JsonReadSpan_t args_span,
     case ENDPOINT_RUN_REFUSED:
       static_setToolError(result_out, "%s", run_result.mp_message);
       break;
+    case ENDPOINT_RUN_NOT_FOUND_WITH_BODY:
     case ENDPOINT_RUN_REFUSED_WITH_BODY:
       static_setResultJson(result_out, run_result.mp_body);
       result_out->m_kind = MCP_TOOL_KIND_JSON_TOOL_ERROR;

@@ -90,6 +90,14 @@ bool validate_cveId(const char* cve_id)
   return (seq_digits >= CVELOOKUP_ID_SEQ_MIN_DIGITS && seq_digits <= CVELOOKUP_ID_SEQ_MAX_DIGITS && *cursor == '\0');
 }
 
+bool validate_isCveIdInCveSyntax(const char* cve_id)
+{
+  assert(validate_cveId(cve_id));
+
+  const char* sequence = cve_id + CVELOOKUP_ID_PREFIX_LEN;
+  return strlen(sequence) == CVELOOKUP_ID_SEQ_MIN_DIGITS || sequence[0] != '0';
+}
+
 bool validate_cweId(const char* cwe_id)
 {
   if (!cwe_id || *cwe_id == '\0' || strncmp(cwe_id, "CWE-", CWELOOKUP_ID_TAG_LEN) != 0)

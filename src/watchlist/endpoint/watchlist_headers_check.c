@@ -1,7 +1,6 @@
 #include <assert.h>
 #include <stdbool.h>
 #include <stddef.h>
-#include <stdint.h>
 #include <string.h>
 
 #include "watchlist_headers_check.h"
@@ -27,8 +26,6 @@ static const ThrottleRule_t WATCHLIST_HEADERS_CHECK_THROTTLE_RULE = { "headers_s
 
 #define WATCHLIST_HEADERS_CHECK_HOME_PAGE_PATH "/"
 
-static int64_t g_headersCapLineDay = -1;
-
 static bool                         static_isUrlValidAsFirstLine  (const char* url);
 static WatchlistDomainScanOutcome_t static_scanHeadersDomain      (PGconn* conn, const WatchlistDomainScanClaim_t* claim);
 static void                         static_readSecurityHeaders    (const char* domain, WatchlistDomainScanValue_t* value);
@@ -40,7 +37,6 @@ bool watchlist_headers_check_scanNextDomains(PGconn* conn)
   const WatchlistDomainScanLane_t lane = {
     .mp_laneName    = DB_DOMAIN_WATCH_LANE_HEADERS,
     .m_scanFunction = static_scanHeadersDomain,
-    .mp_capLineDay  = &g_headersCapLineDay,
     .m_capEvent     = USAGELOG_EVENT_HEADERS_SCAN_CAP_REACHED,
   };
 

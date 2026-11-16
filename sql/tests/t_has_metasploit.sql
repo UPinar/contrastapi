@@ -43,7 +43,7 @@ BEGIN
          'a cves row that comes after its module starts true';
 
   INSERT INTO cves (cve_id, cve_description, refs)
-  VALUES ('CVE-0000-0004', 'upserted', '[{"url": "u", "tags": ["Exploit"]}]')
+  VALUES ('CVE-0000-0004', 'upserted', '[{"url": "u", "nvd_tags": ["Exploit"]}]')
   ON CONFLICT (cve_id) DO UPDATE SET
     cve_description = EXCLUDED.cve_description,
     refs            = EXCLUDED.refs;

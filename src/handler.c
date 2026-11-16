@@ -22,9 +22,20 @@
 #define HANDLER_UPSTREAM_BUSY_MESSAGE     "upstream service busy"
 #define HANDLER_INTERNAL_ERROR_MESSAGE    "internal server error"
 
+#define HANDLER_UINT_MAX_DIGITS "4294967295"
+
+#define HANDLER_MCP_RATE_LIMITED_MESSAGE_FORMAT   HANDLER_RATE_LIMITED_MESSAGE ": retry in %u seconds"
+#define HANDLER_MCP_RATE_LIMITED_MESSAGE_BUF_SIZE 49
+_Static_assert(HANDLER_MCP_RATE_LIMITED_MESSAGE_BUF_SIZE >= sizeof(HANDLER_MCP_RATE_LIMITED_MESSAGE_FORMAT) - sizeof("%u") + sizeof(HANDLER_UINT_MAX_DIGITS),
+               "HANDLER_MCP_RATE_LIMITED_MESSAGE_BUF_SIZE must fit the message for any unsigned int");
+
 #define HANDLER_UPSTREAM_UNAVAILABLE_MESSAGE "upstream service unavailable"
 
-#define HANDLER_PAYMENT_REQUIRED_MESSAGE      "Payment required: pay with x402 or retry after the reset."
+#define HANDLER_PAYMENT_REQUIRED_MESSAGE_FORMAT   "Payment required: pay with x402 or retry in %u seconds."
+#define HANDLER_PAYMENT_REQUIRED_MESSAGE_BUF_SIZE 64
+_Static_assert(HANDLER_PAYMENT_REQUIRED_MESSAGE_BUF_SIZE >= sizeof(HANDLER_PAYMENT_REQUIRED_MESSAGE_FORMAT) - sizeof("%u") + sizeof(HANDLER_UINT_MAX_DIGITS),
+               "HANDLER_PAYMENT_REQUIRED_MESSAGE_BUF_SIZE must fit the message for any unsigned int");
+
 #define HANDLER_PAYMENT_REFUSED_MESSAGE       "The payment was refused."
 #define HANDLER_PAYMENT_ALREADY_USED_MESSAGE  "This payment was already used."
 #define HANDLER_PAYMENT_PENDING_MESSAGE       "The payment is pending: retry with the same payment."
@@ -59,6 +70,8 @@ static const char MCP_INTERNAL_ERROR_BODY[] =
 
 static void   static_sendNotFound                 (int client_fd, const Endpoint_t* endpoint);
 static char*  static_errorBody                    (const char* err_code, const char* message);
+static char*  static_errorBodyWithRetryAfter      (const char* err_code, const char* message, unsigned int retry_after_sec);
+static void   static_writePaymentRequiredMessage  (char* message_out, unsigned int retry_after_sec);
 static void   static_sendError                    (int client_fd, int status_code, const char* status_text, const char* err_code, const char* message);
 
 static char*  static_mcpErrorEnvelope            (const char* body, int rpc_code, const char* message, const char* data_json);
@@ -73,7 +86,7 @@ static void   static_sendRetryAfterError          (int client_fd, int status_cod
 static const char* static_mcpIdOfBody             (const char* body, JsonRpcRequest_t* request_out);
 static const char* static_mcpReasonPhrase         (int status_code);
 static void   static_sendMcpRetryAfterError       (int client_fd, int status_code, const char* status_text, const char* body, int rpc_code, const char* message, unsigned int retry_after_sec);
-static void   static_sendMcpPaymentRequiredResult (int client_fd, const char* body, const Endpoint_t* tool_endpoint, unsigned int credit_count, const char* error_text, unsigned int retry_after_sec, bool is_modern);
+static void   static_sendMcpPaymentRequiredResult (int client_fd, const char* body, const Endpoint_t* tool_endpoint, unsigned int credit_count, const char* error_text, bool has_retry_after, unsigned int retry_after_sec, bool is_modern);
 static void   static_sendPaidMcpAnswer            (int client_fd, const char* body, PGconn* conn, const RequestCharge_t* charge, const McpRunReport_t* run_report, const char* response_json, bool is_modern);
 
 
@@ -173,6 +186,9 @@ static void static_sendRunAnswer(int client_fd, const Endpoint_t* endpoint, Endp
       break;
     case ENDPOINT_RUN_NOT_FOUND:
       static_sendNotFound(client_fd, endpoint);
+      break;
+    case ENDPOINT_RUN_NOT_FOUND_WITH_BODY:
+      response_send(client_fd, 404, "Not Found", run_result.mp_body);
       break;
     case ENDPOINT_RUN_REFUSED:
       handler_badRequest(client_fd, run_result.mp_message);
@@ -308,7 +324,7 @@ void handler_httpMethodNotAllowed(int client_fd, const char* const allowed_metho
 
 void handler_rateLimited(int client_fd, unsigned int retry_after_sec)
 {
-  char* response_body = static_errorBody("rate_limited", HANDLER_RATE_LIMITED_MESSAGE);
+  char* response_body = static_errorBodyWithRetryAfter("rate_limited", HANDLER_RATE_LIMITED_MESSAGE, retry_after_sec);
   if (!response_body)
   {
     handler_internalError(client_fd);
@@ -321,7 +337,9 @@ void handler_rateLimited(int client_fd, unsigned int retry_after_sec)
 
 void handler_paymentRequired(int client_fd, const Endpoint_t* endpoint, unsigned int credit_count, unsigned int retry_after_sec)
 {
-  static_sendPaymentOffer(client_fd, endpoint, credit_count, "payment_required", HANDLER_PAYMENT_REQUIRED_MESSAGE, true, retry_after_sec);
+  char message[HANDLER_PAYMENT_REQUIRED_MESSAGE_BUF_SIZE];
+  static_writePaymentRequiredMessage(message, retry_after_sec);
+  static_sendPaymentOffer(client_fd, endpoint, credit_count, "payment_required", message, true, retry_after_sec);
 }
 
 void handler_paymentRefused(int client_fd, const Endpoint_t* endpoint, unsigned int credit_count)
@@ -366,7 +384,7 @@ void handler_paymentUnavailable(int client_fd, unsigned int retry_after_sec)
 
 void handler_upstreamBusy(int client_fd)
 {
-  char* response_body = static_errorBody("upstream_busy", HANDLER_UPSTREAM_BUSY_MESSAGE);
+  char* response_body = static_errorBodyWithRetryAfter("upstream_busy", HANDLER_UPSTREAM_BUSY_MESSAGE, HANDLER_UPSTREAM_BUSY_RETRY_AFTER_SEC);
   if (!response_body)
   {
     handler_internalError(client_fd);
@@ -379,7 +397,7 @@ void handler_upstreamBusy(int client_fd)
 
 void handler_rawBodyBusy(int client_fd)
 {
-  char* response_body = static_errorBody("raw_body_busy", HANDLER_RAW_BODY_BUSY_MESSAGE);
+  char* response_body = static_errorBodyWithRetryAfter("raw_body_busy", HANDLER_RAW_BODY_BUSY_MESSAGE, HANDLER_RAW_BODY_BUSY_RETRY_AFTER_SEC);
   if (!response_body)
   {
     handler_internalError(client_fd);
@@ -407,7 +425,12 @@ void handler_mcpApiKeyInactive(int client_fd, const char* body)
 
 void handler_mcpRateLimited(int client_fd, const char* body, unsigned int retry_after_sec)
 {
-  char* envelope = static_mcpRetryAfterErrorEnvelope(body, JSONRPC_ERR_RATE_LIMITED, HANDLER_RATE_LIMITED_MESSAGE, retry_after_sec);
+  char message[HANDLER_MCP_RATE_LIMITED_MESSAGE_BUF_SIZE];
+  int  message_len = snprintf(message, sizeof(message), HANDLER_MCP_RATE_LIMITED_MESSAGE_FORMAT, retry_after_sec);
+  assert(message_len > 0 && (size_t)message_len < sizeof(message));
+  (void)message_len;
+
+  char* envelope = static_mcpRetryAfterErrorEnvelope(body, JSONRPC_ERR_RATE_LIMITED, message, retry_after_sec);
   if (!envelope)
   {
     response_send(client_fd, 500, "Internal Server Error", MCP_INTERNAL_ERROR_BODY);
@@ -438,17 +461,19 @@ void handler_mcpInternalError(int client_fd, const char* body)
 
 void handler_mcpPaymentRequired(int client_fd, const char* body, const Endpoint_t* tool_endpoint, unsigned int credit_count, unsigned int retry_after_sec, bool is_modern)
 {
-  static_sendMcpPaymentRequiredResult(client_fd, body, tool_endpoint, credit_count, HANDLER_PAYMENT_REQUIRED_MESSAGE, retry_after_sec, is_modern);
+  char message[HANDLER_PAYMENT_REQUIRED_MESSAGE_BUF_SIZE];
+  static_writePaymentRequiredMessage(message, retry_after_sec);
+  static_sendMcpPaymentRequiredResult(client_fd, body, tool_endpoint, credit_count, message, true, retry_after_sec, is_modern);
 }
 
 void handler_mcpPaymentRefused(int client_fd, const char* body, const Endpoint_t* tool_endpoint, unsigned int credit_count, bool is_modern)
 {
-  static_sendMcpPaymentRequiredResult(client_fd, body, tool_endpoint, credit_count, HANDLER_PAYMENT_REFUSED_MESSAGE, 0, is_modern);
+  static_sendMcpPaymentRequiredResult(client_fd, body, tool_endpoint, credit_count, HANDLER_PAYMENT_REFUSED_MESSAGE, false, 0, is_modern);
 }
 
 void handler_mcpPaymentAlreadyUsed(int client_fd, const char* body, const Endpoint_t* tool_endpoint, unsigned int credit_count, bool is_modern)
 {
-  static_sendMcpPaymentRequiredResult(client_fd, body, tool_endpoint, credit_count, HANDLER_PAYMENT_ALREADY_USED_MESSAGE, 0, is_modern);
+  static_sendMcpPaymentRequiredResult(client_fd, body, tool_endpoint, credit_count, HANDLER_PAYMENT_ALREADY_USED_MESSAGE, false, 0, is_modern);
 }
 
 void handler_mcpPaymentPending(int client_fd, const char* body, unsigned int retry_after_sec, bool is_modern)
@@ -556,7 +581,7 @@ static void static_sendPaidMcpAnswer(int client_fd, const char* body, PGconn* co
   }
 }
 
-static void static_sendMcpPaymentRequiredResult(int client_fd, const char* body, const Endpoint_t* tool_endpoint, unsigned int credit_count, const char* error_text, unsigned int retry_after_sec, bool is_modern)
+static void static_sendMcpPaymentRequiredResult(int client_fd, const char* body, const Endpoint_t* tool_endpoint, unsigned int credit_count, const char* error_text, bool has_retry_after, unsigned int retry_after_sec, bool is_modern)
 {
   assert(tool_endpoint != NULL);
   assert(tool_endpoint->mp_mcpToolName != NULL);
@@ -583,7 +608,7 @@ static void static_sendMcpPaymentRequiredResult(int client_fd, const char* body,
     return;
   }
 
-  if (retry_after_sec > 0)
+  if (has_retry_after)
     response_sendWithRetryAfter(client_fd, 200, "OK", retry_after_sec, result);
   else
     response_send(client_fd, 200, "OK", result);
@@ -604,7 +629,7 @@ static void static_sendPaymentOffer(int client_fd, const Endpoint_t* endpoint, u
     snprintf(extra_headers + line_len, sizeof(extra_headers) - line_len, "Retry-After: %u\r\n", retry_after_sec);
   }
 
-  char* response_body = static_errorBody(err_code, message);
+  char* response_body = has_retry_after ? static_errorBodyWithRetryAfter(err_code, message, retry_after_sec) : static_errorBody(err_code, message);
   if (!response_body)
   {
     handler_internalError(client_fd);
@@ -619,7 +644,7 @@ static void static_sendRetryAfterError(int client_fd, int status_code, const cha
   char retry_after_line[HANDLER_RETRY_AFTER_LINE_BUF_SIZE];
   snprintf(retry_after_line, sizeof(retry_after_line), "Retry-After: %u\r\n", retry_after_sec);
 
-  char* response_body = static_errorBody(err_code, message);
+  char* response_body = static_errorBodyWithRetryAfter(err_code, message, retry_after_sec);
   if (!response_body)
   {
     handler_internalError(client_fd);
@@ -639,6 +664,27 @@ static char* static_errorBody(const char* err_code, const char* message)
   char* response_body = jsonbuf_finish(json_buf);
   jsonbuf_destroy(json_buf);
   return response_body;
+}
+
+static char* static_errorBodyWithRetryAfter(const char* err_code, const char* message, unsigned int retry_after_sec)
+{
+  JsonBuf_t* json_buf = jsonbuf_create(HANDLER_ERROR_JSONBUF_INITIAL_CAP, JSONBUF_DEFAULT_CEILING);
+  if (!json_buf)
+    return NULL;
+
+  serialize_errorWithRetryAfter_response(err_code, message, retry_after_sec, json_buf);
+  char* response_body = jsonbuf_finish(json_buf);
+  jsonbuf_destroy(json_buf);
+  return response_body;
+}
+
+static void static_writePaymentRequiredMessage(char* message_out, unsigned int retry_after_sec)
+{
+  assert(message_out != NULL);
+
+  int message_len = snprintf(message_out, HANDLER_PAYMENT_REQUIRED_MESSAGE_BUF_SIZE, HANDLER_PAYMENT_REQUIRED_MESSAGE_FORMAT, retry_after_sec);
+  assert(message_len > 0 && message_len < HANDLER_PAYMENT_REQUIRED_MESSAGE_BUF_SIZE);
+  (void)message_len;
 }
 
 static void static_sendError(int client_fd, int status_code, const char* status_text, const char* err_code, const char* message)

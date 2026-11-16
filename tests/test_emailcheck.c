@@ -1167,6 +1167,193 @@ void test_checkDomain_rates_the_keys_of_two_selectors(void)
   }
 }
 
+#define NO_MAIL_SPF   "v=spf1 -all"
+#define NO_MAIL_DMARC "v=DMARC1; p=reject"
+
+#define NO_MAIL_ED25519_KEY "v=DKIM1; k=ed25519; p=11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo="
+
+static void static_fakeNoMailDomain(const char* except_name, DnsRecordType_t except_type)
+{
+  const FakeAnswer_t fakes[] = {
+    { "example.com",                     DNS_RECORD_TYPE_TXT, DNS_ANSWER_OK, { NO_MAIL_SPF },         false },
+    { "example.com",                     DNS_RECORD_TYPE_MX,  DNS_ANSWER_OK, { NULL },                true },
+    { "_dmarc.example.com",              DNS_RECORD_TYPE_TXT, DNS_ANSWER_OK, { NO_MAIL_DMARC },       false },
+    { "default._domainkey.example.com",  DNS_RECORD_TYPE_TXT, DNS_ANSWER_OK, { "v=DKIM1; p=" },       false },
+    { "google._domainkey.example.com",   DNS_RECORD_TYPE_TXT, DNS_ANSWER_OK, { NULL },                false },
+    { "selector1._domainkey.example.com", DNS_RECORD_TYPE_TXT, DNS_ANSWER_OK, { NO_MAIL_ED25519_KEY }, false },
+  };
+  for (size_t i = 0; i < sizeof(fakes) / sizeof(fakes[0]); i++)
+  {
+    if (except_name != NULL && strcmp(fakes[i].mp_name, except_name) == 0 && fakes[i].m_type == except_type)
+      continue;
+    static_addFake(fakes[i]);
+    if (strcmp(fakes[i].mp_name, "google._domainkey.example.com") == 0)
+      g_fakes[g_fakeCount - 1].ma_texts[0] = static_rsaKeyRecord(1, "v=DKIM1; k=rsa; ", 2048, false, false);
+  }
+}
+
+void test_checkDomain_leaves_out_the_mail_checks_of_a_no_mail_domain(void)
+{
+  static_fakeNoMailDomain(NULL, DNS_RECORD_TYPE_TXT);
+  TEST_ASSERT_EQUAL_INT(DNS_LOOKUP_OK, emailcheck_checkDomain("example.com", NULL, &g_record));
+
+  TEST_ASSERT_TRUE(g_record.m_isNoMailDomain);
+  TEST_ASSERT_EQUAL_INT(EMAILCHECK_DKIM_SELECTOR_SOURCE_COMMON, g_record.m_dkimSelectorSource);
+  TEST_ASSERT_EQUAL_INT(DNS_ANSWER_OK, g_record.m_dkimStatus);
+  TEST_ASSERT_EQUAL_INT(EMAILCHECK_DKIM_KEY_FOUND, g_record.m_dkimKeyStatus);
+  TEST_ASSERT_EQUAL_INT(2, g_record.m_dkimUsableKeyCount);
+  TEST_ASSERT_EQUAL_INT(DNS_ANSWER_NXDOMAIN, g_record.m_mtaStsAnswer.m_status);
+
+  const EmailCheckKind_t expected[] = {
+    EMAILCHECK_KIND_SPF_RECORD, EMAILCHECK_KIND_SPF_SYNTAX, EMAILCHECK_KIND_SPF_LOOKUP_LIMIT, EMAILCHECK_KIND_SPF_ALL,
+    EMAILCHECK_KIND_SPF_IGNORED_TERMS, EMAILCHECK_KIND_SPF_PTR, EMAILCHECK_KIND_SPF_WIDE_RANGE, EMAILCHECK_KIND_SPF_RECORD_SIZE,
+    EMAILCHECK_KIND_DMARC_RECORD, EMAILCHECK_KIND_DMARC_POLICY, EMAILCHECK_KIND_DMARC_TEST_MODE, EMAILCHECK_KIND_MX,
+  };
+  const int expected_count = (int)(sizeof(expected) / sizeof(expected[0]));
+  TEST_ASSERT_EQUAL_INT(expected_count, g_record.m_checkCount);
+  for (int i = 0; i < expected_count; i++)
+  {
+    TEST_ASSERT_EQUAL_INT(expected[i], g_record.ma_checks[i].m_kind);
+    TEST_ASSERT_EQUAL_INT(EMAILCHECK_RESULT_PASS, g_record.ma_checks[i].m_result);
+  }
+}
+
+void test_checkDomain_rates_a_domain_with_one_no_mail_leg_missing_as_any_domain(void)
+{
+  enum { W = EMAILCHECK_RESULT_WARN, X = -1 };
+  static const FakeAnswer_t cases[] = {
+    { "example.com",        DNS_RECORD_TYPE_MX,  DNS_ANSWER_OK,           { "mx.example.net" },                         true },
+    { "example.com",        DNS_RECORD_TYPE_MX,  DNS_ANSWER_OK,           { "mx.example.net" },                         false },
+    { "example.com",        DNS_RECORD_TYPE_MX,  DNS_ANSWER_SERVER_ERROR, { NULL },                                     true },
+    { "example.com",        DNS_RECORD_TYPE_TXT, DNS_ANSWER_OK,           { "v=spf1 ~all" },                            false },
+    { "example.com",        DNS_RECORD_TYPE_TXT, DNS_ANSWER_OK,           { "v=spf1 ?all" },                            false },
+    { "example.com",        DNS_RECORD_TYPE_TXT, DNS_ANSWER_OK,           { "v=spf1 +all" },                            false },
+    { "example.com",        DNS_RECORD_TYPE_TXT, DNS_ANSWER_OK,           { "google-site-verification=x" },             false },
+    { "example.com",        DNS_RECORD_TYPE_TXT, DNS_ANSWER_OK,           { NO_MAIL_SPF, NO_MAIL_SPF },                 false },
+    { "example.com",        DNS_RECORD_TYPE_TXT, DNS_ANSWER_OK,           { "v=spf1 bogus -all" },                      false },
+    { "example.com",        DNS_RECORD_TYPE_TXT, DNS_ANSWER_OK,           { "v=spf1 ip4:192.0.2.1 -all" },              false },
+    { "example.com",        DNS_RECORD_TYPE_TXT, DNS_ANSWER_OK,           { "v=spf1 include:_spf.example.net -all" },   false },
+    { "example.com",        DNS_RECORD_TYPE_TXT, DNS_ANSWER_OK,           { "v=spf1 ~all -all" },                       false },
+    { "example.com",        DNS_RECORD_TYPE_TXT, DNS_ANSWER_OK,           { "v=spf1 -all redirect=example.net" },       false },
+    { "example.com",        DNS_RECORD_TYPE_TXT, DNS_ANSWER_OK,           { "v=spf1 -a" },                              false },
+    { "example.com",        DNS_RECORD_TYPE_TXT, DNS_ANSWER_OK,           { "v=spf1 redirect=_spf.example.net" },       false },
+    { "example.com",        DNS_RECORD_TYPE_TXT, DNS_ANSWER_TIMEOUT,      { NULL },                                     false },
+    { "_dmarc.example.com", DNS_RECORD_TYPE_TXT, DNS_ANSWER_OK,           { "v=DMARC1; p=quarantine" },                 false },
+    { "_dmarc.example.com", DNS_RECORD_TYPE_TXT, DNS_ANSWER_OK,           { "v=DMARC1; p=none" },                       false },
+    { "_dmarc.example.com", DNS_RECORD_TYPE_TXT, DNS_ANSWER_NXDOMAIN,     { NULL },                                     false },
+    { "_dmarc.example.com", DNS_RECORD_TYPE_TXT, DNS_ANSWER_SERVER_ERROR, { NULL },                                     false },
+  };
+  static const int reporting_results[] = { W, W, W, W, W, W, W, W, W, W, W, W, W, W, W, W, W, W, X, X };
+  TEST_ASSERT_EQUAL_size_t(sizeof(cases) / sizeof(cases[0]), sizeof(reporting_results) / sizeof(reporting_results[0]));
+
+  const EmailCheckKind_t dkim_kinds[] = {
+    EMAILCHECK_KIND_DKIM_KEY_FOUND, EMAILCHECK_KIND_DKIM_KEY_USABLE, EMAILCHECK_KIND_DKIM_KEY_SIZE, EMAILCHECK_KIND_DKIM_KEY_FORMAT,
+    EMAILCHECK_KIND_DKIM_TEST_MODE, EMAILCHECK_KIND_DKIM_KEY_RESTRICTED, EMAILCHECK_KIND_DKIM_MULTIPLE_KEYS,
+  };
+  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+  {
+    setUp();
+    static_fakeNoMailDomain(cases[i].mp_name, cases[i].m_type);
+    static_addFake(cases[i]);
+    char message[96];
+    snprintf(message, sizeof(message), "case %zu", i);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(DNS_LOOKUP_OK, emailcheck_checkDomain("example.com", NULL, &g_record), message);
+    TEST_ASSERT_FALSE_MESSAGE(g_record.m_isNoMailDomain, message);
+    for (size_t j = 0; j < sizeof(dkim_kinds) / sizeof(dkim_kinds[0]); j++)
+      TEST_ASSERT_EQUAL_INT_MESSAGE(EMAILCHECK_RESULT_PASS, static_resultOf(dkim_kinds[j]), message);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(W, static_resultOf(EMAILCHECK_KIND_MTA_STS), message);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(reporting_results[i], static_resultOf(EMAILCHECK_KIND_DMARC_REPORTING), message);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(2, g_record.m_dkimUsableKeyCount, message);
+    emailcheck_EMAILAUTHCHECKRecordFree(&g_record);
+  }
+}
+
+void test_checkDomain_leaves_out_dmarc_reporting_of_a_no_mail_domain_with_rua(void)
+{
+  static_fakeNoMailDomain("_dmarc.example.com", DNS_RECORD_TYPE_TXT);
+  static_addFake((FakeAnswer_t){ "_dmarc.example.com", DNS_RECORD_TYPE_TXT, DNS_ANSWER_OK, { "v=DMARC1; p=reject; rua=mailto:d@example.com" }, false });
+  TEST_ASSERT_EQUAL_INT(DNS_LOOKUP_OK, emailcheck_checkDomain("example.com", NULL, &g_record));
+  TEST_ASSERT_TRUE(g_record.m_isNoMailDomain);
+  TEST_ASSERT_EQUAL_INT(-1, static_resultOf(EMAILCHECK_KIND_DMARC_REPORTING));
+}
+
+void test_checkDomain_rates_a_no_mail_subdomain_by_the_applied_policy(void)
+{
+  static const struct { const char* mp_text; bool m_isNoMail; } cases[] = {
+    { "v=DMARC1; p=reject",          true  },
+    { "v=DMARC1; p=reject; sp=none", false },
+    { "v=DMARC1; p=none; sp=reject", true  },
+  };
+  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+  {
+    setUp();
+    static_addFake((FakeAnswer_t){ "mail.example.com",        DNS_RECORD_TYPE_TXT, DNS_ANSWER_OK,       { NO_MAIL_SPF },      false });
+    static_addFake((FakeAnswer_t){ "mail.example.com",        DNS_RECORD_TYPE_MX,  DNS_ANSWER_OK,       { NULL },             true  });
+    static_addFake((FakeAnswer_t){ "_dmarc.mail.example.com", DNS_RECORD_TYPE_TXT, DNS_ANSWER_NXDOMAIN, { NULL },             false });
+    static_addFake((FakeAnswer_t){ "_dmarc.example.com",      DNS_RECORD_TYPE_TXT, DNS_ANSWER_OK,       { cases[i].mp_text }, false });
+    char message[16];
+    snprintf(message, sizeof(message), "case %zu", i);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(DNS_LOOKUP_OK, emailcheck_checkDomain("mail.example.com", NULL, &g_record), message);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(EMAILCHECK_DMARC_SOURCE_ORGANIZATIONAL, g_record.m_dmarcSource, message);
+    TEST_ASSERT_EQUAL_MESSAGE(cases[i].m_isNoMail, g_record.m_isNoMailDomain, message);
+    emailcheck_EMAILAUTHCHECKRecordFree(&g_record);
+  }
+}
+
+void test_checkDomain_counts_a_selector_with_two_key_records_once(void)
+{
+  static_addFake((FakeAnswer_t){ "example.com", DNS_RECORD_TYPE_TXT, DNS_ANSWER_OK, { "v=spf1 ~all" }, false });
+  static_addFake((FakeAnswer_t){ "default._domainkey.example.com", DNS_RECORD_TYPE_TXT, DNS_ANSWER_OK, { NO_MAIL_ED25519_KEY, NO_MAIL_ED25519_KEY }, false });
+  TEST_ASSERT_EQUAL_INT(DNS_LOOKUP_OK, emailcheck_checkDomain("example.com", NULL, &g_record));
+  TEST_ASSERT_EQUAL_INT(1, g_record.m_dkimUsableKeyCount);
+}
+
+void test_checkDomain_counts_the_usable_dkim_keys(void)
+{
+  enum { P = EMAILCHECK_RESULT_PASS, F = EMAILCHECK_RESULT_FAIL, X = -1 };
+  const char* const revoked = "v=DKIM1; p=";
+  const char* const rsa_key = static_rsaKeyRecord(0, "v=DKIM1; ", 2048, false, false);
+  const struct {
+    const char*               ma_texts[3];
+    int                       m_usableKeyCount;
+    EmailCheckDkimKeyStatus_t m_keyStatus;
+    int                       m_usableResult;
+  } cases[] = {
+    { { revoked, revoked, revoked },                                    0, EMAILCHECK_DKIM_KEY_FOUND,   F },
+    { { revoked, rsa_key, NO_MAIL_ED25519_KEY },                        2, EMAILCHECK_DKIM_KEY_FOUND,   P },
+    { { "v=DKIM1; k=foo; p=AAAA", "v=DKIM1; h=; p=AAAA", rsa_key },     1, EMAILCHECK_DKIM_KEY_FOUND,   P },
+    { { NULL, NULL, NULL },                                             0, EMAILCHECK_DKIM_KEY_UNKNOWN, X },
+  };
+  const char* const names[3] = { "default._domainkey.example.com", "google._domainkey.example.com", "selector1._domainkey.example.com" };
+  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+  {
+    setUp();
+    static_addFake((FakeAnswer_t){ "example.com", DNS_RECORD_TYPE_TXT, DNS_ANSWER_OK, { "v=spf1 ~all" }, false });
+    for (int j = 0; j < 3; j++)
+      if (cases[i].ma_texts[j] != NULL)
+        static_addFake((FakeAnswer_t){ names[j], DNS_RECORD_TYPE_TXT, DNS_ANSWER_OK, { cases[i].ma_texts[j] }, false });
+    TEST_ASSERT_EQUAL_INT(DNS_LOOKUP_OK, emailcheck_checkDomain("example.com", NULL, &g_record));
+    TEST_ASSERT_FALSE(g_record.m_isNoMailDomain);
+    TEST_ASSERT_EQUAL_INT(DNS_ANSWER_OK, g_record.m_dkimStatus);
+    TEST_ASSERT_EQUAL_INT(cases[i].m_keyStatus, g_record.m_dkimKeyStatus);
+    TEST_ASSERT_EQUAL_INT(cases[i].m_usableKeyCount, g_record.m_dkimUsableKeyCount);
+    TEST_ASSERT_EQUAL_INT(cases[i].m_usableResult, static_resultOf(EMAILCHECK_KIND_DKIM_KEY_USABLE));
+    emailcheck_EMAILAUTHCHECKRecordFree(&g_record);
+  }
+}
+
+void test_checkDomain_counts_no_usable_key_when_the_dkim_question_failed(void)
+{
+  static_fakeNoMailDomain("google._domainkey.example.com", DNS_RECORD_TYPE_TXT);
+  static_addFake((FakeAnswer_t){ "google._domainkey.example.com", DNS_RECORD_TYPE_TXT, DNS_ANSWER_TIMEOUT, { NULL }, false });
+  TEST_ASSERT_EQUAL_INT(DNS_LOOKUP_OK, emailcheck_checkDomain("example.com", "google", &g_record));
+  TEST_ASSERT_EQUAL_INT(DNS_ANSWER_TIMEOUT, g_record.m_dkimStatus);
+  TEST_ASSERT_EQUAL_INT(0, g_record.m_dkimUsableKeyCount);
+  TEST_ASSERT_TRUE(g_record.m_isNoMailDomain);
+  TEST_ASSERT_EQUAL_INT(-1, static_resultOf(EMAILCHECK_KIND_MTA_STS));
+  TEST_ASSERT_EQUAL_INT(-1, static_resultOf(EMAILCHECK_KIND_DKIM_KEY_FOUND));
+}
+
 void test_checkAddressDomain_asks_mx_a_and_aaaa_in_one_round(void)
 {
   static_addFake((FakeAnswer_t){ "example.com", DNS_RECORD_TYPE_MX, DNS_ANSWER_OK, { "mx1.example.net", "mx2.example.net" }, false });
@@ -1337,6 +1524,13 @@ int main(void)
   RUN_TEST(test_checkDomain_rates_the_dmarc_record);
   RUN_TEST(test_checkDomain_rates_the_dkim_keys);
   RUN_TEST(test_checkDomain_rates_the_keys_of_two_selectors);
+  RUN_TEST(test_checkDomain_leaves_out_the_mail_checks_of_a_no_mail_domain);
+  RUN_TEST(test_checkDomain_rates_a_domain_with_one_no_mail_leg_missing_as_any_domain);
+  RUN_TEST(test_checkDomain_leaves_out_dmarc_reporting_of_a_no_mail_domain_with_rua);
+  RUN_TEST(test_checkDomain_rates_a_no_mail_subdomain_by_the_applied_policy);
+  RUN_TEST(test_checkDomain_counts_a_selector_with_two_key_records_once);
+  RUN_TEST(test_checkDomain_counts_the_usable_dkim_keys);
+  RUN_TEST(test_checkDomain_counts_no_usable_key_when_the_dkim_question_failed);
   RUN_TEST(test_checkAddressDomain_asks_mx_a_and_aaaa_in_one_round);
   RUN_TEST(test_checkAddressDomain_route_of_each_answer);
   RUN_TEST(test_checkAddressDomain_refuses_a_name_that_is_not_public);

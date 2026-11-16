@@ -38,6 +38,7 @@ extern "C" {
 #include "throttle.h"
 #include "external/wayback.h"
 #include "wayback_stub.h"
+#include "cveservices_stub.h"
 #include "header_fetch_stub.h"
 #include "certspotter_stub.h"
 #include "subdomain_stub.h"
@@ -300,6 +301,9 @@ extern "C" char         g_stub_QUOTA_last_hold_set_name[];
 extern "C" unsigned int g_stub_QUOTA_last_hold_set_seconds;
 
 extern "C" unsigned int g_stub_QUOTA_window_remaining_seconds;
+
+extern "C" QuotaStatus_t g_stub_QUOTA_reserve_statuses[4];
+extern "C" QuotaRule_t   g_stub_QUOTA_reserve_rules[4];
 
 extern "C" ThrottleStatus_t g_stub_THROTTLE_charge_status;
 extern "C" unsigned int     g_stub_THROTTLE_retry_after_seconds;
@@ -644,6 +648,13 @@ void setUp(void)
   g_stub_WAYBACK_lookup_count                  = 0;
   g_stub_WAYBACK_last_lookup_name[0]           = '\0';
   g_stub_WAYBACK_on_call                       = NULL;
+  g_stub_CVESERVICES_status                    = CVESERVICES_UPSTREAM_ERROR;
+  g_stub_CVESERVICES_state                     = CVESERVICES_CVE_ID_STATE_NOT_CHECKED;
+  g_stub_CVESERVICES_retry_after_seconds       = 0;
+  g_stub_CVESERVICES_call_count                = 0;
+  g_stub_CVESERVICES_last_cve_id[0]            = '\0';
+  g_stub_CVESERVICES_last_deadline_ms          = 0;
+  g_stub_CVESERVICES_on_call                   = NULL;
   g_stub_CERTSPOTTER_answer                    = g_stub_CERTSPOTTER_default_answer;
   g_stub_CERTSPOTTER_lookup_count              = 0;
   g_stub_CERTSPOTTER_last_lookup_name[0]       = '\0';
@@ -2892,7 +2903,7 @@ void test_HEALTH_db_error_answers_503_with_retry_after(void)
   TEST_ASSERT_EQUAL_INT(1, static_countResponses(buf));
   TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 503 Service Unavailable\r\n"));
   TEST_ASSERT_NOT_NULL(strstr(buf, "\r\nRetry-After: 5\r\n"));
-  TEST_ASSERT_NOT_NULL(strstr(buf, R"({"status":"unavailable","version":"2.0.3","db":null})"));
+  TEST_ASSERT_NOT_NULL(strstr(buf, R"({"status":"unavailable","version":"2.0.4","db":null})"));
   TEST_ASSERT_NULL(strstr(buf, R"("cve_count")"));
 }
 
@@ -2906,7 +2917,7 @@ void test_HEALTH_db_not_found_also_answers_503(void)
   static_callRequestHandle(req, buf, sizeof(buf));
   TEST_ASSERT_EQUAL_INT(1, static_countResponses(buf));
   TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 503 Service Unavailable\r\n"));
-  TEST_ASSERT_NOT_NULL(strstr(buf, R"({"status":"unavailable","version":"2.0.3","db":null})"));
+  TEST_ASSERT_NOT_NULL(strstr(buf, R"({"status":"unavailable","version":"2.0.4","db":null})"));
   TEST_ASSERT_NULL(strstr(buf, R"("cve_count")"));
 }
 
@@ -3666,8 +3677,8 @@ void test_mcp_keyed_rate_limit_is_a_jsonrpc_429(void)
 
   char expected[256];
   snprintf(expected, sizeof(expected),
-           R"({"jsonrpc":"2.0","id":12,"error":{"code":-32000,"message":"rate limit exceeded","data":{"retry_after_seconds":%u}}})",
-           retry_after);
+           R"({"jsonrpc":"2.0","id":12,"error":{"code":-32000,"message":"rate limit exceeded: retry in %u seconds","data":{"retry_after_seconds":%u}}})",
+           retry_after, retry_after);
   TEST_ASSERT_EQUAL_STRING(expected, static_responseBody(buf));
   TEST_ASSERT_EQUAL_INT(0, g_stub_CVELOOKUP_call_count);
 }
@@ -3784,16 +3795,17 @@ void test_mcp_keyed_paid_request_without_db_is_a_jsonrpc_500(void)
 
 void test_rest_and_mcp_refusals_send_one_message(void)
 {
-  struct { const char* status; const char* key_header; RateLimitStatus_t limiter; DbApiKeyState_t key_state; } cases[] = {
-    { "HTTP/1.1 401", "X-API-Key: contrastapi_0000\r\n", RATELIMIT_ALLOW, DB_API_KEY_UNKNOWN  },
-    { "HTTP/1.1 401", "X-API-Key: " VALID_KEY "\r\n",     RATELIMIT_ALLOW, DB_API_KEY_INACTIVE },
-    { "HTTP/1.1 429", "",                                 RATELIMIT_DENY,  DB_API_KEY_UNKNOWN  },
-    { "HTTP/1.1 500", "",                                 RATELIMIT_ERROR, DB_API_KEY_UNKNOWN  },
+  struct { const char* status; const char* key_header; RateLimitStatus_t limiter; DbApiKeyState_t key_state; const char* mcp_suffix; } cases[] = {
+    { "HTTP/1.1 401", "X-API-Key: contrastapi_0000\r\n", RATELIMIT_ALLOW, DB_API_KEY_UNKNOWN,  ""                      },
+    { "HTTP/1.1 401", "X-API-Key: " VALID_KEY "\r\n",     RATELIMIT_ALLOW, DB_API_KEY_INACTIVE, ""                      },
+    { "HTTP/1.1 429", "",                                 RATELIMIT_DENY,  DB_API_KEY_UNKNOWN,  ": retry in 0 seconds"  },
+    { "HTTP/1.1 500", "",                                 RATELIMIT_ERROR, DB_API_KEY_UNKNOWN,  ""                      },
   };
   char req[512];
   char buf[RESP_BUF];
   char rest_message[128];
   char mcp_message[128];
+  char expected_mcp_message[160];
   for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
   {
     g_stub_credit_budget_status = cases[i].limiter;
@@ -3812,7 +3824,8 @@ void test_rest_and_mcp_refusals_send_one_message(void)
     static_errorMessageOf(buf, mcp_message, sizeof(mcp_message));
 
     TEST_ASSERT_TRUE_MESSAGE(rest_message[0] != '\0', cases[i].status);
-    TEST_ASSERT_EQUAL_STRING_MESSAGE(rest_message, mcp_message, cases[i].status);
+    snprintf(expected_mcp_message, sizeof(expected_mcp_message), "%s%s", rest_message, cases[i].mcp_suffix);
+    TEST_ASSERT_EQUAL_STRING_MESSAGE(expected_mcp_message, mcp_message, cases[i].status);
   }
 }
 
@@ -3844,7 +3857,7 @@ void test_rest_upstream_request_is_a_503_when_every_upstream_thread_is_in_use(vo
     TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "HTTP/1.1 503 Service Unavailable\r\n"), reqs[i]);
     TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "\r\nRetry-After: 5\r\n"), reqs[i]);
     TEST_ASSERT_NULL_MESSAGE(strstr(buf, "X-RateLimit-"), reqs[i]);
-    TEST_ASSERT_EQUAL_STRING_MESSAGE(R"({"error":{"code":"upstream_busy","message":"upstream service busy"}})" "\n",
+    TEST_ASSERT_EQUAL_STRING_MESSAGE(R"({"error":{"code":"upstream_busy","message":"upstream service busy","retry_after_seconds":5}})" "\n",
                                      static_responseBody(buf), reqs[i]);
   }
   TEST_ASSERT_EQUAL_UINT(CREDIT_COST_SENTINEL, g_stub_last_credit_cost);
@@ -4522,8 +4535,9 @@ void test_email_auth_check_is_one_upstream_thread_while_it_asks_the_resolver(voi
   R"("dmarc":{"available":true,"record_name":null,"source":null,"record":null,"policy":null,)" \
   R"("subdomain_policy":null,"nonexistent_subdomain_policy":null,"applied_policy":null,"test_mode":null,)" \
   R"("domain_role":null,"aggregate_report_uris":null,"failure_report_uris":null},)" \
-  R"("dkim":{"available":true,"key_status":"unknown","selector_source":"common","tested_selectors":[],"keys":[]},)" \
+  R"("dkim":{"available":true,"key_status":"unknown","usable_key_count":0,"selector_source":"common","tested_selectors":[],"keys":[]},)" \
   R"("mx":{"available":true,"null_mx":false,"hosts":[]},"mail_providers":[],"mta_sts":{"available":true,"record_found":false},)" \
+  R"("no_mail_domain":false,)" \
   R"("checks":[{"id":"spf_record","result":"fail","severity":"high","detail":"The domain has no SPF record, or more than one."},)" \
   R"({"id":"dmarc_record","result":"fail","severity":"high","detail":"No DMARC record applies to the domain, or its own name holds more than one."},)" \
   R"({"id":"dkim_key_found","result":"warn","severity":"high","detail":"None of the selectors tried holds a key record. The domain may sign with another selector."},)" \
@@ -5216,7 +5230,7 @@ void test_headers_check_failed_fetches_on_both_transports(void)
 static void static_mcpTextOf(const char* answer, char* decoded, size_t decoded_size, const char* label);
 
 #define WHOISLOOKUP_STUB_BODY                                                                              \
-  R"({"domain":"example.co.uk","available":true,"rdap_server":"https://rdap.example.test/",)"              \
+  R"({"domain":"example.co.uk","available":true,"registered":true,"rdap_server":"https://rdap.example.test/",)" \
   R"("whois_server":null,)"                                                                                \
   R"("registrar_name":"Stub Registrar LLC","registrar_iana_id":1234,)"                                     \
   R"("created_at":"2001-02-03T04:05:06Z","updated_at":"2025-06-07T08:09:10Z","expires_at":"2030-11-12T13:14:15Z",)" \
@@ -5391,9 +5405,9 @@ void test_whois_lookup_unavailable_and_failed_answers_on_both_transports(void)
     int              m_lookupCount;
   } cases[] = {
     { false, THROTTLE_CHARGED, RDAP_OK, "HTTP/1.1 200 OK\r\n",
-      R"({"domain":"example.co.uk","available":false,"reason":"no_registry_server","retry_after_seconds":null})" "\n", NULL, 0, 0 },
+      R"({"domain":"example.co.uk","available":false,"registered":null,"reason":"no_registry_server","retry_after_seconds":null})" "\n", NULL, 0, 0 },
     { true, THROTTLE_REFUSED, RDAP_OK, "HTTP/1.1 200 OK\r\n",
-      R"({"domain":"example.co.uk","available":false,"reason":"quota_exhausted","retry_after_seconds":17})" "\n", NULL, 1, 0 },
+      R"({"domain":"example.co.uk","available":false,"registered":null,"reason":"quota_exhausted","retry_after_seconds":17})" "\n", NULL, 1, 0 },
     { true, THROTTLE_ERROR, RDAP_OK, "HTTP/1.1 500 Internal Server Error\r\n",
       R"({"error":{"code":"internal_error","message":"internal server error"}})" "\n",
       R"({"jsonrpc":"2.0","id":54,"error":{"code":-32603,"message":"Internal error: database query failed"}})", 1, 0 },
@@ -9032,7 +9046,7 @@ void test_internal_error_body_matches_the_error_serializer(void)
   free(expected);
 }
 
-void test_longest_error_body_fits_the_starting_capacity(void)
+void test_cvss_missing_metric_error_body_fits_the_starting_capacity(void)
 {
   g_stub_api_key_state = DB_API_KEY_ACTIVE;
   g_reallocFailsNext = true;
@@ -10833,6 +10847,140 @@ void test_docs_api_upstream_503_matches_the_server(void)
   }
   TEST_ASSERT_TRUE_MESSAGE(body_count > 0, "docs do not show the upstream 503 body");
   free(text);
+}
+
+static char* static_CVELOOKUPStateBody(CveServicesCveIdState_t state)
+{
+  JsonBuf_t* json_buf = jsonbuf_create(JSONBUF_INITIAL_CAP, JSONBUF_DEFAULT_CEILING);
+  TEST_ASSERT_NOT_NULL(json_buf);
+  serialize_CVELOOKUP_notFoundResponse(state, json_buf);
+  char* body = jsonbuf_finish(json_buf);
+  jsonbuf_destroy(json_buf);
+  TEST_ASSERT_NOT_NULL(body);
+  body[strcspn(body, "\n")] = '\0';
+  return body;
+}
+
+static size_t static_CVELOOKUPStateIndex(const CveServicesCveIdState_t* states, size_t state_count, const char* name, size_t name_len)
+{
+  size_t s = 0;
+  while (s < state_count &&
+         !(strlen(cveservices_cveIdStateName(states[s])) == name_len &&
+           strncmp(name, cveservices_cveIdStateName(states[s]), name_len) == 0))
+    s++;
+  return s;
+}
+
+void test_docs_cve_org_state_copies_match_the_server(void)
+{
+  static const CveServicesCveIdState_t STATES[] = {
+    CVESERVICES_CVE_ID_STATE_PUBLISHED, CVESERVICES_CVE_ID_STATE_RESERVED,
+    CVESERVICES_CVE_ID_STATE_REJECTED,  CVESERVICES_CVE_ID_STATE_UNKNOWN_ID,
+  };
+  static const size_t STATE_COUNT = sizeof(STATES) / sizeof(STATES[0]);
+  static const char   STATE_MEMBER[]  = R"("cve_org_state":")";
+  static const char   MESSAGE_MEMBER[] = R"("message":")";
+  char* bodies[sizeof(STATES) / sizeof(STATES[0])];
+  for (size_t s = 0; s < STATE_COUNT; s++)
+    bodies[s] = static_CVELOOKUPStateBody(STATES[s]);
+
+  char* api = static_readDocsFile(DOCS_API_PATH);
+  const char* section = strstr(api, "\n### CVE.org state of a missing CVE\n");
+  TEST_ASSERT_NOT_NULL(section);
+  const char* section_end = strstr(section + 1, "\n### ");
+  TEST_ASSERT_NOT_NULL(section_end);
+
+  for (size_t s = 0; s < STATE_COUNT; s++)
+  {
+    const char* message = strstr(bodies[s], MESSAGE_MEMBER);
+    TEST_ASSERT_NOT_NULL(message);
+    message += strlen(MESSAGE_MEMBER);
+    const char* message_end = strstr(message, "\",");
+    TEST_ASSERT_NOT_NULL(message_end);
+    char row[DOCS_ROW_MAX];
+    snprintf(row, sizeof(row), "\n| `%s` | `%.*s` |\n", cveservices_cveIdStateName(STATES[s]), (int)(message_end - message), message);
+    const char* found = strstr(section, row);
+    TEST_ASSERT_TRUE_MESSAGE(found != NULL && found < section_end, "docs cve_org_state table row differs from the server's");
+  }
+
+  static const char MISS_START[] = R"({"error":{"code":"not_found","message":"CVE not found;)";
+  int body_count = 0;
+  for (const char* found = strstr(section, MISS_START); found && found < section_end; found = strstr(found + 1, MISS_START))
+  {
+    const char* state_at = strstr(found, STATE_MEMBER);
+    TEST_ASSERT_TRUE(state_at != NULL && state_at < strchr(found, '\n'));
+    state_at += strlen(STATE_MEMBER);
+    size_t s = static_CVELOOKUPStateIndex(STATES, STATE_COUNT, state_at, strcspn(state_at, "\""));
+    TEST_ASSERT_TRUE_MESSAGE(s < STATE_COUNT, "docs miss body names no state the server names");
+    size_t body_len = strlen(bodies[s]);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(0, strncmp(found, bodies[s], body_len), "docs miss body differs from the server's");
+    TEST_ASSERT_EQUAL_CHAR_MESSAGE('\n', found[body_len], "docs miss body has more after the server's");
+    body_count++;
+  }
+  TEST_ASSERT_TRUE_MESSAGE(body_count >= 2, "docs show fewer than two miss bodies");
+  for (const char* found = strstr(api, MISS_START); found; found = strstr(found + 1, MISS_START))
+  {
+    const char* state_at = strstr(found, STATE_MEMBER);
+    TEST_ASSERT_TRUE(state_at != NULL && state_at < strchr(found, '\n'));
+    state_at += strlen(STATE_MEMBER);
+    size_t s = static_CVELOOKUPStateIndex(STATES, STATE_COUNT, state_at, strcspn(state_at, "\""));
+    TEST_ASSERT_TRUE_MESSAGE(s < STATE_COUNT, "docs miss body anywhere names no state the server names");
+    size_t body_len = strlen(bodies[s]);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(0, strncmp(found, bodies[s], body_len), "docs miss body anywhere differs from the server's");
+    TEST_ASSERT_TRUE_MESSAGE(found[body_len] == '\n' || found[body_len] == '`', "docs miss body anywhere has more after the server's");
+  }
+  int row_count = 0;
+  for (const char* r = strstr(section, "` | `CVE not found"); r && r < section_end; r = strstr(r + 1, "` | `CVE not found"))
+    row_count++;
+  TEST_ASSERT_EQUAL_INT_MESSAGE((int)STATE_COUNT, row_count, "docs cve_org_state table has a row the server does not name");
+
+  char* plain_body = static_CVELOOKUPStateBody(CVESERVICES_CVE_ID_STATE_NOT_CHECKED);
+  char plain_copy[DOCS_ROW_MAX];
+  snprintf(plain_copy, sizeof(plain_copy), "`%s`", plain_body);
+  const char* plain_at = strstr(section, plain_copy);
+  TEST_ASSERT_TRUE_MESSAGE(plain_at != NULL && plain_at < section_end, "docs plain miss body differs from the server's");
+  free(plain_body);
+  free(api);
+
+  char* mcp = static_readDocsFile(DOCS_MCP_PATH);
+  static const char MCP_ROW[]  = "\n| CVE not found, state known | `";
+  static const char MCP_TEXT[] = R"("text":")";
+  const char* row = strstr(mcp, MCP_ROW);
+  TEST_ASSERT_NOT_NULL(row);
+  const char* text = strstr(row, MCP_TEXT);
+  TEST_ASSERT_TRUE(text != NULL && text < strchr(row + 1, '\n'));
+  text += strlen(MCP_TEXT);
+  static const char ESCAPED_STATE_MEMBER[] = R"(\"cve_org_state\":\")";
+  const char* state_at = strstr(text, ESCAPED_STATE_MEMBER);
+  TEST_ASSERT_TRUE(state_at != NULL && state_at < strchr(row + 1, '\n'));
+  state_at += strlen(ESCAPED_STATE_MEMBER);
+  size_t s = static_CVELOOKUPStateIndex(STATES, STATE_COUNT, state_at, strcspn(state_at, "\\"));
+  TEST_ASSERT_TRUE_MESSAGE(s < STATE_COUNT, "docs MCP row names no state the server names");
+  char escaped[DOCS_ROW_MAX];
+  size_t escaped_len = 0;
+  const char* c = bodies[s];
+  for (; *c && escaped_len + 2 < sizeof(escaped); c++)
+  {
+    if (*c == '"' || *c == '\\')
+      escaped[escaped_len++] = '\\';
+    escaped[escaped_len++] = *c;
+  }
+  escaped[escaped_len] = '\0';
+  TEST_ASSERT_EQUAL_CHAR_MESSAGE('\0', *c, "the escaped body does not fit DOCS_ROW_MAX");
+  TEST_ASSERT_EQUAL_INT_MESSAGE(0, strncmp(text, escaped, escaped_len), "docs MCP state-known text differs from the server's body");
+  TEST_ASSERT_EQUAL_INT_MESSAGE(0, strncmp(text + escaped_len, R"(\n"}],"isError":true}}`)", strlen(R"(\n"}],"isError":true}}`)")), "docs MCP state-known text does not end as the server's");
+  free(mcp);
+
+  char* llms = static_readDocsFile("web/llms.txt");
+  char state_list[DOCS_ROW_MAX];
+  snprintf(state_list, sizeof(state_list), "`cve_org_state` (%s, %s, %s or %s)",
+           cveservices_cveIdStateName(STATES[0]), cveservices_cveIdStateName(STATES[1]),
+           cveservices_cveIdStateName(STATES[2]), cveservices_cveIdStateName(STATES[3]));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(llms, state_list), "llms.txt state list differs from the server's");
+  free(llms);
+
+  for (size_t i = 0; i < STATE_COUNT; i++)
+    free(bodies[i]);
 }
 
 static void static_writeRawBodyBusy(int client_fd, const void* context)
@@ -14434,7 +14582,7 @@ void test_api_key_claim_refuses_an_order_id_that_is_not_a_uuid(void)
 
 void test_registration_gate_test_count(void)
 {
-  int expected_test_count = 733;
+  int expected_test_count = 750;
   TEST_ASSERT_EQUAL_INT_MESSAGE(expected_test_count, (int)Unity.NumberOfTests,
     "RUN_TEST list and test definitions have drifted apart - a test may be unregistered");
 }
@@ -18002,6 +18150,12 @@ static void static_assertOffer(const char* buf, const char* expected_json)
   TEST_ASSERT_EQUAL_STRING(expected_json, json);
 }
 
+static void static_writeOfferText(char* out, size_t size, unsigned int seconds)
+{
+  int len = snprintf(out, size, "Payment required: pay with x402 or retry in %u seconds.", seconds);
+  TEST_ASSERT_TRUE(len > 0 && (size_t)len < size);
+}
+
 static void static_assertNoLine(const char* buf, const char* name)
 {
   char line[2048];
@@ -18044,12 +18198,20 @@ void test_x402_over_budget_payable_row_is_offered_402(void)
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_usageLines, R"("tier":"free","status":402,)"), g_usageLines);
   TEST_ASSERT_EQUAL_INT(1, static_countResponses(buf));
   static_assertLine(buf, "HTTP/1.1 402 Payment Required\r\n");
-  TEST_ASSERT_EQUAL_STRING(R"({"error":{"code":"payment_required","message":"Payment required: pay with x402 or retry after the reset."}})" "\n", static_responseBody(buf));
-  static_assertOffer(buf, X402_TEST_OFFER_JSON("/cve_lookup/", "10000", "Payment required: pay with x402 or retry after the reset."));
   char line[256];
   TEST_ASSERT_TRUE(static_x402FindLine(buf, "Retry-After", line, sizeof(line)));
   unsigned long retry_after = strtoul(line + strlen("Retry-After: "), NULL, 10);
   TEST_ASSERT_TRUE_MESSAGE(retry_after >= 118 && retry_after <= 120, line);
+  char expected_body[256];
+  snprintf(expected_body, sizeof(expected_body),
+           R"({"error":{"code":"payment_required","message":"Payment required: pay with x402 or retry in %lu seconds.","retry_after_seconds":%lu}})" "\n",
+           retry_after, retry_after);
+  TEST_ASSERT_EQUAL_STRING(expected_body, static_responseBody(buf));
+  char offer_text[96];
+  static_writeOfferText(offer_text, sizeof(offer_text), (unsigned int)retry_after);
+  char offer_json[2048];
+  snprintf(offer_json, sizeof(offer_json), X402_TEST_OFFER_JSON("/cve_lookup/", "10000", "%s"), offer_text);
+  static_assertOffer(buf, offer_json);
   TEST_ASSERT_TRUE(static_x402FindLine(buf, "X-RateLimit-Limit", line, sizeof(line)));
   TEST_ASSERT_TRUE(static_x402FindLine(buf, "X-RateLimit-Remaining", line, sizeof(line)));
   static_assertNoX402Call();
@@ -18191,7 +18353,7 @@ void test_x402_pending_settle_is_402_pending_without_an_offer(void)
   TEST_ASSERT_EQUAL_INT(1, static_countResponses(buf));
   static_assertLine(buf, "HTTP/1.1 402 Payment Required\r\n");
   static_assertLine(buf, "\r\nRetry-After: 10\r\n");
-  TEST_ASSERT_EQUAL_STRING(R"({"error":{"code":"payment_pending","message":"The payment is pending: retry with the same payment."}})" "\n", static_responseBody(buf));
+  TEST_ASSERT_EQUAL_STRING(R"({"error":{"code":"payment_pending","message":"The payment is pending: retry with the same payment.","retry_after_seconds":10}})" "\n", static_responseBody(buf));
   static_assertNoLine(buf, "PAYMENT-REQUIRED");
   static_assertNoLine(buf, "PAYMENT-RESPONSE");
   TEST_ASSERT_NULL(strstr(buf, "CVE-2021-44228"));
@@ -18305,7 +18467,7 @@ void test_x402_busy_payment_is_429_payment_busy(void)
     TEST_ASSERT_EQUAL_INT(1, static_countResponses(buf));
     static_assertLine(buf, "HTTP/1.1 429 Too Many Requests\r\n");
     static_assertLine(buf, "\r\nRetry-After: 5\r\n");
-    TEST_ASSERT_EQUAL_STRING(R"({"error":{"code":"payment_busy","message":"This payment or another one from its wallet is in flight: retry shortly."}})" "\n", static_responseBody(buf));
+    TEST_ASSERT_EQUAL_STRING(R"({"error":{"code":"payment_busy","message":"This payment or another one from its wallet is in flight: retry shortly.","retry_after_seconds":5}})" "\n", static_responseBody(buf));
     static_assertNoLine(buf, "PAYMENT-REQUIRED");
     TEST_ASSERT_EQUAL_INT(0, g_stub_X402_FACILITATOR_verify_count);
     TEST_ASSERT_EQUAL_INT(0, g_stub_CVELOOKUP_call_count);
@@ -18536,7 +18698,7 @@ void test_x402_open_refusals_are_answered(void)
   TEST_ASSERT_EQUAL_INT(1, static_countResponses(buf));
   static_assertLine(buf, "HTTP/1.1 503 Service Unavailable\r\n");
   static_assertLine(buf, "\r\nRetry-After: 5\r\n");
-  TEST_ASSERT_EQUAL_STRING(R"({"error":{"code":"payment_unavailable","message":"Payments are unavailable right now: retry shortly."}})" "\n", static_responseBody(buf));
+  TEST_ASSERT_EQUAL_STRING(R"({"error":{"code":"payment_unavailable","message":"Payments are unavailable right now: retry shortly.","retry_after_seconds":5}})" "\n", static_responseBody(buf));
   static_assertNoLine(buf, "PAYMENT-REQUIRED");
   TEST_ASSERT_EQUAL_INT(1, g_stub_X402_LEDGER_release_count);
   TEST_ASSERT_EQUAL_INT(0, g_stub_CVELOOKUP_call_count);
@@ -18554,7 +18716,7 @@ void test_x402_failed_attempt_limit_is_429_payment_limited(void)
   TEST_ASSERT_EQUAL_INT(1, static_countResponses(buf));
   static_assertLine(buf, "HTTP/1.1 429 Too Many Requests\r\n");
   static_assertLine(buf, "\r\nRetry-After: 37\r\n");
-  TEST_ASSERT_EQUAL_STRING(R"({"error":{"code":"payment_limited","message":"Too many payment attempts: retry later."}})" "\n", static_responseBody(buf));
+  TEST_ASSERT_EQUAL_STRING(R"({"error":{"code":"payment_limited","message":"Too many payment attempts: retry later.","retry_after_seconds":37}})" "\n", static_responseBody(buf));
   TEST_ASSERT_EQUAL_INT(0, g_stub_X402_FACILITATOR_verify_count);
   TEST_ASSERT_EQUAL_INT(0, g_stub_CVELOOKUP_call_count);
 }
@@ -18612,7 +18774,7 @@ void test_x402_weighed_bulk_offer_and_payment_agree(void)
   static_callX402(req, buf);
   TEST_ASSERT_EQUAL_INT(1, static_countResponses(buf));
   static_assertLine(buf, "HTTP/1.1 402 Payment Required\r\n");
-  static_assertOffer(buf, X402_TEST_OFFER_JSON("/package_check_bulk", "30000", "Payment required: pay with x402 or retry after the reset."));
+  static_assertOffer(buf, X402_TEST_OFFER_JSON("/package_check_bulk", "30000", "Payment required: pay with x402 or retry in 0 seconds."));
   TEST_ASSERT_EQUAL_INT(1, g_stub_PACKAGECHECKBULKWeigh_call_count);
   TEST_ASSERT_EQUAL_INT(5, g_stub_PACKAGECHECKBULKWeigh_last_item_count);
   TEST_ASSERT_EQUAL_INT(0, g_stub_PACKAGECHECKBULK_last_item_count);
@@ -18646,7 +18808,7 @@ void test_x402_offer_after_a_denied_check_prices_every_kept_package(void)
   static_callX402(req, buf);
   TEST_ASSERT_EQUAL_INT(1, static_countResponses(buf));
   static_assertLine(buf, "HTTP/1.1 402 Payment Required\r\n");
-  static_assertOffer(buf, X402_TEST_OFFER_JSON("/package_check_bulk", "50000", "Payment required: pay with x402 or retry after the reset."));
+  static_assertOffer(buf, X402_TEST_OFFER_JSON("/package_check_bulk", "50000", "Payment required: pay with x402 or retry in 0 seconds."));
   TEST_ASSERT_EQUAL_UINT(2, g_stub_last_credit_cost);
   TEST_ASSERT_EQUAL_INT(2, g_stub_PACKAGECHECKBULKWeigh_call_count);
   TEST_ASSERT_EQUAL_INT(5, g_stub_PACKAGECHECKBULKWeigh_last_item_count);
@@ -18735,6 +18897,16 @@ static void static_assertMcpOffer(const char* buf, const char* id, const char* o
   TEST_ASSERT_EQUAL_STRING(expected, static_responseBody(buf));
 }
 
+static void static_assertMcpOfferNamingTheWait(const char* buf, const char* id, const char* tool, const char* amount, bool is_modern)
+{
+  char offer_text[96];
+  static_writeOfferText(offer_text, sizeof(offer_text), static_retryAfterOf(buf));
+  char offer_json[2048];
+  int  offer_len = snprintf(offer_json, sizeof(offer_json), X402_TEST_MCP_OFFER_JSON("%s", "%s", "%s"), offer_text, tool, amount);
+  TEST_ASSERT_TRUE(offer_len > 0 && (size_t)offer_len < sizeof(offer_json));
+  static_assertMcpOffer(buf, id, offer_json, is_modern);
+}
+
 static void static_assertMcpAnswer(const char* buf, const char* status_line, const char* body)
 {
   TEST_ASSERT_EQUAL_INT_MESSAGE(1, static_countResponses(buf), buf);
@@ -18752,7 +18924,7 @@ void test_mcp_x402_over_budget_payable_tool_is_offered_in_a_tool_result(void)
   static_callMcpX402("", X402_TEST_MCP_CVE_CALL(""), buf, true);
   TEST_ASSERT_EQUAL_INT(1, static_countResponses(buf));
   static_assertLine(buf, "HTTP/1.1 200 OK\r\n");
-  static_assertMcpOffer(buf, "21", X402_TEST_MCP_OFFER_JSON("cve_lookup", "10000", "Payment required: pay with x402 or retry after the reset."), false);
+  static_assertMcpOfferNamingTheWait(buf, "21", "cve_lookup", "10000", false);
   unsigned int retry_after = static_retryAfterOf(buf);
   TEST_ASSERT_TRUE_MESSAGE(retry_after >= 118 && retry_after <= 120, buf);
   static_assertNoLine(buf, "PAYMENT-REQUIRED");
@@ -18770,7 +18942,7 @@ void test_mcp_x402_modern_offer_carries_the_result_type(void)
   static_callMcpX402(X402_TEST_MCP_MODERN_HEADERS("cve_lookup"), X402_TEST_MCP_CVE_CALL(R"("_meta":{)" X402_TEST_MCP_SEP_KEYS R"(},)"), buf, false);
   TEST_ASSERT_EQUAL_INT(1, static_countResponses(buf));
   static_assertLine(buf, "HTTP/1.1 200 OK\r\n");
-  static_assertMcpOffer(buf, "21", X402_TEST_MCP_OFFER_JSON("cve_lookup", "10000", "Payment required: pay with x402 or retry after the reset."), true);
+  static_assertMcpOfferNamingTheWait(buf, "21", "cve_lookup", "10000", true);
   static_assertNoX402Call();
 }
 
@@ -18783,7 +18955,7 @@ void test_mcp_x402_over_budget_tools_list_keeps_the_429(void)
   static_callMcpX402("", R"({"jsonrpc":"2.0","id":13,"method":"tools/list"})", buf, false);
   TEST_ASSERT_EQUAL_INT(1, static_countResponses(buf));
   static_assertLine(buf, "HTTP/1.1 429 Too Many Requests\r\n");
-  static_assertLine(buf, R"("error":{"code":-32000,"message":"rate limit exceeded")");
+  static_assertLine(buf, R"("error":{"code":-32000,"message":"rate limit exceeded: retry in )");
   TEST_ASSERT_NULL(strstr(buf, "x402Version"));
   static_assertNoX402Call();
 }
@@ -18816,7 +18988,7 @@ void test_mcp_x402_off_keeps_the_jsonrpc_429(void)
     static_callMcpX402("", bodies[i], buf, false);
     TEST_ASSERT_EQUAL_INT_MESSAGE(1, static_countResponses(buf), bodies[i]);
     static_assertLine(buf, "HTTP/1.1 429 Too Many Requests\r\n");
-    static_assertLine(buf, R"("error":{"code":-32000,"message":"rate limit exceeded")");
+    static_assertLine(buf, R"("error":{"code":-32000,"message":"rate limit exceeded: retry in )");
     TEST_ASSERT_NULL_MESSAGE(strstr(buf, "x402Version"), bodies[i]);
   }
   static_assertNoX402Call();
@@ -19295,7 +19467,7 @@ void test_mcp_x402_payment_header_on_mcp_is_ignored(void)
   static_callMcpX402(X402_TEST_PAYMENT_LINE, X402_TEST_MCP_CVE_CALL(""), buf, false);
   TEST_ASSERT_EQUAL_INT(1, static_countResponses(buf));
   static_assertLine(buf, "HTTP/1.1 200 OK\r\n");
-  static_assertMcpOffer(buf, "21", X402_TEST_MCP_OFFER_JSON("cve_lookup", "10000", "Payment required: pay with x402 or retry after the reset."), false);
+  static_assertMcpOfferNamingTheWait(buf, "21", "cve_lookup", "10000", false);
   static_assertNoX402Call();
   TEST_ASSERT_EQUAL_INT(0, g_stub_CVELOOKUP_call_count);
 }
@@ -19355,6 +19527,21 @@ static void static_driveDocsPaymentAnswer(const char* code, char* buf)
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "\r\n\r\n"), code);
 }
 
+static void static_writeWaitAs120(const char* buf, char* expected, size_t expected_size)
+{
+  unsigned int retry_after = static_retryAfterOf(buf);
+  TEST_ASSERT_TRUE_MESSAGE(retry_after >= 118 && retry_after <= 120, buf);
+  char server_body[512];
+  int  server_len = snprintf(server_body, sizeof(server_body),
+                             R"({"error":{"code":"payment_required","message":"Payment required: pay with x402 or retry in %u seconds.","retry_after_seconds":%u}})",
+                             retry_after, retry_after);
+  TEST_ASSERT_TRUE(server_len > 0 && (size_t)server_len < sizeof(server_body));
+  TEST_ASSERT_EQUAL_STRING(server_body, expected);
+  int len = snprintf(expected, expected_size,
+                     R"({"error":{"code":"payment_required","message":"Payment required: pay with x402 or retry in 120 seconds.","retry_after_seconds":120}})");
+  TEST_ASSERT_TRUE(len > 0 && (size_t)len < expected_size);
+}
+
 void test_docs_api_payment_answers_match_the_server(void)
 {
   char* text = static_readDocsFile(DOCS_API_PATH);
@@ -19372,6 +19559,8 @@ void test_docs_api_payment_answers_match_the_server(void)
     TEST_ASSERT_TRUE_MESSAGE(body_len > 0 && body_len < sizeof(expected), code);
     memcpy(expected, body, body_len);
     expected[body_len] = '\0';
+    if (strcmp(code, "payment_required") == 0)
+      static_writeWaitAs120(buf, expected, sizeof(expected));
     char code_member[96];
     snprintf(code_member, sizeof(code_member), "\"code\":\"%s\"", code);
     TEST_ASSERT_NOT_NULL_MESSAGE(strstr(expected, code_member), code);
@@ -19638,7 +19827,7 @@ void test_mcp_x402_offer_prices_a_multi_credit_call(void)
   char buf[RESP_BUF];
   static_callMcpX402("", body, buf, false);
   static_assertLine(buf, "HTTP/1.1 200 OK\r\n");
-  static_assertMcpOffer(buf, "23", X402_TEST_MCP_OFFER_JSON("package_check_bulk", "30000", "Payment required: pay with x402 or retry after the reset."), false);
+  static_assertMcpOfferNamingTheWait(buf, "23", "package_check_bulk", "30000", false);
 }
 
 void test_mcp_x402_offer_after_a_denied_check_prices_every_kept_package(void)
@@ -19653,7 +19842,7 @@ void test_mcp_x402_offer_after_a_denied_check_prices_every_kept_package(void)
   char buf[RESP_BUF];
   static_callMcpX402("", body, buf, false);
   static_assertLine(buf, "HTTP/1.1 200 OK\r\n");
-  static_assertMcpOffer(buf, "23", X402_TEST_MCP_OFFER_JSON("package_check_bulk", "50000", "Payment required: pay with x402 or retry after the reset."), false);
+  static_assertMcpOffer(buf, "23", X402_TEST_MCP_OFFER_JSON("package_check_bulk", "50000", "Payment required: pay with x402 or retry in 0 seconds."), false);
   TEST_ASSERT_EQUAL_UINT(2, g_stub_last_credit_cost);
   TEST_ASSERT_EQUAL_INT(2, g_stub_PACKAGECHECKBULKWeigh_call_count);
   TEST_ASSERT_EQUAL_INT(5, g_stub_PACKAGECHECKBULKWeigh_last_item_count);
@@ -20098,6 +20287,350 @@ void test_docs_api_health_cache_age_matches_the_server(void)
   TEST_ASSERT_EQUAL_INT_MESSAGE(1, static_countOccurrences(mcp, sentence), sentence);
   free(mcp);
 
+}
+
+#define CVELOOKUP_MISS_BODY R"({"error":{"code":"not_found","message":"CVE not found"}})" "\n"
+
+#define CVELOOKUP_MISS_ID      "CVE-2026-31337"
+#define CVELOOKUP_MISS_REQUEST "GET /cve_lookup/" CVELOOKUP_MISS_ID " HTTP/1.1\r\n\r\n"
+
+typedef struct {
+  CveServicesCveIdState_t m_state;
+  const char*             mp_cacheValue;
+  const char*             mp_body;
+  unsigned int            m_expiresAfterSeconds;
+} CveLookupIdStateCase_t;
+
+static const CveLookupIdStateCase_t CVELOOKUP_ID_STATE_CASES[] = {
+  { CVESERVICES_CVE_ID_STATE_PUBLISHED, R"({"state":"published"})",
+    R"({"error":{"code":"not_found","message":"CVE not found; CVE.org has published it and our data does not have it yet; retry later","cve_org_state":"published","retry_after_seconds":7200}})" "\n",
+    600 },
+  { CVESERVICES_CVE_ID_STATE_RESERVED, R"({"state":"reserved"})",
+    R"({"error":{"code":"not_found","message":"CVE not found; CVE.org lists the id as reserved, not published yet","cve_org_state":"reserved"}})" "\n",
+    3600 },
+  { CVESERVICES_CVE_ID_STATE_REJECTED, R"({"state":"rejected"})",
+    R"({"error":{"code":"not_found","message":"CVE not found; CVE.org lists it as rejected","cve_org_state":"rejected"}})" "\n",
+    86400 },
+  { CVESERVICES_CVE_ID_STATE_UNKNOWN_ID, R"({"state":"unknown_id"})",
+    R"({"error":{"code":"not_found","message":"CVE not found; CVE.org has no such id","cve_org_state":"unknown_id"}})" "\n",
+    600 },
+};
+
+#define CVELOOKUP_ID_STATE_CASE_COUNT (sizeof(CVELOOKUP_ID_STATE_CASES) / sizeof(CVELOOKUP_ID_STATE_CASES[0]))
+
+static const char* static_CVELOOKUPMissRest(const char* request, char* buf, size_t len)
+{
+  static_callRequestHandle(request, buf, len);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(1, static_countResponses(buf), buf);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "HTTP/1.1 404 Not Found\r\n"), buf);
+  return static_responseBody(buf);
+}
+
+static void static_CVELOOKUPAssertSlotIsFree(const char* label)
+{
+  TEST_ASSERT_EQUAL_INT_MESSAGE(1, static_countFreeUpstreamThreads(), label);
+}
+
+void test_CVELOOKUP_hit_does_not_ask_cve_org(void)
+{
+  g_stub_CVELOOKUP_status = DB_OK;
+  char buf[RESP_BUF];
+  static_callRequestHandle(CVELOOKUP_MISS_REQUEST, buf, sizeof(buf));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "HTTP/1.1 200 OK\r\n"), buf);
+  TEST_ASSERT_EQUAL_INT(0, g_stub_CVESERVICES_call_count);
+  TEST_ASSERT_EQUAL_INT(0, g_stub_CACHE_get_count);
+  TEST_ASSERT_EQUAL_INT(0, g_stub_QUOTA_hold_read_count);
+  TEST_ASSERT_EQUAL_INT(0, g_stub_QUOTA_reserve_count);
+}
+
+void test_CVELOOKUP_padded_sequence_is_an_unknown_id_without_a_call(void)
+{
+  g_stub_CVESERVICES_status = CVESERVICES_OK;
+  g_stub_CVESERVICES_state  = CVESERVICES_CVE_ID_STATE_PUBLISHED;
+  static const char* const padded_requests[] = {
+    "GET /cve_lookup/CVE-2021-044228 HTTP/1.1\r\n\r\n",
+    "GET /cve_lookup/CVE-2026-00001 HTTP/1.1\r\n\r\n",
+  };
+  for (size_t i = 0; i < sizeof(padded_requests) / sizeof(padded_requests[0]); i++)
+  {
+    char buf[RESP_BUF];
+    TEST_ASSERT_EQUAL_STRING_MESSAGE(CVELOOKUP_ID_STATE_CASES[3].mp_body, static_CVELOOKUPMissRest(padded_requests[i], buf, sizeof(buf)), padded_requests[i]);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(0, g_stub_CVESERVICES_call_count, padded_requests[i]);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(0, g_stub_CACHE_get_count, padded_requests[i]);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(0, g_stub_CACHE_put_count, padded_requests[i]);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(0, g_stub_QUOTA_hold_read_count, padded_requests[i]);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(0, g_stub_QUOTA_reserve_count, padded_requests[i]);
+  }
+
+  char buf[RESP_BUF];
+  TEST_ASSERT_EQUAL_STRING(CVELOOKUP_ID_STATE_CASES[0].mp_body, static_CVELOOKUPMissRest("GET /cve_lookup/CVE-2026-0042 HTTP/1.1\r\n\r\n", buf, sizeof(buf)));
+  TEST_ASSERT_EQUAL_INT(1, g_stub_CVESERVICES_call_count);
+  TEST_ASSERT_EQUAL_STRING("CVE-2026-0042", g_stub_CVESERVICES_last_cve_id);
+}
+
+void test_CVELOOKUP_kept_state_answers_without_a_call(void)
+{
+  for (size_t i = 0; i < CVELOOKUP_ID_STATE_CASE_COUNT; i++)
+  {
+    setUp();
+    upstream_setThreadCount(0);
+    g_stub_CACHE_get_status = CACHE_HIT;
+    g_stub_CACHE_get_body   = CVELOOKUP_ID_STATE_CASES[i].mp_cacheValue;
+    char buf[RESP_BUF];
+    TEST_ASSERT_EQUAL_STRING(CVELOOKUP_ID_STATE_CASES[i].mp_body, static_CVELOOKUPMissRest(CVELOOKUP_MISS_REQUEST, buf, sizeof(buf)));
+    TEST_ASSERT_EQUAL_INT(1, g_stub_CACHE_get_count);
+    TEST_ASSERT_EQUAL_STRING("cve_id_state:" CVELOOKUP_MISS_ID, g_stub_CACHE_last_get_key);
+    TEST_ASSERT_TRUE(g_stub_CACHE_last_get_conn == FAKE_CONN);
+    TEST_ASSERT_EQUAL_INT(1, g_stub_CACHE_free_count);
+    TEST_ASSERT_EQUAL_INT(0, g_stub_QUOTA_hold_read_count);
+    TEST_ASSERT_EQUAL_INT(0, g_stub_QUOTA_reserve_count);
+    TEST_ASSERT_EQUAL_INT(0, g_stub_CVESERVICES_call_count);
+    TEST_ASSERT_EQUAL_INT(0, g_stub_CACHE_put_count);
+  }
+}
+
+void test_CVELOOKUP_unreadable_kept_value_is_asked_again(void)
+{
+  static const char* const kept_values[] = {
+    R"({"status":"rejected"})", R"({"state":"withdrawn"})", "rejected",
+    R"({"state":"reserve"})",   R"({"state":""})",          R"({"state":"rejectedx"})",
+  };
+  for (size_t i = 0; i < sizeof(kept_values) / sizeof(kept_values[0]); i++)
+  {
+    setUp();
+    g_stub_CACHE_get_status   = CACHE_HIT;
+    g_stub_CACHE_get_body     = kept_values[i];
+    g_stub_CVESERVICES_status = CVESERVICES_OK;
+    g_stub_CVESERVICES_state  = CVESERVICES_CVE_ID_STATE_REJECTED;
+    char buf[RESP_BUF];
+    TEST_ASSERT_EQUAL_STRING_MESSAGE(CVELOOKUP_ID_STATE_CASES[2].mp_body, static_CVELOOKUPMissRest(CVELOOKUP_MISS_REQUEST, buf, sizeof(buf)), kept_values[i]);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(1, g_stub_CVESERVICES_call_count, kept_values[i]);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(1, g_stub_CACHE_free_count, kept_values[i]);
+  }
+}
+
+void test_CVELOOKUP_each_state_is_answered_and_kept(void)
+{
+  for (size_t i = 0; i < CVELOOKUP_ID_STATE_CASE_COUNT; i++)
+  {
+    setUp();
+    g_frozenClockMs = 5000000;
+    g_isClockFrozen = true;
+    g_stub_CVESERVICES_status  = CVESERVICES_OK;
+    g_stub_CVESERVICES_state   = CVELOOKUP_ID_STATE_CASES[i].m_state;
+    g_stub_CVESERVICES_on_call = static_recordFreeUpstreamThreads;
+    g_freeUpstreamThreadsDuringCall = -1;
+    char buf[RESP_BUF];
+    TEST_ASSERT_EQUAL_STRING(CVELOOKUP_ID_STATE_CASES[i].mp_body, static_CVELOOKUPMissRest(CVELOOKUP_MISS_REQUEST, buf, sizeof(buf)));
+
+    TEST_ASSERT_EQUAL_INT(1, g_stub_CVESERVICES_call_count);
+    TEST_ASSERT_EQUAL_STRING(CVELOOKUP_MISS_ID, g_stub_CVESERVICES_last_cve_id);
+    TEST_ASSERT_EQUAL_INT(0, g_freeUpstreamThreadsDuringCall);
+    TEST_ASSERT_EQUAL_INT64(5000000 + g_clockShiftMs + 3000, g_stub_CVESERVICES_last_deadline_ms);
+    TEST_ASSERT_EQUAL_INT(1, g_stub_QUOTA_hold_read_count);
+    TEST_ASSERT_EQUAL_STRING("cve_services", g_stub_QUOTA_last_hold_read_name);
+    TEST_ASSERT_TRUE(g_stub_QUOTA_last_hold_read_conn == FAKE_CONN);
+    TEST_ASSERT_EQUAL_INT(2, g_stub_QUOTA_reserve_count);
+    TEST_ASSERT_TRUE(g_stub_QUOTA_last_reserve_conn == FAKE_CONN);
+    TEST_ASSERT_EQUAL_STRING("cve_services", g_stub_QUOTA_reserve_rules[0].mp_sourceName);
+    TEST_ASSERT_EQUAL_UINT(10, g_stub_QUOTA_reserve_rules[0].m_windowSeconds);
+    TEST_ASSERT_EQUAL_UINT(10, g_stub_QUOTA_reserve_rules[0].m_callLimit);
+    TEST_ASSERT_EQUAL_STRING("cve_services_day", g_stub_QUOTA_reserve_rules[1].mp_sourceName);
+    TEST_ASSERT_EQUAL_UINT(86400, g_stub_QUOTA_reserve_rules[1].m_windowSeconds);
+    TEST_ASSERT_EQUAL_UINT(10000, g_stub_QUOTA_reserve_rules[1].m_callLimit);
+    TEST_ASSERT_EQUAL_INT(1, g_stub_CACHE_put_count);
+    TEST_ASSERT_EQUAL_STRING("cve_id_state:" CVELOOKUP_MISS_ID, g_stub_CACHE_last_put_key);
+    TEST_ASSERT_TRUE(g_stub_CACHE_last_put_conn == FAKE_CONN);
+    TEST_ASSERT_EQUAL_STRING(CVELOOKUP_ID_STATE_CASES[i].mp_cacheValue, g_stub_CACHE_last_put_body);
+    TEST_ASSERT_FALSE(g_stub_CACHE_last_put_is_error);
+    TEST_ASSERT_EQUAL_UINT(CVELOOKUP_ID_STATE_CASES[i].m_expiresAfterSeconds, g_stub_CACHE_last_put_expires_after_seconds);
+    TEST_ASSERT_EQUAL_INT(0, g_stub_QUOTA_hold_set_count);
+    static_CVELOOKUPAssertSlotIsFree(CVELOOKUP_ID_STATE_CASES[i].mp_cacheValue);
+  }
+}
+
+void test_CVELOOKUP_state_that_cannot_be_kept_is_answered(void)
+{
+  g_stub_CVESERVICES_status = CVESERVICES_OK;
+  g_stub_CVESERVICES_state  = CVESERVICES_CVE_ID_STATE_RESERVED;
+  g_stub_CACHE_put_result   = false;
+  char buf[RESP_BUF];
+  TEST_ASSERT_EQUAL_STRING(CVELOOKUP_ID_STATE_CASES[1].mp_body, static_CVELOOKUPMissRest(CVELOOKUP_MISS_REQUEST, buf, sizeof(buf)));
+  TEST_ASSERT_EQUAL_INT(1, g_stub_CACHE_put_count);
+}
+
+void test_CVELOOKUP_longest_id_keeps_its_whole_cache_key(void)
+{
+  g_stub_CVESERVICES_status = CVESERVICES_OK;
+  g_stub_CVESERVICES_state  = CVESERVICES_CVE_ID_STATE_REJECTED;
+  char buf[RESP_BUF];
+  TEST_ASSERT_EQUAL_STRING(CVELOOKUP_ID_STATE_CASES[2].mp_body, static_CVELOOKUPMissRest("GET /cve_lookup/CVE-2026-123456789012345 HTTP/1.1\r\n\r\n", buf, sizeof(buf)));
+  TEST_ASSERT_EQUAL_STRING("cve_id_state:CVE-2026-123456789012345", g_stub_CACHE_last_get_key);
+  TEST_ASSERT_EQUAL_STRING("cve_id_state:CVE-2026-123456789012345", g_stub_CACHE_last_put_key);
+}
+
+void test_CVELOOKUP_no_upstream_thread_answers_the_plain_miss(void)
+{
+  upstream_setThreadCount(0);
+  g_stub_CVESERVICES_status = CVESERVICES_OK;
+  g_stub_CVESERVICES_state  = CVESERVICES_CVE_ID_STATE_PUBLISHED;
+  char buf[RESP_BUF];
+  TEST_ASSERT_EQUAL_STRING(CVELOOKUP_MISS_BODY, static_CVELOOKUPMissRest(CVELOOKUP_MISS_REQUEST, buf, sizeof(buf)));
+  TEST_ASSERT_EQUAL_INT(0, g_stub_CVESERVICES_call_count);
+  TEST_ASSERT_EQUAL_INT(0, g_stub_CACHE_put_count);
+  TEST_ASSERT_EQUAL_INT(1, g_stub_QUOTA_hold_read_count);
+  TEST_ASSERT_EQUAL_INT(2, g_stub_QUOTA_reserve_count);
+}
+
+void test_CVELOOKUP_rate_limited_holds_cve_org_and_answers_the_plain_miss(void)
+{
+  g_stub_CVESERVICES_status              = CVESERVICES_RATE_LIMITED;
+  g_stub_CVESERVICES_retry_after_seconds = 120;
+  char buf[RESP_BUF];
+  TEST_ASSERT_EQUAL_STRING(CVELOOKUP_MISS_BODY, static_CVELOOKUPMissRest(CVELOOKUP_MISS_REQUEST, buf, sizeof(buf)));
+  TEST_ASSERT_EQUAL_INT(1, g_stub_CVESERVICES_call_count);
+  TEST_ASSERT_EQUAL_INT(1, g_stub_QUOTA_hold_set_count);
+  TEST_ASSERT_EQUAL_STRING("cve_services", g_stub_QUOTA_last_hold_set_name);
+  TEST_ASSERT_EQUAL_UINT(120, g_stub_QUOTA_last_hold_set_seconds);
+  TEST_ASSERT_TRUE(g_stub_QUOTA_last_hold_set_conn == FAKE_CONN);
+  TEST_ASSERT_EQUAL_INT(0, g_stub_CACHE_put_count);
+  static_CVELOOKUPAssertSlotIsFree("rate limited");
+}
+
+void test_CVELOOKUP_upstream_error_answers_the_plain_miss(void)
+{
+  g_stub_CVESERVICES_status = CVESERVICES_UPSTREAM_ERROR;
+  char buf[RESP_BUF];
+  TEST_ASSERT_EQUAL_STRING(CVELOOKUP_MISS_BODY, static_CVELOOKUPMissRest(CVELOOKUP_MISS_REQUEST, buf, sizeof(buf)));
+  TEST_ASSERT_EQUAL_INT(1, g_stub_CVESERVICES_call_count);
+  TEST_ASSERT_EQUAL_INT(0, g_stub_QUOTA_hold_set_count);
+  TEST_ASSERT_EQUAL_INT(0, g_stub_CACHE_put_count);
+  static_CVELOOKUPAssertSlotIsFree("upstream error");
+}
+
+void test_CVELOOKUP_ok_without_a_state_answers_the_plain_miss(void)
+{
+  g_stub_CVESERVICES_status = CVESERVICES_OK;
+  g_stub_CVESERVICES_state  = CVESERVICES_CVE_ID_STATE_NOT_CHECKED;
+  char buf[RESP_BUF];
+  TEST_ASSERT_EQUAL_STRING(CVELOOKUP_MISS_BODY, static_CVELOOKUPMissRest(CVELOOKUP_MISS_REQUEST, buf, sizeof(buf)));
+  TEST_ASSERT_EQUAL_INT(1, g_stub_CVESERVICES_call_count);
+  TEST_ASSERT_EQUAL_INT(0, g_stub_CACHE_put_count);
+  static_CVELOOKUPAssertSlotIsFree("ok without a state");
+}
+
+void test_CVELOOKUP_hold_or_unreadable_state_answers_the_plain_miss_without_a_call(void)
+{
+  for (int c = 0; c < 3; c++)
+  {
+    setUp();
+    g_stub_CVESERVICES_status = CVESERVICES_OK;
+    g_stub_CVESERVICES_state  = CVESERVICES_CVE_ID_STATE_PUBLISHED;
+    if (c == 0)
+      g_stub_QUOTA_hold_seconds = 1;
+    if (c == 1)
+      g_stub_QUOTA_hold_read_result = false;
+    if (c == 2)
+      g_stub_CACHE_get_status = CACHE_ERROR;
+    char buf[RESP_BUF];
+    TEST_ASSERT_EQUAL_STRING_MESSAGE(CVELOOKUP_MISS_BODY, static_CVELOOKUPMissRest(CVELOOKUP_MISS_REQUEST, buf, sizeof(buf)), buf);
+    TEST_ASSERT_EQUAL_INT(0, g_stub_QUOTA_reserve_count);
+    TEST_ASSERT_EQUAL_INT(0, g_stub_CVESERVICES_call_count);
+  }
+}
+
+void test_CVELOOKUP_spent_ten_second_rule_sends_no_request(void)
+{
+  static const QuotaStatus_t refusals[] = { QUOTA_EXHAUSTED, QUOTA_ERROR };
+  for (size_t i = 0; i < sizeof(refusals) / sizeof(refusals[0]); i++)
+  {
+    setUp();
+    g_stub_CVESERVICES_status         = CVESERVICES_OK;
+    g_stub_CVESERVICES_state          = CVESERVICES_CVE_ID_STATE_PUBLISHED;
+    g_stub_QUOTA_reserve_statuses[0]  = refusals[i];
+    g_stub_QUOTA_reserve_status_count = 1;
+    char buf[RESP_BUF];
+    TEST_ASSERT_EQUAL_STRING(CVELOOKUP_MISS_BODY, static_CVELOOKUPMissRest(CVELOOKUP_MISS_REQUEST, buf, sizeof(buf)));
+    TEST_ASSERT_EQUAL_INT(1, g_stub_QUOTA_reserve_count);
+    TEST_ASSERT_EQUAL_STRING("cve_services", g_stub_QUOTA_last_reserve_rule.mp_sourceName);
+    TEST_ASSERT_EQUAL_INT(0, g_stub_CVESERVICES_call_count);
+  }
+}
+
+static int static_countCapLines(void)
+{
+  return static_countOccurrences(g_usageLines, R"("type":"cve_services_cap_reached")");
+}
+
+void test_CVELOOKUP_spent_day_rule_sends_no_request_and_is_logged_once_a_day(void)
+{
+  static const QuotaStatus_t day_statuses[] = { QUOTA_ERROR, QUOTA_EXHAUSTED, QUOTA_EXHAUSTED };
+  static const int expected_cap_lines[]     = { 0, 1, 0 };
+  for (size_t i = 0; i < sizeof(day_statuses) / sizeof(day_statuses[0]); i++)
+  {
+    setUp();
+    g_stub_CVESERVICES_status         = CVESERVICES_OK;
+    g_stub_CVESERVICES_state          = CVESERVICES_CVE_ID_STATE_PUBLISHED;
+    g_stub_QUOTA_reserve_statuses[0]  = QUOTA_GRANTED;
+    g_stub_QUOTA_reserve_statuses[1]  = day_statuses[i];
+    g_stub_QUOTA_reserve_status_count = 2;
+    char buf[RESP_BUF];
+    (void)static_callRequestHandleForUsageLine(CVELOOKUP_MISS_REQUEST, buf, sizeof(buf));
+    TEST_ASSERT_EQUAL_STRING(CVELOOKUP_MISS_BODY, static_responseBody(buf));
+    TEST_ASSERT_EQUAL_INT(2, g_stub_QUOTA_reserve_count);
+    TEST_ASSERT_EQUAL_STRING("cve_services_day", g_stub_QUOTA_last_reserve_rule.mp_sourceName);
+    TEST_ASSERT_EQUAL_INT(0, g_stub_CVESERVICES_call_count);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(expected_cap_lines[i], static_countCapLines(), g_usageLines);
+  }
+}
+
+static void static_CVELOOKUPMcpErrorTextOf(const char* answer, char* decoded, size_t decoded_size, const char* label)
+{
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(answer, R"("isError":true)"), label);
+
+  JsonReadSpan_t root, result, content, item, text;
+  size_t offset = 0;
+  TEST_ASSERT_EQUAL_INT_MESSAGE(JSONREAD_OK, jsonread_root(answer, strlen(answer), &root), label);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(JSONREAD_OK, jsonread_objectKey(root, "result", &result), label);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(JSONREAD_OK, jsonread_objectKey(result, "content", &content), label);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(JSONREAD_OK, jsonread_arrayNextElement(content, &offset, &item), label);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(JSONREAD_OK, jsonread_objectKey(item, "text", &text), label);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(JSONREAD_OK, jsonread_spanToStrStatus(text, decoded, decoded_size), label);
+}
+
+void test_CVELOOKUP_known_state_is_one_answer_over_rest_and_mcp(void)
+{
+  for (size_t i = 0; i < CVELOOKUP_ID_STATE_CASE_COUNT; i++)
+  {
+    setUp();
+    g_stub_CVESERVICES_status = CVESERVICES_OK;
+    g_stub_CVESERVICES_state  = CVELOOKUP_ID_STATE_CASES[i].m_state;
+    char buf[RESP_BUF];
+    const char* rest_body = static_CVELOOKUPMissRest(CVELOOKUP_MISS_REQUEST, buf, sizeof(buf));
+    TEST_ASSERT_EQUAL_STRING(CVELOOKUP_ID_STATE_CASES[i].mp_body, rest_body);
+    TEST_ASSERT_NULL(strstr(rest_body, CVELOOKUP_MISS_ID));
+
+    char* answer = static_mcpArgumentsCall("cve_lookup", R"({"cve_id":")" CVELOOKUP_MISS_ID R"("})");
+    char text[RESP_BUF];
+    static_CVELOOKUPMcpErrorTextOf(answer, text, sizeof(text), CVELOOKUP_ID_STATE_CASES[i].mp_cacheValue);
+    TEST_ASSERT_EQUAL_STRING(CVELOOKUP_ID_STATE_CASES[i].mp_body, text);
+    TEST_ASSERT_NULL(strstr(answer, CVELOOKUP_MISS_ID));
+    TEST_ASSERT_EQUAL_INT(2, g_stub_CVESERVICES_call_count);
+    free(answer);
+  }
+}
+
+void test_CVELOOKUP_usage_line_names_a_known_state_apart(void)
+{
+  g_stub_CVESERVICES_status = CVESERVICES_OK;
+  g_stub_CVESERVICES_state  = CVESERVICES_CVE_ID_STATE_RESERVED;
+  char buf[RESP_BUF];
+  (void)static_callRequestHandleForUsageLine(CVELOOKUP_MISS_REQUEST, buf, sizeof(buf));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_usageLines, R"("status":404,"run_status":"not_found_with_body",)"), g_usageLines);
+
+  g_stub_CVESERVICES_status = CVESERVICES_UPSTREAM_ERROR;
+  (void)static_callRequestHandleForUsageLine(CVELOOKUP_MISS_REQUEST, buf, sizeof(buf));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_usageLines, R"("status":404,"run_status":"not_found",)"), g_usageLines);
 }
 
 int main(void)
@@ -20584,7 +21117,7 @@ int main(void)
   RUN_TEST(test_CVSSCALCULATOR_buffer_that_cannot_be_created_answers_500_once);
   RUN_TEST(test_CVETRIAGE_page_that_cannot_grow_answers_500_once);
   RUN_TEST(test_internal_error_body_matches_the_error_serializer);
-  RUN_TEST(test_longest_error_body_fits_the_starting_capacity);
+  RUN_TEST(test_cvss_missing_metric_error_body_fits_the_starting_capacity);
   RUN_TEST(test_error_body_that_cannot_be_created_answers_500_once);
   RUN_TEST(test_405_body_that_cannot_be_created_answers_500_once);
   RUN_TEST(test_429_body_that_cannot_be_created_answers_500_once);
@@ -20618,6 +21151,7 @@ int main(void)
   RUN_TEST(test_credit_cost_unknown_tool_missing_arguments_and_unparsed_body_pay_1);
   RUN_TEST(test_docs_api_health_503_matches_the_server);
   RUN_TEST(test_docs_api_upstream_503_matches_the_server);
+  RUN_TEST(test_docs_cve_org_state_copies_match_the_server);
   RUN_TEST(test_docs_api_raw_body_503_matches_the_server);
   RUN_TEST(test_docs_api_payment_answers_match_the_server);
   RUN_TEST(test_docs_api_payment_retry_after_matches_the_server);
@@ -20866,6 +21400,22 @@ int main(void)
   RUN_TEST(test_HEALTH_rest_and_mcp_share_the_kept_answer);
   RUN_TEST(test_HEALTH_kept_answer_is_per_thread);
   RUN_TEST(test_docs_api_health_cache_age_matches_the_server);
+  RUN_TEST(test_CVELOOKUP_hit_does_not_ask_cve_org);
+  RUN_TEST(test_CVELOOKUP_padded_sequence_is_an_unknown_id_without_a_call);
+  RUN_TEST(test_CVELOOKUP_kept_state_answers_without_a_call);
+  RUN_TEST(test_CVELOOKUP_unreadable_kept_value_is_asked_again);
+  RUN_TEST(test_CVELOOKUP_each_state_is_answered_and_kept);
+  RUN_TEST(test_CVELOOKUP_state_that_cannot_be_kept_is_answered);
+  RUN_TEST(test_CVELOOKUP_longest_id_keeps_its_whole_cache_key);
+  RUN_TEST(test_CVELOOKUP_no_upstream_thread_answers_the_plain_miss);
+  RUN_TEST(test_CVELOOKUP_rate_limited_holds_cve_org_and_answers_the_plain_miss);
+  RUN_TEST(test_CVELOOKUP_upstream_error_answers_the_plain_miss);
+  RUN_TEST(test_CVELOOKUP_ok_without_a_state_answers_the_plain_miss);
+  RUN_TEST(test_CVELOOKUP_hold_or_unreadable_state_answers_the_plain_miss_without_a_call);
+  RUN_TEST(test_CVELOOKUP_spent_ten_second_rule_sends_no_request);
+  RUN_TEST(test_CVELOOKUP_spent_day_rule_sends_no_request_and_is_logged_once_a_day);
+  RUN_TEST(test_CVELOOKUP_known_state_is_one_answer_over_rest_and_mcp);
+  RUN_TEST(test_CVELOOKUP_usage_line_names_a_known_state_apart);
   RUN_TEST(test_registration_gate_test_count);
   return UNITY_END();
 }

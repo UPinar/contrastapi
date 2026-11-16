@@ -123,12 +123,14 @@ CREATE FUNCTION api.fn_cve_lookup(p_cve_ids                   text[],
                 ORDER BY product_count DESC, (element.original ->> 'vendor') COLLATE "C"
                 LIMIT p_vendor_row_count) AS vendor_stats) AS vendors (product_count_by_vendor)
      CROSS JOIN LATERAL (
-       SELECT COALESCE(jsonb_agg(ref_row.ref_element - 'source' ORDER BY ref_row.ref_url COLLATE "C", ref_row.ref_text COLLATE "C"), '[]'::jsonb)
+       SELECT COALESCE(jsonb_agg(ref_row.ref_element ORDER BY ref_row.ref_url COLLATE "C", ref_row.ref_text COLLATE "C"), '[]'::jsonb)
          FROM (SELECT sr.ref_element, sr.ref_url, sr.ref_text
-                 FROM (SELECT r.ref_element            AS ref_element,
-                              r.ref_element ->> 'url'  AS ref_url,
-                              r.ref_element::text      AS ref_text
-                         FROM jsonb_array_elements(c.refs) AS r (ref_element)) AS sr
+                 FROM (SELECT served.ref_element           AS ref_element,
+                              served.ref_element ->> 'url' AS ref_url,
+                              served.ref_element::text     AS ref_text
+                         FROM jsonb_array_elements(c.refs) AS r (stored_element)
+                        CROSS JOIN LATERAL (SELECT jsonb_build_object('url', r.stored_element -> 'url',
+                                                                      'tags', public.fn_cve_ref_tags(r.stored_element))) AS served (ref_element)) AS sr
                 ORDER BY sr.ref_url COLLATE "C", sr.ref_text COLLATE "C"
                 LIMIT p_ref_row_count) AS ref_row) AS listed_refs (refs)
      WHERE c.cve_id = ANY (p_cve_ids)

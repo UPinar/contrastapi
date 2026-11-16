@@ -96,10 +96,10 @@ $$;
 SELECT set_config('contrastapi.cve_events', 'off', true);
 INSERT INTO cves (cve_id, severity, cwe_id, cvss_v3, cvss_v3_vector, cvss_v4, cvss_v4_vector, epss_score, in_kev, refs) VALUES
   ('CVE-2006-0001', 'HIGH',     'CWE-79', 7.5, 'CVSS:3.1/AV:N', 5.0, 'CVSS:4.0/AV:N', 0.5,  true,
-   '[{"url": "https://e.example", "tags": ["Exploit"]}, {"url": "https://f.example", "tags": ["Exploit"]},
+   '[{"url": "https://e.example", "nvd_tags": ["Exploit"]}, {"url": "https://f.example", "nvd_tags": ["Exploit"]},
      {"url": "https://www.exploit-db.com/exploits/61"}, {"url": "https://www.exploit-db.com/exploits/62"},
      {"url": "https://www.exploit-db.com/exploits/63"}, {"url": "https://packetstormsecurity.com/files/64/x.html"},
-     {"url": "https://packetstorm.news/files/id/65", "tags": ["Third Party Advisory"]}]'),
+     {"url": "https://packetstorm.news/files/id/65", "nvd_tags": ["Third Party Advisory"]}]'),
   ('CVE-2006-0002', 'MEDIUM',   'CWE-89', 7.4, 'CVSS:3.1/AV:N', 0.0, '',              0.49, false, '[]'),
   ('CVE-2006-0003', 'CRITICAL', 'CWE-20', 0.0, '',              0.0, '',              0.0,  false, '[]'),
   ('CVE-2006-0004', 'LOW',      'CWE-22', 9.8, '',              5.0, 'CVSS:4.0/AV:N', 0.0,  false, '[]');

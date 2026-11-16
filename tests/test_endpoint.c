@@ -566,6 +566,21 @@ void test_each_row_holds_its_run_its_db_need_its_upstream_call_and_its_ceiling(v
   TEST_ASSERT_EQUAL_INT(expected_count, matched);
 }
 
+void test_only_cve_lookup_calls_upstream_on_a_miss(void)
+{
+  int true_count = 0;
+  for (int i = 0; i < endpoint_count; i++)
+  {
+    const Endpoint_t* endpoint = &endpoints[i];
+    if (!endpoint->m_callsUpstreamOnMiss)
+      continue;
+    true_count++;
+    TEST_ASSERT_EQUAL_STRING("/cve_lookup/", endpoint->mp_httpPath);
+    TEST_ASSERT_FALSE(endpoint->m_callsUpstream);
+  }
+  TEST_ASSERT_EQUAL_INT(1, true_count);
+}
+
 static size_t static_paramsFieldSize(const EndpointParamSpec_t* spec)
 {
   switch (spec->m_type)
@@ -4406,7 +4421,7 @@ void test_appendSchemaBounds_prints_each_bound_as_its_exact_double(void)
 
 void test_registration_gate_test_count(void)
 {
-  TEST_ASSERT_EQUAL_INT_MESSAGE(221, (int)Unity.NumberOfTests,
+  TEST_ASSERT_EQUAL_INT_MESSAGE(222, (int)Unity.NumberOfTests,
     "RUN_TEST list and test definitions have drifted apart - a test may be unregistered");
 }
 
@@ -4608,7 +4623,7 @@ extern unsigned int  g_stub_CACHE_last_put_expires_after_seconds;
 #define WHOISLOOKUP_TEST_CONN ((PGconn*)7)
 
 #define WHOISLOOKUP_STUB_BODY                                                                                         \
-  "{\"domain\":\"example.co.uk\",\"available\":true,\"rdap_server\":\"https://rdap.example.test/\","                 \
+  "{\"domain\":\"example.co.uk\",\"available\":true,\"registered\":true,\"rdap_server\":\"https://rdap.example.test/\"," \
   "\"whois_server\":null,"                                                                                           \
   "\"registrar_name\":\"Stub Registrar LLC\",\"registrar_iana_id\":1234,"                                            \
   "\"created_at\":\"2001-02-03T04:05:06Z\",\"updated_at\":\"2025-06-07T08:09:10Z\",\"expires_at\":\"2030-11-12T13:14:15Z\"," \
@@ -4768,7 +4783,7 @@ void test_WHOISLOOKUPRun_without_a_registry_server_answers_unavailable_and_calls
   char* body = static_WHOISLOOKUPRun("www.example.co.uk", WHOISLOOKUP_TEST_CONN, &status, &message);
   TEST_ASSERT_EQUAL_INT(ENDPOINT_RUN_OK, status);
   TEST_ASSERT_NULL(message);
-  TEST_ASSERT_EQUAL_STRING("{\"domain\":\"example.co.uk\",\"available\":false,\"reason\":\"no_registry_server\",\"retry_after_seconds\":null}\n", body);
+  TEST_ASSERT_EQUAL_STRING("{\"domain\":\"example.co.uk\",\"available\":false,\"registered\":null,\"reason\":\"no_registry_server\",\"retry_after_seconds\":null}\n", body);
   TEST_ASSERT_EQUAL_INT(1, g_stub_RDAP_find_count);
   TEST_ASSERT_EQUAL_STRING("example.co.uk", g_stub_RDAP_last_find_name);
   TEST_ASSERT_EQUAL_INT(1, g_stub_WHOIS_find_count);
@@ -4813,7 +4828,7 @@ void test_WHOISLOOKUPRun_refused_charge_names_its_wait_and_a_failed_charge_is_a_
   char* body = static_WHOISLOOKUPRun("www.example.co.uk", WHOISLOOKUP_TEST_CONN, &status, &message);
   TEST_ASSERT_EQUAL_INT(ENDPOINT_RUN_OK, status);
   TEST_ASSERT_NULL(message);
-  TEST_ASSERT_EQUAL_STRING("{\"domain\":\"example.co.uk\",\"available\":false,\"reason\":\"quota_exhausted\",\"retry_after_seconds\":17}\n", body);
+  TEST_ASSERT_EQUAL_STRING("{\"domain\":\"example.co.uk\",\"available\":false,\"registered\":null,\"reason\":\"quota_exhausted\",\"retry_after_seconds\":17}\n", body);
   TEST_ASSERT_EQUAL_INT(1, g_stub_THROTTLE_charge_count);
   free(body);
 
@@ -4840,7 +4855,7 @@ void test_WHOISLOOKUPRun_held_server_names_the_wait_and_an_unread_hold_is_a_db_e
   char* body = static_WHOISLOOKUPRun("www.example.co.uk", WHOISLOOKUP_TEST_CONN, &status, &message);
   TEST_ASSERT_EQUAL_INT(ENDPOINT_RUN_OK, status);
   TEST_ASSERT_NULL(message);
-  TEST_ASSERT_EQUAL_STRING("{\"domain\":\"example.co.uk\",\"available\":false,\"reason\":\"quota_exhausted\",\"retry_after_seconds\":42}\n", body);
+  TEST_ASSERT_EQUAL_STRING("{\"domain\":\"example.co.uk\",\"available\":false,\"registered\":null,\"reason\":\"quota_exhausted\",\"retry_after_seconds\":42}\n", body);
   TEST_ASSERT_EQUAL_INT(1, g_stub_QUOTA_hold_read_count);
   TEST_ASSERT_TRUE(g_stub_QUOTA_last_hold_read_conn == WHOISLOOKUP_TEST_CONN);
   TEST_ASSERT_EQUAL_STRING("rdap:rdap.example.test", g_stub_QUOTA_last_hold_read_name);
@@ -4872,7 +4887,7 @@ void test_WHOISLOOKUPRun_rate_limited_answer_holds_the_server_for_its_wait(void)
   char* body = static_WHOISLOOKUPRun("www.example.co.uk", WHOISLOOKUP_TEST_CONN, &status, &message);
   TEST_ASSERT_EQUAL_INT(ENDPOINT_RUN_OK, status);
   TEST_ASSERT_NULL(message);
-  TEST_ASSERT_EQUAL_STRING("{\"domain\":\"example.co.uk\",\"available\":false,\"reason\":\"quota_exhausted\",\"retry_after_seconds\":120}\n", body);
+  TEST_ASSERT_EQUAL_STRING("{\"domain\":\"example.co.uk\",\"available\":false,\"registered\":null,\"reason\":\"quota_exhausted\",\"retry_after_seconds\":120}\n", body);
   TEST_ASSERT_EQUAL_INT(1, g_stub_RDAP_lookup_count);
   TEST_ASSERT_EQUAL_INT(1, g_stub_QUOTA_hold_set_count);
   TEST_ASSERT_TRUE(g_stub_QUOTA_last_hold_set_conn == WHOISLOOKUP_TEST_CONN);
@@ -4994,7 +5009,7 @@ void test_WHOISLOOKUPRun_names_the_server_by_its_host_and_sends_nothing_for_a_ba
 }
 
 #define WHOISLOOKUP_WHOIS_BODY                                                                                        \
-  "{\"domain\":\"example.co.uk\",\"available\":true,\"rdap_server\":null,\"whois_server\":\"whois.example.test\","    \
+  "{\"domain\":\"example.co.uk\",\"available\":true,\"registered\":true,\"rdap_server\":null,\"whois_server\":\"whois.example.test\"," \
   "\"registrar_name\":\"Stub Registrar LLC\",\"registrar_iana_id\":1234,"                                            \
   "\"created_at\":\"2001-02-03T04:05:06Z\",\"updated_at\":\"2025-06-07T08:09:10Z\",\"expires_at\":\"2030-11-12T13:14:15Z\"," \
   "\"status\":[\"client transfer prohibited\",\"server delete prohibited\"],\"status_count\":2,"                     \
@@ -5044,7 +5059,7 @@ void test_WHOISLOOKUPRun_names_each_failed_whois_query_and_keeps_none(void)
     { THROTTLE_CHARGED, WHOIS_UPSTREAM_ERROR, ENDPOINT_RUN_UPSTREAM_ERROR, NULL, "" },
     { THROTTLE_CHARGED, WHOIS_INVALID_NAME,   ENDPOINT_RUN_REFUSED,        VALIDATE_PUBLIC_DNS_NAME_REFUSAL_MESSAGE, "" },
     { THROTTLE_REFUSED, WHOIS_OK,             ENDPOINT_RUN_OK,             NULL,
-      "{\"domain\":\"example.co.uk\",\"available\":false,\"reason\":\"quota_exhausted\",\"retry_after_seconds\":9}\n" },
+      "{\"domain\":\"example.co.uk\",\"available\":false,\"registered\":null,\"reason\":\"quota_exhausted\",\"retry_after_seconds\":9}\n" },
     { THROTTLE_ERROR,   WHOIS_OK,             ENDPOINT_RUN_DB_ERROR,       NULL, "" },
   };
   static_WHOISLOOKUPResetStubs();
@@ -5463,7 +5478,7 @@ void test_WHOISLOOKUPRun_and_WAYBACKLOOKUPRun_one_second_hold_still_holds(void)
   g_stub_QUOTA_hold_seconds = 1;
   char* body = static_WHOISLOOKUPRun("www.example.co.uk", WHOISLOOKUP_TEST_CONN, &status, &message);
   TEST_ASSERT_EQUAL_INT(ENDPOINT_RUN_OK, status);
-  TEST_ASSERT_EQUAL_STRING("{\"domain\":\"example.co.uk\",\"available\":false,\"reason\":\"quota_exhausted\",\"retry_after_seconds\":1}\n", body);
+  TEST_ASSERT_EQUAL_STRING("{\"domain\":\"example.co.uk\",\"available\":false,\"registered\":null,\"reason\":\"quota_exhausted\",\"retry_after_seconds\":1}\n", body);
   TEST_ASSERT_EQUAL_INT(0, g_stub_THROTTLE_charge_count);
   free(body);
   static_WHOISLOOKUPResetStubs();
@@ -7568,6 +7583,7 @@ int main(void)
   RUN_TEST(test_only_record_lookups_carry_a_not_found_message);
   RUN_TEST(test_record_lookup_runs_serve_only_rows_with_a_message);
   RUN_TEST(test_each_row_holds_its_run_its_db_need_its_upstream_call_and_its_ceiling);
+  RUN_TEST(test_only_cve_lookup_calls_upstream_on_a_miss);
   RUN_TEST(test_params_write_inside_their_params_struct);
   RUN_TEST(test_every_row_fits_the_params_union);
   RUN_TEST(test_appendSchemaBounds_prints_each_bound_as_its_exact_double);

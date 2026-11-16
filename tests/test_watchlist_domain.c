@@ -114,6 +114,7 @@ int __wrap_EVP_DigestFinal_ex(EVP_MD_CTX* ctx, unsigned char* md, unsigned int* 
 #define SHA256_OF_NS_PAIR     "554f60e29fe650012fb81826a449443b45f2f55eb4aca83467e8bdca1576dfb2"
 #define SHA256_OF_CHECK_RESULTS "8e889f2d563ac950725cfa5d1c45f57ae6e4177743a8a229eae53b16a8f5fdcb"
 #define SHA256_OF_NO_CHECK    "fc0e1c1c3e9991d9af86ba58ff1744171469bda051b1268aa127a088fb18ff82"
+#define SHA256_OF_NO_MAIL_CHECKS "5ed2b916442d9d14d46e428c9e9ec2ae66a357c16ec9f3c77d061e4477cb4be2"
 
 #define SHA256_OF_CAP_BELOW   "27a5830aa619057e503fb09137975f9ea72a49c469c8da0e556ed296116a34cc"
 #define SHA256_OF_CAP_AT      "bb1fca743eaee1784c8fad322735802d12e05e42d955820d8790d169bf3a7b5d"
@@ -978,6 +979,28 @@ void test_email_check_results_put_each_result_at_its_kind(void)
   TEST_ASSERT_TRUE(watchlist_dns_lookup_tryWriteEmailCheckResults(checks, 4, &value));
   static_assertValue(&value, "p-------f----------wf", 1, 1, SHA256_OF_CHECK_RESULTS);
   TEST_ASSERT_EQUAL_size_t(EMAILCHECK_KIND_COUNT, strlen(value.ma_text));
+}
+
+void test_email_check_results_of_a_no_mail_domain_dash_the_left_out_checks(void)
+{
+  const EmailCheckItem_t checks[] = {
+    { EMAILCHECK_KIND_SPF_RECORD,        EMAILCHECK_RESULT_PASS },
+    { EMAILCHECK_KIND_SPF_SYNTAX,        EMAILCHECK_RESULT_PASS },
+    { EMAILCHECK_KIND_SPF_LOOKUP_LIMIT,  EMAILCHECK_RESULT_PASS },
+    { EMAILCHECK_KIND_SPF_ALL,           EMAILCHECK_RESULT_PASS },
+    { EMAILCHECK_KIND_SPF_IGNORED_TERMS, EMAILCHECK_RESULT_PASS },
+    { EMAILCHECK_KIND_SPF_PTR,           EMAILCHECK_RESULT_PASS },
+    { EMAILCHECK_KIND_SPF_WIDE_RANGE,    EMAILCHECK_RESULT_PASS },
+    { EMAILCHECK_KIND_SPF_RECORD_SIZE,   EMAILCHECK_RESULT_PASS },
+    { EMAILCHECK_KIND_DMARC_RECORD,      EMAILCHECK_RESULT_PASS },
+    { EMAILCHECK_KIND_DMARC_POLICY,      EMAILCHECK_RESULT_PASS },
+    { EMAILCHECK_KIND_DMARC_TEST_MODE,   EMAILCHECK_RESULT_PASS },
+    { EMAILCHECK_KIND_MX,                EMAILCHECK_RESULT_PASS },
+  };
+  WatchlistDomainValue_t value;
+  static_fillValue(&value);
+  TEST_ASSERT_TRUE(watchlist_dns_lookup_tryWriteEmailCheckResults(checks, (int)(sizeof(checks) / sizeof(checks[0])), &value));
+  static_assertValue(&value, "ppppppppppp--------p-", 1, 1, SHA256_OF_NO_MAIL_CHECKS);
 }
 
 void test_dns_values_failed_sha256_leaves_the_value_untouched(void)
@@ -2095,7 +2118,7 @@ void test_cert_issuers_empty_set_is_an_empty_value(void)
 
 void test_registration_gate_test_count(void)
 {
-  TEST_ASSERT_EQUAL_INT_MESSAGE(90, (int)Unity.NumberOfTests,
+  TEST_ASSERT_EQUAL_INT_MESSAGE(91, (int)Unity.NumberOfTests,
     "RUN_TEST list and test definitions have drifted apart - a test may be unregistered");
 }
 
@@ -2142,6 +2165,7 @@ int main(void)
   RUN_TEST(test_cname_takeover_text_at_and_past_the_cap);
   RUN_TEST(test_email_check_results_without_checks_are_all_dashes);
   RUN_TEST(test_email_check_results_put_each_result_at_its_kind);
+  RUN_TEST(test_email_check_results_of_a_no_mail_domain_dash_the_left_out_checks);
   RUN_TEST(test_dns_values_failed_sha256_leaves_the_value_untouched);
   RUN_TEST(test_dns_values_failed_sha256_of_the_empty_text_has_no_value);
   RUN_TEST(test_written_value_leaves_no_sha256_context_open);

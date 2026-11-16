@@ -18,8 +18,6 @@
 
 static const QuotaRule_t WATCHLIST_DNS_LOOKUP_DAILY_QUOTA_RULE = { "domain_scan_dns", 86400, 200000 };
 
-static int64_t g_dnsCapLineDay = -1;
-
 enum {
   WATCHLIST_DNS_LOOKUP_QUESTION_NS = 0,
   WATCHLIST_DNS_LOOKUP_QUESTION_MX,
@@ -56,7 +54,6 @@ bool watchlist_dns_lookup_scanNextDomains(PGconn* conn)
   const WatchlistDomainScanLane_t lane = {
     .mp_laneName    = DB_DOMAIN_WATCH_LANE_DNS,
     .m_scanFunction = static_scanDnsDomain,
-    .mp_capLineDay  = &g_dnsCapLineDay,
     .m_capEvent     = USAGELOG_EVENT_DNS_SCAN_CAP_REACHED,
   };
 

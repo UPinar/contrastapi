@@ -116,6 +116,8 @@ typedef struct {
   EmailCheckDkimSelectorSource_t  m_dkimSelectorSource;
   DnsAnswerStatus_t               m_dkimStatus;
   EmailCheckDkimKeyStatus_t       m_dkimKeyStatus;
+  int                             m_dkimUsableKeyCount;
+  bool                            m_isNoMailDomain;
   EmailCheckItem_t                ma_checks[EMAILCHECK_KIND_COUNT];
   int                             m_checkCount;
 } EMAILAUTHCHECKRecord_t;

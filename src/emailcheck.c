@@ -60,6 +60,7 @@ static void               static_rateSpf              (EMAILAUTHCHECKRecord_t* r
 static void               static_rateDmarc            (EMAILAUTHCHECKRecord_t* record);
 static void               static_rateDkimKeys         (EMAILAUTHCHECKRecord_t* record);
 static void               static_rateDkim             (EMAILAUTHCHECKRecord_t* record);
+static bool               static_isNoMailDomain       (const EMAILAUTHCHECKRecord_t* record);
 static void               static_rateRecord           (EMAILAUTHCHECKRecord_t* record);
 
 static DnsLookupStatus_t  static_readMailRoute        (EMAILADDRESSCHECKRecord_t* record, const DnsAnswer_t* a_answer, const DnsAnswer_t* aaaa_answer);
@@ -595,6 +596,8 @@ static void static_readDkim(EMAILAUTHCHECKRecord_t* record)
     static_readKeyRecords(selector);
     if (selector->m_hasKeyRecord)
       is_any_key_found = true;
+    if (selector->m_hasKeyRecord && selector->m_firstKeyRecord.m_keyState == EMAILAUTH_DKIM_KEY_PRESENT)
+      record->m_dkimUsableKeyCount++;
   }
 
   if (record->m_dkimSelectorSource == EMAILCHECK_DKIM_SELECTOR_SOURCE_CALLER_GIVEN)
@@ -725,8 +728,9 @@ static void static_rateDmarc(EMAILAUTHCHECKRecord_t* record)
   bool is_policy_weakened = record->m_dmarcRecord.m_testMode == EMAILAUTH_DMARC_TEST_MODE_ON && is_policy_enforced;
 
   static_addCheck(record, EMAILCHECK_KIND_DMARC_TEST_MODE, is_policy_weakened ? EMAILCHECK_RESULT_WARN : EMAILCHECK_RESULT_PASS);
-  static_addCheck(record, EMAILCHECK_KIND_DMARC_REPORTING,
-                  record->m_dmarcRecord.m_validAggregateUriCount > 0 ? EMAILCHECK_RESULT_PASS : EMAILCHECK_RESULT_WARN);
+  if (!record->m_isNoMailDomain)
+    static_addCheck(record, EMAILCHECK_KIND_DMARC_REPORTING, record->m_dmarcRecord.m_validAggregateUriCount > 0 ? EMAILCHECK_RESULT_PASS
+                                                                                                                : EMAILCHECK_RESULT_WARN);
 }
 
 static void static_rateDkimKeys(EMAILAUTHCHECKRecord_t* record)
@@ -790,18 +794,42 @@ static void static_rateDkim(EMAILAUTHCHECKRecord_t* record)
   static_addCheck(record, EMAILCHECK_KIND_DKIM_MULTIPLE_KEYS, has_second_key ? EMAILCHECK_RESULT_WARN : EMAILCHECK_RESULT_PASS);
 }
 
+static bool static_isNoMailDomain(const EMAILAUTHCHECKRecord_t* record)
+{
+  const DnsAnswer_t*    mx_answer       = &record->m_mxAnswer;
+  bool                  is_null_mx_only = mx_answer->m_status == DNS_ANSWER_OK && mx_answer->m_hasNullMx && mx_answer->m_recordCount == 0;
+
+  const EmailAuthSpf_t* spf             = &record->m_spfRecord;
+  bool                  is_spf_fail_all = record->m_spfAnswer.m_status == DNS_ANSWER_OK           &&
+                                          record->m_spfRecordCount == 1                           &&
+                                          spf->m_termCount == 1                                   &&
+                                          spf->m_unreadTermCount == 0                             &&
+                                          spf->m_invalidTermCount == 0                            &&
+                                          spf->ma_terms[0].m_kind == EMAILAUTH_SPF_TERM_ALL       &&
+                                          spf->ma_terms[0].m_qualifier == EMAILAUTH_QUALIFIER_FAIL;
+
+  bool is_dmarc_reject =  record->m_dmarcSource != EMAILCHECK_DMARC_SOURCE_NONE &&
+                          record->m_appliedDmarcPolicy == EMAILAUTH_DMARC_POLICY_REJECT;
+  return is_null_mx_only && is_spf_fail_all && is_dmarc_reject;
+}
+
 static void static_rateRecord(EMAILAUTHCHECKRecord_t* record)
 {
+  record->m_isNoMailDomain = static_isNoMailDomain(record);
   if (static_isAnswered(&record->m_spfAnswer))
     static_rateSpf(record);
+
   if (record->m_dmarcStatus == DNS_ANSWER_OK)
     static_rateDmarc(record);
-  if (record->m_dkimStatus == DNS_ANSWER_OK)
+
+  if (record->m_dkimStatus == DNS_ANSWER_OK && !record->m_isNoMailDomain)
     static_rateDkim(record);
+
   if (static_isAnswered(&record->m_mxAnswer))
     static_addCheck(record, EMAILCHECK_KIND_MX,
                     record->m_mxAnswer.m_recordCount > 0 || record->m_mxAnswer.m_hasNullMx ? EMAILCHECK_RESULT_PASS : EMAILCHECK_RESULT_WARN);
-  if (static_isAnswered(&record->m_mtaStsAnswer))
+
+  if (static_isAnswered(&record->m_mtaStsAnswer) && !record->m_isNoMailDomain)
     static_addCheck(record, EMAILCHECK_KIND_MTA_STS, record->m_hasMtaStsRecord ? EMAILCHECK_RESULT_PASS : EMAILCHECK_RESULT_WARN);
 }
 

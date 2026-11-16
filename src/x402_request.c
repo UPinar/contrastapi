@@ -248,6 +248,7 @@ X402RequestUnservedKind_t x402_request_findUnservedKind(EndpointRunStatus_t run_
   switch (run_status)
   {
     case ENDPOINT_RUN_NOT_FOUND:
+    case ENDPOINT_RUN_NOT_FOUND_WITH_BODY:
     case ENDPOINT_RUN_REFUSED:
     case ENDPOINT_RUN_REFUSED_WITH_BODY:
     case ENDPOINT_RUN_UNAUTHORIZED:

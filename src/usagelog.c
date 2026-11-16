@@ -12,6 +12,7 @@
 #include <unistd.h>
 
 #include "usagelog.h"
+#include "datetime.h"
 #include "monotonic.h"
 #include "version.h"
 
@@ -41,6 +42,8 @@ static __thread UsageLogRecord_t g_record;
 
 static atomic_bool g_isStarted    = false;
 static atomic_int  g_instancePort = 0;
+
+static _Atomic int64_t g_eventLineDays[USAGELOG_EVENT_KIND_COUNT];
 
 typedef struct {
   pthread_mutex_t   m_mutex;
@@ -131,6 +134,19 @@ void usagelog_writeEvent(UsageLogEvent_t event)
   char line[USAGELOG_LINE_MAX_LEN];
   size_t line_len = static_formatEventLine(event, time(NULL), line, sizeof(line));
   static_appendLine(line, line_len);
+}
+
+void usagelog_writeEventOncePerDay(UsageLogEvent_t event)
+{
+  assert((size_t)event < USAGELOG_EVENT_KIND_COUNT);
+
+  int64_t last_day = atomic_load(&g_eventLineDays[event]);
+  int64_t today    = (int64_t)time(NULL) / DATETIME_SECONDS_PER_DAY;
+  if (last_day == today)
+    return;
+
+  if (atomic_compare_exchange_strong(&g_eventLineDays[event], &last_day, today))
+    usagelog_writeEvent(event);
 }
 
 bool usagelog_startFileWriter(const char* log_path, unsigned int interval_ms)
@@ -522,19 +538,20 @@ static const char* static_runStatusName(EndpointRunStatus_t run_status)
 {
   switch (run_status)
   {
-    case ENDPOINT_RUN_OK:                 return "ok";
-    case ENDPOINT_RUN_NOT_FOUND:          return "not_found";
-    case ENDPOINT_RUN_REFUSED:            return "refused";
-    case ENDPOINT_RUN_REFUSED_WITH_BODY:  return "refused_with_body";
-    case ENDPOINT_RUN_DEGRADED:           return "degraded";
-    case ENDPOINT_RUN_DB_ERROR:           return "db_error";
-    case ENDPOINT_RUN_UPSTREAM_ERROR:     return "upstream_error";
-    case ENDPOINT_RUN_TARGET_UNREACHABLE: return "target_unreachable";
-    case ENDPOINT_RUN_NO_MEMORY:          return "no_memory";
-    case ENDPOINT_RUN_NO_CONNECTION:      return "no_connection";
-    case ENDPOINT_RUN_NO_CREDIT_BUDGET:   return "no_credit_budget";
-    case ENDPOINT_RUN_UNAUTHORIZED:       return "unauthorized";
-    case ENDPOINT_RUN_GONE:               return "gone";
+    case ENDPOINT_RUN_OK:                  return "ok";
+    case ENDPOINT_RUN_NOT_FOUND:           return "not_found";
+    case ENDPOINT_RUN_NOT_FOUND_WITH_BODY: return "not_found_with_body";
+    case ENDPOINT_RUN_REFUSED:             return "refused";
+    case ENDPOINT_RUN_REFUSED_WITH_BODY:   return "refused_with_body";
+    case ENDPOINT_RUN_DEGRADED:            return "degraded";
+    case ENDPOINT_RUN_DB_ERROR:            return "db_error";
+    case ENDPOINT_RUN_UPSTREAM_ERROR:      return "upstream_error";
+    case ENDPOINT_RUN_TARGET_UNREACHABLE:  return "target_unreachable";
+    case ENDPOINT_RUN_NO_MEMORY:           return "no_memory";
+    case ENDPOINT_RUN_NO_CONNECTION:       return "no_connection";
+    case ENDPOINT_RUN_NO_CREDIT_BUDGET:    return "no_credit_budget";
+    case ENDPOINT_RUN_UNAUTHORIZED:        return "unauthorized";
+    case ENDPOINT_RUN_GONE:                return "gone";
   }
   assert(false && "every run status has a case above");
   return "ok";
@@ -544,15 +561,16 @@ static const char* static_eventName(UsageLogEvent_t event)
 {
   switch (event)
   {
-    case USAGELOG_EVENT_START:                       return "start";
-    case USAGELOG_EVENT_STOP:                        return "stop";
-    case USAGELOG_EVENT_DB_DOWN:                     return "db_down";
-    case USAGELOG_EVENT_DB_UP:                       return "db_up";
-    case USAGELOG_EVENT_DNS_SCAN_CAP_REACHED:        return "dns_scan_cap_reached";
-    case USAGELOG_EVENT_TLS_SCAN_CAP_REACHED:        return "tls_scan_cap_reached";
-    case USAGELOG_EVENT_RDAP_WHOIS_SCAN_CAP_REACHED: return "rdap_whois_scan_cap_reached";
-    case USAGELOG_EVENT_HEADERS_SCAN_CAP_REACHED:    return "headers_scan_cap_reached";
-    case USAGELOG_EVENT_CT_SCAN_CAP_REACHED:         return "ct_scan_cap_reached";
+    case USAGELOG_EVENT_START:                        return "start";
+    case USAGELOG_EVENT_STOP:                         return "stop";
+    case USAGELOG_EVENT_DB_DOWN:                      return "db_down";
+    case USAGELOG_EVENT_DB_UP:                        return "db_up";
+    case USAGELOG_EVENT_DNS_SCAN_CAP_REACHED:         return "dns_scan_cap_reached";
+    case USAGELOG_EVENT_TLS_SCAN_CAP_REACHED:         return "tls_scan_cap_reached";
+    case USAGELOG_EVENT_RDAP_WHOIS_SCAN_CAP_REACHED:  return "rdap_whois_scan_cap_reached";
+    case USAGELOG_EVENT_HEADERS_SCAN_CAP_REACHED:     return "headers_scan_cap_reached";
+    case USAGELOG_EVENT_CT_SCAN_CAP_REACHED:          return "ct_scan_cap_reached";
+    case USAGELOG_EVENT_CVE_SERVICES_CAP_REACHED:     return "cve_services_cap_reached";
   }
   assert(false && "every event has a case above");
   return "start";

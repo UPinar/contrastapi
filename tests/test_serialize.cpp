@@ -15,6 +15,7 @@ extern "C" {
 #include "header_check.h"
 #include "external/rdap.h"
 #include "external/wayback.h"
+#include "external/cveservices.h"
 #include "external/certspotter.h"
 #include "subdomain.h"
 #include "watchlist/watchlist.h"
@@ -294,7 +295,7 @@ void test_HEALTH_serializes_every_section(void)
   char* body = static_finishJsonBuf(json_buf);
 
   TEST_ASSERT_EQUAL_STRING(
-    R"({"status":"ok","version":"2.0.3","db":{)"
+    R"({"status":"ok","version":"2.0.4","db":{)"
       R"("nvd":{"cve_count":312000,"last_added":{"cve_id":"CVE-2026-1234",)"
         R"("published_time":"2026-08-29T10:00:00Z"}},)"
       R"("kev":{"entry_count":1300,"last_added":{"cve_id":"CVE-2026-9999",)"
@@ -315,7 +316,7 @@ void test_HEALTH_null_db_serializes_unavailable_and_null_db(void)
   char* body = static_finishJsonBuf(json_buf);
 
   TEST_ASSERT_EQUAL_STRING(
-    R"({"status":"unavailable","version":"2.0.3","db":null})" "\n", body);
+    R"({"status":"unavailable","version":"2.0.4","db":null})" "\n", body);
   free(body);
 }
 
@@ -377,7 +378,7 @@ void test_HEALTH_every_string_is_escaped_through_its_own_class(void)
   char* body = static_finishJsonBuf(json_buf);
 
   TEST_ASSERT_EQUAL_STRING(
-    R"({"status":"ok","version":"2.0.3","db":{)"
+    R"({"status":"ok","version":"2.0.4","db":{)"
       R"("nvd":{"cve_count":1,"last_added":{"cve_id":"CVE-\"1","published_time":"2026\\08"}},)"
       R"("kev":{"entry_count":2,"last_added":{"cve_id":"CVE\n9","date_added":"2026\t28"}},)"
       R"("cwe":{"entry_count":3,"last_updated":{"cwe_id":"CWE\b79","updated_at":"2026)" "\\u0001" R"(27"}},)"
@@ -474,6 +475,57 @@ void test_error_code_is_escaped(void)
   char* body = static_finishJsonBuf(json_buf);
 
   TEST_ASSERT_EQUAL_STRING(R"({"error":{"code":"a\"b","message":"m"}})" "\n", body);
+  free(body);
+}
+
+void test_error_with_retry_after_golden(void)
+{
+  JsonBuf_t* json_buf = static_newJsonBuf(JSONBUF_INITIAL_CAP, JSONBUF_DEFAULT_CEILING);
+  serialize_errorWithRetryAfter_response("a\"b", "rate \"limit\"", 42, json_buf);
+  char* body = static_finishJsonBuf(json_buf);
+
+  TEST_ASSERT_EQUAL_STRING(R"({"error":{"code":"a\"b","message":"rate \"limit\"","retry_after_seconds":42}})" "\n", body);
+  free(body);
+}
+
+void test_error_with_retry_after_writes_the_largest_wait(void)
+{
+  JsonBuf_t* json_buf = static_newJsonBuf(JSONBUF_INITIAL_CAP, JSONBUF_DEFAULT_CEILING);
+  serialize_errorWithRetryAfter_response("rate_limited", "rate limit exceeded", 4294967295u, json_buf);
+  char* body = static_finishJsonBuf(json_buf);
+
+  TEST_ASSERT_EQUAL_STRING(R"({"error":{"code":"rate_limited","message":"rate limit exceeded","retry_after_seconds":4294967295}})" "\n", body);
+  free(body);
+}
+
+void test_CVELOOKUP_not_found_names_each_cve_org_state(void)
+{
+  static const struct { CveServicesCveIdState_t m_state; const char* mp_body; } cases[] = {
+    { CVESERVICES_CVE_ID_STATE_PUBLISHED,
+      R"({"error":{"code":"not_found","message":"CVE not found; CVE.org has published it and our data does not have it yet; retry later","cve_org_state":"published","retry_after_seconds":7200}})" "\n" },
+    { CVESERVICES_CVE_ID_STATE_RESERVED,
+      R"({"error":{"code":"not_found","message":"CVE not found; CVE.org lists the id as reserved, not published yet","cve_org_state":"reserved"}})" "\n" },
+    { CVESERVICES_CVE_ID_STATE_REJECTED,
+      R"({"error":{"code":"not_found","message":"CVE not found; CVE.org lists it as rejected","cve_org_state":"rejected"}})" "\n" },
+    { CVESERVICES_CVE_ID_STATE_UNKNOWN_ID,
+      R"({"error":{"code":"not_found","message":"CVE not found; CVE.org has no such id","cve_org_state":"unknown_id"}})" "\n" },
+  };
+  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+  {
+    JsonBuf_t* json_buf = static_newJsonBuf(JSONBUF_INITIAL_CAP, JSONBUF_DEFAULT_CEILING);
+    serialize_CVELOOKUP_notFoundResponse(cases[i].m_state, json_buf);
+    char* body = static_finishJsonBuf(json_buf);
+    TEST_ASSERT_EQUAL_STRING(cases[i].mp_body, body);
+    free(body);
+  }
+}
+
+void test_CVELOOKUP_not_found_of_an_unchecked_state_is_the_plain_miss(void)
+{
+  JsonBuf_t* json_buf = static_newJsonBuf(JSONBUF_INITIAL_CAP, JSONBUF_DEFAULT_CEILING);
+  serialize_CVELOOKUP_notFoundResponse(CVESERVICES_CVE_ID_STATE_NOT_CHECKED, json_buf);
+  char* body = static_finishJsonBuf(json_buf);
+  TEST_ASSERT_EQUAL_STRING(R"({"error":{"code":"not_found","message":"CVE not found"}})" "\n", body);
   free(body);
 }
 
@@ -5383,7 +5435,7 @@ void test_PRODUCTEXPOSURE_top_cve_count_past_its_array_is_clamped(void)
 
 void test_registration_gate_test_count(void)
 {
-  TEST_ASSERT_EQUAL_INT_MESSAGE(312, (int)Unity.NumberOfTests,
+  TEST_ASSERT_EQUAL_INT_MESSAGE(317, (int)Unity.NumberOfTests,
     "RUN_TEST list and test definitions have drifted apart - a test may be unregistered");
 }
 
@@ -7764,7 +7816,7 @@ void test_HEADERSCHECK_set_cookie_value_is_never_written(void)
 
 #define WHOISLOOKUP_FIX_SERVER "https://rdap.fixture.test/rdap/"
 
-#define WHOISLOOKUP_FIX_HEAD R"({"domain":"example.org","available":true,"rdap_server":")" WHOISLOOKUP_FIX_SERVER R"(","whois_server":null,)"
+#define WHOISLOOKUP_FIX_HEAD R"({"domain":"example.org","available":true,"registered":true,"rdap_server":")" WHOISLOOKUP_FIX_SERVER R"(","whois_server":null,)"
 
 static void static_fillWHOISLOOKUPRecord(WHOISLOOKUPRecord_t* record)
 {
@@ -7922,14 +7974,14 @@ void test_WHOISLOOKUP_each_unavailable_reason_golden(void)
   record.m_unavailableReason  = WHOISLOOKUP_UNAVAILABLE_NO_REGISTRY_SERVER;
   record.m_retryAfterSeconds  = 23;
   char* body = static_WHOISLOOKUPBody(&record);
-  TEST_ASSERT_EQUAL_STRING(R"({"domain":"example.org","available":false,"reason":"no_registry_server","retry_after_seconds":null})" "\n", body);
+  TEST_ASSERT_EQUAL_STRING(R"({"domain":"example.org","available":false,"registered":null,"reason":"no_registry_server","retry_after_seconds":null})" "\n", body);
   free(body);
 
   static_fillWHOISLOOKUPRecord(&record);
   record.m_unavailableReason = WHOISLOOKUP_UNAVAILABLE_QUOTA_EXHAUSTED;
   record.m_retryAfterSeconds = 17;
   body = static_WHOISLOOKUPBody(&record);
-  TEST_ASSERT_EQUAL_STRING(R"({"domain":"example.org","available":false,"reason":"quota_exhausted","retry_after_seconds":17})" "\n", body);
+  TEST_ASSERT_EQUAL_STRING(R"({"domain":"example.org","available":false,"registered":null,"reason":"quota_exhausted","retry_after_seconds":17})" "\n", body);
   free(body);
 }
 
@@ -7941,7 +7993,7 @@ void test_WHOISLOOKUP_answer_from_a_whois_server_golden(void)
   record.mp_whoisServerHost   = "whois.fixture.test";
   char* body = static_WHOISLOOKUPBody(&record);
   TEST_ASSERT_EQUAL_STRING(
-    R"({"domain":"example.org","available":true,"rdap_server":null,"whois_server":"whois.fixture.test",)"
+    R"({"domain":"example.org","available":true,"registered":true,"rdap_server":null,"whois_server":"whois.fixture.test",)"
     R"("registrar_name":"Fixture Registrar GmbH","registrar_iana_id":146,)"
     R"("created_at":"1995-08-14T04:00:00Z","updated_at":"2024-08-14T07:01:34Z","expires_at":"2026-08-13T04:00:00Z",)"
     R"("status":["client delete prohibited","client transfer prohibited","client update prohibited"],"status_count":3,)"
@@ -9031,6 +9083,7 @@ static void static_fillEMAILAUTHCHECKRecord(EMAILAUTHCHECKRecord_t* record, DnsR
   record->m_dkimSelectorSource = EMAILCHECK_DKIM_SELECTOR_SOURCE_PROVIDER;
   record->m_dkimStatus         = DNS_ANSWER_OK;
   record->m_dkimKeyStatus      = EMAILCHECK_DKIM_KEY_FOUND;
+  record->m_dkimUsableKeyCount = 1;
 
   const EmailCheckItem_t checks[] = {
     { EMAILCHECK_KIND_SPF_ALL,       EMAILCHECK_RESULT_PASS },
@@ -9068,10 +9121,10 @@ void test_EMAILAUTHCHECK_answered_golden(void)
     R"("policy":"reject","subdomain_policy":"quarantine","nonexistent_subdomain_policy":"none","applied_policy":"quarantine",)"
     R"("test_mode":true,"domain_role":"organizational","aggregate_report_uris":["mailto:a@example.com","https://r.example.net"],)"
     R"("failure_report_uris":["mailto:f@example.com"]},)"
-    R"("dkim":{"available":true,"key_status":"found","selector_source":"provider","tested_selectors":["google","s1"],)"
+    R"("dkim":{"available":true,"key_status":"found","usable_key_count":1,"selector_source":"provider","tested_selectors":["google","s1"],)"
     R"("keys":[{"selector":"google","state":"present","key_type":"rsa","key_bits":2048,"test_mode":true}]},)"
     R"("mx":{"available":true,"null_mx":true,"hosts":[{"priority":10,"host":"mx1.example.net"},{"priority":20,"host":"mx2.example.net"}]},)"
-    R"("mail_providers":["Provider A","Provider B"],"mta_sts":{"available":true,"record_found":true},)"
+    R"("mail_providers":["Provider A","Provider B"],"mta_sts":{"available":true,"record_found":true},"no_mail_domain":false,)"
     R"("checks":[{"id":"spf_all","result":"pass","severity":"high","detail":"The SPF record's all is -all or ~all, or it has a redirect and no all."},)"
     R"({"id":"spf_ptr","result":"warn","severity":"low","detail":"The SPF record uses ptr. RFC 7208 asks domains not to use it."},)"
     R"({"id":"dmarc_policy","result":"fail","severity":"high","detail":"A policy tag of the DMARC record is not valid and its rua= tag holds no valid address, so receivers apply no DMARC."},)"
@@ -9079,6 +9132,28 @@ void test_EMAILAUTHCHECK_answered_golden(void)
     R"({"id":"dkim_key_size","result":"fail","severity":"high","detail":"An rsa key is under 1024 bits, so receivers must not trust its signatures."},)"
     R"({"id":"spf_wide_range","result":"fail","severity":"high","detail":"A mechanism allows every address, with a prefix length of 0."}],)"
     R"("check_counts":{"pass":1,"warn":2,"fail":3}})" "\n", body);
+  free(body);
+}
+
+void test_EMAILAUTHCHECK_no_mail_domain_golden(void)
+{
+  EMAILAUTHCHECKRecord_t record;
+  DnsRecordText_t        texts[4];
+  static_fillEMAILAUTHCHECKRecord(&record, texts);
+  record.ma_dkimSelectors[1].m_hasKeyRecord                 = true;
+  record.ma_dkimSelectors[1].m_firstKeyRecord.m_keyState    = EMAILAUTH_DKIM_KEY_PRESENT;
+  record.ma_dkimSelectors[1].m_firstKeyRecord.m_keyTypeName = static_EMAILAUTHCHECKSpan(EMAILAUTHCHECK_FIX_RSA, 0, 3);
+  record.ma_dkimSelectors[1].m_firstKeyRecord.m_keyBits     = 4096;
+  record.m_dkimUsableKeyCount = 2;
+  record.m_isNoMailDomain     = true;
+  record.ma_checks[0] = (EmailCheckItem_t){ EMAILCHECK_KIND_MX, EMAILCHECK_RESULT_PASS };
+  record.m_checkCount = 1;
+  char* body = static_EMAILAUTHCHECKBody(&record);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(body, R"("dkim":{"available":true,"key_status":"found","usable_key_count":2,"selector_source":"provider",)"), body);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(body,
+    R"("mta_sts":{"available":true,"record_found":true},"no_mail_domain":true,)"
+    R"("checks":[{"id":"mx","result":"pass","severity":"low","detail":"The domain has MX hosts, or a null MX that says it takes no mail."}],)"
+    R"("check_counts":{"pass":1,"warn":0,"fail":0}})" "\n"), body);
   free(body);
 }
 
@@ -9096,7 +9171,7 @@ void test_EMAILAUTHCHECK_failed_sections_golden(void)
   TEST_ASSERT_EQUAL_STRING(
     R"({"domain":"example.com","spf":{"available":false,"reason":"timeout"},"dmarc":{"available":false,"reason":"server_error"},)"
     R"("dkim":{"available":false,"reason":"no_resolver"},"mx":{"available":false,"reason":"malformed_answer"},"mail_providers":[],)"
-    R"("mta_sts":{"available":false,"reason":"bad_question"},"checks":[],"check_counts":{"pass":0,"warn":0,"fail":0}})" "\n", body);
+    R"("mta_sts":{"available":false,"reason":"bad_question"},"no_mail_domain":false,"checks":[],"check_counts":{"pass":0,"warn":0,"fail":0}})" "\n", body);
   free(body);
 }
 
@@ -9125,6 +9200,7 @@ void test_EMAILAUTHCHECK_inherited_dmarc_and_two_spf_records_golden(void)
   record.m_mxAnswer           = (DnsAnswer_t){ DNS_ANSWER_NXDOMAIN, 0, NULL, NULL, NULL, NULL, false };
   record.m_mtaStsAnswer.m_status = DNS_ANSWER_NXDOMAIN;
   record.m_hasMtaStsRecord    = false;
+  record.m_dkimUsableKeyCount = 0;
   record.m_checkCount         = 0;
   char* body = static_EMAILAUTHCHECKBody(&record);
   TEST_ASSERT_EQUAL_STRING(
@@ -9133,11 +9209,11 @@ void test_EMAILAUTHCHECK_inherited_dmarc_and_two_spf_records_golden(void)
     R"("dmarc":{"available":true,"record_name":"_dmarc.com","source":"public_suffix","record":"v=DMARC1; p=bogus; psd=y",)"
     R"("policy":"invalid","subdomain_policy":null,"nonexistent_subdomain_policy":null,"applied_policy":null,)"
     R"("test_mode":false,"domain_role":"public_suffix","aggregate_report_uris":[],"failure_report_uris":[]},)"
-    R"("dkim":{"available":true,"key_status":"found","selector_source":"provider","tested_selectors":["google","s1"],)"
+    R"("dkim":{"available":true,"key_status":"found","usable_key_count":0,"selector_source":"provider","tested_selectors":["google","s1"],)"
     R"("keys":[{"selector":"google","state":"unreadable","key_type":"rsa","key_bits":null,"test_mode":true},)"
     R"({"selector":"s1","state":"revoked","key_type":"rsa","key_bits":null,"test_mode":false}]},)"
     R"("mx":{"available":true,"null_mx":false,"hosts":[]},"mail_providers":["Provider A","Provider B"],)"
-    R"("mta_sts":{"available":true,"record_found":false},"checks":[],"check_counts":{"pass":0,"warn":0,"fail":0}})" "\n", body);
+    R"("mta_sts":{"available":true,"record_found":false},"no_mail_domain":false,"checks":[],"check_counts":{"pass":0,"warn":0,"fail":0}})" "\n", body);
   free(body);
 }
 
@@ -9235,6 +9311,7 @@ void test_EMAILAUTHCHECK_every_name_value_is_written(void)
   record.m_dmarcSource              = EMAILCHECK_DMARC_SOURCE_ORGANIZATIONAL;
   record.m_dmarcRecord.m_domainRole = EMAILAUTH_DMARC_DOMAIN_ROLE_NOT_PUBLIC_SUFFIX;
   record.m_dkimKeyStatus            = EMAILCHECK_DKIM_KEY_NOT_FOUND;
+  record.m_dkimUsableKeyCount       = 0;
   record.m_dkimSelectorSource       = EMAILCHECK_DKIM_SELECTOR_SOURCE_CALLER_GIVEN;
   record.ma_dkimSelectors[0].m_firstKeyRecord.m_keyState = EMAILAUTH_DKIM_KEY_UNKNOWN_TYPE;
   char terms[1024];
@@ -9246,7 +9323,7 @@ void test_EMAILAUTHCHECK_every_name_value_is_written(void)
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(body, terms), terms);
   TEST_ASSERT_NOT_NULL(strstr(body, R"("source":"organizational")"));
   TEST_ASSERT_NOT_NULL(strstr(body, R"("domain_role":"not_public_suffix")"));
-  TEST_ASSERT_NOT_NULL(strstr(body, R"("key_status":"not_found","selector_source":"given")"));
+  TEST_ASSERT_NOT_NULL(strstr(body, R"("key_status":"not_found","usable_key_count":0,"selector_source":"given")"));
   TEST_ASSERT_NOT_NULL(strstr(body, R"("state":"unknown_type")"));
   free(body);
   record.m_dmarcRecord.m_domainRole = EMAILAUTH_DMARC_DOMAIN_ROLE_INVALID;
@@ -10196,6 +10273,10 @@ int main(void)
   RUN_TEST(test_HEALTH_feed_count_past_its_array_is_clamped);
   RUN_TEST(test_error_golden);
   RUN_TEST(test_error_code_is_escaped);
+  RUN_TEST(test_error_with_retry_after_golden);
+  RUN_TEST(test_error_with_retry_after_writes_the_largest_wait);
+  RUN_TEST(test_CVELOOKUP_not_found_names_each_cve_org_state);
+  RUN_TEST(test_CVELOOKUP_not_found_of_an_unchecked_state_is_the_plain_miss);
   RUN_TEST(test_CVERISKSCORE_golden);
   RUN_TEST(test_CVERISKSCORE_golden_no_poc_whole_numbers);
   RUN_TEST(test_CVERISKSCORE_growth_produces_the_same_bytes_as_a_preallocated_buffer);
@@ -10390,6 +10471,7 @@ int main(void)
   RUN_TEST(test_DNSTAKEOVERCHECK_no_cname_golden);
   RUN_TEST(test_DNSTAKEOVERCHECK_cname_is_escaped);
   RUN_TEST(test_EMAILAUTHCHECK_answered_golden);
+  RUN_TEST(test_EMAILAUTHCHECK_no_mail_domain_golden);
   RUN_TEST(test_EMAILAUTHCHECK_failed_sections_golden);
   RUN_TEST(test_EMAILAUTHCHECK_inherited_dmarc_and_two_spf_records_golden);
   RUN_TEST(test_EMAILAUTHCHECK_nxdomain_spf_answer_is_available);

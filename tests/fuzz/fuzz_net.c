@@ -6,6 +6,7 @@
 #include "cvss.h"
 #include "dns.h"
 #include "emailauth.h"
+#include "external/cveservices.h"
 #include "external/rdap.h"
 #include "external/whois.h"
 #include "header_check.h"
@@ -13,7 +14,7 @@
 #include "robotstxt.h"
 #include "securitytxt.h"
 
-#define FUZZ_NET_PARSER_COUNT 8
+#define FUZZ_NET_PARSER_COUNT 9
 
 #define FUZZ_NET_NOW_EPOCH 1800000000
 
@@ -116,6 +117,13 @@ static void static_runParser(unsigned parser_index, const char* exact, char* tex
         abort();
       RdapRegistration_t registration;
       (void)whois_readAnswer(exact + 1, len - 1, domain_name, server, &registration);
+      break;
+    }
+    case 8:
+    {
+      CveServicesCveIdState_t state;
+      (void)cveservices_tryReadCveIdState(exact, len, &state);
+      (void)cveservices_isUnknownCveIdBody(exact, len);
       break;
     }
     default:

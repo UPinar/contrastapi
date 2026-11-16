@@ -1,18 +1,15 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <time.h>
 
 #include "watchlist_domain_scan.h"
 #include "watchlist/watchlist_domain.h"
-#include "datetime.h"
 #include "db.h"
 #include "monotonic.h"
 #include "retryafter.h"
 #include "usagelog.h"
 
-static bool static_isRunDeadlinePassed (int64_t start_ms);
-static void static_writeCapLine        (int64_t* last_day, UsageLogEvent_t event);
+static bool static_isRunDeadlinePassed(int64_t start_ms);
 
 bool watchlist_domain_scan_scanNextLaneDomains(PGconn* conn, const WatchlistDomainScanLane_t* lane)
 {
@@ -37,7 +34,7 @@ bool watchlist_domain_scan_scanNextLaneDomains(PGconn* conn, const WatchlistDoma
       WatchlistDomainScanOutcome_t outcome = lane->m_scanFunction(conn, &claims[i]);
       if (outcome == WATCHLIST_DOMAIN_SCAN_OUTCOME_QUOTA_EXHAUSTED)
       {
-        static_writeCapLine(lane->mp_capLineDay, lane->m_capEvent);
+        usagelog_writeEventOncePerDay(lane->m_capEvent);
         return true;
       }
       else if (outcome == WATCHLIST_DOMAIN_SCAN_OUTCOME_DB_ERROR)
@@ -63,13 +60,4 @@ const WatchlistDomainValue_t* watchlist_domain_scan_valueOrNull(const WatchlistD
 static bool static_isRunDeadlinePassed(int64_t start_ms)
 {
   return monotonic_nowMs() - start_ms >= WATCHLIST_DOMAIN_SCAN_RUN_DEADLINE_MS;
-}
-
-static void static_writeCapLine(int64_t* last_day, UsageLogEvent_t event)
-{
-  int64_t today = (int64_t)time(NULL) / DATETIME_SECONDS_PER_DAY;
-  if (today == *last_day)
-    return;
-  *last_day = today;
-  usagelog_writeEvent(event);
 }

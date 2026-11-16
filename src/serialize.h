@@ -13,6 +13,7 @@
 #include "header_fetch.h"
 #include "external/rdap.h"
 #include "external/wayback.h"
+#include "external/cveservices.h"
 #include "external/certspotter.h"
 #include "subdomain.h"
 #include "watchlist/watchlist.h"
@@ -26,6 +27,7 @@
 #include "vendorkey.h"
 
 void   serialize_CVELOOKUP_response                         (const CVELOOKUPRecord_t* record, JsonBuf_t* json_buf);
+void   serialize_CVELOOKUP_notFoundResponse                 (CveServicesCveIdState_t state, JsonBuf_t* json_buf);
 void   serialize_CVELOOKUPBULK_response                     (const CVELOOKUPBULKResult_t* results, JsonBuf_t* json_buf);
 void   serialize_CVEPRODUCTS_response                       (const CVEPRODUCTSResult_t* result, const CVEPRODUCTSParams_t* params, JsonBuf_t* json_buf);
 void   serialize_CVESEARCH_response                         (const CveListResult_t* results, const CVESEARCHParams_t* params, JsonBuf_t* json_buf);
@@ -70,5 +72,6 @@ void   serialize_APIKEYCLAIM_response                       (const char* api_key
 void   serialize_VENDORKEYEDIT_applyResponse                (const VENDORKEYEDITApplyResult_t* result, JsonBuf_t* json_buf);
 void   serialize_VENDORKEYEDIT_statusResponse               (const VENDORKEYEDITStatusResult_t* result, JsonBuf_t* json_buf);
 void   serialize_error_response                             (const char* code, const char* message, JsonBuf_t* json_buf);
+void   serialize_errorWithRetryAfter_response               (const char* code, const char* message, unsigned int retry_after_sec, JsonBuf_t* json_buf);
 
 #endif

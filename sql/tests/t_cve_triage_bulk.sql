@@ -43,7 +43,7 @@ $$;
 INSERT INTO cves (cve_id, cvss_v3, cvss_v3_vector, epss_score, in_kev, refs) VALUES
   ('CVE-2001-0056', 5.0, 'CVSS:3.1/AV:N', 0.1,  false,
    '[{"url": "https://www.exploit-db.com/exploits/56"},
-     {"url": "https://www.exploit-db.com/exploits/57", "tags": ["Third Party Advisory"]}]'),
+     {"url": "https://www.exploit-db.com/exploits/57", "nvd_tags": ["Third Party Advisory"]}]'),
   ('CVE-2001-0057', 5.0, 'CVSS:3.1/AV:N', 0.12, false, '[]');
 
 DO $$
