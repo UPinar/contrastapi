@@ -2443,7 +2443,7 @@ void test_era2026_tools_list_carries_result_type(void)
   char* response = static_dispatch(R"({"jsonrpc":"2.0","id":58,"method":"tools/list",)"
                      R"("params":{)" META_2026 "}}", &status);
   TEST_ASSERT_EQUAL_INT(200, status);
-  static_assertContains(response, R"(,"result":{"resultType":"complete","tools":[)");
+  static_assertContains(response, R"(,"result":{"resultType":"complete",)");
   static_assertEndsWith(response, "]}}");
   free(response);
 }
@@ -2459,6 +2459,21 @@ void test_era2026_tools_list_is_the_legacy_tools_list(void)
   TEST_ASSERT_NOT_NULL(legacy_tools);
   TEST_ASSERT_NOT_NULL(modern_tools);
   TEST_ASSERT_EQUAL_STRING(legacy_tools, modern_tools);
+  free(legacy);
+  free(modern);
+}
+
+void test_era2026_tools_list_carries_cache_fields(void)
+{
+  int status;
+  char* legacy = static_dispatch(R"({"jsonrpc":"2.0","id":58,"method":"tools/list"})", &status);
+  static_setRoutingHeaders("2026-07-28", "tools/list", NULL);
+  char* modern = static_dispatch(R"({"jsonrpc":"2.0","id":58,"method":"tools/list",)" R"("params":{)" META_2026 "}}", &status);
+  TEST_ASSERT_EQUAL_INT(200, status);
+  const char* prefix = R"({"jsonrpc":"2.0","id":58,"result":{"resultType":"complete","cacheScope":"public","ttlMs":3600000,"tools":[)";
+  TEST_ASSERT_EQUAL_INT(0, strncmp(modern, prefix, strlen(prefix)));
+  TEST_ASSERT_NULL(strstr(legacy, R"("cacheScope")"));
+  TEST_ASSERT_NULL(strstr(legacy, R"("ttlMs")"));
   free(legacy);
   free(modern);
 }
@@ -7286,7 +7301,7 @@ void test_mcp_server_instructions_name_x402_pay_per_call(void)
 
 void test_registration_gate_test_count(void)
 {
-  TEST_ASSERT_EQUAL_INT_MESSAGE(406, (int)Unity.NumberOfTests,
+  TEST_ASSERT_EQUAL_INT_MESSAGE(407, (int)Unity.NumberOfTests,
     "RUN_TEST list and test definitions have drifted apart - a test may be unregistered");
 }
 
@@ -7993,6 +8008,7 @@ int main(void)
   RUN_TEST(test_era2026_request_without_id_rejected_400);
   RUN_TEST(test_era2026_tools_list_carries_result_type);
   RUN_TEST(test_era2026_tools_list_is_the_legacy_tools_list);
+  RUN_TEST(test_era2026_tools_list_carries_cache_fields);
   RUN_TEST(test_era2026_ping_carries_result_type);
   RUN_TEST(test_era2026_server_discover_ok);
   RUN_TEST(test_era2026_server_discover_legacy_method_not_found);

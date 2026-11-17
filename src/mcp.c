@@ -50,8 +50,10 @@ static const size_t MCP_HANDSHAKE_COUNT = sizeof(MCP_HANDSHAKE_VERSIONS) / sizeo
 #define MCP_SERVER_INFO_JSON \
   "\"serverInfo\":{\"name\":\"contrastapi\",\"title\":\"ContrastAPI\",\"version\":\"" CONTRASTAPI_VERSION "\"}"
 
+#define MCP_CACHEABLE_RESULT_JSON "\"cacheScope\":\"public\",\"ttlMs\":3600000"
+
 static const char MCP_DISCOVER_RESULT[] =
-  "{\"cacheScope\":\"public\",\"ttlMs\":3600000,"
+  "{" MCP_CACHEABLE_RESULT_JSON ","
   "\"supportedVersions\":[\"" MCP_MODERN_PROTOCOL_VERSION "\"],"
   "\"capabilities\":{\"tools\":{}},"
   MCP_SERVER_INFO_JSON ","
@@ -807,7 +809,7 @@ static char* static_buildToolsListResponse(const char* id_raw, bool is_modern)
   if (!json_buf)
     return NULL;
 
-  jsonbuf_appendFormat(json_buf, "{\"tools\":[");
+  jsonbuf_appendFormat(json_buf, is_modern ? "{" MCP_CACHEABLE_RESULT_JSON ",\"tools\":[" : "{\"tools\":[");
   bool is_first = true;
   for (int i = 0; i < endpoint_count; i++)
   {
