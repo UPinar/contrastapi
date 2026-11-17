@@ -683,7 +683,7 @@ INSERT INTO t_match_case VALUES
   ('min_epss equal',               'cve_search',       NULL,            NULL,   NULL,     NULL,   NULL,     NULL, 0.5,  NULL,  NULL, NULL, '{01:cve_added,01:kev_added}'),
   ('min_epss one step below',      'cve_search',       NULL,            NULL,   NULL,     NULL,   NULL,     NULL, 0.49, NULL,  NULL, NULL, '{01:cve_added,02:cve_added,01:kev_added}'),
   ('in_kev true',                  'cve_search',       NULL,            NULL,   NULL,     NULL,   NULL,     NULL, NULL, true,  NULL, NULL, '{01:cve_added,01:kev_added}'),
-  ('in_kev false',                 'cve_search',       NULL,            NULL,   NULL,     NULL,   NULL,     NULL, NULL, false, NULL, NULL, '{02:cve_added,03:cve_added,04:cve_added}'),
+  ('in_kev false',                 'cve_search',       NULL,            NULL,   NULL,     NULL,   NULL,     NULL, NULL, false, NULL, NULL, '{02:cve_added,03:cve_added,04:cve_added,01:kev_added}'),
   ('known_ransomware',             'cve_search',       NULL,            NULL,   NULL,     NULL,   NULL,     NULL, NULL, NULL,  true, NULL, '{01:cve_added,01:kev_added}'),
   ('vendor and product',           'product_exposure', NULL,            'wlacme', 'wlwidget', NULL,   NULL,     NULL, NULL, NULL,  NULL, NULL, '{01:cve_added,01:kev_added}'),
   ('vendor and product of two rows', 'product_exposure', NULL,            'wlacme', 'wlgadget', NULL,   NULL,     NULL, NULL, NULL,  NULL, NULL, '{}'),
@@ -692,7 +692,7 @@ INSERT INTO t_match_case VALUES
   ('product alone',                'cve_search',       NULL,            NULL,   'wlwidget', NULL,   NULL,     NULL, NULL, NULL,  NULL, NULL, '{01:cve_added,02:cve_added,01:kev_added}'),
   ('product alone of one CVE',     'cve_search',       NULL,            NULL,   'wlgadget', NULL,   NULL,     NULL, NULL, NULL,  NULL, NULL, '{01:cve_added,01:kev_added}'),
   ('every filter',                 'cve_search',       NULL,            'wlacme', 'wlwidget', 'HIGH', 'CWE-79', 7.5,  0.5,  true,  true, NULL, '{01:cve_added,01:kev_added}'),
-  ('every filter but one',         'cve_search',       NULL,            'wlacme', 'wlwidget', 'HIGH', 'CWE-79', 7.5,  0.5,  false, true, NULL, '{}'),
+  ('every filter but one',         'cve_search',       NULL,            'wlacme', 'wlwidget', 'HIGH', 'CWE-79', 7.5,  0.5,  false, true, NULL, '{01:kev_added}'),
   ('has_nuclei_template',          'cve_search',       NULL,            NULL,   NULL,     NULL,   NULL,     NULL, NULL, NULL,  NULL, true, '{02:cve_added}'),
   ('has_nuclei_template and known_ransomware', 'cve_search', NULL,      NULL,   NULL,     NULL,   NULL,     NULL, NULL, NULL,  true, true, '{}'),
   ('has_nuclei_template and min_cvss', 'cve_search',   NULL,            NULL,   NULL,     NULL,   NULL,     7.4,  NULL, NULL,  NULL, true, '{02:cve_added}'),
@@ -4430,5 +4430,80 @@ BEGIN
   DELETE FROM api_keys WHERE key_hash = repeat('a7', 32);
 
   DELETE FROM api_keys WHERE key_hash IN (k1, k2);
+END
+$$;
+
+SELECT set_config('contrastapi.cve_events', 'off', true);
+INSERT INTO cves (cve_id, severity, cwe_id, epss_score, in_kev) VALUES
+  ('CVE-2006-0091', 'LOW', 'CWE-200', 0.2, true),
+  ('CVE-2006-0092', 'LOW', 'CWE-200', 0.2, false);
+SELECT set_config('contrastapi.cve_events', '', true);
+
+DO $$
+DECLARE
+  base     bigint;
+  answer   text[];
+BEGIN
+  ASSERT pg_temp.t_edit('A', NULL, NULL, p_is_cleared => true) = 'ok'
+     AND pg_temp.t_edit('B', NULL, NULL, p_is_cleared => true) = 'ok',
+         'S57 the clears before the KEV events answer ok';
+  base := api.fn_watchlist_event_max_id();
+  ASSERT pg_temp.t_edit('A', 'add', 'cve_search', p_in_kev => true) = 'ok'
+     AND pg_temp.t_edit('A', 'add', 'cve_search', p_severity => 'HIGH', p_in_kev => true) = 'ok'
+     AND pg_temp.t_edit('B', 'add', 'cve_search', p_in_kev => false) = 'ok',
+         'S57 key A adds T and TH, and key B adds F';
+  PERFORM pg_temp.t_cve_event_of('CVE-2006-0091', 'kev_added');
+  PERFORM pg_temp.t_cve_event_of('CVE-2006-0092', 'kev_removed');
+  PERFORM pg_temp.t_cve_event_of('CVE-2006-0091', 'exploit_published');
+  PERFORM pg_temp.t_cve_event_of('CVE-2006-0092', 'exploit_published');
+
+  answer := pg_temp.t_item_events('A', base);
+  ASSERT answer = ARRAY['cve_search:|91:kev_added:>', 'cve_search:|92:kev_removed:>', 'cve_search:|91:exploit_published:>'],
+         format('S57 T hears both KEV events and the exploit of the CVE in KEV, and TH hears nothing: %s', answer);
+  answer := pg_temp.t_item_events('B', base);
+  ASSERT answer = ARRAY['cve_search:|91:kev_added:>', 'cve_search:|92:kev_removed:>', 'cve_search:|92:exploit_published:>'],
+         format('S57 F hears both KEV events and the exploit of the CVE outside KEV: %s', answer);
+
+  PERFORM set_config('contrastapi.cve_events', 'off', true);
+  UPDATE cves SET in_kev = (cve_id = 'CVE-2006-0092') WHERE cve_id IN ('CVE-2006-0091', 'CVE-2006-0092');
+  PERFORM set_config('contrastapi.cve_events', '', true);
+  answer := pg_temp.t_item_events('A', base);
+  ASSERT answer = ARRAY['cve_search:|91:kev_added:>', 'cve_search:|92:kev_removed:>', 'cve_search:|92:exploit_published:>'],
+         format('S57 T keeps both KEV events after in_kev moved, and its exploit event follows in_kev: %s', answer);
+  answer := pg_temp.t_item_events('B', base);
+  ASSERT answer = ARRAY['cve_search:|91:kev_added:>', 'cve_search:|92:kev_removed:>', 'cve_search:|91:exploit_published:>'],
+         format('S57 F keeps both KEV events after in_kev moved, and its exploit event follows in_kev: %s', answer);
+  ASSERT pg_temp.t_edit('A', NULL, NULL, p_is_cleared => true) = 'ok'
+     AND pg_temp.t_edit('B', NULL, NULL, p_is_cleared => true) = 'ok',
+         'S57 the clears after the KEV events answer ok';
+END
+$$;
+
+DO $$
+DECLARE
+  base   bigint;
+  answer text[];
+BEGIN
+  base := api.fn_watchlist_event_max_id();
+  ASSERT pg_temp.t_edit('A', 'add', 'cve_search', p_cwe_id => 'CWE-79', p_in_kev => true) = 'ok'
+     AND pg_temp.t_edit('A', 'add', 'cve_search', p_min_epss => 0.9, p_in_kev => true) = 'ok'
+     AND pg_temp.t_edit('A', 'add', 'cve_search', p_known_ransomware => true, p_in_kev => true) = 'ok'
+     AND pg_temp.t_edit('A', 'add', 'cve_search', p_in_kev => true) = 'ok'
+     AND pg_temp.t_edit('B', 'add', 'cve_search', p_in_kev => false) = 'ok',
+         'S57 decoys: key A adds three decoys and T, and key B adds F';
+  PERFORM pg_temp.t_cve_event_of('CVE-2006-0092', 'kev_added');
+  PERFORM pg_temp.t_cve_event_of('CVE-2006-0091', 'kev_removed');
+  PERFORM pg_temp.t_cve_event_of('CVE-2006-0092', 'kev_updated');
+  PERFORM pg_temp.t_cve_event_of('CVE-2006-0092', 'ransomware_linked');
+  answer := pg_temp.t_item_events('A', base);
+  ASSERT answer = ARRAY['cve_search:|92:kev_added:>', 'cve_search:|91:kev_removed:>', 'cve_search:|92:kev_updated:>',
+                        'cve_search:|92:ransomware_linked:>'],
+         format('S57 decoys: only T hears, and the cwe_id, min_epss and known_ransomware items hear no KEV event: %s', answer);
+  answer := pg_temp.t_item_events('B', base);
+  ASSERT answer = ARRAY['cve_search:|92:kev_added:>', 'cve_search:|91:kev_removed:>'],
+         format('S57 decoys: F hears the two KEV events, not kev_updated or ransomware_linked of the CVE in KEV: %s', answer);
+  ASSERT pg_temp.t_edit('A', NULL, NULL, p_is_cleared => true) = 'ok'
+     AND pg_temp.t_edit('B', NULL, NULL, p_is_cleared => true) = 'ok',
+         'S57 decoys: the clears answer ok';
 END
 $$;

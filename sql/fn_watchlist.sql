@@ -1015,7 +1015,7 @@ CREATE FUNCTION api.fn_watchlist_event_item_pairs(p_api_key_id integer, p_event_
                WHEN wi.endpoint_name = 'cve_search'
                  THEN (wi.severity IS NULL OR wi.severity = ce.severity)
                       AND (wi.cwe_id IS NULL OR wi.cwe_id = ce.cwe_id)
-                      AND (wi.in_kev IS NULL OR wi.in_kev = ce.in_kev)
+                      AND (wi.in_kev IS NULL OR ce.event_type IN ('kev_added', 'kev_removed') OR wi.in_kev = ce.in_kev)
                       AND (wi.min_cvss IS NULL OR wi.min_cvss <= ce.cvss)
                       AND CASE
                             WHEN ce.shown_event_type IN ('epss_above_min', 'epss_below_min')

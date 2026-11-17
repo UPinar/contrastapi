@@ -756,15 +756,21 @@ void test_terms_page_states_the_refund_policy(void)
   const PagesFile_t* page = pages_findServedFile("/terms");
   TEST_ASSERT_NOT_NULL(page);
   static const char* const sentences[] = {
-    "If you are not satisfied with a card subscription, ask for a refund within 7 days of your first payment. You then get it in full.",
+    "<p class=\"endpoints-lede\" id=\"refunds\"><strong>Refund policy.</strong>",
+    "If you are not satisfied with a card subscription, ask for a refund within 14 days of your first payment. You then get it in full.",
     "A full refund ends your key at once.",
-    "Renewals are not refunded.",
-    "Crypto payments are not refunded.",
+    "Renewals of a card subscription are not refunded.",
+    "A crypto payment for a Pro key is not refunded.",
     "You can cancel at any time. Your key then keeps working until the end of the period you paid for.",
     "We may revoke an API key that violates these Terms, without refund.",
   };
   for (size_t i = 0; i < sizeof(sentences) / sizeof(sentences[0]); i++)
     TEST_ASSERT_TRUE_MESSAGE(static_bodyHolds(page, sentences[i], strlen(sentences[i])), sentences[i]);
+
+  const PagesFile_t* pricing = pages_findServedFile("/pricing");
+  TEST_ASSERT_NOT_NULL(pricing);
+  const char* note = "<p class=\"cta-note\">Card: a full refund within 14 days of your first payment. Crypto payments are not refunded. <a href=\"/terms#refunds\">Refund policy</a></p>";
+  TEST_ASSERT_TRUE_MESSAGE(static_bodyHolds(pricing, note, strlen(note)), note);
 }
 
 static void static_contentVersion(const PagesFile_t* file, char* text_out, size_t text_size)
