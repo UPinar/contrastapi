@@ -35,12 +35,24 @@ typedef enum {
   EMAILCHECK_DKIM_KEY_UNKNOWN,
 } EmailCheckDkimKeyStatus_t;
 
+typedef enum {
+  EMAILCHECK_RESULT_PASS = 0,
+  EMAILCHECK_RESULT_WARN,
+  EMAILCHECK_RESULT_FAIL,
+} EmailCheckResult_t;
+
+#define EMAILCHECK_RESULT_COUNT 3
+
 typedef struct {
-  char              ma_selector[VALIDATE_DKIM_SELECTOR_MAX_LEN + 1];
-  DnsAnswer_t       m_answer;
-  bool              m_hasKeyRecord;
-  EmailAuthDkim_t   m_firstKeyRecord;
-  bool              m_hasSecondKeyRecord;
+  char               ma_selector[VALIDATE_DKIM_SELECTOR_MAX_LEN + 1];
+  DnsAnswer_t        m_answer;
+  bool               m_hasKeyRecord;
+  EmailAuthDkim_t    m_bestKeyRecord;
+  bool               m_hasSecondKeyRecord;
+  EmailCheckResult_t m_keySizeResult;
+  EmailCheckResult_t m_keyFormatResult;
+  EmailCheckResult_t m_testModeResult;
+  EmailCheckResult_t m_keyRestrictedResult;
 } EmailCheckDkimSelector_t;
 
 typedef enum {
@@ -70,14 +82,6 @@ typedef enum {
 #define EMAILCHECK_KIND_COUNT 21
 
 #define EMAILCHECK_KIND_ID_MAX_LEN 19
-
-typedef enum {
-  EMAILCHECK_RESULT_PASS = 0,
-  EMAILCHECK_RESULT_WARN,
-  EMAILCHECK_RESULT_FAIL,
-} EmailCheckResult_t;
-
-#define EMAILCHECK_RESULT_COUNT 3
 
 typedef struct {
   EmailCheckKind_t   m_kind;
@@ -111,6 +115,7 @@ typedef struct {
   int                             m_mailProviderCount;
   DnsAnswer_t                     m_mtaStsAnswer;
   bool                            m_hasMtaStsRecord;
+  bool                            m_isMtaStsRecordValid;
   EmailCheckDkimSelector_t        ma_dkimSelectors[EMAILCHECK_MAX_DKIM_SELECTOR_COUNT];
   int                             m_dkimSelectorCount;
   EmailCheckDkimSelectorSource_t  m_dkimSelectorSource;

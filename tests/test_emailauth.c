@@ -318,7 +318,7 @@ void test_parseSpf_counts_the_dns_lookup_terms(void)
 {
   EmailAuthSpf_t spf = { 0 };
   static_parseSpf("v=spf1 include:a.example a mx ptr exists:b.example redirect=c.example ip4:192.0.2.1 ip6:::1 all exp=d.example foo=bar", &spf);
-  TEST_ASSERT_EQUAL_INT(6, spf.m_dnsLookupTermCount);
+  TEST_ASSERT_EQUAL_INT(5, spf.m_dnsLookupTermCount);
 
   static_parseSpf("v=spf1 ip4:192.0.2.1 ip6:::1 all exp=d.example foo=bar", &spf);
   TEST_ASSERT_EQUAL_INT(0, spf.m_dnsLookupTermCount);
@@ -326,6 +326,43 @@ void test_parseSpf_counts_the_dns_lookup_terms(void)
   static_parseSpf("v=spf1 include a: exists redirect=", &spf);
   TEST_ASSERT_EQUAL_INT(0, spf.m_dnsLookupTermCount);
   TEST_ASSERT_EQUAL_INT(4, spf.m_invalidTermCount);
+}
+
+void test_parseSpf_counts_only_the_lookups_a_receiver_evaluates(void)
+{
+  static const struct { const char* mp_record; int m_count; } cases[] = {
+    { "v=spf1 a -all mx include:x.example exists:y.example", 1 },
+    { "v=spf1 a ?all ptr", 1 },
+    { "v=spf1 -all a", 0 },
+    { "v=spf1 a redirect=x.example -all", 1 },
+    { "v=spf1 a -all redirect=x.example", 1 },
+    { "v=spf1 redirect=x.example ~all", 0 },
+    { "v=spf1 a redirect=x.example", 2 },
+    { "v=spf1 redirect=x.example a", 2 },
+    { "v=spf1 redirect=x.example", 1 },
+  };
+  EmailAuthSpf_t spf = { 0 };
+  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+  {
+    static_parseSpf(cases[i].mp_record, &spf);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(cases[i].m_count, spf.m_dnsLookupTermCount, cases[i].mp_record);
+  }
+
+  char record[SPF_RECORD_SIZE] = "v=spf1";
+  for (int i = 0; i < EMAILAUTH_SPF_MAX_TERM_COUNT; i++)
+    strcat(record, " a");
+  strcat(record, " mx -all ptr include:x.example redirect=y.example");
+  static_parseSpf(record, &spf);
+  TEST_ASSERT_EQUAL_INT(5, spf.m_unreadTermCount);
+  TEST_ASSERT_EQUAL_INT(EMAILAUTH_SPF_MAX_TERM_COUNT + 1, spf.m_dnsLookupTermCount);
+
+  strcpy(record, "v=spf1");
+  for (int i = 0; i < EMAILAUTH_SPF_MAX_TERM_COUNT; i++)
+    strcat(record, " a");
+  strcat(record, " redirect=y.example");
+  static_parseSpf(record, &spf);
+  TEST_ASSERT_EQUAL_INT(1, spf.m_unreadTermCount);
+  TEST_ASSERT_EQUAL_INT(EMAILAUTH_SPF_MAX_TERM_COUNT + 1, spf.m_dnsLookupTermCount);
 }
 
 void test_parseSpf_keeps_the_first_terms_and_counts_the_rest(void)
@@ -1234,6 +1271,7 @@ int main(void)
   RUN_TEST(test_parseSpf_reads_names_in_any_case);
   RUN_TEST(test_parseSpf_skips_runs_of_spaces);
   RUN_TEST(test_parseSpf_counts_the_dns_lookup_terms);
+  RUN_TEST(test_parseSpf_counts_only_the_lookups_a_receiver_evaluates);
   RUN_TEST(test_parseSpf_keeps_the_first_terms_and_counts_the_rest);
   RUN_TEST(test_parseSpf_reads_ip4_and_ip6_networks);
   RUN_TEST(test_parseSpf_marks_wrong_ip_networks_invalid);

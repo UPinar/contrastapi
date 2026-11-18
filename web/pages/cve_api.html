@@ -131,7 +131,7 @@
       <div class="endpoint">
         <span class="method get">GET</span>
         <span class="endpoint-path">/cwe_lookup/{cwe_id}</span>
-        <span class="endpoint-desc">MCP <code>cwe_lookup</code>. A MITRE CWE weakness with its mitigations. <a href="https://github.com/UPinar/contrastapi/blob/main/docs/API_Documentation.md#cwe-lookup-get-cwe_lookupcwe_id">API docs</a></span>
+        <span class="endpoint-desc">MCP <code>cwe_lookup</code>. A MITRE CWE weakness with its mitigations and OWASP Top 10 categories. <a href="https://github.com/UPinar/contrastapi/blob/main/docs/API_Documentation.md#cwe-lookup-get-cwe_lookupcwe_id">API docs</a></span>
       </div>
       <div class="endpoint">
         <span class="method get">GET</span>
@@ -199,6 +199,7 @@
       <li><strong>Metasploit module list:</strong> BSD-3-Clause, metadata only. Local copy.</li>
       <li><strong>nuclei-templates:</strong> MIT. Local copy.</li>
       <li><strong>endoflife.date:</strong> MIT. Local copy, read in the <code>eol</code> member of <code>product_exposure</code> and in the end-of-life events of <code>watchlist_events</code>.</li>
+      <li><strong>OWASP Top 10:</strong> CC BY 3.0, OWASP Foundation. The categories of each CWE come from the CWE catalog of MITRE. Local copy, read in the <code>owasp_top10</code> field of <code>cwe_lookup</code>.</li>
       <li><strong>GitHub Advisory Database, through OSV.dev:</strong> CC BY 4.0. Local copy, read with <code>?include_ghsa=true</code>.</li>
     </ul>
     <p>To read CVEs from the CISA KEV catalog as web pages, open the <a href="https://contrastcyber.com/security/kev">Known Exploited Vulnerabilities list</a> on contrastcyber.com.</p>

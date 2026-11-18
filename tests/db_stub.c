@@ -535,6 +535,7 @@ DbStatus_t db_CWELOOKUP(PGconn* conn, const char* cwe_id, CWELOOKUPRecord_t* rec
   record_out->mp_mitigations         = NULL;
   record_out->mp_extendedDescription = NULL;
   record_out->mp_examples            = NULL;
+  record_out->mp_owaspTop10          = NULL;
   if (g_stub_CWELOOKUP_status == DB_OK)
   {
     strncpy(record_out->ma_cweId, cwe_id, CWELOOKUP_ID_MAX_LEN);
@@ -578,6 +579,17 @@ DbStatus_t db_CWELOOKUP(PGconn* conn, const char* cwe_id, CWELOOKUPRecord_t* rec
       record_out->mp_extendedDescription = NULL;
       return DB_ERROR;
     }
+    record_out->mp_owaspTop10 = strdup("[{\"id\": \"A03\", \"name\": \"Injection\", \"year\": 2021}]");
+    if (!record_out->mp_owaspTop10)
+    {
+      free(record_out->mp_mitigations);
+      free(record_out->mp_extendedDescription);
+      free(record_out->mp_examples);
+      record_out->mp_mitigations         = NULL;
+      record_out->mp_extendedDescription = NULL;
+      record_out->mp_examples            = NULL;
+      return DB_ERROR;
+    }
   }
   return g_stub_CWELOOKUP_status;
 }
@@ -591,9 +603,11 @@ void db_CWELOOKUPRecordFree(CWELOOKUPRecord_t* r)
   free(r->mp_mitigations);
   free(r->mp_extendedDescription);
   free(r->mp_examples);
+  free(r->mp_owaspTop10);
   r->mp_mitigations         = NULL;
   r->mp_extendedDescription = NULL;
   r->mp_examples            = NULL;
+  r->mp_owaspTop10          = NULL;
 }
 
 DbStatus_t g_stub_CVELEADING_status = DB_ERROR;

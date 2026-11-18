@@ -36,6 +36,8 @@ static int64_t      g_nowMs;
 static int64_t      g_askAdvanceMs;
 static int          g_parseDkimCount;
 
+static size_t       g_fakeByteCounts[FAKE_MAX_ANSWER_COUNT][FAKE_MAX_TEXT_COUNT];
+
 void __real_emailauth_parseDkim(const DnsRecordText_t* record, EmailAuthDkim_t* dkim_out);
 
 void __wrap_emailauth_parseDkim(const DnsRecordText_t* record, EmailAuthDkim_t* dkim_out)
@@ -92,8 +94,13 @@ void __wrap_dns_askQuestions(const DnsQuestion_t* questions, int question_count,
       answer->mp_texts = calloc((size_t)text_count, sizeof(DnsRecordText_t));
       for (int j = 0; j < text_count; j++)
       {
-        answer->mp_texts[j].mp_bytes    = strdup(fake->ma_texts[j]);
-        answer->mp_texts[j].m_byteCount = strlen(fake->ma_texts[j]);
+        size_t byte_count = g_fakeByteCounts[fake - g_fakes][j];
+        if (byte_count == 0)
+          byte_count = strlen(fake->ma_texts[j]);
+        answer->mp_texts[j].mp_bytes = malloc(byte_count + 1);
+        memcpy(answer->mp_texts[j].mp_bytes, fake->ma_texts[j], byte_count);
+        answer->mp_texts[j].mp_bytes[byte_count] = '\0';
+        answer->mp_texts[j].m_byteCount = byte_count;
       }
     }
     answer->m_recordCount = text_count;
@@ -106,6 +113,7 @@ static EMAILADDRESSCHECKRecord_t g_addressRecord;
 void setUp(void)
 {
   memset(g_fakes, 0, sizeof(g_fakes));
+  memset(g_fakeByteCounts, 0, sizeof(g_fakeByteCounts));
   memset(g_calls, 0, sizeof(g_calls));
   g_fakeCount    = 0;
   g_callCount    = 0;
@@ -290,7 +298,7 @@ void test_checkDomain_asks_two_rounds_and_passes_every_check(void)
   TEST_ASSERT_EQUAL_STRING("google", g_record.ma_dkimSelectors[0].ma_selector);
   TEST_ASSERT_EQUAL_INT(DNS_ANSWER_OK, g_record.m_dkimStatus);
   TEST_ASSERT_EQUAL_INT(EMAILCHECK_DKIM_KEY_FOUND, g_record.m_dkimKeyStatus);
-  TEST_ASSERT_EQUAL_INT(2048, g_record.ma_dkimSelectors[0].m_firstKeyRecord.m_keyBits);
+  TEST_ASSERT_EQUAL_INT(2048, g_record.ma_dkimSelectors[0].m_bestKeyRecord.m_keyBits);
   TEST_ASSERT_FALSE(g_record.ma_dkimSelectors[0].m_hasSecondKeyRecord);
   TEST_ASSERT_EQUAL_INT(DNS_ANSWER_OK, g_record.m_dmarcStatus);
   TEST_ASSERT_EQUAL_INT(1, g_record.m_dmarcNameCount);
@@ -763,7 +771,7 @@ void test_checkDomain_second_round_gets_the_time_left(void)
   }
 }
 
-void test_checkDomain_reads_two_key_records_of_a_selector(void)
+void test_checkDomain_reads_every_key_record_of_a_selector(void)
 {
   static_fakeGoodDomain("google._domainkey.example.com", DNS_RECORD_TYPE_TXT);
   static_addFake((FakeAnswer_t){ "google._domainkey.example.com", DNS_RECORD_TYPE_TXT, DNS_ANSWER_OK, { "v=spf1 -all", NULL }, false });
@@ -774,10 +782,10 @@ void test_checkDomain_reads_two_key_records_of_a_selector(void)
 
   const EmailCheckDkimSelector_t* selector = &g_record.ma_dkimSelectors[0];
   TEST_ASSERT_TRUE(selector->m_hasKeyRecord);
-  TEST_ASSERT_EQUAL_INT(2048, selector->m_firstKeyRecord.m_keyBits);
+  TEST_ASSERT_EQUAL_INT(2048, selector->m_bestKeyRecord.m_keyBits);
   TEST_ASSERT_TRUE(selector->m_hasSecondKeyRecord);
-  TEST_ASSERT_EQUAL_INT(3, g_parseDkimCount);
-  TEST_ASSERT_EQUAL_INT(EMAILCHECK_RESULT_PASS, static_resultOf(EMAILCHECK_KIND_DKIM_KEY_SIZE));
+  TEST_ASSERT_EQUAL_INT(4, g_parseDkimCount);
+  TEST_ASSERT_EQUAL_INT(EMAILCHECK_RESULT_FAIL, static_resultOf(EMAILCHECK_KIND_DKIM_KEY_SIZE));
   TEST_ASSERT_EQUAL_INT(EMAILCHECK_RESULT_WARN, static_resultOf(EMAILCHECK_KIND_DKIM_MULTIPLE_KEYS));
   emailcheck_EMAILAUTHCHECKRecordFree(&g_record);
 
@@ -792,6 +800,91 @@ void test_checkDomain_reads_two_key_records_of_a_selector(void)
   TEST_ASSERT_TRUE(g_record.ma_dkimSelectors[0].m_hasSecondKeyRecord);
   TEST_ASSERT_FALSE(g_record.ma_dkimSelectors[1].m_hasSecondKeyRecord);
   TEST_ASSERT_EQUAL_INT(EMAILCHECK_RESULT_WARN, static_resultOf(EMAILCHECK_KIND_DKIM_MULTIPLE_KEYS));
+}
+
+void test_checkDomain_rates_every_key_record_in_any_order(void)
+{
+  enum { P = EMAILCHECK_RESULT_PASS, W = EMAILCHECK_RESULT_WARN, F = EMAILCHECK_RESULT_FAIL, X = -1 };
+  enum { PRESENT = EMAILAUTH_DKIM_KEY_PRESENT, REVOKED = EMAILAUTH_DKIM_KEY_REVOKED,
+         UNREADABLE = EMAILAUTH_DKIM_KEY_UNREADABLE, UNKNOWN = EMAILAUTH_DKIM_KEY_UNKNOWN_TYPE };
+  const char* const revoked    = "v=DKIM1; p=";
+  const char* const unknown    = "v=DKIM1; k=foo; p=AAAA";
+  const char* const unreadable = "v=DKIM1; h=; p=AAAA";
+  const char* const spf        = "v=spf1 -all";
+  const char* const v          = "v=DKIM1; ";
+  typedef struct {
+    const char* mp_fixed;
+    const char* mp_before;
+    int         m_keyBits;
+  } KeyRecordSpec_t;
+  const struct {
+    KeyRecordSpec_t ma_records[3];
+    int             ma_results[5];
+    int             m_usableKeyCount;
+    int             m_bestState;
+    int             m_bestBits;
+    bool            m_hasSecond;
+  } cases[] = {
+    { { { revoked, NULL, 0 }, { NULL, v, 2048 } },          { P, P, P, P, P }, 1, PRESENT,    2048, true  },
+    { { { NULL, v, 2048 }, { revoked, NULL, 0 } },          { P, P, P, P, P }, 1, PRESENT,    2048, true  },
+    { { { NULL, v, 1024 }, { NULL, v, 2048 } },             { P, W, P, P, P }, 1, PRESENT,    1024, true  },
+    { { { NULL, v, 2048 }, { NULL, v, 1024 } },             { P, W, P, P, P }, 1, PRESENT,    2048, true  },
+    { { { NULL, v, 1023 }, { NULL, v, 2048 } },             { P, F, P, P, P }, 1, PRESENT,    1023, true  },
+    { { { NULL, v, 2048 }, { NULL, v, 1023 } },             { P, F, P, P, P }, 1, PRESENT,    2048, true  },
+    { { { NULL, v, 1023 }, { NULL, v, 1024 } },             { P, F, P, P, P }, 1, PRESENT,    1023, true  },
+    { { { NULL, v, 1024 }, { NULL, v, 1023 } },             { P, F, P, P, P }, 1, PRESENT,    1024, true  },
+    { { { NULL, v, 4097 }, { revoked, NULL, 0 } },          { P, W, P, P, P }, 1, PRESENT,    4097, true  },
+    { { { revoked, NULL, 0 }, { NULL, v, 4097 } },          { P, W, P, P, P }, 1, PRESENT,    4097, true  },
+    { { { unknown, NULL, 0 }, { revoked, NULL, 0 } },       { W, X, X, X, X }, 0, UNKNOWN,    0,    true  },
+    { { { revoked, NULL, 0 }, { unknown, NULL, 0 } },       { W, X, X, X, X }, 0, UNKNOWN,    0,    true  },
+    { { { unknown, NULL, 0 }, { NULL, v, 2048 } },          { P, P, P, P, P }, 1, PRESENT,    2048, true  },
+    { { { NULL, v, 2048 }, { unknown, NULL, 0 } },          { P, P, P, P, P }, 1, PRESENT,    2048, true  },
+    { { { revoked, NULL, 0 }, { unreadable, NULL, 0 } },    { F, X, X, X, X }, 0, REVOKED,    0,    true  },
+    { { { unreadable, NULL, 0 }, { revoked, NULL, 0 } },    { F, X, X, X, X }, 0, UNREADABLE, 0,    true  },
+    { { { NULL, v, 2048 }, { NULL, v, 4096 } },             { P, P, P, P, P }, 1, PRESENT,    2048, true  },
+    { { { NULL, v, 4096 }, { NULL, v, 2048 } },             { P, P, P, P, P }, 1, PRESENT,    4096, true  },
+    { { { NULL, v, 2048 }, { NULL, v, 2048 }, { NULL, "v=DKIM1; t=y; ", 2048 } },        { P, P, P, W, P }, 1, PRESENT, 2048, true  },
+    { { { spf, NULL, 0 }, { NULL, v, 2048 } },              { P, P, P, P, P }, 1, PRESENT,    2048, false },
+    { { { NULL, v, 2048 }, { spf, NULL, 0 } },              { P, P, P, P, P }, 1, PRESENT,    2048, false },
+    { { { NULL, v, 2048 }, { spf, NULL, 0 }, { NULL, "v=DKIM1; h=sha1; ", 2048 } },      { P, P, P, P, F }, 1, PRESENT, 2048, true  },
+    { { { NULL, "k=rsa; v=DKIM1; ", 1023 }, { NULL, "v=DKIM1; t=y; ", 2048 } },          { P, F, W, W, P }, 1, PRESENT, 1023, true  },
+    { { { NULL, "v=DKIM1; t=y; ", 2048 }, { NULL, "k=rsa; v=DKIM1; ", 1023 } },          { P, F, W, W, P }, 1, PRESENT, 2048, true  },
+    { { { NULL, v, 1024 }, { NULL, "v=DKIM1; t=y; h=sha1; ", 2048 } },                   { P, W, P, W, F }, 1, PRESENT, 1024, true  },
+    { { { NULL, "v=DKIM1; t=y; h=sha1; ", 2048 }, { NULL, v, 1024 } },                   { P, W, P, W, F }, 1, PRESENT, 2048, true  },
+  };
+  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+  {
+    setUp();
+    static_fakeGoodDomain("google._domainkey.example.com", DNS_RECORD_TYPE_TXT);
+    static_addFake((FakeAnswer_t){ "google._domainkey.example.com", DNS_RECORD_TYPE_TXT, DNS_ANSWER_OK, { NULL }, false });
+    int record_count = 0;
+    for (int j = 0; j < 3; j++)
+    {
+      const KeyRecordSpec_t* rec = &cases[i].ma_records[j];
+      if (rec->mp_fixed == NULL && rec->mp_before == NULL)
+        break;
+      g_fakes[g_fakeCount - 1].ma_texts[j] = rec->mp_fixed != NULL ? rec->mp_fixed : static_rsaKeyRecord(j, rec->mp_before, rec->m_keyBits, false, false);
+      record_count++;
+    }
+    char message[16];
+    snprintf(message, sizeof(message), "case %zu", i);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(DNS_LOOKUP_OK, emailcheck_checkDomain("example.com", NULL, &g_record), message);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(record_count, g_parseDkimCount, message);
+    const EmailCheckKind_t kinds[] = {
+      EMAILCHECK_KIND_DKIM_KEY_USABLE, EMAILCHECK_KIND_DKIM_KEY_SIZE, EMAILCHECK_KIND_DKIM_KEY_FORMAT,
+      EMAILCHECK_KIND_DKIM_TEST_MODE, EMAILCHECK_KIND_DKIM_KEY_RESTRICTED,
+    };
+    for (int j = 0; j < 5; j++)
+      TEST_ASSERT_EQUAL_INT_MESSAGE(cases[i].ma_results[j], static_resultOf(kinds[j]), message);
+    const EmailCheckDkimSelector_t* selector = &g_record.ma_dkimSelectors[0];
+    TEST_ASSERT_EQUAL_INT_MESSAGE(cases[i].m_usableKeyCount, g_record.m_dkimUsableKeyCount, message);
+    TEST_ASSERT_TRUE_MESSAGE(selector->m_hasKeyRecord, message);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(cases[i].m_bestState, selector->m_bestKeyRecord.m_keyState, message);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(cases[i].m_bestBits, selector->m_bestKeyRecord.m_keyBits, message);
+    TEST_ASSERT_EQUAL_MESSAGE(cases[i].m_hasSecond, selector->m_hasSecondKeyRecord, message);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(cases[i].m_hasSecond ? W : P, static_resultOf(EMAILCHECK_KIND_DKIM_MULTIPLE_KEYS), message);
+    emailcheck_EMAILAUTHCHECKRecordFree(&g_record);
+  }
 }
 
 void test_checkDomain_rates_a_given_selector_without_a_key(void)
@@ -850,20 +943,57 @@ void test_checkDomain_fails_the_dkim_section_when_every_selector_fails(void)
 
 void test_checkDomain_reads_one_mta_sts_record(void)
 {
+  enum { P = EMAILCHECK_RESULT_PASS, W = EMAILCHECK_RESULT_WARN, F = EMAILCHECK_RESULT_FAIL };
   const struct {
     const char* ma_texts[2];
     bool        m_hasRecord;
+    int         m_result;
   } cases[] = {
-    { { "v=STSv1; id=1", NULL },                 true },
-    { { "v=STSv1;id=1", NULL },                  true },
-    { { "v=STSv1 \t; id=1", NULL },              true },
-    { { "v=STSv1;", NULL },                      true },
-    { { "v=spf1 -all", "v=STSv1; id=1" },        true },
-    { { "v=STSv1", NULL },                       false },
-    { { "v=STSv1 id=1", NULL },                  false },
-    { { "V=STSV1; id=1", NULL },                 false },
-    { { "v=STSv2; id=1", NULL },                 false },
-    { { "v=STSv1; id=1", "v=STSv1; id=2" },      false },
+    { { "v=STSv1; id=1", NULL },                                       true,  P },
+    { { "v=STSv1;id=1", NULL },                                        true,  P },
+    { { "v=STSv1 \t; id=1", NULL },                                    true,  P },
+    { { "v=STSv1; id=1 \t", NULL },                                    true,  P },
+    { { "v=STSv1; id=1;", NULL },                                      true,  P },
+    { { "v=STSv1; id=abc; mode=x", NULL },                             true,  P },
+    { { "v=STSv1; mode=x \t; \t id=abc", NULL },                       true,  P },
+    { { "v=STSv1; id=abcdefghijklmnopqrstuvwxyz012345", NULL },        true,  P },
+    { { "v=STSv1; id=09azAZ", NULL },                                  true,  P },
+    { { "v=STSv1; m=x; id=1", NULL },                                  true,  P },
+    { { "v=STSv1; id=1; ", NULL },                                     true,  P },
+    { { "v=STSv1; id=abc; id=a-b", NULL },                             true,  F },
+    { { "v=STSv1; id=a\tb", NULL },                                    true,  F },
+    { { "v=STSv1; id=a_b", NULL },                                     true,  F },
+    { { "v=STSv1; id=a.b", NULL },                                     true,  F },
+    { { "v=spf1 -all", "v=STSv1; id=1" },                              true,  P },
+    { { "v=STSv1;", NULL },                                            true,  F },
+    { { "v=STSv1; mode=x", NULL },                                     true,  F },
+    { { "v=STSv1; id=", NULL },                                        true,  F },
+    { { "v=STSv1; id= ", NULL },                                       true,  F },
+    { { "v=STSv1; id=a-b", NULL },                                     true,  F },
+    { { "v=STSv1; id=a-b; id=abc", NULL },                             true,  F },
+    { { "v=STSv1; id=a b", NULL },                                     true,  F },
+    { { "v=STSv1; id=abcdefghijklmnopqrstuvwxyz0123456", NULL },       true,  F },
+    { { "v=STSv1; ID=abc", NULL },                                     true,  F },
+    { { "v=STSv1; i=abc", NULL },                                      true,  F },
+    { { "v=STSv1; idx=abc", NULL },                                    true,  F },
+    { { "v=STSv1; ix=abc", NULL },                                     true,  F },
+    { { "v=STSv1; xd=abc", NULL },                                     true,  F },
+    { { "v=STSv1; id=abc; mode", NULL },                               true,  F },
+    { { "v=STSv1; mode; id=abc", NULL },                               true,  F },
+    { { "v=STSv1; =x; id=1", NULL },                                   true,  F },
+    { { "v=STSv1; mode=; id=1", NULL },                                true,  F },
+    { { "v=STSv1; id=a/", NULL },                                      true,  F },
+    { { "v=STSv1; id=a:", NULL },                                      true,  F },
+    { { "v=STSv1; id=a@", NULL },                                      true,  F },
+    { { "v=STSv1; id=a[", NULL },                                      true,  F },
+    { { "v=STSv1; id=a`", NULL },                                      true,  F },
+    { { "v=STSv1; id=a{", NULL },                                      true,  F },
+    { { "v=STSv1", NULL },                                             false, W },
+    { { "v=STSv1 id=1", NULL },                                        false, W },
+    { { "V=STSV1; id=1", NULL },                                       false, W },
+    { { "v=STSv2; id=1", NULL },                                       false, W },
+    { { "v=STSv1; id=1", "v=STSv1; id=2" },                            false, W },
+    { { "v=STSv1;", "v=STSv1; mode=x" },                               false, W },
   };
   for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
   {
@@ -871,8 +1001,9 @@ void test_checkDomain_reads_one_mta_sts_record(void)
     static_fakeGoodDomain("_mta-sts.example.com", DNS_RECORD_TYPE_TXT);
     static_addFake((FakeAnswer_t){ "_mta-sts.example.com", DNS_RECORD_TYPE_TXT, DNS_ANSWER_OK, { cases[i].ma_texts[0], cases[i].ma_texts[1] }, false });
     TEST_ASSERT_EQUAL_INT(DNS_LOOKUP_OK, emailcheck_checkDomain("example.com", NULL, &g_record));
-    TEST_ASSERT_EQUAL_INT_MESSAGE(cases[i].m_hasRecord, g_record.m_hasMtaStsRecord, cases[i].ma_texts[0]);
-    TEST_ASSERT_EQUAL_INT(cases[i].m_hasRecord ? EMAILCHECK_RESULT_PASS : EMAILCHECK_RESULT_WARN, static_resultOf(EMAILCHECK_KIND_MTA_STS));
+    const char* message = cases[i].ma_texts[1] != NULL ? cases[i].ma_texts[1] : cases[i].ma_texts[0];
+    TEST_ASSERT_EQUAL_INT_MESSAGE(cases[i].m_hasRecord, g_record.m_hasMtaStsRecord, message);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(cases[i].m_result, static_resultOf(EMAILCHECK_KIND_MTA_STS), message);
     emailcheck_EMAILAUTHCHECKRecordFree(&g_record);
   }
 
@@ -880,6 +1011,20 @@ void test_checkDomain_reads_one_mta_sts_record(void)
   static_fakeGoodDomain("_mta-sts.example.com", DNS_RECORD_TYPE_TXT);
   TEST_ASSERT_EQUAL_INT(DNS_LOOKUP_OK, emailcheck_checkDomain("example.com", NULL, &g_record));
   TEST_ASSERT_EQUAL_INT(EMAILCHECK_RESULT_WARN, static_resultOf(EMAILCHECK_KIND_MTA_STS));
+
+  static const char nul_texts[2][16] = { "v=STSv1; id=1\0", "v=STSv1; id=1\0;" };
+  static const size_t nul_byte_counts[2] = { 14, 15 };
+  for (int i = 0; i < 2; i++)
+  {
+    emailcheck_EMAILAUTHCHECKRecordFree(&g_record);
+    setUp();
+    static_fakeGoodDomain("_mta-sts.example.com", DNS_RECORD_TYPE_TXT);
+    static_addFake((FakeAnswer_t){ "_mta-sts.example.com", DNS_RECORD_TYPE_TXT, DNS_ANSWER_OK, { nul_texts[i] }, false });
+    g_fakeByteCounts[g_fakeCount - 1][0] = nul_byte_counts[i];
+    TEST_ASSERT_EQUAL_INT(DNS_LOOKUP_OK, emailcheck_checkDomain("example.com", NULL, &g_record));
+    TEST_ASSERT_TRUE(g_record.m_hasMtaStsRecord);
+    TEST_ASSERT_EQUAL_INT(EMAILCHECK_RESULT_FAIL, static_resultOf(EMAILCHECK_KIND_MTA_STS));
+  }
 }
 
 void test_checkDomain_rates_the_mx_hosts(void)
@@ -893,6 +1038,11 @@ void test_checkDomain_rates_the_mx_hosts(void)
   g_fakes[g_fakeCount - 1].m_hasNullMx = true;
   TEST_ASSERT_EQUAL_INT(DNS_LOOKUP_OK, emailcheck_checkDomain("example.com", NULL, &g_record));
   TEST_ASSERT_EQUAL_INT(EMAILCHECK_RESULT_PASS, static_resultOf(EMAILCHECK_KIND_MX));
+  emailcheck_EMAILAUTHCHECKRecordFree(&g_record);
+
+  g_fakes[g_fakeCount - 1].ma_texts[0] = "mx.example.net";
+  TEST_ASSERT_EQUAL_INT(DNS_LOOKUP_OK, emailcheck_checkDomain("example.com", NULL, &g_record));
+  TEST_ASSERT_EQUAL_INT(EMAILCHECK_RESULT_FAIL, static_resultOf(EMAILCHECK_KIND_MX));
 }
 
 #define SPF_LONG_RECORD_SIZE 600
@@ -984,6 +1134,10 @@ void test_checkDomain_rates_the_spf_size_and_lookups(void)
     { { other_451, "v=spf1 -all" },                      { P, P, P, P, P, P, P, P } },
     { { "v=spf1 a mx a mx a mx a mx a mx -all", NULL },   { P, P, P, P, P, P, P, P } },
     { { "v=spf1 a mx a mx a mx a mx a mx a -all", NULL }, { P, P, F, P, P, P, P, P } },
+    { { "v=spf1 a mx a mx a mx a mx a mx -all a", NULL }, { P, P, P, P, W, P, P, P } },
+    { { "v=spf1 a mx a mx a mx a mx a mx redirect=x.example -all", NULL }, { P, P, P, P, W, P, P, P } },
+    { { "v=spf1 a mx a mx a mx a mx a mx -all redirect=x.example", NULL }, { P, P, P, P, W, P, P, P } },
+    { { "v=spf1 a mx a mx a mx a mx a mx redirect=x.example", NULL },      { P, P, F, P, P, P, P, P } },
   };
   for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
     static_assertSpfResults(cases[i].ma_texts, cases[i].ma_results);
@@ -1145,6 +1299,7 @@ void test_checkDomain_rates_the_keys_of_two_selectors(void)
     { { 1, -1 }, { NULL, NULL }, { 2048, 0 },       { "v=DKIM1; ", NULL },    { P, P, P, P, P } },
     { { 1, -1 }, { NULL, unknown }, { 2048, 0 },    { "v=DKIM1; ", NULL },    { P, P, P, P, P } },
     { { 0, 1 }, { NULL, NULL }, { 1023, 1024 },     { "v=DKIM1; ", "v=DKIM1; " }, { P, F, P, P, P } },
+    { { 0, 1 }, { NULL, NULL }, { 2048, 2048 },     { "k=rsa; v=DKIM1; t=y; h=sha1; ", "v=DKIM1; " }, { P, P, W, W, F } },
   };
   for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
   {
@@ -1513,7 +1668,8 @@ int main(void)
   RUN_TEST(test_checkDomain_tries_the_common_selectors_when_no_provider_names_one);
   RUN_TEST(test_checkDomain_skips_the_names_that_do_not_fit);
   RUN_TEST(test_checkDomain_second_round_gets_the_time_left);
-  RUN_TEST(test_checkDomain_reads_two_key_records_of_a_selector);
+  RUN_TEST(test_checkDomain_reads_every_key_record_of_a_selector);
+  RUN_TEST(test_checkDomain_rates_every_key_record_in_any_order);
   RUN_TEST(test_checkDomain_rates_a_given_selector_without_a_key);
   RUN_TEST(test_checkDomain_fails_the_dkim_section_when_every_selector_fails);
   RUN_TEST(test_checkDomain_reads_one_mta_sts_record);

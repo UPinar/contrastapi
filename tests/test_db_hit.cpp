@@ -1161,6 +1161,7 @@ void test_valid_key_found_can_access_CWELOOKUP(void)
   static_callRequestHandle(req, buf, sizeof(buf));
   TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 200"));
   TEST_ASSERT_NOT_NULL(strstr(buf, R"("cwe_id":"CWE-79")"));
+  TEST_ASSERT_NOT_NULL(strstr(buf, R"("parent_cwe":"CWE-74","owasp_top10":[{"id": "A03", "name": "Injection", "year": 2021}],"cve_count":42)"));
 }
 
 void test_valid_key_found_can_access_CVELEADING(void)
@@ -2961,7 +2962,7 @@ void test_HEALTH_db_error_answers_503_with_retry_after(void)
   TEST_ASSERT_EQUAL_INT(1, static_countResponses(buf));
   TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 503 Service Unavailable\r\n"));
   TEST_ASSERT_NOT_NULL(strstr(buf, "\r\nRetry-After: 5\r\n"));
-  TEST_ASSERT_NOT_NULL(strstr(buf, R"({"status":"unavailable","version":"2.0.8","db":null})"));
+  TEST_ASSERT_NOT_NULL(strstr(buf, R"({"status":"unavailable","version":"2.0.9","db":null})"));
   TEST_ASSERT_NULL(strstr(buf, R"("cve_count")"));
 }
 
@@ -2975,7 +2976,7 @@ void test_HEALTH_db_not_found_also_answers_503(void)
   static_callRequestHandle(req, buf, sizeof(buf));
   TEST_ASSERT_EQUAL_INT(1, static_countResponses(buf));
   TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 503 Service Unavailable\r\n"));
-  TEST_ASSERT_NOT_NULL(strstr(buf, R"({"status":"unavailable","version":"2.0.8","db":null})"));
+  TEST_ASSERT_NOT_NULL(strstr(buf, R"({"status":"unavailable","version":"2.0.9","db":null})"));
   TEST_ASSERT_NULL(strstr(buf, R"("cve_count")"));
 }
 

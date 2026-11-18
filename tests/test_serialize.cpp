@@ -295,7 +295,7 @@ void test_HEALTH_serializes_every_section(void)
   char* body = static_finishJsonBuf(json_buf);
 
   TEST_ASSERT_EQUAL_STRING(
-    R"({"status":"ok","version":"2.0.8","db":{)"
+    R"({"status":"ok","version":"2.0.9","db":{)"
       R"("nvd":{"cve_count":312000,"last_added":{"cve_id":"CVE-2026-1234",)"
         R"("published_time":"2026-08-29T10:00:00Z"}},)"
       R"("kev":{"entry_count":1300,"last_added":{"cve_id":"CVE-2026-9999",)"
@@ -316,7 +316,7 @@ void test_HEALTH_null_db_serializes_unavailable_and_null_db(void)
   char* body = static_finishJsonBuf(json_buf);
 
   TEST_ASSERT_EQUAL_STRING(
-    R"({"status":"unavailable","version":"2.0.8","db":null})" "\n", body);
+    R"({"status":"unavailable","version":"2.0.9","db":null})" "\n", body);
   free(body);
 }
 
@@ -378,7 +378,7 @@ void test_HEALTH_every_string_is_escaped_through_its_own_class(void)
   char* body = static_finishJsonBuf(json_buf);
 
   TEST_ASSERT_EQUAL_STRING(
-    R"({"status":"ok","version":"2.0.8","db":{)"
+    R"({"status":"ok","version":"2.0.9","db":{)"
       R"("nvd":{"cve_count":1,"last_added":{"cve_id":"CVE-\"1","published_time":"2026\\08"}},)"
       R"("kev":{"entry_count":2,"last_added":{"cve_id":"CVE\n9","date_added":"2026\t28"}},)"
       R"("cwe":{"entry_count":3,"last_updated":{"cwe_id":"CWE\b79","updated_at":"2026)" "\\u0001" R"(27"}},)"
@@ -936,10 +936,11 @@ void test_json_members_follow_the_text_rules(void)
   memset(&cwe, 0, sizeof(cwe));
   cwe.mp_mitigations = document;
   cwe.mp_examples    = document;
+  cwe.mp_owaspTop10  = document;
   json_buf = static_newJsonBuf(JSONBUF_INITIAL_CAP, JSONBUF_DEFAULT_CEILING);
   serialize_CWELOOKUP_response(&cwe, json_buf);
   body = static_finishJsonBuf(json_buf);
-  TEST_ASSERT_EQUAL_INT_MESSAGE(2, static_countOccurrences(body, written), "CWELOOKUP");
+  TEST_ASSERT_EQUAL_INT_MESSAGE(3, static_countOccurrences(body, written), "CWELOOKUP");
   TEST_ASSERT_NULL_MESSAGE(strstr(body, "\xe2\x80\xae"), "CWELOOKUP");
   free(body);
 
@@ -981,6 +982,7 @@ void test_CWELOOKUP_golden_filled_heap(void)
   record.mp_extendedDescription = strdup(R"(Extended "desc")");
   record.mp_mitigations         = strdup(R"(["escape output"])");
   record.mp_examples            = strdup(R"(["CVE-2024-1234"])");
+  record.mp_owaspTop10          = strdup(R"([{"id": "A03", "name": "Injection", "year": 2021}, {"id": "A05", "name": "Injection", "year": 2025}])");
 
   JsonBuf_t* json_buf = static_newJsonBuf(JSONBUF_INITIAL_CAP, JSONBUF_DEFAULT_CEILING);
   serialize_CWELOOKUP_response(&record, json_buf);
@@ -988,12 +990,15 @@ void test_CWELOOKUP_golden_filled_heap(void)
   free(record.mp_extendedDescription);
   free(record.mp_mitigations);
   free(record.mp_examples);
+  free(record.mp_owaspTop10);
 
   TEST_ASSERT_EQUAL_STRING(
     R"({"cwe_id":"CWE-79","name":"Improper Neutralization","abstraction":"Base","status":"Stable",)"
       R"("description":"XSS description","extended_description":"Extended \"desc\"",)"
       R"("likelihood_of_exploit":"High","mitigations":["escape output"],)"
-      R"("examples":["CVE-2024-1234"],"parent_cwe":"CWE-74","cve_count":42,)"
+      R"("examples":["CVE-2024-1234"],"parent_cwe":"CWE-74",)"
+      R"("owasp_top10":[{"id": "A03", "name": "Injection", "year": 2021}, {"id": "A05", "name": "Injection", "year": 2025}],)"
+      R"("cve_count":42,)"
       R"("kev_count":3,"avg_cvss":6.50,"avg_epss":0.0287,)"
       R"("updated_at":"2026-05-21T00:00:00+00:00"})" "\n", body);
   free(body);
@@ -1012,7 +1017,7 @@ void test_CWELOOKUP_golden_null_heap(void)
     R"({"cwe_id":"CWE-79","name":"Improper Neutralization","abstraction":"Base","status":"Stable",)"
       R"("description":"XSS description","extended_description":null,)"
       R"("likelihood_of_exploit":"High","mitigations":null,)"
-      R"("examples":null,"parent_cwe":"CWE-74","cve_count":42,)"
+      R"("examples":null,"parent_cwe":"CWE-74","owasp_top10":null,"cve_count":42,)"
       R"("kev_count":3,"avg_cvss":6.50,"avg_epss":0.0287,)"
       R"("updated_at":"2026-05-21T00:00:00+00:00"})" "\n", body);
   free(body);
@@ -1025,6 +1030,7 @@ void test_CWELOOKUP_golden_empty_heap_matches_null_heap(void)
   record.mp_extendedDescription = strdup("");
   record.mp_mitigations         = strdup("");
   record.mp_examples            = strdup("");
+  record.mp_owaspTop10          = strdup("");
 
   JsonBuf_t* json_buf = static_newJsonBuf(JSONBUF_INITIAL_CAP, JSONBUF_DEFAULT_CEILING);
   serialize_CWELOOKUP_response(&record, json_buf);
@@ -1032,12 +1038,13 @@ void test_CWELOOKUP_golden_empty_heap_matches_null_heap(void)
   free(record.mp_extendedDescription);
   free(record.mp_mitigations);
   free(record.mp_examples);
+  free(record.mp_owaspTop10);
 
   TEST_ASSERT_EQUAL_STRING(
     R"({"cwe_id":"CWE-79","name":"Improper Neutralization","abstraction":"Base","status":"Stable",)"
       R"("description":"XSS description","extended_description":null,)"
       R"("likelihood_of_exploit":"High","mitigations":null,)"
-      R"("examples":null,"parent_cwe":"CWE-74","cve_count":42,)"
+      R"("examples":null,"parent_cwe":"CWE-74","owasp_top10":null,"cve_count":42,)"
       R"("kev_count":3,"avg_cvss":6.50,"avg_epss":0.0287,)"
       R"("updated_at":"2026-05-21T00:00:00+00:00"})" "\n", body);
   free(body);
@@ -2844,6 +2851,7 @@ void test_CWELOOKUP_golden_mixed_heap_states(void)
   record.mp_extendedDescription = strdup(R"(Extended "desc")");
   record.mp_mitigations         = strdup("");
   record.mp_examples            = strdup(R"(["CVE-2024-1234"])");
+  record.mp_owaspTop10          = strdup("[]");
 
   JsonBuf_t* json_buf = static_newJsonBuf(JSONBUF_INITIAL_CAP, JSONBUF_DEFAULT_CEILING);
   serialize_CWELOOKUP_response(&record, json_buf);
@@ -2851,14 +2859,32 @@ void test_CWELOOKUP_golden_mixed_heap_states(void)
   free(record.mp_extendedDescription);
   free(record.mp_mitigations);
   free(record.mp_examples);
+  free(record.mp_owaspTop10);
 
   TEST_ASSERT_EQUAL_STRING(
     R"({"cwe_id":"CWE-79","name":"Improper Neutralization","abstraction":"Base","status":"Stable",)"
       R"("description":"XSS description","extended_description":"Extended \"desc\"",)"
       R"("likelihood_of_exploit":"High","mitigations":null,)"
-      R"("examples":["CVE-2024-1234"],"parent_cwe":"CWE-74","cve_count":42,)"
+      R"("examples":["CVE-2024-1234"],"parent_cwe":"CWE-74","owasp_top10":[],"cve_count":42,)"
       R"("kev_count":3,"avg_cvss":6.50,"avg_epss":0.0287,)"
       R"("updated_at":"2026-05-21T00:00:00+00:00"})" "\n", body);
+  free(body);
+}
+
+void test_CWELOOKUP_owasp_top10_guard_is_its_own(void)
+{
+  CWELOOKUPRecord_t record;
+  static_fillGoldenCwe(&record);
+  record.mp_extendedDescription = NULL;
+  record.mp_mitigations         = NULL;
+  record.mp_examples            = strdup("");
+  record.mp_owaspTop10          = strdup("[]");
+  JsonBuf_t* json_buf = static_newJsonBuf(JSONBUF_INITIAL_CAP, JSONBUF_DEFAULT_CEILING);
+  serialize_CWELOOKUP_response(&record, json_buf);
+  char* body = static_finishJsonBuf(json_buf);
+  free(record.mp_examples);
+  free(record.mp_owaspTop10);
+  TEST_ASSERT_NOT_NULL(strstr(body, R"("examples":null,"parent_cwe":"CWE-74","owasp_top10":[],"cve_count":42,)"));
   free(body);
 }
 
@@ -5366,6 +5392,7 @@ void test_CWELOOKUP_every_field_is_escaped_through_its_own_class(void)
   record.mp_extendedDescription = strdup("Ext\fdesc");
   record.mp_mitigations         = strdup(R"(["allowlists"])");
   record.mp_examples            = strdup(R"(["CVE-2024-1234"])");
+  record.mp_owaspTop10          = strdup(R"([{"id": "A03", "name": "Injection", "year": 2021}])");
   record.m_cveCount = 42;
   record.m_kevCount = 3;
   record.m_avgCvss  = 6.5;
@@ -5377,13 +5404,15 @@ void test_CWELOOKUP_every_field_is_escaped_through_its_own_class(void)
   free(record.mp_extendedDescription);
   free(record.mp_mitigations);
   free(record.mp_examples);
+  free(record.mp_owaspTop10);
 
   TEST_ASSERT_EQUAL_STRING(
     R"({"cwe_id":"CWE-\"79","name":"Impro\\per",)"
       R"("abstraction":"Ba)" "\\u0001" R"(se","status":"Sta)" "\\u0002" R"(ble",)"
       R"("description":"XSS\bdesc","extended_description":"Ext\fdesc",)"
       R"("likelihood_of_exploit":"Hi\ngh","mitigations":["allowlists"],)"
-      R"("examples":["CVE-2024-1234"],"parent_cwe":"CWE\r74","cve_count":42,)"
+      R"("examples":["CVE-2024-1234"],"parent_cwe":"CWE\r74",)"
+      R"("owasp_top10":[{"id": "A03", "name": "Injection", "year": 2021}],"cve_count":42,)"
       R"("kev_count":3,"avg_cvss":6.50,"avg_epss":0.0287,)"
       R"("updated_at":"2026\t05"})" "\n", body);
   free(body);
@@ -5490,7 +5519,7 @@ void test_PRODUCTEXPOSURE_top_cve_count_past_its_array_is_clamped(void)
 
 void test_registration_gate_test_count(void)
 {
-  TEST_ASSERT_EQUAL_INT_MESSAGE(319, (int)Unity.NumberOfTests,
+  TEST_ASSERT_EQUAL_INT_MESSAGE(320, (int)Unity.NumberOfTests,
     "RUN_TEST list and test definitions have drifted apart - a test may be unregistered");
 }
 
@@ -9130,10 +9159,10 @@ static void static_fillEMAILAUTHCHECKRecord(EMAILAUTHCHECKRecord_t* record, DnsR
   snprintf(record->ma_dkimSelectors[0].ma_selector, sizeof(record->ma_dkimSelectors[0].ma_selector), "%s", "google");
   snprintf(record->ma_dkimSelectors[1].ma_selector, sizeof(record->ma_dkimSelectors[1].ma_selector), "%s", "s1");
   record->ma_dkimSelectors[0].m_hasKeyRecord                 = true;
-  record->ma_dkimSelectors[0].m_firstKeyRecord.m_keyState    = EMAILAUTH_DKIM_KEY_PRESENT;
-  record->ma_dkimSelectors[0].m_firstKeyRecord.m_keyTypeName = static_EMAILAUTHCHECKSpan(EMAILAUTHCHECK_FIX_RSA, 0, 3);
-  record->ma_dkimSelectors[0].m_firstKeyRecord.m_keyBits     = 2048;
-  record->ma_dkimSelectors[0].m_firstKeyRecord.m_isTestMode  = true;
+  record->ma_dkimSelectors[0].m_bestKeyRecord.m_keyState    = EMAILAUTH_DKIM_KEY_PRESENT;
+  record->ma_dkimSelectors[0].m_bestKeyRecord.m_keyTypeName = static_EMAILAUTHCHECKSpan(EMAILAUTHCHECK_FIX_RSA, 0, 3);
+  record->ma_dkimSelectors[0].m_bestKeyRecord.m_keyBits     = 2048;
+  record->ma_dkimSelectors[0].m_bestKeyRecord.m_isTestMode  = true;
   record->m_dkimSelectorCount  = 2;
   record->m_dkimSelectorSource = EMAILCHECK_DKIM_SELECTOR_SOURCE_PROVIDER;
   record->m_dkimStatus         = DNS_ANSWER_OK;
@@ -9196,9 +9225,9 @@ void test_EMAILAUTHCHECK_no_mail_domain_golden(void)
   DnsRecordText_t        texts[4];
   static_fillEMAILAUTHCHECKRecord(&record, texts);
   record.ma_dkimSelectors[1].m_hasKeyRecord                 = true;
-  record.ma_dkimSelectors[1].m_firstKeyRecord.m_keyState    = EMAILAUTH_DKIM_KEY_PRESENT;
-  record.ma_dkimSelectors[1].m_firstKeyRecord.m_keyTypeName = static_EMAILAUTHCHECKSpan(EMAILAUTHCHECK_FIX_RSA, 0, 3);
-  record.ma_dkimSelectors[1].m_firstKeyRecord.m_keyBits     = 4096;
+  record.ma_dkimSelectors[1].m_bestKeyRecord.m_keyState    = EMAILAUTH_DKIM_KEY_PRESENT;
+  record.ma_dkimSelectors[1].m_bestKeyRecord.m_keyTypeName = static_EMAILAUTHCHECKSpan(EMAILAUTHCHECK_FIX_RSA, 0, 3);
+  record.ma_dkimSelectors[1].m_bestKeyRecord.m_keyBits     = 4096;
   record.m_dkimUsableKeyCount = 2;
   record.m_isNoMailDomain     = true;
   record.ma_checks[0] = (EmailCheckItem_t){ EMAILCHECK_KIND_MX, EMAILCHECK_RESULT_PASS };
@@ -9247,11 +9276,11 @@ void test_EMAILAUTHCHECK_inherited_dmarc_and_two_spf_records_golden(void)
   record.m_dmarcRecord.m_policy     = EMAILAUTH_DMARC_POLICY_INVALID;
   record.m_dmarcRecord.m_domainRole = EMAILAUTH_DMARC_DOMAIN_ROLE_PUBLIC_SUFFIX;
   record.m_isDmarcApplied           = false;
-  record.ma_dkimSelectors[0].m_firstKeyRecord.m_keyState = EMAILAUTH_DKIM_KEY_UNREADABLE;
-  record.ma_dkimSelectors[0].m_firstKeyRecord.m_keyBits  = 0;
+  record.ma_dkimSelectors[0].m_bestKeyRecord.m_keyState = EMAILAUTH_DKIM_KEY_UNREADABLE;
+  record.ma_dkimSelectors[0].m_bestKeyRecord.m_keyBits  = 0;
   record.ma_dkimSelectors[1].m_hasKeyRecord                 = true;
-  record.ma_dkimSelectors[1].m_firstKeyRecord.m_keyState    = EMAILAUTH_DKIM_KEY_REVOKED;
-  record.ma_dkimSelectors[1].m_firstKeyRecord.m_keyTypeName = static_EMAILAUTHCHECKSpan(EMAILAUTHCHECK_FIX_RSA, 0, 3);
+  record.ma_dkimSelectors[1].m_bestKeyRecord.m_keyState    = EMAILAUTH_DKIM_KEY_REVOKED;
+  record.ma_dkimSelectors[1].m_bestKeyRecord.m_keyTypeName = static_EMAILAUTHCHECKSpan(EMAILAUTHCHECK_FIX_RSA, 0, 3);
   record.m_mxAnswer           = (DnsAnswer_t){ DNS_ANSWER_NXDOMAIN, 0, NULL, NULL, NULL, NULL, false };
   record.m_mtaStsAnswer.m_status = DNS_ANSWER_NXDOMAIN;
   record.m_hasMtaStsRecord    = false;
@@ -9368,7 +9397,7 @@ void test_EMAILAUTHCHECK_every_name_value_is_written(void)
   record.m_dkimKeyStatus            = EMAILCHECK_DKIM_KEY_NOT_FOUND;
   record.m_dkimUsableKeyCount       = 0;
   record.m_dkimSelectorSource       = EMAILCHECK_DKIM_SELECTOR_SOURCE_CALLER_GIVEN;
-  record.ma_dkimSelectors[0].m_firstKeyRecord.m_keyState = EMAILAUTH_DKIM_KEY_UNKNOWN_TYPE;
+  record.ma_dkimSelectors[0].m_bestKeyRecord.m_keyState = EMAILAUTH_DKIM_KEY_UNKNOWN_TYPE;
   char terms[1024];
   size_t used = (size_t)snprintf(terms, sizeof(terms), "%s", R"("terms":[)");
   for (int k = 0; k < kind_count; k++)
@@ -9404,13 +9433,13 @@ void test_EMAILAUTHCHECK_each_result_writes_its_detail_sentence(void)
     { "The DMARC record asks for aggregate reports.", "The rua= tag of the DMARC record holds no valid address, so receivers send no aggregate report.", NULL },
     { "A DKIM selector holds a key record.", "None of the selectors tried holds a key record. The domain may sign with another selector.", "The selector given holds no key record." },
     { "A DKIM key can be read.", "No DKIM key can be read, and one is of a type receivers ignore.", "Every DKIM key is revoked or cannot be read." },
-    { "The rsa key of each selector is 2048 to 4096 bits.", "An rsa key is under 2048 bits or over 4096 bits. Some receivers do not read a key over 4096 bits.", "An rsa key is under 1024 bits, so receivers must not trust its signatures." },
+    { "Every rsa key of each selector is 2048 to 4096 bits.", "An rsa key is under 2048 bits or over 4096 bits. Some receivers do not read a key over 4096 bits.", "An rsa key is under 1024 bits, so receivers must not trust its signatures." },
     { "No DKIM key is a bare RSAPublicKey or has a negative modulus, and no key record has v=DKIM1 after another tag.", "A key is a bare RSAPublicKey, which OpenDKIM and rspamd do not read, a key's modulus is negative in DER, or a record has v=DKIM1 after another tag.", NULL },
     { "No selector's DKIM key is in test mode.", "A DKIM key has t=y, so receivers treat signed mail like unsigned mail.", NULL },
-    { "The DKIM key of each selector may sign mail with sha256.", NULL, "The h= or the s= tag of a DKIM key keeps it from signing mail with sha256." },
-    { "No selector holds more than one key record.", "A selector holds more than one key record. The check read the first.", NULL },
-    { "The domain has MX hosts, or a null MX that says it takes no mail.", "The domain has no MX record, so senders deliver to its own address.", NULL },
-    { "The domain publishes an MTA-STS record.", "The domain publishes no MTA-STS record, or more than one, so senders may deliver its mail without TLS.", NULL }
+    { "Every DKIM key of each selector may sign mail with sha256.", NULL, "The h= or the s= tag of a DKIM key keeps it from signing mail with sha256." },
+    { "No selector holds more than one key record.", "A selector holds more than one key record. The check rated each of them.", NULL },
+    { "The domain has MX hosts, or a null MX that says it takes no mail.", "The domain has no MX record, so senders deliver to its own address.", "The domain publishes a null MX next to other MX records, which RFC 7505 forbids." },
+    { "The domain publishes an MTA-STS record.", "The domain publishes no MTA-STS record, or more than one, so senders may deliver its mail without TLS.", "The MTA-STS record has no valid id= field, so senders ignore it." }
   };
   for (int kind = 0; kind < EMAILCHECK_KIND_COUNT; kind++)
     for (int result = 0; result < EMAILCHECK_RESULT_COUNT; result++)
@@ -10418,6 +10447,7 @@ int main(void)
   RUN_TEST(test_CVSSCALCULATOR_vector_is_escaped);
   RUN_TEST(test_CVSSCALCULATOR_whole_number_scores_keep_one_decimal);
   RUN_TEST(test_CWELOOKUP_golden_mixed_heap_states);
+  RUN_TEST(test_CWELOOKUP_owasp_top10_guard_is_its_own);
   RUN_TEST(test_CVELOOKUP_golden_mixed_raw_json_fields);
   RUN_TEST(test_CVELOOKUP_golden_mixed_raw_json_fields_paired_the_other_way);
   RUN_TEST(test_CVELOOKUP_long_cwes_is_written_whole);

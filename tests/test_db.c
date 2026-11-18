@@ -2567,19 +2567,21 @@ void test_KEVLOOKUP_failed_notes_copy_frees_the_cwes_copy(void)
   TEST_ASSERT_NULL(record.mp_notes);
 }
 
-#define CWELOOKUP_ROW_COLUMN_COUNT              15
+#define CWELOOKUP_ROW_COLUMN_COUNT              16
 #define CWELOOKUP_ROW_FIRST_NUMBER_COLUMN_INDEX 11
 #define CWELOOKUP_ROW_NUMBER_COLUMN_COUNT        4
+#define CWELOOKUP_ROW_OWASP_TOP10_COLUMN_INDEX  15
 
 static const char* const g_cwelookupRowValues[CWELOOKUP_ROW_COLUMN_COUNT] = {
   "CWE-79", "Cross-site Scripting", "description", "High", "CWE-74", "2026-09-22", "[]",
-  "extended description", "[]", "Base", "Stable", "2", "7.25", "0.1234", "3"
+  "extended description", "[]", "Base", "Stable", "2", "7.25", "0.1234", "3",
+  "[{\"id\": \"A03\", \"name\": \"Injection\", \"year\": 2021}]"
 };
 
 static const char* const g_cwelookupColumnNames[CWELOOKUP_ROW_COLUMN_COUNT] = {
   "cwe_id", "cwe_name", "cwe_description", "likelihood", "parent_cwe", "updated_at",
   "mitigations", "extended_description", "examples", "abstract_type", "cwe_status",
-  "kev_cve_count", "avg_cvss", "avg_epss", "cve_count"
+  "kev_cve_count", "avg_cvss", "avg_epss", "cve_count", "owasp_top10"
 };
 
 static FakeAnswer_t* static_queueCwelookupRow(void)
@@ -2634,10 +2636,97 @@ void test_CWELOOKUP_fixed_size_field_past_its_limit_is_error(void)
         TEST_ASSERT_NULL_MESSAGE(record.mp_mitigations, message);
         TEST_ASSERT_NULL_MESSAGE(record.mp_extendedDescription, message);
         TEST_ASSERT_NULL_MESSAGE(record.mp_examples, message);
+        TEST_ASSERT_NULL_MESSAGE(record.mp_owaspTop10, message);
       }
       db_CWELOOKUPRecordFree(&record);
       free(text);
     }
+  }
+}
+
+void test_CWELOOKUP_owasp_top10_past_its_cap_is_error(void)
+{
+  for (size_t extra = 0; extra <= 1; extra++)
+  {
+    static_resetFake();
+    size_t length = CWELOOKUP_OWASP_TOP10_MAX_LEN + extra;
+    char* text = static_makeText(length);
+    TEST_ASSERT_NOT_NULL(text);
+    FakeAnswer_t* answer = static_queueCwelookupRow();
+    answer->ma_cells[0][CWELOOKUP_ROW_OWASP_TOP10_COLUMN_INDEX] = text;
+    CWELOOKUPRecord_t record;
+    memset(&record, 0xA5, sizeof(record));
+
+    DbStatus_t db_status = db_CWELOOKUP(NULL, "CWE-79", &record);
+
+    if (extra == 0)
+    {
+      TEST_ASSERT_EQUAL_INT(DB_OK, db_status);
+      TEST_ASSERT_NOT_NULL(record.mp_owaspTop10);
+      TEST_ASSERT_EQUAL_size_t(length, strlen(record.mp_owaspTop10));
+    }
+    else
+    {
+      TEST_ASSERT_EQUAL_INT(DB_ERROR, db_status);
+      TEST_ASSERT_NULL(record.mp_mitigations);
+      TEST_ASSERT_NULL(record.mp_extendedDescription);
+      TEST_ASSERT_NULL(record.mp_examples);
+      TEST_ASSERT_NULL(record.mp_owaspTop10);
+    }
+    db_CWELOOKUPRecordFree(&record);
+    free(text);
+  }
+}
+
+void test_CWELOOKUP_reads_owasp_top10_and_sql_null_as_null(void)
+{
+  static_queueCwelookupRow();
+  CWELOOKUPRecord_t record;
+  memset(&record, 0xA5, sizeof(record));
+
+  DbStatus_t db_status = db_CWELOOKUP(NULL, "CWE-79", &record);
+
+  TEST_ASSERT_EQUAL_INT(DB_OK, db_status);
+  TEST_ASSERT_EQUAL_STRING(g_cwelookupRowValues[CWELOOKUP_ROW_OWASP_TOP10_COLUMN_INDEX], record.mp_owaspTop10);
+  TEST_ASSERT_EQUAL_STRING("[]", record.mp_examples);
+  db_CWELOOKUPRecordFree(&record);
+  TEST_ASSERT_NULL(record.mp_owaspTop10);
+
+  static_resetFake();
+  FakeAnswer_t* answer = static_queueCwelookupRow();
+  answer->ma_cells[0][CWELOOKUP_ROW_OWASP_TOP10_COLUMN_INDEX] = FAKE_SQL_NULL;
+  memset(&record, 0xA5, sizeof(record));
+
+  db_status = db_CWELOOKUP(NULL, "CWE-79", &record);
+
+  TEST_ASSERT_EQUAL_INT(DB_OK, db_status);
+  TEST_ASSERT_NULL(record.mp_owaspTop10);
+  TEST_ASSERT_EQUAL_STRING("[]", record.mp_mitigations);
+  TEST_ASSERT_EQUAL_STRING("extended description", record.mp_extendedDescription);
+  TEST_ASSERT_EQUAL_STRING("[]", record.mp_examples);
+  db_CWELOOKUPRecordFree(&record);
+}
+
+void test_CWELOOKUP_failed_copy_frees_every_copy(void)
+{
+  for (int failing_call = 1; failing_call <= 4; failing_call++)
+  {
+    static_resetFake();
+    static_queueCwelookupRow();
+    g_strdupFailsAtCall = failing_call;
+    CWELOOKUPRecord_t record;
+    memset(&record, 0xA5, sizeof(record));
+    char message[24] = "";
+    snprintf(message, sizeof(message), "failing call %d", failing_call);
+
+    DbStatus_t db_status = db_CWELOOKUP(NULL, "CWE-79", &record);
+
+    TEST_ASSERT_EQUAL_INT_MESSAGE(DB_ERROR, db_status, message);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(failing_call, g_strdupCallCount, message);
+    TEST_ASSERT_NULL_MESSAGE(record.mp_mitigations, message);
+    TEST_ASSERT_NULL_MESSAGE(record.mp_extendedDescription, message);
+    TEST_ASSERT_NULL_MESSAGE(record.mp_examples, message);
+    TEST_ASSERT_NULL_MESSAGE(record.mp_owaspTop10, message);
   }
 }
 
@@ -4091,6 +4180,7 @@ void test_CWELOOKUP_failed_query_or_unreadable_count_is_error(void)
     TEST_ASSERT_NULL_MESSAGE(record.mp_mitigations, message);
     TEST_ASSERT_NULL_MESSAGE(record.mp_extendedDescription, message);
     TEST_ASSERT_NULL_MESSAGE(record.mp_examples, message);
+    TEST_ASSERT_NULL_MESSAGE(record.mp_owaspTop10, message);
   }
 }
 
@@ -4266,6 +4356,7 @@ static DbStatus_t static_runDbCall(DbCall_t call, int answer, int row, int colum
         TEST_ASSERT_NULL(record.mp_mitigations);
         TEST_ASSERT_NULL(record.mp_extendedDescription);
         TEST_ASSERT_NULL(record.mp_examples);
+        TEST_ASSERT_NULL(record.mp_owaspTop10);
       }
       db_CWELOOKUPRecordFree(&record);
       break;
@@ -4543,7 +4634,7 @@ void test_answer_with_other_column_names_is_error(void)
     { DB_CALL_KEVLOOKUP,       0, 0,  "KEVLOOKUP cve_id" },
     { DB_CALL_KEVLOOKUP,       0, 12, "KEVLOOKUP in_kev" },
     { DB_CALL_CWELOOKUP,       0, 0,  "CWELOOKUP cwe_id" },
-    { DB_CALL_CWELOOKUP,       0, 14, "CWELOOKUP cve_count" },
+    { DB_CALL_CWELOOKUP,       0, 15, "CWELOOKUP owasp_top10" },
     { DB_CALL_CVERISKSCORE,    0, 0,  "CVERISKSCORE risk_score" },
     { DB_CALL_CVERISKSCORE,    0, 5,  "CVERISKSCORE risk_label" },
     { DB_CALL_HEALTH,          0, 0,  "HEALTH cve_count" },
@@ -12721,7 +12812,7 @@ void test_recordCtScan_refuses_any_other_answer(void)
 
 void test_registration_gate_test_count(void)
 {
-  TEST_ASSERT_EQUAL_INT_MESSAGE(268, (int)Unity.NumberOfTests,
+  TEST_ASSERT_EQUAL_INT_MESSAGE(271, (int)Unity.NumberOfTests,
     "RUN_TEST list and test definitions have drifted apart - a test may be unregistered");
 }
 
@@ -12798,6 +12889,9 @@ int main(void)
   RUN_TEST(test_KEVLOOKUP_reads_notes_and_in_kev_from_their_columns);
   RUN_TEST(test_KEVLOOKUP_failed_notes_copy_frees_the_cwes_copy);
   RUN_TEST(test_CWELOOKUP_fixed_size_field_past_its_limit_is_error);
+  RUN_TEST(test_CWELOOKUP_owasp_top10_past_its_cap_is_error);
+  RUN_TEST(test_CWELOOKUP_reads_owasp_top10_and_sql_null_as_null);
+  RUN_TEST(test_CWELOOKUP_failed_copy_frees_every_copy);
   RUN_TEST(test_HEALTH_fixed_size_field_past_its_limit_is_error);
   RUN_TEST(test_HEALTH_null_newest_row_leaves_fields_empty);
   RUN_TEST(test_failed_query_writes_one_line_naming_its_caller);

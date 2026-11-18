@@ -808,7 +808,7 @@ void test_tools_list_is_the_whole_catalogue(void)
       R"json("cve_id":{"type":"string","maxLength":24,"description":"CVE ID"})json"
       R"json(},"required":["cve_id"],"additionalProperties":false})json"
       R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"CVE Intelligence"}})json",
-    R"json({"name":"cwe_lookup","title":"CWE Lookup","description":"CWE weakness details (description, mitigations, examples), with how many CVEs and CISA KEV entries name it. To list them, call the cve_search tool with its cwe_id argument.",)json"
+    R"json({"name":"cwe_lookup","title":"CWE Lookup","description":"CWE weakness details (description, mitigations, examples, OWASP Top 10 category in 2021 and 2025), with how many CVEs and CISA KEV entries name it. To list them, call the cve_search tool with its cwe_id argument.",)json"
       R"json("inputSchema":{"type":"object","properties":{)json"
       R"json("cwe_id":{"type":"string","maxLength":16,"description":"CWE ID, e.g. CWE-79"})json"
       R"json(},"required":["cwe_id"],"additionalProperties":false})json"

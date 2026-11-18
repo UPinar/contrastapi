@@ -415,6 +415,20 @@ CREATE TABLE cwes (
 
 CREATE INDEX idx_cwes_parent ON cwes(parent_cwe);
 
+CREATE TABLE cwe_owasp_top10 (
+  cwe_id        TEXT     NOT NULL,
+  edition_year  SMALLINT NOT NULL,
+  category_id   TEXT     NOT NULL,
+  category_name TEXT     NOT NULL,
+  PRIMARY KEY (cwe_id, edition_year),
+
+  CONSTRAINT cwe_owasp_top10_cwe_id_format        CHECK (cwe_id ~ '^CWE-[1-9][0-9]{0,5}$'),
+  CONSTRAINT cwe_owasp_top10_edition_year_range   CHECK (edition_year BETWEEN 2017 AND 2100),
+  CONSTRAINT cwe_owasp_top10_category_id_format   CHECK (category_id ~ '^A(0[1-9]|10)$'),
+  CONSTRAINT cwe_owasp_top10_category_name_format CHECK ( category_name ~ '^[^[:cntrl:]]+$'
+                                                          AND octet_length(category_name) <= 128)
+);
+
 CREATE TABLE epss_history (
   cve_id     TEXT  NOT NULL REFERENCES cves(cve_id),
   epss_date  DATE  NOT NULL,

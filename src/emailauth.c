@@ -197,6 +197,8 @@ void emailauth_parseSpf(const DnsRecordText_t* record, EmailAuthSpf_t* spf_out)
   memset(spf_out, 0, sizeof(*spf_out));
   bool        is_redirect_seen = false;
   bool        is_exp_seen      = false;
+  bool        is_all_seen      = false;
+  bool        has_redirect     = false;
   const char* cursor           = record->mp_bytes + EMAILAUTH_SPF_VERSION_LEN;
   const char* end              = record->mp_bytes + record->m_byteCount;
   while (cursor < end)
@@ -226,14 +228,24 @@ void emailauth_parseSpf(const DnsRecordText_t* record, EmailAuthSpf_t* spf_out)
 
     if (term.m_kind == EMAILAUTH_SPF_TERM_INVALID)
       spf_out->m_invalidTermCount++;
+    if (term.m_kind == EMAILAUTH_SPF_TERM_ALL)
+      is_all_seen = true;
     if (static_isDnsLookupTerm(term.m_kind))
-      spf_out->m_dnsLookupTermCount++;
+    {
+      if (term.m_kind == EMAILAUTH_SPF_TERM_REDIRECT)
+        has_redirect = true;
+      else if (!is_all_seen)
+        spf_out->m_dnsLookupTermCount++;
+    }
 
     if (spf_out->m_termCount < EMAILAUTH_SPF_MAX_TERM_COUNT)
       spf_out->ma_terms[spf_out->m_termCount++] = term;
     else
       spf_out->m_unreadTermCount++;
   }
+
+  if (has_redirect && !is_all_seen)
+    spf_out->m_dnsLookupTermCount++;
 }
 
 void emailauth_parseDmarc(const DnsRecordText_t* record, EmailAuthDmarc_t* dmarc_out)

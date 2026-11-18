@@ -85,6 +85,7 @@ STRDUP_RAW_JSON = {
     ("CVELOOKUP", "product_count_by_vendor"), ("CVEPRODUCTS", "affected_products"),
     ("CVELOOKUPGHSA", "advisory"),
     ("KEVLOOKUP", "cwes"), ("CWELOOKUP", "mitigations"), ("CWELOOKUP", "examples"),
+    ("CWELOOKUP", "owasp_top10"),
     ("D3FENDFORATTACK", "parent_defense_labels"), ("D3FENDFORATTACK", "attack_technique_ids"),
     ("D3FENDFORATTACK", "attack_techniques"), ("DRIVERLOOKUP", "matches"), ("IPLOOKUP", "listed_on"),
     ("ASNLOOKUP", "ipv4_prefixes"), ("ASNLOOKUP", "ipv6_prefixes"),

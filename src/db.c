@@ -281,7 +281,8 @@ static const char* const KEVLOOKUP_COLUMN_NAMES[] = { KEVLOOKUP_COLUMNS(DBHELPER
   X(CWELOOKUP_COLUMN_KEV_CVE_COUNT,        "kev_cve_count")        \
   X(CWELOOKUP_COLUMN_AVG_CVSS,             "avg_cvss")             \
   X(CWELOOKUP_COLUMN_AVG_EPSS,             "avg_epss")             \
-  X(CWELOOKUP_COLUMN_CVE_COUNT,            "cve_count")
+  X(CWELOOKUP_COLUMN_CVE_COUNT,            "cve_count")            \
+  X(CWELOOKUP_COLUMN_OWASP_TOP10,          "owasp_top10")
 enum { CWELOOKUP_COLUMNS(DBHELPER_COLUMN_INDEX) };
 static const char* const CWELOOKUP_COLUMN_NAMES[] = { CWELOOKUP_COLUMNS(DBHELPER_COLUMN_NAME) };
 
@@ -1352,6 +1353,7 @@ DbStatus_t db_CWELOOKUP(PGconn* conn, const char* cwe_id, CWELOOKUPRecord_t* rec
   record_out->mp_mitigations         = NULL;
   record_out->mp_extendedDescription = NULL;
   record_out->mp_examples            = NULL;
+  record_out->mp_owaspTop10          = NULL;
 
   const char* param_values[] = { cwe_id };
   PGresult* res = dbhelper_executeQuery(conn,
@@ -1388,9 +1390,11 @@ void db_CWELOOKUPRecordFree(CWELOOKUPRecord_t* rec)
   free(rec->mp_mitigations);
   free(rec->mp_extendedDescription);
   free(rec->mp_examples);
+  free(rec->mp_owaspTop10);
   rec->mp_mitigations         = NULL;
   rec->mp_extendedDescription = NULL;
   rec->mp_examples            = NULL;
+  rec->mp_owaspTop10          = NULL;
 }
 
 DbStatus_t db_CVERISKSCORE(PGconn* conn, const char* cve_id, CVERISKSCORERecord_t* record_out)
@@ -2921,9 +2925,11 @@ static bool static_CWELOOKUPTryFillRecord(PGresult* res, CWELOOKUPRecord_t* rec)
       !dbhelper_isColWithinLength(res, 0, CWELOOKUP_COLUMN_MITIGATIONS,          CWELOOKUP_MITIGATIONS_MAX_LEN)       ||
       !dbhelper_isColWithinLength(res, 0, CWELOOKUP_COLUMN_EXTENDED_DESCRIPTION, CWELOOKUP_EXTENDED_DESC_MAX_LEN)     ||
       !dbhelper_isColWithinLength(res, 0, CWELOOKUP_COLUMN_EXAMPLES,             CWELOOKUP_EXAMPLES_MAX_LEN)          ||
+      !dbhelper_isColWithinLength(res, 0, CWELOOKUP_COLUMN_OWASP_TOP10,          CWELOOKUP_OWASP_TOP10_MAX_LEN)       ||
       !dbhelper_fetchColStrdup(res, 0, CWELOOKUP_COLUMN_MITIGATIONS,          &rec->mp_mitigations)                   ||
       !dbhelper_fetchColStrdup(res, 0, CWELOOKUP_COLUMN_EXTENDED_DESCRIPTION, &rec->mp_extendedDescription)           ||
-      !dbhelper_fetchColStrdup(res, 0, CWELOOKUP_COLUMN_EXAMPLES,             &rec->mp_examples))
+      !dbhelper_fetchColStrdup(res, 0, CWELOOKUP_COLUMN_EXAMPLES,             &rec->mp_examples)                      ||
+      !dbhelper_fetchColStrdup(res, 0, CWELOOKUP_COLUMN_OWASP_TOP10,          &rec->mp_owaspTop10))
   {
     db_CWELOOKUPRecordFree(rec);
     return false;

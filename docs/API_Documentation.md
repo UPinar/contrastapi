@@ -1569,7 +1569,7 @@ curl https://api.contrastcyber.com/kev_lookup/CVE-2021-44228
 
 ## CWE Lookup: `GET /cwe_lookup/{cwe_id}`
 
-Returns the Common Weakness Enumeration (CWE) record of one weakness: its description, mitigations, examples, parent CWE and CVE statistics. A call costs 1 credit. See [Data sources and licenses](#data-sources-and-licenses).
+Returns the Common Weakness Enumeration (CWE) record of one weakness: its description, mitigations, examples, parent CWE, OWASP Top 10 categories and CVE statistics. A call costs 1 credit. See [Data sources and licenses](#data-sources-and-licenses).
 
 A CWE ID with a bad format answers 400 `invalid_cwe_id`. An ID that is not in the database answers 404.
 
@@ -1591,6 +1591,7 @@ curl https://api.contrastcyber.com/cwe_lookup/CWE-89
 | `mitigations`            | array \| null  | Mitigation strategies; null if not recorded |
 | `examples`               | array \| null  | Observed CVE examples for this weakness; null if not recorded |
 | `parent_cwe`             | string         | Primary parent CWE ID (empty string if none) |
+| `owasp_top10`            | array \| null  | The OWASP Top 10 categories that list this weakness, one element for each edition (2021, 2025) that lists it, the older edition first. Each element holds `id` (`A01` to `A10`), `name` (the name of the category) and `year` (the edition). `[]` means the weakness is in no category. null means the category data has not been loaded yet, so nothing is known. Only a direct listing counts: a weakness gets no category from its parent |
 | `cve_count`              | integer        | Total CVEs in the database associated with this CWE. The count still includes the CVEs that NVD marks Rejected, so it can exceed the `total` of `/cve_search?cwe_id=` for that CWE |
 | `kev_count`              | integer        | Number of those CVEs listed in the CISA KEV catalog |
 | `avg_cvss`               | number         | Average CVSS v3 score across associated CVEs that have a v3 score (2 decimal places) |
@@ -1617,6 +1618,7 @@ curl https://api.contrastcyber.com/cwe_lookup/CWE-89
     "CVE-2021-42258: SQL injection in time and billing software, as exploited in the wild per CISA KEV."
   ],
   "parent_cwe": "CWE-943",
+  "owasp_top10": [{"id": "A03", "name": "Injection", "year": 2021}, {"id": "A05", "name": "Injection", "year": 2025}],
   "cve_count": 17332,
   "kev_count": 26,
   "avg_cvss": 6.00,
@@ -1624,6 +1626,8 @@ curl https://api.contrastcyber.com/cwe_lookup/CWE-89
   "updated_at": "2026-05-20T14:07:56.162610+00:00"
 }
 ```
+
+The categories come from the OWASP Top Ten views of the MITRE CWE catalog, one view for each edition. The category names come from the same catalog. The data load replaces one of them: A09:2025 is "Security Logging and Alerting Failures". The data is refreshed weekly with the CWE data. The `cwe_owasp` feed of `/health` shows its state.
 
 ---
 
@@ -2676,7 +2680,7 @@ The example shows 4 of its 21 checks. The table under **Checks** lists them all.
 | `dkim` | object | The DKIM selectors and keys, below |
 | `mx` | object | `available`, `null_mx` and `hosts`. `null_mx` is true when an MX record is a null MX (RFC 7505). A null MX says that the domain takes no mail. `hosts` lists every other MX record, with its `priority` and `host` |
 | `mail_providers` | array of strings | The mail providers that the MX hosts and the SPF record's `include` and `redirect` domains name, each once, with the MX hosts first. The server knows 32 providers |
-| `mta_sts` | object | `available`, and `record_found`: true when `_mta-sts.<domain>` holds one MTA-STS record. RFC 8461 counts two such records as none. A record counts when it starts with `v=STSv1`, then spaces or tabs and a `;`. The server reads only the version, so a record counts with or without an `id=` field. RFC 8461 asks for an `id=` field |
+| `mta_sts` | object | `available`, and `record_found`: true when `_mta-sts.<domain>` holds one MTA-STS record. RFC 8461 counts two such records as none. A record counts when it starts with `v=STSv1`, then spaces or tabs and a `;`. `record_found` says only that one such record was found. The `mta_sts` check judges the record further: it needs an `id=` field of 1 to 32 letters or digits, and every field must be a name, an `=` and a value. Neither the name nor the value may be empty. The name `id` is case-sensitive |
 | `no_mail_domain` | boolean | True when the domain says it takes and sends no mail. Its `mx` holds a null MX and no host. Its one SPF record holds the single term `-all`, as in `v=spf1 -all`. Its `dmarc.applied_policy` is `reject`. A failed MX, SPF or DMARC question makes it false. A failed DKIM or MTA-STS question does not. When it is true, `checks` holds no DKIM check, no `mta_sts` check and no `dmarc_reporting` check |
 | `checks` | array of objects | The checks the answers allow, in the order of the table below. Each has an `id`, a `result` (`pass`, `warn` or `fail`), a `severity` (`high`, `medium` or `low`, fixed for each check) and a `detail`, a sentence fixed for each check and result |
 | `check_counts` | object | The number of checks with each result: `pass`, `warn` and `fail` |
@@ -2697,7 +2701,7 @@ A domain whose `no_mail_domain` is true has no DKIM check, no `mta_sts` check an
 | `record_count` | integer | The number of SPF records among the domain's TXT records |
 | `record` | string, or null | The SPF record when the domain has one. RFC 7208 ends the check in an error for more than one, so then it is null, and so are the fields below |
 | `terms` | array of objects, or null | The first 64 terms of the record. Each has a `kind` (`all`, `include`, `a`, `mx`, `ptr`, `ip4`, `ip6`, `exists`, `redirect`, `exp`, `unknown_modifier` or `invalid`), a `qualifier` and a `value`. The `qualifier` is the RFC 7208 name of the mechanism's qualifier: `pass` (`+` or none), `fail` (`-`), `softfail` (`~`) or `neutral` (`?`). It is null for a modifier and an invalid term. The value of a mechanism is the text after its name, without the `:`. The `value` is null when the term has none, such as `-all` |
-| `dns_lookup_term_count` | integer, or null | The number of terms that make a receiver ask DNS: `include`, `a`, `mx`, `ptr`, `exists` and `redirect`. It counts the terms after the first 64 too. It covers this record only |
+| `dns_lookup_term_count` | integer, or null | The number of lookup terms a receiver evaluates (RFC 7208 § 5.1, § 6.1). It counts `include`, `a`, `mx`, `ptr` and `exists` before the first `all`, since a receiver stops there. It counts a `redirect` only when the record has no `all`, since a receiver ignores a `redirect` next to an `all`. It counts the terms after the first 64 too. It covers this record only |
 | `invalid_term_count` | integer, or null | The number of terms RFC 7208 does not allow. It counts the terms after the first 64 too |
 | `unread_term_count` | integer, or null | The number of terms after the first 64. `terms` leaves them out |
 
@@ -2741,14 +2745,15 @@ out and another question is answered.
 | `usable_key_count` | integer | `usable_key_count` is the number of selectors whose key has `state` `present`. It is 0 when none does |
 | `selector_source` | string | `given`, `provider` or `common` |
 | `tested_selectors` | array of strings | The selectors asked |
-| `keys` | array of objects | The key of each selector that holds one. `selector` names the selector. `state` is `present`, `revoked`, `unreadable` or `unknown_type`. `key_type` is the `k` tag, or `rsa` when the record has none. `key_bits` is the size of an rsa key, or 256 for an ed25519 key. It is null when `state` is not `present`. `test_mode` is true when the `t` tag holds `y` |
+| `keys` | array of objects | The best key record of each selector that holds one. A key that can be read is best, then a key of an unknown type, then a revoked key or a key that cannot be read. On a tie the earlier record wins. `selector` names the selector. `state` is `present`, `revoked`, `unreadable` or `unknown_type`. `key_type` is the `k` tag, or `rsa` when the record has none. `key_bits` is the size of an rsa key, or 256 for an ed25519 key. It is null when `state` is not `present`. `test_mode` is true when the `t` tag holds `y` |
 
 Without `dkim_selector`, the server tries the selectors that the known providers document, in
 the order of `mail_providers`. Seven providers document theirs: Apple iCloud, Fastmail, Google
 Workspace, Mailchimp Transactional, Mailgun, Microsoft 365 and SendGrid. When none of the listed
 providers documents a selector, the server tries 13 common selectors. A selector whose name would be longer than 253
-bytes is skipped. The answer of a selector is read up to its second key record. The first one is
-the selector's key, and the second only marks the selector.
+bytes is skipped. The check reads every key record of a selector. The check results do not
+depend on the order of the records in the DNS answer. `keys` shows the best record. On a tie
+it shows the earlier one in the answer. So that entry can depend on the order of the answer.
 
 **Checks**
 
@@ -2756,7 +2761,7 @@ the selector's key, and the second only marks the selector.
 |------|------------|--------|--------|--------|
 | `spf_record` | high | The domain has one SPF record |  | None, or more than one |
 | `spf_syntax` | high | Every term is valid |  | A term is not valid |
-| `spf_lookup_limit` | high | At most 10 DNS lookup terms |  | More than 10 |
+| `spf_lookup_limit` | high | At most 10 lookup terms that a receiver evaluates |  | More than 10 |
 | `spf_all` | high | `-all`, `~all`, or a `redirect` without `all` | `?all`, or neither `all` nor `redirect` | `+all` |
 | `spf_ignored_terms` | low | No mechanism after `all`, and no `redirect` next to `all` | A mechanism after the first `all`, or a `redirect` next to an `all` |  |
 | `spf_ptr` | low | No `ptr` | A `ptr` mechanism |  |
@@ -2767,21 +2772,21 @@ the selector's key, and the second only marks the selector.
 | `dmarc_test_mode` | medium | No `t=y`, or `applied_policy` is not `quarantine` or `reject` | `t=y`, and `applied_policy` is `quarantine` or `reject` |  |
 | `dmarc_reporting` | low | `rua` holds a valid address | It holds none |  |
 | `dkim_key_found` | high | `key_status` is `found` | `unknown` | `not_found` |
-| `dkim_key_usable` | high | A key is `present` | No key is `present`, and one is `unknown_type` | Every key is `revoked` or `unreadable` |
-| `dkim_key_size` | high | The rsa key of each selector is 2048 to 4096 bits | An rsa key under 2048 or over 4096 bits | An rsa key under 1024 bits |
+| `dkim_key_usable` | high | Any key record is `present` | No key is `present`, and one is `unknown_type` | Every key is `revoked` or `unreadable` |
+| `dkim_key_size` | high | Every rsa key of each selector is 2048 to 4096 bits | An rsa key under 2048 or over 4096 bits | An rsa key under 1024 bits |
 | `dkim_key_format` | low | No bare RSAPublicKey, no rsa modulus that DER makes negative, and no `v=DKIM1` tag after another tag | A bare RSAPublicKey, which OpenDKIM and rspamd do not read, an rsa modulus whose top bit is set without a 0 byte before it, or a `v=DKIM1` tag after another tag |  |
 | `dkim_test_mode` | medium | No key has `t=y` | A key has `t=y` |  |
-| `dkim_key_restricted` | high | The key of each selector may sign mail with sha256 |  | An `h` tag without sha256, or an `s` tag without `email` or `*` |
-| `dkim_multiple_keys` | low | No selector holds more than one key record | A selector holds more than one |  |
-| `mx` | low | MX hosts, or a null MX | No MX record |  |
-| `mta_sts` | low | One MTA-STS record | None, or more than one |  |
+| `dkim_key_restricted` | high | Every DKIM key of each selector may sign mail with sha256 |  | An `h` tag without sha256, or an `s` tag without `email` or `*` |
+| `dkim_multiple_keys` | low | No selector holds more than one key record | A selector holds more than one. The check rated each of them |  |
+| `mx` | low | MX hosts, or a null MX alone | No MX record | A null MX next to other MX records, which RFC 7505 forbids |
+| `mta_sts` | low | One MTA-STS record, with a valid `id=` field | None, or more than one | The one record has no valid `id=` field, so senders ignore it |
 
 The SPF checks after `spf_record` need one SPF record. When `unread_term_count` is above 0, the
 server adds an SPF check only when its result is certain. It leaves out `spf_all`,
 `spf_ignored_terms`, `spf_ptr` and `spf_wide_range`. It keeps `spf_syntax` and `spf_lookup_limit`,
 since their counts cover the unread terms too. `spf_record` and `spf_record_size` stay. The DMARC checks after `dmarc_record` need a record that applies. The DKIM checks after
 `dkim_key_found` need a key record. Those after `dkim_key_usable` need a `present` key, and they
-judge every `present` key and give the worst result. A key that is not `present` gets no size.
+judge every `present` key of every selector and give the worst result. The place of a record in the answer does not matter. A key that is not `present` gets no size.
 
 ### Errors
 
@@ -5400,7 +5405,7 @@ curl https://api.contrastcyber.com/health
 | `db.cwe.last_updated.cwe_id`     | string            | CWE ID of the most recently updated entry |
 | `db.cwe.last_updated.updated_at` | string (datetime) | Datetime of that CWE's last update (ISO 8601) |
 | `db.feeds`                       | array             | Update state of each data feed, in name order (see below) |
-| `db.feeds[].name`                | string            | Feed name, such as `nvd`, `epss`, `kev`, `cwe` or `metasploit` |
+| `db.feeds[].name`                | string            | Feed name, such as `nvd`, `epss`, `kev`, `cwe`, `cwe_owasp` or `metasploit` |
 | `db.feeds[].last_synced`         | string (datetime) or null | When the feed update last wrote the feed's state, in UTC (`YYYY-MM-DDTHH:MM:SSZ`); null if not recorded |
 | `db.feeds[].last_status`         | string            | `ok`, `error` or `in_progress` |
 | `db.feeds[].records_updated`     | integer           | Records updated, as the feed update last wrote it |
@@ -5420,7 +5425,7 @@ A feed whose name, time or status cannot be read is left out of `db.feeds`. The 
 ```json
 {
   "status": "ok",
-  "version": "2.0.8",
+  "version": "2.0.9",
   "db": {
     "nvd": {
       "cve_count": 251430,
@@ -5454,7 +5459,7 @@ A feed whose name, time or status cannot be read is left out of `db.feeds`. The 
 When the database cannot be read, the answer is HTTP 503 with a `Retry-After: 5` header and this body:
 
 ```json
-{"status":"unavailable","version":"2.0.8","db":null}
+{"status":"unavailable","version":"2.0.9","db":null}
 ```
 
 ---
@@ -5988,7 +5993,7 @@ request target counts the bytes as sent.
 | 503  | The server is busy with requests to outside services (`upstream_busy`). The response carries `Retry-After: 5`. It costs no credits and carries no `X-RateLimit-*` headers. A request that the endpoint refuses for its method, its parameter names or its values gets that refusal instead. The 503 comes before the API key is read, so a request with a malformed, unknown, revoked or expired key gets it too | the endpoints that ask an outside service, `/mcp` |
 | 503  | Every place for an image request is in use (`raw_body_busy`). The response carries `Retry-After: 10`, the deadline that the head and the body share. It costs no credits | `/image_inspect` |
 | 503  | The payment cannot be settled now (`payment_unavailable`). The response carries `Retry-After: 5` | every endpoint that takes payment |
-| 503  | The database cannot be read. The body is `{"status":"unavailable","version":"2.0.8","db":null}` and the response carries `Retry-After: 5` | `/health` |
+| 503  | The database cannot be read. The body is `{"status":"unavailable","version":"2.0.9","db":null}` and the response carries `Retry-After: 5` | `/health` |
 | 504  | No TLS server or site was reached at the host name. `message` says why | `/ssl_check/`, `/headers_check/` |
 
 ---
@@ -6083,13 +6088,14 @@ server reads apart from NVD. An element whose name normalizes to nothing, such a
 ## Data sources and licenses
 
 Some answers hold data from catalogs and archives that their authors publish under a license or
-terms of use. The table names twenty-six of them, the license or the terms of each and the
+terms of use. The table names twenty-seven of them, the license or the terms of each and the
 endpoint that serves it.
 
 | Source | License | Served by |
 |--------|---------|-----------|
 | [MITRE D3FEND](https://d3fend.mitre.org/) | [MIT](https://github.com/d3fend/d3fend-ontology/blob/develop/LICENSE.md), Copyright (c) 2022 The MITRE Corporation | `/d3fend_for_attack/` |
 | [MITRE CWE](https://cwe.mitre.org/) | [CWE Terms of Use](https://cwe.mitre.org/about/termsofuse.html), Copyright © 2006–2026 The MITRE Corporation | `/cwe_lookup/` |
+| [OWASP Top 10](https://owasp.org/Top10/) | [Creative Commons Attribution 3.0 Unported (CC BY 3.0)](https://creativecommons.org/licenses/by/3.0/); attribution to the OWASP Foundation is required | `owasp_top10` of `/cwe_lookup/` |
 | [nuclei-templates](https://github.com/projectdiscovery/nuclei-templates) | MIT | `/dns_lookup/`, `/cve_lookup/`, `/cve_lookup_bulk`, `/cve_search`, `/cve_leading` |
 | [LOLDrivers](https://github.com/magicsword-io/LOLDrivers) | [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) | `/driver_lookup/`, `/driver_lookup_bulk` |
 | [PoC-in-GitHub](https://github.com/nomi-sec/PoC-in-GitHub) by nomi-sec | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) | `/cve_exploit/` |

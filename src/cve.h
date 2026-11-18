@@ -204,6 +204,8 @@ typedef struct {
 #define CWELOOKUP_EXTENDED_DESC_MAX_LEN 4096
 #define CWELOOKUP_EXAMPLES_MAX_LEN      8192
 
+#define CWELOOKUP_OWASP_TOP10_MAX_LEN   1024
+
 #define CWELOOKUP_ABSTRACTION_LEN         16
 #define CWELOOKUP_STATUS_LEN              16
 
@@ -219,6 +221,7 @@ typedef struct {
   char*   mp_mitigations;
   char*   mp_extendedDescription;
   char*   mp_examples;
+  char*   mp_owaspTop10;
   int     m_cveCount;
   int     m_kevCount;
   double  m_avgCvss;

@@ -30,6 +30,8 @@
 #define EMAILCHECK_MTA_STS_VERSION     "v=STSv1"
 #define EMAILCHECK_MTA_STS_VERSION_LEN (sizeof(EMAILCHECK_MTA_STS_VERSION) - 1)
 
+#define EMAILCHECK_MTA_STS_ID_MAX_LEN 32
+
 static DnsLookupStatus_t  static_askFirstRound        (EMAILAUTHCHECKRecord_t* record, const char* given_selector_name);
 static void               static_readOwnDmarc         (EMAILAUTHCHECKRecord_t* record);
 static DnsLookupStatus_t  static_askSecondRound       (EMAILAUTHCHECKRecord_t* record, bool is_selector_given, int64_t start_ms);
@@ -44,9 +46,14 @@ static void               static_findSpfProviders     (EMAILAUTHCHECKRecord_t* r
 static void               static_addSelector          (EMAILAUTHCHECKRecord_t* record, const char* selector);
 static void               static_chooseSelectors      (EMAILAUTHCHECKRecord_t* record);
 static bool               static_isMtaStsRecord       (const DnsRecordText_t* text);
+static bool               static_isSpaceOrTab         (char byte);
+static bool               static_isMtaStsId           (const char* value, size_t value_len);
+static bool               static_isMtaStsRecordValid  (const DnsRecordText_t* text);
 static void               static_readMtaSts           (EMAILAUTHCHECKRecord_t* record);
 static void               static_readDmarcWalk        (EMAILAUTHCHECKRecord_t* record);
 static void               static_applyDmarcPolicy     (EMAILAUTHCHECKRecord_t* record);
+static int                static_rankKeyState         (EmailAuthDkimKeyState_t state);
+static void               static_rateKeyRecord        (const EmailAuthDkim_t* key, EmailCheckDkimSelector_t* selector);
 static void               static_readKeyRecords       (EmailCheckDkimSelector_t* selector);
 static void               static_readDkim             (EMAILAUTHCHECKRecord_t* record);
 static EmailCheckResult_t static_worse                (EmailCheckResult_t first, EmailCheckResult_t second);
@@ -61,6 +68,7 @@ static void               static_rateDmarc            (EMAILAUTHCHECKRecord_t* r
 static void               static_rateDkimKeys         (EMAILAUTHCHECKRecord_t* record);
 static void               static_rateDkim             (EMAILAUTHCHECKRecord_t* record);
 static bool               static_isNoMailDomain       (const EMAILAUTHCHECKRecord_t* record);
+static EmailCheckResult_t static_rateMx               (const DnsAnswer_t* mx_answer);
 static void               static_rateRecord           (EMAILAUTHCHECKRecord_t* record);
 
 static DnsLookupStatus_t  static_readMailRoute        (EMAILADDRESSCHECKRecord_t* record, const DnsAnswer_t* a_answer, const DnsAnswer_t* aaaa_answer);
@@ -463,6 +471,63 @@ static bool static_isMtaStsRecord(const DnsRecordText_t* text)
   return cursor < text->m_byteCount && text->mp_bytes[cursor] == ';';
 }
 
+static bool static_isSpaceOrTab(char byte)
+{
+  return byte == ' ' || byte == '\t';
+}
+
+static bool static_isMtaStsId(const char* value, size_t value_len)
+{
+  if (value_len == 0 || value_len > EMAILCHECK_MTA_STS_ID_MAX_LEN)
+    return false;
+
+  for (size_t i = 0; i < value_len; i++)
+  {
+    if (!isalnum((unsigned char)value[i]))
+      return false;
+  }
+  return true;
+}
+
+static bool static_isMtaStsRecordValid(const DnsRecordText_t* text)
+{
+  const char* bytes       = text->mp_bytes;
+  size_t      byte_count  = text->m_byteCount;
+  bool        is_id_found = false;
+  size_t      cursor      = EMAILCHECK_MTA_STS_VERSION_LEN;
+  while (cursor < byte_count)
+  {
+    size_t field_end = cursor;
+    while (field_end < byte_count && bytes[field_end] != ';')
+      field_end++;
+
+    size_t start = cursor;
+    size_t end   = field_end;
+    while (start < end && static_isSpaceOrTab(bytes[start]))
+      start++;
+    while (end > start && static_isSpaceOrTab(bytes[end - 1]))
+      end--;
+    cursor = field_end + 1;
+    if (start == end)
+      continue;
+
+    size_t equals = start;
+    while (equals < end && bytes[equals] != '=')
+      equals++;
+    if (equals == start || equals == end || equals + 1 == end)
+      return false;
+
+    bool is_id_field = equals - start == 2 && bytes[start] == 'i' && bytes[start + 1] == 'd';
+    if (is_id_field)
+    {
+      if (!static_isMtaStsId(bytes + equals + 1, end - equals - 1))
+        return false;
+      is_id_found = true;
+    }
+  }
+  return is_id_found;
+}
+
 static void static_readMtaSts(EMAILAUTHCHECKRecord_t* record)
 {
   const DnsAnswer_t* answer = &record->m_mtaStsAnswer;
@@ -470,10 +535,15 @@ static void static_readMtaSts(EMAILAUTHCHECKRecord_t* record)
     return;
 
   int mta_sts_record_count = 0;
+  int mta_sts_record_index = -1;
   for (int i = 0; i < answer->m_recordCount; i++)
     if (static_isMtaStsRecord(&answer->mp_texts[i]))
+    {
       mta_sts_record_count++;
-  record->m_hasMtaStsRecord = mta_sts_record_count == 1;
+      mta_sts_record_index = i;
+    }
+  record->m_hasMtaStsRecord     = mta_sts_record_count == 1;
+  record->m_isMtaStsRecordValid = record->m_hasMtaStsRecord && static_isMtaStsRecordValid(&answer->mp_texts[mta_sts_record_index]);
 }
 
 static void static_readDmarcWalk(EMAILAUTHCHECKRecord_t* record)
@@ -550,6 +620,32 @@ static void static_applyDmarcPolicy(EMAILAUTHCHECKRecord_t* record)
   record->m_appliedDmarcPolicy = policy == EMAILAUTH_DMARC_POLICY_ABSENT ? EMAILAUTH_DMARC_POLICY_NONE : policy;
 }
 
+static int static_rankKeyState(EmailAuthDkimKeyState_t state)
+{
+  if (state == EMAILAUTH_DKIM_KEY_PRESENT)
+    return 2;
+  else if (state == EMAILAUTH_DKIM_KEY_UNKNOWN_TYPE)
+    return 1;
+  return 0;
+}
+
+static void static_rateKeyRecord(const EmailAuthDkim_t* key, EmailCheckDkimSelector_t* selector)
+{
+  if (key->m_keyType == EMAILAUTH_DKIM_KEY_TYPE_RSA && key->m_keyBits < EMAILCHECK_DKIM_MIN_RSA_KEY_BITS)
+    selector->m_keySizeResult = EMAILCHECK_RESULT_FAIL;
+  else if (key->m_keyType == EMAILAUTH_DKIM_KEY_TYPE_RSA &&
+           (key->m_keyBits < EMAILCHECK_DKIM_STRONG_RSA_KEY_BITS || key->m_keyBits > EMAILCHECK_DKIM_MAX_RSA_KEY_BITS))
+  {
+    selector->m_keySizeResult = static_worse(selector->m_keySizeResult, EMAILCHECK_RESULT_WARN);
+  }
+  if (key->m_isBareRsaKey || key->m_isRsaModulusNegative || key->m_isVersionMisplaced)
+    selector->m_keyFormatResult = EMAILCHECK_RESULT_WARN;
+  if (key->m_isTestMode)
+    selector->m_testModeResult = EMAILCHECK_RESULT_WARN;
+  if (!key->m_isSha256Allowed || !key->m_isEmailServiceAllowed)
+    selector->m_keyRestrictedResult = EMAILCHECK_RESULT_FAIL;
+}
+
 static void static_readKeyRecords(EmailCheckDkimSelector_t* selector)
 {
   const DnsAnswer_t* answer = &selector->m_answer;
@@ -560,13 +656,13 @@ static void static_readKeyRecords(EmailCheckDkimSelector_t* selector)
     if (key.m_keyState == EMAILAUTH_DKIM_KEY_ABSENT)
       continue;
 
+    if (key.m_keyState == EMAILAUTH_DKIM_KEY_PRESENT)
+      static_rateKeyRecord(&key, selector);
     if (selector->m_hasKeyRecord)
-    {
       selector->m_hasSecondKeyRecord = true;
-      return;
-    }
-    selector->m_firstKeyRecord = key;
-    selector->m_hasKeyRecord   = true;
+    if (!selector->m_hasKeyRecord || static_rankKeyState(key.m_keyState) > static_rankKeyState(selector->m_bestKeyRecord.m_keyState))
+      selector->m_bestKeyRecord = key;
+    selector->m_hasKeyRecord = true;
   }
 }
 
@@ -596,7 +692,7 @@ static void static_readDkim(EMAILAUTHCHECKRecord_t* record)
     static_readKeyRecords(selector);
     if (selector->m_hasKeyRecord)
       is_any_key_found = true;
-    if (selector->m_hasKeyRecord && selector->m_firstKeyRecord.m_keyState == EMAILAUTH_DKIM_KEY_PRESENT)
+    if (selector->m_hasKeyRecord && selector->m_bestKeyRecord.m_keyState == EMAILAUTH_DKIM_KEY_PRESENT)
       record->m_dkimUsableKeyCount++;
   }
 
@@ -745,26 +841,17 @@ static void static_rateDkimKeys(EMAILAUTHCHECKRecord_t* record)
     const EmailCheckDkimSelector_t* selector = &record->ma_dkimSelectors[i];
     if (!selector->m_hasKeyRecord)
       continue;
-    const EmailAuthDkim_t* key = &selector->m_firstKeyRecord;
-    if (key->m_keyState == EMAILAUTH_DKIM_KEY_UNKNOWN_TYPE && usable_result == EMAILCHECK_RESULT_FAIL)
+    EmailAuthDkimKeyState_t best_state = selector->m_bestKeyRecord.m_keyState;
+    if (best_state == EMAILAUTH_DKIM_KEY_UNKNOWN_TYPE && usable_result == EMAILCHECK_RESULT_FAIL)
       usable_result = EMAILCHECK_RESULT_WARN;
-    if (key->m_keyState != EMAILAUTH_DKIM_KEY_PRESENT)
+    if (best_state != EMAILAUTH_DKIM_KEY_PRESENT)
       continue;
 
-    usable_result = EMAILCHECK_RESULT_PASS;
-    if (key->m_keyType == EMAILAUTH_DKIM_KEY_TYPE_RSA && key->m_keyBits < EMAILCHECK_DKIM_MIN_RSA_KEY_BITS)
-      size_result = EMAILCHECK_RESULT_FAIL;
-    else if (key->m_keyType == EMAILAUTH_DKIM_KEY_TYPE_RSA &&
-             (key->m_keyBits < EMAILCHECK_DKIM_STRONG_RSA_KEY_BITS || key->m_keyBits > EMAILCHECK_DKIM_MAX_RSA_KEY_BITS))
-    {
-      size_result = static_worse(size_result, EMAILCHECK_RESULT_WARN);
-    }
-    if (key->m_isBareRsaKey || key->m_isRsaModulusNegative || key->m_isVersionMisplaced)
-      format_result = EMAILCHECK_RESULT_WARN;
-    if (key->m_isTestMode)
-      test_mode_result = EMAILCHECK_RESULT_WARN;
-    if (!key->m_isSha256Allowed || !key->m_isEmailServiceAllowed)
-      restricted_result = EMAILCHECK_RESULT_FAIL;
+    usable_result     = EMAILCHECK_RESULT_PASS;
+    size_result       = static_worse(size_result, selector->m_keySizeResult);
+    format_result     = static_worse(format_result, selector->m_keyFormatResult);
+    test_mode_result  = static_worse(test_mode_result, selector->m_testModeResult);
+    restricted_result = static_worse(restricted_result, selector->m_keyRestrictedResult);
   }
 
   static_addCheck(record, EMAILCHECK_KIND_DKIM_KEY_USABLE, usable_result);
@@ -813,6 +900,14 @@ static bool static_isNoMailDomain(const EMAILAUTHCHECKRecord_t* record)
   return is_null_mx_only && is_spf_fail_all && is_dmarc_reject;
 }
 
+static EmailCheckResult_t static_rateMx(const DnsAnswer_t* mx_answer)
+{
+  bool has_hosts = mx_answer->m_recordCount > 0;
+  if (has_hosts && mx_answer->m_hasNullMx)
+    return EMAILCHECK_RESULT_FAIL;
+  return has_hosts || mx_answer->m_hasNullMx ? EMAILCHECK_RESULT_PASS : EMAILCHECK_RESULT_WARN;
+}
+
 static void static_rateRecord(EMAILAUTHCHECKRecord_t* record)
 {
   record->m_isNoMailDomain = static_isNoMailDomain(record);
@@ -826,11 +921,15 @@ static void static_rateRecord(EMAILAUTHCHECKRecord_t* record)
     static_rateDkim(record);
 
   if (static_isAnswered(&record->m_mxAnswer))
-    static_addCheck(record, EMAILCHECK_KIND_MX,
-                    record->m_mxAnswer.m_recordCount > 0 || record->m_mxAnswer.m_hasNullMx ? EMAILCHECK_RESULT_PASS : EMAILCHECK_RESULT_WARN);
+    static_addCheck(record, EMAILCHECK_KIND_MX, static_rateMx(&record->m_mxAnswer));
 
   if (static_isAnswered(&record->m_mtaStsAnswer) && !record->m_isNoMailDomain)
-    static_addCheck(record, EMAILCHECK_KIND_MTA_STS, record->m_hasMtaStsRecord ? EMAILCHECK_RESULT_PASS : EMAILCHECK_RESULT_WARN);
+  {
+    EmailCheckResult_t mta_sts_result = EMAILCHECK_RESULT_WARN;
+    if (record->m_hasMtaStsRecord)
+      mta_sts_result = record->m_isMtaStsRecordValid ? EMAILCHECK_RESULT_PASS : EMAILCHECK_RESULT_FAIL;
+    static_addCheck(record, EMAILCHECK_KIND_MTA_STS, mta_sts_result);
+  }
 }
 
 static DnsLookupStatus_t static_readMailRoute(EMAILADDRESSCHECKRecord_t* record, const DnsAnswer_t* a_answer, const DnsAnswer_t* aaaa_answer)

@@ -17,13 +17,13 @@ BEGIN
          = ARRAY['cwe_id', 'cwe_name', 'cwe_description', 'likelihood', 'parent_cwe',
                  'updated_at', 'mitigations', 'extended_description', 'examples',
                  'abstract_type', 'cwe_status', 'kev_cve_count', 'avg_cvss', 'avg_epss',
-                 'cve_count'],
-         'api.fn_cwe_lookup answers the 15 columns db_CWELOOKUP reads, in its order';
+                 'cve_count', 'owasp_top10'],
+         'api.fn_cwe_lookup answers the 16 columns db_CWELOOKUP reads, in its order';
   ASSERT (SELECT array_agg(format_type(atttypid, atttypmod) ORDER BY attnum) FROM pg_attribute
           WHERE attrelid = 't_cwe_lookup_call'::regclass AND attnum > 0)
          = ARRAY['text', 'text', 'text', 'text', 'text', 'timestamp with time zone', 'jsonb',
                  'text', 'jsonb', 'text', 'text', 'bigint', 'double precision',
-                 'double precision', 'bigint'],
+                 'double precision', 'bigint', 'jsonb'],
          'each cwes column keeps its type, and the numbers are bigint and double precision';
   ASSERT (SELECT abstract_type = 'Base' AND cwe_status = 'Stable' AND parent_cwe = 'CWE-2000'
             FROM t_cwe_lookup_call),
@@ -49,6 +49,44 @@ DO $$
 BEGIN
   ASSERT (SELECT avg_cvss = 1.67 AND avg_epss = 0.0001 FROM api.fn_cwe_lookup('CWE-2002')),
          'avg_cvss is rounded to 2 decimals, and avg_epss to 4';
+END
+$$;
+
+DELETE FROM cwe_owasp_top10;
+
+DO $$
+BEGIN
+  ASSERT (SELECT owasp_top10 IS NULL FROM api.fn_cwe_lookup('CWE-2001')),
+         'owasp_top10 is NULL while cwe_owasp_top10 holds no row';
+END
+$$;
+
+INSERT INTO cwe_owasp_top10 (cwe_id, edition_year, category_id, category_name) VALUES
+  ('CWE-2001', 2025, 'A05', 'Injection'),
+  ('CWE-2001', 2021, 'A03', 'Injection'),
+  ('CWE-2002', 2021, 'A01', 'Broken Access Control');
+
+DO $$
+BEGIN
+  ASSERT (SELECT owasp_top10::text FROM api.fn_cwe_lookup('CWE-2001'))
+         = '[{"id": "A03", "name": "Injection", "year": 2021}, '
+           '{"id": "A05", "name": "Injection", "year": 2025}]',
+         'owasp_top10 holds one element for each edition, the older edition first';
+  ASSERT (SELECT owasp_top10::text FROM api.fn_cwe_lookup('CWE-2002'))
+         = '[{"id": "A01", "name": "Broken Access Control", "year": 2021}]',
+         'owasp_top10 holds only the rows of its own CWE';
+  DELETE FROM cwe_owasp_top10 WHERE cwe_id = 'CWE-2002';
+  INSERT INTO cwe_owasp_top10 (cwe_id, edition_year, category_id, category_name) VALUES
+    ('CWE-2003', 2021, 'A01', 'Broken Access Control');
+  ASSERT (SELECT owasp_top10 = '[]'::jsonb FROM api.fn_cwe_lookup('CWE-2002')),
+         'a CWE in no category answers [] once the table holds rows';
+  INSERT INTO cwe_owasp_top10 (cwe_id, edition_year, category_id, category_name) VALUES
+    ('CWE-2002', 2021, 'A10', 'Server-Side Request Forgery'),
+    ('CWE-2002', 2025, 'A01', 'Broken Access Control');
+  ASSERT (SELECT owasp_top10::text FROM api.fn_cwe_lookup('CWE-2002'))
+         = '[{"id": "A10", "name": "Server-Side Request Forgery", "year": 2021}, '
+           '{"id": "A01", "name": "Broken Access Control", "year": 2025}]',
+         'the edition year orders the array, not the category id';
 END
 $$;
 

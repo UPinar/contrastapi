@@ -468,7 +468,9 @@ static void static_CWELOOKUPWriteRecord(const CWELOOKUPRecord_t* record, JsonBuf
   jsonbuf_appendFormat(json_buf, ",");
   jsonbuf_appendFormat(json_buf, R"("parent_cwe":")");
   jsonbuf_appendEscaped(json_buf, record->ma_parentCwe);
-  jsonbuf_appendFormat(json_buf, R"(","cve_count":%d,)", record->m_cveCount);
+  jsonbuf_appendFormat(json_buf, R"(","owasp_top10":)");
+  jsonbuf_appendJsonText(json_buf, (record->mp_owaspTop10 && *record->mp_owaspTop10) ? record->mp_owaspTop10 : "null");
+  jsonbuf_appendFormat(json_buf, R"(,"cve_count":%d,)", record->m_cveCount);
   jsonbuf_appendFormat(json_buf, R"("kev_count":%d,)", record->m_kevCount);
   jsonbuf_appendFormat(json_buf, R"("avg_cvss":%.2f,)", record->m_avgCvss);
   jsonbuf_appendFormat(json_buf, R"("avg_epss":%.4f,)", record->m_avgEpss);
@@ -2016,15 +2018,17 @@ static const char* const EMAILAUTHCHECK_CHECK_DETAILS[EMAILCHECK_KIND_COUNT][EMA
   { "A DKIM selector holds a key record.", "None of the selectors tried holds a key record. The domain may sign with another selector.",
     "The selector given holds no key record." },
   { "A DKIM key can be read.", "No DKIM key can be read, and one is of a type receivers ignore.", "Every DKIM key is revoked or cannot be read." },
-  { "The rsa key of each selector is 2048 to 4096 bits.", "An rsa key is under 2048 bits or over 4096 bits. Some receivers do not read a key over 4096 bits.",
+  { "Every rsa key of each selector is 2048 to 4096 bits.", "An rsa key is under 2048 bits or over 4096 bits. Some receivers do not read a key over 4096 bits.",
     "An rsa key is under 1024 bits, so receivers must not trust its signatures." },
   { "No DKIM key is a bare RSAPublicKey or has a negative modulus, and no key record has v=DKIM1 after another tag.",
     "A key is a bare RSAPublicKey, which OpenDKIM and rspamd do not read, a key's modulus is negative in DER, or a record has v=DKIM1 after another tag.", NULL },
   { "No selector's DKIM key is in test mode.", "A DKIM key has t=y, so receivers treat signed mail like unsigned mail.", NULL },
-  { "The DKIM key of each selector may sign mail with sha256.", NULL, "The h= or the s= tag of a DKIM key keeps it from signing mail with sha256." },
-  { "No selector holds more than one key record.", "A selector holds more than one key record. The check read the first.", NULL },
-  { "The domain has MX hosts, or a null MX that says it takes no mail.", "The domain has no MX record, so senders deliver to its own address.", NULL },
-  { "The domain publishes an MTA-STS record.", "The domain publishes no MTA-STS record, or more than one, so senders may deliver its mail without TLS.", NULL },
+  { "Every DKIM key of each selector may sign mail with sha256.", NULL, "The h= or the s= tag of a DKIM key keeps it from signing mail with sha256." },
+  { "No selector holds more than one key record.", "A selector holds more than one key record. The check rated each of them.", NULL },
+  { "The domain has MX hosts, or a null MX that says it takes no mail.", "The domain has no MX record, so senders deliver to its own address.",
+    "The domain publishes a null MX next to other MX records, which RFC 7505 forbids." },
+  { "The domain publishes an MTA-STS record.", "The domain publishes no MTA-STS record, or more than one, so senders may deliver its mail without TLS.",
+    "The MTA-STS record has no valid id= field, so senders ignore it." },
 };
 
 static const char* const EMAILAUTHCHECK_RESULT_NAMES[] = { "pass", "warn", "fail" };
@@ -2190,14 +2194,14 @@ static void static_EMAILAUTHCHECKWriteDkim(const EMAILAUTHCHECKRecord_t* record,
       continue;
     jsonbuf_appendFormat(json_buf, R"(%s{"selector":")", written_count++ > 0 ? "," : "");
     jsonbuf_appendEscaped(json_buf, selector->ma_selector);
-    jsonbuf_appendFormat(json_buf, R"(","state":"%s","key_type":)", STATE_NAMES[selector->m_firstKeyRecord.m_keyState]);
-    static_EMAILAUTHCHECKWriteSpan(selector->m_firstKeyRecord.m_keyTypeName, json_buf);
+    jsonbuf_appendFormat(json_buf, R"(","state":"%s","key_type":)", STATE_NAMES[selector->m_bestKeyRecord.m_keyState]);
+    static_EMAILAUTHCHECKWriteSpan(selector->m_bestKeyRecord.m_keyTypeName, json_buf);
 
-    if (selector->m_firstKeyRecord.m_keyBits > 0)
-      jsonbuf_appendFormat(json_buf, R"(,"key_bits":%d)", selector->m_firstKeyRecord.m_keyBits);
+    if (selector->m_bestKeyRecord.m_keyBits > 0)
+      jsonbuf_appendFormat(json_buf, R"(,"key_bits":%d)", selector->m_bestKeyRecord.m_keyBits);
     else
       jsonbuf_appendFormat(json_buf, R"(,"key_bits":null)");
-    jsonbuf_appendFormat(json_buf, R"(,"test_mode":%s})", selector->m_firstKeyRecord.m_isTestMode ? "true" : "false");
+    jsonbuf_appendFormat(json_buf, R"(,"test_mode":%s})", selector->m_bestKeyRecord.m_isTestMode ? "true" : "false");
   }
   jsonbuf_appendFormat(json_buf, "]},");
 }

@@ -13,7 +13,8 @@ CREATE FUNCTION api.fn_cwe_lookup(p_cwe_id text)
                  kev_cve_count        bigint,
                  avg_cvss             double precision,
                  avg_epss             double precision,
-                 cve_count            bigint)
+                 cve_count            bigint,
+                 owasp_top10          jsonb)
   LANGUAGE sql STABLE SECURITY DEFINER
   SET search_path = pg_catalog
   BEGIN ATOMIC
@@ -31,7 +32,15 @@ CREATE FUNCTION api.fn_cwe_lookup(p_cwe_id text)
            cve_stats.kev_cve_count AS kev_cve_count,
            cve_stats.avg_cvss      AS avg_cvss,
            cve_stats.avg_epss      AS avg_epss,
-           cve_stats.cve_count     AS cve_count
+           cve_stats.cve_count     AS cve_count,
+           CASE WHEN NOT EXISTS (SELECT 1 FROM public.cwe_owasp_top10)
+                THEN NULL
+                ELSE coalesce((SELECT jsonb_agg(jsonb_build_object('year', o.edition_year, 'id', o.category_id,
+                                                                   'name', o.category_name)
+                                                ORDER BY o.edition_year, o.category_id)
+                                 FROM public.cwe_owasp_top10 AS o
+                                WHERE o.cwe_id = c1.cwe_id),
+                              '[]'::jsonb) END AS owasp_top10
       FROM public.cwes AS c1
      CROSS JOIN LATERAL (
        SELECT count(*) FILTER (WHERE c2.in_kev)                                                           AS kev_cve_count,
