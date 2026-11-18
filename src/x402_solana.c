@@ -112,6 +112,7 @@ static bool               static_isFeePayerInUse      (const X402SolanaTransacti
 static bool               static_isSignatureValid     (const X402SolanaTransaction_t* parsed);
 static bool               static_isEd25519Valid       (const uint8_t* public_key, const uint8_t* signature, const uint8_t* message, size_t message_len);
 static bool               static_tryDecodeBase58      (const char* text, size_t max_text_len, uint8_t* out, size_t byte_count);
+static bool               static_tryEncodeBase58      (const uint8_t* bytes, size_t byte_count, char* out, size_t out_size);
 static uint64_t           static_readLittleEndian     (const uint8_t* bytes, int byte_count);
 static int                static_base58DigitValue     (char digit);
 
@@ -167,6 +168,14 @@ bool x402_solana_tryDecodeAddress(const char* text, uint8_t out[X402_SOLANA_ADDR
   assert(out != NULL);
 
   return static_tryDecodeBase58(text, X402_SOLANA_BASE58_MAX_TEXT_LEN, out, X402_SOLANA_ADDRESS_BYTE_COUNT);
+}
+
+bool x402_solana_tryEncodeAddress(const uint8_t address[X402_SOLANA_ADDRESS_BYTE_COUNT], char* out, size_t out_size)
+{
+  assert(address != NULL);
+  assert(out != NULL);
+
+  return static_tryEncodeBase58(address, X402_SOLANA_ADDRESS_BYTE_COUNT, out, out_size);
 }
 
 bool x402_solana_tryDecodeSignature(const char* text, uint8_t out[X402_SOLANA_SIGNATURE_BYTE_COUNT])
@@ -524,6 +533,50 @@ static uint64_t static_readLittleEndian(const uint8_t* bytes, int byte_count)
   for (int i = byte_count - 1; i >= 0; i--)
     value = (value << 8) | bytes[i];
   return value;
+}
+
+static bool static_tryEncodeBase58(const uint8_t* bytes, size_t byte_count, char* out, size_t out_size)
+{
+  assert(bytes != NULL);
+  assert(out != NULL);
+  assert(byte_count > 0 && byte_count <= X402_SOLANA_SIGNATURE_BYTE_COUNT);
+
+  size_t leading_zero_count = 0;
+  while (leading_zero_count < byte_count && bytes[leading_zero_count] == 0)
+    leading_zero_count++;
+
+  uint8_t digits[X402_SOLANA_SIGNATURE_BASE58_MAX_TEXT_LEN] = { 0 };
+  size_t  digit_count = 0;
+  for (size_t i = leading_zero_count; i < byte_count; i++)
+  {
+    uint32_t carry = bytes[i];
+    for (size_t j = 0; j < digit_count; j++)
+    {
+      carry    += (uint32_t)digits[j] << 8;
+      digits[j] = (uint8_t)(carry % 58);
+      carry    /= 58;
+    }
+    while (carry > 0)
+    {
+      assert(digit_count < sizeof(digits));
+      digits[digit_count++] = (uint8_t)(carry % 58);
+      carry                /= 58;
+    }
+  }
+
+  size_t text_len = leading_zero_count + digit_count;
+  if (text_len >= out_size)
+  {
+    if (out_size > 0)
+      out[0] = '\0';
+    return false;
+  }
+
+  memset(out, '1', leading_zero_count);
+  for (size_t i = 0; i < digit_count; i++)
+    out[leading_zero_count + i] = BASE58_ALPHABET[digits[digit_count - 1 - i]];
+  out[text_len] = '\0';
+  return true;
 }
 
 static int static_base58DigitValue(char digit)

@@ -29,6 +29,11 @@ static bool                         static_isIssuerPermittedByTag           (con
 static bool                         static_hasCaaTag                        (const DnsAnswer_t* caa_set, const char* tag);
 static bool                         static_isCaaTag                         (const DnsCaaRecord_t* record, const char* tag);
 static bool                         static_isCaaValueNamingIssuer           (const DnsRecordText_t* value, const CertSpotterIssuer_t* issuer);
+static bool                         static_tryFindCaaIssuerDomain           (const DnsRecordText_t* value, size_t* domain_start_out, size_t* domain_len_out);
+static bool                         static_isCaaParameterListWellFormed     (const char* bytes, size_t byte_count, size_t start);
+static bool                         static_isCaaParameterValueByte          (char byte);
+static size_t                       static_findCaaTokenEnd                  (const char* bytes, size_t byte_count, size_t start, const char* stop_bytes);
+static size_t                       static_findCaaSpaceEnd                  (const char* bytes, size_t byte_count, size_t start);
 static WatchlistDomainScanOutcome_t static_scanCtDomain                     (PGconn* conn, const WatchlistDomainScanClaim_t* claim);
 static void                         static_judgeCertIssuers                 (const char* host, const char* registered_domain, const CertSpotterCertificateList_t* list, WatchlistDomainScanValue_t* value);
 static int                          static_countCaaNames                    (const char* host, const char* registered_domain);
@@ -199,21 +204,103 @@ static bool static_isCaaTag(const DnsCaaRecord_t* record, const char* tag)
 
 static bool static_isCaaValueNamingIssuer(const DnsRecordText_t* value, const CertSpotterIssuer_t* issuer)
 {
-  const char* domain     = value->mp_bytes;
-  const char* domain_end = memchr(value->mp_bytes, ';', value->m_byteCount);
-  if (domain_end == NULL)
-    domain_end = value->mp_bytes + value->m_byteCount;
-  while (domain < domain_end && (*domain == ' ' || *domain == '\t'))
-    domain++;
-  while (domain_end > domain && (domain_end[-1] == ' ' || domain_end[-1] == '\t'))
-    domain_end--;
-  size_t domain_len = (size_t)(domain_end - domain);
+  size_t domain_start = 0;
+  size_t domain_len   = 0;
+  if (!static_tryFindCaaIssuerDomain(value, &domain_start, &domain_len))
+    return false;
+
+  const char* domain = value->mp_bytes + domain_start;
   for (int i = 0; i < issuer->m_caaDomainCount; i++)
   {
     if (strlen(issuer->ma_caaDomains[i]) == domain_len && strncasecmp(issuer->ma_caaDomains[i], domain, domain_len) == 0)
       return true;
   }
   return false;
+}
+
+static bool static_tryFindCaaIssuerDomain(const DnsRecordText_t* value, size_t* domain_start_out, size_t* domain_len_out)
+{
+  const char* bytes        = value->mp_bytes;
+  size_t      byte_count   = value->m_byteCount;
+  size_t      domain_start = static_findCaaSpaceEnd(bytes, byte_count, 0);
+  size_t      i            = domain_start;
+  if (i < byte_count && bytes[i] != ';')
+  {
+    for (;;)
+    {
+      size_t label_end = static_findCaaTokenEnd(bytes, byte_count, i, ". \t;");
+      if (!validate_letterDigitHyphenLabel(bytes + i, label_end - i))
+        return false;
+      i = label_end;
+      if (i == byte_count || bytes[i] != '.')
+        break;
+      i++;
+    }
+  }
+  size_t domain_len = i - domain_start;
+
+  i = static_findCaaSpaceEnd(bytes, byte_count, i);
+  if (i < byte_count && (bytes[i] != ';' || !static_isCaaParameterListWellFormed(bytes, byte_count, i + 1)))
+    return false;
+
+  *domain_start_out = domain_start;
+  *domain_len_out   = domain_len;
+  return true;
+}
+
+static bool static_isCaaParameterListWellFormed(const char* bytes, size_t byte_count, size_t start)
+{
+  size_t i = static_findCaaSpaceEnd(bytes, byte_count, start);
+  if (i == byte_count)
+    return true;
+
+  for (;;)
+  {
+    size_t tag_end = static_findCaaTokenEnd(bytes, byte_count, i, "= \t;");
+    if (!validate_letterDigitHyphenLabel(bytes + i, tag_end - i))
+      return false;
+
+    i = static_findCaaSpaceEnd(bytes, byte_count, tag_end);
+    if (i == byte_count || bytes[i] != '=')
+      return false;
+
+    i = static_findCaaSpaceEnd(bytes, byte_count, i + 1);
+    while (i < byte_count && static_isCaaParameterValueByte(bytes[i]))
+      i++;
+
+    i = static_findCaaSpaceEnd(bytes, byte_count, i);
+    if (i == byte_count)
+      return true;
+    if (bytes[i] != ';')
+      return false;
+
+    i = static_findCaaSpaceEnd(bytes, byte_count, i + 1);
+    if (i == byte_count)
+      return false;
+  }
+}
+
+static bool static_isCaaParameterValueByte(char byte)
+{
+  unsigned char value_byte = (unsigned char)byte;
+  return (value_byte >= 0x21 && value_byte <= 0x3A) || (value_byte >= 0x3C && value_byte <= 0x7E);
+}
+
+static size_t static_findCaaTokenEnd(const char* bytes, size_t byte_count, size_t start, const char* stop_bytes)
+{
+  size_t stop_byte_count = strlen(stop_bytes);
+  size_t i               = start;
+  while (i < byte_count && memchr(stop_bytes, bytes[i], stop_byte_count) == NULL)
+    i++;
+  return i;
+}
+
+static size_t static_findCaaSpaceEnd(const char* bytes, size_t byte_count, size_t start)
+{
+  size_t i = start;
+  while (i < byte_count && (bytes[i] == ' ' || bytes[i] == '\t'))
+    i++;
+  return i;
 }
 
 static WatchlistDomainScanOutcome_t static_scanCtDomain(PGconn* conn, const WatchlistDomainScanClaim_t* claim)

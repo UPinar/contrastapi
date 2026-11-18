@@ -9,9 +9,11 @@
 #include <string.h>
 
 #include "jsonbuf.h"
+#include "monotonic.h"
 #include "package.h"
 #include "pricing.h"
 #include "throttle.h"
+#include "usagelog.h"
 #include "x402_facilitator.h"
 #include "x402_solana_rpc.h"
 
@@ -78,15 +80,18 @@ static X402RequestOpenResult_t  static_dbRefuseAttempt          (PGconn* conn, c
 static X402PaymentStatus_t      static_parsePaymentSource       (const X402RequestPaymentSource_t* source, const X402Requirements_t* requirements, X402Payment_t* payment_out);
 static X402RequestOpenResult_t  static_dbReadPayment            (PGconn* conn, const X402RequestPaymentSource_t* source, unsigned int credit_count, const char* ip_hash, X402Requirements_t* requirements_out, X402Payment_t* payment_out, X402SolanaCheck_t* check_out);
 static X402RequestOpenStatus_t  static_dbCheckPaymentLoads      (PGconn* conn, const X402LedgerHashes_t* hashes, unsigned int* retry_after_sec_out);
-static X402RequestOpenResult_t  static_dbVerifyFresh            (PGconn* conn, const X402Requirements_t* requirements, const X402Payment_t* payment, const X402LedgerHashes_t* hashes, const char* ip_hash, X402RequestPayment_t* payment_out);
-static X402RequestOpenResult_t  static_dbOpenHeldPayment        (PGconn* conn, const X402LedgerReservation_t* reservation, const X402LedgerHashes_t* hashes, X402RequestPayment_t* payment_out);
+static X402RequestOpenResult_t  static_dbVerifyFresh            (PGconn* conn, const X402Requirements_t* requirements, const X402Payment_t* payment, const X402LedgerHashes_t* hashes, const char* ip_hash, int64_t reserved_at_ms, X402RequestPayment_t* payment_out);
+static X402RequestOpenResult_t  static_dbOpenHeldPayment        (PGconn* conn, const X402LedgerReservation_t* reservation, const X402LedgerHashes_t* hashes, const X402Payment_t* payment, const X402SolanaCheck_t* check, X402RequestPayment_t* payment_out);
 static void                     static_fillOpenPayment          (X402RequestPayment_t* payment_out, const X402Requirements_t* requirements, const X402Payment_t* payment, const char* ip_hash);
-static X402RequestOpenResult_t  static_dbOpenPending            (PGconn* conn, const X402LedgerHashes_t* hashes, const char* signature_text, X402RequestPayment_t* payment_out);
+static X402RequestOpenResult_t  static_dbOpenPending            (PGconn* conn, const X402LedgerHashes_t* hashes, const char* stored_signature, const X402Payment_t* payment, const X402SolanaCheck_t* check, X402RequestPayment_t* payment_out);
 static X402RequestCloseStatus_t static_dbCloseFresh             (PGconn* conn, const X402RequestPayment_t* payment, X402RequestReceipt_t* receipt_out);
 static X402RequestCloseStatus_t static_dbCloseConfirmed         (PGconn* conn, const X402RequestPayment_t* payment, X402RequestReceipt_t* receipt_out);
 static void                     static_fillReceipt              (const char* network, const char* signature_text, X402RequestReceipt_t* receipt_out);
 static bool                     static_tryWriteBase64HeaderLine (JsonBuf_t* json_buf, bool is_written, const char* header_name, char* line_out, size_t line_size);
 static const char*              static_markStatusName           (X402LedgerMarkStatus_t mark_status);
+static UsageLogX402Outcome_t    static_verifyOutcome            (X402FacilitatorVerifyStatus_t verify_status);
+static UsageLogX402Outcome_t    static_settleOutcome            (const X402FacilitatorSettlement_t* settlement);
+static UsageLogX402Outcome_t    static_signatureOutcome         (X402SolanaRpcSignatureStatus_t signature_status);
 
 X402RequestStartStatus_t x402_request_start(const ConfigX402_t* config)
 {
@@ -182,11 +187,14 @@ X402RequestOpenResult_t x402_request_dbOpenPayment(PGconn* conn, const X402Reque
 
   X402LedgerReservation_t reservation = x402_ledger_dbReserve(conn, &hashes);
   if (reservation.m_status == X402_LEDGER_RESERVED)
-    return static_dbVerifyFresh(conn, &requirements, &payment, &hashes, ip_hash, payment_out);
+  {
+    int64_t reserved_at_ms = monotonic_nowMs();
+    return static_dbVerifyFresh(conn, &requirements, &payment, &hashes, ip_hash, reserved_at_ms, payment_out);
+  }
 
   static_leaveSettle();
 
-  X402RequestOpenResult_t held_result = static_dbOpenHeldPayment(conn, &reservation, &hashes, payment_out);
+  X402RequestOpenResult_t held_result = static_dbOpenHeldPayment(conn, &reservation, &hashes, &payment, &check, payment_out);
   if (held_result.m_status == X402_REQUEST_OPEN_OK)
     static_fillOpenPayment(payment_out, &requirements, &payment, ip_hash);
   return held_result;
@@ -505,19 +513,23 @@ static X402RequestOpenStatus_t static_dbCheckPaymentLoads(PGconn* conn, const X4
   return static_dbCheckFailureLoad(conn, &X402_REQUEST_REFUSED_SOURCE_THROTTLE_RULE, hashes->ma_sourceHash, retry_after_sec_out);
 }
 
-static X402RequestOpenResult_t static_dbVerifyFresh(PGconn* conn, const X402Requirements_t* requirements, const X402Payment_t* payment, const X402LedgerHashes_t* hashes, const char* ip_hash, X402RequestPayment_t* payment_out)
+static X402RequestOpenResult_t static_dbVerifyFresh(PGconn* conn, const X402Requirements_t* requirements, const X402Payment_t* payment, const X402LedgerHashes_t* hashes, const char* ip_hash, int64_t reserved_at_ms, X402RequestPayment_t* payment_out)
 {
   assert(requirements != NULL);
   assert(payment      != NULL);
   assert(hashes       != NULL);
   assert(payment_out  != NULL);
 
-  switch (x402_facilitator_verify(requirements, payment))
+  int64_t                       verify_start_ms = monotonic_nowMs();
+  X402FacilitatorVerifyStatus_t verify_status   = x402_facilitator_verify(requirements, payment);
+  usagelog_writeX402Step(USAGELOG_X402_STEP_VERIFY, static_verifyOutcome(verify_status), monotonic_nowMs() - verify_start_ms, 0);
+  switch (verify_status)
   {
     case X402_FACILITATOR_VERIFY_VALID:
-      payment_out->m_kind   = X402_REQUEST_PAYMENT_FRESH;
-      payment_out->m_isOpen = true;
-      payment_out->m_hashes = *hashes;
+      payment_out->m_kind         = X402_REQUEST_PAYMENT_FRESH;
+      payment_out->m_isOpen       = true;
+      payment_out->m_hashes       = *hashes;
+      payment_out->m_reservedAtMs = reserved_at_ms;
       static_fillOpenPayment(payment_out, requirements, payment, ip_hash);
       return static_buildOpenResult(X402_REQUEST_OPEN_OK, 0);
     case X402_FACILITATOR_VERIFY_INVALID:
@@ -533,10 +545,12 @@ static X402RequestOpenResult_t static_dbVerifyFresh(PGconn* conn, const X402Requ
   return static_buildOpenResult(X402_REQUEST_OPEN_UNAVAILABLE, X402_REQUEST_UNAVAILABLE_RETRY_AFTER_SEC);
 }
 
-static X402RequestOpenResult_t static_dbOpenHeldPayment(PGconn* conn, const X402LedgerReservation_t* reservation, const X402LedgerHashes_t* hashes, X402RequestPayment_t* payment_out)
+static X402RequestOpenResult_t static_dbOpenHeldPayment(PGconn* conn, const X402LedgerReservation_t* reservation, const X402LedgerHashes_t* hashes, const X402Payment_t* payment, const X402SolanaCheck_t* check, X402RequestPayment_t* payment_out)
 {
   assert(reservation != NULL);
   assert(hashes      != NULL);
+  assert(payment     != NULL);
+  assert(check       != NULL);
   assert(payment_out != NULL);
 
   switch (reservation->m_status)
@@ -547,9 +561,7 @@ static X402RequestOpenResult_t static_dbOpenHeldPayment(PGconn* conn, const X402
     case X402_LEDGER_SETTLED:
       return static_buildOpenResult(X402_REQUEST_OPEN_ALREADY_USED, 0);
     case X402_LEDGER_PENDING:
-      if (reservation->ma_signature[0] == '\0')
-        return static_buildOpenResult(X402_REQUEST_OPEN_PENDING, X402_REQUEST_PENDING_RETRY_AFTER_SEC);
-      return static_dbOpenPending(conn, hashes, reservation->ma_signature, payment_out);
+      return static_dbOpenPending(conn, hashes, reservation->ma_signature, payment, check, payment_out);
     case X402_LEDGER_RESERVED:
     case X402_LEDGER_ERROR:
       break;
@@ -569,11 +581,13 @@ static void static_fillOpenPayment(X402RequestPayment_t* payment_out, const X402
   memcpy(payment_out->ma_ipHash, ip_hash, SHA256_HEX_LEN + 1);
 }
 
-static X402RequestOpenResult_t static_dbOpenPending(PGconn* conn, const X402LedgerHashes_t* hashes, const char* signature_text, X402RequestPayment_t* payment_out)
+static X402RequestOpenResult_t static_dbOpenPending(PGconn* conn, const X402LedgerHashes_t* hashes, const char* stored_signature, const X402Payment_t* payment, const X402SolanaCheck_t* check, X402RequestPayment_t* payment_out)
 {
-  assert(hashes         != NULL);
-  assert(signature_text != NULL);
-  assert(payment_out    != NULL);
+  assert(hashes           != NULL);
+  assert(stored_signature != NULL);
+  assert(payment          != NULL);
+  assert(check            != NULL);
+  assert(payment_out      != NULL);
 
   unsigned int retry_after_seconds = 0;
   switch (throttle_dbCharge(conn, &X402_REQUEST_STATUS_ASK_THROTTLE_RULE, hashes->ma_messageHash, 1, &retry_after_seconds))
@@ -586,7 +600,25 @@ static X402RequestOpenResult_t static_dbOpenPending(PGconn* conn, const X402Ledg
       return static_buildOpenResult(X402_REQUEST_OPEN_ERROR, 0);
   }
 
-  switch (x402_solana_rpc_askSignatureStatus(g_solanaRpcUrl, signature_text))
+  char                           found_signature[X402_SOLANA_SIGNATURE_TEXT_BUF_SIZE] = "";
+  const char*                    signature_text = stored_signature;
+  X402SolanaRpcSignatureStatus_t signature_status;
+  UsageLogX402Step_t             step;
+  int64_t                        ask_start_ms = monotonic_nowMs();
+  if (stored_signature[0] != '\0')
+  {
+    signature_status = x402_solana_rpc_askSignatureStatus(g_solanaRpcUrl, stored_signature);
+    step             = USAGELOG_X402_STEP_STATUS_ASK;
+  }
+  else
+  {
+    signature_status = x402_solana_rpc_findFeePayerSignature(g_solanaRpcUrl, check->ma_source, payment->ma_transaction, payment->m_transactionByteCount, g_policy.ma_feePayer, found_signature);
+    signature_text   = found_signature;
+    step             = USAGELOG_X402_STEP_SIGNATURE_FIND;
+  }
+  usagelog_writeX402Step(step, static_signatureOutcome(signature_status), monotonic_nowMs() - ask_start_ms, 0);
+
+  switch (signature_status)
   {
     case X402_SOLANA_RPC_SIGNATURE_CONFIRMED:
       payment_out->m_kind   = X402_REQUEST_PAYMENT_CONFIRMED;
@@ -607,7 +639,10 @@ static X402RequestOpenResult_t static_dbOpenPending(PGconn* conn, const X402Ledg
 
 static X402RequestCloseStatus_t static_dbCloseFresh(PGconn* conn, const X402RequestPayment_t* payment, X402RequestReceipt_t* receipt_out)
 {
-  X402FacilitatorSettlement_t settlement = x402_facilitator_settle(&payment->m_requirements, &payment->m_payment);
+  int64_t                     settle_start_ms = monotonic_nowMs();
+  X402FacilitatorSettlement_t settlement      = x402_facilitator_settle(&payment->m_requirements, &payment->m_payment);
+  int64_t                     settle_end_ms   = monotonic_nowMs();
+  usagelog_writeX402Step(USAGELOG_X402_STEP_SETTLE, static_settleOutcome(&settlement), settle_end_ms - settle_start_ms, settle_end_ms - payment->m_reservedAtMs);
   switch (settlement.m_status)
   {
     case X402_FACILITATOR_SETTLE_PAID:
@@ -692,4 +727,46 @@ static const char* static_markStatusName(X402LedgerMarkStatus_t mark_status)
       return "MARK_ERROR";
   }
   return "unknown";
+}
+
+static UsageLogX402Outcome_t static_verifyOutcome(X402FacilitatorVerifyStatus_t verify_status)
+{
+  switch (verify_status)
+  {
+    case X402_FACILITATOR_VERIFY_VALID:       return USAGELOG_X402_OUTCOME_VALID;
+    case X402_FACILITATOR_VERIFY_INVALID:     return USAGELOG_X402_OUTCOME_INVALID;
+    case X402_FACILITATOR_VERIFY_UNAVAILABLE: return USAGELOG_X402_OUTCOME_UNAVAILABLE;
+  }
+  return USAGELOG_X402_OUTCOME_UNAVAILABLE;
+}
+
+static UsageLogX402Outcome_t static_settleOutcome(const X402FacilitatorSettlement_t* settlement)
+{
+  assert(settlement != NULL);
+
+  switch (settlement->m_status)
+  {
+    case X402_FACILITATOR_SETTLE_PAID:
+      if (settlement->m_hasSignature)
+        return USAGELOG_X402_OUTCOME_PAID;
+      break;
+    case X402_FACILITATOR_SETTLE_REFUSED:
+      return USAGELOG_X402_OUTCOME_REFUSED;
+    case X402_FACILITATOR_SETTLE_PENDING:
+      break;
+  }
+  return settlement->m_hasSignature ? USAGELOG_X402_OUTCOME_PENDING_WITH_SIGNATURE : USAGELOG_X402_OUTCOME_PENDING_WITHOUT_SIGNATURE;
+}
+
+static UsageLogX402Outcome_t static_signatureOutcome(X402SolanaRpcSignatureStatus_t signature_status)
+{
+  switch (signature_status)
+  {
+    case X402_SOLANA_RPC_SIGNATURE_CONFIRMED:   return USAGELOG_X402_OUTCOME_CONFIRMED;
+    case X402_SOLANA_RPC_SIGNATURE_FAILED:      return USAGELOG_X402_OUTCOME_FAILED;
+    case X402_SOLANA_RPC_SIGNATURE_PROCESSED:   return USAGELOG_X402_OUTCOME_PROCESSED;
+    case X402_SOLANA_RPC_SIGNATURE_NOT_FOUND:   return USAGELOG_X402_OUTCOME_NOT_FOUND;
+    case X402_SOLANA_RPC_SIGNATURE_UNAVAILABLE: return USAGELOG_X402_OUTCOME_UNAVAILABLE;
+  }
+  return USAGELOG_X402_OUTCOME_UNAVAILABLE;
 }

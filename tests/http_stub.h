@@ -16,6 +16,8 @@ extern int g_stub_next_status;
 
 extern const char* g_stub_next_body;
 
+extern size_t g_stub_next_body_byte_count;
+
 extern bool g_stub_next_body_null;
 
 extern int g_stub_last_timeout_ms;

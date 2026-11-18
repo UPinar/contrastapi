@@ -1898,6 +1898,122 @@ void test_cert_issuers_empty_issue_value_permits_no_issuer(void)
   static_writeIssuers(&empty_set, "caa_mismatch letsencrypt.org");
 }
 
+typedef struct
+{
+  const char* mp_bytes;
+  size_t      m_byteCount;
+} CaaValueCase_t;
+
+#define CAA_VALUE(text) { text, sizeof(text) - 1 }
+
+static void static_checkEachValueAlone(const CaaValueCase_t* cases, size_t case_count, const char* text)
+{
+  static_resetIssuers();
+  static_addIssuer("letsencrypt.org", LETSENCRYPT_DOMAINS, 1, true, false);
+  for (size_t i = 0; i < case_count; i++)
+  {
+    DnsCaaRecord_t record      = static_caa(0, "issue", "");
+    record.m_value.mp_bytes    = (char*)cases[i].mp_bytes;
+    record.m_value.m_byteCount = cases[i].m_byteCount;
+    DnsAnswer_t caa_set = static_caaSet(&record, 1);
+
+    char message[32];
+    snprintf(message, sizeof(message), "value %zu", i);
+    WatchlistDomainValue_t value;
+    static_fillValue(&value);
+    TEST_ASSERT_TRUE_MESSAGE(watchlist_cert_search_tryWriteCertIssuers(&g_issuerList, &caa_set, &caa_set, &value), message);
+    TEST_ASSERT_EQUAL_STRING_MESSAGE(text, value.ma_text, message);
+  }
+}
+
+void test_cert_issuers_value_in_the_rfc8659_grammar_names_its_domain(void)
+{
+  static const CaaValueCase_t cases[] = {
+    CAA_VALUE("letsencrypt.org"),
+    CAA_VALUE("letsencrypt.org;"),
+    CAA_VALUE(" letsencrypt.org\t;\t"),
+    CAA_VALUE("letsencrypt.org ; a = 1 ; b=2 "),
+    CAA_VALUE("letsencrypt.org; a="),
+    CAA_VALUE("letsencrypt.org; a= "),
+    CAA_VALUE("letsencrypt.org; a=b=c"),
+    CAA_VALUE("letsencrypt.org; a--b=1"),
+    CAA_VALUE("letsencrypt.org; A1=x"),
+    CAA_VALUE("letsencrypt.org; a=!:<~"),
+    CAA_VALUE("letsencrypt.org;\ta\t=\t1\t"),
+    CAA_VALUE("letsencrypt.org; aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa=1"),
+  };
+  static_checkEachValueAlone(cases, sizeof(cases) / sizeof(cases[0]), "new_issuer letsencrypt.org");
+}
+
+void test_cert_issuers_value_outside_the_rfc8659_grammar_names_no_issuer(void)
+{
+  static const CaaValueCase_t cases[] = {
+    CAA_VALUE("letsencrypt.org; validationmethods=dns-01, http-01"),
+    CAA_VALUE("letsencrypt.org; accounturi"),
+    CAA_VALUE("letsencrypt.org; a=1;"),
+    CAA_VALUE("letsencrypt.org; a=1; "),
+    CAA_VALUE("letsencrypt.org;;"),
+    CAA_VALUE("letsencrypt.org; =1"),
+    CAA_VALUE("letsencrypt.org; -a=1"),
+    CAA_VALUE("letsencrypt.org; a-=1"),
+    CAA_VALUE("letsencrypt.org; a_b=1"),
+    CAA_VALUE("letsencrypt.org; a.b=1"),
+    CAA_VALUE("letsencrypt.org; a b=1"),
+    CAA_VALUE("letsencrypt.org; a=\x7f"),
+    CAA_VALUE("letsencrypt.org; a=\x80"),
+    CAA_VALUE("letsencrypt.org; a=\x1f"),
+    CAA_VALUE("letsencrypt.org; a=x\0y"),
+    CAA_VALUE("letsencrypt.org\n"),
+    CAA_VALUE("letsencrypt.org x"),
+    CAA_VALUE("letsencrypt.org x; a=1"),
+    CAA_VALUE("\nletsencrypt.org"),
+    CAA_VALUE("letsencrypt.org; a=1\n"),
+  };
+  static_checkEachValueAlone(cases, sizeof(cases) / sizeof(cases[0]), "caa_mismatch letsencrypt.org");
+}
+
+void test_cert_issuers_domain_outside_the_grammar_names_no_issuer(void)
+{
+  static const char* const odd_ca_domains[]   = { "odd_ca.example" };
+  static const char* const hyphen_domains[]   = { "hyphen-.example" };
+  static const char* const dot_domains[]      = { "dot.example." };
+  static const char* const buypass_domains[]  = { "buypass.com" };
+  static_resetIssuers();
+  static_addIssuer("odd_ca.example", odd_ca_domains, 1, true, false);
+  static_addIssuer("hyphen-.example", hyphen_domains, 1, true, false);
+  static_addIssuer("dot.example.", dot_domains, 1, true, false);
+  static_addIssuer("letsencrypt.org", LETSENCRYPT_DOMAINS, 1, true, false);
+  static_addIssuer("buypass.com", buypass_domains, 1, true, false);
+  DnsCaaRecord_t records[] = {
+    static_caa(0, "issue", "odd_ca.example"),
+    static_caa(0, "issue", "hyphen-.example"),
+    static_caa(0, "issue", "dot.example."),
+    static_caa(0, "issue", "letsencrypt.org"),
+    static_caa(0, "issue", "buypass.com"),
+  };
+  DnsAnswer_t caa_set = static_caaSet(records, 5);
+
+  static_writeIssuers(&caa_set, "new_issuer buypass.com\ncaa_mismatch dot.example.\ncaa_mismatch hyphen-.example\nnew_issuer letsencrypt.org\ncaa_mismatch odd_ca.example");
+}
+
+void test_cert_issuers_malformed_record_beside_a_valid_one_and_in_issuewild(void)
+{
+  static_resetIssuers();
+  static_addIssuer("letsencrypt.org", LETSENCRYPT_DOMAINS, 1, true, false);
+  DnsCaaRecord_t pair[] = { static_caa(0, "issue", "letsencrypt.org; a"), static_caa(0, "issue", "letsencrypt.org") };
+  DnsAnswer_t pair_set = static_caaSet(pair, 2);
+  static_writeIssuers(&pair_set, "new_issuer letsencrypt.org");
+
+  static_resetIssuers();
+  static_addIssuer("letsencrypt.org", LETSENCRYPT_DOMAINS, 1, false, true);
+  DnsCaaRecord_t malformed[] = { static_caa(0, "issuewild", "letsencrypt.org; a") };
+  DnsAnswer_t malformed_set = static_caaSet(malformed, 1);
+  static_writeIssuers(&malformed_set, "caa_mismatch letsencrypt.org");
+  DnsCaaRecord_t valid[] = { static_caa(0, "issuewild", "letsencrypt.org; a=1") };
+  DnsAnswer_t valid_set = static_caaSet(valid, 1);
+  static_writeIssuers(&valid_set, "new_issuer letsencrypt.org");
+}
+
 void test_cert_issuers_wildcard_issuer_reads_issuewild_then_issue(void)
 {
   DnsCaaRecord_t set_a[] = { static_caa(0, "issue", "pki.goog"), static_caa(0, "issuewild", "letsencrypt.org") };
@@ -2118,7 +2234,7 @@ void test_cert_issuers_empty_set_is_an_empty_value(void)
 
 void test_registration_gate_test_count(void)
 {
-  TEST_ASSERT_EQUAL_INT_MESSAGE(91, (int)Unity.NumberOfTests,
+  TEST_ASSERT_EQUAL_INT_MESSAGE(95, (int)Unity.NumberOfTests,
     "RUN_TEST list and test definitions have drifted apart - a test may be unregistered");
 }
 
@@ -2202,6 +2318,10 @@ int main(void)
   RUN_TEST(test_cert_issuers_tag_value_parameters_space_and_case);
   RUN_TEST(test_cert_issuers_tag_domain_must_match_whole);
   RUN_TEST(test_cert_issuers_empty_issue_value_permits_no_issuer);
+  RUN_TEST(test_cert_issuers_value_in_the_rfc8659_grammar_names_its_domain);
+  RUN_TEST(test_cert_issuers_value_outside_the_rfc8659_grammar_names_no_issuer);
+  RUN_TEST(test_cert_issuers_domain_outside_the_grammar_names_no_issuer);
+  RUN_TEST(test_cert_issuers_malformed_record_beside_a_valid_one_and_in_issuewild);
   RUN_TEST(test_cert_issuers_wildcard_issuer_reads_issuewild_then_issue);
   RUN_TEST(test_cert_issuers_wildcard_issuer_reads_the_set_of_the_parent);
   RUN_TEST(test_cert_issuers_needed_sets_follow_the_flags);

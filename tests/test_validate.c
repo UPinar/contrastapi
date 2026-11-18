@@ -719,6 +719,36 @@ void test_dkimSelector_selector_length_limit(void)
   TEST_ASSERT_FALSE(validate_dkimSelector(dkim_selector));
 }
 
+void test_letterDigitHyphenLabel_accepted_labels(void)
+{
+  static const char* const accepted_labels[] = {
+    "a", "Z", "0", "a-b", "a--b", "1ca", "LetsEncrypt", "validationmethods",
+  };
+  for (size_t i = 0; i < sizeof(accepted_labels) / sizeof(accepted_labels[0]); i++)
+    TEST_ASSERT_TRUE_MESSAGE(validate_letterDigitHyphenLabel(accepted_labels[i], strlen(accepted_labels[i])), accepted_labels[i]);
+
+  char long_label[VALIDATE_DOMAIN_LABEL_MAX_LEN + 1];
+  memset(long_label, 'a', sizeof(long_label));
+  TEST_ASSERT_TRUE(validate_letterDigitHyphenLabel(long_label, sizeof(long_label)));
+}
+
+void test_letterDigitHyphenLabel_refused_labels(void)
+{
+  static const char* const refused_labels[] = {
+    "", "-", "-a", "a-", "_a", "a_b", "a.b", "a b", "a=b", "a\x7f", "\xc3\xa9",
+  };
+  for (size_t i = 0; i < sizeof(refused_labels) / sizeof(refused_labels[0]); i++)
+    TEST_ASSERT_FALSE_MESSAGE(validate_letterDigitHyphenLabel(refused_labels[i], strlen(refused_labels[i])), refused_labels[i]);
+}
+
+void test_letterDigitHyphenLabel_reads_only_the_given_length(void)
+{
+  TEST_ASSERT_TRUE(validate_letterDigitHyphenLabel("ab-", 2));
+  TEST_ASSERT_TRUE(validate_letterDigitHyphenLabel("a_", 1));
+  TEST_ASSERT_FALSE(validate_letterDigitHyphenLabel("ab", 0));
+  TEST_ASSERT_FALSE(validate_letterDigitHyphenLabel("a\0b", 3));
+}
+
 void test_watchlistCursor_each_shape_pinned(void)
 {
   static const struct { const char* mp_cursor; bool m_isValid; } cases[] = {
@@ -1301,6 +1331,9 @@ int main(void)
   RUN_TEST(test_dkimSelector_refused_selectors);
   RUN_TEST(test_dkimSelector_label_length_limit);
   RUN_TEST(test_dkimSelector_selector_length_limit);
+  RUN_TEST(test_letterDigitHyphenLabel_accepted_labels);
+  RUN_TEST(test_letterDigitHyphenLabel_refused_labels);
+  RUN_TEST(test_letterDigitHyphenLabel_reads_only_the_given_length);
   RUN_TEST(test_watchlistCursor_each_shape_pinned);
   RUN_TEST(test_attackTechniqueId_each_shape_pinned);
   RUN_TEST(test_attackTechniqueId_each_byte_next_to_its_range_refused);

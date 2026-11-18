@@ -183,7 +183,8 @@ X402_REQUEST_OBJS      = obj/x402_request.o obj/x402.o obj/x402_solana.o
 X402_REQUEST_STUB_OBJS = $(X402_FACILITATOR_STUB_OBJ) $(X402_SOLANA_RPC_STUB_OBJ) $(X402_LEDGER_STUB_OBJ)
 # X402_PAID_PATH_TEST_OBJS are what the paid path of request.o and handler.o adds to a test
 # link: X402_REQUEST_OBJS and X402_REQUEST_STUB_OBJS. The paid path also needs a throttle, and
-# every line that links handler.o or request.o already has $(THROTTLE_STUB_OBJ). The server
+# every line that links handler.o or request.o already has $(THROTTLE_STUB_OBJ). x402_request.o
+# also needs usagelog.o and monotonic.o, and those lines link them already. The server
 # links the real x402_ledger.o, x402_facilitator.o, x402_solana_rpc.o and throttle.o from SRCS.
 X402_PAID_PATH_TEST_OBJS = $(X402_REQUEST_OBJS) $(X402_REQUEST_STUB_OBJS)
 # VENDORKEY_RUN_OBJS are what the vendor_key_edit run adds to a link set that links the
@@ -310,7 +311,7 @@ WATCHLIST_DOMAIN_LANE_OBJS = obj/watchlist/watchlist_domain.o obj/watchlist/endp
 # --wrap of five EVP calls lets tests/test_watchlist_domain.c fail the SHA-256 at each step and count
 # the SHA-256 contexts left open. --gc-sections drops the scan of each lane object, so the test
 # links the value writers alone (see the obj/watchlist/%.o flags).
-bin/test_watchlist_domain: tests/test_watchlist_domain.c $(WATCHLIST_DOMAIN_LANE_OBJS) obj/tlsprobe_table.o obj/ipguard.o obj/datetime.o obj/utf8.o $(UNITY_OBJ) | bin
+bin/test_watchlist_domain: tests/test_watchlist_domain.c $(WATCHLIST_DOMAIN_LANE_OBJS) obj/tlsprobe_table.o obj/validate.o obj/ipguard.o obj/datetime.o obj/utf8.o $(UNITY_OBJ) | bin
 	$(CC) $(TEST_CFLAGS) -o $@ $^ -lcrypto -Wl,--gc-sections -Wl,--wrap=EVP_MD_CTX_new,--wrap=EVP_MD_CTX_free,--wrap=EVP_DigestInit_ex,--wrap=EVP_DigestUpdate,--wrap=EVP_DigestFinal_ex
 
 # bin/test_watchlist_domain_scan links the lane objects with watchlist/watchlist_domain_scan.o, so each
@@ -493,8 +494,10 @@ bin/test_x402_solana_rpc: tests/test_x402_solana_rpc.cpp obj/x402_solana_rpc.o o
 # --wrap=x402_parsePaymentHeader,--wrap=x402_parsePaymentJson,--wrap=x402_solana_checkTransaction:
 # tests/test_x402_request.c answers all three from a global and keeps the amount and the
 # policy each got.
+# --wrap=monotonic_nowMs: the time of each outside step runs on a fake clock. The test file
+# also defines usagelog_writeX402Step, which keeps each step line, so usagelog.o is not linked.
 bin/test_x402_request: tests/test_x402_request.c $(X402_REQUEST_OBJS) $(X402_REQUEST_STUB_OBJS) $(THROTTLE_STUB_OBJ) obj/jsonbuf.o obj/utf8.o obj/jsonread.o obj/bytes.o $(UNITY_OBJ) | bin
-	$(CC) $(TEST_CFLAGS) -o $@ $^ -Wl,--wrap=x402_parsePaymentHeader,--wrap=x402_parsePaymentJson,--wrap=x402_solana_checkTransaction -lcrypto
+	$(CC) $(TEST_CFLAGS) -o $@ $^ -Wl,--wrap=x402_parsePaymentHeader,--wrap=x402_parsePaymentJson,--wrap=x402_solana_checkTransaction,--wrap=monotonic_nowMs -lcrypto
 
 # test_billing links the real billing.c and what it reads with. It checks signatures with
 # HMAC, hence -lcrypto. validate.o needs ipguard.o.

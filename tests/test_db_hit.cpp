@@ -2962,7 +2962,7 @@ void test_HEALTH_db_error_answers_503_with_retry_after(void)
   TEST_ASSERT_EQUAL_INT(1, static_countResponses(buf));
   TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 503 Service Unavailable\r\n"));
   TEST_ASSERT_NOT_NULL(strstr(buf, "\r\nRetry-After: 5\r\n"));
-  TEST_ASSERT_NOT_NULL(strstr(buf, R"({"status":"unavailable","version":"2.0.9","db":null})"));
+  TEST_ASSERT_NOT_NULL(strstr(buf, R"({"status":"unavailable","version":"2.0.10","db":null})"));
   TEST_ASSERT_NULL(strstr(buf, R"("cve_count")"));
 }
 
@@ -2976,7 +2976,7 @@ void test_HEALTH_db_not_found_also_answers_503(void)
   static_callRequestHandle(req, buf, sizeof(buf));
   TEST_ASSERT_EQUAL_INT(1, static_countResponses(buf));
   TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 503 Service Unavailable\r\n"));
-  TEST_ASSERT_NOT_NULL(strstr(buf, R"({"status":"unavailable","version":"2.0.9","db":null})"));
+  TEST_ASSERT_NOT_NULL(strstr(buf, R"({"status":"unavailable","version":"2.0.10","db":null})"));
   TEST_ASSERT_NULL(strstr(buf, R"("cve_count")"));
 }
 
@@ -14693,7 +14693,7 @@ void test_api_key_claim_refuses_an_order_id_that_is_not_a_uuid(void)
 
 void test_registration_gate_test_count(void)
 {
-  int expected_test_count = 754;
+  int expected_test_count = 756;
   TEST_ASSERT_EQUAL_INT_MESSAGE(expected_test_count, (int)Unity.NumberOfTests,
     "RUN_TEST list and test definitions have drifted apart - a test may be unregistered");
 }
@@ -18053,6 +18053,7 @@ void test_docs_privacy_page_billing_event_age_matches_the_sql(void)
 #define X402_TEST_SOURCE_HASH    "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 #define X402_TEST_SIGNATURE      "5VERv8NMvzbJMEkV8xnrLkEaWRtSz9CosKDYjCJjBRnbJLgp8uirBgmQpjKhoR4tjF3ZpRzrFmBV6UjKdiSZkQUW"
 #define X402_TEST_PENDING_SIG    "3PendingSignatureOfTheLedgerRow"
+#define X402_TEST_FOUND_SIG      "4FoundSignatureOfTheFeePayerSearch"
 
 #define X402_TEST_PAYMENT_LINE   "PAYMENT-SIGNATURE: aGVhZGVy\r\n"
 
@@ -18167,6 +18168,10 @@ static void static_resetX402Stubs(void)
   g_stub_X402_SOLANA_RPC_status            = X402_SOLANA_RPC_SIGNATURE_NOT_FOUND;
   g_stub_X402_SOLANA_RPC_count             = 0;
   g_stub_X402_SOLANA_RPC_last_signature[0] = '\0';
+  g_stub_X402_SOLANA_RPC_find_status       = X402_SOLANA_RPC_SIGNATURE_NOT_FOUND;
+  g_stub_X402_SOLANA_RPC_find_signature[0] = '\0';
+  g_stub_X402_SOLANA_RPC_find_count        = 0;
+  g_stub_X402_SOLANA_RPC_find_last_url[0]  = '\0';
 }
 
 static void static_startX402(void)
@@ -18503,6 +18508,44 @@ void test_x402_confirmed_pending_payment_is_served_once(void)
   static_assertNoLine(buf, "PAYMENT-REQUIRED");
   TEST_ASSERT_NULL(strstr(buf, "CVE-2021-44228"));
   TEST_ASSERT_EQUAL_INT(1, g_stub_X402_LEDGER_mark_settled_count);
+}
+
+void test_x402_found_pending_payment_with_no_signature_is_served_once(void)
+{
+  static_startX402();
+  g_stub_CVELOOKUP_status                        = DB_OK;
+  g_stub_X402_LEDGER_reservation.m_status        = X402_LEDGER_PENDING;
+  g_stub_X402_LEDGER_reservation.ma_signature[0] = '\0';
+  g_stub_X402_SOLANA_RPC_find_status             = X402_SOLANA_RPC_SIGNATURE_CONFIRMED;
+  snprintf(g_stub_X402_SOLANA_RPC_find_signature, sizeof(g_stub_X402_SOLANA_RPC_find_signature), "%s", X402_TEST_FOUND_SIG);
+  char buf[RESP_BUF];
+  static_callX402(X402_TEST_CVE_LOOKUP_GET X402_TEST_PAYMENT_LINE "\r\n", buf);
+  TEST_ASSERT_EQUAL_INT(1, static_countResponses(buf));
+  static_assertLine(buf, "HTTP/1.1 200 OK\r\n");
+  TEST_ASSERT_NOT_NULL(strstr(static_responseBody(buf), "CVE-2021-44228"));
+  char line[512];
+  TEST_ASSERT_TRUE_MESSAGE(static_x402FindLine(buf, "PAYMENT-RESPONSE", line, sizeof(line)), buf);
+  char json[512];
+  static_x402DecodeLine(line, "PAYMENT-RESPONSE", json, sizeof(json));
+  TEST_ASSERT_EQUAL_STRING("{\"success\":true,\"transaction\":\"4FoundSignatureOfTheFeePayerSearch\",\"network\":\"" X402_TEST_NETWORK "\"}", json);
+  TEST_ASSERT_EQUAL_INT(1, g_stub_X402_LEDGER_mark_settled_count);
+  TEST_ASSERT_EQUAL_INT(1, g_stub_X402_SOLANA_RPC_find_count);
+  TEST_ASSERT_EQUAL_STRING(X402_TEST_RPC_URL, g_stub_X402_SOLANA_RPC_find_last_url);
+  TEST_ASSERT_EQUAL_INT(0, g_stub_X402_SOLANA_RPC_count);
+  TEST_ASSERT_EQUAL_INT(0, g_stub_X402_FACILITATOR_verify_count);
+  TEST_ASSERT_EQUAL_INT(0, g_stub_X402_FACILITATOR_settle_count);
+
+  g_stub_X402_LEDGER_reservation.m_status = X402_LEDGER_SETTLED;
+  g_stub_CVELOOKUP_call_count             = 0;
+  static_callX402(X402_TEST_CVE_LOOKUP_GET X402_TEST_PAYMENT_LINE "\r\n", buf);
+  TEST_ASSERT_EQUAL_INT(1, static_countResponses(buf));
+  static_assertLine(buf, "HTTP/1.1 402 Payment Required\r\n");
+  static_assertLine(buf, R"("code":"payment_already_used")");
+  static_assertNoLine(buf, "PAYMENT-RESPONSE");
+  TEST_ASSERT_NULL(strstr(buf, "CVE-2021-44228"));
+  TEST_ASSERT_EQUAL_INT(0, g_stub_CVELOOKUP_call_count);
+  TEST_ASSERT_EQUAL_INT(1, g_stub_X402_LEDGER_mark_settled_count);
+  TEST_ASSERT_EQUAL_INT(1, g_stub_X402_SOLANA_RPC_find_count);
 }
 
 void test_x402_failed_pending_payment_is_refused(void)
@@ -19250,6 +19293,37 @@ void test_mcp_x402_confirmed_pending_payment_is_served_once(void)
   static_assertMcpAnswer(buf, "HTTP/1.1 200 OK\r\n", R"({"jsonrpc":"2.0","id":21,"result":{"content":[{"type":"text","text":"The payment is pending: retry with the same payment."}],"isError":true}})");
   static_assertLine(buf, "\r\nRetry-After: 10\r\n");
   TEST_ASSERT_EQUAL_INT(0, g_stub_CVELOOKUP_call_count);
+}
+
+void test_mcp_x402_found_pending_payment_with_no_signature_is_served_once(void)
+{
+  static_startX402();
+  g_stub_CVELOOKUP_status                        = DB_OK;
+  g_stub_X402_LEDGER_reservation.m_status        = X402_LEDGER_PENDING;
+  g_stub_X402_LEDGER_reservation.ma_signature[0] = '\0';
+  g_stub_X402_SOLANA_RPC_find_status             = X402_SOLANA_RPC_SIGNATURE_CONFIRMED;
+  snprintf(g_stub_X402_SOLANA_RPC_find_signature, sizeof(g_stub_X402_SOLANA_RPC_find_signature), "%s", X402_TEST_FOUND_SIG);
+  char buf[RESP_BUF];
+  static_callMcpX402("", X402_TEST_MCP_CVE_CALL(X402_TEST_MCP_PAID_META), buf, false);
+  TEST_ASSERT_EQUAL_INT(1, static_countResponses(buf));
+  static_assertLine(buf, "HTTP/1.1 200 OK\r\n");
+  static_assertLine(buf, R"("result":{"_meta":{"x402/payment-response":{"success":true,"transaction":"4FoundSignatureOfTheFeePayerSearch","network":")" X402_TEST_NETWORK R"("}},"content":)");
+  TEST_ASSERT_NOT_NULL(strstr(buf, "CVE-2021-44228"));
+  TEST_ASSERT_EQUAL_INT(1, g_stub_X402_LEDGER_mark_settled_count);
+  TEST_ASSERT_EQUAL_INT(1, g_stub_X402_SOLANA_RPC_find_count);
+  TEST_ASSERT_EQUAL_INT(0, g_stub_X402_SOLANA_RPC_count);
+  TEST_ASSERT_EQUAL_INT(0, g_stub_X402_FACILITATOR_verify_count);
+  TEST_ASSERT_EQUAL_INT(0, g_stub_X402_FACILITATOR_settle_count);
+
+  g_stub_X402_LEDGER_reservation.m_status = X402_LEDGER_SETTLED;
+  g_stub_CVELOOKUP_call_count             = 0;
+  static_callMcpX402("", X402_TEST_MCP_CVE_CALL(X402_TEST_MCP_PAID_META), buf, false);
+  TEST_ASSERT_EQUAL_INT(1, static_countResponses(buf));
+  static_assertLine(buf, "HTTP/1.1 200 OK\r\n");
+  static_assertMcpOffer(buf, "21", X402_TEST_MCP_OFFER_JSON("cve_lookup", "10000", "This payment was already used."), false);
+  TEST_ASSERT_EQUAL_INT(0, g_stub_CVELOOKUP_call_count);
+  TEST_ASSERT_EQUAL_INT(1, g_stub_X402_LEDGER_mark_settled_count);
+  TEST_ASSERT_EQUAL_INT(1, g_stub_X402_SOLANA_RPC_find_count);
 }
 
 void test_mcp_x402_settled_payment_is_already_used(void)
@@ -21438,6 +21512,7 @@ int main(void)
   RUN_TEST(test_x402_refused_settle_is_402_and_withholds_the_body);
   RUN_TEST(test_x402_pending_settle_is_402_pending_without_an_offer);
   RUN_TEST(test_x402_confirmed_pending_payment_is_served_once);
+  RUN_TEST(test_x402_found_pending_payment_with_no_signature_is_served_once);
   RUN_TEST(test_x402_failed_pending_payment_is_refused);
   RUN_TEST(test_x402_unknown_pending_payment_stays_pending);
   RUN_TEST(test_x402_settled_payment_is_already_used);
@@ -21478,6 +21553,7 @@ int main(void)
   RUN_TEST(test_mcp_x402_refused_settle_is_a_new_offer_without_the_tool_content);
   RUN_TEST(test_mcp_x402_pending_settle_is_a_tool_error_without_an_offer);
   RUN_TEST(test_mcp_x402_confirmed_pending_payment_is_served_once);
+  RUN_TEST(test_mcp_x402_found_pending_payment_with_no_signature_is_served_once);
   RUN_TEST(test_mcp_x402_settled_payment_is_already_used);
   RUN_TEST(test_mcp_x402_open_refusals_are_answered);
   RUN_TEST(test_mcp_x402_busy_payment_is_a_jsonrpc_429);

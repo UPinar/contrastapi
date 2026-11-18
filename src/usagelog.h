@@ -3,6 +3,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
 #include "endpoint.h"
 #include "pages.h"
@@ -50,12 +51,34 @@ typedef enum {
 
 #define USAGELOG_EVENT_KIND_COUNT ((size_t)USAGELOG_EVENT_CVE_SERVICES_CAP_REACHED + 1)
 
+typedef enum {
+  USAGELOG_X402_STEP_VERIFY = 0,
+  USAGELOG_X402_STEP_SETTLE,
+  USAGELOG_X402_STEP_STATUS_ASK,
+  USAGELOG_X402_STEP_SIGNATURE_FIND
+} UsageLogX402Step_t;
+
+typedef enum {
+  USAGELOG_X402_OUTCOME_VALID = 0,
+  USAGELOG_X402_OUTCOME_INVALID,
+  USAGELOG_X402_OUTCOME_UNAVAILABLE,
+  USAGELOG_X402_OUTCOME_PAID,
+  USAGELOG_X402_OUTCOME_REFUSED,
+  USAGELOG_X402_OUTCOME_PENDING_WITH_SIGNATURE,
+  USAGELOG_X402_OUTCOME_PENDING_WITHOUT_SIGNATURE,
+  USAGELOG_X402_OUTCOME_CONFIRMED,
+  USAGELOG_X402_OUTCOME_FAILED,
+  USAGELOG_X402_OUTCOME_PROCESSED,
+  USAGELOG_X402_OUTCOME_NOT_FOUND
+} UsageLogX402Outcome_t;
+
 void   usagelog_start                 (int instance_port);
 size_t usagelog_drainLines            (char* lines_out, size_t lines_out_size);
 bool   usagelog_startFileWriter       (const char* log_path, unsigned int interval_ms);
 void   usagelog_stopFileWriter        (void);
 void   usagelog_writeEvent            (UsageLogEvent_t event);
 void   usagelog_writeEventOncePerDay  (UsageLogEvent_t event);
+void   usagelog_writeX402Step         (UsageLogX402Step_t step, UsageLogX402Outcome_t outcome, int64_t duration_ms, int64_t reserve_age_ms);
 
 void   usagelog_beginRequest          (void);
 void   usagelog_writeRequest          (void);

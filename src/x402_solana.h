@@ -11,6 +11,8 @@
 
 #define X402_SOLANA_SIGNATURE_TEXT_BUF_SIZE     89
 
+#define X402_SOLANA_ADDRESS_TEXT_BUF_SIZE       45
+
 #define X402_SOLANA_MAX_TRANSACTION_BYTE_COUNT  1232
 
 #define X402_SOLANA_MAX_INSTRUCTION_COUNT       7
@@ -48,6 +50,7 @@ typedef struct {
 
 X402SolanaStatus_t x402_solana_checkTransaction         (const uint8_t* tx, size_t tx_len, const X402SolanaPolicy_t* policy, X402SolanaCheck_t* check_out);
 bool               x402_solana_tryDecodeAddress         (const char* text, uint8_t out[X402_SOLANA_ADDRESS_BYTE_COUNT]);
+bool               x402_solana_tryEncodeAddress         (const uint8_t address[X402_SOLANA_ADDRESS_BYTE_COUNT], char* out, size_t out_size);
 bool               x402_solana_tryDecodeSignature       (const char* text, uint8_t out[X402_SOLANA_SIGNATURE_BYTE_COUNT]);
 bool               x402_solana_isFeePayerSignatureValid (const uint8_t* tx, size_t tx_len, const uint8_t fee_payer[X402_SOLANA_ADDRESS_BYTE_COUNT], const uint8_t signature[X402_SOLANA_SIGNATURE_BYTE_COUNT]);
 

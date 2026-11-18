@@ -153,7 +153,7 @@ The modern era has no handshake. Discovery is a plain request, and it costs no c
     "cacheScope":"public", "ttlMs":3600000,
     "supportedVersions":["2026-07-28"],
     "capabilities":{ "tools":{} },
-    "serverInfo":{ "name":"contrastapi", "title":"ContrastAPI", "version":"2.0.9" },
+    "serverInfo":{ "name":"contrastapi", "title":"ContrastAPI", "version":"2.0.10" },
     "instructions":"ContrastAPI is a security data and monitoring server, with watchlists of CVEs, packages, domains and IP addresses. Call cve_lookup for a CVE, package_check for a package, dns_lookup for a domain and ip_lookup for an IP address. Call watchlist_edit and watchlist_events for monitoring, which needs an API key. A Pro API key is sold at https://api.contrastcyber.com/pricing. It looks up, searches and scores CVE, KEV and CWE records. It gives public exploit intelligence. It decodes and scores a CVSS v3 vector. It checks a password's SHA-1 against Have I Been Pwned. It reads a domain's DNS records and checks a host name for a dangling CNAME. It checks a domain's SPF, DMARC, DKIM and MTA-STS records. It checks whether an e-mail address's domain takes mail and whether the address is disposable. It checks the TLS certificate and settings of a host name and rates the security headers of a web site. It looks up the registration of a domain name over RDAP or WHOIS. It lists the Wayback Machine captures of a host name. It lists the unexpired certificates that Certificate Transparency logs hold for a host name. It lists the subdomains of a registrable domain from Certificate Transparency and DNS. It names the MITRE D3FEND defenses that counter a MITRE ATT&CK technique. It finds a driver file hash in the LOLDrivers catalog. It looks up the AS, the country, the cloud range, the Tor exit and the DROP listing of a public IP address. It looks up an AS by its number or by an address it holds. It checks a package or a list of packages of nine ecosystems against OSV.dev advisories and malicious packages. It gives the end-of-life dates of a product or a package from endoflife.date. The watchlist keeps CVE, package, domain and IP items for an API key, and watchlist_events reads their change events. A Pro API key can save its own Shodan and AbuseIPDB keys with vendor_key_edit, and ip_lookup then adds their answers. It says what it keeps about the caller. A call with no API key and no credits left can pay per call with x402 in USDC on Solana."
   } }
 ```
@@ -265,7 +265,7 @@ still served, but its reply carries `"id":null`.
   "result":{
     "protocolVersion":"2025-11-25",
     "capabilities":{ "tools":{} },
-    "serverInfo":{ "name":"contrastapi", "title":"ContrastAPI", "version":"2.0.9" },
+    "serverInfo":{ "name":"contrastapi", "title":"ContrastAPI", "version":"2.0.10" },
     "instructions":"ContrastAPI is a security data and monitoring server, with watchlists of CVEs, packages, domains and IP addresses. Call cve_lookup for a CVE, package_check for a package, dns_lookup for a domain and ip_lookup for an IP address. Call watchlist_edit and watchlist_events for monitoring, which needs an API key. A Pro API key is sold at https://api.contrastcyber.com/pricing. It looks up, searches and scores CVE, KEV and CWE records. It gives public exploit intelligence. It decodes and scores a CVSS v3 vector. It checks a password's SHA-1 against Have I Been Pwned. It reads a domain's DNS records and checks a host name for a dangling CNAME. It checks a domain's SPF, DMARC, DKIM and MTA-STS records. It checks whether an e-mail address's domain takes mail and whether the address is disposable. It checks the TLS certificate and settings of a host name and rates the security headers of a web site. It looks up the registration of a domain name over RDAP or WHOIS. It lists the Wayback Machine captures of a host name. It lists the unexpired certificates that Certificate Transparency logs hold for a host name. It lists the subdomains of a registrable domain from Certificate Transparency and DNS. It names the MITRE D3FEND defenses that counter a MITRE ATT&CK technique. It finds a driver file hash in the LOLDrivers catalog. It looks up the AS, the country, the cloud range, the Tor exit and the DROP listing of a public IP address. It looks up an AS by its number or by an address it holds. It checks a package or a list of packages of nine ecosystems against OSV.dev advisories and malicious packages. It gives the end-of-life dates of a product or a package from endoflife.date. The watchlist keeps CVE, package, domain and IP items for an API key, and watchlist_events reads their change events. A Pro API key can save its own Shodan and AbuseIPDB keys with vendor_key_edit, and ip_lookup then adds their answers. It says what it keeps about the caller. A call with no API key and no credits left can pay per call with x402 in USDC on Solana."
   } }
 ```
@@ -2147,7 +2147,7 @@ curl -sX POST https://api.contrastcyber.com/mcp -H "X-API-Key: $KEY" \
 ```
 ```jsonc
 // result.content[0].text (decoded):
-{ "status":"ok", "version":"2.0.9",
+{ "status":"ok", "version":"2.0.10",
   "db":{ "nvd":{ "cve_count":352507, "last_added":{ "cve_id":"CVE-2026-47782", "published_time":"2026-05-31" } },
          "kev":{ "entry_count":1592, "last_added":{ "cve_id":"CVE-2026-42897", "date_added":"2026-05-15" } },
          "cwe":{ "entry_count":944, "last_updated":{ "cwe_id":"CWE-1434", "updated_at":"2026-05-20T14:07:56Z" } },
@@ -2391,7 +2391,7 @@ Every answer is HTTP `200`, except the `429` limit answer, the `503` answer and 
 | `-32000`, HTTP `429`, with `data.retry_after_seconds` | The payment or its wallet is in flight, or a payment limit is reached |
 | `-32003`, HTTP `503`, with `data.retry_after_seconds` | Payments are unavailable right now |
 
-The ledger keeps what it keeps for a REST payment, and the limits are the same. See [Pay per call (x402)](API_Documentation.md#pay-per-call-x402).
+A pending payment is looked up on Solana as on REST, with a signature or without one. The wait, the refusal with a new offer and the contact for a payment that was charged but not served are the same too. The ledger keeps what it keeps for a REST payment, and the limits are the same. See [Pay per call (x402)](API_Documentation.md#pay-per-call-x402).
 
 ### Free tier (0-credit calls)
 

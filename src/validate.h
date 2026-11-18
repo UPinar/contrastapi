@@ -2,6 +2,7 @@
 #define VALIDATE_H
 
 #include <stdbool.h>
+#include <stddef.h>
 
 #define VALIDATE_SHA1_HEX_LEN     40
 #define VALIDATE_SHA1_HEX_REFUSAL_MESSAGE "Provide the full SHA1 hash (40 hexadecimal characters)."
@@ -61,5 +62,7 @@ bool validate_vendorKeyLink       (const char* link);
 bool validate_vendorKey           (const char* vendor_key);
 
 bool validate_publicUnderscoredDnsName(const char* domain_name);
+
+bool validate_letterDigitHyphenLabel(const char* label, size_t label_len);
 
 #endif

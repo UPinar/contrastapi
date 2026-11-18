@@ -14,6 +14,7 @@
 #include "x402.h"
 #include "x402_solana.h"
 #include "pricing.h"
+#include "usagelog.h"
 #include "throttle_stub.h"
 #include "x402_facilitator_stub.h"
 #include "x402_ledger_stub.h"
@@ -32,6 +33,7 @@
 #define FIXTURE_IP_HASH         "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
 #define FIXTURE_SIGNATURE       "5VERv8NMvzbJMEkV8xnrLkEaWRtSz9CosKDYjCJjBRnbJLgp8uirBgmQpjKhoR4tjF3ZpRzrFmBV6UjKdiSZkQUW"
 #define FIXTURE_PENDING_SIG     "3PendingSignatureOfTheLedgerRow"
+#define FIXTURE_FOUND_SIG       "4FoundSignatureOfTheFeePayerSearch"
 #define FIXTURE_BYTE_COUNT      321
 
 #define FIXTURE_CONN ((PGconn*)1)
@@ -105,6 +107,53 @@ X402SolanaStatus_t __wrap_x402_solana_checkTransaction(const uint8_t* tx, size_t
     memset(check_out->ma_source, 0x22, sizeof(check_out->ma_source));
   }
   return g_checkStatus;
+}
+
+int64_t __wrap_monotonic_nowMs(void);
+
+#define FAKE_CLOCK_STEP_MS  7
+
+static int64_t g_fakeClockMs;
+
+int64_t __wrap_monotonic_nowMs(void)
+{
+  int64_t now_ms = g_fakeClockMs;
+  g_fakeClockMs += FAKE_CLOCK_STEP_MS;
+  return now_ms;
+}
+
+typedef struct {
+  UsageLogX402Step_t     m_step;
+  UsageLogX402Outcome_t  m_outcome;
+  int64_t                m_durationMs;
+  int64_t                m_reserveAgeMs;
+} X402StepLine_t;
+
+#define STEP_LINE_MAX  8
+static X402StepLine_t g_stepLines[STEP_LINE_MAX];
+static int            g_stepLineCount;
+
+void usagelog_writeX402Step(UsageLogX402Step_t step, UsageLogX402Outcome_t outcome, int64_t duration_ms, int64_t reserve_age_ms)
+{
+  if (g_stepLineCount < STEP_LINE_MAX)
+    g_stepLines[g_stepLineCount] = (X402StepLine_t){ step, outcome, duration_ms, reserve_age_ms };
+  g_stepLineCount++;
+}
+
+static void static_clearStepLines(void)
+{
+  memset(g_stepLines, 0, sizeof(g_stepLines));
+  g_stepLineCount = 0;
+}
+
+static void static_assertOneStepLine(UsageLogX402Step_t step, UsageLogX402Outcome_t outcome, int64_t reserve_age_ms)
+{
+  TEST_ASSERT_EQUAL_INT_MESSAGE(1, g_stepLineCount, "step line count");
+  TEST_ASSERT_EQUAL_INT_MESSAGE(step, g_stepLines[0].m_step, "step");
+  TEST_ASSERT_EQUAL_INT_MESSAGE(outcome, g_stepLines[0].m_outcome, "outcome");
+  TEST_ASSERT_EQUAL_INT64_MESSAGE(FAKE_CLOCK_STEP_MS, g_stepLines[0].m_durationMs, "duration");
+  if (step == USAGELOG_X402_STEP_SETTLE)
+    TEST_ASSERT_EQUAL_INT64_MESSAGE(reserve_age_ms, g_stepLines[0].m_reserveAgeMs, "reserve age");
 }
 
 static void static_fixtureConfig(ConfigX402_t* config)
@@ -183,6 +232,17 @@ static void static_resetStubs(void)
   g_stub_X402_SOLANA_RPC_count             = 0;
   g_stub_X402_SOLANA_RPC_last_url[0]       = '\0';
   g_stub_X402_SOLANA_RPC_last_signature[0] = '\0';
+  g_stub_X402_SOLANA_RPC_find_status       = X402_SOLANA_RPC_SIGNATURE_NOT_FOUND;
+  g_stub_X402_SOLANA_RPC_find_signature[0] = '\0';
+  g_stub_X402_SOLANA_RPC_find_count        = 0;
+  g_stub_X402_SOLANA_RPC_find_last_url[0]  = '\0';
+  memset(g_stub_X402_SOLANA_RPC_find_last_source, 0, sizeof(g_stub_X402_SOLANA_RPC_find_last_source));
+  memset(g_stub_X402_SOLANA_RPC_find_last_tx, 0, sizeof(g_stub_X402_SOLANA_RPC_find_last_tx));
+  g_stub_X402_SOLANA_RPC_find_last_tx_len  = 0;
+  memset(g_stub_X402_SOLANA_RPC_find_last_fee_payer, 0, sizeof(g_stub_X402_SOLANA_RPC_find_last_fee_payer));
+
+  g_fakeClockMs = 100000;
+  static_clearStepLines();
 }
 
 static int g_releaseCallCountAtRelease;
@@ -639,14 +699,25 @@ void test_open_reserve_answers_map_to_their_status(void)
   static const X402LedgerReserveStatus_t      reserve_statuses[] = { X402_LEDGER_IN_FLIGHT, X402_LEDGER_SOURCE_BUSY, X402_LEDGER_SETTLED, X402_LEDGER_PENDING, X402_LEDGER_ERROR };
   static const X402RequestOpenStatus_t        open_statuses[]    = { X402_REQUEST_OPEN_BUSY, X402_REQUEST_OPEN_BUSY, X402_REQUEST_OPEN_ALREADY_USED, X402_REQUEST_OPEN_PENDING, X402_REQUEST_OPEN_ERROR };
   static const unsigned int                   retry_seconds[]    = { 5, 5, 0, 10, 0 };
+  static const int                            find_counts[]      = { 0, 0, 0, 1, 0 };
+  g_stub_X402_SOLANA_RPC_find_status = X402_SOLANA_RPC_SIGNATURE_NOT_FOUND;
   for (size_t i = 0; i < 5; i++)
   {
     g_stub_X402_LEDGER_reservation.m_status        = reserve_statuses[i];
     g_stub_X402_LEDGER_reservation.ma_signature[0] = '\0';
+    g_stub_X402_SOLANA_RPC_find_count              = 0;
+    memset(g_stub_THROTTLE_calls, 0, sizeof(g_stub_THROTTLE_calls));
+    g_stub_THROTTLE_call_count                     = 0;
+    int charge_count_before = g_stub_THROTTLE_charge_count;
     X402RequestPayment_t payment;
     X402RequestOpenResult_t result = static_open(1, &payment);
     TEST_ASSERT_EQUAL_INT_MESSAGE(open_statuses[i], result.m_status, "status");
     TEST_ASSERT_EQUAL_UINT_MESSAGE(retry_seconds[i], result.m_retryAfterSec, "retry");
+    TEST_ASSERT_EQUAL_INT_MESSAGE(find_counts[i], g_stub_X402_SOLANA_RPC_find_count, "find calls");
+    TEST_ASSERT_EQUAL_INT_MESSAGE(find_counts[i], g_stub_THROTTLE_charge_count - charge_count_before, "status ask charges");
+    TEST_ASSERT_EQUAL_INT_MESSAGE(6 + find_counts[i], g_stub_THROTTLE_call_count, "throttle calls");
+    if (find_counts[i] == 1)
+      static_assertThrottleCall(6, true, "x402_status_ask", 60, 10, FIXTURE_MESSAGE_HASH);
     TEST_ASSERT_FALSE(payment.m_isOpen);
     TEST_ASSERT_EQUAL_STRING(FIXTURE_MESSAGE_HASH, g_stub_X402_LEDGER_last_reserve_hashes.ma_messageHash);
     TEST_ASSERT_EQUAL_STRING(FIXTURE_SOURCE_HASH, g_stub_X402_LEDGER_last_reserve_hashes.ma_sourceHash);
@@ -723,6 +794,7 @@ void test_open_pending_payment_that_solana_confirmed_is_open_and_confirmed(void)
   TEST_ASSERT_EQUAL_INT(1, g_stub_X402_SOLANA_RPC_count);
   TEST_ASSERT_EQUAL_STRING("https://rpc.example.com/v1/sample", g_stub_X402_SOLANA_RPC_last_url);
   TEST_ASSERT_EQUAL_STRING(FIXTURE_PENDING_SIG, g_stub_X402_SOLANA_RPC_last_signature);
+  TEST_ASSERT_EQUAL_INT(0, g_stub_X402_SOLANA_RPC_find_count);
   TEST_ASSERT_EQUAL_INT(0, g_stub_X402_FACILITATOR_verify_count);
   static_assertBothPlacesFree();
   x402_request_dbReleaseUnserved(FIXTURE_CONN, &payment, X402_REQUEST_UNSERVED_FAILED_RUN);
@@ -756,6 +828,7 @@ void test_open_pending_payment_that_solana_has_not_decided_stays_pending(void)
   }
   TEST_ASSERT_EQUAL_INT(0, g_stub_X402_LEDGER_release_count);
   TEST_ASSERT_EQUAL_INT(3, g_stub_X402_SOLANA_RPC_count);
+  TEST_ASSERT_EQUAL_INT(0, g_stub_X402_SOLANA_RPC_find_count);
 }
 
 void test_open_pending_payment_over_its_ask_limit_is_limited(void)
@@ -775,6 +848,102 @@ void test_open_pending_payment_over_its_ask_limit_is_limited(void)
   TEST_ASSERT_EQUAL_INT(X402_REQUEST_OPEN_ERROR, result.m_status);
   TEST_ASSERT_EQUAL_UINT(0, result.m_retryAfterSec);
   TEST_ASSERT_FALSE(payment.m_isOpen);
+  TEST_ASSERT_EQUAL_INT(0, g_stub_X402_SOLANA_RPC_count);
+  TEST_ASSERT_EQUAL_INT(0, g_stub_X402_LEDGER_release_count);
+}
+
+static void static_setPendingWithoutSignature(X402SolanaRpcSignatureStatus_t status)
+{
+  g_stub_X402_LEDGER_reservation.m_status        = X402_LEDGER_PENDING;
+  g_stub_X402_LEDGER_reservation.ma_signature[0] = '\0';
+  g_stub_X402_SOLANA_RPC_find_status             = status;
+  snprintf(g_stub_X402_SOLANA_RPC_find_signature, sizeof(g_stub_X402_SOLANA_RPC_find_signature), "%s", FIXTURE_FOUND_SIG);
+}
+
+void test_open_pending_payment_with_no_signature_that_solana_confirmed_is_open_and_confirmed(void)
+{
+  static_setPendingWithoutSignature(X402_SOLANA_RPC_SIGNATURE_CONFIRMED);
+  X402RequestPayment_t payment;
+  X402RequestOpenResult_t result = static_open(1, &payment);
+  TEST_ASSERT_EQUAL_INT(X402_REQUEST_OPEN_OK, result.m_status);
+  TEST_ASSERT_EQUAL_UINT(0, result.m_retryAfterSec);
+  TEST_ASSERT_EQUAL_INT(X402_REQUEST_PAYMENT_CONFIRMED, payment.m_kind);
+  TEST_ASSERT_TRUE(payment.m_isOpen);
+  TEST_ASSERT_EQUAL_STRING("4FoundSignatureOfTheFeePayerSearch", payment.ma_signature);
+  TEST_ASSERT_EQUAL_STRING(FIXTURE_MESSAGE_HASH, payment.m_hashes.ma_messageHash);
+  TEST_ASSERT_EQUAL_STRING(FIXTURE_SOURCE_HASH, payment.m_hashes.ma_sourceHash);
+  TEST_ASSERT_EQUAL_STRING(FIXTURE_IP_HASH, payment.ma_ipHash);
+  TEST_ASSERT_EQUAL_INT(7, g_stub_THROTTLE_call_count);
+  TEST_ASSERT_EQUAL_INT(1, g_stub_THROTTLE_charge_count);
+  static_assertThrottleCall(6, true, "x402_status_ask", 60, 10, FIXTURE_MESSAGE_HASH);
+  TEST_ASSERT_EQUAL_INT(1, g_stub_X402_SOLANA_RPC_find_count);
+  TEST_ASSERT_EQUAL_STRING("https://rpc.example.com/v1/sample", g_stub_X402_SOLANA_RPC_find_last_url);
+  uint8_t source_bytes[32];
+  memset(source_bytes, 0x22, sizeof(source_bytes));
+  TEST_ASSERT_EQUAL_HEX8_ARRAY(source_bytes, g_stub_X402_SOLANA_RPC_find_last_source, 32);
+  TEST_ASSERT_EQUAL_size_t(321, g_stub_X402_SOLANA_RPC_find_last_tx_len);
+  TEST_ASSERT_EQUAL_HEX8(0x42, g_stub_X402_SOLANA_RPC_find_last_tx[0]);
+  TEST_ASSERT_EQUAL_HEX8(0x00, g_stub_X402_SOLANA_RPC_find_last_tx[1]);
+  TEST_ASSERT_EQUAL_HEX8_ARRAY(FEE_PAYER_BYTES, g_stub_X402_SOLANA_RPC_find_last_fee_payer, 32);
+  TEST_ASSERT_EQUAL_INT(0, g_stub_X402_SOLANA_RPC_count);
+  TEST_ASSERT_EQUAL_INT(0, g_stub_X402_FACILITATOR_verify_count);
+  TEST_ASSERT_EQUAL_INT(0, g_stub_X402_LEDGER_release_count);
+  static_assertBothPlacesFree();
+  x402_request_dbReleaseUnserved(FIXTURE_CONN, &payment, X402_REQUEST_UNSERVED_FAILED_RUN);
+}
+
+void test_open_pending_payment_with_no_signature_that_failed_on_chain_is_released_and_refused(void)
+{
+  static_setPendingWithoutSignature(X402_SOLANA_RPC_SIGNATURE_FAILED);
+  X402RequestPayment_t payment;
+  X402RequestOpenResult_t result = static_open(1, &payment);
+  TEST_ASSERT_EQUAL_INT(X402_REQUEST_OPEN_REFUSED, result.m_status);
+  TEST_ASSERT_EQUAL_UINT(0, result.m_retryAfterSec);
+  TEST_ASSERT_FALSE(payment.m_isOpen);
+  TEST_ASSERT_EQUAL_INT(1, g_stub_X402_LEDGER_release_count);
+  TEST_ASSERT_EQUAL_STRING(FIXTURE_MESSAGE_HASH, g_stub_X402_LEDGER_last_release_hashes.ma_messageHash);
+  TEST_ASSERT_EQUAL_INT(1, g_stub_X402_SOLANA_RPC_find_count);
+  TEST_ASSERT_EQUAL_INT(0, g_stub_X402_SOLANA_RPC_count);
+  static_assertBothPlacesFree();
+}
+
+void test_open_pending_payment_with_no_signature_that_solana_has_not_decided_stays_pending(void)
+{
+  static const X402SolanaRpcSignatureStatus_t statuses[] = { X402_SOLANA_RPC_SIGNATURE_PROCESSED, X402_SOLANA_RPC_SIGNATURE_NOT_FOUND, X402_SOLANA_RPC_SIGNATURE_UNAVAILABLE };
+  for (size_t i = 0; i < 3; i++)
+  {
+    static_setPendingWithoutSignature(statuses[i]);
+    X402RequestPayment_t payment;
+    X402RequestOpenResult_t result = static_open(1, &payment);
+    TEST_ASSERT_EQUAL_INT(X402_REQUEST_OPEN_PENDING, result.m_status);
+    TEST_ASSERT_EQUAL_UINT(10, result.m_retryAfterSec);
+    TEST_ASSERT_FALSE(payment.m_isOpen);
+    TEST_ASSERT_EQUAL_STRING("", payment.ma_signature);
+  }
+  TEST_ASSERT_EQUAL_INT(0, g_stub_X402_LEDGER_release_count);
+  TEST_ASSERT_EQUAL_INT(3, g_stub_X402_SOLANA_RPC_find_count);
+  TEST_ASSERT_EQUAL_INT(3, g_stub_THROTTLE_charge_count);
+  TEST_ASSERT_EQUAL_INT(0, g_stub_X402_SOLANA_RPC_count);
+}
+
+void test_open_pending_payment_with_no_signature_over_its_ask_limit_is_limited(void)
+{
+  static_setPendingWithoutSignature(X402_SOLANA_RPC_SIGNATURE_CONFIRMED);
+  g_stub_THROTTLE_charge_status       = THROTTLE_REFUSED;
+  g_stub_THROTTLE_retry_after_seconds = 33;
+  X402RequestPayment_t payment;
+  X402RequestOpenResult_t result = static_open(1, &payment);
+  TEST_ASSERT_EQUAL_INT(X402_REQUEST_OPEN_LIMITED, result.m_status);
+  TEST_ASSERT_EQUAL_UINT(33, result.m_retryAfterSec);
+  TEST_ASSERT_FALSE(payment.m_isOpen);
+  TEST_ASSERT_EQUAL_INT(0, g_stub_X402_SOLANA_RPC_find_count);
+
+  g_stub_THROTTLE_charge_status = THROTTLE_ERROR;
+  result = static_open(1, &payment);
+  TEST_ASSERT_EQUAL_INT(X402_REQUEST_OPEN_ERROR, result.m_status);
+  TEST_ASSERT_EQUAL_UINT(0, result.m_retryAfterSec);
+  TEST_ASSERT_FALSE(payment.m_isOpen);
+  TEST_ASSERT_EQUAL_INT(0, g_stub_X402_SOLANA_RPC_find_count);
   TEST_ASSERT_EQUAL_INT(0, g_stub_X402_SOLANA_RPC_count);
   TEST_ASSERT_EQUAL_INT(0, g_stub_X402_LEDGER_release_count);
 }
@@ -1595,9 +1764,119 @@ void test_appendPaymentRequired_is_false_when_x402_is_off(void)
   TEST_ASSERT_EQUAL_STRING("", json);
 }
 
+void test_open_writes_one_verify_line_for_each_facilitator_answer(void)
+{
+  static const X402FacilitatorVerifyStatus_t verify_statuses[] = { X402_FACILITATOR_VERIFY_VALID, X402_FACILITATOR_VERIFY_INVALID, X402_FACILITATOR_VERIFY_UNAVAILABLE };
+  static const UsageLogX402Outcome_t         outcomes[]        = { USAGELOG_X402_OUTCOME_VALID, USAGELOG_X402_OUTCOME_INVALID, USAGELOG_X402_OUTCOME_UNAVAILABLE };
+  for (size_t i = 0; i < 3; i++)
+  {
+    g_stub_X402_FACILITATOR_verify_status = verify_statuses[i];
+    static_clearStepLines();
+    X402RequestPayment_t payment;
+    static_open(1, &payment);
+    static_assertOneStepLine(USAGELOG_X402_STEP_VERIFY, outcomes[i], 0);
+    x402_request_dbReleaseUnserved(FIXTURE_CONN, &payment, X402_REQUEST_UNSERVED_FAILED_RUN);
+    TEST_ASSERT_EQUAL_INT(1, g_stepLineCount);
+  }
+}
+
+void test_close_writes_one_settle_line_with_its_outcome_and_reserve_age(void)
+{
+  static const X402FacilitatorSettleStatus_t settle_statuses[] = { X402_FACILITATOR_SETTLE_PAID, X402_FACILITATOR_SETTLE_PAID, X402_FACILITATOR_SETTLE_REFUSED, X402_FACILITATOR_SETTLE_PENDING, X402_FACILITATOR_SETTLE_PENDING };
+  static const bool                          has_signatures[]  = { true, false, false, true, false };
+  static const UsageLogX402Outcome_t         outcomes[]        = { USAGELOG_X402_OUTCOME_PAID, USAGELOG_X402_OUTCOME_PENDING_WITHOUT_SIGNATURE, USAGELOG_X402_OUTCOME_REFUSED,
+                                                                   USAGELOG_X402_OUTCOME_PENDING_WITH_SIGNATURE, USAGELOG_X402_OUTCOME_PENDING_WITHOUT_SIGNATURE };
+  for (size_t i = 0; i < 5; i++)
+  {
+    g_stub_X402_FACILITATOR_settlement.m_status       = settle_statuses[i];
+    g_stub_X402_FACILITATOR_settlement.m_hasSignature = has_signatures[i];
+    X402RequestPayment_t payment;
+    static_openFresh(&payment);
+    static_clearStepLines();
+    char receipt_line[X402_REQUEST_RECEIPT_LINE_BUF_SIZE];
+    static_closeToLine(&payment, receipt_line, sizeof(receipt_line));
+    static_assertOneStepLine(USAGELOG_X402_STEP_SETTLE, outcomes[i], 4 * FAKE_CLOCK_STEP_MS);
+  }
+}
+
+void test_settle_line_reserve_age_counts_the_time_of_the_run(void)
+{
+  X402RequestPayment_t payment;
+  static_openFresh(&payment);
+  g_fakeClockMs += 5000;
+  static_clearStepLines();
+  char receipt_line[X402_REQUEST_RECEIPT_LINE_BUF_SIZE];
+  TEST_ASSERT_EQUAL_INT(X402_REQUEST_CLOSE_SERVE, static_closeToLine(&payment, receipt_line, sizeof(receipt_line)));
+  static_assertOneStepLine(USAGELOG_X402_STEP_SETTLE, USAGELOG_X402_OUTCOME_PAID, 5000 + 4 * FAKE_CLOCK_STEP_MS);
+}
+
+void test_confirmed_payment_writes_a_status_ask_line_and_no_settle_line(void)
+{
+  X402RequestPayment_t payment;
+  static_openConfirmed(&payment);
+  static_assertOneStepLine(USAGELOG_X402_STEP_STATUS_ASK, USAGELOG_X402_OUTCOME_CONFIRMED, 0);
+  char receipt_line[X402_REQUEST_RECEIPT_LINE_BUF_SIZE];
+  TEST_ASSERT_EQUAL_INT(X402_REQUEST_CLOSE_SERVE, static_closeToLine(&payment, receipt_line, sizeof(receipt_line)));
+  TEST_ASSERT_EQUAL_INT(1, g_stepLineCount);
+}
+
+void test_pending_open_writes_one_status_ask_line_for_each_solana_answer(void)
+{
+  static const X402SolanaRpcSignatureStatus_t statuses[] = { X402_SOLANA_RPC_SIGNATURE_CONFIRMED, X402_SOLANA_RPC_SIGNATURE_FAILED, X402_SOLANA_RPC_SIGNATURE_PROCESSED,
+                                                             X402_SOLANA_RPC_SIGNATURE_NOT_FOUND, X402_SOLANA_RPC_SIGNATURE_UNAVAILABLE };
+  static const UsageLogX402Outcome_t          outcomes[] = { USAGELOG_X402_OUTCOME_CONFIRMED, USAGELOG_X402_OUTCOME_FAILED, USAGELOG_X402_OUTCOME_PROCESSED,
+                                                             USAGELOG_X402_OUTCOME_NOT_FOUND, USAGELOG_X402_OUTCOME_UNAVAILABLE };
+  for (size_t i = 0; i < 5; i++)
+  {
+    g_stub_X402_LEDGER_reservation.m_status = X402_LEDGER_PENDING;
+    snprintf(g_stub_X402_LEDGER_reservation.ma_signature, sizeof(g_stub_X402_LEDGER_reservation.ma_signature), "%s", FIXTURE_PENDING_SIG);
+    g_stub_X402_SOLANA_RPC_status = statuses[i];
+    static_clearStepLines();
+    X402RequestPayment_t payment;
+    static_open(1, &payment);
+    static_assertOneStepLine(USAGELOG_X402_STEP_STATUS_ASK, outcomes[i], 0);
+    x402_request_dbReleaseUnserved(FIXTURE_CONN, &payment, X402_REQUEST_UNSERVED_FAILED_RUN);
+  }
+}
+
+void test_pending_open_without_signature_writes_one_signature_find_line_for_each_answer(void)
+{
+  static const X402SolanaRpcSignatureStatus_t statuses[] = { X402_SOLANA_RPC_SIGNATURE_CONFIRMED, X402_SOLANA_RPC_SIGNATURE_FAILED, X402_SOLANA_RPC_SIGNATURE_PROCESSED,
+                                                             X402_SOLANA_RPC_SIGNATURE_NOT_FOUND, X402_SOLANA_RPC_SIGNATURE_UNAVAILABLE };
+  static const UsageLogX402Outcome_t          outcomes[] = { USAGELOG_X402_OUTCOME_CONFIRMED, USAGELOG_X402_OUTCOME_FAILED, USAGELOG_X402_OUTCOME_PROCESSED,
+                                                             USAGELOG_X402_OUTCOME_NOT_FOUND, USAGELOG_X402_OUTCOME_UNAVAILABLE };
+  for (size_t i = 0; i < 5; i++)
+  {
+    static_setPendingWithoutSignature(statuses[i]);
+    static_clearStepLines();
+    X402RequestPayment_t payment;
+    static_open(1, &payment);
+    static_assertOneStepLine(USAGELOG_X402_STEP_SIGNATURE_FIND, outcomes[i], 0);
+    x402_request_dbReleaseUnserved(FIXTURE_CONN, &payment, X402_REQUEST_UNSERVED_FAILED_RUN);
+  }
+}
+
+void test_open_that_reaches_no_outside_step_writes_no_line(void)
+{
+  X402RequestPayment_t payment;
+  g_parseStatus = X402_PAYMENT_MALFORMED;
+  static_open(1, &payment);
+  g_parseStatus = X402_PAYMENT_OK;
+
+  g_stub_X402_LEDGER_reservation.m_status = X402_LEDGER_IN_FLIGHT;
+  TEST_ASSERT_EQUAL_INT(X402_REQUEST_OPEN_BUSY, static_open(1, &payment).m_status);
+
+  g_stub_X402_LEDGER_reservation.m_status = X402_LEDGER_PENDING;
+  snprintf(g_stub_X402_LEDGER_reservation.ma_signature, sizeof(g_stub_X402_LEDGER_reservation.ma_signature), "%s", FIXTURE_PENDING_SIG);
+  g_stub_THROTTLE_charge_status = THROTTLE_REFUSED;
+  TEST_ASSERT_EQUAL_INT(X402_REQUEST_OPEN_LIMITED, static_open(1, &payment).m_status);
+
+  TEST_ASSERT_EQUAL_INT(0, g_stepLineCount);
+}
+
 void test_registration_gate_test_count(void)
 {
-  TEST_ASSERT_EQUAL_INT_MESSAGE(67, (int)Unity.NumberOfTests,
+  TEST_ASSERT_EQUAL_INT_MESSAGE(78, (int)Unity.NumberOfTests,
     "RUN_TEST list and test definitions have drifted apart - a test may be unregistered");
 }
 
@@ -1627,6 +1906,10 @@ int main(void)
   RUN_TEST(test_open_pending_payment_that_failed_on_chain_is_released_and_refused);
   RUN_TEST(test_open_pending_payment_that_solana_has_not_decided_stays_pending);
   RUN_TEST(test_open_pending_payment_over_its_ask_limit_is_limited);
+  RUN_TEST(test_open_pending_payment_with_no_signature_that_solana_confirmed_is_open_and_confirmed);
+  RUN_TEST(test_open_pending_payment_with_no_signature_that_failed_on_chain_is_released_and_refused);
+  RUN_TEST(test_open_pending_payment_with_no_signature_that_solana_has_not_decided_stays_pending);
+  RUN_TEST(test_open_pending_payment_with_no_signature_over_its_ask_limit_is_limited);
   RUN_TEST(test_close_of_a_paid_fresh_payment_serves_with_a_receipt);
   RUN_TEST(test_close_of_a_paid_payment_whose_mark_fails_still_serves);
   RUN_TEST(test_close_of_a_paid_settle_without_a_signature_is_pending);
@@ -1670,6 +1953,13 @@ int main(void)
   RUN_TEST(test_appendPaymentRequired_writes_the_object_for_a_resource);
   RUN_TEST(test_appendPaymentRequired_is_false_for_zero_credits);
   RUN_TEST(test_appendPaymentRequired_is_false_when_x402_is_off);
+  RUN_TEST(test_open_writes_one_verify_line_for_each_facilitator_answer);
+  RUN_TEST(test_close_writes_one_settle_line_with_its_outcome_and_reserve_age);
+  RUN_TEST(test_settle_line_reserve_age_counts_the_time_of_the_run);
+  RUN_TEST(test_confirmed_payment_writes_a_status_ask_line_and_no_settle_line);
+  RUN_TEST(test_pending_open_writes_one_status_ask_line_for_each_solana_answer);
+  RUN_TEST(test_pending_open_without_signature_writes_one_signature_find_line_for_each_answer);
+  RUN_TEST(test_open_that_reaches_no_outside_step_writes_no_line);
   RUN_TEST(test_registration_gate_test_count);
   return UNITY_END();
 }

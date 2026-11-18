@@ -150,11 +150,16 @@ static bool static_isDomainLabel(const char* domain_label, size_t domain_label_l
   if (is_underscore_label_allowed && domain_label[0] == '_')
     return static_isDomainLabel(domain_label + 1, domain_label_len - 1, false);
 
-  if (domain_label[0] == '-' || domain_label[domain_label_len - 1] == '-')
+  return validate_letterDigitHyphenLabel(domain_label, domain_label_len);
+}
+
+bool validate_letterDigitHyphenLabel(const char* label, size_t label_len)
+{
+  if (label_len == 0 || label[0] == '-' || label[label_len - 1] == '-')
     return false;
 
-  for (size_t i = 0; i < domain_label_len; i++)
-    if (!static_isDomainLabelByte(domain_label[i]))
+  for (size_t i = 0; i < label_len; i++)
+    if (!static_isDomainLabelByte(label[i]))
       return false;
 
   return true;

@@ -6,7 +6,7 @@ CREATE FUNCTION api.fn_x402_payment_reserve(p_message_hash text, p_source_hash t
   BEGIN ATOMIC
     SELECT pg_advisory_xact_lock(hashtext('x402_payment'), hashtext(p_source_hash));
     WITH found AS (
-      SELECT xp.status, xp.signature
+      SELECT xp.status, xp.signature, xp.reserved_at
         FROM public.x402_payment AS xp
        WHERE xp.message_hash = p_message_hash),
     source_check AS (
@@ -24,8 +24,14 @@ CREATE FUNCTION api.fn_x402_payment_reserve(p_message_hash text, p_source_hash t
              reserved_at = now()
        WHERE xp.status = 'released'
       RETURNING 1)
-    SELECT CASE WHEN EXISTS (SELECT FROM taken) THEN 'reserved' WHEN found.status = 'settled' THEN 'settled' WHEN found.status = 'pending' THEN 'pending' WHEN found.status = 'reserved' THEN 'in_flight' ELSE 'source_busy' END AS reserve_answer,
-           found.signature                                                                                                                                                                                                       AS signature
+    SELECT CASE WHEN EXISTS (SELECT FROM taken)                                                       THEN 'reserved'
+                WHEN found.status = 'settled'                                                         THEN 'settled'
+                WHEN found.status = 'pending'                                                         THEN 'pending'
+                WHEN found.status = 'reserved' AND found.reserved_at > now() - interval '195 seconds' THEN 'in_flight'
+                WHEN found.status = 'reserved'                                                        THEN 'pending'
+                ELSE 'source_busy'
+           END             AS reserve_answer,
+           found.signature AS signature
       FROM (VALUES (1)) AS one_row (n)
       LEFT JOIN found ON true;
   END;

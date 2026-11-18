@@ -226,6 +226,69 @@ void test_event_before_start_writes_no_line(void)
   TEST_ASSERT_EQUAL_STRING("", g_lines);
 }
 
+void test_x402_step_before_start_writes_no_line(void)
+{
+  usagelog_writeX402Step(USAGELOG_X402_STEP_SETTLE, USAGELOG_X402_OUTCOME_PAID, 12, 345);
+  TEST_ASSERT_EQUAL_size_t(0, usagelog_drainLines(g_lines, sizeof(g_lines)));
+  TEST_ASSERT_EQUAL_STRING("", g_lines);
+}
+
+void test_each_x402_step_and_outcome_becomes_one_exact_line(void)
+{
+  static_startLog();
+  usagelog_writeX402Step(USAGELOG_X402_STEP_VERIFY,         USAGELOG_X402_OUTCOME_VALID,                     41,   999);
+  usagelog_writeX402Step(USAGELOG_X402_STEP_VERIFY,         USAGELOG_X402_OUTCOME_INVALID,                   42,   999);
+  usagelog_writeX402Step(USAGELOG_X402_STEP_VERIFY,         USAGELOG_X402_OUTCOME_UNAVAILABLE,               5001, 999);
+  usagelog_writeX402Step(USAGELOG_X402_STEP_SETTLE,         USAGELOG_X402_OUTCOME_PAID,                      1830, 2400);
+  usagelog_writeX402Step(USAGELOG_X402_STEP_SETTLE,         USAGELOG_X402_OUTCOME_REFUSED,                   210,  700);
+  usagelog_writeX402Step(USAGELOG_X402_STEP_SETTLE,         USAGELOG_X402_OUTCOME_PENDING_WITH_SIGNATURE,    30002, 31000);
+  usagelog_writeX402Step(USAGELOG_X402_STEP_SETTLE,         USAGELOG_X402_OUTCOME_PENDING_WITHOUT_SIGNATURE, 0,    0);
+  usagelog_writeX402Step(USAGELOG_X402_STEP_STATUS_ASK,     USAGELOG_X402_OUTCOME_CONFIRMED,                 88,   999);
+  usagelog_writeX402Step(USAGELOG_X402_STEP_STATUS_ASK,     USAGELOG_X402_OUTCOME_FAILED,                    89,   999);
+  usagelog_writeX402Step(USAGELOG_X402_STEP_STATUS_ASK,     USAGELOG_X402_OUTCOME_PROCESSED,                 90,   999);
+  usagelog_writeX402Step(USAGELOG_X402_STEP_STATUS_ASK,     USAGELOG_X402_OUTCOME_NOT_FOUND,                 91,   999);
+  usagelog_writeX402Step(USAGELOG_X402_STEP_STATUS_ASK,     USAGELOG_X402_OUTCOME_UNAVAILABLE,               92,   999);
+  usagelog_writeX402Step(USAGELOG_X402_STEP_SIGNATURE_FIND, USAGELOG_X402_OUTCOME_CONFIRMED,                 120,  999);
+  usagelog_writeX402Step(USAGELOG_X402_STEP_SIGNATURE_FIND, USAGELOG_X402_OUTCOME_NOT_FOUND,                 9223372036854775807LL, 999);
+
+  size_t line_byte_count = usagelog_drainLines(g_lines, sizeof(g_lines));
+  const char* expected =
+    "{\"log_format_version\":1,\"type\":\"x402_step\",\"time\":\"" TEST_TIME_TEXT "\",\"instance_port\":8002,\"step\":\"verify\",\"outcome\":\"valid\",\"duration_ms\":41}\n"
+    "{\"log_format_version\":1,\"type\":\"x402_step\",\"time\":\"" TEST_TIME_TEXT "\",\"instance_port\":8002,\"step\":\"verify\",\"outcome\":\"invalid\",\"duration_ms\":42}\n"
+    "{\"log_format_version\":1,\"type\":\"x402_step\",\"time\":\"" TEST_TIME_TEXT "\",\"instance_port\":8002,\"step\":\"verify\",\"outcome\":\"unavailable\",\"duration_ms\":5001}\n"
+    "{\"log_format_version\":1,\"type\":\"x402_step\",\"time\":\"" TEST_TIME_TEXT "\",\"instance_port\":8002,\"step\":\"settle\",\"outcome\":\"paid\",\"duration_ms\":1830,\"reserve_age_ms\":2400}\n"
+    "{\"log_format_version\":1,\"type\":\"x402_step\",\"time\":\"" TEST_TIME_TEXT "\",\"instance_port\":8002,\"step\":\"settle\",\"outcome\":\"refused\",\"duration_ms\":210,\"reserve_age_ms\":700}\n"
+    "{\"log_format_version\":1,\"type\":\"x402_step\",\"time\":\"" TEST_TIME_TEXT "\",\"instance_port\":8002,\"step\":\"settle\",\"outcome\":\"pending_with_signature\",\"duration_ms\":30002,\"reserve_age_ms\":31000}\n"
+    "{\"log_format_version\":1,\"type\":\"x402_step\",\"time\":\"" TEST_TIME_TEXT "\",\"instance_port\":8002,\"step\":\"settle\",\"outcome\":\"pending_without_signature\",\"duration_ms\":0,\"reserve_age_ms\":0}\n"
+    "{\"log_format_version\":1,\"type\":\"x402_step\",\"time\":\"" TEST_TIME_TEXT "\",\"instance_port\":8002,\"step\":\"status_ask\",\"outcome\":\"confirmed\",\"duration_ms\":88}\n"
+    "{\"log_format_version\":1,\"type\":\"x402_step\",\"time\":\"" TEST_TIME_TEXT "\",\"instance_port\":8002,\"step\":\"status_ask\",\"outcome\":\"failed\",\"duration_ms\":89}\n"
+    "{\"log_format_version\":1,\"type\":\"x402_step\",\"time\":\"" TEST_TIME_TEXT "\",\"instance_port\":8002,\"step\":\"status_ask\",\"outcome\":\"processed\",\"duration_ms\":90}\n"
+    "{\"log_format_version\":1,\"type\":\"x402_step\",\"time\":\"" TEST_TIME_TEXT "\",\"instance_port\":8002,\"step\":\"status_ask\",\"outcome\":\"not_found\",\"duration_ms\":91}\n"
+    "{\"log_format_version\":1,\"type\":\"x402_step\",\"time\":\"" TEST_TIME_TEXT "\",\"instance_port\":8002,\"step\":\"status_ask\",\"outcome\":\"unavailable\",\"duration_ms\":92}\n"
+    "{\"log_format_version\":1,\"type\":\"x402_step\",\"time\":\"" TEST_TIME_TEXT "\",\"instance_port\":8002,\"step\":\"signature_find\",\"outcome\":\"confirmed\",\"duration_ms\":120}\n"
+    "{\"log_format_version\":1,\"type\":\"x402_step\",\"time\":\"" TEST_TIME_TEXT "\",\"instance_port\":8002,\"step\":\"signature_find\",\"outcome\":\"not_found\",\"duration_ms\":9223372036854775807}\n";
+  TEST_ASSERT_EQUAL_STRING(expected, g_lines);
+  TEST_ASSERT_EQUAL_size_t(strlen(expected), line_byte_count);
+}
+
+void test_x402_step_line_that_does_not_fit_the_buffer_is_lost(void)
+{
+  static_startLog();
+  usagelog_writeX402Step(USAGELOG_X402_STEP_SETTLE, USAGELOG_X402_OUTCOME_PAID, 1830, 2400);
+  size_t line_len = usagelog_drainLines(g_lines, sizeof(g_lines));
+  TEST_ASSERT_TRUE(line_len > 0);
+
+  size_t fitting_line_count = USAGELOG_BUFFER_SIZE / line_len;
+  for (size_t i = 0; i < fitting_line_count + 1; i++)
+    usagelog_writeX402Step(USAGELOG_X402_STEP_SETTLE, USAGELOG_X402_OUTCOME_PAID, 1830, 2400);
+
+  size_t line_byte_count = usagelog_drainLines(g_lines, sizeof(g_lines));
+  const char* lost_line = "{\"log_format_version\":1,\"type\":\"lost\",\"time\":\"" TEST_TIME_TEXT "\",\"instance_port\":8002,\"lost_line_count\":1}\n";
+  TEST_ASSERT_EQUAL_size_t(fitting_line_count * line_len + strlen(lost_line), line_byte_count);
+  TEST_ASSERT_EQUAL_STRING(lost_line, g_lines + fitting_line_count * line_len);
+  TEST_ASSERT_EQUAL_INT((int)fitting_line_count + 1, static_countLines(g_lines));
+}
+
 void test_each_event_becomes_one_exact_line(void)
 {
   static_startLog();
@@ -1159,7 +1222,7 @@ void test_retention_days_are_90(void)
 
 void test_registration_gate_test_count(void)
 {
-  TEST_ASSERT_EQUAL_INT_MESSAGE(51, (int)Unity.NumberOfTests,
+  TEST_ASSERT_EQUAL_INT_MESSAGE(54, (int)Unity.NumberOfTests,
     "RUN_TEST list and test definitions have drifted apart - a test may be unregistered");
 }
 
@@ -1171,6 +1234,7 @@ int main(void)
   UNITY_BEGIN();
   RUN_TEST(test_commit_before_start_writes_no_line);
   RUN_TEST(test_event_before_start_writes_no_line);
+  RUN_TEST(test_x402_step_before_start_writes_no_line);
   RUN_TEST(test_rest_record_becomes_one_exact_line);
   RUN_TEST(test_bulk_record_writes_item_count_and_is_send_failed);
   RUN_TEST(test_bulk_record_with_no_item_writes_item_count_0);
@@ -1197,6 +1261,8 @@ int main(void)
   RUN_TEST(test_event_once_per_day_keeps_a_day_for_each_kind);
   RUN_TEST(test_event_once_per_day_writes_again_on_the_next_utc_day);
   RUN_TEST(test_threads_write_one_event_line_on_a_new_day);
+  RUN_TEST(test_each_x402_step_and_outcome_becomes_one_exact_line);
+  RUN_TEST(test_x402_step_line_that_does_not_fit_the_buffer_is_lost);
   RUN_TEST(test_stop_writes_the_waiting_lines_to_a_new_file);
   RUN_TEST(test_file_writer_writes_at_each_interval);
   RUN_TEST(test_file_writer_appends_to_the_file);

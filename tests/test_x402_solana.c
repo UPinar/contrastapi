@@ -982,6 +982,101 @@ void test_decodeAddressOf45CharsIsRefused(void)
   static_expectNotDecoded("111111111111111111111111111111111111111111111");
 }
 
+#define ENCODE_SENTINEL 'q'
+
+static void static_expectEncoded(const uint8_t bytes[32], const char* expected)
+{
+  char text[64];
+  memset(text, ENCODE_SENTINEL, sizeof(text));
+  TEST_ASSERT_TRUE_MESSAGE(x402_solana_tryEncodeAddress(bytes, text, 45), expected);
+  TEST_ASSERT_EQUAL_STRING(expected, text);
+  uint8_t decoded[32];
+  TEST_ASSERT_TRUE_MESSAGE(x402_solana_tryDecodeAddress(text, decoded), text);
+  TEST_ASSERT_EQUAL_HEX8_ARRAY_MESSAGE(bytes, decoded, 32, text);
+}
+
+void test_encodeAddressAllZeroIsOnes(void)
+{
+  uint8_t bytes[32] = { 0 };
+  static_expectEncoded(bytes, "11111111111111111111111111111111");
+}
+
+void test_encodeAddressAllFf(void)
+{
+  uint8_t bytes[32];
+  memset(bytes, 0xff, sizeof(bytes));
+  static_expectEncoded(bytes, "JEKNVnkbo3jma5nREBBJCDoXFVeKkD56V3xKrvRmWxFG");
+}
+
+void test_encodeAddressLeadingZeroBytes(void)
+{
+  uint8_t bytes[32] = { 0 };
+  for (int i = 1; i < 32; i++)
+    bytes[i] = (uint8_t)i;
+  static_expectEncoded(bytes, "1thX6LZfHDZZKUs92febYZhYRcXddmzfzF2NvTkPNE");
+
+  bytes[1] = 0;
+  for (int i = 2; i < 32; i++)
+    bytes[i] = 0xfe;
+  static_expectEncoded(bytes, "11t6ULwBhBoicdvo8BhKh6bpe8ESmbZAt3wBBejuikV");
+
+  memset(bytes, 0, sizeof(bytes));
+  bytes[31] = 0x01;
+  static_expectEncoded(bytes, "11111111111111111111111111111112");
+}
+
+void test_encodeAddressRoundTrip(void)
+{
+  static_expectEncoded(COMPUTE_BUDGET_BYTES, COMPUTE_BUDGET_TEXT);
+  static_expectEncoded(TOKEN_BYTES, TOKEN_TEXT);
+  static_expectEncoded(TOKEN_2022_BYTES, TOKEN_2022_TEXT);
+  static_expectEncoded(MEMO_BYTES, MEMO_TEXT);
+  static_expectEncoded(LIGHTHOUSE_BYTES, LIGHTHOUSE_TEXT);
+  static_expectEncoded(ATA_BYTES, ATA_TEXT);
+  static_expectEncoded(USDC_BYTES, USDC_TEXT);
+
+  for (int seed = 0; seed < 8; seed++)
+  {
+    uint8_t bytes[32];
+    for (int i = 0; i < 32; i++)
+      bytes[i] = (uint8_t)(seed * 37 + i * 101 + 5);
+    char text[45];
+    TEST_ASSERT_TRUE(x402_solana_tryEncodeAddress(bytes, text, sizeof(text)));
+    uint8_t decoded[32];
+    TEST_ASSERT_TRUE_MESSAGE(x402_solana_tryDecodeAddress(text, decoded), text);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY_MESSAGE(bytes, decoded, 32, text);
+  }
+}
+
+void test_encodeAddressBufferBounds(void)
+{
+  TEST_ASSERT_EQUAL_INT(45, X402_SOLANA_ADDRESS_TEXT_BUF_SIZE);
+
+  char    text[64];
+  uint8_t bytes[32];
+  memset(bytes, 0xff, sizeof(bytes));
+  memset(text, ENCODE_SENTINEL, sizeof(text));
+  TEST_ASSERT_FALSE(x402_solana_tryEncodeAddress(bytes, text, 44));
+  TEST_ASSERT_EQUAL_STRING("", text);
+  TEST_ASSERT_EQUAL_CHAR(ENCODE_SENTINEL, text[1]);
+  memset(text, ENCODE_SENTINEL, sizeof(text));
+  TEST_ASSERT_TRUE(x402_solana_tryEncodeAddress(bytes, text, 45));
+  TEST_ASSERT_EQUAL_STRING("JEKNVnkbo3jma5nREBBJCDoXFVeKkD56V3xKrvRmWxFG", text);
+
+  memset(bytes, 0, sizeof(bytes));
+  memset(text, ENCODE_SENTINEL, sizeof(text));
+  TEST_ASSERT_FALSE(x402_solana_tryEncodeAddress(bytes, text, 32));
+  TEST_ASSERT_EQUAL_STRING("", text);
+  TEST_ASSERT_EQUAL_CHAR(ENCODE_SENTINEL, text[1]);
+  memset(text, ENCODE_SENTINEL, sizeof(text));
+  TEST_ASSERT_TRUE(x402_solana_tryEncodeAddress(bytes, text, 33));
+  TEST_ASSERT_EQUAL_STRING("11111111111111111111111111111111", text);
+
+  memset(text, ENCODE_SENTINEL, sizeof(text));
+  TEST_ASSERT_FALSE(x402_solana_tryEncodeAddress(bytes, text, 0));
+  TEST_ASSERT_EQUAL_CHAR(ENCODE_SENTINEL, text[0]);
+}
+
 #define SIG_TEXT_FF_64    "67rpwLCuS5DGA8KGZXKsVQ7dnPb9goRLoKfgGbLfQg9WoLUgNY77E2jT11fem3coV9nAkguBACzrU1iyZM4B8roQ"
 #define SIG_TEXT_00_FF_63 "12AFv15MNPuA84RmU66xw2uMzGipcVxNpzAffoacGVvjFue3CBmf633fAWuiP9cwL9C3z3CJiGgRSFjJfeEcA6QW"
 #define SIG_TEXT_01_ZEROS "2AFv15MNPuA84RmU66xw2uMzGipcVxNpzAffoacGVvjFue3CBmf633fAWuiP9cwL9C3z3CJiGgRSFjJfeEcA6QX"
@@ -1173,7 +1268,7 @@ static EVP_PKEY* static_newKey(void)
 
 void test_registrationGateTestCount(void)
 {
-  TEST_ASSERT_EQUAL_INT_MESSAGE(71, (int)Unity.NumberOfTests, "RUN_TEST list and test definitions have drifted apart - a test may be unregistered");
+  TEST_ASSERT_EQUAL_INT_MESSAGE(76, (int)Unity.NumberOfTests, "RUN_TEST list and test definitions have drifted apart - a test may be unregistered");
 }
 
 int main(void)
@@ -1248,6 +1343,11 @@ int main(void)
   RUN_TEST(test_decodeAddressOfOtherLengthIsRefused);
   RUN_TEST(test_decodeAddressCharOutsideAlphabetIsRefused);
   RUN_TEST(test_decodeAddressOf45CharsIsRefused);
+  RUN_TEST(test_encodeAddressAllZeroIsOnes);
+  RUN_TEST(test_encodeAddressAllFf);
+  RUN_TEST(test_encodeAddressLeadingZeroBytes);
+  RUN_TEST(test_encodeAddressRoundTrip);
+  RUN_TEST(test_encodeAddressBufferBounds);
   RUN_TEST(test_decodeSignatureOf88And87Chars);
   RUN_TEST(test_decodeSignatureLeadingOnes);
   RUN_TEST(test_decodeSignatureOf89CharsIsRefused);

@@ -5067,9 +5067,10 @@ a CAA record is found.
 
 A `cert_unexpected` event comes when an issuer the item has not seen before issued a certificate for
 the name. It comes at once, with no confirming scan. Its `reason` is `caa_mismatch` when the CAA
-records of the name do not permit the issuer, and `new_issuer` otherwise. A wildcard certificate is
-checked against the `issuewild` records of the parent name, or its `issue` records when the parent
-has no `issuewild`. A certificate that names the host and holds such a wildcard name too is checked
+records of the name do not permit the issuer, and `new_issuer` otherwise. An `issue` or `issuewild`
+value that does not follow the grammar of RFC 8659 section 4.2 permits no issuer. A wildcard
+certificate is checked against the `issuewild` records of the parent name, or its `issue` records
+when the parent has no `issuewild`. A certificate that names the host and holds such a wildcard name too is checked
 both ways. A name with no CAA record permits every issuer.
 
 The CT scans have a count of requests to Cert Spotter of their own, apart from the limit of
@@ -5425,7 +5426,7 @@ A feed whose name, time or status cannot be read is left out of `db.feeds`. The 
 ```json
 {
   "status": "ok",
-  "version": "2.0.9",
+  "version": "2.0.10",
   "db": {
     "nvd": {
       "cve_count": 251430,
@@ -5459,7 +5460,7 @@ A feed whose name, time or status cannot be read is left out of `db.feeds`. The 
 When the database cannot be read, the answer is HTTP 503 with a `Retry-After: 5` header and this body:
 
 ```json
-{"status":"unavailable","version":"2.0.9","db":null}
+{"status":"unavailable","version":"2.0.10","db":null}
 ```
 
 ---
@@ -5804,23 +5805,34 @@ The header value may be up to 3416 bytes long. A long request target together wi
 
 A settle is pending when the server found no result in time. The answer is `402` with `payment_pending`. It has no `PAYMENT-REQUIRED` header, because a client that signs a second payment may pay twice. Retry the same request with the same payment after the `Retry-After` wait.
 
-The server then asks a Solana RPC provider about the transaction:
+The server then asks a Solana RPC provider about the transaction. A pending payment may hold a transaction signature, or it may hold none. The settle names none when it timed out, when the facilitator stopped, or when its answer was unusable.
 
-- Confirmed: the server serves the answer. It charges nothing a second time.
+- With a signature: the server asks the provider for the status of that transaction.
+- With no signature: the server asks the provider for the 20 most recent transactions of the paying token account. It keeps only a transaction that its own fee payer signed for this exact payment. So the provider cannot invent one.
+
+Both ways cost one request to the provider and count as one ask (see [Limits](#limits)). The answer follows from what the server finds:
+
+- Confirmed: the server serves the answer. The `200` carries `PAYMENT-RESPONSE` with the signature of that transaction. It charges nothing a second time.
 - Failed on chain: the answer is `402` with `payment_refused`. Sign a new payment.
-- Not known yet: the answer is `payment_pending` again.
+- Not known yet, or no transaction found: the answer is `payment_pending` again.
 
 A payment that Solana never saw stays pending until the server forgets it. The server keeps a payment for 1 hour. The wallet can pay anew once its 150-second lock frees.
 
+A payment whose settle never finished is treated the same way. The server may have stopped during that settle. From 195 seconds after the server reserved the payment, a retry looks for the transaction as for a pending payment with no signature. Before that, a retry of that payment gets `429` with `payment_busy`. The wallet lock frees sooner, at 150 seconds, so another payment of the wallet may go through in between.
+
+A retry of a pending payment may get `402` with `payment_refused` and a new `PAYMENT-REQUIRED` header. That happens when the price of `/package_check_bulk` changed since the first request. Do not sign a new payment at once. Wait until the 150-second wallet lock frees, then check the wallet. If the first transfer went through, contact us instead of paying again.
+
+If your wallet shows the transfer but the server never served the call, contact support at contact@contrastcyber.com with the transaction signature. We refund the payment by hand.
+
 ### One wallet, one payment
 
-A wallet carries one payment at a time. While one payment of a wallet is open or pending, another payment of that wallet gets `429` with `payment_busy`. The lock lasts at most 150 seconds. A client that sends calls in parallel uses several wallets.
+A wallet carries one payment at a time. While one payment of a wallet is open or pending, another payment of that wallet gets `429` with `payment_busy`. The lock lasts at most 150 seconds. That holds for a payment whose settle never finished too. A retry of that same payment still gets `payment_busy` until 195 seconds after the server reserved it. A client that sends calls in parallel uses several wallets.
 
 ### Limits
 
 - A client address may fail 10 payment attempts in 60 seconds. A failed attempt is a header that is not well formed, a payment that is refused, or a payment whose run answered `5xx`.
 - A paying token account may have 3 refused settles in 3600 seconds.
-- A payment may be asked about 10 times in 60 seconds.
+- A payment may be asked about 10 times in 60 seconds. Each retry of a pending payment is one ask, with a signature or without one.
 - A payment may be released 3 times in 60 seconds after a run that did not answer `200`.
 - A paying token account may have 5 runs that answered `5xx` in 3600 seconds.
 - A client address may have 30 paid runs that answered `400`, `401`, `404` or `410` in 60 seconds.
@@ -5993,7 +6005,7 @@ request target counts the bytes as sent.
 | 503  | The server is busy with requests to outside services (`upstream_busy`). The response carries `Retry-After: 5`. It costs no credits and carries no `X-RateLimit-*` headers. A request that the endpoint refuses for its method, its parameter names or its values gets that refusal instead. The 503 comes before the API key is read, so a request with a malformed, unknown, revoked or expired key gets it too | the endpoints that ask an outside service, `/mcp` |
 | 503  | Every place for an image request is in use (`raw_body_busy`). The response carries `Retry-After: 10`, the deadline that the head and the body share. It costs no credits | `/image_inspect` |
 | 503  | The payment cannot be settled now (`payment_unavailable`). The response carries `Retry-After: 5` | every endpoint that takes payment |
-| 503  | The database cannot be read. The body is `{"status":"unavailable","version":"2.0.9","db":null}` and the response carries `Retry-After: 5` | `/health` |
+| 503  | The database cannot be read. The body is `{"status":"unavailable","version":"2.0.10","db":null}` and the response carries `Retry-After: 5` | `/health` |
 | 504  | No TLS server or site was reached at the host name. `message` says why | `/ssl_check/`, `/headers_check/` |
 
 ---

@@ -117,13 +117,18 @@ INSERT INTO x402_payment (message_hash, source_hash, status, reserved_at) VALUES
   (pg_temp.t_x402_hash('d1'), pg_temp.t_x402_hash('f20'), 'released', now() - interval '10 minutes'),
   (pg_temp.t_x402_hash('d2'), pg_temp.t_x402_hash('f20'), 'reserved', now()),
   (pg_temp.t_x402_hash('d3'), pg_temp.t_x402_hash('f21'), 'released', now() - interval '10 minutes'),
-  (pg_temp.t_x402_hash('d4'), pg_temp.t_x402_hash('f21'), 'reserved', now() - interval '151 seconds');
+  (pg_temp.t_x402_hash('d4'), pg_temp.t_x402_hash('f21'), 'reserved', now() - interval '151 seconds'),
+  (pg_temp.t_x402_hash('d5'), pg_temp.t_x402_hash('f22'), 'released', now() - interval '10 seconds'),
+  (pg_temp.t_x402_hash('d6'), pg_temp.t_x402_hash('f22'), 'reserved', now());
 
 DO $$
 BEGIN
   ASSERT (SELECT row(reserve_answer, signature)::text FROM api.fn_x402_payment_reserve(pg_temp.t_x402_hash('d1'), pg_temp.t_x402_hash('f20')))
          = row('source_busy', NULL)::text,
          'a released row whose source is busy answers source_busy';
+  ASSERT (SELECT row(reserve_answer, signature)::text FROM api.fn_x402_payment_reserve(pg_temp.t_x402_hash('d5'), pg_temp.t_x402_hash('f22')))
+         = row('source_busy', NULL)::text,
+         'a released row reserved 10 seconds ago whose source is busy answers source_busy, not in_flight';
   ASSERT (SELECT row(status, reserved_at = now() - interval '10 minutes')::text FROM x402_payment WHERE message_hash = pg_temp.t_x402_hash('d1'))
          = row('released', true)::text,
          'the refused reserve leaves the released row and its reserved_at as they were';
@@ -307,7 +312,7 @@ BEGIN
             FROM (VALUES (1, 'ad1', 'f60'), (2, 'ad2', 'f61'), (3, 'ad3', 'f62')) AS v (n, m, s),
                  LATERAL api.fn_x402_payment_reserve(pg_temp.t_x402_hash(v.m), pg_temp.t_x402_hash(v.s)) AS r)
          = ARRAY['pending/-', 'pending/88', 'in_flight/-'],
-         'a reserve of a pending or reserved row of a free source answers from the row';
+         'a reserve of a pending row answers pending, and of a reserved row 151 seconds old answers in_flight';
   ASSERT (SELECT array_agg(row(right(message_hash, 3), status, length(signature), reserved_at = now() - interval '151 seconds')::text ORDER BY message_hash)
             FROM x402_payment WHERE source_hash IN (pg_temp.t_x402_hash('f60'), pg_temp.t_x402_hash('f61'), pg_temp.t_x402_hash('f62')))
          = ARRAY[row('ad1', 'pending', NULL::int, true)::text, row('ad2', 'pending', 88, true)::text, row('ad3', 'reserved', NULL::int, true)::text],
@@ -322,6 +327,62 @@ BEGIN
   ASSERT NOT pg_advisory_unlock(hashtext('x402_payment'), hashtext(pg_temp.t_x402_hash('f63'))),
          'the source lock is a transaction lock, so no session lock is left to release';
   PERFORM set_config('client_min_messages', old_level, true);
+END
+$$;
+
+INSERT INTO x402_payment (message_hash, source_hash, status, signature, reserved_at) VALUES
+  (pg_temp.t_x402_hash('ba1'), pg_temp.t_x402_hash('f70'), 'reserved', NULL,            now()),
+  (pg_temp.t_x402_hash('ba2'), pg_temp.t_x402_hash('f71'), 'reserved', NULL,            now() - interval '194 seconds'),
+  (pg_temp.t_x402_hash('ba3'), pg_temp.t_x402_hash('f72'), 'reserved', NULL,            now() - interval '195 seconds'),
+  (pg_temp.t_x402_hash('ba4'), pg_temp.t_x402_hash('f73'), 'reserved', NULL,            now() - interval '196 seconds'),
+  (pg_temp.t_x402_hash('ba5'), pg_temp.t_x402_hash('f74'), 'reserved', NULL,            now() - interval '196 seconds'),
+  (pg_temp.t_x402_hash('ba6'), pg_temp.t_x402_hash('f75'), 'reserved', NULL,            now() - interval '196 seconds'),
+  (pg_temp.t_x402_hash('ba7'), pg_temp.t_x402_hash('f76'), 'pending',  repeat('6', 88), now() - interval '149 seconds'),
+  (pg_temp.t_x402_hash('ba9'), pg_temp.t_x402_hash('f77'), 'reserved', NULL,            now() - interval '160 seconds'),
+  (pg_temp.t_x402_hash('bb1'), pg_temp.t_x402_hash('f90'), 'reserved', NULL,            now() - interval '194.5 seconds');
+
+DO $$
+BEGIN
+  ASSERT (SELECT array_agg(row(v.m, r.reserve_answer, r.signature)::text ORDER BY v.m)
+            FROM (VALUES ('ba1', 'f70'), ('ba2', 'f71'), ('ba3', 'f72'), ('ba4', 'f73')) AS v (m, s),
+                 LATERAL api.fn_x402_payment_reserve(pg_temp.t_x402_hash(v.m), pg_temp.t_x402_hash(v.s)) AS r)
+         = ARRAY[row('ba1', 'in_flight', NULL)::text, row('ba2', 'in_flight', NULL)::text,
+                 row('ba3', 'pending', NULL)::text, row('ba4', 'pending', NULL)::text],
+         'a reserved row of the message is in_flight at 0 and 194 seconds, and pending with no signature at 195 and 196 seconds';
+  ASSERT (SELECT array_agg(row(right(message_hash, 3), status, signature, now() - reserved_at)::text ORDER BY message_hash)
+            FROM x402_payment WHERE message_hash IN (pg_temp.t_x402_hash('ba1'), pg_temp.t_x402_hash('ba2'), pg_temp.t_x402_hash('ba3'), pg_temp.t_x402_hash('ba4')))
+         = ARRAY[row('ba1', 'reserved', NULL, interval '0 seconds')::text, row('ba2', 'reserved', NULL, interval '194 seconds')::text,
+                 row('ba3', 'reserved', NULL, interval '195 seconds')::text, row('ba4', 'reserved', NULL, interval '196 seconds')::text],
+         'the reserve leaves each reserved row, its signature and its reserved_at as they were';
+  ASSERT (SELECT reserve_answer FROM api.fn_x402_payment_reserve(pg_temp.t_x402_hash('bb1'), pg_temp.t_x402_hash('f90'))) = 'in_flight',
+         'a reserved row 194.5 seconds old is still in_flight';
+
+  ASSERT (SELECT row(reserve_answer, signature)::text FROM api.fn_x402_payment_reserve(pg_temp.t_x402_hash('ba5'), pg_temp.t_x402_hash('f74')))
+         = row('pending', NULL)::text,
+         'a reserved row 196 seconds old answers pending before its mark';
+  ASSERT api.fn_x402_payment_mark_settled(pg_temp.t_x402_hash('ba5')), 'a reserved row that answered pending is marked settled';
+  ASSERT (SELECT row(reserve_answer, signature)::text FROM api.fn_x402_payment_reserve(pg_temp.t_x402_hash('ba5'), pg_temp.t_x402_hash('f74')))
+         = row('settled', NULL)::text,
+         'the reserve of the marked row answers settled';
+
+  ASSERT (SELECT reserve_answer FROM api.fn_x402_payment_reserve(pg_temp.t_x402_hash('ba6'), pg_temp.t_x402_hash('f75'))) = 'pending',
+         'a second reserved row 196 seconds old answers pending before its release';
+  ASSERT api.fn_x402_payment_release(pg_temp.t_x402_hash('ba6')), 'a reserved row that answered pending is released';
+  ASSERT (SELECT status FROM x402_payment WHERE message_hash = pg_temp.t_x402_hash('ba6')) = 'released',
+         'the release leaves the row released';
+
+  ASSERT (SELECT row(reserve_answer, signature)::text FROM api.fn_x402_payment_reserve(pg_temp.t_x402_hash('ba7'), pg_temp.t_x402_hash('f76')))
+         = row('pending', repeat('6', 88))::text,
+         'a pending row 149 seconds old still answers pending with its signature';
+
+  ASSERT (SELECT reserve_answer FROM api.fn_x402_payment_reserve(pg_temp.t_x402_hash('ba8'), pg_temp.t_x402_hash('f73'))) = 'reserved',
+         'a reserved row 196 seconds old no longer keeps its source busy for another message';
+
+  ASSERT (SELECT row(reserve_answer, signature)::text FROM api.fn_x402_payment_reserve(pg_temp.t_x402_hash('ba9'), pg_temp.t_x402_hash('f77')))
+         = row('in_flight', NULL)::text,
+         'a reserved row 160 seconds old is still in_flight for its own message';
+  ASSERT (SELECT reserve_answer FROM api.fn_x402_payment_reserve(pg_temp.t_x402_hash('ba10'), pg_temp.t_x402_hash('f77'))) = 'reserved',
+         'the same row 160 seconds old no longer keeps its source busy for another message';
 END
 $$;
 

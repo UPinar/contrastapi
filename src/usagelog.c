@@ -74,6 +74,7 @@ static void           static_formatTime         (time_t now, char time_out[USAGE
 static size_t         static_formatRequestLine  (const UsageLogRecord_t* record, time_t now, int64_t now_ms, char* line, size_t line_size);
 static size_t         static_formatLostLine     (unsigned long lost_line_count, time_t now, char* line, size_t line_size);
 static size_t         static_formatEventLine    (UsageLogEvent_t event, time_t now, char* line, size_t line_size);
+static size_t         static_formatX402StepLine (UsageLogX402Step_t step, UsageLogX402Outcome_t outcome, int64_t duration_ms, int64_t reserve_age_ms, time_t now, char* line, size_t line_size);
 static void           static_appendLine         (const char* line, size_t line_len);
 static size_t         static_drainBuffer        (char* lines_out, unsigned long* lost_line_count_out);
 static void           static_addLostLines       (unsigned long lost_line_count);
@@ -86,6 +87,8 @@ static const char*    static_surfaceName        (UsageLogSurface_t surface);
 static const char*    static_tierName           (UsageLogTier_t tier);
 static const char*    static_runStatusName      (EndpointRunStatus_t run_status);
 static const char*    static_eventName          (UsageLogEvent_t event);
+static const char*    static_x402StepName       (UsageLogX402Step_t step);
+static const char*    static_x402OutcomeName    (UsageLogX402Outcome_t outcome);
 
 void usagelog_start(int instance_port)
 {
@@ -147,6 +150,16 @@ void usagelog_writeEventOncePerDay(UsageLogEvent_t event)
 
   if (atomic_compare_exchange_strong(&g_eventLineDays[event], &last_day, today))
     usagelog_writeEvent(event);
+}
+
+void usagelog_writeX402Step(UsageLogX402Step_t step, UsageLogX402Outcome_t outcome, int64_t duration_ms, int64_t reserve_age_ms)
+{
+  if (!atomic_load(&g_isStarted))
+    return;
+
+  char line[USAGELOG_LINE_MAX_LEN];
+  size_t line_len = static_formatX402StepLine(step, outcome, duration_ms, reserve_age_ms, time(NULL), line, sizeof(line));
+  static_appendLine(line, line_len);
 }
 
 bool usagelog_startFileWriter(const char* log_path, unsigned int interval_ms)
@@ -356,6 +369,21 @@ static size_t static_formatEventLine(UsageLogEvent_t event, time_t now, char* li
                       USAGELOG_LOG_FORMAT_VERSION, static_eventName(event), time_text, atomic_load(&g_instancePort));
   if (event == USAGELOG_EVENT_START)
     static_appendFormat(line, line_size, &line_len, ",\"version\":\"%s\"", CONTRASTAPI_VERSION);
+  static_appendFormat(line, line_size, &line_len, "}\n");
+
+  return line_len < line_size ? line_len : 0;
+}
+
+static size_t static_formatX402StepLine(UsageLogX402Step_t step, UsageLogX402Outcome_t outcome, int64_t duration_ms, int64_t reserve_age_ms, time_t now, char* line, size_t line_size)
+{
+  char time_text[USAGELOG_TIME_TEXT_SIZE];
+  static_formatTime(now, time_text);
+
+  size_t line_len = 0;
+  static_appendFormat(line, line_size, &line_len, "{\"log_format_version\":%d,\"type\":\"x402_step\",\"time\":\"%s\",\"instance_port\":%d,\"step\":\"%s\",\"outcome\":\"%s\",\"duration_ms\":%lld",
+                      USAGELOG_LOG_FORMAT_VERSION, time_text, atomic_load(&g_instancePort), static_x402StepName(step), static_x402OutcomeName(outcome), (long long)duration_ms);
+  if (step == USAGELOG_X402_STEP_SETTLE)
+    static_appendFormat(line, line_size, &line_len, ",\"reserve_age_ms\":%lld", (long long)reserve_age_ms);
   static_appendFormat(line, line_size, &line_len, "}\n");
 
   return line_len < line_size ? line_len : 0;
@@ -574,4 +602,37 @@ static const char* static_eventName(UsageLogEvent_t event)
   }
   assert(false && "every event has a case above");
   return "start";
+}
+
+static const char* static_x402StepName(UsageLogX402Step_t step)
+{
+  switch (step)
+  {
+    case USAGELOG_X402_STEP_VERIFY:         return "verify";
+    case USAGELOG_X402_STEP_SETTLE:         return "settle";
+    case USAGELOG_X402_STEP_STATUS_ASK:     return "status_ask";
+    case USAGELOG_X402_STEP_SIGNATURE_FIND: return "signature_find";
+  }
+  assert(false && "every x402 step has a case above");
+  return "verify";
+}
+
+static const char* static_x402OutcomeName(UsageLogX402Outcome_t outcome)
+{
+  switch (outcome)
+  {
+    case USAGELOG_X402_OUTCOME_VALID:                     return "valid";
+    case USAGELOG_X402_OUTCOME_INVALID:                   return "invalid";
+    case USAGELOG_X402_OUTCOME_UNAVAILABLE:               return "unavailable";
+    case USAGELOG_X402_OUTCOME_PAID:                      return "paid";
+    case USAGELOG_X402_OUTCOME_REFUSED:                   return "refused";
+    case USAGELOG_X402_OUTCOME_PENDING_WITH_SIGNATURE:    return "pending_with_signature";
+    case USAGELOG_X402_OUTCOME_PENDING_WITHOUT_SIGNATURE: return "pending_without_signature";
+    case USAGELOG_X402_OUTCOME_CONFIRMED:                 return "confirmed";
+    case USAGELOG_X402_OUTCOME_FAILED:                    return "failed";
+    case USAGELOG_X402_OUTCOME_PROCESSED:                 return "processed";
+    case USAGELOG_X402_OUTCOME_NOT_FOUND:                 return "not_found";
+  }
+  assert(false && "every x402 outcome has a case above");
+  return "unavailable";
 }

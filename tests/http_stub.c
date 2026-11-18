@@ -12,6 +12,7 @@ int                     g_stub_http_call_count  = 0;
 int                     g_stub_next_status      = 200;
 const char*             g_stub_next_body        = NULL;
 bool                    g_stub_next_body_null   = false;
+size_t                  g_stub_next_body_byte_count = 0;
 int                     g_stub_last_timeout_ms  = -1;
 size_t                  g_stub_last_max_body_byte_count = 0;
 bool                    g_stub_last_is_target_trusted   = false;
@@ -158,7 +159,18 @@ static HttpResponse_t static_recordRequest(const HttpRequest_t* request, const c
     return resp;
   }
 
-  resp.m_status  = g_stub_next_status;
+  resp.m_status = g_stub_next_status;
+  if (!g_stub_next_body_null && g_stub_next_body != NULL && g_stub_next_body_byte_count > 0)
+  {
+    resp.mp_body = malloc(g_stub_next_body_byte_count + 1);
+    if (resp.mp_body != NULL)
+    {
+      memcpy(resp.mp_body, g_stub_next_body, g_stub_next_body_byte_count);
+      resp.mp_body[g_stub_next_body_byte_count] = '\0';
+      resp.m_bodyLen                            = g_stub_next_body_byte_count;
+    }
+    return resp;
+  }
   resp.mp_body   = g_stub_next_body_null ? NULL : strdup(g_stub_next_body ? g_stub_next_body : "{}");
   resp.m_bodyLen = resp.mp_body ? strlen(resp.mp_body) : 0;
   return resp;

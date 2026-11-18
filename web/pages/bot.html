@@ -86,8 +86,10 @@
       retries a payment whose settle was still pending, the server asks a Solana RPC provider
       whether the transaction is confirmed. That is one POST over HTTPS with a JSON-RPC
       <code>getSignatureStatuses</code> call. The call holds the transaction signature, which is
-      public on Solana, and nothing else about the caller. It carries the User-Agent above. The
-      server follows no redirect, and the request ends after 5 seconds. The operator names the
+      public on Solana, and nothing else about the caller. A pending payment that holds no
+      signature gets one <code>getSignaturesForAddress</code> call instead. It holds the address
+      of the paying token account, and asks for its 20 most recent transactions. Both calls
+      carry the User-Agent above. The server follows no redirect, and the request ends after 5 seconds. The operator names the
       provider in the server settings, and this page does not list its host. No other request
       of the API server asks the provider. The x402 facilitator on the same host also asks a Solana
       RPC provider, to verify and settle a payment, as the privacy policy describes. The server also talks to the x402 facilitator, a program on the same
