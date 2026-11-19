@@ -762,24 +762,24 @@ void test_tools_list_is_the_whole_catalogue(void)
       R"json("cve_ids":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":50,"description":"CVE IDs"})json"
       R"json(},"required":["cve_ids"],"additionalProperties":false})json"
       R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"CVE Intelligence"}})json",
-    R"json({"name":"cve_products","title":"CVE Affected Products","description":"The products a CVE affects, one page at a time, with the vulnerable products first. The vendor and product arguments keep only the products with that exact name.",)json"
+    R"json({"name":"cve_products","title":"CVE Affected Products","description":"The products a CVE affects, one page at a time, with the vulnerable products first. The vendor and product arguments keep only the products with that exact name. For the CVEs of one product, call cve_search.",)json"
       R"json("inputSchema":{"type":"object","properties":{)json"
       R"json("cve_id":{"type":"string","maxLength":24,"description":"CVE ID, e.g. CVE-2021-44228"},)json"
       R"json("vendor":{"type":"string","maxLength":128,"description":"Exact vendor name, as affected_products writes it"},)json"
       R"json("product":{"type":"string","maxLength":128,"description":"Exact product name, as affected_products writes it"},)json"
-      R"json("limit":{"type":"integer","minimum":1,"maximum":50,"default":20},)json"
-      R"json("offset":{"type":"integer","minimum":0,"default":0})json"
+      R"json("limit":{"type":"integer","minimum":1,"maximum":50,"default":20,"description":"Products per page"},)json"
+      R"json("offset":{"type":"integer","minimum":0,"default":0,"description":"Products to skip; pass next_offset of the previous page"})json"
       R"json(},"required":["cve_id"],"additionalProperties":false})json"
       R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"CVE Intelligence"}})json",
     R"json({"name":"cve_search","title":"CVE Search","description":"Search CVEs by severity, CWE, CVSS, EPSS, CISA KEV, ransomware use, Nuclei template, vendor, product and publish date, one page at a time. Call the cve_lookup tool for a full record, and the cpe_search tool to find the names.",)json"
       R"json("inputSchema":{"type":"object","properties":{)json"
-      R"json("severity":{"type":"string","enum":["CRITICAL","HIGH","MEDIUM","LOW","NONE"],"maxLength":16},)json"
-      R"json("vendor":{"type":"string","maxLength":128},)json"
-      R"json("product":{"type":"string","maxLength":128},)json"
+      R"json("severity":{"type":"string","enum":["CRITICAL","HIGH","MEDIUM","LOW","NONE"],"maxLength":16,"description":"CVSS severity: CRITICAL, HIGH, MEDIUM, LOW or NONE, from the v3 rating when the CVE has one"},)json"
+      R"json("vendor":{"type":"string","maxLength":128,"description":"Exact vendor name as cpe_search lists it, e.g. apache"},)json"
+      R"json("product":{"type":"string","maxLength":128,"description":"Exact product name as cpe_search lists it, e.g. log4j"},)json"
       R"json("cwe_id":{"type":"string","maxLength":16,"description":"e.g. CWE-79"},)json"
       R"json("min_cvss":{"type":"number","minimum":0,"maximum":10,"description":"CVSS v3, or v4 when a CVE has no v3"},)json"
-      R"json("min_epss":{"type":"number","minimum":0,"maximum":1},)json"
-      R"json("in_kev":{"type":"boolean"},)json"
+      R"json("min_epss":{"type":"number","minimum":0,"maximum":1,"description":"Lowest EPSS score, a probability from 0 to 1, e.g. 0.1"},)json"
+      R"json("in_kev":{"type":"boolean","description":"true lists only CVEs in CISA KEV, false only CVEs not in it"},)json"
       R"json("known_ransomware":{"type":"boolean","const":true,"description":"Only CVEs whose CISA KEV entry notes known ransomware use"},)json"
       R"json("has_nuclei_template":{"type":"boolean","const":true,"description":"Only CVEs with a Nuclei detection template"},)json"
       R"json("published_after":{"type":"string","maxLength":31,"description":"YYYY-MM-DD"},)json"
@@ -787,20 +787,20 @@ void test_tools_list_is_the_whole_catalogue(void)
       R"json("kev_added_after":{"type":"string","maxLength":31,"description":"YYYY-MM-DD; only CVEs added to CISA KEV on or after this date and still in it"},)json"
       R"json("include_rejected":{"type":"boolean","description":"Also list the CVEs that NVD marks Rejected"},)json"
       R"json("sort":{"type":"string","enum":["published_time","epss","cvss","kev_date_added"],"maxLength":15,"description":"kev_date_added needs in_kev=true or kev_added_after"},)json"
-      R"json("limit":{"type":"integer","minimum":1,"maximum":100,"default":20},)json"
-      R"json("offset":{"type":"integer","minimum":0,"maximum":10000,"default":0})json"
+      R"json("limit":{"type":"integer","minimum":1,"maximum":100,"default":20,"description":"CVEs per page"},)json"
+      R"json("offset":{"type":"integer","minimum":0,"maximum":10000,"default":0,"description":"CVEs to skip; pass next_offset of the previous page"})json"
       R"json(},"additionalProperties":false})json"
       R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"CVE Intelligence"}})json",
     R"json({"name":"cve_leading","title":"Leading CVEs by EPSS","description":"List the CVEs most likely to be exploited, by EPSS score (the probability of exploitation in the next 30 days), with a verdict on the top score. To rank by composite risk score, call the cve_triage tool.",)json"
       R"json("inputSchema":{"type":"object","properties":{)json"
-      R"json("vendor":{"type":"string","maxLength":128},)json"
-      R"json("product":{"type":"string","maxLength":128},)json"
-      R"json("min_epss":{"type":"number","minimum":0,"maximum":1},)json"
-      R"json("in_kev":{"type":"boolean"},)json"
+      R"json("vendor":{"type":"string","maxLength":128,"description":"Exact vendor name as cpe_search lists it, e.g. apache"},)json"
+      R"json("product":{"type":"string","maxLength":128,"description":"Exact product name as cpe_search lists it, e.g. log4j"},)json"
+      R"json("min_epss":{"type":"number","minimum":0,"maximum":1,"description":"Lowest EPSS score, a probability from 0 to 1, e.g. 0.1"},)json"
+      R"json("in_kev":{"type":"boolean","description":"true lists only CVEs in CISA KEV, false only CVEs not in it"},)json"
       R"json("known_ransomware":{"type":"boolean","const":true,"description":"Only CVEs whose CISA KEV entry notes known ransomware use"},)json"
       R"json("has_nuclei_template":{"type":"boolean","const":true,"description":"Only CVEs with a Nuclei detection template"},)json"
       R"json("include_rejected":{"type":"boolean","description":"Also list the CVEs that NVD marks Rejected"},)json"
-      R"json("limit":{"type":"integer","minimum":1,"maximum":50,"default":20})json"
+      R"json("limit":{"type":"integer","minimum":1,"maximum":50,"default":20,"description":"How many CVEs to list, highest EPSS first"})json"
       R"json(},"additionalProperties":false})json"
       R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"CVE Intelligence"}})json",
     R"json({"name":"kev_lookup","title":"CISA KEV Lookup","description":"CISA KEV catalog entry for a CVE: the required action, the patch deadline and known ransomware use. A CVE that CISA removed answers in_kev false, and one never listed answers \"KEV entry not found\".",)json"
@@ -813,24 +813,24 @@ void test_tools_list_is_the_whole_catalogue(void)
       R"json("cwe_id":{"type":"string","maxLength":16,"description":"CWE ID, e.g. CWE-79"})json"
       R"json(},"required":["cwe_id"],"additionalProperties":false})json"
       R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"CVE Intelligence"}})json",
-    R"json({"name":"cve_risk_score","title":"CVE Risk Score","description":"Composite risk score of a CVE, from 0 to 100, for patch priority. It reads EPSS, CISA KEV, Metasploit, CVSS, NVD and CNA exploit references, and ExploitDB. has_public_poc is null when no source names an exploit.",)json"
+    R"json({"name":"cve_risk_score","title":"CVE Risk Score","description":"Composite risk score of a CVE, 0-100, for patch priority. It reads EPSS, CISA KEV, Metasploit, CVSS, NVD and CNA exploit references, and ExploitDB. has_public_poc is null when no source names an exploit. For many CVEs, call cve_triage_bulk.",)json"
       R"json("inputSchema":{"type":"object","properties":{)json"
       R"json("cve_id":{"type":"string","maxLength":24,"description":"CVE ID"})json"
       R"json(},"required":["cve_id"],"additionalProperties":false})json"
       R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"CVE Intelligence"}})json",
-    R"json({"name":"cve_exploit","title":"CVE Exploit Intelligence","description":"Public exploit intelligence (GitHub PoCs, Metasploit, NVD and CNA exploit references, ExploitDB). GitHub PoC repositories are listed but not counted as proof of a public exploit.",)json"
+    R"json({"name":"cve_exploit","title":"CVE Exploit Intelligence","description":"Public exploit intelligence (GitHub PoCs, Metasploit, NVD and CNA exploit references, ExploitDB). GitHub PoC repositories are listed but not counted as proof of a public exploit. For a single patch-priority score, call cve_risk_score.",)json"
       R"json("inputSchema":{"type":"object","properties":{)json"
       R"json("cve_id":{"type":"string","maxLength":24,"description":"CVE ID"})json"
       R"json(},"required":["cve_id"],"additionalProperties":false})json"
       R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"CVE Intelligence"}})json",
     R"json({"name":"cve_triage","title":"CVE Triage","description":"Rank the CVEs of a vendor or product by composite risk score, at or above the optional min_risk_score argument, as lean rows (cve_id, risk_score, label). Call the cve_lookup tool for detail, and the cpe_search tool to find the names.",)json"
       R"json("inputSchema":{"type":"object","properties":{)json"
-      R"json("vendor":{"type":"string","maxLength":128},)json"
-      R"json("product":{"type":"string","maxLength":128},)json"
+      R"json("vendor":{"type":"string","maxLength":128,"description":"Exact vendor name as cpe_search lists it, e.g. apache"},)json"
+      R"json("product":{"type":"string","maxLength":128,"description":"Exact product name as cpe_search lists it, e.g. log4j"},)json"
       R"json("min_risk_score":{"type":"number","minimum":0,"maximum":100,"description":"Composite risk-score threshold"},)json"
       R"json("include_rejected":{"type":"boolean","description":"Also list the CVEs that NVD marks Rejected"},)json"
-      R"json("limit":{"type":"integer","minimum":1,"maximum":100,"default":20},)json"
-      R"json("offset":{"type":"integer","minimum":0,"maximum":10000,"default":0})json"
+      R"json("limit":{"type":"integer","minimum":1,"maximum":100,"default":20,"description":"CVEs per page"},)json"
+      R"json("offset":{"type":"integer","minimum":0,"maximum":10000,"default":0,"description":"CVEs to skip; pass next_offset of the previous page"})json"
       R"json(},"additionalProperties":false})json"
       R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"CVE Intelligence"}})json",
     R"json({"name":"cve_triage_bulk","title":"Bulk CVE Triage","description":"Triage many CVEs at once, ranked by composite risk score. Ids beyond the remaining credits come back in not_processed.",)json"
@@ -840,8 +840,8 @@ void test_tools_list_is_the_whole_catalogue(void)
       R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"CVE Intelligence"}})json",
     R"json({"name":"product_exposure","title":"Product Exposure","description":"CVE exposure of one vendor and product: severity, KEV and PoC counts, CVSS, EPSS, the worst risk score, the top CVEs and the endoflife.date support dates. To find the names, call the cpe_search tool.",)json"
       R"json("inputSchema":{"type":"object","properties":{)json"
-      R"json("vendor":{"type":"string","maxLength":128},)json"
-      R"json("product":{"type":"string","maxLength":128},)json"
+      R"json("vendor":{"type":"string","maxLength":128,"description":"Exact vendor name as cpe_search lists it, e.g. apache"},)json"
+      R"json("product":{"type":"string","maxLength":128,"description":"Exact product name as cpe_search lists it, e.g. log4j"},)json"
       R"json("version":{"type":"string","maxLength":128,"description":"Product version, e.g. 22.21.1 or 11-24h2; picks the release cycle of eol"},)json"
       R"json("include_rejected":{"type":"boolean","description":"Also count and list the CVEs that NVD marks Rejected"})json"
       R"json(},"required":["vendor","product"],"additionalProperties":false})json"
@@ -849,13 +849,13 @@ void test_tools_list_is_the_whole_catalogue(void)
     R"json({"name":"cpe_search","title":"CPE Search","description":"Find the CPE vendor and product names that hold a text, ranked by vulnerable CVE count. Pass a name that holds no % as it is to the vendor and product arguments of the cve_search, cve_triage, cve_leading and product_exposure tools.",)json"
       R"json("inputSchema":{"type":"object","properties":{)json"
       R"json("search":{"type":"string","maxLength":128,"description":"Text in vendor or product names, at least 3 bytes; case does not matter, and _ matches a space"},)json"
-      R"json("limit":{"type":"integer","minimum":1,"maximum":50,"default":20},)json"
-      R"json("offset":{"type":"integer","minimum":0,"maximum":10000,"default":0})json"
+      R"json("limit":{"type":"integer","minimum":1,"maximum":50,"default":20,"description":"Vendor and product pairs per page"},)json"
+      R"json("offset":{"type":"integer","minimum":0,"maximum":10000,"default":0,"description":"Pairs to skip; pass next_offset of the previous page"})json"
       R"json(},"required":["search"],"additionalProperties":false})json"
       R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"CVE Intelligence"}})json",
-    R"json({"name":"cvss_calculator","title":"CVSS Calculator","description":"Decode a CVSS v3.0/v3.1 vector into its base metrics and recompute its base, temporal and environmental scores.",)json"
+    R"json({"name":"cvss_calculator","title":"CVSS Calculator","description":"Decode a CVSS v3.0/v3.1 vector into its base metrics and recompute its base, temporal and environmental scores. Use it on a vector you hold; cve_lookup already gives the scores of a CVE. v2 and v4 are refused.",)json"
       R"json("inputSchema":{"type":"object","properties":{)json"
-      R"json("vector":{"type":"string","maxLength":127,"description":"CVSS v3.0/v3.1 vector, e.g. CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"})json"
+      R"json("vector":{"type":"string","maxLength":127,"description":"CVSS:3.0/ or CVSS:3.1/ vector with all eight base metrics; temporal and environmental metrics are optional, e.g. CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"})json"
       R"json(},"required":["vector"],"additionalProperties":false})json"
       R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"CVE Intelligence"}})json",
     R"json({"name":"watchlist_edit","title":"Watchlist: CVE, Package, Domain and IP Monitoring","description":"Add, remove, list or clear the items this API key watches: CVEs, products, CVE searches, packages, domains and IP addresses. Read their changes with the watchlist_events tool. Requires a Pro API key.",)json"
@@ -958,7 +958,7 @@ void test_tools_list_is_the_whole_catalogue(void)
       R"json("domain":{"type":"string","maxLength":253,"description":"Domain name, such as example.com; www.example.com asks about example.com"})json"
       R"json(},"required":["domain"],"additionalProperties":false})json"
       R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":true},"_meta":{"com.contrastcyber/category":"Domain Intelligence"}})json",
-    R"json({"name":"ip_lookup","title":"IP Lookup","description":"Look up a public IP address: AS, country, cloud provider, CDN, datacenter or Tor exit, DROP listing and PTR name. A Pro key with its own Shodan or AbuseIPDB key adds exposure and reputation.",)json"
+    R"json({"name":"ip_lookup","title":"IP Lookup","description":"Look up a public IP address: AS, country, cloud provider, CDN, datacenter or Tor exit, DROP listing and PTR name. A Pro key with its own Shodan or AbuseIPDB key adds exposure and reputation. For every prefix of the AS, call asn_lookup.",)json"
       R"json("inputSchema":{"type":"object","properties":{)json"
       R"json("ip_address":{"type":"string","maxLength":45,"description":"Public IPv4 or IPv6 address, such as 8.8.8.8 or 2001:4860:4860::8888"})json"
       R"json(},"required":["ip_address"],"additionalProperties":false})json"
@@ -966,8 +966,8 @@ void test_tools_list_is_the_whole_catalogue(void)
     R"json({"name":"asn_lookup","title":"ASN Lookup","description":"Look up an autonomous system by number, such as AS15169, or by an IP address it holds: name, country and one page of its IPv4 and IPv6 prefixes, derived from IPtoASN.",)json"
       R"json("inputSchema":{"type":"object","properties":{)json"
       R"json("target":{"type":"string","maxLength":45,"description":"AS number, such as AS15169 or 15169, or a public IPv4 or IPv6 address, such as 8.8.8.8"},)json"
-      R"json("limit":{"type":"integer","minimum":1,"maximum":50,"default":50},)json"
-      R"json("offset":{"type":"integer","minimum":0,"default":0})json"
+      R"json("limit":{"type":"integer","minimum":1,"maximum":50,"default":50,"description":"Prefixes per page, in each address family"},)json"
+      R"json("offset":{"type":"integer","minimum":0,"default":0,"description":"Prefixes to skip in each family; pass next_offset of the previous page"})json"
       R"json(},"required":["target"],"additionalProperties":false})json"
       R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"IP Intelligence"}})json",
     R"json({"name":"d3fend_for_attack","title":"D3FEND Defenses for ATT&CK","description":"MITRE D3FEND defenses that counter a MITRE ATT&CK technique. A technique id such as T1055 also matches its sub-techniques. Source: MITRE D3FEND (MIT license).",)json"
@@ -975,7 +975,7 @@ void test_tools_list_is_the_whole_catalogue(void)
       R"json("attack_technique_id":{"type":"string","maxLength":9,"description":"MITRE ATT&CK technique id in upper case, e.g. T1055 or T1055.012"})json"
       R"json(},"required":["attack_technique_id"],"additionalProperties":false})json"
       R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"Threat Defense"}})json",
-    R"json({"name":"driver_lookup","title":"Windows Driver Lookup (LOLDrivers)","description":"Look up a Windows driver file hash in the LOLDrivers catalog of vulnerable and malicious drivers. Block on the file and Authenticode hashes, not on the detection rules. Source: LOLDrivers (Apache-2.0).",)json"
+    R"json({"name":"driver_lookup","title":"Windows Driver Lookup (LOLDrivers)","description":"Look up a Windows driver hash in the LOLDrivers catalog of vulnerable and malicious drivers. Block on the file and Authenticode hashes, not on the detection rules. For many hashes, call driver_lookup_bulk. Source: LOLDrivers (Apache-2.0).",)json"
       R"json("inputSchema":{"type":"object","properties":{)json"
       R"json("file_hash":{"type":"string","maxLength":64,"description":"MD5, SHA1 or SHA256 of the driver file, or its Authentihash: 32, 40 or 64 hex digits, either case"},)json"
       R"json("include_commands":{"type":"boolean","description":"true adds the catalog's command text to each match"})json"
@@ -991,8 +991,8 @@ void test_tools_list_is_the_whole_catalogue(void)
       R"json("ecosystem":{"type":"string","maxLength":16,"description":"npm, PyPI, Maven, Go, NuGet, RubyGems, crates.io, Packagist or SwiftURL. Case does not matter."},)json"
       R"json("name":{"type":"string","maxLength":256,"description":"Package name as the dependency file writes it, e.g. lodash, @babel/core, org.apache.logging.log4j:log4j-core, golang.org/x/net"},)json"
       R"json("version":{"type":"string","maxLength":128,"description":"Exact version, e.g. 4.17.20; without it every result is listed"},)json"
-      R"json("limit":{"type":"integer","minimum":1,"maximum":50,"default":20},)json"
-      R"json("offset":{"type":"integer","minimum":0,"default":0})json"
+      R"json("limit":{"type":"integer","minimum":1,"maximum":50,"default":20,"description":"Results per page"},)json"
+      R"json("offset":{"type":"integer","minimum":0,"default":0,"description":"Results to skip; pass next_offset of the previous page"})json"
       R"json(},"required":["ecosystem","name"],"additionalProperties":false})json"
       R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"Package Vulnerabilities (SBOM)"}})json",
     R"json({"name":"package_check_bulk","title":"Bulk Package Check (SBOM)","description":"Check many packages at once, each an ecosystem, a name and an exact version, against the advisories package_check reads. For the summary and ranges of an advisory, call the package_check tool.",)json"
@@ -5948,7 +5948,7 @@ static void static_assertToolEntryHas(const char* payload, const char* tool_name
 
 void test_tools_list_boolean_filter_schemas(void)
 {
-  const char* kev_needle    = R"("in_kev":{"type":"boolean"},)";
+  const char* kev_needle    = R"("in_kev":{"type":"boolean","description":)";
   const char* kev_const     = R"("in_kev":{"type":"boolean","const")";
   const char* ransom_needle = R"("known_ransomware":{"type":"boolean","const":true,)";
 
@@ -5965,7 +5965,7 @@ void test_tools_list_boolean_filter_schemas(void)
   free(response);
 }
 
-#define TEST_TOOLS_LIST_MAX_BYTE_COUNT 29184
+#define TEST_TOOLS_LIST_MAX_BYTE_COUNT 31232
 
 #define TEST_MCP_TOOL_DESCRIPTION_MAX_LEN 240
 

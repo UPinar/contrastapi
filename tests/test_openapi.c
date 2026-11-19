@@ -425,6 +425,7 @@ static void test_cve_search_query_params_carry_their_schemas(void)
 
   static_assertRaw(static_findParameter(parameters, "severity"),
                    "{\"name\":\"severity\",\"in\":\"query\",\"required\":false,"
+                   "\"description\":\"CVSS severity: CRITICAL, HIGH, MEDIUM, LOW or NONE, from the v3 rating when the CVE has one\","
                    "\"schema\":{\"type\":\"string\",\"enum\":[\"CRITICAL\",\"HIGH\",\"MEDIUM\",\"LOW\",\"NONE\"],\"maxLength\":16}}");
   static_assertRaw(static_at(static_findParameter(parameters, "limit"), "schema", NULL),
                    "{\"type\":\"integer\",\"minimum\":1,\"maximum\":100,\"default\":20}");
