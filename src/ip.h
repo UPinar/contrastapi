@@ -24,23 +24,23 @@ typedef struct {
 } IPLOOKUPParams_t;
 
 typedef struct {
-  char        ma_ipAddress[INET6_ADDRSTRLEN];
-  uint32_t    m_asn;
-  char        ma_asnName[IPLOOKUP_ASN_NAME_MAX_LEN + 1];
-  char        ma_asnCountry[IPLOOKUP_COUNTRY_CODE_LEN + 1];
-  char        ma_geoCountry[IPLOOKUP_COUNTRY_CODE_LEN + 1];
-  char        ma_cloudProvider[IPLOOKUP_CLOUD_PROVIDER_MAX_LEN + 1];
-  char        ma_cloudService[IPLOOKUP_CLOUD_SERVICE_MAX_LEN + 1];
-  bool        m_isCdn;
-  bool        m_isDatacenter;
-  bool        m_isTorExit;
-  char*       mp_listedOn;
-  bool        m_isAsnFeedLoaded;
-  bool        m_isGeoFeedLoaded;
-  bool        m_isCloudFeedLoaded;
-  bool        m_isTorFeedLoaded;
-  bool        m_isDropListFeedLoaded;
-  DnsAnswer_t m_ptrAnswer;
+  char            ma_ipAddress[INET6_ADDRSTRLEN];
+  uint32_t        m_asn;
+  char            ma_asnName[IPLOOKUP_ASN_NAME_MAX_LEN + 1];
+  char            ma_asnCountry[IPLOOKUP_COUNTRY_CODE_LEN + 1];
+  char            ma_geoCountry[IPLOOKUP_COUNTRY_CODE_LEN + 1];
+  char            ma_cloudProvider[IPLOOKUP_CLOUD_PROVIDER_MAX_LEN + 1];
+  char            ma_cloudService[IPLOOKUP_CLOUD_SERVICE_MAX_LEN + 1];
+  bool            m_isCdn;
+  bool            m_isDatacenter;
+  bool            m_isTorExit;
+  char*           mp_listedOn;
+  bool            m_isAsnFeedLoaded;
+  bool            m_isGeoFeedLoaded;
+  bool            m_isCloudFeedLoaded;
+  bool            m_isTorFeedLoaded;
+  bool            m_isDropListFeedLoaded;
+  DnsPtrAnswer_t  m_ptrAnswer;
 } IPLOOKUPRecord_t;
 
 typedef enum {

@@ -2361,17 +2361,30 @@ static void static_IPLOOKUPWriteDatacenter(const IPLOOKUPRecord_t* record, JsonB
     jsonbuf_appendFormat(json_buf, R"("is_datacenter":null,)");
 }
 
-static void static_IPLOOKUPWritePtr(const DnsAnswer_t* answer, JsonBuf_t* json_buf)
+static void static_IPLOOKUPWritePtr(const DnsPtrAnswer_t* ptr_answer, JsonBuf_t* json_buf)
 {
+  const DnsAnswer_t* answer = &ptr_answer->m_answer;
   if (answer->m_status != DNS_ANSWER_OK || answer->m_recordCount == 0)
   {
     jsonbuf_appendFormat(json_buf, R"("ptr":null,)");
     return;
   }
 
+  int shown_name_index = ptr_answer->m_shownNameIndex;
+  assert(shown_name_index >= 0 && shown_name_index < answer->m_recordCount);
   jsonbuf_appendFormat(json_buf, R"("ptr":")");
-  jsonbuf_appendEscapedBytes(json_buf, answer->mp_texts[0].mp_bytes, answer->mp_texts[0].m_byteCount);
+  jsonbuf_appendEscapedBytes(json_buf, answer->mp_texts[shown_name_index].mp_bytes, answer->mp_texts[shown_name_index].m_byteCount);
   jsonbuf_appendFormat(json_buf, R"(",)");
+}
+
+static void static_IPLOOKUPWritePtrConfirmation(const DnsPtrAnswer_t* ptr_answer, JsonBuf_t* json_buf)
+{
+  const char* value = "null";
+  if (ptr_answer->m_confirmation == DNS_PTR_CONFIRMATION_CONFIRMED)
+    value = "true";
+  else if (ptr_answer->m_confirmation == DNS_PTR_CONFIRMATION_NOT_CONFIRMED)
+    value = "false";
+  jsonbuf_appendFormat(json_buf, R"("is_ptr_forward_confirmed":%s,)", value);
 }
 
 static void static_IPLOOKUPWriteUnavailable(const IPLOOKUPRecord_t* record, JsonBuf_t* json_buf)
@@ -2398,9 +2411,17 @@ static void static_IPLOOKUPWriteUnavailable(const IPLOOKUPRecord_t* record, Json
     unavailable_count++;
   }
   
-  DnsAnswerStatus_t ptr_status = record->m_ptrAnswer.m_status;
+  const DnsPtrAnswer_t* ptr_answer = &record->m_ptrAnswer;
+  DnsAnswerStatus_t     ptr_status = ptr_answer->m_answer.m_status;
   if (static_IPLOOKUPIsPtrUnavailable(ptr_status))
+  {
     jsonbuf_appendFormat(json_buf, R"(%s"ptr":"%s")", unavailable_count > 0 ? "," : "", static_DNSLOOKUPReason(ptr_status));
+    unavailable_count++;
+  }
+
+  bool has_ptr_name = ptr_status == DNS_ANSWER_OK && ptr_answer->m_answer.m_recordCount > 0;
+  if (has_ptr_name && ptr_answer->m_confirmation == DNS_PTR_CONFIRMATION_UNKNOWN)
+    jsonbuf_appendFormat(json_buf, R"(%s"is_ptr_forward_confirmed":"%s")", unavailable_count > 0 ? "," : "", static_DNSLOOKUPReason(ptr_answer->m_forwardStatus));
   jsonbuf_appendFormat(json_buf, "}");
 }
 
@@ -2521,6 +2542,7 @@ void serialize_IPLOOKUP_response(const IPLOOKUPRecord_t* record, const IPLOOKUPV
   jsonbuf_appendFormat(json_buf, ",");
 
   static_IPLOOKUPWritePtr(&record->m_ptrAnswer, json_buf);
+  static_IPLOOKUPWritePtrConfirmation(&record->m_ptrAnswer, json_buf);
   static_IPLOOKUPWriteReputation(slots, json_buf);
   jsonbuf_appendFormat(json_buf, ",");
   static_IPLOOKUPWriteInternetExposure(slots, json_buf);

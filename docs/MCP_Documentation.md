@@ -153,7 +153,7 @@ The modern era has no handshake. Discovery is a plain request, and it costs no c
     "cacheScope":"public", "ttlMs":3600000,
     "supportedVersions":["2026-07-28"],
     "capabilities":{ "tools":{} },
-    "serverInfo":{ "name":"contrastapi", "title":"ContrastAPI", "version":"2.0.11" },
+    "serverInfo":{ "name":"contrastapi", "title":"ContrastAPI", "version":"2.0.12" },
     "instructions":"ContrastAPI is a security data and monitoring server, with watchlists of CVEs, packages, domains and IP addresses. Call cve_lookup for a CVE, package_check for a package, dns_lookup for a domain and ip_lookup for an IP address. Call watchlist_edit and watchlist_events for monitoring, which needs an API key. A Pro API key is sold at https://api.contrastcyber.com/pricing. It looks up, searches and scores CVE, KEV and CWE records. It gives public exploit intelligence. It decodes and scores a CVSS v3 vector. It checks a password's SHA-1 against Have I Been Pwned. It reads a domain's DNS records and checks a host name for a dangling CNAME. It checks a domain's SPF, DMARC, DKIM and MTA-STS records. It checks whether an e-mail address's domain takes mail and whether the address is disposable. It checks the TLS certificate and settings of a host name and rates the security headers of a web site. It looks up the registration of a domain name over RDAP or WHOIS. It lists the Wayback Machine captures of a host name. It lists the unexpired certificates that Certificate Transparency logs hold for a host name. It lists the subdomains of a registrable domain from Certificate Transparency and DNS. It names the MITRE D3FEND defenses that counter a MITRE ATT&CK technique. It finds a driver file hash in the LOLDrivers catalog. It looks up the AS, the country, the cloud range, the Tor exit and the DROP listing of a public IP address. It looks up an AS by its number or by an address it holds. It checks a package or a list of packages of nine ecosystems against OSV.dev advisories and malicious packages. It gives the end-of-life dates of a product or a package from endoflife.date. The watchlist keeps CVE, package, domain and IP items for an API key, and watchlist_events reads their change events. A Pro API key can save its own Shodan and AbuseIPDB keys with vendor_key_edit, and ip_lookup then adds their answers. It says what it keeps about the caller. A call with no API key and no credits left can pay per call with x402 in USDC on Solana."
   } }
 ```
@@ -265,7 +265,7 @@ still served, but its reply carries `"id":null`.
   "result":{
     "protocolVersion":"2025-11-25",
     "capabilities":{ "tools":{} },
-    "serverInfo":{ "name":"contrastapi", "title":"ContrastAPI", "version":"2.0.11" },
+    "serverInfo":{ "name":"contrastapi", "title":"ContrastAPI", "version":"2.0.12" },
     "instructions":"ContrastAPI is a security data and monitoring server, with watchlists of CVEs, packages, domains and IP addresses. Call cve_lookup for a CVE, package_check for a package, dns_lookup for a domain and ip_lookup for an IP address. Call watchlist_edit and watchlist_events for monitoring, which needs an API key. A Pro API key is sold at https://api.contrastcyber.com/pricing. It looks up, searches and scores CVE, KEV and CWE records. It gives public exploit intelligence. It decodes and scores a CVSS v3 vector. It checks a password's SHA-1 against Have I Been Pwned. It reads a domain's DNS records and checks a host name for a dangling CNAME. It checks a domain's SPF, DMARC, DKIM and MTA-STS records. It checks whether an e-mail address's domain takes mail and whether the address is disposable. It checks the TLS certificate and settings of a host name and rates the security headers of a web site. It looks up the registration of a domain name over RDAP or WHOIS. It lists the Wayback Machine captures of a host name. It lists the unexpired certificates that Certificate Transparency logs hold for a host name. It lists the subdomains of a registrable domain from Certificate Transparency and DNS. It names the MITRE D3FEND defenses that counter a MITRE ATT&CK technique. It finds a driver file hash in the LOLDrivers catalog. It looks up the AS, the country, the cloud range, the Tor exit and the DROP listing of a public IP address. It looks up an AS by its number or by an address it holds. It checks a package or a list of packages of nine ecosystems against OSV.dev advisories and malicious packages. It gives the end-of-life dates of a product or a package from endoflife.date. The watchlist keeps CVE, package, domain and IP items for an API key, and watchlist_events reads their change events. A Pro API key can save its own Shodan and AbuseIPDB keys with vendor_key_edit, and ip_lookup then adds their answers. It says what it keeps about the caller. A call with no API key and no credits left can pay per call with x402 in USDC on Solana."
   } }
 ```
@@ -1298,7 +1298,12 @@ The server reads its own copies of five IP lists: IPtoASN, DB-IP Lite, the range
 providers publish, the Tor exit list and the DROP list. Then it asks its own resolver for the PTR
 name of the address, within 3 seconds. A list that is not loaded yet answers its fields as `null`,
 and `unavailable` names it. A failed PTR question leaves `ptr` `null` and names `ptr` in
-`unavailable`; it does not fail the call. `internet_exposure` is the Shodan slot and `reputation`
+`unavailable`; it does not fail the call. Within the same 3 seconds, the server asks for the A or
+AAAA record of up to 10 PTR names. `is_ptr_forward_confirmed` is `true` when one of them holds the
+address, and `ptr` then shows that name. It is `false` when no asked name does, and a name that is
+not a public host name is not asked and counts as `false`. It is `null` when a forward answer
+failed, and `unavailable` then names it with a reason. A match is a signal, not proof (RFC 8601
+§ 3). `internet_exposure` is the Shodan slot and `reputation`
 is the AbuseIPDB slot. A Pro caller with its own stored key gets the slot filled with that vendor's
 answer. A free Shodan key fills `internet_exposure` from the Shodan count query, with `source`
 `shodan_facets`: ports, CVE ids and tags, but `hostnames` `[]` and `last_update` `null`. Otherwise the slot holds `"available":false` and a `reason`: `pro_key_required`,
@@ -1329,7 +1334,7 @@ curl -sX POST https://api.contrastcyber.com/mcp \
 // decoded payload:
 { "ip_address":"8.8.8.8", "asn":15169, "asn_name":"GOOGLE", "asn_country":"US", "geo_country":"US",
   "cloud_provider":"google", "cloud_service":"google", "is_cdn":false, "is_datacenter":true,
-  "is_tor_exit":false, "listed_on":[], "ptr":"dns.google",
+  "is_tor_exit":false, "listed_on":[], "ptr":"dns.google", "is_ptr_forward_confirmed":true,
   "reputation":{"available":false,"reason":"pro_key_required","action_url":"https://api.contrastcyber.com/pricing"},
   "internet_exposure":{"available":false,"reason":"pro_key_required","action_url":"https://api.contrastcyber.com/pricing"},
   "unavailable":{} }
@@ -2147,7 +2152,7 @@ curl -sX POST https://api.contrastcyber.com/mcp -H "X-API-Key: $KEY" \
 ```
 ```jsonc
 // result.content[0].text (decoded):
-{ "status":"ok", "version":"2.0.11",
+{ "status":"ok", "version":"2.0.12",
   "db":{ "nvd":{ "cve_count":352507, "last_added":{ "cve_id":"CVE-2026-47782", "published_time":"2026-05-31" } },
          "kev":{ "entry_count":1592, "last_added":{ "cve_id":"CVE-2026-42897", "date_added":"2026-05-15" } },
          "cwe":{ "entry_count":944, "last_updated":{ "cwe_id":"CWE-1434", "updated_at":"2026-05-20T14:07:56Z" } },

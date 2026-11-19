@@ -295,7 +295,7 @@ void test_HEALTH_serializes_every_section(void)
   char* body = static_finishJsonBuf(json_buf);
 
   TEST_ASSERT_EQUAL_STRING(
-    R"({"status":"ok","version":"2.0.11","db":{)"
+    R"({"status":"ok","version":"2.0.12","db":{)"
       R"("nvd":{"cve_count":312000,"last_added":{"cve_id":"CVE-2026-1234",)"
         R"("published_time":"2026-08-29T10:00:00Z"}},)"
       R"("kev":{"entry_count":1300,"last_added":{"cve_id":"CVE-2026-9999",)"
@@ -316,7 +316,7 @@ void test_HEALTH_null_db_serializes_unavailable_and_null_db(void)
   char* body = static_finishJsonBuf(json_buf);
 
   TEST_ASSERT_EQUAL_STRING(
-    R"({"status":"unavailable","version":"2.0.11","db":null})" "\n", body);
+    R"({"status":"unavailable","version":"2.0.12","db":null})" "\n", body);
   free(body);
 }
 
@@ -378,7 +378,7 @@ void test_HEALTH_every_string_is_escaped_through_its_own_class(void)
   char* body = static_finishJsonBuf(json_buf);
 
   TEST_ASSERT_EQUAL_STRING(
-    R"({"status":"ok","version":"2.0.11","db":{)"
+    R"({"status":"ok","version":"2.0.12","db":{)"
       R"("nvd":{"cve_count":1,"last_added":{"cve_id":"CVE-\"1","published_time":"2026\\08"}},)"
       R"("kev":{"entry_count":2,"last_added":{"cve_id":"CVE\n9","date_added":"2026\t28"}},)"
       R"("cwe":{"entry_count":3,"last_updated":{"cwe_id":"CWE\b79","updated_at":"2026)" "\\u0001" R"(27"}},)"
@@ -3461,9 +3461,11 @@ static DnsRecordText_t g_iplookupPtrTexts[2] = { { (char*)"ptr.example.net", 15 
 static void static_setIPLOOKUPPtr(IPLOOKUPRecord_t* record, DnsAnswerStatus_t status, int record_count, DnsRecordText_t* texts)
 {
   memset(&record->m_ptrAnswer, 0, sizeof(record->m_ptrAnswer));
-  record->m_ptrAnswer.m_status      = status;
-  record->m_ptrAnswer.m_recordCount = record_count;
-  record->m_ptrAnswer.mp_texts      = texts;
+  record->m_ptrAnswer.m_answer.m_status      = status;
+  record->m_ptrAnswer.m_answer.m_recordCount = record_count;
+  record->m_ptrAnswer.m_answer.mp_texts      = texts;
+  if (status == DNS_ANSWER_OK && record_count > 0)
+    record->m_ptrAnswer.m_confirmation = DNS_PTR_CONFIRMATION_CONFIRMED;
 }
 
 static void static_fillIPLOOKUPRecord(IPLOOKUPRecord_t* record)
@@ -3511,7 +3513,7 @@ void test_IPLOOKUP_golden_every_source_loaded_with_matches(void)
 
   char* body = static_IPLOOKUPBody(&record);
 
-  TEST_ASSERT_EQUAL_STRING(IPLOOKUP_GOLDEN_LOADED_HEAD R"("ptr":"ptr.example.net",)" IPLOOKUP_GOLDEN_SLOTS R"("unavailable":{}})" "\n", body);
+  TEST_ASSERT_EQUAL_STRING(IPLOOKUP_GOLDEN_LOADED_HEAD R"("ptr":"ptr.example.net","is_ptr_forward_confirmed":true,)" IPLOOKUP_GOLDEN_SLOTS R"("unavailable":{}})" "\n", body);
   free(body);
 }
 
@@ -3530,7 +3532,7 @@ void test_IPLOOKUP_golden_ipv6_cdn_that_is_not_a_tor_exit(void)
   TEST_ASSERT_EQUAL_STRING(
     R"({"ip_address":"2606:4700::1111","asn":4200000000,"asn_name":"EX\"AMPLE\\NET","asn_country":"DE","geo_country":"FR",)"
     R"("cloud_provider":"cloudflare","cloud_service":"cdn","is_cdn":true,"is_datacenter":true,"is_tor_exit":false,)"
-    R"("listed_on":)" IPLOOKUP_FIX_LISTED_ON R"(,"ptr":"ptr.example.net",)" IPLOOKUP_GOLDEN_SLOTS R"("unavailable":{}})" "\n", body);
+    R"("listed_on":)" IPLOOKUP_FIX_LISTED_ON R"(,"ptr":"ptr.example.net","is_ptr_forward_confirmed":true,)" IPLOOKUP_GOLDEN_SLOTS R"("unavailable":{}})" "\n", body);
   free(body);
 }
 
@@ -3554,7 +3556,7 @@ void test_IPLOOKUP_golden_every_source_loaded_without_a_match(void)
   TEST_ASSERT_EQUAL_STRING(
     R"({"ip_address":"8.8.4.4","asn":null,"asn_name":null,"asn_country":null,"geo_country":null,)"
     R"("cloud_provider":null,"cloud_service":null,"is_cdn":null,"is_datacenter":false,"is_tor_exit":false,)"
-    R"("listed_on":[],"ptr":null,)" IPLOOKUP_GOLDEN_SLOTS R"("unavailable":{}})" "\n", body);
+    R"("listed_on":[],"ptr":null,"is_ptr_forward_confirmed":null,)" IPLOOKUP_GOLDEN_SLOTS R"("unavailable":{}})" "\n", body);
   free(body);
 }
 
@@ -3600,23 +3602,23 @@ void test_IPLOOKUP_golden_each_source_not_loaded(void)
   static const char* const goldens[] = {
     R"({"ip_address":"8.8.4.4","asn":null,"asn_name":null,"asn_country":null,"geo_country":"FR",)"
     R"("cloud_provider":"aws","cloud_service":"ec2","is_cdn":false,"is_datacenter":null,"is_tor_exit":true,)"
-    R"("listed_on":)" IPLOOKUP_FIX_LISTED_ON R"(,"ptr":"ptr.example.net",)" IPLOOKUP_GOLDEN_SLOTS R"("unavailable":{"asn":"not_synced"}})" "\n",
+    R"("listed_on":)" IPLOOKUP_FIX_LISTED_ON R"(,"ptr":"ptr.example.net","is_ptr_forward_confirmed":true,)" IPLOOKUP_GOLDEN_SLOTS R"("unavailable":{"asn":"not_synced"}})" "\n",
 
     R"({"ip_address":"8.8.4.4","asn":4200000000,"asn_name":"EX\"AMPLE\\NET","asn_country":"DE","geo_country":null,)"
     R"("cloud_provider":"aws","cloud_service":"ec2","is_cdn":false,"is_datacenter":true,"is_tor_exit":true,)"
-    R"("listed_on":)" IPLOOKUP_FIX_LISTED_ON R"(,"ptr":"ptr.example.net",)" IPLOOKUP_GOLDEN_SLOTS R"("unavailable":{"geo_country":"not_synced"}})" "\n",
+    R"("listed_on":)" IPLOOKUP_FIX_LISTED_ON R"(,"ptr":"ptr.example.net","is_ptr_forward_confirmed":true,)" IPLOOKUP_GOLDEN_SLOTS R"("unavailable":{"geo_country":"not_synced"}})" "\n",
 
     R"({"ip_address":"8.8.4.4","asn":4200000000,"asn_name":"EX\"AMPLE\\NET","asn_country":"DE","geo_country":"FR",)"
     R"("cloud_provider":null,"cloud_service":null,"is_cdn":null,"is_datacenter":null,"is_tor_exit":true,)"
-    R"("listed_on":)" IPLOOKUP_FIX_LISTED_ON R"(,"ptr":"ptr.example.net",)" IPLOOKUP_GOLDEN_SLOTS R"("unavailable":{"cloud_provider":"not_synced"}})" "\n",
+    R"("listed_on":)" IPLOOKUP_FIX_LISTED_ON R"(,"ptr":"ptr.example.net","is_ptr_forward_confirmed":true,)" IPLOOKUP_GOLDEN_SLOTS R"("unavailable":{"cloud_provider":"not_synced"}})" "\n",
 
     R"({"ip_address":"8.8.4.4","asn":4200000000,"asn_name":"EX\"AMPLE\\NET","asn_country":"DE","geo_country":"FR",)"
     R"("cloud_provider":"aws","cloud_service":"ec2","is_cdn":false,"is_datacenter":true,"is_tor_exit":null,)"
-    R"("listed_on":)" IPLOOKUP_FIX_LISTED_ON R"(,"ptr":"ptr.example.net",)" IPLOOKUP_GOLDEN_SLOTS R"("unavailable":{"is_tor_exit":"not_synced"}})" "\n",
+    R"("listed_on":)" IPLOOKUP_FIX_LISTED_ON R"(,"ptr":"ptr.example.net","is_ptr_forward_confirmed":true,)" IPLOOKUP_GOLDEN_SLOTS R"("unavailable":{"is_tor_exit":"not_synced"}})" "\n",
 
     R"({"ip_address":"8.8.4.4","asn":4200000000,"asn_name":"EX\"AMPLE\\NET","asn_country":"DE","geo_country":"FR",)"
     R"("cloud_provider":"aws","cloud_service":"ec2","is_cdn":false,"is_datacenter":true,"is_tor_exit":true,)"
-    R"("listed_on":null,"ptr":"ptr.example.net",)" IPLOOKUP_GOLDEN_SLOTS R"("unavailable":{"listed_on":"not_synced"}})" "\n",
+    R"("listed_on":null,"ptr":"ptr.example.net","is_ptr_forward_confirmed":true,)" IPLOOKUP_GOLDEN_SLOTS R"("unavailable":{"listed_on":"not_synced"}})" "\n",
   };
   for (int source = 0; source < 5; source++)
   {
@@ -3665,7 +3667,7 @@ void test_IPLOOKUP_golden_nothing_loaded_and_ptr_timed_out(void)
   TEST_ASSERT_EQUAL_STRING(
     R"({"ip_address":"8.8.4.4","asn":null,"asn_name":null,"asn_country":null,"geo_country":null,)"
     R"("cloud_provider":null,"cloud_service":null,"is_cdn":null,"is_datacenter":true,"is_tor_exit":null,)"
-    R"("listed_on":null,"ptr":null,)" IPLOOKUP_GOLDEN_SLOTS
+    R"("listed_on":null,"ptr":null,"is_ptr_forward_confirmed":null,)" IPLOOKUP_GOLDEN_SLOTS
     R"("unavailable":{"asn":"not_synced","geo_country":"not_synced","cloud_provider":"not_synced","is_tor_exit":"not_synced","listed_on":"not_synced","ptr":"timeout"}})" "\n", body);
   free(body);
 }
@@ -3685,7 +3687,7 @@ void test_IPLOOKUP_golden_each_failed_ptr_answer(void)
     static_fillIPLOOKUPRecord(&record);
     static_setIPLOOKUPPtr(&record, cases[i].m_status, 2, g_iplookupPtrTexts);
     char golden[8192];
-    int written = snprintf(golden, sizeof(golden), "%s%s%s%s}\n", IPLOOKUP_GOLDEN_LOADED_HEAD, R"("ptr":null,)", IPLOOKUP_GOLDEN_SLOTS R"("unavailable":)", cases[i].mp_unavailable);
+    int written = snprintf(golden, sizeof(golden), "%s%s%s%s}\n", IPLOOKUP_GOLDEN_LOADED_HEAD, R"("ptr":null,"is_ptr_forward_confirmed":null,)", IPLOOKUP_GOLDEN_SLOTS R"("unavailable":)", cases[i].mp_unavailable);
     TEST_ASSERT_TRUE(written > 0 && (size_t)written < sizeof(golden));
 
     char* body = static_IPLOOKUPBody(&record);
@@ -3704,8 +3706,92 @@ void test_IPLOOKUP_ptr_name_is_escaped_by_its_byte_count(void)
 
   char* body = static_IPLOOKUPBody(&record);
 
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(body, R"(,"ptr":"a\u0000b","reputation":)"), body);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(body, R"(,"ptr":"a\u0000b","is_ptr_forward_confirmed":true,"reputation":)"), body);
   free(body);
+}
+
+void test_IPLOOKUP_ptr_forward_confirmation_true_false_null(void)
+{
+  static const struct { DnsPtrConfirmation_t m_confirmation; DnsAnswerStatus_t m_forwardStatus; const char* mp_members; } cases[] = {
+    { DNS_PTR_CONFIRMATION_CONFIRMED,     DNS_ANSWER_OK,      R"(,"ptr":"other.example.net","is_ptr_forward_confirmed":true,"reputation":)" },
+    { DNS_PTR_CONFIRMATION_NOT_CONFIRMED, DNS_ANSWER_OK,      R"(,"ptr":"other.example.net","is_ptr_forward_confirmed":false,"reputation":)" },
+    { DNS_PTR_CONFIRMATION_UNKNOWN,       DNS_ANSWER_TIMEOUT, R"(,"ptr":"other.example.net","is_ptr_forward_confirmed":null,"reputation":)" },
+  };
+  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+  {
+    IPLOOKUPRecord_t record;
+    static_fillIPLOOKUPRecord(&record);
+    record.m_ptrAnswer.m_shownNameIndex = 1;
+    record.m_ptrAnswer.m_confirmation   = cases[i].m_confirmation;
+    record.m_ptrAnswer.m_forwardStatus  = cases[i].m_forwardStatus;
+
+    char* body = static_IPLOOKUPBody(&record);
+
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(body, cases[i].mp_members), body);
+    free(body);
+  }
+}
+
+void test_IPLOOKUP_ptr_writes_the_name_at_the_shown_index(void)
+{
+  IPLOOKUPRecord_t record;
+  static_fillIPLOOKUPRecord(&record);
+  record.m_ptrAnswer.m_shownNameIndex = 1;
+
+  char* body = static_IPLOOKUPBody(&record);
+
+  TEST_ASSERT_EQUAL_STRING(IPLOOKUP_GOLDEN_LOADED_HEAD R"("ptr":"other.example.net","is_ptr_forward_confirmed":true,)" IPLOOKUP_GOLDEN_SLOTS R"("unavailable":{}})" "\n", body);
+  free(body);
+}
+
+void test_IPLOOKUP_unavailable_names_a_failed_forward_answer(void)
+{
+  static const struct { DnsAnswerStatus_t m_forwardStatus; bool m_isGeoFeedLoaded; const char* mp_unavailable; } cases[] = {
+    { DNS_ANSWER_TIMEOUT,      true,  R"("is_ptr_forward_confirmed":null,)" IPLOOKUP_GOLDEN_SLOTS R"("unavailable":{"is_ptr_forward_confirmed":"timeout"}})" "\n" },
+    { DNS_ANSWER_SERVER_ERROR, false, R"("is_ptr_forward_confirmed":null,)" IPLOOKUP_GOLDEN_SLOTS R"("unavailable":{"geo_country":"not_synced","is_ptr_forward_confirmed":"server_error"}})" "\n" },
+  };
+  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+  {
+    IPLOOKUPRecord_t record;
+    static_fillIPLOOKUPRecord(&record);
+    record.m_isGeoFeedLoaded            = cases[i].m_isGeoFeedLoaded;
+    record.m_ptrAnswer.m_shownNameIndex = 1;
+    record.m_ptrAnswer.m_confirmation   = DNS_PTR_CONFIRMATION_UNKNOWN;
+    record.m_ptrAnswer.m_forwardStatus  = cases[i].m_forwardStatus;
+
+    char* body = static_IPLOOKUPBody(&record);
+
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(body, R"("ptr":"other.example.net",)"), body);
+    size_t body_len = strlen(body);
+    size_t tail_len = strlen(cases[i].mp_unavailable);
+    TEST_ASSERT_TRUE_MESSAGE(body_len > tail_len, body);
+    TEST_ASSERT_EQUAL_STRING(cases[i].mp_unavailable, body + body_len - tail_len);
+    free(body);
+  }
+}
+
+void test_IPLOOKUP_unavailable_has_no_forward_key_without_a_ptr_name(void)
+{
+  static const struct { DnsAnswerStatus_t m_status; int m_recordCount; const char* mp_unavailable; } cases[] = {
+    { DNS_ANSWER_NXDOMAIN,     2, R"("unavailable":{}})" "\n" },
+    { DNS_ANSWER_OK,           0, R"("unavailable":{}})" "\n" },
+    { DNS_ANSWER_SERVER_ERROR, 2, R"("unavailable":{"ptr":"server_error"}})" "\n" },
+  };
+  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+  {
+    IPLOOKUPRecord_t record;
+    static_fillIPLOOKUPRecord(&record);
+    static_setIPLOOKUPPtr(&record, cases[i].m_status, cases[i].m_recordCount, cases[i].m_recordCount > 0 ? g_iplookupPtrTexts : NULL);
+    record.m_ptrAnswer.m_forwardStatus = DNS_ANSWER_TIMEOUT;
+
+    char* body = static_IPLOOKUPBody(&record);
+
+    char golden[8192];
+    int written = snprintf(golden, sizeof(golden), "%s%s%s", IPLOOKUP_GOLDEN_LOADED_HEAD R"("ptr":null,"is_ptr_forward_confirmed":null,)", IPLOOKUP_GOLDEN_SLOTS, cases[i].mp_unavailable);
+    TEST_ASSERT_TRUE(written > 0 && (size_t)written < sizeof(golden));
+    TEST_ASSERT_EQUAL_STRING_MESSAGE(golden, body, cases[i].mp_unavailable);
+    free(body);
+  }
 }
 
 static int   g_iplookupShodanPorts[3]     = { 0, 443, 65535 };
@@ -3746,7 +3832,7 @@ void test_IPLOOKUP_golden_both_vendor_slots_filled(void)
 
   char* body = static_IPLOOKUPSlotsBody(&record, &slots);
 
-  TEST_ASSERT_EQUAL_STRING(IPLOOKUP_GOLDEN_LOADED_HEAD R"("ptr":"ptr.example.net",)"
+  TEST_ASSERT_EQUAL_STRING(IPLOOKUP_GOLDEN_LOADED_HEAD R"("ptr":"ptr.example.net","is_ptr_forward_confirmed":true,)"
     R"("reputation":{"available":true,"source":"abuseipdb","abuse_confidence_score":100,"total_reports":2048,"distinct_reporter_count":77,)"
     R"("last_reported_at":"2026-10-31T23:59:59+00:00","is_whitelisted":true,"usage_type":"Fixed \"Line\" ISP"},)"
     R"("internet_exposure":{"available":true,"source":"shodan","ports":[0,443,65535],"vulns":["CVE-2019-0708"],"vulns_truncated":false,)"
@@ -3851,7 +3937,7 @@ void test_IPLOOKUP_each_empty_vendor_slot(void)
     char* body = static_IPLOOKUPSlotsBody(&record, &slots);
     TEST_ASSERT_NULL_MESSAGE(strstr(body, "#l="), body);
     char golden[4096];
-    int written = snprintf(golden, sizeof(golden), "%s%s%s", IPLOOKUP_GOLDEN_LOADED_HEAD R"("ptr":"ptr.example.net",)", cases[i].mp_slots, R"("unavailable":{}})" "\n");
+    int written = snprintf(golden, sizeof(golden), "%s%s%s", IPLOOKUP_GOLDEN_LOADED_HEAD R"("ptr":"ptr.example.net","is_ptr_forward_confirmed":true,)", cases[i].mp_slots, R"("unavailable":{}})" "\n");
     TEST_ASSERT_TRUE(written > 0 && (size_t)written < sizeof(golden));
     TEST_ASSERT_EQUAL_STRING(golden, body);
     free(body);
@@ -5519,7 +5605,7 @@ void test_PRODUCTEXPOSURE_top_cve_count_past_its_array_is_clamped(void)
 
 void test_registration_gate_test_count(void)
 {
-  TEST_ASSERT_EQUAL_INT_MESSAGE(320, (int)Unity.NumberOfTests,
+  TEST_ASSERT_EQUAL_INT_MESSAGE(324, (int)Unity.NumberOfTests,
     "RUN_TEST list and test definitions have drifted apart - a test may be unregistered");
 }
 
@@ -10481,6 +10567,10 @@ int main(void)
   RUN_TEST(test_IPLOOKUP_golden_nothing_loaded_and_ptr_timed_out);
   RUN_TEST(test_IPLOOKUP_golden_each_failed_ptr_answer);
   RUN_TEST(test_IPLOOKUP_ptr_name_is_escaped_by_its_byte_count);
+  RUN_TEST(test_IPLOOKUP_ptr_forward_confirmation_true_false_null);
+  RUN_TEST(test_IPLOOKUP_ptr_writes_the_name_at_the_shown_index);
+  RUN_TEST(test_IPLOOKUP_unavailable_names_a_failed_forward_answer);
+  RUN_TEST(test_IPLOOKUP_unavailable_has_no_forward_key_without_a_ptr_name);
   RUN_TEST(test_IPLOOKUP_golden_both_vendor_slots_filled);
   RUN_TEST(test_IPLOOKUP_internet_exposure_from_the_count_query);
   RUN_TEST(test_IPLOOKUP_reputation_empty_texts_and_whitelist_values);

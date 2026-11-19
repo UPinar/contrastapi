@@ -69,7 +69,8 @@
       the server asks its own DNS resolver about the name. The resolver may then
       ask the name's name servers. No HTTP request goes to the name.
       When a caller asks <code>/ip_lookup</code>, the server asks its resolver for the PTR name of the
-      address. No request goes to the address. When the caller's Pro key has saved a vendor key,
+      address. The resolver may also ask the PTR name's name servers for its A or AAAA record. No
+      request goes to the address. When the caller's Pro key has saved a vendor key,
       the server also asks Shodan at <code>api.shodan.io</code> and AbuseIPDB at
       <code>api.abuseipdb.com</code> about the address, each with the caller's own key. A
       Pro user saves a vendor key with <code>/vendor_key_edit</code>. The server then checks the

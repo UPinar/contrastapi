@@ -250,6 +250,10 @@ extern "C" int               g_stub_PTR_call_count;
 extern "C" int               g_stub_PTR_free_count;
 extern "C" char              g_stub_PTR_last_ip_address[INET6_ADDRSTRLEN];
 extern "C" void            (*g_stub_PTR_on_call)(void);
+
+extern "C" DnsPtrConfirmation_t g_stub_PTR_confirmation;
+extern "C" DnsAnswerStatus_t    g_stub_PTR_forward_status;
+extern "C" int                  g_stub_PTR_shown_name_index;
 extern "C" const TlsProbeResult_t   g_stub_TLSPROBE_default_result;
 extern "C" TlsProbeStatus_t         g_stub_TLSPROBE_status;
 extern "C" TlsProbeResult_t         g_stub_TLSPROBE_result;
@@ -588,6 +592,9 @@ void setUp(void)
   g_stub_PTR_call_count                     = 0;
   g_stub_PTR_free_count                     = 0;
   g_stub_PTR_on_call                        = NULL;
+  g_stub_PTR_confirmation                   = DNS_PTR_CONFIRMATION_CONFIRMED;
+  g_stub_PTR_forward_status                 = DNS_ANSWER_OK;
+  g_stub_PTR_shown_name_index               = 0;
   memset(g_stub_PTR_last_ip_address, 0, sizeof(g_stub_PTR_last_ip_address));
   g_stub_TLSPROBE_status                    = TLSPROBE_OK;
   g_stub_TLSPROBE_result                    = g_stub_TLSPROBE_default_result;
@@ -2962,7 +2969,7 @@ void test_HEALTH_db_error_answers_503_with_retry_after(void)
   TEST_ASSERT_EQUAL_INT(1, static_countResponses(buf));
   TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 503 Service Unavailable\r\n"));
   TEST_ASSERT_NOT_NULL(strstr(buf, "\r\nRetry-After: 5\r\n"));
-  TEST_ASSERT_NOT_NULL(strstr(buf, R"({"status":"unavailable","version":"2.0.11","db":null})"));
+  TEST_ASSERT_NOT_NULL(strstr(buf, R"({"status":"unavailable","version":"2.0.12","db":null})"));
   TEST_ASSERT_NULL(strstr(buf, R"("cve_count")"));
 }
 
@@ -2976,7 +2983,7 @@ void test_HEALTH_db_not_found_also_answers_503(void)
   static_callRequestHandle(req, buf, sizeof(buf));
   TEST_ASSERT_EQUAL_INT(1, static_countResponses(buf));
   TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 503 Service Unavailable\r\n"));
-  TEST_ASSERT_NOT_NULL(strstr(buf, R"({"status":"unavailable","version":"2.0.11","db":null})"));
+  TEST_ASSERT_NOT_NULL(strstr(buf, R"({"status":"unavailable","version":"2.0.12","db":null})"));
   TEST_ASSERT_NULL(strstr(buf, R"("cve_count")"));
 }
 
@@ -5877,7 +5884,7 @@ void test_ip_lookup_answer_is_200_for_the_canonical_address(void)
     int written = snprintf(req, sizeof(req), "GET /ip_lookup/%s HTTP/1.1\r\nX-API-Key: " VALID_KEY "\r\n\r\n", cases[i].mp_path);
     TEST_ASSERT_TRUE(written > 0 && (size_t)written < sizeof(req));
     char body[RESP_BUF];
-    written = snprintf(body, sizeof(body), R"({"ip_address":"%s)" IPLOOKUP_STUB_BODY_HEAD R"("ptr":"one.one.one.one",)" IPLOOKUP_STUB_BODY_TAIL R"("unavailable":{}})" "\n", cases[i].mp_canonical);
+    written = snprintf(body, sizeof(body), R"({"ip_address":"%s)" IPLOOKUP_STUB_BODY_HEAD R"("ptr":"one.one.one.one","is_ptr_forward_confirmed":true,)" IPLOOKUP_STUB_BODY_TAIL R"("unavailable":{}})" "\n", cases[i].mp_canonical);
     TEST_ASSERT_TRUE(written > 0 && (size_t)written < sizeof(body));
 
     char buf[RESP_BUF];
@@ -5994,7 +6001,7 @@ void test_ip_lookup_without_a_ptr_name_is_200_on_both_transports(void)
     g_stub_PTR_record_count = cases[i].m_recordCount;
     g_stub_PTR_free_count   = 0;
     char body[RESP_BUF];
-    int written = snprintf(body, sizeof(body), R"({"ip_address":"1.1.1.1)" IPLOOKUP_STUB_BODY_HEAD R"("ptr":null,)" IPLOOKUP_STUB_BODY_TAIL R"("unavailable":%s})" "\n", cases[i].mp_unavailable);
+    int written = snprintf(body, sizeof(body), R"({"ip_address":"1.1.1.1)" IPLOOKUP_STUB_BODY_HEAD R"("ptr":null,"is_ptr_forward_confirmed":null,)" IPLOOKUP_STUB_BODY_TAIL R"("unavailable":%s})" "\n", cases[i].mp_unavailable);
     TEST_ASSERT_TRUE(written > 0 && (size_t)written < sizeof(body));
     char buf[RESP_BUF];
 
@@ -6010,6 +6017,43 @@ void test_ip_lookup_without_a_ptr_name_is_200_on_both_transports(void)
 
     TEST_ASSERT_EQUAL_STRING_MESSAGE(body, text, cases[i].mp_unavailable);
     TEST_ASSERT_EQUAL_INT_MESSAGE(2, g_stub_PTR_free_count, cases[i].mp_unavailable);
+  }
+}
+
+void test_ip_lookup_forward_confirmation_reaches_the_body(void)
+{
+  g_stub_api_key_state   = DB_API_KEY_ACTIVE;
+  g_stub_IPLOOKUP_status = DB_OK;
+  static const struct {
+    DnsPtrConfirmation_t m_confirmation;
+    DnsAnswerStatus_t    m_forwardStatus;
+    int                  m_recordCount;
+    int                  m_shownNameIndex;
+    const char*          mp_ptrMembers;
+    const char*          mp_unavailable;
+  } cases[] = {
+    { DNS_PTR_CONFIRMATION_NOT_CONFIRMED, DNS_ANSWER_OK,      1, 0, R"("ptr":"one.one.one.one","is_ptr_forward_confirmed":false,)",  "{}" },
+    { DNS_PTR_CONFIRMATION_UNKNOWN,       DNS_ANSWER_TIMEOUT, 1, 0, R"("ptr":"one.one.one.one","is_ptr_forward_confirmed":null,)",   R"({"is_ptr_forward_confirmed":"timeout"})" },
+    { DNS_PTR_CONFIRMATION_CONFIRMED,     DNS_ANSWER_OK,      2, 1, R"("ptr":"alias.example.net","is_ptr_forward_confirmed":true,)", "{}" },
+  };
+  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+  {
+    g_stub_PTR_confirmation     = cases[i].m_confirmation;
+    g_stub_PTR_forward_status   = cases[i].m_forwardStatus;
+    g_stub_PTR_record_count     = cases[i].m_recordCount;
+    g_stub_PTR_shown_name_index = cases[i].m_shownNameIndex;
+    g_stub_PTR_free_count       = 0;
+    char body[RESP_BUF];
+    int written = snprintf(body, sizeof(body), R"({"ip_address":"1.1.1.1)" IPLOOKUP_STUB_BODY_HEAD "%s" IPLOOKUP_STUB_BODY_TAIL R"("unavailable":%s})" "\n", cases[i].mp_ptrMembers, cases[i].mp_unavailable);
+    TEST_ASSERT_TRUE(written > 0 && (size_t)written < sizeof(body));
+    char buf[RESP_BUF];
+
+    static_callRequestHandle("GET /ip_lookup/1.1.1.1 HTTP/1.1\r\nX-API-Key: " VALID_KEY "\r\n\r\n", buf, sizeof(buf));
+
+    TEST_ASSERT_EQUAL_INT_MESSAGE(1, static_countResponses(buf), cases[i].mp_ptrMembers);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "HTTP/1.1 200 OK\r\n"), cases[i].mp_ptrMembers);
+    TEST_ASSERT_EQUAL_STRING_MESSAGE(body, static_responseBody(buf), cases[i].mp_ptrMembers);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(1, g_stub_PTR_free_count, cases[i].mp_ptrMembers);
   }
 }
 
@@ -9899,6 +9943,47 @@ void test_mcp_doc_tool_section_price_matches_row(void)
   }
   TEST_ASSERT_TRUE(checked >= 3);
   free(text);
+}
+
+void test_docs_ip_lookup_copies_the_forward_confirmation(void)
+{
+  static const struct { const char* mp_path; const char* mp_start; const char* mp_end; const char* mp_fence; int m_exampleCount; } docs[] = {
+    { DOCS_API_PATH, "\n## IP Lookup: `GET /ip_lookup/", "\n## ",  "```json\n",  2 },
+    { DOCS_MCP_PATH, "\n### `ip_lookup`",                "\n---", "```jsonc\n", 1 },
+  };
+  char limit_phrase[64];
+  int written = snprintf(limit_phrase, sizeof(limit_phrase), "up to %d PTR names", DNS_PTR_CONFIRM_MAX_NAME_COUNT);
+  TEST_ASSERT_TRUE(written > 0 && (size_t)written < sizeof(limit_phrase));
+  for (size_t d = 0; d < sizeof(docs) / sizeof(docs[0]); d++)
+  {
+    char* text = static_readDocsFile(docs[d].mp_path);
+    char* section = strstr(text, docs[d].mp_start);
+    TEST_ASSERT_NOT_NULL_MESSAGE(section, docs[d].mp_start);
+    char* section_end = strstr(section + 1, docs[d].mp_end);
+    TEST_ASSERT_NOT_NULL_MESSAGE(section_end, docs[d].mp_end);
+    *section_end = '\0';
+
+    int example_count = 0;
+    for (const char* example = strstr(section, docs[d].mp_fence); example != NULL; example = strstr(example + 1, docs[d].mp_fence))
+    {
+      const char* example_end = strstr(example + strlen(docs[d].mp_fence), "```");
+      TEST_ASSERT_NOT_NULL_MESSAGE(example_end, docs[d].mp_path);
+      const char* ptr = strstr(example, "\"ptr\"");
+      if (ptr == NULL || ptr > example_end)
+        continue;
+      const char* flag = strstr(example, "\"is_ptr_forward_confirmed\"");
+      TEST_ASSERT_TRUE_MESSAGE(flag != NULL && flag < example_end, docs[d].mp_path);
+      const char* ptr_value  = ptr + strlen("\"ptr\":") + strspn(ptr + strlen("\"ptr\":"), " ");
+      const char* flag_value = flag + strlen("\"is_ptr_forward_confirmed\":") + strspn(flag + strlen("\"is_ptr_forward_confirmed\":"), " ");
+      bool is_ptr_null  = strncmp(ptr_value, "null", 4) == 0;
+      bool is_flag_null = strncmp(flag_value, "null", 4) == 0;
+      TEST_ASSERT_TRUE_MESSAGE(is_ptr_null == is_flag_null, docs[d].mp_path);
+      example_count++;
+    }
+    TEST_ASSERT_EQUAL_INT_MESSAGE(docs[d].m_exampleCount, example_count, docs[d].mp_path);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(section, limit_phrase), docs[d].mp_path);
+    free(text);
+  }
 }
 
 void test_docs_cve_exploit_copies_match_code(void)
@@ -14693,7 +14778,7 @@ void test_api_key_claim_refuses_an_order_id_that_is_not_a_uuid(void)
 
 void test_registration_gate_test_count(void)
 {
-  int expected_test_count = 756;
+  int expected_test_count = 758;
   TEST_ASSERT_EQUAL_INT_MESSAGE(expected_test_count, (int)Unity.NumberOfTests,
     "RUN_TEST list and test definitions have drifted apart - a test may be unregistered");
 }
@@ -17514,13 +17599,13 @@ void test_ip_lookup_without_a_pro_key_asks_no_vendor(void)
   TEST_ASSERT_TRUE(keyvault_trySeal(VENDORKEY_TEST_API_KEY_ID, "abuseipdb", VENDORKEY_ABUSEIPDB_KEY, strlen(VENDORKEY_ABUSEIPDB_KEY), g_stub_vendor_keys.ma_abuseIpDbSealedHex));
   char body[RESP_BUF];
   TEST_ASSERT_EQUAL_INT(ENDPOINT_RUN_OK, static_ipLookupRun(REQUEST_TIER_FREE, body, sizeof(body)));
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(body, R"("ptr":"one.one.one.one",)" IPLOOKUP_PRO_KEY_REQUIRED_SLOTS R"("unavailable":{}})"), body);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(body, R"("ptr":"one.one.one.one","is_ptr_forward_confirmed":true,)" IPLOOKUP_PRO_KEY_REQUIRED_SLOTS R"("unavailable":{}})"), body);
   TEST_ASSERT_EQUAL_INT(1, g_stub_SHODAN_free_count);
 
   char buf[RESP_BUF];
   static_callRequestHandle("GET /ip_lookup/8.8.8.8 HTTP/1.1\r\n\r\n", buf, sizeof(buf));
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "HTTP/1.1 200 OK\r\n"), buf);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(static_responseBody(buf), R"("ptr":"one.one.one.one",)" IPLOOKUP_PRO_KEY_REQUIRED_SLOTS R"("unavailable":{}})"), buf);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(static_responseBody(buf), R"("ptr":"one.one.one.one","is_ptr_forward_confirmed":true,)" IPLOOKUP_PRO_KEY_REQUIRED_SLOTS R"("unavailable":{}})"), buf);
   TEST_ASSERT_EQUAL_INT(2, g_stub_SHODAN_free_count);
   TEST_ASSERT_EQUAL_INT(0, g_stub_SHODAN_free_unknown_host_count);
 
@@ -17582,7 +17667,7 @@ void test_ip_lookup_pro_slots_follow_the_stored_keys_and_the_vendors(void)
     TEST_ASSERT_EQUAL_INT_MESSAGE(ENDPOINT_RUN_OK, static_ipLookupRun(REQUEST_TIER_PRO, body, sizeof(body)), name);
     TEST_ASSERT_NULL_MESSAGE(strstr(body, "#l="), body);
     char slots[2048];
-    int written = snprintf(slots, sizeof(slots), R"("ptr":"one.one.one.one","reputation":%s,"internet_exposure":%s,"unavailable":{}})", cases[i].mp_reputation, cases[i].mp_internetExposure);
+    int written = snprintf(slots, sizeof(slots), R"("ptr":"one.one.one.one","is_ptr_forward_confirmed":true,"reputation":%s,"internet_exposure":%s,"unavailable":{}})", cases[i].mp_reputation, cases[i].mp_internetExposure);
     TEST_ASSERT_TRUE(written > 0 && (size_t)written < sizeof(slots));
     TEST_ASSERT_NOT_NULL_MESSAGE(strstr(body, slots), body);
 
@@ -21115,6 +21200,7 @@ int main(void)
   RUN_TEST(test_ip_lookup_db_error_is_500_and_asks_no_ptr);
   RUN_TEST(test_ip_lookup_no_db_is_500);
   RUN_TEST(test_ip_lookup_without_a_ptr_name_is_200_on_both_transports);
+  RUN_TEST(test_ip_lookup_forward_confirmation_reaches_the_body);
   RUN_TEST(test_ip_lookup_is_one_upstream_thread_while_it_asks_the_resolver);
   RUN_TEST(test_email_address_check_answer_is_200);
   RUN_TEST(test_email_address_check_refused_values_are_400);
@@ -21322,6 +21408,7 @@ int main(void)
   RUN_TEST(test_docs_tools_call_examples_match_rows);
   RUN_TEST(test_mcp_doc_tool_section_price_matches_row);
   RUN_TEST(test_docs_cve_exploit_copies_match_code);
+  RUN_TEST(test_docs_ip_lookup_copies_the_forward_confirmation);
   RUN_TEST(test_llms_lists_every_tool_once_and_no_other);
   RUN_TEST(test_docs_mcp_tool_table_names_every_tool);
   RUN_TEST(test_docs_mcp_category_list_matches_code);

@@ -92,6 +92,10 @@ DnsLookupStatus_t dns_checkTakeover(const char* hostname, DNSTAKEOVERCHECKRecord
 DnsAnswerStatus_t g_stub_PTR_status       = DNS_ANSWER_OK;
 int               g_stub_PTR_record_count = 1;
 
+DnsPtrConfirmation_t g_stub_PTR_confirmation     = DNS_PTR_CONFIRMATION_CONFIRMED;
+DnsAnswerStatus_t    g_stub_PTR_forward_status   = DNS_ANSWER_OK;
+int                  g_stub_PTR_shown_name_index = 0;
+
 int g_stub_PTR_call_count = 0;
 int g_stub_PTR_free_count = 0;
 
@@ -101,7 +105,7 @@ void (*g_stub_PTR_on_call)(void) = NULL;
 
 static DnsRecordText_t STUB_PTR[] = { { "one.one.one.one", 15 }, { "alias.example.net", 17 } };
 
-void dns_lookupPtr(const char* ip_address, DnsAnswer_t* answer_out)
+void dns_lookupPtr(const char* ip_address, DnsPtrAnswer_t* answer_out)
 {
   g_stub_PTR_call_count++;
   if (g_stub_PTR_on_call)
@@ -110,11 +114,16 @@ void dns_lookupPtr(const char* ip_address, DnsAnswer_t* answer_out)
   g_stub_PTR_last_ip_address[INET6_ADDRSTRLEN - 1] = '\0';
 
   memset(answer_out, 0, sizeof(*answer_out));
-  answer_out->m_status = g_stub_PTR_status;
+  answer_out->m_answer.m_status = g_stub_PTR_status;
   if (g_stub_PTR_status != DNS_ANSWER_OK)
     return;
-  answer_out->m_recordCount = g_stub_PTR_record_count;
-  answer_out->mp_texts      = g_stub_PTR_record_count > 0 ? STUB_PTR : NULL;
+  answer_out->m_answer.m_recordCount = g_stub_PTR_record_count;
+  answer_out->m_answer.mp_texts      = g_stub_PTR_record_count > 0 ? STUB_PTR : NULL;
+  if (g_stub_PTR_record_count == 0)
+    return;
+  answer_out->m_confirmation   = g_stub_PTR_confirmation;
+  answer_out->m_forwardStatus  = g_stub_PTR_forward_status;
+  answer_out->m_shownNameIndex = g_stub_PTR_shown_name_index;
 }
 
 void dns_answerFree(DnsAnswer_t* answer)

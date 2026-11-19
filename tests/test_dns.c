@@ -3127,19 +3127,19 @@ void test_lookupPtr_asks_about_the_reverse_name(void)
   {
     static_resetFakeNetwork();
     g_answerer = static_answerEachAtOnce;
-    DnsAnswer_t answer;
+    DnsPtrAnswer_t answer;
     dns_lookupPtr(cases[i][0], &answer);
 
-    TEST_ASSERT_EQUAL_INT_MESSAGE(1, g_sentCount, cases[i][0]);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(2, g_sentCount, cases[i][0]);
     TEST_ASSERT_EQUAL_UINT16(WIRE_TYPE_PTR, static_queryType(g_sentQueries[0].ma_query));
     char name[DNS_NAME_TEXT_SIZE];
     static_queryName(g_sentQueries[0].ma_query, name);
     TEST_ASSERT_EQUAL_STRING(cases[i][1], name);
 
-    TEST_ASSERT_EQUAL_INT_MESSAGE(DNS_ANSWER_OK, answer.m_status, cases[i][0]);
-    TEST_ASSERT_EQUAL_INT(1, answer.m_recordCount);
-    static_assertText("host.example.net", 16, &answer.mp_texts[0]);
-    dns_answerFree(&answer);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(DNS_ANSWER_OK, answer.m_answer.m_status, cases[i][0]);
+    TEST_ASSERT_EQUAL_INT(1, answer.m_answer.m_recordCount);
+    static_assertText("host.example.net", 16, &answer.m_answer.mp_texts[0]);
+    dns_answerFree(&answer.m_answer);
     static_assertEverySocketClosed();
   }
 }
@@ -3148,9 +3148,9 @@ void test_lookupPtr_waits_until_its_deadline(void)
 {
   static_resetFakeNetwork();
   g_answerer = NULL;
-  DnsAnswer_t answer;
+  DnsPtrAnswer_t answer;
   dns_lookupPtr("93.184.215.14", &answer);
-  static_assertFailedAnswer(DNS_ANSWER_TIMEOUT, &answer);
+  static_assertFailedAnswer(DNS_ANSWER_TIMEOUT, &answer.m_answer);
   TEST_ASSERT_EQUAL_INT64(FAKE_START_MS + DNS_PTR_DEADLINE_MS, g_nowMs);
   static_assertEverySocketClosed();
 }
@@ -3165,13 +3165,503 @@ void test_lookupPtr_refuses_an_address_that_is_not_globally_reachable(void)
   {
     static_resetFakeNetwork();
     g_answerer = static_answerEachAtOnce;
-    DnsAnswer_t answer;
+    DnsPtrAnswer_t answer;
     memset(&answer, 0xA5, sizeof(answer));
     dns_lookupPtr(texts[i], &answer);
-    TEST_ASSERT_EQUAL_INT_MESSAGE(DNS_ANSWER_BAD_QUESTION, answer.m_status, texts[i]);
-    static_assertFailedAnswer(DNS_ANSWER_BAD_QUESTION, &answer);
-    TEST_ASSERT_FALSE(answer.m_hasNullMx);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(DNS_ANSWER_BAD_QUESTION, answer.m_answer.m_status, texts[i]);
+    static_assertFailedAnswer(DNS_ANSWER_BAD_QUESTION, &answer.m_answer);
+    TEST_ASSERT_FALSE(answer.m_answer.m_hasNullMx);
     TEST_ASSERT_EQUAL_INT_MESSAGE(0, g_socketCount, texts[i]);
+  }
+}
+
+#define PTR_TEST_IPV4 "93.184.215.14"
+#define PTR_TEST_IPV6 "2606:2800:21F:CB07::1"
+
+#define PTR_HOST_ADDRESS_MAX 3
+
+typedef struct {
+  const char* mp_name;
+  uint8_t     m_rcode;
+  const char* mp_cnameTarget;
+  const char* ma_addresses[PTR_HOST_ADDRESS_MAX];
+  int64_t     m_delayMs;
+} FakePtrHost_t;
+
+static const char*   g_ptrNames[DNS_PTR_CONFIRM_MAX_NAME_COUNT + 2];
+static int           g_ptrNameCount = 0;
+static uint8_t       g_ptrRcode     = RCODE_NOERROR;
+static int64_t       g_ptrDelayMs   = 0;
+static FakePtrHost_t g_ptrHosts[DNS_PTR_CONFIRM_MAX_NAME_COUNT + 4];
+static int           g_ptrHostCount = 0;
+
+static void static_putNameRecord(uint16_t type, const char* dotted_name)
+{
+  static_putRecordHead(type, WIRE_CLASS_IN, 0);
+  size_t data_start = g_messageLen;
+  static_putName(dotted_name);
+  size_t data_len = g_messageLen - data_start;
+  g_message[data_start - 2] = (unsigned char)(data_len >> 8);
+  g_message[data_start - 1] = (unsigned char)data_len;
+}
+
+static const FakePtrHost_t* static_findPtrHost(const char* name)
+{
+  for (int i = 0; i < g_ptrHostCount; i++)
+    if (strcasecmp(g_ptrHosts[i].mp_name, name) == 0)
+      return &g_ptrHosts[i];
+  return NULL;
+}
+
+static void static_answerPtrQuestions(const FakeSentQuery_t* sent)
+{
+  uint16_t type = static_queryType(sent->ma_query);
+  if (type == WIRE_TYPE_PTR)
+  {
+    if (g_ptrRcode == FAKE_NO_REPLY)
+      return;
+    int name_count = g_ptrRcode == RCODE_NOERROR ? g_ptrNameCount : 0;
+    static_startReplyTo(sent->ma_query, FLAGS_ANSWER, g_ptrRcode, (uint16_t)name_count);
+    for (int i = 0; i < name_count; i++)
+      static_putNameRecord(WIRE_TYPE_PTR, g_ptrNames[i]);
+    static_queueReply(sent->m_fd, g_ptrDelayMs, sent->m_isTcp);
+    return;
+  }
+
+  TEST_ASSERT_TRUE(type == WIRE_TYPE_A || type == WIRE_TYPE_AAAA);
+  char name[DNS_NAME_TEXT_SIZE];
+  static_queryName(sent->ma_query, name);
+  const FakePtrHost_t* host = static_findPtrHost(name);
+  uint8_t rcode = host != NULL ? host->m_rcode : RCODE_NXDOMAIN;
+  if (rcode == FAKE_NO_REPLY)
+    return;
+
+  int    family       = type == WIRE_TYPE_A ? AF_INET : AF_INET6;
+  size_t address_size = type == WIRE_TYPE_A ? 4 : 16;
+  unsigned char addresses[PTR_HOST_ADDRESS_MAX][16];
+  int address_count = 0;
+  for (int i = 0; rcode == RCODE_NOERROR && i < PTR_HOST_ADDRESS_MAX; i++)
+    if (host->ma_addresses[i] != NULL && inet_pton(family, host->ma_addresses[i], addresses[address_count]) == 1)
+      address_count++;
+
+  bool has_cname = rcode == RCODE_NOERROR && host->mp_cnameTarget != NULL;
+  static_startReplyTo(sent->ma_query, FLAGS_ANSWER, rcode, (uint16_t)(address_count + (has_cname ? 1 : 0)));
+  if (has_cname)
+    static_putNameRecord(WIRE_TYPE_CNAME, host->mp_cnameTarget);
+  for (int i = 0; i < address_count; i++)
+  {
+    if (has_cname)
+    {
+      static_putName(host->mp_cnameTarget);
+      static_put16(type);
+      static_put16(WIRE_CLASS_IN);
+      static_put32(300);
+      static_put16((uint16_t)address_size);
+    }
+    else
+      static_putRecordHead(type, WIRE_CLASS_IN, (uint16_t)address_size);
+    static_putBytes(addresses[i], address_size);
+  }
+  static_queueReply(sent->m_fd, host != NULL ? host->m_delayMs : 0, sent->m_isTcp);
+}
+
+static void static_resetPtr(void)
+{
+  static_resetFakeNetwork();
+  g_ptrNameCount = 0;
+  g_ptrRcode     = RCODE_NOERROR;
+  g_ptrDelayMs   = 0;
+  g_ptrHostCount = 0;
+  g_answerer     = static_answerPtrQuestions;
+}
+
+static void static_addPtrName(const char* name)
+{
+  TEST_ASSERT_TRUE(g_ptrNameCount < (int)(sizeof(g_ptrNames) / sizeof(g_ptrNames[0])));
+  g_ptrNames[g_ptrNameCount++] = name;
+}
+
+static FakePtrHost_t* static_addPtrHost(const char* name, uint8_t rcode, const char* address)
+{
+  TEST_ASSERT_TRUE(g_ptrHostCount < (int)(sizeof(g_ptrHosts) / sizeof(g_ptrHosts[0])));
+  FakePtrHost_t* host = &g_ptrHosts[g_ptrHostCount++];
+  memset(host, 0, sizeof(*host));
+  host->mp_name         = name;
+  host->m_rcode         = rcode;
+  host->ma_addresses[0] = address;
+  return host;
+}
+
+static int static_countQueriesOfType(uint16_t type)
+{
+  int query_count = 0;
+  for (int i = 0; i < g_sentCount; i++)
+    if (static_queryType(g_sentQueries[i].ma_query) == type)
+      query_count++;
+  return query_count;
+}
+
+static bool static_isNameAsked(const char* name)
+{
+  for (int i = 0; i < g_sentCount; i++)
+  {
+    char asked[DNS_NAME_TEXT_SIZE];
+    static_queryName(g_sentQueries[i].ma_query, asked);
+    if (static_queryType(g_sentQueries[i].ma_query) != WIRE_TYPE_PTR && strcmp(asked, name) == 0)
+      return true;
+  }
+  return false;
+}
+
+static void static_assertConfirmation(DnsPtrConfirmation_t confirmation, DnsAnswerStatus_t forward_status, int shown_name_index, DnsPtrAnswer_t* answer, const char* label)
+{
+  TEST_ASSERT_EQUAL_INT_MESSAGE(confirmation, answer->m_confirmation, label);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(forward_status, answer->m_forwardStatus, label);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(shown_name_index, answer->m_shownNameIndex, label);
+  dns_answerFree(&answer->m_answer);
+  static_assertEverySocketClosed();
+}
+
+void test_lookupPtr_confirms_a_name_whose_a_record_holds_the_address(void)
+{
+  static_resetPtr();
+  static_addPtrName("dns.example.net");
+  static_addPtrHost("dns.example.net", RCODE_NOERROR, PTR_TEST_IPV4);
+  DnsPtrAnswer_t answer;
+  dns_lookupPtr(PTR_TEST_IPV4, &answer);
+
+  TEST_ASSERT_EQUAL_INT(2, g_sentCount);
+  TEST_ASSERT_EQUAL_UINT16(WIRE_TYPE_PTR, static_queryType(g_sentQueries[0].ma_query));
+  TEST_ASSERT_EQUAL_UINT16(WIRE_TYPE_A, static_queryType(g_sentQueries[1].ma_query));
+  char name[DNS_NAME_TEXT_SIZE];
+  static_queryName(g_sentQueries[1].ma_query, name);
+  TEST_ASSERT_EQUAL_STRING("dns.example.net", name);
+  TEST_ASSERT_EQUAL_INT(DNS_ANSWER_OK, answer.m_answer.m_status);
+  TEST_ASSERT_EQUAL_INT(1, answer.m_answer.m_recordCount);
+  static_assertText("dns.example.net", 15, &answer.m_answer.mp_texts[0]);
+  static_assertConfirmation(DNS_PTR_CONFIRMATION_CONFIRMED, DNS_ANSWER_OK, 0, &answer, "A match");
+}
+
+void test_lookupPtr_asks_aaaa_for_an_ipv6_address(void)
+{
+  static const struct { const char* mp_aaaa; DnsPtrConfirmation_t m_confirmation; } cases[] = {
+    { "2606:2800:21f:cb07::1", DNS_PTR_CONFIRMATION_CONFIRMED },
+    { "2606:2800:ffff::1",     DNS_PTR_CONFIRMATION_NOT_CONFIRMED },
+  };
+  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+  {
+    static_resetPtr();
+    static_addPtrName("v6.example.net");
+    FakePtrHost_t* host = static_addPtrHost("v6.example.net", RCODE_NOERROR, PTR_TEST_IPV4);
+    host->ma_addresses[1] = cases[i].mp_aaaa;
+    DnsPtrAnswer_t answer;
+    dns_lookupPtr(PTR_TEST_IPV6, &answer);
+
+    TEST_ASSERT_EQUAL_INT_MESSAGE(2, g_sentCount, cases[i].mp_aaaa);
+    TEST_ASSERT_EQUAL_UINT16(WIRE_TYPE_AAAA, static_queryType(g_sentQueries[1].ma_query));
+    TEST_ASSERT_EQUAL_INT(0, static_countQueriesOfType(WIRE_TYPE_A));
+    static_assertConfirmation(cases[i].m_confirmation, DNS_ANSWER_OK, 0, &answer, cases[i].mp_aaaa);
+  }
+}
+
+void test_lookupPtr_matches_any_address_record(void)
+{
+  static const struct { const char* ma_addresses[PTR_HOST_ADDRESS_MAX]; DnsPtrConfirmation_t m_confirmation; } cases[] = {
+    { { "192.0.2.7", PTR_TEST_IPV4, "198.51.100.9" }, DNS_PTR_CONFIRMATION_CONFIRMED },
+    { { "93.184.215.15", "14.215.184.93", NULL },     DNS_PTR_CONFIRMATION_NOT_CONFIRMED },
+  };
+  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+  {
+    static_resetPtr();
+    static_addPtrName("multi.example.net");
+    FakePtrHost_t* host = static_addPtrHost("multi.example.net", RCODE_NOERROR, NULL);
+    memcpy(host->ma_addresses, cases[i].ma_addresses, sizeof(host->ma_addresses));
+    DnsPtrAnswer_t answer;
+    dns_lookupPtr(PTR_TEST_IPV4, &answer);
+    static_assertConfirmation(cases[i].m_confirmation, DNS_ANSWER_OK, 0, &answer, cases[i].ma_addresses[0]);
+  }
+}
+
+void test_lookupPtr_shows_the_first_name_that_maps_back(void)
+{
+  static_resetPtr();
+  static_addPtrName("spoof.example.com");
+  static_addPtrName("real.example.net");
+  static_addPtrHost("spoof.example.com", RCODE_NOERROR, "198.51.100.77");
+  static_addPtrHost("real.example.net", RCODE_NOERROR, PTR_TEST_IPV4);
+  DnsPtrAnswer_t answer;
+  dns_lookupPtr(PTR_TEST_IPV4, &answer);
+  TEST_ASSERT_EQUAL_INT(2, static_countQueriesOfType(WIRE_TYPE_A));
+  static_assertConfirmation(DNS_PTR_CONFIRMATION_CONFIRMED, DNS_ANSWER_OK, 1, &answer, "spoof first");
+
+  static_resetPtr();
+  static_addPtrName("first.example.net");
+  static_addPtrName("second.example.net");
+  static_addPtrHost("first.example.net", RCODE_NOERROR, PTR_TEST_IPV4);
+  static_addPtrHost("second.example.net", RCODE_NOERROR, PTR_TEST_IPV4);
+  dns_lookupPtr(PTR_TEST_IPV4, &answer);
+  static_assertConfirmation(DNS_PTR_CONFIRMATION_CONFIRMED, DNS_ANSWER_OK, 0, &answer, "both match");
+}
+
+void test_lookupPtr_name_without_the_address_is_not_confirmed(void)
+{
+  static const uint8_t rcodes[] = { RCODE_NXDOMAIN, RCODE_NOERROR };
+  for (size_t i = 0; i < sizeof(rcodes) / sizeof(rcodes[0]); i++)
+  {
+    static_resetPtr();
+    static_addPtrName("gone.example.net");
+    static_addPtrHost("gone.example.net", rcodes[i], NULL);
+    DnsPtrAnswer_t answer;
+    dns_lookupPtr(PTR_TEST_IPV4, &answer);
+    TEST_ASSERT_EQUAL_INT(1, static_countQueriesOfType(WIRE_TYPE_A));
+    static_assertConfirmation(DNS_PTR_CONFIRMATION_NOT_CONFIRMED, DNS_ANSWER_OK, 0, &answer, rcodes[i] == RCODE_NXDOMAIN ? "NXDOMAIN" : "NOERROR");
+  }
+}
+
+void test_lookupPtr_failed_forward_answer_is_unknown(void)
+{
+  static const struct {
+    const char*          mp_name;
+    uint8_t              m_firstRcode;
+    uint8_t              m_secondRcode;
+    const char*          mp_secondAddress;
+    DnsPtrConfirmation_t m_confirmation;
+    DnsAnswerStatus_t    m_forwardStatus;
+    int                  m_shownNameIndex;
+  } cases[] = {
+    { "only SERVFAIL",       RCODE_SERVFAIL, 0xFE,           NULL,          DNS_PTR_CONFIRMATION_UNKNOWN,   DNS_ANSWER_SERVER_ERROR, 0 },
+    { "SERVFAIL, NXDOMAIN",  RCODE_SERVFAIL, RCODE_NXDOMAIN, NULL,          DNS_PTR_CONFIRMATION_UNKNOWN,   DNS_ANSWER_SERVER_ERROR, 0 },
+    { "SERVFAIL, match",     RCODE_SERVFAIL, RCODE_NOERROR,  PTR_TEST_IPV4, DNS_PTR_CONFIRMATION_CONFIRMED, DNS_ANSWER_OK,           1 },
+    { "SERVFAIL, timeout",   RCODE_SERVFAIL, FAKE_NO_REPLY,  NULL,          DNS_PTR_CONFIRMATION_UNKNOWN,   DNS_ANSWER_SERVER_ERROR, 0 },
+    { "timeout, SERVFAIL",   FAKE_NO_REPLY,  RCODE_SERVFAIL, NULL,          DNS_PTR_CONFIRMATION_UNKNOWN,   DNS_ANSWER_TIMEOUT,      0 },
+  };
+  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+  {
+    static_resetPtr();
+    static_addPtrName("n1.example.net");
+    static_addPtrHost("n1.example.net", cases[i].m_firstRcode, NULL);
+    if (cases[i].m_secondRcode != 0xFE)
+    {
+      static_addPtrName("n2.example.net");
+      static_addPtrHost("n2.example.net", cases[i].m_secondRcode, cases[i].mp_secondAddress);
+    }
+    DnsPtrAnswer_t answer;
+    dns_lookupPtr(PTR_TEST_IPV4, &answer);
+    static_assertConfirmation(cases[i].m_confirmation, cases[i].m_forwardStatus, cases[i].m_shownNameIndex, &answer, cases[i].mp_name);
+  }
+}
+
+void test_lookupPtr_does_not_ask_a_name_that_is_not_public(void)
+{
+  static char long_name[300];
+  int written = snprintf(long_name, sizeof(long_name), "%.63s.%.63s.%.63s.%.30s\\.%.30s",
+                         "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                         "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                         "ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                         "dddddddddddddddddddddddddddddd", "eeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
+  TEST_ASSERT_TRUE(written > 0 && (size_t)written < sizeof(long_name));
+  static const struct { const char* mp_wire; const char* mp_text; } names[] = {
+    { "a b.example.com",           "a\\032b.example.com" },
+    { "single",                    "single" },
+    { "x.internal",                "x.internal" },
+    { "localhost",                 "localhost" },
+    { "1.2.0.192.in-addr.arpa",    "1.2.0.192.in-addr.arpa" },
+    { "_svc.example.com",          "_svc.example.com" },
+    { NULL,                        NULL },
+  };
+  for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++)
+  {
+    const char* wire = names[i].mp_wire != NULL ? names[i].mp_wire : long_name;
+    static_resetPtr();
+    static_addPtrName(wire);
+    static_addPtrHost(wire, RCODE_NOERROR, PTR_TEST_IPV4);
+    DnsPtrAnswer_t answer;
+    dns_lookupPtr(PTR_TEST_IPV4, &answer);
+    const char* label = names[i].mp_text != NULL ? names[i].mp_text : "254 characters";
+    TEST_ASSERT_EQUAL_INT_MESSAGE(DNS_ANSWER_OK, answer.m_answer.m_status, label);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(1, answer.m_answer.m_recordCount, label);
+    if (names[i].mp_text != NULL)
+      TEST_ASSERT_EQUAL_STRING_MESSAGE(names[i].mp_text, answer.m_answer.mp_texts[0].mp_bytes, label);
+    else
+      TEST_ASSERT_EQUAL_size_t_MESSAGE(254, answer.m_answer.mp_texts[0].m_byteCount, label);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(1, g_sentCount, label);
+    static_assertConfirmation(DNS_PTR_CONFIRMATION_NOT_CONFIRMED, DNS_ANSWER_OK, 0, &answer, label);
+  }
+
+  static_resetPtr();
+  static_addPtrName("x.internal");
+  static_addPtrName("ok.example.net");
+  static_addPtrHost("x.internal", RCODE_NOERROR, PTR_TEST_IPV4);
+  static_addPtrHost("ok.example.net", RCODE_NOERROR, PTR_TEST_IPV4);
+  DnsPtrAnswer_t answer;
+  dns_lookupPtr(PTR_TEST_IPV4, &answer);
+  TEST_ASSERT_EQUAL_INT(1, static_countQueriesOfType(WIRE_TYPE_A));
+  TEST_ASSERT_FALSE(static_isNameAsked("x.internal"));
+  static_assertConfirmation(DNS_PTR_CONFIRMATION_CONFIRMED, DNS_ANSWER_OK, 1, &answer, "refused beside good");
+}
+
+void test_lookupPtr_asks_at_most_ten_names(void)
+{
+  static const char* const names[] = {
+    "n1.example.net", "n2.example.net", "n3.example.net", "n4.example.net", "n5.example.net", "n6.example.net",
+    "n7.example.net", "n8.example.net", "n9.example.net", "n10.example.net", "n11.example.net",
+  };
+  TEST_ASSERT_EQUAL_INT(10, DNS_PTR_CONFIRM_MAX_NAME_COUNT);
+  static const int name_counts[] = { DNS_PTR_CONFIRM_MAX_NAME_COUNT + 1, DNS_PTR_CONFIRM_MAX_NAME_COUNT };
+  for (size_t c = 0; c < sizeof(name_counts) / sizeof(name_counts[0]); c++)
+  {
+    static_resetPtr();
+    for (int k = 0; k < name_counts[c]; k++)
+    {
+      static_addPtrName(names[k]);
+      static_addPtrHost(names[k], RCODE_NOERROR, k == name_counts[c] - 1 ? PTR_TEST_IPV4 : "198.51.100.1");
+    }
+    DnsPtrAnswer_t answer;
+    dns_lookupPtr(PTR_TEST_IPV4, &answer);
+    TEST_ASSERT_EQUAL_INT(name_counts[c], answer.m_answer.m_recordCount);
+    TEST_ASSERT_EQUAL_INT(DNS_PTR_CONFIRM_MAX_NAME_COUNT, static_countQueriesOfType(WIRE_TYPE_A));
+    if (name_counts[c] > DNS_PTR_CONFIRM_MAX_NAME_COUNT)
+    {
+      TEST_ASSERT_FALSE(static_isNameAsked("n11.example.net"));
+      static_assertConfirmation(DNS_PTR_CONFIRMATION_NOT_CONFIRMED, DNS_ANSWER_OK, 0, &answer, "11 names");
+    }
+    else
+      static_assertConfirmation(DNS_PTR_CONFIRMATION_CONFIRMED, DNS_ANSWER_OK, 9, &answer, "10 names");
+  }
+}
+
+void test_lookupPtr_follows_a_cname_of_the_name(void)
+{
+  static const struct { const char* mp_target; DnsPtrConfirmation_t m_confirmation; } cases[] = {
+    { "edge.example.org", DNS_PTR_CONFIRMATION_CONFIRMED },
+    { "x.internal",       DNS_PTR_CONFIRMATION_NOT_CONFIRMED },
+  };
+  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+  {
+    static_resetPtr();
+    static_addPtrName("alias.example.net");
+    FakePtrHost_t* host = static_addPtrHost("alias.example.net", RCODE_NOERROR, PTR_TEST_IPV4);
+    host->mp_cnameTarget = cases[i].mp_target;
+    DnsPtrAnswer_t answer;
+    dns_lookupPtr(PTR_TEST_IPV4, &answer);
+    static_assertConfirmation(cases[i].m_confirmation, DNS_ANSWER_OK, 0, &answer, cases[i].mp_target);
+  }
+}
+
+void test_lookupPtr_forward_questions_share_the_ptr_deadline(void)
+{
+  static const int64_t ptr_delays[] = { 2000, DNS_PTR_DEADLINE_MS };
+  for (size_t i = 0; i < sizeof(ptr_delays) / sizeof(ptr_delays[0]); i++)
+  {
+    static_resetPtr();
+    g_ptrDelayMs = ptr_delays[i];
+    static_addPtrName("slow.example.net");
+    static_addPtrHost("slow.example.net", FAKE_NO_REPLY, NULL);
+    DnsPtrAnswer_t answer;
+    dns_lookupPtr(PTR_TEST_IPV4, &answer);
+    TEST_ASSERT_EQUAL_INT(DNS_ANSWER_OK, answer.m_answer.m_status);
+    TEST_ASSERT_EQUAL_INT(1, answer.m_answer.m_recordCount);
+    TEST_ASSERT_EQUAL_INT64(FAKE_START_MS + DNS_PTR_DEADLINE_MS, g_nowMs);
+    if (ptr_delays[i] < DNS_PTR_DEADLINE_MS)
+      TEST_ASSERT_TRUE(static_countQueriesOfType(WIRE_TYPE_A) > 0);
+    else
+      TEST_ASSERT_EQUAL_INT(0, static_countQueriesOfType(WIRE_TYPE_A));
+    static_assertConfirmation(DNS_PTR_CONFIRMATION_UNKNOWN, DNS_ANSWER_TIMEOUT, 0, &answer, "deadline");
+  }
+}
+
+void test_lookupPtr_no_forward_question_without_a_ptr_name(void)
+{
+  static const struct { const char* mp_ipAddress; uint8_t m_ptrRcode; int m_nameCount; DnsAnswerStatus_t m_ptrStatus; } cases[] = {
+    { PTR_TEST_IPV4, RCODE_NXDOMAIN, 1, DNS_ANSWER_NXDOMAIN },
+    { PTR_TEST_IPV4, RCODE_NOERROR,  0, DNS_ANSWER_OK },
+    { PTR_TEST_IPV4, FAKE_NO_REPLY,  1, DNS_ANSWER_TIMEOUT },
+    { "10.0.0.1",    RCODE_NOERROR,  1, DNS_ANSWER_BAD_QUESTION },
+  };
+  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+  {
+    static_resetPtr();
+    g_ptrRcode = cases[i].m_ptrRcode;
+    if (cases[i].m_nameCount > 0)
+      static_addPtrName("dns.example.net");
+    static_addPtrHost("dns.example.net", RCODE_NOERROR, PTR_TEST_IPV4);
+    DnsPtrAnswer_t answer;
+    memset(&answer, 0xA5, sizeof(answer));
+    dns_lookupPtr(cases[i].mp_ipAddress, &answer);
+    TEST_ASSERT_EQUAL_INT(cases[i].m_ptrStatus, answer.m_answer.m_status);
+    TEST_ASSERT_EQUAL_INT(0, static_countQueriesOfType(WIRE_TYPE_A) + static_countQueriesOfType(WIRE_TYPE_AAAA));
+    static_assertConfirmation(DNS_PTR_CONFIRMATION_UNKNOWN, DNS_ANSWER_OK, 0, &answer, "no PTR name");
+  }
+}
+
+void test_lookupPtr_each_failed_allocation(void)
+{
+  static_resetPtr();
+  static_addPtrName("dns.example.net");
+  static_addPtrHost("dns.example.net", RCODE_NOERROR, PTR_TEST_IPV4);
+  g_allocationCount = 0;
+  DnsPtrAnswer_t answer;
+  dns_lookupPtr(PTR_TEST_IPV4, &answer);
+  int allocation_count = g_allocationCount;
+  static_assertConfirmation(DNS_PTR_CONFIRMATION_CONFIRMED, DNS_ANSWER_OK, 0, &answer, "no failure");
+  TEST_ASSERT_EQUAL_INT(4, allocation_count);
+
+  for (int n = 1; n <= allocation_count; n++)
+  {
+    static_resetPtr();
+    static_addPtrName("dns.example.net");
+    static_addPtrHost("dns.example.net", RCODE_NOERROR, PTR_TEST_IPV4);
+    g_failAllocationNumber = n;
+    g_allocationCount      = 0;
+    dns_lookupPtr(PTR_TEST_IPV4, &answer);
+    g_failAllocationNumber = 0;
+    bool is_ptr_failed = n <= 2;
+    TEST_ASSERT_EQUAL_INT(is_ptr_failed ? DNS_ANSWER_NO_MEMORY : DNS_ANSWER_OK, answer.m_answer.m_status);
+    static_assertConfirmation(DNS_PTR_CONFIRMATION_UNKNOWN, is_ptr_failed ? DNS_ANSWER_OK : DNS_ANSWER_NO_MEMORY, 0, &answer, "failed allocation");
+  }
+}
+
+static void static_answerBrokenForward(const FakeSentQuery_t* sent)
+{
+  char name[DNS_NAME_TEXT_SIZE];
+  static_queryName(sent->ma_query, name);
+  bool is_tc = strcmp(name, "tc.example.net") == 0;
+  if (static_queryType(sent->ma_query) == WIRE_TYPE_A && (is_tc || strcmp(name, "bad.example.net") == 0))
+  {
+    static_startReplyTo(sent->ma_query, is_tc ? (FLAGS_ANSWER | FLAG_TC) : FLAGS_ANSWER, RCODE_NOERROR, is_tc ? 0 : 1);
+    static_queueReply(sent->m_fd, 0, sent->m_isTcp);
+    return;
+  }
+  static_answerPtrQuestions(sent);
+}
+
+static void static_answerPtrThenFailSockets(const FakeSentQuery_t* sent)
+{
+  static_answerPtrQuestions(sent);
+  g_isUdpSocketFailing = true;
+}
+
+void test_lookupPtr_unreadable_forward_answer_is_unknown(void)
+{
+  static const struct {
+    const char*       mp_name;
+    FakeAnswerer_t    m_answerer;
+    DnsAnswerStatus_t m_status;
+  } cases[] = {
+    { "tc.example.net",  static_answerBrokenForward,      DNS_ANSWER_TRUNCATED },
+    { "bad.example.net", static_answerBrokenForward,      DNS_ANSWER_MALFORMED },
+    { "ns.example.net",  static_answerPtrThenFailSockets, DNS_ANSWER_NO_RESOLVER },
+  };
+  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+  {
+    static_resetPtr();
+    g_answerer = cases[i].m_answerer;
+    static_addPtrName(cases[i].mp_name);
+    static_addPtrName("gone.example.net");
+    DnsPtrAnswer_t answer;
+    dns_lookupPtr(PTR_TEST_IPV4, &answer);
+    static_assertConfirmation(DNS_PTR_CONFIRMATION_UNKNOWN, cases[i].m_status, 0, &answer, cases[i].mp_name);
+    static_assertEverySocketClosed();
   }
 }
 
@@ -3274,5 +3764,18 @@ int main(void)
   RUN_TEST(test_lookupPtr_asks_about_the_reverse_name);
   RUN_TEST(test_lookupPtr_waits_until_its_deadline);
   RUN_TEST(test_lookupPtr_refuses_an_address_that_is_not_globally_reachable);
+  RUN_TEST(test_lookupPtr_confirms_a_name_whose_a_record_holds_the_address);
+  RUN_TEST(test_lookupPtr_asks_aaaa_for_an_ipv6_address);
+  RUN_TEST(test_lookupPtr_matches_any_address_record);
+  RUN_TEST(test_lookupPtr_shows_the_first_name_that_maps_back);
+  RUN_TEST(test_lookupPtr_name_without_the_address_is_not_confirmed);
+  RUN_TEST(test_lookupPtr_failed_forward_answer_is_unknown);
+  RUN_TEST(test_lookupPtr_does_not_ask_a_name_that_is_not_public);
+  RUN_TEST(test_lookupPtr_asks_at_most_ten_names);
+  RUN_TEST(test_lookupPtr_follows_a_cname_of_the_name);
+  RUN_TEST(test_lookupPtr_forward_questions_share_the_ptr_deadline);
+  RUN_TEST(test_lookupPtr_no_forward_question_without_a_ptr_name);
+  RUN_TEST(test_lookupPtr_each_failed_allocation);
+  RUN_TEST(test_lookupPtr_unreadable_forward_answer_is_unknown);
   return UNITY_END();
 }

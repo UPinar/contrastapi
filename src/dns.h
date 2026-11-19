@@ -89,6 +89,21 @@ typedef struct {
 
 #define DNS_PTR_DEADLINE_MS 3000
 
+#define DNS_PTR_CONFIRM_MAX_NAME_COUNT 10
+
+typedef enum {
+  DNS_PTR_CONFIRMATION_UNKNOWN = 0,
+  DNS_PTR_CONFIRMATION_CONFIRMED,
+  DNS_PTR_CONFIRMATION_NOT_CONFIRMED,
+} DnsPtrConfirmation_t;
+
+typedef struct {
+  DnsAnswer_t          m_answer;
+  int                  m_shownNameIndex;
+  DnsPtrConfirmation_t m_confirmation;
+  DnsAnswerStatus_t    m_forwardStatus;
+} DnsPtrAnswer_t;
+
 typedef struct {
   const char* mp_serviceName;
   const char* mp_evidence;
@@ -150,6 +165,6 @@ void                dns_answerFree          (DnsAnswer_t* answer);
 DnsLookupStatus_t   dns_lookupDomain        (const char* domain, DNSLOOKUPRecord_t* record_out);
 void                dns_DNSLOOKUPRecordFree (DNSLOOKUPRecord_t* record);
 DnsLookupStatus_t   dns_checkTakeover       (const char* hostname, DNSTAKEOVERCHECKRecord_t* record_out);
-void                dns_lookupPtr           (const char* ip_address, DnsAnswer_t* answer_out);
+void                dns_lookupPtr           (const char* ip_address, DnsPtrAnswer_t* answer_out);
 
 #endif

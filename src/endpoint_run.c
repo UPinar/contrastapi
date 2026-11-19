@@ -659,7 +659,7 @@ EndpointRunStatus_t endpoint_IPLOOKUPRun(PGconn* conn, const EndpointAnyParams_t
   serialize_IPLOOKUP_response(&record, &slots, json_buf);
 
   shodan_freeHost(&slots.m_shodanHost);
-  dns_answerFree(&record.m_ptrAnswer);
+  dns_answerFree(&record.m_ptrAnswer.m_answer);
   db_IPLOOKUPRecordFree(&record);
   return ENDPOINT_RUN_OK;
 }

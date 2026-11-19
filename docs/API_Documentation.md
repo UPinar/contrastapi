@@ -2810,7 +2810,8 @@ A refused value pays its 1 credit, and so do a `404` and a `502`. A `503` costs 
 Looks up a public IPv4 or IPv6 address in the server's own copies of five IP lists. The answer
 gives the AS that routes the address, the country the address is in, the cloud or CDN range that
 holds it, whether it is a Tor exit, and the DROP prefixes that list it. The server also asks its
-own resolver for the PTR name of the address. The request costs 1 credit.
+own resolver for the PTR name of the address, and checks whether that name maps back to the
+address (forward-confirmed reverse DNS). The request costs 1 credit.
 
 A Pro key that has saved its own Shodan key or AbuseIPDB key also gets the `internet_exposure` and
 `reputation` members filled from that vendor. See [The vendor slots](#the-vendor-slots).
@@ -2852,6 +2853,7 @@ zero, such as `08.8.8.8`, a host name and a CIDR prefix are refused too.
   "is_tor_exit": false,
   "listed_on": [],
   "ptr": "dns.google",
+  "is_ptr_forward_confirmed": true,
   "reputation": {"available": false, "reason": "pro_key_required", "action_url": "https://api.contrastcyber.com/pricing"},
   "internet_exposure": {"available": false, "reason": "pro_key_required", "action_url": "https://api.contrastcyber.com/pricing"},
   "unavailable": {}
@@ -2871,10 +2873,11 @@ zero, such as `08.8.8.8`, a host name and a CIDR prefix are refused too.
 | `is_datacenter` | boolean \| null | `true` when a cloud range holds the address, or when its AS is one of 15 ASes of Google, AWS, Microsoft, Cloudflare, DigitalOcean, Hetzner, OVH, Linode, Vultr, Oracle, Alibaba, Tencent and Scaleway. `false` only when IPtoASN and the cloud ranges are both loaded and neither matches. Otherwise `null` |
 | `is_tor_exit` | boolean \| null | `true` when the Tor exit list holds the address |
 | `listed_on` | array \| null | One element for each DROP prefix that holds the address, the longest prefix first. `[]` when no prefix holds it |
-| `ptr` | string \| null | The first PTR name of the address, without its trailing dot. `null` when the address has no PTR name, or when the question failed |
+| `ptr` | string \| null | A PTR name of the address, without its trailing dot. It is the first name that maps back to the address when one does, else the first PTR name. `null` when the address has no PTR name, or when the question failed |
+| `is_ptr_forward_confirmed` | boolean \| null | `true` when an A or AAAA record of the `ptr` name holds the address. `false` when no PTR name the server asked maps back. `null` when `ptr` is `null`, or when no name maps back and a forward question failed. See [The PTR name](#the-ptr-name) |
 | `reputation` | object | The AbuseIPDB slot. It holds the report of AbuseIPDB, or says why it is empty. See [The vendor slots](#the-vendor-slots) |
 | `internet_exposure` | object | The Shodan slot. It holds the host of Shodan, or says why it is empty. See [The vendor slots](#the-vendor-slots) |
-| `unavailable` | object | Each list that is not loaded yet, with the reason `not_synced`, and `ptr` with a reason when the PTR question failed. It is `{}` when every part was answered. It never lists `reputation` or `internet_exposure`: a vendor slot says why it is empty in its own `available` `false` and `reason` |
+| `unavailable` | object | Each list that is not loaded yet, with the reason `not_synced`, `ptr` with a reason when the PTR question failed, and `is_ptr_forward_confirmed` with a reason when a forward question failed. It is `{}` when every part was answered. It never lists `reputation` or `internet_exposure`: a vendor slot says why it is empty in its own `available` `false` and `reason` |
 
 When more than one prefix of IPtoASN, DB-IP Lite or the cloud ranges holds the address, the
 longest prefix wins. Two cloud ranges of one length are ordered by `is_cdn`, a CDN first, then by
@@ -2920,6 +2923,7 @@ two lists is not loaded, because the other list proves it. A `false` needs both 
   "is_tor_exit": false,
   "listed_on": null,
   "ptr": null,
+  "is_ptr_forward_confirmed": null,
   "reputation": {"available": false, "reason": "pro_key_required", "action_url": "https://api.contrastcyber.com/pricing"},
   "internet_exposure": {"available": false, "reason": "pro_key_required", "action_url": "https://api.contrastcyber.com/pricing"},
   "unavailable": {"cloud_provider": "not_synced", "listed_on": "not_synced", "ptr": "timeout"}
@@ -2983,6 +2987,17 @@ NXDOMAIN answer, or an answer with no PTR record, means that the address has no 
 `timeout` or `server_error`. A classless reverse zone (RFC 2317) points the reverse name at another
 name under `arpa` with a CNAME, and gets `not_public_name`. A failed PTR question does not fail the
 request.
+
+The server then checks whether a PTR name maps back to the address. It asks about
+up to 10 PTR names, in answer order, all at once: type A for an IPv4 address, type AAAA for an IPv6
+address. The resolver follows a CNAME on the name. `is_ptr_forward_confirmed` is `true` when a
+record of the answer holds the address, and `ptr` then shows the first name that does. A name that
+is not a public host name, such as `printer.local` or a name under `arpa`, is not asked and counts
+as `false`. The same 3 seconds hold both steps. When no name maps back and a forward answer failed,
+`is_ptr_forward_confirmed` is `null`, and `unavailable` names it with the reason of the first failed
+answer, such as `timeout`. A match is a signal, not proof. RFC 8601 § 3 says it shows only that the
+owner of the name and the owner of the address agree. It does not show who sends traffic from the
+address.
 
 A name is written as on `/dns_lookup/`: as glibc's `dn_expand` writes it, then escaped into a JSON
 string as [Text encoding](#text-encoding) says.
@@ -5426,7 +5441,7 @@ A feed whose name, time or status cannot be read is left out of `db.feeds`. The 
 ```json
 {
   "status": "ok",
-  "version": "2.0.11",
+  "version": "2.0.12",
   "db": {
     "nvd": {
       "cve_count": 251430,
@@ -5460,7 +5475,7 @@ A feed whose name, time or status cannot be read is left out of `db.feeds`. The 
 When the database cannot be read, the answer is HTTP 503 with a `Retry-After: 5` header and this body:
 
 ```json
-{"status":"unavailable","version":"2.0.11","db":null}
+{"status":"unavailable","version":"2.0.12","db":null}
 ```
 
 ---
@@ -6005,7 +6020,7 @@ request target counts the bytes as sent.
 | 503  | The server is busy with requests to outside services (`upstream_busy`). The response carries `Retry-After: 5`. It costs no credits and carries no `X-RateLimit-*` headers. A request that the endpoint refuses for its method, its parameter names or its values gets that refusal instead. The 503 comes before the API key is read, so a request with a malformed, unknown, revoked or expired key gets it too | the endpoints that ask an outside service, `/mcp` |
 | 503  | Every place for an image request is in use (`raw_body_busy`). The response carries `Retry-After: 10`, the deadline that the head and the body share. It costs no credits | `/image_inspect` |
 | 503  | The payment cannot be settled now (`payment_unavailable`). The response carries `Retry-After: 5` | every endpoint that takes payment |
-| 503  | The database cannot be read. The body is `{"status":"unavailable","version":"2.0.11","db":null}` and the response carries `Retry-After: 5` | `/health` |
+| 503  | The database cannot be read. The body is `{"status":"unavailable","version":"2.0.12","db":null}` and the response carries `Retry-After: 5` | `/health` |
 | 504  | No TLS server or site was reached at the host name. `message` says why | `/ssl_check/`, `/headers_check/` |
 
 ---

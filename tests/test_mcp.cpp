@@ -4450,7 +4450,7 @@ void test_tool_IPLOOKUP_answer(void)
   int status;
   char* response = static_watchlistCall("ip_lookup", R"({"ip_address":"2001:4860:4860:0:0:0:0:8888"})", &credit_budget, &status);
   static_assertContains(response, R"("text":"{\"ip_address\":\"2001:4860:4860::8888\",\"asn\":13335,\"asn_name\":\"CLOUDFLARENET\",)");
-  static_assertContains(response, R"(\"ptr\":\"one.one.one.one\",)"
+  static_assertContains(response, R"(\"ptr\":\"one.one.one.one\",\"is_ptr_forward_confirmed\":true,)"
                                   R"(\"reputation\":{\"available\":false,\"reason\":\"pro_key_required\",\"action_url\":\"https://api.contrastcyber.com/pricing\"},)"
                                   R"(\"internet_exposure\":{\"available\":false,\"reason\":\"pro_key_required\",\"action_url\":\"https://api.contrastcyber.com/pricing\"},\"unavailable\":{}})");
   TEST_ASSERT_EQUAL_INT(1, g_stub_IPLOOKUP_call_count);

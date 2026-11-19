@@ -81,7 +81,7 @@
       <div class="endpoint">
         <span class="method get">GET</span>
         <span class="endpoint-path">/ip_lookup/{ip_address}</span>
-        <span class="endpoint-desc">MCP <code>ip_lookup</code>. The AS, country, cloud or CDN range, Tor exit status, DROP listing and PTR name of a public IP address. A Pro caller fills the Shodan and AbuseIPDB slots with its own key. <a href="https://github.com/UPinar/contrastapi/blob/main/docs/API_Documentation.md#ip-lookup-get-ip_lookupip_address">API docs</a></span>
+        <span class="endpoint-desc">MCP <code>ip_lookup</code>. The AS, country, cloud or CDN range, Tor exit status, DROP listing and PTR name of a public IP address, and whether the PTR name maps back to it. A Pro caller fills the Shodan and AbuseIPDB slots with its own key. <a href="https://github.com/UPinar/contrastapi/blob/main/docs/API_Documentation.md#ip-lookup-get-ip_lookupip_address">API docs</a></span>
       </div>
       <div class="endpoint">
         <span class="method get">GET</span>
@@ -104,7 +104,8 @@
   "is_datacenter": true,
   "is_tor_exit": false,
   "listed_on": [],
-  "ptr": "dns.google"
+  "ptr": "dns.google",
+  "is_ptr_forward_confirmed": true
 }</code></div>
     <h2>From an agent</h2>
     <p>Your agent calls these MCP tools: <code>ip_lookup</code> and <code>asn_lookup</code>. Connect once with the <a href="/mcp-setup">MCP setup</a>, then ask in plain words.</p>
@@ -133,7 +134,7 @@
       <li><strong>Tor bulk exit list (The Tor Project):</strong> local copy.</li>
       <li><strong>DROP list:</strong> free under the DROP Fair Use Policy. Local copy.</li>
       <li><strong>Cloud and CDN ranges:</strong> the address ranges that AWS, Google, Microsoft Azure, Cloudflare, Fastly, Bunny and Gcore publish. Local copy.</li>
-      <li><strong>PTR names:</strong> asked live from the server's own DNS resolver.</li>
+      <li><strong>PTR names:</strong> asked live from the server's own DNS resolver, with the A or AAAA record of each name to see whether it maps back to the address.</li>
       <li><strong>Shodan and AbuseIPDB:</strong> asked live, only for a Pro key that saved its own Shodan or AbuseIPDB key at <a href="/vendor-keys">vendor keys</a>. They fill the <code>internet_exposure</code> and <code>reputation</code> members.</li>
     </ul>
     <div class="faq">

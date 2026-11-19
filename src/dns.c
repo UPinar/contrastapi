@@ -57,6 +57,8 @@ _Static_assert(DNS_RECORD_TYPE_PTR == DNS_LOOKUP_DOMAIN_RECORD_TYPE_COUNT, "DNS_
 
 #define DNS_REVERSE_NAME_SIZE (32 * 2 + sizeof("ip6.arpa"))
 
+_Static_assert(DNS_PTR_CONFIRM_MAX_NAME_COUNT <= DNS_MAX_QUESTION_COUNT, "DNS_PTR_CONFIRM_MAX_NAME_COUNT must fit one dns_askQuestions call");
+
 #define DNS_GOOGLE_WORKSPACE_SERVICE_NAME "google-workspace"
 
 static const char* const DNS_GOOGLE_MX_SUFFIXES[] = { "google.com", "googlemail.com" };
@@ -119,48 +121,51 @@ typedef struct {
 
 static __thread unsigned int g_questionCount = 0;
 
-static bool                       static_isAnswerToQuestion        (ns_msg* message_handle, const DnsQuestion_t* question);
-static int                        static_expandDomainName          (const ns_msg* message_handle, const unsigned char* domain_name_start, char domain_name_out[NS_MAXDNAME]);
-static DnsAnswerStatus_t          static_readIpAddress             (const ns_rr* record, int family, size_t ip_address_size, DnsRecordText_t* text_out);
-static DnsAnswerStatus_t          static_readDomainName            (const ns_msg* message_handle, const ns_rr* record, DnsRecordText_t* text_out);
-static DnsAnswerStatus_t          static_readTxtRecord             (const ns_rr* record, DnsRecordText_t* text_out);
-static DnsAnswerStatus_t          static_readMxRecord              (const ns_msg* message_handle, const ns_rr* record, DnsMxRecord_t* mx_out, bool* is_null_mx_out);
-static DnsAnswerStatus_t          static_readSoaRecord             (const ns_msg* message_handle, const ns_rr* record, DnsSoaRecord_t* soa_out);
-static bool                       static_tryCopyBytes              (const unsigned char* bytes, size_t byte_count, DnsRecordText_t* text_out);
-static DnsAnswerStatus_t          static_readCaaRecord             (const ns_rr* record, DnsCaaRecord_t* caa_out);
-static bool                       static_tryAllocateRecords        (DnsRecordType_t record_type, int max_record_count, DnsAnswer_t* answer);
-static bool                       static_hasCnameToNonPublicName   (ns_msg* message_handle);
-static DnsAnswerStatus_t          static_readRecords               (ns_msg* message_handle, const DnsQuestion_t* question, DnsAnswer_t* answer);
+static bool                       static_isAnswerToQuestion         (ns_msg* message_handle, const DnsQuestion_t* question);
+static int                        static_expandDomainName           (const ns_msg* message_handle, const unsigned char* domain_name_start, char domain_name_out[NS_MAXDNAME]);
+static DnsAnswerStatus_t          static_readIpAddress              (const ns_rr* record, int family, size_t ip_address_size, DnsRecordText_t* text_out);
+static DnsAnswerStatus_t          static_readDomainName             (const ns_msg* message_handle, const ns_rr* record, DnsRecordText_t* text_out);
+static DnsAnswerStatus_t          static_readTxtRecord              (const ns_rr* record, DnsRecordText_t* text_out);
+static DnsAnswerStatus_t          static_readMxRecord               (const ns_msg* message_handle, const ns_rr* record, DnsMxRecord_t* mx_out, bool* is_null_mx_out);
+static DnsAnswerStatus_t          static_readSoaRecord              (const ns_msg* message_handle, const ns_rr* record, DnsSoaRecord_t* soa_out);
+static bool                       static_tryCopyBytes               (const unsigned char* bytes, size_t byte_count, DnsRecordText_t* text_out);
+static DnsAnswerStatus_t          static_readCaaRecord              (const ns_rr* record, DnsCaaRecord_t* caa_out);
+static bool                       static_tryAllocateRecords         (DnsRecordType_t record_type, int max_record_count, DnsAnswer_t* answer);
+static bool                       static_hasCnameToNonPublicName    (ns_msg* message_handle);
+static DnsAnswerStatus_t          static_readRecords                (ns_msg* message_handle, const DnsQuestion_t* question, DnsAnswer_t* answer);
 
-static void                       static_openNameserverSockets     (const struct __res_state* state, DnsNameserver_t nameservers_out[MAXNS], int* nameserver_count_out);
-static bool                       static_tryWriteQuestionMessage   (struct __res_state* state, const DnsQuestion_t* question, DnsQuestionState_t* question_state);
-static void                       static_appendEdnsOptRecord       (unsigned char* question_message, int question_message_len);
-static void                       static_sendUdp                   (DnsQuestionState_t* question_state, const DnsNameserver_t* nameserver, int64_t now_ms);
-static void                       static_finishQuestion            (DnsQuestionState_t* question_state, DnsAnswer_t answer, DnsAnswer_t* answer_out);
-static void                       static_finishQuestionWithStatus  (DnsQuestionState_t* question_state, DnsAnswerStatus_t status, DnsAnswer_t* answer_out);
-static void                       static_startTcp                  (DnsQuestionState_t* question_state, const DnsNameserver_t* nameserver, DnsAnswer_t* answer_out);
-static bool                       static_shouldAskNextNameserver   (const unsigned char* datagram, const DnsQuestionState_t* question_state, int nameserver_count);
-static void                       static_readUdpAnswer             (const DnsQuestionBatch_t* batch, const DnsNameserver_t* nameserver);
-static void                       static_sendTcp                   (DnsQuestionState_t* question_state, DnsAnswer_t* answer_out);
-static void                       static_readTcp                   (const DnsQuestion_t* question, DnsQuestionState_t* question_state, DnsAnswer_t* answer_out);
-static bool                       static_tryReceiveTcpBytes        (DnsQuestionState_t* question_state, unsigned char* fill_position, size_t missing_byte_count, size_t* received_byte_count_out, DnsAnswer_t* answer_out);
-static void                       static_readTcpLengthPrefix       (DnsQuestionState_t* question_state, DnsAnswer_t* answer_out);
-static void                       static_prepareTcpAnswerBuffer    (DnsQuestionState_t* question_state, DnsAnswer_t* answer_out);
-static void                       static_readTcpAnswer             (const DnsQuestion_t* question, DnsQuestionState_t* question_state, DnsAnswer_t* answer_out);
-static void                       static_runPollLoop               (const DnsQuestionBatch_t* batch, int64_t deadline_at);
-static bool                       static_isAnyQuestionPending      (const DnsQuestionBatch_t* batch);
-static void                       static_buildPollList             (const DnsQuestionBatch_t* batch, DnsPollList_t* poll_list_out);
-static int64_t                    static_computePollWaitMs         (const DnsQuestionBatch_t* batch, int64_t now_ms, int64_t deadline_at);
-static void                       static_serveReadySockets         (const DnsQuestionBatch_t* batch, const DnsPollList_t* poll_list);
-static void                       static_resendOverdueUdpQuestions (const DnsQuestionBatch_t* batch, int64_t now_ms);
+static void                       static_openNameserverSockets      (const struct __res_state* state, DnsNameserver_t nameservers_out[MAXNS], int* nameserver_count_out);
+static bool                       static_tryWriteQuestionMessage    (struct __res_state* state, const DnsQuestion_t* question, DnsQuestionState_t* question_state);
+static void                       static_appendEdnsOptRecord        (unsigned char* question_message, int question_message_len);
+static void                       static_sendUdp                    (DnsQuestionState_t* question_state, const DnsNameserver_t* nameserver, int64_t now_ms);
+static void                       static_finishQuestion             (DnsQuestionState_t* question_state, DnsAnswer_t answer, DnsAnswer_t* answer_out);
+static void                       static_finishQuestionWithStatus   (DnsQuestionState_t* question_state, DnsAnswerStatus_t status, DnsAnswer_t* answer_out);
+static void                       static_startTcp                   (DnsQuestionState_t* question_state, const DnsNameserver_t* nameserver, DnsAnswer_t* answer_out);
+static bool                       static_shouldAskNextNameserver    (const unsigned char* datagram, const DnsQuestionState_t* question_state, int nameserver_count);
+static void                       static_readUdpAnswer              (const DnsQuestionBatch_t* batch, const DnsNameserver_t* nameserver);
+static void                       static_sendTcp                    (DnsQuestionState_t* question_state, DnsAnswer_t* answer_out);
+static void                       static_readTcp                    (const DnsQuestion_t* question, DnsQuestionState_t* question_state, DnsAnswer_t* answer_out);
+static bool                       static_tryReceiveTcpBytes         (DnsQuestionState_t* question_state, unsigned char* fill_position, size_t missing_byte_count, size_t* received_byte_count_out, DnsAnswer_t* answer_out);
+static void                       static_readTcpLengthPrefix        (DnsQuestionState_t* question_state, DnsAnswer_t* answer_out);
+static void                       static_prepareTcpAnswerBuffer     (DnsQuestionState_t* question_state, DnsAnswer_t* answer_out);
+static void                       static_readTcpAnswer              (const DnsQuestion_t* question, DnsQuestionState_t* question_state, DnsAnswer_t* answer_out);
+static void                       static_runPollLoop                (const DnsQuestionBatch_t* batch, int64_t deadline_at);
+static bool                       static_isAnyQuestionPending       (const DnsQuestionBatch_t* batch);
+static void                       static_buildPollList              (const DnsQuestionBatch_t* batch, DnsPollList_t* poll_list_out);
+static int64_t                    static_computePollWaitMs          (const DnsQuestionBatch_t* batch, int64_t now_ms, int64_t deadline_at);
+static void                       static_serveReadySockets          (const DnsQuestionBatch_t* batch, const DnsPollList_t* poll_list);
+static void                       static_resendOverdueUdpQuestions  (const DnsQuestionBatch_t* batch, int64_t now_ms);
 
-static bool                       static_tryFindNonPublicAddresses (DNSLOOKUPRecord_t* record);
-static void                       static_findTxtServices           (DNSLOOKUPRecord_t* record);
-static bool                       static_hasGoogleMx               (const DnsAnswer_t* mx_answer);
+static bool                       static_tryFindNonPublicAddresses  (DNSLOOKUPRecord_t* record);
+static void                       static_findTxtServices            (DNSLOOKUPRecord_t* record);
+static bool                       static_hasGoogleMx                (const DnsAnswer_t* mx_answer);
 
-static const DnsTakeoverSuffix_t* static_findTakeoverSuffix        (const char* hostname);
+static const DnsTakeoverSuffix_t* static_findTakeoverSuffix         (const char* hostname);
 
-static bool                       static_tryWriteReverseName       (const char* ip_address, char reverse_name_out[DNS_REVERSE_NAME_SIZE]);
+static bool                       static_tryWriteReverseName        (const char* ip_address, char reverse_name_out[DNS_REVERSE_NAME_SIZE]);
+static void                       static_confirmPtrNames            (const char* ip_address, int64_t deadline_at, DnsPtrAnswer_t* answer);
+static bool                       static_isAddressInForwardAnswer   (const DnsAnswer_t* forward_answer, int family, const unsigned char* address_bytes, size_t address_size);
+static bool                       static_isForwardAnswerUnavailable (DnsAnswerStatus_t status);
 
 bool dns_tryReadResponse(const unsigned char* message, size_t message_len, const DnsQuestion_t* question, uint16_t question_message_id, DnsAnswer_t* answer_out)
 {
@@ -417,18 +422,24 @@ DnsLookupStatus_t dns_checkTakeover(const char* hostname, DNSTAKEOVERCHECKRecord
   return DNS_LOOKUP_OK;
 }
 
-void dns_lookupPtr(const char* ip_address, DnsAnswer_t* answer_out)
+void dns_lookupPtr(const char* ip_address, DnsPtrAnswer_t* answer_out)
 {
+  memset(answer_out, 0, sizeof(*answer_out));
+
   char reverse_name[DNS_REVERSE_NAME_SIZE];
   if (!static_tryWriteReverseName(ip_address, reverse_name))
   {
-    memset(answer_out, 0, sizeof(*answer_out));
-    answer_out->m_status = DNS_ANSWER_BAD_QUESTION;
+    answer_out->m_answer.m_status = DNS_ANSWER_BAD_QUESTION;
     return;
   }
 
+  int64_t deadline_at = monotonic_nowMs() + DNS_PTR_DEADLINE_MS;
   const DnsQuestion_t question = { reverse_name, DNS_RECORD_TYPE_PTR };
-  dns_askQuestions(&question, 1, DNS_PTR_DEADLINE_MS, answer_out);
+  dns_askQuestions(&question, 1, DNS_PTR_DEADLINE_MS, &answer_out->m_answer);
+  if (answer_out->m_answer.m_status != DNS_ANSWER_OK || answer_out->m_answer.m_recordCount == 0)
+    return;
+
+  static_confirmPtrNames(ip_address, deadline_at, answer_out);
 }
 
 static bool static_isAnswerToQuestion(ns_msg* message_handle, const DnsQuestion_t* question)
@@ -1174,4 +1185,102 @@ static bool static_tryWriteReverseName(const char* ip_address, char reverse_name
   }
   memcpy(cursor, "ip6.arpa", sizeof("ip6.arpa"));
   return true;
+}
+
+static void static_confirmPtrNames(const char* ip_address, int64_t deadline_at, DnsPtrAnswer_t* answer)
+{
+  unsigned char   address_bytes[sizeof(struct in6_addr)] = { 0 };
+  int             family       = AF_INET;
+  size_t          address_size = sizeof(struct in_addr);
+  DnsRecordType_t forward_type = DNS_RECORD_TYPE_A;
+  if (inet_pton(AF_INET, ip_address, address_bytes) != 1)
+  {
+    family       = AF_INET6;
+    address_size = sizeof(struct in6_addr);
+    forward_type = DNS_RECORD_TYPE_AAAA;
+    if (inet_pton(AF_INET6, ip_address, address_bytes) != 1)
+    {
+      answer->m_forwardStatus = DNS_ANSWER_BAD_QUESTION;
+      return;
+    }
+  }
+
+  DnsQuestion_t questions[DNS_PTR_CONFIRM_MAX_NAME_COUNT];
+  int name_indexes[DNS_PTR_CONFIRM_MAX_NAME_COUNT];
+  int question_count = 0;
+  const DnsAnswer_t* ptr_answer = &answer->m_answer;
+  for (int i = 0; i < ptr_answer->m_recordCount && i < DNS_PTR_CONFIRM_MAX_NAME_COUNT; i++)
+  {
+    const char* ptr_name = ptr_answer->mp_texts[i].mp_bytes;
+    if (!validate_publicDnsName(ptr_name))
+      continue;
+
+    questions[question_count] = (DnsQuestion_t){ ptr_name, forward_type };
+    name_indexes[question_count] = i;
+    question_count++;
+  }
+
+  if (question_count == 0)
+  {
+    answer->m_confirmation = DNS_PTR_CONFIRMATION_NOT_CONFIRMED;
+    return;
+  }
+
+  int64_t wait_ms = deadline_at - monotonic_nowMs();
+  if (wait_ms <= 0)
+  {
+    answer->m_forwardStatus = DNS_ANSWER_TIMEOUT;
+    return;
+  }
+
+  DnsAnswer_t forward_answers[DNS_PTR_CONFIRM_MAX_NAME_COUNT];
+  dns_askQuestions(questions, question_count, (int)wait_ms, forward_answers);
+
+  int matched_question = -1;
+  DnsAnswerStatus_t failed_status = DNS_ANSWER_OK;
+  for (int i = 0; i < question_count; i++)
+  {
+    if (static_isAddressInForwardAnswer(&forward_answers[i], family, address_bytes, address_size))
+    {
+      matched_question = i;
+      break;
+    }
+    if (failed_status == DNS_ANSWER_OK && static_isForwardAnswerUnavailable(forward_answers[i].m_status))
+      failed_status = forward_answers[i].m_status;
+  }
+
+  for (int i = 0; i < question_count; i++)
+    dns_answerFree(&forward_answers[i]);
+
+  if (matched_question >= 0)
+  {
+    answer->m_confirmation   = DNS_PTR_CONFIRMATION_CONFIRMED;
+    answer->m_shownNameIndex = name_indexes[matched_question];
+  }
+  else if (failed_status == DNS_ANSWER_OK)
+    answer->m_confirmation = DNS_PTR_CONFIRMATION_NOT_CONFIRMED;
+  else
+    answer->m_forwardStatus = failed_status;
+}
+
+static bool static_isAddressInForwardAnswer(const DnsAnswer_t* forward_answer, int family, const unsigned char* address_bytes, size_t address_size)
+{
+  if (forward_answer->m_status != DNS_ANSWER_OK)
+    return false;
+
+  for (int i = 0; i < forward_answer->m_recordCount; i++)
+  {
+    unsigned char record_bytes[sizeof(struct in6_addr)] = { 0 };
+    if (inet_pton(family, forward_answer->mp_texts[i].mp_bytes, record_bytes) == 1 &&
+        memcmp(record_bytes, address_bytes, address_size) == 0)
+    {
+      return true;
+    }
+  }
+  return false;
+}
+
+static bool static_isForwardAnswerUnavailable(DnsAnswerStatus_t status)
+{
+  return !(status == DNS_ANSWER_OK || status == DNS_ANSWER_NXDOMAIN || status == DNS_ANSWER_NOT_PUBLIC_NAME);
 }
