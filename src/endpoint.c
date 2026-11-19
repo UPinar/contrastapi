@@ -626,9 +626,9 @@ bool endpoint_tryReadPackageItem(JsonReadSpan_t element_span, PACKAGECHECKBULKIt
   return static_readPackageElement(element_span, false, item_out, NULL) == PACKAGE_ELEMENT_PROBLEM_NONE;
 }
 
-bool endpoint_readKeptPackageItems(const PACKAGECHECKBULKParams_t* bulk_params, int read_count, PACKAGECHECKBULKItem_t** items_out)
+bool endpoint_readKeptPackageItems(const PACKAGECHECKBULKParams_t* package_check_bulk_params, int read_count, PACKAGECHECKBULKItem_t** items_out)
 {
-  assert(bulk_params != NULL);
+  assert(package_check_bulk_params != NULL);
   assert(items_out   != NULL);
   assert(read_count  >= 0);
 
@@ -643,7 +643,7 @@ bool endpoint_readKeptPackageItems(const PACKAGECHECKBULKParams_t* bulk_params, 
   int    kept_count     = 0;
   size_t element_offset = 0;
   JsonReadSpan_t element_span;
-  while (kept_count < read_count && jsonread_arrayNextElement(bulk_params->m_itemArraySpan, &element_offset, &element_span) == JSONREAD_OK)
+  while (kept_count < read_count && jsonread_arrayNextElement(package_check_bulk_params->m_itemArraySpan, &element_offset, &element_span) == JSONREAD_OK)
   {
     if (endpoint_tryReadPackageItem(element_span, &items[kept_count]))
       kept_count++;

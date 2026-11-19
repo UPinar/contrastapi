@@ -32,7 +32,7 @@ SET LOCAL ROLE "contrastapi-owner";
 \ir fn_billing.sql
 \ir fn_credit_budget_purge.sql
 \ir fn_credit_budget_check.sql
-\ir fn_cve_risk_score.sql
+\ir fn_cve_risk_label.sql
 \ir fn_upstream_feed_status.sql
 \ir fn_current_window_start.sql
 \ir fn_upstream_quota.sql

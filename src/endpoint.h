@@ -332,7 +332,7 @@ bool                           endpoint_isBulkArrayType                     (End
 void                           endpoint_appendSchemaBounds                  (const EndpointParamSpec_t* spec, JsonBuf_t* json_buf);
 size_t                         endpoint_jsonObjectSizeLimit                 (const Endpoint_t* endpoint);
 bool                           endpoint_tryReadPackageItem                  (JsonReadSpan_t element_span, PACKAGECHECKBULKItem_t* item_out);
-bool                           endpoint_readKeptPackageItems                (const PACKAGECHECKBULKParams_t* bulk_params, int read_count, PACKAGECHECKBULKItem_t** items_out);
+bool                           endpoint_readKeptPackageItems                (const PACKAGECHECKBULKParams_t* package_check_bulk_params, int read_count, PACKAGECHECKBULKItem_t** items_out);
 bool                           endpoint_readWatchlistPackageElements        (const PACKAGECHECKBULKParams_t* package_list, WATCHLISTEDITPackageElement_t** elements_out);
 bool                           endpoint_hasRestBodyParam                    (const Endpoint_t* endpoint);
 bool                           endpoint_hasPackageArrayWithOtherMembers     (const Endpoint_t* endpoint);

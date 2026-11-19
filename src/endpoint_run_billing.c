@@ -15,10 +15,10 @@ EndpointRunStatus_t endpoint_WEBHOOKLEMONSQUEEZYRun(PGconn* conn, const Endpoint
 {
   assert(message_out != NULL);
 
-  const WEBHOOKLEMONSQUEEZYParams_t* webhook = &params->m_webhookLemonSqueezy;
-  const char* body     = (const char*)webhook->m_body.mp_bytes;
-  size_t      body_len = webhook->m_body.m_byteCount;
-  if (!billing_isLemonSqueezyBodySigned(body, body_len, webhook->ma_signature, strlen(webhook->ma_signature)))
+  const WEBHOOKLEMONSQUEEZYParams_t* webhook_lemon_squeezy_params = &params->m_webhookLemonSqueezy;
+  const char* body     = (const char*)webhook_lemon_squeezy_params->m_body.mp_bytes;
+  size_t      body_len = webhook_lemon_squeezy_params->m_body.m_byteCount;
+  if (!billing_isLemonSqueezyBodySigned(body, body_len, webhook_lemon_squeezy_params->ma_signature, strlen(webhook_lemon_squeezy_params->ma_signature)))
   {
     *message_out = BILLING_LEMONSQUEEZY_SIGNATURE_REFUSAL_MESSAGE;
     return ENDPOINT_RUN_UNAUTHORIZED;
@@ -84,16 +84,16 @@ EndpointRunStatus_t endpoint_WEBHOOKNOWPAYMENTSRun(PGconn* conn, const EndpointA
 {
   assert(message_out != NULL);
 
-  const WEBHOOKNOWPAYMENTSParams_t* webhook = &params->m_webhookNowPayments;
-  size_t signature_len = strlen(webhook->ma_signature);
-  if (!billing_isNowPaymentsSignatureWellFormed(webhook->ma_signature, signature_len))
+  const WEBHOOKNOWPAYMENTSParams_t* webhook_now_payments_params = &params->m_webhookNowPayments;
+  size_t signature_len = strlen(webhook_now_payments_params->ma_signature);
+  if (!billing_isNowPaymentsSignatureWellFormed(webhook_now_payments_params->ma_signature, signature_len))
   {
     *message_out = BILLING_NOWPAYMENTS_SIGNATURE_REFUSAL_MESSAGE;
     return ENDPOINT_RUN_UNAUTHORIZED;
   }
 
   BillingNowPaymentsEvent_t event;
-  EndpointRunStatus_t signed_status = static_readSignedNowPaymentsEvent((const char*)webhook->m_body.mp_bytes, webhook->m_body.m_byteCount, webhook->ma_signature, signature_len, &event);
+  EndpointRunStatus_t signed_status = static_readSignedNowPaymentsEvent((const char*)webhook_now_payments_params->m_body.mp_bytes, webhook_now_payments_params->m_body.m_byteCount, webhook_now_payments_params->ma_signature, signature_len, &event);
   if (signed_status == ENDPOINT_RUN_UNAUTHORIZED)
     *message_out = BILLING_NOWPAYMENTS_SIGNATURE_REFUSAL_MESSAGE;
   if (signed_status != ENDPOINT_RUN_OK)

@@ -112,7 +112,7 @@ BEGIN
   ASSERT (SELECT max_cvss = 9.8 AND avg_cvss = 8.1 AND max_epss = 0.9123 AND poc_backed_count = 1
             FROM pg_temp.t_summary('p2001', false)),
          'max_cvss is rounded to 1 decimal, avg_cvss skips a score of 0 and is rounded to 2, max_epss is rounded to 4';
-  ASSERT (SELECT worst_risk_score = api.fn_cve_risk_score(9.8, 0.91234, true, false, 1, false)
+  ASSERT (SELECT worst_risk_score = public.fn_cve_risk_score(9.8, 0.91234, true, false, 1, false)
              AND most_recent_published = '2001-01-05'
             FROM pg_temp.t_summary('p2001', false)),
          'worst_risk_score is the highest score and most_recent_published the latest date';
@@ -130,7 +130,7 @@ BEGIN
              AND cve_id IS NULL AND risk_score IS NULL AND risk_label IS NULL
             FROM api.fn_product_exposure('v2001', 'p2001', false, 0)),
          'a row limit of 0 answers the summary with NULL top columns';
-  ASSERT (SELECT s.worst_risk_score = api.fn_cve_risk_score(8.5, 0.25, false, false, 0, false)
+  ASSERT (SELECT s.worst_risk_score = public.fn_cve_risk_score(8.5, 0.25, false, false, 0, false)
              AND t.risk_score = s.worst_risk_score
             FROM pg_temp.t_summary('p2002', false) AS s,
                  api.fn_product_exposure('v2001', 'p2002', false, 10) AS t),
@@ -179,15 +179,15 @@ BEGIN
   ASSERT (SELECT cve_count = 3 AND poc_backed_count = 2
             FROM pg_temp.t_summary('p2004', false)),
          'poc_backed_count counts the two CVEs whose exploit references carry no Exploit tag, and not the CVE with only GitHub repositories';
-  ASSERT (SELECT worst_risk_score = api.fn_cve_risk_score(5.0, 0.1, false, false, 4, false)
+  ASSERT (SELECT worst_risk_score = public.fn_cve_risk_score(5.0, 0.1, false, false, 4, false)
             FROM pg_temp.t_summary('p2004', false)),
          'worst_risk_score is the score of the four exploit references';
   ASSERT pg_temp.t_top('p2004', false, 10) = ARRAY['CVE-2001-0074', 'CVE-2001-0075', 'CVE-2001-0076'],
          'the exploit references put CVE-2001-0074 and CVE-2001-0075 above a CVE with a higher EPSS score';
   ASSERT (SELECT array_agg(risk_score ORDER BY cve_id) FROM api.fn_product_exposure('v2001', 'p2004', false, 10))
-         = ARRAY[api.fn_cve_risk_score(5.0, 0.1, false, false, 4, false),
-                 api.fn_cve_risk_score(5.0, 0.1, false, false, 2, false),
-                 api.fn_cve_risk_score(5.0, 0.102, false, false, 0, false)],
+         = ARRAY[public.fn_cve_risk_score(5.0, 0.1, false, false, 4, false),
+                 public.fn_cve_risk_score(5.0, 0.1, false, false, 2, false),
+                 public.fn_cve_risk_score(5.0, 0.102, false, false, 0, false)],
          'each top row of p2004 is scored with its exploit_ref_count, and the GitHub repositories of CVE-2001-0076 do not count';
 END
 $$;
@@ -220,14 +220,14 @@ BEGIN
   ASSERT (SELECT cve_count = 3 AND poc_backed_count = 2
             FROM pg_temp.t_summary('p2010', false)),
          'poc_backed_count counts the CVE with a Metasploit module and the CVE with an ExploitDB entry';
-  ASSERT (SELECT worst_risk_score = api.fn_cve_risk_score(7.0, 0.1, false, false, 0, true)
-             AND worst_risk_score <> api.fn_cve_risk_score(7.0, 0.1, false, false, 0, false)
+  ASSERT (SELECT worst_risk_score = public.fn_cve_risk_score(7.0, 0.1, false, false, 0, true)
+             AND worst_risk_score <> public.fn_cve_risk_score(7.0, 0.1, false, false, 0, false)
             FROM pg_temp.t_summary('p2010', false)),
          'worst_risk_score counts the ExploitDB entry';
   ASSERT (SELECT array_agg(risk_score ORDER BY cve_id) FROM api.fn_product_exposure('v2001', 'p2010', false, 10))
-         = ARRAY[api.fn_cve_risk_score(5.0, 0.1, false, true, 0, false),
-                 api.fn_cve_risk_score(7.0, 0.1, false, false, 0, true),
-                 api.fn_cve_risk_score(5.0, 0.1, false, false, 0, false)],
+         = ARRAY[public.fn_cve_risk_score(5.0, 0.1, false, true, 0, false),
+                 public.fn_cve_risk_score(7.0, 0.1, false, false, 0, true),
+                 public.fn_cve_risk_score(5.0, 0.1, false, false, 0, false)],
          'each top row of p2010 is scored with its Metasploit module and its ExploitDB entry';
 END
 $$;
@@ -247,8 +247,8 @@ BEGIN
                          round(COALESCE(avg(c.cvss_v3) FILTER (WHERE c.cvss_v3 > 0), 0)::numeric, 2)::float8,
                          round(COALESCE(max(c.epss_score), 0)::numeric, 4)::float8,
                          count(*) FILTER (WHERE api.fn_cve_has_public_poc(c.exploit_ref_count, c.has_metasploit, c.has_exploitdb)),
-                         COALESCE(max(api.fn_cve_risk_score((CASE WHEN c.cvss_v3_vector <> '' THEN c.cvss_v3 ELSE c.cvss_v4 END),
-                                                            c.epss_score, c.in_kev, c.has_metasploit, c.exploit_ref_count, c.has_exploitdb)), 0)::float8,
+                         COALESCE(max(public.fn_cve_risk_score((CASE WHEN c.cvss_v3_vector <> '' THEN c.cvss_v3 ELSE c.cvss_v4 END),
+                                                               c.epss_score, c.in_kev, c.has_metasploit, c.exploit_ref_count, c.has_exploitdb)), 0)::float8,
                          COALESCE(max(c.published_time)::text, ''))::text
                 FROM (SELECT DISTINCT c.cve_id, c.severity, c.in_kev, c.cvss_v3, c.cvss_v3_vector, c.cvss_v4,
                              c.has_metasploit, c.has_exploitdb, c.epss_score, c.exploit_ref_count, c.published_time
@@ -274,13 +274,13 @@ BEGIN
   ASSERT (SELECT cve_count = 2 AND critical_count = 0 AND high_count = 1 AND medium_count = 1
              AND kev_count = 0 AND max_cvss = 7.0 AND avg_cvss = 5.5 AND max_epss = 0.4
              AND poc_backed_count = 0
-             AND worst_risk_score = api.fn_cve_risk_score(7.0, 0.4, false, false, 0, false)
+             AND worst_risk_score = public.fn_cve_risk_score(7.0, 0.4, false, false, 0, false)
              AND most_recent_published = '2011-01-03'
             FROM pg_temp.t_summary('p2011', false)),
          'the summary leaves the Rejected CVE out of each number for false';
   ASSERT (SELECT cve_count = 3 AND critical_count = 1 AND kev_count = 1 AND max_cvss = 9.5
              AND poc_backed_count = 1
-             AND worst_risk_score = api.fn_cve_risk_score(9.5, 0.9, true, false, 1, false)
+             AND worst_risk_score = public.fn_cve_risk_score(9.5, 0.9, true, false, 1, false)
              AND most_recent_published = '2011-01-09'
             FROM pg_temp.t_summary('p2011', true)),
          'the summary counts the Rejected CVE for true';

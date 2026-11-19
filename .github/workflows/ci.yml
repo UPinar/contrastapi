@@ -389,7 +389,7 @@ jobs:
 
   fuzz:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 25
 
     steps:
       - uses: actions/checkout@v7
@@ -397,7 +397,8 @@ jobs:
       - name: Install clang
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang-20 libclang-rt-20-dev libpq-dev libssl-dev pkg-config
+          sudo apt-get install -y --no-install-recommends \
+            clang-20 llvm-20 libclang-rt-20-dev libpq-dev libssl-dev pkg-config
 
       - name: Build the fuzz harnesses
         run: make -j"$(nproc)" fuzz

@@ -66,16 +66,16 @@ typedef struct {
 _Static_assert(ENDPOINT_MCP_ENVELOPE_RESERVE_BYTE_COUNT >= X402_PAYMENT_JSON_MAX_BYTE_COUNT + 1024,
                "the /mcp envelope reserve must hold the largest x402 payment and the envelope");
 
-static RequestAccessResult_t static_checkRequestAccess             (PGconn* conn, const ReceiveResult_t* request, const Endpoint_t* endpoint, const McpRoutingHeaders_t* routing_headers, EndpointPrice_t* price, const char* client_ip, const char* ip_secret, X402RequestPayment_t* payment_out);
-static RequestAccessResult_t static_dbOpenPayment                  (PGconn* conn, EndpointPrice_t* price, const X402RequestPaymentSource_t* source, bool is_source_repeated, const char* client_ip, const char* ip_secret, X402RequestPayment_t* payment_out);
-static bool                  static_isMcpLadderRefused             (const ReceiveResult_t* request, const McpRoutingHeaders_t* routing_headers, RequestAccessResult_t* access_result);
-static bool                  static_tryWeighWholeRequest           (PGconn* conn, EndpointPrice_t* price);
-static RequestAccessResult_t static_chargeCreditCost               (PGconn* conn, const char* credit_budget_hash, RequestTier_t tier, const EndpointPrice_t* price);
-static RequestAccessResult_t static_chargeRefusedKey               (PGconn* conn, const EndpointPrice_t* price, const char* client_ip, const char* ip_secret, RequestAccessStatus_t refusal_status);
-static void                  static_sendAccessRefusal              (int client_fd, const Endpoint_t* endpoint, const char* body, bool is_modern, RequestAccessResult_t access_result);
-static void                  static_httpRequestCreditCost          (const Endpoint_t* endpoint, const char* path_segment, const RouterParsedRequest_t* req, EndpointPrice_t* price_out);
-static void                  static_readPathAndQuery               (const char* target, size_t target_len, char* path_out, const char** query_out);
-static void                  static_readRealIp                     (const ReceiveResult_t* request, char* real_ip_out);
+static RequestAccessResult_t static_checkRequestAccess              (PGconn* conn, const ReceiveResult_t* request, const Endpoint_t* endpoint, const McpRoutingHeaders_t* routing_headers, EndpointPrice_t* price, const char* client_ip, const char* ip_secret, X402RequestPayment_t* payment_out);
+static RequestAccessResult_t static_dbOpenPayment                   (PGconn* conn, EndpointPrice_t* price, const X402RequestPaymentSource_t* source, bool is_source_repeated, const char* client_ip, const char* ip_secret, X402RequestPayment_t* payment_out);
+static bool                  static_isMcpLadderRefused              (const ReceiveResult_t* request, const McpRoutingHeaders_t* routing_headers, RequestAccessResult_t* access_result);
+static bool                  static_tryWeighWholeRequest            (PGconn* conn, EndpointPrice_t* price);
+static RequestAccessResult_t static_chargeCreditCostGetAccessResult (PGconn* conn, const char* credit_budget_hash, RequestTier_t tier, const EndpointPrice_t* price);
+static RequestAccessResult_t static_chargeRefusedKeyGetAccessResult (PGconn* conn, const EndpointPrice_t* price, const char* client_ip, const char* ip_secret, RequestAccessStatus_t refusal_status);
+static void                  static_sendAccessRefusal               (int client_fd, const Endpoint_t* endpoint, const char* body, bool is_modern, RequestAccessResult_t access_result);
+static void                  static_httpRequestCreditCost           (const Endpoint_t* endpoint, const char* path_segment, const RouterParsedRequest_t* req, EndpointPrice_t* price_out);
+static void                  static_readPathAndQuery                (const char* target, size_t target_len, char* path_out, const char** query_out);
+static void                  static_readRealIp                      (const ReceiveResult_t* request, char* real_ip_out);
 
 void request_readHead(const ReceiveResult_t* request, RequestHead_t* head_out)
 {
@@ -325,15 +325,15 @@ static RequestAccessResult_t static_checkRequestAccess(PGconn* conn, const Recei
     if (key_state == DB_API_KEY_ACTIVE)
     {
       usagelog_setTier(USAGELOG_TIER_PRO);
-      access_result = static_chargeCreditCost(conn, key_hash, REQUEST_TIER_PRO, price);
+      access_result = static_chargeCreditCostGetAccessResult(conn, key_hash, REQUEST_TIER_PRO, price);
       access_result.m_creditBudget.m_keyExpiry = key_expiry;
       return access_result;
     }
 
     usagelog_setTier(USAGELOG_TIER_PRO_REFUSED);
-    return static_chargeRefusedKey(conn, price, client_ip, ip_secret,
-                                   key_state == DB_API_KEY_INACTIVE ? REQUEST_ACCESS_API_KEY_INACTIVE
-                                                                    : REQUEST_ACCESS_UNAUTHORIZED);
+    return static_chargeRefusedKeyGetAccessResult(conn, price, client_ip, ip_secret,
+                                                  key_state == DB_API_KEY_INACTIVE ? REQUEST_ACCESS_API_KEY_INACTIVE
+                                                                                   : REQUEST_ACCESS_UNAUTHORIZED);
   }
   else if (auth_result.m_apiKeyStatus == AUTH_API_KEY_NONE)
   {
@@ -364,7 +364,7 @@ static RequestAccessResult_t static_checkRequestAccess(PGconn* conn, const Recei
 
     char ip_hash[SHA256_HEX_LEN + 1];
     auth_hashIp(client_ip, ip_secret, ip_hash);
-    access_result = static_chargeCreditCost(conn, ip_hash, REQUEST_TIER_FREE, price);
+    access_result = static_chargeCreditCostGetAccessResult(conn, ip_hash, REQUEST_TIER_FREE, price);
     if (access_result.m_status == REQUEST_ACCESS_RATE_LIMITED && x402_request_isOn() && price->m_isPaymentOfferable)
     {
       if (price->mp_weighedEndpoint != NULL)
@@ -517,7 +517,7 @@ static bool static_tryWeighWholeRequest(PGconn* conn, EndpointPrice_t* price)
   return true;
 }
 
-static RequestAccessResult_t static_chargeCreditCost(PGconn* conn, const char* credit_budget_hash, RequestTier_t tier, const EndpointPrice_t* price)
+static RequestAccessResult_t static_chargeCreditCostGetAccessResult(PGconn* conn, const char* credit_budget_hash, RequestTier_t tier, const EndpointPrice_t* price)
 {
   assert(credit_budget_hash != NULL);
   assert(price              != NULL);
@@ -572,7 +572,7 @@ static RequestAccessResult_t static_chargeCreditCost(PGconn* conn, const char* c
   return access_result;
 }
 
-static RequestAccessResult_t static_chargeRefusedKey(PGconn* conn, const EndpointPrice_t* price, const char* client_ip, const char* ip_secret, RequestAccessStatus_t refusal_status)
+static RequestAccessResult_t static_chargeRefusedKeyGetAccessResult(PGconn* conn, const EndpointPrice_t* price, const char* client_ip, const char* ip_secret, RequestAccessStatus_t refusal_status)
 {
   assert(price != NULL);
 
@@ -583,7 +583,7 @@ static RequestAccessResult_t static_chargeRefusedKey(PGconn* conn, const Endpoin
     .m_isPartialChargeAllowed = price->m_creditCost > 0 && price->m_isPartialChargeAllowed,
     .mp_weighedEndpoint       = NULL,
   };
-  RequestAccessResult_t access_result = static_chargeCreditCost(conn, ip_hash, REQUEST_TIER_FREE, &refused_key_price);
+  RequestAccessResult_t access_result = static_chargeCreditCostGetAccessResult(conn, ip_hash, REQUEST_TIER_FREE, &refused_key_price);
   if (access_result.m_status != REQUEST_ACCESS_OK)
     return access_result;
 

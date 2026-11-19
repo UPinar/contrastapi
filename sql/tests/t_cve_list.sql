@@ -233,10 +233,10 @@ $$;
 
 DO $$
 DECLARE
-  tie_score double precision := api.fn_cve_risk_score(5.0, 0.1, false, false, 0, false);
+  tie_score double precision := public.fn_cve_risk_score(5.0, 0.1, false, false, 0, false);
 BEGIN
-  ASSERT api.fn_cve_risk_score(5.01, 0.1, false, false, 0, false) = tie_score
-     AND api.fn_cve_risk_score(5.0, 0.101, false, false, 0, false) = tie_score,
+  ASSERT public.fn_cve_risk_score(5.01, 0.1, false, false, 0, false) = tie_score
+     AND public.fn_cve_risk_score(5.0, 0.101, false, false, 0, false) = tie_score,
          'the tie CVEs share one risk score';
   ASSERT (SELECT array_agg(right(t.cve_id, 2))
             FROM api.fn_cve_triage('tie', 'tie', NULL, false, 100, 0) AS t)
@@ -268,7 +268,7 @@ BEGIN
             FROM api.fn_cve_triage(NULL, NULL, NULL, false, 100, 0) AS t)
          = (SELECT array_agg(t.risk_score) FROM api.fn_cve_triage(NULL, NULL, NULL, false, 100, 0) AS t),
          'api.fn_cve_triage orders the rows by risk score, highest first';
-  ASSERT (SELECT t.risk_score = api.fn_cve_risk_score(8.5, 0.1, false, false, 0, false)
+  ASSERT (SELECT t.risk_score = public.fn_cve_risk_score(8.5, 0.1, false, false, 0, false)
              AND t.epss_score = 0.1::real AND t.cvss_v3 = 0.0::real
             FROM api.fn_cve_triage(NULL, NULL, NULL, false, 100, 0) AS t
            WHERE t.cve_id = 'CVE-2002-0003'),
@@ -277,13 +277,13 @@ BEGIN
              AND count(DISTINCT t.risk_label) > 1
             FROM api.fn_cve_triage(NULL, NULL, NULL, false, 100, 0) AS t),
          'each label comes from the score of its row, and the rows hold more than one label';
-  ASSERT (SELECT t.risk_score = api.fn_cve_risk_score(7.5, 0.3, true, false, 0, false)
+  ASSERT (SELECT t.risk_score = public.fn_cve_risk_score(7.5, 0.3, true, false, 0, false)
             FROM api.fn_cve_triage(NULL, NULL, NULL, false, 100, 0) AS t
            WHERE t.cve_id = 'CVE-2002-0001'),
          'a CVE with a v3 vector is scored on its v3 score';
-  ASSERT (SELECT t.risk_score = api.fn_cve_risk_score(3.1, 0.5, false, true, 3, false)
-             AND t.risk_score <> api.fn_cve_risk_score(3.1, 0.5, false, false, 3, false)
-             AND t.risk_score <> api.fn_cve_risk_score(3.1, 0.5, false, true, 0, false)
+  ASSERT (SELECT t.risk_score = public.fn_cve_risk_score(3.1, 0.5, false, true, 3, false)
+             AND t.risk_score <> public.fn_cve_risk_score(3.1, 0.5, false, false, 3, false)
+             AND t.risk_score <> public.fn_cve_risk_score(3.1, 0.5, false, true, 0, false)
             FROM api.fn_cve_triage(NULL, NULL, NULL, false, 100, 0) AS t
            WHERE t.cve_id = 'CVE-2002-0004'),
          'the score reads has_metasploit and exploit_ref_count';
@@ -303,10 +303,10 @@ $$;
 
 DO $$
 DECLARE
-  lifted_score double precision := api.fn_cve_risk_score(5.0, 0.1, false, false, 6, false);
+  lifted_score double precision := public.fn_cve_risk_score(5.0, 0.1, false, false, 6, false);
 BEGIN
   UPDATE cves SET exploit_ref_count = 6 WHERE cve_id = 'CVE-2002-0008';
-  ASSERT lifted_score > api.fn_cve_risk_score(5.0, 0.1, false, false, 0, false),
+  ASSERT lifted_score > public.fn_cve_risk_score(5.0, 0.1, false, false, 0, false),
          'six exploit references raise the tie score';
   ASSERT (SELECT array_agg(right(t.cve_id, 2))
             FROM api.fn_cve_triage(NULL, 'tie', lifted_score, false, 100, 0) AS t)
@@ -457,7 +457,7 @@ $$;
 
 DO $$
 DECLARE
-  lifted_score        double precision := api.fn_cve_risk_score(5.0, 0.1, false, false, 0, true);
+  lifted_score        double precision := public.fn_cve_risk_score(5.0, 0.1, false, false, 0, true);
   saved_events_option text             := current_setting('contrastapi.cve_events', true);
 BEGIN
   PERFORM set_config('contrastapi.cve_events', 'off', true);
@@ -468,7 +468,7 @@ BEGIN
   INSERT INTO cve_products (cve_id, vendor, product, is_vulnerable) VALUES
     ('CVE-2010-0501', 'v2010', 'p2010', true),
     ('CVE-2010-0502', 'v2010', 'p2010', true);
-  ASSERT lifted_score > api.fn_cve_risk_score(5.0, 0.12, false, false, 0, false),
+  ASSERT lifted_score > public.fn_cve_risk_score(5.0, 0.12, false, false, 0, false),
          'the entry scores CVE-2010-0501 above CVE-2010-0502';
   ASSERT (SELECT array_agg(t.cve_id ORDER BY t.ordinality)
             FROM api.fn_cve_triage('v2010', 'p2010', NULL, false, 100, 0) WITH ORDINALITY AS t)

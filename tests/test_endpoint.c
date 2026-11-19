@@ -3488,41 +3488,41 @@ void test_restFieldsBodyGate_reads_what_mcpArgsGate_reads(void)
       TEST_ASSERT_EQUAL_MEMORY_MESSAGE(&mcp_params, &rest_params, sizeof(rest_params), cases[k].mp_object);
     if (k == 0)
     {
-      const WATCHLISTEDITParams_t* edit_params = &rest_params.m_watchlistEdit;
-      TEST_ASSERT_EQUAL_STRING("add", edit_params->ma_action);
-      TEST_ASSERT_EQUAL_STRING("cve_search", edit_params->ma_endpoint);
-      TEST_ASSERT_EQUAL_STRING("CVE-2021-44228", edit_params->ma_cveId);
-      TEST_ASSERT_EQUAL_STRING("apache", edit_params->ma_vendor);
-      TEST_ASSERT_EQUAL_STRING("log4j", edit_params->ma_product);
-      TEST_ASSERT_EQUAL_STRING("HIGH", edit_params->ma_severity);
-      TEST_ASSERT_EQUAL_STRING("CWE-917", edit_params->ma_cweId);
-      TEST_ASSERT_EQUAL_FLOAT(7.5, edit_params->m_minCvss);
-      TEST_ASSERT_EQUAL_FLOAT(0.25, edit_params->m_minEpss);
-      TEST_ASSERT_EQUAL_INT(CVE_KEV_FILTER_NOT_IN_KEV, edit_params->m_inKev);
-      TEST_ASSERT_TRUE(edit_params->m_knownRansomware);
-      TEST_ASSERT_TRUE(edit_params->m_hasNucleiTemplate);
-      TEST_ASSERT_EQUAL_STRING("example.com", edit_params->ma_domain);
-      TEST_ASSERT_TRUE(edit_params->m_isWatchlistCleared);
+      const WATCHLISTEDITParams_t* watchlist_edit_params = &rest_params.m_watchlistEdit;
+      TEST_ASSERT_EQUAL_STRING("add", watchlist_edit_params->ma_action);
+      TEST_ASSERT_EQUAL_STRING("cve_search", watchlist_edit_params->ma_endpoint);
+      TEST_ASSERT_EQUAL_STRING("CVE-2021-44228", watchlist_edit_params->ma_cveId);
+      TEST_ASSERT_EQUAL_STRING("apache", watchlist_edit_params->ma_vendor);
+      TEST_ASSERT_EQUAL_STRING("log4j", watchlist_edit_params->ma_product);
+      TEST_ASSERT_EQUAL_STRING("HIGH", watchlist_edit_params->ma_severity);
+      TEST_ASSERT_EQUAL_STRING("CWE-917", watchlist_edit_params->ma_cweId);
+      TEST_ASSERT_EQUAL_FLOAT(7.5, watchlist_edit_params->m_minCvss);
+      TEST_ASSERT_EQUAL_FLOAT(0.25, watchlist_edit_params->m_minEpss);
+      TEST_ASSERT_EQUAL_INT(CVE_KEV_FILTER_NOT_IN_KEV, watchlist_edit_params->m_inKev);
+      TEST_ASSERT_TRUE(watchlist_edit_params->m_knownRansomware);
+      TEST_ASSERT_TRUE(watchlist_edit_params->m_hasNucleiTemplate);
+      TEST_ASSERT_EQUAL_STRING("example.com", watchlist_edit_params->ma_domain);
+      TEST_ASSERT_TRUE(watchlist_edit_params->m_isWatchlistCleared);
     }
     if (k == 1)
     {
-      const WATCHLISTEDITParams_t* edit_params = &rest_params.m_watchlistEdit;
-      TEST_ASSERT_EQUAL_STRING("", edit_params->ma_action);
-      TEST_ASSERT_EQUAL_STRING("", edit_params->ma_endpoint);
-      TEST_ASSERT_EQUAL_STRING("", edit_params->ma_vendor);
-      TEST_ASSERT_EQUAL_STRING("", edit_params->ma_domain);
-      TEST_ASSERT_EQUAL_FLOAT(-1.0, edit_params->m_minCvss);
-      TEST_ASSERT_EQUAL_FLOAT(-1.0, edit_params->m_minEpss);
-      TEST_ASSERT_EQUAL_INT(CVE_KEV_FILTER_ANY, edit_params->m_inKev);
-      TEST_ASSERT_FALSE(edit_params->m_knownRansomware);
-      TEST_ASSERT_FALSE(edit_params->m_hasNucleiTemplate);
-      TEST_ASSERT_FALSE(edit_params->m_isWatchlistCleared);
+      const WATCHLISTEDITParams_t* watchlist_edit_params = &rest_params.m_watchlistEdit;
+      TEST_ASSERT_EQUAL_STRING("", watchlist_edit_params->ma_action);
+      TEST_ASSERT_EQUAL_STRING("", watchlist_edit_params->ma_endpoint);
+      TEST_ASSERT_EQUAL_STRING("", watchlist_edit_params->ma_vendor);
+      TEST_ASSERT_EQUAL_STRING("", watchlist_edit_params->ma_domain);
+      TEST_ASSERT_EQUAL_FLOAT(-1.0, watchlist_edit_params->m_minCvss);
+      TEST_ASSERT_EQUAL_FLOAT(-1.0, watchlist_edit_params->m_minEpss);
+      TEST_ASSERT_EQUAL_INT(CVE_KEV_FILTER_ANY, watchlist_edit_params->m_inKev);
+      TEST_ASSERT_FALSE(watchlist_edit_params->m_knownRansomware);
+      TEST_ASSERT_FALSE(watchlist_edit_params->m_hasNucleiTemplate);
+      TEST_ASSERT_FALSE(watchlist_edit_params->m_isWatchlistCleared);
     }
     if (strcmp(cases[k].mp_object, "{\"has_nuclei_template\":true}") == 0)
     {
-      const WATCHLISTEDITParams_t* edit_params = &rest_params.m_watchlistEdit;
-      TEST_ASSERT_TRUE(edit_params->m_hasNucleiTemplate);
-      TEST_ASSERT_FALSE(edit_params->m_knownRansomware);
+      const WATCHLISTEDITParams_t* watchlist_edit_params = &rest_params.m_watchlistEdit;
+      TEST_ASSERT_TRUE(watchlist_edit_params->m_hasNucleiTemplate);
+      TEST_ASSERT_FALSE(watchlist_edit_params->m_knownRansomware);
     }
   }
 
@@ -3629,14 +3629,14 @@ void test_watchlist_gates_read_packages_beside_the_members(void)
   EndpointGateResult_t result = static_readWatchlistOnBothTransports(object, &params);
   TEST_ASSERT_EQUAL_INT(ENDPOINT_GATE_OK, result.m_status);
   TEST_ASSERT_EQUAL_INT(-1, result.m_refusedParamIndex);
-  const WATCHLISTEDITParams_t* edit_params = &params.m_watchlistEdit;
-  TEST_ASSERT_EQUAL_STRING("add", edit_params->ma_action);
-  TEST_ASSERT_EQUAL_STRING("package_check", edit_params->ma_endpoint);
-  TEST_ASSERT_EQUAL_INT(2, edit_params->m_packages.m_itemCount);
-  TEST_ASSERT_EQUAL_INT(0, edit_params->m_packages.m_skippedItemCount);
-  TEST_ASSERT_EQUAL_INT(0, edit_params->m_packages.m_notProcessedItemCount);
-  TEST_ASSERT_EQUAL_size_t(strlen(packages), edit_params->m_packages.m_itemArraySpan.m_len);
-  TEST_ASSERT_EQUAL_MEMORY(packages, edit_params->m_packages.m_itemArraySpan.mp_start, strlen(packages));
+  const WATCHLISTEDITParams_t* watchlist_edit_params = &params.m_watchlistEdit;
+  TEST_ASSERT_EQUAL_STRING("add", watchlist_edit_params->ma_action);
+  TEST_ASSERT_EQUAL_STRING("package_check", watchlist_edit_params->ma_endpoint);
+  TEST_ASSERT_EQUAL_INT(2, watchlist_edit_params->m_packages.m_itemCount);
+  TEST_ASSERT_EQUAL_INT(0, watchlist_edit_params->m_packages.m_skippedItemCount);
+  TEST_ASSERT_EQUAL_INT(0, watchlist_edit_params->m_packages.m_notProcessedItemCount);
+  TEST_ASSERT_EQUAL_size_t(strlen(packages), watchlist_edit_params->m_packages.m_itemArraySpan.m_len);
+  TEST_ASSERT_EQUAL_MEMORY(packages, watchlist_edit_params->m_packages.m_itemArraySpan.mp_start, strlen(packages));
 
   result = static_readWatchlistOnBothTransports(R"({"action":"add"})", &params);
   TEST_ASSERT_EQUAL_INT(ENDPOINT_GATE_OK, result.m_status);

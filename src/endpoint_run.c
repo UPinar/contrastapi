@@ -481,11 +481,11 @@ EndpointRunStatus_t endpoint_EMAILAUTHCHECKRun(PGconn* conn, const EndpointAnyPa
 {
   (void)conn;
 
-  const EMAILAUTHCHECKParams_t* check_params = &params->m_emailAuthCheck;
+  const EMAILAUTHCHECKParams_t* email_auth_check_params = &params->m_emailAuthCheck;
   EMAILAUTHCHECKRecord_t        record;
   EndpointRunStatus_t           run_status = ENDPOINT_RUN_NO_MEMORY;
 
-  switch (emailcheck_checkDomain(check_params->ma_domain, check_params->ma_dkimSelector, &record))
+  switch (emailcheck_checkDomain(email_auth_check_params->ma_domain, email_auth_check_params->ma_dkimSelector, &record))
   {
     case DNS_LOOKUP_OK:
       serialize_EMAILAUTHCHECK_response(&record, json_buf);
@@ -498,7 +498,7 @@ EndpointRunStatus_t endpoint_EMAILAUTHCHECKRun(PGconn* conn, const EndpointAnyPa
       run_status = ENDPOINT_RUN_UPSTREAM_ERROR;
       break;
     case DNS_LOOKUP_INVALID_NAME:
-      *message_out = check_params->ma_dkimSelector[0] != '\0' ? EMAILCHECK_NAME_TOO_LONG_REFUSAL_MESSAGE
+      *message_out = email_auth_check_params->ma_dkimSelector[0] != '\0' ? EMAILCHECK_NAME_TOO_LONG_REFUSAL_MESSAGE
                                                               : VALIDATE_PUBLIC_DNS_NAME_REFUSAL_MESSAGE;
       run_status   = ENDPOINT_RUN_REFUSED;
       break;
@@ -1366,27 +1366,27 @@ EndpointRunStatus_t endpoint_PACKAGECHECKRun(PGconn* conn, const EndpointAnyPara
 EndpointRunStatus_t endpoint_PACKAGECHECKBULKRun(PGconn* conn, const EndpointAnyParams_t* params, JsonBuf_t* json_buf, const char** message_out)
 {
   (void)message_out;
-  const PACKAGECHECKBULKParams_t* bulk_params = &params->m_packageCheckBulk;
-  int read_count = bulk_params->m_itemCount + bulk_params->m_notProcessedItemCount;
+  const PACKAGECHECKBULKParams_t* package_check_bulk_params = &params->m_packageCheckBulk;
+  int read_count = package_check_bulk_params->m_itemCount + package_check_bulk_params->m_notProcessedItemCount;
 
   PACKAGECHECKBULKItem_t* items = NULL;
-  if (!endpoint_readKeptPackageItems(bulk_params, read_count, &items))
+  if (!endpoint_readKeptPackageItems(package_check_bulk_params, read_count, &items))
     return ENDPOINT_RUN_NO_MEMORY;
 
   PACKAGECHECKBULKResult_t result;
   memset(&result, 0, sizeof(result));
-  if (bulk_params->m_itemCount > 0 && db_PACKAGECHECKBULK(conn, items, bulk_params->m_itemCount, &result) != DB_OK)
+  if (package_check_bulk_params->m_itemCount > 0 && db_PACKAGECHECKBULK(conn, items, package_check_bulk_params->m_itemCount, &result) != DB_OK)
   {
     db_PACKAGECHECKBULKResultFree(&result);
     free(items);
     return ENDPOINT_RUN_DB_ERROR;
   }
 
-  result.m_total                = bulk_params->m_itemCount + bulk_params->m_skippedItemCount + bulk_params->m_notProcessedItemCount;
-  result.m_processed            = bulk_params->m_itemCount;
-  result.m_skipped              = bulk_params->m_skippedItemCount;
-  result.mp_notProcessedItems   = items != NULL ? &items[bulk_params->m_itemCount] : NULL;
-  result.m_notProcessedCount    = bulk_params->m_notProcessedItemCount;
+  result.m_total                = package_check_bulk_params->m_itemCount + package_check_bulk_params->m_skippedItemCount + package_check_bulk_params->m_notProcessedItemCount;
+  result.m_processed            = package_check_bulk_params->m_itemCount;
+  result.m_skipped              = package_check_bulk_params->m_skippedItemCount;
+  result.mp_notProcessedItems   = items != NULL ? &items[package_check_bulk_params->m_itemCount] : NULL;
+  result.m_notProcessedCount    = package_check_bulk_params->m_notProcessedItemCount;
 
   serialize_PACKAGECHECKBULK_response(&result, json_buf);
   db_PACKAGECHECKBULKResultFree(&result);

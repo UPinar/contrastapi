@@ -1235,7 +1235,7 @@ CREATE FUNCTION api.fn_watchlist_cve_facts(p_cve_id text)
            c.poc_count                              AS poc_count
       FROM public.cves AS c
       CROSS JOIN LATERAL (SELECT CASE WHEN c.cvss_v3_vector <> '' THEN c.cvss_v3 ELSE c.cvss_v4 END) AS effective (cvss)
-      CROSS JOIN LATERAL (SELECT api.fn_cve_risk_score(effective.cvss, c.epss_score, c.in_kev, c.has_metasploit, c.exploit_ref_count, c.has_exploitdb)) AS scored (risk_score)
+      CROSS JOIN LATERAL (SELECT public.fn_cve_risk_score(effective.cvss, c.epss_score, c.in_kev, c.has_metasploit, c.exploit_ref_count, c.has_exploitdb)) AS scored (risk_score)
       LEFT JOIN public.kev_details AS kd ON kd.cve_id = c.cve_id
      WHERE c.cve_id = p_cve_id;
   END;

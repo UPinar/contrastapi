@@ -949,9 +949,9 @@ BEGIN
   ASSERT r.cve_id = 'CVE-2006-0001' AND r.event_type = 'cve_added', 'the first row is event 1';
   ASSERT r.changed_at = '2024-03-04T05:06:07Z', 'changed_at is UTC text, whatever the session time zone';
   ASSERT r.previous_value IS NULL AND r.current_value IS NULL, 'cve_added carries no value';
-  ASSERT r.risk_score = api.fn_cve_risk_score(7.5, 0.5, true, true, 7, false)
-     AND r.risk_score <> api.fn_cve_risk_score(7.5, 0.5, true, true, 2, false),
-         'risk_score comes from api.fn_cve_risk_score with the effective score, EPSS, in_kev, has_metasploit and exploit_ref_count';
+  ASSERT r.risk_score = public.fn_cve_risk_score(7.5, 0.5, true, true, 7, false)
+     AND r.risk_score <> public.fn_cve_risk_score(7.5, 0.5, true, true, 2, false),
+         'risk_score comes from public.fn_cve_risk_score with the effective score, EPSS, in_kev, has_metasploit and exploit_ref_count';
   ASSERT r.risk_label = api.fn_cve_risk_label(r.risk_score), 'risk_label comes from api.fn_cve_risk_label';
   ASSERT r.in_kev IS TRUE, 'in_kev is true for a CVE in KEV';
   ASSERT r.kev_patch_deadline = '2024-02-03' AND r.kev_known_ransomware IS TRUE,
@@ -974,7 +974,7 @@ BEGIN
   ASSERT r.kev_patch_deadline IS NULL, 'kev_patch_deadline is NULL for a CVE with no kev_details row';
   ASSERT r.kev_known_ransomware IS FALSE, 'kev_known_ransomware is false, not NULL, for a CVE with no kev_details row';
   ASSERT NOT r.has_metasploit AND r.poc_count = 0, 'has_metasploit false and poc_count 0 for CVE-2006-0002';
-  ASSERT r.risk_score = api.fn_cve_risk_score(7.4, 0.49, false, false, 0, false), 'the risk score of CVE-2006-0002';
+  ASSERT r.risk_score = public.fn_cve_risk_score(7.4, 0.49, false, false, 0, false), 'the risk score of CVE-2006-0002';
 
   ASSERT pg_temp.t_edit('A', NULL, NULL, p_is_cleared => true) = 'ok', 'the clear before the CVE-2006-0003 item answers ok';
   ASSERT pg_temp.t_edit('A', 'add', 'cve_lookup', p_cve_id => 'CVE-2006-0003') = 'ok', 'an add of a CVE-2006-0003 item answers ok';
@@ -1001,7 +1001,7 @@ BEGIN
          'api.fn_watchlist_event_scan answers no row for a NULL row count, and one row otherwise';
   ASSERT (SELECT count(*) FROM api.fn_watchlist_cve_facts('CVE-1999-0000')) = 0,
          'api.fn_watchlist_cve_facts answers no row for a CVE with no cves row';
-  ASSERT (SELECT f.risk_score = api.fn_cve_risk_score(7.5, 0.5, true, true, 7, false) AND f.poc_count = 2
+  ASSERT (SELECT f.risk_score = public.fn_cve_risk_score(7.5, 0.5, true, true, 7, false) AND f.poc_count = 2
             FROM api.fn_watchlist_cve_facts('CVE-2006-0001') AS f),
          'api.fn_watchlist_cve_facts scores exploit_ref_count, and its poc_count stays the tagged count';
   ASSERT (SELECT f.kev_patch_deadline IS NULL AND f.kev_known_ransomware IS FALSE AND NOT f.in_kev
@@ -1030,12 +1030,12 @@ BEGIN
             FROM api.fn_watchlist_events(pg_temp.t_hash('A'), NULL, true, 10, 100, 600) WITH ORDINALITY AS x)
          = ARRAY[7, 6, 0],
          'a first row answers every fact, kev_patch_deadline NULL without a kev_details row, and a later row answers no fact';
-  ASSERT (SELECT x.risk_score = api.fn_cve_risk_score(7.5, 0.5, true, true, 7, false) AND x.in_kev AND x.kev_patch_deadline = '2024-02-03'
+  ASSERT (SELECT x.risk_score = public.fn_cve_risk_score(7.5, 0.5, true, true, 7, false) AND x.in_kev AND x.kev_patch_deadline = '2024-02-03'
                  AND x.kev_known_ransomware AND x.has_metasploit AND x.poc_count = 2
             FROM api.fn_watchlist_events(pg_temp.t_hash('A'), NULL, true, 10, 100, 600) AS x
            WHERE x.cve_id = 'CVE-2006-0001' AND x.is_first_event_of_cve),
          'the first row of CVE-2006-0001 answers the facts of CVE-2006-0001';
-  ASSERT (SELECT x.risk_score = api.fn_cve_risk_score(7.4, 0.49, false, false, 0, false) AND NOT x.in_kev AND NOT x.kev_known_ransomware
+  ASSERT (SELECT x.risk_score = public.fn_cve_risk_score(7.4, 0.49, false, false, 0, false) AND NOT x.in_kev AND NOT x.kev_known_ransomware
                  AND NOT x.has_metasploit AND x.poc_count = 0
             FROM api.fn_watchlist_events(pg_temp.t_hash('A'), NULL, true, 10, 100, 600) AS x
            WHERE x.cve_id = 'CVE-2006-0002'),
@@ -1101,14 +1101,14 @@ BEGIN
   ASSERT pg_temp.t_events_after('A', 15, 100, 3) = 'ok|2|false|{02:kev_added,01:kev_removed}',
          'S16 a window of two events with a scan count of three has no more';
 
-  ASSERT api.fn_cve_risk_score(0.0, 0.0, false, true, 0, false) <> api.fn_cve_risk_score(0.0, 0.0, true, false, 0, false),
+  ASSERT public.fn_cve_risk_score(0.0, 0.0, false, true, 0, false) <> public.fn_cve_risk_score(0.0, 0.0, true, false, 0, false),
          'S16 the risk score weighs in_kev and has_metasploit differently';
   PERFORM set_config('contrastapi.cve_events', 'off', true);
   UPDATE cves SET has_metasploit = true WHERE cve_id = 'CVE-2006-0003';
   PERFORM set_config('contrastapi.cve_events', '', true);
   SELECT * INTO r FROM api.fn_watchlist_cve_facts('CVE-2006-0003') AS f;
   ASSERT r.in_kev IS FALSE AND r.has_metasploit IS TRUE AND r.poc_count = 0, 'S16 in_kev false, has_metasploit true, poc_count 0';
-  ASSERT r.risk_score = api.fn_cve_risk_score(0.0, 0.0, false, true, 0, false), 'S16 the risk score takes in_kev and has_metasploit in their places';
+  ASSERT r.risk_score = public.fn_cve_risk_score(0.0, 0.0, false, true, 0, false), 'S16 the risk score takes in_kev and has_metasploit in their places';
 
   ASSERT pg_temp.t_edit('A', NULL, NULL, p_is_cleared => true) = 'ok' AND pg_temp.t_edit('B', NULL, NULL, p_is_cleared => true) = 'ok',
          'the clear after S16 answers ok';
@@ -1495,7 +1495,7 @@ BEGIN
             FROM t_mixed_answer AS a)
          = ARRAY[7, 0, 6, 0, 0, 0, 0, 0, 0, 0, 0],
          'S21 the facts of a CVE come once, on the first row of the CVE';
-  ASSERT (SELECT a.risk_score = api.fn_cve_risk_score(7.5, 0.5, true, true, 7, false) AND a.kev_patch_deadline = '2024-02-03'
+  ASSERT (SELECT a.risk_score = public.fn_cve_risk_score(7.5, 0.5, true, true, 7, false) AND a.kev_patch_deadline = '2024-02-03'
             FROM t_mixed_answer AS a WHERE a.ordinality = 1),
          'S21 the first row of CVE-2006-0001 carries its facts';
   ASSERT (SELECT array_agg(format('%s|%s|%s|%s|%s|%s|%s', a.registered_domain, a.dns_presence_value, a.ns_value, a.mx_value,
@@ -2528,8 +2528,8 @@ BEGIN
   PERFORM set_config('contrastapi.cve_events', 'off', true);
   INSERT INTO exploitdb_entries (cve_id, edb_id) VALUES ('CVE-2010-0601', 601);
   INSERT INTO cves (cve_id, cvss_v3, cvss_v3_vector, epss_score) VALUES ('CVE-2010-0601', 6.0, 'CVSS:3.1/AV:N', 0.2);
-  ASSERT (SELECT f.risk_score = api.fn_cve_risk_score(6.0, 0.2, false, false, 0, true)
-             AND f.risk_score <> api.fn_cve_risk_score(6.0, 0.2, false, false, 0, false)
+  ASSERT (SELECT f.risk_score = public.fn_cve_risk_score(6.0, 0.2, false, false, 0, true)
+             AND f.risk_score <> public.fn_cve_risk_score(6.0, 0.2, false, false, 0, false)
              AND NOT f.has_metasploit
             FROM api.fn_watchlist_cve_facts('CVE-2010-0601') AS f),
          'api.fn_watchlist_cve_facts scores the ExploitDB entry';

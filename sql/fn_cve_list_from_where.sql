@@ -17,14 +17,16 @@ CREATE FUNCTION api.fn_cve_list_from_where(p_severity            text           
   SET search_path = pg_catalog
 AS $$
 DECLARE
-  conditions text[] := ARRAY[]::text[];
-  from_where text   :=
+  conditions   text[] := ARRAY[]::text[];
+  score_suffix text   := CASE WHEN p_vendor IS NULL AND p_product IS NULL THEN '' ELSE ' + 0' END;
+  from_where   text   :=
     $q$ FROM public.cves AS c
         CROSS JOIN LATERAL (SELECT CASE WHEN c.cvss_v3_vector    <> '' THEN c.cvss_v3
                                         ELSE c.cvss_v4 END) AS effective (cvss)
-        CROSS JOIN LATERAL (SELECT api.fn_cve_risk_score(effective.cvss, c.epss_score, c.in_kev,
-                                                         c.has_metasploit, c.exploit_ref_count,
-                                                         c.has_exploitdb)) AS scored (risk_score)$q$;
+        CROSS JOIN LATERAL (SELECT public.fn_cve_risk_score(effective.cvss, c.epss_score, c.in_kev,
+                                                            c.has_metasploit, c.exploit_ref_count,
+                                                            c.has_exploitdb)$q$
+    || score_suffix || ') AS scored (risk_score)';
 BEGIN
   IF p_severity IS NOT NULL THEN
     conditions := array_append(conditions, 'c.severity = $1');

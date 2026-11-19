@@ -90,33 +90,33 @@ static const WATCHLISTEDITItemShape_t WATCHLISTEDIT_ITEM_SHAPES[] = {
 _Static_assert(sizeof(WATCHLISTEDIT_ITEM_SHAPES) / sizeof(WATCHLISTEDIT_ITEM_SHAPES[0]) == WATCHLIST_ITEM_KIND_COUNT,
                "WATCHLISTEDIT_ITEM_SHAPES needs one row for each WatchlistItemKind_t");
 
-static unsigned int static_WATCHLISTEDITReadFields(const WATCHLISTEDITParams_t* edit_params)
+static unsigned int static_WATCHLISTEDITReadFields(const WATCHLISTEDITParams_t* watchlist_edit_params)
 {
   unsigned int fields = 0;
-  if (edit_params->ma_cveId[0] != '\0')
+  if (watchlist_edit_params->ma_cveId[0] != '\0')
     fields |= WATCHLISTEDIT_FIELD_CVE_ID;
-  if (edit_params->ma_vendor[0] != '\0')
+  if (watchlist_edit_params->ma_vendor[0] != '\0')
     fields |= WATCHLISTEDIT_FIELD_VENDOR;
-  if (edit_params->ma_product[0] != '\0')
+  if (watchlist_edit_params->ma_product[0] != '\0')
     fields |= WATCHLISTEDIT_FIELD_PRODUCT;
-  if (edit_params->ma_domain[0] != '\0')
+  if (watchlist_edit_params->ma_domain[0] != '\0')
     fields |= WATCHLISTEDIT_FIELD_DOMAIN;
-  if (edit_params->ma_ecosystem[0] != '\0')
+  if (watchlist_edit_params->ma_ecosystem[0] != '\0')
     fields |= WATCHLISTEDIT_FIELD_ECOSYSTEM;
-  if (edit_params->ma_packageName[0] != '\0')
+  if (watchlist_edit_params->ma_packageName[0] != '\0')
     fields |= WATCHLISTEDIT_FIELD_PACKAGE_NAME;
-  if (edit_params->ma_version[0] != '\0')
+  if (watchlist_edit_params->ma_version[0] != '\0')
     fields |= WATCHLISTEDIT_FIELD_VERSION;
-  if (edit_params->ma_ipAddress[0] != '\0')
+  if (watchlist_edit_params->ma_ipAddress[0] != '\0')
     fields |= WATCHLISTEDIT_FIELD_IP_ADDRESS;
 
-  bool has_cve_filter = edit_params->ma_severity[0] != '\0'         ||
-                        edit_params->ma_cweId[0] != '\0'            ||
-                        edit_params->m_minCvss >= 0.0               ||
-                        edit_params->m_minEpss >= 0.0               ||
-                        edit_params->m_inKev != CVE_KEV_FILTER_ANY  ||
-                        edit_params->m_knownRansomware              ||
-                        edit_params->m_hasNucleiTemplate;
+  bool has_cve_filter = watchlist_edit_params->ma_severity[0] != '\0'         ||
+                        watchlist_edit_params->ma_cweId[0] != '\0'            ||
+                        watchlist_edit_params->m_minCvss >= 0.0               ||
+                        watchlist_edit_params->m_minEpss >= 0.0               ||
+                        watchlist_edit_params->m_inKev != CVE_KEV_FILTER_ANY  ||
+                        watchlist_edit_params->m_knownRansomware              ||
+                        watchlist_edit_params->m_hasNucleiTemplate;
   if (has_cve_filter)
     fields |= WATCHLISTEDIT_FIELD_CVE_FILTER;
 
@@ -128,34 +128,34 @@ static bool static_WATCHLISTEDITIsMinEpssWholeThousandths(double min_epss)
   return (double)llround(min_epss * 1000.0) / 1000.0 == min_epss;
 }
 
-static bool static_WATCHLISTEDITIsPackageListRequest(const WATCHLISTEDITParams_t* edit_params)
+static bool static_WATCHLISTEDITIsPackageListRequest(const WATCHLISTEDITParams_t* watchlist_edit_params)
 {
-  return edit_params->m_packages.m_itemCount > 0;
+  return watchlist_edit_params->m_packages.m_itemCount > 0;
 }
 
-static const char* static_WATCHLISTEDITPackageListRefusal(const WATCHLISTEDITParams_t* edit_params, unsigned int set_item_fields)
+static const char* static_WATCHLISTEDITPackageListRefusal(const WATCHLISTEDITParams_t* watchlist_edit_params, unsigned int set_item_fields)
 {
-  bool has_endpoint = edit_params->ma_endpoint[0] != '\0';
+  bool has_endpoint = watchlist_edit_params->ma_endpoint[0] != '\0';
 
-  if (edit_params->ma_action[0] == '\0')
+  if (watchlist_edit_params->ma_action[0] == '\0')
     return WATCHLIST_PACKAGE_LIST_NEEDS_ACTION_REFUSAL_MESSAGE;
-  else if (set_item_fields != 0 || (has_endpoint && strcmp(edit_params->ma_endpoint, "package_check") != 0))
+  else if (set_item_fields != 0 || (has_endpoint && strcmp(watchlist_edit_params->ma_endpoint, "package_check") != 0))
     return WATCHLIST_PACKAGE_LIST_ITEM_FIELD_REFUSAL_MESSAGE;
   return NULL;
 }
 
-static const char* static_WATCHLISTEDITRefusal(const WATCHLISTEDITParams_t* edit_params)
+static const char* static_WATCHLISTEDITRefusal(const WATCHLISTEDITParams_t* watchlist_edit_params)
 {
-  unsigned int set_item_fields    = static_WATCHLISTEDITReadFields(edit_params);
-  bool         has_action         = edit_params->ma_action[0] != '\0';
-  bool         has_endpoint       = edit_params->ma_endpoint[0] != '\0';
+  unsigned int set_item_fields    = static_WATCHLISTEDITReadFields(watchlist_edit_params);
+  bool         has_action         = watchlist_edit_params->ma_action[0] != '\0';
+  bool         has_endpoint       = watchlist_edit_params->ma_endpoint[0] != '\0';
   bool         has_any_item_value = has_endpoint || set_item_fields != 0;
-  bool         is_package_list    = static_WATCHLISTEDITIsPackageListRequest(edit_params);
+  bool         is_package_list    = static_WATCHLISTEDITIsPackageListRequest(watchlist_edit_params);
 
-  if (edit_params->m_isWatchlistCleared && (has_action || has_any_item_value || is_package_list))
+  if (watchlist_edit_params->m_isWatchlistCleared && (has_action || has_any_item_value || is_package_list))
     return "clear takes no action and no item";
   else if (is_package_list)
-    return static_WATCHLISTEDITPackageListRefusal(edit_params, set_item_fields);
+    return static_WATCHLISTEDITPackageListRefusal(watchlist_edit_params, set_item_fields);
   else if (!has_action && has_any_item_value)
     return "an item needs action=add or action=remove";
   else if (has_action && !has_endpoint)
@@ -164,7 +164,7 @@ static const char* static_WATCHLISTEDITRefusal(const WATCHLISTEDITParams_t* edit
     return NULL;
 
   WatchlistItemKind_t kind;
-  if (!watchlist_findItemKind(edit_params->ma_endpoint, &kind))
+  if (!watchlist_findItemKind(watchlist_edit_params->ma_endpoint, &kind))
     return "an item needs an endpoint";
 
   const WATCHLISTEDITItemShape_t* shape = &WATCHLISTEDIT_ITEM_SHAPES[kind];
@@ -176,19 +176,19 @@ static const char* static_WATCHLISTEDITRefusal(const WATCHLISTEDITParams_t* edit
   if (!has_required_fields || !has_one_of_fields || !has_only_allowed_fields)
     return shape->mp_refusalMessage;
 
-  if (edit_params->m_minEpss >= 0.0 && !static_WATCHLISTEDITIsMinEpssWholeThousandths(edit_params->m_minEpss))
+  if (watchlist_edit_params->m_minEpss >= 0.0 && !static_WATCHLISTEDITIsMinEpssWholeThousandths(watchlist_edit_params->m_minEpss))
     return "min_epss of a cve_search item takes at most three decimals";
 
   return NULL;
 }
 
-static WATCHLISTEDITAction_t static_WATCHLISTEDITFindAction(const WATCHLISTEDITParams_t* edit_params)
+static WATCHLISTEDITAction_t static_WATCHLISTEDITFindAction(const WATCHLISTEDITParams_t* watchlist_edit_params)
 {
-  if (edit_params->m_isWatchlistCleared)
+  if (watchlist_edit_params->m_isWatchlistCleared)
     return WATCHLISTEDIT_ACTION_CLEAR;
-  if (edit_params->ma_action[0] == '\0')
+  if (watchlist_edit_params->ma_action[0] == '\0')
     return WATCHLISTEDIT_ACTION_LIST;
-  return strcmp(edit_params->ma_action, "add") == 0 ? WATCHLISTEDIT_ACTION_ADD : WATCHLISTEDIT_ACTION_REMOVE;
+  return strcmp(watchlist_edit_params->ma_action, "add") == 0 ? WATCHLISTEDIT_ACTION_ADD : WATCHLISTEDIT_ACTION_REMOVE;
 }
 
 static bool static_WATCHLISTEDITIsNxdomain(const char* domain_name)
@@ -203,12 +203,12 @@ static bool static_WATCHLISTEDITIsNxdomain(const char* domain_name)
 
 bool endpoint_WATCHLISTEDITWillAskResolver(const EndpointAnyParams_t* params)
 {
-  const WATCHLISTEDITParams_t* edit_params = &params->m_watchlistEdit;
+  const WATCHLISTEDITParams_t* watchlist_edit_params = &params->m_watchlistEdit;
 
   WatchlistItemKind_t kind;
-  return static_WATCHLISTEDITFindAction(edit_params) == WATCHLISTEDIT_ACTION_ADD                &&
-         edit_params->ma_domain[0] != '\0'                                                      &&
-         watchlist_findItemKind(edit_params->ma_endpoint, &kind)                                &&
+  return static_WATCHLISTEDITFindAction(watchlist_edit_params) == WATCHLISTEDIT_ACTION_ADD                &&
+         watchlist_edit_params->ma_domain[0] != '\0'                                                      &&
+         watchlist_findItemKind(watchlist_edit_params->ma_endpoint, &kind)                                &&
          watchlist_findAddRequirement(kind) == WATCHLIST_ADD_REQUIRES_DOMAIN_NAME_NOT_NXDOMAIN;
 }
 
@@ -253,73 +253,73 @@ static void static_WATCHLISTEDITCopyText(char* field, size_t field_size, const c
   memcpy(field, text, text_len + 1);
 }
 
-static bool static_WATCHLISTEDITBuildItemsDbParams(const WATCHLISTEDITParams_t* edit_params, WATCHLISTEDITItemsDbParams_t* params_out)
+static bool static_WATCHLISTEDITBuildItemsDbParams(const WATCHLISTEDITParams_t* watchlist_edit_params, WATCHLISTEDITItemsDbParams_t* params_out)
 {
-  assert(!static_WATCHLISTEDITIsPackageListRequest(edit_params));
+  assert(!static_WATCHLISTEDITIsPackageListRequest(watchlist_edit_params));
 
   memset(params_out, 0, sizeof(*params_out));
-  params_out->mp_creditBudget = edit_params->mp_creditBudget;
-  params_out->m_action        = static_WATCHLISTEDITFindAction(edit_params);
+  params_out->mp_creditBudget = watchlist_edit_params->mp_creditBudget;
+  params_out->m_action        = static_WATCHLISTEDITFindAction(watchlist_edit_params);
   if (params_out->m_action == WATCHLISTEDIT_ACTION_CLEAR || params_out->m_action == WATCHLISTEDIT_ACTION_LIST)
     return true;
 
   WatchlistItem_t* item     = &params_out->m_item;
-  bool             has_kind = watchlist_findItemKind(edit_params->ma_endpoint, &item->m_itemKind);
+  bool             has_kind = watchlist_findItemKind(watchlist_edit_params->ma_endpoint, &item->m_itemKind);
   assert(has_kind);
   (void)has_kind;
 
   switch (item->m_itemKind)
   {
     case WATCHLIST_ITEM_CVE_LOOKUP:
-      static_WATCHLISTEDITCopyText(item->m_cveLookup.ma_cveId, sizeof(item->m_cveLookup.ma_cveId), edit_params->ma_cveId);
+      static_WATCHLISTEDITCopyText(item->m_cveLookup.ma_cveId, sizeof(item->m_cveLookup.ma_cveId), watchlist_edit_params->ma_cveId);
       return true;
     case WATCHLIST_ITEM_KEV_LOOKUP:
-      static_WATCHLISTEDITCopyText(item->m_kevLookup.ma_cveId, sizeof(item->m_kevLookup.ma_cveId), edit_params->ma_cveId);
+      static_WATCHLISTEDITCopyText(item->m_kevLookup.ma_cveId, sizeof(item->m_kevLookup.ma_cveId), watchlist_edit_params->ma_cveId);
       return true;
     case WATCHLIST_ITEM_CVE_EXPLOIT:
-      static_WATCHLISTEDITCopyText(item->m_cveExploit.ma_cveId, sizeof(item->m_cveExploit.ma_cveId), edit_params->ma_cveId);
+      static_WATCHLISTEDITCopyText(item->m_cveExploit.ma_cveId, sizeof(item->m_cveExploit.ma_cveId), watchlist_edit_params->ma_cveId);
       return true;
     case WATCHLIST_ITEM_PRODUCT_EXPOSURE:
-      static_WATCHLISTEDITCopyText(item->m_productExposure.ma_vendor,  sizeof(item->m_productExposure.ma_vendor),  edit_params->ma_vendor);
-      static_WATCHLISTEDITCopyText(item->m_productExposure.ma_product, sizeof(item->m_productExposure.ma_product), edit_params->ma_product);
-      static_WATCHLISTEDITCopyText(item->m_productExposure.ma_version, sizeof(item->m_productExposure.ma_version), edit_params->ma_version);
+      static_WATCHLISTEDITCopyText(item->m_productExposure.ma_vendor,  sizeof(item->m_productExposure.ma_vendor),  watchlist_edit_params->ma_vendor);
+      static_WATCHLISTEDITCopyText(item->m_productExposure.ma_product, sizeof(item->m_productExposure.ma_product), watchlist_edit_params->ma_product);
+      static_WATCHLISTEDITCopyText(item->m_productExposure.ma_version, sizeof(item->m_productExposure.ma_version), watchlist_edit_params->ma_version);
       return true;
     case WATCHLIST_ITEM_CVE_SEARCH:
     {
       WATCHLISTCVESEARCHItem_t* filter = &item->m_cveSearch;
-      static_WATCHLISTEDITCopyText(filter->ma_vendor,   sizeof(filter->ma_vendor),   edit_params->ma_vendor);
-      static_WATCHLISTEDITCopyText(filter->ma_product,  sizeof(filter->ma_product),  edit_params->ma_product);
-      static_WATCHLISTEDITCopyText(filter->ma_severity, sizeof(filter->ma_severity), edit_params->ma_severity);
-      static_WATCHLISTEDITCopyText(filter->ma_cweId,    sizeof(filter->ma_cweId),    edit_params->ma_cweId);
-      filter->m_minCvss           = edit_params->m_minCvss;
-      filter->m_minEpss           = edit_params->m_minEpss;
-      filter->m_kevFilter         = edit_params->m_inKev;
-      filter->m_knownRansomware   = edit_params->m_knownRansomware;
-      filter->m_hasNucleiTemplate = edit_params->m_hasNucleiTemplate;
+      static_WATCHLISTEDITCopyText(filter->ma_vendor,   sizeof(filter->ma_vendor),   watchlist_edit_params->ma_vendor);
+      static_WATCHLISTEDITCopyText(filter->ma_product,  sizeof(filter->ma_product),  watchlist_edit_params->ma_product);
+      static_WATCHLISTEDITCopyText(filter->ma_severity, sizeof(filter->ma_severity), watchlist_edit_params->ma_severity);
+      static_WATCHLISTEDITCopyText(filter->ma_cweId,    sizeof(filter->ma_cweId),    watchlist_edit_params->ma_cweId);
+      filter->m_minCvss           = watchlist_edit_params->m_minCvss;
+      filter->m_minEpss           = watchlist_edit_params->m_minEpss;
+      filter->m_kevFilter         = watchlist_edit_params->m_inKev;
+      filter->m_knownRansomware   = watchlist_edit_params->m_knownRansomware;
+      filter->m_hasNucleiTemplate = watchlist_edit_params->m_hasNucleiTemplate;
       return true;
     }
     case WATCHLIST_ITEM_DNS_LOOKUP:
-      static_WATCHLISTEDITCopyText(item->m_dnsLookup.ma_domainName, sizeof(item->m_dnsLookup.ma_domainName), edit_params->ma_domain);
+      static_WATCHLISTEDITCopyText(item->m_dnsLookup.ma_domainName, sizeof(item->m_dnsLookup.ma_domainName), watchlist_edit_params->ma_domain);
       return true;
     case WATCHLIST_ITEM_SSL_CHECK:
-      static_WATCHLISTEDITCopyText(item->m_sslCheck.ma_domainName, sizeof(item->m_sslCheck.ma_domainName), edit_params->ma_domain);
+      static_WATCHLISTEDITCopyText(item->m_sslCheck.ma_domainName, sizeof(item->m_sslCheck.ma_domainName), watchlist_edit_params->ma_domain);
       return true;
     case WATCHLIST_ITEM_WHOIS_LOOKUP:
-      static_WATCHLISTEDITCopyText(item->m_whoisLookup.ma_domainName, sizeof(item->m_whoisLookup.ma_domainName), edit_params->ma_domain);
+      static_WATCHLISTEDITCopyText(item->m_whoisLookup.ma_domainName, sizeof(item->m_whoisLookup.ma_domainName), watchlist_edit_params->ma_domain);
       return true;
     case WATCHLIST_ITEM_HEADERS_CHECK:
-      static_WATCHLISTEDITCopyText(item->m_headersCheck.ma_domainName, sizeof(item->m_headersCheck.ma_domainName), edit_params->ma_domain);
+      static_WATCHLISTEDITCopyText(item->m_headersCheck.ma_domainName, sizeof(item->m_headersCheck.ma_domainName), watchlist_edit_params->ma_domain);
       return true;
     case WATCHLIST_ITEM_CERT_SEARCH:
-      static_WATCHLISTEDITCopyText(item->m_certSearch.ma_domainName, sizeof(item->m_certSearch.ma_domainName), edit_params->ma_domain);
+      static_WATCHLISTEDITCopyText(item->m_certSearch.ma_domainName, sizeof(item->m_certSearch.ma_domainName), watchlist_edit_params->ma_domain);
       return true;
     case WATCHLIST_ITEM_PACKAGE_CHECK:
-      static_WATCHLISTEDITCopyText(item->m_packageCheck.ma_ecosystem, sizeof(item->m_packageCheck.ma_ecosystem), edit_params->ma_ecosystem);
-      static_WATCHLISTEDITCopyText(item->m_packageCheck.ma_name,      sizeof(item->m_packageCheck.ma_name),      edit_params->ma_packageName);
-      static_WATCHLISTEDITCopyText(item->m_packageCheck.ma_version,   sizeof(item->m_packageCheck.ma_version),   edit_params->ma_version);
+      static_WATCHLISTEDITCopyText(item->m_packageCheck.ma_ecosystem, sizeof(item->m_packageCheck.ma_ecosystem), watchlist_edit_params->ma_ecosystem);
+      static_WATCHLISTEDITCopyText(item->m_packageCheck.ma_name,      sizeof(item->m_packageCheck.ma_name),      watchlist_edit_params->ma_packageName);
+      static_WATCHLISTEDITCopyText(item->m_packageCheck.ma_version,   sizeof(item->m_packageCheck.ma_version),   watchlist_edit_params->ma_version);
       return true;
     case WATCHLIST_ITEM_IP_LOOKUP:
-      return ipguard_tryWriteCanonicalIp(edit_params->ma_ipAddress, item->m_ipLookup.ma_ipAddress);
+      return ipguard_tryWriteCanonicalIp(watchlist_edit_params->ma_ipAddress, item->m_ipLookup.ma_ipAddress);
   }
   return false;
 }
@@ -359,10 +359,10 @@ static bool static_WATCHLISTEDITMarkPackageRepeats(const WATCHLISTEDITPackageLis
 
 static EndpointRunStatus_t static_WATCHLISTEDITRunItems(PGconn* conn, const EndpointAnyParams_t* params, JsonBuf_t* json_buf, const char** message_out)
 {
-  const WATCHLISTEDITParams_t* edit_params = &params->m_watchlistEdit;
+  const WATCHLISTEDITParams_t* watchlist_edit_params = &params->m_watchlistEdit;
 
   WATCHLISTEDITItemsDbParams_t db_params;
-  if (!static_WATCHLISTEDITBuildItemsDbParams(edit_params, &db_params))
+  if (!static_WATCHLISTEDITBuildItemsDbParams(watchlist_edit_params, &db_params))
   {
     *message_out = IPGUARD_GLOBALLY_REACHABLE_IP_REFUSAL_MESSAGE;
     return ENDPOINT_RUN_REFUSED;
@@ -426,18 +426,18 @@ done:
   return run_status;
 }
 
-static EndpointRunStatus_t static_WATCHLISTEDITRunPackageList(PGconn* conn, const WATCHLISTEDITParams_t* edit_params, JsonBuf_t* json_buf, const char** message_out)
+static EndpointRunStatus_t static_WATCHLISTEDITRunPackageList(PGconn* conn, const WATCHLISTEDITParams_t* watchlist_edit_params, JsonBuf_t* json_buf, const char** message_out)
 {
   WATCHLISTEDITPackageElement_t* packages = NULL;
-  if (!endpoint_readWatchlistPackageElements(&edit_params->m_packages, &packages))
+  if (!endpoint_readWatchlistPackageElements(&watchlist_edit_params->m_packages, &packages))
     return ENDPOINT_RUN_NO_MEMORY;
 
   WATCHLISTEDITPackageListDbParams_t db_params;
   memset(&db_params, 0, sizeof(db_params));
-  db_params.mp_creditBudget = edit_params->mp_creditBudget;
-  db_params.m_action        = static_WATCHLISTEDITFindAction(edit_params);
+  db_params.mp_creditBudget = watchlist_edit_params->mp_creditBudget;
+  db_params.m_action        = static_WATCHLISTEDITFindAction(watchlist_edit_params);
   db_params.mp_elements     = packages;
-  db_params.m_elementCount  = edit_params->m_packages.m_itemCount;
+  db_params.m_elementCount  = watchlist_edit_params->m_packages.m_itemCount;
 
   WATCHLISTEDITPackageListResult_t result;
   memset(&result, 0, sizeof(result));
@@ -494,49 +494,49 @@ done:
 
 EndpointRunStatus_t endpoint_WATCHLISTEDITRun(PGconn* conn, const EndpointAnyParams_t* params, JsonBuf_t* json_buf, const char** message_out)
 {
-  const WATCHLISTEDITParams_t* edit_params = &params->m_watchlistEdit;
-  assert(edit_params->mp_creditBudget != NULL);
+  const WATCHLISTEDITParams_t* watchlist_edit_params = &params->m_watchlistEdit;
+  assert(watchlist_edit_params->mp_creditBudget != NULL);
 
-  if (edit_params->mp_creditBudget->m_tier != REQUEST_TIER_PRO)
+  if (watchlist_edit_params->mp_creditBudget->m_tier != REQUEST_TIER_PRO)
   {
     *message_out = WATCHLIST_NEEDS_KEY_REFUSAL_MESSAGE;
     return ENDPOINT_RUN_REFUSED;
   }
-  const char* refusal = static_WATCHLISTEDITRefusal(edit_params);
+  const char* refusal = static_WATCHLISTEDITRefusal(watchlist_edit_params);
   if (refusal != NULL)
   {
     *message_out = refusal;
     return ENDPOINT_RUN_REFUSED;
   }
 
-  if (static_WATCHLISTEDITIsPackageListRequest(edit_params))
-    return static_WATCHLISTEDITRunPackageList(conn, edit_params, json_buf, message_out);
+  if (static_WATCHLISTEDITIsPackageListRequest(watchlist_edit_params))
+    return static_WATCHLISTEDITRunPackageList(conn, watchlist_edit_params, json_buf, message_out);
   return static_WATCHLISTEDITRunItems(conn, params, json_buf, message_out);
 }
 
 EndpointRunStatus_t endpoint_WATCHLISTEVENTSRun(PGconn* conn, const EndpointAnyParams_t* params, JsonBuf_t* json_buf, const char** message_out)
 {
-  const WATCHLISTEVENTSParams_t* events_params = &params->m_watchlistEvents;
-  assert(events_params->mp_creditBudget != NULL);
+  const WATCHLISTEVENTSParams_t* watchlist_events_params = &params->m_watchlistEvents;
+  assert(watchlist_events_params->mp_creditBudget != NULL);
 
-  if (events_params->mp_creditBudget->m_tier != REQUEST_TIER_PRO)
+  if (watchlist_events_params->mp_creditBudget->m_tier != REQUEST_TIER_PRO)
   {
     *message_out = WATCHLIST_NEEDS_KEY_REFUSAL_MESSAGE;
     return ENDPOINT_RUN_REFUSED;
   }
-  if (events_params->ma_cursor[0] != '\0' && events_params->m_isRepeat)
+  if (watchlist_events_params->ma_cursor[0] != '\0' && watchlist_events_params->m_isRepeat)
   {
     *message_out = "cursor and repeat cannot be combined";
     return ENDPOINT_RUN_REFUSED;
   }
 
-  int event_row_count = events_params->m_isRepeat ? CVE_LIST_MAX_LIMIT : events_params->m_limit;
+  int event_row_count = watchlist_events_params->m_isRepeat ? CVE_LIST_MAX_LIMIT : watchlist_events_params->m_limit;
 
   WATCHLISTEVENTSResult_t result;
   memset(&result, 0, sizeof(result));
 
   EndpointRunStatus_t run_status = ENDPOINT_RUN_DB_ERROR;
-  if (db_WATCHLISTEVENTS(conn, events_params, event_row_count, &result) != DB_OK)
+  if (db_WATCHLISTEVENTS(conn, watchlist_events_params, event_row_count, &result) != DB_OK)
     run_status = ENDPOINT_RUN_DB_ERROR;
   else if (result.m_status == WATCHLISTEVENTS_UNKNOWN_KEY)
     run_status = ENDPOINT_RUN_DB_ERROR;
@@ -547,7 +547,7 @@ EndpointRunStatus_t endpoint_WATCHLISTEVENTSRun(PGconn* conn, const EndpointAnyP
   }
   else
   {
-    serialize_WATCHLISTEVENTS_response(&result, events_params, json_buf);
+    serialize_WATCHLISTEVENTS_response(&result, watchlist_events_params, json_buf);
     run_status = ENDPOINT_RUN_OK;
   }
   db_WATCHLISTEVENTSResultFree(&result);

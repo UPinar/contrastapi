@@ -34,7 +34,7 @@ jobs:
   fuzz:
     needs: harnesses
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 35
     strategy:
       fail-fast: false
       matrix:
@@ -48,7 +48,8 @@ jobs:
       - name: Install clang and age
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang-20 libclang-rt-20-dev libpq-dev libssl-dev pkg-config age
+          sudo apt-get install -y --no-install-recommends \
+            clang-20 llvm-20 libclang-rt-20-dev libpq-dev libssl-dev pkg-config age
 
       - name: Restore the inputs of earlier runs
         uses: actions/cache/restore@v6

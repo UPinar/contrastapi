@@ -350,6 +350,47 @@ CREATE TRIGGER trg_cves_epss_level
   BEFORE INSERT OR UPDATE OF epss_score ON cves
   FOR EACH ROW EXECUTE FUNCTION public.fn_cves_set_epss_level();
 
+CREATE FUNCTION public.fn_cve_risk_exploitability(p_epss_score     real,
+                                                  p_in_kev         boolean,
+                                                  p_has_metasploit boolean)
+  RETURNS double precision
+  LANGUAGE sql IMMUTABLE PARALLEL SAFE SECURITY INVOKER
+  RETURN LEAST(60::float8,
+               CASE WHEN p_epss_score IS NULL
+                      OR p_epss_score IN ('NaN'::real, 'Infinity'::real, '-Infinity'::real)
+                    THEN 0::float8
+                    ELSE GREATEST(0::float8, LEAST(1::float8, p_epss_score::numeric::float8))
+               END * 40
+               + CASE WHEN p_in_kev THEN 15::float8 ELSE 0::float8 END
+               + CASE WHEN p_has_metasploit THEN 5::float8 ELSE 0::float8 END);
+
+CREATE FUNCTION public.fn_cve_risk_impact(p_cvss_score real)
+  RETURNS double precision
+  LANGUAGE sql IMMUTABLE PARALLEL SAFE SECURITY INVOKER
+  RETURN CASE WHEN p_cvss_score IS NULL
+                OR p_cvss_score IN ('NaN'::real, 'Infinity'::real, '-Infinity'::real)
+              THEN 0::float8
+              ELSE GREATEST(0::float8, LEAST(10::float8, p_cvss_score::numeric::float8)) END * 3;
+
+CREATE FUNCTION public.fn_cve_risk_evidence(p_exploit_ref_count integer, p_has_exploitdb boolean)
+  RETURNS double precision
+  LANGUAGE sql IMMUTABLE PARALLEL SAFE SECURITY INVOKER
+  RETURN LEAST(10::float8,
+               ln(GREATEST(p_exploit_ref_count, CASE WHEN p_has_exploitdb THEN 1 ELSE 0 END)::float8 + 1)
+               / ln(101::float8) * 10);
+
+CREATE FUNCTION public.fn_cve_risk_score(p_cvss_score real, p_epss_score real, p_in_kev boolean,
+                                         p_has_metasploit boolean, p_exploit_ref_count integer,
+                                         p_has_exploitdb boolean)
+  RETURNS double precision
+  LANGUAGE sql IMMUTABLE PARALLEL SAFE SECURITY INVOKER
+  RETURN floor(LEAST(100::float8, GREATEST(0::float8,
+                 public.fn_cve_risk_exploitability(p_epss_score, p_in_kev, p_has_metasploit)
+               + public.fn_cve_risk_impact(p_cvss_score)
+               + public.fn_cve_risk_evidence(p_exploit_ref_count, p_has_exploitdb))) * 10 + 0.5) / 10;
+
+CREATE INDEX idx_cves_risk_order ON cves ((public.fn_cve_risk_score(CASE WHEN cvss_v3_vector <> '' THEN cvss_v3 ELSE cvss_v4 END, epss_score, in_kev, has_metasploit, exploit_ref_count, has_exploitdb)) DESC, epss_score DESC, cvss_v3 DESC, cve_id);
+
 CREATE TABLE kev_details (
   cve_id               TEXT    PRIMARY KEY REFERENCES cves(cve_id),
   vendor_project       TEXT    NOT NULL DEFAULT '',

@@ -2962,7 +2962,7 @@ void test_HEALTH_db_error_answers_503_with_retry_after(void)
   TEST_ASSERT_EQUAL_INT(1, static_countResponses(buf));
   TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 503 Service Unavailable\r\n"));
   TEST_ASSERT_NOT_NULL(strstr(buf, "\r\nRetry-After: 5\r\n"));
-  TEST_ASSERT_NOT_NULL(strstr(buf, R"({"status":"unavailable","version":"2.0.10","db":null})"));
+  TEST_ASSERT_NOT_NULL(strstr(buf, R"({"status":"unavailable","version":"2.0.11","db":null})"));
   TEST_ASSERT_NULL(strstr(buf, R"("cve_count")"));
 }
 
@@ -2976,7 +2976,7 @@ void test_HEALTH_db_not_found_also_answers_503(void)
   static_callRequestHandle(req, buf, sizeof(buf));
   TEST_ASSERT_EQUAL_INT(1, static_countResponses(buf));
   TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 503 Service Unavailable\r\n"));
-  TEST_ASSERT_NOT_NULL(strstr(buf, R"({"status":"unavailable","version":"2.0.10","db":null})"));
+  TEST_ASSERT_NOT_NULL(strstr(buf, R"({"status":"unavailable","version":"2.0.11","db":null})"));
   TEST_ASSERT_NULL(strstr(buf, R"("cve_count")"));
 }
 
@@ -16993,7 +16993,7 @@ static void static_vendorKeyParams(VENDORKEYEDITParams_t* params, const char* ac
   snprintf(params->ma_abuseIpDbKey, sizeof(params->ma_abuseIpDbKey), "%s", abuseipdb_key);
 }
 
-static EndpointRunStatus_t static_vendorKeyRun(VENDORKEYEDITParams_t* edit_params, RequestTier_t tier, char* body_out, size_t body_size, const char** message_out)
+static EndpointRunStatus_t static_vendorKeyRun(VENDORKEYEDITParams_t* vendor_key_edit_params, RequestTier_t tier, char* body_out, size_t body_size, const char** message_out)
 {
   RequestCreditBudget_t credit_budget;
   memset(&credit_budget, 0, sizeof(credit_budget));
@@ -17001,7 +17001,7 @@ static EndpointRunStatus_t static_vendorKeyRun(VENDORKEYEDITParams_t* edit_param
   snprintf(credit_budget.ma_budgetHash, sizeof(credit_budget.ma_budgetHash), "%s", "b0b0b0");
   EndpointAnyParams_t params;
   memset(&params, 0, sizeof(params));
-  params.m_vendorKeyEdit                 = *edit_params;
+  params.m_vendorKeyEdit                 = *vendor_key_edit_params;
   params.m_vendorKeyEdit.mp_creditBudget = &credit_budget;
   JsonBuf_t* json_buf = jsonbuf_create(256, JSONBUF_DEFAULT_CEILING);
   TEST_ASSERT_NOT_NULL(json_buf);
@@ -17011,7 +17011,7 @@ static EndpointRunStatus_t static_vendorKeyRun(VENDORKEYEDITParams_t* edit_param
   jsonbuf_destroy(json_buf);
   snprintf(body_out, body_size, "%s", body != NULL ? body : "");
   free(body);
-  *edit_params = params.m_vendorKeyEdit;
+  *vendor_key_edit_params = params.m_vendorKeyEdit;
   return run_status;
 }
 
@@ -17062,13 +17062,13 @@ void test_vendor_key_edit_refusals_are_fixed_texts_before_any_call(void)
       g_stub_vendor_key_link.m_linkState = DB_VENDOR_KEY_LINK_INVALID;
     else if (cases[i].m_stub == STUB_EXPIRED)
       g_stub_vendor_key_link.m_linkState = DB_VENDOR_KEY_LINK_EXPIRED;
-    VENDORKEYEDITParams_t edit_params;
-    static_vendorKeyParams(&edit_params, cases[i].mp_action, cases[i].mp_link, cases[i].mp_shodanKey, cases[i].mp_abuseIpDbKey);
-    edit_params.m_isShodanDeleted    = cases[i].m_isShodanDeleted;
-    edit_params.m_isAbuseIpDbDeleted = cases[i].m_isAbuseIpDbDeleted;
+    VENDORKEYEDITParams_t vendor_key_edit_params;
+    static_vendorKeyParams(&vendor_key_edit_params, cases[i].mp_action, cases[i].mp_link, cases[i].mp_shodanKey, cases[i].mp_abuseIpDbKey);
+    vendor_key_edit_params.m_isShodanDeleted    = cases[i].m_isShodanDeleted;
+    vendor_key_edit_params.m_isAbuseIpDbDeleted = cases[i].m_isAbuseIpDbDeleted;
     char body[512];
     const char* message = NULL;
-    TEST_ASSERT_EQUAL_INT_MESSAGE(ENDPOINT_RUN_REFUSED, static_vendorKeyRun(&edit_params, cases[i].m_tier, body, sizeof(body), &message), cases[i].mp_name);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(ENDPOINT_RUN_REFUSED, static_vendorKeyRun(&vendor_key_edit_params, cases[i].m_tier, body, sizeof(body), &message), cases[i].mp_name);
     TEST_ASSERT_EQUAL_STRING_MESSAGE(cases[i].mp_message, message, cases[i].mp_name);
     TEST_ASSERT_EQUAL_STRING_MESSAGE("", body, cases[i].mp_name);
     TEST_ASSERT_EQUAL_INT_MESSAGE(cases[i].m_editReads, g_stub_vendor_key_link_read_call_count, cases[i].mp_name);
@@ -17088,11 +17088,11 @@ void test_vendor_keys_script_has_a_text_for_each_typing_refusal(void)
   for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
   {
     static_resetVendorKeyStubs();
-    VENDORKEYEDITParams_t edit_params;
-    static_vendorKeyParams(&edit_params, "apply", VENDORKEY_TEST_LINK, cases[i].mp_shodanKey, "");
+    VENDORKEYEDITParams_t vendor_key_edit_params;
+    static_vendorKeyParams(&vendor_key_edit_params, "apply", VENDORKEY_TEST_LINK, cases[i].mp_shodanKey, "");
     char body[512];
     const char* message = NULL;
-    TEST_ASSERT_EQUAL_INT_MESSAGE(ENDPOINT_RUN_REFUSED, static_vendorKeyRun(&edit_params, REQUEST_TIER_FREE, body, sizeof(body), &message), cases[i].mp_name);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(ENDPOINT_RUN_REFUSED, static_vendorKeyRun(&vendor_key_edit_params, REQUEST_TIER_FREE, body, sizeof(body), &message), cases[i].mp_name);
     const char* colon = strchr(message, ':');
     TEST_ASSERT_NOT_NULL_MESSAGE(colon, message);
     char phrase[96];
@@ -17104,11 +17104,11 @@ void test_vendor_keys_script_has_a_text_for_each_typing_refusal(void)
 
 void test_vendor_key_edit_link_apply_saves_both_and_spends(void)
 {
-  VENDORKEYEDITParams_t edit_params;
-  static_vendorKeyParams(&edit_params, "apply", VENDORKEY_TEST_LINK, VENDORKEY_SHODAN_KEY, VENDORKEY_ABUSEIPDB_KEY);
+  VENDORKEYEDITParams_t vendor_key_edit_params;
+  static_vendorKeyParams(&vendor_key_edit_params, "apply", VENDORKEY_TEST_LINK, VENDORKEY_SHODAN_KEY, VENDORKEY_ABUSEIPDB_KEY);
   char body[512];
   const char* message = NULL;
-  TEST_ASSERT_EQUAL_INT(ENDPOINT_RUN_OK, static_vendorKeyRun(&edit_params, REQUEST_TIER_FREE, body, sizeof(body), &message));
+  TEST_ASSERT_EQUAL_INT(ENDPOINT_RUN_OK, static_vendorKeyRun(&vendor_key_edit_params, REQUEST_TIER_FREE, body, sizeof(body), &message));
   TEST_ASSERT_EQUAL_STRING(R"({"shodan":{"result":"saved","configured":true},"abuseipdb":{"result":"saved","configured":true}})" "\n", body);
   TEST_ASSERT_EQUAL_INT(1, g_stub_SHODAN_check_count);
   TEST_ASSERT_EQUAL_size_t(strlen(VENDORKEY_SHODAN_KEY), g_stub_SHODAN_last_key_len);
@@ -17134,8 +17134,8 @@ void test_vendor_key_edit_link_apply_saves_both_and_spends(void)
   TEST_ASSERT_EQUAL_STRING(VENDORKEY_ABUSEIPDB_KEY, opened);
   char zero[KEYVAULT_VENDOR_KEY_MAX_LEN + 1];
   memset(zero, 0, sizeof(zero));
-  TEST_ASSERT_EQUAL_MEMORY(zero, edit_params.ma_shodanKey, sizeof(zero));
-  TEST_ASSERT_EQUAL_MEMORY(zero, edit_params.ma_abuseIpDbKey, sizeof(zero));
+  TEST_ASSERT_EQUAL_MEMORY(zero, vendor_key_edit_params.ma_shodanKey, sizeof(zero));
+  TEST_ASSERT_EQUAL_MEMORY(zero, vendor_key_edit_params.ma_abuseIpDbKey, sizeof(zero));
 }
 
 void test_vendor_key_edit_partial_apply_saves_the_passing_vendor(void)
@@ -17159,11 +17159,11 @@ void test_vendor_key_edit_partial_apply_saves_the_passing_vendor(void)
     g_stub_ABUSEIPDB_status              = cases[i].m_abuseIpDb;
     g_stub_SHODAN_retry_after_seconds    = cases[i].m_shodan == SHODAN_RATE_LIMITED ? cases[i].m_retry : 0;
     g_stub_ABUSEIPDB_retry_after_seconds = cases[i].m_abuseIpDb == ABUSEIPDB_RATE_LIMITED ? cases[i].m_retry : 0;
-    VENDORKEYEDITParams_t edit_params;
-    static_vendorKeyParams(&edit_params, "apply", link, VENDORKEY_SHODAN_KEY, VENDORKEY_ABUSEIPDB_KEY);
+    VENDORKEYEDITParams_t vendor_key_edit_params;
+    static_vendorKeyParams(&vendor_key_edit_params, "apply", link, VENDORKEY_SHODAN_KEY, VENDORKEY_ABUSEIPDB_KEY);
     char body[512];
     const char* message = NULL;
-    TEST_ASSERT_EQUAL_INT_MESSAGE(ENDPOINT_RUN_OK, static_vendorKeyRun(&edit_params, REQUEST_TIER_FREE, body, sizeof(body), &message), cases[i].mp_name);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(ENDPOINT_RUN_OK, static_vendorKeyRun(&vendor_key_edit_params, REQUEST_TIER_FREE, body, sizeof(body), &message), cases[i].mp_name);
     TEST_ASSERT_EQUAL_STRING_MESSAGE(cases[i].mp_body, body, cases[i].mp_name);
     bool is_shodan_saved    = cases[i].m_shodan == SHODAN_OK;
     bool is_abuseipdb_saved = cases[i].m_abuseIpDb == ABUSEIPDB_OK;
@@ -17179,11 +17179,11 @@ void test_vendor_key_edit_apply_with_no_passing_change_writes_nothing(void)
   static const char link[] = VENDORKEY_TEST_LINK;
   g_stub_SHODAN_check_status = SHODAN_KEY_REJECTED;
   g_stub_ABUSEIPDB_status    = ABUSEIPDB_KEY_REJECTED;
-  VENDORKEYEDITParams_t edit_params;
-  static_vendorKeyParams(&edit_params, "apply", link, VENDORKEY_SHODAN_KEY, VENDORKEY_ABUSEIPDB_KEY);
+  VENDORKEYEDITParams_t vendor_key_edit_params;
+  static_vendorKeyParams(&vendor_key_edit_params, "apply", link, VENDORKEY_SHODAN_KEY, VENDORKEY_ABUSEIPDB_KEY);
   char body[512];
   const char* message = NULL;
-  TEST_ASSERT_EQUAL_INT(ENDPOINT_RUN_OK, static_vendorKeyRun(&edit_params, REQUEST_TIER_FREE, body, sizeof(body), &message));
+  TEST_ASSERT_EQUAL_INT(ENDPOINT_RUN_OK, static_vendorKeyRun(&vendor_key_edit_params, REQUEST_TIER_FREE, body, sizeof(body), &message));
   TEST_ASSERT_EQUAL_STRING(R"({"shodan":{"result":"rejected","configured":false},"abuseipdb":{"result":"rejected","configured":false}})" "\n", body);
   TEST_ASSERT_EQUAL_INT(0, g_stub_vendor_key_apply_call_count);
 }
@@ -17196,13 +17196,13 @@ void test_vendor_key_edit_delete_only_apply_spends_without_a_vendor_call(void)
     static_resetVendorKeyStubs();
     snprintf(g_stub_vendor_key_link.ma_shodanSealedHex, sizeof(g_stub_vendor_key_link.ma_shodanSealedHex), "%s", "01ab");
     snprintf(g_stub_vendor_key_link.ma_abuseIpDbSealedHex, sizeof(g_stub_vendor_key_link.ma_abuseIpDbSealedHex), "%s", "02cd");
-    VENDORKEYEDITParams_t edit_params;
-    static_vendorKeyParams(&edit_params, "apply", link, "", "");
-    edit_params.m_isShodanDeleted    = vendor == 0;
-    edit_params.m_isAbuseIpDbDeleted = vendor == 1;
+    VENDORKEYEDITParams_t vendor_key_edit_params;
+    static_vendorKeyParams(&vendor_key_edit_params, "apply", link, "", "");
+    vendor_key_edit_params.m_isShodanDeleted    = vendor == 0;
+    vendor_key_edit_params.m_isAbuseIpDbDeleted = vendor == 1;
     char body[512];
     const char* message = NULL;
-    TEST_ASSERT_EQUAL_INT(ENDPOINT_RUN_OK, static_vendorKeyRun(&edit_params, REQUEST_TIER_FREE, body, sizeof(body), &message));
+    TEST_ASSERT_EQUAL_INT(ENDPOINT_RUN_OK, static_vendorKeyRun(&vendor_key_edit_params, REQUEST_TIER_FREE, body, sizeof(body), &message));
     TEST_ASSERT_EQUAL_STRING(vendor == 0
                              ? R"({"shodan":{"result":"deleted","configured":false},"abuseipdb":{"result":"unchanged","configured":true}})" "\n"
                              : R"({"shodan":{"result":"unchanged","configured":true},"abuseipdb":{"result":"deleted","configured":false}})" "\n", body);
@@ -17228,11 +17228,11 @@ void test_vendor_key_edit_apply_refuses_what_the_write_refuses(void)
   for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
   {
     g_stub_vendor_key_apply_status = cases[i].m_status;
-    VENDORKEYEDITParams_t edit_params;
-    static_vendorKeyParams(&edit_params, "apply", link, VENDORKEY_SHODAN_KEY, "");
+    VENDORKEYEDITParams_t vendor_key_edit_params;
+    static_vendorKeyParams(&vendor_key_edit_params, "apply", link, VENDORKEY_SHODAN_KEY, "");
     char body[512];
     const char* message = NULL;
-    TEST_ASSERT_EQUAL_INT(ENDPOINT_RUN_REFUSED, static_vendorKeyRun(&edit_params, REQUEST_TIER_FREE, body, sizeof(body), &message));
+    TEST_ASSERT_EQUAL_INT(ENDPOINT_RUN_REFUSED, static_vendorKeyRun(&vendor_key_edit_params, REQUEST_TIER_FREE, body, sizeof(body), &message));
     TEST_ASSERT_EQUAL_STRING(cases[i].mp_message, message);
     TEST_ASSERT_EQUAL_STRING("", body);
   }
@@ -17245,11 +17245,11 @@ void test_vendor_key_edit_api_key_way_refused_apply_writes_no_link(void)
   {
     static_resetVendorKeyStubs();
     g_stub_vendor_key_apply_status = refused[i];
-    VENDORKEYEDITParams_t edit_params;
-    static_vendorKeyParams(&edit_params, "apply", "", VENDORKEY_SHODAN_KEY, "");
+    VENDORKEYEDITParams_t vendor_key_edit_params;
+    static_vendorKeyParams(&vendor_key_edit_params, "apply", "", VENDORKEY_SHODAN_KEY, "");
     char body[1024];
     const char* message = NULL;
-    TEST_ASSERT_EQUAL_INT(ENDPOINT_RUN_REFUSED, static_vendorKeyRun(&edit_params, REQUEST_TIER_PRO, body, sizeof(body), &message));
+    TEST_ASSERT_EQUAL_INT(ENDPOINT_RUN_REFUSED, static_vendorKeyRun(&vendor_key_edit_params, REQUEST_TIER_PRO, body, sizeof(body), &message));
     TEST_ASSERT_EQUAL_INT(1, g_stub_vendor_key_apply_call_count);
     TEST_ASSERT_EQUAL_INT(0, g_stub_vendor_key_link_open_call_count);
   }
@@ -17259,11 +17259,11 @@ void test_vendor_key_edit_api_key_way_refused_apply_writes_no_link(void)
 void test_vendor_key_edit_api_key_way_answers_a_manage_url_and_never_spends(void)
 {
   snprintf(g_stub_vendor_keys.ma_abuseIpDbSealedHex, sizeof(g_stub_vendor_keys.ma_abuseIpDbSealedHex), "%s", "03ef");
-  VENDORKEYEDITParams_t edit_params;
-  static_vendorKeyParams(&edit_params, "apply", "", VENDORKEY_SHODAN_KEY, "");
+  VENDORKEYEDITParams_t vendor_key_edit_params;
+  static_vendorKeyParams(&vendor_key_edit_params, "apply", "", VENDORKEY_SHODAN_KEY, "");
   char body[1024];
   const char* message = NULL;
-  TEST_ASSERT_EQUAL_INT(ENDPOINT_RUN_OK, static_vendorKeyRun(&edit_params, REQUEST_TIER_PRO, body, sizeof(body), &message));
+  TEST_ASSERT_EQUAL_INT(ENDPOINT_RUN_OK, static_vendorKeyRun(&vendor_key_edit_params, REQUEST_TIER_PRO, body, sizeof(body), &message));
   static const char head[] = R"({"shodan":{"result":"saved","configured":true},"abuseipdb":{"result":"unchanged","configured":true},"manage_url":"https://api.contrastcyber.com/vendor-keys#l=)";
   TEST_ASSERT_EQUAL_INT(0, strncmp(head, body, sizeof(head) - 1));
   const char* link = body + sizeof(head) - 1;
@@ -17282,12 +17282,12 @@ void test_vendor_key_edit_api_key_way_answers_a_manage_url_and_never_spends(void
 void test_vendor_key_edit_api_key_way_answers_null_without_a_link(void)
 {
   g_stub_vendor_key_link_open_db_status = DB_NOT_FOUND;
-  VENDORKEYEDITParams_t edit_params;
-  static_vendorKeyParams(&edit_params, "apply", "", "", "");
-  edit_params.m_isAbuseIpDbDeleted = true;
+  VENDORKEYEDITParams_t vendor_key_edit_params;
+  static_vendorKeyParams(&vendor_key_edit_params, "apply", "", "", "");
+  vendor_key_edit_params.m_isAbuseIpDbDeleted = true;
   char body[512];
   const char* message = NULL;
-  TEST_ASSERT_EQUAL_INT(ENDPOINT_RUN_OK, static_vendorKeyRun(&edit_params, REQUEST_TIER_PRO, body, sizeof(body), &message));
+  TEST_ASSERT_EQUAL_INT(ENDPOINT_RUN_OK, static_vendorKeyRun(&vendor_key_edit_params, REQUEST_TIER_PRO, body, sizeof(body), &message));
   TEST_ASSERT_EQUAL_STRING(R"({"shodan":{"result":"unchanged","configured":false},"abuseipdb":{"result":"deleted","configured":false},"manage_url":null})" "\n", body);
   TEST_ASSERT_EQUAL_INT(1, g_stub_vendor_key_apply_call_count);
 }
@@ -17318,11 +17318,11 @@ void test_vendor_key_edit_status_reports_each_key(void)
       snprintf(g_stub_vendor_key_link.ma_abuseIpDbSealedHex, sizeof(g_stub_vendor_key_link.ma_abuseIpDbSealedHex), "%s", abuseipdb_sealed);
     g_stub_SHODAN_check_status = cases[i].m_shodan;
     g_stub_ABUSEIPDB_status    = cases[i].m_abuseIpDb;
-    VENDORKEYEDITParams_t edit_params;
-    static_vendorKeyParams(&edit_params, "status", link, "", "");
+    VENDORKEYEDITParams_t vendor_key_edit_params;
+    static_vendorKeyParams(&vendor_key_edit_params, "status", link, "", "");
     char body[512];
     const char* message = NULL;
-    TEST_ASSERT_EQUAL_INT_MESSAGE(ENDPOINT_RUN_OK, static_vendorKeyRun(&edit_params, REQUEST_TIER_FREE, body, sizeof(body), &message), cases[i].mp_name);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(ENDPOINT_RUN_OK, static_vendorKeyRun(&vendor_key_edit_params, REQUEST_TIER_FREE, body, sizeof(body), &message), cases[i].mp_name);
     size_t states_len = strlen(cases[i].mp_states);
     TEST_ASSERT_EQUAL_INT_MESSAGE(0, strncmp(cases[i].mp_states, body, states_len), body);
     long long expires_in = -1;
@@ -17342,11 +17342,11 @@ void test_vendor_key_edit_status_of_a_key_that_does_not_open_is_unavailable(void
 {
   static const char link[] = VENDORKEY_TEST_LINK;
   TEST_ASSERT_TRUE(keyvault_trySeal(VENDORKEY_TEST_API_KEY_ID, "shodan", VENDORKEY_SHODAN_KEY, strlen(VENDORKEY_SHODAN_KEY), g_stub_vendor_key_link.ma_shodanSealedHex));
-  VENDORKEYEDITParams_t edit_params;
-  static_vendorKeyParams(&edit_params, "status", link, "", "");
+  VENDORKEYEDITParams_t vendor_key_edit_params;
+  static_vendorKeyParams(&vendor_key_edit_params, "status", link, "", "");
   char body[512];
   const char* message = NULL;
-  TEST_ASSERT_EQUAL_INT(ENDPOINT_RUN_OK, static_vendorKeyRun(&edit_params, REQUEST_TIER_FREE, body, sizeof(body), &message));
+  TEST_ASSERT_EQUAL_INT(ENDPOINT_RUN_OK, static_vendorKeyRun(&vendor_key_edit_params, REQUEST_TIER_FREE, body, sizeof(body), &message));
   TEST_ASSERT_EQUAL_INT(0, strncmp(R"({"shodan":{"state":"vendor_unavailable"},"abuseipdb":{"state":"not_configured"},)", body, 79));
   TEST_ASSERT_EQUAL_INT(0, g_stub_SHODAN_check_count);
 }
@@ -17356,11 +17356,11 @@ void test_vendor_key_edit_status_of_an_abuseipdb_key_that_does_not_open_is_unava
 {
   static const char link[] = VENDORKEY_TEST_LINK;
   TEST_ASSERT_TRUE(keyvault_trySeal(VENDORKEY_TEST_API_KEY_ID, "abuseipdb", VENDORKEY_ABUSEIPDB_KEY, strlen(VENDORKEY_ABUSEIPDB_KEY), g_stub_vendor_key_link.ma_abuseIpDbSealedHex));
-  VENDORKEYEDITParams_t edit_params;
-  static_vendorKeyParams(&edit_params, "status", link, "", "");
+  VENDORKEYEDITParams_t vendor_key_edit_params;
+  static_vendorKeyParams(&vendor_key_edit_params, "status", link, "", "");
   char body[512];
   const char* message = NULL;
-  TEST_ASSERT_EQUAL_INT(ENDPOINT_RUN_OK, static_vendorKeyRun(&edit_params, REQUEST_TIER_FREE, body, sizeof(body), &message));
+  TEST_ASSERT_EQUAL_INT(ENDPOINT_RUN_OK, static_vendorKeyRun(&vendor_key_edit_params, REQUEST_TIER_FREE, body, sizeof(body), &message));
   static const char expected[] = R"({"shodan":{"state":"not_configured"},"abuseipdb":{"state":"vendor_unavailable"},)";
   TEST_ASSERT_EQUAL_INT(0, strncmp(expected, body, sizeof(expected) - 1));
   TEST_ASSERT_EQUAL_INT(0, g_stub_ABUSEIPDB_check_count);
@@ -17369,22 +17369,22 @@ void test_vendor_key_edit_status_of_an_abuseipdb_key_that_does_not_open_is_unava
 void test_vendor_key_edit_status_expires_in_is_never_negative(void)
 {
   g_stub_vendor_key_link.m_linkExpiresAt = (int64_t)time(NULL) - 3600;
-  VENDORKEYEDITParams_t edit_params;
-  static_vendorKeyParams(&edit_params, "status", VENDORKEY_TEST_LINK, "", "");
+  VENDORKEYEDITParams_t vendor_key_edit_params;
+  static_vendorKeyParams(&vendor_key_edit_params, "status", VENDORKEY_TEST_LINK, "", "");
   char body[512];
   const char* message = NULL;
-  TEST_ASSERT_EQUAL_INT(ENDPOINT_RUN_OK, static_vendorKeyRun(&edit_params, REQUEST_TIER_FREE, body, sizeof(body), &message));
+  TEST_ASSERT_EQUAL_INT(ENDPOINT_RUN_OK, static_vendorKeyRun(&vendor_key_edit_params, REQUEST_TIER_FREE, body, sizeof(body), &message));
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(body, R"("expires_in_seconds":0})"), body);
 }
 
 void test_vendor_key_edit_sends_only_the_link_hash_to_the_db(void)
 {
   static const char link[] = VENDORKEY_TEST_LINK;
-  VENDORKEYEDITParams_t edit_params;
-  static_vendorKeyParams(&edit_params, "apply", link, VENDORKEY_SHODAN_KEY, "");
+  VENDORKEYEDITParams_t vendor_key_edit_params;
+  static_vendorKeyParams(&vendor_key_edit_params, "apply", link, VENDORKEY_SHODAN_KEY, "");
   char body[1024];
   const char* message = NULL;
-  TEST_ASSERT_EQUAL_INT(ENDPOINT_RUN_OK, static_vendorKeyRun(&edit_params, REQUEST_TIER_FREE, body, sizeof(body), &message));
+  TEST_ASSERT_EQUAL_INT(ENDPOINT_RUN_OK, static_vendorKeyRun(&vendor_key_edit_params, REQUEST_TIER_FREE, body, sizeof(body), &message));
   TEST_ASSERT_EQUAL_INT(1, g_stub_vendor_key_link_read_call_count);
   TEST_ASSERT_EQUAL_STRING(VENDORKEY_TEST_LINK_HASH, g_stub_vendor_key_link_read_last_link_hash);
   TEST_ASSERT_EQUAL_INT(1, g_stub_vendor_key_apply_call_count);
@@ -17392,8 +17392,8 @@ void test_vendor_key_edit_sends_only_the_link_hash_to_the_db(void)
   TEST_ASSERT_EQUAL_INT(0, g_stub_vendor_key_link_open_call_count);
 
   static_resetVendorKeyStubs();
-  static_vendorKeyParams(&edit_params, "apply", "", VENDORKEY_SHODAN_KEY, "");
-  TEST_ASSERT_EQUAL_INT(ENDPOINT_RUN_OK, static_vendorKeyRun(&edit_params, REQUEST_TIER_PRO, body, sizeof(body), &message));
+  static_vendorKeyParams(&vendor_key_edit_params, "apply", "", VENDORKEY_SHODAN_KEY, "");
+  TEST_ASSERT_EQUAL_INT(ENDPOINT_RUN_OK, static_vendorKeyRun(&vendor_key_edit_params, REQUEST_TIER_PRO, body, sizeof(body), &message));
   TEST_ASSERT_EQUAL_INT(1, g_stub_vendor_key_link_open_call_count);
   TEST_ASSERT_EQUAL_INT64(VENDORKEY_TEST_API_KEY_ID, g_stub_vendor_key_link_open_last_api_key_id);
 }
@@ -17402,12 +17402,12 @@ void test_vendor_key_edit_status_expires_in_is_exact(void)
 {
   int64_t expires_at = (int64_t)time(NULL) + 600;
   g_stub_vendor_key_link.m_linkExpiresAt = expires_at;
-  VENDORKEYEDITParams_t edit_params;
-  static_vendorKeyParams(&edit_params, "status", VENDORKEY_TEST_LINK, "", "");
+  VENDORKEYEDITParams_t vendor_key_edit_params;
+  static_vendorKeyParams(&vendor_key_edit_params, "status", VENDORKEY_TEST_LINK, "", "");
   char body[512];
   const char* message = NULL;
   int64_t before = (int64_t)time(NULL);
-  TEST_ASSERT_EQUAL_INT(ENDPOINT_RUN_OK, static_vendorKeyRun(&edit_params, REQUEST_TIER_FREE, body, sizeof(body), &message));
+  TEST_ASSERT_EQUAL_INT(ENDPOINT_RUN_OK, static_vendorKeyRun(&vendor_key_edit_params, REQUEST_TIER_FREE, body, sizeof(body), &message));
   int64_t after = (int64_t)time(NULL);
   const char* member = strstr(body, R"("expires_in_seconds":)");
   TEST_ASSERT_NOT_NULL_MESSAGE(member, body);
@@ -17745,11 +17745,11 @@ void test_vendor_key_edit_run_answers_an_unhashed_link_with_no_memory(void)
   for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
   {
     static_resetVendorKeyStubs();
-    VENDORKEYEDITParams_t edit_params;
-    static_vendorKeyParams(&edit_params, cases[i].mp_action, cases[i].mp_link, cases[i].mp_shodanKey, "");
+    VENDORKEYEDITParams_t vendor_key_edit_params;
+    static_vendorKeyParams(&vendor_key_edit_params, cases[i].mp_action, cases[i].mp_link, cases[i].mp_shodanKey, "");
     char body[512];
     const char* message = NULL;
-    TEST_ASSERT_EQUAL_INT_MESSAGE(ENDPOINT_RUN_NO_MEMORY, static_vendorKeyRun(&edit_params, REQUEST_TIER_PRO, body, sizeof(body), &message), cases[i].mp_name);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(ENDPOINT_RUN_NO_MEMORY, static_vendorKeyRun(&vendor_key_edit_params, REQUEST_TIER_PRO, body, sizeof(body), &message), cases[i].mp_name);
     TEST_ASSERT_NULL_MESSAGE(message, cases[i].mp_name);
     TEST_ASSERT_EQUAL_STRING_MESSAGE("", body, cases[i].mp_name);
     TEST_ASSERT_EQUAL_INT_MESSAGE(0, g_stub_vendor_key_link_read_call_count, cases[i].mp_name);
@@ -17774,11 +17774,11 @@ void test_vendor_key_edit_db_failures_answer_db_error(void)
       g_stub_vendor_keys_db_status = DB_ERROR;
     else
       g_stub_vendor_key_apply_db_status = DB_ERROR;
-    VENDORKEYEDITParams_t edit_params;
-    static_vendorKeyParams(&edit_params, "apply", failing == 1 ? "" : link, VENDORKEY_SHODAN_KEY, "");
+    VENDORKEYEDITParams_t vendor_key_edit_params;
+    static_vendorKeyParams(&vendor_key_edit_params, "apply", failing == 1 ? "" : link, VENDORKEY_SHODAN_KEY, "");
     char body[512];
     const char* message = NULL;
-    TEST_ASSERT_EQUAL_INT(ENDPOINT_RUN_DB_ERROR, static_vendorKeyRun(&edit_params, REQUEST_TIER_PRO, body, sizeof(body), &message));
+    TEST_ASSERT_EQUAL_INT(ENDPOINT_RUN_DB_ERROR, static_vendorKeyRun(&vendor_key_edit_params, REQUEST_TIER_PRO, body, sizeof(body), &message));
     TEST_ASSERT_EQUAL_STRING("", body);
     TEST_ASSERT_EQUAL_INT(failing == 2 ? 1 : 0, g_stub_SHODAN_check_count);
   }
@@ -17812,12 +17812,12 @@ void test_docs_vendor_key_edit_refusals_match_the_server(void)
   {
     static_resetVendorKeyStubs();
     g_stub_vendor_key_link.m_linkState = cases[i].m_state;
-    VENDORKEYEDITParams_t edit_params;
-    static_vendorKeyParams(&edit_params, cases[i].mp_action, cases[i].mp_link, cases[i].mp_shodanKey, "");
-    edit_params.m_isShodanDeleted = cases[i].m_isShodanDeleted;
+    VENDORKEYEDITParams_t vendor_key_edit_params;
+    static_vendorKeyParams(&vendor_key_edit_params, cases[i].mp_action, cases[i].mp_link, cases[i].mp_shodanKey, "");
+    vendor_key_edit_params.m_isShodanDeleted = cases[i].m_isShodanDeleted;
     char body[512];
     const char* message = NULL;
-    TEST_ASSERT_EQUAL_INT(ENDPOINT_RUN_REFUSED, static_vendorKeyRun(&edit_params, cases[i].m_tier, body, sizeof(body), &message));
+    TEST_ASSERT_EQUAL_INT(ENDPOINT_RUN_REFUSED, static_vendorKeyRun(&vendor_key_edit_params, cases[i].m_tier, body, sizeof(body), &message));
     TEST_ASSERT_NOT_NULL(message);
     char quoted[ENDPOINT_MESSAGE_BUF_SIZE + 16];
     snprintf(quoted, sizeof(quoted), "\"message\":\"%s\"}}", message);
@@ -17986,11 +17986,11 @@ void test_docs_vendor_call_times_match_the_clients(void)
 void test_docs_abuseipdb_check_address_matches_the_run(void)
 {
   static const char link[] = VENDORKEY_TEST_LINK;
-  VENDORKEYEDITParams_t edit_params;
-  static_vendorKeyParams(&edit_params, "apply", link, "", VENDORKEY_ABUSEIPDB_KEY);
+  VENDORKEYEDITParams_t vendor_key_edit_params;
+  static_vendorKeyParams(&vendor_key_edit_params, "apply", link, "", VENDORKEY_ABUSEIPDB_KEY);
   char body[512];
   const char* message = NULL;
-  TEST_ASSERT_EQUAL_INT(ENDPOINT_RUN_OK, static_vendorKeyRun(&edit_params, REQUEST_TIER_FREE, body, sizeof(body), &message));
+  TEST_ASSERT_EQUAL_INT(ENDPOINT_RUN_OK, static_vendorKeyRun(&vendor_key_edit_params, REQUEST_TIER_FREE, body, sizeof(body), &message));
   TEST_ASSERT_EQUAL_INT(1, g_stub_ABUSEIPDB_check_count);
   char phrase[160];
   snprintf(phrase, sizeof(phrase), "so the server asks it about `%s`", g_stub_ABUSEIPDB_last_ip);

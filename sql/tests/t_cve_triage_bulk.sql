@@ -30,11 +30,11 @@ BEGIN
          = ARRAY['CVE-2001-0051', 'CVE-2001-0054', 'CVE-2001-0058', 'CVE-2001-0055',
                  'CVE-2001-0052', 'CVE-2001-0053'],
          'the rows come by score, then EPSS score, then CVSS score, a full tie in cve_id order, and the unknown id answers no row';
-  ASSERT (SELECT risk_score = api.fn_cve_risk_score(9.8, 0.9, true, false, 0, false)
+  ASSERT (SELECT risk_score = public.fn_cve_risk_score(9.8, 0.9, true, false, 0, false)
              AND risk_label = api.fn_cve_risk_label(risk_score)
             FROM t_cve_triage_bulk_call WHERE cve_id = 'CVE-2001-0051'),
          'the score and the label come from the risk functions';
-  ASSERT (SELECT risk_score = api.fn_cve_risk_score(8.0, 0.1, false, false, 0, false)
+  ASSERT (SELECT risk_score = public.fn_cve_risk_score(8.0, 0.1, false, false, 0, false)
             FROM t_cve_triage_bulk_call WHERE cve_id = 'CVE-2001-0054'),
          'a CVE with no v3 vector is scored on its v4 score, and its GitHub repositories do not count';
 END
@@ -53,7 +53,7 @@ BEGIN
                FROM api.fn_cve_triage_bulk(ARRAY['CVE-2001-0057', 'CVE-2001-0052', 'CVE-2001-0056'])) AS t)
          = ARRAY['CVE-2001-0056', 'CVE-2001-0057', 'CVE-2001-0052'],
          'the exploit references of CVE-2001-0056 put it above a CVE with a higher EPSS score';
-  ASSERT (SELECT risk_score = api.fn_cve_risk_score(5.0, 0.1, false, false, 2, false)
+  ASSERT (SELECT risk_score = public.fn_cve_risk_score(5.0, 0.1, false, false, 2, false)
             FROM api.fn_cve_triage_bulk(ARRAY['CVE-2001-0056'])),
          'the score counts the two exploit references';
 END
@@ -71,8 +71,8 @@ BEGIN
                FROM api.fn_cve_triage_bulk(ARRAY['CVE-2010-0302', 'CVE-2010-0301'])) AS t)
          = ARRAY['CVE-2010-0301', 'CVE-2010-0302'],
          'the ExploitDB entry of CVE-2010-0301 puts it above a CVE with a higher EPSS score';
-  ASSERT (SELECT risk_score = api.fn_cve_risk_score(5.0, 0.1, false, false, 0, true)
-             AND risk_score <> api.fn_cve_risk_score(5.0, 0.1, false, false, 0, false)
+  ASSERT (SELECT risk_score = public.fn_cve_risk_score(5.0, 0.1, false, false, 0, true)
+             AND risk_score <> public.fn_cve_risk_score(5.0, 0.1, false, false, 0, false)
             FROM api.fn_cve_triage_bulk(ARRAY['CVE-2010-0301'])),
          'the score counts the ExploitDB entry';
 END

@@ -28,34 +28,34 @@ BEGIN
          = ARRAY['double precision', 'double precision', 'double precision', 'double precision',
                  'boolean', 'text'],
          'the score and its parts are double precision, has_public_poc boolean and the label text';
-  ASSERT (SELECT risk_score = api.fn_cve_risk_score(9.8, 0.5, true, true, 1, false)
-             AND exploitability = api.fn_cve_risk_exploitability(0.5, true, true)
-             AND impact = api.fn_cve_risk_impact(9.8)
-             AND evidence = api.fn_cve_risk_evidence(1, false)
+  ASSERT (SELECT risk_score = public.fn_cve_risk_score(9.8, 0.5, true, true, 1, false)
+             AND exploitability = public.fn_cve_risk_exploitability(0.5, true, true)
+             AND impact = public.fn_cve_risk_impact(9.8)
+             AND evidence = public.fn_cve_risk_evidence(1, false)
              AND risk_label = api.fn_cve_risk_label(risk_score)
             FROM t_cve_risk_breakdown_call),
          'a CVE with a v3 vector is scored on its v3 score, with KEV, Metasploit and one exploit reference';
   ASSERT (SELECT has_public_poc FROM t_cve_risk_breakdown_call),
          'one exploit reference and a Metasploit module make has_public_poc true';
-  ASSERT (SELECT risk_score = api.fn_cve_risk_score(8.0, 0.5, false, false, 0, false)
-             AND impact = api.fn_cve_risk_impact(8.0)
+  ASSERT (SELECT risk_score = public.fn_cve_risk_score(8.0, 0.5, false, false, 0, false)
+             AND impact = public.fn_cve_risk_impact(8.0)
              AND risk_label = api.fn_cve_risk_label(risk_score)
-             AND risk_label <> api.fn_cve_risk_label(api.fn_cve_risk_score(0.0, 0.5, false, false, 0, false))
+             AND risk_label <> api.fn_cve_risk_label(public.fn_cve_risk_score(0.0, 0.5, false, false, 0, false))
              AND NOT has_public_poc
              AND evidence = 0
             FROM api.fn_cve_risk_breakdown('CVE-2001-0032')),
          'a CVE with no v3 vector is scored and labelled on its v4 score, and GitHub repositories with no exploit reference make has_public_poc false and the evidence 0';
   ASSERT (SELECT has_public_poc
-             AND evidence = api.fn_cve_risk_evidence(2, false)
+             AND evidence = public.fn_cve_risk_evidence(2, false)
              AND evidence > 0
-             AND risk_score = api.fn_cve_risk_score(5.5, 0.2, false, false, 2, false)
-             AND risk_score <> api.fn_cve_risk_score(5.5, 0.2, false, false, 0, false)
+             AND risk_score = public.fn_cve_risk_score(5.5, 0.2, false, false, 2, false)
+             AND risk_score <> public.fn_cve_risk_score(5.5, 0.2, false, false, 0, false)
             FROM api.fn_cve_risk_breakdown('CVE-2001-0033')),
          'untagged exploit references alone, with a poc_count of 0, make has_public_poc true and the evidence above 0';
   ASSERT (SELECT has_public_poc
-             AND evidence = api.fn_cve_risk_evidence(4, false)
-             AND risk_score = api.fn_cve_risk_score(6.1, 0.3, false, false, 4, false)
-             AND risk_score <> api.fn_cve_risk_score(6.1, 0.3, false, false, 1, false)
+             AND evidence = public.fn_cve_risk_evidence(4, false)
+             AND risk_score = public.fn_cve_risk_score(6.1, 0.3, false, false, 4, false)
+             AND risk_score <> public.fn_cve_risk_score(6.1, 0.3, false, false, 1, false)
             FROM api.fn_cve_risk_breakdown('CVE-2001-0034')),
          'the evidence and the score count 4 exploit references, not the 1 tagged reference';
   ASSERT (SELECT count(*) FROM api.fn_cve_risk_breakdown('CVE-2001-0039')) = 0,
@@ -78,20 +78,21 @@ INSERT INTO cves (cve_id, cvss_v3, cvss_v3_vector, epss_score, refs) VALUES
 DO $$
 BEGIN
   ASSERT (SELECT has_public_poc
-             AND evidence = api.fn_cve_risk_evidence(1, false)
-             AND exploitability = api.fn_cve_risk_exploitability(0.2, false, false)
-             AND risk_score = api.fn_cve_risk_score(6.5, 0.2, false, false, 0, true)
-             AND risk_score <> api.fn_cve_risk_score(6.5, 0.2, false, false, 0, false)
+             AND evidence = public.fn_cve_risk_evidence(1, false)
+             AND exploitability = public.fn_cve_risk_exploitability(0.2, false, false)
+             AND risk_score = public.fn_cve_risk_score(6.5, 0.2, false, false, 0, true)
+             AND risk_score <> public.fn_cve_risk_score(6.5, 0.2, false, false, 0, false)
             FROM api.fn_cve_risk_breakdown('CVE-2010-0201')),
          'an ExploitDB entry alone makes has_public_poc true and counts as one exploit reference';
   ASSERT (SELECT has_public_poc
              AND evidence = 0
-             AND risk_score = api.fn_cve_risk_score(6.5, 0.2, false, true, 0, false)
+             AND exploitability = public.fn_cve_risk_exploitability(0.2, false, true)
+             AND risk_score = public.fn_cve_risk_score(6.5, 0.2, false, true, 0, false)
             FROM api.fn_cve_risk_breakdown('CVE-2010-0202')),
-         'a Metasploit module alone makes has_public_poc true and adds no evidence';
+         'a Metasploit module alone makes has_public_poc true, counts in exploitability and adds no evidence';
   ASSERT (SELECT has_public_poc
-             AND evidence = api.fn_cve_risk_evidence(3, false)
-             AND risk_score = api.fn_cve_risk_score(6.5, 0.2, false, false, 3, false)
+             AND evidence = public.fn_cve_risk_evidence(3, false)
+             AND risk_score = public.fn_cve_risk_score(6.5, 0.2, false, false, 3, false)
             FROM api.fn_cve_risk_breakdown('CVE-2010-0203')),
          'an ExploitDB entry adds nothing to three exploit references';
   ASSERT (SELECT NOT has_public_poc
@@ -99,7 +100,7 @@ BEGIN
             FROM api.fn_cve_risk_breakdown('CVE-2010-0204')),
          'no exploit reference, Metasploit module or ExploitDB entry makes has_public_poc false';
   ASSERT (SELECT has_public_poc
-             AND evidence = api.fn_cve_risk_evidence(1, false)
+             AND evidence = public.fn_cve_risk_evidence(1, false)
             FROM api.fn_cve_risk_breakdown('CVE-2010-0205')),
          'an exploit_ref_count of exactly 1 alone makes has_public_poc true';
 END
