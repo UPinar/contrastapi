@@ -41,6 +41,8 @@ extern const unsigned char web_assets_robotsTxt[];
 extern const uint64_t      web_assets_robotsTxtByteCount;
 extern const unsigned char web_assets_serverCardJson[];
 extern const uint64_t      web_assets_serverCardJsonByteCount;
+extern const unsigned char web_assets_securityTxt[];
+extern const uint64_t      web_assets_securityTxtByteCount;
 extern const unsigned char web_assets_indexHtml[];
 extern const uint64_t      web_assets_indexHtmlByteCount;
 extern const unsigned char web_assets_quickstartHtml[];

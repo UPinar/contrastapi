@@ -117,5 +117,6 @@ const char* header_check_resultName      (HeaderCheckResult_t result);
 const char* header_check_ruleRemediation (HeaderCheckHeader_t rule);
 size_t      header_check_writeIssueText  (const HeaderCheckIssue_t* issue, char* text_out, size_t text_out_size);
 size_t      header_check_shownLength     (const char* text, size_t* code_point_count_out);
+size_t      header_check_shownSpanLength (const char* text, size_t text_len, size_t* code_point_count_out);
 
 #endif

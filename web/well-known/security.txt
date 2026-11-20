@@ -1,0 +1,4 @@
+Contact: mailto:contact@contrastcyber.com
+Expires: 2027-05-20T00:00:00Z
+Preferred-Languages: en, tr
+Canonical: https://api.contrastcyber.com/.well-known/security.txt

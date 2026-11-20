@@ -9,6 +9,13 @@
 #include "http.h"
 #include "robotstxt.h"
 #include "securitytxt.h"
+#include "validate.h"
+
+typedef enum {
+  WELL_KNOWN_PLAIN_TEXT_CHECK_HEADER_CONTENT_TYPE = 0,
+  WELL_KNOWN_PLAIN_TEXT_CHECK_HEADER_CONTENT_ENCODING,
+  WELL_KNOWN_PLAIN_TEXT_CHECK_HEADER_COUNT
+} WellKnownPlainTextCheckHeader_t;
 
 typedef enum {
   WELL_KNOWN_ROBOTS_UNKNOWN = 0,
@@ -45,6 +52,17 @@ typedef struct {
   WellKnownRobotsGate_t   m_robotsGate;
   WellKnownSecurityTxt_t  m_securityTxt;
 } WellKnownReport_t;
+
+typedef struct {
+  char  ma_hostname[VALIDATE_DOMAIN_NAME_MAX_LEN + 1];
+} WELLKNOWNParams_t;
+
+typedef struct {
+  WellKnownReport_t  m_report;
+  char               ma_checkedAt[HEADERSCHECK_CHECKED_AT_TEXT_SIZE];
+  bool               m_isThrottled;
+  unsigned int       m_retryAfterSeconds;
+} WELLKNOWNRecord_t;
 
 HttpError_t         well_known_fetchRobotsGate   (const char* hostname, int64_t deadline_ms, WellKnownRobotsGate_t* gate_out);
 RobotsTxtVerdict_t  well_known_robotsGateVerdict (const WellKnownRobotsGate_t* gate, const char* path, size_t path_len);

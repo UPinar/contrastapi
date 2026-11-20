@@ -23,7 +23,7 @@ void handler_httpMethodNotAllowed             (int client_fd, const char* const 
 void handler_httpQueryParamNameRefused        (int client_fd, const Endpoint_t* endpoint, EndpointGateResult_t gate_result);
 void handler_unauthorized                     (int client_fd);
 void handler_apiKeyInactive                   (int client_fd);
-void handler_rateLimited                      (int client_fd, unsigned int retry_after_sec);
+void handler_rateLimited                      (int client_fd, unsigned int retry_after_sec, bool has_upgrade_url);
 void handler_upstreamBusy                     (int client_fd);
 void handler_rawBodyBusy                      (int client_fd);
 void handler_internalError                    (int client_fd);
@@ -40,7 +40,7 @@ void handler_paymentUnavailable               (int client_fd, unsigned int retry
 
 void handler_mcpUnauthorized                  (int client_fd, const char* body);
 void handler_mcpApiKeyInactive                (int client_fd, const char* body);
-void handler_mcpRateLimited                   (int client_fd, const char* body, unsigned int retry_after_sec);
+void handler_mcpRateLimited                   (int client_fd, const char* body, unsigned int retry_after_sec, bool has_upgrade_url);
 void handler_mcpUpstreamBusy                  (int client_fd, const char* body);
 void handler_mcpInternalError                 (int client_fd, const char* body);
 

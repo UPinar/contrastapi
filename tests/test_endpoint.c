@@ -33,6 +33,7 @@
 #include "subdomain_stub.h"
 #include "header_fetch_stub.h"
 #include "header_check.h"
+#include "well_known.h"
 #include "monotonic.h"
 #include "dns.h"
 #include "usagelog.h"
@@ -227,7 +228,7 @@ void test_only_the_credit_budget_rows_read_the_credit_budget(void)
 
 void test_only_the_listed_paid_rows_are_payable(void)
 {
-  static const char* const payable_paths[34] = {
+  static const char* const payable_paths[35] = {
     "/cve_lookup/",         "/cve_lookup_bulk",    "/cve_products/",      "/cve_search",
     "/cve_leading",         "/kev_lookup/",        "/cwe_lookup/",        "/cve_risk_score/",
     "/cve_exploit/",        "/cve_triage",         "/cve_triage_bulk",    "/product_exposure",
@@ -236,9 +237,9 @@ void test_only_the_listed_paid_rows_are_payable(void)
     "/headers_check/",      "/whois_lookup/",      "/wayback_lookup/",    "/cert_search/",
     "/subdomain_enum/",     "/ip_lookup/",         "/asn_lookup/",        "/d3fend_for_attack/",
     "/driver_lookup/",      "/driver_lookup_bulk", "/package_check",      "/package_check_bulk",
-    "/image_inspect",       "/epss_risers",
+    "/image_inspect",       "/epss_risers",        "/well_known/",
   };
-  bool seen[34] = { false };
+  bool seen[35] = { false };
   int payable_row_count = 0;
   int credit_budget_payable_row_count = 0;
   for (int i = 0; i < endpoint_count; i++)
@@ -248,7 +249,7 @@ void test_only_the_listed_paid_rows_are_payable(void)
       continue;
     payable_row_count++;
     int payable_index = -1;
-    for (int k = 0; k < 34; k++)
+    for (int k = 0; k < 35; k++)
     {
       TEST_ASSERT_NOT_NULL(payable_paths[k]);
       if (strcmp(payable_paths[k], endpoint->mp_httpPath) == 0)
@@ -264,8 +265,8 @@ void test_only_the_listed_paid_rows_are_payable(void)
       credit_budget_payable_row_count++;
     }
   }
-  TEST_ASSERT_EQUAL_INT(34, payable_row_count);
-  for (int k = 0; k < 34; k++)
+  TEST_ASSERT_EQUAL_INT(35, payable_row_count);
+  for (int k = 0; k < 35; k++)
     TEST_ASSERT_TRUE_MESSAGE(seen[k], payable_paths[k]);
   TEST_ASSERT_EQUAL_INT(1, credit_budget_payable_row_count);
 }
@@ -530,6 +531,7 @@ void test_each_row_holds_its_run_its_db_need_its_upstream_call_and_its_ceiling(v
     { "/email_address_check/", endpoint_EMAILADDRESSCHECKRun,  true,  true,  JSONBUF_DEFAULT_CEILING },
     { "/ssl_check/",           endpoint_SSLCHECKRun,           false, true,  JSONBUF_DEFAULT_CEILING },
     { "/headers_check/",       endpoint_HEADERSCHECKRun,       false, true,  JSONBUF_DEFAULT_CEILING },
+    { "/well_known/",          endpoint_WELLKNOWNRun,          true,  true,  JSONBUF_DEFAULT_CEILING },
     { "/whois_lookup/",        endpoint_WHOISLOOKUPRun,        true,  true,  JSONBUF_DEFAULT_CEILING },
     { "/wayback_lookup/",      endpoint_WAYBACKLOOKUPRun,      true,  true,  JSONBUF_DEFAULT_CEILING },
     { "/cert_search/",         endpoint_CERTSEARCHRun,         true,  true,  JSONBUF_DEFAULT_CEILING },
@@ -1227,7 +1229,7 @@ void test_mcpArgsGate_writes_the_table_defaults_for_absent_arguments(void)
     }
     checked++;
   }
-  TEST_ASSERT_EQUAL_INT(36, checked);
+  TEST_ASSERT_EQUAL_INT(37, checked);
 }
 
 void test_gates_write_the_kev_filter_for_absent_true_and_false(void)
@@ -1884,7 +1886,7 @@ void test_gates_write_a_host_name_in_lower_case(void)
     TEST_ASSERT_EQUAL_INT_MESSAGE(ENDPOINT_GATE_OK, endpoint_mcpArgsGate(endpoint, args_span, &params, endpoint->m_paramsSize).m_status, endpoint->mp_httpPath);
     TEST_ASSERT_EQUAL_STRING_MESSAGE("shop.example.com", (const char*)&params + param->m_offset, endpoint->mp_httpPath);
   }
-  TEST_ASSERT_EQUAL_INT(9, host_row_count);
+  TEST_ASSERT_EQUAL_INT(10, host_row_count);
 
   const Endpoint_t* email_row = endpoint_findByMcpName("email_address_check");
   TEST_ASSERT_NOT_NULL(email_row);
@@ -2026,7 +2028,7 @@ void test_restPathSegmentGate_writes_an_accepted_id_into_its_field_alone(void)
     }
     checked++;
   }
-  TEST_ASSERT_EQUAL_INT(21, checked);
+  TEST_ASSERT_EQUAL_INT(22, checked);
 }
 
 static const EndpointParam_t TEST_FIELD_OF_SIX_PARAMS[] = {
@@ -4597,7 +4599,7 @@ void test_appendSchemaBounds_prints_each_bound_as_its_exact_double(void)
 
 void test_registration_gate_test_count(void)
 {
-  TEST_ASSERT_EQUAL_INT_MESSAGE(228, (int)Unity.NumberOfTests,
+  TEST_ASSERT_EQUAL_INT_MESSAGE(240, (int)Unity.NumberOfTests,
     "RUN_TEST list and test definitions have drifted apart - a test may be unregistered");
 }
 
@@ -7644,6 +7646,399 @@ void test_HEADERSCHECKRun_rates_an_error_page_and_shows_a_redirect_target(void)
   static_HEADERSCHECKResetStubs();
 }
 
+extern HttpError_t       g_stub_WELL_KNOWN_error;
+extern WellKnownReport_t g_stub_WELL_KNOWN_report;
+extern int               g_stub_WELL_KNOWN_call_count;
+extern int               g_stub_WELL_KNOWN_free_count;
+extern char              g_stub_WELL_KNOWN_last_hostname[VALIDATE_DOMAIN_NAME_MAX_LEN + 1];
+extern int64_t           g_stub_WELL_KNOWN_last_now_epoch;
+
+#define WELLKNOWN_TEST_CONN ((PGconn*)12)
+
+static void static_WELLKNOWNResetStubs(void)
+{
+  static_WHOISLOOKUPResetStubs();
+  g_stub_WELL_KNOWN_error = HTTP_ERROR_NONE;
+  memset(&g_stub_WELL_KNOWN_report, 0, sizeof(g_stub_WELL_KNOWN_report));
+  g_stub_WELL_KNOWN_call_count       = 0;
+  g_stub_WELL_KNOWN_free_count       = 0;
+  g_stub_WELL_KNOWN_last_hostname[0] = '\0';
+}
+
+static void static_WELLKNOWNSetReport(int robots_http_status, WellKnownSecurityTxtStatus_t security_status)
+{
+  memset(&g_stub_WELL_KNOWN_report, 0, sizeof(g_stub_WELL_KNOWN_report));
+  WellKnownRobotsGate_t* gate = &g_stub_WELL_KNOWN_report.m_robotsGate;
+  gate->m_state = WELL_KNOWN_ROBOTS_NO_FILE;
+  gate->m_chain.ma_hops[0].mp_url       = (char*)"https://www.example.com/robots.txt";
+  gate->m_chain.ma_hops[0].m_httpStatus = robots_http_status;
+  gate->m_chain.m_hopCount              = 1;
+  WellKnownSecurityTxt_t* security = &g_stub_WELL_KNOWN_report.m_securityTxt;
+  security->m_status = security_status;
+  if (security_status == WELL_KNOWN_SECURITY_TXT_FOUND || security_status == WELL_KNOWN_SECURITY_TXT_NOT_FOUND)
+  {
+    security->m_chain.ma_hops[0].mp_url       = (char*)"https://www.example.com/.well-known/security.txt";
+    security->m_chain.ma_hops[0].m_httpStatus = security_status == WELL_KNOWN_SECURITY_TXT_FOUND ? 200 : 404;
+    security->m_chain.m_hopCount              = 1;
+  }
+}
+
+static char* static_WELLKNOWNRun(PGconn* conn, const char* hostname, EndpointRunStatus_t* status_out, const char** message_out)
+{
+  EndpointAnyParams_t params;
+  memset(&params, 0, sizeof(params));
+  snprintf(params.m_wellKnown.ma_hostname, sizeof(params.m_wellKnown.ma_hostname), "%s", hostname);
+  JsonBuf_t* json_buf = jsonbuf_create(JSONBUF_INITIAL_CAP, JSONBUF_DEFAULT_CEILING);
+  TEST_ASSERT_NOT_NULL(json_buf);
+  *message_out = NULL;
+  *status_out  = endpoint_WELLKNOWNRun(conn, &params, json_buf, message_out);
+  size_t body_len = jsonbuf_length(json_buf);
+  char*  body     = jsonbuf_finish(json_buf);
+  jsonbuf_destroy(json_buf);
+  TEST_ASSERT_NOT_NULL(body);
+  if (body_len == 0)
+  {
+    free(body);
+    return NULL;
+  }
+  return body;
+}
+
+void test_WELLKNOWNRun_sends_a_kept_answer_without_a_charge_or_a_fetch(void)
+{
+  static_WELLKNOWNResetStubs();
+  g_stub_CACHE_get_status = CACHE_HIT;
+  g_stub_CACHE_get_body   = "{\"checked_at\":\"2026-01-02T03:04:05Z\",\"kept\":true}\n";
+  EndpointRunStatus_t status;
+  const char*         message;
+  char* body = static_WELLKNOWNRun(WELLKNOWN_TEST_CONN, "www.example.com", &status, &message);
+  TEST_ASSERT_EQUAL_INT(ENDPOINT_RUN_OK, status);
+  TEST_ASSERT_NULL(message);
+  TEST_ASSERT_EQUAL_STRING("{\"checked_at\":\"2026-01-02T03:04:05Z\",\"kept\":true}\n", body);
+  free(body);
+  TEST_ASSERT_EQUAL_STRING("well_known:www.example.com", g_stub_CACHE_last_get_key);
+  TEST_ASSERT_TRUE(g_stub_CACHE_last_get_conn == WELLKNOWN_TEST_CONN);
+  TEST_ASSERT_EQUAL_INT(1, g_stub_CACHE_free_count);
+  TEST_ASSERT_EQUAL_INT(0, g_stub_THROTTLE_charge_count);
+  TEST_ASSERT_EQUAL_INT(0, g_stub_WELL_KNOWN_call_count);
+  TEST_ASSERT_EQUAL_INT(0, g_stub_CACHE_put_count);
+  static_WELLKNOWNResetStubs();
+}
+
+void test_WELLKNOWNRun_charges_two_units_on_the_registrable_domain(void)
+{
+  static const struct { const char* mp_hostname; const char* mp_targetName; } cases[] = {
+    { "www.example.co.uk", "example.co.uk" },
+    { "gov.uk",            "gov.uk"        },
+  };
+  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+  {
+    static_WELLKNOWNResetStubs();
+    EndpointRunStatus_t status;
+    const char*         message;
+    char* body = static_WELLKNOWNRun(WELLKNOWN_TEST_CONN, cases[i].mp_hostname, &status, &message);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(ENDPOINT_RUN_OK, status, cases[i].mp_hostname);
+    TEST_ASSERT_NOT_NULL(body);
+    free(body);
+    TEST_ASSERT_EQUAL_INT(1, g_stub_THROTTLE_charge_count);
+    TEST_ASSERT_TRUE(g_stub_THROTTLE_last_conn == WELLKNOWN_TEST_CONN);
+    TEST_ASSERT_EQUAL_STRING("site_fetch", g_stub_THROTTLE_last_rule.mp_throttleRuleName);
+    TEST_ASSERT_EQUAL_UINT(60, g_stub_THROTTLE_last_rule.m_windowSeconds);
+    TEST_ASSERT_EQUAL_UINT(10, g_stub_THROTTLE_last_rule.m_chargeLimit);
+    TEST_ASSERT_EQUAL_UINT(2, g_stub_THROTTLE_last_charged_count);
+    TEST_ASSERT_EQUAL_STRING(cases[i].mp_targetName, g_stub_THROTTLE_last_target_name);
+    TEST_ASSERT_EQUAL_INT(1, g_stub_WELL_KNOWN_call_count);
+    TEST_ASSERT_EQUAL_STRING(cases[i].mp_hostname, g_stub_WELL_KNOWN_last_hostname);
+  }
+  static_WELLKNOWNResetStubs();
+}
+
+void test_WELLKNOWNRun_refused_charge_answers_quota_exhausted_without_a_fetch(void)
+{
+  static_WELLKNOWNResetStubs();
+  g_stub_THROTTLE_charge_status       = THROTTLE_REFUSED;
+  g_stub_THROTTLE_retry_after_seconds = 37;
+  char before[HEADERSCHECK_CHECKED_AT_TEXT_SIZE];
+  char after[HEADERSCHECK_CHECKED_AT_TEXT_SIZE];
+  static_HEADERSCHECKUtcText(time(NULL), before);
+  EndpointRunStatus_t status;
+  const char*         message;
+  char* body = static_WELLKNOWNRun(WELLKNOWN_TEST_CONN, "www.example.com", &status, &message);
+  static_HEADERSCHECKUtcText(time(NULL), after);
+  TEST_ASSERT_EQUAL_INT(ENDPOINT_RUN_OK, status);
+  TEST_ASSERT_NULL(message);
+  TEST_ASSERT_NOT_NULL(body);
+  static_HEADERSCHECKMaskCheckedAt(body, before, after);
+  TEST_ASSERT_EQUAL_STRING("{\"checked_at\":\"YYYY-MM-DDTHH:MM:SSZ\",\"reason\":\"quota_exhausted\",\"retry_after_seconds\":37,\"robots_txt\":null,\"security_txt\":null}\n", body);
+  free(body);
+  TEST_ASSERT_EQUAL_INT(1, g_stub_THROTTLE_charge_count);
+  TEST_ASSERT_EQUAL_INT(0, g_stub_WELL_KNOWN_call_count);
+  TEST_ASSERT_EQUAL_INT(0, g_stub_CACHE_put_count);
+  static_WELLKNOWNResetStubs();
+}
+
+void test_WELLKNOWNRun_charge_error_is_a_db_error_without_a_fetch(void)
+{
+  static_WELLKNOWNResetStubs();
+  g_stub_THROTTLE_charge_status = THROTTLE_ERROR;
+  EndpointRunStatus_t status;
+  const char*         message;
+  char* body = static_WELLKNOWNRun(WELLKNOWN_TEST_CONN, "www.example.com", &status, &message);
+  TEST_ASSERT_EQUAL_INT(ENDPOINT_RUN_DB_ERROR, status);
+  TEST_ASSERT_NULL(message);
+  TEST_ASSERT_NULL(body);
+  TEST_ASSERT_EQUAL_INT(0, g_stub_WELL_KNOWN_call_count);
+  TEST_ASSERT_EQUAL_INT(0, g_stub_CACHE_put_count);
+  static_WELLKNOWNResetStubs();
+}
+
+void test_WELLKNOWNRun_names_why_each_fetch_failed(void)
+{
+  static const struct {
+    HttpError_t         m_fetchError;
+    EndpointRunStatus_t m_runStatus;
+    const char*         mp_message;
+  } cases[] = {
+    { HTTP_ERROR_TIMEOUT,        ENDPOINT_RUN_TARGET_UNREACHABLE, "the site did not answer in time: a connection may take 2000 ms, and the whole fetch 5000 ms" },
+    { HTTP_ERROR_RESOLVE,        ENDPOINT_RUN_TARGET_UNREACHABLE, "the host name did not resolve" },
+    { HTTP_ERROR_CONNECT,        ENDPOINT_RUN_TARGET_UNREACHABLE, "no address of the site took a connection on port 443" },
+    { HTTP_ERROR_TLS,            ENDPOINT_RUN_TARGET_UNREACHABLE, "the TLS handshake with the site failed, or its certificate did not verify; /ssl_check shows why" },
+    { HTTP_ERROR_BODY_TOO_LARGE, ENDPOINT_RUN_UPSTREAM_ERROR,     NULL },
+    { HTTP_ERROR_BLOCKED,        ENDPOINT_RUN_REFUSED,            "hostname resolves to an address that is not globally reachable" },
+    { HTTP_ERROR_OTHER,          ENDPOINT_RUN_UPSTREAM_ERROR,     NULL },
+  };
+  static_WELLKNOWNResetStubs();
+  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+  {
+    g_stub_WELL_KNOWN_error            = cases[i].m_fetchError;
+    g_stub_WELL_KNOWN_last_hostname[0] = '\0';
+    EndpointRunStatus_t status;
+    const char*         message;
+    char* body = static_WELLKNOWNRun(WELLKNOWN_TEST_CONN, "shop.example.com", &status, &message);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(cases[i].m_runStatus, status, cases[i].mp_message);
+    if (cases[i].mp_message == NULL)
+      TEST_ASSERT_NULL(message);
+    else
+      TEST_ASSERT_EQUAL_STRING(cases[i].mp_message, message);
+    TEST_ASSERT_NULL(body);
+    TEST_ASSERT_EQUAL_STRING("shop.example.com", g_stub_WELL_KNOWN_last_hostname);
+  }
+  TEST_ASSERT_EQUAL_INT(7, g_stub_WELL_KNOWN_call_count);
+  TEST_ASSERT_EQUAL_INT(0, g_stub_CACHE_put_count);
+  static_WELLKNOWNResetStubs();
+}
+
+void test_WELLKNOWNRun_robots_429_or_5xx_is_an_upstream_error(void)
+{
+  static const struct { int m_robotsHttpStatus; EndpointRunStatus_t m_runStatus; } cases[] = {
+    { 428, ENDPOINT_RUN_OK },
+    { 429, ENDPOINT_RUN_UPSTREAM_ERROR },
+    { 430, ENDPOINT_RUN_OK },
+    { 499, ENDPOINT_RUN_OK },
+    { 500, ENDPOINT_RUN_UPSTREAM_ERROR },
+    { 503, ENDPOINT_RUN_UPSTREAM_ERROR },
+    { 599, ENDPOINT_RUN_UPSTREAM_ERROR },
+    { 600, ENDPOINT_RUN_OK },
+  };
+  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+  {
+    static_WELLKNOWNResetStubs();
+    static_WELLKNOWNSetReport(cases[i].m_robotsHttpStatus, WELL_KNOWN_SECURITY_TXT_FOUND);
+    EndpointRunStatus_t status;
+    const char*         message;
+    char* body = static_WELLKNOWNRun(WELLKNOWN_TEST_CONN, "www.example.com", &status, &message);
+    char case_name[16];
+    snprintf(case_name, sizeof(case_name), "%d", cases[i].m_robotsHttpStatus);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(cases[i].m_runStatus, status, case_name);
+    TEST_ASSERT_NULL_MESSAGE(message, case_name);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(1, g_stub_WELL_KNOWN_free_count, case_name);
+    if (cases[i].m_runStatus == ENDPOINT_RUN_OK)
+    {
+      TEST_ASSERT_NOT_NULL_MESSAGE(body, case_name);
+      TEST_ASSERT_EQUAL_INT_MESSAGE(1, g_stub_CACHE_put_count, case_name);
+    }
+    else
+    {
+      TEST_ASSERT_NULL_MESSAGE(body, case_name);
+      TEST_ASSERT_EQUAL_INT_MESSAGE(0, g_stub_CACHE_put_count, case_name);
+    }
+    free(body);
+  }
+  static_WELLKNOWNResetStubs();
+}
+
+void test_WELLKNOWNRun_robots_429_or_5xx_after_a_redirect_is_an_upstream_error(void)
+{
+  static const struct { int m_lastHttpStatus; EndpointRunStatus_t m_runStatus; } cases[] = {
+    { 503, ENDPOINT_RUN_UPSTREAM_ERROR },
+    { 429, ENDPOINT_RUN_UPSTREAM_ERROR },
+    { 200, ENDPOINT_RUN_OK },
+  };
+  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+  {
+    static_WELLKNOWNResetStubs();
+    static_WELLKNOWNSetReport(301, WELL_KNOWN_SECURITY_TXT_FOUND);
+    HeaderFetchChain_t* chain = &g_stub_WELL_KNOWN_report.m_robotsGate.m_chain;
+    chain->ma_hops[1].mp_url       = (char*)"https://example.com/robots.txt";
+    chain->ma_hops[1].m_httpStatus = cases[i].m_lastHttpStatus;
+    chain->m_hopCount              = 2;
+    EndpointRunStatus_t status;
+    const char*         message;
+    char* body = static_WELLKNOWNRun(WELLKNOWN_TEST_CONN, "www.example.com", &status, &message);
+    char case_name[16];
+    snprintf(case_name, sizeof(case_name), "%d", cases[i].m_lastHttpStatus);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(cases[i].m_runStatus, status, case_name);
+    free(body);
+  }
+  static_WELLKNOWNResetStubs();
+}
+
+void test_WELLKNOWNRun_hands_the_fetch_the_time_now(void)
+{
+  static_WELLKNOWNResetStubs();
+  int64_t before = (int64_t)time(NULL);
+  EndpointRunStatus_t status;
+  const char*         message;
+  char* body = static_WELLKNOWNRun(WELLKNOWN_TEST_CONN, "www.example.com", &status, &message);
+  int64_t after = (int64_t)time(NULL);
+  free(body);
+  TEST_ASSERT_TRUE(g_stub_WELL_KNOWN_last_now_epoch >= before);
+  TEST_ASSERT_TRUE(g_stub_WELL_KNOWN_last_now_epoch <= after);
+  static_WELLKNOWNResetStubs();
+}
+
+void test_docs_name_the_well_known_limits(void)
+{
+  static_WELLKNOWNResetStubs();
+  static_WELLKNOWNSetReport(200, WELL_KNOWN_SECURITY_TXT_FOUND);
+  EndpointRunStatus_t status;
+  const char*         message;
+  free(static_WELLKNOWNRun(WELLKNOWN_TEST_CONN, "www.example.com", &status, &message));
+  unsigned int limit = g_stub_THROTTLE_last_rule.m_chargeLimit;
+  unsigned int count = g_stub_THROTTLE_last_charged_count;
+  TEST_ASSERT_EQUAL_UINT(60, g_stub_THROTTLE_last_rule.m_windowSeconds);
+  TEST_ASSERT_EQUAL_UINT(3600, g_stub_CACHE_last_put_expires_after_seconds);
+  static_WELLKNOWNResetStubs();
+
+  struct { const char* mp_path; char ma_copy[256]; } copies[5];
+  copies[0].mp_path = "docs/API_Documentation.md";
+  snprintf(copies[0].ma_copy, sizeof(copies[0].ma_copy), "A domain gets at most %u units in each minute, and each request that fetches costs %u units", limit, count);
+  copies[1].mp_path = "docs/MCP_Documentation.md";
+  snprintf(copies[1].ma_copy, sizeof(copies[1].ma_copy), "gets at most %u throttle units a minute, and a call that fetches costs %u. ", limit, count);
+  copies[2].mp_path = "web/pages/bot.html";
+  snprintf(copies[2].ma_copy, sizeof(copies[2].ma_copy), "at most %u units a minute for each registered domain, and each call that fetches costs %u units", limit, count);
+  copies[3].mp_path = "docs/API_Documentation.md";
+  snprintf(copies[3].ma_copy, sizeof(copies[3].ma_copy), "The server keeps each answer for one hour, unless `security_txt.status` is `not_fetched`");
+  copies[4].mp_path = "web/pages/privacy.html";
+  snprintf(copies[4].ma_copy, sizeof(copies[4].ma_copy), "an answer of <code>/ssl_check/</code>, <code>/headers_check/</code>, <code>/well_known/</code> or <code>/whois_lookup/</code> stays one hour");
+  static char page[1 << 21];
+  for (size_t c = 0; c < sizeof(copies) / sizeof(copies[0]); c++)
+  {
+    static_readCollapsedDocs(copies[c].mp_path, page, sizeof(page));
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(page, copies[c].ma_copy), copies[c].ma_copy);
+  }
+}
+
+void test_WELLKNOWNRun_unavailable_security_txt_is_an_upstream_error(void)
+{
+  static_WELLKNOWNResetStubs();
+  static_WELLKNOWNSetReport(200, WELL_KNOWN_SECURITY_TXT_UNAVAILABLE);
+  EndpointRunStatus_t status;
+  const char*         message;
+  char* body = static_WELLKNOWNRun(WELLKNOWN_TEST_CONN, "www.example.com", &status, &message);
+  TEST_ASSERT_EQUAL_INT(ENDPOINT_RUN_UPSTREAM_ERROR, status);
+  TEST_ASSERT_NULL(message);
+  TEST_ASSERT_NULL(body);
+  TEST_ASSERT_EQUAL_INT(1, g_stub_WELL_KNOWN_free_count);
+  TEST_ASSERT_EQUAL_INT(0, g_stub_CACHE_put_count);
+  static_WELLKNOWNResetStubs();
+}
+
+void test_WELLKNOWNRun_keeps_a_fetched_answer_for_an_hour_and_not_a_not_fetched_one(void)
+{
+  static const struct { WellKnownSecurityTxtStatus_t m_status; const char* mp_statusMember; int m_putCount; } cases[] = {
+    { WELL_KNOWN_SECURITY_TXT_FOUND,       "\"security_txt\":{\"status\":\"found\"",       1 },
+    { WELL_KNOWN_SECURITY_TXT_NOT_FOUND,   "\"security_txt\":{\"status\":\"not_found\"",   1 },
+    { WELL_KNOWN_SECURITY_TXT_NOT_FETCHED, "\"security_txt\":{\"status\":\"not_fetched\"", 0 },
+    { WELL_KNOWN_SECURITY_TXT_TOO_LARGE,         "\"security_txt\":{\"status\":\"too_large\"",         1 },
+    { WELL_KNOWN_SECURITY_TXT_ROBOTS_DISALLOWED, "\"security_txt\":{\"status\":\"robots_disallowed\"", 1 },
+    { WELL_KNOWN_SECURITY_TXT_ROBOTS_UNKNOWN,    "\"security_txt\":{\"status\":\"robots_unknown\"",    1 },
+  };
+  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+  {
+    static_WELLKNOWNResetStubs();
+    static_WELLKNOWNSetReport(200, cases[i].m_status);
+    EndpointRunStatus_t status;
+    const char*         message;
+    char* body = static_WELLKNOWNRun(WELLKNOWN_TEST_CONN, "www.example.com", &status, &message);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(ENDPOINT_RUN_OK, status, cases[i].mp_statusMember);
+    TEST_ASSERT_NULL(message);
+    TEST_ASSERT_NOT_NULL(body);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(body, cases[i].mp_statusMember), body);
+    TEST_ASSERT_EQUAL_INT(1, g_stub_WELL_KNOWN_free_count);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(cases[i].m_putCount, g_stub_CACHE_put_count, cases[i].mp_statusMember);
+    if (cases[i].m_putCount == 1)
+    {
+      TEST_ASSERT_EQUAL_STRING("well_known:www.example.com", g_stub_CACHE_last_put_key);
+      TEST_ASSERT_TRUE(g_stub_CACHE_last_put_conn == WELLKNOWN_TEST_CONN);
+      TEST_ASSERT_EQUAL_STRING(body, g_stub_CACHE_last_put_body);
+      TEST_ASSERT_FALSE(g_stub_CACHE_last_put_is_error);
+      TEST_ASSERT_EQUAL_UINT(3600, g_stub_CACHE_last_put_expires_after_seconds);
+    }
+    free(body);
+  }
+  static_WELLKNOWNResetStubs();
+}
+
+void test_WELLKNOWNRun_keeps_no_body_longer_than_the_cache_takes(void)
+{
+  enum { SITEMAP_MAX_COUNT = 2200, SITEMAP_LEN = 500 };
+  static char            sitemap_body[SITEMAP_LEN];
+  static RobotsTxtSpan_t sitemaps[SITEMAP_MAX_COUNT];
+  memset(sitemap_body, 's', sizeof(sitemap_body));
+
+  static_WELLKNOWNResetStubs();
+  static_WELLKNOWNSetReport(200, WELL_KNOWN_SECURITY_TXT_FOUND);
+  EndpointRunStatus_t status;
+  const char*         message;
+  char* body = static_WELLKNOWNRun(WELLKNOWN_TEST_CONN, "www.example.com", &status, &message);
+  TEST_ASSERT_NOT_NULL(body);
+  size_t base_len = strlen(body);
+  free(body);
+
+  for (size_t extra_len = 0; extra_len < 2; extra_len++)
+  {
+    size_t target_len    = CACHE_MAX_BODY_LEN + extra_len;
+    size_t sitemap_count = (target_len - base_len + 1 + SITEMAP_LEN + 2) / (SITEMAP_LEN + 3);
+    size_t value_len     = target_len - base_len + 1 - 3 * sitemap_count;
+    TEST_ASSERT_TRUE(sitemap_count <= SITEMAP_MAX_COUNT);
+    for (size_t i = 0; i < sitemap_count; i++)
+    {
+      size_t len = value_len > SITEMAP_LEN ? SITEMAP_LEN : value_len;
+      sitemaps[i] = (RobotsTxtSpan_t){ 0, len, (int)i + 1 };
+      value_len  -= len;
+    }
+    TEST_ASSERT_EQUAL_size_t(0, value_len);
+
+    static_WELLKNOWNResetStubs();
+    static_WELLKNOWNSetReport(200, WELL_KNOWN_SECURITY_TXT_FOUND);
+    WellKnownRobotsGate_t* gate = &g_stub_WELL_KNOWN_report.m_robotsGate;
+    gate->m_state                       = WELL_KNOWN_ROBOTS_FILE_READ;
+    gate->m_chain.mp_body               = sitemap_body;
+    gate->m_chain.m_bodyLen             = sizeof(sitemap_body);
+    gate->m_robots.mp_sitemaps          = sitemaps;
+    gate->m_robots.m_sitemapKeptCount   = (int)sitemap_count;
+    gate->m_robots.m_sitemapTotalCount  = (int)sitemap_count;
+    body = static_WELLKNOWNRun(WELLKNOWN_TEST_CONN, "www.example.com", &status, &message);
+    TEST_ASSERT_EQUAL_INT(ENDPOINT_RUN_OK, status);
+    TEST_ASSERT_NOT_NULL(body);
+    TEST_ASSERT_EQUAL_size_t(target_len, strlen(body));
+    TEST_ASSERT_EQUAL_INT(extra_len == 0 ? 1 : 0, g_stub_CACHE_put_count);
+    free(body);
+  }
+  static_WELLKNOWNResetStubs();
+}
+
 void test_watchlist_findAddRequirement_gives_each_kind_its_requirement(void)
 {
   static const struct { WatchlistItemKind_t m_kind; WatchlistAddRequirement_t m_requirement; } cases[] = {
@@ -7843,6 +8238,18 @@ int main(void)
   RUN_TEST(test_HEADERSCHECKRun_fetches_on_a_cache_error_and_answers_past_a_failed_put);
   RUN_TEST(test_HEADERSCHECKRun_keeps_no_body_longer_than_the_cache_takes);
   RUN_TEST(test_HEADERSCHECKRun_rates_an_error_page_and_shows_a_redirect_target);
+  RUN_TEST(test_WELLKNOWNRun_sends_a_kept_answer_without_a_charge_or_a_fetch);
+  RUN_TEST(test_WELLKNOWNRun_charges_two_units_on_the_registrable_domain);
+  RUN_TEST(test_WELLKNOWNRun_refused_charge_answers_quota_exhausted_without_a_fetch);
+  RUN_TEST(test_WELLKNOWNRun_charge_error_is_a_db_error_without_a_fetch);
+  RUN_TEST(test_WELLKNOWNRun_names_why_each_fetch_failed);
+  RUN_TEST(test_WELLKNOWNRun_robots_429_or_5xx_is_an_upstream_error);
+  RUN_TEST(test_WELLKNOWNRun_unavailable_security_txt_is_an_upstream_error);
+  RUN_TEST(test_WELLKNOWNRun_robots_429_or_5xx_after_a_redirect_is_an_upstream_error);
+  RUN_TEST(test_WELLKNOWNRun_hands_the_fetch_the_time_now);
+  RUN_TEST(test_docs_name_the_well_known_limits);
+  RUN_TEST(test_WELLKNOWNRun_keeps_a_fetched_answer_for_an_hour_and_not_a_not_fetched_one);
+  RUN_TEST(test_WELLKNOWNRun_keeps_no_body_longer_than_the_cache_takes);
   RUN_TEST(test_WHOISLOOKUPRun_asks_about_the_registrable_domain_and_keeps_the_answer);
   RUN_TEST(test_WHOISLOOKUPRun_refuses_a_public_suffix_before_any_call);
   RUN_TEST(test_WHOISLOOKUPRun_without_a_registry_server_answers_unavailable_and_calls_nothing_else);

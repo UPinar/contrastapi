@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <string>
 #include <math.h>
 #include <float.h>
 #include <limits.h>
@@ -13,6 +14,7 @@ extern "C" {
 #include "tlsprobe.h"
 #include "header_fetch.h"
 #include "header_check.h"
+#include "well_known.h"
 #include "external/rdap.h"
 #include "external/wayback.h"
 #include "external/cveservices.h"
@@ -295,7 +297,7 @@ void test_HEALTH_serializes_every_section(void)
   char* body = static_finishJsonBuf(json_buf);
 
   TEST_ASSERT_EQUAL_STRING(
-    R"({"status":"ok","version":"2.1.1","db":{)"
+    R"({"status":"ok","version":"2.2.0","db":{)"
       R"("nvd":{"cve_count":312000,"last_added":{"cve_id":"CVE-2026-1234",)"
         R"("published_time":"2026-08-29T10:00:00Z"}},)"
       R"("kev":{"entry_count":1300,"last_added":{"cve_id":"CVE-2026-9999",)"
@@ -316,7 +318,7 @@ void test_HEALTH_null_db_serializes_unavailable_and_null_db(void)
   char* body = static_finishJsonBuf(json_buf);
 
   TEST_ASSERT_EQUAL_STRING(
-    R"({"status":"unavailable","version":"2.1.1","db":null})" "\n", body);
+    R"({"status":"unavailable","version":"2.2.0","db":null})" "\n", body);
   free(body);
 }
 
@@ -378,7 +380,7 @@ void test_HEALTH_every_string_is_escaped_through_its_own_class(void)
   char* body = static_finishJsonBuf(json_buf);
 
   TEST_ASSERT_EQUAL_STRING(
-    R"({"status":"ok","version":"2.1.1","db":{)"
+    R"({"status":"ok","version":"2.2.0","db":{)"
       R"("nvd":{"cve_count":1,"last_added":{"cve_id":"CVE-\"1","published_time":"2026\\08"}},)"
       R"("kev":{"entry_count":2,"last_added":{"cve_id":"CVE\n9","date_added":"2026\t28"}},)"
       R"("cwe":{"entry_count":3,"last_updated":{"cwe_id":"CWE\b79","updated_at":"2026)" "\\u0001" R"(27"}},)"
@@ -481,7 +483,7 @@ void test_error_code_is_escaped(void)
 void test_error_with_retry_after_golden(void)
 {
   JsonBuf_t* json_buf = static_newJsonBuf(JSONBUF_INITIAL_CAP, JSONBUF_DEFAULT_CEILING);
-  serialize_errorWithRetryAfter_response("a\"b", "rate \"limit\"", 42, json_buf);
+  serialize_errorWithRetryAfter_response("a\"b", "rate \"limit\"", 42, false, json_buf);
   char* body = static_finishJsonBuf(json_buf);
 
   TEST_ASSERT_EQUAL_STRING(R"({"error":{"code":"a\"b","message":"rate \"limit\"","retry_after_seconds":42}})" "\n", body);
@@ -491,10 +493,20 @@ void test_error_with_retry_after_golden(void)
 void test_error_with_retry_after_writes_the_largest_wait(void)
 {
   JsonBuf_t* json_buf = static_newJsonBuf(JSONBUF_INITIAL_CAP, JSONBUF_DEFAULT_CEILING);
-  serialize_errorWithRetryAfter_response("rate_limited", "rate limit exceeded", 4294967295u, json_buf);
+  serialize_errorWithRetryAfter_response("rate_limited", "rate limit exceeded", 4294967295u, false, json_buf);
   char* body = static_finishJsonBuf(json_buf);
 
   TEST_ASSERT_EQUAL_STRING(R"({"error":{"code":"rate_limited","message":"rate limit exceeded","retry_after_seconds":4294967295}})" "\n", body);
+  free(body);
+}
+
+void test_error_with_retry_after_names_the_upgrade_url(void)
+{
+  JsonBuf_t* json_buf = static_newJsonBuf(JSONBUF_INITIAL_CAP, JSONBUF_DEFAULT_CEILING);
+  serialize_errorWithRetryAfter_response("a\"b", "rate \"limit\"", 4294967295u, true, json_buf);
+  char* body = static_finishJsonBuf(json_buf);
+
+  TEST_ASSERT_EQUAL_STRING(R"({"error":{"code":"a\"b","message":"rate \"limit\"","retry_after_seconds":4294967295,"upgrade_url":"https://api.contrastcyber.com/pricing"}})" "\n", body);
   free(body);
 }
 
@@ -5755,7 +5767,7 @@ void test_PRODUCTEXPOSURE_top_cve_count_past_its_array_is_clamped(void)
 
 void test_registration_gate_test_count(void)
 {
-  TEST_ASSERT_EQUAL_INT_MESSAGE(330, (int)Unity.NumberOfTests,
+  TEST_ASSERT_EQUAL_INT_MESSAGE(345, (int)Unity.NumberOfTests,
     "RUN_TEST list and test definitions have drifted apart - a test may be unregistered");
 }
 
@@ -8132,6 +8144,589 @@ void test_HEADERSCHECK_set_cookie_value_is_never_written(void)
     TEST_ASSERT_NULL(strstr(body, "SECRETTOKEN"));
     free(body);
   }
+}
+
+#define WELLKNOWN_FIX_CHECKED_AT "2026-11-20T10:11:12Z"
+
+static const char WELLKNOWN_ROBOTS_BODY[] =
+  "User-agent: *\n"
+  "Allow: /public/\n"
+  "Disallow: /private/\n"
+  "Crawl-delay: 2.5\n"
+  "\n"
+  "User-agent: ContrastAPI\n"
+  "Disallow: /.well-known/\n"
+  "Sitemap: https://www.example.com/sitemap.xml\n";
+
+static const char WELLKNOWN_SECURITY_BODY[] =
+  "Contact: mailto:security@example.com\n"
+  "Contact: https://example.com/report\n"
+  "Expires: 2027-01-01T00:00:00Z\n"
+  "Encryption: https://example.com/pgp.asc\n"
+  "Acknowledgments: https://example.com/thanks\n"
+  "Preferred-Languages: en, fr\n"
+  "Canonical: https://www.example.com/.well-known/security.txt\n"
+  "Policy: https://example.com/policy\n"
+  "Hiring: https://example.com/jobs\n"
+  "CSAF: https://example.com/.well-known/csaf/provider-metadata.json\n";
+
+static WELLKNOWNRecord_t g_WELLKNOWNRecord;
+static RobotsTxtGroup_t  g_WELLKNOWNGroups[2];
+static RobotsTxtRule_t   g_WELLKNOWNRules[3];
+static RobotsTxtSpan_t   g_WELLKNOWNUserAgents[2];
+static RobotsTxtSpan_t   g_WELLKNOWNSitemaps[2];
+static char*             g_WELLKNOWNRobotsHeaders[WELL_KNOWN_PLAIN_TEXT_CHECK_HEADER_COUNT];
+static char*             g_WELLKNOWNSecurityHeaders[WELL_KNOWN_PLAIN_TEXT_CHECK_HEADER_COUNT];
+
+static size_t static_WELLKNOWNOffset(const char* body, const char* prefix, const char* value)
+{
+  const char* prefix_start = strstr(body, prefix);
+  TEST_ASSERT_NOT_NULL_MESSAGE(prefix_start, prefix);
+  const char* value_start = strstr(prefix_start + strlen(prefix), value);
+  TEST_ASSERT_NOT_NULL_MESSAGE(value_start, value);
+  return (size_t)(value_start - body);
+}
+
+static RobotsTxtSpan_t static_WELLKNOWNRobotsSpan(const char* body, const char* prefix, const char* value, int line_number)
+{
+  RobotsTxtSpan_t span = { static_WELLKNOWNOffset(body, prefix, value), strlen(value), line_number };
+  return span;
+}
+
+static SecurityTxtSpan_t static_WELLKNOWNSecuritySpan(const char* body, const char* prefix, const char* value, int line_number)
+{
+  SecurityTxtSpan_t span = { static_WELLKNOWNOffset(body, prefix, value), strlen(value), line_number };
+  return span;
+}
+
+static void static_WELLKNOWNAddHop(HeaderFetchChain_t* chain, const char* url, int http_status)
+{
+  chain->ma_hops[chain->m_hopCount].mp_url       = (char*)url;
+  chain->ma_hops[chain->m_hopCount].m_httpStatus = http_status;
+  chain->m_hopCount++;
+}
+
+static void static_WELLKNOWNReset(void)
+{
+  memset(&g_WELLKNOWNRecord, 0, sizeof(g_WELLKNOWNRecord));
+  snprintf(g_WELLKNOWNRecord.ma_checkedAt, sizeof(g_WELLKNOWNRecord.ma_checkedAt), "%s", WELLKNOWN_FIX_CHECKED_AT);
+}
+
+static void static_WELLKNOWNFillRobots(void)
+{
+  WellKnownRobotsGate_t* gate = &g_WELLKNOWNRecord.m_report.m_robotsGate;
+  gate->m_state = WELL_KNOWN_ROBOTS_FILE_READ;
+  static_WELLKNOWNAddHop(&gate->m_chain, "https://example.com/robots.txt", 301);
+  static_WELLKNOWNAddHop(&gate->m_chain, "https://www.example.com/robots.txt", 200);
+  gate->m_chain.mp_body   = (char*)WELLKNOWN_ROBOTS_BODY;
+  gate->m_chain.m_bodyLen = strlen(WELLKNOWN_ROBOTS_BODY);
+  g_WELLKNOWNRobotsHeaders[WELL_KNOWN_PLAIN_TEXT_CHECK_HEADER_CONTENT_TYPE]     = (char*)"text/html";
+  g_WELLKNOWNRobotsHeaders[WELL_KNOWN_PLAIN_TEXT_CHECK_HEADER_CONTENT_ENCODING] = (char*)"br";
+  gate->m_chain.mp_capturedHeaderValues  = g_WELLKNOWNRobotsHeaders;
+  gate->m_chain.m_capturedHeaderValueCount = WELL_KNOWN_PLAIN_TEXT_CHECK_HEADER_COUNT;
+
+  memset(g_WELLKNOWNGroups, 0, sizeof(g_WELLKNOWNGroups));
+  g_WELLKNOWNGroups[0].m_lineNumber           = 1;
+  g_WELLKNOWNGroups[0].m_hasWildcardUserAgent = true;
+  g_WELLKNOWNGroups[0].m_userAgentStartIndex  = 0;
+  g_WELLKNOWNGroups[0].m_userAgentCount       = 1;
+  g_WELLKNOWNGroups[0].m_ruleStartIndex       = 0;
+  g_WELLKNOWNGroups[0].m_ruleCount            = 2;
+  g_WELLKNOWNGroups[0].m_hasCrawlDelay        = true;
+  g_WELLKNOWNGroups[0].m_crawlDelaySeconds    = 2.5;
+  g_WELLKNOWNGroups[1].m_lineNumber           = 6;
+  g_WELLKNOWNGroups[1].m_hasOurUserAgent      = true;
+  g_WELLKNOWNGroups[1].m_userAgentStartIndex  = 1;
+  g_WELLKNOWNGroups[1].m_userAgentCount       = 1;
+  g_WELLKNOWNGroups[1].m_ruleStartIndex       = 2;
+  g_WELLKNOWNGroups[1].m_ruleCount            = 1;
+  g_WELLKNOWNUserAgents[0] = static_WELLKNOWNRobotsSpan(WELLKNOWN_ROBOTS_BODY, "User-agent: ", "*", 1);
+  g_WELLKNOWNUserAgents[1] = static_WELLKNOWNRobotsSpan(WELLKNOWN_ROBOTS_BODY, "User-agent: ", "ContrastAPI", 6);
+  g_WELLKNOWNRules[0].m_kind    = ROBOTSTXT_RULE_ALLOW;
+  g_WELLKNOWNRules[0].m_pattern = static_WELLKNOWNRobotsSpan(WELLKNOWN_ROBOTS_BODY, "Allow: ", "/public/", 2);
+  g_WELLKNOWNRules[1].m_kind    = ROBOTSTXT_RULE_DISALLOW;
+  g_WELLKNOWNRules[1].m_pattern = static_WELLKNOWNRobotsSpan(WELLKNOWN_ROBOTS_BODY, "Disallow: ", "/private/", 3);
+  g_WELLKNOWNRules[2].m_kind    = ROBOTSTXT_RULE_DISALLOW;
+  g_WELLKNOWNRules[2].m_pattern = static_WELLKNOWNRobotsSpan(WELLKNOWN_ROBOTS_BODY, "Disallow: ", "/.well-known/", 7);
+  g_WELLKNOWNSitemaps[0]   = static_WELLKNOWNRobotsSpan(WELLKNOWN_ROBOTS_BODY, "Sitemap: ", "https://www.example.com/sitemap.xml", 8);
+
+  RobotsTxt_t* robots = &gate->m_robots;
+  robots->mp_groups           = g_WELLKNOWNGroups;
+  robots->m_groupKeptCount    = 2;
+  robots->m_groupTotalCount   = 2;
+  robots->mp_rules            = g_WELLKNOWNRules;
+  robots->m_ruleKeptCount     = 3;
+  robots->m_ruleTotalCount    = 3;
+  robots->mp_userAgents       = g_WELLKNOWNUserAgents;
+  robots->m_userAgentKeptCount  = 2;
+  robots->m_userAgentTotalCount = 2;
+  robots->mp_sitemaps         = g_WELLKNOWNSitemaps;
+  robots->m_sitemapKeptCount  = 1;
+  robots->m_sitemapTotalCount = 1;
+  robots->ma_issues[0].m_issueCode  = ROBOTSTXT_ISSUE_SITEMAP_NOT_ABSOLUTE;
+  robots->ma_issues[0].m_field      = ROBOTSTXT_DIRECTIVE_SITEMAP;
+  robots->ma_issues[0].m_lineNumber = 8;
+  robots->m_issueKeptCount  = 1;
+  robots->m_issueTotalCount = 1;
+  robots->ma_issueCountBySeverity[ROBOTSTXT_SEVERITY_WARNING] = 0;
+  robots->ma_issueCountBySeverity[ROBOTSTXT_SEVERITY_INFO]    = 1;
+}
+
+static void static_WELLKNOWNFillFound(void)
+{
+  WellKnownSecurityTxt_t* security = &g_WELLKNOWNRecord.m_report.m_securityTxt;
+  security->m_status = WELL_KNOWN_SECURITY_TXT_FOUND;
+  security->m_pathRobotsVerdict.m_decision                 = ROBOTSTXT_DECISION_ALLOWED;
+  security->m_pathRobotsVerdict.m_decidingRuleIndexInRules = -1;
+  static_WELLKNOWNAddHop(&security->m_chain, "https://www.example.com/.well-known/security.txt", 200);
+  security->m_chain.mp_body   = (char*)WELLKNOWN_SECURITY_BODY;
+  security->m_chain.m_bodyLen = strlen(WELLKNOWN_SECURITY_BODY);
+  g_WELLKNOWNSecurityHeaders[WELL_KNOWN_PLAIN_TEXT_CHECK_HEADER_CONTENT_TYPE]     = (char*)"text/plain; charset=utf-8";
+  g_WELLKNOWNSecurityHeaders[WELL_KNOWN_PLAIN_TEXT_CHECK_HEADER_CONTENT_ENCODING] = (char*)"identity";
+  security->m_chain.mp_capturedHeaderValues    = g_WELLKNOWNSecurityHeaders;
+  security->m_chain.m_capturedHeaderValueCount = WELL_KNOWN_PLAIN_TEXT_CHECK_HEADER_COUNT;
+
+  static const struct { SecurityTxtField_t m_field; const char* mp_prefix; const char* mp_value; int m_line; } values[] = {
+    { SECURITYTXT_FIELD_CONTACT,             "Contact: ",               "mailto:security@example.com",                              1 },
+    { SECURITYTXT_FIELD_CONTACT,             "Contact: ",               "https://example.com/report",                               2 },
+    { SECURITYTXT_FIELD_EXPIRES,             "Expires: ",               "2027-01-01T00:00:00Z",                                     3 },
+    { SECURITYTXT_FIELD_ENCRYPTION,          "Encryption: ",            "https://example.com/pgp.asc",                              4 },
+    { SECURITYTXT_FIELD_ACKNOWLEDGMENTS,     "Acknowledgments: ",       "https://example.com/thanks",                               5 },
+    { SECURITYTXT_FIELD_PREFERRED_LANGUAGES, "Preferred-Languages: ",   "en",                                                       6 },
+    { SECURITYTXT_FIELD_PREFERRED_LANGUAGES, "Preferred-Languages: en", "fr",                                                       6 },
+    { SECURITYTXT_FIELD_CANONICAL,           "Canonical: ",             "https://www.example.com/.well-known/security.txt",         7 },
+    { SECURITYTXT_FIELD_POLICY,              "Policy: ",                "https://example.com/policy",                               8 },
+    { SECURITYTXT_FIELD_HIRING,              "Hiring: ",                "https://example.com/jobs",                                 9 },
+    { SECURITYTXT_FIELD_CSAF,                "CSAF: ",                  "https://example.com/.well-known/csaf/provider-metadata.json", 10 },
+  };
+  SecurityTxtReport_t* report = &security->m_report;
+  for (size_t i = 0; i < sizeof(values) / sizeof(values[0]); i++)
+  {
+    int kept = report->ma_valueKeptCount[values[i].m_field];
+    report->ma_values[values[i].m_field][kept] = static_WELLKNOWNSecuritySpan(WELLKNOWN_SECURITY_BODY, values[i].mp_prefix, values[i].mp_value, values[i].m_line);
+    report->ma_valueKeptCount[values[i].m_field]++;
+    report->ma_valueTotalCount[values[i].m_field]++;
+  }
+  report->m_isExpiresDateRead = true;
+  report->m_expiresEpoch      = 1798761600;
+  report->m_unknownFieldCount = 3;
+  report->ma_issues[0].m_issueCode  = SECURITYTXT_ISSUE_CONTENT_TYPE_INVALID;
+  report->ma_issues[0].m_field      = SECURITYTXT_FIELD_NONE;
+  report->ma_issues[0].m_lineNumber = 0;
+  report->m_issueKeptCount  = 1;
+  report->m_issueTotalCount = 1;
+  report->ma_issueCountBySeverity[SECURITYTXT_SEVERITY_ERROR] = 1;
+}
+
+static char* static_WELLKNOWNBody(void)
+{
+  JsonBuf_t* json_buf = static_newJsonBuf(JSONBUF_INITIAL_CAP, JSONBUF_DEFAULT_CEILING);
+  serialize_WELLKNOWN_response(&g_WELLKNOWNRecord, json_buf);
+  return static_finishJsonBuf(json_buf);
+}
+
+#define WELLKNOWN_FOUND_ROBOTS_TXT \
+  R"x("robots_txt":{"url":"https://www.example.com/robots.txt","status_code":200,"redirect_count":1,)x" \
+  R"x("groups":[{"line":1,"user_agents":["*"],"allow":["/public/"],"disallow":["/private/"],"crawl_delay":2.5},)x" \
+  R"x({"line":6,"user_agents":["ContrastAPI"],"allow":[],"disallow":["/.well-known/"],"crawl_delay":null}],)x" \
+  R"x("sitemaps":["https://www.example.com/sitemap.xml"],)x" \
+  R"x("issues":[{"code":"sitemap_not_absolute","severity":"info","field":"sitemap","line":8}],"by_severity":{"warning":0,"info":1}})x"
+
+#define WELLKNOWN_FOUND_SECURITY_FIELDS \
+  R"x("contact":["mailto:security@example.com","https://example.com/report"],"encryption":["https://example.com/pgp.asc"],)x" \
+  R"x("acknowledgments":["https://example.com/thanks"],"preferred_languages":["en","fr"],)x" \
+  R"x("canonical":["https://www.example.com/.well-known/security.txt"],"policy":["https://example.com/policy"],)x" \
+  R"x("hiring":["https://example.com/jobs"],"csaf":["https://example.com/.well-known/csaf/provider-metadata.json"],)x"
+
+void test_WELLKNOWN_found_golden(void)
+{
+  static_WELLKNOWNReset();
+  static_WELLKNOWNFillRobots();
+  static_WELLKNOWNFillFound();
+  char* body = static_WELLKNOWNBody();
+  TEST_ASSERT_EQUAL_STRING(
+    R"x({"checked_at":")x" WELLKNOWN_FIX_CHECKED_AT R"x(",)x" WELLKNOWN_FOUND_ROBOTS_TXT
+    R"x(,"security_txt":{"status":"found","url":"https://www.example.com/.well-known/security.txt","status_code":200,"redirect_count":0,)x"
+    R"x("content_type":"text/plain; charset=utf-8","openpgp_signed":false,"expires":"2027-01-01T00:00:00Z",)x"
+    WELLKNOWN_FOUND_SECURITY_FIELDS
+    R"x("unknown_field_count":3,"issues":[{"code":"content_type_invalid","severity":"error","field":null,"line":null}],)x"
+    R"x("by_severity":{"error":1,"warning":0,"info":0}}})x" "\n", body);
+  free(body);
+}
+
+void test_WELLKNOWN_found_without_content_type_and_expires_writes_null(void)
+{
+  static_WELLKNOWNReset();
+  static_WELLKNOWNFillRobots();
+  static_WELLKNOWNFillFound();
+  g_WELLKNOWNSecurityHeaders[WELL_KNOWN_PLAIN_TEXT_CHECK_HEADER_CONTENT_TYPE] = NULL;
+  g_WELLKNOWNRecord.m_report.m_securityTxt.m_report.ma_valueKeptCount[SECURITYTXT_FIELD_EXPIRES] = 0;
+  g_WELLKNOWNRecord.m_report.m_securityTxt.m_report.m_isOpenPgpSigned = true;
+  char* body = static_WELLKNOWNBody();
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(body, R"x("redirect_count":0,"content_type":null,"openpgp_signed":true,"expires":null,"contact":[)x"), body);
+  free(body);
+}
+
+void test_WELLKNOWN_robots_disallowed_golden(void)
+{
+  static_WELLKNOWNReset();
+  static_WELLKNOWNFillRobots();
+  WellKnownSecurityTxt_t* security = &g_WELLKNOWNRecord.m_report.m_securityTxt;
+  security->m_status = WELL_KNOWN_SECURITY_TXT_ROBOTS_DISALLOWED;
+  security->m_pathRobotsVerdict.m_decision                 = ROBOTSTXT_DECISION_DISALLOWED;
+  security->m_pathRobotsVerdict.m_decidingRuleIndexInRules = 2;
+  static_WELLKNOWNAddHop(&security->m_chain, "https://example.com/.well-known/security.txt", 301);
+  security->m_chain.m_stopReason     = HEADER_FETCH_STOP_PERMISSION_REFUSED;
+  security->m_chain.mp_unfollowedUrl = (char*)"https://www.example.com/.well-known/security.txt";
+  char* body = static_WELLKNOWNBody();
+  TEST_ASSERT_EQUAL_STRING(
+    R"x({"checked_at":")x" WELLKNOWN_FIX_CHECKED_AT R"x(",)x" WELLKNOWN_FOUND_ROBOTS_TXT
+    R"x(,"security_txt":{"status":"robots_disallowed","url":"https://example.com/.well-known/security.txt","status_code":301,"redirect_count":0,)x"
+    R"x("redirect_to":"https://www.example.com/.well-known/security.txt",)x"
+    R"x("deciding_rule":{"line":7,"kind":"disallow","path":"/.well-known/"}}})x" "\n", body);
+  free(body);
+}
+
+void test_WELLKNOWN_robots_disallowed_without_a_request_or_a_rule(void)
+{
+  static const struct { int m_ruleIndex; WellKnownRobotsState_t m_robotsState; const char* mp_securityTxt; } cases[] = {
+    { -1, WELL_KNOWN_ROBOTS_FILE_READ, R"x("security_txt":{"status":"robots_disallowed","deciding_rule":null}})x" "\n" },
+    {  3, WELL_KNOWN_ROBOTS_FILE_READ, R"x("security_txt":{"status":"robots_disallowed","deciding_rule":null}})x" "\n" },
+    {  0, WELL_KNOWN_ROBOTS_FILE_READ, R"x("security_txt":{"status":"robots_disallowed","deciding_rule":{"line":2,"kind":"allow","path":"/public/"}}})x" "\n" },
+    {  0, WELL_KNOWN_ROBOTS_UNKNOWN,   R"x("security_txt":{"status":"robots_disallowed","deciding_rule":null}})x" "\n" },
+  };
+  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+  {
+    static_WELLKNOWNReset();
+    static_WELLKNOWNFillRobots();
+    g_WELLKNOWNRecord.m_report.m_robotsGate.m_state = cases[i].m_robotsState;
+    WellKnownSecurityTxt_t* security = &g_WELLKNOWNRecord.m_report.m_securityTxt;
+    security->m_status = WELL_KNOWN_SECURITY_TXT_ROBOTS_DISALLOWED;
+    security->m_pathRobotsVerdict.m_decision                 = ROBOTSTXT_DECISION_DISALLOWED;
+    security->m_pathRobotsVerdict.m_decidingRuleIndexInRules = cases[i].m_ruleIndex;
+    security->m_chain.m_stopReason = HEADER_FETCH_STOP_PERMISSION_REFUSED;
+    char* body = static_WELLKNOWNBody();
+    const char* security_txt = strstr(body, R"x("security_txt":)x");
+    TEST_ASSERT_NOT_NULL_MESSAGE(security_txt, body);
+    TEST_ASSERT_EQUAL_STRING(cases[i].mp_securityTxt, security_txt);
+    free(body);
+  }
+}
+
+void test_WELLKNOWN_robots_unknown_golden(void)
+{
+  static_WELLKNOWNReset();
+  WellKnownRobotsGate_t* gate = &g_WELLKNOWNRecord.m_report.m_robotsGate;
+  gate->m_state = WELL_KNOWN_ROBOTS_UNKNOWN;
+  static_WELLKNOWNAddHop(&gate->m_chain, "https://example.com/robots.txt", 301);
+  static_WELLKNOWNAddHop(&gate->m_chain, "https://www.example.com/robots.txt", 301);
+  static_WELLKNOWNAddHop(&gate->m_chain, "https://example.com/a", 302);
+  static_WELLKNOWNAddHop(&gate->m_chain, "https://www.example.com/b", 303);
+  static_WELLKNOWNAddHop(&gate->m_chain, "https://example.com/c", 307);
+  static_WELLKNOWNAddHop(&gate->m_chain, "https://www.example.com/d", 308);
+  gate->m_chain.m_stopReason     = HEADER_FETCH_STOP_REQUEST_LIMIT;
+  gate->m_chain.mp_unfollowedUrl = (char*)"https://example.com/e";
+  g_WELLKNOWNRecord.m_report.m_securityTxt.m_status = WELL_KNOWN_SECURITY_TXT_ROBOTS_UNKNOWN;
+  g_WELLKNOWNRecord.m_report.m_securityTxt.m_chain.m_stopReason = HEADER_FETCH_STOP_PERMISSION_REFUSED;
+  char* body = static_WELLKNOWNBody();
+  TEST_ASSERT_EQUAL_STRING(
+    R"x({"checked_at":")x" WELLKNOWN_FIX_CHECKED_AT R"x(","robots_txt":{"url":"https://www.example.com/d","status_code":308,"redirect_count":5,)x"
+    R"x("redirect_to":"https://example.com/e","groups":[],"sitemaps":[],)x"
+    R"x("issues":[{"code":"redirect_limit_reached","severity":"warning","field":null,"line":null}],"by_severity":{"warning":1,"info":0}},)x"
+    R"x("security_txt":{"status":"robots_unknown"}})x" "\n", body);
+  free(body);
+}
+
+void test_WELLKNOWN_not_found_golden(void)
+{
+  static_WELLKNOWNReset();
+  static_WELLKNOWNFillRobots();
+  WellKnownRobotsGate_t* gate = &g_WELLKNOWNRecord.m_report.m_robotsGate;
+  gate->m_state = WELL_KNOWN_ROBOTS_NO_FILE;
+  memset(gate->m_chain.ma_hops, 0, sizeof(gate->m_chain.ma_hops));
+  gate->m_chain.m_hopCount = 0;
+  static_WELLKNOWNAddHop(&gate->m_chain, "https://example.com/robots.txt", 404);
+  WellKnownSecurityTxt_t* security = &g_WELLKNOWNRecord.m_report.m_securityTxt;
+  security->m_status = WELL_KNOWN_SECURITY_TXT_NOT_FOUND;
+  static_WELLKNOWNAddHop(&security->m_chain, "https://example.com/.well-known/security.txt", 404);
+  char* body = static_WELLKNOWNBody();
+  TEST_ASSERT_EQUAL_STRING(
+    R"x({"checked_at":")x" WELLKNOWN_FIX_CHECKED_AT R"x(","robots_txt":{"url":"https://example.com/robots.txt","status_code":404,"redirect_count":0,)x"
+    R"x("groups":[],"sitemaps":[],"issues":[],"by_severity":{"warning":0,"info":0}},)x"
+    R"x("security_txt":{"status":"not_found","url":"https://example.com/.well-known/security.txt","status_code":404,"redirect_count":0}})x" "\n", body);
+  free(body);
+}
+
+void test_WELLKNOWN_too_large_golden(void)
+{
+  static_WELLKNOWNReset();
+  static_WELLKNOWNFillRobots();
+  WellKnownSecurityTxt_t* security = &g_WELLKNOWNRecord.m_report.m_securityTxt;
+  security->m_status = WELL_KNOWN_SECURITY_TXT_TOO_LARGE;
+  static_WELLKNOWNAddHop(&security->m_chain, "https://example.com/.well-known/security.txt", 301);
+  static_WELLKNOWNAddHop(&security->m_chain, "https://www.example.com/.well-known/security.txt", 200);
+  security->m_chain.m_isBodyCut = true;
+  char* body = static_WELLKNOWNBody();
+  TEST_ASSERT_EQUAL_STRING(
+    R"x({"checked_at":")x" WELLKNOWN_FIX_CHECKED_AT R"x(",)x" WELLKNOWN_FOUND_ROBOTS_TXT
+    R"x(,"security_txt":{"status":"too_large","url":"https://www.example.com/.well-known/security.txt","status_code":200,"redirect_count":1}})x" "\n", body);
+  free(body);
+}
+
+void test_WELLKNOWN_not_fetched_with_redirect_to_golden(void)
+{
+  static_WELLKNOWNReset();
+  static_WELLKNOWNFillRobots();
+  WellKnownSecurityTxt_t* security = &g_WELLKNOWNRecord.m_report.m_securityTxt;
+  security->m_status = WELL_KNOWN_SECURITY_TXT_NOT_FETCHED;
+  static_WELLKNOWNAddHop(&security->m_chain, "https://example.com/.well-known/security.txt", 302);
+  security->m_chain.m_stopReason     = HEADER_FETCH_STOP_OFF_SITE;
+  security->m_chain.mp_unfollowedUrl = (char*)"https://cdn.example.net/security.txt";
+  char* body = static_WELLKNOWNBody();
+  TEST_ASSERT_EQUAL_STRING(
+    R"x({"checked_at":")x" WELLKNOWN_FIX_CHECKED_AT R"x(",)x" WELLKNOWN_FOUND_ROBOTS_TXT
+    R"x(,"security_txt":{"status":"not_fetched","url":"https://example.com/.well-known/security.txt","status_code":302,"redirect_count":0,)x"
+    R"x("redirect_to":"https://cdn.example.net/security.txt"}})x" "\n", body);
+  free(body);
+}
+
+void test_WELLKNOWN_throttled_golden(void)
+{
+  static_WELLKNOWNReset();
+  g_WELLKNOWNRecord.m_isThrottled       = true;
+  g_WELLKNOWNRecord.m_retryAfterSeconds = 47;
+  char* body = static_WELLKNOWNBody();
+  TEST_ASSERT_EQUAL_STRING(
+    R"x({"checked_at":")x" WELLKNOWN_FIX_CHECKED_AT R"x(","reason":"quota_exhausted","retry_after_seconds":47,"robots_txt":null,"security_txt":null})x" "\n", body);
+  free(body);
+}
+
+void test_WELLKNOWN_cuts_a_value_and_a_url_after_500_code_points(void)
+{
+  static char long_body[2100];
+  memset(long_body, 'u', 501);
+  memset(long_body + 501, 'a', 500);
+  memset(long_body + 1001, 's', 501);
+  memset(long_body + 1502, 'c', 501);
+  long_body[2003] = '\0';
+  static char robots_url[501];
+  static char security_url[502];
+  static char content_type[502];
+  static char redirect_to[502];
+  snprintf(robots_url, sizeof(robots_url), "https://example.com/%0480d", 0);
+  snprintf(security_url, sizeof(security_url), "https://example.com/%0481d", 0);
+  memset(content_type, 't', 501);
+  content_type[501] = '\0';
+  memset(redirect_to, 'r', 501);
+  redirect_to[501] = '\0';
+  TEST_ASSERT_EQUAL_size_t(500, strlen(robots_url));
+  TEST_ASSERT_EQUAL_size_t(501, strlen(security_url));
+
+  static_WELLKNOWNReset();
+  WellKnownRobotsGate_t* gate = &g_WELLKNOWNRecord.m_report.m_robotsGate;
+  gate->m_state = WELL_KNOWN_ROBOTS_FILE_READ;
+  static_WELLKNOWNAddHop(&gate->m_chain, robots_url, 200);
+  gate->m_chain.mp_body   = long_body;
+  gate->m_chain.m_bodyLen = 1502;
+  memset(g_WELLKNOWNGroups, 0, sizeof(g_WELLKNOWNGroups));
+  g_WELLKNOWNGroups[0].m_lineNumber          = 1;
+  g_WELLKNOWNGroups[0].m_userAgentCount      = 1;
+  g_WELLKNOWNGroups[0].m_ruleCount           = 1;
+  g_WELLKNOWNUserAgents[0] = RobotsTxtSpan_t{ 0, 501, 1 };
+  g_WELLKNOWNRules[0].m_kind    = ROBOTSTXT_RULE_ALLOW;
+  g_WELLKNOWNRules[0].m_pattern = RobotsTxtSpan_t{ 501, 500, 2 };
+  g_WELLKNOWNSitemaps[0]   = RobotsTxtSpan_t{ 1001, 501, 3 };
+  gate->m_robots.mp_groups = g_WELLKNOWNGroups;
+  gate->m_robots.m_groupKeptCount  = gate->m_robots.m_groupTotalCount = 1;
+  gate->m_robots.mp_rules  = g_WELLKNOWNRules;
+  gate->m_robots.m_ruleKeptCount   = gate->m_robots.m_ruleTotalCount = 1;
+  gate->m_robots.mp_userAgents = g_WELLKNOWNUserAgents;
+  gate->m_robots.m_userAgentKeptCount = gate->m_robots.m_userAgentTotalCount = 1;
+  gate->m_robots.mp_sitemaps = g_WELLKNOWNSitemaps;
+  gate->m_robots.m_sitemapKeptCount = gate->m_robots.m_sitemapTotalCount = 1;
+
+  WellKnownSecurityTxt_t* security = &g_WELLKNOWNRecord.m_report.m_securityTxt;
+  security->m_status = WELL_KNOWN_SECURITY_TXT_FOUND;
+  static_WELLKNOWNAddHop(&security->m_chain, security_url, 200);
+  security->m_chain.mp_body   = long_body;
+  security->m_chain.m_bodyLen = 2003;
+  g_WELLKNOWNSecurityHeaders[WELL_KNOWN_PLAIN_TEXT_CHECK_HEADER_CONTENT_TYPE]     = content_type;
+  g_WELLKNOWNSecurityHeaders[WELL_KNOWN_PLAIN_TEXT_CHECK_HEADER_CONTENT_ENCODING] = NULL;
+  security->m_chain.mp_capturedHeaderValues    = g_WELLKNOWNSecurityHeaders;
+  security->m_chain.m_capturedHeaderValueCount = WELL_KNOWN_PLAIN_TEXT_CHECK_HEADER_COUNT;
+  security->m_report.ma_values[SECURITYTXT_FIELD_CONTACT][0]           = SecurityTxtSpan_t{ 1502, 501, 1 };
+  security->m_report.ma_valueKeptCount[SECURITYTXT_FIELD_CONTACT]       = 1;
+  security->m_report.ma_valueTotalCount[SECURITYTXT_FIELD_CONTACT]      = 1;
+  security->m_report.ma_values[SECURITYTXT_FIELD_EXPIRES][0]           = SecurityTxtSpan_t{ 0, 501, 2 };
+  security->m_report.ma_valueKeptCount[SECURITYTXT_FIELD_EXPIRES]       = 1;
+  security->m_report.ma_valueTotalCount[SECURITYTXT_FIELD_EXPIRES]      = 1;
+
+  std::string u500(500, 'u'), a500(500, 'a'), s500(500, 's'), c500(500, 'c'), t500(500, 't'), r500(500, 'r');
+  std::string security_url_500(security_url, 500);
+  std::string expected_robots = std::string(R"x("robots_txt":{"url":")x") + robots_url + R"x(","status_code":200,"redirect_count":0,)x"
+    R"x("groups":[{"line":1,"user_agents":[")x" + u500 + R"x("],"allow":[")x" + a500 + R"x("],"disallow":[],"crawl_delay":null}],)x"
+    R"x("sitemaps":[")x" + s500 + R"x("],"issues":[],"by_severity":{"warning":0,"info":0}})x";
+
+  char* body = static_WELLKNOWNBody();
+  std::string expected = std::string(R"x({"checked_at":")x") + WELLKNOWN_FIX_CHECKED_AT + R"x(",)x" + expected_robots +
+    R"x(,"security_txt":{"status":"found","url":")x" + security_url_500 + R"x(","total_url_length":501,"status_code":200,"redirect_count":0,)x"
+    R"x("content_type":")x" + t500 + R"x(","openpgp_signed":false,"expires":")x" + u500 + R"x(","contact":[")x" + c500 +
+    R"x("],"encryption":[],"acknowledgments":[],"preferred_languages":[],"canonical":[],"policy":[],"hiring":[],"csaf":[],)x"
+    R"x("unknown_field_count":0,"issues":[],"by_severity":{"error":0,"warning":0,"info":0}}})x" "\n";
+  TEST_ASSERT_EQUAL_STRING(expected.c_str(), body);
+  free(body);
+
+  memset(&security->m_report, 0, sizeof(security->m_report));
+  security->m_status                 = WELL_KNOWN_SECURITY_TXT_NOT_FETCHED;
+  security->m_chain.ma_hops[0].m_httpStatus = 302;
+  security->m_chain.mp_unfollowedUrl = redirect_to;
+  body = static_WELLKNOWNBody();
+  expected = std::string(R"x({"checked_at":")x") + WELLKNOWN_FIX_CHECKED_AT + R"x(",)x" + expected_robots +
+    R"x(,"security_txt":{"status":"not_fetched","url":")x" + security_url_500 + R"x(","total_url_length":501,"status_code":302,"redirect_count":0,)x"
+    R"x("redirect_to":")x" + r500 + R"x(","total_redirect_to_length":501}})x" "\n";
+  TEST_ASSERT_EQUAL_STRING(expected.c_str(), body);
+  free(body);
+}
+
+void test_WELLKNOWN_escapes_a_bidi_code_point_an_invalid_byte_and_a_nul(void)
+{
+  static const char contact_body[] = "a\xe2\x80\xae" "b\xff" "c";
+  static const char sitemap_body[] = "x\0y";
+  static_WELLKNOWNReset();
+  static_WELLKNOWNFillRobots();
+  static_WELLKNOWNFillFound();
+  WellKnownRobotsGate_t* gate = &g_WELLKNOWNRecord.m_report.m_robotsGate;
+  gate->m_chain.mp_body   = (char*)sitemap_body;
+  gate->m_chain.m_bodyLen = 3;
+  gate->m_robots.m_groupKeptCount  = 0;
+  gate->m_robots.m_groupTotalCount = 0;
+  gate->m_robots.m_ruleKeptCount   = 0;
+  gate->m_robots.m_ruleTotalCount  = 0;
+  g_WELLKNOWNSitemaps[0] = RobotsTxtSpan_t{ 0, 3, 1 };
+  WellKnownSecurityTxt_t* security = &g_WELLKNOWNRecord.m_report.m_securityTxt;
+  security->m_chain.mp_body   = (char*)contact_body;
+  security->m_chain.m_bodyLen = sizeof(contact_body) - 1;
+  memset(security->m_report.ma_valueKeptCount, 0, sizeof(security->m_report.ma_valueKeptCount));
+  memset(security->m_report.ma_valueTotalCount, 0, sizeof(security->m_report.ma_valueTotalCount));
+  security->m_report.ma_values[SECURITYTXT_FIELD_CONTACT][0]     = SecurityTxtSpan_t{ 0, sizeof(contact_body) - 1, 1 };
+  security->m_report.ma_valueKeptCount[SECURITYTXT_FIELD_CONTACT]  = 1;
+  security->m_report.ma_valueTotalCount[SECURITYTXT_FIELD_CONTACT] = 1;
+  char* body = static_WELLKNOWNBody();
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(body, R"x("groups":[],"sitemaps":["x\u0000y"],)x"), body);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(body, "\"expires\":null,\"contact\":[\"a\\u202eb\xef\xbf\xbd" "c\"],\"encryption\":[]"), body);
+  free(body);
+}
+
+void test_WELLKNOWN_writes_each_total_only_past_its_cap(void)
+{
+  static_WELLKNOWNReset();
+  static_WELLKNOWNFillRobots();
+  static_WELLKNOWNFillFound();
+  RobotsTxt_t* robots = &g_WELLKNOWNRecord.m_report.m_robotsGate.m_robots;
+  robots->m_groupTotalCount   = 9;
+  robots->m_ruleTotalCount    = 11;
+  robots->m_sitemapTotalCount = 13;
+  robots->m_issueTotalCount   = 15;
+  g_WELLKNOWNGroups[0].m_crawlDelaySeconds = 1234.5;
+  robots->ma_issueCountBySeverity[ROBOTSTXT_SEVERITY_WARNING] = 4;
+  robots->ma_issueCountBySeverity[ROBOTSTXT_SEVERITY_INFO]    = 11;
+  SecurityTxtReport_t* report = &g_WELLKNOWNRecord.m_report.m_securityTxt.m_report;
+  report->ma_valueTotalCount[SECURITYTXT_FIELD_CONTACT]             = 21;
+  report->ma_valueTotalCount[SECURITYTXT_FIELD_ENCRYPTION]          = 22;
+  report->ma_valueTotalCount[SECURITYTXT_FIELD_ACKNOWLEDGMENTS]     = 23;
+  report->ma_valueTotalCount[SECURITYTXT_FIELD_PREFERRED_LANGUAGES] = 24;
+  report->ma_valueTotalCount[SECURITYTXT_FIELD_CANONICAL]           = 25;
+  report->ma_valueTotalCount[SECURITYTXT_FIELD_POLICY]              = 26;
+  report->ma_valueTotalCount[SECURITYTXT_FIELD_HIRING]              = 27;
+  report->ma_valueTotalCount[SECURITYTXT_FIELD_CSAF]                = 28;
+  report->ma_valueTotalCount[SECURITYTXT_FIELD_EXPIRES]             = 29;
+  report->m_issueTotalCount = 31;
+  report->ma_issueCountBySeverity[SECURITYTXT_SEVERITY_ERROR]   = 6;
+  report->ma_issueCountBySeverity[SECURITYTXT_SEVERITY_WARNING] = 7;
+  report->ma_issueCountBySeverity[SECURITYTXT_SEVERITY_INFO]    = 18;
+  char* body = static_WELLKNOWNBody();
+  TEST_ASSERT_EQUAL_STRING(
+    R"x({"checked_at":")x" WELLKNOWN_FIX_CHECKED_AT R"x(","robots_txt":{"url":"https://www.example.com/robots.txt","status_code":200,"redirect_count":1,)x"
+    R"x("groups":[{"line":1,"user_agents":["*"],"allow":["/public/"],"disallow":["/private/"],"crawl_delay":1234.5},)x"
+    R"x({"line":6,"user_agents":["ContrastAPI"],"allow":[],"disallow":["/.well-known/"],"crawl_delay":null}],"total_groups":9,"total_rules":11,)x"
+    R"x("sitemaps":["https://www.example.com/sitemap.xml"],"total_sitemaps":13,)x"
+    R"x("issues":[{"code":"sitemap_not_absolute","severity":"info","field":"sitemap","line":8}],"total_issues":15,"by_severity":{"warning":4,"info":11}},)x"
+    R"x("security_txt":{"status":"found","url":"https://www.example.com/.well-known/security.txt","status_code":200,"redirect_count":0,)x"
+    R"x("content_type":"text/plain; charset=utf-8","openpgp_signed":false,"expires":"2027-01-01T00:00:00Z",)x"
+    R"x("contact":["mailto:security@example.com","https://example.com/report"],"total_contact":21,"encryption":["https://example.com/pgp.asc"],"total_encryption":22,)x"
+    R"x("acknowledgments":["https://example.com/thanks"],"total_acknowledgments":23,"preferred_languages":["en","fr"],"total_preferred_languages":24,)x"
+    R"x("canonical":["https://www.example.com/.well-known/security.txt"],"total_canonical":25,"policy":["https://example.com/policy"],"total_policy":26,)x"
+    R"x("hiring":["https://example.com/jobs"],"total_hiring":27,"csaf":["https://example.com/.well-known/csaf/provider-metadata.json"],"total_csaf":28,)x"
+    R"x("unknown_field_count":3,"issues":[{"code":"content_type_invalid","severity":"error","field":null,"line":null}],"total_issues":31,)x"
+    R"x("by_severity":{"error":6,"warning":7,"info":18}}})x" "\n", body);
+  free(body);
+}
+
+void test_WELLKNOWN_writer_warnings_follow_a_full_issue_list(void)
+{
+  static_WELLKNOWNReset();
+  static_WELLKNOWNFillRobots();
+  static_WELLKNOWNFillFound();
+  WellKnownRobotsGate_t* gate = &g_WELLKNOWNRecord.m_report.m_robotsGate;
+  gate->m_chain.m_stopReason   = HEADER_FETCH_STOP_REQUEST_LIMIT;
+  gate->m_hasContentEncoding   = true;
+  RobotsTxt_t* robots = &gate->m_robots;
+  for (int i = 0; i < ROBOTSTXT_MAX_ISSUE_COUNT; i++)
+  {
+    robots->ma_issues[i].m_issueCode  = ROBOTSTXT_ISSUE_LINE_SYNTAX_INVALID;
+    robots->ma_issues[i].m_field      = ROBOTSTXT_DIRECTIVE_NONE;
+    robots->ma_issues[i].m_lineNumber = i + 1;
+  }
+  robots->m_issueKeptCount  = ROBOTSTXT_MAX_ISSUE_COUNT;
+  robots->m_issueTotalCount = 60;
+  robots->ma_issueCountBySeverity[ROBOTSTXT_SEVERITY_WARNING] = 3;
+  robots->ma_issueCountBySeverity[ROBOTSTXT_SEVERITY_INFO]    = 57;
+  WellKnownSecurityTxt_t* security = &g_WELLKNOWNRecord.m_report.m_securityTxt;
+  security->m_chain.m_stopReason = HEADER_FETCH_STOP_REQUEST_LIMIT;
+  security->m_hasContentEncoding = true;
+  SecurityTxtReport_t* report = &security->m_report;
+  for (int i = 0; i < SECURITYTXT_MAX_ISSUE_COUNT; i++)
+  {
+    report->ma_issues[i].m_issueCode  = SECURITYTXT_ISSUE_FIELD_EMPTY;
+    report->ma_issues[i].m_field      = SECURITYTXT_FIELD_POLICY;
+    report->ma_issues[i].m_lineNumber = i + 11;
+  }
+  report->m_issueKeptCount  = SECURITYTXT_MAX_ISSUE_COUNT;
+  report->m_issueTotalCount = 55;
+  report->ma_issueCountBySeverity[SECURITYTXT_SEVERITY_ERROR]   = 0;
+  report->ma_issueCountBySeverity[SECURITYTXT_SEVERITY_WARNING] = 55;
+  report->ma_issueCountBySeverity[SECURITYTXT_SEVERITY_INFO]    = 0;
+
+  static const char WARNINGS[] =
+    R"x({"code":"redirect_limit_reached","severity":"warning","field":null,"line":null},)x"
+    R"x({"code":"content_encoded","severity":"warning","field":null,"line":null}])x";
+  std::string robots_issues = R"x("issues":[)x";
+  std::string security_issues = R"x("issues":[)x";
+  for (int i = 0; i < 50; i++)
+  {
+    robots_issues   += R"x({"code":"line_syntax_invalid","severity":"info","field":null,"line":)x" + std::to_string(i + 1) + "},";
+    security_issues += R"x({"code":"field_empty","severity":"warning","field":"policy","line":)x" + std::to_string(i + 11) + "},";
+  }
+  robots_issues   += std::string(WARNINGS) + R"x(,"total_issues":62,"by_severity":{"warning":5,"info":57}})x";
+  security_issues += std::string(WARNINGS) + R"x(,"total_issues":57,"by_severity":{"error":0,"warning":57,"info":0}}})x";
+  char* body = static_WELLKNOWNBody();
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(body, (R"x("sitemaps":["https://www.example.com/sitemap.xml"],)x" + robots_issues + ",").c_str()), body);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(body, (R"x("unknown_field_count":3,)x" + security_issues + "\n").c_str()), body);
+  free(body);
+}
+
+void test_WELLKNOWN_group_lists_hold_each_item_once_with_commas(void)
+{
+  static_WELLKNOWNReset();
+  static_WELLKNOWNFillRobots();
+  static_WELLKNOWNFillFound();
+  g_WELLKNOWNGroups[0].m_userAgentCount = 2;
+  g_WELLKNOWNGroups[0].m_ruleCount      = 3;
+  g_WELLKNOWNRecord.m_report.m_robotsGate.m_robots.m_groupKeptCount  = 1;
+  g_WELLKNOWNRecord.m_report.m_robotsGate.m_robots.m_groupTotalCount = 1;
+  char* body = static_WELLKNOWNBody();
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(body, R"x("groups":[{"line":1,"user_agents":["*","ContrastAPI"],"allow":["/public/"],"disallow":["/private/","/.well-known/"],"crawl_delay":2.5}],"sitemaps":)x"), body);
+  free(body);
 }
 
 #define WHOISLOOKUP_FIX_SERVER "https://rdap.fixture.test/rdap/"
@@ -10595,6 +11190,7 @@ int main(void)
   RUN_TEST(test_error_code_is_escaped);
   RUN_TEST(test_error_with_retry_after_golden);
   RUN_TEST(test_error_with_retry_after_writes_the_largest_wait);
+  RUN_TEST(test_error_with_retry_after_names_the_upgrade_url);
   RUN_TEST(test_CVELOOKUP_not_found_names_each_cve_org_state);
   RUN_TEST(test_CVELOOKUP_not_found_of_an_unchecked_state_is_the_plain_miss);
   RUN_TEST(test_CVERISKSCORE_golden);
@@ -10832,6 +11428,20 @@ int main(void)
   RUN_TEST(test_HEADERSCHECK_long_url_and_redirect_target_are_cut_at_a_whole_character);
   RUN_TEST(test_HEADERSCHECK_value_is_escaped);
   RUN_TEST(test_HEADERSCHECK_set_cookie_value_is_never_written);
+  RUN_TEST(test_WELLKNOWN_found_golden);
+  RUN_TEST(test_WELLKNOWN_found_without_content_type_and_expires_writes_null);
+  RUN_TEST(test_WELLKNOWN_robots_disallowed_golden);
+  RUN_TEST(test_WELLKNOWN_robots_disallowed_without_a_request_or_a_rule);
+  RUN_TEST(test_WELLKNOWN_robots_unknown_golden);
+  RUN_TEST(test_WELLKNOWN_not_found_golden);
+  RUN_TEST(test_WELLKNOWN_too_large_golden);
+  RUN_TEST(test_WELLKNOWN_not_fetched_with_redirect_to_golden);
+  RUN_TEST(test_WELLKNOWN_throttled_golden);
+  RUN_TEST(test_WELLKNOWN_cuts_a_value_and_a_url_after_500_code_points);
+  RUN_TEST(test_WELLKNOWN_escapes_a_bidi_code_point_an_invalid_byte_and_a_nul);
+  RUN_TEST(test_WELLKNOWN_writes_each_total_only_past_its_cap);
+  RUN_TEST(test_WELLKNOWN_writer_warnings_follow_a_full_issue_list);
+  RUN_TEST(test_WELLKNOWN_group_lists_hold_each_item_once_with_commas);
   RUN_TEST(test_WHOISLOOKUP_full_registration_golden);
   RUN_TEST(test_WHOISLOOKUP_empty_texts_and_missing_iana_id_are_null_golden);
   RUN_TEST(test_WHOISLOOKUP_dnssec_signed_true_false_null_and_iana_id_zero);

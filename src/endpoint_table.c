@@ -14,6 +14,7 @@
 #include "ipguard.h"
 #include "tlsprobe.h"
 #include "header_fetch.h"
+#include "well_known.h"
 #include "vendorkey.h"
 #include "keyvault.h"
 #include "watchlist/watchlist.h"
@@ -1304,6 +1305,17 @@ static const EndpointParam_t HEADERSCHECK_PARAMS[] = {
   },
 };
 
+static const EndpointParam_t WELLKNOWN_PARAMS[] = {
+  {
+    .mp_spec              = &SPEC_DOMAIN,
+    .m_sources            = ENDPOINT_PARAM_SRC_REST_PATH_SEGMENT | ENDPOINT_PARAM_SRC_MCP_ARG,
+    .m_isRequired         = true,
+    .mp_mcpArgDescription = "Host name of the site, such as www.example.com",
+    .m_offset             = offsetof(WELLKNOWNParams_t, ma_hostname),
+    .m_size               = MACRO_FIELD_SIZE(WELLKNOWNParams_t, ma_hostname),
+  },
+};
+
 static const EndpointParam_t WHOISLOOKUP_PARAMS[] = {
   {
     .mp_spec              = &SPEC_DOMAIN,
@@ -2133,6 +2145,26 @@ const Endpoint_t endpoints[] = {
     .m_paramsSize              = sizeof(HEADERSCHECKParams_t),
     .m_runFunction             = endpoint_HEADERSCHECKRun,
     .m_isDbRequired            = false,
+    .m_callsUpstream           = true,
+    .m_jsonCeiling             = JSONBUF_DEFAULT_CEILING,
+  },
+  {
+    .mp_httpPath               = "/well_known/",
+    .m_hasPathSegment          = true,
+    .ma_allowedMethods         = {"GET", NULL},
+    .m_isPayable               = true,
+    .mp_mcpToolName            = "well_known",
+    .mp_mcpToolDescription     = "Read robots.txt of https://<domain> and, if it allows us, /.well-known/security.txt, with up to " MACRO_STR(HEADER_FETCH_MAX_REDIRECT_COUNT) " redirects on the host or its www pair. Gives the rules that bind us, sitemaps, fields such as Contact and Expires, and RFC 9309/9116 issues.",
+    .mp_mcpToolTitle           = "Robots.txt and security.txt Check",
+    .m_mcpToolCategory         = ENDPOINT_MCP_TOOL_CATEGORY_DOMAIN,
+    .m_mcpToolEffect           = ENDPOINT_MCP_TOOL_EFFECT_READ_ONLY,
+    .m_creditCost              = 1,
+    .m_costRule                = ENDPOINT_COST_FLAT,
+    .mp_params                 = WELLKNOWN_PARAMS,
+    .m_paramCount              = (int)(sizeof(WELLKNOWN_PARAMS) / sizeof(WELLKNOWN_PARAMS[0])),
+    .m_paramsSize              = sizeof(WELLKNOWNParams_t),
+    .m_runFunction             = endpoint_WELLKNOWNRun,
+    .m_isDbRequired            = true,
     .m_callsUpstream           = true,
     .m_jsonCeiling             = JSONBUF_DEFAULT_CEILING,
   },

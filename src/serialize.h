@@ -11,6 +11,7 @@
 #include "emailcheck.h"
 #include "tlsprobe.h"
 #include "header_fetch.h"
+#include "well_known.h"
 #include "external/rdap.h"
 #include "external/wayback.h"
 #include "external/cveservices.h"
@@ -51,6 +52,7 @@ void   serialize_EMAILAUTHCHECK_response                    (const EMAILAUTHCHEC
 void   serialize_EMAILADDRESSCHECK_response                 (const EMAILADDRESSCHECKRecord_t* record, JsonBuf_t* json_buf);
 void   serialize_SSLCHECK_response                          (const SSLCHECKRecord_t* record, JsonBuf_t* json_buf);
 void   serialize_HEADERSCHECK_response                      (const HEADERSCHECKRecord_t* record, const HEADERSCHECKParams_t* params, JsonBuf_t* json_buf);
+void   serialize_WELLKNOWN_response                         (const WELLKNOWNRecord_t* record, JsonBuf_t* json_buf);
 void   serialize_WHOISLOOKUP_response                       (const WHOISLOOKUPRecord_t* record, JsonBuf_t* json_buf);
 void   serialize_WAYBACKLOOKUP_response                     (const WAYBACKLOOKUPRecord_t* record, JsonBuf_t* json_buf);
 void   serialize_CERTSEARCH_response                        (const CERTSEARCHRecord_t* record, JsonBuf_t* json_buf);
@@ -73,6 +75,6 @@ void   serialize_APIKEYCLAIM_response                       (const char* api_key
 void   serialize_VENDORKEYEDIT_applyResponse                (const VENDORKEYEDITApplyResult_t* result, JsonBuf_t* json_buf);
 void   serialize_VENDORKEYEDIT_statusResponse               (const VENDORKEYEDITStatusResult_t* result, JsonBuf_t* json_buf);
 void   serialize_error_response                             (const char* code, const char* message, JsonBuf_t* json_buf);
-void   serialize_errorWithRetryAfter_response               (const char* code, const char* message, unsigned int retry_after_sec, JsonBuf_t* json_buf);
+void   serialize_errorWithRetryAfter_response               (const char* code, const char* message, unsigned int retry_after_sec, bool has_upgrade_url, JsonBuf_t* json_buf);
 
 #endif

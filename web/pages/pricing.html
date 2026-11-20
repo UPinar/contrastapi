@@ -43,7 +43,7 @@
       {
         "@type": "Question",
         "name": "What's actually behind the API?",
-        "acceptedAnswer": { "@type": "Answer", "text": "Security data in one API: CVEs (EPSS, CISA KEV, risk scores, affected products), public exploits, open-source package advisories, vulnerable Windows drivers, domains (DNS, subdomain takeover, email authentication, email address checks, TLS, security headers, RDAP/WHOIS, Wayback Machine captures, subdomains, certificates), IP addresses and autonomous systems, CWE, CVSS vectors and D3FEND, breached passwords and image metadata. A Pro key adds monitoring of CVEs, products, CVE searches, packages, domains and IP addresses. Every endpoint but /image_inspect is also an MCP tool. See every endpoint." }
+        "acceptedAnswer": { "@type": "Answer", "text": "Security data in one API: CVEs (EPSS, CISA KEV, risk scores, affected products), public exploits, open-source package advisories, vulnerable Windows drivers, domains (DNS, subdomain takeover, email authentication, email address checks, TLS, security headers, robots.txt and security.txt, RDAP/WHOIS, Wayback Machine captures, subdomains, certificates), IP addresses and autonomous systems, CWE, CVSS vectors and D3FEND, breached passwords and image metadata. A Pro key adds monitoring of CVEs, products, CVE searches, packages, domains and IP addresses. Every endpoint but /image_inspect is also an MCP tool. See every endpoint." }
       },
       {
         "@type": "Question",
@@ -110,7 +110,7 @@
         <dd>Yes. @@RL_ANON_CREDIT_LIMIT@@ credits/hour per IPv4 address or IPv6 /64. Every endpoint and every MCP tool is open to all callers, except monitoring (the watchlist tools), which needs an API key. Pro also raises the hourly credit budget.</dd>
 
         <dt>What's actually behind the API?</dt>
-        <dd>Security data in one API: CVEs (EPSS, CISA KEV, risk scores, affected products), public exploits, open-source package advisories, vulnerable Windows drivers, domains (DNS, subdomain takeover, email authentication, email address checks, TLS, security headers, RDAP/WHOIS, Wayback Machine captures, subdomains, certificates), IP addresses and autonomous systems, CWE, CVSS vectors and D3FEND, breached passwords and image metadata. A Pro key adds monitoring of CVEs, products, CVE searches, packages, domains and IP addresses. Every endpoint but /image_inspect is also an MCP tool. <a href="/">See every endpoint</a>.</dd>
+        <dd>Security data in one API: CVEs (EPSS, CISA KEV, risk scores, affected products), public exploits, open-source package advisories, vulnerable Windows drivers, domains (DNS, subdomain takeover, email authentication, email address checks, TLS, security headers, robots.txt and security.txt, RDAP/WHOIS, Wayback Machine captures, subdomains, certificates), IP addresses and autonomous systems, CWE, CVSS vectors and D3FEND, breached passwords and image metadata. A Pro key adds monitoring of CVEs, products, CVE searches, packages, domains and IP addresses. Every endpoint but /image_inspect is also an MCP tool. <a href="/">See every endpoint</a>.</dd>
 
         <dt>How do I use this with Claude / Cursor / an MCP client?</dt>
         <dd>See the <a href="/mcp-setup">MCP setup guide</a>. One JSON config, streamable-http transport, no key required for the Free tier.</dd>

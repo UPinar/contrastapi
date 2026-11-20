@@ -14,6 +14,8 @@
 #include "emailcheck.h"
 #include "external/cveservices.h"
 #include "header_check.h"
+#include "robotstxt.h"
+#include "securitytxt.h"
 
 #define PRIVACYMYDATA_UTC_TIME_BUF_SIZE 32
 
@@ -680,7 +682,7 @@ void serialize_error_response(const char* code, const char* message, JsonBuf_t* 
   jsonbuf_appendFormat(json_buf, R"("}})" "\n");
 }
 
-void serialize_errorWithRetryAfter_response(const char* code, const char* message, unsigned int retry_after_sec, JsonBuf_t* json_buf)
+void serialize_errorWithRetryAfter_response(const char* code, const char* message, unsigned int retry_after_sec, bool has_upgrade_url, JsonBuf_t* json_buf)
 {
   assert(json_buf != NULL);
 
@@ -688,7 +690,10 @@ void serialize_errorWithRetryAfter_response(const char* code, const char* messag
   jsonbuf_appendEscaped(json_buf, code);
   jsonbuf_appendFormat(json_buf, R"(","message":")");
   jsonbuf_appendEscaped(json_buf, message);
-  jsonbuf_appendFormat(json_buf, R"(","retry_after_seconds":%u}})" "\n", retry_after_sec);
+  jsonbuf_appendFormat(json_buf, R"(","retry_after_seconds":%u)", retry_after_sec);
+  if (has_upgrade_url)
+    jsonbuf_appendFormat(json_buf, R"(,"upgrade_url":")" PRICING_PAGE_URL R"(")");
+  jsonbuf_appendFormat(json_buf, "}}\n");
 }
 
 static const char* static_CVELOOKUPIdStateMessage(CveServicesCveIdState_t state)
@@ -1730,6 +1735,304 @@ void serialize_HEADERSCHECK_response(const HEADERSCHECKRecord_t* record, const H
     static_HEADERSCHECKWriteFinding(&record->m_report.ma_findings[i], params->m_isFullHeaderValueIncluded, json_buf);
   }
   jsonbuf_appendFormat(json_buf, "]}\n");
+}
+
+#define WELLKNOWN_REDIRECT_LIMIT_REACHED_ISSUE_CODE  "redirect_limit_reached"
+#define WELLKNOWN_CONTENT_ENCODED_ISSUE_CODE         "content_encoded"
+
+static const SecurityTxtField_t WELLKNOWN_SECURITY_TXT_FIELD_ORDER[] = {
+  SECURITYTXT_FIELD_CONTACT,
+  SECURITYTXT_FIELD_ENCRYPTION,
+  SECURITYTXT_FIELD_ACKNOWLEDGMENTS,
+  SECURITYTXT_FIELD_PREFERRED_LANGUAGES,
+  SECURITYTXT_FIELD_CANONICAL,
+  SECURITYTXT_FIELD_POLICY,
+  SECURITYTXT_FIELD_HIRING,
+  SECURITYTXT_FIELD_CSAF,
+};
+
+static void static_WELLKNOWNWriteValue(const char* bytes, size_t byte_len, JsonBuf_t* json_buf)
+{
+  jsonbuf_appendFormat(json_buf, "\"");
+  if (bytes != NULL)
+  {
+    size_t code_point_count = 0;
+    jsonbuf_appendEscapedBytes(json_buf, bytes, header_check_shownSpanLength(bytes, byte_len, &code_point_count));
+  }
+  jsonbuf_appendFormat(json_buf, "\"");
+}
+
+static void static_WELLKNOWNWriteUrl(const char* member_name, const char* url, JsonBuf_t* json_buf)
+{
+  size_t url_len          = strlen(url);
+  size_t code_point_count = 0;
+  size_t shown_len        = header_check_shownSpanLength(url, url_len, &code_point_count);
+  jsonbuf_appendFormat(json_buf, R"("%s":")", member_name);
+  jsonbuf_appendEscapedBytes(json_buf, url, shown_len);
+  jsonbuf_appendFormat(json_buf, "\"");
+  if (code_point_count > HEADER_CHECK_SHOWN_VALUE_MAX_CODE_POINTS)
+    jsonbuf_appendFormat(json_buf, R"(,"total_%s_length":%zu)", member_name, code_point_count);
+}
+
+static bool static_WELLKNOWNWriteRequestMembers(const HeaderFetchChain_t* chain, bool is_first_member, JsonBuf_t* json_buf)
+{
+  if (chain->m_hopCount <= 0)
+    return false;
+
+  const HeaderFetchHop_t* last_hop = &chain->ma_hops[chain->m_hopCount - 1];
+  if (!is_first_member)
+    jsonbuf_appendFormat(json_buf, ",");
+  static_WELLKNOWNWriteUrl("url", last_hop->mp_url, json_buf);
+  jsonbuf_appendFormat(json_buf, R"(,"status_code":%d,"redirect_count":%d)", last_hop->m_httpStatus, chain->m_hopCount - 1);
+  if (chain->mp_unfollowedUrl != NULL)
+  {
+    jsonbuf_appendFormat(json_buf, ",");
+    static_WELLKNOWNWriteUrl("redirect_to", chain->mp_unfollowedUrl, json_buf);
+  }
+  return true;
+}
+
+static void static_WELLKNOWNWriteIssue(bool is_first_issue, const char* issue_code, const char* severity, const char* field, int line_number, JsonBuf_t* json_buf)
+{
+  jsonbuf_appendFormat(json_buf, R"(%s{"code":"%s","severity":"%s","field":)", is_first_issue ? "" : ",", issue_code, severity);
+  if (field != NULL)
+    jsonbuf_appendFormat(json_buf, R"("%s")", field);
+  else
+    jsonbuf_appendFormat(json_buf, "null");
+  if (line_number > 0)
+    jsonbuf_appendFormat(json_buf, R"(,"line":%d})", line_number);
+  else
+    jsonbuf_appendFormat(json_buf, R"(,"line":null})");
+}
+
+static int static_WELLKNOWNWriteWriterWarnings(const HeaderFetchChain_t* chain, bool has_content_encoding, bool has_earlier_issue, const char* warning_name, JsonBuf_t* json_buf)
+{
+  int warning_count = 0;
+  if (chain->m_stopReason == HEADER_FETCH_STOP_REQUEST_LIMIT)
+  {
+    static_WELLKNOWNWriteIssue(!has_earlier_issue, WELLKNOWN_REDIRECT_LIMIT_REACHED_ISSUE_CODE, warning_name, NULL, 0, json_buf);
+    warning_count++;
+  }
+  if (has_content_encoding)
+  {
+    static_WELLKNOWNWriteIssue(!has_earlier_issue && warning_count == 0, WELLKNOWN_CONTENT_ENCODED_ISSUE_CODE, warning_name, NULL, 0, json_buf);
+    warning_count++;
+  }
+  return warning_count;
+}
+
+static void static_WELLKNOWNWriteRules(const RobotsTxt_t* robots, const char* body, const RobotsTxtGroup_t* group, RobotsTxtRuleKind_t kind, JsonBuf_t* json_buf)
+{
+  jsonbuf_appendFormat(json_buf, "[");
+  bool is_first_rule = true;
+  for (int i = group->m_ruleStartIndex; i < group->m_ruleStartIndex + group->m_ruleCount; i++)
+  {
+    const RobotsTxtRule_t* rule = &robots->mp_rules[i];
+    if (rule->m_kind != kind)
+      continue;
+    if (!is_first_rule)
+      jsonbuf_appendFormat(json_buf, ",");
+    static_WELLKNOWNWriteValue(body != NULL ? body + rule->m_pattern.m_offset : NULL, rule->m_pattern.m_len, json_buf);
+    is_first_rule = false;
+  }
+  jsonbuf_appendFormat(json_buf, "]");
+}
+
+static void static_WELLKNOWNWriteRobotsTxt(const WellKnownRobotsGate_t* gate, JsonBuf_t* json_buf)
+{
+  static const RobotsTxt_t NO_ROBOTS = { 0 };
+  const RobotsTxt_t* robots = gate->m_state == WELL_KNOWN_ROBOTS_FILE_READ ? &gate->m_robots : &NO_ROBOTS;
+  const char*        body   = gate->m_chain.mp_body;
+
+  jsonbuf_appendFormat(json_buf, "{");
+  bool has_request = static_WELLKNOWNWriteRequestMembers(&gate->m_chain, true, json_buf);
+  jsonbuf_appendFormat(json_buf, has_request ? R"(,"groups":[)" : R"("groups":[)");
+  for (int i = 0; i < robots->m_groupKeptCount; i++)
+  {
+    const RobotsTxtGroup_t* group = &robots->mp_groups[i];
+    jsonbuf_appendFormat(json_buf, R"(%s{"line":%d,"user_agents":[)", i > 0 ? "," : "", group->m_lineNumber);
+    for (int j = 0; j < group->m_userAgentCount; j++)
+    {
+      const RobotsTxtSpan_t* user_agent = &robots->mp_userAgents[group->m_userAgentStartIndex + j];
+      if (j > 0)
+        jsonbuf_appendFormat(json_buf, ",");
+      static_WELLKNOWNWriteValue(body != NULL ? body + user_agent->m_offset : NULL, user_agent->m_len, json_buf);
+    }
+    jsonbuf_appendFormat(json_buf, R"(],"allow":)");
+    static_WELLKNOWNWriteRules(robots, body, group, ROBOTSTXT_RULE_ALLOW, json_buf);
+    jsonbuf_appendFormat(json_buf, R"(,"disallow":)");
+    static_WELLKNOWNWriteRules(robots, body, group, ROBOTSTXT_RULE_DISALLOW, json_buf);
+    if (group->m_hasCrawlDelay)
+      jsonbuf_appendFormat(json_buf, R"(,"crawl_delay":%.15g})", group->m_crawlDelaySeconds);
+    else
+      jsonbuf_appendFormat(json_buf, R"(,"crawl_delay":null})");
+  }
+  jsonbuf_appendFormat(json_buf, "]");
+  if (robots->m_groupTotalCount > robots->m_groupKeptCount)
+    jsonbuf_appendFormat(json_buf, R"(,"total_groups":%d)", robots->m_groupTotalCount);
+  if (robots->m_ruleTotalCount > robots->m_ruleKeptCount)
+    jsonbuf_appendFormat(json_buf, R"(,"total_rules":%d)", robots->m_ruleTotalCount);
+
+  jsonbuf_appendFormat(json_buf, R"(,"sitemaps":[)");
+  for (int i = 0; i < robots->m_sitemapKeptCount; i++)
+  {
+    if (i > 0)
+      jsonbuf_appendFormat(json_buf, ",");
+    static_WELLKNOWNWriteValue(body != NULL ? body + robots->mp_sitemaps[i].m_offset : NULL, robots->mp_sitemaps[i].m_len, json_buf);
+  }
+  jsonbuf_appendFormat(json_buf, "]");
+  if (robots->m_sitemapTotalCount > robots->m_sitemapKeptCount)
+    jsonbuf_appendFormat(json_buf, R"(,"total_sitemaps":%d)", robots->m_sitemapTotalCount);
+
+  jsonbuf_appendFormat(json_buf, R"(,"issues":[)");
+  int issue_count = 0;
+  for (; issue_count < robots->m_issueKeptCount && issue_count < ROBOTSTXT_MAX_ISSUE_COUNT; issue_count++)
+  {
+    const RobotsTxtIssue_t* issue = &robots->ma_issues[issue_count];
+    static_WELLKNOWNWriteIssue(issue_count == 0,
+                               robotstxt_issueCodeName(issue->m_issueCode),
+                               robotstxt_severityName(robotstxt_issueSeverity(issue->m_issueCode)),
+                               robotstxt_directiveName(issue->m_field),
+                               issue->m_lineNumber,
+                               json_buf);
+  }
+  int warning_count = static_WELLKNOWNWriteWriterWarnings(&gate->m_chain, gate->m_hasContentEncoding, issue_count > 0, robotstxt_severityName(ROBOTSTXT_SEVERITY_WARNING), json_buf);
+  jsonbuf_appendFormat(json_buf, "]");
+  if (robots->m_issueTotalCount > robots->m_issueKeptCount)
+    jsonbuf_appendFormat(json_buf, R"(,"total_issues":%d)", robots->m_issueTotalCount + warning_count);
+  jsonbuf_appendFormat(json_buf, R"(,"by_severity":{"warning":%d,"info":%d}})",
+                       robots->ma_issueCountBySeverity[ROBOTSTXT_SEVERITY_WARNING] + warning_count,
+                       robots->ma_issueCountBySeverity[ROBOTSTXT_SEVERITY_INFO]);
+}
+
+static const char* static_WELLKNOWNSecurityTxtStatusName(WellKnownSecurityTxtStatus_t status)
+{
+  switch (status)
+  {
+    case WELL_KNOWN_SECURITY_TXT_NOT_FETCHED:
+      return "not_fetched";
+    case WELL_KNOWN_SECURITY_TXT_FOUND:
+      return "found";
+    case WELL_KNOWN_SECURITY_TXT_NOT_FOUND:
+      return "not_found";
+    case WELL_KNOWN_SECURITY_TXT_TOO_LARGE:
+      return "too_large";
+    case WELL_KNOWN_SECURITY_TXT_ROBOTS_DISALLOWED:
+      return "robots_disallowed";
+    case WELL_KNOWN_SECURITY_TXT_ROBOTS_UNKNOWN:
+      return "robots_unknown";
+    case WELL_KNOWN_SECURITY_TXT_UNAVAILABLE:
+      return "unavailable";
+  }
+  return "";
+}
+
+static void static_WELLKNOWNWriteFoundSecurityTxt(const WellKnownSecurityTxt_t* security, JsonBuf_t* json_buf)
+{
+  const SecurityTxtReport_t* report = &security->m_report;
+  const HeaderFetchChain_t*  chain  = &security->m_chain;
+  const char*                body   = chain->mp_body;
+
+  const char* content_type = WELL_KNOWN_PLAIN_TEXT_CHECK_HEADER_CONTENT_TYPE < chain->m_capturedHeaderValueCount
+                               ? chain->mp_capturedHeaderValues[WELL_KNOWN_PLAIN_TEXT_CHECK_HEADER_CONTENT_TYPE]
+                               : NULL;
+  jsonbuf_appendFormat(json_buf, R"(,"content_type":)");
+  if (content_type != NULL)
+    static_WELLKNOWNWriteValue(content_type, strlen(content_type), json_buf);
+  else
+    jsonbuf_appendFormat(json_buf, "null");
+  jsonbuf_appendFormat(json_buf, R"(,"openpgp_signed":%s,"expires":)", report->m_isOpenPgpSigned ? "true" : "false");
+  if (report->ma_valueKeptCount[SECURITYTXT_FIELD_EXPIRES] > 0)
+  {
+    const SecurityTxtSpan_t* expires = &report->ma_values[SECURITYTXT_FIELD_EXPIRES][0];
+    static_WELLKNOWNWriteValue(body != NULL ? body + expires->m_offset : NULL, expires->m_len, json_buf);
+  }
+  else
+    jsonbuf_appendFormat(json_buf, "null");
+
+  for (size_t i = 0; i < sizeof(WELLKNOWN_SECURITY_TXT_FIELD_ORDER) / sizeof(WELLKNOWN_SECURITY_TXT_FIELD_ORDER[0]); i++)
+  {
+    SecurityTxtField_t field      = WELLKNOWN_SECURITY_TXT_FIELD_ORDER[i];
+    const char*        field_name = securitytxt_fieldName(field);
+    jsonbuf_appendFormat(json_buf, R"(,"%s":[)", field_name);
+    for (int j = 0; j < report->ma_valueKeptCount[field] && j < SECURITYTXT_MAX_VALUE_COUNT; j++)
+    {
+      const SecurityTxtSpan_t* value = &report->ma_values[field][j];
+      if (j > 0)
+        jsonbuf_appendFormat(json_buf, ",");
+      static_WELLKNOWNWriteValue(body != NULL ? body + value->m_offset : NULL, value->m_len, json_buf);
+    }
+    jsonbuf_appendFormat(json_buf, "]");
+    if (report->ma_valueTotalCount[field] > report->ma_valueKeptCount[field])
+      jsonbuf_appendFormat(json_buf, R"(,"total_%s":%d)", field_name, report->ma_valueTotalCount[field]);
+  }
+
+  jsonbuf_appendFormat(json_buf, R"(,"unknown_field_count":%d,"issues":[)", report->m_unknownFieldCount);
+  int issue_count = 0;
+  for (; issue_count < report->m_issueKeptCount && issue_count < SECURITYTXT_MAX_ISSUE_COUNT; issue_count++)
+  {
+    const SecurityTxtIssue_t* issue = &report->ma_issues[issue_count];
+    static_WELLKNOWNWriteIssue(issue_count == 0,
+                               securitytxt_issueCodeName(issue->m_issueCode),
+                               securitytxt_severityName(securitytxt_issueSeverity(issue->m_issueCode)),
+                               securitytxt_fieldName(issue->m_field),
+                               issue->m_lineNumber,
+                               json_buf);
+  }
+  int warning_count = static_WELLKNOWNWriteWriterWarnings(chain, security->m_hasContentEncoding, issue_count > 0, securitytxt_severityName(SECURITYTXT_SEVERITY_WARNING), json_buf);
+  jsonbuf_appendFormat(json_buf, "]");
+  if (report->m_issueTotalCount > report->m_issueKeptCount)
+    jsonbuf_appendFormat(json_buf, R"(,"total_issues":%d)", report->m_issueTotalCount + warning_count);
+  jsonbuf_appendFormat(json_buf, R"(,"by_severity":{"error":%d,"warning":%d,"info":%d})",
+                       report->ma_issueCountBySeverity[SECURITYTXT_SEVERITY_ERROR],
+                       report->ma_issueCountBySeverity[SECURITYTXT_SEVERITY_WARNING] + warning_count,
+                       report->ma_issueCountBySeverity[SECURITYTXT_SEVERITY_INFO]);
+}
+
+static void static_WELLKNOWNWriteSecurityTxt(const WellKnownReport_t* report, JsonBuf_t* json_buf)
+{
+  const WellKnownSecurityTxt_t* security = &report->m_securityTxt;
+  jsonbuf_appendFormat(json_buf, R"({"status":"%s")", static_WELLKNOWNSecurityTxtStatusName(security->m_status));
+  static_WELLKNOWNWriteRequestMembers(&security->m_chain, false, json_buf);
+  if (security->m_status == WELL_KNOWN_SECURITY_TXT_ROBOTS_DISALLOWED)
+  {
+    const WellKnownRobotsGate_t* gate       = &report->m_robotsGate;
+    int                          rule_index = security->m_pathRobotsVerdict.m_decidingRuleIndexInRules;
+    if (gate->m_state == WELL_KNOWN_ROBOTS_FILE_READ && rule_index >= 0 && rule_index < gate->m_robots.m_ruleKeptCount)
+    {
+      const RobotsTxtRule_t* rule = &gate->m_robots.mp_rules[rule_index];
+      jsonbuf_appendFormat(json_buf, R"(,"deciding_rule":{"line":%d,"kind":"%s","path":)",
+                           rule->m_pattern.m_lineNumber,
+                           rule->m_kind == ROBOTSTXT_RULE_ALLOW ? "allow" : "disallow");
+      static_WELLKNOWNWriteValue(gate->m_chain.mp_body != NULL ? gate->m_chain.mp_body + rule->m_pattern.m_offset : NULL, rule->m_pattern.m_len, json_buf);
+      jsonbuf_appendFormat(json_buf, "}");
+    }
+    else
+      jsonbuf_appendFormat(json_buf, R"(,"deciding_rule":null)");
+  }
+  else if (security->m_status == WELL_KNOWN_SECURITY_TXT_FOUND)
+    static_WELLKNOWNWriteFoundSecurityTxt(security, json_buf);
+  jsonbuf_appendFormat(json_buf, "}");
+}
+
+void serialize_WELLKNOWN_response(const WELLKNOWNRecord_t* record, JsonBuf_t* json_buf)
+{
+  assert(record   != NULL);
+  assert(json_buf != NULL);
+  assert(record->m_isThrottled || record->m_report.m_securityTxt.m_status != WELL_KNOWN_SECURITY_TXT_UNAVAILABLE);
+
+  jsonbuf_appendFormat(json_buf, "{");
+  static_writeTextOrNull("checked_at", record->ma_checkedAt, json_buf);
+  if (record->m_isThrottled)
+  {
+    jsonbuf_appendFormat(json_buf, R"(,"reason":"quota_exhausted","retry_after_seconds":%u,"robots_txt":null,"security_txt":null})" "\n", record->m_retryAfterSeconds);
+    return;
+  }
+  jsonbuf_appendFormat(json_buf, R"(,"robots_txt":)");
+  static_WELLKNOWNWriteRobotsTxt(&record->m_report.m_robotsGate, json_buf);
+  jsonbuf_appendFormat(json_buf, R"(,"security_txt":)");
+  static_WELLKNOWNWriteSecurityTxt(&record->m_report, json_buf);
+  jsonbuf_appendFormat(json_buf, "}\n");
 }
 
 static const char* static_WHOISLOOKUPUnavailableReasonText(WHOISLOOKUPUnavailableReason_t unavailable_reason)

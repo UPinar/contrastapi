@@ -20,12 +20,6 @@
 
 #define WELL_KNOWN_IDENTITY_ENCODING "identity"
 
-typedef enum {
-  WELL_KNOWN_PLAIN_TEXT_CHECK_HEADER_CONTENT_TYPE = 0,
-  WELL_KNOWN_PLAIN_TEXT_CHECK_HEADER_CONTENT_ENCODING,
-  WELL_KNOWN_PLAIN_TEXT_CHECK_HEADER_COUNT
-} WellKnownPlainTextCheckHeader_t;
-
 static const char* const WELL_KNOWN_PLAIN_TEXT_CHECK_HEADER_NAMES[WELL_KNOWN_PLAIN_TEXT_CHECK_HEADER_COUNT + 1] = {
   [WELL_KNOWN_PLAIN_TEXT_CHECK_HEADER_CONTENT_TYPE]     = "Content-Type",
   [WELL_KNOWN_PLAIN_TEXT_CHECK_HEADER_CONTENT_ENCODING] = "Content-Encoding",
@@ -193,7 +187,7 @@ static void static_readSecurityTxtAnswer(const char* hostname, int64_t now_epoch
   }
   else if (static_isHttpStatusInClass(http_status, 3))
     report->m_securityTxt.m_status = WELL_KNOWN_SECURITY_TXT_NOT_FETCHED;
-  else if (static_isHttpStatusInClass(http_status, 5))
+  else if (http_status == 429 || static_isHttpStatusInClass(http_status, 5))
     report->m_securityTxt.m_status = WELL_KNOWN_SECURITY_TXT_UNAVAILABLE;
   else if (static_isHttpStatusInClass(http_status, 2) && chain->m_isBodyCut)
     report->m_securityTxt.m_status = WELL_KNOWN_SECURITY_TXT_TOO_LARGE;

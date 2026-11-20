@@ -166,6 +166,7 @@ CVESERVICES_STUB_OBJ   = tests/cveservices_stub.o
 CERTSPOTTER_STUB_OBJ   = tests/certspotter_stub.o
 SUBDOMAIN_STUB_OBJ     = tests/subdomain_stub.o
 HEADER_FETCH_STUB_OBJ  = tests/header_fetch_stub.o
+WELL_KNOWN_STUB_OBJ    = tests/well_known_stub.o
 QUOTA_STUB_OBJ         = tests/quota_stub.o
 THROTTLE_STUB_OBJ      = tests/throttle_stub.o
 WHOIS_STUB_OBJ         = tests/whois_stub.o
@@ -201,9 +202,9 @@ OPENAPI_OBJ            = obj/openapi.o
 # those. The link fails without any one of them.
 OPENAPI_TABLE_OBJS     = obj/endpoint.o obj/endpoint_table.o obj/endpoint_run.o obj/cveidstate.o obj/endpoint_run_watchlist.o obj/endpoint_run_billing.o obj/jsoncanon.o $(NOWPAYMENTS_STUB_OBJ) $(VENDORKEY_RUN_OBJS) obj/billing.o obj/datetime.o obj/auth.o obj/registryask.o obj/registryask_table.o obj/endpoint_weight.o obj/imagescan.o obj/imageindicator.o \
                          $(EXIFCLIENT_STUB_OBJ) $(EMAILCHECK_STUB_OBJ) obj/emailcheck_table.o $(TLSPROBE_STUB_OBJ) $(CACHE_STUB_OBJ) $(RDAP_STUB_OBJ) \
-                         $(WAYBACK_STUB_OBJ) $(CVESERVICES_STUB_OBJ) obj/upstream.o $(CERTSPOTTER_STUB_OBJ) $(SUBDOMAIN_STUB_OBJ) $(HEADER_FETCH_STUB_OBJ) $(QUOTA_STUB_OBJ) $(THROTTLE_STUB_OBJ) \
+                         $(WAYBACK_STUB_OBJ) $(CVESERVICES_STUB_OBJ) obj/upstream.o $(CERTSPOTTER_STUB_OBJ) $(SUBDOMAIN_STUB_OBJ) $(HEADER_FETCH_STUB_OBJ) $(WELL_KNOWN_STUB_OBJ) $(QUOTA_STUB_OBJ) $(THROTTLE_STUB_OBJ) \
                          $(WHOIS_STUB_OBJ) obj/monotonic.o obj/etld.o obj/etld_table.o obj/watchlist/watchlist.o obj/query.o obj/jsonread.o obj/serialize.o \
-                         obj/tlsprobe_table.o obj/header_check.o obj/jsonbuf.o obj/utf8.o obj/cvss.o obj/validate.o obj/ipguard.o obj/response.o \
+                         obj/tlsprobe_table.o obj/header_check.o obj/robotstxt.o obj/securitytxt.o obj/jsonbuf.o obj/utf8.o obj/cvss.o obj/validate.o obj/ipguard.o obj/response.o \
                          $(STUB_OBJ) $(CVE_EXPLOIT_STUB_OBJ) $(HIBP_STUB_OBJ) $(DNS_STUB_OBJ) obj/usagelog.o obj/bytes.o
 
 $(UNITY_OBJ): tests/unity/unity.c
@@ -375,9 +376,10 @@ bin/test_header_check: tests/test_header_check.c obj/header_check.o obj/utf8.o o
 # a request to CVE.org, certspotter_stub in place of obj/external/certspotter.o, which would send
 # a request to Cert Spotter, subdomain_stub in place of obj/subdomain.o, which would ask the
 # resolver about the names under a domain, header_fetch_stub in place of obj/header_fetch.o,
-# which would fetch the site a test names, and whois_stub in place of obj/external/whois.o and
+# which would fetch the site a test names, well_known_stub in place of obj/well_known.o,
+# which would fetch its robots.txt and security.txt, and whois_stub in place of obj/external/whois.o and
 # obj/external/whois_table.o, which would send a WHOIS query. They link throttle_stub in
-# place of obj/throttle.o, so a test can answer the count of the whois_lookup run without a
+# place of obj/throttle.o, so a test can answer the count of the whois_lookup and well_known runs without a
 # database. They link quota_stub in place of obj/quota.o, so a test can answer the count of
 # the wayback_lookup, cert_search, subdomain_enum and cve_lookup runs and the hold of the
 # password_check, whois_lookup, wayback_lookup, cert_search, subdomain_enum and cve_lookup runs. The wayback_lookup and health runs read monotonic_nowMs, so each of the ten
@@ -386,13 +388,14 @@ bin/test_header_check: tests/test_header_check.c obj/header_check.o obj/utf8.o o
 # obj/upstream.o. The whois_lookup run asks through the real obj/registryask.o and
 # obj/registryask_table.o, which call only the rdap, whois, throttle and quota stubs.
 # They link the real obj/etld.o and obj/etld_table.o, which use no network, and the real
-# obj/header_check.o, which the headers_check run and its writer in serialize.o call. The
+# obj/header_check.o, which the headers_check run and its writer in serialize.o call, and the
+# real obj/robotstxt.o and obj/securitytxt.o, whose names the well_known writer reads. The
 # ssl_check writer in serialize.o names each certificate problem with the real
 # obj/tlsprobe_table.o.
-bin/test_handler: tests/test_handler.c obj/handler.o obj/endpoint.o obj/endpoint_table.o obj/endpoint_run.o obj/cveidstate.o obj/endpoint_run_watchlist.o obj/endpoint_run_billing.o obj/jsoncanon.o $(NOWPAYMENTS_STUB_OBJ) $(VENDORKEY_RUN_OBJS) obj/billing.o obj/datetime.o obj/auth.o obj/registryask.o obj/registryask_table.o obj/endpoint_weight.o obj/imagescan.o obj/imageindicator.o $(EXIFCLIENT_STUB_OBJ) $(EMAILCHECK_STUB_OBJ) obj/emailcheck_table.o $(TLSPROBE_STUB_OBJ) $(CACHE_STUB_OBJ) $(RDAP_STUB_OBJ) $(WAYBACK_STUB_OBJ) $(CVESERVICES_STUB_OBJ) obj/upstream.o $(CERTSPOTTER_STUB_OBJ) $(SUBDOMAIN_STUB_OBJ) $(HEADER_FETCH_STUB_OBJ) $(QUOTA_STUB_OBJ) $(THROTTLE_STUB_OBJ) $(X402_PAID_PATH_TEST_OBJS) $(WHOIS_STUB_OBJ) obj/etld.o obj/etld_table.o obj/watchlist/watchlist.o obj/cvss.o obj/response.o obj/db.o obj/db_watchlist.o obj/ssvc.o obj/dbhelper.o obj/validate.o obj/query.o obj/serialize.o obj/tlsprobe_table.o obj/header_check.o obj/jsonbuf.o obj/utf8.o obj/cve_exploit.o obj/external/hibp.o obj/retryafter.o obj/dns.o obj/dns_table.o obj/monotonic.o obj/http.o obj/ipguard.o obj/jsonread.o obj/jsonrpc.o obj/mcp.o obj/picohttpparser.o obj/usagelog.o obj/bytes.o $(UNITY_OBJ) | bin
+bin/test_handler: tests/test_handler.c obj/handler.o obj/endpoint.o obj/endpoint_table.o obj/endpoint_run.o obj/cveidstate.o obj/endpoint_run_watchlist.o obj/endpoint_run_billing.o obj/jsoncanon.o $(NOWPAYMENTS_STUB_OBJ) $(VENDORKEY_RUN_OBJS) obj/billing.o obj/datetime.o obj/auth.o obj/registryask.o obj/registryask_table.o obj/endpoint_weight.o obj/imagescan.o obj/imageindicator.o $(EXIFCLIENT_STUB_OBJ) $(EMAILCHECK_STUB_OBJ) obj/emailcheck_table.o $(TLSPROBE_STUB_OBJ) $(CACHE_STUB_OBJ) $(RDAP_STUB_OBJ) $(WAYBACK_STUB_OBJ) $(CVESERVICES_STUB_OBJ) obj/upstream.o $(CERTSPOTTER_STUB_OBJ) $(SUBDOMAIN_STUB_OBJ) $(HEADER_FETCH_STUB_OBJ) $(WELL_KNOWN_STUB_OBJ) $(QUOTA_STUB_OBJ) $(THROTTLE_STUB_OBJ) $(X402_PAID_PATH_TEST_OBJS) $(WHOIS_STUB_OBJ) obj/etld.o obj/etld_table.o obj/watchlist/watchlist.o obj/cvss.o obj/response.o obj/db.o obj/db_watchlist.o obj/ssvc.o obj/dbhelper.o obj/validate.o obj/query.o obj/serialize.o obj/tlsprobe_table.o obj/header_check.o obj/robotstxt.o obj/securitytxt.o obj/jsonbuf.o obj/utf8.o obj/cve_exploit.o obj/external/hibp.o obj/retryafter.o obj/dns.o obj/dns_table.o obj/monotonic.o obj/http.o obj/ipguard.o obj/jsonread.o obj/jsonrpc.o obj/mcp.o obj/picohttpparser.o obj/usagelog.o obj/bytes.o $(UNITY_OBJ) | bin
 	$(CC) $(TEST_CFLAGS) -o $@ $^ $(LDFLAGS) -Wl,--wrap=EVP_Digest
 
-bin/test_router: tests/test_router.c obj/router.o obj/pages.o obj/endpoint.o obj/endpoint_table.o obj/endpoint_run.o obj/cveidstate.o obj/endpoint_run_watchlist.o obj/endpoint_run_billing.o obj/jsoncanon.o $(NOWPAYMENTS_STUB_OBJ) $(VENDORKEY_RUN_OBJS) obj/billing.o obj/datetime.o obj/auth.o obj/registryask.o obj/registryask_table.o obj/endpoint_weight.o obj/imagescan.o obj/imageindicator.o $(EXIFCLIENT_STUB_OBJ) $(EMAILCHECK_STUB_OBJ) obj/emailcheck_table.o $(TLSPROBE_STUB_OBJ) $(CACHE_STUB_OBJ) $(RDAP_STUB_OBJ) $(WAYBACK_STUB_OBJ) $(CVESERVICES_STUB_OBJ) obj/upstream.o $(CERTSPOTTER_STUB_OBJ) $(SUBDOMAIN_STUB_OBJ) $(HEADER_FETCH_STUB_OBJ) $(QUOTA_STUB_OBJ) $(THROTTLE_STUB_OBJ) $(X402_PAID_PATH_TEST_OBJS) $(WHOIS_STUB_OBJ) obj/etld.o obj/etld_table.o obj/watchlist/watchlist.o obj/handler.o obj/cvss.o obj/response.o obj/db.o obj/db_watchlist.o obj/ssvc.o obj/dbhelper.o obj/validate.o obj/query.o obj/serialize.o obj/tlsprobe_table.o obj/header_check.o obj/jsonbuf.o obj/utf8.o obj/cve_exploit.o obj/external/hibp.o obj/retryafter.o obj/dns.o obj/dns_table.o obj/monotonic.o obj/http.o obj/ipguard.o obj/jsonread.o obj/jsonrpc.o obj/mcp.o obj/picohttpparser.o obj/usagelog.o obj/bytes.o $(UNITY_OBJ) | bin
+bin/test_router: tests/test_router.c obj/router.o obj/pages.o obj/endpoint.o obj/endpoint_table.o obj/endpoint_run.o obj/cveidstate.o obj/endpoint_run_watchlist.o obj/endpoint_run_billing.o obj/jsoncanon.o $(NOWPAYMENTS_STUB_OBJ) $(VENDORKEY_RUN_OBJS) obj/billing.o obj/datetime.o obj/auth.o obj/registryask.o obj/registryask_table.o obj/endpoint_weight.o obj/imagescan.o obj/imageindicator.o $(EXIFCLIENT_STUB_OBJ) $(EMAILCHECK_STUB_OBJ) obj/emailcheck_table.o $(TLSPROBE_STUB_OBJ) $(CACHE_STUB_OBJ) $(RDAP_STUB_OBJ) $(WAYBACK_STUB_OBJ) $(CVESERVICES_STUB_OBJ) obj/upstream.o $(CERTSPOTTER_STUB_OBJ) $(SUBDOMAIN_STUB_OBJ) $(HEADER_FETCH_STUB_OBJ) $(WELL_KNOWN_STUB_OBJ) $(QUOTA_STUB_OBJ) $(THROTTLE_STUB_OBJ) $(X402_PAID_PATH_TEST_OBJS) $(WHOIS_STUB_OBJ) obj/etld.o obj/etld_table.o obj/watchlist/watchlist.o obj/handler.o obj/cvss.o obj/response.o obj/db.o obj/db_watchlist.o obj/ssvc.o obj/dbhelper.o obj/validate.o obj/query.o obj/serialize.o obj/tlsprobe_table.o obj/header_check.o obj/robotstxt.o obj/securitytxt.o obj/jsonbuf.o obj/utf8.o obj/cve_exploit.o obj/external/hibp.o obj/retryafter.o obj/dns.o obj/dns_table.o obj/monotonic.o obj/http.o obj/ipguard.o obj/jsonread.o obj/jsonrpc.o obj/mcp.o obj/picohttpparser.o obj/usagelog.o obj/bytes.o $(UNITY_OBJ) | bin
 	$(CC) $(TEST_CFLAGS) -o $@ $^ $(LDFLAGS)
 
 # The endpoint table names every REST handler, and the handlers call the table's
@@ -403,7 +406,7 @@ bin/test_router: tests/test_router.c obj/router.o obj/pages.o obj/endpoint.o obj
 # --wrap=dns_askQuestions,--wrap=dns_answerFree: the watchlist_edit run asks DNS for the name
 # of a domain item's add. The fake answers with the status a test sets, and the wrapped free
 # counts the frees and calls the real one. Calls inside obj/dns.o are not wrapped.
-bin/test_endpoint: tests/test_endpoint.c obj/endpoint.o obj/endpoint_table.o obj/endpoint_run.o obj/cveidstate.o obj/endpoint_run_watchlist.o obj/endpoint_run_billing.o obj/jsoncanon.o $(NOWPAYMENTS_STUB_OBJ) $(VENDORKEY_RUN_OBJS) obj/billing.o obj/datetime.o obj/auth.o obj/registryask.o obj/registryask_table.o obj/endpoint_weight.o obj/imagescan.o obj/imageindicator.o $(EXIFCLIENT_STUB_OBJ) $(EMAILCHECK_STUB_OBJ) obj/emailcheck_table.o $(TLSPROBE_STUB_OBJ) $(CACHE_STUB_OBJ) $(RDAP_STUB_OBJ) $(WAYBACK_STUB_OBJ) $(CVESERVICES_STUB_OBJ) obj/upstream.o $(CERTSPOTTER_STUB_OBJ) $(SUBDOMAIN_STUB_OBJ) $(HEADER_FETCH_STUB_OBJ) $(QUOTA_STUB_OBJ) $(THROTTLE_STUB_OBJ) $(X402_PAID_PATH_TEST_OBJS) $(WHOIS_STUB_OBJ) obj/etld.o obj/etld_table.o obj/watchlist/watchlist.o obj/handler.o obj/cvss.o obj/response.o obj/db.o obj/db_watchlist.o obj/ssvc.o obj/dbhelper.o obj/validate.o obj/query.o obj/serialize.o obj/tlsprobe_table.o obj/header_check.o obj/jsonbuf.o obj/utf8.o obj/cve_exploit.o obj/external/hibp.o obj/retryafter.o obj/dns.o obj/dns_table.o obj/monotonic.o obj/http.o obj/ipguard.o obj/jsonread.o obj/jsonrpc.o obj/mcp.o obj/picohttpparser.o obj/usagelog.o obj/bytes.o $(UNITY_OBJ) | bin
+bin/test_endpoint: tests/test_endpoint.c obj/endpoint.o obj/endpoint_table.o obj/endpoint_run.o obj/cveidstate.o obj/endpoint_run_watchlist.o obj/endpoint_run_billing.o obj/jsoncanon.o $(NOWPAYMENTS_STUB_OBJ) $(VENDORKEY_RUN_OBJS) obj/billing.o obj/datetime.o obj/auth.o obj/registryask.o obj/registryask_table.o obj/endpoint_weight.o obj/imagescan.o obj/imageindicator.o $(EXIFCLIENT_STUB_OBJ) $(EMAILCHECK_STUB_OBJ) obj/emailcheck_table.o $(TLSPROBE_STUB_OBJ) $(CACHE_STUB_OBJ) $(RDAP_STUB_OBJ) $(WAYBACK_STUB_OBJ) $(CVESERVICES_STUB_OBJ) obj/upstream.o $(CERTSPOTTER_STUB_OBJ) $(SUBDOMAIN_STUB_OBJ) $(HEADER_FETCH_STUB_OBJ) $(WELL_KNOWN_STUB_OBJ) $(QUOTA_STUB_OBJ) $(THROTTLE_STUB_OBJ) $(X402_PAID_PATH_TEST_OBJS) $(WHOIS_STUB_OBJ) obj/etld.o obj/etld_table.o obj/watchlist/watchlist.o obj/handler.o obj/cvss.o obj/response.o obj/db.o obj/db_watchlist.o obj/ssvc.o obj/dbhelper.o obj/validate.o obj/query.o obj/serialize.o obj/tlsprobe_table.o obj/header_check.o obj/robotstxt.o obj/securitytxt.o obj/jsonbuf.o obj/utf8.o obj/cve_exploit.o obj/external/hibp.o obj/retryafter.o obj/dns.o obj/dns_table.o obj/monotonic.o obj/http.o obj/ipguard.o obj/jsonread.o obj/jsonrpc.o obj/mcp.o obj/picohttpparser.o obj/usagelog.o obj/bytes.o $(UNITY_OBJ) | bin
 	$(CC) $(TEST_CFLAGS) -o $@ $^ -Wl,--wrap=monotonic_nowMs,--wrap=dns_askQuestions,--wrap=dns_answerFree $(LDFLAGS)
 
 # --wrap=mmap and --wrap=munmap: tests/test_contrastapi.c checks that connection_serveRequest
@@ -412,7 +415,7 @@ bin/test_endpoint: tests/test_endpoint.c obj/endpoint.o obj/endpoint_table.o obj
 # explicit_bzero into __explicit_bzero_chk, so that one is wrapped too.
 # --wrap=endpoint_findByHttpPath: request.o finds the test file's raw body rows beside the
 # table's. Calls inside obj/endpoint.o are not wrapped.
-bin/test_contrastapi: tests/test_contrastapi.c obj/connection.o obj/request.o obj/receive.o obj/upstream.o obj/rawbody.o obj/picohttpparser.o obj/auth.o obj/router.o obj/pages.o obj/pages_table.o obj/web_assets.o obj/endpoint.o obj/endpoint_table.o obj/endpoint_run.o obj/cveidstate.o obj/endpoint_run_watchlist.o obj/endpoint_run_billing.o obj/jsoncanon.o $(NOWPAYMENTS_STUB_OBJ) $(VENDORKEY_RUN_OBJS) obj/billing.o obj/datetime.o obj/auth.o obj/registryask.o obj/registryask_table.o obj/endpoint_weight.o obj/imagescan.o obj/imageindicator.o $(EXIFCLIENT_STUB_OBJ) $(EMAILCHECK_STUB_OBJ) obj/emailcheck_table.o $(TLSPROBE_STUB_OBJ) $(CACHE_STUB_OBJ) $(RDAP_STUB_OBJ) $(WAYBACK_STUB_OBJ) $(CVESERVICES_STUB_OBJ) $(CERTSPOTTER_STUB_OBJ) $(SUBDOMAIN_STUB_OBJ) $(HEADER_FETCH_STUB_OBJ) $(QUOTA_STUB_OBJ) $(THROTTLE_STUB_OBJ) $(X402_PAID_PATH_TEST_OBJS) $(WHOIS_STUB_OBJ) obj/etld.o obj/etld_table.o obj/watchlist/watchlist.o obj/handler.o obj/cvss.o obj/response.o obj/db.o obj/db_watchlist.o obj/ssvc.o obj/dbhelper.o obj/ratelimit.o obj/validate.o obj/query.o obj/serialize.o obj/tlsprobe_table.o obj/header_check.o obj/jsonbuf.o obj/utf8.o obj/cve_exploit.o obj/external/hibp.o obj/retryafter.o obj/dns.o obj/dns_table.o obj/monotonic.o obj/http.o obj/ipguard.o obj/jsonread.o obj/jsonrpc.o obj/mcp.o $(REQUEST_TEXT_OBJ) obj/usagelog.o obj/bytes.o $(UNITY_OBJ) | bin
+bin/test_contrastapi: tests/test_contrastapi.c obj/connection.o obj/request.o obj/receive.o obj/upstream.o obj/rawbody.o obj/picohttpparser.o obj/auth.o obj/router.o obj/pages.o obj/pages_table.o obj/web_assets.o obj/endpoint.o obj/endpoint_table.o obj/endpoint_run.o obj/cveidstate.o obj/endpoint_run_watchlist.o obj/endpoint_run_billing.o obj/jsoncanon.o $(NOWPAYMENTS_STUB_OBJ) $(VENDORKEY_RUN_OBJS) obj/billing.o obj/datetime.o obj/auth.o obj/registryask.o obj/registryask_table.o obj/endpoint_weight.o obj/imagescan.o obj/imageindicator.o $(EXIFCLIENT_STUB_OBJ) $(EMAILCHECK_STUB_OBJ) obj/emailcheck_table.o $(TLSPROBE_STUB_OBJ) $(CACHE_STUB_OBJ) $(RDAP_STUB_OBJ) $(WAYBACK_STUB_OBJ) $(CVESERVICES_STUB_OBJ) $(CERTSPOTTER_STUB_OBJ) $(SUBDOMAIN_STUB_OBJ) $(HEADER_FETCH_STUB_OBJ) $(WELL_KNOWN_STUB_OBJ) $(QUOTA_STUB_OBJ) $(THROTTLE_STUB_OBJ) $(X402_PAID_PATH_TEST_OBJS) $(WHOIS_STUB_OBJ) obj/etld.o obj/etld_table.o obj/watchlist/watchlist.o obj/handler.o obj/cvss.o obj/response.o obj/db.o obj/db_watchlist.o obj/ssvc.o obj/dbhelper.o obj/ratelimit.o obj/validate.o obj/query.o obj/serialize.o obj/tlsprobe_table.o obj/header_check.o obj/robotstxt.o obj/securitytxt.o obj/jsonbuf.o obj/utf8.o obj/cve_exploit.o obj/external/hibp.o obj/retryafter.o obj/dns.o obj/dns_table.o obj/monotonic.o obj/http.o obj/ipguard.o obj/jsonread.o obj/jsonrpc.o obj/mcp.o $(REQUEST_TEXT_OBJ) obj/usagelog.o obj/bytes.o $(UNITY_OBJ) | bin
 	$(CC) $(TEST_CFLAGS) -o $@ $^ $(LDFLAGS) -Wl,--wrap=mmap,--wrap=munmap,--wrap=explicit_bzero,--wrap=__explicit_bzero_chk,--wrap=endpoint_findByHttpPath
 
 # DB_HIT_OBJS lists the objects of bin/test_db_hit apart from Unity and request_text.
@@ -424,10 +427,10 @@ DB_HIT_OBJS = obj/request.o obj/receive.o obj/upstream.o obj/rawbody.o obj/picoh
               obj/registryask_table.o obj/endpoint_weight.o obj/imagescan.o obj/imageindicator.o \
               $(EXIFCLIENT_STUB_OBJ) $(EMAILCHECK_STUB_OBJ) obj/emailcheck_table.o \
               $(TLSPROBE_STUB_OBJ) $(CACHE_STUB_OBJ) $(RDAP_STUB_OBJ) $(WAYBACK_STUB_OBJ) \
-              $(CVESERVICES_STUB_OBJ) $(CERTSPOTTER_STUB_OBJ) $(SUBDOMAIN_STUB_OBJ) $(HEADER_FETCH_STUB_OBJ) \
+              $(CVESERVICES_STUB_OBJ) $(CERTSPOTTER_STUB_OBJ) $(SUBDOMAIN_STUB_OBJ) $(HEADER_FETCH_STUB_OBJ) $(WELL_KNOWN_STUB_OBJ) \
               $(QUOTA_STUB_OBJ) $(THROTTLE_STUB_OBJ) $(X402_PAID_PATH_TEST_OBJS) $(WHOIS_STUB_OBJ) obj/monotonic.o obj/etld.o \
               obj/etld_table.o obj/watchlist/watchlist.o obj/handler.o obj/cvss.o obj/response.o \
-              obj/validate.o obj/query.o obj/serialize.o obj/tlsprobe_table.o obj/header_check.o \
+              obj/validate.o obj/query.o obj/serialize.o obj/tlsprobe_table.o obj/header_check.o obj/robotstxt.o obj/securitytxt.o \
               obj/jsonbuf.o obj/utf8.o obj/jsonread.o obj/jsonrpc.o obj/mcp.o obj/ipguard.o \
               $(CVE_EXPLOIT_STUB_OBJ) $(HIBP_STUB_OBJ) $(DNS_STUB_OBJ) $(STUB_OBJ) $(RL_STUB_OBJ) \
               obj/usagelog.o obj/bytes.o
@@ -542,7 +545,7 @@ ipguard-registry: bin/ipguard_ask
 # lists tools. bin/tools_list links the objects of bin/test_mcp, without Unity and the
 # test file, so it needs no database. Run it as make -s tools-list when the output goes
 # to a file: without -s, make writes its build lines to stdout too.
-bin/tools_list: tests/tools_list/dump.c obj/mcp.o obj/endpoint.o obj/endpoint_table.o obj/endpoint_run.o obj/cveidstate.o obj/endpoint_run_watchlist.o obj/endpoint_run_billing.o obj/jsoncanon.o $(NOWPAYMENTS_STUB_OBJ) $(VENDORKEY_RUN_OBJS) obj/billing.o obj/datetime.o obj/auth.o obj/registryask.o obj/registryask_table.o obj/endpoint_weight.o obj/imagescan.o obj/imageindicator.o $(EXIFCLIENT_STUB_OBJ) $(EMAILCHECK_STUB_OBJ) obj/emailcheck_table.o $(TLSPROBE_STUB_OBJ) $(CACHE_STUB_OBJ) $(RDAP_STUB_OBJ) $(WAYBACK_STUB_OBJ) $(CVESERVICES_STUB_OBJ) obj/upstream.o $(CERTSPOTTER_STUB_OBJ) $(SUBDOMAIN_STUB_OBJ) $(HEADER_FETCH_STUB_OBJ) $(QUOTA_STUB_OBJ) $(THROTTLE_STUB_OBJ) $(X402_PAID_PATH_TEST_OBJS) $(WHOIS_STUB_OBJ) obj/monotonic.o obj/etld.o obj/etld_table.o obj/watchlist/watchlist.o obj/handler.o obj/response.o obj/query.o obj/picohttpparser.o obj/jsonrpc.o obj/jsonread.o obj/serialize.o obj/tlsprobe_table.o obj/header_check.o obj/jsonbuf.o obj/utf8.o \
+bin/tools_list: tests/tools_list/dump.c obj/mcp.o obj/endpoint.o obj/endpoint_table.o obj/endpoint_run.o obj/cveidstate.o obj/endpoint_run_watchlist.o obj/endpoint_run_billing.o obj/jsoncanon.o $(NOWPAYMENTS_STUB_OBJ) $(VENDORKEY_RUN_OBJS) obj/billing.o obj/datetime.o obj/auth.o obj/registryask.o obj/registryask_table.o obj/endpoint_weight.o obj/imagescan.o obj/imageindicator.o $(EXIFCLIENT_STUB_OBJ) $(EMAILCHECK_STUB_OBJ) obj/emailcheck_table.o $(TLSPROBE_STUB_OBJ) $(CACHE_STUB_OBJ) $(RDAP_STUB_OBJ) $(WAYBACK_STUB_OBJ) $(CVESERVICES_STUB_OBJ) obj/upstream.o $(CERTSPOTTER_STUB_OBJ) $(SUBDOMAIN_STUB_OBJ) $(HEADER_FETCH_STUB_OBJ) $(WELL_KNOWN_STUB_OBJ) $(QUOTA_STUB_OBJ) $(THROTTLE_STUB_OBJ) $(X402_PAID_PATH_TEST_OBJS) $(WHOIS_STUB_OBJ) obj/monotonic.o obj/etld.o obj/etld_table.o obj/watchlist/watchlist.o obj/handler.o obj/response.o obj/query.o obj/picohttpparser.o obj/jsonrpc.o obj/jsonread.o obj/serialize.o obj/tlsprobe_table.o obj/header_check.o obj/robotstxt.o obj/securitytxt.o obj/jsonbuf.o obj/utf8.o \
   obj/cvss.o obj/validate.o obj/ipguard.o $(STUB_OBJ) $(CVE_EXPLOIT_STUB_OBJ) $(HIBP_STUB_OBJ) $(DNS_STUB_OBJ) $(REQUEST_TEXT_OBJ) obj/usagelog.o obj/bytes.o | bin
 	$(CC) $(TEST_CFLAGS) -o $@ $^ -lcrypto -lm
 
@@ -658,11 +661,12 @@ bin/test_query: tests/test_query.c obj/query.o obj/bytes.o $(UNITY_OBJ) | bin
 # The image_inspect writer names formats and file types with imagescan.o, and imagescan.o
 # hashes with libcrypto. It names the indicators with imageindicator.o. The headers_check
 # writer names each finding, its issues and its remediation with header_check.o. The
-# email_auth_check writer names each check with emailcheck_table.o. The ssl_check writer
+# well_known writer names each issue with robotstxt.o and securitytxt.o, and securitytxt.o reads
+# dates with datetime.o. The email_auth_check writer names each check with emailcheck_table.o. The ssl_check writer
 # names each certificate problem with tlsprobe_table.o. The watchlist writers name the endpoint
 # of each item with watchlist/watchlist.o. The cve_lookup miss writer names each CVE.org state
 # with cveservices_cveIdStateName from tests/cveservices_stub.o.
-bin/test_serialize: tests/test_serialize.cpp obj/serialize.o $(CVESERVICES_STUB_OBJ) obj/tlsprobe_table.o obj/emailcheck_table.o obj/header_check.o obj/jsonbuf.o obj/utf8.o obj/imagescan.o obj/imageindicator.o obj/watchlist/watchlist.o obj/bytes.o $(UNITY_OBJ) | bin
+bin/test_serialize: tests/test_serialize.cpp obj/serialize.o $(CVESERVICES_STUB_OBJ) obj/tlsprobe_table.o obj/emailcheck_table.o obj/header_check.o obj/robotstxt.o obj/securitytxt.o obj/datetime.o obj/jsonbuf.o obj/utf8.o obj/imagescan.o obj/imageindicator.o obj/watchlist/watchlist.o obj/bytes.o $(UNITY_OBJ) | bin
 	$(CXX) $(TEST_CXXFLAGS) -o $@ $^ -lcrypto
 
 # --wrap=curl_easy_setopt, --wrap=curl_easy_perform and --wrap=curl_slist_append:
@@ -779,6 +783,9 @@ $(SUBDOMAIN_STUB_OBJ): tests/subdomain_stub.c
 $(HEADER_FETCH_STUB_OBJ): tests/header_fetch_stub.c
 	$(CC) $(TEST_CFLAGS) $(CWARN) -c -o $@ $<
 
+$(WELL_KNOWN_STUB_OBJ): tests/well_known_stub.c
+	$(CC) $(TEST_CFLAGS) $(CWARN) -c -o $@ $<
+
 $(QUOTA_STUB_OBJ): tests/quota_stub.c
 	$(CC) $(TEST_CFLAGS) $(CWARN) -c -o $@ $<
 
@@ -798,8 +805,8 @@ $(X402_LEDGER_STUB_OBJ): tests/x402_ledger_stub.c
 	$(CC) $(TEST_CFLAGS) $(CWARN) -c -o $@ $<
 
 bin/test_cve_exploit: tests/test_cve_exploit.c obj/request.o obj/receive.o obj/upstream.o obj/rawbody.o obj/picohttpparser.o obj/auth.o \
-  obj/router.o obj/pages.o obj/pages_table.o obj/web_assets.o obj/endpoint.o obj/endpoint_table.o obj/endpoint_run.o obj/cveidstate.o obj/endpoint_run_watchlist.o obj/endpoint_run_billing.o obj/jsoncanon.o $(NOWPAYMENTS_STUB_OBJ) $(VENDORKEY_RUN_OBJS) obj/billing.o obj/datetime.o obj/auth.o obj/registryask.o obj/registryask_table.o obj/endpoint_weight.o obj/imagescan.o obj/imageindicator.o $(EXIFCLIENT_STUB_OBJ) $(EMAILCHECK_STUB_OBJ) obj/emailcheck_table.o $(TLSPROBE_STUB_OBJ) $(CACHE_STUB_OBJ) $(RDAP_STUB_OBJ) $(WAYBACK_STUB_OBJ) $(CVESERVICES_STUB_OBJ) $(CERTSPOTTER_STUB_OBJ) $(SUBDOMAIN_STUB_OBJ) $(HEADER_FETCH_STUB_OBJ) $(QUOTA_STUB_OBJ) $(THROTTLE_STUB_OBJ) $(X402_PAID_PATH_TEST_OBJS) $(WHOIS_STUB_OBJ) obj/monotonic.o obj/etld.o obj/etld_table.o obj/watchlist/watchlist.o obj/handler.o obj/cvss.o obj/response.o obj/validate.o \
-  obj/query.o obj/serialize.o obj/tlsprobe_table.o obj/header_check.o obj/jsonbuf.o obj/utf8.o obj/jsonread.o obj/jsonrpc.o obj/mcp.o obj/ipguard.o \
+  obj/router.o obj/pages.o obj/pages_table.o obj/web_assets.o obj/endpoint.o obj/endpoint_table.o obj/endpoint_run.o obj/cveidstate.o obj/endpoint_run_watchlist.o obj/endpoint_run_billing.o obj/jsoncanon.o $(NOWPAYMENTS_STUB_OBJ) $(VENDORKEY_RUN_OBJS) obj/billing.o obj/datetime.o obj/auth.o obj/registryask.o obj/registryask_table.o obj/endpoint_weight.o obj/imagescan.o obj/imageindicator.o $(EXIFCLIENT_STUB_OBJ) $(EMAILCHECK_STUB_OBJ) obj/emailcheck_table.o $(TLSPROBE_STUB_OBJ) $(CACHE_STUB_OBJ) $(RDAP_STUB_OBJ) $(WAYBACK_STUB_OBJ) $(CVESERVICES_STUB_OBJ) $(CERTSPOTTER_STUB_OBJ) $(SUBDOMAIN_STUB_OBJ) $(HEADER_FETCH_STUB_OBJ) $(WELL_KNOWN_STUB_OBJ) $(QUOTA_STUB_OBJ) $(THROTTLE_STUB_OBJ) $(X402_PAID_PATH_TEST_OBJS) $(WHOIS_STUB_OBJ) obj/monotonic.o obj/etld.o obj/etld_table.o obj/watchlist/watchlist.o obj/handler.o obj/cvss.o obj/response.o obj/validate.o \
+  obj/query.o obj/serialize.o obj/tlsprobe_table.o obj/header_check.o obj/robotstxt.o obj/securitytxt.o obj/jsonbuf.o obj/utf8.o obj/jsonread.o obj/jsonrpc.o obj/mcp.o obj/ipguard.o \
   $(CVE_EXPLOIT_STUB_OBJ) $(HIBP_STUB_OBJ) $(DNS_STUB_OBJ) $(STUB_OBJ) $(RL_STUB_OBJ) $(REQUEST_TEXT_OBJ) obj/usagelog.o obj/bytes.o $(UNITY_OBJ) | bin
 	$(CC) $(TEST_CFLAGS) -o $@ $^ -lcrypto -lm
 
@@ -931,7 +938,8 @@ bin/test_response_context: tests/test_response_context.c obj/response.o obj/usag
 
 # pages.o and the response.o it sends with: the test sends fixture files into socket pairs.
 # pages_table.o and web_assets.o: the test also reads the table the server serves.
-bin/test_pages: tests/test_pages.c obj/pages.o obj/pages_table.o obj/web_assets.o obj/response.o obj/usagelog.o obj/monotonic.o obj/bytes.o $(UNITY_OBJ) | bin
+# securitytxt.o reads our own security.txt; it reads the Expires date with datetime.o.
+bin/test_pages: tests/test_pages.c obj/pages.o obj/pages_table.o obj/web_assets.o obj/response.o obj/usagelog.o obj/monotonic.o obj/securitytxt.o obj/datetime.o obj/utf8.o obj/bytes.o $(UNITY_OBJ) | bin
 	$(CC) $(TEST_CFLAGS) -o $@ $^
 
 # upstream.o alone: the upstream thread counter needs no other object. The test starts
@@ -994,7 +1002,7 @@ bin/test_receive: tests/test_receive.c obj/receive.o obj/picohttpparser.o obj/by
 # Calls inside obj/endpoint.o are not wrapped.
 # --wrap=monotonic_nowMs: tests/test_mcp.cpp moves the clock ahead in setUp, so the health
 # answer an earlier test left on the thread is too old to be sent again.
-bin/test_mcp: tests/test_mcp.cpp obj/mcp.o obj/endpoint.o obj/endpoint_table.o obj/endpoint_run.o obj/cveidstate.o obj/endpoint_run_watchlist.o obj/endpoint_run_billing.o obj/jsoncanon.o $(NOWPAYMENTS_STUB_OBJ) $(VENDORKEY_RUN_OBJS) obj/billing.o obj/datetime.o obj/auth.o obj/registryask.o obj/registryask_table.o obj/endpoint_weight.o obj/imagescan.o obj/imageindicator.o $(EXIFCLIENT_STUB_OBJ) $(EMAILCHECK_STUB_OBJ) obj/emailcheck_table.o $(TLSPROBE_STUB_OBJ) $(CACHE_STUB_OBJ) $(RDAP_STUB_OBJ) $(WAYBACK_STUB_OBJ) $(CVESERVICES_STUB_OBJ) obj/upstream.o $(CERTSPOTTER_STUB_OBJ) $(SUBDOMAIN_STUB_OBJ) $(HEADER_FETCH_STUB_OBJ) $(QUOTA_STUB_OBJ) $(THROTTLE_STUB_OBJ) $(X402_PAID_PATH_TEST_OBJS) $(WHOIS_STUB_OBJ) obj/monotonic.o obj/etld.o obj/etld_table.o obj/watchlist/watchlist.o obj/handler.o obj/response.o obj/query.o obj/picohttpparser.o obj/jsonrpc.o obj/jsonread.o obj/serialize.o obj/tlsprobe_table.o obj/header_check.o obj/jsonbuf.o obj/utf8.o \
+bin/test_mcp: tests/test_mcp.cpp obj/mcp.o obj/endpoint.o obj/endpoint_table.o obj/endpoint_run.o obj/cveidstate.o obj/endpoint_run_watchlist.o obj/endpoint_run_billing.o obj/jsoncanon.o $(NOWPAYMENTS_STUB_OBJ) $(VENDORKEY_RUN_OBJS) obj/billing.o obj/datetime.o obj/auth.o obj/registryask.o obj/registryask_table.o obj/endpoint_weight.o obj/imagescan.o obj/imageindicator.o $(EXIFCLIENT_STUB_OBJ) $(EMAILCHECK_STUB_OBJ) obj/emailcheck_table.o $(TLSPROBE_STUB_OBJ) $(CACHE_STUB_OBJ) $(RDAP_STUB_OBJ) $(WAYBACK_STUB_OBJ) $(CVESERVICES_STUB_OBJ) obj/upstream.o $(CERTSPOTTER_STUB_OBJ) $(SUBDOMAIN_STUB_OBJ) $(HEADER_FETCH_STUB_OBJ) $(WELL_KNOWN_STUB_OBJ) $(QUOTA_STUB_OBJ) $(THROTTLE_STUB_OBJ) $(X402_PAID_PATH_TEST_OBJS) $(WHOIS_STUB_OBJ) obj/monotonic.o obj/etld.o obj/etld_table.o obj/watchlist/watchlist.o obj/handler.o obj/response.o obj/query.o obj/picohttpparser.o obj/jsonrpc.o obj/jsonread.o obj/serialize.o obj/tlsprobe_table.o obj/header_check.o obj/robotstxt.o obj/securitytxt.o obj/jsonbuf.o obj/utf8.o \
   obj/cvss.o obj/validate.o obj/ipguard.o $(STUB_OBJ) $(CVE_EXPLOIT_STUB_OBJ) $(HIBP_STUB_OBJ) $(DNS_STUB_OBJ) $(REQUEST_TEXT_OBJ) obj/usagelog.o obj/bytes.o $(UNITY_OBJ) | bin
 	$(CXX) $(TEST_CXXFLAGS) -o $@ $^ -lcrypto -Wl,--wrap=realloc,--wrap=malloc,--wrap=endpoint_findByMcpName,--wrap=monotonic_nowMs
 
@@ -1159,10 +1167,10 @@ FUZZ_DEPS = $(FUZZ_BINS:=.d) $(FUZZ_OBJS:.o=.d)
 # 'rm -rf obj' ile gitmez.
 DEPS = $(OBJS:.o=.d) $(UNITY_OBJ:.o=.d) $(STUB_OBJ:.o=.d) $(RL_STUB_OBJ:.o=.d) \
        $(CVE_EXPLOIT_STUB_OBJ:.o=.d) \
-       $(HTTP_STUB_OBJ:.o=.d) $(HIBP_STUB_OBJ:.o=.d) $(DNS_STUB_OBJ:.o=.d) $(EXIFCLIENT_STUB_OBJ:.o=.d) $(EMAILCHECK_STUB_OBJ:.o=.d) $(TLSPROBE_STUB_OBJ:.o=.d) $(CACHE_STUB_OBJ:.o=.d) $(RDAP_STUB_OBJ:.o=.d) $(THROTTLE_STUB_OBJ:.o=.d) $(WHOIS_STUB_OBJ:.o=.d) $(WAYBACK_STUB_OBJ:.o=.d) $(CVESERVICES_STUB_OBJ:.o=.d) $(CERTSPOTTER_STUB_OBJ:.o=.d) $(SHODAN_STUB_OBJ:.o=.d) $(ABUSEIPDB_STUB_OBJ:.o=.d) $(SUBDOMAIN_STUB_OBJ:.o=.d) $(HEADER_FETCH_STUB_OBJ:.o=.d) $(QUOTA_STUB_OBJ:.o=.d) $(X402_FACILITATOR_STUB_OBJ:.o=.d) $(X402_SOLANA_RPC_STUB_OBJ:.o=.d) $(X402_LEDGER_STUB_OBJ:.o=.d) $(REQUEST_TEXT_OBJ:.o=.d) $(PQ_FAKE_OBJ:.o=.d) $(OPENAPI_OBJ:.o=.d) $(TEST_BINS:=.d)
+       $(HTTP_STUB_OBJ:.o=.d) $(HIBP_STUB_OBJ:.o=.d) $(DNS_STUB_OBJ:.o=.d) $(EXIFCLIENT_STUB_OBJ:.o=.d) $(EMAILCHECK_STUB_OBJ:.o=.d) $(TLSPROBE_STUB_OBJ:.o=.d) $(CACHE_STUB_OBJ:.o=.d) $(RDAP_STUB_OBJ:.o=.d) $(THROTTLE_STUB_OBJ:.o=.d) $(WHOIS_STUB_OBJ:.o=.d) $(WAYBACK_STUB_OBJ:.o=.d) $(CVESERVICES_STUB_OBJ:.o=.d) $(CERTSPOTTER_STUB_OBJ:.o=.d) $(SHODAN_STUB_OBJ:.o=.d) $(ABUSEIPDB_STUB_OBJ:.o=.d) $(SUBDOMAIN_STUB_OBJ:.o=.d) $(HEADER_FETCH_STUB_OBJ:.o=.d) $(WELL_KNOWN_STUB_OBJ:.o=.d) $(QUOTA_STUB_OBJ:.o=.d) $(X402_FACILITATOR_STUB_OBJ:.o=.d) $(X402_SOLANA_RPC_STUB_OBJ:.o=.d) $(X402_LEDGER_STUB_OBJ:.o=.d) $(REQUEST_TEXT_OBJ:.o=.d) $(PQ_FAKE_OBJ:.o=.d) $(OPENAPI_OBJ:.o=.d) $(TEST_BINS:=.d)
 -include $(DEPS)
 
 clean:
-	rm -f $(TARGET) $(OBJS) $(TEST_BINS) $(UNITY_OBJ) $(STUB_OBJ) $(RL_STUB_OBJ) $(CVE_EXPLOIT_STUB_OBJ) $(HTTP_STUB_OBJ) $(HIBP_STUB_OBJ) $(DNS_STUB_OBJ) $(EXIFCLIENT_STUB_OBJ) $(EMAILCHECK_STUB_OBJ) $(TLSPROBE_STUB_OBJ) $(CACHE_STUB_OBJ) $(RDAP_STUB_OBJ) $(WAYBACK_STUB_OBJ) $(CVESERVICES_STUB_OBJ) $(CERTSPOTTER_STUB_OBJ) $(SHODAN_STUB_OBJ) $(ABUSEIPDB_STUB_OBJ) $(SUBDOMAIN_STUB_OBJ) $(HEADER_FETCH_STUB_OBJ) $(QUOTA_STUB_OBJ) $(THROTTLE_STUB_OBJ) $(WHOIS_STUB_OBJ) $(X402_REQUEST_STUB_OBJS) $(REQUEST_TEXT_OBJ) $(PQ_FAKE_OBJ)
+	rm -f $(TARGET) $(OBJS) $(TEST_BINS) $(UNITY_OBJ) $(STUB_OBJ) $(RL_STUB_OBJ) $(CVE_EXPLOIT_STUB_OBJ) $(HTTP_STUB_OBJ) $(HIBP_STUB_OBJ) $(DNS_STUB_OBJ) $(EXIFCLIENT_STUB_OBJ) $(EMAILCHECK_STUB_OBJ) $(TLSPROBE_STUB_OBJ) $(CACHE_STUB_OBJ) $(RDAP_STUB_OBJ) $(WAYBACK_STUB_OBJ) $(CVESERVICES_STUB_OBJ) $(CERTSPOTTER_STUB_OBJ) $(SHODAN_STUB_OBJ) $(ABUSEIPDB_STUB_OBJ) $(SUBDOMAIN_STUB_OBJ) $(HEADER_FETCH_STUB_OBJ) $(WELL_KNOWN_STUB_OBJ) $(QUOTA_STUB_OBJ) $(THROTTLE_STUB_OBJ) $(WHOIS_STUB_OBJ) $(X402_REQUEST_STUB_OBJS) $(REQUEST_TEXT_OBJ) $(PQ_FAKE_OBJ)
 	rm -f $(DEPS) $(FUZZ_BINS) $(FUZZ_DEPS)
 	rm -rf obj

@@ -413,11 +413,17 @@ size_t header_check_writeIssueText(const HeaderCheckIssue_t* issue, char* text_o
 
 size_t header_check_shownLength(const char* text, size_t* code_point_count_out)
 {
-  assert(text                 != NULL);
+  assert(text != NULL);
+
+  return header_check_shownSpanLength(text, strlen(text), code_point_count_out);
+}
+
+size_t header_check_shownSpanLength(const char* text, size_t text_len, size_t* code_point_count_out)
+{
+  assert(text != NULL || text_len == 0);
   assert(code_point_count_out != NULL);
 
   const unsigned char* bytes = (const unsigned char*)text;
-  size_t text_len         = strlen(text);
   size_t pos              = 0;
   size_t code_point_count = 0;
   size_t shown_len        = 0;

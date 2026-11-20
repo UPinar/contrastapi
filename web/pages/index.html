@@ -240,6 +240,11 @@
       </div>
       <div class="endpoint">
         <span class="method get">GET</span>
+        <span class="endpoint-path">/well_known/{domain}</span>
+        <span class="endpoint-desc">The robots.txt rules that bind our crawler, the sitemaps, and the security.txt fields of a web site, such as Contact and Expires, each file with its RFC 9309 or RFC 9116 issues</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
         <span class="endpoint-path">/whois_lookup/{domain}</span>
         <span class="endpoint-desc">The registrar, dates, status values and name servers of a domain, over RDAP, or over WHOIS for a TLD without RDAP; no registrant or contact data</span>
       </div>
@@ -440,7 +445,7 @@
       <li><strong>Email data:</strong> <code>/email_address_check</code> reads a local copy of the disposable-email-domains blocklist (CC0 1.0). It asks its own DNS resolver about the address's domain when it is asked.</li>
       <li><strong>Defense data:</strong> <code>/d3fend_for_attack</code> reads a local copy of the MITRE D3FEND catalog. The copy is refreshed every week from MITRE.</li>
       <li><strong>TLS checks:</strong> <code>/ssl_check</code> connects to the host when it is asked. It keeps a successful answer for one hour when it could read the SSL Blacklist and the list holds rows, and <code>checked_at</code> says when the check ran.</li>
-      <li><strong>Header checks:</strong> <code>/headers_check</code> fetches the home page of the host when it is asked. It keeps each successful answer for one hour under the host name and the choice of whole values. The answer holds the address of the page without its query, the site's status, the target of a redirect it did not follow and the security headers the site sent. It holds no Set-Cookie value, only counts: how many cookies the site set, and how many have each issue. Any caller who makes the same request in that hour gets it, and <code>checked_at</code> says when the fetch ran.</li>
+      <li><strong>Header checks:</strong> <code>/headers_check</code> fetches the home page of the host when it is asked. It keeps each successful answer for one hour under the host name and the choice of whole values. The answer holds the address of the page without its query, the site's status, the target of a redirect it did not follow and the security headers the site sent. It holds no Set-Cookie value, only counts: how many cookies the site set, and how many have each issue. Any caller who makes the same request in that hour gets it, and <code>checked_at</code> says when the fetch ran. <code>/well_known</code> fetches <code>/robots.txt</code> of the host when it is asked, and <code>/.well-known/security.txt</code> only when that file allows it. It keeps each answer for one hour under the host name, unless it could not fetch <code>security.txt</code>.</li>
       <li><strong>Domain registrations:</strong> <code>/whois_lookup</code> asks the RDAP server of the TLD when it is asked. It finds that server in a copy of IANA's RDAP bootstrap file. A TLD without an RDAP server is asked over WHOIS, when the registry's terms allow it. It keeps each answer that holds a registration for one hour.</li>
       <li><strong>Web archive captures:</strong> <code>/wayback_lookup</code> asks the CDX server of the Internet Archive's Wayback Machine when it is asked. It reads only the list of captures, and it keeps each answer that holds that list for one day.</li>
       <li><strong>Certificate Transparency:</strong> <code>/cert_search</code> asks SSLMate's Cert Spotter when it is asked. Cert Spotter lists only unexpired certificates. The server keeps each answer that holds the certificate list for one day.</li>

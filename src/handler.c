@@ -10,11 +10,12 @@
 #include "jsonbuf.h"
 #include "mcp.h"
 #include "endpoint.h"
+#include "pricing.h"
 #include "usagelog.h"
 #include "x402_request.h"
 
 #define HANDLER_ALLOWED_METHODS_BUF_SIZE  48
-#define HANDLER_RETRY_AFTER_DATA_BUF_SIZE 48
+#define HANDLER_RETRY_AFTER_DATA_BUF_SIZE 96
 
 #define HANDLER_UNAUTHORIZED_MESSAGE      "Invalid API key"
 #define HANDLER_API_KEY_INACTIVE_MESSAGE  "API key expired or revoked"
@@ -31,10 +32,12 @@ _Static_assert(HANDLER_MCP_RATE_LIMITED_MESSAGE_BUF_SIZE >= sizeof(HANDLER_MCP_R
 
 #define HANDLER_UPSTREAM_UNAVAILABLE_MESSAGE "upstream service unavailable"
 
-#define HANDLER_PAYMENT_REQUIRED_MESSAGE_FORMAT   "Payment required: pay with x402 or retry in %u seconds."
-#define HANDLER_PAYMENT_REQUIRED_MESSAGE_BUF_SIZE 64
+#define HANDLER_PAYMENT_REQUIRED_MESSAGE_FORMAT   "Payment required: pay with x402 or retry in %u seconds, or buy a Pro key at " PRICING_PAGE_URL "."
+#define HANDLER_PAYMENT_REQUIRED_MESSAGE_BUF_SIZE 128
 _Static_assert(HANDLER_PAYMENT_REQUIRED_MESSAGE_BUF_SIZE >= sizeof(HANDLER_PAYMENT_REQUIRED_MESSAGE_FORMAT) - sizeof("%u") + sizeof(HANDLER_UINT_MAX_DIGITS),
                "HANDLER_PAYMENT_REQUIRED_MESSAGE_BUF_SIZE must fit the message for any unsigned int");
+_Static_assert(HANDLER_PAYMENT_REQUIRED_MESSAGE_BUF_SIZE - 1 <= 128,
+               "the PAYMENT-REQUIRED line is sized for an error text of at most 128 bytes");
 
 #define HANDLER_PAYMENT_REFUSED_MESSAGE       "The payment was refused."
 #define HANDLER_PAYMENT_ALREADY_USED_MESSAGE  "This payment was already used."
@@ -70,12 +73,12 @@ static const char MCP_INTERNAL_ERROR_BODY[] =
 
 static void   static_sendNotFound                 (int client_fd, const Endpoint_t* endpoint);
 static char*  static_errorBody                    (const char* err_code, const char* message);
-static char*  static_errorBodyWithRetryAfter      (const char* err_code, const char* message, unsigned int retry_after_sec);
+static char*  static_errorBodyWithRetryAfter      (const char* err_code, const char* message, unsigned int retry_after_sec, bool has_upgrade_url);
 static void   static_writePaymentRequiredMessage  (char* message_out, unsigned int retry_after_sec);
 static void   static_sendError                    (int client_fd, int status_code, const char* status_text, const char* err_code, const char* message);
 
 static char*  static_mcpErrorEnvelope            (const char* body, int rpc_code, const char* message, const char* data_json);
-static char*  static_mcpRetryAfterErrorEnvelope  (const char* body, int rpc_code, const char* message, unsigned int retry_after_sec);
+static char*  static_mcpRetryAfterErrorEnvelope  (const char* body, int rpc_code, const char* message, unsigned int retry_after_sec, bool has_upgrade_url);
 static void   static_sendMcpError                 (int client_fd, int status_code, const char* status_text, const char* body, int rpc_code, const char* message);
 
 static void   static_sendRestGateRefusal          (int client_fd, const Endpoint_t* endpoint, EndpointGateResult_t gate_result);
@@ -322,9 +325,9 @@ void handler_httpMethodNotAllowed(int client_fd, const char* const allowed_metho
   free(response_body);
 }
 
-void handler_rateLimited(int client_fd, unsigned int retry_after_sec)
+void handler_rateLimited(int client_fd, unsigned int retry_after_sec, bool has_upgrade_url)
 {
-  char* response_body = static_errorBodyWithRetryAfter("rate_limited", HANDLER_RATE_LIMITED_MESSAGE, retry_after_sec);
+  char* response_body = static_errorBodyWithRetryAfter("rate_limited", HANDLER_RATE_LIMITED_MESSAGE, retry_after_sec, has_upgrade_url);
   if (!response_body)
   {
     handler_internalError(client_fd);
@@ -384,7 +387,7 @@ void handler_paymentUnavailable(int client_fd, unsigned int retry_after_sec)
 
 void handler_upstreamBusy(int client_fd)
 {
-  char* response_body = static_errorBodyWithRetryAfter("upstream_busy", HANDLER_UPSTREAM_BUSY_MESSAGE, HANDLER_UPSTREAM_BUSY_RETRY_AFTER_SEC);
+  char* response_body = static_errorBodyWithRetryAfter("upstream_busy", HANDLER_UPSTREAM_BUSY_MESSAGE, HANDLER_UPSTREAM_BUSY_RETRY_AFTER_SEC, false);
   if (!response_body)
   {
     handler_internalError(client_fd);
@@ -397,7 +400,7 @@ void handler_upstreamBusy(int client_fd)
 
 void handler_rawBodyBusy(int client_fd)
 {
-  char* response_body = static_errorBodyWithRetryAfter("raw_body_busy", HANDLER_RAW_BODY_BUSY_MESSAGE, HANDLER_RAW_BODY_BUSY_RETRY_AFTER_SEC);
+  char* response_body = static_errorBodyWithRetryAfter("raw_body_busy", HANDLER_RAW_BODY_BUSY_MESSAGE, HANDLER_RAW_BODY_BUSY_RETRY_AFTER_SEC, false);
   if (!response_body)
   {
     handler_internalError(client_fd);
@@ -423,14 +426,14 @@ void handler_mcpApiKeyInactive(int client_fd, const char* body)
   static_sendMcpError(client_fd, 401, "Unauthorized", body, JSONRPC_ERR_API_KEY_INACTIVE, HANDLER_API_KEY_INACTIVE_MESSAGE);
 }
 
-void handler_mcpRateLimited(int client_fd, const char* body, unsigned int retry_after_sec)
+void handler_mcpRateLimited(int client_fd, const char* body, unsigned int retry_after_sec, bool has_upgrade_url)
 {
   char message[HANDLER_MCP_RATE_LIMITED_MESSAGE_BUF_SIZE];
   int  message_len = snprintf(message, sizeof(message), HANDLER_MCP_RATE_LIMITED_MESSAGE_FORMAT, retry_after_sec);
   assert(message_len > 0 && (size_t)message_len < sizeof(message));
   (void)message_len;
 
-  char* envelope = static_mcpRetryAfterErrorEnvelope(body, JSONRPC_ERR_RATE_LIMITED, message, retry_after_sec);
+  char* envelope = static_mcpRetryAfterErrorEnvelope(body, JSONRPC_ERR_RATE_LIMITED, message, retry_after_sec, has_upgrade_url);
   if (!envelope)
   {
     response_send(client_fd, 500, "Internal Server Error", MCP_INTERNAL_ERROR_BODY);
@@ -443,7 +446,7 @@ void handler_mcpRateLimited(int client_fd, const char* body, unsigned int retry_
 
 void handler_mcpUpstreamBusy(int client_fd, const char* body)
 {
-  char* envelope = static_mcpRetryAfterErrorEnvelope(body, JSONRPC_ERR_UPSTREAM_BUSY, HANDLER_UPSTREAM_BUSY_MESSAGE, HANDLER_UPSTREAM_BUSY_RETRY_AFTER_SEC);
+  char* envelope = static_mcpRetryAfterErrorEnvelope(body, JSONRPC_ERR_UPSTREAM_BUSY, HANDLER_UPSTREAM_BUSY_MESSAGE, HANDLER_UPSTREAM_BUSY_RETRY_AFTER_SEC, false);
   if (!envelope)
   {
     response_send(client_fd, 500, "Internal Server Error", MCP_INTERNAL_ERROR_BODY);
@@ -629,7 +632,7 @@ static void static_sendPaymentOffer(int client_fd, const Endpoint_t* endpoint, u
     snprintf(extra_headers + line_len, sizeof(extra_headers) - line_len, "Retry-After: %u\r\n", retry_after_sec);
   }
 
-  char* response_body = has_retry_after ? static_errorBodyWithRetryAfter(err_code, message, retry_after_sec) : static_errorBody(err_code, message);
+  char* response_body = has_retry_after ? static_errorBodyWithRetryAfter(err_code, message, retry_after_sec, true) : static_errorBody(err_code, message);
   if (!response_body)
   {
     handler_internalError(client_fd);
@@ -644,7 +647,7 @@ static void static_sendRetryAfterError(int client_fd, int status_code, const cha
   char retry_after_line[HANDLER_RETRY_AFTER_LINE_BUF_SIZE];
   snprintf(retry_after_line, sizeof(retry_after_line), "Retry-After: %u\r\n", retry_after_sec);
 
-  char* response_body = static_errorBodyWithRetryAfter(err_code, message, retry_after_sec);
+  char* response_body = static_errorBodyWithRetryAfter(err_code, message, retry_after_sec, false);
   if (!response_body)
   {
     handler_internalError(client_fd);
@@ -666,13 +669,13 @@ static char* static_errorBody(const char* err_code, const char* message)
   return response_body;
 }
 
-static char* static_errorBodyWithRetryAfter(const char* err_code, const char* message, unsigned int retry_after_sec)
+static char* static_errorBodyWithRetryAfter(const char* err_code, const char* message, unsigned int retry_after_sec, bool has_upgrade_url)
 {
   JsonBuf_t* json_buf = jsonbuf_create(HANDLER_ERROR_JSONBUF_INITIAL_CAP, JSONBUF_DEFAULT_CEILING);
   if (!json_buf)
     return NULL;
 
-  serialize_errorWithRetryAfter_response(err_code, message, retry_after_sec, json_buf);
+  serialize_errorWithRetryAfter_response(err_code, message, retry_after_sec, has_upgrade_url, json_buf);
   char* response_body = jsonbuf_finish(json_buf);
   jsonbuf_destroy(json_buf);
   return response_body;
@@ -739,7 +742,7 @@ static const char* static_mcpReasonPhrase(int status_code)
 
 static void static_sendMcpRetryAfterError(int client_fd, int status_code, const char* status_text, const char* body, int rpc_code, const char* message, unsigned int retry_after_sec)
 {
-  char* envelope = static_mcpRetryAfterErrorEnvelope(body, rpc_code, message, retry_after_sec);
+  char* envelope = static_mcpRetryAfterErrorEnvelope(body, rpc_code, message, retry_after_sec, false);
   if (!envelope)
   {
     response_send(client_fd, 500, "Internal Server Error", MCP_INTERNAL_ERROR_BODY);
@@ -749,12 +752,16 @@ static void static_sendMcpRetryAfterError(int client_fd, int status_code, const 
   free(envelope);
 }
 
-static char* static_mcpRetryAfterErrorEnvelope(const char* body, int rpc_code, const char* message, unsigned int retry_after_sec)
+static char* static_mcpRetryAfterErrorEnvelope(const char* body, int rpc_code, const char* message, unsigned int retry_after_sec, bool has_upgrade_url)
 {
-  _Static_assert(HANDLER_RETRY_AFTER_DATA_BUF_SIZE >= sizeof(R"({"retry_after_seconds":4294967295})"),
+  _Static_assert(HANDLER_RETRY_AFTER_DATA_BUF_SIZE >= sizeof(R"({"retry_after_seconds":4294967295,"upgrade_url":")" PRICING_PAGE_URL R"("})"),
                  "HANDLER_RETRY_AFTER_DATA_BUF_SIZE must fit error.data for any unsigned int");
   char data_json[HANDLER_RETRY_AFTER_DATA_BUF_SIZE];
-  int data_json_len = snprintf(data_json, sizeof(data_json), R"({"retry_after_seconds":%u})", retry_after_sec);
+  int data_json_len = 0;
+  if (has_upgrade_url)
+    data_json_len = snprintf(data_json, sizeof(data_json), R"({"retry_after_seconds":%u,"upgrade_url":")" PRICING_PAGE_URL R"("})", retry_after_sec);
+  else
+    data_json_len = snprintf(data_json, sizeof(data_json), R"({"retry_after_seconds":%u})", retry_after_sec);
   assert(data_json_len > 0 && (size_t)data_json_len < sizeof(data_json));
   (void)data_json_len;
 

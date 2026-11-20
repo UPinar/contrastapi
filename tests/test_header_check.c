@@ -1780,6 +1780,54 @@ void test_value_cut_does_not_cut_what_the_rule_reads(void)
   ASSERT_ISSUES(finding, "Permissive CSP: 'script-src *' allows any source (XSS risk)");
 }
 
+static char g_spanBytes[600];
+
+void test_shownSpanLength_counts_a_NUL_byte_and_stops_at_the_length(void)
+{
+  size_t code_point_count = 0;
+  TEST_ASSERT_EQUAL_size_t(5, header_check_shownSpanLength("ab\0cd", 5, &code_point_count));
+  TEST_ASSERT_EQUAL_size_t(5, code_point_count);
+
+  code_point_count = 0;
+  TEST_ASSERT_EQUAL_size_t(3, header_check_shownSpanLength("abcdef", 3, &code_point_count));
+  TEST_ASSERT_EQUAL_size_t(3, code_point_count);
+}
+
+void test_shownSpanLength_shows_500_code_points_whole_and_cuts_501(void)
+{
+  memset(g_spanBytes, 'a', sizeof(g_spanBytes));
+  size_t code_point_count = 0;
+  TEST_ASSERT_EQUAL_size_t(500, header_check_shownSpanLength(g_spanBytes, 500, &code_point_count));
+  TEST_ASSERT_EQUAL_size_t(500, code_point_count);
+
+  code_point_count = 0;
+  TEST_ASSERT_EQUAL_size_t(500, header_check_shownSpanLength(g_spanBytes, 501, &code_point_count));
+  TEST_ASSERT_EQUAL_size_t(501, code_point_count);
+}
+
+void test_shownSpanLength_keeps_a_multi_byte_sequence_whole_at_the_cut(void)
+{
+  memset(g_spanBytes, 'a', 499);
+  memcpy(g_spanBytes + 499, "\xe2\x82\xac" "b", 4);
+  size_t code_point_count = 0;
+  TEST_ASSERT_EQUAL_size_t(502, header_check_shownSpanLength(g_spanBytes, 503, &code_point_count));
+  TEST_ASSERT_EQUAL_size_t(501, code_point_count);
+}
+
+void test_shownSpanLength_counts_an_invalid_byte_as_one_code_point(void)
+{
+  memset(g_spanBytes, 'a', 499);
+  memcpy(g_spanBytes + 499, "\xff" "b", 2);
+  size_t code_point_count = 0;
+  TEST_ASSERT_EQUAL_size_t(500, header_check_shownSpanLength(g_spanBytes, 501, &code_point_count));
+  TEST_ASSERT_EQUAL_size_t(501, code_point_count);
+
+  memcpy(g_spanBytes + 499, "\xe2\x82\xac", 3);
+  code_point_count = 0;
+  TEST_ASSERT_EQUAL_size_t(500, header_check_shownSpanLength(g_spanBytes, 501, &code_point_count));
+  TEST_ASSERT_EQUAL_size_t(501, code_point_count);
+}
+
 static int static_evaluateWithoutReflection(bool kind_seen[HEADER_CHECK_ISSUE_KIND_COUNT])
 {
   header_check_evaluate(g_values, g_setCookieCopyCount, &g_report);
@@ -1855,7 +1903,7 @@ void test_no_issue_text_holds_a_byte_of_a_value(void)
 
 void test_registration_gate_test_count(void)
 {
-  TEST_ASSERT_EQUAL_INT_MESSAGE(101, (int)Unity.NumberOfTests,
+  TEST_ASSERT_EQUAL_INT_MESSAGE(105, (int)Unity.NumberOfTests,
     "RUN_TEST list and test definitions have drifted apart - a test may be unregistered");
 }
 
@@ -1961,6 +2009,10 @@ int main(void)
   RUN_TEST(test_value_cut_keeps_a_whole_three_or_four_byte_sequence);
   RUN_TEST(test_value_cut_counts_each_invalid_byte_as_one_code_point);
   RUN_TEST(test_value_cut_does_not_cut_what_the_rule_reads);
+  RUN_TEST(test_shownSpanLength_counts_a_NUL_byte_and_stops_at_the_length);
+  RUN_TEST(test_shownSpanLength_shows_500_code_points_whole_and_cuts_501);
+  RUN_TEST(test_shownSpanLength_keeps_a_multi_byte_sequence_whole_at_the_cut);
+  RUN_TEST(test_shownSpanLength_counts_an_invalid_byte_as_one_code_point);
   RUN_TEST(test_no_issue_text_holds_a_byte_of_a_value);
   RUN_TEST(test_registration_gate_test_count);
   return UNITY_END();

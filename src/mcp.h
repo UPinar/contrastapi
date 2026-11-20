@@ -34,8 +34,10 @@
   "e-mail address's domain takes mail and whether the address " \
   "is disposable. It checks the TLS certificate and settings "  \
   "of a host name and rates the security headers of a web "     \
-  "site. It looks up the registration of a domain name over "   \
-  "RDAP or WHOIS. It lists the Wayback Machine captures of a "  \
+  "site. It reads the robots.txt and the security.txt of a "    \
+  "web site. It looks up the registration of a domain name "    \
+  "over RDAP or WHOIS. It lists the Wayback Machine captures "  \
+  "of a "                                                       \
   "host name. It lists the unexpired certificates that "        \
   "Certificate Transparency logs hold for a host name. It "     \
   "lists the subdomains of a registrable domain from "          \

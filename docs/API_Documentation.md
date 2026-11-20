@@ -40,6 +40,7 @@ A trailing slash is not significant: `/cve_search`, `/cve_search/` and `/cve_sea
 - [Email Address Check: `GET /email_address_check/{email}`](#email-address-check-get-email_address_checkemail)
 - [SSL Check: `GET /ssl_check/{domain}`](#ssl-check-get-ssl_checkdomain)
 - [Headers Check: `GET /headers_check/{domain}`](#headers-check-get-headers_checkdomain)
+- [Well Known: `GET /well_known/{domain}`](#well-known-get-well_knowndomain)
 - [WHOIS Lookup: `GET /whois_lookup/{domain}`](#whois-lookup-get-whois_lookupdomain)
 - [Wayback Lookup: `GET /wayback_lookup/{domain}`](#wayback-lookup-get-wayback_lookupdomain)
 - [Cert Search: `GET /cert_search/{domain}`](#cert-search-get-cert_searchdomain)
@@ -3837,6 +3838,224 @@ A refused host name pays its 1 credit, and so do a `502` and a `504`. A `503` co
 
 ---
 
+## Well Known: `GET /well_known/{domain}`
+
+Reads the `robots.txt` and the `security.txt` of a web site. The server first sends one `GET` to
+`https://<domain>/robots.txt` and reads the file (RFC 9309). Then it asks that file whether
+`ContrastAPI` may read `/.well-known/security.txt`. Only when the file allows it does the server
+send one `GET` to `https://<domain>/.well-known/security.txt` and read that file (RFC 9116). A
+`robots.txt` that disallows the path, or one that could not be read, means no `security.txt`
+request at all. The answer lists the `robots.txt` rules that bind `ContrastAPI`, the sitemaps,
+the `security.txt` fields and the issues of both files. The request costs 1 credit.
+
+Each request goes over HTTPS only, to port 443, as [Headers Check](#headers-check-get-headers_checkdomain)
+sends its request. The server verifies the certificate, connects only to an address that is
+globally reachable, and sends its `User-Agent` and no cookie. A connection may take 2000 ms. One
+deadline of 5000 ms covers both files, every redirect included. The server reads at most 512 KiB
+of `robots.txt` and 32 KiB of `security.txt`.
+
+A redirect is followed when its target is `https`, on port 443, and on the host name or its www
+pair, as Headers Check says. At most 5 redirects are followed for each file. A redirect of the
+`security.txt` request is asked of `robots.txt` too. A redirect to a path that `robots.txt`
+disallows is not followed, and neither is one to a host whose `robots.txt` was not read.
+
+`robots.txt` decides as RFC 9309 § 2.3.1 says. A `2xx` file is read. A `4xx` answer other than
+`429` means there is no file, so every path is allowed. A `429` or a `5xx` answer asks a crawler
+to stay away, so the request answers `502` and the server reads no `security.txt`. A redirect
+left unfollowed, or a body sent with a `Content-Encoding` other than `identity`, means the file
+could not be read, so no path is allowed. A `security.txt` that answers `429` or `5xx` is a `502` too.
+
+The server counts the files it fetches for each registrable domain, such as `example.co.uk` for
+`www.example.co.uk`. A domain gets at most 10 units in each minute, and each request that fetches
+costs 2 units, one for each file. A name that is itself a public suffix, such as `gov.uk`, is
+counted on its own. A request past that limit fetches nothing. It answers `200` with
+`"reason":"quota_exhausted"`, the seconds to wait in `retry_after_seconds`, and `null` for both
+files. It still costs its credit. The limit of a domain is shared by all callers, and no tier
+has a share of its own. A request is counted before the name is resolved, so a name that does not
+resolve counts too. So one caller can use up a domain's minute for everyone.
+
+The server keeps each answer for one hour, unless `security_txt.status` is `not_fetched`: a
+deadline that ran out or a redirect left unfollowed may pass by the next request. It does not keep
+an answer longer than 1024 KiB, nor a `quota_exhausted` answer. The key is the host name in lower
+case. A request for the same host name in that hour gets the kept body, byte for byte. It costs
+no throttle unit, and the server sends no request. Its `checked_at` says when its fetch ran. An
+error answer is not kept.
+
+```bash
+curl https://api.contrastcyber.com/well_known/www.example.com
+```
+
+### Parameters
+
+| Parameter | Type | Example | Description |
+|-----------|------|---------|-------------|
+| `domain` | path | `www.example.com` | A host name. It follows the rules of `domain` in [DNS Lookup](#dns-lookup-get-dns_lookupdomain). A special-use name and an IP address are refused the same way |
+
+### Response `200 OK`
+
+The answer below is what the server writes for the values it shows. The site, the time and the
+values are made up. `robots.txt` was read after one redirect to the www pair. `security.txt` was
+found there at once.
+
+```json
+{
+  "checked_at": "2026-11-20T10:11:12Z",
+  "robots_txt": {
+    "url": "https://www.example.com/robots.txt",
+    "status_code": 200,
+    "redirect_count": 1,
+    "groups": [
+      {"line": 1, "user_agents": ["*"], "allow": ["/public/"], "disallow": ["/private/"], "crawl_delay": 2.5},
+      {"line": 6, "user_agents": ["ContrastAPI"], "allow": [], "disallow": ["/admin/"], "crawl_delay": null}
+    ],
+    "sitemaps": ["https://www.example.com/sitemap.xml"],
+    "issues": [{"code": "unknown_directive", "severity": "info", "field": null, "line": 9}],
+    "by_severity": {"warning": 0, "info": 1}
+  },
+  "security_txt": {
+    "status": "found",
+    "url": "https://www.example.com/.well-known/security.txt",
+    "status_code": 200,
+    "redirect_count": 0,
+    "content_type": "text/plain; charset=utf-8",
+    "openpgp_signed": false,
+    "expires": "2028-01-01T00:00:00Z",
+    "contact": ["mailto:security@example.com"],
+    "encryption": [],
+    "acknowledgments": [],
+    "preferred_languages": ["en"],
+    "canonical": ["https://www.example.com/.well-known/security.txt"],
+    "policy": ["https://www.example.com/disclosure"],
+    "hiring": [],
+    "csaf": [],
+    "unknown_field_count": 0,
+    "issues": [{"code": "expires_too_far_ahead", "severity": "warning", "field": "expires", "line": 2}],
+    "by_severity": {"error": 0, "warning": 1, "info": 0}
+  }
+}
+```
+
+A request past the throttle:
+
+```json
+{"checked_at":"2026-11-20T10:11:12Z","reason":"quota_exhausted","retry_after_seconds":37,"robots_txt":null,"security_txt":null}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `checked_at` | string | When the fetch ran, in UTC. A kept answer keeps the time of its own fetch |
+| `reason` | string | `quota_exhausted` when the throttle refused the fetch. Only that answer has it |
+| `retry_after_seconds` | integer | The seconds until the throttle window ends. Only the `quota_exhausted` answer has it |
+| `robots_txt`, `security_txt` | object or null | One object for each file. Both are `null` in the `quota_exhausted` answer |
+| `url` | string | The URL of the last request of the file, without its query. A URL longer than 500 code points is cut there, and `total_url_length` follows it. A file whose request was never sent has no `url`, `status_code`, `redirect_count` or `redirect_to` |
+| `status_code` | integer | The status the site answered the last request with |
+| `redirect_count` | integer | How many redirects were followed before the last request |
+| `redirect_to` | string | The redirect the server did not follow. It is cut as `url` is, with `total_redirect_to_length`. Present only when there is one |
+| `robots_txt.groups` | array | The groups that bind `ContrastAPI`: its own groups and the groups of `*`, in file order. Each has its first `line`, its `user_agents`, its `allow` and `disallow` paths and its `crawl_delay` in seconds, or `null`. `[]` when no file was read |
+| `robots_txt.total_groups`, `robots_txt.total_rules` | integer | The groups and the rules of those groups, dropped ones included. Present only when the server kept fewer: at most 1024 groups and 16384 rules |
+| `robots_txt.sitemaps` | array | The `Sitemap` values, at most 100. `total_sitemaps` follows when there were more. `[]` when no file was read |
+| `security_txt.status` | string | `found`, `not_found`, `too_large`, `robots_disallowed`, `robots_unknown` or `not_fetched`. The list below says what each means |
+| `security_txt.deciding_rule` | object or null | With `robots_disallowed` only: the `robots.txt` rule that disallowed the request, as its `line`, its `kind` (`allow` or `disallow`) and its `path`. `null` when no single rule decided |
+| `security_txt.content_type` | string or null | With `found` only: the `Content-Type` of the answer, or `null` without one |
+| `security_txt.openpgp_signed` | boolean | With `found` only: `true` when the file is a whole OpenPGP cleartext signed message. The signature is not verified |
+| `security_txt.expires` | string or null | With `found` only: the first `Expires` value as the file writes it, or `null` |
+| `security_txt.contact`, `encryption`, `acknowledgments`, `preferred_languages`, `canonical`, `policy`, `hiring`, `csaf` | array | With `found` only: the values of each field, at most 20. `total_<field>`, such as `total_contact`, follows a list that dropped values. `preferred_languages` lists the tags of the first `Preferred-Languages` line |
+| `security_txt.unknown_field_count` | integer | With `found` only: the lines whose field name the server does not know |
+| `issues` | array | The issues of the file, at most 50 of the parser, then the two of the server below. Each has its `code`, its `severity`, the `field` it is about or `null`, and its `line` or `null`. `total_issues` follows when the parser dropped some. `security_txt` has `issues` with `found` only |
+| `by_severity` | object | How many issues of each severity the file raised, dropped ones included: `warning` and `info` for `robots_txt`, and `error`, `warning` and `info` for `security_txt` |
+
+Every value from the site is cut after 500 code points. A value in a list carries no length. A
+byte that is not part of a whole UTF-8 character is written as U+FFFD, and a hidden code point,
+such as U+202E, as its `\u` escape.
+
+`security_txt.status`:
+
+- `found`: the site answered `2xx`, and the file was read.
+- `not_found`: the site answered a status that is no `2xx`, `3xx`, `429` or `5xx`, such as `404`.
+- `too_large`: the `2xx` body passed 32 KiB, so none of it was read.
+- `robots_disallowed`: `robots.txt` disallowed the request of the file or of a redirect.
+- `robots_unknown`: `robots.txt` could not decide, or a redirect went to a host whose `robots.txt`
+  was not read.
+- `not_fetched`: no answer was read. The deadline ran out, or a redirect was left unfollowed.
+
+The issue codes of `robots_txt` (`field` is the directive in lower case, such as `crawl-delay`):
+
+| Code | Severity |
+|------|----------|
+| `file_too_large` | warning |
+| `byte_order_mark` | info |
+| `invalid_utf8` | warning |
+| `contains_nul_byte` | warning |
+| `line_too_long` | warning |
+| `line_syntax_invalid` | info |
+| `rule_before_user_agent` | warning |
+| `empty_user_agent` | info |
+| `unknown_directive` | info |
+| `crawl_delay_invalid` | info |
+| `sitemap_not_absolute` | info |
+| `too_many_groups` | warning |
+| `too_many_rules` | warning |
+| `too_many_user_agents` | warning |
+| `too_many_sitemaps` | warning |
+| `redirected_to_other_host` | info |
+| `content_type_not_text_plain` | info |
+
+The issue codes of `security_txt` (`field` is the field as the list members name it, such as
+`preferred_languages`):
+
+| Code | Severity |
+|------|----------|
+| `contact_missing` | error |
+| `expires_missing` | error |
+| `expires_duplicate` | error |
+| `expires_invalid` | error |
+| `expired` | error |
+| `expires_too_far_ahead` | warning |
+| `preferred_languages_duplicate` | error |
+| `language_tag_invalid` | warning |
+| `encryption_holds_key` | error |
+| `uri_invalid` | error |
+| `uri_not_https` | error |
+| `csaf_not_provider_metadata` | warning |
+| `content_type_invalid` | error |
+| `canonical_mismatch` | warning |
+| `redirected_to_other_host` | warning |
+| `signature_malformed` | error |
+| `text_after_signature` | warning |
+| `signed_without_canonical` | info |
+| `invalid_line_ending` | warning |
+| `invalid_utf8` | error |
+| `contains_nul_byte` | error |
+| `byte_order_mark` | warning |
+| `line_syntax_invalid` | warning |
+| `field_empty` | warning |
+| `line_too_long` | warning |
+| `too_many_lines` | warning |
+| `too_many_values` | warning |
+| `file_too_large` | error |
+
+The server adds two warnings of its own to a file, after the parser's issues. They count in
+`total_issues` and in `by_severity`. `redirect_limit_reached` says the fetch followed 5 redirects
+and the last answer named one more. Only `robots_txt` can carry it: a `security.txt` fetch that
+stops there is `not_fetched`, which holds no issues. `content_encoded` says the answer came with a
+`Content-Encoding` other than `identity`, so its body was not read.
+
+### Errors
+
+| Status | When | Body |
+|--------|------|------|
+| `400`  | The host name is not a public domain name, as the Parameters section of DNS Lookup says | `{"error":{"code":"bad_request","message":"Provide a public domain name, such as example.com."}}` |
+| `400`  | No host name after `/well_known/` | `{"error":{"code":"bad_request","message":"domain is required"}}` |
+| `400`  | The server refused an address of the host name, because it is not globally reachable, and no other address took the connection | `{"error":{"code":"bad_request","message":"hostname resolves to an address that is not globally reachable"}}` |
+| `500`  | The throttle count could not be read or written, so nothing was fetched | `{"error":{"code":"internal_error","message":"internal server error"}}` |
+| `502`  | `robots.txt` or `security.txt` answered `429` or `5xx`, or the fetch failed in another way | `{"error":{"code":"upstream_unavailable","message":"upstream service unavailable"}}` |
+| `503`  | The server is busy with requests to outside services. Try again after the `Retry-After` wait | `{"error":{"code":"upstream_busy","message":"upstream service busy","retry_after_seconds":5}}` |
+| `504`  | The site gave no answer. The message says why, with the texts of the Headers Check table | `{"error":{"code":"target_unreachable","message":"the host name did not resolve"}}` |
+
+A refused host name pays its 1 credit, and so do a `502` and a `504`. A `503` costs nothing.
+
+---
+
 ## WHOIS Lookup: `GET /whois_lookup/{domain}`
 
 Looks up the registration of a domain name over RDAP, or over WHOIS for a TLD without an RDAP
@@ -5559,7 +5778,7 @@ A feed whose name, time or status cannot be read is left out of `db.feeds`. The 
 ```json
 {
   "status": "ok",
-  "version": "2.1.1",
+  "version": "2.2.0",
   "db": {
     "nvd": {
       "cve_count": 251430,
@@ -5593,7 +5812,7 @@ A feed whose name, time or status cannot be read is left out of `db.feeds`. The 
 When the database cannot be read, the answer is HTTP 503 with a `Retry-After: 5` header and this body:
 
 ```json
-{"status":"unavailable","version":"2.1.1","db":null}
+{"status":"unavailable","version":"2.2.0","db":null}
 ```
 
 ---
@@ -5790,8 +6009,8 @@ See [HTTP status codes](#http-status-codes).
 ## Web files
 
 The server also answers files that are not API endpoints: the web pages and their static files,
-`robots.txt`, the `llms` files, the sitemap, and the discovery documents of MCP. The files are
-part of the server.
+`robots.txt`, the `llms` files, the sitemap, `security.txt`, and the discovery documents of MCP.
+The files are part of the server.
 
 - A web file costs no credit. It needs no API key and sends no `X-RateLimit-*` header.
 - A request for a web file that carries an API key has the key checked, as on `/health`. A
@@ -5850,6 +6069,7 @@ part of the server.
 | `/llms.txt` | `text/plain; charset=utf-8` | `public, max-age=600` |
 | `/llms-full.txt` | `text/plain; charset=utf-8` | `public, max-age=600` |
 | `/sitemap.xml` | `application/xml` | `public, max-age=600` |
+| `/.well-known/security.txt` | `text/plain; charset=utf-8` | `public, max-age=600` |
 | `/.well-known/mcp/server-card.json` | `application/json` | `public, max-age=600` |
 | `/.well-known/mcp-server.json` | `application/json` | `public, max-age=600` |
 | `/mcp.json` | `application/json` | `public, max-age=600` |
@@ -5889,7 +6109,7 @@ A request that the endpoint refuses is never offered a payment. A bad method, a 
 
 ### The flow
 
-1. Send the request with no key. When the free credits are spent, the answer is `402` with `payment_required`. It carries a `PAYMENT-REQUIRED` header, and keeps `Retry-After` and the `X-RateLimit-*` headers.
+1. Send the request with no key. When the free credits are spent, the answer is `402` with `payment_required`. It carries a `PAYMENT-REQUIRED` header, and keeps `Retry-After` and the `X-RateLimit-*` headers. The body also holds `upgrade_url`, the page that sells a Pro key. That page sells the monthly Pro plan. It does not pay for this call.
 2. Decode the `PAYMENT-REQUIRED` value. It is base64 of a JSON object with `x402Version` 2, an `error` text, a `resource` and one entry in `accepts`. The entry holds `scheme`, `network`, `amount`, `asset`, `payTo`, `maxTimeoutSeconds` and `extra.feePayer`.
 3. Sign a USDC transfer as that entry asks. Send the same request again with a `PAYMENT-SIGNATURE` header. Its value is base64 of the x402 payment payload.
 4. The server checks and verifies the payment before the endpoint runs. It settles the payment only after a run that answers `200`. If that settle is refused, the answer is `402` with `payment_refused` and the body is withheld. If the settle has no result in time, the answer is `402` with `payment_pending` and the body is withheld.
@@ -5908,7 +6128,7 @@ A bulk request is paid at full price for every id. There is no partial charge. `
 
 | Status | `code` | When | Headers |
 |--------|--------|------|---------|
-| 402 | `payment_required` | The free budget is spent, and the request has no payment. This is the offer. | `PAYMENT-REQUIRED`, `Retry-After` (seconds until the budget resets), `X-RateLimit-*` |
+| 402 | `payment_required` | The free budget is spent, and the request has no payment. This is the offer. The body holds `upgrade_url`, the page that sells a Pro key. | `PAYMENT-REQUIRED`, `Retry-After` (seconds until the budget resets), `X-RateLimit-*` |
 | 402 | `payment_refused` | The payment pays for something else, or the facilitator or Solana refused it. Nothing is charged. | A new `PAYMENT-REQUIRED` |
 | 402 | `payment_already_used` | The payment was settled already. | A new `PAYMENT-REQUIRED` |
 | 402 | `payment_pending` | The settle has no result yet. Retry with the same payment. | `Retry-After: 10`, no `PAYMENT-REQUIRED` |
@@ -5921,7 +6141,7 @@ A bulk request is paid at full price for every id. There is no partial charge. `
 Each body has the shape of every other error. A REST body sent with `Retry-After` also holds `retry_after_seconds`, with the same seconds. These are the bodies, byte for byte:
 
 ```json
-{"error":{"code":"payment_required","message":"Payment required: pay with x402 or retry in 120 seconds.","retry_after_seconds":120}}
+{"error":{"code":"payment_required","message":"Payment required: pay with x402 or retry in 120 seconds, or buy a Pro key at https://api.contrastcyber.com/pricing.","retry_after_seconds":120,"upgrade_url":"https://api.contrastcyber.com/pricing"}}
 {"error":{"code":"payment_refused","message":"The payment was refused."}}
 {"error":{"code":"payment_already_used","message":"This payment was already used."}}
 {"error":{"code":"payment_pending","message":"The payment is pending: retry with the same payment.","retry_after_seconds":10}}
@@ -5991,7 +6211,7 @@ Every request that is charged credits carries the following rate limit headers, 
 | `X-RateLimit-Reset-Machine`  | integer | Unix timestamp when the budget resets (next hour boundary) |
 | `X-RateLimit-Reset-Human`    | string  | Time remaining until reset in `HH:MM:SS` format (e.g. `00:39:38`) |
 
-A 429 also carries a `Retry-After` header with the seconds until the budget resets, and its body holds the same seconds as `retry_after_seconds`. A payment (x402) carries the two headers below. A paid answer carries no `X-RateLimit-*` headers. See [Pay per call (x402)](#pay-per-call-x402).
+A 429 also carries a `Retry-After` header with the seconds until the budget resets, and its body holds the same seconds as `retry_after_seconds`. A `rate_limited` 429 to a request with no key, or with an unknown, revoked or expired key, also holds `upgrade_url`, the page that sells a Pro key. A 429 to an active key has no `upgrade_url`. See [Error codes](#error-codes) for both bodies. A payment (x402) carries the two headers below. A paid answer carries no `X-RateLimit-*` headers. See [Pay per call (x402)](#pay-per-call-x402).
 
 | Header             | Type   | Description |
 |--------------------|--------|-------------|
@@ -6034,6 +6254,12 @@ A REST endpoint answers an error with a JSON body of this shape:
 {"error":{"code":"rate_limited","message":"rate limit exceeded","retry_after_seconds":42}}
 ```
 
+That `rate_limited` body is the one an active key gets. A request with no key, or with an unknown, revoked or expired key, gets `upgrade_url` too:
+
+```json
+{"error":{"code":"rate_limited","message":"rate limit exceeded","retry_after_seconds":42,"upgrade_url":"https://api.contrastcyber.com/pricing"}}
+```
+
 `code` names the error for a program to match. `message` explains it to a person. This table lists every `code` the server sends. `/health` is an exception: its 503 carries the health body, not this shape. See [Health](#health).
 
 | Status | `code` | When |
@@ -6046,7 +6272,7 @@ A REST endpoint answers an error with a JSON body of this shape:
 | 401 | `unauthorized` | The API key is malformed, or no such key exists. |
 | 401 | `api_key_inactive` | The API key was revoked or has expired. |
 | 401 | `invalid_signature` | `POST /webhook_lemonsqueezy` has no `X-Signature` header, or the header is not the HMAC-SHA256 of the body. `POST /webhook_nowpayments` has no `x-nowpayments-sig` header, or the header is not the HMAC-SHA512 of the canonical body. |
-| 402 | `payment_required` | The free budget is spent on an endpoint that takes payment. The `PAYMENT-REQUIRED` header offers the payment, and `Retry-After` gives the seconds until the budget resets. |
+| 402 | `payment_required` | The free budget is spent on an endpoint that takes payment. The `PAYMENT-REQUIRED` header offers the payment, and `Retry-After` gives the seconds until the budget resets. `upgrade_url` names the page that sells a Pro key. |
 | 402 | `payment_refused` | The payment was refused. The answer carries a new `PAYMENT-REQUIRED` header. |
 | 402 | `payment_already_used` | The payment was settled already. The answer carries a new `PAYMENT-REQUIRED` header. |
 | 402 | `payment_pending` | The settle has no result yet. Retry with the same payment. The response carries `Retry-After: 10`. |
@@ -6055,7 +6281,7 @@ A REST endpoint answers an error with a JSON body of this shape:
 | 410 | `gone` | `POST /api_key_claim` names an order whose key was claimed already, whose 24-hour claim window has passed, or that was refunded or has ended. `message` says which. |
 | 413 | `content_too_large` | The body that `Content-Length` announces is longer than the endpoint takes. Any request may carry a body that fits, with its head, in 4095 bytes. A POST to a row that reads a JSON body may also carry as many bytes as its JSON object limit: 2048, or 65536 on `/package_check_bulk` and `/watchlist_edit`. A POST to `/mcp` may carry 69632 bytes, a POST to `/image_inspect` 16 MiB, a POST to `/webhook_lemonsqueezy` 64 KiB (65536 bytes), and a POST to `/webhook_nowpayments` 64 KiB (65536 bytes). |
 | 414 | `uri_too_long` | The request target is longer than 1023 bytes, or the request line does not fit in 4095 bytes. |
-| 429 | `rate_limited` | The caller's credit budget is spent. The `Retry-After` header and `retry_after_seconds` give the seconds until the budget resets. |
+| 429 | `rate_limited` | The caller's credit budget is spent. The `Retry-After` header and `retry_after_seconds` give the seconds until the budget resets. A request with no key, or with an unknown, revoked or expired key, also gets `upgrade_url`, the page that sells a Pro key. An active key gets none. |
 | 429 | `payment_busy` | The payment, or another payment of its wallet, is in flight. The response carries `Retry-After: 5`. |
 | 429 | `payment_limited` | A client, a payment or a paying token account is over one of its payment limits. The `Retry-After` header gives the wait. |
 | 431 | `request_header_fields_too_large` | The request has more than 64 header lines, or its head does not fit in 4095 bytes. |
@@ -6065,9 +6291,9 @@ A REST endpoint answers an error with a JSON body of this shape:
 | 503 | `upstream_busy` | The server is busy with requests to outside services. The response carries `Retry-After: 5`. |
 | 503 | `raw_body_busy` | Every place for an image request is in use, so a request to `/image_inspect` is refused from its head. The response carries `Retry-After: 10`. |
 | 503 | `payment_unavailable` | Both settle places are taken, or the facilitator gave no answer to the verify. The response carries `Retry-After: 5`. |
-| 504 | `target_unreachable` | `/ssl_check/` reached no TLS server at the host name. No address took a connection on port 443, the deadline of the check passed, or the TLS handshake failed. `/headers_check/` got no answer from the site: the host name did not resolve, no address took a connection on port 443, the deadline passed, or the TLS handshake failed. `message` says why. |
+| 504 | `target_unreachable` | `/ssl_check/` reached no TLS server at the host name. No address took a connection on port 443, the deadline of the check passed, or the TLS handshake failed. `/headers_check/` and `/well_known/` got no answer from the site: the host name did not resolve, no address took a connection on port 443, the deadline passed, or the TLS handshake failed. `message` says why. |
 
-`POST /mcp` uses this shape for its 400, 405, 413, 414, 431 and 501 answers. Its 400 refuses a query parameter on the URL, or the request's framing. Its 401, 429, 500 and 503 answers keep their HTTP status, but the body is a JSON-RPC `error` object with the `message` this table's row sends. The `rate_limited` 429 `message` also names the wait, as in `rate limit exceeded: retry in 42 seconds`. A JSON-RPC fault on `/mcp` answers a JSON-RPC `error` object too. Its `code` is a number. The `ssl_check` and `headers_check` tools answer a `target_unreachable` case with a tool result that has `isError` and the same `message`. See [MCP: `POST /mcp`](#mcp-post-mcp).
+`POST /mcp` uses this shape for its 400, 405, 413, 414, 431 and 501 answers. Its 400 refuses a query parameter on the URL, or the request's framing. Its 401, 429, 500 and 503 answers keep their HTTP status, but the body is a JSON-RPC `error` object with the `message` this table's row sends. The `rate_limited` 429 `message` also names the wait, as in `rate limit exceeded: retry in 42 seconds`. A JSON-RPC fault on `/mcp` answers a JSON-RPC `error` object too. Its `code` is a number. The `ssl_check`, `headers_check` and `well_known` tools answer a `target_unreachable` case with a tool result that has `isError` and the same `message`. See [MCP: `POST /mcp`](#mcp-post-mcp).
 
 [HTTP status codes](#http-status-codes) lists each REST case with the endpoints it applies to.
 
@@ -6109,13 +6335,13 @@ request target counts the bytes as sent.
 | 400  | The id in the path is not a MITRE ATT&CK technique id in upper case; body `{"error":{"code":"bad_request","message":"Provide a MITRE ATT&CK technique id in upper case, such as T1059 or T1059.001."}}` | `/d3fend_for_attack/` |
 | 400  | No id in the path; body message `"attack_technique_id is required"` | `/d3fend_for_attack/` |
 | 400  | No address of the host name is globally reachable, or its records lead to a name only a local network can answer; body `{"error":{"code":"bad_request","message":"hostname has no globally reachable address"}}`. The server opens no connection, and the request still pays its credit | `/ssl_check/` |
-| 400  | The server refused an address of the host name, because it is not globally reachable, and no other address took the connection; body `{"error":{"code":"bad_request","message":"hostname resolves to an address that is not globally reachable"}}`. The request still pays its credit | `/headers_check/` |
+| 400  | The server refused an address of the host name, because it is not globally reachable, and no other address took the connection; body `{"error":{"code":"bad_request","message":"hostname resolves to an address that is not globally reachable"}}`. The request still pays its credit | `/headers_check/`, `/well_known/` |
 | 400  | The domain is a public suffix, such as `co.uk`; body `{"error":{"code":"bad_request","message":"domain is a public suffix, such as co.uk; name a domain registered under it"}}`. The server sends no request, and the request still pays its credit | `/whois_lookup/` |
 | 400  | The body is empty; body message `"image is required"`. The request still pays its 2 credits | `/image_inspect` |
 | 400  | The `PAYMENT-SIGNATURE` header is not well formed, is sent twice, or is longer than 3416 bytes; body code `payment_invalid`. See [Pay per call (x402)](#pay-per-call-x402) | every endpoint that takes payment |
 | 401  | The API key is malformed, unknown, revoked or expired, or a webhook signature does not match its body. A key that is unknown, revoked or expired is charged to the anonymous budget (1 credit), so guessing keys is not free. A `401` for an API key carries no `X-RateLimit-*` headers. [Sending the key](#sending-the-key) gives the rules | all |
 | 401  | The key is in the database but was revoked or has expired; body `{"error":{"code":"api_key_inactive","message":"API key expired or revoked"}}`. It is charged like a key that is not in the database, and carries no `X-RateLimit-*` headers | all |
-| 402  | A request without an API key has spent its free budget on an endpoint that takes payment. The `PAYMENT-REQUIRED` header offers the payment; body code `payment_required`. The answer keeps `Retry-After` and the `X-RateLimit-*` headers. See [Pay per call (x402)](#pay-per-call-x402) | every endpoint that takes payment |
+| 402  | A request without an API key has spent its free budget on an endpoint that takes payment. The `PAYMENT-REQUIRED` header offers the payment; body code `payment_required`, with `upgrade_url`, the page that sells a Pro key. The answer keeps `Retry-After` and the `X-RateLimit-*` headers. See [Pay per call (x402)](#pay-per-call-x402) | every endpoint that takes payment |
 | 402  | The payment was refused, or was settled already; body code `payment_refused` or `payment_already_used`. The answer carries a new `PAYMENT-REQUIRED` header | every endpoint that takes payment |
 | 402  | The settle of the payment has no result yet; body code `payment_pending`. Retry with the same payment. The answer has no `PAYMENT-REQUIRED` header | every endpoint that takes payment |
 | 404  | The CVE, KEV entry, CWE, domain, host name, AS or order does not exist, or the domain is not registered. A path that neither an endpoint nor a web file serves gets it too | all |
@@ -6129,17 +6355,17 @@ request target counts the bytes as sent.
 | 410  | The key of the order was claimed already, its 24-hour claim window has passed, or the order was refunded or has ended | `/api_key_claim` |
 | 413  | The body that `Content-Length` announces is longer than the endpoint takes. Any request may carry a body that fits, with its head, in 4095 bytes. A POST to a row that reads a JSON body may also carry as many bytes as its JSON object limit: 2048, or 65536 on `/package_check_bulk` and `/watchlist_edit`. A POST to `/mcp` may carry 69632 bytes, a POST to `/image_inspect` 16 MiB, a POST to `/webhook_lemonsqueezy` 64 KiB (65536 bytes), and a POST to `/webhook_nowpayments` 64 KiB (65536 bytes). The body is `{"error":{"code":"content_too_large",…}}`. Answered from the head, before the body is read, so it carries no `X-RateLimit-*` headers and costs no credits | all |
 | 414  | The request target (path plus query string) is longer than 1023 bytes, or the request line does not fit in 4095 bytes. It costs no credits and carries no `X-RateLimit-*` headers | all |
-| 429  | The credit budget is spent. The response carries a `Retry-After` header with the seconds until the budget resets. A request without an API key to an endpoint that takes payment gets `402` in its place. A bulk request with fewer credits left than its price is served in part, and `not_processed` lists the rest. A request that costs no credit never gets it, but a request with an unknown, revoked or expired API key pays 1 credit for its key check and can. `payment_busy` and `payment_limited` are the `429` answers of a payment | all that cost credits |
+| 429  | The credit budget is spent. The response carries a `Retry-After` header with the seconds until the budget resets. A request with no key, or with an unknown, revoked or expired key, also gets `upgrade_url` in the body; an active key does not. A request without an API key to an endpoint that takes payment gets `402` in its place. A bulk request with fewer credits left than its price is served in part, and `not_processed` lists the rest. A request that costs no credit never gets it, but a request with an unknown, revoked or expired API key pays 1 credit for its key check and can. `payment_busy` and `payment_limited` are the `429` answers of a payment | all that cost credits |
 | 431  | The request has more than 64 header lines, or its head does not fit in 4095 bytes. It costs no credits and carries no `X-RateLimit-*` headers | all |
 | 500  | The database or the server failed, or a stored value cannot be read. A request whose well-formed API key could not be looked up, or that could not be charged, gets it too, with no `X-RateLimit-*` headers. `/health` answers a database failure with `503`, and `/cve_lookup_bulk`, `/cve_triage_bulk` and `/driver_lookup_bulk` count an unreadable record in `failed` | all |
 | 501  | The request sends `Transfer-Encoding`, such as `chunked`, without `Content-Length`. The server reads a body only by its `Content-Length`. It costs no credits and carries no `X-RateLimit-*` headers | all |
 | 502  | The outside service the endpoint asks, or exiftool of `/image_inspect`, gave no answer the server can use. The request still pays its credits | the endpoints that ask an outside service |
-| 502  | The fetch of the site failed in a way that is no `504` and no `400`, such as an answer with more than 16 copies of one header the check reads, other than `Set-Cookie`. The body is `{"error":{"code":"upstream_unavailable","message":"upstream service unavailable"}}`. The request still pays its credit | `/headers_check/` |
+| 502  | The fetch of the site failed in a way that is no `504` and no `400`, such as an answer with more than 16 copies of one header the check reads, other than `Set-Cookie`. `/well_known/` answers it too when `robots.txt` or `security.txt` answered `429` or `5xx`. The body is `{"error":{"code":"upstream_unavailable","message":"upstream service unavailable"}}`. The request still pays its credit | `/headers_check/`, `/well_known/` |
 | 503  | The server is busy with requests to outside services (`upstream_busy`). The response carries `Retry-After: 5`. It costs no credits and carries no `X-RateLimit-*` headers. A request that the endpoint refuses for its method, its parameter names or its values gets that refusal instead. The 503 comes before the API key is read, so a request with a malformed, unknown, revoked or expired key gets it too | the endpoints that ask an outside service, `/mcp` |
 | 503  | Every place for an image request is in use (`raw_body_busy`). The response carries `Retry-After: 10`, the deadline that the head and the body share. It costs no credits | `/image_inspect` |
 | 503  | The payment cannot be settled now (`payment_unavailable`). The response carries `Retry-After: 5` | every endpoint that takes payment |
-| 503  | The database cannot be read. The body is `{"status":"unavailable","version":"2.1.1","db":null}` and the response carries `Retry-After: 5` | `/health` |
-| 504  | No TLS server or site was reached at the host name. `message` says why | `/ssl_check/`, `/headers_check/` |
+| 503  | The database cannot be read. The body is `{"status":"unavailable","version":"2.2.0","db":null}` and the response carries `Retry-After: 5` | `/health` |
+| 504  | No TLS server or site was reached at the host name. `message` says why | `/ssl_check/`, `/headers_check/`, `/well_known/` |
 
 ---
 
@@ -6171,6 +6397,7 @@ request target counts the bytes as sent.
 | `GET /email_address_check/{email}`                | 1 credit  |
 | `GET /ssl_check/{domain}`                         | 1 credit  |
 | `GET /headers_check/{domain}`                     | 1 credit  |
+| `GET /well_known/{domain}`                        | 1 credit  |
 | `GET /whois_lookup/{domain}`                      | 1 credit  |
 | `GET /wayback_lookup/{domain}`                    | 1 credit  |
 | `GET /cert_search/{domain}`                       | 2 credits |
@@ -6361,9 +6588,9 @@ returns HTTP `202` with no body; the 2026-07-28 era refuses it with `-32600`.
 
 **Tools** (one per data endpoint but `/image_inspect`; the account and payment endpoints are not tools): `cve_lookup`, `cve_lookup_bulk`, `cve_products`, `cve_search`, `cve_triage`,
 `cve_triage_bulk`, `cve_leading`, `epss_risers`, `kev_lookup`, `cwe_lookup`, `cve_risk_score`, `cve_exploit`,
-`product_exposure`, `cpe_search`, `cvss_calculator`, `watchlist_edit`, `watchlist_events`, `password_check`, `dns_lookup`, `dns_takeover_check`, `email_auth_check`, `email_address_check`, `ssl_check`, `headers_check`, `whois_lookup`, `wayback_lookup`, `cert_search`, `subdomain_enum`, `ip_lookup`, `asn_lookup`, `d3fend_for_attack`, `driver_lookup`, `driver_lookup_bulk`, `package_check`, `package_check_bulk`, `health`, `privacy_my_data`, `vendor_key_edit`. Call `tools/list` for each tool's `inputSchema`. Path-id tools take `{"cve_id": "..."}`
+`product_exposure`, `cpe_search`, `cvss_calculator`, `watchlist_edit`, `watchlist_events`, `password_check`, `dns_lookup`, `dns_takeover_check`, `email_auth_check`, `email_address_check`, `ssl_check`, `headers_check`, `well_known`, `whois_lookup`, `wayback_lookup`, `cert_search`, `subdomain_enum`, `ip_lookup`, `asn_lookup`, `d3fend_for_attack`, `driver_lookup`, `driver_lookup_bulk`, `package_check`, `package_check_bulk`, `health`, `privacy_my_data`, `vendor_key_edit`. Call `tools/list` for each tool's `inputSchema`. Path-id tools take `{"cve_id": "..."}`
 (`cwe_lookup` takes `{"cwe_id": "..."}`); `cve_lookup_bulk` and `cve_triage_bulk` take `{"cve_ids": [...]}` (max 50); `product_exposure` takes a
-required `{"vendor": "...", "product": "..."}` and an optional `version` and `include_rejected`; `cpe_search` takes a required `{"search": "..."}` and an optional `limit` and `offset`; `cve_products` takes a required `{"cve_id": "..."}` and an optional `vendor`, `product`, `limit` and `offset`; `cvss_calculator` takes a required `{"vector": "..."}`; `password_check` takes a required `{"sha1_hash": "..."}`; `email_address_check` takes a required `{"email": "..."}`, not percent-decoded; `headers_check` takes a required `{"domain": "..."}` and an optional boolean `include_full_header_values`; `ip_lookup` takes a required `{"ip_address": "..."}`; `asn_lookup` takes a required `{"target": "..."}` and an optional `limit` and `offset`; `d3fend_for_attack` takes a required `{"attack_technique_id": "..."}`; `driver_lookup` takes a required `{"file_hash": "..."}` and an optional boolean `include_commands`; `driver_lookup_bulk` takes `{"hashes": [...]}` (max 20); `package_check` takes a required `{"ecosystem": "...", "name": "..."}` and an optional `version`, `limit` and `offset`; `package_check_bulk` takes `{"items": [...]}` (max 500); `watchlist_edit` takes the body members of [Watchlist Edit](#watchlist-edit-post-watchlist_edit) and `watchlist_events` the query parameters of [Watchlist Events](#watchlist-events-get-watchlist_events), and both need an API key; `vendor_key_edit` takes a required `{"action": "..."}` and an optional `link`, `shodan_key`, `abuseipdb_key`, `shodan_delete` and `abuseipdb_delete`, the body members of [Vendor Key Edit](#vendor-key-edit-post-vendor_key_edit); `health` and `privacy_my_data` take no arguments; `cve_search`/`cve_triage`/`cve_leading`/`epss_risers` take
+required `{"vendor": "...", "product": "..."}` and an optional `version` and `include_rejected`; `cpe_search` takes a required `{"search": "..."}` and an optional `limit` and `offset`; `cve_products` takes a required `{"cve_id": "..."}` and an optional `vendor`, `product`, `limit` and `offset`; `cvss_calculator` takes a required `{"vector": "..."}`; `password_check` takes a required `{"sha1_hash": "..."}`; `email_address_check` takes a required `{"email": "..."}`, not percent-decoded; `headers_check` takes a required `{"domain": "..."}` and an optional boolean `include_full_header_values`; `well_known` takes a required `{"domain": "..."}`; `ip_lookup` takes a required `{"ip_address": "..."}`; `asn_lookup` takes a required `{"target": "..."}` and an optional `limit` and `offset`; `d3fend_for_attack` takes a required `{"attack_technique_id": "..."}`; `driver_lookup` takes a required `{"file_hash": "..."}` and an optional boolean `include_commands`; `driver_lookup_bulk` takes `{"hashes": [...]}` (max 20); `package_check` takes a required `{"ecosystem": "...", "name": "..."}` and an optional `version`, `limit` and `offset`; `package_check_bulk` takes `{"items": [...]}` (max 500); `watchlist_edit` takes the body members of [Watchlist Edit](#watchlist-edit-post-watchlist_edit) and `watchlist_events` the query parameters of [Watchlist Events](#watchlist-events-get-watchlist_events), and both need an API key; `vendor_key_edit` takes a required `{"action": "..."}` and an optional `link`, `shodan_key`, `abuseipdb_key`, `shodan_delete` and `abuseipdb_delete`, the body members of [Vendor Key Edit](#vendor-key-edit-post-vendor_key_edit); `health` and `privacy_my_data` take no arguments; `cve_search`/`cve_triage`/`cve_leading`/`epss_risers` take
 the same filters as their REST query params. On the tools that carry them, `in_kev`,
 `known_ransomware` and `has_nuclei_template` are JSON booleans. They are refused, not silently dropped, when they are anything else;
 `known_ransomware` and `has_nuclei_template` take only `true`, matching the REST `400`. `cve_triage` carries none of them.

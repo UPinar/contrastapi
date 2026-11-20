@@ -24,6 +24,7 @@ extern "C" {
 #include "external/wayback.h"
 #include "wayback_stub.h"
 #include "header_fetch_stub.h"
+#include "well_known.h"
 #include "certspotter_stub.h"
 #include "subdomain_stub.h"
 #include "usagelog.h"
@@ -287,6 +288,12 @@ extern "C" ThrottleRule_t   g_stub_THROTTLE_last_rule;
 extern "C" char             g_stub_THROTTLE_last_target_name[THROTTLE_TARGET_NAME_MAX_LEN + 1];
 extern "C" unsigned int     g_stub_THROTTLE_last_charged_count;
 
+extern "C" HttpError_t       g_stub_WELL_KNOWN_error;
+extern "C" WellKnownReport_t g_stub_WELL_KNOWN_report;
+extern "C" int               g_stub_WELL_KNOWN_call_count;
+extern "C" int               g_stub_WELL_KNOWN_free_count;
+extern "C" char              g_stub_WELL_KNOWN_last_hostname[VALIDATE_DOMAIN_NAME_MAX_LEN + 1];
+
 extern "C" const WaybackStubAnswer_t g_stub_WAYBACK_default_answers[2];
 extern "C" WaybackStubAnswer_t       g_stub_WAYBACK_answers[2];
 extern "C" int                       g_stub_WAYBACK_lookup_count;
@@ -503,6 +510,11 @@ void setUp(void)
   g_stub_HEADER_FETCH_last_hostname[0]          = '\0';
   g_stub_HEADER_FETCH_free_count                = 0;
   g_stub_HEADER_FETCH_on_call                   = NULL;
+  g_stub_WELL_KNOWN_error                       = HTTP_ERROR_NONE;
+  memset(&g_stub_WELL_KNOWN_report, 0, sizeof(g_stub_WELL_KNOWN_report));
+  g_stub_WELL_KNOWN_call_count                  = 0;
+  g_stub_WELL_KNOWN_free_count                  = 0;
+  g_stub_WELL_KNOWN_last_hostname[0]            = '\0';
   g_stub_WAYBACK_last_lookup_name[0]            = '\0';
   g_stub_CERTSPOTTER_answer                     = g_stub_CERTSPOTTER_default_answer;
   g_stub_CERTSPOTTER_lookup_count               = 0;
@@ -668,7 +680,7 @@ void test_tool_count_is_the_number_of_tools_listed(void)
   int listed_tool_count = 0;
   for (const char* cursor = response; (cursor = strstr(cursor, R"("inputSchema")")) != NULL; cursor++)
     listed_tool_count++;
-  TEST_ASSERT_EQUAL_INT(38, listed_tool_count);
+  TEST_ASSERT_EQUAL_INT(39, listed_tool_count);
   TEST_ASSERT_EQUAL_INT(listed_tool_count, endpoint_mcpToolCount());
   free(response);
 }
@@ -957,6 +969,11 @@ void test_tools_list_is_the_whole_catalogue(void)
       R"json("inputSchema":{"type":"object","properties":{)json"
       R"json("domain":{"type":"string","maxLength":253,"description":"Host name of the site, such as www.example.com"},)json"
       R"json("include_full_header_values":{"type":"boolean","description":"true sends each header value and URL whole, instead of cutting it after 500 code points"})json"
+      R"json(},"required":["domain"],"additionalProperties":false})json"
+      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":true},"_meta":{"com.contrastcyber/category":"Domain Intelligence"}})json",
+    R"json({"name":"well_known","title":"Robots.txt and security.txt Check","description":"Read robots.txt of https://<domain> and, if it allows us, /.well-known/security.txt, with up to 5 redirects on the host or its www pair. Gives the rules that bind us, sitemaps, fields such as Contact and Expires, and RFC 9309/9116 issues.",)json"
+      R"json("inputSchema":{"type":"object","properties":{)json"
+      R"json("domain":{"type":"string","maxLength":253,"description":"Host name of the site, such as www.example.com"})json"
       R"json(},"required":["domain"],"additionalProperties":false})json"
       R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":true},"_meta":{"com.contrastcyber/category":"Domain Intelligence"}})json",
     R"json({"name":"whois_lookup","title":"WHOIS / RDAP Lookup","description":"Look up a domain's registration over RDAP, or WHOIS where allowed: registrar, dates, status, name servers and DNSSEC. A name under a registered domain asks about that domain. No registrant data.",)json"
@@ -2018,7 +2035,7 @@ void test_every_tool_refuses_names_and_values_it_does_not_read(void)
     }
     called++;
   }
-  TEST_ASSERT_EQUAL_INT(38, called);
+  TEST_ASSERT_EQUAL_INT(39, called);
 }
 
 void test_readToolCall_reads_the_name_and_the_arguments(void)
@@ -3939,6 +3956,52 @@ void test_tool_HEADERSCHECK_missing_and_refused_values(void)
   free(response);
   TEST_ASSERT_EQUAL_INT(0, g_stub_CACHE_get_count);
   TEST_ASSERT_EQUAL_INT(0, g_stub_HEADER_FETCH_call_count);
+}
+
+void test_tool_WELLKNOWN_answer(void)
+{
+  char before[HEADERSCHECK_CHECKED_AT_TEXT_SIZE];
+  char after[HEADERSCHECK_CHECKED_AT_TEXT_SIZE];
+  static_HEADERSCHECKUtcNow(before);
+  int status;
+  char* response = static_dispatch(R"({"jsonrpc":"2.0","id":94,"method":"tools/call",)"
+                     R"("params":{"name":"well_known","arguments":{"domain":"WWW.Example.com"}}})", &status);
+  static_HEADERSCHECKUtcNow(after);
+  TEST_ASSERT_EQUAL_INT(200, status);
+  static_HEADERSCHECKMaskCheckedAt(response, before, after);
+  TEST_ASSERT_EQUAL_STRING(
+    R"({"jsonrpc":"2.0","id":94,"result":{"content":[{"type":"text","text":")"
+    R"x({\"checked_at\":\"YYYY-MM-DDTHH:MM:SSZ\",\"robots_txt\":{\"groups\":[],\"sitemaps\":[],\"issues\":[],\"by_severity\":{\"warning\":0,\"info\":0}},)x"
+    R"x(\"security_txt\":{\"status\":\"not_fetched\"}})x"
+    R"(\n"}],"isError":false}})", response);
+  free(response);
+  TEST_ASSERT_EQUAL_INT(1, g_stub_WELL_KNOWN_call_count);
+  TEST_ASSERT_EQUAL_STRING("www.example.com", g_stub_WELL_KNOWN_last_hostname);
+  TEST_ASSERT_EQUAL_INT(1, g_stub_WELL_KNOWN_free_count);
+  TEST_ASSERT_EQUAL_INT(1, g_stub_THROTTLE_charge_count);
+  TEST_ASSERT_EQUAL_STRING("example.com", g_stub_THROTTLE_last_target_name);
+  TEST_ASSERT_EQUAL_STRING("site_fetch", g_stub_THROTTLE_last_rule.mp_throttleRuleName);
+  TEST_ASSERT_EQUAL_UINT(2, g_stub_THROTTLE_last_charged_count);
+  TEST_ASSERT_EQUAL_INT(1, g_stub_CACHE_get_count);
+  TEST_ASSERT_EQUAL_STRING("well_known:www.example.com", g_stub_CACHE_last_get_key);
+  TEST_ASSERT_TRUE(g_stub_CACHE_last_get_conn == g_conn);
+  TEST_ASSERT_EQUAL_INT(0, g_stub_CACHE_put_count);
+}
+
+void test_tool_WELLKNOWN_missing_and_private_name(void)
+{
+  int status;
+  char* response = static_dispatch(R"({"jsonrpc":"2.0","id":95,"method":"tools/call","params":{"name":"well_known"}})", &status);
+  TEST_ASSERT_EQUAL_STRING(R"({"jsonrpc":"2.0","id":95,"error":{"code":-32602,"message":"Invalid params: domain is required"}})", response);
+  free(response);
+  response = static_dispatch(R"({"jsonrpc":"2.0","id":96,"method":"tools/call",)"
+                     R"("params":{"name":"well_known","arguments":{"domain":"printer.local"}}})", &status);
+  TEST_ASSERT_EQUAL_INT(200, status);
+  TEST_ASSERT_EQUAL_STRING(R"({"jsonrpc":"2.0","id":96,"result":{"content":[{"type":"text","text":"Provide a public domain name, such as example.com."}],"isError":true}})", response);
+  free(response);
+  TEST_ASSERT_EQUAL_INT(0, g_stub_CACHE_get_count);
+  TEST_ASSERT_EQUAL_INT(0, g_stub_THROTTLE_charge_count);
+  TEST_ASSERT_EQUAL_INT(0, g_stub_WELL_KNOWN_call_count);
 }
 
 void test_tool_HEADERSCHECK_failed_fetches(void)
@@ -6073,7 +6136,7 @@ void test_tool_EPSSRISERS_uncomputable_window_is_a_result(void)
   TEST_ASSERT_EQUAL_INT(1, g_stub_EPSSRISERS_call_count);
 }
 
-#define TEST_TOOLS_LIST_MAX_BYTE_COUNT 32512
+#define TEST_TOOLS_LIST_MAX_BYTE_COUNT 33280
 
 #define TEST_MCP_TOOL_DESCRIPTION_MAX_LEN 240
 
@@ -7159,7 +7222,7 @@ void test_mcp_credit_cost_offers_no_payment_for_tools_list_and_notifications(voi
   }
 }
 
-#define X402_PAYABLE_TOOL_COUNT 33
+#define X402_PAYABLE_TOOL_COUNT 34
 void test_mcp_credit_cost_payable_tools_are_the_payable_rows(void)
 {
   int payable_tool_count = 0;
@@ -7409,7 +7472,7 @@ void test_mcp_server_instructions_name_x402_pay_per_call(void)
 
 void test_registration_gate_test_count(void)
 {
-  TEST_ASSERT_EQUAL_INT_MESSAGE(413, (int)Unity.NumberOfTests,
+  TEST_ASSERT_EQUAL_INT_MESSAGE(415, (int)Unity.NumberOfTests,
     "RUN_TEST list and test definitions have drifted apart - a test may be unregistered");
 }
 
@@ -7609,7 +7672,7 @@ void test_every_arguments_copy_refuses_arguments_too_large(void)
     free(response);
     called++;
   }
-  TEST_ASSERT_EQUAL_INT(38, called);
+  TEST_ASSERT_EQUAL_INT(39, called);
 }
 
 void test_tool_arguments_reach_the_lookup(void)
@@ -8068,6 +8131,8 @@ int main(void)
   RUN_TEST(test_tool_SSLCHECK_body_buffer_failure_is_32603);
   RUN_TEST(test_tool_HEADERSCHECK_answer);
   RUN_TEST(test_tool_HEADERSCHECK_missing_and_refused_values);
+  RUN_TEST(test_tool_WELLKNOWN_answer);
+  RUN_TEST(test_tool_WELLKNOWN_missing_and_private_name);
   RUN_TEST(test_tool_HEADERSCHECK_failed_fetches);
   RUN_TEST(test_tool_HEADERSCHECK_body_buffer_failure_is_32603);
   RUN_TEST(test_tool_WHOISLOOKUP_answer);

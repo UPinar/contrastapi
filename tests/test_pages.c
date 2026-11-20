@@ -7,10 +7,12 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/socket.h>
+#include <time.h>
 
 #include "unity/unity.h"
 #include "pages.h"
 #include "response.h"
+#include "securitytxt.h"
 #include "mcp.h"
 #include "version.h"
 #include "ratelimit.h"
@@ -86,6 +88,7 @@ static const ServedFile_t SERVED_FILES[] = {
   { "/llms.txt",                       "text/plain; charset=utf-8",      "public, max-age=600",  "", NULL },
   { "/llms-full.txt",                  "text/plain; charset=utf-8",      "public, max-age=600",  "", "docs/API_Documentation.md" },
   { "/sitemap.xml",                    "application/xml",                "public, max-age=600",  "", "web/sitemap.xml" },
+  { "/.well-known/security.txt",       "text/plain; charset=utf-8",      "public, max-age=600",  "", "web/well-known/security.txt" },
   { "/.well-known/mcp/server-card.json",          "application/json",    "public, max-age=600",  "", NULL },
   { "/.well-known/mcp-server.json",               "application/json",    "public, max-age=600",  "", NULL },
   { "/mcp.json",                                  "application/json",    "public, max-age=600",  "", NULL },
@@ -415,6 +418,29 @@ void test_server_card_holds_the_values_of_the_running_server(void)
   TEST_ASSERT_NOT_NULL(card);
   TEST_ASSERT_EQUAL_UINT(sizeof(expected_card_15) - 1, card->m_bodyByteCount);
   TEST_ASSERT_EQUAL_INT(0, memcmp(expected_card_15, card->mp_body, card->m_bodyByteCount));
+}
+
+#define SECURITY_TXT_RENEW_DAYS  30
+
+void test_own_security_txt_reads_with_no_issue_30_days_ahead(void)
+{
+  static const char canonical[] = "https://api.contrastcyber.com/.well-known/security.txt";
+
+  TEST_ASSERT_TRUE(pages_init(7));
+  const PagesFile_t* file = pages_findServedFile("/.well-known/security.txt");
+  TEST_ASSERT_NOT_NULL(file);
+
+  int64_t renew_epoch = (int64_t)time(NULL) + (int64_t)SECURITY_TXT_RENEW_DAYS * 86400;
+  static SecurityTxtReport_t report;
+  securitytxt_parse((const char*)file->mp_body, file->m_bodyByteCount, false, renew_epoch, &report);
+
+  for (int i = 0; i < report.m_issueKeptCount; i++)
+    TEST_ASSERT_EQUAL_INT_MESSAGE(SECURITYTXT_ISSUE_CODE_COUNT, report.ma_issues[i].m_issueCode, "an issue in web/well-known/security.txt");
+  TEST_ASSERT_EQUAL_INT(0, report.m_issueTotalCount);
+  TEST_ASSERT_EQUAL_INT(1, report.ma_valueKeptCount[SECURITYTXT_FIELD_CANONICAL]);
+  const SecurityTxtSpan_t* span = &report.ma_values[SECURITYTXT_FIELD_CANONICAL][0];
+  TEST_ASSERT_EQUAL_size_t(sizeof(canonical) - 1, span->m_len);
+  TEST_ASSERT_EQUAL_INT(0, memcmp(canonical, file->mp_body + span->m_offset, span->m_len));
 }
 
 static bool static_bodyHolds(const PagesFile_t* file, const void* text, size_t text_byte_count)
@@ -1432,7 +1458,7 @@ static bool static_isTextContentType(const char* content_type)
   return false;
 }
 
-#define PAGES_TEST_TEXT_FILE_COUNT 31
+#define PAGES_TEST_TEXT_FILE_COUNT 32
 
 void test_no_served_text_file_holds_an_em_dash(void)
 {
@@ -1459,7 +1485,7 @@ void test_no_served_text_file_holds_an_em_dash(void)
 
 void test_registration_gate_test_count(void)
 {
-  TEST_ASSERT_EQUAL_INT_MESSAGE(47, (int)Unity.NumberOfTests,
+  TEST_ASSERT_EQUAL_INT_MESSAGE(48, (int)Unity.NumberOfTests,
     "RUN_TEST list and test definitions have drifted apart - a test may be unregistered");
 }
 
@@ -1483,6 +1509,7 @@ int main(void)
   RUN_TEST(test_init_serves_the_files_of_the_table_and_no_other);
   RUN_TEST(test_each_embedded_file_holds_the_bytes_of_its_source);
   RUN_TEST(test_server_card_holds_the_values_of_the_running_server);
+  RUN_TEST(test_own_security_txt_reads_with_no_issue_30_days_ahead);
   RUN_TEST(test_each_page_holds_the_fragments_and_the_values_of_the_running_server);
   RUN_TEST(test_no_page_holds_an_inline_style_or_script);
   RUN_TEST(test_each_served_file_sends_its_whole_head);

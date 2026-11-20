@@ -7,6 +7,7 @@
 
 #include "header_check.h"
 #include "http.h"
+#include "macro.h"
 #include "validate.h"
 
 #define HEADER_FETCH_PORT 443
@@ -20,6 +21,11 @@
 #define HEADER_FETCH_MAX_URL_BYTE_COUNT 4096
 
 #define HEADER_FETCH_ADDRESS_NOT_GLOBALLY_REACHABLE_REFUSAL_MESSAGE   "hostname resolves to an address that is not globally reachable"
+
+#define HEADER_FETCH_RESOLVE_FAILED_MESSAGE  "the host name did not resolve"
+#define HEADER_FETCH_CONNECT_FAILED_MESSAGE  "no address of the site took a connection on port " MACRO_STR(HEADER_FETCH_PORT)
+#define HEADER_FETCH_TIMEOUT_MESSAGE         "the site did not answer in time: a connection may take " MACRO_STR(HTTP_CONNECT_TIMEOUT_MS) " ms, and the whole fetch " MACRO_STR(HEADER_FETCH_DEADLINE_MS) " ms"
+#define HEADER_FETCH_TLS_FAILED_MESSAGE      "the TLS handshake with the site failed, or its certificate did not verify; /ssl_check shows why"
 
 typedef enum {
   HEADER_FETCH_HOP_RULE_SAME_SITE = 0,

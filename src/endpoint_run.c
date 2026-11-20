@@ -27,6 +27,8 @@
 #include "quota.h"
 #include "monotonic.h"
 #include "etld.h"
+#include "throttle.h"
+#include "well_known.h"
 #include "external/rdap.h"
 #include "registryask.h"
 #include "external/certspotter.h"
@@ -846,11 +848,6 @@ EndpointRunStatus_t endpoint_SSLCHECKRun(PGconn* conn, const EndpointAnyParams_t
 #define HEADERSCHECK_CACHE_CUT_VALUE_MARK         "cut:"
 #define HEADERSCHECK_CACHE_EXPIRES_AFTER_SECONDS  3600
 
-#define HEADERSCHECK_RESOLVE_FAILED_MESSAGE  "the host name did not resolve"
-#define HEADERSCHECK_CONNECT_FAILED_MESSAGE  "no address of the site took a connection on port " MACRO_STR(HEADER_FETCH_PORT)
-#define HEADERSCHECK_TIMEOUT_MESSAGE         "the site did not answer in time: a connection may take " MACRO_STR(HTTP_CONNECT_TIMEOUT_MS) " ms, and the whole fetch " MACRO_STR(HEADER_FETCH_DEADLINE_MS) " ms"
-#define HEADERSCHECK_TLS_FAILED_MESSAGE      "the TLS handshake with the site failed, or its certificate did not verify; /ssl_check shows why"
-
 EndpointRunStatus_t endpoint_HEADERSCHECKRun(PGconn* conn, const EndpointAnyParams_t* params, JsonBuf_t* json_buf, const char** message_out)
 {
   HEADERSCHECKRecord_t record;
@@ -883,16 +880,16 @@ EndpointRunStatus_t endpoint_HEADERSCHECKRun(PGconn* conn, const EndpointAnyPara
     case HTTP_ERROR_NONE:
       break;
     case HTTP_ERROR_RESOLVE:
-      *message_out = HEADERSCHECK_RESOLVE_FAILED_MESSAGE;
+      *message_out = HEADER_FETCH_RESOLVE_FAILED_MESSAGE;
       return ENDPOINT_RUN_TARGET_UNREACHABLE;
     case HTTP_ERROR_CONNECT:
-      *message_out = HEADERSCHECK_CONNECT_FAILED_MESSAGE;
+      *message_out = HEADER_FETCH_CONNECT_FAILED_MESSAGE;
       return ENDPOINT_RUN_TARGET_UNREACHABLE;
     case HTTP_ERROR_TIMEOUT:
-      *message_out = HEADERSCHECK_TIMEOUT_MESSAGE;
+      *message_out = HEADER_FETCH_TIMEOUT_MESSAGE;
       return ENDPOINT_RUN_TARGET_UNREACHABLE;
     case HTTP_ERROR_TLS:
-      *message_out = HEADERSCHECK_TLS_FAILED_MESSAGE;
+      *message_out = HEADER_FETCH_TLS_FAILED_MESSAGE;
       return ENDPOINT_RUN_TARGET_UNREACHABLE;
     case HTTP_ERROR_BLOCKED:
       *message_out = HEADER_FETCH_ADDRESS_NOT_GLOBALLY_REACHABLE_REFUSAL_MESSAGE;
@@ -926,6 +923,125 @@ EndpointRunStatus_t endpoint_HEADERSCHECKRun(PGconn* conn, const EndpointAnyPara
   if (conn != NULL && strlen(body) <= CACHE_MAX_BODY_LEN)
     cache_dbPut(conn, cache_key, body, false, HEADERSCHECK_CACHE_EXPIRES_AFTER_SECONDS);
   
+  jsonbuf_appendJsonText(json_buf, body);
+
+  free(body);
+  return ENDPOINT_RUN_OK;
+}
+
+#define WELLKNOWN_CACHE_KEY_PREFIX             "well_known:"
+#define WELLKNOWN_CACHE_EXPIRES_AFTER_SECONDS  3600
+
+static const ThrottleRule_t WELLKNOWN_THROTTLE_RULE = { "site_fetch", 60, 10 };
+#define WELLKNOWN_THROTTLE_CHARGE_COUNT 2
+
+static void static_WELLKNOWNWriteCheckedAt(WELLKNOWNRecord_t* record)
+{
+  time_t    now     = time(NULL);
+  struct tm now_utc = { 0 };
+  gmtime_r(&now, &now_utc);
+  strftime(record->ma_checkedAt, sizeof(record->ma_checkedAt), "%Y-%m-%dT%H:%M:%SZ", &now_utc);
+}
+
+static bool static_WELLKNOWNIsRobotsTxtUnavailable(const HeaderFetchChain_t* robots_chain)
+{
+  if (robots_chain->m_hopCount <= 0)
+    return false;
+  int http_status = robots_chain->ma_hops[robots_chain->m_hopCount - 1].m_httpStatus;
+  return http_status == 429 || (http_status >= 500 && http_status <= 599);
+}
+
+EndpointRunStatus_t endpoint_WELLKNOWNRun(PGconn* conn, const EndpointAnyParams_t* params, JsonBuf_t* json_buf, const char** message_out)
+{
+  assert(conn != NULL);
+
+  const char* hostname = params->m_wellKnown.ma_hostname;
+
+  char cache_key[sizeof(WELLKNOWN_CACHE_KEY_PREFIX) + VALIDATE_DOMAIN_NAME_MAX_LEN];
+  int  cache_key_len = snprintf(cache_key, sizeof(cache_key), "%s%s", WELLKNOWN_CACHE_KEY_PREFIX, hostname);
+  if (cache_key_len < 0 || (size_t)cache_key_len >= sizeof(cache_key))
+  {
+    *message_out = VALIDATE_PUBLIC_DNS_NAME_REFUSAL_MESSAGE;
+    return ENDPOINT_RUN_REFUSED;
+  }
+
+  CacheEntry_t cache_entry;
+  if (cache_dbGet(conn, cache_key, &cache_entry) == CACHE_HIT)
+  {
+    jsonbuf_appendJsonText(json_buf, cache_entry.mp_body);
+    cache_entryFree(&cache_entry);
+    return ENDPOINT_RUN_OK;
+  }
+
+  WELLKNOWNRecord_t record;
+  memset(&record, 0, sizeof(record));
+
+  const char* throttle_target_name = etld_findPlusOne(hostname);
+  if (throttle_target_name == NULL)
+    throttle_target_name = hostname;
+  switch (throttle_dbCharge(conn, &WELLKNOWN_THROTTLE_RULE, throttle_target_name, WELLKNOWN_THROTTLE_CHARGE_COUNT, &record.m_retryAfterSeconds))
+  {
+    case THROTTLE_CHARGED:
+      break;
+    case THROTTLE_REFUSED:
+      record.m_isThrottled = true;
+      static_WELLKNOWNWriteCheckedAt(&record);
+      serialize_WELLKNOWN_response(&record, json_buf);
+      return ENDPOINT_RUN_OK;
+    case THROTTLE_ERROR:
+      return ENDPOINT_RUN_DB_ERROR;
+  }
+
+  switch (well_known_fetchFiles(hostname, (int64_t)time(NULL), &record.m_report))
+  {
+    case HTTP_ERROR_NONE:
+      break;
+    case HTTP_ERROR_RESOLVE:
+      *message_out = HEADER_FETCH_RESOLVE_FAILED_MESSAGE;
+      return ENDPOINT_RUN_TARGET_UNREACHABLE;
+    case HTTP_ERROR_CONNECT:
+      *message_out = HEADER_FETCH_CONNECT_FAILED_MESSAGE;
+      return ENDPOINT_RUN_TARGET_UNREACHABLE;
+    case HTTP_ERROR_TIMEOUT:
+      *message_out = HEADER_FETCH_TIMEOUT_MESSAGE;
+      return ENDPOINT_RUN_TARGET_UNREACHABLE;
+    case HTTP_ERROR_TLS:
+      *message_out = HEADER_FETCH_TLS_FAILED_MESSAGE;
+      return ENDPOINT_RUN_TARGET_UNREACHABLE;
+    case HTTP_ERROR_BLOCKED:
+      *message_out = HEADER_FETCH_ADDRESS_NOT_GLOBALLY_REACHABLE_REFUSAL_MESSAGE;
+      return ENDPOINT_RUN_REFUSED;
+    case HTTP_ERROR_BODY_TOO_LARGE:
+    case HTTP_ERROR_OTHER:
+      return ENDPOINT_RUN_UPSTREAM_ERROR;
+  }
+
+  if (static_WELLKNOWNIsRobotsTxtUnavailable(&record.m_report.m_robotsGate.m_chain) ||
+      record.m_report.m_securityTxt.m_status == WELL_KNOWN_SECURITY_TXT_UNAVAILABLE)
+  {
+    well_known_reportFree(&record.m_report);
+    return ENDPOINT_RUN_UPSTREAM_ERROR;
+  }
+
+  static_WELLKNOWNWriteCheckedAt(&record);
+
+  char*      body     = NULL;
+  JsonBuf_t* body_buf = jsonbuf_create(JSONBUF_INITIAL_CAP, JSONBUF_DEFAULT_CEILING);
+  if (body_buf != NULL)
+  {
+    serialize_WELLKNOWN_response(&record, body_buf);
+    body = jsonbuf_finish(body_buf);
+    jsonbuf_destroy(body_buf);
+  }
+  bool is_cacheable = record.m_report.m_securityTxt.m_status != WELL_KNOWN_SECURITY_TXT_NOT_FETCHED;
+  well_known_reportFree(&record.m_report);
+
+  if (body == NULL)
+    return ENDPOINT_RUN_NO_MEMORY;
+
+  if (is_cacheable && strlen(body) <= CACHE_MAX_BODY_LEN)
+    cache_dbPut(conn, cache_key, body, false, WELLKNOWN_CACHE_EXPIRES_AFTER_SECONDS);
+
   jsonbuf_appendJsonText(json_buf, body);
 
   free(body);

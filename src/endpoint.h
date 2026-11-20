@@ -19,6 +19,7 @@
 #include "emailcheck.h"
 #include "tlsprobe.h"
 #include "header_fetch.h"
+#include "well_known.h"
 #include "external/rdap.h"
 #include "external/wayback.h"
 #include "external/certspotter.h"
@@ -157,6 +158,7 @@ typedef union {
   EMAILADDRESSCHECKParams_t    m_emailAddressCheck;
   SSLCHECKParams_t             m_sslCheck;
   HEADERSCHECKParams_t         m_headersCheck;
+  WELLKNOWNParams_t            m_wellKnown;
   WHOISLOOKUPParams_t          m_whoisLookup;
   WAYBACKLOOKUPParams_t        m_waybackLookup;
   CERTSEARCHParams_t           m_certSearch;

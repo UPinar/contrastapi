@@ -613,11 +613,14 @@ static void static_sendAccessRefusal(int client_fd, const Endpoint_t* endpoint, 
         handler_apiKeyInactive(client_fd);
       break;
     case REQUEST_ACCESS_RATE_LIMITED:
+    {
+      bool has_upgrade_url = access_result.m_creditBudget.m_tier == REQUEST_TIER_FREE;
       if (is_mcp_request)
-        handler_mcpRateLimited(client_fd, body, access_result.m_retryAfterSec);
+        handler_mcpRateLimited(client_fd, body, access_result.m_retryAfterSec, has_upgrade_url);
       else
-        handler_rateLimited(client_fd, access_result.m_retryAfterSec);
+        handler_rateLimited(client_fd, access_result.m_retryAfterSec, has_upgrade_url);
       break;
+    }
     case REQUEST_ACCESS_PAYMENT_REQUIRED:
       if (is_mcp_request)
         handler_mcpPaymentRequired(client_fd, body, access_result.mp_pricedEndpoint, access_result.m_paymentCreditCount, access_result.m_retryAfterSec, is_modern);

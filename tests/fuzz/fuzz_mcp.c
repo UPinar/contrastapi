@@ -83,7 +83,7 @@ int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)
   free(response_json);
 
   handler_mcpUnauthorized(g_nullFd, body);
-  handler_mcpRateLimited(g_nullFd, body, FUZZ_MCP_RETRY_AFTER_SEC);
+  handler_mcpRateLimited(g_nullFd, body, FUZZ_MCP_RETRY_AFTER_SEC, true);
 
   free(text);
   return 0;

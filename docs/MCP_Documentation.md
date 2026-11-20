@@ -30,7 +30,7 @@ shapes, see [API_Documentation.md](API_Documentation.md).
 | **Tiers** | Anonymous (keyless) **30** credits/hr · Authenticated **500** credits/hr · free (0-credit) calls don't count |
 | **State** | Stateless — `initialize` is optional, never a precondition for `tools/call` |
 | **Request size** | A body may be up to 69632 bytes. That holds the largest `arguments` object a tool takes and the call around it. The largest is the one of `package_check_bulk`, 65535 bytes. A longer body is refused with HTTP 413 before it is parsed |
-| **Tools** | `cve_lookup`, `cve_lookup_bulk`, `cve_products`, `cve_search`, `cve_triage`, `cve_triage_bulk`, `cve_leading`, `epss_risers`, `kev_lookup`, `cwe_lookup`, `cve_risk_score`, `cve_exploit`, `product_exposure`, `cpe_search`, `cvss_calculator`, `watchlist_edit`, `watchlist_events`, `password_check`, `dns_lookup`, `dns_takeover_check`, `email_auth_check`, `email_address_check`, `ssl_check`, `headers_check`, `whois_lookup`, `wayback_lookup`, `cert_search`, `subdomain_enum`, `ip_lookup`, `asn_lookup`, `d3fend_for_attack`, `driver_lookup`, `driver_lookup_bulk`, `package_check`, `package_check_bulk`, `health`, `privacy_my_data`, `vendor_key_edit` |
+| **Tools** | `cve_lookup`, `cve_lookup_bulk`, `cve_products`, `cve_search`, `cve_triage`, `cve_triage_bulk`, `cve_leading`, `epss_risers`, `kev_lookup`, `cwe_lookup`, `cve_risk_score`, `cve_exploit`, `product_exposure`, `cpe_search`, `cvss_calculator`, `watchlist_edit`, `watchlist_events`, `password_check`, `dns_lookup`, `dns_takeover_check`, `email_auth_check`, `email_address_check`, `ssl_check`, `headers_check`, `well_known`, `whois_lookup`, `wayback_lookup`, `cert_search`, `subdomain_enum`, `ip_lookup`, `asn_lookup`, `d3fend_for_attack`, `driver_lookup`, `driver_lookup_bulk`, `package_check`, `package_check_bulk`, `health`, `privacy_my_data`, `vendor_key_edit` |
 
 ---
 
@@ -153,8 +153,8 @@ The modern era has no handshake. Discovery is a plain request, and it costs no c
     "cacheScope":"public", "ttlMs":3600000,
     "supportedVersions":["2026-07-28"],
     "capabilities":{ "tools":{} },
-    "serverInfo":{ "name":"contrastapi", "title":"ContrastAPI", "version":"2.1.1" },
-    "instructions":"ContrastAPI is a security data and monitoring server, with watchlists of CVEs, packages, domains and IP addresses. Call cve_lookup for a CVE, package_check for a package, dns_lookup for a domain and ip_lookup for an IP address. Call watchlist_edit and watchlist_events for monitoring, which needs an API key. A Pro API key is sold at https://api.contrastcyber.com/pricing. It looks up, searches and scores CVE, KEV and CWE records. It gives public exploit intelligence. It decodes and scores a CVSS v3 vector. It checks a password's SHA-1 against Have I Been Pwned. It reads a domain's DNS records and checks a host name for a dangling CNAME. It checks a domain's SPF, DMARC, DKIM and MTA-STS records. It checks whether an e-mail address's domain takes mail and whether the address is disposable. It checks the TLS certificate and settings of a host name and rates the security headers of a web site. It looks up the registration of a domain name over RDAP or WHOIS. It lists the Wayback Machine captures of a host name. It lists the unexpired certificates that Certificate Transparency logs hold for a host name. It lists the subdomains of a registrable domain from Certificate Transparency and DNS. It names the MITRE D3FEND defenses that counter a MITRE ATT&CK technique. It finds a driver file hash in the LOLDrivers catalog. It looks up the AS, the country, the cloud range, the Tor exit and the DROP listing of a public IP address. It looks up an AS by its number or by an address it holds. It checks a package or a list of packages of nine ecosystems against OSV.dev advisories and malicious packages. It gives the end-of-life dates of a product or a package from endoflife.date. The watchlist keeps CVE, package, domain and IP items for an API key, and watchlist_events reads their change events. A Pro API key can save its own Shodan and AbuseIPDB keys with vendor_key_edit, and ip_lookup then adds their answers. It says what it keeps about the caller. A call with no API key and no credits left can pay per call with x402 in USDC on Solana."
+    "serverInfo":{ "name":"contrastapi", "title":"ContrastAPI", "version":"2.2.0" },
+    "instructions":"ContrastAPI is a security data and monitoring server, with watchlists of CVEs, packages, domains and IP addresses. Call cve_lookup for a CVE, package_check for a package, dns_lookup for a domain and ip_lookup for an IP address. Call watchlist_edit and watchlist_events for monitoring, which needs an API key. A Pro API key is sold at https://api.contrastcyber.com/pricing. It looks up, searches and scores CVE, KEV and CWE records. It gives public exploit intelligence. It decodes and scores a CVSS v3 vector. It checks a password's SHA-1 against Have I Been Pwned. It reads a domain's DNS records and checks a host name for a dangling CNAME. It checks a domain's SPF, DMARC, DKIM and MTA-STS records. It checks whether an e-mail address's domain takes mail and whether the address is disposable. It checks the TLS certificate and settings of a host name and rates the security headers of a web site. It reads the robots.txt and the security.txt of a web site. It looks up the registration of a domain name over RDAP or WHOIS. It lists the Wayback Machine captures of a host name. It lists the unexpired certificates that Certificate Transparency logs hold for a host name. It lists the subdomains of a registrable domain from Certificate Transparency and DNS. It names the MITRE D3FEND defenses that counter a MITRE ATT&CK technique. It finds a driver file hash in the LOLDrivers catalog. It looks up the AS, the country, the cloud range, the Tor exit and the DROP listing of a public IP address. It looks up an AS by its number or by an address it holds. It checks a package or a list of packages of nine ecosystems against OSV.dev advisories and malicious packages. It gives the end-of-life dates of a product or a package from endoflife.date. The watchlist keeps CVE, package, domain and IP items for an API key, and watchlist_events reads their change events. A Pro API key can save its own Shodan and AbuseIPDB keys with vendor_key_edit, and ip_lookup then adds their answers. It says what it keeps about the caller. A call with no API key and no credits left can pay per call with x402 in USDC on Solana."
   } }
 ```
 
@@ -265,8 +265,8 @@ still served, but its reply carries `"id":null`.
   "result":{
     "protocolVersion":"2025-11-25",
     "capabilities":{ "tools":{} },
-    "serverInfo":{ "name":"contrastapi", "title":"ContrastAPI", "version":"2.1.1" },
-    "instructions":"ContrastAPI is a security data and monitoring server, with watchlists of CVEs, packages, domains and IP addresses. Call cve_lookup for a CVE, package_check for a package, dns_lookup for a domain and ip_lookup for an IP address. Call watchlist_edit and watchlist_events for monitoring, which needs an API key. A Pro API key is sold at https://api.contrastcyber.com/pricing. It looks up, searches and scores CVE, KEV and CWE records. It gives public exploit intelligence. It decodes and scores a CVSS v3 vector. It checks a password's SHA-1 against Have I Been Pwned. It reads a domain's DNS records and checks a host name for a dangling CNAME. It checks a domain's SPF, DMARC, DKIM and MTA-STS records. It checks whether an e-mail address's domain takes mail and whether the address is disposable. It checks the TLS certificate and settings of a host name and rates the security headers of a web site. It looks up the registration of a domain name over RDAP or WHOIS. It lists the Wayback Machine captures of a host name. It lists the unexpired certificates that Certificate Transparency logs hold for a host name. It lists the subdomains of a registrable domain from Certificate Transparency and DNS. It names the MITRE D3FEND defenses that counter a MITRE ATT&CK technique. It finds a driver file hash in the LOLDrivers catalog. It looks up the AS, the country, the cloud range, the Tor exit and the DROP listing of a public IP address. It looks up an AS by its number or by an address it holds. It checks a package or a list of packages of nine ecosystems against OSV.dev advisories and malicious packages. It gives the end-of-life dates of a product or a package from endoflife.date. The watchlist keeps CVE, package, domain and IP items for an API key, and watchlist_events reads their change events. A Pro API key can save its own Shodan and AbuseIPDB keys with vendor_key_edit, and ip_lookup then adds their answers. It says what it keeps about the caller. A call with no API key and no credits left can pay per call with x402 in USDC on Solana."
+    "serverInfo":{ "name":"contrastapi", "title":"ContrastAPI", "version":"2.2.0" },
+    "instructions":"ContrastAPI is a security data and monitoring server, with watchlists of CVEs, packages, domains and IP addresses. Call cve_lookup for a CVE, package_check for a package, dns_lookup for a domain and ip_lookup for an IP address. Call watchlist_edit and watchlist_events for monitoring, which needs an API key. A Pro API key is sold at https://api.contrastcyber.com/pricing. It looks up, searches and scores CVE, KEV and CWE records. It gives public exploit intelligence. It decodes and scores a CVSS v3 vector. It checks a password's SHA-1 against Have I Been Pwned. It reads a domain's DNS records and checks a host name for a dangling CNAME. It checks a domain's SPF, DMARC, DKIM and MTA-STS records. It checks whether an e-mail address's domain takes mail and whether the address is disposable. It checks the TLS certificate and settings of a host name and rates the security headers of a web site. It reads the robots.txt and the security.txt of a web site. It looks up the registration of a domain name over RDAP or WHOIS. It lists the Wayback Machine captures of a host name. It lists the unexpired certificates that Certificate Transparency logs hold for a host name. It lists the subdomains of a registrable domain from Certificate Transparency and DNS. It names the MITRE D3FEND defenses that counter a MITRE ATT&CK technique. It finds a driver file hash in the LOLDrivers catalog. It looks up the AS, the country, the cloud range, the Tor exit and the DROP listing of a public IP address. It looks up an AS by its number or by an address it holds. It checks a package or a list of packages of nine ecosystems against OSV.dev advisories and malicious packages. It gives the end-of-life dates of a product or a package from endoflife.date. The watchlist keeps CVE, package, domain and IP items for an API key, and watchlist_events reads their change events. A Pro API key can save its own Shodan and AbuseIPDB keys with vendor_key_edit, and ip_lookup then adds their answers. It says what it keeps about the caller. A call with no API key and no credits left can pay per call with x402 in USDC on Solana."
   } }
 ```
 
@@ -353,6 +353,7 @@ arguments and the REST endpoint each tool mirrors.
 | `email_address_check` | `email` | — | `GET /email_address_check/{email}` |
 | `ssl_check` | `domain` | — | `GET /ssl_check/{domain}` |
 | `headers_check` | `domain` | `include_full_header_values` (bool) | `GET /headers_check/{domain}?include_full_header_values=true` |
+| `well_known` | `domain` | — | `GET /well_known/{domain}` |
 | `whois_lookup` | `domain` | — | `GET /whois_lookup/{domain}` |
 | `wayback_lookup` | `domain` | — | `GET /wayback_lookup/{domain}` |
 | `cert_search` | `domain` | — | `GET /cert_search/{domain}` |
@@ -398,7 +399,7 @@ The [Error model](#error-model) lists these tools.
   `"Provide the full SHA1 hash (40 hexadecimal characters)."`, the text REST answers `400` with.
   An empty string is `-32602 Invalid params: sha1_hash is required`, and a value that is not a
   string is `-32602 Invalid params: sha1_hash must be a string`.
-- **`domain`** (`dns_lookup`, `dns_takeover_check`, `email_auth_check`, `ssl_check`, `headers_check`, `whois_lookup`, `wayback_lookup`, `cert_search`, `subdomain_enum`): a public domain name of at most 253 bytes,
+- **`domain`** (`dns_lookup`, `dns_takeover_check`, `email_auth_check`, `ssl_check`, `headers_check`, `well_known`, `whois_lookup`, `wayback_lookup`, `cert_search`, `subdomain_enum`): a public domain name of at most 253 bytes,
   such as `example.com`. Upper case is accepted. A special-use name, such as
   `printer.local` or `router.home.arpa`, is the tool `isError`
   `"Provide a public domain name, such as example.com."`, the text REST answers `400` with. So are a
@@ -1541,6 +1542,58 @@ curl -sX POST https://api.contrastcyber.com/mcp \
 ---
 
 
+### `well_known` — the robots.txt and security.txt of a web site
+
+| Argument | Type | Required | Notes |
+|---|---|---|---|
+| `domain` | string | ✅ | Host name of the site, such as www.example.com |
+
+Mirrors [`GET /well_known/{domain}`](API_Documentation.md#well-known-get-well_knowndomain).
+The server sends one `GET` to `https://<domain>/robots.txt` first. Only when that file allows
+`ContrastAPI` to read `/.well-known/security.txt` does it send one `GET` for that file. A
+`robots.txt` that disallows the path, or one that could not be read, means no `security.txt`
+request. Each file follows up to 5 redirects on the host name or its www pair, over HTTPS and
+port 443 only. One deadline of 5000 ms covers both files. The answer lists the `robots.txt`
+groups that bind `ContrastAPI`, the sitemaps, the `security.txt` fields (Contact, Expires,
+Encryption and the rest) and the issues of both files (RFC 9309, RFC 9116). `security_txt.status`
+is `found`, `not_found`, `too_large`, `robots_disallowed`, `robots_unknown` or `not_fetched`.
+
+Each registrable domain gets at most 10 throttle units a minute, and a call that fetches costs 2.
+A call past that limit fetches nothing. It answers a result with `"reason":"quota_exhausted"`,
+`retry_after_seconds` and `null` for both files, and still costs its credit. An answer is kept for
+one hour, unless `security_txt.status` is `not_fetched`.
+
+When the site gives no answer, the call is the tool `isError` with the text REST answers `504`
+with, such as `"the host name did not resolve"`. A host name whose address the server refuses is
+the tool `isError` `"hostname resolves to an address that is not globally reachable"`, where REST
+answers `400`. A `robots.txt` or a `security.txt` that answered `429` or `5xx` and any other
+failed fetch are the protocol error `-32603` with `"Internal error: upstream unavailable"`,
+where REST answers `502`. Each of these calls still costs its credit.
+
+**Example prompts:**
+- "Does example.com publish a security.txt, and how do I contact its security team?"
+- "Which paths does www.example.com disallow for crawlers?"
+- "Is the security.txt of example.com expired?"
+
+```bash
+curl -sX POST https://api.contrastcyber.com/mcp \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"well_known","arguments":{"domain":"www.example.com"}}}'
+```
+```jsonc
+// decoded payload (trimmed; written by the server for made-up values):
+{ "checked_at":"2026-11-20T10:11:12Z",
+  "robots_txt":{ "url":"https://www.example.com/robots.txt", "status_code":200, "redirect_count":1,
+    "groups":[ { "line":1, "user_agents":["*"], "allow":[], "disallow":["/private/"], "crawl_delay":null } ],
+    "sitemaps":["https://www.example.com/sitemap.xml"], "issues":[], "by_severity":{ "warning":0, "info":0 } },
+  "security_txt":{ "status":"found", "url":"https://www.example.com/.well-known/security.txt", "status_code":200,
+    "redirect_count":0, "content_type":"text/plain; charset=utf-8", "openpgp_signed":false,
+    "expires":"2027-01-01T00:00:00Z", "contact":["mailto:security@example.com"], "encryption":[], …,
+    "unknown_field_count":0, "issues":[], "by_severity":{ "error":0, "warning":0, "info":0 } } }
+```
+
+---
+
+
 ### `whois_lookup` — the registration of a domain name, over RDAP or WHOIS
 
 | Argument | Type | Required | Notes |
@@ -2195,7 +2248,7 @@ curl -sX POST https://api.contrastcyber.com/mcp -H "X-API-Key: $KEY" \
 ```
 ```jsonc
 // result.content[0].text (decoded):
-{ "status":"ok", "version":"2.1.1",
+{ "status":"ok", "version":"2.2.0",
   "db":{ "nvd":{ "cve_count":352507, "last_added":{ "cve_id":"CVE-2026-47782", "published_time":"2026-05-31" } },
          "kev":{ "entry_count":1592, "last_added":{ "cve_id":"CVE-2026-42897", "date_added":"2026-05-15" } },
          "cwe":{ "entry_count":944, "last_updated":{ "cwe_id":"CWE-1434", "updated_at":"2026-05-20T14:07:56Z" } },
@@ -2305,8 +2358,8 @@ The request itself was malformed or could not be routed, or it was refused befor
 | `-32603` | Internal error | database unavailable / a stored record the server cannot read (`cve_lookup_bulk`, `cve_triage_bulk` and `driver_lookup_bulk` count such an id or hash in `failed` instead) / an upstream service that gave no usable answer, with the message `"Internal error: upstream unavailable"` (REST answers 502) / serialization failure / a tool result too large for the 16 MiB response once escaped into the envelope. HTTP **500** instead of 200 when a request that costs credits finds no database connection, when the API key lookup fails, when the rate-limit query fails, or when the answer cannot be allocated. That message is `"internal server error"` |
 | `-32001` | Unauthorized | HTTP **401**: the API key is malformed, or no such key exists. The message is `"Invalid API key"`, as on REST |
 | `-32004` | API key inactive | HTTP **401**: the API key was revoked or has expired. The message is `"API key expired or revoked"`, as on REST. The call is charged like a call with an unknown key |
-| `-32000` | Rate limit exceeded | HTTP **429**: the credit budget is spent. The message is `"rate limit exceeded: retry in N seconds"`, where N is the seconds of the `Retry-After` header. `data.retry_after_seconds` gives the seconds until the budget resets, and so does the `Retry-After` header |
-| `-32003` | Upstream busy | HTTP **503**: the server is too busy to ask an outside service. A `password_check`, `dns_lookup`, `dns_takeover_check`, `email_auth_check`, `email_address_check`, `ssl_check`, `headers_check`, `whois_lookup`, `wayback_lookup`, `cert_search`, `subdomain_enum` or `ip_lookup` call can get it. So can a `vendor_key_edit` apply that brings a key and a `vendor_key_edit` status that brings a link, because they ask Shodan or AbuseIPDB. So can a `watchlist_edit` add of a `dns_lookup`, `ssl_check`, `headers_check` or `cert_search` item that names a `domain`, because it asks DNS about the name. The message is `"upstream service busy"`, as on REST. `data.retry_after_seconds` is 5, and so is the `Retry-After` header. The call costs no credits. A call the tool would refuse gets that refusal instead. A `watchlist_edit` add of a `dns_lookup`, `ssl_check`, `headers_check` or `cert_search` item that names a `domain` is the exception: it can get `-32003` before its key and its item shape are checked |
+| `-32000` | Rate limit exceeded | HTTP **429**: the credit budget is spent. The message is `"rate limit exceeded: retry in N seconds"`, where N is the seconds of the `Retry-After` header. `data.retry_after_seconds` gives the seconds until the budget resets, and so does the `Retry-After` header. A call with no key, or with an unknown, revoked or expired key, also gets `data.upgrade_url`, the page that sells a Pro key |
+| `-32003` | Upstream busy | HTTP **503**: the server is too busy to ask an outside service. A `password_check`, `dns_lookup`, `dns_takeover_check`, `email_auth_check`, `email_address_check`, `ssl_check`, `headers_check`, `well_known`, `whois_lookup`, `wayback_lookup`, `cert_search`, `subdomain_enum` or `ip_lookup` call can get it. So can a `vendor_key_edit` apply that brings a key and a `vendor_key_edit` status that brings a link, because they ask Shodan or AbuseIPDB. So can a `watchlist_edit` add of a `dns_lookup`, `ssl_check`, `headers_check` or `cert_search` item that names a `domain`, because it asks DNS about the name. The message is `"upstream service busy"`, as on REST. `data.retry_after_seconds` is 5, and so is the `Retry-After` header. The call costs no credits. A call the tool would refuse gets that refusal instead. A `watchlist_edit` add of a `dns_lookup`, `ssl_check`, `headers_check` or `cert_search` item that names a `domain` is the exception: it can get `-32003` before its key and its item shape are checked |
 | `-32000` | Payment busy or limited | HTTP **429**: the payment, or another payment of its wallet, is in flight, or the client, the payment or the paying token account is over a payment limit. The messages are `"This payment or another one from its wallet is in flight: retry shortly."` and `"Too many payment attempts: retry later."`. `data.retry_after_seconds` and the `Retry-After` header give the wait. See [Pay per call (x402) over MCP](#pay-per-call-x402-over-mcp) |
 | `-32003` | Payments unavailable | HTTP **503**: both settle places are taken, or the facilitator gave no answer to the verify. The message is `"Payments are unavailable right now: retry shortly."`. `data.retry_after_seconds` and the `Retry-After` header give the wait |
 | `-32020` | Routing-header mismatch | **modern era only** — see [Protocol eras](#protocol-eras--the-2026-07-28-stateless-envelope) |
@@ -2342,7 +2395,7 @@ Examples: a `cve_id` present but **not** a valid CVE format, an out-of-range `mi
 threshold a double cannot hold or sent as a string, a filter sent with the wrong JSON type, a bad
 `severity` enum, a malformed date, an empty `cve_ids` array, a `cve_ids` that names one ID twice,
 a "not found" lookup, an `ssl_check` host name at which the server reached no TLS server, or a
-`headers_check` site that gave no answer. (A required argument that is missing, empty or not a string is a protocol
+`headers_check` or `well_known` site that gave no answer. (A required argument that is missing, empty or not a string is a protocol
 `-32602`; a string the tool refuses is a tool `isError`. Every tool also refuses an unknown or
 repeated argument with a `-32602`, before it reads any value.)
 
@@ -2372,6 +2425,7 @@ A `tools/call` costs exactly what the equivalent REST endpoint costs:
 | `tools/call` → `driver_lookup_bulk` | **1 per hash** (one credit for each well-formed hash in `hashes`, at least 1; a call the tool refuses costs 1) |
 | `tools/call` → `package_check_bulk` | **1 per package** (one credit for each element of `items` that is not skipped and that the work budget serves, at least 1; a call the tool refuses costs 1) |
 | `tools/call` → `cve_lookup`, `cve_products`, `cve_search`, `cve_leading`, `epss_risers`, `kev_lookup`, `cwe_lookup`, `cve_risk_score`, `cve_triage`, `product_exposure`, `cpe_search`, `cvss_calculator`, `watchlist_edit`, `watchlist_events`, `password_check`, `dns_lookup`, `dns_takeover_check`, `email_auth_check`, `email_address_check`, `ssl_check`, `headers_check`, `whois_lookup`, `wayback_lookup`, `ip_lookup`, `asn_lookup`, `d3fend_for_attack`, `driver_lookup`, `package_check`, `privacy_my_data` | 1 |
+| `tools/call` → `well_known` | 1 |
 | `tools/call` → `vendor_key_edit` | 1 |
 | `tools/call` → `cert_search`, `subdomain_enum` | 2 |
 | `tools/call` → `health` | 0 |
@@ -2412,7 +2466,7 @@ Every tool takes payment but `health`, `watchlist_edit`, `watchlist_events`, `pr
 **The flow**
 
 1. Send the `tools/call` with no key. When the anonymous budget is spent, the answer is HTTP `200` with a `Retry-After` header (seconds until the budget resets). The result is a tool result with `isError:true`. Its `structuredContent` is the PaymentRequired object, and `content[0].text` is the same object as a JSON string. The 2026-07-28 era adds `"resultType":"complete"`.
-2. The object holds `x402Version` 2, an `error` text, a `resource` and one entry in `accepts`. `resource.url` is `mcp://tool/` and the tool name, such as `mcp://tool/cert_search`. The entry holds `scheme`, `network`, `amount`, `asset`, `payTo`, `maxTimeoutSeconds` and `extra.feePayer`.
+2. The object holds `x402Version` 2, an `error` text, a `resource` and one entry in `accepts`. The `error` text also names the page that sells a Pro key. `resource.url` is `mcp://tool/` and the tool name, such as `mcp://tool/cert_search`. The entry holds `scheme`, `network`, `amount`, `asset`, `payTo`, `maxTimeoutSeconds` and `extra.feePayer`.
 3. Sign a USDC transfer as the entry asks. Send the same `tools/call` again, with the x402 payment payload as an object in `params._meta["x402/payment"]`.
 4. The server checks and verifies the payment before the tool runs. It settles the payment only after the tool has a result to serve.
 5. A served call answers the normal tool result, with `result._meta["x402/payment-response"]`. That object holds `success`, `transaction` (the transaction signature) and `network`. It names no payer.

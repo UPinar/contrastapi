@@ -358,6 +358,15 @@ const PagesSource_t pages_sources[] = {
     .m_isTemplate      = false,
   },
   {
+    .mp_httpPath       = "/.well-known/security.txt",
+    .mp_contentType    = "text/plain; charset=utf-8",
+    .mp_cacheControl   = PAGES_DISCOVERY_CACHE_CONTROL,
+    .mp_extraHeaders   = "",
+    .mp_asset          = web_assets_securityTxt,
+    .mp_assetByteCount = &web_assets_securityTxtByteCount,
+    .m_isTemplate      = false,
+  },
+  {
     .mp_httpPath       = "/.well-known/mcp/server-card.json",
     .mp_contentType    = "application/json",
     .mp_cacheControl   = PAGES_DISCOVERY_CACHE_CONTROL,

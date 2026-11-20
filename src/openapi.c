@@ -171,7 +171,8 @@ static void static_appendComponents(JsonBuf_t* json_buf)
                                  R"("content":{"application/json":{"schema":{"$ref":"#/components/schemas/Error"}}}}})");
 
   jsonbuf_appendFormat(json_buf, R"(,"schemas":{"Error":{"type":"object","required":["error"],"properties":{"error":{"type":"object",)"
-                                 R"("required":["code","message"],"properties":{"code":{"type":"string"},"message":{"type":"string"}}}}})");
+                                 R"("required":["code","message"],"properties":{"code":{"type":"string"},"message":{"type":"string"},)"
+                                 R"("retry_after_seconds":{"type":"integer"},"upgrade_url":{"type":"string","format":"uri"}}}}})");
   jsonbuf_appendFormat(json_buf, ",\"PackageItem\":");
   jsonbuf_appendJsonText(json_buf, ENDPOINT_PACKAGE_ITEM_SCHEMA_JSON);
   jsonbuf_appendFormat(json_buf, ",\"PackageItemOptionalVersion\":");
