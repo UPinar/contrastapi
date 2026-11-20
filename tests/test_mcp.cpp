@@ -102,6 +102,11 @@ extern int                 g_stub_CVELEADING_call_count;
 extern CVETRIAGEParams_t   g_stub_CVETRIAGE_last_params;
 extern char                g_stub_CVERISKSCORE_last_cve_id[CVELOOKUP_ID_MAX_LEN + 1];
 extern int                 g_stub_CVETRIAGE_call_count;
+extern DbStatus_t          g_stub_EPSSRISERS_status;
+extern EPSSRISERSParams_t  g_stub_EPSSRISERS_last_params;
+extern int                 g_stub_EPSSRISERS_call_count;
+extern int                 g_stub_EPSSRISERS_item_count;
+extern const char*         g_stub_EPSSRISERS_from_date;
 extern DbStatus_t                    g_stub_WATCHLISTEDIT_status;
 extern WATCHLISTEDITStatus_t         g_stub_WATCHLISTEDIT_result_status;
 extern WATCHLISTEDITItemsDbParams_t  g_stub_WATCHLISTEDIT_last_params;
@@ -344,6 +349,11 @@ void setUp(void)
   g_stub_CVELEADING_call_count            = 0;
   memset(&g_stub_CVETRIAGE_last_params,   0, sizeof(g_stub_CVETRIAGE_last_params));
   g_stub_CVETRIAGE_call_count             = 0;
+  g_stub_EPSSRISERS_status                = DB_ERROR;
+  g_stub_EPSSRISERS_call_count            = 0;
+  g_stub_EPSSRISERS_item_count            = 1;
+  g_stub_EPSSRISERS_from_date             = "2026-11-12";
+  memset(&g_stub_EPSSRISERS_last_params,  0, sizeof(g_stub_EPSSRISERS_last_params));
   memset(&g_stub_PRODUCTEXPOSURE_last_params, 0, sizeof(g_stub_PRODUCTEXPOSURE_last_params));
   g_stub_CVESEARCH_items                          = NULL;
   g_stub_WATCHLISTEDIT_status                     = DB_ERROR;
@@ -658,7 +668,7 @@ void test_tool_count_is_the_number_of_tools_listed(void)
   int listed_tool_count = 0;
   for (const char* cursor = response; (cursor = strstr(cursor, R"("inputSchema")")) != NULL; cursor++)
     listed_tool_count++;
-  TEST_ASSERT_EQUAL_INT(37, listed_tool_count);
+  TEST_ASSERT_EQUAL_INT(38, listed_tool_count);
   TEST_ASSERT_EQUAL_INT(listed_tool_count, endpoint_mcpToolCount());
   free(response);
 }
@@ -833,6 +843,17 @@ void test_tools_list_is_the_whole_catalogue(void)
       R"json("offset":{"type":"integer","minimum":0,"maximum":10000,"default":0,"description":"CVEs to skip; pass next_offset of the previous page"})json"
       R"json(},"additionalProperties":false})json"
       R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"CVE Intelligence"}})json",
+    R"json({"name":"epss_risers","title":"EPSS Risers","description":"List the CVEs whose EPSS score rose most over the last 7 or 30 days, with the old and the new score. Filter by vendor, product, KEV state or a minimum score. Call the cve_lookup tool for the details of a CVE.",)json"
+      R"json("inputSchema":{"type":"object","properties":{)json"
+      R"json("window_days":{"type":"integer","minimum":7,"maximum":30,"default":7,"description":"Days to look back: 7 or 30. Default 7."},)json"
+      R"json("vendor":{"type":"string","maxLength":128,"description":"Exact vendor name as cpe_search lists it, e.g. apache"},)json"
+      R"json("product":{"type":"string","maxLength":128,"description":"Exact product name as cpe_search lists it, e.g. log4j"},)json"
+      R"json("in_kev":{"type":"boolean","description":"true lists only CVEs in CISA KEV, false only CVEs not in it"},)json"
+      R"json("min_epss":{"type":"number","minimum":0,"maximum":1,"description":"Lowest current EPSS score to list, 0.0 to 1.0."},)json"
+      R"json("limit":{"type":"integer","minimum":1,"maximum":100,"default":20,"description":"CVEs per page"},)json"
+      R"json("offset":{"type":"integer","minimum":0,"maximum":10000,"default":0,"description":"CVEs to skip; pass next_offset of the previous page"})json"
+      R"json(},"additionalProperties":false})json"
+      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"CVE Intelligence"}})json",
     R"json({"name":"cve_triage_bulk","title":"Bulk CVE Triage","description":"Triage many CVEs at once, ranked by composite risk score. Ids beyond the remaining credits come back in not_processed.",)json"
       R"json("inputSchema":{"type":"object","properties":{)json"
       R"json("cve_ids":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":50,"description":"CVE IDs"})json"
@@ -846,7 +867,7 @@ void test_tools_list_is_the_whole_catalogue(void)
       R"json("include_rejected":{"type":"boolean","description":"Also count and list the CVEs that NVD marks Rejected"})json"
       R"json(},"required":["vendor","product"],"additionalProperties":false})json"
       R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"CVE Intelligence"}})json",
-    R"json({"name":"cpe_search","title":"CPE Search","description":"Find the CPE vendor and product names that hold a text, ranked by vulnerable CVE count. Pass a name that holds no % as it is to the vendor and product arguments of the cve_search, cve_triage, cve_leading and product_exposure tools.",)json"
+    R"json({"name":"cpe_search","title":"CPE Search","description":"Find the CPE vendor and product names that hold a text, ranked by vulnerable CVE count. Pass a name with no % as it is to the vendor and product arguments of the cve_search, cve_triage, cve_leading, product_exposure and epss_risers tools.",)json"
       R"json("inputSchema":{"type":"object","properties":{)json"
       R"json("search":{"type":"string","maxLength":128,"description":"Text in vendor or product names, at least 3 bytes; case does not matter, and _ matches a space"},)json"
       R"json("limit":{"type":"integer","minimum":1,"maximum":50,"default":20,"description":"Vendor and product pairs per page"},)json"
@@ -1997,7 +2018,7 @@ void test_every_tool_refuses_names_and_values_it_does_not_read(void)
     }
     called++;
   }
-  TEST_ASSERT_EQUAL_INT(37, called);
+  TEST_ASSERT_EQUAL_INT(38, called);
 }
 
 void test_readToolCall_reads_the_name_and_the_arguments(void)
@@ -5965,7 +5986,94 @@ void test_tools_list_boolean_filter_schemas(void)
   free(response);
 }
 
-#define TEST_TOOLS_LIST_MAX_BYTE_COUNT 31232
+void test_tool_EPSSRISERS_window_days_schema_is_an_integer_from_7_to_30(void)
+{
+  int status;
+  char* response = static_dispatch(R"({"jsonrpc":"2.0","id":2,"method":"tools/list"})", &status);
+  TEST_ASSERT_EQUAL_INT(200, status);
+  static_assertToolEntryHas(response, "epss_risers", R"("window_days":{"type":"integer","minimum":7,"maximum":30,"default":7,)", true);
+  free(response);
+}
+
+void test_tool_EPSSRISERS_window_days_other_than_7_or_30_is_refused_before_db(void)
+{
+  static const char* const bodies[] = {
+    R"({"jsonrpc":"2.0","id":940,"method":"tools/call","params":{"name":"epss_risers","arguments":{"window_days":15}}})",
+    R"({"jsonrpc":"2.0","id":941,"method":"tools/call","params":{"name":"epss_risers","arguments":{"window_days":8}}})",
+    R"({"jsonrpc":"2.0","id":942,"method":"tools/call","params":{"name":"epss_risers","arguments":{"window_days":29}}})",
+    R"({"jsonrpc":"2.0","id":943,"method":"tools/call","params":{"name":"epss_risers","arguments":{"window_days":6}}})",
+    R"({"jsonrpc":"2.0","id":944,"method":"tools/call","params":{"name":"epss_risers","arguments":{"window_days":31}}})",
+  };
+  g_stub_EPSSRISERS_status = DB_OK;
+  for (size_t i = 0; i < sizeof(bodies) / sizeof(bodies[0]); i++)
+  {
+    int status;
+    char* response = static_dispatch(bodies[i], &status);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(200, status, bodies[i]);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(response, R"("text":"window_days must be 7 or 30"}],"isError":true)"), bodies[i]);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(0, g_stub_EPSSRISERS_call_count, bodies[i]);
+    free(response);
+  }
+}
+
+void test_tool_EPSSRISERS_arguments_reach_db_params(void)
+{
+  g_stub_EPSSRISERS_status = DB_OK;
+  int status;
+  char* response = static_dispatch(R"({"jsonrpc":"2.0","id":945,"method":"tools/call","params":{"name":"epss_risers",)"
+                                   R"("arguments":{"window_days":30,"vendor":"acme","product":"widget","in_kev":false,"min_epss":0.25,"limit":7,"offset":40}}})", &status);
+  static_assertContains(response, "CVE-2025-55182");
+  static_assertContains(response, R"(\"window_days\":30)");
+  static_assertToolSucceeded(response, status);
+  TEST_ASSERT_EQUAL_INT(1, g_stub_EPSSRISERS_call_count);
+  TEST_ASSERT_EQUAL_INT(30, g_stub_EPSSRISERS_last_params.m_windowDays);
+  TEST_ASSERT_EQUAL_STRING("acme", g_stub_EPSSRISERS_last_params.ma_vendor);
+  TEST_ASSERT_EQUAL_STRING("widget", g_stub_EPSSRISERS_last_params.ma_product);
+  TEST_ASSERT_EQUAL_INT(CVE_KEV_FILTER_NOT_IN_KEV, g_stub_EPSSRISERS_last_params.m_kevFilter);
+  TEST_ASSERT_EQUAL_INT(2500, (int)(g_stub_EPSSRISERS_last_params.m_minEpss * 10000.0 + 0.5));
+  TEST_ASSERT_EQUAL_INT(7, g_stub_EPSSRISERS_last_params.m_limit);
+  TEST_ASSERT_EQUAL_INT(40, g_stub_EPSSRISERS_last_params.m_offset);
+}
+
+void test_tool_EPSSRISERS_absent_arguments_take_the_defaults(void)
+{
+  g_stub_EPSSRISERS_status = DB_OK;
+  int status;
+  char* response = static_dispatch(R"({"jsonrpc":"2.0","id":946,"method":"tools/call","params":{"name":"epss_risers","arguments":{}}})", &status);
+  static_assertContains(response, R"(\"window_days\":7)");
+  static_assertToolSucceeded(response, status);
+  TEST_ASSERT_EQUAL_INT(1, g_stub_EPSSRISERS_call_count);
+  TEST_ASSERT_EQUAL_INT(7, g_stub_EPSSRISERS_last_params.m_windowDays);
+  TEST_ASSERT_EQUAL_STRING("", g_stub_EPSSRISERS_last_params.ma_vendor);
+  TEST_ASSERT_EQUAL_STRING("", g_stub_EPSSRISERS_last_params.ma_product);
+  TEST_ASSERT_EQUAL_INT(CVE_KEV_FILTER_ANY, g_stub_EPSSRISERS_last_params.m_kevFilter);
+  TEST_ASSERT_TRUE(g_stub_EPSSRISERS_last_params.m_minEpss < 0.0);
+  TEST_ASSERT_EQUAL_INT(20, g_stub_EPSSRISERS_last_params.m_limit);
+  TEST_ASSERT_EQUAL_INT(0, g_stub_EPSSRISERS_last_params.m_offset);
+}
+
+void test_tool_EPSSRISERS_db_error(void)
+{
+  g_stub_EPSSRISERS_status = DB_ERROR;
+  int status;
+  char* response = static_dispatch(R"({"jsonrpc":"2.0","id":947,"method":"tools/call","params":{"name":"epss_risers","arguments":{"window_days":7}}})", &status);
+  static_assertToolInternalError(response, status);
+  TEST_ASSERT_EQUAL_INT(1, g_stub_EPSSRISERS_call_count);
+}
+
+void test_tool_EPSSRISERS_uncomputable_window_is_a_result(void)
+{
+  g_stub_EPSSRISERS_status    = DB_OK;
+  g_stub_EPSSRISERS_from_date = "";
+  int status;
+  char* response = static_dispatch(R"({"jsonrpc":"2.0","id":948,"method":"tools/call","params":{"name":"epss_risers","arguments":{"window_days":30}}})", &status);
+  static_assertContains(response, R"(\"window_days\":30,\"from_date\":null,\"to_date\":\"2026-11-19\",\"window_note\":\"EPSS history holds no day that can start this window yet\",\"total\":0,)");
+  static_assertContains(response, R"(\"results\":[]})");
+  static_assertToolSucceeded(response, status);
+  TEST_ASSERT_EQUAL_INT(1, g_stub_EPSSRISERS_call_count);
+}
+
+#define TEST_TOOLS_LIST_MAX_BYTE_COUNT 32512
 
 #define TEST_MCP_TOOL_DESCRIPTION_MAX_LEN 240
 
@@ -7051,7 +7159,7 @@ void test_mcp_credit_cost_offers_no_payment_for_tools_list_and_notifications(voi
   }
 }
 
-#define X402_PAYABLE_TOOL_COUNT 32
+#define X402_PAYABLE_TOOL_COUNT 33
 void test_mcp_credit_cost_payable_tools_are_the_payable_rows(void)
 {
   int payable_tool_count = 0;
@@ -7301,7 +7409,7 @@ void test_mcp_server_instructions_name_x402_pay_per_call(void)
 
 void test_registration_gate_test_count(void)
 {
-  TEST_ASSERT_EQUAL_INT_MESSAGE(407, (int)Unity.NumberOfTests,
+  TEST_ASSERT_EQUAL_INT_MESSAGE(413, (int)Unity.NumberOfTests,
     "RUN_TEST list and test definitions have drifted apart - a test may be unregistered");
 }
 
@@ -7501,7 +7609,7 @@ void test_every_arguments_copy_refuses_arguments_too_large(void)
     free(response);
     called++;
   }
-  TEST_ASSERT_EQUAL_INT(37, called);
+  TEST_ASSERT_EQUAL_INT(38, called);
 }
 
 void test_tool_arguments_reach_the_lookup(void)
@@ -7889,6 +7997,12 @@ int main(void)
   RUN_TEST(test_tool_CVETRIAGE_ok);
   RUN_TEST(test_tool_CVETRIAGE_db_error);
   RUN_TEST(test_tool_CVETRIAGE_bad_min_risk_score);
+  RUN_TEST(test_tool_EPSSRISERS_window_days_schema_is_an_integer_from_7_to_30);
+  RUN_TEST(test_tool_EPSSRISERS_window_days_other_than_7_or_30_is_refused_before_db);
+  RUN_TEST(test_tool_EPSSRISERS_arguments_reach_db_params);
+  RUN_TEST(test_tool_EPSSRISERS_absent_arguments_take_the_defaults);
+  RUN_TEST(test_tool_EPSSRISERS_db_error);
+  RUN_TEST(test_tool_EPSSRISERS_uncomputable_window_is_a_result);
   RUN_TEST(test_tool_CVETRIAGEBULK_ok);
   RUN_TEST(test_tool_CVETRIAGEBULK_empty);
   RUN_TEST(test_tool_CVETRIAGEBULK_missing_ids);

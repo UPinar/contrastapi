@@ -1,6 +1,6 @@
 #ifndef VERSION_H
 #define VERSION_H
 
-#define CONTRASTAPI_VERSION "2.0.13"
+#define CONTRASTAPI_VERSION "2.1.1"
 
 #endif

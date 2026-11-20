@@ -401,7 +401,7 @@ void test_HEALTH_no_db_answers_503(void)
   static_runEndpointWithQuery("/health", "", buf, sizeof(buf));
   TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 503 Service Unavailable\r\n"));
   TEST_ASSERT_NOT_NULL(strstr(buf, "\r\nRetry-After: 5\r\n"));
-  TEST_ASSERT_NOT_NULL(strstr(buf, "{\"status\":\"unavailable\",\"version\":\"2.0.13\",\"db\":null}"));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "{\"status\":\"unavailable\",\"version\":\"2.1.1\",\"db\":null}"));
 }
 
 void test_CVELOOKUP_null_param_400(void)
@@ -689,6 +689,7 @@ void test_query_refusal_answers_400_without_db(void)
     { "/cve_search",       NULL,             "?severity=x" },
     { "/cve_triage",       NULL,             "?limit=0" },
     { "/cve_leading",      NULL,             "?limit=0" },
+    { "/epss_risers",      NULL,             "?window_days=6" },
     { "/product_exposure", NULL,             "?vendor=x" },
   };
 
@@ -1296,6 +1297,51 @@ void test_CVETRIAGE_offset_non_numeric_returns_400(void)
   char buf[RESP_BUF];
   static_runEndpointWithQuery("/cve_triage", "?offset=xyz", buf, sizeof(buf));
   TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 400"));
+}
+
+void test_EPSSRISERS_window_days_other_than_7_or_30_returns_400(void)
+{
+  static const char* const queries[] = {
+    "?window_days=6", "?window_days=8", "?window_days=15", "?window_days=29", "?window_days=31", "?window_days=week",
+  };
+  g_conn = FAKE_CONN;
+  for (size_t i = 0; i < sizeof(queries) / sizeof(queries[0]); i++)
+  {
+    char buf[RESP_BUF];
+    static_runEndpointWithQuery("/epss_risers", queries[i], buf, sizeof(buf));
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "HTTP/1.1 400"), queries[i]);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "\"code\":\"bad_request\""), queries[i]);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "\"message\":\"window_days must be 7 or 30\""), queries[i]);
+  }
+}
+
+void test_EPSSRISERS_limit_offset_and_unknown_name_return_400(void)
+{
+  const struct {
+    const char* mp_query;
+    const char* mp_message;
+  } cases[] = {
+    { "?limit=0",      "limit must be" },
+    { "?limit=101",    "limit must be" },
+    { "?offset=10001", "offset must be an integer between 0 and 10000; narrow the list with vendor, product or min_epss" },
+    { "?days=7",       " window_days, vendor, product, in_kev, min_epss, limit, offset" },
+  };
+  g_conn = FAKE_CONN;
+  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+  {
+    char buf[RESP_BUF];
+    static_runEndpointWithQuery("/epss_risers", cases[i].mp_query, buf, sizeof(buf));
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "HTTP/1.1 400"), cases[i].mp_query);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(static_bodyOf(buf), cases[i].mp_message), cases[i].mp_query);
+  }
+}
+
+void test_EPSSRISERS_no_db_returns_500(void)
+{
+  g_conn = NULL;
+  char buf[RESP_BUF];
+  static_runEndpointWithQuery("/epss_risers", "?window_days=30", buf, sizeof(buf));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 500"));
 }
 
 void test_CVETRIAGEBULK_no_body_400(void)
@@ -2226,6 +2272,9 @@ int main(void)
   RUN_TEST(test_CVELOOKUPBULK_old_ids_key_400_names_cve_ids);
   RUN_TEST(test_CVELOOKUPBULK_does_not_read_the_query);
 
+  RUN_TEST(test_EPSSRISERS_window_days_other_than_7_or_30_returns_400);
+  RUN_TEST(test_EPSSRISERS_limit_offset_and_unknown_name_return_400);
+  RUN_TEST(test_EPSSRISERS_no_db_returns_500);
   RUN_TEST(test_CVETRIAGE_no_db_returns_500);
   RUN_TEST(test_CVETRIAGE_min_risk_score_below_zero_returns_400);
   RUN_TEST(test_CVETRIAGE_min_risk_score_over_100_returns_400);

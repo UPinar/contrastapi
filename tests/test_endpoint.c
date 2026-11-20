@@ -227,7 +227,7 @@ void test_only_the_credit_budget_rows_read_the_credit_budget(void)
 
 void test_only_the_listed_paid_rows_are_payable(void)
 {
-  static const char* const payable_paths[33] = {
+  static const char* const payable_paths[34] = {
     "/cve_lookup/",         "/cve_lookup_bulk",    "/cve_products/",      "/cve_search",
     "/cve_leading",         "/kev_lookup/",        "/cwe_lookup/",        "/cve_risk_score/",
     "/cve_exploit/",        "/cve_triage",         "/cve_triage_bulk",    "/product_exposure",
@@ -236,9 +236,9 @@ void test_only_the_listed_paid_rows_are_payable(void)
     "/headers_check/",      "/whois_lookup/",      "/wayback_lookup/",    "/cert_search/",
     "/subdomain_enum/",     "/ip_lookup/",         "/asn_lookup/",        "/d3fend_for_attack/",
     "/driver_lookup/",      "/driver_lookup_bulk", "/package_check",      "/package_check_bulk",
-    "/image_inspect",
+    "/image_inspect",       "/epss_risers",
   };
-  bool seen[33] = { false };
+  bool seen[34] = { false };
   int payable_row_count = 0;
   int credit_budget_payable_row_count = 0;
   for (int i = 0; i < endpoint_count; i++)
@@ -248,7 +248,7 @@ void test_only_the_listed_paid_rows_are_payable(void)
       continue;
     payable_row_count++;
     int payable_index = -1;
-    for (int k = 0; k < 33; k++)
+    for (int k = 0; k < 34; k++)
     {
       TEST_ASSERT_NOT_NULL(payable_paths[k]);
       if (strcmp(payable_paths[k], endpoint->mp_httpPath) == 0)
@@ -264,8 +264,8 @@ void test_only_the_listed_paid_rows_are_payable(void)
       credit_budget_payable_row_count++;
     }
   }
-  TEST_ASSERT_EQUAL_INT(33, payable_row_count);
-  for (int k = 0; k < 33; k++)
+  TEST_ASSERT_EQUAL_INT(34, payable_row_count);
+  for (int k = 0; k < 34; k++)
     TEST_ASSERT_TRUE_MESSAGE(seen[k], payable_paths[k]);
   TEST_ASSERT_EQUAL_INT(1, credit_budget_payable_row_count);
 }
@@ -514,6 +514,7 @@ void test_each_row_holds_its_run_its_db_need_its_upstream_call_and_its_ceiling(v
     { "/cve_risk_score/",  endpoint_CVERISKSCORERun,    true,  false, JSONBUF_DEFAULT_CEILING },
     { "/cve_exploit/",     endpoint_CVEEXPLOITRun,      true,  false, JSONBUF_DEFAULT_CEILING },
     { "/cve_triage",       endpoint_CVETRIAGERun,       true,  false, JSONBUF_DEFAULT_CEILING },
+    { "/epss_risers",      endpoint_EPSSRISERSRun,      true,  false, JSONBUF_DEFAULT_CEILING },
     { "/cve_triage_bulk",  endpoint_CVETRIAGEBULKRun,   true,  false, JSONBUF_DEFAULT_CEILING },
     { "/product_exposure", endpoint_PRODUCTEXPOSURERun, true,  false, JSONBUF_DEFAULT_CEILING },
     { "/cpe_search",       endpoint_CPESEARCHRun,       true,  false, JSONBUF_DEFAULT_CEILING },
@@ -1226,7 +1227,7 @@ void test_mcpArgsGate_writes_the_table_defaults_for_absent_arguments(void)
     }
     checked++;
   }
-  TEST_ASSERT_EQUAL_INT(35, checked);
+  TEST_ASSERT_EQUAL_INT(36, checked);
 }
 
 void test_gates_write_the_kev_filter_for_absent_true_and_false(void)
@@ -1275,7 +1276,7 @@ void test_gates_write_the_kev_filter_for_absent_true_and_false(void)
       checked++;
     }
   }
-  TEST_ASSERT_EQUAL_INT(3, checked);
+  TEST_ASSERT_EQUAL_INT(4, checked);
 }
 
 void test_gates_write_a_bool_or_kev_filter_only_into_its_own_field(void)
@@ -1373,7 +1374,7 @@ void test_gates_write_a_bool_or_kev_filter_only_into_its_own_field(void)
       }
     }
   }
-  TEST_ASSERT_EQUAL_INT(60, checked);
+  TEST_ASSERT_EQUAL_INT(64, checked);
 }
 
 void test_mcpArgsGate_stops_at_the_first_refusal_in_table_order(void)
@@ -1582,6 +1583,110 @@ void test_restQueryGate_checks_the_names_first_and_keeps_the_defaults(void)
   TEST_ASSERT_EQUAL_INT(ENDPOINT_GATE_REJECT_UNKNOWN_PARAM_NAME, gate_result.m_status);
   TEST_ASSERT_EQUAL_INT(-1, gate_result.m_refusedParamIndex);
   TEST_ASSERT_EQUAL_INT(CVE_LIST_DEFAULT_LIMIT, params.m_limit);
+}
+
+static EndpointGateResult_t static_EPSSRISERSGate(const char* query, EPSSRISERSParams_t* params)
+{
+  const Endpoint_t* endpoint = endpoint_findByHttpPath("/epss_risers", NULL);
+  TEST_ASSERT_NOT_NULL(endpoint);
+  TEST_ASSERT_EQUAL_size_t(sizeof(EPSSRISERSParams_t), endpoint->m_paramsSize);
+  memset(params, 0x5A, sizeof(*params));
+  return endpoint_restQueryGate(endpoint, query, params, sizeof(*params));
+}
+
+void test_EPSSRISERS_gate_writes_the_defaults(void)
+{
+  EPSSRISERSParams_t params;
+  EndpointGateResult_t gate_result = static_EPSSRISERSGate("", &params);
+  TEST_ASSERT_EQUAL_INT(ENDPOINT_GATE_OK, gate_result.m_status);
+  TEST_ASSERT_EQUAL_INT(EPSSRISERS_WINDOW_SHORT_DAYS, params.m_windowDays);
+  TEST_ASSERT_EQUAL_INT(7, params.m_windowDays);
+  TEST_ASSERT_EQUAL_INT(CVE_LIST_DEFAULT_LIMIT, params.m_limit);
+  TEST_ASSERT_EQUAL_INT(20, params.m_limit);
+  TEST_ASSERT_EQUAL_INT(0, params.m_offset);
+  TEST_ASSERT_TRUE(params.m_minEpss == -1.0);
+  TEST_ASSERT_EQUAL_INT(CVE_KEV_FILTER_ANY, params.m_kevFilter);
+  TEST_ASSERT_EQUAL_STRING("", params.ma_vendor);
+  TEST_ASSERT_EQUAL_STRING("", params.ma_product);
+}
+
+void test_EPSSRISERS_gate_reads_each_value_into_its_own_field(void)
+{
+  EPSSRISERSParams_t params;
+  EndpointGateResult_t gate_result = static_EPSSRISERSGate("?window_days=30&vendor=microsoft&product=exchange_server&in_kev=true&min_epss=0.25&limit=55&offset=10000", &params);
+  TEST_ASSERT_EQUAL_INT(ENDPOINT_GATE_OK, gate_result.m_status);
+  TEST_ASSERT_EQUAL_INT(30, params.m_windowDays);
+  TEST_ASSERT_EQUAL_STRING("microsoft", params.ma_vendor);
+  TEST_ASSERT_EQUAL_STRING("exchange_server", params.ma_product);
+  TEST_ASSERT_EQUAL_INT(CVE_KEV_FILTER_ONLY_IN_KEV, params.m_kevFilter);
+  TEST_ASSERT_TRUE(params.m_minEpss == 0.25);
+  TEST_ASSERT_EQUAL_INT(55, params.m_limit);
+  TEST_ASSERT_EQUAL_INT(10000, params.m_offset);
+}
+
+void test_EPSSRISERS_gate_holds_each_bound(void)
+{
+  static const char* const WINDOW_MESSAGE = "window_days must be 7 or 30";
+  static const char* const OFFSET_MESSAGE = "offset must be an integer between 0 and 10000; narrow the list with vendor, product or min_epss";
+  const struct {
+    const char*            mp_query;
+    EndpointGateStatus_t   m_status;
+    const char*            mp_message;
+  } cases[] = {
+    { "?window_days=7",     ENDPOINT_GATE_OK,                        NULL           },
+    { "?window_days=30",    ENDPOINT_GATE_OK,                        NULL           },
+    { "?window_days=6",     ENDPOINT_GATE_REJECT_VALUE,              WINDOW_MESSAGE },
+    { "?window_days=31",    ENDPOINT_GATE_REJECT_VALUE,              WINDOW_MESSAGE },
+    { "?window_days=seven", ENDPOINT_GATE_REJECT_VALUE,              WINDOW_MESSAGE },
+    { "?limit=0",           ENDPOINT_GATE_REJECT_VALUE,              NULL           },
+    { "?limit=101",         ENDPOINT_GATE_REJECT_VALUE,              NULL           },
+    { "?limit=100",         ENDPOINT_GATE_OK,                        NULL           },
+    { "?offset=10000",      ENDPOINT_GATE_OK,                        NULL           },
+    { "?offset=10001",      ENDPOINT_GATE_REJECT_VALUE,              OFFSET_MESSAGE },
+    { "?offset=-1",         ENDPOINT_GATE_REJECT_VALUE,              OFFSET_MESSAGE },
+    { "?window=7",          ENDPOINT_GATE_REJECT_UNKNOWN_PARAM_NAME, NULL           },
+    { "?include_rejected=true", ENDPOINT_GATE_REJECT_UNKNOWN_PARAM_NAME, NULL       },
+  };
+  const Endpoint_t* endpoint = endpoint_findByHttpPath("/epss_risers", NULL);
+  TEST_ASSERT_NOT_NULL(endpoint);
+  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+  {
+    EPSSRISERSParams_t params;
+    EndpointGateResult_t gate_result = static_EPSSRISERSGate(cases[i].mp_query, &params);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(cases[i].m_status, gate_result.m_status, cases[i].mp_query);
+    if (cases[i].mp_message != NULL)
+    {
+      TEST_ASSERT_TRUE_MESSAGE(gate_result.m_refusedParamIndex >= 0 && gate_result.m_refusedParamIndex < endpoint->m_paramCount, cases[i].mp_query);
+      TEST_ASSERT_EQUAL_STRING_MESSAGE(cases[i].mp_message, endpoint->mp_params[gate_result.m_refusedParamIndex].mp_spec->mp_message, cases[i].mp_query);
+    }
+  }
+}
+
+void test_EPSSRISERS_run_refuses_a_window_between_the_two(void)
+{
+  static const int windows[] = { 8, 15, 29 };
+  for (size_t i = 0; i < sizeof(windows) / sizeof(windows[0]); i++)
+  {
+    EndpointAnyParams_t params;
+    memset(&params, 0, sizeof(params));
+    params.m_epssRisers.m_windowDays = windows[i];
+    params.m_epssRisers.m_limit      = CVE_LIST_DEFAULT_LIMIT;
+    params.m_epssRisers.m_minEpss    = -1.0;
+    JsonBuf_t* json_buf = jsonbuf_create(JSONBUF_INITIAL_CAP, JSONBUF_DEFAULT_CEILING);
+    TEST_ASSERT_NOT_NULL(json_buf);
+    const char* message = NULL;
+
+    EndpointRunStatus_t run_status = endpoint_EPSSRISERSRun(NULL, &params, json_buf, &message);
+    size_t body_len = 0;
+    char* body = jsonbuf_finish(json_buf);
+    if (body != NULL)
+      body_len = strlen(body);
+    free(body);
+    jsonbuf_destroy(json_buf);
+    TEST_ASSERT_EQUAL_INT(ENDPOINT_RUN_REFUSED, run_status);
+    TEST_ASSERT_EQUAL_STRING("window_days must be 7 or 30", message);
+    TEST_ASSERT_EQUAL_size_t(0, body_len);
+  }
 }
 
 static const EndpointParamSpec_t TEST_SPEC_QUERY_CWE_ID = {
@@ -4492,7 +4597,7 @@ void test_appendSchemaBounds_prints_each_bound_as_its_exact_double(void)
 
 void test_registration_gate_test_count(void)
 {
-  TEST_ASSERT_EQUAL_INT_MESSAGE(224, (int)Unity.NumberOfTests,
+  TEST_ASSERT_EQUAL_INT_MESSAGE(228, (int)Unity.NumberOfTests,
     "RUN_TEST list and test definitions have drifted apart - a test may be unregistered");
 }
 
@@ -7686,6 +7791,10 @@ int main(void)
   RUN_TEST(test_every_row_fits_the_param_name_mask);
   RUN_TEST(test_checkHttpQueryParamNames_refuses_unknown_repeated_and_malformed_names);
   RUN_TEST(test_restQueryGate_checks_the_names_first_and_keeps_the_defaults);
+  RUN_TEST(test_EPSSRISERS_gate_writes_the_defaults);
+  RUN_TEST(test_EPSSRISERS_gate_reads_each_value_into_its_own_field);
+  RUN_TEST(test_EPSSRISERS_gate_holds_each_bound);
+  RUN_TEST(test_EPSSRISERS_run_refuses_a_window_between_the_two);
   RUN_TEST(test_restQueryGate_checks_a_cwe_id_and_writes_it_into_its_field);
   RUN_TEST(test_restQueryGate_checks_a_cve_id_and_writes_it_into_its_field);
   RUN_TEST(test_restPathSegmentGate_checks_each_path_segment_with_its_spec);

@@ -74,6 +74,7 @@ Most endpoints cost 1 credit per call. These differ:
 - GET /cve_exploit/{cve_id}: Public exploit intelligence (GitHub PoCs, Metasploit modules, NVD and CNA exploit references, ExploitDB entries)
 - GET /cve_triage?vendor=&product=&min_risk_score=&include_rejected=&limit=&offset=: CVEs ranked by composite risk score; lean rows (cve_id, risk_score, label); Rejected CVEs are left out unless include_rejected=true; a product filter answer carries product_filter_note
 - POST /cve_triage_bulk: Rank a list of CVE IDs by composite risk score, body `{"cve_ids": [...]}` (up to @@CVETRIAGEBULK_MAX_IDS@@ IDs)
+- GET /epss_risers?window_days=&vendor=&product=&in_kev=&min_epss=&limit=&offset=: CVEs whose EPSS score rose most over the last 7 or 30 days (window_days, default 7), largest rise first, with the old score, the new score and the rise; only CVEs with a score on both days whose score rose; Rejected CVEs are left out; a window the EPSS history cannot start yet answers from_date null, window_note and no rows; a product filter answer carries product_filter_note; call /cve_lookup for the details of a CVE
 - GET /product_exposure?vendor=&product=&version=&include_rejected=: CVE exposure of one vendor+product: severity/KEV/PoC counts, max/avg CVSS, max EPSS, worst risk score, top CVEs by risk; eol gives the endoflife.date support dates of the product and, with a version, of its release cycle (null when the dates are unknown); Rejected CVEs are left out unless include_rejected=true; the answer carries product_filter_note
 - GET /cpe_search?search=&limit=&offset=: CPE vendor and product names that hold a text, ranked by vulnerable CVE count
 - GET /cvss_calculator?vector=: Decode a CVSS v3.0/v3.1 vector; recompute base, temporal and environmental scores
@@ -123,7 +124,7 @@ An unknown query parameter is refused with HTTP 400.
 ## MCP (Model Context Protocol)
 
 ContrastAPI is available as an MCP server.
-MCP tools: cve_lookup, cve_lookup_bulk, cve_products, cve_search, cve_leading, kev_lookup, cwe_lookup,
+MCP tools: cve_lookup, cve_lookup_bulk, cve_products, cve_search, cve_leading, epss_risers, kev_lookup, cwe_lookup,
 cve_risk_score, cve_exploit, cve_triage, cve_triage_bulk, product_exposure, cpe_search,
 cvss_calculator, watchlist_edit, watchlist_events, password_check, dns_lookup, dns_takeover_check,
 email_auth_check, email_address_check, ssl_check, headers_check, whois_lookup, wayback_lookup, cert_search, subdomain_enum,

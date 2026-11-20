@@ -3,14 +3,27 @@
 .page h1 span { color: var(--primary); }
 .page h1.capability-title { margin-block-end: 1.25rem; }
 .page .subtitle { color: var(--text-dim); margin: 0 0 3rem; max-width: none; }
-.page h2 { font-size: 1.1rem; margin: 2.5rem 0 1rem; padding-block-end: 0.5rem; border-block-end: 1px solid var(--border); }
+.page h2 { font-size: 1.1rem; margin: 0 0 1rem; padding-block-end: 0.5rem; border-block-end: 1px solid var(--border); }
 .page h2 .num { color: var(--primary); }
 .page p { color: var(--text-muted); margin-block-end: 1rem; }
-.page ul, .page ol { color: var(--text-muted); margin: 0 0 1rem; padding-inline-start: 1.5rem; }
+/* A list keeps its markers on a small indent, as .freshness-list does. */
+.page ul, .page ol { color: var(--text-muted); margin: 0 0 1rem; padding-inline-start: 1rem; }
 .page li { margin-block-end: 0.4rem; line-height: 1.5; }
+/* .agent-tools lists the MCP tools of a page, each with a question it answers below its name. */
+.agent-tools { margin: 0 0 1rem; }
+.agent-tools dt { margin-block-end: 0.15rem; }
+.agent-tools dd { color: var(--text-muted); margin: 0 0 0.75rem; line-height: 1.5; }
 .code-block { display: flex; flex-direction: column; background: var(--bg-code); border: 1px solid var(--border); border-radius: 0.5rem; padding: 0.5rem 1.25rem 1rem; margin-block-end: 1.5rem; }
 .code-block code { display: block; overflow-x: auto; color: var(--text); font-size: 0.75rem; white-space: pre; font-family: var(--font-mono); }
 .code-block .lang { align-self: flex-end; margin-block-end: 0.25rem; color: var(--primary); font-size: 0.75rem; text-transform: uppercase; }
+/* Under 640px a code line wraps inside its box. A box that scrolls sideways shows no sign of it
+   on a phone, so its lines look cut off. pre-wrap keeps the indentation, and
+   overflow-wrap: anywhere breaks a URL, which has no space to break at. The box also takes
+   less side padding, so more of each line fits. */
+@media (max-width: 639px) {
+  .code-block { padding-inline: 0.75rem; }
+  .code-block code { white-space: pre-wrap; overflow-wrap: anywhere; }
+}
 .pill-inline { display: inline-block; background: var(--tint-primary); color: var(--primary); border: 1px solid var(--tint-primary-edge); border-radius: 4px; padding: 0.1rem 0.5rem; font-size: 0.75rem; }
 .pill-inline.green { background: var(--tint-green); color: var(--green-on-tint); border-color: var(--tint-green-edge); }
 .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
@@ -19,12 +32,11 @@
 .grid .card p { font-size: 0.85rem; margin: 0; }
 .grid .card a { color: var(--primary); }
 .grid .card a:visited { color: var(--primary); }
-.tools-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin: 1rem 0; }
 .tool { background: var(--bg-card); border: 1px solid var(--border-dim); border-radius: 0.375rem; padding: 0.5rem 0.75rem; font-size: 0.8rem; }
 .tool .name { color: var(--primary); }
 .tool .desc { color: var(--text-dim); font-size: 0.75rem; }
 
-.tier-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; margin: 1.5rem 0 2.5rem; }
+.tier-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; margin: 0 0 2.5rem; }
 .tier { background: var(--bg-card); border: 1px solid var(--border); border-radius: 0.625rem; padding: 1.75rem 1.5rem; display: flex; flex-direction: column; }
 .tier.featured { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary); }
 .tier-badge { align-self: flex-end; margin-block-end: 0.5rem; background: var(--primary); color: var(--on-primary); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 700; padding: 0.2rem 0.55rem; border-radius: 999px; }
@@ -49,13 +61,15 @@
    button stand apart. A hidden form stays hidden. */
 .vendor-form:not([hidden]) { display: flex; flex-direction: column; gap: 1rem; }
 .vendor-form p { margin: 0; }
-.vendor-form > .tier-cta { margin-block: 0.5rem 0; }
+/* The Save button stands a little further from the block above it than the form gap. */
+.vendor-form > :has(+ .tier-cta) { margin-block-end: 0.5rem; }
+.vendor-form > .tier-cta { margin-block-end: 0; }
 /* The Save button is disabled while the form holds no change, so a waiting cursor there
    would look like a request that never ends. */
 .vendor-form > .tier-cta:disabled { cursor: not-allowed; }
-/* The status line under the heading is hidden when it has nothing to say. The help and the
-   form then keep their own room below the heading. */
-.vendor-help, .vendor-form { margin-block-start: 1.5rem; }
+/* The status line under the heading is hidden when it has nothing to say. The heading then
+   keeps room for the help and the form below it. */
+.page h1:has(+ .subtitle[hidden] + .vendor-help) { margin-block-end: 1.5rem; }
 /* vendor-expiry is the line that says how long the link still works. It stands first in the
    form, so a user sees it before typing a key. */
 .vendor-form .vendor-expiry { color: var(--primary); font-weight: 700; }
@@ -64,8 +78,10 @@
 .tier .vendor-state { margin-block-end: 0.75rem; font-size: 0.85rem; }
 .tier .vendor-state.bad { color: var(--red); }
 .tier .vendor-state.ok { color: var(--green); }
-/* vendor-result is the answer to the key just sent, under its field. */
-.tier .vendor-result { margin: -0.25rem 0 0.75rem; font-size: 0.85rem; font-weight: 700; color: var(--text-muted); }
+/* vendor-result is the answer to the key just sent, under its field. The field above it
+   then sits closer to it. */
+.tier .key-field:has(+ .vendor-result:not([hidden])) { margin-block-end: 0.5rem; }
+.tier .vendor-result { margin: 0 0 0.75rem; font-size: 0.85rem; font-weight: 700; color: var(--text-muted); }
 .tier .vendor-result.bad { color: var(--red); }
 .tier .vendor-result.ok { color: var(--green); }
 .tier label:not([hidden]):has(> input[type="checkbox"]) { display: flex; align-items: center; gap: 0.5rem; margin-block-end: 0.5rem; font-size: 0.85rem; color: var(--text-muted); }
@@ -79,17 +95,19 @@
 /* .page .faq takes the width of the page column. The narrow centred box of style.css is
    made for the home page, which has no .page column. */
 .page .faq { max-inline-size: none; margin-inline: 0; }
-.faq dl { margin: 1rem 0 0; }
-.faq dt { color: var(--text); font-weight: 600; font-size: 0.95rem; margin-block-start: 1.25rem; margin-block-end: 0.4rem; }
-.faq dd { margin: 0; color: var(--text-muted); font-size: 0.9rem; line-height: 1.6; }
+/* The block before an FAQ keeps the room above it. */
+.page :has(+ .faq) { margin-block-end: 3rem; }
+.page .faq h2 { margin-block-end: 1.25rem; }
+.faq dt { color: var(--text); font-weight: 600; font-size: 0.95rem; margin-block-end: 0.4rem; }
+.faq dd { margin: 0 0 1.25rem; color: var(--text-muted); font-size: 0.9rem; line-height: 1.6; }
 
 /* All in-page links (paragraphs, lists, FAQ, dd, ul, ol) keep the primary
    blue color even after visit. The UA :visited purple breaks the design. */
-.page a:not(.btn-cta):not(.btn-cta-secondary):not(.btn-pro):not(.tier-cta) { color: var(--primary); text-decoration: none; }
-.page a:not(.btn-cta):not(.btn-cta-secondary):not(.btn-pro):not(.tier-cta):visited { color: var(--primary); }
-.page a:not(.btn-cta):not(.btn-cta-secondary):not(.btn-pro):not(.tier-cta):hover { text-decoration: underline; }
+.page a:not(.tier-cta) { color: var(--primary); text-decoration: none; }
+.page a:not(.tier-cta):visited { color: var(--primary); }
+.page a:not(.tier-cta):hover { text-decoration: underline; }
 
-@media (max-width: 600px) { .grid { grid-template-columns: 1fr; } .tools-grid { grid-template-columns: 1fr; } .tier-grid { grid-template-columns: 1fr; } .page h1 { font-size: 1.75rem; } }
+@media (max-width: 600px) { .grid { grid-template-columns: 1fr; }.tier-grid { grid-template-columns: 1fr; } .page h1 { font-size: 1.75rem; } }
 .watch-events { inline-size: 100%; border-collapse: collapse; margin-block-end: 1.5rem; font-size: 0.85rem; }
 .watch-events th, .watch-events td { text-align: start; vertical-align: top; padding: 0.75rem; border-block-end: 1px solid var(--border); }
 .watch-events th { color: var(--text); font-weight: 600; }
@@ -99,10 +117,15 @@
 .watch-events td { line-height: 2; }
 .watch-events code { margin-inline-end: 0.25rem; }
 /* Below 640px the two columns do not fit a 360px screen: the endpoint and its events stack.
-   Each row names its endpoint, so the header row hides. */
+   Each row names its endpoint, so the header row hides. The endpoint reads as a bold heading
+   without the chip fill, so it stands apart from its events. The events stand one per line,
+   indented under it. */
 @media (max-width: 639px) {
   .watch-events thead { display: none; }
   .watch-events, .watch-events tbody, .watch-events tr, .watch-events td { display: block; }
-  .watch-events td:first-child { border-block-end: 0; padding-block-end: 0; }
+  .watch-events td:first-child { border-block-end: 0; padding-block-end: 0.5rem; }
+  .watch-events td:first-child code { background: none; padding: 0; color: var(--text); font-size: 0.95rem; font-weight: 700; }
+  .watch-events td:last-child { padding-inline-start: 1.5rem; line-height: 1.5; }
+  .watch-events td:last-child code { display: block; inline-size: fit-content; margin-block-end: 0.35rem; }
   .watch-events code { overflow-wrap: anywhere; }
 }

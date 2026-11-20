@@ -34,7 +34,7 @@ extern char g_stub_last_unix_socket_path[256];
 
 extern HttpError_t g_stub_next_error;
 
-#define HTTP_STUB_MAX_REQUEST_COUNT 8
+#define HTTP_STUB_MAX_REQUEST_COUNT 12
 
 typedef struct {
   char     ma_url[1024];

@@ -129,26 +129,30 @@
         <span class="endpoint-desc">MCP <code>subdomain_enum</code>. The subdomains of a domain from Certificate Transparency and DNS. <a href="https://github.com/UPinar/contrastapi/blob/main/docs/API_Documentation.md#subdomain-enum-get-subdomain_enumdomain">API docs</a></span>
       </div>
     </div>
-    <h2>Example</h2>
-    <div class="code-block"><span class="lang">bash</span><code>curl https://api.contrastcyber.com/dns_takeover_check/shop.example.com</code></div>
-    <p>Example response, trimmed; the values are an example:</p>
-    <div class="code-block"><span class="lang">json</span><code>{
-  "hostname": "shop.example.com",
-  "cname": "shop-example.cloudapp.net",
-  "chain": ["shop-example.cloudapp.net"],
-  "target_exists": false,
-  "dangling": true,
-  "provider": "Microsoft Azure",
-  "takeover_possible": true,
-  "summary": "shop.example.com points to shop-example.cloudapp.net, which does not exist. Microsoft Azure lets anyone claim that name, so shop.example.com can be taken over."
-}</code></div>
     <h2>From an agent</h2>
-    <p>Your agent calls these MCP tools: <code>dns_lookup</code>, <code>dns_takeover_check</code>, <code>email_auth_check</code>, <code>email_address_check</code>, <code>ssl_check</code>, <code>headers_check</code>, <code>whois_lookup</code>, <code>wayback_lookup</code>, <code>cert_search</code> and <code>subdomain_enum</code>. Connect once with the <a href="/mcp-setup">MCP setup</a>, then ask in plain words.</p>
-    <ul>
-      <li>&ldquo;Is shop.example.com open to subdomain takeover?&rdquo;</li>
-      <li>&ldquo;Does example.com have a valid DMARC policy and an SPF record?&rdquo;</li>
-      <li>&ldquo;List the subdomains of example.com and check which certificates expire soon.&rdquo;</li>
-    </ul>
+    <p>Connect once with the <a href="/mcp-setup">MCP setup</a>, then ask in plain words. Each MCP tool below is shown with a question it answers.</p>
+    <dl class="agent-tools">
+      <dt><code>dns_lookup</code></dt>
+      <dd>&ldquo;What are the A, MX and TXT records of example.com?&rdquo;</dd>
+      <dt><code>dns_takeover_check</code></dt>
+      <dd>&ldquo;Is shop.example.com open to subdomain takeover?&rdquo;</dd>
+      <dt><code>email_auth_check</code></dt>
+      <dd>&ldquo;Does example.com have a valid DMARC policy, an SPF record and a DKIM key for selector google?&rdquo;</dd>
+      <dt><code>email_address_check</code></dt>
+      <dd>&ldquo;Does the domain of jane@example.com take mail, and is the address disposable?&rdquo;</dd>
+      <dt><code>ssl_check</code></dt>
+      <dd>&ldquo;When does the TLS certificate of example.com expire, and is its setup sound?&rdquo;</dd>
+      <dt><code>headers_check</code></dt>
+      <dd>&ldquo;Which security headers is example.com missing?&rdquo;</dd>
+      <dt><code>whois_lookup</code></dt>
+      <dd>&ldquo;Which registrar holds example.com, and when does it expire?&rdquo;</dd>
+      <dt><code>wayback_lookup</code></dt>
+      <dd>&ldquo;When did the Wayback Machine first capture example.com?&rdquo;</dd>
+      <dt><code>cert_search</code></dt>
+      <dd>&ldquo;Which unexpired certificates do the CT logs hold for example.com?&rdquo;</dd>
+      <dt><code>subdomain_enum</code></dt>
+      <dd>&ldquo;List the subdomains of example.com.&rdquo;</dd>
+    </dl>
     <h2>Limits</h2>
     <p>Without a key you get @@RL_ANON_CREDIT_LIMIT@@ credits per hour. A Pro key gets @@RL_KEY_CREDIT_LIMIT@@ credits per hour. These tools have no bulk form.</p>
     <h2>Monitor it</h2>

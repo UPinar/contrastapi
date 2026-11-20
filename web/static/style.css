@@ -54,7 +54,6 @@
   --code-str:      #1d6b3f;
   --code-num:      #985306;
   --code-bool:     #6d3fc0;
-  --grid-line:     rgba(20, 23, 27, 0.05);
   --shadow-card:   0 1px 3px rgba(20, 23, 27, 0.08);
   /* The tints mix a colour into the clear background, so they follow the theme. */
   --tint-primary:  color-mix(in srgb, var(--primary) 10%, transparent);
@@ -62,7 +61,6 @@
   --tint-primary-edge: color-mix(in srgb, var(--primary) 30%, transparent);
   --tint-green:    color-mix(in srgb, var(--green) 10%, transparent);
   --tint-green-edge: color-mix(in srgb, var(--green) 20%, transparent);
-  --glow:          color-mix(in srgb, var(--primary) 8%, transparent);
   --font-mono:  'Geist Mono', 'JetBrains Mono', 'Fira Code', 'SF Mono', monospace;
   --ease:       cubic-bezier(.2,.7,.3,1);
   --speed:      0.24s;
@@ -93,7 +91,6 @@
     --code-str:      #6ee7a8;
     --code-num:      #f2b544;
     --code-bool:     #c4a5ff;
-    --grid-line:     rgba(230, 238, 247, 0.03);
     --shadow-card:   0 1px 3px rgba(0, 0, 0, 0.4);
   }
 }
@@ -122,7 +119,6 @@
   --code-str:      #6ee7a8;
   --code-num:      #f2b544;
   --code-bool:     #c4a5ff;
-  --grid-line:     rgba(230, 238, 247, 0.03);
   --shadow-card:   0 1px 3px rgba(0, 0, 0, 0.4);
 }
 
@@ -130,15 +126,9 @@
 
 body {
   font-family: var(--font-mono);
-  /* The grid is part of the body background, not a fixed layer of its own. Firefox
-     can paint a fixed ::before layer over cards and text; a background always stays
-     under the content. */
+  /* The page has a plain background. A grid under a table or a code block reads as row
+     borders. */
   background-color: var(--bg);
-  background-image:
-    linear-gradient(var(--grid-line) 1px, transparent 1px),
-    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
-  background-size: 3rem 3rem;
-  background-attachment: fixed;
   color: var(--text);
   min-block-size: 100vh;
   overflow-x: hidden;
@@ -148,11 +138,11 @@ body {
 /* A body that holds a .page part is a flex column, so on a page shorter than the window
    the .page part takes the spare height and the footer stays at the bottom. In a flex
    column a child with auto side margins shrinks to its content, so every child in the flow
-   takes the full width again. Its max-inline-size still caps it. .glow is fixed and keeps
-   its own width. The home page and /bot have no .page part: a flex column would add up the
-   margins between their sections, which normal flow lets overlap. */
+   takes the full width again. Its max-inline-size still caps it. The home page and /bot
+   have no .page part: a flex column would add up the margins between their sections,
+   which normal flow lets overlap. */
 body:has(> .page) { display: flex; flex-direction: column; }
-body:has(> .page) > *:not(.glow) { inline-size: 100%; }
+body:has(> .page) > * { inline-size: 100%; }
 body > .page { flex-grow: 1; }
 
 /* Nav. The markup order is logo, theme button, hamburger, links. On a narrow screen
@@ -167,11 +157,14 @@ nav {
   flex-wrap: wrap;
   align-items: center;
   column-gap: 0.5rem;
+  /* row-gap puts room between the top row and the open menu, which wraps to a row of its
+     own. A closed menu makes no second row, so the gap then adds nothing. */
+  row-gap: 1rem;
   max-inline-size: 68.75rem;
   margin-inline: auto;
   padding-block: 1rem;
   padding-inline: 1.25rem;
-  /* Transparent, so the background grid runs on behind the nav and the open menu. */
+  /* Transparent, so the page background shows behind the nav and the open menu. */
   background-color: transparent;
 }
 
@@ -227,25 +220,6 @@ nav {
   font: 600 1rem / 1 system-ui, "Segoe UI", Roboto, Ubuntu, sans-serif;
 }
 
-/* Hero CTA */
-.btn-cta {
-  display: inline-block;
-  margin-block-start: 0.75rem;
-  padding: 0.85rem 1.75rem;
-  border-radius: 0.5rem;
-  background: var(--primary);
-  color: var(--on-primary);
-  font-family: var(--font-mono);
-  font-size: 0.85rem;
-  font-weight: 600;
-  text-decoration: none;
-  transition: background 0.2s, transform 0.1s;
-  white-space: nowrap;
-}
-
-.btn-cta:hover { background: var(--primary-hover); }
-.btn-cta:active { transform: scale(0.98); }
-
 .nav-links {
   display: none;
   flex-basis: 100%;
@@ -255,7 +229,6 @@ nav {
   padding-block-start: 1.5rem;
   padding-block-end: 0.5rem;
   border-block-start: 1px solid var(--border);
-  margin-block-start: 1rem;
 }
 
 .nav-links.open { display: flex; }
@@ -286,21 +259,21 @@ nav {
 /* Hamburger: its box is the shared rule above. */
 .hamburger { z-index: 20; }
 
-/* The three lines of the icon stay in the flow. ::before is the top line and ::after
-   the bottom one, at the two ends of a flex column. The middle line is a gradient strip
-   across the centre of the column. */
+/* The three lines of the icon stay in the flow. ::before is the top line, .hamburger__middle
+   the middle one and ::after the bottom one, spread over a flex column. All three are boxes
+   of the same height. A gradient strip can fall on two pixel rows on some screens and look
+   thinner. */
 .hamburger__lines {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
   width: 1.25rem;
   height: 0.875rem;
-  background: linear-gradient(var(--text-muted), var(--text-muted)) center / 100% 0.125rem no-repeat;
-  transition: background-size 0.24s;
 }
 
 .hamburger__lines::before,
-.hamburger__lines::after {
+.hamburger__lines::after,
+.hamburger__middle {
   content: "";
   height: 0.125rem;
   background-color: var(--text-muted);
@@ -309,8 +282,8 @@ nav {
   transform-origin: 50% 50%;
 }
 
-.hamburger[aria-expanded="true"] .hamburger__lines {
-  background-size: 0 0.125rem;
+.hamburger[aria-expanded="true"] .hamburger__middle {
+  transform: scaleX(0);
 }
 
 .hamburger[aria-expanded="true"] .hamburger__lines::before {
@@ -322,17 +295,6 @@ nav {
 }
 
 /* Hero */
-.glow {
-  position: fixed;
-  top: -12.5rem;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 43.75rem;
-  height: 31.25rem;
-  background: radial-gradient(ellipse, var(--glow) 0%, transparent 70%);
-  pointer-events: none;
-  z-index: 0;
-}
 
 .hero {
   position: relative;
@@ -374,19 +336,12 @@ h1 .gradient { color: var(--primary); }
   margin: 0 auto 2.5rem;
 }
 
-.api-counter {
-  font-size: 0.85rem;
-  color: var(--text-muted);
-  margin: -1.5rem 0 0.5rem;
-  opacity: 0.7;
-}
-
 /* Endpoints */
 .endpoints {
   position: relative;
   z-index: 10;
   max-width: 52rem;
-  margin: 0 auto;
+  margin-inline: auto;
   padding: 0 2rem;
 }
 
@@ -397,10 +352,11 @@ h1 .gradient { color: var(--primary); }
   letter-spacing: 0.06em;
   color: var(--text);
   margin-block-end: 1rem;
-  margin-block-start: 2.5rem;
 }
 
-.section-title:first-child { margin-block-start: 0; }
+/* The block before a section title keeps the room above the title. A title that opens its
+   section gets no room from it. */
+.endpoints :has(+ .section-title) { margin-block-end: 2.5rem; }
 
 .endpoint-group {
   display: flex;
@@ -480,15 +436,14 @@ h1 .gradient { color: var(--primary); }
   font-weight: normal;
 }
 
-/* Paragraph links inside .page (quickstart, mcp-setup) match the setup-card link color.
-   :not(.btn-cta) preserves CTA button styling. */
-.page p a:not(.btn-cta) {
+/* Paragraph links inside .page (quickstart, mcp-setup) match the setup-card link color. */
+.page p a {
   color: var(--primary);
   text-decoration: none;
   font-weight: 500;
 }
-.page p a:not(.btn-cta):hover { text-decoration: underline; }
-.page p a:not(.btn-cta):visited { color: var(--primary); }
+.page p a:hover { text-decoration: underline; }
+.page p a:visited { color: var(--primary); }
 
 /* v1.23.0 docs strip on /quickstart + /mcp-setup. The :visited override is needed
    because the UA visited stylesheet would otherwise paint the link purple. */
@@ -498,15 +453,6 @@ h1 .gradient { color: var(--primary); }
   font-weight: 500;
 }
 .docs-strip a:hover { text-decoration: underline; }
-
-/* Code examples */
-.example-section {
-  position: relative;
-  z-index: 10;
-  max-width: 52rem;
-  margin: 3rem auto 0;
-  padding: 0 2rem;
-}
 
 pre {
   background: var(--bg-code);
@@ -526,20 +472,24 @@ pre {
 .num  { color: var(--code-num); }
 .bool { color: var(--code-bool); }
 
+/* An inline code never breaks inside, so a path does not split after its slash. A code too
+   long for a 360px line takes .code-long and may break anywhere. */
 code {
   background: var(--bg-code-inline);
   padding: 0.15rem 0.4rem;
   border-radius: 0.25rem;
   font-size: 0.75rem;
   font-family: inherit;
+  white-space: nowrap;
 }
+code.code-long { white-space: normal; overflow-wrap: anywhere; }
 
 /* Auth section */
 .auth-section {
   position: relative;
   z-index: 10;
   max-width: 52rem;
-  margin: 3rem auto 0;
+  margin-inline: auto;
   padding: 0 2rem;
 }
 
@@ -587,28 +537,11 @@ code {
   border-color: var(--tint-primary-edge);
 }
 
-.btn-pro {
-  display: inline-block;
-  margin-block-start: 1rem;
-  padding: 0.6rem 1.25rem;
-  border-radius: 0.375rem;
-  background: var(--primary);
-  color: var(--on-primary);
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  font-weight: 600;
-  text-decoration: none;
-  transition: background 0.2s, transform 0.1s;
-}
-
-.btn-pro:hover { background: var(--primary-hover); }
-.btn-pro:active { transform: scale(0.98); }
-
 /* FAQ */
-.faq { max-inline-size: 45rem; margin-inline: auto; margin-block: 3rem; }
+.faq { max-inline-size: 45rem; margin-inline: auto; margin-block-end: 3rem; }
 .faq h2 { color: var(--text); font-size: 1.1rem; margin-block-end: 1rem; }
-.faq dt { color: var(--text-muted); font-size: 0.9rem; font-weight: 600; margin-block-start: 1rem; }
-.faq dd { color: var(--text-muted); font-size: 0.85rem; margin-block-start: 0.3rem; }
+.faq dt { color: var(--text-muted); font-size: 0.9rem; font-weight: 600; margin-block-end: 0.3rem; }
+.faq dd { color: var(--text-muted); font-size: 0.85rem; margin-block-end: 1rem; }
 
 /* Footer: the same layout as the Go site. Link groups stand side by side under their
    labels. Below a line, the legal links and the copyright sit at the two edges. */
@@ -623,8 +556,10 @@ footer {
   border-block-start: 1px solid var(--border-dim);
   max-inline-size: 68.75rem;
   margin-inline: auto;
-  margin-block-start: 2rem;
 }
+
+/* The block before the footer keeps the room above it. */
+:has(+ footer) { margin-block-end: 2rem; }
 
 footer a, footer a:visited { color: var(--text-dim); text-decoration: none; transition: color 0.2s; }
 footer a:hover { color: var(--text-muted); }
@@ -634,13 +569,13 @@ footer a:hover { color: var(--text-muted); }
 
 /* .footer-groups sets the link groups side by side. Each .footer-group is a column under
    its .footer-label heading. */
-.footer-groups { display: flex; flex-wrap: wrap; gap: 1.5rem 5rem; }
+.footer-groups { display: flex; flex-wrap: wrap; gap: 1.5rem 5rem; margin-block-end: 1.25rem; }
 .footer-group { display: flex; flex-direction: column; align-items: flex-start; }
 .footer-group a, .footer-group a:visited { color: var(--text-muted); padding-block: 0.25rem; }
 .footer-group a:hover { color: var(--text); }
 .footer-label { color: var(--text); font-size: 0.75rem; font-weight: 700; letter-spacing: 0.08em; margin-block-end: 0.5rem; text-transform: uppercase; }
 
-.footer-divider { margin-block: 1.25rem; border: 0; border-block-start: 1px solid var(--border-dim); }
+.footer-divider { margin-block-end: 1.25rem; border: 0; border-block-start: 1px solid var(--border-dim); }
 
 /* .footer-site holds the site links: terms, privacy, the bot page and contact. */
 .footer-site { font-size: 0.75rem; }
@@ -698,7 +633,7 @@ footer p { color: var(--text-dim); margin: 0; }
   h1 { font-size: 1.75rem; }
   .subtitle { font-size: 0.85rem; }
   .hero { padding: 3rem 1.25rem 1.5rem; }
-  .endpoints, .example-section, .auth-section { padding: 0 1.25rem; }
+  .endpoints, .auth-section { padding: 0 1.25rem; }
   .endpoint-desc { display: none; }
   .auth-tiers { grid-template-columns: 1fr; }
   footer { padding: 1.5rem 1.25rem; }
@@ -719,7 +654,7 @@ footer p { color: var(--text-dim); margin: 0; }
 }
 
 /* ============================================ */
-/* Landing v10: Hero CTAs, Trust Strip, Setup, Use Cases */
+/* Landing page: nav star, copy boxes, setup */
 /* ============================================ */
 
 /* Nav GitHub star: high specificity wins without !important */
@@ -743,69 +678,7 @@ footer p { color: var(--text-dim); margin: 0; }
   color: var(--text);
 }
 
-/* Hero CTA group (2 buttons side by side) */
-.cta-group {
-  display: flex;
-  gap: 0.75rem;
-  justify-content: center;
-  flex-wrap: wrap;
-  margin-top: 1rem;
-}
-
-.btn-cta-secondary {
-  display: inline-block;
-  padding: 0.85rem 1.75rem;
-  border-radius: 0.5rem;
-  background: transparent;
-  color: var(--text);
-  border: 1px solid var(--border);
-  font-family: var(--font-mono);
-  font-size: 0.85rem;
-  font-weight: 600;
-  text-decoration: none;
-  transition: background 0.2s, border-color 0.2s, transform 0.1s;
-  white-space: nowrap;
-}
-.btn-cta-secondary:hover {
-  background: var(--bg-hover);
-  border-color: var(--primary);
-}
-.btn-cta-secondary:active { transform: scale(0.98); }
-
-.cta-group .btn-cta {
-  margin-block-start: 0;
-}
-
-.cta-microcopy {
-  margin: 0.9rem auto 0;
-  font-size: 0.75rem;
-  color: var(--text-muted);
-  max-width: 32rem;
-}
-
-/* Hero curl one-liner */
-.hero-curl-wrap {
-  position: relative;
-  margin: 1.5rem auto 0;
-  max-width: 38rem;
-}
-.hero-curl {
-  margin: 0;
-  background: var(--bg-code);
-  border: 1px solid var(--border);
-  border-radius: 0.5rem;
-  padding: 0.85rem 2.6rem 0.85rem 1.1rem;
-  font-family: var(--font-mono);
-  font-size: 0.78rem;
-  color: var(--text);
-  text-align: start;
-  overflow-x: auto;
-  white-space: pre;
-}
-.hero-curl .prompt { color: var(--text-muted); user-select: none; }
-.hero-curl code { font: inherit; color: inherit; background: none; padding: 0; }
-
-/* A copy-wrap is one box: the command scrolls in its pre, and the copy button sits next
+/* A copy-wrap is one box: the text wraps in its pre, and the copy button sits next
    to it at the right end of the row. */
 .copy-wrap {
   display: flex;
@@ -818,8 +691,10 @@ footer p { color: var(--text-dim); margin: 0; }
   padding-inline-end: 0.45rem;
 }
 div.copy-wrap > pre { flex: 1; min-width: 0; margin: 0; background: none; border: 0; }
-.copy-wrap .copy-btn,
-.hero-curl-wrap .copy-btn {
+/* copy-wrap-top holds a block of many lines, so the button stands at its first line. */
+.copy-wrap-top { align-items: flex-start; }
+.copy-wrap-top .copy-btn { margin-block-start: 0.45rem; }
+.copy-wrap .copy-btn{
   flex-shrink: 0;
   width: 1.75rem;
   height: 1.75rem;
@@ -833,48 +708,12 @@ div.copy-wrap > pre { flex: 1; min-width: 0; margin: 0; background: none; border
   cursor: pointer;
   transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
 }
-.copy-wrap .copy-btn:hover,
-.hero-curl-wrap .copy-btn:hover { background: var(--bg-hover); color: var(--text); border-color: var(--border); }
-.copy-wrap .copy-btn:focus-visible,
-.hero-curl-wrap .copy-btn:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
-.copy-wrap .copy-btn .icon-check,
-.hero-curl-wrap .copy-btn .icon-check { display: none; color: var(--green); }
-.copy-wrap .copy-btn.copied .icon-copy,
-.hero-curl-wrap .copy-btn.copied .icon-copy { display: none; }
-.copy-wrap .copy-btn.copied .icon-check,
-.hero-curl-wrap .copy-btn.copied .icon-check { display: inline; }
-.copy-wrap .copy-btn.copied,
-.hero-curl-wrap .copy-btn.copied { color: var(--green); }
-
-/* Trust Strip (post-hero social proof) */
-.trust-strip {
-  position: relative;
-  z-index: 10;
-  max-width: 52rem;
-  margin: 2rem auto 3rem;
-  padding: 0 2rem;
-}
-.trust-strip-inner {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 0.6rem 1.5rem;
-  padding: 0.9rem 1.25rem;
-  background: var(--bg-card);
-  border: 1px solid var(--border-dim);
-  border-radius: 0.5rem;
-  font-size: 0.78rem;
-  color: var(--text);
-}
-.trust-strip-inner span { white-space: nowrap; }
-.trust-strip-inner strong { color: var(--primary); font-weight: 700; }
-.trust-strip-inner a {
-  color: var(--text);
-  text-decoration: underline;
-  text-decoration-color: var(--border);
-  text-underline-offset: 3px;
-}
-.trust-strip-inner a:hover { text-decoration-color: var(--primary); }
+.copy-wrap .copy-btn:hover{ background: var(--bg-hover); color: var(--text); border-color: var(--border); }
+.copy-wrap .copy-btn:focus-visible{ outline: 2px solid var(--focus); outline-offset: 2px; }
+.copy-wrap .copy-btn .icon-check{ display: none; color: var(--green); }
+.copy-wrap .copy-btn.copied .icon-copy{ display: none; }
+.copy-wrap .copy-btn.copied .icon-check{ display: inline; }
+.copy-wrap .copy-btn.copied{ color: var(--green); }
 
 /* 30-Second Setup cards */
 .setup-section { margin-bottom: 3rem; }
@@ -910,9 +749,13 @@ div.copy-wrap > pre { flex: 1; min-width: 0; margin: 0; background: none; border
   font-family: var(--font-mono);
   font-size: 0.75rem;
   color: var(--text);
-  overflow-x: auto;
   margin: 0 0 0.6rem;
-  white-space: pre;
+  /* A long line wraps inside the box. A box that scrolls sideways shows no sign of it on a
+     phone, so its line looks cut off. pre-wrap keeps the JSON indentation.
+     overflow-wrap: anywhere breaks a URL, which has no space to break at. The copy button
+     still copies the text as written. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
   line-height: 1.55;
   max-width: 100%;
   min-width: 0;
@@ -984,82 +827,34 @@ div.copy-wrap > pre { flex: 1; min-width: 0; margin: 0; background: none; border
 }
 .btn-github:hover { background: color-mix(in srgb, var(--text) 85%, var(--bg)); }
 
-/* Use Cases cards */
-.use-cases-section { margin-top: 3rem; margin-bottom: 3rem; }
-.use-cases-section .section-title { margin-bottom: 1.25rem; }
-.use-cases {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1rem;
-}
-.use-case {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 0.5rem;
-  padding: 1.1rem 1.25rem;
-  box-shadow: var(--shadow-card);
-  min-width: 0;
-  overflow: hidden;
-}
-.use-case h3 {
-  font-size: 0.9rem;
-  font-weight: 700;
-  color: var(--text);
-  margin: 0 0 0.6rem;
-  letter-spacing: -0.01em;
-}
-.use-case p {
-  font-size: 0.8rem;
-  color: var(--text-muted);
-  line-height: 1.65;
-  margin: 0;
-}
-.use-case code {
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  color: var(--primary);
-  background: var(--tint-primary);
-  padding: 0.1rem 0.35rem;
-  border-radius: 0.25rem;
-}
-.use-case em {
-  color: var(--text);
-  font-style: italic;
-}
-
 /* Mobile responsive */
 @media (max-width: 767px) {
-  .setup-cards, .use-cases { grid-template-columns: 1fr; }
-  .hero-curl { font-size: 0.75rem; padding: 0.75rem 0.9rem; }
-  .cta-group { flex-direction: column; align-items: stretch; }
-  .cta-group .btn-cta, .cta-group .btn-cta-secondary { text-align: center; }
-  .trust-strip { margin: 1.5rem auto 2rem; }
-  .trust-strip-inner { gap: 0.5rem 1rem; font-size: 0.75rem; padding: 0.75rem 1rem; }
+  .setup-cards{ grid-template-columns: 1fr; }
 }
 
 /* CSP Phase 2: utility classes replacing inline style attrs */
-.endpoints-mt { margin-top: 3rem; }
-.endpoints-lede { color: var(--text-muted); font-size: 0.9rem; margin: 0.5rem 0 1rem 0.5rem; }
+.endpoints-lede { color: var(--text-muted); font-size: 0.9rem; margin: 0 0 1rem 0.5rem; }
 .endpoints-lede a { color: var(--primary); text-decoration: none; }
 .endpoints-lede a:visited { color: var(--primary); }
 .endpoints-lede a:hover { text-decoration: underline; }
 .code-accent { color: var(--primary); }
-.freshness-note { color: var(--text-muted); margin: 0.5rem 0; font-size: 0.8rem; }
-.freshness-list { color: var(--text-muted); margin: 0.75rem 0 0; padding-inline-start: 1.5rem; font-size: 0.85rem; line-height: 1.6; list-style-position: outside; }
-.freshness-list li { margin-block-end: 0.4rem; padding-inline-start: 0.25rem; }
+/* A freshness list keeps its bullets on a small indent, so a 360px screen keeps most of the
+   line for the text. */
+.freshness-list { color: var(--text-muted); margin: 0; padding-inline-start: 1rem; font-size: 0.85rem; line-height: 1.6; list-style-position: outside; }
+.freshness-list li { margin-block-end: 0.4rem; }
 .freshness-list strong { color: var(--text); font-weight: 600; }
 .freshness-list a, .freshness-list a:visited { color: var(--primary); text-decoration: none; }
 .freshness-list a:hover { text-decoration: underline; }
 .pg-input-grow { flex: 1; }
 .pg-input-narrow { max-width: 5rem; }
 
-/* Home page: every section starts 3rem below the content of the one above it. */
+/* Home page: every section ends 3rem above the content of the next one. The last section
+   keeps the same room above the footer. A section title inside a section also gets 3rem
+   above it. */
 body.home .hero { padding-bottom: 0; }
 body.home .hero .subtitle { margin-bottom: 0; }
-body.home > section:not(.hero) { margin-top: 3rem; margin-bottom: 0; }
-body.home > section > .section-title:first-child { margin-block-start: 0; }
-body.home .section-title { margin-block-start: 3rem; }
-body.home footer { margin-top: 3rem; }
+body.home > section { margin-block-end: 3rem; }
+body.home :has(+ .section-title) { margin-block-end: 3rem; }
 
 /* A User-Agent on /bot stands on a line of its own and is not broken, so a reader can
    match it against a log line. A narrow screen gets a smaller font. If the line is still
@@ -1067,3 +862,4 @@ body.home footer { margin-top: 3rem; }
 code.ua { display: block; width: fit-content; max-width: 100%; overflow-x: auto; white-space: nowrap; margin: 0.5rem 0 0; }
 .hero code.ua { margin: 0.5rem auto 0; }
 @media (max-width: 480px) { code.ua { font-size: 0.75rem; } }
+}

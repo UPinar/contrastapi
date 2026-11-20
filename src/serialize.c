@@ -34,6 +34,8 @@ static const char* const CVELOOKUP_SSVC_LEVEL_KEYS[SSVC_MISSION_WELLBEING_LEVEL_
 
 #define CVE_PRODUCT_FILTER_NOTE "This filter matches names exactly. It can miss a CVE whose CNA spelled the vendor or product another way. Use cpe_search to find other spellings."
 
+#define EPSSRISERS_WINDOW_NOTE "EPSS history holds no day that can start this window yet"
+
 static const char* const IMAGEINSPECT_IDENTIFIER_NAMES[EXIFCLIENT_IDENTIFIER_COUNT] = {
   "serial_number", "owner_name", "unique_id", "host_computer", "author", "copyright", "person_in_image", "original_file_name"
 };
@@ -940,6 +942,50 @@ void serialize_CVETRIAGE_response(const CVETRIAGEResult_t* results, const CVETRI
   }
 
   jsonbuf_appendFormat(json_buf, "]}\n");
+}
+
+static void static_EPSSRISERSWriteItem(const EPSSRISERSItem_t* item, JsonBuf_t* json_buf)
+{
+  jsonbuf_appendFormat(json_buf, R"({"cve_id":")");
+  jsonbuf_appendEscaped(json_buf, item->ma_cveId);
+  jsonbuf_appendFormat(json_buf, R"(",)");
+  jsonbuf_appendFormat(json_buf, R"("epss_score":%.5f,)", static_clampDouble(item->m_epssCurrentScore, 0.0, 1.0));
+  jsonbuf_appendFormat(json_buf, R"("epss_previous_score":%.5f,)", static_clampDouble(item->m_epssPreviousScore, 0.0, 1.0));
+  jsonbuf_appendFormat(json_buf, R"("epss_delta":%.5f,)", static_clampDouble(item->m_epssDelta, 0.0, 1.0));
+  jsonbuf_appendFormat(json_buf, R"("epss_percentile":%.5f,)", static_clampDouble(item->m_epssPercentile, 0.0, 1.0));
+  jsonbuf_appendFormat(json_buf, R"("in_kev":%s})", item->m_inKev ? "true" : "false");
+}
+
+void serialize_EPSSRISERS_response(const EPSSRISERSResult_t* results, const EPSSRISERSParams_t* params, JsonBuf_t* json_buf)
+{
+  assert(results  != NULL);
+  assert(params   != NULL);
+  assert(json_buf != NULL);
+
+  long next_offset = (long)params->m_offset + results->m_count;
+  jsonbuf_appendFormat(json_buf, R"({"window_days":%d,)", params->m_windowDays);
+  static_writeTextOrNull("from_date", results->ma_fromDate, json_buf);
+  jsonbuf_appendFormat(json_buf, ",");
+  static_writeTextOrNull("to_date", results->ma_toDate, json_buf);
+  jsonbuf_appendFormat(json_buf, ",");
+  if (results->ma_fromDate[0] == '\0')
+    jsonbuf_appendFormat(json_buf, R"("window_note":")" EPSSRISERS_WINDOW_NOTE R"(",)");
+  jsonbuf_appendFormat(json_buf,
+    R"("total":%d,"limit":%d,"offset":%d,"next_offset":%d,)",
+    results->m_total, params->m_limit, params->m_offset,
+    next_offset > INT_MAX ? INT_MAX : (int)next_offset);
+  static_writeProductFilterNote(params->ma_vendor, params->ma_product, json_buf);
+  jsonbuf_appendFormat(json_buf, R"("results":[)");
+
+  for (int i = 0; i < results->m_count; i++)
+  {
+    if (i > 0)
+      jsonbuf_appendFormat(json_buf, ",");
+
+    static_EPSSRISERSWriteItem(&results->mp_items[i], json_buf);
+  }
+
+  jsonbuf_appendFormat(json_buf, R"(]})" "\n");
 }
 
 void serialize_CVETRIAGEBULK_response(const CVETRIAGEBULKResult_t* results, JsonBuf_t* json_buf)

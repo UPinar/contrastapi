@@ -120,6 +120,11 @@
       </div>
       <div class="endpoint">
         <span class="method get">GET</span>
+        <span class="endpoint-path">/epss_risers</span>
+        <span class="endpoint-desc">MCP <code>epss_risers</code>. The CVEs whose EPSS score rose most over the last 7 or 30 days. <a href="https://github.com/UPinar/contrastapi/blob/main/docs/API_Documentation.md#epss-risers-get-epss_risers">API docs</a></span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
         <span class="endpoint-path">/kev_lookup/{cve_id}</span>
         <span class="endpoint-desc">MCP <code>kev_lookup</code>. The CISA KEV entry of a CVE: due date, required action, ransomware use. <a href="https://github.com/UPinar/contrastapi/blob/main/docs/API_Documentation.md#kev-lookup-get-kev_lookupcve_id">API docs</a></span>
       </div>
@@ -149,31 +154,40 @@
         <span class="endpoint-desc">MCP <code>cvss_calculator</code>. Decode a CVSS v3 vector and recompute its scores. <a href="https://github.com/UPinar/contrastapi/blob/main/docs/API_Documentation.md#cvss-calculator-get-cvss_calculator">API docs</a></span>
       </div>
     </div>
-    <h2>Example</h2>
-    <p>Look up one CVE:</p>
-    <div class="code-block"><span class="lang">bash</span><code>curl https://api.contrastcyber.com/cve_lookup/CVE-2021-44228</code></div>
-    <p>Example response, trimmed; the values are an example:</p>
-    <div class="code-block"><span class="lang">json</span><code>{
-  "cve_id": "CVE-2021-44228",
-  "severity": "CRITICAL",
-  "cvss_v3": 10.0,
-  "published_time": "2021-12-10T00:00:00Z",
-  "epss_score": 0.97566,
-  "epss_percentile": 0.99970,
-  "cwe_id": "CWE-20",
-  "in_kev": true,
-  "kev_date_added": "2021-12-10",
-  "poc_count": 11,
-  "has_metasploit_module": true,
-  "ransomware_campaign": "Known"
-}</code></div>
     <h2>From an agent</h2>
-    <p>Your agent calls these MCP tools: <code>cve_lookup</code>, <code>cve_lookup_bulk</code>, <code>cve_products</code>, <code>cve_search</code>, <code>cve_leading</code>, <code>cve_triage</code>, <code>cve_triage_bulk</code>, <code>cve_risk_score</code>, <code>kev_lookup</code>, <code>cve_exploit</code>, <code>cwe_lookup</code>, <code>product_exposure</code>, <code>cpe_search</code> and <code>cvss_calculator</code>. Connect once with the <a href="/mcp-setup">MCP setup</a>, then ask in plain words.</p>
-    <ul>
-      <li>&ldquo;Is CVE-2024-3094 in KEV, and how likely is exploitation?&rdquo;</li>
-      <li>&ldquo;Which Apache CVEs are in KEV and should I patch first?&rdquo;</li>
-      <li>&ldquo;Is there a public exploit for CVE-2021-44228?&rdquo;</li>
-    </ul>
+    <p>Connect once with the <a href="/mcp-setup">MCP setup</a>, then ask in plain words. Each MCP tool below is shown with a question it answers.</p>
+    <dl class="agent-tools">
+      <dt><code>cve_lookup</code></dt>
+      <dd>&ldquo;Is CVE-2024-3094 in KEV, and how likely is exploitation?&rdquo;</dd>
+      <dt><code>cve_lookup_bulk</code></dt>
+      <dd>&ldquo;Look up these 20 CVEs from my scanner report.&rdquo;</dd>
+      <dt><code>cve_products</code></dt>
+      <dd>&ldquo;Which Apache products and versions does CVE-2021-44228 affect?&rdquo;</dd>
+      <dt><code>cve_search</code></dt>
+      <dd>&ldquo;List the critical Microsoft CVEs in KEV with known ransomware use, published since January 2025.&rdquo;</dd>
+      <dt><code>cve_leading</code></dt>
+      <dd>&ldquo;Which Fortinet CVEs in KEV are most likely to be exploited right now?&rdquo;</dd>
+      <dt><code>epss_risers</code></dt>
+      <dd>&ldquo;Which Microsoft CVEs became much more likely to be exploited this week? And this month?&rdquo;</dd>
+      <dt><code>cve_triage</code></dt>
+      <dd>&ldquo;Which Apache CVEs with a risk score of 70 or more should I patch first?&rdquo;</dd>
+      <dt><code>cve_triage_bulk</code></dt>
+      <dd>&ldquo;Rank the CVEs from my scan by risk.&rdquo;</dd>
+      <dt><code>cve_risk_score</code></dt>
+      <dd>&ldquo;How risky is CVE-2023-4966, on a 0 to 100 score?&rdquo;</dd>
+      <dt><code>kev_lookup</code></dt>
+      <dd>&ldquo;When did CVE-2021-44228 enter KEV, and what is its patch deadline?&rdquo;</dd>
+      <dt><code>cve_exploit</code></dt>
+      <dd>&ldquo;Is there a public exploit for CVE-2021-44228?&rdquo;</dd>
+      <dt><code>cwe_lookup</code></dt>
+      <dd>&ldquo;What is CWE-79?&rdquo;</dd>
+      <dt><code>product_exposure</code></dt>
+      <dd>&ldquo;How exposed is OpenSSL 3.0.7, and which CVEs are most urgent?&rdquo;</dd>
+      <dt><code>cpe_search</code></dt>
+      <dd>&ldquo;What is the CPE name of Apache Struts?&rdquo;</dd>
+      <dt><code>cvss_calculator</code></dt>
+      <dd>&ldquo;Score this vector: CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H&rdquo;</dd>
+    </dl>
     <h2>Limits</h2>
     <p>Without a key you get @@RL_ANON_CREDIT_LIMIT@@ credits per hour. A Pro key gets @@RL_KEY_CREDIT_LIMIT@@ credits per hour. <code>cve_lookup_bulk</code> takes up to @@CVELOOKUPBULK_MAX_IDS@@ CVE IDs per request. <code>cve_triage_bulk</code> takes up to @@CVETRIAGEBULK_MAX_IDS@@.</p>
     <h2>Monitor it</h2>
@@ -189,11 +203,23 @@
         <tr><td><code>cve_exploit</code></td><td><code>exploit_published</code> <code>metasploit_added</code> <code>exploitdb_added</code> <code>github_poc_added</code></td></tr>
       </tbody>
     </table>
-    <p>The EPSS levels are 0.05, 0.1, 0.2, 0.3, 0.5, 0.7 and 0.9. An <code>epss_level_up</code> event comes when the EPSS score reaches a level above the one the CVE holds. An <code>epss_level_down</code> event comes when the score falls under 0.8 times a level the CVE holds. A <code>cve_search</code> item that sets min_epss also hears <code>epss_above_min</code>, when the score rises from under min_epss to min_epss or above, and <code>epss_below_min</code>, when it falls from min_epss or above to under it. min_epss takes at most three decimals there. A <code>cve_search</code> item must set at least one filter. A <code>product_exposure</code> item takes a vendor and a product, and may take one version. The version makes it a separate item from the same pair without one. It does not narrow the CVE events. It picks the release cycles of the three end-of-life events. See <a href="/pricing">pricing</a> for the Pro key. The <a href="/security-monitoring-api">security monitoring page</a> lists every watched endpoint and its events.</p>
+    <p>When the EPSS events come:</p>
+    <ul>
+      <li><code>epss_level_up</code>: the EPSS score reaches a level above the one the CVE holds. The levels are 0.05, 0.1, 0.2, 0.3, 0.5, 0.7 and 0.9.</li>
+      <li><code>epss_level_down</code>: the score falls under 0.8 times a level the CVE holds.</li>
+      <li><code>epss_above_min</code>: the score rises from under min_epss to min_epss or above. Only a <code>cve_search</code> item that sets min_epss hears it.</li>
+      <li><code>epss_below_min</code>: the score falls from min_epss or above to under it. The same <code>cve_search</code> items hear it.</li>
+    </ul>
+    <p>What an item takes:</p>
+    <ul>
+      <li>A <code>cve_search</code> item must set at least one filter. Its min_epss takes at most three decimals.</li>
+      <li>A <code>product_exposure</code> item takes a vendor and a product, and may take one version. The version makes it a separate item from the same pair without one. It does not narrow the CVE events. It picks the release cycles of the three end-of-life events.</li>
+    </ul>
+    <p>See <a href="/pricing">pricing</a> for the Pro key. The <a href="/security-monitoring-api">security monitoring page</a> lists every watched endpoint and its events.</p>
     <h2>Data sources</h2>
     <ul>
       <li><strong>NVD, FIRST EPSS, CISA KEV, MITRE CWE:</strong> a local copy. <code>/health</code> shows the sync state of each feed.</li>
-      <li><strong>CVE List (cvelistV5):</strong> CVE Program Terms of Use. It adds the product names that CNAs give. Local copy.</li>
+      <li><strong>CVE List (cvelistV5 and the CVE Services API):</strong> CVE Program Terms of Use. It gives the CNA's fields of each CVE record and the product names CNAs give. Local copy.</li>
       <li><strong>PoC-in-GitHub:</strong> CC0 1.0. Local copy. A GitHub repository is listed but not counted as proof of an exploit.</li>
       <li><strong>Exploit Database:</strong> GPL-2.0-only, metadata only. Local copy.</li>
       <li><strong>Metasploit module list:</strong> BSD-3-Clause, metadata only. Local copy.</li>

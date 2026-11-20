@@ -30,7 +30,7 @@ shapes, see [API_Documentation.md](API_Documentation.md).
 | **Tiers** | Anonymous (keyless) **30** credits/hr · Authenticated **500** credits/hr · free (0-credit) calls don't count |
 | **State** | Stateless — `initialize` is optional, never a precondition for `tools/call` |
 | **Request size** | A body may be up to 69632 bytes. That holds the largest `arguments` object a tool takes and the call around it. The largest is the one of `package_check_bulk`, 65535 bytes. A longer body is refused with HTTP 413 before it is parsed |
-| **Tools** | `cve_lookup`, `cve_lookup_bulk`, `cve_products`, `cve_search`, `cve_triage`, `cve_triage_bulk`, `cve_leading`, `kev_lookup`, `cwe_lookup`, `cve_risk_score`, `cve_exploit`, `product_exposure`, `cpe_search`, `cvss_calculator`, `watchlist_edit`, `watchlist_events`, `password_check`, `dns_lookup`, `dns_takeover_check`, `email_auth_check`, `email_address_check`, `ssl_check`, `headers_check`, `whois_lookup`, `wayback_lookup`, `cert_search`, `subdomain_enum`, `ip_lookup`, `asn_lookup`, `d3fend_for_attack`, `driver_lookup`, `driver_lookup_bulk`, `package_check`, `package_check_bulk`, `health`, `privacy_my_data`, `vendor_key_edit` |
+| **Tools** | `cve_lookup`, `cve_lookup_bulk`, `cve_products`, `cve_search`, `cve_triage`, `cve_triage_bulk`, `cve_leading`, `epss_risers`, `kev_lookup`, `cwe_lookup`, `cve_risk_score`, `cve_exploit`, `product_exposure`, `cpe_search`, `cvss_calculator`, `watchlist_edit`, `watchlist_events`, `password_check`, `dns_lookup`, `dns_takeover_check`, `email_auth_check`, `email_address_check`, `ssl_check`, `headers_check`, `whois_lookup`, `wayback_lookup`, `cert_search`, `subdomain_enum`, `ip_lookup`, `asn_lookup`, `d3fend_for_attack`, `driver_lookup`, `driver_lookup_bulk`, `package_check`, `package_check_bulk`, `health`, `privacy_my_data`, `vendor_key_edit` |
 
 ---
 
@@ -153,7 +153,7 @@ The modern era has no handshake. Discovery is a plain request, and it costs no c
     "cacheScope":"public", "ttlMs":3600000,
     "supportedVersions":["2026-07-28"],
     "capabilities":{ "tools":{} },
-    "serverInfo":{ "name":"contrastapi", "title":"ContrastAPI", "version":"2.0.13" },
+    "serverInfo":{ "name":"contrastapi", "title":"ContrastAPI", "version":"2.1.1" },
     "instructions":"ContrastAPI is a security data and monitoring server, with watchlists of CVEs, packages, domains and IP addresses. Call cve_lookup for a CVE, package_check for a package, dns_lookup for a domain and ip_lookup for an IP address. Call watchlist_edit and watchlist_events for monitoring, which needs an API key. A Pro API key is sold at https://api.contrastcyber.com/pricing. It looks up, searches and scores CVE, KEV and CWE records. It gives public exploit intelligence. It decodes and scores a CVSS v3 vector. It checks a password's SHA-1 against Have I Been Pwned. It reads a domain's DNS records and checks a host name for a dangling CNAME. It checks a domain's SPF, DMARC, DKIM and MTA-STS records. It checks whether an e-mail address's domain takes mail and whether the address is disposable. It checks the TLS certificate and settings of a host name and rates the security headers of a web site. It looks up the registration of a domain name over RDAP or WHOIS. It lists the Wayback Machine captures of a host name. It lists the unexpired certificates that Certificate Transparency logs hold for a host name. It lists the subdomains of a registrable domain from Certificate Transparency and DNS. It names the MITRE D3FEND defenses that counter a MITRE ATT&CK technique. It finds a driver file hash in the LOLDrivers catalog. It looks up the AS, the country, the cloud range, the Tor exit and the DROP listing of a public IP address. It looks up an AS by its number or by an address it holds. It checks a package or a list of packages of nine ecosystems against OSV.dev advisories and malicious packages. It gives the end-of-life dates of a product or a package from endoflife.date. The watchlist keeps CVE, package, domain and IP items for an API key, and watchlist_events reads their change events. A Pro API key can save its own Shodan and AbuseIPDB keys with vendor_key_edit, and ip_lookup then adds their answers. It says what it keeps about the caller. A call with no API key and no credits left can pay per call with x402 in USDC on Solana."
   } }
 ```
@@ -265,7 +265,7 @@ still served, but its reply carries `"id":null`.
   "result":{
     "protocolVersion":"2025-11-25",
     "capabilities":{ "tools":{} },
-    "serverInfo":{ "name":"contrastapi", "title":"ContrastAPI", "version":"2.0.13" },
+    "serverInfo":{ "name":"contrastapi", "title":"ContrastAPI", "version":"2.1.1" },
     "instructions":"ContrastAPI is a security data and monitoring server, with watchlists of CVEs, packages, domains and IP addresses. Call cve_lookup for a CVE, package_check for a package, dns_lookup for a domain and ip_lookup for an IP address. Call watchlist_edit and watchlist_events for monitoring, which needs an API key. A Pro API key is sold at https://api.contrastcyber.com/pricing. It looks up, searches and scores CVE, KEV and CWE records. It gives public exploit intelligence. It decodes and scores a CVSS v3 vector. It checks a password's SHA-1 against Have I Been Pwned. It reads a domain's DNS records and checks a host name for a dangling CNAME. It checks a domain's SPF, DMARC, DKIM and MTA-STS records. It checks whether an e-mail address's domain takes mail and whether the address is disposable. It checks the TLS certificate and settings of a host name and rates the security headers of a web site. It looks up the registration of a domain name over RDAP or WHOIS. It lists the Wayback Machine captures of a host name. It lists the unexpired certificates that Certificate Transparency logs hold for a host name. It lists the subdomains of a registrable domain from Certificate Transparency and DNS. It names the MITRE D3FEND defenses that counter a MITRE ATT&CK technique. It finds a driver file hash in the LOLDrivers catalog. It looks up the AS, the country, the cloud range, the Tor exit and the DROP listing of a public IP address. It looks up an AS by its number or by an address it holds. It checks a package or a list of packages of nine ecosystems against OSV.dev advisories and malicious packages. It gives the end-of-life dates of a product or a package from endoflife.date. The watchlist keeps CVE, package, domain and IP items for an API key, and watchlist_events reads their change events. A Pro API key can save its own Shodan and AbuseIPDB keys with vendor_key_edit, and ip_lookup then adds their answers. It says what it keeps about the caller. A call with no API key and no credits left can pay per call with x402 in USDC on Solana."
   } }
 ```
@@ -320,7 +320,7 @@ only `true`, such as `known_ransomware`, with `const`. Every schema sets `"addit
 a tool refuses an argument its schema does not list.
 
 The schema also carries the bounds. A number has `minimum` and `maximum`. An integer has `default`
-too. `offset` has `maximum` 10000 in `cve_search`, `cve_triage` and `cpe_search`, and none in the other tools. A string has `maxLength`. The server counts that length in bytes,
+too. `offset` has `maximum` 10000 in `cve_search`, `cve_triage`, `epss_risers` and `cpe_search`, and none in the other tools. A string has `maxLength`. The server counts that length in bytes,
 and JSON Schema counts characters. A bulk array has `minItems` and `maxItems`. The keys of an
 argument come in this order: `type`, `enum` or `items`, `const`, the bound keys and `description`.
 A format such as `YYYY-MM-DD` stays in `description`. The full rules are under
@@ -336,6 +336,7 @@ arguments and the REST endpoint each tool mirrors.
 | `cve_triage` | — | `min_risk_score`, `vendor`, `product`, `include_rejected`, `limit`, `offset` | `GET /cve_triage` |
 | `cve_triage_bulk` | `cve_ids` (array, **max 50**) | — | `POST /cve_triage_bulk` |
 | `cve_leading` | — | `vendor`, `product`, `min_epss`, `in_kev`, `known_ransomware`, `has_nuclei_template`, `include_rejected`, `limit` | `GET /cve_leading` |
+| `epss_risers` | none | `window_days`, `vendor`, `product`, `in_kev`, `min_epss`, `limit`, `offset` | `GET /epss_risers` |
 | `kev_lookup` | `cve_id` | — | `GET /kev_lookup/{cve_id}` |
 | `cwe_lookup` | `cwe_id` | — | `GET /cwe_lookup/{cwe_id}` |
 | `cve_risk_score` | `cve_id` | — | `GET /cve_risk_score/{cve_id}` |
@@ -380,13 +381,14 @@ The [Error model](#error-model) lists these tools.
 - **`min_cvss`**: number `0.0`–`10.0`, compared with a CVE's CVSS v3 score, or its v4 score when it has no v3 vector. **`min_epss`**: number `0.0`–`1.0`.
 - **`min_risk_score`** (`cve_triage`): number `0.0`–`100.0` — threshold on the *composite* risk score as shown, rounded to one decimal place (`70` ≈ HIGH+, `90` ≈ CRITICAL). `cve_triage` has **no `sort`** argument; results are always ordered by `risk_score` descending.
 - **`in_kev`**: JSON boolean (not a string). `false` selects CVEs that are *not* in the KEV catalogue.
+- **`window_days`** (`epss_risers`): integer, `7` or `30` (default `7`). The schema gives `minimum` 7 and `maximum` 30. Any other integer is the tool `isError` `"window_days must be 7 or 30"`, the text REST answers `400` with.
 - **`known_ransomware`**: JSON boolean, and only `true`. `false` is a tool error.
 - **`has_nuclei_template`** (`cve_search`, `cve_leading`, `watchlist_edit`): JSON boolean, and only `true`. It keeps the CVEs that have a Nuclei detection template. `false` is a tool error.
 - **`published_after`, `published_before`**: `YYYY-MM-DD`, and the day must exist — month lengths and leap years are enforced, and there is no year 0. `2026-02-31` and `2023-02-29` are tool errors; `2024-02-29` is not.
 - **`kev_added_after`** (`cve_search`): `YYYY-MM-DD`, with the same day rules as `published_after`. It keeps the CVEs that are in the KEV catalog now and whose KEV date is on or after the date. A bad date is a tool error with the text `"kev_added_after must be a valid calendar date in YYYY-MM-DD form"`. With `in_kev` `false` it is a tool error with the text `"kev_added_after lists only CVEs that are in KEV, so it cannot be used with in_kev=false"`.
 - **`sort`** (`cve_search`): `published_time` (default) | `epss` | `cvss` | `kev_date_added`. `published_time` puts the newest day first, and within one day the CVE published at the later time first, then the CVEs whose time is not known. `cvss` sorts by the same score `min_cvss` compares. `kev_date_added` puts the newest KEV entry first, and ties come in `cve_id` order. It needs `in_kev` `true` or `kev_added_after`. Without one of them it is a tool error with the text `"sort=kev_date_added orders only CVEs that are in KEV: add in_kev=true or kev_added_after"`.
-- **`limit`**: `cve_search` and `cve_triage` 1–100 (default 20); `cve_leading`, `cpe_search` and `cve_products` 1–50 (default 20); `asn_lookup` 1–50 (default 50) prefixes of each family.
-- **`offset`**: `cve_search`, `cve_triage` and `cpe_search` 0–10000 (default 0); `cve_products`, `package_check` and `asn_lookup` `>= 0` (default 0). A larger `offset` in the first three is the tool `isError`, with the text REST answers `400` with.
+- **`limit`**: `cve_search`, `cve_triage` and `epss_risers` 1–100 (default 20); `cve_leading`, `cpe_search` and `cve_products` 1–50 (default 20); `asn_lookup` 1–50 (default 50) prefixes of each family.
+- **`offset`**: `cve_search`, `cve_triage`, `epss_risers` and `cpe_search` 0–10000 (default 0); `cve_products`, `package_check` and `asn_lookup` `>= 0` (default 0). A larger `offset` in the first four is the tool `isError`, with the text REST answers `400` with.
 - **`search`** (`cpe_search`): 3 to 128 bytes, not only spaces. A `search` of 1 or 2 bytes, or one of spaces only, is
   the tool `isError` `"search must hold at least 3 bytes and not only spaces"`, the text REST answers `400`
   with. An empty `search` is `-32602 Invalid params: search is required`.
@@ -872,6 +874,47 @@ With `vendor` or `product` set, the answer holds `product_filter_note` after `su
 `cve_search`.
 `cve_leading` leaves out the CVEs that NVD marks Rejected, and its `total` counts the same rows. Set
 `include_rejected` to `true` to list them too.
+
+---
+
+### `epss_risers`: the CVEs whose EPSS score rose most
+
+All arguments optional. Mirrors [`GET /epss_risers`](API_Documentation.md#epss-risers-get-epss_risers).
+
+**Example prompts** (which CVEs are climbing now):
+- "Which CVEs became much more likely to be exploited this week?"
+- "Show the Microsoft CVEs whose EPSS score rose most over the last 30 days."
+
+> Use `epss_risers` when the user asks what is **changing**. Use `cve_leading` for the CVEs with
+> the highest EPSS score now, and `cve_triage` for a composite risk order.
+
+| Argument | Type | Notes |
+|---|---|---|
+| `window_days` | integer | `7` or `30` (default 7) |
+| `vendor`, `product` | string | exact match on a product row marked vulnerable by NVD or by the CNA (CPE form, lowercase) |
+| `in_kev` | boolean | `true` or `false` |
+| `min_epss` | number | 0.0–1.0; the lowest current score (`epss_score`) to list |
+| `limit` | integer | 1–100 (default 20) |
+| `offset` | integer | 0–10000 (default 0) |
+
+1 credit per call.
+The list holds only CVEs whose score rose. A CVE needs a score on both days of the window. Each row
+holds the old score, the new score and the rise. For the details of a CVE, call `cve_lookup`.
+`from_date` may lie up to 7 days before the asked day, when the EPSS history lacks that day.
+
+```bash
+curl -sX POST https://api.contrastcyber.com/mcp \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"epss_risers","arguments":{"window_days":7,"limit":2}}}'
+```
+```jsonc
+// decoded payload (trimmed), ordered by epss_delta desc:
+{ "window_days":7, "from_date":"2026-11-12", "to_date":"2026-11-19", "total":48, "limit":2, "offset":0, "next_offset":2,
+  "results":[ { "cve_id":"CVE-2025-55182", "epss_score":0.81870, "epss_previous_score":0.03042, "epss_delta":0.78828, "epss_percentile":0.99412, "in_kev":false }, … ] }
+```
+When the window cannot be computed, the answer is a tool result, not an error. It holds
+`"from_date":null`, a `window_note` after `to_date` and an empty `results` list.
+With `vendor` or `product` set, the answer holds `product_filter_note` before `results`, as in
+`cve_search`. A `next_offset` above 10000 is refused.
 
 ---
 
@@ -2152,7 +2195,7 @@ curl -sX POST https://api.contrastcyber.com/mcp -H "X-API-Key: $KEY" \
 ```
 ```jsonc
 // result.content[0].text (decoded):
-{ "status":"ok", "version":"2.0.13",
+{ "status":"ok", "version":"2.1.1",
   "db":{ "nvd":{ "cve_count":352507, "last_added":{ "cve_id":"CVE-2026-47782", "published_time":"2026-05-31" } },
          "kev":{ "entry_count":1592, "last_added":{ "cve_id":"CVE-2026-42897", "date_added":"2026-05-15" } },
          "cwe":{ "entry_count":944, "last_updated":{ "cwe_id":"CWE-1434", "updated_at":"2026-05-20T14:07:56Z" } },
@@ -2328,7 +2371,7 @@ A `tools/call` costs exactly what the equivalent REST endpoint costs:
 | `tools/call` → `cve_triage_bulk` | **1 per id** (one credit for each well-formed id in `cve_ids`, at least 1; a call the tool refuses costs 1) |
 | `tools/call` → `driver_lookup_bulk` | **1 per hash** (one credit for each well-formed hash in `hashes`, at least 1; a call the tool refuses costs 1) |
 | `tools/call` → `package_check_bulk` | **1 per package** (one credit for each element of `items` that is not skipped and that the work budget serves, at least 1; a call the tool refuses costs 1) |
-| `tools/call` → `cve_lookup`, `cve_products`, `cve_search`, `cve_leading`, `kev_lookup`, `cwe_lookup`, `cve_risk_score`, `cve_triage`, `product_exposure`, `cpe_search`, `cvss_calculator`, `watchlist_edit`, `watchlist_events`, `password_check`, `dns_lookup`, `dns_takeover_check`, `email_auth_check`, `email_address_check`, `ssl_check`, `headers_check`, `whois_lookup`, `wayback_lookup`, `ip_lookup`, `asn_lookup`, `d3fend_for_attack`, `driver_lookup`, `package_check`, `privacy_my_data` | 1 |
+| `tools/call` → `cve_lookup`, `cve_products`, `cve_search`, `cve_leading`, `epss_risers`, `kev_lookup`, `cwe_lookup`, `cve_risk_score`, `cve_triage`, `product_exposure`, `cpe_search`, `cvss_calculator`, `watchlist_edit`, `watchlist_events`, `password_check`, `dns_lookup`, `dns_takeover_check`, `email_auth_check`, `email_address_check`, `ssl_check`, `headers_check`, `whois_lookup`, `wayback_lookup`, `ip_lookup`, `asn_lookup`, `d3fend_for_attack`, `driver_lookup`, `package_check`, `privacy_my_data` | 1 |
 | `tools/call` → `vendor_key_edit` | 1 |
 | `tools/call` → `cert_search`, `subdomain_enum` | 2 |
 | `tools/call` → `health` | 0 |

@@ -26,6 +26,7 @@
 \ir t_cve_triage_bulk.sql
 \ir t_product_exposure.sql
 \ir t_cve_list.sql
+\ir t_epss_risers.sql
 \ir t_cve_exploit.sql
 \ir t_cpe_search.sql
 \ir t_d3fend_for_attack.sql
@@ -50,4 +51,10 @@
 \ir t_billing_nowpayments.sql
 \ir t_billing_manual_key.sql
 \ir t_vendor_key.sql
+DO $$
+BEGIN
+  ASSERT NOT EXISTS (SELECT 1 FROM pg_settings WHERE name LIKE 'enable\_%' AND setting <> boot_val),
+         'no test file leaves a planner setting changed for the files after it';
+END
+$$;
 ROLLBACK;

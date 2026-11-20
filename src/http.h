@@ -15,7 +15,9 @@
 
 #define HTTP_MAX_SET_COOKIE_COPY_COUNT  50
 
-#define HTTP_USER_AGENT "ContrastAPI/" CONTRASTAPI_VERSION " (+https://api.contrastcyber.com/bot; contact@contrastcyber.com)"
+#define HTTP_USER_AGENT_PRODUCT_TOKEN "ContrastAPI"
+
+#define HTTP_USER_AGENT HTTP_USER_AGENT_PRODUCT_TOKEN "/" CONTRASTAPI_VERSION " (+https://api.contrastcyber.com/bot; contact@contrastcyber.com)"
 
 typedef enum {
   HTTP_ERROR_NONE = 0,

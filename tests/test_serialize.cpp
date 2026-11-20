@@ -295,7 +295,7 @@ void test_HEALTH_serializes_every_section(void)
   char* body = static_finishJsonBuf(json_buf);
 
   TEST_ASSERT_EQUAL_STRING(
-    R"({"status":"ok","version":"2.0.13","db":{)"
+    R"({"status":"ok","version":"2.1.1","db":{)"
       R"("nvd":{"cve_count":312000,"last_added":{"cve_id":"CVE-2026-1234",)"
         R"("published_time":"2026-08-29T10:00:00Z"}},)"
       R"("kev":{"entry_count":1300,"last_added":{"cve_id":"CVE-2026-9999",)"
@@ -316,7 +316,7 @@ void test_HEALTH_null_db_serializes_unavailable_and_null_db(void)
   char* body = static_finishJsonBuf(json_buf);
 
   TEST_ASSERT_EQUAL_STRING(
-    R"({"status":"unavailable","version":"2.0.13","db":null})" "\n", body);
+    R"({"status":"unavailable","version":"2.1.1","db":null})" "\n", body);
   free(body);
 }
 
@@ -378,7 +378,7 @@ void test_HEALTH_every_string_is_escaped_through_its_own_class(void)
   char* body = static_finishJsonBuf(json_buf);
 
   TEST_ASSERT_EQUAL_STRING(
-    R"({"status":"ok","version":"2.0.13","db":{)"
+    R"({"status":"ok","version":"2.1.1","db":{)"
       R"("nvd":{"cve_count":1,"last_added":{"cve_id":"CVE-\"1","published_time":"2026\\08"}},)"
       R"("kev":{"entry_count":2,"last_added":{"cve_id":"CVE\n9","date_added":"2026\t28"}},)"
       R"("cwe":{"entry_count":3,"last_updated":{"cwe_id":"CWE\b79","updated_at":"2026)" "\\u0001" R"(27"}},)"
@@ -3045,6 +3045,156 @@ void test_CVETRIAGE_golden_next_offset_clamped_at_int_max(void)
   free(body);
 }
 
+static char* static_EPSSRISERSRun(const EPSSRISERSResult_t* results, const EPSSRISERSParams_t* params)
+{
+  JsonBuf_t* json_buf = static_newJsonBuf(JSONBUF_INITIAL_CAP, JSONBUF_DEFAULT_CEILING);
+  serialize_EPSSRISERS_response(results, params, json_buf);
+  return static_finishJsonBuf(json_buf);
+}
+
+static void static_EPSSRISERSFillItem(EPSSRISERSItem_t* item, const char* cve_id, double score, double previous_score, double delta, double percentile, bool in_kev)
+{
+  memset(item, 0, sizeof(*item));
+  strncpy(item->ma_cveId, cve_id, sizeof(item->ma_cveId) - 1);
+  item->m_epssCurrentScore  = score;
+  item->m_epssPreviousScore = previous_score;
+  item->m_epssDelta         = delta;
+  item->m_epssPercentile    = percentile;
+  item->m_inKev             = in_kev;
+}
+
+static EPSSRISERSParams_t static_EPSSRISERSParams(int window_days, int limit, int offset, const char* vendor, const char* product)
+{
+  EPSSRISERSParams_t params;
+  memset(&params, 0, sizeof(params));
+  params.m_windowDays = window_days;
+  params.m_limit      = limit;
+  params.m_offset     = offset;
+  params.m_minEpss    = -1.0;
+  strncpy(params.ma_vendor, vendor, sizeof(params.ma_vendor) - 1);
+  strncpy(params.ma_product, product, sizeof(params.ma_product) - 1);
+  return params;
+}
+
+void test_EPSSRISERS_golden_two_rows(void)
+{
+  EPSSRISERSItem_t items[2];
+  static_EPSSRISERSFillItem(&items[0], "CVE-2025-55182", 0.8187, 0.03042, 0.78828, 0.99412, false);
+  static_EPSSRISERSFillItem(&items[1], "CVE-2024-3400", 0.5, 0.2, 0.3, 0.9, true);
+  EPSSRISERSResult_t results;
+  memset(&results, 0, sizeof(results));
+  results.m_total  = 42;
+  results.m_count  = 2;
+  results.mp_items = items;
+  strncpy(results.ma_fromDate, "2026-11-12", sizeof(results.ma_fromDate) - 1);
+  strncpy(results.ma_toDate, "2026-11-19", sizeof(results.ma_toDate) - 1);
+  EPSSRISERSParams_t params = static_EPSSRISERSParams(7, 2, 4, "", "");
+
+  char* body = static_EPSSRISERSRun(&results, &params);
+  TEST_ASSERT_EQUAL_STRING(
+    R"({"window_days":7,"from_date":"2026-11-12","to_date":"2026-11-19","total":42,"limit":2,"offset":4,"next_offset":6,"results":[)"
+      R"({"cve_id":"CVE-2025-55182","epss_score":0.81870,"epss_previous_score":0.03042,"epss_delta":0.78828,"epss_percentile":0.99412,"in_kev":false},)"
+      R"({"cve_id":"CVE-2024-3400","epss_score":0.50000,"epss_previous_score":0.20000,"epss_delta":0.30000,"epss_percentile":0.90000,"in_kev":true})"
+    R"(]})" "\n", body);
+  free(body);
+}
+
+void test_EPSSRISERS_uncomputable_window_writes_null_from_date_and_window_note(void)
+{
+  EPSSRISERSResult_t results;
+  memset(&results, 0, sizeof(results));
+  strncpy(results.ma_toDate, "2026-11-19", sizeof(results.ma_toDate) - 1);
+  EPSSRISERSParams_t params = static_EPSSRISERSParams(30, 20, 0, "", "");
+
+  char* body = static_EPSSRISERSRun(&results, &params);
+  TEST_ASSERT_EQUAL_STRING(
+    R"({"window_days":30,"from_date":null,"to_date":"2026-11-19",)"
+    R"("window_note":"EPSS history holds no day that can start this window yet",)"
+    R"("total":0,"limit":20,"offset":0,"next_offset":0,"results":[]})" "\n", body);
+  free(body);
+}
+
+void test_EPSSRISERS_empty_history_writes_null_to_date(void)
+{
+  EPSSRISERSResult_t results;
+  memset(&results, 0, sizeof(results));
+  EPSSRISERSParams_t params = static_EPSSRISERSParams(7, 20, 0, "", "");
+
+  char* body = static_EPSSRISERSRun(&results, &params);
+  TEST_ASSERT_EQUAL_STRING(
+    R"({"window_days":7,"from_date":null,"to_date":null,)"
+    R"("window_note":"EPSS history holds no day that can start this window yet",)"
+    R"("total":0,"limit":20,"offset":0,"next_offset":0,"results":[]})" "\n", body);
+  free(body);
+}
+
+void test_EPSSRISERS_next_offset_is_capped_at_int_max(void)
+{
+  EPSSRISERSItem_t item;
+  static_EPSSRISERSFillItem(&item, "CVE-2025-55182", 0.8187, 0.03042, 0.78828, 0.99412, false);
+  EPSSRISERSResult_t results;
+  memset(&results, 0, sizeof(results));
+  results.m_total  = 1;
+  results.m_count  = 1;
+  results.mp_items = &item;
+  strncpy(results.ma_fromDate, "2026-11-12", sizeof(results.ma_fromDate) - 1);
+  strncpy(results.ma_toDate, "2026-11-19", sizeof(results.ma_toDate) - 1);
+
+  static const int offsets[] = { 2147483646, 2147483647 };
+  for (size_t i = 0; i < sizeof(offsets) / sizeof(offsets[0]); i++)
+  {
+    EPSSRISERSParams_t params = static_EPSSRISERSParams(7, 1, offsets[i], "", "");
+    char* body = static_EPSSRISERSRun(&results, &params);
+    TEST_ASSERT_NOT_NULL(strstr(body, R"("next_offset":2147483647,"results":[)"));
+    free(body);
+  }
+}
+
+void test_EPSSRISERS_clamps_each_number(void)
+{
+  EPSSRISERSItem_t items[3];
+  static_EPSSRISERSFillItem(&items[0], "CVE-2025-0001", 1.5, 1.25, 1.75, 1.125, false);
+  static_EPSSRISERSFillItem(&items[1], "CVE-2025-0002", -0.5, -0.25, -0.75, -0.125, false);
+  static_EPSSRISERSFillItem(&items[2], "CVE-2025-0003", INFINITY, NAN, INFINITY, -INFINITY, false);
+  EPSSRISERSResult_t results;
+  memset(&results, 0, sizeof(results));
+  results.m_total  = 3;
+  results.m_count  = 3;
+  results.mp_items = items;
+  strncpy(results.ma_fromDate, "2026-11-12", sizeof(results.ma_fromDate) - 1);
+  strncpy(results.ma_toDate, "2026-11-19", sizeof(results.ma_toDate) - 1);
+  EPSSRISERSParams_t params = static_EPSSRISERSParams(7, 20, 0, "", "");
+
+  char* body = static_EPSSRISERSRun(&results, &params);
+  TEST_ASSERT_NOT_NULL(strstr(body,
+    R"({"cve_id":"CVE-2025-0001","epss_score":1.00000,"epss_previous_score":1.00000,"epss_delta":1.00000,"epss_percentile":1.00000,"in_kev":false})"));
+  TEST_ASSERT_NOT_NULL(strstr(body,
+    R"({"cve_id":"CVE-2025-0002","epss_score":0.00000,"epss_previous_score":0.00000,"epss_delta":0.00000,"epss_percentile":0.00000,"in_kev":false})"));
+  TEST_ASSERT_NOT_NULL(strstr(body,
+    R"({"cve_id":"CVE-2025-0003","epss_score":0.00000,"epss_previous_score":0.00000,"epss_delta":0.00000,"epss_percentile":0.00000,"in_kev":false})"));
+  free(body);
+}
+
+void test_EPSSRISERS_writes_product_filter_note_with_vendor_or_product(void)
+{
+  EPSSRISERSResult_t results;
+  memset(&results, 0, sizeof(results));
+  strncpy(results.ma_fromDate, "2026-11-12", sizeof(results.ma_fromDate) - 1);
+  strncpy(results.ma_toDate, "2026-11-19", sizeof(results.ma_toDate) - 1);
+  const EPSSRISERSParams_t cases[] = {
+    static_EPSSRISERSParams(7, 20, 0, "microsoft", ""),
+    static_EPSSRISERSParams(7, 20, 0, "", "exchange_server"),
+  };
+  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+  {
+    char* body = static_EPSSRISERSRun(&results, &cases[i]);
+    TEST_ASSERT_NOT_NULL(strstr(body, R"("next_offset":0,"product_filter_note":"This filter matches names exactly.)"));
+    TEST_ASSERT_NOT_NULL(strstr(body, R"(other spellings.","results":[]})"));
+    TEST_ASSERT_EQUAL_INT(1, static_countOccurrences(body, "product_filter_note"));
+    free(body);
+  }
+}
+
 void test_CPESEARCH_golden_empty(void)
 {
   CPESEARCHResult_t results = { .m_total = 0, .m_count = 0, .mp_items = NULL };
@@ -5605,7 +5755,7 @@ void test_PRODUCTEXPOSURE_top_cve_count_past_its_array_is_clamped(void)
 
 void test_registration_gate_test_count(void)
 {
-  TEST_ASSERT_EQUAL_INT_MESSAGE(324, (int)Unity.NumberOfTests,
+  TEST_ASSERT_EQUAL_INT_MESSAGE(330, (int)Unity.NumberOfTests,
     "RUN_TEST list and test definitions have drifted apart - a test may be unregistered");
 }
 
@@ -10009,7 +10159,7 @@ void test_docs_product_filter_note_copies_match_the_server(void)
 
   char* docs = static_readDocsFile("docs/API_Documentation.md");
   snprintf(needle, sizeof(needle), "\n| `%.*s` | string |", DOCS_MEMBER_NAME_LEN - 1, member);
-  TEST_ASSERT_EQUAL_INT_MESSAGE(3, static_countOccurrences(docs, needle), needle);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(4, static_countOccurrences(docs, needle), needle);
   snprintf(needle, sizeof(needle), "#### `%.*s`", DOCS_MEMBER_NAME_LEN - 1, member);
   char* section = static_sectionOf(docs, needle);
   static char quoted_note[600];
@@ -10037,7 +10187,7 @@ void test_docs_product_filter_note_copies_match_the_server(void)
   }
 
   char* llms = static_readDocsFile("web/llms.txt");
-  static const char* const lines[] = { "\n- GET /cve_search?", "\n- GET /cve_leading?", "\n- GET /cve_triage?", "\n- GET /product_exposure?" };
+  static const char* const lines[] = { "\n- GET /cve_search?", "\n- GET /cve_leading?", "\n- GET /cve_triage?", "\n- GET /epss_risers?", "\n- GET /product_exposure?" };
   for (size_t i = 0; i < sizeof(lines) / sizeof(lines[0]); i++)
   {
     const char* line = strstr(llms, lines[i]);
@@ -10540,6 +10690,12 @@ int main(void)
   RUN_TEST(test_CVELOOKUP_long_cve_tags_is_written_whole);
   RUN_TEST(test_CVELOOKUP_null_cwes_is_written_as_empty_array);
   RUN_TEST(test_CVETRIAGE_golden_next_offset_clamped_at_int_max);
+  RUN_TEST(test_EPSSRISERS_golden_two_rows);
+  RUN_TEST(test_EPSSRISERS_uncomputable_window_writes_null_from_date_and_window_note);
+  RUN_TEST(test_EPSSRISERS_empty_history_writes_null_to_date);
+  RUN_TEST(test_EPSSRISERS_next_offset_is_capped_at_int_max);
+  RUN_TEST(test_EPSSRISERS_clamps_each_number);
+  RUN_TEST(test_EPSSRISERS_writes_product_filter_note_with_vendor_or_product);
   RUN_TEST(test_CPESEARCH_golden_empty);
   RUN_TEST(test_CPESEARCH_golden_two_items);
   RUN_TEST(test_CPESEARCH_golden_next_offset_clamped_at_int_max);

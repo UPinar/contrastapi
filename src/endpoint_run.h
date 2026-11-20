@@ -25,6 +25,7 @@ EndpointRunStatus_t endpoint_CVERISKSCORERun        (PGconn* conn, const Endpoin
 EndpointRunStatus_t endpoint_CVEEXPLOITRun          (PGconn* conn, const EndpointAnyParams_t* params, JsonBuf_t* json_buf, const char** message_out);
 EndpointRunStatus_t endpoint_CVETRIAGERun           (PGconn* conn, const EndpointAnyParams_t* params, JsonBuf_t* json_buf, const char** message_out);
 EndpointRunStatus_t endpoint_CVETRIAGEBULKRun       (PGconn* conn, const EndpointAnyParams_t* params, JsonBuf_t* json_buf, const char** message_out);
+EndpointRunStatus_t endpoint_EPSSRISERSRun          (PGconn* conn, const EndpointAnyParams_t* params, JsonBuf_t* json_buf, const char** message_out);
 EndpointRunStatus_t endpoint_PRODUCTEXPOSURERun     (PGconn* conn, const EndpointAnyParams_t* params, JsonBuf_t* json_buf, const char** message_out);
 EndpointRunStatus_t endpoint_CPESEARCHRun           (PGconn* conn, const EndpointAnyParams_t* params, JsonBuf_t* json_buf, const char** message_out);
 EndpointRunStatus_t endpoint_CVSSCALCULATORRun      (PGconn* conn, const EndpointAnyParams_t* params, JsonBuf_t* json_buf, const char** message_out);

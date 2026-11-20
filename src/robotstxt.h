@@ -12,6 +12,8 @@
 #define ROBOTSTXT_MAX_SITEMAP_COUNT       100
 #define ROBOTSTXT_MAX_ISSUE_COUNT         50
 
+#define ROBOTSTXT_MAX_CHECKED_PATH_BYTE_COUNT 64
+
 typedef struct
 {
   size_t  m_offset;
@@ -45,9 +47,9 @@ typedef struct
   int    m_lineNumber;
   bool   m_hasOurUserAgent;
   bool   m_hasWildcardUserAgent;
-  int    m_firstUserAgent;
+  int    m_userAgentStartIndex;
   int    m_userAgentCount;
-  int    m_firstRule;
+  int    m_ruleStartIndex;
   int    m_ruleCount;
   bool   m_hasCrawlDelay;
   double m_crawlDelaySeconds;
@@ -96,7 +98,7 @@ typedef enum {
 typedef struct
 {
   RobotsTxtDecision_t   m_decision;
-  int                   m_decidingRuleIndex;
+  int                   m_decidingRuleIndexInRules;
 } RobotsTxtVerdict_t;
 
 typedef struct

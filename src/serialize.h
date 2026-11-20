@@ -39,6 +39,7 @@ void   serialize_CVERISKSCORE_response                      (const CVERISKSCORER
 void   serialize_CVEEXPLOIT_response                        (const CVEEXPLOITRecord_t* record, JsonBuf_t* json_buf);
 void   serialize_CVETRIAGE_response                         (const CVETRIAGEResult_t* results, const CVETRIAGEParams_t* params, JsonBuf_t* json_buf);
 void   serialize_CVETRIAGEBULK_response                     (const CVETRIAGEBULKResult_t* results, JsonBuf_t* json_buf);
+void   serialize_EPSSRISERS_response                        (const EPSSRISERSResult_t* results, const EPSSRISERSParams_t* params, JsonBuf_t* json_buf);
 void   serialize_PRODUCTEXPOSURE_response                   (const PRODUCTEXPOSURERecord_t* record, JsonBuf_t* json_buf);
 void   serialize_CPESEARCH_response                         (const CPESEARCHResult_t* results, const CPESEARCHParams_t* params, JsonBuf_t* json_buf);
 void   serialize_CVSSCALCULATOR_response                    (const CvssResult_t* result, JsonBuf_t* json_buf);

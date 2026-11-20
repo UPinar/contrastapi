@@ -21,7 +21,7 @@
 #define DB_CONNECT_TIMEOUT_SEC    "5"
 #define DB_STATEMENT_TIMEOUT_MS   "15000"
 
-#define DB_REQUIRED_SCHEMA_VERSION 87
+#define DB_REQUIRED_SCHEMA_VERSION 88
 
 #define DB_CVE_CHANGE_PURGE_BATCH_EVENT_COUNT 10000
 
@@ -237,6 +237,8 @@ DbStatus_t  db_CVETRIAGE                                (PGconn* conn, const CVE
 DbStatus_t  db_CVETRIAGEBULK                            (PGconn* conn, const BulkIdsParams_t* params, CVETRIAGEBULKResult_t* results_out);
 void        db_CVETRIAGEResultFree                      (CVETRIAGEResult_t* results);
 void        db_CVETRIAGEBULKResultFree                  (CVETRIAGEBULKResult_t* results);
+DbStatus_t  db_EPSSRISERS                               (PGconn* conn, const EPSSRISERSParams_t* params, EPSSRISERSResult_t* result_out);
+void        db_EPSSRISERSResultFree                     (EPSSRISERSResult_t* result);
 DbStatus_t  db_PRODUCTEXPOSURE                          (PGconn* conn, const PRODUCTEXPOSUREParams_t* params, PRODUCTEXPOSURERecord_t* record_out);
 DbStatus_t  db_CPESEARCH                                (PGconn* conn, const CPESEARCHParams_t* params, CPESEARCHResult_t* results_out);
 void        db_CPESEARCHResultFree                      (CPESEARCHResult_t* results);

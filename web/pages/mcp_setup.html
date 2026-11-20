@@ -31,16 +31,15 @@
   <script src="/static/js/landing.js?v=@@LANDING_JS_VERSION@@" defer></script>
 </head>
 <body>
-  <div class="glow"></div>
 
   @@NAV@@
 
   <div class="page">
     <h1>MCP <span>Setup</span></h1>
-    <p class="subtitle">Give your AI agent security data tools. One JSON config, or one command.</p>
+    <p class="subtitle">Give your AI agent security data tools. One JSON config, or one command. Every tool, argument and result is in the <a href="https://github.com/UPinar/contrastapi/blob/main/docs/MCP_Documentation.md">MCP documentation</a>.</p>
 
     <h2><span class="num">1</span> Claude Desktop</h2>
-    <p>In Claude Desktop, open Settings, then Developer, then Edit Config. The file is <code>~/Library/Application Support/Claude/claude_desktop_config.json</code> on macOS and <code>%APPDATA%\Claude\claude_desktop_config.json</code> on Windows:</p>
+    <p>In Claude Desktop, open Settings, then Developer, then Edit Config. The file is <code class="code-long">~/Library/Application Support/Claude/claude_desktop_config.json</code> on macOS and <code class="code-long">%APPDATA%\Claude\claude_desktop_config.json</code> on Windows:</p>
     <div class="code-block"><span class="lang">json</span><code>{
   "mcpServers": {
     "contrastapi": {

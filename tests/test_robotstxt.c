@@ -117,9 +117,9 @@ static void static_assertGroup(int index, int line, bool has_our_user_agent, boo
   TEST_ASSERT_EQUAL_INT(line, group->m_lineNumber);
   TEST_ASSERT_EQUAL(has_our_user_agent, group->m_hasOurUserAgent);
   TEST_ASSERT_EQUAL(has_wildcard_user_agent, group->m_hasWildcardUserAgent);
-  TEST_ASSERT_EQUAL_INT(first_user_agent, group->m_firstUserAgent);
+  TEST_ASSERT_EQUAL_INT(first_user_agent, group->m_userAgentStartIndex);
   TEST_ASSERT_EQUAL_INT(user_agent_count, group->m_userAgentCount);
-  TEST_ASSERT_EQUAL_INT(first_rule, group->m_firstRule);
+  TEST_ASSERT_EQUAL_INT(first_rule, group->m_ruleStartIndex);
   TEST_ASSERT_EQUAL_INT(rule_count, group->m_ruleCount);
 }
 
@@ -144,14 +144,14 @@ static void static_assertVerdict(const char* path, RobotsTxtDecision_t decision,
 {
   RobotsTxtVerdict_t verdict = robotstxt_checkPath(&g_robots, g_builtBody, path, strlen(path));
   TEST_ASSERT_EQUAL_INT_MESSAGE(decision, verdict.m_decision, path);
-  TEST_ASSERT_EQUAL_INT_MESSAGE(rule_index, verdict.m_decidingRuleIndex, path);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(rule_index, verdict.m_decidingRuleIndexInRules, path);
 }
 
 static void static_assertVerdictIn(const char* body, const char* path, RobotsTxtDecision_t decision, int rule_index)
 {
   RobotsTxtVerdict_t verdict = robotstxt_checkPath(&g_robots, body, path, strlen(path));
   TEST_ASSERT_EQUAL_INT_MESSAGE(decision, verdict.m_decision, path);
-  TEST_ASSERT_EQUAL_INT_MESSAGE(rule_index, verdict.m_decidingRuleIndex, path);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(rule_index, verdict.m_decidingRuleIndexInRules, path);
 }
 
 static bool static_isPatternMatchingBytes(const char* pattern, const char* path, size_t path_len)
@@ -189,6 +189,7 @@ void test_caps_hold_their_values(void)
   TEST_ASSERT_EQUAL_INT(1024, ROBOTSTXT_MAX_USER_AGENT_COUNT);
   TEST_ASSERT_EQUAL_INT(100, ROBOTSTXT_MAX_SITEMAP_COUNT);
   TEST_ASSERT_EQUAL_INT(50, ROBOTSTXT_MAX_ISSUE_COUNT);
+  TEST_ASSERT_EQUAL_INT(64, ROBOTSTXT_MAX_CHECKED_PATH_BYTE_COUNT);
 }
 
 void test_each_issue_code_has_its_name_and_severity(void)
@@ -1065,6 +1066,35 @@ void test_dropped_rule_answers_unknown(void)
   static_assertVerdict("/a", ROBOTSTXT_DECISION_UNKNOWN, -1);
 }
 
+void test_path_over_64_bytes_answers_unknown(void)
+{
+  static char path[ROBOTSTXT_MAX_CHECKED_PATH_BYTE_COUNT + 2];
+  path[0] = '/';
+  memset(path + 1, 'a', sizeof(path) - 1);
+
+  static const char* const body = "User-agent: *\nDisallow: /a\n";
+  static_parse(body);
+  static const struct { size_t m_pathLen; RobotsTxtDecision_t m_decision; int m_ruleIndex; } cases[] = {
+    { 63, ROBOTSTXT_DECISION_DISALLOWED, 0  },
+    { 64, ROBOTSTXT_DECISION_DISALLOWED, 0  },
+    { 65, ROBOTSTXT_DECISION_UNKNOWN,    -1 },
+  };
+  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+  {
+    RobotsTxtVerdict_t verdict = robotstxt_checkPath(&g_robots, body, path, cases[i].m_pathLen);
+    TEST_ASSERT_EQUAL_INT(cases[i].m_decision, verdict.m_decision);
+    TEST_ASSERT_EQUAL_INT(cases[i].m_ruleIndex, verdict.m_decidingRuleIndexInRules);
+  }
+
+  static_parse("");
+  RobotsTxtVerdict_t allowed = robotstxt_checkPath(&g_robots, "", path, 64);
+  TEST_ASSERT_EQUAL_INT(ROBOTSTXT_DECISION_ALLOWED, allowed.m_decision);
+  TEST_ASSERT_EQUAL_INT(-1, allowed.m_decidingRuleIndexInRules);
+  RobotsTxtVerdict_t unknown = robotstxt_checkPath(&g_robots, "", path, 65);
+  TEST_ASSERT_EQUAL_INT(ROBOTSTXT_DECISION_UNKNOWN, unknown.m_decision);
+  TEST_ASSERT_EQUAL_INT(-1, unknown.m_decidingRuleIndexInRules);
+}
+
 void test_text_plain_raises_no_response_issue(void)
 {
   static const char* const TYPES[] = { "text/plain", "TEXT/Plain", "text/plain; charset=utf-8", " text/plain\t;charset=x", "text/plain;" };
@@ -1151,7 +1181,7 @@ void test_free_takes_a_zeroed_result_and_a_second_call(void)
 
 void test_registration_gate_test_count(void)
 {
-  TEST_ASSERT_EQUAL_INT_MESSAGE(64, (int)Unity.NumberOfTests,
+  TEST_ASSERT_EQUAL_INT_MESSAGE(65, (int)Unity.NumberOfTests,
     "RUN_TEST list and test definitions have drifted apart - a test may be unregistered");
 }
 
@@ -1216,6 +1246,7 @@ int main(void)
   RUN_TEST(test_hex_digit_edges_of_percent_encoding);
   RUN_TEST(test_percent_at_the_end_is_an_ordinary_byte);
   RUN_TEST(test_dropped_rule_answers_unknown);
+  RUN_TEST(test_path_over_64_bytes_answers_unknown);
   RUN_TEST(test_text_plain_raises_no_response_issue);
   RUN_TEST(test_other_content_types_raise_an_issue);
   RUN_TEST(test_redirect_to_another_host_raises_an_issue);

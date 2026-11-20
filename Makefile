@@ -51,7 +51,7 @@ SRCS = src/contrastapi.c src/router.c src/endpoint.c src/endpoint_table.c src/en
        src/external/certspotter.c src/external/hibp.c src/external/shodan.c src/external/nowpayments.c src/external/abuseipdb.c src/external/rdap.c src/external/rdap_table.c src/external/wayback.c src/external/cveservices.c src/external/whois.c \
        src/external/whois_table.c src/cvss.c src/pages.c src/pages_table.c \
        src/dns.c src/dns_table.c src/watchlist/watchlist.c src/etld.c src/etld_table.c src/ssvc.c src/imagescan.c src/exifclient.c src/monotonic.c src/netconnect.c src/bytes.c \
-       src/imageindicator.c src/tlsprobe.c src/tlsprobe_table.c src/emailauth.c src/emaildata.c src/emailcheck.c src/usagelog.c src/header_check.c src/header_fetch.c \
+       src/imageindicator.c src/tlsprobe.c src/tlsprobe_table.c src/emailauth.c src/emaildata.c src/emailcheck.c src/usagelog.c src/header_check.c src/header_fetch.c src/well_known.c \
        src/robotstxt.c src/securitytxt.c src/datetime.c src/registryask.c src/registryask_table.c src/cveidstate.c src/subdomain.c src/emailcheck_table.c src/billing.c src/keyvault.c src/x402.c src/x402_solana.c src/x402_facilitator.c src/x402_solana_rpc.c src/x402_ledger.c src/x402_request.c src/endpoint_run_vendorkey.c \
        src/watchlist/watchlist_domain.c src/watchlist/watchlist_domain_scan.c src/watchlist/endpoint/watchlist_dns_lookup.c src/watchlist/endpoint/watchlist_ssl_check.c \
        src/watchlist/endpoint/watchlist_whois_lookup.c src/watchlist/endpoint/watchlist_headers_check.c src/watchlist/endpoint/watchlist_cert_search.c
@@ -144,7 +144,7 @@ TEST_BINS   = bin/test_auth bin/test_jsonbuf bin/test_jsonread bin/test_handler 
               bin/test_acceptor bin/test_pages bin/test_hibp bin/test_dns bin/test_etld bin/test_ssvc \
               bin/test_quota bin/test_cache bin/test_throttle bin/test_imagescan bin/test_rawbody bin/test_exifclient \
               bin/test_imageindicator bin/test_tlsprobe bin/test_emailauth bin/test_emaildata bin/test_emailcheck \
-              bin/test_rdap bin/test_wayback bin/test_cveservices bin/test_usagelog bin/test_header_check bin/test_header_fetch \
+              bin/test_rdap bin/test_wayback bin/test_cveservices bin/test_usagelog bin/test_header_check bin/test_header_fetch bin/test_well_known \
               bin/test_retryafter bin/test_whois bin/test_robotstxt bin/test_securitytxt bin/test_certspotter \
               bin/test_subdomain bin/test_watchlist_domain bin/test_watchlist_domain_scan bin/test_bytes bin/test_openapi bin/test_monotonic \
               bin/test_datetime bin/test_registryask bin/test_billing bin/test_keyvault bin/test_shodan bin/test_abuseipdb \
@@ -331,20 +331,22 @@ bin/test_watchlist_domain: tests/test_watchlist_domain.c $(WATCHLIST_DOMAIN_LANE
 # deadline of the file writer, which the test never starts.
 # registryask_table.o holds the real scanner rules, so a test can check the scan passes them.
 # The RDAP/WHOIS lane object reads dates with datetime.o and checks UTF-8 with utf8.o.
-# The headers lane runs the real robotstxt.o, header_check.o and etld.o, which read no network:
-# the test answers the robots.txt and home page fetches, the throttle charge and the headers
-# record from tables. robotstxt.o reads with bytes.o, and etld.o finds names in etld_table.o.
+# The headers lane runs the real well_known.o, robotstxt.o, header_check.o and etld.o, which read
+# no network: the test answers the robots.txt chain and the home page fetch, the throttle charge
+# and the headers record from tables. well_known.o asks libcurl for the host of the last hop,
+# hence -lcurl, and links securitytxt.o. robotstxt.o reads with bytes.o, and etld.o finds names
+# in etld_table.o.
 # The ct lane is answered the same way: the Cert Spotter key and walk, the hold, the window of
 # the share, the CAA questions and the ct record. So no object of certspotter.c is linked.
 bin/test_watchlist_domain_scan: tests/test_watchlist_domain_scan.c $(WATCHLIST_DOMAIN_LANE_OBJS) obj/watchlist/watchlist_domain_scan.o obj/datetime.o obj/utf8.o obj/registryask_table.o obj/validate.o obj/ipguard.o obj/emailcheck_table.o obj/tlsprobe_table.o \
-                     obj/robotstxt.o obj/bytes.o obj/header_check.o obj/etld.o obj/etld_table.o obj/usagelog.o obj/monotonic.o $(UNITY_OBJ) | bin
-	$(CC) $(TEST_CFLAGS) -o $@ $^ -lcrypto -Wl,--wrap=db_claimDomainLaneScans,--wrap=db_recordDnsScan,--wrap=quota_dbReserve \
+                     obj/well_known.o obj/robotstxt.o obj/securitytxt.o obj/bytes.o obj/header_check.o obj/etld.o obj/etld_table.o obj/usagelog.o obj/monotonic.o $(UNITY_OBJ) | bin
+	$(CC) $(TEST_CFLAGS) -o $@ $^ -lcrypto -lcurl -Wl,--wrap=db_claimDomainLaneScans,--wrap=db_recordDnsScan,--wrap=quota_dbReserve \
 	  -Wl,--wrap=db_recordTlsScan,--wrap=db_SSLCHECK,--wrap=tlsprobe_probeHost \
 	  -Wl,--wrap=dns_askQuestions,--wrap=dns_answerFree,--wrap=dns_checkTakeover,--wrap=monotonic_nowMs \
 	  -Wl,--wrap=emailcheck_checkDomain -Wl,--wrap=emailcheck_EMAILAUTHCHECKRecordFree,--wrap=emailcheck_kindId \
 	  -Wl,--wrap=dns_resetQuestionCount,--wrap=dns_readQuestionCount \
 	  -Wl,--wrap=registryask_tryFindServer,--wrap=registryask_askDomain,--wrap=db_recordRdapWhoisScan,--wrap=time \
-	  -Wl,--wrap=header_fetch_fetchRobotsTxt,--wrap=header_fetch_robotsTxtFree,--wrap=header_fetch_fetchHomePage,--wrap=header_fetch_resultFree,--wrap=throttle_dbCharge,--wrap=db_recordHeadersScan \
+	  -Wl,--wrap=header_fetch_fetchChain,--wrap=header_fetch_chainError,--wrap=header_fetch_chainFree,--wrap=header_fetch_fetchHomePage,--wrap=header_fetch_resultFree,--wrap=throttle_dbCharge,--wrap=db_recordHeadersScan \
 	  -Wl,--wrap=certspotter_hasApiKey,--wrap=certspotter_lookupCertificates,--wrap=quota_dbTryReadHoldRemainingSeconds,--wrap=quota_dbSetHold \
 	  -Wl,--wrap=quota_windowRemainingSeconds,--wrap=db_recordCtScan,--wrap=robotstxt_parse
 
@@ -885,11 +887,21 @@ bin/test_whois: tests/test_whois.c obj/external/whois.o obj/external/whois_table
 	  -Wl,--wrap=dns_askQuestions,--wrap=malloc,--wrap=explicit_bzero,--wrap=__explicit_bzero_chk -lresolv
 
 # bin/test_header_fetch links the real header_fetch.c with the recording HTTP stub. It links
-# header_check.o for the list of names to keep. Each answer of a redirect chain is a fixture.
-# --wrap=monotonic_nowMs: the deadline of the chain runs on a fake clock. --wrap=curl_url and --wrap=curl_url_get: a test makes one call fail,
-# as it fails when memory runs out. The URL parsing itself is libcurl's.
-bin/test_header_fetch: tests/test_header_fetch.c obj/header_fetch.o obj/header_check.o obj/utf8.o $(HTTP_STUB_OBJ) obj/bytes.o $(UNITY_OBJ) | bin
-	$(CC) $(TEST_CFLAGS) -o $@ $^ -Wl,--wrap=monotonic_nowMs,--wrap=curl_url,--wrap=curl_url_get -lcurl
+# header_check.o for the list of names to keep. The public web rule asks validate.o about a
+# host, and validate.o calls ipguard.o. Each answer of a redirect chain is a fixture.
+# --wrap=monotonic_nowMs: the deadline of the chain runs on a fake clock. --wrap=curl_url, --wrap=curl_url_dup and
+# --wrap=curl_url_get: a test makes one call fail, as it fails when memory runs out. The URL parsing itself is libcurl's.
+bin/test_header_fetch: tests/test_header_fetch.c obj/header_fetch.o obj/header_check.o obj/validate.o obj/ipguard.o obj/utf8.o $(HTTP_STUB_OBJ) obj/bytes.o $(UNITY_OBJ) | bin
+	$(CC) $(TEST_CFLAGS) -o $@ $^ -Wl,--wrap=monotonic_nowMs,--wrap=curl_url,--wrap=curl_url_dup,--wrap=curl_url_get -lcurl
+
+# bin/test_well_known links the real well_known.c with the real header_fetch.o, robotstxt.o and
+# securitytxt.o, against the recording HTTP stub, as bin/test_header_fetch does. header_fetch.o
+# needs header_check.o, validate.o and ipguard.o. securitytxt.o reads the Expires date with
+# datetime.o. --wrap=monotonic_nowMs: the shared deadline runs on a fake clock.
+# --wrap=curl_url and --wrap=curl_url_get count the calls, and a test makes one curl_url_get call fail.
+# --wrap=robotstxt_parse: a test makes the parse fail, as a failed allocation does.
+bin/test_well_known: tests/test_well_known.c obj/well_known.o obj/header_fetch.o obj/header_check.o obj/robotstxt.o obj/securitytxt.o obj/datetime.o obj/validate.o obj/ipguard.o obj/utf8.o $(HTTP_STUB_OBJ) obj/bytes.o $(UNITY_OBJ) | bin
+	$(CC) $(TEST_CFLAGS) -o $@ $^ -Wl,--wrap=monotonic_nowMs,--wrap=curl_url,--wrap=curl_url_get,--wrap=robotstxt_parse -lcurl
 
 # bin/test_usagelog links usagelog.o and monotonic.o. --wrap=time and --wrap=monotonic_nowMs give every
 # line a fixed time and a fixed "duration_ms", so a test can pin a whole line. A test of
@@ -992,7 +1004,7 @@ bin/test_openapi: tests/test_openapi.c $(OPENAPI_OBJ) $(OPENAPI_TABLE_OBJS) $(UN
 	$(CC) $(TEST_CFLAGS) -o $@ $^ -lcrypto -lm
 
 test: $(TEST_BINS)
-	@bin/test_auth && bin/test_nowpayments && bin/test_jsonbuf && bin/test_jsonread && bin/test_handler && bin/test_router && bin/test_endpoint && bin/test_contrastapi && bin/test_db_hit && bin/test_validate && bin/test_ipguard && bin/test_query && bin/test_serialize && bin/test_http && bin/test_cve_exploit && bin/test_cve_exploit_parse && bin/test_jsonrpc && bin/test_mcp && bin/test_response_context && bin/test_worker && bin/test_cvss && bin/test_db && bin/test_ratelimit && bin/test_upstream && bin/test_config && bin/test_maintenance && bin/test_receive && bin/test_utf8 && bin/test_jsoncanon && bin/test_acceptor && bin/test_pages && bin/test_hibp && bin/test_dns && bin/test_etld && bin/test_ssvc && bin/test_quota && bin/test_cache && bin/test_throttle && bin/test_imagescan && bin/test_rawbody && bin/test_exifclient && bin/test_imageindicator && bin/test_tlsprobe && bin/test_emailauth && bin/test_emaildata && bin/test_emailcheck && bin/test_rdap && bin/test_wayback && bin/test_cveservices && bin/test_usagelog && bin/test_header_check && bin/test_header_fetch && bin/test_retryafter && bin/test_whois && bin/test_robotstxt && bin/test_securitytxt && bin/test_certspotter && bin/test_watchlist_domain && bin/test_watchlist_domain_scan && bin/test_subdomain && bin/test_bytes && bin/test_openapi && bin/test_monotonic && bin/test_datetime && bin/test_registryask && bin/test_billing && bin/test_keyvault && bin/test_shodan && bin/test_abuseipdb && bin/test_x402 && bin/test_x402_solana && bin/test_x402_facilitator && bin/test_x402_solana_rpc && bin/test_x402_ledger && bin/test_x402_request
+	@bin/test_auth && bin/test_nowpayments && bin/test_jsonbuf && bin/test_jsonread && bin/test_handler && bin/test_router && bin/test_endpoint && bin/test_contrastapi && bin/test_db_hit && bin/test_validate && bin/test_ipguard && bin/test_query && bin/test_serialize && bin/test_http && bin/test_cve_exploit && bin/test_cve_exploit_parse && bin/test_jsonrpc && bin/test_mcp && bin/test_response_context && bin/test_worker && bin/test_cvss && bin/test_db && bin/test_ratelimit && bin/test_upstream && bin/test_config && bin/test_maintenance && bin/test_receive && bin/test_utf8 && bin/test_jsoncanon && bin/test_acceptor && bin/test_pages && bin/test_hibp && bin/test_dns && bin/test_etld && bin/test_ssvc && bin/test_quota && bin/test_cache && bin/test_throttle && bin/test_imagescan && bin/test_rawbody && bin/test_exifclient && bin/test_imageindicator && bin/test_tlsprobe && bin/test_emailauth && bin/test_emaildata && bin/test_emailcheck && bin/test_rdap && bin/test_wayback && bin/test_cveservices && bin/test_usagelog && bin/test_header_check && bin/test_header_fetch && bin/test_well_known && bin/test_retryafter && bin/test_whois && bin/test_robotstxt && bin/test_securitytxt && bin/test_certspotter && bin/test_watchlist_domain && bin/test_watchlist_domain_scan && bin/test_subdomain && bin/test_bytes && bin/test_openapi && bin/test_monotonic && bin/test_datetime && bin/test_registryask && bin/test_billing && bin/test_keyvault && bin/test_shodan && bin/test_abuseipdb && bin/test_x402 && bin/test_x402_solana && bin/test_x402_facilitator && bin/test_x402_solana_rpc && bin/test_x402_ledger && bin/test_x402_request
 
 # ---- Fuzzing -----------------------------------------------------------------------
 # libFuzzer exists only in clang, so the fuzz harnesses build with FUZZ_CC, not with $(CC).

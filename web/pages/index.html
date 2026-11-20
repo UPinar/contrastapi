@@ -90,7 +90,6 @@
   </script>
 </head>
 <body class="home">
-  <div class="glow"></div>
 
   @@NAV@@
 
@@ -103,7 +102,7 @@
   <!-- Endpoints -->
   <section class="endpoints">
     <h2 class="section-title">CVE Intelligence</h2>
-    <p class="endpoints-lede">Look up, search and rank CVEs with EPSS and KEV. See <a href="/cve-api">CVE, EPSS &amp; KEV API with Monitoring</a>.</p>
+    <p class="endpoints-lede">Look up, search and rank CVEs with EPSS and KEV.<br>See <a href="/cve-api">CVE, EPSS &amp; KEV API with Monitoring</a>.</p>
     <div class="endpoint-group">
       <div class="endpoint">
         <span class="method get">GET</span>
@@ -162,6 +161,11 @@
       </div>
       <div class="endpoint">
         <span class="method get">GET</span>
+        <span class="endpoint-path">/epss_risers</span>
+        <span class="endpoint-desc">CVEs whose EPSS score rose most over the last 7 or 30 days, with the old and the new score</span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
         <span class="endpoint-path">/product_exposure</span>
         <span class="endpoint-desc">CVE exposure of one product: severity/KEV/PoC counts, worst scores, top CVEs by risk, and its end of life dates</span>
       </div>
@@ -178,7 +182,7 @@
     </div>
 
     <h2 class="section-title">Package Vulnerabilities (SBOM)</h2>
-    <p class="endpoints-lede">Check packages from your SBOM or lock file. See <a href="/package-vulnerability-api">Package &amp; SBOM Vulnerability API with Monitoring</a>.</p>
+    <p class="endpoints-lede">Check packages from your SBOM or lock file.<br>See <a href="/package-vulnerability-api">Package &amp; SBOM Vulnerability API with Monitoring</a>.</p>
     <div class="endpoint-group">
       <div class="endpoint">
         <span class="method get">GET</span>
@@ -202,7 +206,7 @@
     </div>
 
     <h2 class="section-title">Domain Intelligence</h2>
-    <p class="endpoints-lede">DNS, mail authentication, TLS, headers, registration and certificate data of a domain. See <a href="/domain-monitoring-api">Domain Intelligence &amp; Monitoring API</a>.</p>
+    <p class="endpoints-lede">DNS, mail authentication, TLS, headers, registration and certificate data of a domain.<br>See <a href="/domain-monitoring-api">Domain Intelligence &amp; Monitoring API</a>.</p>
     <div class="endpoint-group">
       <div class="endpoint">
         <span class="method get">GET</span>
@@ -257,7 +261,7 @@
     </div>
 
     <h2 class="section-title">IP Intelligence</h2>
-    <p class="endpoints-lede">The AS, country, cloud range and Tor exit of an address. See <a href="/ip-intelligence-api">IP &amp; ASN Intelligence API with Monitoring</a>.</p>
+    <p class="endpoints-lede">The AS, country, cloud range and Tor exit of an address.<br>See <a href="/ip-intelligence-api">IP &amp; ASN Intelligence API with Monitoring</a>.</p>
     <div class="endpoint-group">
       <div class="endpoint">
         <span class="method get">GET</span>
@@ -300,7 +304,7 @@
     </div>
 
     <h2 class="section-title">Monitoring (watchlist)</h2>
-    <p class="endpoints-lede">Monitoring needs an API key. Add CVEs, products, CVE searches, packages, domains and IP addresses to the watchlist of your key. The server records change events for them. You read the events with <code>watchlist_events</code>. See <a href="/security-monitoring-api">Security Monitoring API</a>.</p>
+    <p class="endpoints-lede">Monitoring needs an API key. Add CVEs, products, CVE searches, packages, domains and IP addresses to the watchlist of your key. The server records change events for them. You read the events with <code>watchlist_events</code>.<br>See <a href="/security-monitoring-api">Security Monitoring API</a>.</p>
     <div class="endpoint-group">
       <div class="endpoint">
         <span class="method post">POST</span>
@@ -345,7 +349,7 @@
     <div class="setup-cards">
       <div class="setup-card">
         <h3>1. MCP (Claude / Cursor / VS Code)</h3>
-        <pre>{
+        <div class="copy-wrap copy-wrap-top"><pre>{
   "mcpServers": {
     "contrastapi": {
       "command": "npx",
@@ -353,7 +357,7 @@
         "https://api.contrastcyber.com/mcp/"]
     }
   }
-}</pre>
+}</pre><button type="button" class="copy-btn" aria-label="Copy configuration"><svg class="icon-copy" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><svg class="icon-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg></button></div>
         <a href="/mcp-setup">Full MCP guide →</a>
       </div>
       <div class="setup-card">
@@ -366,7 +370,7 @@
   </section>
 
   <!-- Credit Costs -->
-  <section id="costs" class="endpoints endpoints-mt">
+  <section id="costs" class="endpoints">
     <h2 class="section-title">Credit costs</h2>
     <p class="endpoints-lede">
       Transparent pricing: each answer that spends credits carries <code class="code-accent">X-RateLimit-Remaining</code> so you can budget calls. An MCP <code>tools/call</code> costs the same as its REST endpoint.
@@ -425,22 +429,22 @@
   <section class="auth-section">
     <h2 class="section-title">Data Freshness</h2>
     <ul class="freshness-list">
-      <li><strong>CVE / EPSS / KEV / CWE:</strong> synced from NVD, FIRST EPSS, CISA KEV and MITRE CWE into the local database. /health shows when each feed was last synced and whether that sync succeeded.</li>
-      <li><strong>Exploit and detection data:</strong> /cve_exploit reads local copies of the PoC-in-GitHub list, the Metasploit module list and the Exploit Database list. A GitHub repository is listed, but it is not counted as proof of a public exploit. /cve_lookup and the <code>has_nuclei_template</code> filter of /cve_search and /cve_leading read a local copy of the Nuclei template list.</li>
+      <li><strong>CVE / EPSS / KEV / CWE:</strong> synced from NVD, FIRST EPSS, CISA KEV and MITRE CWE into the local database. <code>/health</code> shows when each feed was last synced and whether that sync succeeded.</li>
+      <li><strong>Exploit and detection data:</strong> <code>/cve_exploit</code> reads local copies of the PoC-in-GitHub list, the Metasploit module list and the Exploit Database list. A GitHub repository is listed, but it is not counted as proof of a public exploit. <code>/cve_lookup</code> and the <code>has_nuclei_template</code> filter of <code>/cve_search</code> and <code>/cve_leading</code> read a local copy of the Nuclei template list.</li>
       <li><strong>Product names:</strong> next to the CPE names of NVD, the affected products carry the names a CNA gives. The NVD record holds the CNA's names in free text. The CVE List of the CVE Program (cvelistV5) holds the CNA's CPE names.</li>
-      <li><strong>Advisory data:</strong> <code>?include_ghsa=true</code>, /package_check and /package_check_bulk read a local copy of the OSV.dev export.</li>
-      <li><strong>End-of-life dates:</strong> the <code>eol</code> member of /product_exposure, /package_check and /package_check_bulk reads a local copy of the endoflife.date data (MIT).</li>
-      <li><strong>Leaked passwords:</strong> /password_check asks the Pwned Passwords range API of Have I Been Pwned when it is asked. It sends only the first five characters of the SHA-1 hash.</li>
-      <li><strong>Driver data:</strong> /driver_lookup and /driver_lookup_bulk read a local copy of the LOLDrivers catalog.</li>
-      <li><strong>IP data:</strong> /ip_lookup reads local copies of the IPtoASN list, the DB-IP Lite country list (<a href="https://db-ip.com">IP Geolocation by DB-IP</a>), the published address ranges of cloud and CDN providers, the Tor exit list and a list of hijacked netblocks. /asn_lookup reads the same copy of the IPtoASN list. For a Pro key that saved its own Shodan or AbuseIPDB key, /ip_lookup also asks Shodan and AbuseIPDB when it is asked.</li>
-      <li><strong>Email data:</strong> /email_address_check reads a local copy of the disposable-email-domains blocklist (CC0 1.0). It asks its own DNS resolver about the address's domain when it is asked.</li>
-      <li><strong>Defense data:</strong> /d3fend_for_attack reads a local copy of the MITRE D3FEND catalog. The copy is refreshed every week from MITRE.</li>
-      <li><strong>TLS checks:</strong> /ssl_check connects to the host when it is asked. It keeps a successful answer for one hour when it could read the SSL Blacklist and the list holds rows, and <code>checked_at</code> says when the check ran.</li>
-      <li><strong>Header checks:</strong> /headers_check fetches the home page of the host when it is asked. It keeps each successful answer for one hour under the host name and the choice of whole values. The answer holds the address of the page without its query, the site's status, the target of a redirect it did not follow and the security headers the site sent. It holds no Set-Cookie value, only counts: how many cookies the site set, and how many have each issue. Any caller who makes the same request in that hour gets it, and <code>checked_at</code> says when the fetch ran.</li>
-      <li><strong>Domain registrations:</strong> /whois_lookup asks the RDAP server of the TLD when it is asked. It finds that server in a copy of IANA's RDAP bootstrap file. A TLD without an RDAP server is asked over WHOIS, when the registry's terms allow it. It keeps each answer that holds a registration for one hour.</li>
-      <li><strong>Web archive captures:</strong> /wayback_lookup asks the CDX server of the Internet Archive's Wayback Machine when it is asked. It reads only the list of captures, and it keeps each answer that holds that list for one day.</li>
-      <li><strong>Certificate Transparency:</strong> /cert_search asks SSLMate's Cert Spotter when it is asked. Cert Spotter lists only unexpired certificates. The server keeps each answer that holds the certificate list for one day.</li>
-      <li><strong>Subdomains:</strong> /subdomain_enum asks its own DNS resolver and Cert Spotter when it is asked. It keeps each answer under the registrable domain: for one day when it holds the names of Cert Spotter, and otherwise for 10 minutes, or for the wait it names when that is longer. An answer whose wildcard verdict is undetermined is kept for 10 minutes.</li>
+      <li><strong>Advisory data:</strong> <code>?include_ghsa=true</code>, <code>/package_check</code> and <code>/package_check_bulk</code> read a local copy of the OSV.dev export.</li>
+      <li><strong>End-of-life dates:</strong> the <code>eol</code> member of <code>/product_exposure</code>, <code>/package_check</code> and <code>/package_check_bulk</code> reads a local copy of the endoflife.date data (MIT).</li>
+      <li><strong>Leaked passwords:</strong> <code>/password_check</code> asks the Pwned Passwords range API of Have I Been Pwned when it is asked. It sends only the first five characters of the SHA-1 hash.</li>
+      <li><strong>Driver data:</strong> <code>/driver_lookup</code> and <code>/driver_lookup_bulk</code> read a local copy of the LOLDrivers catalog.</li>
+      <li><strong>IP data:</strong> <code>/ip_lookup</code> reads local copies of the IPtoASN list, the DB-IP Lite country list (<a href="https://db-ip.com">IP Geolocation by DB-IP</a>), the published address ranges of cloud and CDN providers, the Tor exit list and a list of hijacked netblocks. <code>/asn_lookup</code> reads the same copy of the IPtoASN list. For a Pro key that saved its own Shodan or AbuseIPDB key, <code>/ip_lookup</code> also asks Shodan and AbuseIPDB when it is asked.</li>
+      <li><strong>Email data:</strong> <code>/email_address_check</code> reads a local copy of the disposable-email-domains blocklist (CC0 1.0). It asks its own DNS resolver about the address's domain when it is asked.</li>
+      <li><strong>Defense data:</strong> <code>/d3fend_for_attack</code> reads a local copy of the MITRE D3FEND catalog. The copy is refreshed every week from MITRE.</li>
+      <li><strong>TLS checks:</strong> <code>/ssl_check</code> connects to the host when it is asked. It keeps a successful answer for one hour when it could read the SSL Blacklist and the list holds rows, and <code>checked_at</code> says when the check ran.</li>
+      <li><strong>Header checks:</strong> <code>/headers_check</code> fetches the home page of the host when it is asked. It keeps each successful answer for one hour under the host name and the choice of whole values. The answer holds the address of the page without its query, the site's status, the target of a redirect it did not follow and the security headers the site sent. It holds no Set-Cookie value, only counts: how many cookies the site set, and how many have each issue. Any caller who makes the same request in that hour gets it, and <code>checked_at</code> says when the fetch ran.</li>
+      <li><strong>Domain registrations:</strong> <code>/whois_lookup</code> asks the RDAP server of the TLD when it is asked. It finds that server in a copy of IANA's RDAP bootstrap file. A TLD without an RDAP server is asked over WHOIS, when the registry's terms allow it. It keeps each answer that holds a registration for one hour.</li>
+      <li><strong>Web archive captures:</strong> <code>/wayback_lookup</code> asks the CDX server of the Internet Archive's Wayback Machine when it is asked. It reads only the list of captures, and it keeps each answer that holds that list for one day.</li>
+      <li><strong>Certificate Transparency:</strong> <code>/cert_search</code> asks SSLMate's Cert Spotter when it is asked. Cert Spotter lists only unexpired certificates. The server keeps each answer that holds the certificate list for one day.</li>
+      <li><strong>Subdomains:</strong> <code>/subdomain_enum</code> asks its own DNS resolver and Cert Spotter when it is asked. It keeps each answer under the registrable domain: for one day when it holds the names of Cert Spotter, and otherwise for 10 minutes, or for the wait it names when that is longer. An answer whose wildcard verdict is undetermined is kept for 10 minutes.</li>
     </ul>
   </section>
 

@@ -144,6 +144,15 @@ static const EndpointParamSpec_t SPEC_SORT = {
   .mp_message           = "sort must be published_time, epss, cvss, or kev_date_added",
 };
 
+static const EndpointParamSpec_t SPEC_WINDOW_DAYS = {
+  .mp_name              = "window_days",
+  .m_type               = ENDPOINT_PARAM_TYPE_INT,
+  .m_min                = EPSSRISERS_WINDOW_SHORT_DAYS,
+  .m_max                = EPSSRISERS_WINDOW_LONG_DAYS,
+  .mp_message           = "window_days must be 7 or 30",
+  .m_default            = EPSSRISERS_WINDOW_SHORT_DAYS,
+};
+
 static const EndpointParamSpec_t SPEC_LIMIT = {
   .mp_name              = "limit",
   .m_type               = ENDPOINT_PARAM_TYPE_INT,
@@ -247,6 +256,15 @@ static const EndpointParamSpec_t SPEC_CVETRIAGE_OFFSET = {
   .m_min                = 0,
   .m_max                = CVE_LIST_MAX_OFFSET,
   .mp_message           = "offset must be an integer between 0 and 10000; narrow the list with vendor, product or min_risk_score",
+  .m_default            = 0,
+};
+
+static const EndpointParamSpec_t SPEC_EPSSRISERS_OFFSET = {
+  .mp_name              = "offset",
+  .m_type               = ENDPOINT_PARAM_TYPE_INT,
+  .m_min                = 0,
+  .m_max                = CVE_LIST_MAX_OFFSET,
+  .mp_message           = "offset must be an integer between 0 and 10000; narrow the list with vendor, product or min_epss",
   .m_default            = 0,
 };
 
@@ -887,6 +905,65 @@ static const EndpointParam_t CVETRIAGE_PARAMS[] = {
     .mp_mcpArgDescription = "CVEs to skip; pass next_offset of the previous page",
     .m_offset             = offsetof(CVETRIAGEParams_t, m_offset),
     .m_size               = MACRO_FIELD_SIZE(CVETRIAGEParams_t, m_offset),
+  },
+};
+
+static const EndpointParam_t EPSSRISERS_PARAMS[] = {
+  {
+    .mp_spec              = &SPEC_WINDOW_DAYS,
+    .m_sources            = ENDPOINT_PARAM_SRC_REST_QUERY | ENDPOINT_PARAM_SRC_MCP_ARG,
+    .m_isRequired         = false,
+    .mp_mcpArgDescription = "Days to look back: 7 or 30. Default 7.",
+    .m_offset             = offsetof(EPSSRISERSParams_t, m_windowDays),
+    .m_size               = MACRO_FIELD_SIZE(EPSSRISERSParams_t, m_windowDays),
+  },
+  {
+    .mp_spec              = &SPEC_VENDOR,
+    .m_sources            = ENDPOINT_PARAM_SRC_REST_QUERY | ENDPOINT_PARAM_SRC_MCP_ARG,
+    .m_isRequired         = false,
+    .mp_mcpArgDescription = "Exact vendor name as cpe_search lists it, e.g. apache",
+    .m_offset             = offsetof(EPSSRISERSParams_t, ma_vendor),
+    .m_size               = MACRO_FIELD_SIZE(EPSSRISERSParams_t, ma_vendor),
+  },
+  {
+    .mp_spec              = &SPEC_PRODUCT,
+    .m_sources            = ENDPOINT_PARAM_SRC_REST_QUERY | ENDPOINT_PARAM_SRC_MCP_ARG,
+    .m_isRequired         = false,
+    .mp_mcpArgDescription = "Exact product name as cpe_search lists it, e.g. log4j",
+    .m_offset             = offsetof(EPSSRISERSParams_t, ma_product),
+    .m_size               = MACRO_FIELD_SIZE(EPSSRISERSParams_t, ma_product),
+  },
+  {
+    .mp_spec              = &SPEC_IN_KEV,
+    .m_sources            = ENDPOINT_PARAM_SRC_REST_QUERY | ENDPOINT_PARAM_SRC_MCP_ARG,
+    .m_isRequired         = false,
+    .mp_mcpArgDescription = "true lists only CVEs in CISA KEV, false only CVEs not in it",
+    .m_offset             = offsetof(EPSSRISERSParams_t, m_kevFilter),
+    .m_size               = MACRO_FIELD_SIZE(EPSSRISERSParams_t, m_kevFilter),
+  },
+  {
+    .mp_spec              = &SPEC_MIN_EPSS,
+    .m_sources            = ENDPOINT_PARAM_SRC_REST_QUERY | ENDPOINT_PARAM_SRC_MCP_ARG,
+    .m_isRequired         = false,
+    .mp_mcpArgDescription = "Lowest current EPSS score to list, 0.0 to 1.0.",
+    .m_offset             = offsetof(EPSSRISERSParams_t, m_minEpss),
+    .m_size               = MACRO_FIELD_SIZE(EPSSRISERSParams_t, m_minEpss),
+  },
+  {
+    .mp_spec              = &SPEC_LIMIT,
+    .m_sources            = ENDPOINT_PARAM_SRC_REST_QUERY | ENDPOINT_PARAM_SRC_MCP_ARG,
+    .m_isRequired         = false,
+    .mp_mcpArgDescription = "CVEs per page",
+    .m_offset             = offsetof(EPSSRISERSParams_t, m_limit),
+    .m_size               = MACRO_FIELD_SIZE(EPSSRISERSParams_t, m_limit),
+  },
+  {
+    .mp_spec              = &SPEC_EPSSRISERS_OFFSET,
+    .m_sources            = ENDPOINT_PARAM_SRC_REST_QUERY | ENDPOINT_PARAM_SRC_MCP_ARG,
+    .m_isRequired         = false,
+    .mp_mcpArgDescription = "CVEs to skip; pass next_offset of the previous page",
+    .m_offset             = offsetof(EPSSRISERSParams_t, m_offset),
+    .m_size               = MACRO_FIELD_SIZE(EPSSRISERSParams_t, m_offset),
   },
 };
 
@@ -1745,6 +1822,26 @@ const Endpoint_t endpoints[] = {
     .m_jsonCeiling             = JSONBUF_DEFAULT_CEILING,
   },
   {
+    .mp_httpPath               = "/epss_risers",
+    .m_hasPathSegment          = false,
+    .ma_allowedMethods         = {"GET", NULL},
+    .m_isPayable               = true,
+    .mp_mcpToolName            = "epss_risers",
+    .mp_mcpToolDescription     = "List the CVEs whose EPSS score rose most over the last 7 or 30 days, with the old and the new score. Filter by vendor, product, KEV state or a minimum score. Call the cve_lookup tool for the details of a CVE.",
+    .mp_mcpToolTitle           = "EPSS Risers",
+    .m_mcpToolCategory         = ENDPOINT_MCP_TOOL_CATEGORY_CVE,
+    .m_mcpToolEffect           = ENDPOINT_MCP_TOOL_EFFECT_READ_ONLY,
+    .m_creditCost              = 1,
+    .m_costRule                = ENDPOINT_COST_FLAT,
+    .mp_params                 = EPSSRISERS_PARAMS,
+    .m_paramCount              = (int)(sizeof(EPSSRISERS_PARAMS) / sizeof(EPSSRISERS_PARAMS[0])),
+    .m_paramsSize              = sizeof(EPSSRISERSParams_t),
+    .m_runFunction             = endpoint_EPSSRISERSRun,
+    .m_isDbRequired            = true,
+    .m_callsUpstream           = false,
+    .m_jsonCeiling             = JSONBUF_DEFAULT_CEILING,
+  },
+  {
     .mp_httpPath               = "/cve_triage_bulk",
     .m_hasPathSegment          = false,
     .ma_allowedMethods         = {"POST", NULL},
@@ -1788,7 +1885,7 @@ const Endpoint_t endpoints[] = {
     .ma_allowedMethods         = {"GET", NULL},
     .m_isPayable               = true,
     .mp_mcpToolName            = "cpe_search",
-    .mp_mcpToolDescription     = "Find the CPE vendor and product names that hold a text, ranked by vulnerable CVE count. Pass a name that holds no % as it is to the vendor and product arguments of the cve_search, cve_triage, cve_leading and product_exposure tools.",
+    .mp_mcpToolDescription     = "Find the CPE vendor and product names that hold a text, ranked by vulnerable CVE count. Pass a name with no % as it is to the vendor and product arguments of the cve_search, cve_triage, cve_leading, product_exposure and epss_risers tools.",
     .mp_mcpToolTitle           = "CPE Search",
     .m_mcpToolCategory         = ENDPOINT_MCP_TOOL_CATEGORY_CVE,
     .m_mcpToolEffect           = ENDPOINT_MCP_TOOL_EFFECT_READ_ONLY,

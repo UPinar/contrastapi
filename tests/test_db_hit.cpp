@@ -533,6 +533,12 @@ void setUp(void)
   g_stub_CVELEADING_items                = NULL;
   g_stub_CVELEADING_item_count           = 0;
   g_stub_CVETRIAGE_item_count            = 1;
+  g_stub_EPSSRISERS_status               = DB_ERROR;
+  memset(&g_stub_EPSSRISERS_last_params,  0, sizeof(g_stub_EPSSRISERS_last_params));
+  g_stub_EPSSRISERS_call_count           = 0;
+  g_stub_EPSSRISERS_item_count           = 1;
+  g_stub_EPSSRISERS_from_date            = "2026-11-12";
+  g_stub_EPSSRISERSResultFree_call_count = 0;
   g_stub_CVELOOKUP_affected_products_len = 0;
   g_stub_KEVLOOKUP_cwes_len              = 0;
   g_stub_HEALTH_full_feeds               = false;
@@ -1820,6 +1826,7 @@ static const RowPrice_t ROW_PRICES[] = {
   { "/cwe_lookup/",      "/cwe_lookup/CWE-79",              1 },
   { "/cve_leading",      "/cve_leading",                    1 },
   { "/cve_triage",       "/cve_triage",                     1 },
+  { "/epss_risers",      "/epss_risers",                    1 },
   { "/cve_triage_bulk",  NULL,                              1 },
   { "/cve_risk_score/",  "/cve_risk_score/CVE-2021-44228",  1 },
   { "/cve_exploit/",     "/cve_exploit/CVE-2021-44228",     1 },
@@ -2969,7 +2976,7 @@ void test_HEALTH_db_error_answers_503_with_retry_after(void)
   TEST_ASSERT_EQUAL_INT(1, static_countResponses(buf));
   TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 503 Service Unavailable\r\n"));
   TEST_ASSERT_NOT_NULL(strstr(buf, "\r\nRetry-After: 5\r\n"));
-  TEST_ASSERT_NOT_NULL(strstr(buf, R"({"status":"unavailable","version":"2.0.13","db":null})"));
+  TEST_ASSERT_NOT_NULL(strstr(buf, R"({"status":"unavailable","version":"2.1.1","db":null})"));
   TEST_ASSERT_NULL(strstr(buf, R"("cve_count")"));
 }
 
@@ -2983,7 +2990,7 @@ void test_HEALTH_db_not_found_also_answers_503(void)
   static_callRequestHandle(req, buf, sizeof(buf));
   TEST_ASSERT_EQUAL_INT(1, static_countResponses(buf));
   TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 503 Service Unavailable\r\n"));
-  TEST_ASSERT_NOT_NULL(strstr(buf, R"({"status":"unavailable","version":"2.0.13","db":null})"));
+  TEST_ASSERT_NOT_NULL(strstr(buf, R"({"status":"unavailable","version":"2.1.1","db":null})"));
   TEST_ASSERT_NULL(strstr(buf, R"("cve_count")"));
 }
 
@@ -7552,6 +7559,99 @@ void test_driver_lookup_bulk_db_error_is_500_and_frees(void)
   TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 500 Internal Server Error\r\n"));
   TEST_ASSERT_EQUAL_INT(1, g_stub_DRIVERLOOKUPBULK_call_count);
   TEST_ASSERT_EQUAL_INT(1, g_stub_DRIVERLOOKUPBULKResultFree_call_count);
+}
+
+void test_EPSSRISERS_db_error_returns_500(void)
+{
+  g_stub_EPSSRISERS_status = DB_ERROR;
+  char buf[RESP_BUF];
+  static_callRequestHandle("GET /epss_risers HTTP/1.1\r\nHost: localhost\r\n\r\n", buf, sizeof(buf));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 500"));
+  TEST_ASSERT_EQUAL_INT(1, g_stub_EPSSRISERS_call_count);
+  TEST_ASSERT_EQUAL_INT(1, g_stub_EPSSRISERSResultFree_call_count);
+}
+
+void test_EPSSRISERS_defaults_reach_db_params(void)
+{
+  g_stub_EPSSRISERS_status = DB_OK;
+  char buf[RESP_BUF];
+  static_callRequestHandle("GET /epss_risers HTTP/1.1\r\nHost: localhost\r\n\r\n", buf, sizeof(buf));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 200"));
+  TEST_ASSERT_EQUAL_INT(1, g_stub_EPSSRISERS_call_count);
+  TEST_ASSERT_EQUAL_INT(7, g_stub_EPSSRISERS_last_params.m_windowDays);
+  TEST_ASSERT_EQUAL_INT(20, g_stub_EPSSRISERS_last_params.m_limit);
+  TEST_ASSERT_EQUAL_INT(0, g_stub_EPSSRISERS_last_params.m_offset);
+  TEST_ASSERT_EQUAL_INT(-100000, (int)(g_stub_EPSSRISERS_last_params.m_minEpss * 100000.0));
+  TEST_ASSERT_EQUAL_INT(CVE_KEV_FILTER_ANY, g_stub_EPSSRISERS_last_params.m_kevFilter);
+  TEST_ASSERT_EQUAL_STRING("", g_stub_EPSSRISERS_last_params.ma_vendor);
+  TEST_ASSERT_EQUAL_STRING("", g_stub_EPSSRISERS_last_params.ma_product);
+  TEST_ASSERT_NOT_NULL(strstr(buf, R"({"window_days":7,"from_date":"2026-11-12","to_date":"2026-11-19","total":1,"limit":20,"offset":0,"next_offset":1,"results":[)"));
+  TEST_ASSERT_NOT_NULL(strstr(buf, R"({"cve_id":"CVE-2025-55182","epss_score":0.81870,"epss_previous_score":0.03042,"epss_delta":0.78828,"epss_percentile":0.99412,"in_kev":true}]})"));
+  TEST_ASSERT_NULL(strstr(buf, "window_note"));
+  TEST_ASSERT_EQUAL_INT(1, g_stub_EPSSRISERSResultFree_call_count);
+}
+
+void test_EPSSRISERS_each_value_reaches_db_params(void)
+{
+  g_stub_EPSSRISERS_status = DB_OK;
+  char buf[RESP_BUF];
+  static_callRequestHandle("GET /epss_risers?window_days=30&vendor=microsoft&product=exchange_server&in_kev=false&min_epss=0.75&limit=42&offset=9 HTTP/1.1\r\nHost: localhost\r\n\r\n", buf, sizeof(buf));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 200"));
+  TEST_ASSERT_EQUAL_INT(1, g_stub_EPSSRISERS_call_count);
+  TEST_ASSERT_EQUAL_INT(30, g_stub_EPSSRISERS_last_params.m_windowDays);
+  TEST_ASSERT_EQUAL_STRING("microsoft", g_stub_EPSSRISERS_last_params.ma_vendor);
+  TEST_ASSERT_EQUAL_STRING("exchange_server", g_stub_EPSSRISERS_last_params.ma_product);
+  TEST_ASSERT_EQUAL_INT(CVE_KEV_FILTER_NOT_IN_KEV, g_stub_EPSSRISERS_last_params.m_kevFilter);
+  TEST_ASSERT_EQUAL_INT(75000, (int)(g_stub_EPSSRISERS_last_params.m_minEpss * 100000.0));
+  TEST_ASSERT_EQUAL_INT(42, g_stub_EPSSRISERS_last_params.m_limit);
+  TEST_ASSERT_EQUAL_INT(9, g_stub_EPSSRISERS_last_params.m_offset);
+  TEST_ASSERT_NOT_NULL(strstr(buf, R"({"window_days":30,)"));
+  TEST_ASSERT_NOT_NULL(strstr(buf, R"("limit":42,"offset":9,"next_offset":10,"product_filter_note":)"));
+}
+
+void test_EPSSRISERS_window_7_and_30_reach_db(void)
+{
+  static const int windows[] = { 7, 30 };
+  g_stub_EPSSRISERS_status = DB_OK;
+  for (size_t i = 0; i < sizeof(windows) / sizeof(windows[0]); i++)
+  {
+    char req[128];
+    int written = snprintf(req, sizeof(req), "GET /epss_risers?window_days=%d HTTP/1.1\r\nHost: localhost\r\n\r\n", windows[i]);
+    TEST_ASSERT_TRUE(written > 0 && (size_t)written < sizeof(req));
+    char buf[RESP_BUF];
+    static_callRequestHandle(req, buf, sizeof(buf));
+    TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 200"));
+    TEST_ASSERT_EQUAL_INT(windows[i], g_stub_EPSSRISERS_last_params.m_windowDays);
+  }
+  TEST_ASSERT_EQUAL_INT(2, g_stub_EPSSRISERS_call_count);
+}
+
+void test_EPSSRISERS_window_15_is_refused_before_db(void)
+{
+  g_stub_EPSSRISERS_status = DB_OK;
+  char buf[RESP_BUF];
+  static_callRequestHandle("GET /epss_risers?window_days=15 HTTP/1.1\r\nHost: localhost\r\n\r\n", buf, sizeof(buf));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 400"));
+  TEST_ASSERT_NOT_NULL(strstr(buf, R"("message":"window_days must be 7 or 30")"));
+  TEST_ASSERT_EQUAL_INT(0, g_stub_EPSSRISERS_call_count);
+  TEST_ASSERT_EQUAL_INT(0, g_stub_query_call_count);
+}
+
+void test_EPSSRISERS_uncomputable_window_answers_200_with_window_note(void)
+{
+  g_stub_EPSSRISERS_status    = DB_OK;
+  g_stub_EPSSRISERS_from_date = "";
+  char buf[RESP_BUF];
+  static_callRequestHandle("GET /epss_risers?window_days=30 HTTP/1.1\r\nHost: localhost\r\n\r\n", buf, sizeof(buf));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 200"));
+  TEST_ASSERT_NOT_NULL(strstr(buf, R"({"window_days":30,"from_date":null,"to_date":"2026-11-19","window_note":"EPSS history holds no day that can start this window yet","total":0,)"));
+  TEST_ASSERT_NOT_NULL(strstr(buf, R"("results":[]})"));
+}
+
+void test_EPSSRISERS_price_is_flat(void)
+{
+  TEST_ASSERT_EQUAL_UINT(1, static_costForPath("/epss_risers?window_days=30&limit=100"));
+  TEST_ASSERT_EQUAL_UINT(1, static_costForPath("/epss_risers?offset=10000"));
 }
 
 void test_CVETRIAGE_no_db_returns_500(void)
@@ -12868,7 +12968,7 @@ void test_rest_and_mcp_refuse_a_value_with_one_text(void)
       checked++;
     }
   }
-  TEST_ASSERT_EQUAL_INT(55, checked);
+  TEST_ASSERT_EQUAL_INT(62, checked);
 }
 
 static void static_restGet(const char* path_and_query, char* buf, size_t len)
@@ -14778,7 +14878,7 @@ void test_api_key_claim_refuses_an_order_id_that_is_not_a_uuid(void)
 
 void test_registration_gate_test_count(void)
 {
-  int expected_test_count = 758;
+  int expected_test_count = 765;
   TEST_ASSERT_EQUAL_INT_MESSAGE(expected_test_count, (int)Unity.NumberOfTests,
     "RUN_TEST list and test definitions have drifted apart - a test may be unregistered");
 }
@@ -15100,6 +15200,7 @@ static const ParityCall_t PARITY_CALLS[] = {
   { "cve_risk_score", PARITY_GET("/cve_risk_score/CVE-2021-44228"), R"({"cve_id":"CVE-2021-44228"})", true, PARITY_GET("/cve_risk_score/not-an-id"), R"({"cve_id":"not-an-id"})", false },
   { "cve_exploit", PARITY_GET("/cve_exploit/CVE-2021-44228"), R"({"cve_id":"CVE-2021-44228"})", true, PARITY_GET("/cve_exploit/not-an-id"), R"({"cve_id":"not-an-id"})", false },
   { "cve_triage", PARITY_GET("/cve_triage?vendor=apache&product=log4j&min_risk_score=40&limit=7&offset=3"), R"({"vendor":"apache","product":"log4j","min_risk_score":40,"limit":7,"offset":3})", true, PARITY_GET("/cve_triage?vendor=%25"), R"({"vendor":"%"})", false },
+  { "epss_risers", PARITY_GET("/epss_risers?window_days=30&vendor=apache&product=log4j&in_kev=true&min_epss=0.25&limit=7&offset=3"), R"({"window_days":30,"vendor":"apache","product":"log4j","in_kev":true,"min_epss":0.25,"limit":7,"offset":3})", true, PARITY_GET("/epss_risers?vendor=%25"), R"({"vendor":"%"})", false },
   { "cve_triage_bulk", PARITY_POST("/cve_triage_bulk", R"({"cve_ids":["CVE-2021-44228",5,"CVE-2022-12345","foo"]})"), R"({"cve_ids":["CVE-2021-44228",5,"CVE-2022-12345","foo"]})", true, PARITY_POST("/cve_triage_bulk", R"({"cve_ids":[]})"), R"({"cve_ids":[]})", false },
   { "product_exposure", PARITY_GET("/product_exposure?vendor=apache&product=log4j"), R"({"vendor":"apache","product":"log4j"})", true, PARITY_GET("/product_exposure?vendor=%25&product=log4j"), R"({"vendor":"%","product":"log4j"})", false },
   { "cpe_search", PARITY_GET("/cpe_search?search=notepad%2B%2B&limit=7&offset=3"), R"({"search":"notepad++","limit":7,"offset":3})", true, PARITY_GET("/cpe_search?search=ab"), R"({"search":"ab"})", false },
@@ -15141,6 +15242,7 @@ static void static_setParityStubsOk(void)
   g_stub_CVERISKSCORE_status    = DB_OK;
   g_stub_CVETRIAGE_status       = DB_OK;
   g_stub_CVETRIAGEBULK_status   = DB_OK;
+  g_stub_EPSSRISERS_status      = DB_OK;
   g_stub_PRODUCTEXPOSURE_status = DB_OK;
   g_stub_CPESEARCH_status       = DB_OK;
   g_stub_D3FENDFORATTACK_status = DB_OK;
@@ -15318,6 +15420,7 @@ typedef struct
   CVESEARCHParams_t      m_search;
   CVELEADINGParams_t     m_leading;
   CVETRIAGEParams_t      m_triage;
+  EPSSRISERSParams_t     m_epssRisers;
   CPESEARCHParams_t      m_cpeSearch;
   PACKAGECHECKParams_t   m_packageCheck;
   CVEPRODUCTSParams_t    m_cveProducts;
@@ -15327,7 +15430,7 @@ typedef struct
 
 static ListParams_t static_takeListParams(void)
 {
-  ListParams_t taken = { g_stub_CVESEARCH_last_params, g_stub_CVELEADING_last_params, g_stub_CVETRIAGE_last_params, g_stub_CPESEARCH_last_params,
+  ListParams_t taken = { g_stub_CVESEARCH_last_params, g_stub_CVELEADING_last_params, g_stub_CVETRIAGE_last_params, g_stub_EPSSRISERS_last_params, g_stub_CPESEARCH_last_params,
                          g_stub_PACKAGECHECK_last_params, g_stub_CVEPRODUCTS_last_params, g_stub_PACKAGECHECKBULK_last_item_count,
                          { g_stub_PACKAGECHECKBULK_last_items[0], g_stub_PACKAGECHECKBULK_last_items[1] } };
   g_stub_PACKAGECHECKBULK_last_item_count = 0;
@@ -15335,6 +15438,7 @@ static ListParams_t static_takeListParams(void)
   memset(&g_stub_CVESEARCH_last_params, 0, sizeof(g_stub_CVESEARCH_last_params));
   memset(&g_stub_CVELEADING_last_params, 0, sizeof(g_stub_CVELEADING_last_params));
   memset(&g_stub_CVETRIAGE_last_params, 0, sizeof(g_stub_CVETRIAGE_last_params));
+  memset(&g_stub_EPSSRISERS_last_params, 0, sizeof(g_stub_EPSSRISERS_last_params));
   memset(&g_stub_CPESEARCH_last_params, 0, sizeof(g_stub_CPESEARCH_last_params));
   memset(&g_stub_PACKAGECHECK_last_params, 0, sizeof(g_stub_PACKAGECHECK_last_params));
   memset(&g_stub_CVEPRODUCTS_last_params, 0, sizeof(g_stub_CVEPRODUCTS_last_params));
@@ -15379,6 +15483,19 @@ static void static_assertSameListParams(const char* tool, const ListParams_t* re
     TEST_ASSERT_EQUAL_STRING_MESSAGE(a->ma_vendor, b->ma_vendor, tool);
     TEST_ASSERT_EQUAL_STRING_MESSAGE(a->ma_product, b->ma_product, tool);
     TEST_ASSERT_TRUE_MESSAGE(a->m_minRiskScore == b->m_minRiskScore, tool);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(a->m_limit, b->m_limit, tool);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(a->m_offset, b->m_offset, tool);
+  }
+  else if (strcmp(tool, "epss_risers") == 0)
+  {
+    const EPSSRISERSParams_t* a = &rest->m_epssRisers;
+    const EPSSRISERSParams_t* b = &mcp->m_epssRisers;
+    TEST_ASSERT_EQUAL_INT_MESSAGE(30, a->m_windowDays, tool);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(a->m_windowDays, b->m_windowDays, tool);
+    TEST_ASSERT_EQUAL_STRING_MESSAGE(a->ma_vendor, b->ma_vendor, tool);
+    TEST_ASSERT_EQUAL_STRING_MESSAGE(a->ma_product, b->ma_product, tool);
+    TEST_ASSERT_TRUE_MESSAGE(a->m_minEpss == b->m_minEpss, tool);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(a->m_kevFilter, b->m_kevFilter, tool);
     TEST_ASSERT_EQUAL_INT_MESSAGE(a->m_limit, b->m_limit, tool);
     TEST_ASSERT_EQUAL_INT_MESSAGE(a->m_offset, b->m_offset, tool);
   }
@@ -15457,7 +15574,7 @@ void test_rest_and_mcp_send_one_success_body(void)
     }
     checked++;
   }
-  TEST_ASSERT_EQUAL_INT(37, checked);
+  TEST_ASSERT_EQUAL_INT(38, checked);
   TEST_ASSERT_EQUAL_INT((int)(sizeof(PARITY_CALLS) / sizeof(PARITY_CALLS[0])), checked);
 }
 
@@ -15478,7 +15595,7 @@ void test_rest_and_mcp_charge_one_price_for_every_accepted_parity_call(void)
     TEST_ASSERT_EQUAL_UINT_MESSAGE(rest_price, mcp_price, call->mp_tool);
     checked++;
   }
-  TEST_ASSERT_EQUAL_INT(37, checked);
+  TEST_ASSERT_EQUAL_INT(38, checked);
 }
 
 void test_rest_and_mcp_answer_a_db_error_alike(void)
@@ -15544,7 +15661,7 @@ void test_rest_and_mcp_answer_a_db_error_alike(void)
     }
     free(answer);
   }
-  TEST_ASSERT_EQUAL_INT(28, internal);
+  TEST_ASSERT_EQUAL_INT(29, internal);
   TEST_ASSERT_EQUAL_INT(1, unavailable);
   TEST_ASSERT_EQUAL_INT(8, served);
 }
@@ -15624,7 +15741,7 @@ void test_rest_and_mcp_answer_alike_without_a_database(void)
   TEST_ASSERT_EQUAL_INT(0, g_stub_CERTSPOTTER_lookup_count);
   TEST_ASSERT_EQUAL_INT(0, g_stub_CERTSPOTTER_subtree_lookup_count);
   TEST_ASSERT_EQUAL_INT(0, g_stub_SUBDOMAIN_lookup_count);
-  TEST_ASSERT_EQUAL_INT(29, refused);
+  TEST_ASSERT_EQUAL_INT(30, refused);
   TEST_ASSERT_EQUAL_INT(6, served);
   TEST_ASSERT_EQUAL_INT(1, without_credit_budget);
 }
@@ -15927,13 +16044,13 @@ void test_rest_and_mcp_refuse_every_table_value_alike(void)
       plus++;
     }
   }
-  TEST_ASSERT_EQUAL_INT(77, too_long);
+  TEST_ASSERT_EQUAL_INT(84, too_long);
   TEST_ASSERT_EQUAL_INT(54, missing);
-  TEST_ASSERT_EQUAL_INT(76, refused);
-  TEST_ASSERT_EQUAL_INT(22, control);
-  TEST_ASSERT_EQUAL_INT(22, plus);
-  TEST_ASSERT_EQUAL_INT(56, encoding);
-  TEST_ASSERT_EQUAL_INT(22, invalid_utf8);
+  TEST_ASSERT_EQUAL_INT(83, refused);
+  TEST_ASSERT_EQUAL_INT(24, control);
+  TEST_ASSERT_EQUAL_INT(24, plus);
+  TEST_ASSERT_EQUAL_INT(63, encoding);
+  TEST_ASSERT_EQUAL_INT(24, invalid_utf8);
 }
 
 void test_rest_and_mcp_refuse_a_non_boolean_include_rejected_alike(void)
@@ -20313,7 +20430,7 @@ typedef struct {
   const int*  mp_lastOffset;
 } DbHitOffsetCapCase_t;
 
-static void static_offsetCapCases(DbHitOffsetCapCase_t cases_out[3])
+static void static_offsetCapCases(DbHitOffsetCapCase_t cases_out[4])
 {
   cases_out[0] = { "/cve_search?",
                    R"({"error":{"code":"bad_request","message":"offset must be an integer between 0 and 10000; narrow the list with filters or a published_after/published_before window"}})" "\n",
@@ -20321,7 +20438,10 @@ static void static_offsetCapCases(DbHitOffsetCapCase_t cases_out[3])
   cases_out[1] = { "/cve_triage?",
                    R"({"error":{"code":"bad_request","message":"offset must be an integer between 0 and 10000; narrow the list with vendor, product or min_risk_score"}})" "\n",
                    &g_stub_CVETRIAGE_call_count, &g_stub_CVETRIAGE_last_params.m_offset };
-  cases_out[2] = { "/cpe_search?search=windows&",
+  cases_out[2] = { "/epss_risers?",
+                   R"({"error":{"code":"bad_request","message":"offset must be an integer between 0 and 10000; narrow the list with vendor, product or min_epss"}})" "\n",
+                   &g_stub_EPSSRISERS_call_count, &g_stub_EPSSRISERS_last_params.m_offset };
+  cases_out[3] = { "/cpe_search?search=windows&",
                    R"({"error":{"code":"bad_request","message":"offset must be an integer between 0 and 10000; narrow the list with a longer search text"}})" "\n",
                    &g_stub_CPESEARCH_call_count, &g_stub_CPESEARCH_last_params.m_offset };
 }
@@ -20339,8 +20459,9 @@ void test_list_offset_cap_is_400_above_and_served_at_it(void)
   g_stub_api_key_state    = DB_API_KEY_ACTIVE;
   g_stub_CVESEARCH_status = DB_OK;
   g_stub_CVETRIAGE_status = DB_OK;
+  g_stub_EPSSRISERS_status = DB_OK;
   g_stub_CPESEARCH_status = DB_OK;
-  DbHitOffsetCapCase_t cases[3];
+  DbHitOffsetCapCase_t cases[4];
   static_offsetCapCases(cases);
   for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
   {
@@ -20369,7 +20490,7 @@ void test_docs_list_offset_cap_matches_the_server(void)
 {
   g_stub_api_key_state = DB_API_KEY_ACTIVE;
   char* api = static_readDocsFile(DOCS_API_PATH);
-  DbHitOffsetCapCase_t cases[3];
+  DbHitOffsetCapCase_t cases[4];
   static_offsetCapCases(cases);
   for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
   {
@@ -20386,7 +20507,7 @@ void test_docs_list_offset_cap_matches_the_server(void)
   int written = snprintf(bound, sizeof(bound), "0\xE2\x80\x93%d (default 0)", CVE_LIST_MAX_OFFSET);
   TEST_ASSERT_TRUE(written > 0 && (size_t)written < sizeof(bound));
   char* mcp = static_readDocsFile(DOCS_MCP_PATH);
-  TEST_ASSERT_EQUAL_INT_MESSAGE(4, static_countOccurrences(mcp, bound), bound);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(5, static_countOccurrences(mcp, bound), bound);
   char schema_bound[64];
   written = snprintf(schema_bound, sizeof(schema_bound), "`maximum` %d in `cve_search`", CVE_LIST_MAX_OFFSET);
   TEST_ASSERT_TRUE(written > 0 && (size_t)written < sizeof(schema_bound));
@@ -20394,7 +20515,7 @@ void test_docs_list_offset_cap_matches_the_server(void)
   char refused[64];
   written = snprintf(refused, sizeof(refused), "above %d is refused", CVE_LIST_MAX_OFFSET);
   TEST_ASSERT_TRUE(written > 0 && (size_t)written < sizeof(refused));
-  TEST_ASSERT_EQUAL_INT_MESSAGE(2, static_countOccurrences(mcp, refused), refused);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(3, static_countOccurrences(mcp, refused), refused);
   char paginate[64];
   written = snprintf(paginate, sizeof(paginate), "Above %d it is refused.", CVE_LIST_MAX_OFFSET);
   TEST_ASSERT_TRUE(written > 0 && (size_t)written < sizeof(paginate));
@@ -20405,11 +20526,11 @@ void test_docs_list_offset_cap_matches_the_server(void)
   char range[64];
   written = snprintf(range, sizeof(range), "0\xE2\x80\x93%d (default", CVE_LIST_MAX_OFFSET);
   TEST_ASSERT_TRUE(written > 0 && (size_t)written < sizeof(range));
-  TEST_ASSERT_EQUAL_INT_MESSAGE(3, static_countOccurrences(api, range), range);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(4, static_countOccurrences(api, range), range);
   TEST_ASSERT_EQUAL_INT_MESSAGE(1, static_countOccurrences(api, refused), refused);
   written = snprintf(refused, sizeof(refused), "Above %d it is refused as `offset`", CVE_LIST_MAX_OFFSET);
   TEST_ASSERT_TRUE(written > 0 && (size_t)written < sizeof(refused));
-  TEST_ASSERT_EQUAL_INT_MESSAGE(2, static_countOccurrences(api, refused), refused);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(3, static_countOccurrences(api, refused), refused);
   free(api);
 }
 
@@ -21274,6 +21395,13 @@ int main(void)
   RUN_TEST(test_package_check_bulk_refused_key_skipped_refused_or_no_connection_runs_no_weigh);
 
   RUN_TEST(test_CVETRIAGE_no_db_returns_500);
+  RUN_TEST(test_EPSSRISERS_db_error_returns_500);
+  RUN_TEST(test_EPSSRISERS_defaults_reach_db_params);
+  RUN_TEST(test_EPSSRISERS_each_value_reaches_db_params);
+  RUN_TEST(test_EPSSRISERS_window_7_and_30_reach_db);
+  RUN_TEST(test_EPSSRISERS_window_15_is_refused_before_db);
+  RUN_TEST(test_EPSSRISERS_uncomputable_window_answers_200_with_window_note);
+  RUN_TEST(test_EPSSRISERS_price_is_flat);
   RUN_TEST(test_CVETRIAGE_db_error_returns_500);
   RUN_TEST(test_CVETRIAGE_db_ok_returns_200_with_risk_block);
   RUN_TEST(test_CVETRIAGE_min_risk_score_nan_does_not_silently_drop_filter);

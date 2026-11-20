@@ -89,32 +89,14 @@
         <span class="endpoint-desc">MCP <code>watchlist_events</code>. The change events that match your items, oldest first, grouped by item. <a href="https://github.com/UPinar/contrastapi/blob/main/docs/API_Documentation.md#watchlist-events-get-watchlist_events">API docs</a></span>
       </div>
     </div>
-    <h2>Example</h2>
-    <div class="code-block"><span class="lang">bash</span><code>curl -X POST https://api.contrastcyber.com/watchlist_edit -H "X-API-Key: $KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"action":"add","endpoint":"package_check","ecosystem":"npm","name":"lodash","version":"4.17.20"}'
-
-curl https://api.contrastcyber.com/watchlist_events -H "X-API-Key: $KEY"</code></div>
-    <p>Example response of the second call, trimmed; the values are an example:</p>
-    <div class="code-block"><span class="lang">json</span><code>{
-  "limit": 20, "cursor": null, "repeat": false, "next_cursor": "14", "has_more": false,
-  "items": [
-    {"item": {"endpoint": "package_check", "ecosystem": "npm", "name": "lodash", "version": "4.17.20"}, "events": [
-      {"event": "fix_available", "changed_at": "2026-10-21T05:06:07Z", "advisory_id": "GHSA-35jh-r3h4-6jhm", "fixed_version": "4.17.21", "affects_version": true},
-      {"event": "kev_added", "changed_at": "2026-10-22T06:07:08Z", "cve_id": "CVE-2021-23337"}
-    ]}
-  ],
-  "cves": {
-    "CVE-2021-23337": {"risk_score": 61.2, "label": "HIGH", "in_kev": true, "kev_patch_deadline": "2026-11-12"}
-  }
-}</code></div>
     <h2>From an agent</h2>
-    <p>Your agent calls these MCP tools: <code>watchlist_edit</code> and <code>watchlist_events</code>. Connect once with the <a href="/mcp-setup">MCP setup</a>, then ask in plain words.</p>
-    <ul>
-      <li>&ldquo;Watch lodash 4.17.20 on npm and tell me when a fix comes out.&rdquo;</li>
-      <li>&ldquo;Watch every critical Apache CVE and tell me when one enters KEV.&rdquo;</li>
-      <li>&ldquo;What changed on example.com since you last checked?&rdquo;</li>
-    </ul>
+    <p>Connect once with the <a href="/mcp-setup">MCP setup</a>, then ask in plain words. Each MCP tool below is shown with a question it answers.</p>
+    <dl class="agent-tools">
+      <dt><code>watchlist_edit</code></dt>
+      <dd>&ldquo;Watch every critical Apache CVE, lodash 4.17.20 on npm and example.com.&rdquo;</dd>
+      <dt><code>watchlist_events</code></dt>
+      <dd>&ldquo;What changed on my watch list since you last checked?&rdquo;</dd>
+    </dl>
     <h2>Limits</h2>
     <p>Each call of <code>watchlist_edit</code> or <code>watchlist_events</code> costs 1 credit and needs a Pro key. A Pro key gets @@RL_KEY_CREDIT_LIMIT@@ credits per hour. A watchlist holds at most 100 items that are not package items, and at most 500 package items. One answer holds at most 100 events. Events older than 90 days are deleted.</p>
     <h2>What each item watches</h2>

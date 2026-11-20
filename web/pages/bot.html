@@ -187,8 +187,9 @@
       group of that file for our product token, <code>ContrastAPI</code>. When that group
       disallows <code>/</code>, the server sends no request for the home page and reads nothing
       else. A <code>robots.txt</code> that answers 404 or another 4xx status counts as no
-      restriction. Any other answer, such as a 5xx status or no answer in 5 seconds, means no
-      scan that day. Otherwise it sends one GET request for <code>/</code>. Both requests are
+      restriction. A 429 status is the one 4xx status that does not. Like a 5xx status, it
+      counts as a file that could not be reached. Any other answer, such as a file sent compressed
+      or no answer in 5 seconds, means no scan that day. Otherwise it sends one GET request for <code>/</code>. Both requests are
       HTTPS on port 443 and carry the User-Agent above and no cookie. They follow redirects as the
       <code>/headers_check</code> paragraph above describes. The server keeps no page and no
       header value. It keeps only the address the home page ended on and the names of the

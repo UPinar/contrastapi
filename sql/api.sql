@@ -61,6 +61,7 @@ SET LOCAL ROLE "contrastapi-owner";
 \ir fn_cve_search.sql
 \ir fn_cve_leading.sql
 \ir fn_cve_triage.sql
+\ir fn_epss_risers.sql
 \ir fn_cpe_search.sql
 \ir fn_d3fend_for_attack.sql
 \ir fn_driver_lookup.sql

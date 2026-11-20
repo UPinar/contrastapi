@@ -27,7 +27,7 @@
   "style-src 'self'; script-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self'; " \
   "object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'\r\n"
 
-#define PAGES_RENDER_BUF_SIZE          262144
+#define PAGES_RENDER_BUF_SIZE          327680
 #define PAGES_NUMBER_BUF_SIZE          16
 #define PAGES_USDC_ATOMIC_PER_USD      1000000
 #define PAGES_USDC_ATOMIC_PER_CENT     10000

@@ -77,6 +77,7 @@ BIGINT_COUNTS = {
     ("fn_cve_exploit_exploitdb_summary", "exploitdb_entry_count"),
     ("fn_cve_search_match_count", "cve_count"), ("fn_cve_leading_match_count", "cve_count"),
     ("fn_cve_triage_match_count", "cve_count"), ("fn_cpe_search_match_count", "product_count"),
+    ("fn_epss_risers_match_count", "cve_count"),
 }
 STRDUP_RAW_JSON = {
     ("CPESEARCH", "product_named_by"),

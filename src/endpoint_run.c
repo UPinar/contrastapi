@@ -291,6 +291,37 @@ EndpointRunStatus_t endpoint_CVETRIAGERun(PGconn* conn, const EndpointAnyParams_
   return ENDPOINT_RUN_OK;
 }
 
+static const char* static_EPSSRISERSWindowRefusal(const EPSSRISERSParams_t* params)
+{
+  if (params->m_windowDays == EPSSRISERS_WINDOW_SHORT_DAYS || params->m_windowDays == EPSSRISERS_WINDOW_LONG_DAYS)
+    return NULL;
+  return "window_days must be 7 or 30";
+}
+
+EndpointRunStatus_t endpoint_EPSSRISERSRun(PGconn* conn, const EndpointAnyParams_t* params, JsonBuf_t* json_buf, const char** message_out)
+{
+  assert(message_out != NULL);
+
+  const char* refusal = static_EPSSRISERSWindowRefusal(&params->m_epssRisers);
+  if (refusal != NULL)
+  {
+    *message_out = refusal;
+    return ENDPOINT_RUN_REFUSED;
+  }
+
+  EPSSRISERSResult_t results;
+  memset(&results, 0, sizeof(results));
+  if (db_EPSSRISERS(conn, &params->m_epssRisers, &results) != DB_OK)
+  {
+    db_EPSSRISERSResultFree(&results);
+    return ENDPOINT_RUN_DB_ERROR;
+  }
+
+  serialize_EPSSRISERS_response(&results, &params->m_epssRisers, json_buf);
+  db_EPSSRISERSResultFree(&results);
+  return ENDPOINT_RUN_OK;
+}
+
 EndpointRunStatus_t endpoint_CVETRIAGEBULKRun(PGconn* conn, const EndpointAnyParams_t* params, JsonBuf_t* json_buf, const char** message_out)
 {
   (void)message_out;

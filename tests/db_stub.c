@@ -768,6 +768,55 @@ void db_CVETRIAGEResultFree(CVETRIAGEResult_t* r)
   r->mp_items = NULL;
 }
 
+DbStatus_t         g_stub_EPSSRISERS_status      = DB_ERROR;
+EPSSRISERSParams_t g_stub_EPSSRISERS_last_params = { 0 };
+int                g_stub_EPSSRISERS_call_count  = 0;
+int                g_stub_EPSSRISERS_item_count  = 1;
+const char*        g_stub_EPSSRISERS_from_date   = "2026-11-12";
+int                g_stub_EPSSRISERSResultFree_call_count = 0;
+
+DbStatus_t db_EPSSRISERS(PGconn* conn, const EPSSRISERSParams_t* params, EPSSRISERSResult_t* results_out)
+{
+  g_stub_query_call_count++;
+  (void)conn;
+  g_stub_EPSSRISERS_last_params = *params;
+  g_stub_EPSSRISERS_call_count++;
+  memset(results_out, 0, sizeof(*results_out));
+  if (g_stub_EPSSRISERS_status != DB_OK)
+    return g_stub_EPSSRISERS_status;
+
+  strncpy(results_out->ma_fromDate, g_stub_EPSSRISERS_from_date, sizeof(results_out->ma_fromDate) - 1);
+  strncpy(results_out->ma_toDate, "2026-11-19", sizeof(results_out->ma_toDate) - 1);
+  const int item_count = results_out->ma_fromDate[0] == '\0' ? 0 : g_stub_EPSSRISERS_item_count;
+  if (item_count > 0)
+  {
+    results_out->mp_items = calloc((size_t)item_count, sizeof(EPSSRISERSItem_t));
+    if (!results_out->mp_items)
+      return DB_ERROR;
+    for (int i = 0; i < item_count; i++)
+    {
+      EPSSRISERSItem_t* item = &results_out->mp_items[i];
+      strncpy(item->ma_cveId, "CVE-2025-55182", sizeof(item->ma_cveId) - 1);
+      item->m_epssCurrentScore  = 0.8187;
+      item->m_epssPreviousScore = 0.03042;
+      item->m_epssDelta         = 0.78828;
+      item->m_epssPercentile    = 0.99412;
+      item->m_inKev             = true;
+    }
+    results_out->m_total = item_count;
+    results_out->m_count = item_count;
+  }
+  return g_stub_EPSSRISERS_status;
+}
+
+void db_EPSSRISERSResultFree(EPSSRISERSResult_t* result)
+{
+  g_stub_EPSSRISERSResultFree_call_count++;
+  if (!result) return;
+  free(result->mp_items);
+  result->mp_items = NULL;
+}
+
 DbStatus_t                    g_stub_WATCHLISTEDIT_status                                                   = DB_ERROR;
 WATCHLISTEDITStatus_t         g_stub_WATCHLISTEDIT_result_status                                            = WATCHLISTEDIT_OK;
 WATCHLISTEDITItemsDbParams_t  g_stub_WATCHLISTEDIT_last_params                                              = { 0 };

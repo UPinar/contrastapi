@@ -11,18 +11,18 @@
 #include "header_check.h"
 #include "header_fetch.h"
 #include "http.h"
+#include "monotonic.h"
 #include "quota.h"
 #include "robotstxt.h"
 #include "throttle.h"
 #include "usagelog.h"
 #include "validate.h"
+#include "well_known.h"
 
 static const QuotaRule_t WATCHLIST_HEADERS_CHECK_DAILY_QUOTA_RULE = { "domain_scan_headers", 86400, 20000 };
 
 static const ThrottleRule_t WATCHLIST_HEADERS_CHECK_THROTTLE_RULE = { "headers_scan", 60, 10 };
 #define WATCHLIST_HEADERS_CHECK_THROTTLE_CHARGE_COUNT 2
-
-#define WATCHLIST_HEADERS_CHECK_ROBOTS_TXT_PRODUCT_TOKEN "ContrastAPI"
 
 #define WATCHLIST_HEADERS_CHECK_HOME_PAGE_PATH "/"
 
@@ -30,7 +30,7 @@ static bool                         static_isUrlValidAsFirstLine  (const char* u
 static WatchlistDomainScanOutcome_t static_scanHeadersDomain      (PGconn* conn, const WatchlistDomainScanClaim_t* claim);
 static void                         static_readSecurityHeaders    (const char* domain, WatchlistDomainScanValue_t* value);
 static bool                         static_isHomePageFetchAllowed (const char* domain);
-static bool                         static_isStatusInClass        (int http_status, int status_class);
+static bool                         static_isHttpStatusInClass    (int http_status, int status_class);
 
 bool watchlist_headers_check_scanNextDomains(PGconn* conn)
 {
@@ -146,7 +146,7 @@ static void static_readSecurityHeaders(const char* domain, WatchlistDomainScanVa
   if (header_fetch_fetchHomePage(domain, &page) != HTTP_ERROR_NONE)
     return;
 
-  if (static_isStatusInClass(page.m_httpStatus, 2) && page.m_capturedHeaderValueCount == HEADER_CHECK_HEADER_COUNT)
+  if (static_isHttpStatusInClass(page.m_httpStatus, 2) && page.m_capturedHeaderValueCount == HEADER_CHECK_HEADER_COUNT)
   {
     HeaderCheckReport_t report;
     header_check_evaluate(page.mp_capturedHeaderValues, page.m_setCookieCopyCount, &report);
@@ -157,29 +157,18 @@ static void static_readSecurityHeaders(const char* domain, WatchlistDomainScanVa
 
 static bool static_isHomePageFetchAllowed(const char* domain)
 {
-  HeaderFetchRobotsTxt_t robots_fetch;
-  if (header_fetch_fetchRobotsTxt(domain, &robots_fetch) != HTTP_ERROR_NONE)
+  WellKnownRobotsGate_t gate;
+  if (well_known_fetchRobotsGate(domain, monotonic_nowMs() + HEADER_FETCH_DEADLINE_MS, &gate) != HTTP_ERROR_NONE)
     return false;
 
-  bool is_allowed = false;
-  if (static_isStatusInClass(robots_fetch.m_httpStatus, 2))
-  {
-    RobotsTxt_t robots;
-    if (robotstxt_parse(robots_fetch.mp_body, robots_fetch.m_bodyLen, robots_fetch.m_isBodyCut, WATCHLIST_HEADERS_CHECK_ROBOTS_TXT_PRODUCT_TOKEN, &robots))
-    {
-      RobotsTxtVerdict_t verdict = robotstxt_checkPath(&robots, robots_fetch.mp_body, WATCHLIST_HEADERS_CHECK_HOME_PAGE_PATH, sizeof(WATCHLIST_HEADERS_CHECK_HOME_PAGE_PATH) - 1);
-      is_allowed = verdict.m_decision == ROBOTSTXT_DECISION_ALLOWED;
-      robotstxt_free(&robots);
-    }
-  }
-  else if (static_isStatusInClass(robots_fetch.m_httpStatus, 4))
-    is_allowed = true;
-
-  header_fetch_robotsTxtFree(&robots_fetch);
-  return is_allowed;
+  RobotsTxtVerdict_t verdict = well_known_robotsGateVerdict(&gate, 
+                                                            WATCHLIST_HEADERS_CHECK_HOME_PAGE_PATH, 
+                                                            sizeof(WATCHLIST_HEADERS_CHECK_HOME_PAGE_PATH) - 1);
+  well_known_robotsGateFree(&gate);
+  return verdict.m_decision == ROBOTSTXT_DECISION_ALLOWED;
 }
 
-static bool static_isStatusInClass(int http_status, int status_class)
+static bool static_isHttpStatusInClass(int http_status, int status_class)
 {
   return http_status >= status_class * 100 && http_status <= status_class * 100 + 99;
 }

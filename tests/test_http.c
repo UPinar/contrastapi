@@ -501,7 +501,7 @@ void test_file_url_is_refused(void)
 
 void test_every_request_ignores_proxies_and_names_the_bot_page(void)
 {
-  TEST_ASSERT_EQUAL_STRING("ContrastAPI/2.0.13 (+https://api.contrastcyber.com/bot; contact@contrastcyber.com)", HTTP_USER_AGENT);
+  TEST_ASSERT_EQUAL_STRING("ContrastAPI/2.1.1 (+https://api.contrastcyber.com/bot; contact@contrastcyber.com)", HTTP_USER_AGENT);
 
   HttpResponse_t resp = http_GET("https://example.invalid/", 3000, NULL);
   TEST_ASSERT_NOT_NULL(g_proxy);
@@ -516,6 +516,12 @@ void test_every_request_ignores_proxies_and_names_the_bot_page(void)
   TEST_ASSERT_EQUAL_STRING("", g_proxy);
   TEST_ASSERT_EQUAL_STRING(HTTP_USER_AGENT, g_userAgent);
   http_free(&resp);
+}
+
+void test_user_agent_starts_with_the_robots_txt_product_token(void)
+{
+  TEST_ASSERT_EQUAL_STRING("ContrastAPI", HTTP_USER_AGENT_PRODUCT_TOKEN);
+  TEST_ASSERT_EQUAL_INT(0, strncmp(HTTP_USER_AGENT, "ContrastAPI/", strlen("ContrastAPI/")));
 }
 
 void test_request_whose_option_cannot_be_set_is_not_sent(void)
@@ -1298,6 +1304,26 @@ void test_returned_redirect_whose_body_is_cut_has_no_target(void)
   TEST_ASSERT_EQUAL_INT(HTTP_ERROR_NONE, resp.m_error);
   TEST_ASSERT_EQUAL_INT(302, resp.m_status);
   TEST_ASSERT_TRUE(resp.m_isBodyCut);
+  TEST_ASSERT_NULL(resp.mp_redirectUrl);
+  TEST_ASSERT_EQUAL_INT(1, server.m_requestCount);
+  http_free(&resp);
+}
+
+void test_returned_redirect_whose_body_is_cut_keeps_its_captured_location(void)
+{
+  TestServer_t server;
+  static_listenOnLoopback(&server);
+  const char* const answers[] = { "HTTP/1.1 302 Found\r\nLocation: /next\r\nContent-Length: 30\r\nConnection: close\r\n\r\n0123456789abcdefghijABCDEFGHIJ" };
+  const char* const names[]   = { "Location", NULL };
+  const HttpRequest_t request = { .m_timeoutMs = 3000, .m_maxBodyByteCount = 10, .mp_headerNamesToCapture = names, .m_isRedirectLeftToCaller = true, .m_isBodyCutAccepted = true };
+
+  HttpResponse_t resp = static_askTestServer(&server, answers, 1, "/", request);
+  close(server.m_listenFd);
+  TEST_ASSERT_EQUAL_INT(HTTP_ERROR_NONE, resp.m_error);
+  TEST_ASSERT_EQUAL_INT(302, resp.m_status);
+  TEST_ASSERT_TRUE(resp.m_isBodyCut);
+  TEST_ASSERT_EQUAL_INT(1, resp.m_capturedHeaderValueCount);
+  TEST_ASSERT_EQUAL_STRING("/next", resp.mp_capturedHeaderValues[0]);
   TEST_ASSERT_NULL(resp.mp_redirectUrl);
   TEST_ASSERT_EQUAL_INT(1, server.m_requestCount);
   http_free(&resp);
@@ -2126,6 +2152,7 @@ int main(void)
   RUN_TEST(test_request_timeout_and_redirect_bound_reach_libcurl);
   RUN_TEST(test_request_whose_header_cannot_be_added_is_not_sent);
   RUN_TEST(test_every_request_ignores_proxies_and_names_the_bot_page);
+  RUN_TEST(test_user_agent_starts_with_the_robots_txt_product_token);
   RUN_TEST(test_request_whose_option_cannot_be_set_is_not_sent);
   RUN_TEST(test_untrusted_request_whose_socket_check_cannot_be_set_is_not_sent);
   RUN_TEST(test_failed_transfer_reports_its_error_class);
@@ -2166,6 +2193,7 @@ int main(void)
   RUN_TEST(test_returned_redirect_without_a_location_has_no_target);
   RUN_TEST(test_redirect_target_that_cannot_be_copied_fails_the_answer);
   RUN_TEST(test_returned_redirect_whose_body_is_cut_has_no_target);
+  RUN_TEST(test_returned_redirect_whose_body_is_cut_keeps_its_captured_location);
   RUN_TEST(test_accepted_body_cut_keeps_the_answer_and_the_body_up_to_the_limit);
   RUN_TEST(test_accepted_body_cut_between_two_pieces_keeps_the_whole_pieces);
   RUN_TEST(test_accepted_body_cut_that_cannot_grow_fails_the_answer);

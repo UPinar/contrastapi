@@ -57,7 +57,7 @@ typedef struct
   int   m_lineNumber;
   bool  m_hasOurUserAgent;
   bool  m_hasWildcardUserAgent;
-  int   m_firstUserAgent;
+  int   m_userAgentStartIndex;
   int   m_valueCount;
   int   m_firstDroppedLine;
 } RobotsTxtUserAgentList_t;
@@ -151,7 +151,7 @@ RobotsTxtVerdict_t robotstxt_checkPath(const RobotsTxt_t* robots, const char* bo
   assert(path != NULL || path_len == 0);
 
   RobotsTxtVerdict_t verdict = { ROBOTSTXT_DECISION_ALLOWED, -1 };
-  if (robots->m_hasDroppedRule)
+  if (path_len > ROBOTSTXT_MAX_CHECKED_PATH_BYTE_COUNT || robots->m_hasDroppedRule)
   {
     verdict.m_decision = ROBOTSTXT_DECISION_UNKNOWN;
     return verdict;
@@ -172,7 +172,7 @@ RobotsTxtVerdict_t robotstxt_checkPath(const RobotsTxt_t* robots, const char* bo
     if (!is_deciding)
       continue;
 
-    for (int rule_index = group->m_firstRule; rule_index < group->m_firstRule + group->m_ruleCount; rule_index++)
+    for (int rule_index = group->m_ruleStartIndex; rule_index < group->m_ruleStartIndex + group->m_ruleCount; rule_index++)
     {
       const RobotsTxtRule_t* rule = &robots->mp_rules[rule_index];
       if (!static_isPatternMatching(body + rule->m_pattern.m_offset, rule->m_pattern.m_len, path, path_len))
@@ -185,8 +185,8 @@ RobotsTxtVerdict_t robotstxt_checkPath(const RobotsTxt_t* robots, const char* bo
   if (best_rule_index >= 0)
   {
     bool is_allow = robots->mp_rules[best_rule_index].m_kind == ROBOTSTXT_RULE_ALLOW;
-    verdict.m_decision          = is_allow ? ROBOTSTXT_DECISION_ALLOWED : ROBOTSTXT_DECISION_DISALLOWED;
-    verdict.m_decidingRuleIndex = best_rule_index;
+    verdict.m_decision                 = is_allow ? ROBOTSTXT_DECISION_ALLOWED : ROBOTSTXT_DECISION_DISALLOWED;
+    verdict.m_decidingRuleIndexInRules = best_rule_index;
   }
 
   return verdict;
@@ -374,7 +374,7 @@ static bool static_tryReadUserAgentLine(RobotsTxtParseState_t* state, size_t val
   if (state->m_phase != ROBOTSTXT_PHASE_USER_AGENT_LIST)
   {
     state->m_phase = ROBOTSTXT_PHASE_USER_AGENT_LIST;
-    state->m_list  = (RobotsTxtUserAgentList_t){ .m_lineNumber = line_number, .m_firstUserAgent = robots->m_userAgentKeptCount };
+    state->m_list  = (RobotsTxtUserAgentList_t){ .m_lineNumber = line_number, .m_userAgentStartIndex = robots->m_userAgentKeptCount };
   }
 
   if (value_len == 0)
@@ -414,14 +414,14 @@ static bool static_tryCloseUserAgentList(RobotsTxtParseState_t* state)
 
   if (!state->m_list.m_hasOurUserAgent && !state->m_list.m_hasWildcardUserAgent)
   {
-    robots->m_userAgentKeptCount = state->m_list.m_firstUserAgent;
+    robots->m_userAgentKeptCount = state->m_list.m_userAgentStartIndex;
     return true;
   }
 
   robots->m_groupTotalCount++;
   if (robots->m_groupKeptCount >= ROBOTSTXT_MAX_GROUP_COUNT)
   {
-    robots->m_userAgentKeptCount = state->m_list.m_firstUserAgent;
+    robots->m_userAgentKeptCount = state->m_list.m_userAgentStartIndex;
     robots->m_hasDroppedRule = true;
     static_addIssueOnce(state, ROBOTSTXT_ISSUE_TOO_MANY_GROUPS, state->m_list.m_lineNumber);
     return true;
@@ -437,9 +437,9 @@ static bool static_tryCloseUserAgentList(RobotsTxtParseState_t* state)
   group->m_lineNumber           = state->m_list.m_lineNumber;
   group->m_hasOurUserAgent      = state->m_list.m_hasOurUserAgent;
   group->m_hasWildcardUserAgent = state->m_list.m_hasWildcardUserAgent;
-  group->m_firstUserAgent       = state->m_list.m_firstUserAgent;
-  group->m_userAgentCount       = robots->m_userAgentKeptCount - state->m_list.m_firstUserAgent;
-  group->m_firstRule            = robots->m_ruleKeptCount;
+  group->m_userAgentStartIndex  = state->m_list.m_userAgentStartIndex;
+  group->m_userAgentCount       = robots->m_userAgentKeptCount - state->m_list.m_userAgentStartIndex;
+  group->m_ruleStartIndex       = robots->m_ruleKeptCount;
   robots->m_groupKeptCount++;
   state->m_phase                = ROBOTSTXT_PHASE_RULES_OF_KEPT_GROUP;
 

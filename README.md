@@ -24,6 +24,7 @@ Each row names the MCP tool. The REST endpoint has the same name.
 | See whether a CVE has public exploits or a Metasploit module | `cve_exploit` |
 | Rank the CVEs of a vendor or product by risk | `cpe_search` for the name, then `cve_triage`, `cve_triage_bulk` or `product_exposure` |
 | Find CVEs by severity, CWE, EPSS, KEV or date | `cve_search`, `cve_leading` |
+| Find CVEs whose EPSS score rose most over 7 or 30 days | `epss_risers` |
 | Check a dependency version for advisories and malicious packages | `package_check`, `package_check_bulk` (npm, PyPI, Maven, Go, NuGet, RubyGems, crates.io, Packagist, SwiftURL) |
 | Check a domain: DNS, mail auth (SPF, DKIM, DMARC), TLS, security headers, WHOIS | `dns_lookup`, `email_auth_check`, `ssl_check`, `headers_check`, `whois_lookup` |
 | Check an email address: does its domain take mail, is it disposable | `email_address_check` |

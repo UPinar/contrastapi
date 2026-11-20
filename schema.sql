@@ -481,6 +481,24 @@ CREATE TABLE epss_history (
 CREATE INDEX idx_epss_history_cve_id ON epss_history(cve_id);
 CREATE INDEX idx_epss_history_date   ON epss_history(epss_date);
 
+CREATE TABLE epss_riser_window (
+  window_days SMALLINT PRIMARY KEY,
+  from_date   DATE     NULL,
+  to_date     DATE     NOT NULL
+);
+
+CREATE TABLE epss_riser (
+  window_days    SMALLINT NOT NULL,
+  cve_id         TEXT     NOT NULL REFERENCES cves(cve_id),
+  previous_score REAL     NOT NULL,
+  score          REAL     NOT NULL,
+  percentile     REAL     NOT NULL,
+  score_delta    REAL     NOT NULL,
+  PRIMARY KEY (window_days, cve_id)
+);
+
+CREATE INDEX idx_epss_riser_delta ON epss_riser(window_days, score_delta DESC, cve_id);
+
 CREATE TABLE upstream_feed_sync (
   feed_name        TEXT        PRIMARY KEY,
   last_synced      TIMESTAMPTZ,

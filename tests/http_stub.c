@@ -6,6 +6,8 @@
 #include "http.h"
 #include "http_stub.h"
 
+#define HTTP_STUB_LOCATION_HEADER_NAME "Location"
+
 char                    g_stub_last_url[1024]   = "";
 char                    g_stub_last_header[512] = "";
 int                     g_stub_http_call_count  = 0;
@@ -92,6 +94,8 @@ static HttpResponse_t static_answerFromList(const HttpStubAnswer_t* answer, cons
     for (int i = 0; is_copied && i < name_count; i++)
     {
       const char* value = static_findHeaderValue(answer->mp_headerLines, request->mp_headerNamesToCapture[i]);
+      if (value == NULL && strcasecmp(request->mp_headerNamesToCapture[i], HTTP_STUB_LOCATION_HEADER_NAME) == 0)
+        value = answer->mp_redirectUrl;
       if (value == NULL)
         continue;
       resp.mp_capturedHeaderValues[i] = strdup(value);

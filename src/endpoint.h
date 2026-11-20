@@ -143,6 +143,7 @@ typedef union {
   CVESEARCHParams_t            m_cveSearch;
   CVELEADINGParams_t           m_cveLeading;
   CVETRIAGEParams_t            m_cveTriage;
+  EPSSRISERSParams_t           m_epssRisers;
   PRODUCTEXPOSUREParams_t      m_productExposure;
   CPESEARCHParams_t            m_cpeSearch;
   CVEPRODUCTSParams_t          m_cveProducts;

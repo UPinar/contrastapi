@@ -89,32 +89,14 @@
         <span class="endpoint-desc">MCP <code>asn_lookup</code>. An autonomous system by AS number or by an address it holds: name, country and prefixes. <a href="https://github.com/UPinar/contrastapi/blob/main/docs/API_Documentation.md#asn-lookup-get-asn_lookuptarget">API docs</a></span>
       </div>
     </div>
-    <h2>Example</h2>
-    <div class="code-block"><span class="lang">bash</span><code>curl https://api.contrastcyber.com/ip_lookup/8.8.8.8</code></div>
-    <p>Example response, trimmed; the values are an example:</p>
-    <div class="code-block"><span class="lang">json</span><code>{
-  "ip_address": "8.8.8.8",
-  "asn": 15169,
-  "asn_name": "GOOGLE",
-  "asn_country": "US",
-  "geo_country": "US",
-  "cloud_provider": "google",
-  "cloud_service": "google",
-  "is_cdn": false,
-  "is_datacenter": true,
-  "is_tor_exit": false,
-  "listed_on": [],
-  "ptr": "dns.google",
-  "is_ptr_forward_confirmed": true
-}</code></div>
     <h2>From an agent</h2>
-    <p>Your agent calls these MCP tools: <code>ip_lookup</code> and <code>asn_lookup</code>. Connect once with the <a href="/mcp-setup">MCP setup</a>, then ask in plain words.</p>
-    <ul>
-      <li>&ldquo;Which AS and country does 8.8.8.8 belong to?&rdquo;</li>
-      <li>&ldquo;Is this IP address a Tor exit or a cloud address?&rdquo;</li>
-      <li>&ldquo;List the prefixes of AS15169.&rdquo;</li>
-      <li>&ldquo;Tell me when 8.8.8.8 lands on the DROP list or moves to another host.&rdquo;</li>
-    </ul>
+    <p>Connect once with the <a href="/mcp-setup">MCP setup</a>, then ask in plain words. Each MCP tool below is shown with a question it answers.</p>
+    <dl class="agent-tools">
+      <dt><code>ip_lookup</code></dt>
+      <dd>&ldquo;Which AS and country does 8.8.8.8 belong to? Is it a Tor exit, a cloud address or on the DROP list?&rdquo;</dd>
+      <dt><code>asn_lookup</code></dt>
+      <dd>&ldquo;List the prefixes of AS15169.&rdquo;</dd>
+    </dl>
     <h2>Limits</h2>
     <p>Without a key you get @@RL_ANON_CREDIT_LIMIT@@ credits per hour. A Pro key gets @@RL_KEY_CREDIT_LIMIT@@ credits per hour. These tools have no bulk form.</p>
     <h2>Monitor it</h2>

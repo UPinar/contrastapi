@@ -2,11 +2,11 @@
   'use strict';
 
   var COPIED = 'Copied';
-  var COPY_CMD = 'Copy command';
 
   function init() {
     // Copy-command buttons
     document.querySelectorAll('.copy-btn').forEach(function (btn) {
+      var label = btn.getAttribute('aria-label');
       btn.addEventListener('click', function () {
         var p = btn.previousElementSibling;
         if (!p) return;
@@ -16,7 +16,7 @@
           btn.setAttribute('aria-label', COPIED);
           setTimeout(function () {
             btn.classList.remove('copied');
-            btn.setAttribute('aria-label', COPY_CMD);
+            btn.setAttribute('aria-label', label);
           }, 1500);
         });
       });

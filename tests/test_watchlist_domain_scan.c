@@ -690,7 +690,8 @@ static FakeFetch_t     g_homeFetches[FAKE_RECORD_MAX];
 static int             g_homeFetchCallCount;
 static char            g_homeFetchHostnames[FAKE_RECORD_MAX][VALIDATE_DOMAIN_NAME_MAX_LEN + 1];
 static int             g_fetchResultFreeCount;
-static int             g_robotsTxtFreeCount;
+static int             g_chainFreeCount;
+static int64_t         g_robotsFetchDeadlines[FAKE_RECORD_MAX];
 
 static char* static_copyText(const char* text)
 {
@@ -703,21 +704,51 @@ static char* static_copyText(const char* text)
   return copy;
 }
 
-HttpError_t __wrap_header_fetch_fetchRobotsTxt(const char* hostname, HeaderFetchRobotsTxt_t* result_out)
+#define FAKE_ROBOTS_URL_PREFIX "https://"
+#define FAKE_ROBOTS_URL_SUFFIX "/robots.txt"
+
+HttpError_t __wrap_header_fetch_fetchChain(const char* first_url, const HeaderFetchPolicy_t* policy, int64_t deadline_ms, HeaderFetchChain_t* chain_out)
 {
   int call_index = g_robotsFetchCallCount++;
   TEST_ASSERT_TRUE(call_index < FAKE_RECORD_MAX);
+  g_robotsFetchDeadlines[call_index] = deadline_ms;
   static_noteCall('B');
-  snprintf(g_robotsFetchHostnames[call_index], sizeof(g_robotsFetchHostnames[call_index]), "%s", hostname);
+  TEST_ASSERT_EQUAL_INT(HEADER_FETCH_HOP_RULE_SAME_SITE, policy->m_hopRule);
+  TEST_ASSERT_EQUAL_size_t(ROBOTSTXT_MAX_BODY_BYTE_COUNT, policy->m_maxBodyByteCount);
+  size_t url_len    = strlen(first_url);
+  size_t prefix_len = strlen(FAKE_ROBOTS_URL_PREFIX);
+  size_t suffix_len = strlen(FAKE_ROBOTS_URL_SUFFIX);
+  TEST_ASSERT_TRUE(url_len > prefix_len + suffix_len);
+  TEST_ASSERT_EQUAL_INT(0, strncmp(first_url, FAKE_ROBOTS_URL_PREFIX, prefix_len));
+  TEST_ASSERT_EQUAL_STRING(FAKE_ROBOTS_URL_SUFFIX, first_url + url_len - suffix_len);
+  snprintf(g_robotsFetchHostnames[call_index], sizeof(g_robotsFetchHostnames[call_index]), "%.*s", (int)(url_len - prefix_len - suffix_len), first_url + prefix_len);
 
   const FakeFetch_t* fetch = &g_robotsFetches[call_index];
-  memset(result_out, 0, sizeof(*result_out));
+  memset(chain_out, 0, sizeof(*chain_out));
   if (fetch->m_error != HTTP_ERROR_NONE)
     return fetch->m_error;
-  result_out->m_httpStatus = fetch->m_status;
-  result_out->mp_body      = static_copyText(fetch->mp_body);
-  result_out->m_bodyLen    = fetch->mp_body != NULL ? strlen(fetch->mp_body) : 0;
-  result_out->m_isBodyCut  = fetch->m_isBodyCut;
+  int name_count = 0;
+  while (policy->mp_headerNamesToCapture != NULL && policy->mp_headerNamesToCapture[name_count] != NULL)
+    name_count++;
+  chain_out->m_stopReason              = HEADER_FETCH_STOP_FINAL_ANSWER;
+  chain_out->m_hopCount                = 1;
+  chain_out->ma_hops[0].mp_url         = static_copyText(first_url);
+  chain_out->ma_hops[0].m_httpStatus   = fetch->m_status;
+  chain_out->mp_capturedHeaderValues   = calloc((size_t)name_count + 1, sizeof(char*));
+  TEST_ASSERT_NOT_NULL(chain_out->mp_capturedHeaderValues);
+  chain_out->m_capturedHeaderValueCount = name_count;
+  chain_out->mp_body                   = static_copyText(fetch->mp_body);
+  chain_out->m_bodyLen                 = fetch->mp_body != NULL ? strlen(fetch->mp_body) : 0;
+  chain_out->m_isBodyCut               = fetch->m_isBodyCut;
+  return HTTP_ERROR_NONE;
+}
+
+HttpError_t __wrap_header_fetch_chainError(const HeaderFetchChain_t* chain)
+{
+  if (chain->m_stopReason == HEADER_FETCH_STOP_REQUEST_FAILED && chain->m_hopCount > 0)
+    return chain->ma_hops[chain->m_hopCount - 1].m_error;
+  else if (chain->m_stopReason == HEADER_FETCH_STOP_DEADLINE)
+    return HTTP_ERROR_TIMEOUT;
   return HTTP_ERROR_NONE;
 }
 
@@ -753,11 +784,21 @@ void __wrap_header_fetch_resultFree(HeaderFetchResult_t* result)
   memset(result, 0, sizeof(*result));
 }
 
-void __wrap_header_fetch_robotsTxtFree(HeaderFetchRobotsTxt_t* result)
+void __wrap_header_fetch_chainFree(HeaderFetchChain_t* chain)
 {
-  g_robotsTxtFreeCount++;
-  free(result->mp_body);
-  memset(result, 0, sizeof(*result));
+  g_chainFreeCount++;
+  for (int i = 0; i < chain->m_hopCount; i++)
+  {
+    free(chain->ma_hops[i].mp_url);
+    free(chain->ma_hops[i].mp_refresh);
+  }
+  free(chain->mp_unfollowedUrl);
+  free(chain->mp_invalidLocation);
+  for (int i = 0; i < chain->m_capturedHeaderValueCount; i++)
+    free(chain->mp_capturedHeaderValues[i]);
+  free(chain->mp_capturedHeaderValues);
+  free(chain->mp_body);
+  memset(chain, 0, sizeof(*chain));
 }
 
 static ThrottleStatus_t g_throttleStatuses[FAKE_RECORD_MAX];
@@ -831,7 +872,7 @@ static void static_resetHeadersFakes(void)
   g_robotsFetchCallCount           = 0;
   g_homeFetchCallCount             = 0;
   g_fetchResultFreeCount           = 0;
-  g_robotsTxtFreeCount             = 0;
+  g_chainFreeCount                 = 0;
   memset(g_robotsFetchHostnames, 0, sizeof(g_robotsFetchHostnames));
   memset(g_homeFetchHostnames, 0, sizeof(g_homeFetchHostnames));
   memset(g_throttleRetries, 0, sizeof(g_throttleRetries));
@@ -2224,7 +2265,8 @@ void test_scanNextHeadersDomains_fetches_robots_then_home_page_and_records_the_v
   TEST_ASSERT_EQUAL_STRING("2026-11-01 09:00:00.2+00", g_headersRecords[1].ma_claimedUntil);
   TEST_ASSERT_TRUE(g_headersRecords[1].m_hasValue);
   TEST_ASSERT_EQUAL_STRING("https://www.example.org/", g_headersRecords[1].ma_valueText);
-  TEST_ASSERT_EQUAL_INT(2, g_robotsTxtFreeCount);
+  TEST_ASSERT_EQUAL_INT(2, g_chainFreeCount);
+  TEST_ASSERT_EQUAL_INT64(g_nowMs + HEADER_FETCH_DEADLINE_MS, g_robotsFetchDeadlines[0]);
   TEST_ASSERT_EQUAL_INT(2, g_fetchResultFreeCount);
   TEST_ASSERT_TRUE(g_isEveryClaimOnFakeConn);
   TEST_ASSERT_TRUE(g_isEveryQuotaOnFakeConn);
@@ -2267,12 +2309,16 @@ void test_scanNextHeadersDomains_robots_txt_answer_decides_the_home_page_fetch(v
     { "200 disallow all",           HTTP_ERROR_NONE,    200, "User-agent: *\nDisallow: /\n",                                false, false },
     { "200 our group disallows",    HTTP_ERROR_NONE,    200, "User-agent: ContrastAPI\nDisallow: /\nUser-agent: *\nAllow: /\n", false, false },
     { "200 our group allows",       HTTP_ERROR_NONE,    200, "User-agent: ContrastAPI\nAllow: /\nUser-agent: *\nDisallow: /\n", true , false },
+    { "200 end-anchored allow",     HTTP_ERROR_NONE,    200, "User-agent: *\nDisallow: /\nAllow: /$\n",                  true , false },
     { "200 other crawler only",     HTTP_ERROR_NONE,    200, "User-agent: OtherBot\nDisallow: /\n",                         true , false },
     { "200 dropped rule unknown",   HTTP_ERROR_NONE,    200, NULL,                                                          false, false },
     { "200 disallow all, uncut",    HTTP_ERROR_NONE,    200, "User-agent: *\nDisallow: /",                                  false, false },
     { "200 cut in its last line",   HTTP_ERROR_NONE,    200, "User-agent: *\nDisallow: /",                                  true,  true },
     { "400",                        HTTP_ERROR_NONE,    400, "bad",                                                         true , false },
     { "404",                        HTTP_ERROR_NONE,    404, "Disallow: /",                                                 true , false },
+    { "428",                        HTTP_ERROR_NONE,    428, "",                                                            true , false },
+    { "429 too many requests",      HTTP_ERROR_NONE,    429, "",                                                            false, false },
+    { "430",                        HTTP_ERROR_NONE,    430, "",                                                            true , false },
     { "499",                        HTTP_ERROR_NONE,    499, "",                                                            true , false },
     { "199",                        HTTP_ERROR_NONE,    199, "",                                                            false, false },
     { "300",                        HTTP_ERROR_NONE,    300, "",                                                            false, false },
@@ -2299,7 +2345,7 @@ void test_scanNextHeadersDomains_robots_txt_answer_decides_the_home_page_fetch(v
     if (cases[c].m_isHomePageFetched)
       TEST_ASSERT_EQUAL_STRING_MESSAGE("https://example.com/\ncontent-security-policy", g_headersRecords[0].ma_valueText, cases[c].mp_name);
     TEST_ASSERT_EQUAL_UINT_MESSAGE(0, g_headersRecords[0].m_retryAfterSeconds, cases[c].mp_name);
-    TEST_ASSERT_EQUAL_INT_MESSAGE(cases[c].m_error == HTTP_ERROR_NONE ? 1 : 0, g_robotsTxtFreeCount, cases[c].mp_name);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(cases[c].m_error == HTTP_ERROR_NONE ? 1 : 0, g_chainFreeCount, cases[c].mp_name);
     TEST_ASSERT_EQUAL_INT_MESSAGE(g_homeFetchCallCount, g_fetchResultFreeCount, cases[c].mp_name);
   }
 }

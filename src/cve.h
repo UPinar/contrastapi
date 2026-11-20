@@ -290,6 +290,36 @@ typedef struct {
   int              m_notProcessedCount;
 } CVETRIAGEBULKResult_t;
 
+#define EPSSRISERS_WINDOW_SHORT_DAYS  7
+#define EPSSRISERS_WINDOW_LONG_DAYS  30
+
+typedef struct {
+  int            m_windowDays;
+  char           ma_vendor[CVESEARCH_VENDOR_LEN + 1];
+  char           ma_product[CVESEARCH_PRODUCT_LEN + 1];
+  double         m_minEpss;
+  CveKevFilter_t m_kevFilter;
+  int            m_limit;
+  int            m_offset;
+} EPSSRISERSParams_t;
+
+typedef struct {
+  char    ma_cveId[CVELOOKUP_ID_MAX_LEN + 1];
+  double  m_epssCurrentScore;
+  double  m_epssPreviousScore;
+  double  m_epssDelta;
+  double  m_epssPercentile;
+  bool    m_inKev;
+} EPSSRISERSItem_t;
+
+typedef struct {
+  int                 m_total;
+  int                 m_count;
+  EPSSRISERSItem_t*   mp_items;
+  char                ma_fromDate[CVELOOKUP_PUBLISHED_LEN + 1];
+  char                ma_toDate[CVELOOKUP_PUBLISHED_LEN + 1];
+} EPSSRISERSResult_t;
+
 #define PRODUCTEXPOSURE_TOP_N 10
 
 #define PRODUCTEXPOSURE_VERSION_MAX_LEN 128

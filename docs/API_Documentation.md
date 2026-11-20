@@ -21,6 +21,7 @@ A trailing slash is not significant: `/cve_search`, `/cve_search/` and `/cve_sea
 - [CVE Risk Score: `GET /cve_risk_score/{cve_id}`](#cve-risk-score-get-cve_risk_scorecve_id)
 - [CVE Triage: `GET /cve_triage`](#cve-triage-get-cve_triage)
 - [CVE Triage Bulk: `POST /cve_triage_bulk`](#cve-triage-bulk-post-cve_triage_bulk)
+- [EPSS Risers: `GET /epss_risers`](#epss-risers-get-epss_risers)
 - [CVE Exploit: `GET /cve_exploit/{cve_id}`](#cve-exploit-get-cve_exploitcve_id)
 - [Product Exposure: `GET /product_exposure`](#product-exposure-get-product_exposure)
 - [CPE Search: `GET /cpe_search`](#cpe-search-get-cpe_search)
@@ -893,6 +894,7 @@ curl "https://api.contrastcyber.com/cve_triage?vendor=apache&min_risk_score=70&l
 | `/cve_search` | single axis: `published_time` / `epss` / `cvss` / `kev_date_added` | you want to **search/filter** and sort on one column |
 | `/cve_leading` | `epss DESC, cvss DESC` (two-key) | you want a quick exploit-probability briefing |
 | **`/cve_triage`** | **composite risk_score** (EPSS + KEV + Metasploit + CVSS + PoC) | you want a **remediation order** that uses every signal |
+| `/epss_risers` | `epss_delta DESC`: the rise of the EPSS score over 7 or 30 days | you want the CVEs whose exploitation probability is **climbing** now |
 
 `/cve_leading` ranks on exploitation probability alone. `/cve_triage` also counts KEV membership, a Metasploit module, CVSS impact and public PoCs. So a CVE with a moderate EPSS that is in KEV and has a Metasploit module can rank above a CVE with a higher EPSS and no exploit.
 
@@ -1017,6 +1019,122 @@ The answer has the counters of [`/cve_lookup_bulk`](#cve-lookup-bulk-post-cve_lo
 | Database unavailable | 500 | `internal_error` |
 
 A CVE whose stored record cannot be read counts in `failed`. The other IDs are still scored.
+
+---
+
+## EPSS Risers: `GET /epss_risers`
+
+Lists the CVEs whose EPSS score rose most over the last 7 or 30 days, largest rise first. It answers "which CVEs are becoming likely to be exploited now". A call costs 1 credit. The scores come from EPSS, `in_kev` from CISA KEV, and the vendor and product names from NVD and the CVE List; see [Data sources and licenses](#data-sources-and-licenses).
+
+The list holds only CVEs whose score rose. A CVE needs a score on both days of the window: a CVE with no score on the older day, or with an older score of 0, is not listed. Each row holds the old score, the new score and the rise. For the rows you act on, read the full record from [`/cve_lookup`](#cve-lookup-get-cve_lookupcve_id). CVEs that NVD marks Rejected are always left out.
+
+```bash
+curl https://api.contrastcyber.com/epss_risers
+
+# The 30-day risers in KEV among Microsoft products, with a current score of at least 0.10
+curl "https://api.contrastcyber.com/epss_risers?window_days=30&vendor=microsoft&in_kev=true&min_epss=0.10"
+```
+
+### The window
+
+`to_date` is the newest day of the stored EPSS history. `from_date` is the day the window starts from: the newest stored day that is `window_days` days or more before `to_date`, and at most 7 days earlier than that. So for `window_days=7`, `from_date` lies 7 to 14 days before `to_date`. A day of the history can be missing, and `from_date` then lies up to 7 days before the asked day.
+
+When the history holds no such day, the window cannot be computed. The answer is then **200** with `"from_date": null`, a `window_note` member and an empty `results` list. `to_date` is null too when the history holds no day at all.
+
+### Query parameters
+
+| Parameter     | Type   | Example     | Description |
+|---------------|--------|-------------|-------------|
+| `window_days` | int    | `30`        | Days to look back: `7` or `30` (default `7`). Any other value is refused with 400 |
+| `vendor`      | string | `microsoft` | CPE vendor filter: exact match on a product row marked vulnerable by NVD or by the CNA (CPE form, lowercase; see [Affected products](#affected-products)) |
+| `product`     | string | `exchange_server` | CPE product filter: exact match on a product row marked vulnerable by NVD or by the CNA (CPE form, lowercase w/ underscores) |
+| `in_kev`      | bool   | `true`      | Filter by CISA KEV membership (`true` or `false`) |
+| `min_epss`    | float  | `0.10`      | Lowest current EPSS score (`epss_score`) to list (0.0–1.0) |
+| `limit`       | int    | `20`        | Page size, default: 20, max: 100 |
+| `offset`      | int    | `0`         | Starting offset, 0–10000 (default: 0) |
+
+The filters follow the rules of [CVE Search](#cve-search-get-cve_search). When `vendor` and `product` are both set, one product row of the CVE must match both.
+
+### Response fields
+
+| Field         | Type           | Description |
+|---------------|----------------|-------------|
+| `window_days` | integer        | The window used: 7 or 30 |
+| `from_date`   | string or null | The older day of the window (`YYYY-MM-DD`); null when the window cannot be computed |
+| `to_date`     | string or null | The newer day of the window (`YYYY-MM-DD`); null when the EPSS history holds no day |
+| `window_note` | string         | Present only when `from_date` is null. It stands after `to_date` and says that the history holds no day that can start the window yet |
+| `total`       | integer        | Total CVEs that rose over the window and match the filters (before pagination) |
+| `limit`       | integer        | Page size used for this response |
+| `offset`      | integer        | Starting offset used for this response |
+| `next_offset` | integer        | Offset for the next page (`offset + count`); equals `total` on the last page. Above 10000 it is refused as `offset` |
+| `product_filter_note` | string | Present only when `vendor` or `product` is set. It stands before `results`. It holds the text of [CVE Search](#cve-search-get-cve_search): a product filter matches a CVE that NVD has not analysed only when its CNA wrote the same name |
+| `results`     | array          | CVE rows, **ordered by `epss_delta` descending**, then by `cve_id` |
+
+Each object of `results` holds:
+
+| Field                 | Type   | Description |
+|-----------------------|--------|-------------|
+| `cve_id`              | string | CVE identifier |
+| `epss_score`          | float  | EPSS score on `to_date` (0.0–1.0) |
+| `epss_previous_score` | float  | EPSS score on `from_date` (0.0–1.0) |
+| `epss_delta`          | float  | `epss_score` less `epss_previous_score`; always above 0 |
+| `epss_percentile`     | float  | EPSS percentile on `to_date` (0.0–1.0) |
+| `in_kev`              | bool   | In the CISA KEV list |
+
+The four numbers are clamped to 0.0–1.0 and written with five decimals.
+
+### Example response
+
+```json
+{
+  "window_days": 7,
+  "from_date": "2026-11-12",
+  "to_date": "2026-11-19",
+  "total": 48,
+  "limit": 20,
+  "offset": 0,
+  "next_offset": 20,
+  "results": [
+    {
+      "cve_id": "CVE-2025-55182",
+      "epss_score": 0.81870,
+      "epss_previous_score": 0.03042,
+      "epss_delta": 0.78828,
+      "epss_percentile": 0.99412,
+      "in_kev": false
+    }
+  ]
+}
+```
+
+A window that cannot be computed answers:
+
+```json
+{
+  "window_days": 30,
+  "from_date": null,
+  "to_date": "2026-11-19",
+  "window_note": "EPSS history holds no day that can start this window yet",
+  "total": 0,
+  "limit": 20,
+  "offset": 0,
+  "next_offset": 0,
+  "results": []
+}
+```
+
+A filter that matches no CVE answers **200** with `"total": 0, "results": []`.
+
+### Error responses
+
+| Scenario | Status | `code` |
+|----------|--------|--------|
+| `window_days` other than 7 or 30 (`"window_days must be 7 or 30"`) | 400 | `bad_request` |
+| `offset` outside 0–10000 (`"offset must be an integer between 0 and 10000; narrow the list with vendor, product or min_epss"`) | 400 | `bad_request` |
+| `limit` outside 1–100 | 400 | `bad_request` |
+| Any other filter malformed (same rules as `/cve_search`) | 400 | `bad_request` |
+| Database unavailable | 500 | `internal_error` |
+| A CVE on the page holds a stored value that cannot be read | 500 | `internal_error` |
 
 ---
 
@@ -1383,7 +1501,7 @@ lists for the product. The price of the call does not change.
 
 Finds the CPE vendor and product names that hold a text. A call costs 1 credit.
 
-`/cve_search`, `/cve_triage`, `/cve_leading` and `/product_exposure` match `vendor` and
+`/cve_search`, `/cve_triage`, `/cve_leading`, `/epss_risers` and `/product_exposure` match `vendor` and
 `product` exactly. A name this endpoint answers can go to them as it is. A name that holds a `%`
 is the exception: those filters refuse a `%`. Over REST, percent-encode the name like any query
 value: a `+` goes as `%2B` and a `&` as `%26`.
@@ -1427,7 +1545,7 @@ curl "https://api.contrastcyber.com/cpe_search?search=windows+10&limit=3"
 - `next_offset` is `offset` plus the number of pairs on the page. A `next_offset` above 10000 is refused as `offset`.
 - `vulnerable_cve_count` counts the CVEs that mark the pair vulnerable. A pair can have a
   `vulnerable_cve_count` of 0, when its CVEs name it without marking it vulnerable. The `vendor` and `product` filters of
-  `/cve_search`, `/cve_triage`, `/cve_leading` and `/product_exposure` read only the rows marked
+  `/cve_search`, `/cve_triage`, `/cve_leading`, `/epss_risers` and `/product_exposure` read only the rows marked
   vulnerable, so they find no CVE for such a pair.
 - `product_named_by` says who named the pair: `nvd`, `cna` or `cna_cpe`, each once, in name order,
   from the vulnerable rows and the others alike; see [Affected products](#affected-products).
@@ -5441,7 +5559,7 @@ A feed whose name, time or status cannot be read is left out of `db.feeds`. The 
 ```json
 {
   "status": "ok",
-  "version": "2.0.13",
+  "version": "2.1.1",
   "db": {
     "nvd": {
       "cve_count": 251430,
@@ -5475,7 +5593,7 @@ A feed whose name, time or status cannot be read is left out of `db.feeds`. The 
 When the database cannot be read, the answer is HTTP 503 with a `Retry-After: 5` header and this body:
 
 ```json
-{"status":"unavailable","version":"2.0.13","db":null}
+{"status":"unavailable","version":"2.1.1","db":null}
 ```
 
 ---
@@ -6020,7 +6138,7 @@ request target counts the bytes as sent.
 | 503  | The server is busy with requests to outside services (`upstream_busy`). The response carries `Retry-After: 5`. It costs no credits and carries no `X-RateLimit-*` headers. A request that the endpoint refuses for its method, its parameter names or its values gets that refusal instead. The 503 comes before the API key is read, so a request with a malformed, unknown, revoked or expired key gets it too | the endpoints that ask an outside service, `/mcp` |
 | 503  | Every place for an image request is in use (`raw_body_busy`). The response carries `Retry-After: 10`, the deadline that the head and the body share. It costs no credits | `/image_inspect` |
 | 503  | The payment cannot be settled now (`payment_unavailable`). The response carries `Retry-After: 5` | every endpoint that takes payment |
-| 503  | The database cannot be read. The body is `{"status":"unavailable","version":"2.0.13","db":null}` and the response carries `Retry-After: 5` | `/health` |
+| 503  | The database cannot be read. The body is `{"status":"unavailable","version":"2.1.1","db":null}` and the response carries `Retry-After: 5` | `/health` |
 | 504  | No TLS server or site was reached at the host name. `message` says why | `/ssl_check/`, `/headers_check/` |
 
 ---
@@ -6038,6 +6156,7 @@ request target counts the bytes as sent.
 | `GET /cwe_lookup/{cwe_id}`                        | 1 credit  |
 | `GET /cve_risk_score/{cve_id}`                    | 1 credit  |
 | `GET /cve_triage`                                 | 1 credit  |
+| `GET /epss_risers`                                | 1 credit  |
 | `POST /cve_triage_bulk`                           | 1 credit × number of well-formed IDs (at least 1, max 50) |
 | `GET /cve_exploit/{cve_id}`                       | 1 credit  |
 | `GET /product_exposure`                           | 1 credit  |
@@ -6086,7 +6205,7 @@ The price belongs to the route, not to the ID. A request that reaches a route pa
 version range the CVE names, at most 20 of them. `results` of `/cve_products` holds the same
 objects, one page at a time. `vendor` and `product` are in CPE form: lowercase, `_` for a space,
 and each special character quoted with a `\`. A pair goes as it is to the `vendor` and `product`
-filters of `/cve_search`, `/cve_triage`, `/cve_leading` and `/product_exposure`, which match it on
+filters of `/cve_search`, `/cve_triage`, `/cve_leading`, `/epss_risers` and `/product_exposure`, which match it on
 the rows marked vulnerable. `/cpe_search` finds a pair by a text.
 
 | Member | Type | Description |
@@ -6134,7 +6253,7 @@ endpoint that serves it.
 | [RustSec advisory database](https://github.com/rustsec/advisory-db), through OSV.dev | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/); an advisory may name [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) instead | `/package_check`, `/package_check_bulk` |
 | [OpenSSF Malicious Packages](https://github.com/ossf/malicious-packages), through OSV.dev | [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) | `/package_check`, `/package_check_bulk` |
 | [Can I take over XYZ?](https://github.com/EdOverflow/can-i-take-over-xyz) by EdOverflow | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) | `/dns_takeover_check/` |
-| [CVE List](https://github.com/CVEProject/cvelistV5) | [CVE Program Terms of Use](https://www.cve.org/Legal/TermsOfUse), Copyright © 1999–2026 The MITRE Corporation | the description, CWE, CVSS scores, SSVC assessment, dates, reference tags and CVE tags that a CVE record gives a CVE row. A field of an equal or better source class replaces the stored one, and a CVE that NVD has not published yet takes them all. A full sync reads the GitHub release zip. A delta reads each changed record through the CVE Services API, else through GitHub. The CVE List also gives the `cna` and `cna_cpe` elements of `affected_products` and of `/cve_products`, and the rows they give `/cve_search`, `/cve_triage`, `/cve_leading`, `/product_exposure` and `/cpe_search` |
+| [CVE List](https://github.com/CVEProject/cvelistV5) | [CVE Program Terms of Use](https://www.cve.org/Legal/TermsOfUse), Copyright © 1999–2026 The MITRE Corporation | the description, CWE, CVSS scores, SSVC assessment, dates, reference tags and CVE tags that a CVE record gives a CVE row. A field of an equal or better source class replaces the stored one, and a CVE that NVD has not published yet takes them all. A full sync reads the GitHub release zip. A delta reads each changed record through the CVE Services API, else through GitHub. The CVE List also gives the `cna` and `cna_cpe` elements of `affected_products` and of `/cve_products`, and the rows they give `/cve_search`, `/cve_triage`, `/cve_leading`, `/epss_risers`, `/product_exposure` and `/cpe_search` |
 | [CVE Services](https://cveawg.mitre.org/api-docs/) of the CVE Program | [CVE Program Terms of Use](https://www.cve.org/Legal/TermsOfUse), Copyright © 1999–2026 The MITRE Corporation; only the state of an id is read | `cve_org_state` of a `404` from `/cve_lookup/` |
 | [IPtoASN](https://iptoasn.com/) | [PDDL 1.0](https://opendatacommons.org/licenses/pddl/1-0/) | `asn`, `asn_name`, `asn_country` and part of `is_datacenter` of `/ip_lookup/`; every field of `/asn_lookup/` but `target` |
 | [DB-IP IP to Country Lite](https://db-ip.com/db/lite.php) | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/); <a href='https://db-ip.com'>IP Geolocation by DB-IP</a> | `geo_country` of `/ip_lookup/` |
@@ -6241,10 +6360,10 @@ gets the same `tools/list` document, and its `title` and `_meta` members are not
 returns HTTP `202` with no body; the 2026-07-28 era refuses it with `-32600`.
 
 **Tools** (one per data endpoint but `/image_inspect`; the account and payment endpoints are not tools): `cve_lookup`, `cve_lookup_bulk`, `cve_products`, `cve_search`, `cve_triage`,
-`cve_triage_bulk`, `cve_leading`, `kev_lookup`, `cwe_lookup`, `cve_risk_score`, `cve_exploit`,
+`cve_triage_bulk`, `cve_leading`, `epss_risers`, `kev_lookup`, `cwe_lookup`, `cve_risk_score`, `cve_exploit`,
 `product_exposure`, `cpe_search`, `cvss_calculator`, `watchlist_edit`, `watchlist_events`, `password_check`, `dns_lookup`, `dns_takeover_check`, `email_auth_check`, `email_address_check`, `ssl_check`, `headers_check`, `whois_lookup`, `wayback_lookup`, `cert_search`, `subdomain_enum`, `ip_lookup`, `asn_lookup`, `d3fend_for_attack`, `driver_lookup`, `driver_lookup_bulk`, `package_check`, `package_check_bulk`, `health`, `privacy_my_data`, `vendor_key_edit`. Call `tools/list` for each tool's `inputSchema`. Path-id tools take `{"cve_id": "..."}`
 (`cwe_lookup` takes `{"cwe_id": "..."}`); `cve_lookup_bulk` and `cve_triage_bulk` take `{"cve_ids": [...]}` (max 50); `product_exposure` takes a
-required `{"vendor": "...", "product": "..."}` and an optional `version` and `include_rejected`; `cpe_search` takes a required `{"search": "..."}` and an optional `limit` and `offset`; `cve_products` takes a required `{"cve_id": "..."}` and an optional `vendor`, `product`, `limit` and `offset`; `cvss_calculator` takes a required `{"vector": "..."}`; `password_check` takes a required `{"sha1_hash": "..."}`; `email_address_check` takes a required `{"email": "..."}`, not percent-decoded; `headers_check` takes a required `{"domain": "..."}` and an optional boolean `include_full_header_values`; `ip_lookup` takes a required `{"ip_address": "..."}`; `asn_lookup` takes a required `{"target": "..."}` and an optional `limit` and `offset`; `d3fend_for_attack` takes a required `{"attack_technique_id": "..."}`; `driver_lookup` takes a required `{"file_hash": "..."}` and an optional boolean `include_commands`; `driver_lookup_bulk` takes `{"hashes": [...]}` (max 20); `package_check` takes a required `{"ecosystem": "...", "name": "..."}` and an optional `version`, `limit` and `offset`; `package_check_bulk` takes `{"items": [...]}` (max 500); `watchlist_edit` takes the body members of [Watchlist Edit](#watchlist-edit-post-watchlist_edit) and `watchlist_events` the query parameters of [Watchlist Events](#watchlist-events-get-watchlist_events), and both need an API key; `vendor_key_edit` takes a required `{"action": "..."}` and an optional `link`, `shodan_key`, `abuseipdb_key`, `shodan_delete` and `abuseipdb_delete`, the body members of [Vendor Key Edit](#vendor-key-edit-post-vendor_key_edit); `health` and `privacy_my_data` take no arguments; `cve_search`/`cve_triage`/`cve_leading` take
+required `{"vendor": "...", "product": "..."}` and an optional `version` and `include_rejected`; `cpe_search` takes a required `{"search": "..."}` and an optional `limit` and `offset`; `cve_products` takes a required `{"cve_id": "..."}` and an optional `vendor`, `product`, `limit` and `offset`; `cvss_calculator` takes a required `{"vector": "..."}`; `password_check` takes a required `{"sha1_hash": "..."}`; `email_address_check` takes a required `{"email": "..."}`, not percent-decoded; `headers_check` takes a required `{"domain": "..."}` and an optional boolean `include_full_header_values`; `ip_lookup` takes a required `{"ip_address": "..."}`; `asn_lookup` takes a required `{"target": "..."}` and an optional `limit` and `offset`; `d3fend_for_attack` takes a required `{"attack_technique_id": "..."}`; `driver_lookup` takes a required `{"file_hash": "..."}` and an optional boolean `include_commands`; `driver_lookup_bulk` takes `{"hashes": [...]}` (max 20); `package_check` takes a required `{"ecosystem": "...", "name": "..."}` and an optional `version`, `limit` and `offset`; `package_check_bulk` takes `{"items": [...]}` (max 500); `watchlist_edit` takes the body members of [Watchlist Edit](#watchlist-edit-post-watchlist_edit) and `watchlist_events` the query parameters of [Watchlist Events](#watchlist-events-get-watchlist_events), and both need an API key; `vendor_key_edit` takes a required `{"action": "..."}` and an optional `link`, `shodan_key`, `abuseipdb_key`, `shodan_delete` and `abuseipdb_delete`, the body members of [Vendor Key Edit](#vendor-key-edit-post-vendor_key_edit); `health` and `privacy_my_data` take no arguments; `cve_search`/`cve_triage`/`cve_leading`/`epss_risers` take
 the same filters as their REST query params. On the tools that carry them, `in_kev`,
 `known_ransomware` and `has_nuclei_template` are JSON booleans. They are refused, not silently dropped, when they are anything else;
 `known_ransomware` and `has_nuclei_template` take only `true`, matching the REST `400`. `cve_triage` carries none of them.

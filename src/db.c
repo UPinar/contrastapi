@@ -39,6 +39,7 @@ _Static_assert(DB_INT64_PARAM_BUF_SIZE >= sizeof("-9223372036854775808"),
 #define DB_CVELEADING_FILTER_COUNT  7
 #define DB_CVETRIAGE_FILTER_COUNT   4
 #define DB_CPESEARCH_FILTER_COUNT   1
+#define DB_EPSSRISERS_FILTER_COUNT  5
 
 #define DB_ID_ARRAY_PARAM_BUF_SIZE  (sizeof(((const BulkIdsParams_t*)0)->ma_ids) + sizeof("{"))
 
@@ -69,6 +70,22 @@ static const char* const CVESEARCH_COLUMN_NAMES[] = { CVESEARCH_COLUMNS(DBHELPER
   X(CVETRIAGE_COLUMN_RISK_LABEL, "risk_label")
 enum { CVETRIAGE_COLUMNS(DBHELPER_COLUMN_INDEX) };
 static const char* const CVETRIAGE_COLUMN_NAMES[] = { CVETRIAGE_COLUMNS(DBHELPER_COLUMN_NAME) };
+
+#define EPSSRISERS_COLUMNS(X)                                   \
+  X(EPSSRISERS_COLUMN_CVE_ID,              "cve_id")              \
+  X(EPSSRISERS_COLUMN_EPSS_SCORE,          "epss_score")          \
+  X(EPSSRISERS_COLUMN_EPSS_PREVIOUS_SCORE, "epss_previous_score") \
+  X(EPSSRISERS_COLUMN_EPSS_DELTA,          "epss_delta")          \
+  X(EPSSRISERS_COLUMN_EPSS_PERCENTILE,     "epss_percentile")     \
+  X(EPSSRISERS_COLUMN_IN_KEV,              "in_kev")
+enum { EPSSRISERS_COLUMNS(DBHELPER_COLUMN_INDEX) };
+static const char* const EPSSRISERS_COLUMN_NAMES[] = { EPSSRISERS_COLUMNS(DBHELPER_COLUMN_NAME) };
+
+#define EPSSRISERSWINDOW_COLUMNS(X)                  \
+  X(EPSSRISERSWINDOW_COLUMN_FROM_DATE, "from_date") \
+  X(EPSSRISERSWINDOW_COLUMN_TO_DATE,   "to_date")
+enum { EPSSRISERSWINDOW_COLUMNS(DBHELPER_COLUMN_INDEX) };
+static const char* const EPSSRISERSWINDOW_COLUMN_NAMES[] = { EPSSRISERSWINDOW_COLUMNS(DBHELPER_COLUMN_NAME) };
 
 #define CVELOOKUP_COLUMNS(X)                                                     \
   X(CVELOOKUP_COLUMN_CVE_ID,                      "cve_id")                      \
@@ -397,6 +414,9 @@ static DbStatus_t   static_CVETRIAGEReadPage              (PGconn* conn, const c
 static bool         static_PRODUCTEXPOSURETryReadEol      (PGresult* res, PRODUCTEXPOSUREEol_t* eol_out);
 static bool         static_PRODUCTEXPOSURETryReadEolCycle (PGresult* res, int row, PRODUCTEXPOSUREEolCycle_t* cycle_out);
 static bool         static_CVETRIAGEFillItem              (PGresult* res, int row_index, CVETRIAGEItem_t* item);
+static DbStatus_t   static_EPSSRISERSReadWindow           (PGconn* conn, const char* window_days, EPSSRISERSResult_t* result_out);
+static DbStatus_t   static_EPSSRISERSReadPage             (PGconn* conn, const char* query, int param_count, const char** param_values, EPSSRISERSResult_t* result_out);
+static bool         static_EPSSRISERSFillItem             (PGresult* res, int row_index, EPSSRISERSItem_t* item);
 static bool         static_PRODUCTEXPOSUREFillTopItem     (PGresult* res, int row_index, CVETRIAGEItem_t* item);
 static DbStatus_t   static_CPESEARCHReadPage              (PGconn* conn, const char* query, int param_count, const char** param_values, CPESEARCHResult_t* results_out);
 static bool         static_CPESEARCHFillItem              (PGresult* res, int row_index, CPESEARCHItem_t* item);
@@ -1533,6 +1553,51 @@ void db_CVETRIAGEBULKResultFree(CVETRIAGEBULKResult_t* results)
   results->mp_items = NULL;
 }
 
+DbStatus_t db_EPSSRISERS(PGconn* conn, const EPSSRISERSParams_t* params, EPSSRISERSResult_t* result_out)
+{
+  result_out->m_total        = 0;
+  result_out->m_count        = 0;
+  result_out->mp_items       = NULL;
+  result_out->ma_fromDate[0] = '\0';
+  result_out->ma_toDate[0]   = '\0';
+
+  char window_days[DBHELPER_INT_PARAM_BUF_SIZE];
+  char min_epss[DBHELPER_NUMERIC_PARAM_BUF_SIZE];
+  char row_count[DBHELPER_INT_PARAM_BUF_SIZE];
+  char row_offset[DBHELPER_INT_PARAM_BUF_SIZE];
+
+  const char* param_values[] = {
+    dbhelper_intParam(window_days, sizeof(window_days), params->m_windowDays),
+    dbhelper_numberOrNull(min_epss, sizeof(min_epss), 6, params->m_minEpss),
+    dbhelper_kevFilterValue(params->m_kevFilter),
+    dbhelper_textOrNull(params->ma_vendor),
+    dbhelper_textOrNull(params->ma_product),
+    dbhelper_intParam(row_count,  sizeof(row_count),  params->m_limit),
+    dbhelper_intParam(row_offset, sizeof(row_offset), params->m_offset),
+  };
+  if (static_EPSSRISERSReadWindow(conn, param_values[0], result_out) != DB_OK)
+    return DB_ERROR;
+  if (result_out->ma_fromDate[0] == '\0')
+    return DB_OK;
+  if (!static_tryReadMatchCount(conn, "SELECT api.fn_epss_risers_match_count($1, $2, $3, $4, $5) AS cve_count",
+                                "cve_count", DB_EPSSRISERS_FILTER_COUNT, param_values, &result_out->m_total))
+  {
+    return DB_ERROR;
+  }
+  if (params->m_offset >= result_out->m_total)
+    return DB_OK;
+  return static_EPSSRISERSReadPage(conn, "SELECT * FROM api.fn_epss_risers($1, $2, $3, $4, $5, $6, $7)",
+                                   DBHELPER_PARAM_COUNT(param_values), param_values, result_out);
+}
+
+void db_EPSSRISERSResultFree(EPSSRISERSResult_t* result)
+{
+  if (!result)
+    return;
+  free(result->mp_items);
+  result->mp_items = NULL;
+}
+
 DbStatus_t db_PRODUCTEXPOSURE(PGconn* conn, const PRODUCTEXPOSUREParams_t* params, PRODUCTEXPOSURERecord_t* record_out)
 {
   memset(record_out, 0, sizeof(*record_out));
@@ -2538,6 +2603,94 @@ static bool static_CVETRIAGEFillItem(PGresult* res, int row_index, CVETRIAGEItem
   return dbhelper_fetchColStr(res, row_index, CVETRIAGE_COLUMN_CVE_ID, item->ma_cveId, CVELOOKUP_ID_MAX_LEN) &&
          dbhelper_fetchColDouble(res, row_index, CVETRIAGE_COLUMN_RISK_SCORE, 0.0, &item->m_riskScore)       &&
          dbhelper_fetchColStr(res, row_index, CVETRIAGE_COLUMN_RISK_LABEL, item->ma_label, CVERISKSCORE_LABEL_LEN);
+}
+
+static DbStatus_t static_EPSSRISERSReadWindow(PGconn* conn, const char* window_days, EPSSRISERSResult_t* result_out)
+{
+  assert(window_days != NULL);
+  assert(result_out  != NULL);
+
+  if (!conn)
+  {
+    fprintf(stderr, "static_EPSSRISERSReadWindow: no database connection\n");
+    return DB_ERROR;
+  }
+
+  const char* param_values[] = { window_days };
+  PGresult* res = dbhelper_executeQuery(conn,
+                                        "SELECT * FROM api.fn_epss_risers_window($1)",
+                                        DBHELPER_PARAM_COUNT(param_values),
+                                        param_values);
+  if (!res)
+    return DB_ERROR;
+
+  bool is_window_read = dbhelper_isColumnListEqual(res, EPSSRISERSWINDOW_COLUMN_NAMES, DBHELPER_COLUMN_COUNT(EPSSRISERSWINDOW_COLUMN_NAMES)) &&
+                        PQntuples(res) == 1 &&
+                        dbhelper_fetchColStr(res, 0, EPSSRISERSWINDOW_COLUMN_FROM_DATE, result_out->ma_fromDate, CVELOOKUP_PUBLISHED_LEN) &&
+                        dbhelper_fetchColStr(res, 0, EPSSRISERSWINDOW_COLUMN_TO_DATE, result_out->ma_toDate, CVELOOKUP_PUBLISHED_LEN);
+  PQclear(res);
+  return is_window_read ? DB_OK : DB_ERROR;
+}
+
+static DbStatus_t static_EPSSRISERSReadPage(PGconn* conn, const char* query, int param_count, const char** param_values, EPSSRISERSResult_t* result_out)
+{
+  assert(conn         != NULL);
+  assert(query        != NULL);
+  assert(param_values != NULL);
+  assert(result_out   != NULL);
+
+  PGresult* res = dbhelper_executeQuery(conn, query, param_count, param_values);
+  if (!res)
+    return DB_ERROR;
+
+  if (!dbhelper_isColumnListEqual(res, EPSSRISERS_COLUMN_NAMES, DBHELPER_COLUMN_COUNT(EPSSRISERS_COLUMN_NAMES)))
+  {
+    PQclear(res);
+    return DB_ERROR;
+  }
+
+  int row_count = PQntuples(res);
+  if (row_count == 0)
+  {
+    PQclear(res);
+    return DB_OK;
+  }
+
+  result_out->mp_items = malloc((size_t)row_count * sizeof(EPSSRISERSItem_t));
+  if (!result_out->mp_items)
+  {
+    PQclear(res);
+    return DB_ERROR;
+  }
+
+  for (int row_index = 0; row_index < row_count; row_index++)
+  {
+    if (!static_EPSSRISERSFillItem(res, row_index, &result_out->mp_items[row_index]))
+    {
+      free(result_out->mp_items);
+      result_out->mp_items = NULL;
+      PQclear(res);
+      return DB_ERROR;
+    }
+  }
+
+  result_out->m_count = row_count;
+  PQclear(res);
+  return DB_OK;
+}
+
+static bool static_EPSSRISERSFillItem(PGresult* res, int row_index, EPSSRISERSItem_t* item)
+{
+  assert(res  != NULL);
+  assert(item != NULL);
+  assert(row_index >= 0 && row_index < PQntuples(res));
+
+  return dbhelper_fetchColStr(res, row_index, EPSSRISERS_COLUMN_CVE_ID, item->ma_cveId, CVELOOKUP_ID_MAX_LEN)             &&
+         dbhelper_fetchColDouble(res, row_index, EPSSRISERS_COLUMN_EPSS_SCORE, 0.0, &item->m_epssCurrentScore)            &&
+         dbhelper_fetchColDouble(res, row_index, EPSSRISERS_COLUMN_EPSS_PREVIOUS_SCORE, 0.0, &item->m_epssPreviousScore)  &&
+         dbhelper_fetchColDouble(res, row_index, EPSSRISERS_COLUMN_EPSS_DELTA, 0.0, &item->m_epssDelta)                   &&
+         dbhelper_fetchColDouble(res, row_index, EPSSRISERS_COLUMN_EPSS_PERCENTILE, 0.0, &item->m_epssPercentile)         &&
+         dbhelper_fetchColBool(res, row_index, EPSSRISERS_COLUMN_IN_KEV, &item->m_inKev);
 }
 
 static bool static_PRODUCTEXPOSUREFillTopItem(PGresult* res, int row_index, CVETRIAGEItem_t* item)

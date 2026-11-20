@@ -3583,6 +3583,365 @@ void test_CVE_lists_total_that_is_not_one_row_is_error(void)
   }
 }
 
+#define EPSSRISERS_WINDOW_CALL "SELECT * FROM api.fn_epss_risers_window($1)"
+#define EPSSRISERS_TOTAL_CALL  "SELECT api.fn_epss_risers_match_count($1, $2, $3, $4, $5) AS cve_count"
+#define EPSSRISERS_PAGE_CALL   "SELECT * FROM api.fn_epss_risers($1, $2, $3, $4, $5, $6, $7)"
+
+#define EPSSRISERS_WINDOW_COLUMN_COUNT 2
+#define EPSSRISERS_ROW_COLUMN_COUNT    6
+
+static const char* const g_epssRisersWindowColumnNames[EPSSRISERS_WINDOW_COLUMN_COUNT] = { "from_date", "to_date" };
+
+static const char* const g_epssRisersColumnNames[EPSSRISERS_ROW_COLUMN_COUNT] = {
+  "cve_id", "epss_score", "epss_previous_score", "epss_delta", "epss_percentile", "in_kev"
+};
+
+static const char* const g_epssRisersRowValues[2][EPSSRISERS_ROW_COLUMN_COUNT] = {
+  { "CVE-2026-0001", "0.81870", "0.03042", "0.78828", "0.99412", "f" },
+  { "CVE-2026-0002", "0.5",     "0.2",     "0.3",     "0.9",     "t" },
+};
+
+static FakeAnswer_t* static_queueEpssRisersWindow(const char* from_date, const char* to_date)
+{
+  FakeAnswer_t* answer = static_queueAnswer(PGRES_TUPLES_OK, EPSSRISERS_WINDOW_COLUMN_COUNT, 1);
+  for (int col = 0; col < EPSSRISERS_WINDOW_COLUMN_COUNT; col++)
+    answer->ma_columnNames[col] = g_epssRisersWindowColumnNames[col];
+  answer->ma_cells[0][0] = from_date;
+  answer->ma_cells[0][1] = to_date;
+  return answer;
+}
+
+static FakeAnswer_t* static_queueEpssRisersPage(void)
+{
+  FakeAnswer_t* answer = static_queueAnswer(PGRES_TUPLES_OK, EPSSRISERS_ROW_COLUMN_COUNT, 2);
+  for (int col = 0; col < EPSSRISERS_ROW_COLUMN_COUNT; col++)
+  {
+    answer->ma_columnNames[col] = g_epssRisersColumnNames[col];
+    for (int row = 0; row < 2; row++)
+      answer->ma_cells[row][col] = g_epssRisersRowValues[row][col];
+  }
+  return answer;
+}
+
+static void static_queueEpssRisersAnswers(void)
+{
+  static_queueEpssRisersWindow("2026-11-12", "2026-11-19");
+  static_queueTotalAnswer("42");
+  static_queueEpssRisersPage();
+}
+
+static void static_setEpssRisersParams(EPSSRISERSParams_t* params)
+{
+  memset(params, 0, sizeof(*params));
+  params->m_windowDays = EPSSRISERS_WINDOW_SHORT_DAYS;
+  params->m_minEpss    = -1.0;
+  params->m_kevFilter  = CVE_KEV_FILTER_ANY;
+  params->m_limit      = 20;
+  params->m_offset     = 0;
+}
+
+void test_EPSSRISERS_sends_each_value_in_its_own_parameter(void)
+{
+  static const char* const values[] = { "30", "0.250000", "false", "v", "p", "2", "40" };
+
+  static_queueEpssRisersAnswers();
+  EPSSRISERSParams_t params;
+  static_setEpssRisersParams(&params);
+  static_setText(params.ma_vendor,  sizeof(params.ma_vendor),  "v");
+  static_setText(params.ma_product, sizeof(params.ma_product), "p");
+  params.m_windowDays = EPSSRISERS_WINDOW_LONG_DAYS;
+  params.m_minEpss    = 0.25;
+  params.m_kevFilter  = CVE_KEV_FILTER_NOT_IN_KEV;
+  params.m_limit      = 2;
+  params.m_offset     = 40;
+  EPSSRISERSResult_t result;
+  memset(&result, 0xA5, sizeof(result));
+
+  TEST_ASSERT_EQUAL_INT(DB_OK, db_EPSSRISERS(FAKE_CONN, &params, &result));
+  TEST_ASSERT_EQUAL_INT(3, g_callCount);
+  static_assertCall(0, EPSSRISERS_WINDOW_CALL, values, 1);
+  static_assertCall(1, EPSSRISERS_TOTAL_CALL,  values, 5);
+  static_assertCall(2, EPSSRISERS_PAGE_CALL,   values, 7);
+  TEST_ASSERT_EQUAL_INT(42, result.m_total);
+  TEST_ASSERT_EQUAL_INT(2, result.m_count);
+  db_EPSSRISERSResultFree(&result);
+  TEST_ASSERT_NULL(result.mp_items);
+}
+
+void test_EPSSRISERS_sends_an_unset_filter_as_null(void)
+{
+  static const char* const unset_values[] = { "7", NULL, NULL, NULL, NULL, "20", "0" };
+  static const char* const zero_values[]  = { "7", "0.000000", "true", NULL, NULL, "20", "0" };
+
+  static_queueEpssRisersAnswers();
+  EPSSRISERSParams_t params;
+  static_setEpssRisersParams(&params);
+  EPSSRISERSResult_t result;
+  memset(&result, 0, sizeof(result));
+  TEST_ASSERT_EQUAL_INT(DB_OK, db_EPSSRISERS(FAKE_CONN, &params, &result));
+  static_assertCall(0, EPSSRISERS_WINDOW_CALL, unset_values, 1);
+  static_assertCall(1, EPSSRISERS_TOTAL_CALL,  unset_values, 5);
+  static_assertCall(2, EPSSRISERS_PAGE_CALL,   unset_values, 7);
+  db_EPSSRISERSResultFree(&result);
+
+  static_resetFake();
+  static_queueEpssRisersAnswers();
+  params.m_minEpss   = 0.0;
+  params.m_kevFilter = CVE_KEV_FILTER_ONLY_IN_KEV;
+  memset(&result, 0, sizeof(result));
+  TEST_ASSERT_EQUAL_INT(DB_OK, db_EPSSRISERS(FAKE_CONN, &params, &result));
+  static_assertCall(1, EPSSRISERS_TOTAL_CALL, zero_values, 5);
+  static_assertCall(2, EPSSRISERS_PAGE_CALL,  zero_values, 7);
+  db_EPSSRISERSResultFree(&result);
+}
+
+void test_EPSSRISERS_empty_from_date_sends_only_the_window_call(void)
+{
+  static const char* const to_dates[] = { "2026-11-19", "" };
+
+  for (size_t n = 0; n < sizeof(to_dates) / sizeof(to_dates[0]); n++)
+  {
+    static_resetFake();
+    static_queueEpssRisersWindow("", to_dates[n]);
+    static_queueTotalAnswer("42");
+    static_queueEpssRisersPage();
+    EPSSRISERSParams_t params;
+    static_setEpssRisersParams(&params);
+    EPSSRISERSResult_t result;
+    memset(&result, 0xA5, sizeof(result));
+
+    TEST_ASSERT_EQUAL_INT_MESSAGE(DB_OK, db_EPSSRISERS(FAKE_CONN, &params, &result), to_dates[n]);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(1, g_callCount, to_dates[n]);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(0, result.m_total, to_dates[n]);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(0, result.m_count, to_dates[n]);
+    TEST_ASSERT_NULL_MESSAGE(result.mp_items, to_dates[n]);
+    TEST_ASSERT_EQUAL_STRING_MESSAGE("", result.ma_fromDate, to_dates[n]);
+    TEST_ASSERT_EQUAL_STRING_MESSAGE(to_dates[n], result.ma_toDate, to_dates[n]);
+  }
+}
+
+void test_EPSSRISERS_failed_call_is_error(void)
+{
+  for (int failed_call = 0; failed_call < 3; failed_call++)
+  {
+    char message[32] = "";
+    snprintf(message, sizeof(message), "call %d fails", failed_call);
+
+    static_resetFake();
+    if (failed_call == 0)
+      static_queueAnswer(PGRES_FATAL_ERROR, 0, 0);
+    if (failed_call >= 1)
+      static_queueEpssRisersWindow("2026-11-12", "2026-11-19");
+    if (failed_call == 1)
+      static_queueAnswer(PGRES_FATAL_ERROR, 0, 0);
+    if (failed_call == 2)
+    {
+      static_queueTotalAnswer("42");
+      static_queueAnswer(PGRES_FATAL_ERROR, 0, 0);
+    }
+    EPSSRISERSParams_t params;
+    static_setEpssRisersParams(&params);
+    EPSSRISERSResult_t result;
+    memset(&result, 0xA5, sizeof(result));
+
+    TEST_ASSERT_EQUAL_INT_MESSAGE(DB_ERROR, db_EPSSRISERS(FAKE_CONN, &params, &result), message);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(failed_call + 1, g_callCount, message);
+    TEST_ASSERT_NULL_MESSAGE(result.mp_items, message);
+  }
+}
+
+void test_EPSSRISERS_column_of_another_name_is_error(void)
+{
+  const int column_counts[] = { EPSSRISERS_WINDOW_COLUMN_COUNT, 1, EPSSRISERS_ROW_COLUMN_COUNT };
+
+  for (int renamed_answer = 0; renamed_answer < 3; renamed_answer++)
+  {
+    for (int col = 0; col < column_counts[renamed_answer]; col++)
+    {
+      char message[48] = "";
+      snprintf(message, sizeof(message), "answer %d, column %d", renamed_answer, col);
+
+      static_resetFake();
+      static_queueEpssRisersAnswers();
+      g_queuedAnswers[renamed_answer].ma_columnNames[col] = "renamed";
+      EPSSRISERSParams_t params;
+      static_setEpssRisersParams(&params);
+      EPSSRISERSResult_t result;
+      memset(&result, 0xA5, sizeof(result));
+
+      TEST_ASSERT_EQUAL_INT_MESSAGE(DB_ERROR, db_EPSSRISERS(FAKE_CONN, &params, &result), message);
+      TEST_ASSERT_EQUAL_INT_MESSAGE(renamed_answer + 1, g_callCount, message);
+      TEST_ASSERT_NULL_MESSAGE(result.mp_items, message);
+    }
+  }
+}
+
+void test_EPSSRISERS_reads_each_column_into_its_own_field(void)
+{
+  static_queueEpssRisersAnswers();
+  EPSSRISERSParams_t params;
+  static_setEpssRisersParams(&params);
+  EPSSRISERSResult_t result;
+  memset(&result, 0xA5, sizeof(result));
+
+  TEST_ASSERT_EQUAL_INT(DB_OK, db_EPSSRISERS(FAKE_CONN, &params, &result));
+  TEST_ASSERT_EQUAL_STRING("2026-11-12", result.ma_fromDate);
+  TEST_ASSERT_EQUAL_STRING("2026-11-19", result.ma_toDate);
+  TEST_ASSERT_EQUAL_INT(2, result.m_count);
+  TEST_ASSERT_NOT_NULL(result.mp_items);
+
+  const EPSSRISERSItem_t* first  = &result.mp_items[0];
+  const EPSSRISERSItem_t* second = &result.mp_items[1];
+  TEST_ASSERT_EQUAL_STRING("CVE-2026-0001", first->ma_cveId);
+  TEST_ASSERT_EQUAL_INT(81870, (int)(first->m_epssCurrentScore  * 100000.0 + 0.5));
+  TEST_ASSERT_EQUAL_INT(3042,  (int)(first->m_epssPreviousScore * 100000.0 + 0.5));
+  TEST_ASSERT_EQUAL_INT(78828, (int)(first->m_epssDelta         * 100000.0 + 0.5));
+  TEST_ASSERT_EQUAL_INT(99412, (int)(first->m_epssPercentile    * 100000.0 + 0.5));
+  TEST_ASSERT_FALSE(first->m_inKev);
+  TEST_ASSERT_EQUAL_STRING("CVE-2026-0002", second->ma_cveId);
+  TEST_ASSERT_EQUAL_INT(50000, (int)(second->m_epssCurrentScore  * 100000.0 + 0.5));
+  TEST_ASSERT_EQUAL_INT(20000, (int)(second->m_epssPreviousScore * 100000.0 + 0.5));
+  TEST_ASSERT_EQUAL_INT(30000, (int)(second->m_epssDelta         * 100000.0 + 0.5));
+  TEST_ASSERT_EQUAL_INT(90000, (int)(second->m_epssPercentile    * 100000.0 + 0.5));
+  TEST_ASSERT_TRUE(second->m_inKev);
+  db_EPSSRISERSResultFree(&result);
+}
+
+void test_EPSSRISERS_window_that_is_not_one_row_is_error(void)
+{
+  for (int row_count = 0; row_count <= 2; row_count += 2)
+  {
+    char message[32] = "";
+    snprintf(message, sizeof(message), "%d rows", row_count);
+
+    static_resetFake();
+    FakeAnswer_t* window = static_queueAnswer(PGRES_TUPLES_OK, EPSSRISERS_WINDOW_COLUMN_COUNT, row_count);
+    for (int col = 0; col < EPSSRISERS_WINDOW_COLUMN_COUNT; col++)
+      window->ma_columnNames[col] = g_epssRisersWindowColumnNames[col];
+    for (int row = 0; row < row_count; row++)
+    {
+      window->ma_cells[row][0] = "2026-11-12";
+      window->ma_cells[row][1] = "2026-11-19";
+    }
+    static_queueTotalAnswer("42");
+    static_queueEpssRisersPage();
+    EPSSRISERSParams_t params;
+    static_setEpssRisersParams(&params);
+    EPSSRISERSResult_t result;
+    memset(&result, 0xA5, sizeof(result));
+
+    TEST_ASSERT_EQUAL_INT_MESSAGE(DB_ERROR, db_EPSSRISERS(FAKE_CONN, &params, &result), message);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(1, g_callCount, message);
+    TEST_ASSERT_NULL_MESSAGE(result.mp_items, message);
+  }
+}
+
+void test_EPSSRISERS_null_connection_is_error_before_any_query(void)
+{
+  static_queueEpssRisersAnswers();
+  EPSSRISERSParams_t params;
+  static_setEpssRisersParams(&params);
+  EPSSRISERSResult_t result;
+  memset(&result, 0xA5, sizeof(result));
+
+  TEST_ASSERT_EQUAL_INT(DB_ERROR, db_EPSSRISERS(NULL, &params, &result));
+  TEST_ASSERT_EQUAL_INT(0, g_callCount);
+  TEST_ASSERT_NULL(result.mp_items);
+}
+
+void test_EPSSRISERS_sends_no_page_call_at_or_past_the_total(void)
+{
+  for (int offset = 41; offset <= 43; offset++)
+  {
+    char message[32] = "";
+    snprintf(message, sizeof(message), "offset %d", offset);
+
+    static_resetFake();
+    static_queueEpssRisersAnswers();
+    EPSSRISERSParams_t params;
+    static_setEpssRisersParams(&params);
+    params.m_offset = offset;
+    EPSSRISERSResult_t result;
+    memset(&result, 0xA5, sizeof(result));
+
+    TEST_ASSERT_EQUAL_INT_MESSAGE(DB_OK, db_EPSSRISERS(FAKE_CONN, &params, &result), message);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(offset < 42 ? 3 : 2, g_callCount, message);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(42, result.m_total, message);
+    if (offset >= 42)
+      TEST_ASSERT_NULL_MESSAGE(result.mp_items, message);
+    db_EPSSRISERSResultFree(&result);
+  }
+}
+
+void test_EPSSRISERS_page_with_no_row_is_ok(void)
+{
+  static_queueEpssRisersWindow("2026-11-12", "2026-11-19");
+  static_queueTotalAnswer("42");
+  FakeAnswer_t* page = static_queueAnswer(PGRES_TUPLES_OK, EPSSRISERS_ROW_COLUMN_COUNT, 0);
+  for (int col = 0; col < EPSSRISERS_ROW_COLUMN_COUNT; col++)
+    page->ma_columnNames[col] = g_epssRisersColumnNames[col];
+  EPSSRISERSParams_t params;
+  static_setEpssRisersParams(&params);
+  EPSSRISERSResult_t result;
+  memset(&result, 0xA5, sizeof(result));
+
+  TEST_ASSERT_EQUAL_INT(DB_OK, db_EPSSRISERS(FAKE_CONN, &params, &result));
+  TEST_ASSERT_EQUAL_INT(3, g_callCount);
+  TEST_ASSERT_EQUAL_INT(42, result.m_total);
+  TEST_ASSERT_EQUAL_INT(0, result.m_count);
+  TEST_ASSERT_NULL(result.mp_items);
+}
+
+void test_EPSSRISERS_text_past_its_limit_is_error(void)
+{
+  static const struct {
+    int         m_answer;
+    int         m_row;
+    int         m_column;
+    size_t      m_limit;
+    const char* mp_name;
+  } fields[] = {
+    { 0, 0, 0, CVELOOKUP_PUBLISHED_LEN, "from_date" },
+    { 0, 0, 1, CVELOOKUP_PUBLISHED_LEN, "to_date" },
+    { 2, 1, 0, CVELOOKUP_ID_MAX_LEN,    "cve_id" },
+  };
+
+  for (size_t f = 0; f < sizeof(fields) / sizeof(fields[0]); f++)
+  {
+    for (size_t extra = 0; extra <= 1; extra++)
+    {
+      char message[48] = "";
+      snprintf(message, sizeof(message), "%s, %zu bytes", fields[f].mp_name, fields[f].m_limit + extra);
+
+      static_resetFake();
+      char* text = static_makeText(fields[f].m_limit + extra);
+      TEST_ASSERT_NOT_NULL(text);
+      static_queueEpssRisersAnswers();
+      g_queuedAnswers[fields[f].m_answer].ma_cells[fields[f].m_row][fields[f].m_column] = text;
+      EPSSRISERSParams_t params;
+      static_setEpssRisersParams(&params);
+      EPSSRISERSResult_t result;
+      memset(&result, 0xA5, sizeof(result));
+
+      DbStatus_t db_status = db_EPSSRISERS(FAKE_CONN, &params, &result);
+
+      if (extra == 0)
+      {
+        TEST_ASSERT_EQUAL_INT_MESSAGE(DB_OK, db_status, message);
+        const char* field = (f == 0) ? result.ma_fromDate : (f == 1) ? result.ma_toDate : result.mp_items[1].ma_cveId;
+        TEST_ASSERT_EQUAL_STRING_MESSAGE(text, field, message);
+        db_EPSSRISERSResultFree(&result);
+      }
+      else
+      {
+        TEST_ASSERT_EQUAL_INT_MESSAGE(DB_ERROR, db_status, message);
+        TEST_ASSERT_NULL_MESSAGE(result.mp_items, message);
+      }
+      free(text);
+    }
+  }
+}
+
 void test_failed_query_writes_one_line_naming_its_caller(void)
 {
   static const struct {
@@ -12812,7 +13171,7 @@ void test_recordCtScan_refuses_any_other_answer(void)
 
 void test_registration_gate_test_count(void)
 {
-  TEST_ASSERT_EQUAL_INT_MESSAGE(271, (int)Unity.NumberOfTests,
+  TEST_ASSERT_EQUAL_INT_MESSAGE(282, (int)Unity.NumberOfTests,
     "RUN_TEST list and test definitions have drifted apart - a test may be unregistered");
 }
 
@@ -12871,6 +13230,17 @@ int main(void)
   RUN_TEST(test_CVE_lists_read_the_total_from_the_total_answer);
   RUN_TEST(test_CVE_lists_empty_page_is_ok);
   RUN_TEST(test_lists_send_no_page_call_at_or_past_the_total);
+  RUN_TEST(test_EPSSRISERS_sends_each_value_in_its_own_parameter);
+  RUN_TEST(test_EPSSRISERS_sends_an_unset_filter_as_null);
+  RUN_TEST(test_EPSSRISERS_empty_from_date_sends_only_the_window_call);
+  RUN_TEST(test_EPSSRISERS_failed_call_is_error);
+  RUN_TEST(test_EPSSRISERS_column_of_another_name_is_error);
+  RUN_TEST(test_EPSSRISERS_reads_each_column_into_its_own_field);
+  RUN_TEST(test_EPSSRISERS_window_that_is_not_one_row_is_error);
+  RUN_TEST(test_EPSSRISERS_null_connection_is_error_before_any_query);
+  RUN_TEST(test_EPSSRISERS_sends_no_page_call_at_or_past_the_total);
+  RUN_TEST(test_EPSSRISERS_page_with_no_row_is_ok);
+  RUN_TEST(test_EPSSRISERS_text_past_its_limit_is_error);
   RUN_TEST(test_CVETRIAGE_cve_id_past_its_limit_is_error);
   RUN_TEST(test_CVETRIAGEBULK_cve_id_past_its_limit_fails_only_its_id);
   RUN_TEST(test_CVETRIAGEBULK_sends_every_kept_id_and_fails_the_ones_without_a_row);

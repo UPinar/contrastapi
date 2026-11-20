@@ -98,6 +98,13 @@ extern int                 g_stub_CVELEADING_item_count;
 
 extern int g_stub_CVETRIAGE_item_count;
 
+extern DbStatus_t         g_stub_EPSSRISERS_status;
+extern EPSSRISERSParams_t g_stub_EPSSRISERS_last_params;
+extern int                g_stub_EPSSRISERS_call_count;
+extern int                g_stub_EPSSRISERS_item_count;
+extern const char*        g_stub_EPSSRISERS_from_date;
+extern int                g_stub_EPSSRISERSResultFree_call_count;
+
 extern DbStatus_t        g_stub_CPESEARCH_status;
 extern CPESEARCHParams_t g_stub_CPESEARCH_last_params;
 extern int               g_stub_CPESEARCH_call_count;
