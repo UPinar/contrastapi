@@ -1117,6 +1117,150 @@ void test_target_requested_already_is_a_loop(void)
   header_fetch_chainFree(&chain);
 }
 
+void test_target_whose_host_differs_only_in_case_is_a_loop(void)
+{
+  static const HttpStubAnswer_t answers[] = {
+    { .m_status = 301, .mp_redirectUrl = "https://A.EXAMPLE/" },
+    { .m_status = 200 },
+  };
+  static_setAnswers(answers, 2);
+
+  HeaderFetchChain_t chain;
+  TEST_ASSERT_EQUAL_INT(HTTP_ERROR_NONE, static_runChain("https://a.example/", HEADER_FETCH_HOP_RULE_ANY_PUBLIC_HOST, NULL, NULL, &chain));
+  TEST_ASSERT_EQUAL_INT(1, g_stub_http_call_count);
+  TEST_ASSERT_EQUAL_INT(HEADER_FETCH_STOP_LOOP, chain.m_stopReason);
+  TEST_ASSERT_EQUAL_INT(1, chain.m_hopCount);
+  TEST_ASSERT_EQUAL_STRING("https://A.EXAMPLE/", chain.mp_unfollowedUrl);
+  header_fetch_chainFree(&chain);
+}
+
+void test_target_whose_path_or_query_differs_in_case_is_requested(void)
+{
+  static const struct { const char* mp_firstUrl; const char* mp_target; } cases[] = {
+    { "https://a.example/A",   "https://a.example/a"   },
+    { "https://a.example/p?Q", "https://a.example/p?q" },
+    { "https://a.example:443/x", "https://a.example/X" },
+  };
+  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+  {
+    HttpStubAnswer_t answers[] = {
+      { .m_status = 301, .mp_redirectUrl = cases[i].mp_target },
+      { .m_status = 200 },
+    };
+    static_setAnswers(answers, 2);
+    g_stub_http_call_count = 0;
+
+    HeaderFetchChain_t chain;
+    TEST_ASSERT_EQUAL_INT_MESSAGE(HTTP_ERROR_NONE, static_runChain(cases[i].mp_firstUrl, HEADER_FETCH_HOP_RULE_ANY_PUBLIC_HOST, NULL, NULL, &chain), cases[i].mp_target);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(2, g_stub_http_call_count, cases[i].mp_target);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(HEADER_FETCH_STOP_FINAL_ANSWER, chain.m_stopReason, cases[i].mp_target);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(2, chain.m_hopCount, cases[i].mp_target);
+    header_fetch_chainFree(&chain);
+  }
+}
+
+void test_target_whose_host_only_shares_a_prefix_is_requested(void)
+{
+  static const char* const targets[] = { "https://A.EXAMPLE.org/", "https://a.exampl/" };
+  for (size_t i = 0; i < sizeof(targets) / sizeof(targets[0]); i++)
+  {
+    HttpStubAnswer_t answers[] = {
+      { .m_status = 301, .mp_redirectUrl = targets[i] },
+      { .m_status = 200 },
+    };
+    static_setAnswers(answers, 2);
+    g_stub_http_call_count = 0;
+
+    HeaderFetchChain_t chain;
+    TEST_ASSERT_EQUAL_INT_MESSAGE(HTTP_ERROR_NONE, static_runChain("https://a.example/", HEADER_FETCH_HOP_RULE_ANY_PUBLIC_HOST, NULL, NULL, &chain), targets[i]);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(2, g_stub_http_call_count, targets[i]);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(HEADER_FETCH_STOP_FINAL_ANSWER, chain.m_stopReason, targets[i]);
+    header_fetch_chainFree(&chain);
+  }
+}
+
+#define TEST_NORMAL_URL_SIZE (HEADER_FETCH_MAX_URL_BYTE_COUNT + 1)
+
+void test_write_normal_url_writes_the_url_the_chain_sends(void)
+{
+  static const struct { const char* mp_url; const char* mp_normalUrl; } cases[] = {
+    { "HTTPS://A.Example:443/p?q=1#f",   "https://a.example/p?q=1"     },
+    { "http://a.example:80",             "http://a.example/"           },
+    { "https://a.example:8443/",         "https://a.example:8443/"     },
+    { "http://a.example:443/",           "http://a.example:443/"       },
+    { "https://WWW.B.Co.UK/Path/A?Q=B",  "https://www.b.co.uk/Path/A?Q=B" },
+  };
+  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+  {
+    char normal_url[TEST_NORMAL_URL_SIZE];
+    memset(normal_url, 'x', sizeof(normal_url));
+    TEST_ASSERT_EQUAL_INT_MESSAGE(HEADER_FETCH_URL_OK, header_fetch_writeNormalUrl(cases[i].mp_url, normal_url, sizeof(normal_url)), cases[i].mp_url);
+    TEST_ASSERT_EQUAL_STRING_MESSAGE(cases[i].mp_normalUrl, normal_url, cases[i].mp_url);
+  }
+}
+
+void test_write_normal_url_refuses_user_info_and_a_url_libcurl_cannot_parse(void)
+{
+  static const struct { const char* mp_url; HeaderFetchUrlStatus_t m_status; } cases[] = {
+    { "https://u:p@a.example/", HEADER_FETCH_URL_USER_INFO   },
+    { "https://u@a.example/",   HEADER_FETCH_URL_USER_INFO   },
+    { "https://:p@a.example/",  HEADER_FETCH_URL_USER_INFO   },
+    { "https://",               HEADER_FETCH_URL_UNPARSABLE  },
+    { "ht!tp://x",              HEADER_FETCH_URL_UNPARSABLE  },
+  };
+  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+  {
+    char normal_url[TEST_NORMAL_URL_SIZE];
+    memset(normal_url, 'x', sizeof(normal_url));
+    TEST_ASSERT_EQUAL_INT_MESSAGE(cases[i].m_status, header_fetch_writeNormalUrl(cases[i].mp_url, normal_url, sizeof(normal_url)), cases[i].mp_url);
+    TEST_ASSERT_EQUAL_STRING_MESSAGE("", normal_url, cases[i].mp_url);
+  }
+}
+
+void test_write_normal_url_needs_room_for_the_url_and_its_nul(void)
+{
+  static const struct { size_t m_size; HeaderFetchUrlStatus_t m_status; const char* mp_normalUrl; } cases[] = {
+    { 22, HEADER_FETCH_URL_TOO_LONG, ""                        },
+    { 23, HEADER_FETCH_URL_TOO_LONG, ""                        },
+    { 24, HEADER_FETCH_URL_OK,       "https://a.example/p?q=1" },
+    { 25, HEADER_FETCH_URL_OK,       "https://a.example/p?q=1" },
+  };
+  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+  {
+    char normal_url[32];
+    memset(normal_url, 'x', sizeof(normal_url));
+    TEST_ASSERT_EQUAL_INT(cases[i].m_status, header_fetch_writeNormalUrl("https://a.example/p?q=1#f", normal_url, cases[i].m_size));
+    TEST_ASSERT_EQUAL_STRING(cases[i].mp_normalUrl, normal_url);
+    TEST_ASSERT_EQUAL_CHAR('x', normal_url[cases[i].m_size]);
+  }
+}
+
+void test_write_normal_url_part_libcurl_cannot_hand_back(void)
+{
+  char normal_url[TEST_NORMAL_URL_SIZE];
+  g_curlUrlGetCallCount   = 0;
+  g_curlUrlGetFailingCall = -1;
+  TEST_ASSERT_EQUAL_INT(HEADER_FETCH_URL_OK, header_fetch_writeNormalUrl("https://a.example/", normal_url, sizeof(normal_url)));
+  int call_count = g_curlUrlGetCallCount;
+  TEST_ASSERT_EQUAL_INT(4, call_count);
+    for (int failing_call = 0; failing_call < call_count; failing_call++)
+  {
+    memset(normal_url, 'x', sizeof(normal_url));
+    g_curlUrlGetCallCount   = 0;
+    g_curlUrlGetFailingCall = failing_call;
+    HeaderFetchUrlStatus_t status = header_fetch_writeNormalUrl("https://a.example/", normal_url, sizeof(normal_url));
+    TEST_ASSERT_EQUAL_INT(HEADER_FETCH_URL_UNPARSABLE, status);
+    TEST_ASSERT_EQUAL_STRING("", normal_url);
+  }
+
+  g_curlUrlCallCount   = 0;
+  g_curlUrlFailingCall = 0;
+  g_curlUrlGetFailingCall = -1;
+  memset(normal_url, 'x', sizeof(normal_url));
+  TEST_ASSERT_EQUAL_INT(HEADER_FETCH_URL_UNPARSABLE, header_fetch_writeNormalUrl("https://a.example/", normal_url, sizeof(normal_url)));
+  TEST_ASSERT_EQUAL_STRING("", normal_url);
+}
+
 void test_tenth_request_is_sent_and_an_eleventh_target_is_the_limit(void)
 {
   static const char* const targets[] = {
@@ -1294,13 +1438,36 @@ void test_chain_free_zeroes_the_chain_and_accepts_a_zeroed_one(void)
 
 void test_registration_gate_test_count(void)
 {
-  TEST_ASSERT_EQUAL_INT_MESSAGE(50, (int)Unity.NumberOfTests,
+  TEST_ASSERT_EQUAL_INT_MESSAGE(58, (int)Unity.NumberOfTests,
     "RUN_TEST list and test definitions have drifted apart - a test may be unregistered");
+}
+
+void test_target_differing_in_the_last_authority_byte_is_requested(void)
+{
+  static const struct { const char* mp_firstUrl; const char* mp_target; } cases[] = {
+    { "https://a.example/",  "https://a.examplf/"  },
+    { "http://a.example/x",  "http://a.examplF/x"  },
+  };
+  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+  {
+    HttpStubAnswer_t answers[] = {
+      { .m_status = 301, .mp_redirectUrl = cases[i].mp_target },
+      { .m_status = 200 },
+    };
+    static_setAnswers(answers, 2);
+    g_stub_http_call_count = 0;
+    HeaderFetchChain_t chain;
+    TEST_ASSERT_EQUAL_INT(HTTP_ERROR_NONE, static_runChain(cases[i].mp_firstUrl, HEADER_FETCH_HOP_RULE_ANY_PUBLIC_HOST, NULL, NULL, &chain));
+    TEST_ASSERT_EQUAL_INT_MESSAGE(2, g_stub_http_call_count, cases[i].mp_target);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(HEADER_FETCH_STOP_FINAL_ANSWER, chain.m_stopReason, cases[i].mp_target);
+    header_fetch_chainFree(&chain);
+  }
 }
 
 int main(void)
 {
   UNITY_BEGIN();
+  RUN_TEST(test_target_differing_in_the_last_authority_byte_is_requested);
   RUN_TEST(test_answer_without_redirect_is_kept_after_one_request);
   RUN_TEST(test_cut_answer_without_headers_keeps_a_null_value_for_each_name);
   RUN_TEST(test_bare_name_follows_its_www_name_and_keeps_the_last_answer);
@@ -1341,6 +1508,13 @@ int main(void)
   RUN_TEST(test_location_libcurl_cannot_resolve_keeps_its_raw_text);
   RUN_TEST(test_target_of_4096_bytes_is_followed_and_4097_is_not);
   RUN_TEST(test_target_requested_already_is_a_loop);
+  RUN_TEST(test_target_whose_host_differs_only_in_case_is_a_loop);
+  RUN_TEST(test_target_whose_path_or_query_differs_in_case_is_requested);
+  RUN_TEST(test_target_whose_host_only_shares_a_prefix_is_requested);
+  RUN_TEST(test_write_normal_url_writes_the_url_the_chain_sends);
+  RUN_TEST(test_write_normal_url_refuses_user_info_and_a_url_libcurl_cannot_parse);
+  RUN_TEST(test_write_normal_url_needs_room_for_the_url_and_its_nul);
+  RUN_TEST(test_write_normal_url_part_libcurl_cannot_hand_back);
   RUN_TEST(test_tenth_request_is_sent_and_an_eleventh_target_is_the_limit);
   RUN_TEST(test_failed_third_request_ends_the_chain_with_its_hop);
   RUN_TEST(test_deadline_before_a_later_request_ends_the_chain);

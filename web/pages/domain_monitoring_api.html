@@ -115,6 +115,11 @@
       </div>
       <div class="endpoint">
         <span class="method get">GET</span>
+        <span class="endpoint-path">/redirect_chain</span>
+        <span class="endpoint-desc">MCP <code>redirect_chain</code>. Each hop of the redirect chain of a URL, the final URL, why the chain stopped and any step from https to http. <a href="https://github.com/UPinar/contrastapi/blob/main/docs/API_Documentation.md#redirect-chain-get-redirect_chainurl">API docs</a></span>
+      </div>
+      <div class="endpoint">
+        <span class="method get">GET</span>
         <span class="endpoint-path">/whois_lookup/{domain}</span>
         <span class="endpoint-desc">MCP <code>whois_lookup</code>. The registration of a domain over RDAP or WHOIS: registrar, dates, status, name servers, DNSSEC. <a href="https://github.com/UPinar/contrastapi/blob/main/docs/API_Documentation.md#whois-lookup-get-whois_lookupdomain">API docs</a></span>
       </div>
@@ -177,7 +182,7 @@
     <p>See <a href="/pricing">pricing</a> for the Pro key. The <a href="/security-monitoring-api">security monitoring page</a> lists every watched endpoint and its events.</p>
     <h2>Data sources</h2>
     <ul>
-      <li><strong>DNS, TLS and header checks:</strong> asked live when you call. <code>ssl_check</code>, <code>headers_check</code> and <code>well_known</code> keep an answer for one hour. A watched <code>dns_lookup</code> item makes the server ask DNS in the background, and a watched <code>ssl_check</code> item makes it open a TLS handshake in the background. A watched <code>headers_check</code> item makes it read the site&rsquo;s <code>robots.txt</code> and home page once a day.</li>
+      <li><strong>DNS, TLS and header checks:</strong> asked live when you call. <code>ssl_check</code>, <code>headers_check</code>, <code>well_known</code> and <code>redirect_chain</code> keep an answer for one hour. A watched <code>dns_lookup</code> item makes the server ask DNS in the background, and a watched <code>ssl_check</code> item makes it open a TLS handshake in the background. A watched <code>headers_check</code> item makes it read the site&rsquo;s <code>robots.txt</code> and home page once a day.</li>
       <li><strong>RDAP and WHOIS registries:</strong> asked live. <code>whois_lookup</code> keeps an answer that holds a registration for one hour. A watched <code>whois_lookup</code> item makes the server ask the registry in the background. Each registry sets the terms of its own server.</li>
       <li><strong>Wayback Machine (Internet Archive), CDX server:</strong> Internet Archive Terms of Use. Asked live. An answer is kept for one day.</li>
       <li><strong>Cert Spotter (SSLMate):</strong> SSLMate Terms of Service. Asked live. An answer is kept for one day. A watched <code>cert_search</code> item makes the server ask in the background.</li>

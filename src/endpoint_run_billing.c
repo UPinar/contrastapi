@@ -4,6 +4,7 @@
 
 #include "endpoint_run.h"
 #include "auth.h"
+#include "bytes.h"
 #include "billing.h"
 #include "db.h"
 #include "jsonbuf.h"
@@ -130,11 +131,12 @@ EndpointRunStatus_t endpoint_APIKEYCLAIMRun(PGconn* conn, const EndpointAnyParam
   if (!auth_tryGenerateApiKey(api_key))
     return ENDPOINT_RUN_NO_MEMORY;
 
-  char key_hash[SHA256_HEX_LEN + 1];
-  auth_hashApiKey(api_key, key_hash);
+  char key_hash[BYTES_SHA256_HEX_LEN + 1];
   DbBillingClaimStatus_t claim_status = DB_BILLING_CLAIM_UNKNOWN;
   EndpointRunStatus_t    run_status   = ENDPOINT_RUN_DB_ERROR;
-  if (db_billingClaim(conn, params->m_apiKeyClaim.ma_orderId, key_hash, &claim_status) == DB_OK)
+  if (!auth_tryHashApiKey(api_key, key_hash))
+    run_status = ENDPOINT_RUN_NO_MEMORY;
+  else if (db_billingClaim(conn, params->m_apiKeyClaim.ma_orderId, key_hash, &claim_status) == DB_OK)
   {
     switch (claim_status)
     {

@@ -1,6 +1,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -9,6 +10,7 @@
 #include "unity/unity.h"
 extern "C" {
 #include "http_stub.h"
+#include "monotonic.h"
 #include "x402_solana.h"
 #include "x402_solana_rpc.h"
 }
@@ -22,6 +24,7 @@ extern "C" {
 static char g_answer[ANSWER_BUF_SIZE];
 
 static void static_buildTx(void);
+static void static_freePages(void);
 
 void setUp(void)
 {
@@ -47,6 +50,7 @@ void setUp(void)
 
 void tearDown(void)
 {
+  static_freePages();
 }
 
 static const char* static_valueAnswer(const char* element)
@@ -284,10 +288,19 @@ static const uint8_t OTHER_SEED[32] = {
 
 #define FOUND_SENTINEL "sentinel"
 
+#define OLDEST_BLOCK_TIME   1731400000
+#define BLOCK_TIME_MEMBER   ",\"blockTime\":1731456000"
+#define FAR_DEADLINE_MS     600000
+
+#define EMPTY_LIST_ANSWER   R"({"jsonrpc":"2.0","result":[],"id":1})"
+
+#define FULL_PAGE_ELEMENT_COUNT 1000
+
 #define TX_BUF_SIZE         256
 #define LIST_ANSWER_BUF_SIZE 16384
 #define ELEMENT_BUF_SIZE    512
 #define MAX_TEST_ELEMENTS   24
+#define MAX_TEST_PAGES      8
 
 static EVP_PKEY* g_feePayerKey;
 static EVP_PKEY* g_otherKey;
@@ -299,6 +312,8 @@ static char      g_otherSignatureText[X402_SOLANA_SIGNATURE_TEXT_BUF_SIZE];
 static char      g_found[X402_SOLANA_SIGNATURE_TEXT_BUF_SIZE];
 static char      g_listAnswer[LIST_ANSWER_BUF_SIZE];
 static char      g_elements[MAX_TEST_ELEMENTS][ELEMENT_BUF_SIZE];
+static char*     g_pages[MAX_TEST_PAGES];
+static int       g_pageCount;
 
 static void static_encodeBase58(const uint8_t* bytes, size_t byte_count, char* out)
 {
@@ -388,7 +403,73 @@ static X402SolanaRpcSignatureStatus_t static_find(int status, const char* body)
   g_stub_next_status = status;
   g_stub_next_body   = body;
   snprintf(g_found, sizeof(g_found), "%s", FOUND_SENTINEL);
-  return x402_solana_rpc_findFeePayerSignature(RPC_URL, SOURCE_BYTES, g_tx, g_txLen, g_feePayer, g_found);
+  return x402_solana_rpc_findFeePayerSignature(RPC_URL, SOURCE_BYTES, g_tx, g_txLen, g_feePayer, OLDEST_BLOCK_TIME, monotonic_nowMs() + FAR_DEADLINE_MS, g_found);
+}
+
+static void static_freePages(void)
+{
+  for (int i = 0; i < g_pageCount; i++)
+    free(g_pages[i]);
+  g_pageCount = 0;
+}
+
+static const char* static_pageElement(char* out, const char* signature, const char* block_time_member)
+{
+  int written = snprintf(out, ELEMENT_BUF_SIZE,
+                         R"({"signature":"%s","slot":341197000,"err":null,"memo":null%s,"confirmationStatus":"finalized"})",
+                         signature, block_time_member);
+  TEST_ASSERT_TRUE(written > 0 && written < ELEMENT_BUF_SIZE);
+  return out;
+}
+
+static const char* static_pageAnswer(size_t element_count, const char* filler, size_t special_index, const char* special)
+{
+  TEST_ASSERT_TRUE(g_pageCount < MAX_TEST_PAGES);
+  size_t filler_len  = strlen(filler);
+  size_t special_len = strlen(special);
+  size_t longest_len = filler_len > special_len ? filler_len : special_len;
+  size_t page_size   = sizeof(R"({"jsonrpc":"2.0","result":[],"id":1})") + element_count * (longest_len + 1);
+  char*  page        = (char*)malloc(page_size);
+  TEST_ASSERT_NOT_NULL(page);
+  g_pages[g_pageCount++] = page;
+
+  size_t len = (size_t)snprintf(page, page_size, R"({"jsonrpc":"2.0","result":[)");
+  for (size_t i = 0; i < element_count; i++)
+  {
+    const char* element     = i == special_index ? special : filler;
+    size_t      element_len = i == special_index ? special_len : filler_len;
+    if (i > 0)
+      page[len++] = ',';
+    memcpy(page + len, element, element_len);
+    len += element_len;
+  }
+  len += (size_t)snprintf(page + len, page_size - len, R"(],"id":1})");
+  TEST_ASSERT_TRUE(len < page_size);
+  return page;
+}
+
+static const char* static_fullPageWithoutMatch(const char* last_block_time_member)
+{
+  char filler[ELEMENT_BUF_SIZE];
+  char last[ELEMENT_BUF_SIZE];
+  return static_pageAnswer(FULL_PAGE_ELEMENT_COUNT, static_pageElement(filler, g_otherSignatureText, BLOCK_TIME_MEMBER),
+                           FULL_PAGE_ELEMENT_COUNT - 1, static_pageElement(last, SIGNATURE_TEXT, last_block_time_member));
+}
+
+static HttpStubAnswer_t static_okAnswer(const char* body)
+{
+  HttpStubAnswer_t answer = { 200, body, HTTP_ERROR_NONE, NULL, NULL, false, 0 };
+  return answer;
+}
+
+static X402SolanaRpcSignatureStatus_t static_findPages(const HttpStubAnswer_t* answers, int answer_count, int64_t oldest_block_time, int64_t deadline_at)
+{
+  g_stub_answers         = answers;
+  g_stub_answer_count    = answer_count;
+  g_stub_http_call_count = 0;
+  memset(g_stub_requests, 0, sizeof(g_stub_requests));
+  snprintf(g_found, sizeof(g_found), "%s", FOUND_SENTINEL);
+  return x402_solana_rpc_findFeePayerSignature(RPC_URL, SOURCE_BYTES, g_tx, g_txLen, g_feePayer, oldest_block_time, deadline_at, g_found);
 }
 
 void test_find_request_is_pinned(void)
@@ -400,7 +481,7 @@ void test_find_request_is_pinned(void)
   TEST_ASSERT_TRUE(g_stub_requests[0].m_isPost);
   TEST_ASSERT_EQUAL_STRING("", g_stub_last_unix_socket_path);
   TEST_ASSERT_EQUAL_INT(5000, g_stub_requests[0].m_timeoutMs);
-  TEST_ASSERT_EQUAL_size_t(65536, g_stub_requests[0].m_maxBodyByteCount);
+  TEST_ASSERT_EQUAL_size_t(4194304, g_stub_requests[0].m_maxBodyByteCount);
   TEST_ASSERT_TRUE(g_stub_requests[0].m_isTargetTrusted);
   TEST_ASSERT_TRUE(g_stub_requests[0].m_isRedirectLeftToCaller);
   TEST_ASSERT_FALSE(g_stub_requests[0].m_isBodyCutAccepted);
@@ -408,8 +489,9 @@ void test_find_request_is_pinned(void)
   TEST_ASSERT_EQUAL_STRING("Content-Type: application/json", g_stub_last_header);
   const char* expected =
     R"({"jsonrpc":"2.0","id":1,"method":"getSignaturesForAddress","params":[")" SOURCE_TEXT
-    R"(",{"limit":20,"commitment":"confirmed"}]})";
+    R"(",{"limit":1000,"commitment":"confirmed"}]})";
   TEST_ASSERT_EQUAL_STRING(expected, g_stub_last_post_body);
+  TEST_ASSERT_EQUAL_STRING(expected, g_stub_requests[0].ma_postBody);
   TEST_ASSERT_EQUAL_size_t(strlen(expected), g_stub_last_post_body_byte_count);
 }
 
@@ -529,24 +611,185 @@ void test_find_fee_payer_element_before_another_keeps_its_text(void)
   TEST_ASSERT_EQUAL_STRING(g_feePayerSignatureText, g_found);
 }
 
-void test_find_list_of_20_elements_is_read(void)
+void test_find_list_of_1000_elements_is_read(void)
 {
-  const char* elements[20];
-  for (int i = 0; i < 19; i++)
-    elements[i] = static_element(i, g_otherSignatureText, "null", "finalized");
-  elements[19] = static_element(19, g_feePayerSignatureText, "null", "confirmed");
-  TEST_ASSERT_EQUAL_INT(X402_SOLANA_RPC_SIGNATURE_CONFIRMED, static_find(200, static_listAnswer(elements, 20)));
+  char filler[ELEMENT_BUF_SIZE];
+  char match[ELEMENT_BUF_SIZE];
+  const char*      page      = static_pageAnswer(1000, static_pageElement(filler, g_otherSignatureText, BLOCK_TIME_MEMBER),
+                                                 999, static_pageElement(match, g_feePayerSignatureText, BLOCK_TIME_MEMBER));
+  HttpStubAnswer_t answers[] = { static_okAnswer(page) };
+  TEST_ASSERT_EQUAL_INT(X402_SOLANA_RPC_SIGNATURE_CONFIRMED, static_findPages(answers, 1, OLDEST_BLOCK_TIME, monotonic_nowMs() + FAR_DEADLINE_MS));
   TEST_ASSERT_EQUAL_STRING(g_feePayerSignatureText, g_found);
+  TEST_ASSERT_EQUAL_INT(1, g_stub_http_call_count);
 }
 
-void test_find_list_of_21_elements_is_unavailable(void)
+void test_find_list_of_1001_elements_is_unavailable(void)
 {
-  const char* elements[21];
-  elements[0] = static_element(0, g_feePayerSignatureText, "null", "confirmed");
-  for (int i = 1; i < 21; i++)
-    elements[i] = static_element(i, g_otherSignatureText, "null", "finalized");
-  TEST_ASSERT_EQUAL_INT(X402_SOLANA_RPC_SIGNATURE_UNAVAILABLE, static_find(200, static_listAnswer(elements, 21)));
+  char filler[ELEMENT_BUF_SIZE];
+  char match[ELEMENT_BUF_SIZE];
+  const char*      page      = static_pageAnswer(1001, static_pageElement(filler, g_otherSignatureText, BLOCK_TIME_MEMBER),
+                                                 0, static_pageElement(match, g_feePayerSignatureText, BLOCK_TIME_MEMBER));
+  HttpStubAnswer_t answers[] = { static_okAnswer(page), static_okAnswer(EMPTY_LIST_ANSWER) };
+  TEST_ASSERT_EQUAL_INT(X402_SOLANA_RPC_SIGNATURE_UNAVAILABLE, static_findPages(answers, 2, OLDEST_BLOCK_TIME, monotonic_nowMs() + FAR_DEADLINE_MS));
   TEST_ASSERT_EQUAL_STRING("", g_found);
+  TEST_ASSERT_EQUAL_INT(1, g_stub_http_call_count);
+}
+
+void test_find_walk_reads_the_second_page_before_the_last_signature(void)
+{
+  const char*      first     = static_fullPageWithoutMatch(BLOCK_TIME_MEMBER);
+  const char*      elements[] = { static_element(0, g_feePayerSignatureText, "null", "confirmed") };
+  HttpStubAnswer_t answers[] = { static_okAnswer(first), static_okAnswer(static_listAnswer(elements, 1)), static_okAnswer(EMPTY_LIST_ANSWER) };
+  TEST_ASSERT_EQUAL_INT(X402_SOLANA_RPC_SIGNATURE_CONFIRMED, static_findPages(answers, 3, OLDEST_BLOCK_TIME, monotonic_nowMs() + FAR_DEADLINE_MS));
+  TEST_ASSERT_EQUAL_STRING(g_feePayerSignatureText, g_found);
+  TEST_ASSERT_EQUAL_INT(2, g_stub_http_call_count);
+  const char* first_body =
+    R"({"jsonrpc":"2.0","id":1,"method":"getSignaturesForAddress","params":[")" SOURCE_TEXT
+    R"(",{"limit":1000,"commitment":"confirmed"}]})";
+  const char* second_body =
+    R"({"jsonrpc":"2.0","id":1,"method":"getSignaturesForAddress","params":[")" SOURCE_TEXT
+    R"(",{"limit":1000,"commitment":"confirmed","before":")" SIGNATURE_TEXT R"("}]})";
+  TEST_ASSERT_EQUAL_STRING(first_body, g_stub_requests[0].ma_postBody);
+  TEST_ASSERT_EQUAL_STRING(second_body, g_stub_requests[1].ma_postBody);
+  TEST_ASSERT_EQUAL_size_t(strlen(second_body), g_stub_last_post_body_byte_count);
+  TEST_ASSERT_EQUAL_INT(5000, g_stub_requests[1].m_timeoutMs);
+  TEST_ASSERT_EQUAL_size_t(4194304, g_stub_requests[1].m_maxBodyByteCount);
+  TEST_ASSERT_TRUE(g_stub_requests[1].m_isPost);
+}
+
+void test_find_match_on_a_full_first_page_ends_the_walk(void)
+{
+  char filler[ELEMENT_BUF_SIZE];
+  char match[ELEMENT_BUF_SIZE];
+  const char*      page      = static_pageAnswer(FULL_PAGE_ELEMENT_COUNT, static_pageElement(filler, g_otherSignatureText, BLOCK_TIME_MEMBER),
+                                                 500, static_pageElement(match, g_feePayerSignatureText, BLOCK_TIME_MEMBER));
+  HttpStubAnswer_t answers[] = { static_okAnswer(page), static_okAnswer(static_fullPageWithoutMatch(BLOCK_TIME_MEMBER)) };
+  TEST_ASSERT_EQUAL_INT(X402_SOLANA_RPC_SIGNATURE_CONFIRMED, static_findPages(answers, 2, OLDEST_BLOCK_TIME, monotonic_nowMs() + FAR_DEADLINE_MS));
+  TEST_ASSERT_EQUAL_STRING(g_feePayerSignatureText, g_found);
+  TEST_ASSERT_EQUAL_INT(1, g_stub_http_call_count);
+}
+
+void test_find_short_page_without_match_is_not_found(void)
+{
+  char filler[ELEMENT_BUF_SIZE];
+  char last[ELEMENT_BUF_SIZE];
+  const char*      short_page = static_pageAnswer(999, static_pageElement(filler, g_otherSignatureText, BLOCK_TIME_MEMBER),
+                                                  998, static_pageElement(last, SIGNATURE_TEXT, BLOCK_TIME_MEMBER));
+  const char*      full_page  = static_fullPageWithoutMatch(BLOCK_TIME_MEMBER);
+  HttpStubAnswer_t short_answers[] = { static_okAnswer(short_page), static_okAnswer(full_page), static_okAnswer(EMPTY_LIST_ANSWER) };
+  TEST_ASSERT_EQUAL_INT(X402_SOLANA_RPC_SIGNATURE_NOT_FOUND, static_findPages(short_answers, 3, OLDEST_BLOCK_TIME, monotonic_nowMs() + FAR_DEADLINE_MS));
+  TEST_ASSERT_EQUAL_STRING("", g_found);
+  TEST_ASSERT_EQUAL_INT(1, g_stub_http_call_count);
+
+  HttpStubAnswer_t empty_answers[] = { static_okAnswer(EMPTY_LIST_ANSWER), static_okAnswer(full_page), static_okAnswer(EMPTY_LIST_ANSWER) };
+  TEST_ASSERT_EQUAL_INT(X402_SOLANA_RPC_SIGNATURE_NOT_FOUND, static_findPages(empty_answers, 3, OLDEST_BLOCK_TIME, monotonic_nowMs() + FAR_DEADLINE_MS));
+  TEST_ASSERT_EQUAL_STRING("", g_found);
+  TEST_ASSERT_EQUAL_INT(1, g_stub_http_call_count);
+}
+
+void test_find_full_page_without_match_asks_for_the_next_page(void)
+{
+  HttpStubAnswer_t answers[] = { static_okAnswer(static_fullPageWithoutMatch(BLOCK_TIME_MEMBER)), static_okAnswer(EMPTY_LIST_ANSWER) };
+  TEST_ASSERT_EQUAL_INT(X402_SOLANA_RPC_SIGNATURE_NOT_FOUND, static_findPages(answers, 2, OLDEST_BLOCK_TIME, monotonic_nowMs() + FAR_DEADLINE_MS));
+  TEST_ASSERT_EQUAL_STRING("", g_found);
+  TEST_ASSERT_EQUAL_INT(2, g_stub_http_call_count);
+}
+
+void test_find_three_full_pages_without_match_are_unavailable(void)
+{
+  const char*      page      = static_fullPageWithoutMatch(BLOCK_TIME_MEMBER);
+  HttpStubAnswer_t answers[] = { static_okAnswer(page), static_okAnswer(page), static_okAnswer(page), static_okAnswer(page), static_okAnswer(EMPTY_LIST_ANSWER) };
+  TEST_ASSERT_EQUAL_INT(X402_SOLANA_RPC_SIGNATURE_UNAVAILABLE, static_findPages(answers, 5, OLDEST_BLOCK_TIME, monotonic_nowMs() + FAR_DEADLINE_MS));
+  TEST_ASSERT_EQUAL_STRING("", g_found);
+  TEST_ASSERT_EQUAL_INT(3, g_stub_http_call_count);
+}
+
+void test_find_page_past_the_window_ends_the_walk(void)
+{
+  const char*      past_page   = static_fullPageWithoutMatch(",\"blockTime\":1731399999");
+  const char*      edge_page   = static_fullPageWithoutMatch(",\"blockTime\":1731400000");
+  HttpStubAnswer_t past_answers[] = { static_okAnswer(past_page), static_okAnswer(static_fullPageWithoutMatch(BLOCK_TIME_MEMBER)), static_okAnswer(EMPTY_LIST_ANSWER) };
+  TEST_ASSERT_EQUAL_INT(X402_SOLANA_RPC_SIGNATURE_NOT_FOUND, static_findPages(past_answers, 3, 1731400000, monotonic_nowMs() + FAR_DEADLINE_MS));
+  TEST_ASSERT_EQUAL_STRING("", g_found);
+  TEST_ASSERT_EQUAL_INT(1, g_stub_http_call_count);
+
+  HttpStubAnswer_t edge_answers[] = { static_okAnswer(edge_page), static_okAnswer(EMPTY_LIST_ANSWER) };
+  TEST_ASSERT_EQUAL_INT(X402_SOLANA_RPC_SIGNATURE_NOT_FOUND, static_findPages(edge_answers, 2, 1731400000, monotonic_nowMs() + FAR_DEADLINE_MS));
+  TEST_ASSERT_EQUAL_INT(2, g_stub_http_call_count);
+}
+
+void test_find_block_time_that_is_not_a_number_is_ignored(void)
+{
+  const char* members[] = { ",\"blockTime\":null", ",\"blockTime\":\"1731399999\"", "" };
+  for (size_t i = 0; i < sizeof(members) / sizeof(members[0]); i++)
+  {
+    char filler[ELEMENT_BUF_SIZE];
+    char last[ELEMENT_BUF_SIZE];
+    const char*      page      = static_pageAnswer(FULL_PAGE_ELEMENT_COUNT, static_pageElement(filler, g_otherSignatureText, members[i]),
+                                                   FULL_PAGE_ELEMENT_COUNT - 1, static_pageElement(last, SIGNATURE_TEXT, members[i]));
+    HttpStubAnswer_t answers[] = { static_okAnswer(page), static_okAnswer(EMPTY_LIST_ANSWER) };
+    TEST_ASSERT_EQUAL_INT_MESSAGE(X402_SOLANA_RPC_SIGNATURE_NOT_FOUND, static_findPages(answers, 2, OLDEST_BLOCK_TIME, monotonic_nowMs() + FAR_DEADLINE_MS), members[i]);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(2, g_stub_http_call_count, members[i]);
+  }
+}
+
+void test_find_error_on_a_later_page_is_unavailable(void)
+{
+  const char*      first    = static_fullPageWithoutMatch(BLOCK_TIME_MEMBER);
+  HttpStubAnswer_t failed   = { 0, NULL, HTTP_ERROR_TIMEOUT, NULL, NULL, false, 0 };
+  const char*      elements[] = { static_element(0, g_feePayerSignatureText, "null", "confirmed"), R"({"signature":"0OIl","err":null,"confirmationStatus":"confirmed"})" };
+  HttpStubAnswer_t seconds[] = {
+    failed,
+    static_okAnswer(static_listAnswer(elements, 2)),
+    static_okAnswer(R"({"jsonrpc":"2.0","error":{"code":-32602,"message":"Invalid param"},"id":1})"),
+  };
+  for (size_t i = 0; i < sizeof(seconds) / sizeof(seconds[0]); i++)
+  {
+    HttpStubAnswer_t answers[] = { static_okAnswer(first), seconds[i], static_okAnswer(EMPTY_LIST_ANSWER) };
+    TEST_ASSERT_EQUAL_INT(X402_SOLANA_RPC_SIGNATURE_UNAVAILABLE, static_findPages(answers, 3, OLDEST_BLOCK_TIME, monotonic_nowMs() + FAR_DEADLINE_MS));
+    TEST_ASSERT_EQUAL_STRING("", g_found);
+    TEST_ASSERT_EQUAL_INT(2, g_stub_http_call_count);
+  }
+}
+
+void test_find_deadline_ends_the_walk_and_shortens_the_timeout(void)
+{
+  HttpStubAnswer_t answers[] = { static_okAnswer(EMPTY_LIST_ANSWER) };
+  for (int attempt = 0; attempt < 5; attempt++)
+  {
+    TEST_ASSERT_EQUAL_INT(X402_SOLANA_RPC_SIGNATURE_UNAVAILABLE, static_findPages(answers, 1, OLDEST_BLOCK_TIME, monotonic_nowMs()));
+    TEST_ASSERT_EQUAL_STRING("", g_found);
+    TEST_ASSERT_EQUAL_INT(0, g_stub_http_call_count);
+  }
+
+  TEST_ASSERT_EQUAL_INT(X402_SOLANA_RPC_SIGNATURE_NOT_FOUND, static_findPages(answers, 1, OLDEST_BLOCK_TIME, monotonic_nowMs() + 3000));
+  TEST_ASSERT_EQUAL_INT(1, g_stub_http_call_count);
+  TEST_ASSERT_TRUE(g_stub_requests[0].m_timeoutMs > 2000);
+  TEST_ASSERT_TRUE(g_stub_requests[0].m_timeoutMs <= 3000);
+}
+
+void test_find_longest_body_with_before_is_sent(void)
+{
+  uint8_t source[32];
+  memset(source, 0xff, sizeof(source));
+  char source_text[X402_SOLANA_SIGNATURE_TEXT_BUF_SIZE];
+  static_encodeBase58(source, sizeof(source), source_text);
+  TEST_ASSERT_EQUAL_size_t(44, strlen(source_text));
+
+  HttpStubAnswer_t answers[] = { static_okAnswer(static_fullPageWithoutMatch(BLOCK_TIME_MEMBER)), static_okAnswer(EMPTY_LIST_ANSWER) };
+  g_stub_answers         = answers;
+  g_stub_answer_count    = 2;
+  g_stub_http_call_count = 0;
+  TEST_ASSERT_EQUAL_INT(X402_SOLANA_RPC_SIGNATURE_NOT_FOUND,
+    x402_solana_rpc_findFeePayerSignature(RPC_URL, source, g_tx, g_txLen, g_feePayer, OLDEST_BLOCK_TIME, monotonic_nowMs() + FAR_DEADLINE_MS, g_found));
+  TEST_ASSERT_EQUAL_INT(2, g_stub_http_call_count);
+  char expected[512];
+  int  expected_len = snprintf(expected, sizeof(expected),
+                               R"({"jsonrpc":"2.0","id":1,"method":"getSignaturesForAddress","params":["%s",{"limit":1000,"commitment":"confirmed","before":"%s"}]})",
+                               source_text, SIGNATURE_TEXT);
+  TEST_ASSERT_EQUAL_INT(257, expected_len);
+  TEST_ASSERT_EQUAL_STRING(expected, g_stub_requests[1].ma_postBody);
+  TEST_ASSERT_EQUAL_size_t(257, g_stub_last_post_body_byte_count);
 }
 
 void test_find_transport_refusals_are_unavailable(void)
@@ -635,9 +878,89 @@ void test_find_writes_nothing_to_stderr(void)
   TEST_ASSERT_EQUAL_INT(0, (int)written);
 }
 
+static int64_t g_fakeClockStepMs = 0;
+static int64_t g_fakeClockMs     = 0;
+
+extern "C" int64_t __real_monotonic_nowMs(void);
+extern "C" int64_t __wrap_monotonic_nowMs(void);
+
+int64_t __wrap_monotonic_nowMs(void)
+{
+  if (g_fakeClockStepMs == 0)
+    return __real_monotonic_nowMs();
+  g_fakeClockMs += g_fakeClockStepMs;
+  return g_fakeClockMs;
+}
+
+void test_find_past_block_time_in_the_middle_ends_the_walk(void)
+{
+  char filler[ELEMENT_BUF_SIZE];
+  char middle[ELEMENT_BUF_SIZE];
+  const char* page = static_pageAnswer(FULL_PAGE_ELEMENT_COUNT, static_pageElement(filler, g_otherSignatureText, ",\"blockTime\":null"),
+                                       500, static_pageElement(middle, SIGNATURE_TEXT, ",\"blockTime\":1731399999"));
+  HttpStubAnswer_t answers[] = { static_okAnswer(page), static_okAnswer(static_fullPageWithoutMatch(BLOCK_TIME_MEMBER)), static_okAnswer(EMPTY_LIST_ANSWER) };
+  TEST_ASSERT_EQUAL_INT(X402_SOLANA_RPC_SIGNATURE_NOT_FOUND, static_findPages(answers, 3, 1731400000, monotonic_nowMs() + FAR_DEADLINE_MS));
+  TEST_ASSERT_EQUAL_INT(1, g_stub_http_call_count);
+}
+
+void test_find_out_of_range_block_time_is_ignored(void)
+{
+  const char* members[] = { ",\"blockTime\":99999999999999999999", ",\"blockTime\":-99999999999999999999" };
+  for (size_t i = 0; i < 2; i++)
+  {
+    char filler[ELEMENT_BUF_SIZE];
+    char last[ELEMENT_BUF_SIZE];
+    const char* page = static_pageAnswer(FULL_PAGE_ELEMENT_COUNT, static_pageElement(filler, g_otherSignatureText, members[i]),
+                                         FULL_PAGE_ELEMENT_COUNT - 1, static_pageElement(last, SIGNATURE_TEXT, members[i]));
+    HttpStubAnswer_t answers[] = { static_okAnswer(page), static_okAnswer(EMPTY_LIST_ANSWER) };
+    TEST_ASSERT_EQUAL_INT_MESSAGE(X402_SOLANA_RPC_SIGNATURE_NOT_FOUND, static_findPages(answers, 2, OLDEST_BLOCK_TIME, monotonic_nowMs() + FAR_DEADLINE_MS), members[i]);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(2, g_stub_http_call_count, members[i]);
+  }
+}
+
+void test_find_duplicate_block_time_is_unavailable(void)
+{
+  const char* elements[] = { static_element(0, g_feePayerSignatureText, "null", "confirmed"),
+    R"({"signature":")" SIGNATURE_TEXT R"(","err":null,"blockTime":1731456000,"blockTime":1,"confirmationStatus":"confirmed"})" };
+  TEST_ASSERT_EQUAL_INT(X402_SOLANA_RPC_SIGNATURE_UNAVAILABLE, static_find(200, static_listAnswer(elements, 2)));
+  TEST_ASSERT_EQUAL_STRING("", g_found);
+}
+
+void test_find_third_page_names_the_last_signature_of_the_second(void)
+{
+  char filler[ELEMENT_BUF_SIZE];
+  char last[ELEMENT_BUF_SIZE];
+  const char* first  = static_fullPageWithoutMatch(BLOCK_TIME_MEMBER);
+  const char* second = static_pageAnswer(FULL_PAGE_ELEMENT_COUNT, static_pageElement(filler, SIGNATURE_TEXT, BLOCK_TIME_MEMBER),
+                                         FULL_PAGE_ELEMENT_COUNT - 1, static_pageElement(last, g_otherSignatureText, BLOCK_TIME_MEMBER));
+  HttpStubAnswer_t answers[] = { static_okAnswer(first), static_okAnswer(second), static_okAnswer(EMPTY_LIST_ANSWER) };
+  TEST_ASSERT_EQUAL_INT(X402_SOLANA_RPC_SIGNATURE_NOT_FOUND, static_findPages(answers, 3, OLDEST_BLOCK_TIME, monotonic_nowMs() + FAR_DEADLINE_MS));
+  TEST_ASSERT_EQUAL_INT(3, g_stub_http_call_count);
+  char third_body[512];
+  snprintf(third_body, sizeof(third_body),
+           R"({"jsonrpc":"2.0","id":1,"method":"getSignaturesForAddress","params":[")" SOURCE_TEXT R"(",{"limit":1000,"commitment":"confirmed","before":"%s"}]})",
+           g_otherSignatureText);
+  TEST_ASSERT_EQUAL_STRING(third_body, g_stub_requests[2].ma_postBody);
+}
+
+void test_find_deadline_between_pages_shortens_and_ends_the_walk(void)
+{
+  const char* page = static_fullPageWithoutMatch(BLOCK_TIME_MEMBER);
+  HttpStubAnswer_t answers[] = { static_okAnswer(page), static_okAnswer(page), static_okAnswer(page), static_okAnswer(EMPTY_LIST_ANSWER) };
+  g_fakeClockMs     = 0;
+  g_fakeClockStepMs = 2000;
+  X402SolanaRpcSignatureStatus_t status = static_findPages(answers, 4, OLDEST_BLOCK_TIME, 5000);
+  g_fakeClockStepMs = 0;
+  TEST_ASSERT_EQUAL_INT(X402_SOLANA_RPC_SIGNATURE_UNAVAILABLE, status);
+  TEST_ASSERT_EQUAL_STRING("", g_found);
+  TEST_ASSERT_EQUAL_INT(2, g_stub_http_call_count);
+  TEST_ASSERT_EQUAL_INT(3000, g_stub_requests[0].m_timeoutMs);
+  TEST_ASSERT_EQUAL_INT(1000, g_stub_requests[1].m_timeoutMs);
+}
+
 void test_registration_gate_test_count(void)
 {
-  TEST_ASSERT_EQUAL_INT_MESSAGE(28, (int)Unity.NumberOfTests,
+  TEST_ASSERT_EQUAL_INT_MESSAGE(43, (int)Unity.NumberOfTests,
     "RUN_TEST list and test definitions have drifted apart - a test may be unregistered");
 }
 
@@ -672,10 +995,25 @@ int main(void)
   RUN_TEST(test_find_envelope_that_is_not_the_answer_is_unavailable);
   RUN_TEST(test_find_element_that_is_not_a_signature_entry_is_unavailable);
   RUN_TEST(test_find_fee_payer_element_before_another_keeps_its_text);
-  RUN_TEST(test_find_list_of_20_elements_is_read);
-  RUN_TEST(test_find_list_of_21_elements_is_unavailable);
+  RUN_TEST(test_find_list_of_1000_elements_is_read);
+  RUN_TEST(test_find_list_of_1001_elements_is_unavailable);
+  RUN_TEST(test_find_walk_reads_the_second_page_before_the_last_signature);
+  RUN_TEST(test_find_match_on_a_full_first_page_ends_the_walk);
+  RUN_TEST(test_find_short_page_without_match_is_not_found);
+  RUN_TEST(test_find_full_page_without_match_asks_for_the_next_page);
+  RUN_TEST(test_find_three_full_pages_without_match_are_unavailable);
+  RUN_TEST(test_find_page_past_the_window_ends_the_walk);
+  RUN_TEST(test_find_block_time_that_is_not_a_number_is_ignored);
+  RUN_TEST(test_find_error_on_a_later_page_is_unavailable);
+  RUN_TEST(test_find_deadline_ends_the_walk_and_shortens_the_timeout);
+  RUN_TEST(test_find_longest_body_with_before_is_sent);
   RUN_TEST(test_find_transport_refusals_are_unavailable);
   RUN_TEST(test_find_writes_nothing_to_stderr);
+  RUN_TEST(test_find_past_block_time_in_the_middle_ends_the_walk);
+  RUN_TEST(test_find_out_of_range_block_time_is_ignored);
+  RUN_TEST(test_find_duplicate_block_time_is_unavailable);
+  RUN_TEST(test_find_third_page_names_the_last_signature_of_the_second);
+  RUN_TEST(test_find_deadline_between_pages_shortens_and_ends_the_walk);
   RUN_TEST(test_registration_gate_test_count);
   int failures = UNITY_END();
 

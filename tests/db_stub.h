@@ -21,7 +21,7 @@ extern char        g_stub_billing_last_np_event_ref[BILLING_NOWPAYMENTS_EVENT_RE
 extern char        g_stub_billing_last_np_event_name[32];
 extern char        g_stub_billing_last_np_order_ref[BILLING_NOWPAYMENTS_REF_MAX_LEN + 1];
 extern char        g_stub_billing_last_order_id[VALIDATE_UUID_LEN + 1];
-extern char        g_stub_billing_last_key_hash[SHA256_HEX_LEN + 1];
+extern char        g_stub_billing_last_key_hash[BYTES_SHA256_HEX_LEN + 1];
 
 extern DbStatus_t               g_stub_vendor_keys_db_status;
 extern DbVendorKeys_t           g_stub_vendor_keys;
@@ -33,7 +33,7 @@ extern DbStatus_t               g_stub_vendor_key_apply_db_status;
 extern DbVendorKeyApplyStatus_t g_stub_vendor_key_apply_status;
 
 extern int     g_stub_vendor_keys_call_count;
-extern char    g_stub_vendor_keys_last_key_hash[SHA256_HEX_LEN + 1];
+extern char    g_stub_vendor_keys_last_key_hash[BYTES_SHA256_HEX_LEN + 1];
 extern int     g_stub_vendor_key_link_open_call_count;
 extern int64_t g_stub_vendor_key_link_open_last_api_key_id;
 extern char    g_stub_vendor_key_link_open_last_link_hash[KEYVAULT_VENDOR_KEY_LINK_HASH_HEX_LEN + 2];

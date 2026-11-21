@@ -21,12 +21,12 @@ int                    g_stub_billing_call_count   = 0;
 const char* g_stub_billing_last_function = NULL;
 char        g_stub_billing_last_webhook_id[VALIDATE_UUID_LEN + 1] = "";
 char        g_stub_billing_last_order_id[VALIDATE_UUID_LEN + 1]   = "";
-char        g_stub_billing_last_key_hash[SHA256_HEX_LEN + 1]      = "";
+char        g_stub_billing_last_key_hash[BYTES_SHA256_HEX_LEN + 1]      = "";
 
 DbStatus_t               g_stub_vendor_keys_db_status                = DB_OK;
 DbVendorKeys_t           g_stub_vendor_keys                          = { 1, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "", "" };
 int                      g_stub_vendor_keys_call_count                = 0;
-char                     g_stub_vendor_keys_last_key_hash[SHA256_HEX_LEN + 1] = "";
+char                     g_stub_vendor_keys_last_key_hash[BYTES_SHA256_HEX_LEN + 1] = "";
 int                      g_stub_vendor_key_link_open_call_count      = 0;
 int64_t                  g_stub_vendor_key_link_open_last_api_key_id = 0;
 char                     g_stub_vendor_key_link_open_last_link_hash[KEYVAULT_VENDOR_KEY_LINK_HASH_HEX_LEN + 2] = "";
@@ -1353,6 +1353,7 @@ DbStatus_t db_IPLOOKUP(PGconn* conn, const char* ip_address, IPLOOKUPRecord_t* r
   snprintf(record_out->ma_geoCountry, sizeof(record_out->ma_geoCountry), "%s", "AU");
   snprintf(record_out->ma_cloudProvider, sizeof(record_out->ma_cloudProvider), "%s", "cloudflare");
   snprintf(record_out->ma_cloudService, sizeof(record_out->ma_cloudService), "%s", "cdn");
+  snprintf(record_out->ma_crawler, sizeof(record_out->ma_crawler), "%s", "bingbot");
   record_out->m_isCdn                = true;
   record_out->m_isDatacenter         = true;
   record_out->m_isTorExit            = false;
@@ -1361,6 +1362,7 @@ DbStatus_t db_IPLOOKUP(PGconn* conn, const char* ip_address, IPLOOKUPRecord_t* r
   record_out->m_isCloudFeedLoaded    = true;
   record_out->m_isTorFeedLoaded      = true;
   record_out->m_isDropListFeedLoaded = true;
+  record_out->m_isCrawlerFeedLoaded  = true;
   record_out->mp_listedOn            = strdup(IPLOOKUP_STUB_LISTED_ON);
   if (!record_out->mp_listedOn)
     return DB_ERROR;

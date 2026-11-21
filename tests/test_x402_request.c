@@ -5,11 +5,13 @@
 #include <stdlib.h>
 #include <string.h>
 #include <limits.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "unity/unity.h"
 #include "jsonbuf.h"
 #include "jsonread.h"
+#include "monotonic.h"
 #include "x402_request.h"
 #include "x402.h"
 #include "x402_solana.h"
@@ -240,6 +242,8 @@ static void static_resetStubs(void)
   memset(g_stub_X402_SOLANA_RPC_find_last_tx, 0, sizeof(g_stub_X402_SOLANA_RPC_find_last_tx));
   g_stub_X402_SOLANA_RPC_find_last_tx_len  = 0;
   memset(g_stub_X402_SOLANA_RPC_find_last_fee_payer, 0, sizeof(g_stub_X402_SOLANA_RPC_find_last_fee_payer));
+  g_stub_X402_SOLANA_RPC_find_last_oldest_block_time = 0;
+  g_stub_X402_SOLANA_RPC_find_last_deadline_at       = 0;
 
   g_fakeClockMs = 100000;
   static_clearStepLines();
@@ -924,6 +928,24 @@ void test_open_pending_payment_with_no_signature_that_solana_has_not_decided_sta
   TEST_ASSERT_EQUAL_INT(3, g_stub_X402_SOLANA_RPC_find_count);
   TEST_ASSERT_EQUAL_INT(3, g_stub_THROTTLE_charge_count);
   TEST_ASSERT_EQUAL_INT(0, g_stub_X402_SOLANA_RPC_count);
+}
+
+void test_open_pending_payment_with_no_signature_passes_the_window_and_the_deadline(void)
+{
+  static_setPendingWithoutSignature(X402_SOLANA_RPC_SIGNATURE_NOT_FOUND);
+  X402RequestPayment_t payment;
+  int64_t time_before  = (int64_t)time(NULL);
+  int64_t clock_before = monotonic_nowMs();
+  X402RequestOpenResult_t result = static_open(1, &payment);
+  int64_t clock_after  = monotonic_nowMs();
+  int64_t time_after   = (int64_t)time(NULL);
+  TEST_ASSERT_EQUAL_INT(X402_REQUEST_OPEN_PENDING, result.m_status);
+  TEST_ASSERT_EQUAL_INT(1, g_stub_X402_SOLANA_RPC_find_count);
+  TEST_ASSERT_TRUE(g_stub_X402_SOLANA_RPC_find_last_oldest_block_time >= time_before - 4560);
+  TEST_ASSERT_TRUE(g_stub_X402_SOLANA_RPC_find_last_oldest_block_time <= time_after - 4560);
+  TEST_ASSERT_TRUE(g_stub_X402_SOLANA_RPC_find_last_deadline_at >= clock_before + 12000);
+  TEST_ASSERT_TRUE(g_stub_X402_SOLANA_RPC_find_last_deadline_at <= clock_after + 12000);
+  TEST_ASSERT_EQUAL_INT64(0, (g_stub_X402_SOLANA_RPC_find_last_deadline_at - 12000 - clock_before) % FAKE_CLOCK_STEP_MS);
 }
 
 void test_open_pending_payment_with_no_signature_over_its_ask_limit_is_limited(void)
@@ -1876,7 +1898,7 @@ void test_open_that_reaches_no_outside_step_writes_no_line(void)
 
 void test_registration_gate_test_count(void)
 {
-  TEST_ASSERT_EQUAL_INT_MESSAGE(78, (int)Unity.NumberOfTests,
+  TEST_ASSERT_EQUAL_INT_MESSAGE(79, (int)Unity.NumberOfTests,
     "RUN_TEST list and test definitions have drifted apart - a test may be unregistered");
 }
 
@@ -1909,6 +1931,7 @@ int main(void)
   RUN_TEST(test_open_pending_payment_with_no_signature_that_solana_confirmed_is_open_and_confirmed);
   RUN_TEST(test_open_pending_payment_with_no_signature_that_failed_on_chain_is_released_and_refused);
   RUN_TEST(test_open_pending_payment_with_no_signature_that_solana_has_not_decided_stays_pending);
+  RUN_TEST(test_open_pending_payment_with_no_signature_passes_the_window_and_the_deadline);
   RUN_TEST(test_open_pending_payment_with_no_signature_over_its_ask_limit_is_limited);
   RUN_TEST(test_close_of_a_paid_fresh_payment_serves_with_a_receipt);
   RUN_TEST(test_close_of_a_paid_payment_whose_mark_fails_still_serves);

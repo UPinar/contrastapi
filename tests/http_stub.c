@@ -152,6 +152,7 @@ static HttpResponse_t static_recordRequest(const HttpRequest_t* request, const c
     record->m_isBodyCutAccepted      = request->m_isBodyCutAccepted;
     record->m_requiredPort           = request->m_requiredPort;
     record->m_isPost                 = is_post;
+    memcpy(record->ma_postBody, g_stub_last_post_body, kept_byte_count + 1);
   }
 
   if (g_stub_answers != NULL)

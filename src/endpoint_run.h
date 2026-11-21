@@ -38,6 +38,7 @@ EndpointRunStatus_t endpoint_EMAILADDRESSCHECKRun   (PGconn* conn, const Endpoin
 EndpointRunStatus_t endpoint_SSLCHECKRun            (PGconn* conn, const EndpointAnyParams_t* params, JsonBuf_t* json_buf, const char** message_out);
 EndpointRunStatus_t endpoint_HEADERSCHECKRun        (PGconn* conn, const EndpointAnyParams_t* params, JsonBuf_t* json_buf, const char** message_out);
 EndpointRunStatus_t endpoint_WELLKNOWNRun           (PGconn* conn, const EndpointAnyParams_t* params, JsonBuf_t* json_buf, const char** message_out);
+EndpointRunStatus_t endpoint_REDIRECTCHAINRun       (PGconn* conn, const EndpointAnyParams_t* params, JsonBuf_t* json_buf, const char** message_out);
 EndpointRunStatus_t endpoint_WHOISLOOKUPRun         (PGconn* conn, const EndpointAnyParams_t* params, JsonBuf_t* json_buf, const char** message_out);
 EndpointRunStatus_t endpoint_WAYBACKLOOKUPRun       (PGconn* conn, const EndpointAnyParams_t* params, JsonBuf_t* json_buf, const char** message_out);
 EndpointRunStatus_t endpoint_CERTSEARCHRun          (PGconn* conn, const EndpointAnyParams_t* params, JsonBuf_t* json_buf, const char** message_out);

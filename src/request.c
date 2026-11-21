@@ -10,6 +10,7 @@
 #include "request.h"
 #include "receive.h"
 #include "auth.h"
+#include "bytes.h"
 #include "db.h"
 #include "ratelimit.h"
 #include "response.h"
@@ -312,11 +313,11 @@ static RequestAccessResult_t static_checkRequestAccess(PGconn* conn, const Recei
 
   if (auth_result.m_apiKeyStatus == AUTH_API_KEY_VALID_FORMAT)
   {
-    char key_hash[SHA256_HEX_LEN + 1];
-    auth_hashApiKey(auth_result.ma_apiKey, key_hash);
+    char key_hash[BYTES_SHA256_HEX_LEN + 1];
     DbApiKeyState_t  key_state  = DB_API_KEY_UNKNOWN;
     DbApiKeyExpiry_t key_expiry = { 0 };
-    if (db_readApiKeyState(conn, key_hash, &key_state, &key_expiry) != DB_OK)
+    if (!auth_tryHashApiKey(auth_result.ma_apiKey, key_hash) ||
+        db_readApiKeyState(conn, key_hash, &key_state, &key_expiry) != DB_OK)
     {
       access_result.m_status = REQUEST_ACCESS_INTERNAL_ERROR;
       return access_result;
@@ -362,7 +363,7 @@ static RequestAccessResult_t static_checkRequestAccess(PGconn* conn, const Recei
     if (price->m_creditCost == 0)
       return access_result;
 
-    char ip_hash[SHA256_HEX_LEN + 1];
+    char ip_hash[BYTES_SHA256_HEX_LEN + 1];
     auth_hashIp(client_ip, ip_secret, ip_hash);
     access_result = static_chargeCreditCostGetAccessResult(conn, ip_hash, REQUEST_TIER_FREE, price);
     if (access_result.m_status == REQUEST_ACCESS_RATE_LIMITED && x402_request_isOn() && price->m_isPaymentOfferable)
@@ -446,7 +447,7 @@ static RequestAccessResult_t static_dbOpenPayment(PGconn* conn, EndpointPrice_t*
   if (!price->m_isPaymentOfferable)
     return access_result;
 
-  char ip_hash[SHA256_HEX_LEN + 1];
+  char ip_hash[BYTES_SHA256_HEX_LEN + 1];
   auth_hashIp(client_ip, ip_secret, ip_hash);
 
   X402RequestOpenResult_t open_result = { .m_status = X402_REQUEST_OPEN_OK };
@@ -471,7 +472,7 @@ static RequestAccessResult_t static_dbOpenPayment(PGconn* conn, EndpointPrice_t*
       access_result.m_isCreditBudgetChecked = true;
       access_result.m_creditBudget.m_tier   = REQUEST_TIER_X402;
       int credit_budget_hash_len = snprintf(access_result.m_creditBudget.ma_budgetHash, sizeof(access_result.m_creditBudget.ma_budgetHash), "%s", ip_hash);
-      assert(credit_budget_hash_len == SHA256_HEX_LEN);
+      assert(credit_budget_hash_len == BYTES_SHA256_HEX_LEN);
       (void)credit_budget_hash_len;
       break;
     }
@@ -559,7 +560,7 @@ static RequestAccessResult_t static_chargeCreditCostGetAccessResult(PGconn* conn
   access_result.m_creditBudget.m_tier          = tier;
   access_result.m_creditBudget.m_rateLimitInfo = rl_info;
   int credit_budget_hash_len = snprintf(access_result.m_creditBudget.ma_budgetHash, sizeof(access_result.m_creditBudget.ma_budgetHash), "%s", credit_budget_hash);
-  assert(credit_budget_hash_len == SHA256_HEX_LEN);
+  assert(credit_budget_hash_len == BYTES_SHA256_HEX_LEN);
   (void)credit_budget_hash_len;
 
   response_setRateLimitInfo(rl_info.m_limit, rl_info.m_remaining, rl_info.m_reset);
@@ -576,7 +577,7 @@ static RequestAccessResult_t static_chargeRefusedKeyGetAccessResult(PGconn* conn
 {
   assert(price != NULL);
 
-  char ip_hash[SHA256_HEX_LEN + 1];
+  char ip_hash[BYTES_SHA256_HEX_LEN + 1];
   auth_hashIp(client_ip, ip_secret, ip_hash);
   EndpointPrice_t refused_key_price = {
     .m_creditCost             = price->m_creditCost > 0 ? price->m_creditCost : 1,

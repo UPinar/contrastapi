@@ -1,9 +1,11 @@
 #include <string.h>
 
+#include <openssl/evp.h>
 #include <openssl/rand.h>
 
 #include "unity/unity.h"
 #include "auth.h"
+#include "bytes.h"
 #include "request_text.h"
 #include "validate.h"
 
@@ -66,8 +68,20 @@ int __wrap_RAND_bytes(unsigned char* buf, int num)
   return g_randMode == AUTH_TEST_RAND_SCRIPT ? 1 : g_randFailResult;
 }
 
+static bool g_digestFails = false;
+
+int __real_EVP_Digest(const void* data, size_t count, unsigned char* md, unsigned int* size, const EVP_MD* type, ENGINE* impl);
+
+int __wrap_EVP_Digest(const void* data, size_t count, unsigned char* md, unsigned int* size, const EVP_MD* type, ENGINE* impl)
+{
+  if (g_digestFails)
+    return 0;
+  return __real_EVP_Digest(data, count, md, size, type, impl);
+}
+
 void setUp(void)
 {
+  g_digestFails    = false;
   g_randMode       = AUTH_TEST_RAND_REAL;
   g_randFailResult = 0;
   g_randCallCount  = 0;
@@ -427,31 +441,48 @@ void test_x_api_key_valid(void)
 
 void test_hash_known_output(void)
 {
-  char hex[SHA256_HEX_LEN + 1];
-  auth_hashApiKey(VALID_KEY, hex);
-  TEST_ASSERT_EQUAL_INT(SHA256_HEX_LEN, (int)strlen(hex));
+  char hex[BYTES_SHA256_HEX_LEN + 1];
+  TEST_ASSERT_TRUE(auth_tryHashApiKey(VALID_KEY, hex));
+  TEST_ASSERT_EQUAL_INT(BYTES_SHA256_HEX_LEN, (int)strlen(hex));
   TEST_ASSERT_EQUAL_STRING(VALID_KEY_HASH, hex);
+}
+
+void test_hash_that_fails_answers_false_and_the_empty_text(void)
+{
+  char hex[BYTES_SHA256_HEX_LEN + 1];
+  memset(hex, 'Z', sizeof(hex));
+  g_digestFails = true;
+  bool is_hashed = auth_tryHashApiKey(VALID_KEY, hex);
+  g_digestFails = false;
+  TEST_ASSERT_FALSE(is_hashed);
+  TEST_ASSERT_EQUAL_STRING("", hex);
+
+  memset(hex, 'Z', sizeof(hex));
+  g_digestFails = true;
+  auth_hashIp("192.0.2.1", NULL, hex);
+  g_digestFails = false;
+  TEST_ASSERT_EQUAL_STRING("", hex);
 }
 
 void test_hash_ip_null_secret_falls_back_to_sha256(void)
 {
-  char hex[SHA256_HEX_LEN + 1];
+  char hex[BYTES_SHA256_HEX_LEN + 1];
   auth_hashIp(TEST_IP, NULL, hex);
-  TEST_ASSERT_EQUAL_INT(SHA256_HEX_LEN, (int)strlen(hex));
+  TEST_ASSERT_EQUAL_INT(BYTES_SHA256_HEX_LEN, (int)strlen(hex));
   TEST_ASSERT_EQUAL_STRING(IP_SHA256, hex);
 }
 
 void test_hash_ip_with_secret_uses_hmac(void)
 {
-  char hex[SHA256_HEX_LEN + 1];
+  char hex[BYTES_SHA256_HEX_LEN + 1];
   auth_hashIp(TEST_IP, TEST_IP_SECRET, hex);
-  TEST_ASSERT_EQUAL_INT(SHA256_HEX_LEN, (int)strlen(hex));
+  TEST_ASSERT_EQUAL_INT(BYTES_SHA256_HEX_LEN, (int)strlen(hex));
   TEST_ASSERT_EQUAL_STRING(IP_HMAC_SHA256, hex);
 }
 
 void test_hash_ip_same_ipv6_64_shares_bucket(void)
 {
-  char first[SHA256_HEX_LEN + 1], second[SHA256_HEX_LEN + 1];
+  char first[BYTES_SHA256_HEX_LEN + 1], second[BYTES_SHA256_HEX_LEN + 1];
   auth_hashIp("2001:db8:1:2::1",      NULL, first);
   auth_hashIp("2001:db8:1:2:ffff::9", NULL, second);
   TEST_ASSERT_EQUAL_STRING(first, second);
@@ -463,7 +494,7 @@ void test_hash_ip_same_ipv6_64_shares_bucket(void)
 
 void test_hash_ip_next_ipv6_64_gets_own_bucket(void)
 {
-  char first[SHA256_HEX_LEN + 1], second[SHA256_HEX_LEN + 1];
+  char first[BYTES_SHA256_HEX_LEN + 1], second[BYTES_SHA256_HEX_LEN + 1];
   auth_hashIp("2001:db8:1:2::1", TEST_IP_SECRET, first);
   auth_hashIp("2001:db8:1:3::1", TEST_IP_SECRET, second);
   TEST_ASSERT_FALSE(strcmp(first, second) == 0);
@@ -471,7 +502,7 @@ void test_hash_ip_next_ipv6_64_gets_own_bucket(void)
 
 void test_hash_ip_v4_mapped_ipv6_is_its_ipv4(void)
 {
-  char mapped[SHA256_HEX_LEN + 1], plain[SHA256_HEX_LEN + 1];
+  char mapped[BYTES_SHA256_HEX_LEN + 1], plain[BYTES_SHA256_HEX_LEN + 1];
   auth_hashIp("::ffff:8.8.8.8", TEST_IP_SECRET, mapped);
   auth_hashIp("8.8.8.8",        TEST_IP_SECRET, plain);
   TEST_ASSERT_EQUAL_STRING(plain, mapped);
@@ -479,7 +510,7 @@ void test_hash_ip_v4_mapped_ipv6_is_its_ipv4(void)
 
 void test_hash_ip_ipv4_is_not_masked(void)
 {
-  char first[SHA256_HEX_LEN + 1], second[SHA256_HEX_LEN + 1];
+  char first[BYTES_SHA256_HEX_LEN + 1], second[BYTES_SHA256_HEX_LEN + 1];
   auth_hashIp("192.0.2.1", TEST_IP_SECRET, first);
   auth_hashIp("192.0.2.2", TEST_IP_SECRET, second);
   TEST_ASSERT_FALSE(strcmp(first, second) == 0);
@@ -487,7 +518,7 @@ void test_hash_ip_ipv4_is_not_masked(void)
 
 void test_hash_ip_ipv6_bucket_known_answer(void)
 {
-  char hex[SHA256_HEX_LEN + 1];
+  char hex[BYTES_SHA256_HEX_LEN + 1];
   auth_hashIp("2001:db8::abcd", NULL, hex);
   TEST_ASSERT_EQUAL_STRING(IP6_BUCKET_SHA256, hex);
 
@@ -500,14 +531,14 @@ void test_hash_ip_ipv6_bucket_known_answer(void)
 
 void test_hash_ip_unparseable_hashes_raw_text(void)
 {
-  char hex[SHA256_HEX_LEN + 1];
+  char hex[BYTES_SHA256_HEX_LEN + 1];
   auth_hashIp("not-an-address", NULL, hex);
   TEST_ASSERT_EQUAL_STRING(NOT_AN_IP_SHA256, hex);
 }
 
 void test_hash_ip_full_width_ipv6_64_known_answer(void)
 {
-  char first[SHA256_HEX_LEN + 1], second[SHA256_HEX_LEN + 1];
+  char first[BYTES_SHA256_HEX_LEN + 1], second[BYTES_SHA256_HEX_LEN + 1];
   auth_hashIp("ffff:ffff:ffff:ffff::1",                  NULL, first);
   auth_hashIp("ffff:ffff:ffff:ffff:ffff:ffff:ffff:fffe", NULL, second);
   TEST_ASSERT_EQUAL_STRING(FULL_WIDTH_64_SHA256, first);
@@ -830,6 +861,7 @@ int main(void)
   RUN_TEST(test_malformed_bearer_and_malformed_x_api_key_is_malformed);
   RUN_TEST(test_non_bearer_authorization_with_malformed_x_api_key_is_malformed);
   RUN_TEST(test_hash_known_output);
+  RUN_TEST(test_hash_that_fails_answers_false_and_the_empty_text);
   RUN_TEST(test_hash_ip_null_secret_falls_back_to_sha256);
   RUN_TEST(test_hash_ip_with_secret_uses_hmac);
   RUN_TEST(test_hash_ip_same_ipv6_64_shares_bucket);

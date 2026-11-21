@@ -166,12 +166,14 @@ static const char* const DRIVERLOOKUP_COLUMN_NAMES[] = { DRIVERLOOKUP_COLUMNS(DB
   X(IPLOOKUP_COLUMN_IS_CDN,                "is_cdn")                \
   X(IPLOOKUP_COLUMN_IS_DATACENTER,         "is_datacenter")         \
   X(IPLOOKUP_COLUMN_IS_TOR_EXIT,           "is_tor_exit")           \
+  X(IPLOOKUP_COLUMN_CRAWLER,               "crawler")               \
   X(IPLOOKUP_COLUMN_LISTED_ON,             "listed_on")             \
   X(IPLOOKUP_COLUMN_ASN_FEED_LOADED,       "asn_feed_loaded")       \
   X(IPLOOKUP_COLUMN_GEO_FEED_LOADED,       "geo_feed_loaded")       \
   X(IPLOOKUP_COLUMN_CLOUD_FEED_LOADED,     "cloud_feed_loaded")     \
   X(IPLOOKUP_COLUMN_TOR_FEED_LOADED,       "tor_feed_loaded")       \
-  X(IPLOOKUP_COLUMN_DROP_LIST_FEED_LOADED, "drop_list_feed_loaded")
+  X(IPLOOKUP_COLUMN_DROP_LIST_FEED_LOADED, "drop_list_feed_loaded") \
+  X(IPLOOKUP_COLUMN_CRAWLER_FEED_LOADED,   "crawler_feed_loaded")
 enum { IPLOOKUP_COLUMNS(DBHELPER_COLUMN_INDEX) };
 static const char* const IPLOOKUP_COLUMN_NAMES[] = { IPLOOKUP_COLUMNS(DBHELPER_COLUMN_NAME) };
 
@@ -2803,14 +2805,16 @@ static bool static_IPLOOKUPTryFillRecord(PGresult* res, IPLOOKUPRecord_t* record
   assert(record != NULL);
   assert(PQntuples(res) == 1);
 
-  record->m_isCdn     = false;
-  record->m_isTorExit = false;
+  record->m_isCdn       = false;
+  record->m_isTorExit   = false;
+  record->ma_crawler[0] = '\0';
 
   if (!dbhelper_fetchColBool(res, 0, IPLOOKUP_COLUMN_ASN_FEED_LOADED, &record->m_isAsnFeedLoaded)             ||
       !dbhelper_fetchColBool(res, 0, IPLOOKUP_COLUMN_GEO_FEED_LOADED, &record->m_isGeoFeedLoaded)             ||
       !dbhelper_fetchColBool(res, 0, IPLOOKUP_COLUMN_CLOUD_FEED_LOADED, &record->m_isCloudFeedLoaded)         ||
       !dbhelper_fetchColBool(res, 0, IPLOOKUP_COLUMN_TOR_FEED_LOADED, &record->m_isTorFeedLoaded)             ||
-      !dbhelper_fetchColBool(res, 0, IPLOOKUP_COLUMN_DROP_LIST_FEED_LOADED, &record->m_isDropListFeedLoaded))
+      !dbhelper_fetchColBool(res, 0, IPLOOKUP_COLUMN_DROP_LIST_FEED_LOADED, &record->m_isDropListFeedLoaded)  ||
+      !dbhelper_fetchColBool(res, 0, IPLOOKUP_COLUMN_CRAWLER_FEED_LOADED, &record->m_isCrawlerFeedLoaded))
     return false;
 
   if (!static_IPLOOKUPTryReadAsn(res, &record->m_asn)                                                                           ||
@@ -2827,6 +2831,8 @@ static bool static_IPLOOKUPTryFillRecord(PGresult* res, IPLOOKUPRecord_t* record
   if (!static_IPLOOKUPTryReadDatacenter(res, record))
     return false;
   if (record->m_isTorFeedLoaded && !dbhelper_fetchColBool(res, 0, IPLOOKUP_COLUMN_IS_TOR_EXIT, &record->m_isTorExit))
+    return false;
+  if (record->m_isCrawlerFeedLoaded && !dbhelper_fetchColStr(res, 0, IPLOOKUP_COLUMN_CRAWLER, record->ma_crawler, IPLOOKUP_CRAWLER_MAX_LEN))
     return false;
   if (!record->m_isDropListFeedLoaded)
     return true;

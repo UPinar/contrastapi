@@ -7,7 +7,6 @@
 typedef enum {
   TEST_DIGEST_PASS = 0,
   TEST_DIGEST_FAIL,
-  TEST_DIGEST_SHORT_LENGTH,
 } ImageScanTestDigestFault_t;
 
 static ImageScanTestDigestFault_t g_digestFault = TEST_DIGEST_PASS;
@@ -23,10 +22,7 @@ int __wrap_EVP_Digest(const void* data, size_t count, unsigned char* md, unsigne
   g_digestCallCount++;
   if (fault == TEST_DIGEST_FAIL)
     return 0;
-  int digest_status = __real_EVP_Digest(data, count, md, size, type, impl);
-  if (fault == TEST_DIGEST_SHORT_LENGTH)
-    *size = 20;
-  return digest_status;
+  return __real_EVP_Digest(data, count, md, size, type, impl);
 }
 
 void setUp(void)
@@ -143,39 +139,6 @@ void test_fileTypeName_names_each_file_type(void)
   TEST_ASSERT_EQUAL_STRING("php",          imagescan_fileTypeName(IMAGESCAN_FILE_TYPE_PHP));
   TEST_ASSERT_EQUAL_STRING("html_script",  imagescan_fileTypeName(IMAGESCAN_FILE_TYPE_HTML_SCRIPT));
   TEST_ASSERT_EQUAL_STRING("shell_script", imagescan_fileTypeName(IMAGESCAN_FILE_TYPE_SHELL_SCRIPT));
-}
-
-void test_writeSha256Hex_hashes_every_byte_nul_bytes_included(void)
-{
-  static const struct {
-    const char* mp_bytes;
-    size_t      m_byteCount;
-    const char* mp_hex;
-  } cases[] = {
-    { "",                 0, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" },
-    { "abc",              3, "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad" },
-    { "\x00\x01\x02\x00", 4, "856aaf43b61beefd07691ab6e60cd50522b8c08721f6570dba877c5222745b04" },
-  };
-  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
-  {
-    char hex[IMAGESCAN_SHA256_HEX_LEN + 1];
-    memset(hex, 'Z', sizeof(hex));
-    TEST_ASSERT_TRUE(imagescan_writeSha256Hex((const unsigned char*)cases[i].mp_bytes, cases[i].m_byteCount, hex));
-    TEST_ASSERT_EQUAL_STRING(cases[i].mp_hex, hex);
-  }
-}
-
-void test_writeSha256Hex_answers_false_and_empty_when_openssl_fails(void)
-{
-  static const ImageScanTestDigestFault_t faults[] = { TEST_DIGEST_FAIL, TEST_DIGEST_SHORT_LENGTH };
-  for (size_t i = 0; i < sizeof(faults) / sizeof(faults[0]); i++)
-  {
-    char hex[IMAGESCAN_SHA256_HEX_LEN + 1];
-    memset(hex, 'Z', sizeof(hex));
-    g_digestFault = faults[i];
-    TEST_ASSERT_FALSE(imagescan_writeSha256Hex((const unsigned char*)"abc", 3, hex));
-    TEST_ASSERT_EQUAL_STRING("", hex);
-  }
 }
 
 static void static_findSignatures(const char* bytes, size_t byte_count, ImageScanSignatureMatch_t* matches)
@@ -515,7 +478,7 @@ void test_scan_stops_when_the_hash_fails(void)
 
 void test_registration_gate_test_count(void)
 {
-  TEST_ASSERT_EQUAL_INT_MESSAGE(24, (int)Unity.NumberOfTests,
+  TEST_ASSERT_EQUAL_INT_MESSAGE(22, (int)Unity.NumberOfTests,
     "RUN_TEST list and test definitions have drifted apart - a test may be unregistered");
 }
 
@@ -528,8 +491,6 @@ int main(void)
   RUN_TEST(test_findFormat_reads_no_bytes_as_unknown);
   RUN_TEST(test_formatName_names_each_format);
   RUN_TEST(test_fileTypeName_names_each_file_type);
-  RUN_TEST(test_writeSha256Hex_hashes_every_byte_nul_bytes_included);
-  RUN_TEST(test_writeSha256Hex_answers_false_and_empty_when_openssl_fails);
   RUN_TEST(test_findEmbeddedFileSignatures_finds_each_signature_at_its_offset);
   RUN_TEST(test_findEmbeddedFileSignatures_reads_a_zip_version_from_10_to_63);
   RUN_TEST(test_findEmbeddedFileSignatures_reads_a_pe_machine_from_the_list);

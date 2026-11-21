@@ -6,7 +6,7 @@
 #include <stdint.h>
 #include <libpq-fe.h>
 
-#include "auth.h"
+#include "bytes.h"
 #include "config.h"
 #include "endpoint.h"
 #include "jsonbuf.h"
@@ -63,7 +63,7 @@ typedef struct X402RequestPayment {
   X402Requirements_t       m_requirements;
   X402Payment_t            m_payment;
   X402LedgerHashes_t       m_hashes;
-  char                     ma_ipHash[SHA256_HEX_LEN + 1];
+  char                     ma_ipHash[BYTES_SHA256_HEX_LEN + 1];
   char                     ma_signature[X402_SOLANA_SIGNATURE_TEXT_BUF_SIZE];
   int64_t                  m_reservedAtMs;
 } X402RequestPayment_t;

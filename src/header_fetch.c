@@ -1,5 +1,6 @@
 #include <arpa/inet.h>
 #include <assert.h>
+#include <ctype.h>
 #include <limits.h>
 #include <netinet/in.h>
 #include <stdio.h>
@@ -21,7 +22,6 @@
 
 #define HEADER_FETCH_PORT_TEXT MACRO_STR(HEADER_FETCH_PORT)
 
-#define HEADER_FETCH_HTTP_PORT       80
 #define HEADER_FETCH_HTTP_PORT_TEXT  MACRO_STR(HEADER_FETCH_HTTP_PORT)
 
 #define HEADER_FETCH_WWW_PREFIX       "www."
@@ -77,6 +77,8 @@ static void         static_runFree                      (HeaderFetchRun_t* run);
 static bool         static_isHostOrWwwPair              (const char* host, const char* hostname);
 static void         static_dropUserInfoAndFragment      (CURLU* url);
 static bool         static_tryWriteUrl                  (CURLU* url, HeaderFetchHopRule_t hop_rule, char** text_out);
+static bool         static_isSameRequestUrl             (const char* url, const char* other_url);
+static size_t       static_findAuthorityEnd             (const char* url);
 
 HttpError_t header_fetch_fetchChain(const char* first_url, const HeaderFetchPolicy_t* policy, int64_t deadline_ms, HeaderFetchChain_t* chain_out)
 {
@@ -205,6 +207,69 @@ void header_fetch_resultFree(HeaderFetchResult_t* result)
   memset(result, 0, sizeof(*result));
 }
 
+HeaderFetchUrlStatus_t header_fetch_writeNormalUrl(const char* url, char* normal_url_out, size_t normal_url_size)
+{
+  assert(url != NULL);
+  assert(normal_url_out != NULL);
+  assert(normal_url_size > 0);
+
+  normal_url_out[0] = '\0';
+  HeaderFetchUrlStatus_t status = HEADER_FETCH_URL_UNPARSABLE;
+  char* user     = NULL;
+  char* password = NULL;
+  char* host     = NULL;
+  char* written  = NULL;
+
+  CURLU* parsed_url = curl_url();
+  if (curl_url_set(parsed_url, CURLUPART_URL, url, 0) != CURLUE_OK)
+    goto done;
+
+  CURLUcode user_code = curl_url_get(parsed_url, CURLUPART_USER, &user, 0);
+  if (user_code == CURLUE_OK)
+  {
+    status = HEADER_FETCH_URL_USER_INFO;
+    goto done;
+  }
+  else if (user_code != CURLUE_NO_USER)
+    goto done;
+
+  CURLUcode password_code = curl_url_get(parsed_url, CURLUPART_PASSWORD, &password, 0);
+  if (password_code == CURLUE_OK)
+  {
+    status = HEADER_FETCH_URL_USER_INFO;
+    goto done;
+  }
+  else if (password_code != CURLUE_NO_PASSWORD)
+    goto done;
+
+  if (curl_url_get(parsed_url, CURLUPART_HOST, &host, 0) != CURLUE_OK)
+    goto done;
+  for (char* host_byte = host; *host_byte != '\0'; host_byte++)
+    *host_byte = (char)tolower((unsigned char)*host_byte);
+  if (curl_url_set(parsed_url, CURLUPART_HOST, host, 0) != CURLUE_OK)
+    goto done;
+  curl_url_set(parsed_url, CURLUPART_FRAGMENT, NULL, 0);
+  if (curl_url_get(parsed_url, CURLUPART_URL, &written, CURLU_NO_DEFAULT_PORT) != CURLUE_OK)
+    goto done;
+
+  size_t written_len = strlen(written);
+  if (written_len >= normal_url_size)
+  {
+    status = HEADER_FETCH_URL_TOO_LONG;
+    goto done;
+  }
+  memcpy(normal_url_out, written, written_len + 1);
+  status = HEADER_FETCH_URL_OK;
+
+done:
+  curl_free(user);
+  curl_free(password);
+  curl_free(host);
+  curl_free(written);
+  curl_url_cleanup(parsed_url);
+  return status;
+}
+
 static bool static_tryBuildHeaderNamesToCapture(const char* const* caller_header_names, HeaderFetchRun_t* run)
 {
   int caller_header_name_count = 0;
@@ -325,7 +390,7 @@ static bool static_isRequestAllowed(HeaderFetchRun_t* run, int hop_count, const 
   bool is_allowed = true;
   for (int i = 0; i < hop_count && is_allowed; i++)
   {
-    if (strcmp(request_url, run->ma_requestUrls[i]) == 0)
+    if (static_isSameRequestUrl(request_url, run->ma_requestUrls[i]))
     {
       *stop_reason_out = HEADER_FETCH_STOP_LOOP;
       is_allowed       = false;
@@ -579,4 +644,27 @@ static void static_dropUserInfoAndFragment(CURLU* url)
   curl_url_set(url, CURLUPART_USER,     NULL, 0);
   curl_url_set(url, CURLUPART_PASSWORD, NULL, 0);
   curl_url_set(url, CURLUPART_FRAGMENT, NULL, 0);
+}
+
+static bool static_isSameRequestUrl(const char* url, const char* other_url)
+{
+  size_t authority_end       = static_findAuthorityEnd(url);
+  size_t other_authority_end = static_findAuthorityEnd(other_url);
+  if (authority_end != other_authority_end)
+    return false;
+  if (strncasecmp(url, other_url, authority_end) != 0)
+    return false;
+
+  return strcmp(url + authority_end, other_url + authority_end) == 0;
+}
+
+static size_t static_findAuthorityEnd(const char* url)
+{
+  const char* scheme_end = strstr(url, "://");
+  if (scheme_end == NULL)
+    return 0;
+
+  const char* authority = scheme_end + sizeof("://") - 1;
+  const char* path      = strchr(authority, '/');
+  return path != NULL ? (size_t)(path - url) : strlen(url);
 }

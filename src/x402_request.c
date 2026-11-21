@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "jsonbuf.h"
 #include "monotonic.h"
@@ -25,6 +26,10 @@
 #define X402_REQUEST_RECEIPT_HEADER_NAME          "PAYMENT-RESPONSE"
 
 #define X402_REQUEST_RESOURCE_URL_BUF_SIZE        256
+
+#define X402_REQUEST_SIGNATURE_FIND_WINDOW_SECONDS 4560
+
+#define X402_REQUEST_SIGNATURE_FIND_DEADLINE_MS   12000
 
 _Static_assert((uint64_t)PACKAGECHECKBULK_MAX_ITEMS * PRICING_X402_USDC_ATOMIC_PER_CREDIT <= UINT32_MAX,
                "the price of the largest bulk request must fit 32 bits");
@@ -156,9 +161,9 @@ X402RequestOpenResult_t x402_request_dbOpenPayment(PGconn* conn, const X402Reque
     fprintf(stderr, "x402_request_dbOpenPayment: credit_count is 0\n");
     return static_buildOpenResult(X402_REQUEST_OPEN_ERROR, 0);
   }
-  if (strlen(ip_hash) != SHA256_HEX_LEN)
+  if (strlen(ip_hash) != BYTES_SHA256_HEX_LEN)
   {
-    fprintf(stderr, "x402_request_dbOpenPayment: ip_hash is not SHA256_HEX_LEN characters\n");
+    fprintf(stderr, "x402_request_dbOpenPayment: ip_hash is not BYTES_SHA256_HEX_LEN characters\n");
     return static_buildOpenResult(X402_REQUEST_OPEN_ERROR, 0);
   }
 
@@ -578,7 +583,7 @@ static void static_fillOpenPayment(X402RequestPayment_t* payment_out, const X402
 
   payment_out->m_requirements = *requirements;
   payment_out->m_payment      = *payment;
-  memcpy(payment_out->ma_ipHash, ip_hash, SHA256_HEX_LEN + 1);
+  memcpy(payment_out->ma_ipHash, ip_hash, BYTES_SHA256_HEX_LEN + 1);
 }
 
 static X402RequestOpenResult_t static_dbOpenPending(PGconn* conn, const X402LedgerHashes_t* hashes, const char* stored_signature, const X402Payment_t* payment, const X402SolanaCheck_t* check, X402RequestPayment_t* payment_out)
@@ -612,7 +617,8 @@ static X402RequestOpenResult_t static_dbOpenPending(PGconn* conn, const X402Ledg
   }
   else
   {
-    signature_status = x402_solana_rpc_findFeePayerSignature(g_solanaRpcUrl, check->ma_source, payment->ma_transaction, payment->m_transactionByteCount, g_policy.ma_feePayer, found_signature);
+    int64_t oldest_block_time = (int64_t)time(NULL) - X402_REQUEST_SIGNATURE_FIND_WINDOW_SECONDS;
+    signature_status = x402_solana_rpc_findFeePayerSignature(g_solanaRpcUrl, check->ma_source, payment->ma_transaction, payment->m_transactionByteCount, g_policy.ma_feePayer, oldest_block_time, ask_start_ms + X402_REQUEST_SIGNATURE_FIND_DEADLINE_MS, found_signature);
     signature_text   = found_signature;
     step             = USAGELOG_X402_STEP_SIGNATURE_FIND;
   }

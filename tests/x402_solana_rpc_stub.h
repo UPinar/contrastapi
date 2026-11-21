@@ -22,5 +22,7 @@ extern uint8_t                        g_stub_X402_SOLANA_RPC_find_last_source[X4
 extern uint8_t                        g_stub_X402_SOLANA_RPC_find_last_tx[X402_SOLANA_MAX_TRANSACTION_BYTE_COUNT];
 extern size_t                         g_stub_X402_SOLANA_RPC_find_last_tx_len;
 extern uint8_t                        g_stub_X402_SOLANA_RPC_find_last_fee_payer[X402_SOLANA_ADDRESS_BYTE_COUNT];
+extern int64_t                        g_stub_X402_SOLANA_RPC_find_last_oldest_block_time;
+extern int64_t                        g_stub_X402_SOLANA_RPC_find_last_deadline_at;
 
 #endif

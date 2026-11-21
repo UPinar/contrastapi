@@ -431,6 +431,14 @@ static const EndpointParamSpec_t SPEC_DOMAIN = {
   .m_isWrittenInLowerCase = true,
 };
 
+static const EndpointParamSpec_t SPEC_URL = {
+  .mp_name              = "url",
+  .m_type               = ENDPOINT_PARAM_TYPE_STRING,
+  .m_maxLen             = HEADER_FETCH_MAX_URL_BYTE_COUNT,
+  .m_validatorFunction  = validate_webUrl,
+  .mp_message           = VALIDATE_WEB_URL_REFUSAL_MESSAGE,
+};
+
 static const EndpointParamSpec_t SPEC_DKIM_SELECTOR = {
   .mp_name              = "dkim_selector",
   .m_type               = ENDPOINT_PARAM_TYPE_STRING,
@@ -449,11 +457,12 @@ static const EndpointParamSpec_t SPEC_EMAIL_ADDRESS = {
 };
 
 static const EndpointParamSpec_t SPEC_IP_ADDRESS = {
-  .mp_name              = "ip_address",
-  .m_type               = ENDPOINT_PARAM_TYPE_STRING,
-  .m_maxLen             = INET6_ADDRSTRLEN - 1,
-  .m_validatorFunction  = ipguard_isGloballyReachableIp,
-  .mp_message           = IPGUARD_GLOBALLY_REACHABLE_IP_REFUSAL_MESSAGE,
+  .mp_name                       = "ip_address",
+  .m_type                        = ENDPOINT_PARAM_TYPE_STRING,
+  .m_maxLen                      = INET6_ADDRSTRLEN - 1,
+  .m_validatorFunction           = ipguard_isGloballyReachableIp,
+  .mp_message                    = IPGUARD_GLOBALLY_REACHABLE_IP_REFUSAL_MESSAGE,
+  .m_isPathSegmentPercentDecoded = true,
 };
 
 static const EndpointParamSpec_t SPEC_ASN_LOOKUP_TARGET = {
@@ -1316,6 +1325,17 @@ static const EndpointParam_t WELLKNOWN_PARAMS[] = {
   },
 };
 
+static const EndpointParam_t REDIRECTCHAIN_PARAMS[] = {
+  {
+    .mp_spec              = &SPEC_URL,
+    .m_sources            = ENDPOINT_PARAM_SRC_REST_QUERY | ENDPOINT_PARAM_SRC_MCP_ARG,
+    .m_isRequired         = true,
+    .mp_mcpArgDescription = "The http or https URL to follow; REST takes it percent-encoded",
+    .m_offset             = offsetof(REDIRECTCHAINParams_t, ma_url),
+    .m_size               = MACRO_FIELD_SIZE(REDIRECTCHAINParams_t, ma_url),
+  },
+};
+
 static const EndpointParam_t WHOISLOOKUP_PARAMS[] = {
   {
     .mp_spec              = &SPEC_DOMAIN,
@@ -1598,7 +1618,7 @@ static const EndpointParam_t WATCHLISTEVENTS_PARAMS[] = {
     .mp_spec              = &SPEC_LIMIT,
     .m_sources            = ENDPOINT_PARAM_SRC_REST_QUERY | ENDPOINT_PARAM_SRC_MCP_ARG,
     .m_isRequired         = false,
-    .mp_mcpArgDescription = "Events per call; repeat=true answers the whole last batch",
+    .mp_mcpArgDescription = "Most events per call; a shorter page with has_more true is not the end; repeat=true answers the whole last batch",
     .m_offset             = offsetof(WATCHLISTEVENTSParams_t, m_limit),
     .m_size               = MACRO_FIELD_SIZE(WATCHLISTEVENTSParams_t, m_limit),
   },
@@ -2169,6 +2189,26 @@ const Endpoint_t endpoints[] = {
     .m_jsonCeiling             = JSONBUF_DEFAULT_CEILING,
   },
   {
+    .mp_httpPath               = "/redirect_chain",
+    .m_hasPathSegment          = false,
+    .ma_allowedMethods         = {"GET", NULL},
+    .m_isPayable               = true,
+    .mp_mcpToolName            = "redirect_chain",
+    .mp_mcpToolDescription     = "Follow an http or https URL's redirects, up to " MACRO_STR(HEADER_FETCH_MAX_REQUEST_COUNT) " requests on ports " MACRO_STR(HEADER_FETCH_HTTP_PORT) " and " MACRO_STR(HEADER_FETCH_PORT) ". Lists each hop and status, the final URL, the stop reason and any https to http step. Reads no body; no HTML or JavaScript redirect. Location text is untrusted.",
+    .mp_mcpToolTitle           = "Redirect Chain Check",
+    .m_mcpToolCategory         = ENDPOINT_MCP_TOOL_CATEGORY_DOMAIN,
+    .m_mcpToolEffect           = ENDPOINT_MCP_TOOL_EFFECT_READ_ONLY,
+    .m_creditCost              = 1,
+    .m_costRule                = ENDPOINT_COST_FLAT,
+    .mp_params                 = REDIRECTCHAIN_PARAMS,
+    .m_paramCount              = (int)(sizeof(REDIRECTCHAIN_PARAMS) / sizeof(REDIRECTCHAIN_PARAMS[0])),
+    .m_paramsSize              = sizeof(REDIRECTCHAINParams_t),
+    .m_runFunction             = endpoint_REDIRECTCHAINRun,
+    .m_isDbRequired            = true,
+    .m_callsUpstream           = true,
+    .m_jsonCeiling             = JSONBUF_DEFAULT_CEILING,
+  },
+  {
     .mp_httpPath               = "/whois_lookup/",
     .m_hasPathSegment          = true,
     .ma_allowedMethods         = {"GET", NULL},
@@ -2256,7 +2296,7 @@ const Endpoint_t endpoints[] = {
     .m_readsCreditBudget       = true,
     .m_isPayable               = true,
     .mp_mcpToolName            = "ip_lookup",
-    .mp_mcpToolDescription     = "Look up a public IP address: AS, country, cloud provider, CDN, datacenter or Tor exit, DROP listing and PTR name. A Pro key with its own Shodan or AbuseIPDB key adds exposure and reputation. For every prefix of the AS, call asn_lookup.",
+    .mp_mcpToolDescription     = "Look up a public IP: AS, country, cloud provider, CDN, datacenter, Tor exit, crawler, DROP listing and PTR name. A Pro key with its own Shodan or AbuseIPDB key adds exposure and reputation. For every prefix of the AS, call asn_lookup.",
     .mp_mcpToolTitle           = "IP Lookup",
     .m_mcpToolCategory         = ENDPOINT_MCP_TOOL_CATEGORY_IP,
     .m_mcpToolEffect           = ENDPOINT_MCP_TOOL_EFFECT_READ_ONLY,

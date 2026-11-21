@@ -32,11 +32,13 @@
 #include "certspotter_stub.h"
 #include "subdomain_stub.h"
 #include "header_fetch_stub.h"
+#include "throttle_stub.h"
 #include "header_check.h"
 #include "well_known.h"
 #include "monotonic.h"
 #include "dns.h"
 #include "usagelog.h"
+#include "robotstxt.h"
 
 static const RequestCharge_t TEST_FULL_CHARGE = { .m_chargedCreditCount = ENDPOINT_FULL_CHARGE, .mp_creditBudget = NULL, .mp_x402Payment = NULL };
 
@@ -228,7 +230,7 @@ void test_only_the_credit_budget_rows_read_the_credit_budget(void)
 
 void test_only_the_listed_paid_rows_are_payable(void)
 {
-  static const char* const payable_paths[35] = {
+  static const char* const payable_paths[36] = {
     "/cve_lookup/",         "/cve_lookup_bulk",    "/cve_products/",      "/cve_search",
     "/cve_leading",         "/kev_lookup/",        "/cwe_lookup/",        "/cve_risk_score/",
     "/cve_exploit/",        "/cve_triage",         "/cve_triage_bulk",    "/product_exposure",
@@ -237,9 +239,9 @@ void test_only_the_listed_paid_rows_are_payable(void)
     "/headers_check/",      "/whois_lookup/",      "/wayback_lookup/",    "/cert_search/",
     "/subdomain_enum/",     "/ip_lookup/",         "/asn_lookup/",        "/d3fend_for_attack/",
     "/driver_lookup/",      "/driver_lookup_bulk", "/package_check",      "/package_check_bulk",
-    "/image_inspect",       "/epss_risers",        "/well_known/",
+    "/image_inspect",       "/epss_risers",        "/well_known/",        "/redirect_chain",
   };
-  bool seen[35] = { false };
+  bool seen[36] = { false };
   int payable_row_count = 0;
   int credit_budget_payable_row_count = 0;
   for (int i = 0; i < endpoint_count; i++)
@@ -249,7 +251,7 @@ void test_only_the_listed_paid_rows_are_payable(void)
       continue;
     payable_row_count++;
     int payable_index = -1;
-    for (int k = 0; k < 35; k++)
+    for (int k = 0; k < 36; k++)
     {
       TEST_ASSERT_NOT_NULL(payable_paths[k]);
       if (strcmp(payable_paths[k], endpoint->mp_httpPath) == 0)
@@ -265,8 +267,8 @@ void test_only_the_listed_paid_rows_are_payable(void)
       credit_budget_payable_row_count++;
     }
   }
-  TEST_ASSERT_EQUAL_INT(35, payable_row_count);
-  for (int k = 0; k < 35; k++)
+  TEST_ASSERT_EQUAL_INT(36, payable_row_count);
+  for (int k = 0; k < 36; k++)
     TEST_ASSERT_TRUE_MESSAGE(seen[k], payable_paths[k]);
   TEST_ASSERT_EQUAL_INT(1, credit_budget_payable_row_count);
 }
@@ -532,6 +534,7 @@ void test_each_row_holds_its_run_its_db_need_its_upstream_call_and_its_ceiling(v
     { "/ssl_check/",           endpoint_SSLCHECKRun,           false, true,  JSONBUF_DEFAULT_CEILING },
     { "/headers_check/",       endpoint_HEADERSCHECKRun,       false, true,  JSONBUF_DEFAULT_CEILING },
     { "/well_known/",          endpoint_WELLKNOWNRun,          true,  true,  JSONBUF_DEFAULT_CEILING },
+    { "/redirect_chain",       endpoint_REDIRECTCHAINRun,      true,  true,  JSONBUF_DEFAULT_CEILING },
     { "/whois_lookup/",        endpoint_WHOISLOOKUPRun,        true,  true,  JSONBUF_DEFAULT_CEILING },
     { "/wayback_lookup/",      endpoint_WAYBACKLOOKUPRun,      true,  true,  JSONBUF_DEFAULT_CEILING },
     { "/cert_search/",         endpoint_CERTSEARCHRun,         true,  true,  JSONBUF_DEFAULT_CEILING },
@@ -1229,7 +1232,7 @@ void test_mcpArgsGate_writes_the_table_defaults_for_absent_arguments(void)
     }
     checked++;
   }
-  TEST_ASSERT_EQUAL_INT(37, checked);
+  TEST_ASSERT_EQUAL_INT(38, checked);
 }
 
 void test_gates_write_the_kev_filter_for_absent_true_and_false(void)
@@ -4597,9 +4600,102 @@ void test_appendSchemaBounds_prints_each_bound_as_its_exact_double(void)
   free(text);
 }
 
+#define ROBOTS_TXT_PATH  "web/robots.txt"
+
+#define ROBOTS_TXT_MAX_BYTE_COUNT  8192
+
+static const char* const ROBOTS_TXT_CRAWLERS[] = {
+  "GoogleOther", "Googlebot", "bingbot", "AhrefsBot",
+  "GPTBot", "OAI-SearchBot", "ClaudeBot", "Claude-SearchBot", "anthropic-ai", "Google-Extended",
+  "PerplexityBot", "Applebot", "Applebot-Extended", "Amazonbot", "Meta-ExternalAgent", "CCBot",
+  "Bytespider",
+};
+
+static const char* const ROBOTS_TXT_USER_AGENTS[] = { "ChatGPT-User", "Claude-User" };
+
+static RobotsTxtDecision_t static_robotsTxtDecision(const char* product_token, const char* path)
+{
+  static char body[ROBOTS_TXT_MAX_BYTE_COUNT];
+  FILE* file = fopen(ROBOTS_TXT_PATH, "rb");
+  TEST_ASSERT_NOT_NULL_MESSAGE(file, ROBOTS_TXT_PATH);
+  size_t body_len = fread(body, 1, sizeof(body), file);
+  fclose(file);
+  TEST_ASSERT_TRUE_MESSAGE(body_len > 0 && body_len < sizeof(body), ROBOTS_TXT_PATH);
+
+  static RobotsTxt_t robots;
+  TEST_ASSERT_TRUE(robotstxt_parse(body, body_len, false, product_token, &robots));
+  RobotsTxtVerdict_t verdict = robotstxt_checkPath(&robots, body, path, strlen(path));
+  robotstxt_free(&robots);
+  return verdict.m_decision;
+}
+
+static bool static_isGetRow(const Endpoint_t* endpoint)
+{
+  for (int m = 0; endpoint->ma_allowedMethods[m] != NULL; m++)
+    if (strcmp(endpoint->ma_allowedMethods[m], "GET") == 0)
+      return true;
+  return false;
+}
+
+void test_robots_txt_closes_every_get_row_but_health_to_crawlers(void)
+{
+  for (size_t c = 0; c < sizeof(ROBOTS_TXT_CRAWLERS) / sizeof(ROBOTS_TXT_CRAWLERS[0]); c++)
+  {
+    int checked_row_count = 0;
+    for (int e = 0; e < endpoint_count; e++)
+    {
+      if (!static_isGetRow(&endpoints[e]) || strcmp(endpoints[e].mp_httpPath, "/health") == 0)
+        continue;
+      char bare[ROBOTSTXT_MAX_CHECKED_PATH_BYTE_COUNT];
+      char with_id[ROBOTSTXT_MAX_CHECKED_PATH_BYTE_COUNT];
+      char with_query[ROBOTSTXT_MAX_CHECKED_PATH_BYTE_COUNT];
+      size_t path_len = strlen(endpoints[e].mp_httpPath);
+      if (endpoints[e].mp_httpPath[path_len - 1] == '/')
+        path_len--;
+      TEST_ASSERT_TRUE(snprintf(bare, sizeof(bare), "%.*s", (int)path_len, endpoints[e].mp_httpPath) < (int)sizeof(bare));
+      TEST_ASSERT_TRUE(snprintf(with_id, sizeof(with_id), "%s/CVE-2024-38014", bare) < (int)sizeof(with_id));
+      TEST_ASSERT_TRUE(snprintf(with_query, sizeof(with_query), "%s?limit=5", bare) < (int)sizeof(with_query));
+      TEST_ASSERT_EQUAL_INT_MESSAGE(ROBOTSTXT_DECISION_DISALLOWED, static_robotsTxtDecision(ROBOTS_TXT_CRAWLERS[c], bare), bare);
+      TEST_ASSERT_EQUAL_INT_MESSAGE(ROBOTSTXT_DECISION_DISALLOWED, static_robotsTxtDecision(ROBOTS_TXT_CRAWLERS[c], with_id), with_id);
+      TEST_ASSERT_EQUAL_INT_MESSAGE(ROBOTSTXT_DECISION_DISALLOWED, static_robotsTxtDecision(ROBOTS_TXT_CRAWLERS[c], with_query), with_query);
+      checked_row_count++;
+    }
+    TEST_ASSERT_EQUAL_INT(33, checked_row_count);
+  }
+}
+
+void test_robots_txt_keeps_the_pages_open_to_crawlers(void)
+{
+  static const char* const open_paths[] = {
+    "/", "/cve-api", "/mcp-setup", "/pricing", "/privacy", "/terms", "/bot", "/quickstart",
+    "/package-vulnerability-api", "/llms.txt", "/llms-full.txt", "/sitemap.xml", "/robots.txt",
+    "/mcp.json", "/.well-known/mcp.json", "/.well-known/security.txt",
+    "/static/js/crypto_checkout.js", "/static/js/vendor_keys.js", "/health", "/mcp",
+  };
+  for (size_t c = 0; c < sizeof(ROBOTS_TXT_CRAWLERS) / sizeof(ROBOTS_TXT_CRAWLERS[0]); c++)
+    for (size_t p = 0; p < sizeof(open_paths) / sizeof(open_paths[0]); p++)
+      TEST_ASSERT_EQUAL_INT_MESSAGE(ROBOTSTXT_DECISION_ALLOWED, static_robotsTxtDecision(ROBOTS_TXT_CRAWLERS[c], open_paths[p]), open_paths[p]);
+}
+
+void test_robots_txt_keeps_the_example_urls_open_to_user_agents_only(void)
+{
+  static const char* const example_paths[] = {
+    "/cve_lookup/CVE-2024-38014", "/cve_risk_score/CVE-2024-38014", "/cve_exploit/CVE-2024-38014",
+    "/cve_products/CVE-2024-38014", "/kev_lookup/CVE-2024-38014", "/cve_leading?limit=5",
+    "/cwe_lookup/CWE-79", "/cve_search?cwe_id=CWE-79",
+  };
+  for (size_t p = 0; p < sizeof(example_paths) / sizeof(example_paths[0]); p++)
+  {
+    for (size_t u = 0; u < sizeof(ROBOTS_TXT_USER_AGENTS) / sizeof(ROBOTS_TXT_USER_AGENTS[0]); u++)
+      TEST_ASSERT_EQUAL_INT_MESSAGE(ROBOTSTXT_DECISION_ALLOWED, static_robotsTxtDecision(ROBOTS_TXT_USER_AGENTS[u], example_paths[p]), example_paths[p]);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(ROBOTSTXT_DECISION_DISALLOWED, static_robotsTxtDecision("Amazonbot", example_paths[p]), example_paths[p]);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(ROBOTSTXT_DECISION_DISALLOWED, static_robotsTxtDecision("GoogleOther", example_paths[p]), example_paths[p]);
+  }
+}
+
 void test_registration_gate_test_count(void)
 {
-  TEST_ASSERT_EQUAL_INT_MESSAGE(240, (int)Unity.NumberOfTests,
+  TEST_ASSERT_EQUAL_INT_MESSAGE(258, (int)Unity.NumberOfTests,
     "RUN_TEST list and test definitions have drifted apart - a test may be unregistered");
 }
 
@@ -7109,8 +7205,10 @@ void test_ASNLOOKUPRun_refuses_a_text_that_holds_no_target(void)
   }
 }
 
-void test_only_the_email_spec_decodes_its_path_segment(void)
+void test_only_the_email_and_ip_specs_decode_their_path_segment(void)
 {
+  static const char* const decoded_paths[] = { "/email_address_check/", "/ip_lookup/" };
+  static const char* const decoded_names[] = { "email", "ip_address" };
   int decoded_count = 0;
   for (int i = 0; i < endpoint_count; i++)
   {
@@ -7120,13 +7218,19 @@ void test_only_the_email_spec_decodes_its_path_segment(void)
       const EndpointParam_t* param = &endpoint->mp_params[j];
       if (!param->mp_spec->m_isPathSegmentPercentDecoded)
         continue;
-      TEST_ASSERT_EQUAL_STRING("/email_address_check/", endpoint->mp_httpPath);
-      TEST_ASSERT_EQUAL_STRING("email", param->mp_spec->mp_name);
-      TEST_ASSERT_TRUE((param->m_sources & ENDPOINT_PARAM_SRC_REST_PATH_SEGMENT) != 0);
+      if ((param->m_sources & ENDPOINT_PARAM_SRC_REST_PATH_SEGMENT) == 0)
+      {
+        TEST_ASSERT_EQUAL_STRING("ip_address", param->mp_spec->mp_name);
+        TEST_ASSERT_TRUE((param->m_sources & ENDPOINT_PARAM_SRC_REST_BODY) != 0);
+        continue;
+      }
+      TEST_ASSERT_TRUE(decoded_count < 2);
+      TEST_ASSERT_EQUAL_STRING(decoded_paths[decoded_count], endpoint->mp_httpPath);
+      TEST_ASSERT_EQUAL_STRING(decoded_names[decoded_count], param->mp_spec->mp_name);
       decoded_count++;
     }
   }
-  TEST_ASSERT_EQUAL_INT(1, decoded_count);
+  TEST_ASSERT_EQUAL_INT(2, decoded_count);
 }
 
 #define EMAILADDRESSCHECK_ENCODED_LOCAL_PART \
@@ -8131,9 +8235,563 @@ void test_WATCHLISTEDITRun_whois_add_asks_no_dns(void)
   static_resetFakeAsk();
 }
 
+#define REDIRECTCHAIN_TEST_CONN ((PGconn*)13)
+
+#define REDIRECTCHAIN_TEST_URL        "https://a.example/"
+#define REDIRECTCHAIN_TEST_CACHE_KEY  "redirect_chain:befde498a45b6c82084a07709548fe6ff7cad85ae6f76a971ad9afaa83f20595"
+
+#define REDIRECTCHAIN_TEST_FAKE_NOW_MS 777000
+
+static void static_REDIRECTCHAINResetStubs(void)
+{
+  static_WHOISLOOKUPResetStubs();
+  g_stub_THROTTLE_call_count            = 0;
+  memset(g_stub_THROTTLE_calls, 0, sizeof(g_stub_THROTTLE_calls));
+  g_stub_HEADER_FETCH_url_status        = HEADER_FETCH_URL_OK;
+  g_stub_HEADER_FETCH_url_check_count   = 0;
+  g_stub_HEADER_FETCH_normal_url        = NULL;
+  g_stub_HEADER_FETCH_chain_error       = HTTP_ERROR_NONE;
+  memset(&g_stub_HEADER_FETCH_chain_script, 0, sizeof(g_stub_HEADER_FETCH_chain_script));
+  g_stub_HEADER_FETCH_chain_call_count  = 0;
+  g_stub_HEADER_FETCH_chain_first_url[0] = '\0';
+  memset(&g_stub_HEADER_FETCH_chain_policy, 0, sizeof(g_stub_HEADER_FETCH_chain_policy));
+  g_stub_HEADER_FETCH_chain_deadline_ms = 0;
+  g_stub_HEADER_FETCH_chain_free_count  = 0;
+  g_stub_HEADER_FETCH_before_hop        = NULL;
+  g_isClockFake = true;
+  g_fakeClockMs = REDIRECTCHAIN_TEST_FAKE_NOW_MS;
+}
+
+static void static_REDIRECTCHAINEndStubs(void)
+{
+  static_REDIRECTCHAINResetStubs();
+  g_isClockFake = false;
+}
+
+static void static_REDIRECTCHAINScript(const char* const* urls, const int* statuses, int hop_count, HeaderFetchStopReason_t stop_reason, const char* unfollowed)
+{
+  HeaderFetchStubChainScript_t* script = &g_stub_HEADER_FETCH_chain_script;
+  memset(script, 0, sizeof(*script));
+  for (int i = 0; i < hop_count; i++)
+  {
+    script->ma_hops[i].mp_url       = urls[i];
+    script->ma_hops[i].m_httpStatus = statuses[i];
+  }
+  script->m_hopCount       = hop_count;
+  script->m_stopReason     = stop_reason;
+  script->mp_unfollowedUrl = unfollowed;
+}
+
+static char* static_REDIRECTCHAINRun(const char* url, EndpointRunStatus_t* status_out, const char** message_out)
+{
+  static EndpointAnyParams_t params;
+  memset(&params, 0, sizeof(params));
+  snprintf(params.m_redirectChain.ma_url, sizeof(params.m_redirectChain.ma_url), "%s", url);
+  JsonBuf_t* json_buf = jsonbuf_create(JSONBUF_INITIAL_CAP, JSONBUF_DEFAULT_CEILING);
+  TEST_ASSERT_NOT_NULL(json_buf);
+  *message_out = NULL;
+  *status_out  = endpoint_REDIRECTCHAINRun(REDIRECTCHAIN_TEST_CONN, &params, json_buf, message_out);
+  size_t body_len = jsonbuf_length(json_buf);
+  char*  body     = jsonbuf_finish(json_buf);
+  jsonbuf_destroy(json_buf);
+  TEST_ASSERT_NOT_NULL(body);
+  if (body_len == 0)
+  {
+    free(body);
+    return NULL;
+  }
+  return body;
+}
+
+static char* static_REDIRECTCHAINRunMasked(EndpointRunStatus_t* status_out)
+{
+  char before[HEADERSCHECK_CHECKED_AT_TEXT_SIZE];
+  char after[HEADERSCHECK_CHECKED_AT_TEXT_SIZE];
+  static_HEADERSCHECKUtcText(time(NULL), before);
+  const char* message;
+  char* body = static_REDIRECTCHAINRun(REDIRECTCHAIN_TEST_URL, status_out, &message);
+  static_HEADERSCHECKUtcText(time(NULL), after);
+  TEST_ASSERT_EQUAL_INT(ENDPOINT_RUN_OK, *status_out);
+  TEST_ASSERT_NULL(message);
+  TEST_ASSERT_NOT_NULL(body);
+  static_HEADERSCHECKMaskCheckedAt(body, before, after);
+  return body;
+}
+
+void test_REDIRECTCHAINRun_refuses_each_url_check_answer_before_the_cache(void)
+{
+  static const struct { HeaderFetchUrlStatus_t m_status; const char* mp_message; } cases[] = {
+    { HEADER_FETCH_URL_UNPARSABLE, "url is not a valid http or https URL"         },
+    { HEADER_FETCH_URL_USER_INFO,  "url must not carry a user name or a password" },
+    { HEADER_FETCH_URL_TOO_LONG,   "url is longer than 4096 bytes"                },
+  };
+  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+  {
+    static_REDIRECTCHAINResetStubs();
+    g_stub_HEADER_FETCH_url_status = cases[i].m_status;
+    EndpointRunStatus_t status;
+    const char*         message;
+    char* body = static_REDIRECTCHAINRun(REDIRECTCHAIN_TEST_URL, &status, &message);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(ENDPOINT_RUN_REFUSED, status, cases[i].mp_message);
+    TEST_ASSERT_EQUAL_STRING(cases[i].mp_message, message);
+    TEST_ASSERT_NULL(body);
+    TEST_ASSERT_EQUAL_INT(1, g_stub_HEADER_FETCH_url_check_count);
+    TEST_ASSERT_EQUAL_INT(0, g_stub_CACHE_get_count);
+    TEST_ASSERT_EQUAL_INT(0, g_stub_THROTTLE_charge_count);
+    TEST_ASSERT_EQUAL_INT(0, g_stub_HEADER_FETCH_chain_call_count);
+    TEST_ASSERT_EQUAL_INT(0, g_stub_CACHE_put_count);
+  }
+  static_REDIRECTCHAINEndStubs();
+}
+
+void test_REDIRECTCHAINRun_sends_a_kept_answer_without_a_charge_or_a_fetch(void)
+{
+  static_REDIRECTCHAINResetStubs();
+  g_stub_CACHE_get_status = CACHE_HIT;
+  g_stub_CACHE_get_body   = "{\"checked_at\":\"2026-01-02T03:04:05Z\",\"kept\":true}\n";
+  EndpointRunStatus_t status;
+  const char*         message;
+  char* body = static_REDIRECTCHAINRun(REDIRECTCHAIN_TEST_URL, &status, &message);
+  TEST_ASSERT_EQUAL_INT(ENDPOINT_RUN_OK, status);
+  TEST_ASSERT_NULL(message);
+  TEST_ASSERT_EQUAL_STRING("{\"checked_at\":\"2026-01-02T03:04:05Z\",\"kept\":true}\n", body);
+  free(body);
+  TEST_ASSERT_EQUAL_INT(1, g_stub_CACHE_get_count);
+  TEST_ASSERT_EQUAL_STRING(REDIRECTCHAIN_TEST_CACHE_KEY, g_stub_CACHE_last_get_key);
+  TEST_ASSERT_TRUE(g_stub_CACHE_last_get_conn == REDIRECTCHAIN_TEST_CONN);
+  TEST_ASSERT_EQUAL_INT(1, g_stub_CACHE_free_count);
+  TEST_ASSERT_EQUAL_INT(0, g_stub_THROTTLE_charge_count);
+  TEST_ASSERT_EQUAL_INT(0, g_stub_HEADER_FETCH_chain_call_count);
+  TEST_ASSERT_EQUAL_INT(0, g_stub_CACHE_put_count);
+  static_REDIRECTCHAINEndStubs();
+}
+
+void test_REDIRECTCHAINRun_charges_each_hop_on_its_registrable_domain(void)
+{
+  static_REDIRECTCHAINResetStubs();
+  static const char* const urls[] = { "https://a.example/", "https://www.b.co.uk/x?y=1", "http://c.example:80/z" };
+  static const int         statuses[] = { 301, 302, 200 };
+  static_REDIRECTCHAINScript(urls, statuses, 3, HEADER_FETCH_STOP_FINAL_ANSWER, NULL);
+  EndpointRunStatus_t status;
+  char* body = static_REDIRECTCHAINRunMasked(&status);
+  free(body);
+
+  static const char* const target_names[] = { "a.example", "b.co.uk", "c.example" };
+  TEST_ASSERT_EQUAL_INT(3, g_stub_THROTTLE_charge_count);
+  TEST_ASSERT_EQUAL_INT(3, g_stub_THROTTLE_call_count);
+  for (int i = 0; i < 3; i++)
+  {
+    const ThrottleStubCall_t* call = &g_stub_THROTTLE_calls[i];
+    TEST_ASSERT_TRUE(call->m_isCharge);
+    TEST_ASSERT_EQUAL_STRING("site_fetch", call->ma_ruleName);
+    TEST_ASSERT_EQUAL_UINT(60, call->m_windowSeconds);
+    TEST_ASSERT_EQUAL_UINT(10, call->m_chargeLimit);
+    TEST_ASSERT_EQUAL_UINT(1, call->m_chargedCount);
+    TEST_ASSERT_EQUAL_STRING(target_names[i], call->ma_targetName);
+  }
+  TEST_ASSERT_TRUE(g_stub_THROTTLE_last_conn == REDIRECTCHAIN_TEST_CONN);
+
+  TEST_ASSERT_EQUAL_INT(1, g_stub_HEADER_FETCH_chain_call_count);
+  TEST_ASSERT_EQUAL_STRING(REDIRECTCHAIN_TEST_URL, g_stub_HEADER_FETCH_chain_first_url);
+  TEST_ASSERT_EQUAL_INT(HEADER_FETCH_HOP_RULE_ANY_PUBLIC_HOST, g_stub_HEADER_FETCH_chain_policy.m_hopRule);
+  TEST_ASSERT_EQUAL_size_t(1, g_stub_HEADER_FETCH_chain_policy.m_maxBodyByteCount);
+  TEST_ASSERT_NULL(g_stub_HEADER_FETCH_chain_policy.mp_headerNamesToCapture);
+  TEST_ASSERT_NOT_NULL(g_stub_HEADER_FETCH_chain_policy.m_askPermission);
+  TEST_ASSERT_EQUAL_INT64(REDIRECTCHAIN_TEST_FAKE_NOW_MS + 5000, g_stub_HEADER_FETCH_chain_deadline_ms);
+  TEST_ASSERT_EQUAL_INT(1, g_stub_HEADER_FETCH_chain_free_count);
+  static_REDIRECTCHAINEndStubs();
+}
+
+void test_REDIRECTCHAINRun_charges_a_host_in_lower_case_and_refuses_a_longer_one(void)
+{
+  static_REDIRECTCHAINResetStubs();
+  static const char* const upper_urls[] = { "https://WWW.Example.COM/" };
+  static const int         statuses[]   = { 200 };
+  static_REDIRECTCHAINScript(upper_urls, statuses, 1, HEADER_FETCH_STOP_FINAL_ANSWER, NULL);
+  EndpointRunStatus_t status;
+  free(static_REDIRECTCHAINRunMasked(&status));
+  TEST_ASSERT_EQUAL_INT(1, g_stub_THROTTLE_charge_count);
+  TEST_ASSERT_EQUAL_STRING("example.com", g_stub_THROTTLE_last_target_name);
+
+  static char long_urls[2][300];
+  for (int extra = 0; extra < 2; extra++)
+  {
+    char host[VALIDATE_DOMAIN_NAME_MAX_LEN + 2];
+    size_t host_len = VALIDATE_DOMAIN_NAME_MAX_LEN + (size_t)extra;
+    memset(host, 'a', host_len);
+    for (size_t dot = 61; dot < host_len - 4; dot += 62)
+      host[dot] = '.';
+    memcpy(host + host_len - 4, ".COM", 4);
+    host[host_len] = '\0';
+    snprintf(long_urls[extra], sizeof(long_urls[extra]), "https://%s/", host);
+
+    static_REDIRECTCHAINResetStubs();
+    const char* const urls[] = { long_urls[extra] };
+    static_REDIRECTCHAINScript(urls, statuses, 1, HEADER_FETCH_STOP_FINAL_ANSWER, NULL);
+    const char* message;
+    char* body = static_REDIRECTCHAINRun(REDIRECTCHAIN_TEST_URL, &status, &message);
+    if (extra == 0)
+    {
+      TEST_ASSERT_EQUAL_INT(ENDPOINT_RUN_OK, status);
+      TEST_ASSERT_EQUAL_INT(1, g_stub_THROTTLE_charge_count);
+      TEST_ASSERT_EQUAL_STRING("a.com", g_stub_THROTTLE_last_target_name);
+    }
+    else
+    {
+      TEST_ASSERT_EQUAL_INT(ENDPOINT_RUN_DB_ERROR, status);
+      TEST_ASSERT_NULL(body);
+      TEST_ASSERT_NULL(message);
+      TEST_ASSERT_EQUAL_INT(0, g_stub_THROTTLE_charge_count);
+      TEST_ASSERT_EQUAL_INT(1, g_stub_HEADER_FETCH_chain_free_count);
+      TEST_ASSERT_EQUAL_INT(0, g_stub_CACHE_put_count);
+    }
+    free(body);
+  }
+  static_REDIRECTCHAINEndStubs();
+}
+
+static int              g_redirectChainChargeHopIndex = -1;
+static ThrottleStatus_t g_redirectChainChargeStatus   = THROTTLE_CHARGED;
+
+static void static_REDIRECTCHAINSetChargeAtHop(int hop_index)
+{
+  if (hop_index == g_redirectChainChargeHopIndex)
+    g_stub_THROTTLE_charge_status = g_redirectChainChargeStatus;
+}
+
+void test_REDIRECTCHAINRun_refused_second_charge_answers_quota_exhausted_and_keeps_nothing(void)
+{
+  static_REDIRECTCHAINResetStubs();
+  static const char* const urls[]     = { "https://a.example/", "https://www.b.co.uk/", "https://c.example/" };
+  static const int         statuses[] = { 301, 301, 200 };
+  static_REDIRECTCHAINScript(urls, statuses, 3, HEADER_FETCH_STOP_FINAL_ANSWER, NULL);
+  g_redirectChainChargeHopIndex       = 1;
+  g_redirectChainChargeStatus         = THROTTLE_REFUSED;
+  g_stub_HEADER_FETCH_before_hop      = static_REDIRECTCHAINSetChargeAtHop;
+  g_stub_THROTTLE_retry_after_seconds = 41;
+  EndpointRunStatus_t status;
+  char* body = static_REDIRECTCHAINRunMasked(&status);
+  TEST_ASSERT_EQUAL_STRING("{\"checked_at\":\"YYYY-MM-DDTHH:MM:SSZ\",\"final_url\":\"https://www.b.co.uk/\",\"stop_reason\":\"quota_exhausted\",\"retry_after_seconds\":41,"
+                           "\"https_downgrade\":false,\"hops\":[{\"url\":\"https://a.example/\",\"status_code\":301}]}\n", body);
+  free(body);
+  TEST_ASSERT_EQUAL_INT(2, g_stub_THROTTLE_charge_count);
+  TEST_ASSERT_EQUAL_INT(1, g_stub_HEADER_FETCH_chain_free_count);
+  TEST_ASSERT_EQUAL_INT(0, g_stub_CACHE_put_count);
+  static_REDIRECTCHAINEndStubs();
+}
+
+void test_REDIRECTCHAINRun_refused_first_charge_answers_zero_hops(void)
+{
+  static_REDIRECTCHAINResetStubs();
+  static const char* const urls[]     = { "https://a.example/" };
+  static const int         statuses[] = { 200 };
+  static_REDIRECTCHAINScript(urls, statuses, 1, HEADER_FETCH_STOP_FINAL_ANSWER, NULL);
+  g_stub_THROTTLE_charge_status       = THROTTLE_REFUSED;
+  g_stub_THROTTLE_retry_after_seconds = 9;
+  EndpointRunStatus_t status;
+  char* body = static_REDIRECTCHAINRunMasked(&status);
+  TEST_ASSERT_EQUAL_STRING("{\"checked_at\":\"YYYY-MM-DDTHH:MM:SSZ\",\"final_url\":\"https://a.example/\",\"stop_reason\":\"quota_exhausted\",\"retry_after_seconds\":9,"
+                           "\"https_downgrade\":false,\"hops\":[]}\n", body);
+  free(body);
+  TEST_ASSERT_EQUAL_INT(1, g_stub_THROTTLE_charge_count);
+  TEST_ASSERT_EQUAL_INT(0, g_stub_CACHE_put_count);
+  static_REDIRECTCHAINEndStubs();
+}
+
+void test_REDIRECTCHAINRun_charge_error_is_a_db_error_also_mid_chain(void)
+{
+  for (int hop_index = 0; hop_index < 2; hop_index++)
+  {
+    static_REDIRECTCHAINResetStubs();
+    static const char* const urls[]     = { "https://a.example/", "https://www.b.co.uk/", "https://c.example/" };
+    static const int         statuses[] = { 301, 301, 200 };
+    static_REDIRECTCHAINScript(urls, statuses, 3, HEADER_FETCH_STOP_FINAL_ANSWER, NULL);
+    g_redirectChainChargeHopIndex  = hop_index;
+    g_redirectChainChargeStatus    = THROTTLE_ERROR;
+    g_stub_HEADER_FETCH_before_hop = static_REDIRECTCHAINSetChargeAtHop;
+    EndpointRunStatus_t status;
+    const char*         message;
+    char* body = static_REDIRECTCHAINRun(REDIRECTCHAIN_TEST_URL, &status, &message);
+    TEST_ASSERT_EQUAL_INT(ENDPOINT_RUN_DB_ERROR, status);
+    TEST_ASSERT_NULL(message);
+    TEST_ASSERT_NULL(body);
+    TEST_ASSERT_EQUAL_INT(hop_index + 1, g_stub_THROTTLE_charge_count);
+    TEST_ASSERT_EQUAL_INT(1, g_stub_HEADER_FETCH_chain_free_count);
+    TEST_ASSERT_EQUAL_INT(0, g_stub_CACHE_put_count);
+  }
+  static_REDIRECTCHAINEndStubs();
+}
+
+void test_REDIRECTCHAINRun_names_why_the_first_request_failed(void)
+{
+  static const struct {
+    HttpError_t         m_fetchError;
+    EndpointRunStatus_t m_runStatus;
+    const char*         mp_message;
+  } cases[] = {
+    { HTTP_ERROR_TIMEOUT,        ENDPOINT_RUN_TARGET_UNREACHABLE, "the site did not answer in time: a connection may take 2000 ms, and the whole fetch 5000 ms" },
+    { HTTP_ERROR_RESOLVE,        ENDPOINT_RUN_TARGET_UNREACHABLE, "the host name did not resolve" },
+    { HTTP_ERROR_CONNECT,        ENDPOINT_RUN_TARGET_UNREACHABLE, "no address of the host took a connection on the port of the url" },
+    { HTTP_ERROR_TLS,            ENDPOINT_RUN_TARGET_UNREACHABLE, "the TLS handshake with the site failed, or its certificate did not verify; /ssl_check shows why" },
+    { HTTP_ERROR_BLOCKED,        ENDPOINT_RUN_REFUSED,            "hostname resolves to an address that is not globally reachable" },
+    { HTTP_ERROR_BODY_TOO_LARGE, ENDPOINT_RUN_UPSTREAM_ERROR,     NULL },
+    { HTTP_ERROR_OTHER,          ENDPOINT_RUN_UPSTREAM_ERROR,     NULL },
+  };
+  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+  {
+    static_REDIRECTCHAINResetStubs();
+    g_stub_HEADER_FETCH_chain_error = cases[i].m_fetchError;
+    EndpointRunStatus_t status;
+    const char*         message;
+    char* body = static_REDIRECTCHAINRun(REDIRECTCHAIN_TEST_URL, &status, &message);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(cases[i].m_runStatus, status, cases[i].mp_message);
+    TEST_ASSERT_EQUAL_STRING(cases[i].mp_message, message);
+    TEST_ASSERT_NULL(body);
+    TEST_ASSERT_EQUAL_INT(1, g_stub_HEADER_FETCH_chain_call_count);
+    TEST_ASSERT_EQUAL_INT(0, g_stub_CACHE_put_count);
+  }
+  static_REDIRECTCHAINEndStubs();
+}
+
+void test_REDIRECTCHAINRun_stop_before_the_first_request_is_a_refusal_or_an_upstream_error(void)
+{
+  static const struct {
+    HeaderFetchStopReason_t m_stopReason;
+    EndpointRunStatus_t     m_runStatus;
+    const char*             mp_message;
+  } cases[] = {
+    { HEADER_FETCH_STOP_SCHEME_NOT_FOLLOWED,     ENDPOINT_RUN_REFUSED,        "url must be an http or https URL" },
+    { HEADER_FETCH_STOP_PORT_NOT_ALLOWED,        ENDPOINT_RUN_REFUSED,        "url must use port 80 for http or port 443 for https" },
+    { HEADER_FETCH_STOP_IP_ADDRESS_NOT_FOLLOWED, ENDPOINT_RUN_REFUSED,        "url host must be a name, not an IP address" },
+    { HEADER_FETCH_STOP_HOST_NOT_PUBLIC,         ENDPOINT_RUN_REFUSED,        "url host must be a public DNS name; write an internationalized name in punycode (xn--)" },
+    { HEADER_FETCH_STOP_FINAL_ANSWER,            ENDPOINT_RUN_UPSTREAM_ERROR, NULL },
+    { HEADER_FETCH_STOP_REQUEST_LIMIT,           ENDPOINT_RUN_UPSTREAM_ERROR, NULL },
+    { HEADER_FETCH_STOP_LOOP,                    ENDPOINT_RUN_UPSTREAM_ERROR, NULL },
+    { HEADER_FETCH_STOP_LOCATION_INVALID,        ENDPOINT_RUN_UPSTREAM_ERROR, NULL },
+    { HEADER_FETCH_STOP_LOCATION_TOO_LONG,       ENDPOINT_RUN_UPSTREAM_ERROR, NULL },
+    { HEADER_FETCH_STOP_OFF_SITE,                ENDPOINT_RUN_UPSTREAM_ERROR, NULL },
+    { HEADER_FETCH_STOP_PERMISSION_REFUSED,      ENDPOINT_RUN_UPSTREAM_ERROR, NULL },
+    { HEADER_FETCH_STOP_DEADLINE,                ENDPOINT_RUN_UPSTREAM_ERROR, NULL },
+    { HEADER_FETCH_STOP_REQUEST_FAILED,          ENDPOINT_RUN_UPSTREAM_ERROR, NULL },
+  };
+  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+  {
+    static_REDIRECTCHAINResetStubs();
+    static_REDIRECTCHAINScript(NULL, NULL, 0, cases[i].m_stopReason, REDIRECTCHAIN_TEST_URL);
+    EndpointRunStatus_t status;
+    const char*         message;
+    char* body = static_REDIRECTCHAINRun(REDIRECTCHAIN_TEST_URL, &status, &message);
+    char case_name[16];
+    snprintf(case_name, sizeof(case_name), "case %zu", i);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(cases[i].m_runStatus, status, case_name);
+    TEST_ASSERT_EQUAL_STRING(cases[i].mp_message, message);
+    TEST_ASSERT_NULL(body);
+    TEST_ASSERT_EQUAL_INT(0, g_stub_THROTTLE_charge_count);
+    TEST_ASSERT_EQUAL_INT(1, g_stub_HEADER_FETCH_chain_free_count);
+    TEST_ASSERT_EQUAL_INT(0, g_stub_CACHE_put_count);
+  }
+  static_REDIRECTCHAINEndStubs();
+}
+
+void test_REDIRECTCHAINRun_keeps_an_answer_for_an_hour_unless_its_stop_can_pass(void)
+{
+  static const struct { HeaderFetchStopReason_t m_stopReason; const char* mp_unfollowed; int m_putCount; } cases[] = {
+    { HEADER_FETCH_STOP_FINAL_ANSWER,            NULL,                    1 },
+    { HEADER_FETCH_STOP_REQUEST_LIMIT,           "https://d.example/",    1 },
+    { HEADER_FETCH_STOP_LOOP,                    "https://a.example/",    1 },
+    { HEADER_FETCH_STOP_LOCATION_INVALID,        NULL,                    1 },
+    { HEADER_FETCH_STOP_LOCATION_TOO_LONG,       "https://d.example/l",   1 },
+    { HEADER_FETCH_STOP_SCHEME_NOT_FOLLOWED,     "ftp://d.example/",      1 },
+    { HEADER_FETCH_STOP_PORT_NOT_ALLOWED,        "https://d.example:8/",  1 },
+    { HEADER_FETCH_STOP_IP_ADDRESS_NOT_FOLLOWED, "https://192.0.2.1/",    1 },
+    { HEADER_FETCH_STOP_HOST_NOT_PUBLIC,         "https://d.local/",      1 },
+    { HEADER_FETCH_STOP_DEADLINE,                "https://d.example/",    0 },
+    { HEADER_FETCH_STOP_REQUEST_FAILED,          NULL,                    0 },
+    { HEADER_FETCH_STOP_PERMISSION_REFUSED,      "https://d.example/",    0 },
+    { HEADER_FETCH_STOP_THROTTLED,               "https://d.example/",    0 },
+  };
+  static const char* const urls[]     = { "https://a.example/", "https://c.example/" };
+  static const int         statuses[] = { 301, 302 };
+  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+  {
+    static_REDIRECTCHAINResetStubs();
+    static_REDIRECTCHAINScript(urls, statuses, 2, cases[i].m_stopReason, cases[i].mp_unfollowed);
+    EndpointRunStatus_t status;
+    const char*         message;
+    char* body = static_REDIRECTCHAINRun(REDIRECTCHAIN_TEST_URL, &status, &message);
+    char case_name[16];
+    snprintf(case_name, sizeof(case_name), "case %zu", i);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(ENDPOINT_RUN_OK, status, case_name);
+    TEST_ASSERT_NOT_NULL(body);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(cases[i].m_putCount, g_stub_CACHE_put_count, case_name);
+    TEST_ASSERT_EQUAL_INT(1, g_stub_HEADER_FETCH_chain_free_count);
+    if (cases[i].m_putCount == 1)
+    {
+      TEST_ASSERT_EQUAL_STRING(REDIRECTCHAIN_TEST_CACHE_KEY, g_stub_CACHE_last_put_key);
+      TEST_ASSERT_TRUE(g_stub_CACHE_last_put_conn == REDIRECTCHAIN_TEST_CONN);
+      TEST_ASSERT_EQUAL_STRING(body, g_stub_CACHE_last_put_body);
+      TEST_ASSERT_FALSE(g_stub_CACHE_last_put_is_error);
+      TEST_ASSERT_EQUAL_UINT(3600, g_stub_CACHE_last_put_expires_after_seconds);
+    }
+    free(body);
+  }
+  static_REDIRECTCHAINEndStubs();
+}
+
+void test_REDIRECTCHAINRun_keeps_no_body_longer_than_the_cache_takes(void)
+{
+  enum { HOP_COUNT = 10, HOP_URL_MAX_LEN = 120000 };
+  static char hop_urls[HOP_COUNT][HOP_URL_MAX_LEN + 1];
+  const char* urls[HOP_COUNT];
+  int         statuses[HOP_COUNT];
+  for (int i = 0; i < HOP_COUNT; i++)
+  {
+    snprintf(hop_urls[i], sizeof(hop_urls[i]), "https://h%d.example/", i);
+    urls[i]     = hop_urls[i];
+    statuses[i] = 301;
+  }
+
+  static_REDIRECTCHAINResetStubs();
+  static_REDIRECTCHAINScript(urls, statuses, HOP_COUNT, HEADER_FETCH_STOP_FINAL_ANSWER, NULL);
+  EndpointRunStatus_t status;
+  const char*         message;
+  char* body = static_REDIRECTCHAINRun(REDIRECTCHAIN_TEST_URL, &status, &message);
+  TEST_ASSERT_NOT_NULL(body);
+  size_t base_len = strlen(body);
+  free(body);
+
+  for (size_t extra_len = 0; extra_len < 2; extra_len++)
+  {
+    size_t padding = CACHE_MAX_BODY_LEN + extra_len - base_len;
+    for (int i = 0; i < HOP_COUNT - 1; i++)
+    {
+      size_t hop_padding = padding / (HOP_COUNT - 1) + ((size_t)i < padding % (HOP_COUNT - 1) ? 1 : 0);
+      size_t prefix_len  = (size_t)snprintf(hop_urls[i], sizeof(hop_urls[i]), "https://h%d.example/", i);
+      TEST_ASSERT_TRUE(prefix_len + hop_padding <= HOP_URL_MAX_LEN);
+      memset(hop_urls[i] + prefix_len, 'p', hop_padding);
+      hop_urls[i][prefix_len + hop_padding] = '\0';
+    }
+    static_REDIRECTCHAINResetStubs();
+    static_REDIRECTCHAINScript(urls, statuses, HOP_COUNT, HEADER_FETCH_STOP_FINAL_ANSWER, NULL);
+    body = static_REDIRECTCHAINRun(REDIRECTCHAIN_TEST_URL, &status, &message);
+    TEST_ASSERT_EQUAL_INT(ENDPOINT_RUN_OK, status);
+    TEST_ASSERT_NOT_NULL(body);
+    TEST_ASSERT_EQUAL_size_t(CACHE_MAX_BODY_LEN + extra_len, strlen(body));
+    TEST_ASSERT_EQUAL_INT((int)(1 - extra_len), g_stub_CACHE_put_count);
+    free(body);
+  }
+  static_REDIRECTCHAINEndStubs();
+}
+
+void test_REDIRECTCHAINRun_takes_a_url_of_the_longest_length(void)
+{
+  static_REDIRECTCHAINResetStubs();
+  static const char* const urls[]     = { "https://a.example/" };
+  static const int         statuses[] = { 200 };
+  static_REDIRECTCHAINScript(urls, statuses, 1, HEADER_FETCH_STOP_FINAL_ANSWER, NULL);
+  static char url[HEADER_FETCH_MAX_URL_BYTE_COUNT + 1];
+  memcpy(url, "https://a.example/", 18);
+  memset(url + 18, 'p', HEADER_FETCH_MAX_URL_BYTE_COUNT - 18);
+  url[HEADER_FETCH_MAX_URL_BYTE_COUNT] = '\0';
+  EndpointRunStatus_t status;
+  const char*         message;
+  char* body = static_REDIRECTCHAINRun(url, &status, &message);
+  TEST_ASSERT_EQUAL_INT(ENDPOINT_RUN_OK, status);
+  TEST_ASSERT_NULL(message);
+  free(body);
+  TEST_ASSERT_EQUAL_INT(1, g_stub_HEADER_FETCH_chain_call_count);
+  TEST_ASSERT_EQUAL_STRING(url, g_stub_HEADER_FETCH_chain_first_url);
+  static_REDIRECTCHAINEndStubs();
+}
+
+void test_docs_name_the_redirect_chain_limits(void)
+{
+  static_REDIRECTCHAINResetStubs();
+  static const char* const urls[]     = { "https://a.example/" };
+  static const int         statuses[] = { 200 };
+  static_REDIRECTCHAINScript(urls, statuses, 1, HEADER_FETCH_STOP_FINAL_ANSWER, NULL);
+  EndpointRunStatus_t status;
+  const char*         message;
+  free(static_REDIRECTCHAINRun(REDIRECTCHAIN_TEST_URL, &status, &message));
+  unsigned int limit = g_stub_THROTTLE_last_rule.m_chargeLimit;
+  unsigned int count = g_stub_THROTTLE_last_charged_count;
+  TEST_ASSERT_EQUAL_UINT(60, g_stub_THROTTLE_last_rule.m_windowSeconds);
+  TEST_ASSERT_EQUAL_UINT(3600, g_stub_CACHE_last_put_expires_after_seconds);
+  static_REDIRECTCHAINEndStubs();
+
+  struct { const char* mp_path; char ma_copy[256]; } copies[14];
+  copies[0].mp_path = "docs/API_Documentation.md";
+  snprintf(copies[0].ma_copy, sizeof(copies[0].ma_copy), "Each request costs %u unit of that domain, which gets at most %u units in each minute", count, limit);
+  copies[1].mp_path = "docs/API_Documentation.md";
+  snprintf(copies[1].ma_copy, sizeof(copies[1].ma_copy), "At most %d requests are sent, and one deadline of %d ms covers all of them", HEADER_FETCH_MAX_REQUEST_COUNT, HEADER_FETCH_DEADLINE_MS);
+  copies[2].mp_path = "docs/API_Documentation.md";
+  snprintf(copies[2].ma_copy, sizeof(copies[2].ma_copy), "It goes over `http` to port %d or over `https` to port %d only", HEADER_FETCH_HTTP_PORT, HEADER_FETCH_PORT);
+  copies[3].mp_path = "docs/API_Documentation.md";
+  snprintf(copies[3].ma_copy, sizeof(copies[3].ma_copy), "The server keeps each answer for one hour, unless the chain stopped on `quota_exhausted`");
+  copies[4].mp_path = "web/pages/bot.html";
+  snprintf(copies[4].ma_copy, sizeof(copies[4].ma_copy), "It sends at most %d requests, and one deadline of %d seconds covers them all", HEADER_FETCH_MAX_REQUEST_COUNT, HEADER_FETCH_DEADLINE_MS / 1000);
+  copies[5].mp_path = "web/pages/bot.html";
+  snprintf(copies[5].ma_copy, sizeof(copies[5].ma_copy), "Each request costs %u unit of the same count that <code>/well_known</code> uses, and that count allows %u units a minute for each registered domain", count, limit);
+  copies[6].mp_path = "web/pages/bot.html";
+  snprintf(copies[6].ma_copy, sizeof(copies[6].ma_copy), "over HTTP to port %d or over HTTPS to port %d only", HEADER_FETCH_HTTP_PORT, HEADER_FETCH_PORT);
+  copies[7].mp_path = "web/pages/privacy.html";
+  snprintf(copies[7].ma_copy, sizeof(copies[7].ma_copy), "An answer of <code>/redirect_chain</code> stays one hour too.");
+  copies[8].mp_path = "docs/MCP_Documentation.md";
+  snprintf(copies[8].ma_copy, sizeof(copies[8].ma_copy), "up to %d requests in one deadline of %d ms. Each request goes over `http` to port %d or over `https` to port %d", HEADER_FETCH_MAX_REQUEST_COUNT, HEADER_FETCH_DEADLINE_MS, HEADER_FETCH_HTTP_PORT, HEADER_FETCH_PORT);
+  copies[9].mp_path = "docs/MCP_Documentation.md";
+  snprintf(copies[9].ma_copy, sizeof(copies[9].ma_copy), "Each request costs %u throttle unit of its registrable domain, which gets at most %u units a minute", count, limit);
+  copies[10].mp_path = "web/llms.txt";
+  snprintf(copies[10].ma_copy, sizeof(copies[10].ma_copy), "up to %d requests in one %d ms deadline, over http to port %d or https to port %d only", HEADER_FETCH_MAX_REQUEST_COUNT, HEADER_FETCH_DEADLINE_MS, HEADER_FETCH_HTTP_PORT, HEADER_FETCH_PORT);
+  copies[11].mp_path = "web/llms.txt";
+  snprintf(copies[11].ma_copy, sizeof(copies[11].ma_copy), "each request costs %u throttle unit of its registrable domain, which gets %u a minute shared with /well_known", count, limit);
+  copies[12].mp_path = "docs/API_Documentation.md";
+  snprintf(copies[12].ma_copy, sizeof(copies[12].ma_copy), "Only at `location_invalid`: the raw `Location` text, cut after %d code points", HEADER_CHECK_SHOWN_VALUE_MAX_CODE_POINTS);
+  copies[13].mp_path = "docs/API_Documentation.md";
+  snprintf(copies[13].ma_copy, sizeof(copies[13].ma_copy), "The raw `Refresh` header of the answer, cut after %d code points", HEADER_CHECK_SHOWN_VALUE_MAX_CODE_POINTS);
+  static char page[1 << 21];
+  for (size_t c = 0; c < sizeof(copies) / sizeof(copies[0]); c++)
+  {
+    static_readCollapsedDocs(copies[c].mp_path, page, sizeof(page));
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(page, copies[c].ma_copy), copies[c].ma_copy);
+  }
+}
+
+void test_REDIRECTCHAINRun_hashes_and_fetches_the_normal_url(void)
+{
+  static_REDIRECTCHAINResetStubs();
+  static const char* const urls[]     = { "https://a.example/" };
+  static const int         statuses[] = { 200 };
+  static_REDIRECTCHAINScript(urls, statuses, 1, HEADER_FETCH_STOP_FINAL_ANSWER, NULL);
+  g_stub_HEADER_FETCH_normal_url = REDIRECTCHAIN_TEST_URL;
+  EndpointRunStatus_t status;
+  const char*         message;
+  free(static_REDIRECTCHAINRun("HTTPS://A.EXAMPLE:443/#frag", &status, &message));
+  TEST_ASSERT_EQUAL_INT(ENDPOINT_RUN_OK, status);
+  TEST_ASSERT_EQUAL_STRING(REDIRECTCHAIN_TEST_CACHE_KEY, g_stub_CACHE_last_get_key);
+  TEST_ASSERT_EQUAL_STRING(REDIRECTCHAIN_TEST_URL, g_stub_HEADER_FETCH_chain_first_url);
+  static_REDIRECTCHAINEndStubs();
+}
+
+void test_REDIRECTCHAINRun_charges_a_public_suffix_host_on_itself_in_lower_case(void)
+{
+  static_REDIRECTCHAINResetStubs();
+  static const char* const urls[]     = { "https://CO.UK/" };
+  static const int         statuses[] = { 200 };
+  static_REDIRECTCHAINScript(urls, statuses, 1, HEADER_FETCH_STOP_FINAL_ANSWER, NULL);
+  EndpointRunStatus_t status;
+  const char*         message;
+  free(static_REDIRECTCHAINRun(REDIRECTCHAIN_TEST_URL, &status, &message));
+  TEST_ASSERT_EQUAL_INT(ENDPOINT_RUN_OK, status);
+  TEST_ASSERT_EQUAL_INT(1, g_stub_THROTTLE_charge_count);
+  TEST_ASSERT_EQUAL_STRING("co.uk", g_stub_THROTTLE_last_target_name);
+  static_REDIRECTCHAINEndStubs();
+}
+
 int main(void)
 {
   UNITY_BEGIN();
+  RUN_TEST(test_REDIRECTCHAINRun_hashes_and_fetches_the_normal_url);
+  RUN_TEST(test_REDIRECTCHAINRun_charges_a_public_suffix_host_on_itself_in_lower_case);
   RUN_TEST(test_http_paths_and_mcp_names_are_unique);
   RUN_TEST(test_findByHttpPath_returns_each_row_for_its_own_paths);
   RUN_TEST(test_findByHttpPath_unknown_path_is_NULL);
@@ -8250,6 +8908,19 @@ int main(void)
   RUN_TEST(test_docs_name_the_well_known_limits);
   RUN_TEST(test_WELLKNOWNRun_keeps_a_fetched_answer_for_an_hour_and_not_a_not_fetched_one);
   RUN_TEST(test_WELLKNOWNRun_keeps_no_body_longer_than_the_cache_takes);
+  RUN_TEST(test_REDIRECTCHAINRun_refuses_each_url_check_answer_before_the_cache);
+  RUN_TEST(test_REDIRECTCHAINRun_sends_a_kept_answer_without_a_charge_or_a_fetch);
+  RUN_TEST(test_REDIRECTCHAINRun_charges_each_hop_on_its_registrable_domain);
+  RUN_TEST(test_REDIRECTCHAINRun_charges_a_host_in_lower_case_and_refuses_a_longer_one);
+  RUN_TEST(test_REDIRECTCHAINRun_refused_second_charge_answers_quota_exhausted_and_keeps_nothing);
+  RUN_TEST(test_REDIRECTCHAINRun_refused_first_charge_answers_zero_hops);
+  RUN_TEST(test_REDIRECTCHAINRun_charge_error_is_a_db_error_also_mid_chain);
+  RUN_TEST(test_REDIRECTCHAINRun_names_why_the_first_request_failed);
+  RUN_TEST(test_REDIRECTCHAINRun_stop_before_the_first_request_is_a_refusal_or_an_upstream_error);
+  RUN_TEST(test_REDIRECTCHAINRun_keeps_an_answer_for_an_hour_unless_its_stop_can_pass);
+  RUN_TEST(test_REDIRECTCHAINRun_keeps_no_body_longer_than_the_cache_takes);
+  RUN_TEST(test_REDIRECTCHAINRun_takes_a_url_of_the_longest_length);
+  RUN_TEST(test_docs_name_the_redirect_chain_limits);
   RUN_TEST(test_WHOISLOOKUPRun_asks_about_the_registrable_domain_and_keeps_the_answer);
   RUN_TEST(test_WHOISLOOKUPRun_refuses_a_public_suffix_before_any_call);
   RUN_TEST(test_WHOISLOOKUPRun_without_a_registry_server_answers_unavailable_and_calls_nothing_else);
@@ -8319,7 +8990,7 @@ int main(void)
   RUN_TEST(test_SUBDOMAINENUM_row_asks_about_the_name_in_lower_case);
   RUN_TEST(test_runRow_refuses_subdomain_enum_without_a_connection_before_the_run);
   RUN_TEST(test_IPLOOKUPRun_refuses_a_text_that_holds_no_address);
-  RUN_TEST(test_only_the_email_spec_decodes_its_path_segment);
+  RUN_TEST(test_only_the_email_and_ip_specs_decode_their_path_segment);
   RUN_TEST(test_restPathSegmentGate_decodes_the_email_segment);
   RUN_TEST(test_restPathSegmentGate_leaves_another_segment_encoded);
   RUN_TEST(test_restPathSegmentGate_holds_a_decoded_segment_to_its_field);
@@ -8373,6 +9044,9 @@ int main(void)
   RUN_TEST(test_every_raw_body_spec_has_a_limit_up_to_the_max_body_byte_count);
   RUN_TEST(test_rawBodyByteLimit_is_the_raw_spec_limit);
   RUN_TEST(test_small_raw_body_max_byte_count_is_64_kib);
+  RUN_TEST(test_robots_txt_closes_every_get_row_but_health_to_crawlers);
+  RUN_TEST(test_robots_txt_keeps_the_pages_open_to_crawlers);
+  RUN_TEST(test_robots_txt_keeps_the_example_urls_open_to_user_agents_only);
   RUN_TEST(test_registration_gate_test_count);
   return UNITY_END();
 }

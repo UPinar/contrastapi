@@ -19,6 +19,8 @@ uint8_t                        g_stub_X402_SOLANA_RPC_find_last_source[X402_SOLA
 uint8_t                        g_stub_X402_SOLANA_RPC_find_last_tx[X402_SOLANA_MAX_TRANSACTION_BYTE_COUNT]    = { 0 };
 size_t                         g_stub_X402_SOLANA_RPC_find_last_tx_len                                      = 0;
 uint8_t                        g_stub_X402_SOLANA_RPC_find_last_fee_payer[X402_SOLANA_ADDRESS_BYTE_COUNT]     = { 0 };
+int64_t                        g_stub_X402_SOLANA_RPC_find_last_oldest_block_time                           = 0;
+int64_t                        g_stub_X402_SOLANA_RPC_find_last_deadline_at                                 = 0;
 
 X402SolanaRpcSignatureStatus_t x402_solana_rpc_askSignatureStatus(const char* rpc_url, const char* signature_text)
 {
@@ -28,7 +30,7 @@ X402SolanaRpcSignatureStatus_t x402_solana_rpc_askSignatureStatus(const char* rp
   return g_stub_X402_SOLANA_RPC_status;
 }
 
-X402SolanaRpcSignatureStatus_t x402_solana_rpc_findFeePayerSignature(const char* rpc_url, const uint8_t source[X402_SOLANA_ADDRESS_BYTE_COUNT], const uint8_t* tx, size_t tx_len, const uint8_t fee_payer[X402_SOLANA_ADDRESS_BYTE_COUNT], char signature_out[X402_SOLANA_SIGNATURE_TEXT_BUF_SIZE])
+X402SolanaRpcSignatureStatus_t x402_solana_rpc_findFeePayerSignature(const char* rpc_url, const uint8_t source[X402_SOLANA_ADDRESS_BYTE_COUNT], const uint8_t* tx, size_t tx_len, const uint8_t fee_payer[X402_SOLANA_ADDRESS_BYTE_COUNT], int64_t oldest_block_time, int64_t deadline_at, char signature_out[X402_SOLANA_SIGNATURE_TEXT_BUF_SIZE])
 {
   g_stub_X402_SOLANA_RPC_find_count++;
   snprintf(g_stub_X402_SOLANA_RPC_find_last_url, sizeof(g_stub_X402_SOLANA_RPC_find_last_url), "%s", rpc_url);
@@ -36,6 +38,8 @@ X402SolanaRpcSignatureStatus_t x402_solana_rpc_findFeePayerSignature(const char*
   g_stub_X402_SOLANA_RPC_find_last_tx_len = tx_len;
   memcpy(g_stub_X402_SOLANA_RPC_find_last_tx, tx, tx_len < sizeof(g_stub_X402_SOLANA_RPC_find_last_tx) ? tx_len : sizeof(g_stub_X402_SOLANA_RPC_find_last_tx));
   memcpy(g_stub_X402_SOLANA_RPC_find_last_fee_payer, fee_payer, sizeof(g_stub_X402_SOLANA_RPC_find_last_fee_payer));
+  g_stub_X402_SOLANA_RPC_find_last_oldest_block_time = oldest_block_time;
+  g_stub_X402_SOLANA_RPC_find_last_deadline_at       = deadline_at;
   bool is_found = g_stub_X402_SOLANA_RPC_find_status == X402_SOLANA_RPC_SIGNATURE_CONFIRMED
                   || g_stub_X402_SOLANA_RPC_find_status == X402_SOLANA_RPC_SIGNATURE_FAILED
                   || g_stub_X402_SOLANA_RPC_find_status == X402_SOLANA_RPC_SIGNATURE_PROCESSED;

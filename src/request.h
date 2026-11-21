@@ -6,7 +6,7 @@
 #include <libpq-fe.h>
 
 #include "receive.h"
-#include "auth.h"
+#include "bytes.h"
 #include "ratelimit.h"
 #include "dbapikey.h"
 
@@ -37,7 +37,7 @@ typedef enum {
 } RequestTier_t;
 
 typedef struct {
-  char              ma_budgetHash[SHA256_HEX_LEN + 1];
+  char              ma_budgetHash[BYTES_SHA256_HEX_LEN + 1];
   RequestTier_t     m_tier;
   DbApiKeyExpiry_t  m_keyExpiry;
   RateLimitInfo_t   m_rateLimitInfo;

@@ -47,6 +47,7 @@ typedef struct {
   bool     m_isBodyCutAccepted;
   uint16_t m_requiredPort;
   bool     m_isPost;
+  char     ma_postBody[HTTP_STUB_MAX_POST_BODY_BYTE_COUNT + 1];
 } HttpStubRequest_t;
 
 extern HttpStubRequest_t g_stub_requests[HTTP_STUB_MAX_REQUEST_COUNT];

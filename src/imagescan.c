@@ -4,13 +4,9 @@
 #include <ctype.h>
 #include <limits.h>
 #include <string.h>
-#include <openssl/evp.h>
-#include <openssl/sha.h>
 
 #include "imagescan.h"
 #include "bytes.h"
-
-_Static_assert(IMAGESCAN_SHA256_HEX_LEN == 2 * SHA256_DIGEST_LENGTH, "two hex digits write one byte of the hash");
 
 #define IMAGESCAN_ISO_BRAND_LEN           4
 #define IMAGESCAN_ISO_FTYP_OFFSET         4
@@ -98,7 +94,7 @@ ImageScanStatus_t imagescan_scan(const unsigned char* bytes, size_t byte_count, 
 
   if (result_out->m_format == IMAGESCAN_FORMAT_UNKNOWN)
     return IMAGESCAN_ERR_UNKNOWN_FORMAT;
-  if (!imagescan_writeSha256Hex(bytes, byte_count, result_out->ma_sha256Hex))
+  if (!bytes_writeSha256Hex(bytes, byte_count, result_out->ma_sha256Hex))
     return IMAGESCAN_ERR_HASH;
 
   imagescan_findEmbeddedFileSignatures(bytes, byte_count, result_out->ma_signatureMatches);
@@ -127,22 +123,6 @@ const char* imagescan_formatName(ImageScanFormat_t format)
 {
   assert((size_t)format < sizeof(FORMAT_NAMES) / sizeof(FORMAT_NAMES[0]));
   return FORMAT_NAMES[format];
-}
-
-bool imagescan_writeSha256Hex(const unsigned char* bytes, size_t byte_count, char* hex_out)
-{
-  assert(bytes != NULL || byte_count == 0);
-  assert(hex_out != NULL);
-
-  unsigned char digest[SHA256_DIGEST_LENGTH];
-  unsigned int  digest_len = 0;
-  if (EVP_Digest(bytes, byte_count, digest, &digest_len, EVP_sha256(), NULL) != 1 || digest_len != SHA256_DIGEST_LENGTH)
-  {
-    hex_out[0] = '\0';
-    return false;
-  }
-  bytes_writeHex(digest, SHA256_DIGEST_LENGTH, hex_out);
-  return true;
 }
 
 void imagescan_findEmbeddedFileSignatures(const unsigned char* bytes, size_t byte_count, ImageScanSignatureMatch_t* matches_out)

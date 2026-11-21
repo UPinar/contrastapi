@@ -17,6 +17,7 @@
 #define IPLOOKUP_COUNTRY_CODE_LEN          2
 #define IPLOOKUP_CLOUD_PROVIDER_MAX_LEN   10
 #define IPLOOKUP_CLOUD_SERVICE_MAX_LEN    32
+#define IPLOOKUP_CRAWLER_MAX_LEN          32
 
 typedef struct {
   const RequestCreditBudget_t* mp_creditBudget;
@@ -34,12 +35,14 @@ typedef struct {
   bool            m_isCdn;
   bool            m_isDatacenter;
   bool            m_isTorExit;
+  char            ma_crawler[IPLOOKUP_CRAWLER_MAX_LEN + 1];
   char*           mp_listedOn;
   bool            m_isAsnFeedLoaded;
   bool            m_isGeoFeedLoaded;
   bool            m_isCloudFeedLoaded;
   bool            m_isTorFeedLoaded;
   bool            m_isDropListFeedLoaded;
+  bool            m_isCrawlerFeedLoaded;
   DnsPtrAnswer_t  m_ptrAnswer;
 } IPLOOKUPRecord_t;
 

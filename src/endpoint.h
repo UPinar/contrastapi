@@ -159,6 +159,7 @@ typedef union {
   SSLCHECKParams_t             m_sslCheck;
   HEADERSCHECKParams_t         m_headersCheck;
   WELLKNOWNParams_t            m_wellKnown;
+  REDIRECTCHAINParams_t        m_redirectChain;
   WHOISLOOKUPParams_t          m_whoisLookup;
   WAYBACKLOOKUPParams_t        m_waybackLookup;
   CERTSEARCHParams_t           m_certSearch;

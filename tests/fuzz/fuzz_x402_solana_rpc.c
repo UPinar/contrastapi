@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "http_stub.h"
+#include "monotonic.h"
 #include "x402_solana.h"
 #include "x402_solana_rpc.h"
 
@@ -69,7 +70,7 @@ int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)
   else if (body_len > X402_SOLANA_RPC_MAX_LIST_ANSWER_BYTE_COUNT)
     g_stub_next_error = HTTP_ERROR_BODY_TOO_LARGE;
   char signature_text[X402_SOLANA_SIGNATURE_TEXT_BUF_SIZE];
-  found = x402_solana_rpc_findFeePayerSignature("https://rpc.example.com/", fee_payer, tx, tx_len, fee_payer, signature_text);
+  found = x402_solana_rpc_findFeePayerSignature("https://rpc.example.com/", fee_payer, tx, tx_len, fee_payer, 0, monotonic_nowMs() + 12000, signature_text);
   if (!static_isKnownStatus(found) || strnlen(signature_text, sizeof(signature_text)) == sizeof(signature_text))
     abort();
   if (signature_text[0] != '\0' && found != X402_SOLANA_RPC_SIGNATURE_CONFIRMED && found != X402_SOLANA_RPC_SIGNATURE_FAILED

@@ -691,6 +691,14 @@ void setUp(void)
   g_stub_HEADER_FETCH_last_hostname[0]         = '\0';
   g_stub_HEADER_FETCH_free_count               = 0;
   g_stub_HEADER_FETCH_on_call                  = NULL;
+  g_stub_HEADER_FETCH_url_status               = HEADER_FETCH_URL_OK;
+  g_stub_HEADER_FETCH_url_check_count          = 0;
+  g_stub_HEADER_FETCH_chain_error              = HTTP_ERROR_NONE;
+  g_stub_HEADER_FETCH_chain_script             = g_stub_HEADER_FETCH_default_chain_script;
+  g_stub_HEADER_FETCH_chain_call_count         = 0;
+  g_stub_HEADER_FETCH_chain_first_url[0]       = '\0';
+  g_stub_HEADER_FETCH_chain_free_count         = 0;
+  g_stub_HEADER_FETCH_before_hop               = NULL;
   g_stub_WELL_KNOWN_error                      = HTTP_ERROR_NONE;
   memset(&g_stub_WELL_KNOWN_report, 0, sizeof(g_stub_WELL_KNOWN_report));
   g_stub_WELL_KNOWN_call_count                 = 0;
@@ -874,13 +882,30 @@ void test_x_api_key_used_when_authorization_is_not_bearer(void)
     "GET /cve_search HTTP/1.1\r\n"
     "Authorization: Basic dXNlcjpwYXNz\r\n"
     "X-API-Key: " VALID_KEY "\r\n\r\n";
-  char key_hash[SHA256_HEX_LEN + 1];
-  auth_hashApiKey(VALID_KEY, key_hash);
+  char key_hash[BYTES_SHA256_HEX_LEN + 1];
+  auth_tryHashApiKey(VALID_KEY, key_hash);
   g_stub_last_ip_hash[0] = '\0';
   char buf[RESP_BUF];
   static_callRequestHandle(req, buf, sizeof(buf));
   TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 200"));
   TEST_ASSERT_EQUAL_STRING(key_hash, g_stub_last_ip_hash);
+}
+
+void test_valid_key_whose_hash_fails_is_500_and_is_not_looked_up(void)
+{
+  g_stub_api_key_state    = DB_API_KEY_ACTIVE;
+  g_stub_CVELOOKUP_status = DB_OK;
+  g_digestFailByteCount   = API_KEY_TOTAL_LEN;
+  g_stub_query_call_count = 0;
+
+  const char* req =
+    "GET /cve_lookup/CVE-2021-44228 HTTP/1.1\r\n"
+    "X-API-Key: " VALID_KEY "\r\n\r\n";
+  char buf[RESP_BUF];
+  static_callRequestHandle(req, buf, sizeof(buf));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "HTTP/1.1 500"), buf);
+  TEST_ASSERT_EQUAL_size_t_MESSAGE(0, g_digestFailByteCount, "the hash of the key was reached");
+  TEST_ASSERT_EQUAL_INT(0, g_stub_query_call_count);
 }
 
 void test_valid_key_found_can_access_CVELOOKUP(void)
@@ -1855,6 +1880,7 @@ static const RowPrice_t ROW_PRICES[] = {
   { "/ssl_check/",           "/ssl_check/example.com",          1 },
   { "/headers_check/",       "/headers_check/example.com",      1 },
   { "/well_known/",          "/well_known/example.com",         1 },
+  { "/redirect_chain",       "/redirect_chain?url=https%3A%2F%2Fexample.com%2F", 1 },
   { "/whois_lookup/",        "/whois_lookup/example.com",       1 },
   { "/wayback_lookup/",      "/wayback_lookup/example.com",     1 },
   { "/cert_search/",         "/cert_search/example.com",        2 },
@@ -2987,7 +3013,7 @@ void test_HEALTH_db_error_answers_503_with_retry_after(void)
   TEST_ASSERT_EQUAL_INT(1, static_countResponses(buf));
   TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 503 Service Unavailable\r\n"));
   TEST_ASSERT_NOT_NULL(strstr(buf, "\r\nRetry-After: 5\r\n"));
-  TEST_ASSERT_NOT_NULL(strstr(buf, R"({"status":"unavailable","version":"2.2.0","db":null})"));
+  TEST_ASSERT_NOT_NULL(strstr(buf, R"({"status":"unavailable","version":"2.3.0","db":null})"));
   TEST_ASSERT_NULL(strstr(buf, R"("cve_count")"));
 }
 
@@ -3001,7 +3027,7 @@ void test_HEALTH_db_not_found_also_answers_503(void)
   static_callRequestHandle(req, buf, sizeof(buf));
   TEST_ASSERT_EQUAL_INT(1, static_countResponses(buf));
   TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 503 Service Unavailable\r\n"));
-  TEST_ASSERT_NOT_NULL(strstr(buf, R"({"status":"unavailable","version":"2.2.0","db":null})"));
+  TEST_ASSERT_NOT_NULL(strstr(buf, R"({"status":"unavailable","version":"2.3.0","db":null})"));
   TEST_ASSERT_NULL(strstr(buf, R"("cve_count")"));
 }
 
@@ -3681,7 +3707,7 @@ void test_inactive_key_is_charged_like_an_unknown_key(void)
   {
     unsigned int costs[2];
     bool         partial_flags[2];
-    char         buckets[2][SHA256_HEX_LEN + 1];
+    char         buckets[2][BYTES_SHA256_HEX_LEN + 1];
     for (size_t s = 0; s < 2; s++)
     {
       g_stub_api_key_state                  = states[s];
@@ -5252,6 +5278,144 @@ void test_well_known_is_one_upstream_thread_while_it_fetches_the_site(void)
   }
 }
 
+static char* static_mcpCall(const char* body);
+
+static void static_REDIRECTCHAINRecordFreeUpstreamThreads(int hop_index)
+{
+  if (hop_index == 0)
+    static_recordFreeUpstreamThreads();
+}
+
+void test_redirect_chain_is_one_upstream_thread_while_it_fetches_the_site(void)
+{
+  upstream_setThreadCount(2);
+  g_stub_api_key_state           = DB_API_KEY_ACTIVE;
+  g_stub_HEADER_FETCH_before_hop = static_REDIRECTCHAINRecordFreeUpstreamThreads;
+  static const char* const reqs[] = {
+    "GET /redirect_chain?url=https%3A%2F%2Fwww.example.com%2F HTTP/1.1\r\nX-API-Key: " VALID_KEY "\r\n\r\n",
+    "POST /mcp HTTP/1.1\r\nX-API-Key: " VALID_KEY "\r\nContent-Type: application/json\r\n\r\n"
+    R"({"jsonrpc":"2.0","id":58,"method":"tools/call","params":{"name":"redirect_chain","arguments":{"url":"https://www.example.com/"}}})",
+  };
+  for (size_t i = 0; i < sizeof(reqs) / sizeof(reqs[0]); i++)
+  {
+    char buf[RESP_BUF];
+    g_freeUpstreamThreadsDuringCall      = -1;
+    g_stub_HEADER_FETCH_chain_call_count = 0;
+    static_callRequestHandle(reqs[i], buf, sizeof(buf));
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "HTTP/1.1 200"), reqs[i]);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(1, g_stub_HEADER_FETCH_chain_call_count, reqs[i]);
+    TEST_ASSERT_EQUAL_STRING_MESSAGE("https://www.example.com/", g_stub_HEADER_FETCH_chain_first_url, reqs[i]);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(1, g_freeUpstreamThreadsDuringCall, reqs[i]);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(2, static_countFreeUpstreamThreads(), reqs[i]);
+  }
+}
+
+void test_redirect_chain_refuses_a_url_without_a_scheme_over_rest_and_mcp(void)
+{
+  g_stub_api_key_state = DB_API_KEY_ACTIVE;
+  static const struct { const char* mp_query; const char* mp_arguments; } cases[] = {
+    { "url=example.com",                    R"({"url":"example.com"})"         },
+    { "url=%20https%3A%2F%2Fa.example%2F", R"({"url":" https://a.example/"})" },
+  };
+  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+  {
+    char req[512];
+    int written = snprintf(req, sizeof(req), "GET /redirect_chain?%s HTTP/1.1\r\nX-API-Key: " VALID_KEY "\r\n\r\n", cases[i].mp_query);
+    TEST_ASSERT_TRUE(written > 0 && (size_t)written < sizeof(req));
+    char buf[RESP_BUF];
+    static_callRequestHandle(req, buf, sizeof(buf));
+    TEST_ASSERT_EQUAL_INT_MESSAGE(1, static_countResponses(buf), req);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "HTTP/1.1 400"), req);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "url must start with http:// or https:// and hold no space"), req);
+
+    char body[512];
+    written = snprintf(body, sizeof(body), R"({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"redirect_chain","arguments":%s}})", cases[i].mp_arguments);
+    TEST_ASSERT_TRUE(written > 0 && (size_t)written < sizeof(body));
+    char* answer = static_mcpCall(body);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(answer, R"("text":"url must start with http:// or https:// and hold no space"}],"isError":true)"), answer);
+    free(answer);
+  }
+  TEST_ASSERT_EQUAL_INT(0, g_stub_HEADER_FETCH_url_check_count);
+  TEST_ASSERT_EQUAL_INT(0, g_stub_HEADER_FETCH_chain_call_count);
+}
+
+void test_redirect_chain_unencoded_ampersand_or_plus_is_a_400(void)
+{
+  g_stub_api_key_state = DB_API_KEY_ACTIVE;
+  static const struct { const char* mp_request; const char* mp_message; } cases[] = {
+    { "GET /redirect_chain?url=https://a.example/?a=1&b=2 HTTP/1.1\r\nX-API-Key: " VALID_KEY "\r\n\r\n", "unknown query parameter; this endpoint takes url" },
+    { "GET /redirect_chain?url=https://a.example/?q=a+b HTTP/1.1\r\nX-API-Key: " VALID_KEY "\r\n\r\n",   "url must start with http:// or https:// and hold no space" },
+  };
+  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+  {
+    char buf[RESP_BUF];
+    static_callRequestHandle(cases[i].mp_request, buf, sizeof(buf));
+    TEST_ASSERT_EQUAL_INT_MESSAGE(1, static_countResponses(buf), cases[i].mp_request);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "HTTP/1.1 400"), buf);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, cases[i].mp_message), buf);
+  }
+  TEST_ASSERT_EQUAL_INT(0, g_stub_HEADER_FETCH_chain_call_count);
+}
+
+void test_redirect_chain_hash_failure_skips_the_cache(void)
+{
+  g_stub_api_key_state  = DB_API_KEY_ACTIVE;
+  static const char url[] = "https://hash.example.com/fail-the-digest/now";
+  g_digestFailByteCount = sizeof(url) - 1;
+  char buf[RESP_BUF];
+  static_callRequestHandle("GET /redirect_chain?url=https%3A%2F%2Fhash.example.com%2Ffail-the-digest%2Fnow HTTP/1.1\r\nX-API-Key: " VALID_KEY "\r\n\r\n", buf, sizeof(buf));
+  TEST_ASSERT_EQUAL_INT(1, static_countResponses(buf));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "HTTP/1.1 200"), buf);
+  TEST_ASSERT_EQUAL_size_t(0, g_digestFailByteCount);
+  TEST_ASSERT_EQUAL_INT(0, g_stub_CACHE_get_count);
+  TEST_ASSERT_EQUAL_INT(0, g_stub_CACHE_put_count);
+  TEST_ASSERT_EQUAL_INT(1, g_stub_HEADER_FETCH_chain_call_count);
+  TEST_ASSERT_EQUAL_STRING(url, g_stub_HEADER_FETCH_chain_first_url);
+}
+
+void test_redirect_chain_url_longer_than_a_transport_takes(void)
+{
+  g_stub_api_key_state = DB_API_KEY_ACTIVE;
+  static const char rest_prefix[] = "/redirect_chain?url=https://a.example/";
+  static char target[REQUEST_TARGET_MAX_LEN + 2];
+  static char req[REQUEST_TARGET_MAX_LEN + 256];
+  static char buf[RESP_BUF];
+  for (size_t target_len = REQUEST_TARGET_MAX_LEN; target_len <= REQUEST_TARGET_MAX_LEN + 1; target_len++)
+  {
+    memcpy(target, rest_prefix, sizeof(rest_prefix) - 1);
+    memset(target + sizeof(rest_prefix) - 1, 'a', target_len - (sizeof(rest_prefix) - 1));
+    target[target_len] = '\0';
+    int written = snprintf(req, sizeof(req), "GET %s HTTP/1.1\r\nX-API-Key: " VALID_KEY "\r\n\r\n", target);
+    TEST_ASSERT_TRUE(written > 0 && (size_t)written < sizeof(req));
+    static_callRequestHandle(req, buf, sizeof(buf));
+    TEST_ASSERT_EQUAL_INT(1, static_countResponses(buf));
+    if (target_len == REQUEST_TARGET_MAX_LEN)
+      TEST_ASSERT_NULL_MESSAGE(strstr(buf, "HTTP/1.1 414"), buf);
+    else
+      TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "HTTP/1.1 414"), buf);
+  }
+
+  static const char args_prefix[] = R"({"url":"https://a.example/)";
+  static char arguments[ENDPOINT_JSON_OBJECT_BUF_SIZE + 2];
+  static char body[ENDPOINT_JSON_OBJECT_BUF_SIZE + 256];
+  for (size_t args_len = ENDPOINT_JSON_OBJECT_BUF_SIZE - 1; args_len <= ENDPOINT_JSON_OBJECT_BUF_SIZE; args_len++)
+  {
+    size_t fill_len = args_len - (sizeof(args_prefix) - 1) - 2;
+    memcpy(arguments, args_prefix, sizeof(args_prefix) - 1);
+    memset(arguments + sizeof(args_prefix) - 1, 'a', fill_len);
+    memcpy(arguments + sizeof(args_prefix) - 1 + fill_len, "\"}", 3);
+    TEST_ASSERT_EQUAL_size_t(args_len, strlen(arguments));
+    int written = snprintf(body, sizeof(body), R"({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"redirect_chain","arguments":%s}})", arguments);
+    TEST_ASSERT_TRUE(written > 0 && (size_t)written < sizeof(body));
+    char* answer = static_mcpCall(body);
+    if (args_len == ENDPOINT_JSON_OBJECT_BUF_SIZE - 1)
+      TEST_ASSERT_NULL_MESSAGE(strstr(answer, "arguments too large"), answer);
+    else
+      TEST_ASSERT_NOT_NULL_MESSAGE(strstr(answer, "arguments too large"), answer);
+    free(answer);
+  }
+}
+
 void test_headers_check_answer_is_200_and_is_kept_for_an_hour(void)
 {
   g_stub_api_key_state = DB_API_KEY_ACTIVE;
@@ -5986,7 +6150,8 @@ static void static_mcpTextOf(const char* answer, char* decoded, size_t decoded_s
 
 #define IPLOOKUP_STUB_BODY_HEAD \
   R"(","asn":13335,"asn_name":"CLOUDFLARENET","asn_country":"US","geo_country":"AU","cloud_provider":"cloudflare",)" \
-  R"("cloud_service":"cdn","is_cdn":true,"is_datacenter":true,"is_tor_exit":false,"listed_on":)" IPLOOKUP_STUB_LISTED_ON ","
+  R"("cloud_service":"cdn","is_cdn":true,"is_datacenter":true,"is_tor_exit":false,"crawler":"bingbot",)" \
+  R"("listed_on":)" IPLOOKUP_STUB_LISTED_ON ","
 #define IPLOOKUP_STUB_BODY_TAIL \
   R"("reputation":{"available":false,"reason":"vendor_key_missing","action_url":"https://api.contrastcyber.com/privacy_my_data","action_tool":"privacy_my_data"},)" \
   R"("internet_exposure":{"available":false,"reason":"vendor_key_missing","action_url":"https://api.contrastcyber.com/privacy_my_data","action_tool":"privacy_my_data"},)"
@@ -5999,6 +6164,7 @@ void test_ip_lookup_answer_is_200_for_the_canonical_address(void)
     { "8.8.8.8",                                 "8.8.8.8" },
     { "2001:4860:4860:0:0:0:0:8888",             "2001:4860:4860::8888" },
     { "2001:4860:4860:0000:0000:0000:0000:88AA", "2001:4860:4860::88aa" },
+    { "2001%3A4860%3A4860%3A%3A8888",            "2001:4860:4860::8888" },
   };
   for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
   {
@@ -6036,6 +6202,7 @@ void test_ip_lookup_refused_values_are_400(void)
   g_stub_IPLOOKUP_status = DB_OK;
   static const char* const refusal_body =
     R"({"error":{"code":"bad_request","message":"Provide a public IPv4 or IPv6 address, such as 8.8.8.8 or 2001:4860:4860::8888."}})" "\n";
+  static const char* const encoding_body = R"({"error":{"code":"bad_request","message":"ip_address is not valid percent-encoding"}})" "\n";
   static char too_long_path[64];
   int written = snprintf(too_long_path, sizeof(too_long_path), "/ip_lookup/%0*d", INET6_ADDRSTRLEN, 0);
   TEST_ASSERT_TRUE(written > 0 && (size_t)written < sizeof(too_long_path));
@@ -6043,11 +6210,14 @@ void test_ip_lookup_refused_values_are_400(void)
     { "/ip_lookup/10.0.0.1",          refusal_body },
     { "/ip_lookup/::ffff:8.8.8.8",    refusal_body },
     { "/ip_lookup/fe80::1%25eth0",    refusal_body },
-    { "/ip_lookup/fe80::1%eth0",      refusal_body },
-    { "/ip_lookup/2001:4860::8888%eth0", refusal_body },
+    { "/ip_lookup/fe80::1%eth0",      encoding_body },
+    { "/ip_lookup/2001:4860::8888%eth0", encoding_body },
     { "/ip_lookup/08.8.8.8",          refusal_body },
     { "/ip_lookup/example.com",       refusal_body },
     { "/ip_lookup/8.8.8.0/24",        refusal_body },
+    { "/ip_lookup/8.8.8.0%2F24",      refusal_body },
+    { "/ip_lookup/8.8.8.8%00",        R"({"error":{"code":"bad_request","message":"ip_address must not contain control characters"}})" "\n" },
+    { "/ip_lookup/2001%3A4860%3",     encoding_body },
     { too_long_path,                  refusal_body },
     { "/ip_lookup/",                  R"({"error":{"code":"bad_request","message":"ip_address is required"}})" "\n" },
   };
@@ -6066,6 +6236,25 @@ void test_ip_lookup_refused_values_are_400(void)
     TEST_ASSERT_EQUAL_STRING_MESSAGE(cases[i].mp_body, static_responseBody(buf), cases[i].mp_path);
     TEST_ASSERT_EQUAL_UINT_MESSAGE(1, g_stub_last_credit_cost, cases[i].mp_path);
   }
+  TEST_ASSERT_EQUAL_INT(0, g_stub_IPLOOKUP_call_count);
+  TEST_ASSERT_EQUAL_INT(0, g_stub_PTR_call_count);
+}
+
+void test_ip_lookup_mcp_argument_is_not_percent_decoded(void)
+{
+  g_stub_api_key_state       = DB_API_KEY_ACTIVE;
+  g_stub_IPLOOKUP_status     = DB_OK;
+  g_stub_IPLOOKUP_call_count = 0;
+  g_stub_PTR_call_count      = 0;
+  char buf[RESP_BUF];
+
+  static_callRequestHandle("POST /mcp HTTP/1.1\r\nX-API-Key: " VALID_KEY "\r\nContent-Type: application/json\r\n\r\n"
+                           R"({"jsonrpc":"2.0","id":52,"method":"tools/call","params":{"name":"ip_lookup","arguments":{"ip_address":"2001%3A4860%3A4860%3A%3A8888"}}})",
+                           buf, sizeof(buf));
+
+  TEST_ASSERT_EQUAL_INT(1, static_countResponses(buf));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(static_responseBody(buf),
+                                      R"("text":"Provide a public IPv4 or IPv6 address, such as 8.8.8.8 or 2001:4860:4860::8888."}],"isError":true)"), buf);
   TEST_ASSERT_EQUAL_INT(0, g_stub_IPLOOKUP_call_count);
   TEST_ASSERT_EQUAL_INT(0, g_stub_PTR_call_count);
 }
@@ -8242,7 +8431,7 @@ static void static_bucketForRealIp(const char* real_ip, char* hash_out, size_t h
 
 void test_real_ip_header_selects_the_bucket(void)
 {
-  char first[SHA256_HEX_LEN + 1], second[SHA256_HEX_LEN + 1];
+  char first[BYTES_SHA256_HEX_LEN + 1], second[BYTES_SHA256_HEX_LEN + 1];
   static_bucketForRealIp("8.8.8.8", first,  sizeof(first));
   static_bucketForRealIp("1.1.1.1", second, sizeof(second));
 
@@ -8252,7 +8441,7 @@ void test_real_ip_header_selects_the_bucket(void)
 
 void test_ipv6_real_ip_is_not_truncated(void)
 {
-  char first[SHA256_HEX_LEN + 1], second[SHA256_HEX_LEN + 1];
+  char first[BYTES_SHA256_HEX_LEN + 1], second[BYTES_SHA256_HEX_LEN + 1];
   static_bucketForRealIp("2001:0db8:85a3:0000:0000:8a2e:0370:7334", first,  sizeof(first));
   static_bucketForRealIp("2001:0db8:85a3:0001:0000:8a2e:0370:7334", second, sizeof(second));
 
@@ -8262,7 +8451,7 @@ void test_ipv6_real_ip_is_not_truncated(void)
 
 void test_ipv6_real_ip_same_64_shares_a_bucket(void)
 {
-  char first[SHA256_HEX_LEN + 1], second[SHA256_HEX_LEN + 1];
+  char first[BYTES_SHA256_HEX_LEN + 1], second[BYTES_SHA256_HEX_LEN + 1];
   static_bucketForRealIp("2001:db8:85a3::8a2e:370:7334", first,  sizeof(first));
   static_bucketForRealIp("2001:db8:85a3::1",             second, sizeof(second));
 
@@ -8272,7 +8461,7 @@ void test_ipv6_real_ip_same_64_shares_a_bucket(void)
 
 void test_first_real_ip_header_selects_the_bucket(void)
 {
-  char first[SHA256_HEX_LEN + 1], repeated[SHA256_HEX_LEN + 1];
+  char first[BYTES_SHA256_HEX_LEN + 1], repeated[BYTES_SHA256_HEX_LEN + 1];
   static_bucketForRealIp("8.8.8.8", first, sizeof(first));
   static_bucketForRealIp("8.8.8.8\r\nX-Real-IP: 1.1.1.1", repeated, sizeof(repeated));
 
@@ -8282,7 +8471,7 @@ void test_first_real_ip_header_selects_the_bucket(void)
 
 void test_unknown_key_is_charged_to_the_callers_ipv6_64_bucket(void)
 {
-  char anon[SHA256_HEX_LEN + 1];
+  char anon[BYTES_SHA256_HEX_LEN + 1];
   static_bucketForRealIp("2001:db8:85a3::1", anon, sizeof(anon));
 
   g_stub_api_key_state = DB_API_KEY_UNKNOWN;
@@ -8309,7 +8498,7 @@ static void static_bucketWithSecret(const char* req, const char* secret, char* h
 
 void test_ip_secret_keys_both_anonymous_charges(void)
 {
-  char expected[SHA256_HEX_LEN + 1], anon[SHA256_HEX_LEN + 1], unknown_key[SHA256_HEX_LEN + 1];
+  char expected[BYTES_SHA256_HEX_LEN + 1], anon[BYTES_SHA256_HEX_LEN + 1], unknown_key[BYTES_SHA256_HEX_LEN + 1];
   auth_hashIp(TEST_IP, "test_secret", expected);
 
   static_bucketWithSecret("GET /cve_search HTTP/1.1\r\n\r\n", "test_secret", anon, sizeof(anon));
@@ -8323,7 +8512,7 @@ void test_ip_secret_keys_both_anonymous_charges(void)
 
 void test_missing_real_ip_falls_back_to_the_peer(void)
 {
-  char absent[SHA256_HEX_LEN + 1], peer[SHA256_HEX_LEN + 1];
+  char absent[BYTES_SHA256_HEX_LEN + 1], peer[BYTES_SHA256_HEX_LEN + 1];
   static_bucketForRealIp(NULL,    absent, sizeof(absent));
   static_bucketForRealIp(TEST_IP, peer,   sizeof(peer));
 
@@ -8333,7 +8522,7 @@ void test_missing_real_ip_falls_back_to_the_peer(void)
 
 void test_unparsable_real_ip_is_ignored(void)
 {
-  char garbage[SHA256_HEX_LEN + 1], absent[SHA256_HEX_LEN + 1];
+  char garbage[BYTES_SHA256_HEX_LEN + 1], absent[BYTES_SHA256_HEX_LEN + 1];
   static_bucketForRealIp("not-an-address", garbage, sizeof(garbage));
   static_bucketForRealIp(NULL,             absent,  sizeof(absent));
 
@@ -8359,10 +8548,10 @@ void test_real_ip_from_a_remote_peer_is_ignored(void)
   buf[n > 0 ? n : 0] = '\0';
   close(fds[0]);
 
-  char remote_peer[SHA256_HEX_LEN + 1];
+  char remote_peer[BYTES_SHA256_HEX_LEN + 1];
   snprintf(remote_peer, sizeof(remote_peer), "%s", g_stub_last_ip_hash);
 
-  char claimed[SHA256_HEX_LEN + 1];
+  char claimed[BYTES_SHA256_HEX_LEN + 1];
   static_bucketForRealIp("8.8.8.8", claimed, sizeof(claimed));
 
   TEST_ASSERT_TRUE(remote_peer[0] != '\0');
@@ -8371,7 +8560,7 @@ void test_real_ip_from_a_remote_peer_is_ignored(void)
 
 void test_privacy_my_data_names_the_anonymous_ip_credit_budget(void)
 {
-  char expected[SHA256_HEX_LEN + 1];
+  char expected[BYTES_SHA256_HEX_LEN + 1];
   auth_hashIp("198.51.100.7", "test_secret", expected);
 
   const char* req = "GET /privacy_my_data HTTP/1.1\r\nX-Real-IP: 198.51.100.7\r\n\r\n";
@@ -8392,8 +8581,8 @@ void test_privacy_my_data_names_the_anonymous_ip_credit_budget(void)
 void test_privacy_my_data_names_the_key_credit_budget(void)
 {
   g_stub_api_key_state = DB_API_KEY_ACTIVE;
-  char key_hash[SHA256_HEX_LEN + 1];
-  auth_hashApiKey(VALID_KEY, key_hash);
+  char key_hash[BYTES_SHA256_HEX_LEN + 1];
+  auth_tryHashApiKey(VALID_KEY, key_hash);
 
   const char* req = "GET /privacy_my_data HTTP/1.1\r\nX-API-Key: " VALID_KEY "\r\n\r\n";
   char buf[RESP_BUF];
@@ -8477,7 +8666,7 @@ static void static_privacyMcpText(const char* headers, char* buf, size_t len, ch
 
 void test_privacy_my_data_tool_names_the_anonymous_ip_credit_budget(void)
 {
-  char expected[SHA256_HEX_LEN + 1];
+  char expected[BYTES_SHA256_HEX_LEN + 1];
   auth_hashIp("198.51.100.7", "test_secret", expected);
 
   char buf[RESP_BUF];
@@ -8496,8 +8685,8 @@ void test_privacy_my_data_tool_names_the_anonymous_ip_credit_budget(void)
 void test_privacy_my_data_tool_names_the_key_credit_budget(void)
 {
   g_stub_api_key_state = DB_API_KEY_ACTIVE;
-  char key_hash[SHA256_HEX_LEN + 1];
-  auth_hashApiKey(VALID_KEY, key_hash);
+  char key_hash[BYTES_SHA256_HEX_LEN + 1];
+  auth_tryHashApiKey(VALID_KEY, key_hash);
 
   char buf[RESP_BUF];
   char text[RESP_BUF];
@@ -12586,6 +12775,8 @@ void test_rest_text_parameters_take_the_endpoint_table_length(void)
       const EndpointParamSpec_t* spec = param->mp_spec;
       if (!(param->m_sources & ENDPOINT_PARAM_SRC_REST_QUERY) || !static_isTextParam(spec))
         continue;
+      if (spec->m_maxLen > REQUEST_TARGET_MAX_LEN)
+        continue;
 
       char message[64];
       int written = snprintf(message, sizeof(message), "%s is too long", spec->mp_name);
@@ -12754,7 +12945,10 @@ void test_rest_query_keys_read_are_the_endpoint_table_query_params(void)
         char message[64];
         int written = snprintf(message, sizeof(message), "%s is too long", probe->mp_spec->mp_name);
         TEST_ASSERT_TRUE(written > 0 && (size_t)written < sizeof(message));
-        TEST_ASSERT_EQUAL_INT_MESSAGE(bound != NULL, strstr(buf, message) != NULL, req);
+        bool is_longer_than_bound = bound != NULL && bound->mp_spec->m_maxLen < sizeof(value) - 1;
+        TEST_ASSERT_EQUAL_INT_MESSAGE(is_longer_than_bound, strstr(buf, message) != NULL, req);
+        if (bound != NULL && !is_longer_than_bound)
+          TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, bound->mp_spec->mp_message), req);
       }
     }
   }
@@ -13088,7 +13282,7 @@ void test_rest_and_mcp_refuse_a_value_with_one_text(void)
       checked++;
     }
   }
-  TEST_ASSERT_EQUAL_INT(62, checked);
+  TEST_ASSERT_EQUAL_INT(63, checked);
 }
 
 static void static_restGet(const char* path_and_query, char* buf, size_t len)
@@ -14287,7 +14481,7 @@ static const char* static_webhookBodyWith(int slot, const char* base, const char
   return g_webhookBodies[slot];
 }
 
-static void static_signWebhookBody(const char* body, size_t body_len, char hex_out[SHA256_HEX_LEN + 1])
+static void static_signWebhookBody(const char* body, size_t body_len, char hex_out[BYTES_SHA256_HEX_LEN + 1])
 {
   unsigned char digest[EVP_MAX_MD_SIZE];
   unsigned int  digest_len = 0;
@@ -14309,7 +14503,7 @@ static void static_postWebhook(const char* header_lines, const char* body, char*
 
 static void static_postSignedWebhook(const char* body, char* buf, size_t len)
 {
-  char signature[SHA256_HEX_LEN + 1];
+  char signature[BYTES_SHA256_HEX_LEN + 1];
   static_signWebhookBody(body, strlen(body), signature);
   char header_line[128];
   snprintf(header_line, sizeof(header_line), "X-Signature: %s\r\n", signature);
@@ -14359,12 +14553,12 @@ void test_webhook_lemonsqueezy_each_action_reaches_its_billing_function(void)
 void test_webhook_lemonsqueezy_refuses_a_missing_or_wrong_signature(void)
 {
   billing_setLemonSqueezySecret(WEBHOOK_TEST_SECRET);
-  char signature[SHA256_HEX_LEN + 1];
+  char signature[BYTES_SHA256_HEX_LEN + 1];
   static_signWebhookBody(WEBHOOK_ORDER_BODY, strlen(WEBHOOK_ORDER_BODY), signature);
-  char other_signature[SHA256_HEX_LEN + 1];
+  char other_signature[BYTES_SHA256_HEX_LEN + 1];
   static_signWebhookBody(WEBHOOK_SUB_BODY, strlen(WEBHOOK_SUB_BODY), other_signature);
-  char upper_signature[SHA256_HEX_LEN + 1];
-  for (size_t i = 0; i <= SHA256_HEX_LEN; i++)
+  char upper_signature[BYTES_SHA256_HEX_LEN + 1];
+  for (size_t i = 0; i <= BYTES_SHA256_HEX_LEN; i++)
     upper_signature[i] = (char)toupper((unsigned char)signature[i]);
 
   char other_line[128];
@@ -14913,8 +15107,8 @@ void test_api_key_claim_answers_a_new_key_and_stores_its_hash(void)
 
     struct phr_header header = { "X-API-Key", 9, key, API_KEY_TOTAL_LEN };
     TEST_ASSERT_EQUAL_INT(AUTH_API_KEY_VALID_FORMAT, auth_parseApiKey(&header, 1).m_apiKeyStatus);
-    char key_hash[SHA256_HEX_LEN + 1];
-    auth_hashApiKey(key, key_hash);
+    char key_hash[BYTES_SHA256_HEX_LEN + 1];
+    auth_tryHashApiKey(key, key_hash);
     TEST_ASSERT_EQUAL_STRING("db_billingClaim", g_stub_billing_last_function);
     TEST_ASSERT_EQUAL_STRING(CLAIM_ORDER_ID, g_stub_billing_last_order_id);
     TEST_ASSERT_EQUAL_STRING(key_hash, g_stub_billing_last_key_hash);
@@ -14939,6 +15133,21 @@ void test_api_key_claim_clears_the_key_and_the_answer_body(void)
   TEST_ASSERT_TRUE_MESSAGE(static_isBzeroRecorded(API_KEY_TOTAL_LEN + 1, key, API_KEY_TOTAL_LEN), "the run clears its key copy");
   TEST_ASSERT_TRUE_MESSAGE(static_isBzeroRecorded(strlen(static_responseBody(buf)), body_prefix, (size_t)prefix_len),
                            "the handler clears the whole answer body");
+}
+
+void test_api_key_claim_whose_key_hash_fails_is_500_and_claims_nothing(void)
+{
+  g_stub_billing_claim_status = DB_BILLING_CLAIM_CLAIMED;
+  g_stub_billing_call_count   = 0;
+  g_bzeroRecordCount          = 0;
+  g_digestFailByteCount       = API_KEY_TOTAL_LEN;
+  char buf[RESP_BUF];
+  static_postClaim("{\"order_id\":\"" CLAIM_ORDER_ID "\"}", buf, sizeof(buf));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "HTTP/1.1 500"), buf);
+  TEST_ASSERT_NULL_MESSAGE(strstr(buf, "api_key"), buf);
+  TEST_ASSERT_EQUAL_size_t_MESSAGE(0, g_digestFailByteCount, "the hash of the key was reached");
+  TEST_ASSERT_EQUAL_INT(0, g_stub_billing_call_count);
+  TEST_ASSERT_TRUE_MESSAGE(static_isBzeroRecorded(API_KEY_TOTAL_LEN + 1, "contrastapi_", sizeof("contrastapi_") - 1), "the run clears its key copy");
 }
 
 void test_api_key_claim_answers_each_order_state_without_a_key(void)
@@ -15000,7 +15209,7 @@ void test_api_key_claim_refuses_an_order_id_that_is_not_a_uuid(void)
 
 void test_registration_gate_test_count(void)
 {
-  int expected_test_count = 771;
+  int expected_test_count = 779;
   TEST_ASSERT_EQUAL_INT_MESSAGE(expected_test_count, (int)Unity.NumberOfTests,
     "RUN_TEST list and test definitions have drifted apart - a test may be unregistered");
 }
@@ -15339,6 +15548,7 @@ static const ParityCall_t PARITY_CALLS[] = {
   { "ssl_check", PARITY_GET("/ssl_check/example.com"), R"({"domain":"example.com"})", false, NULL, NULL, false },
   { "headers_check", PARITY_GET("/headers_check/WWW.Example.COM?include_full_header_values=true"), R"({"domain":"WWW.Example.COM","include_full_header_values":true})", false, NULL, NULL, false },
   { "well_known", PARITY_GET("/well_known/WWW.Example.COM"), R"({"domain":"WWW.Example.COM"})", true, PARITY_GET("/well_known/printer.local"), R"({"domain":"printer.local"})", false },
+  { "redirect_chain", PARITY_GET("/redirect_chain?url=https%3A%2F%2FWWW.Example.COM%2Fp%3Fq%3D1"), R"({"url":"https://WWW.Example.COM/p?q=1"})", true, PARITY_GET("/redirect_chain?url=example.com"), R"({"url":"example.com"})", false },
   { "whois_lookup", PARITY_GET("/whois_lookup/www.example.co.uk"), R"({"domain":"www.example.co.uk"})", true, PARITY_GET("/whois_lookup/printer.local"), R"({"domain":"printer.local"})", false },
   { "wayback_lookup", PARITY_GET("/wayback_lookup/WWW.Example.COM"), R"({"domain":"WWW.Example.COM"})", true, PARITY_GET("/wayback_lookup/printer.local"), R"({"domain":"printer.local"})", false },
   { "cert_search", PARITY_GET("/cert_search/WWW.Example.COM"), R"({"domain":"WWW.Example.COM"})", true, PARITY_GET("/cert_search/printer.local"), R"({"domain":"printer.local"})", false },
@@ -15446,7 +15656,7 @@ void test_only_a_request_that_calls_an_upstream_service_enters(void)
                               strcmp(call->mp_tool, "whois_lookup") == 0 || strcmp(call->mp_tool, "wayback_lookup") == 0 ||
                               strcmp(call->mp_tool, "cert_search") == 0 || strcmp(call->mp_tool, "subdomain_enum") == 0 ||
                               strcmp(call->mp_tool, "email_address_check") == 0 || strcmp(call->mp_tool, "headers_check") == 0 ||
-                              strcmp(call->mp_tool, "well_known") == 0;
+                              strcmp(call->mp_tool, "well_known") == 0 || strcmp(call->mp_tool, "redirect_chain") == 0;
 
     static_callRequestHandle(call->mp_restRequest, buf, sizeof(buf));
     if (will_call_upstream)
@@ -15482,6 +15692,7 @@ void test_only_a_request_that_calls_an_upstream_service_enters(void)
   TEST_ASSERT_EQUAL_INT(0, g_stub_CERTSPOTTER_subtree_lookup_count);
   TEST_ASSERT_EQUAL_INT(0, g_stub_SUBDOMAIN_lookup_count);
   TEST_ASSERT_EQUAL_INT(0, g_stub_HEADER_FETCH_call_count);
+  TEST_ASSERT_EQUAL_INT(0, g_stub_HEADER_FETCH_chain_call_count);
   TEST_ASSERT_FALSE(upstream_tryEnter());
 }
 
@@ -15698,7 +15909,7 @@ void test_rest_and_mcp_send_one_success_body(void)
     }
     checked++;
   }
-  TEST_ASSERT_EQUAL_INT(39, checked);
+  TEST_ASSERT_EQUAL_INT(40, checked);
   TEST_ASSERT_EQUAL_INT((int)(sizeof(PARITY_CALLS) / sizeof(PARITY_CALLS[0])), checked);
 }
 
@@ -15719,7 +15930,7 @@ void test_rest_and_mcp_charge_one_price_for_every_accepted_parity_call(void)
     TEST_ASSERT_EQUAL_UINT_MESSAGE(rest_price, mcp_price, call->mp_tool);
     checked++;
   }
-  TEST_ASSERT_EQUAL_INT(39, checked);
+  TEST_ASSERT_EQUAL_INT(40, checked);
 }
 
 void test_rest_and_mcp_answer_a_db_error_alike(void)
@@ -15786,7 +15997,7 @@ void test_rest_and_mcp_answer_a_db_error_alike(void)
     }
     free(answer);
   }
-  TEST_ASSERT_EQUAL_INT(30, internal);
+  TEST_ASSERT_EQUAL_INT(31, internal);
   TEST_ASSERT_EQUAL_INT(1, unavailable);
   TEST_ASSERT_EQUAL_INT(8, served);
 }
@@ -15866,7 +16077,7 @@ void test_rest_and_mcp_answer_alike_without_a_database(void)
   TEST_ASSERT_EQUAL_INT(0, g_stub_CERTSPOTTER_lookup_count);
   TEST_ASSERT_EQUAL_INT(0, g_stub_CERTSPOTTER_subtree_lookup_count);
   TEST_ASSERT_EQUAL_INT(0, g_stub_SUBDOMAIN_lookup_count);
-  TEST_ASSERT_EQUAL_INT(31, refused);
+  TEST_ASSERT_EQUAL_INT(32, refused);
   TEST_ASSERT_EQUAL_INT(6, served);
   TEST_ASSERT_EQUAL_INT(1, without_credit_budget);
 }
@@ -16080,22 +16291,26 @@ void test_rest_and_mcp_refuse_every_table_value_alike(void)
       ParityAnswer_t rest;
       ParityAnswer_t mcp;
 
+      bool fits_transport = !static_isTextType(spec->m_type) || spec->m_maxLen <= REQUEST_TARGET_MAX_LEN;
       size_t long_len = static_isTextType(spec->m_type) ? spec->m_maxLen + 1 : ENDPOINT_SCALAR_VALUE_BUF_SIZE;
       char fill = (spec->m_type == ENDPOINT_PARAM_TYPE_INT || spec->m_type == ENDPOINT_PARAM_TYPE_DOUBLE) ? '1' : 'a';
       bool is_quoted = fill == 'a';
-      TEST_ASSERT_TRUE(long_len + 3 < sizeof(rest_value));
-      memset(rest_value, fill, long_len);
-      rest_value[long_len] = '\0';
-      snprintf(mcp_value, sizeof(mcp_value), is_quoted ? "\"%s\"" : "%s", rest_value);
-      static_parityInputFor(endpoint, j, rest_value, mcp_value, target, sizeof(target), arguments, sizeof(arguments));
-      rest = static_parityRestAnswer(target, NULL);
-      mcp  = static_parityMcpAnswer(endpoint->mp_mcpToolName, arguments);
-      if (is_path)
-        snprintf(message, sizeof(message), "%s", spec->mp_message);
-      else
-        snprintf(message, sizeof(message), "%s is too long", spec->mp_name);
-      static_assertRefusedAlike(endpoint, &rest, &mcp, message, false, target);
-      too_long++;
+      if (fits_transport)
+      {
+        TEST_ASSERT_TRUE(long_len + 3 < sizeof(rest_value));
+        memset(rest_value, fill, long_len);
+        rest_value[long_len] = '\0';
+        snprintf(mcp_value, sizeof(mcp_value), is_quoted ? "\"%s\"" : "%s", rest_value);
+        static_parityInputFor(endpoint, j, rest_value, mcp_value, target, sizeof(target), arguments, sizeof(arguments));
+        rest = static_parityRestAnswer(target, NULL);
+        mcp  = static_parityMcpAnswer(endpoint->mp_mcpToolName, arguments);
+        if (is_path)
+          snprintf(message, sizeof(message), "%s", spec->mp_message);
+        else
+          snprintf(message, sizeof(message), "%s is too long", spec->mp_name);
+        static_assertRefusedAlike(endpoint, &rest, &mcp, message, false, target);
+        too_long++;
+      }
 
       if (param->m_isRequired)
       {
@@ -16170,12 +16385,12 @@ void test_rest_and_mcp_refuse_every_table_value_alike(void)
     }
   }
   TEST_ASSERT_EQUAL_INT(85, too_long);
-  TEST_ASSERT_EQUAL_INT(56, missing);
-  TEST_ASSERT_EQUAL_INT(84, refused);
-  TEST_ASSERT_EQUAL_INT(24, control);
-  TEST_ASSERT_EQUAL_INT(24, plus);
-  TEST_ASSERT_EQUAL_INT(63, encoding);
-  TEST_ASSERT_EQUAL_INT(24, invalid_utf8);
+  TEST_ASSERT_EQUAL_INT(58, missing);
+  TEST_ASSERT_EQUAL_INT(85, refused);
+  TEST_ASSERT_EQUAL_INT(25, control);
+  TEST_ASSERT_EQUAL_INT(25, plus);
+  TEST_ASSERT_EQUAL_INT(64, encoding);
+  TEST_ASSERT_EQUAL_INT(25, invalid_utf8);
 }
 
 void test_rest_and_mcp_refuse_a_non_boolean_include_rejected_alike(void)
@@ -20199,7 +20414,7 @@ void test_x402_failed_attempt_lands_on_the_keyed_ip_hash(void)
   g_stub_X402_FACILITATOR_verify_status = X402_FACILITATOR_VERIFY_INVALID;
   char buf[RESP_BUF];
   static_callX402(X402_TEST_CVE_LOOKUP_GET X402_TEST_PAYMENT_LINE "\r\n", buf);
-  char keyed[SHA256_HEX_LEN + 1];
+  char keyed[BYTES_SHA256_HEX_LEN + 1];
   auth_hashIp(TEST_IP, X402_TEST_IP_SECRET, keyed);
   TEST_ASSERT_EQUAL_INT(7, g_stub_THROTTLE_call_count);
   TEST_ASSERT_FALSE(g_stub_THROTTLE_calls[0].m_isCharge);
@@ -21202,6 +21417,7 @@ int main(void)
   RUN_TEST(test_valid_key_found_in_db_reaches_route);
   RUN_TEST(test_valid_key_not_in_db_returns_401);
   RUN_TEST(test_x_api_key_used_when_authorization_is_not_bearer);
+  RUN_TEST(test_valid_key_whose_hash_fails_is_500_and_is_not_looked_up);
   RUN_TEST(test_valid_key_found_can_access_CVELOOKUP);
   RUN_TEST(test_valid_key_found_can_access_CVESEARCH);
   RUN_TEST(test_valid_key_found_can_access_KEVLOOKUP);
@@ -21467,6 +21683,11 @@ int main(void)
   RUN_TEST(test_ssl_check_failed_probes_on_both_transports);
   RUN_TEST(test_headers_check_is_one_upstream_thread_while_it_fetches_the_site);
   RUN_TEST(test_well_known_is_one_upstream_thread_while_it_fetches_the_site);
+  RUN_TEST(test_redirect_chain_is_one_upstream_thread_while_it_fetches_the_site);
+  RUN_TEST(test_redirect_chain_refuses_a_url_without_a_scheme_over_rest_and_mcp);
+  RUN_TEST(test_redirect_chain_unencoded_ampersand_or_plus_is_a_400);
+  RUN_TEST(test_redirect_chain_hash_failure_skips_the_cache);
+  RUN_TEST(test_redirect_chain_url_longer_than_a_transport_takes);
   RUN_TEST(test_headers_check_answer_is_200_and_is_kept_for_an_hour);
   RUN_TEST(test_headers_check_include_full_values_keeps_a_whole_value_under_a_key_of_its_own);
   RUN_TEST(test_headers_check_cached_answer_is_sent_as_it_was_kept);
@@ -21491,6 +21712,7 @@ int main(void)
   RUN_TEST(test_subdomain_enum_public_suffix_is_refused_on_both_transports);
   RUN_TEST(test_ip_lookup_answer_is_200_for_the_canonical_address);
   RUN_TEST(test_ip_lookup_refused_values_are_400);
+  RUN_TEST(test_ip_lookup_mcp_argument_is_not_percent_decoded);
   RUN_TEST(test_ip_lookup_db_error_is_500_and_asks_no_ptr);
   RUN_TEST(test_ip_lookup_no_db_is_500);
   RUN_TEST(test_ip_lookup_without_a_ptr_name_is_200_on_both_transports);
@@ -21845,6 +22067,7 @@ int main(void)
   RUN_TEST(test_webhook_nowpayments_buffer_failure_is_5xx_and_writes_nothing);
   RUN_TEST(test_api_key_claim_answers_a_new_key_and_stores_its_hash);
   RUN_TEST(test_api_key_claim_clears_the_key_and_the_answer_body);
+  RUN_TEST(test_api_key_claim_whose_key_hash_fails_is_500_and_claims_nothing);
   RUN_TEST(test_api_key_claim_answers_each_order_state_without_a_key);
   RUN_TEST(test_api_key_claim_refuses_an_order_id_that_is_not_a_uuid);
   RUN_TEST(test_crypto_checkout_answers_the_invoice_and_pays_one_credit);

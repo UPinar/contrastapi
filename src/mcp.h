@@ -45,7 +45,8 @@
   "D3FEND defenses that counter a MITRE ATT&CK technique. It "  \
   "finds a driver file hash in the LOLDrivers catalog. It "     \
   "looks up the AS, the country, the cloud range, the Tor "     \
-  "exit and the DROP listing of a public IP address. It looks " \
+  "exit, the crawler range and the DROP listing of a public "   \
+  "IP address. It looks "                                       \
   "up an AS by its number or by an address it holds. It "       \
   "checks a package or a list of packages of nine ecosystems "  \
   "against OSV.dev advisories and malicious packages. It "      \
@@ -56,6 +57,7 @@
   "and AbuseIPDB keys with vendor_key_edit, and ip_lookup "     \
   "then adds their answers. It says what it keeps about the "   \
   "caller. "                                                    \
+  "It follows the redirect chain of a URL and lists each hop. " \
   "A call with no API key and no credits left can pay per "     \
   "call with x402 in USDC on Solana."
 

@@ -37,6 +37,8 @@
 
 #define VALIDATE_EMAIL_ADDRESS_REFUSAL_MESSAGE "Provide an e-mail address with an ASCII local part of at most 64 bytes and a public domain name, such as name@example.com."
 
+#define VALIDATE_WEB_URL_REFUSAL_MESSAGE "url must start with http:// or https:// and hold no space"
+
 bool validate_searchString        (const char* search_string);
 bool validate_searchQuery         (const char* search_query);
 bool validate_date                (const char* date_str);
@@ -60,6 +62,7 @@ bool validate_emailAddress        (const char* email);
 bool validate_uuid                (const char* uuid);
 bool validate_vendorKeyLink       (const char* link);
 bool validate_vendorKey           (const char* vendor_key);
+bool validate_webUrl              (const char* value);
 
 bool validate_publicUnderscoredDnsName(const char* domain_name);
 

@@ -2,8 +2,12 @@
 #include <ctype.h>
 #include <string.h>
 #include <strings.h>
+#include <openssl/evp.h>
+#include <openssl/sha.h>
 
 #include "bytes.h"
+
+_Static_assert(BYTES_SHA256_HEX_LEN == 2 * SHA256_DIGEST_LENGTH, "two hex digits write one byte of the hash");
 
 static bool static_isSameBytes(const char* left, const char* right, size_t byte_count, bool is_case_ignored);
 
@@ -109,5 +113,21 @@ static bool static_isSameBytes(const char* left, const char* right, size_t byte_
     if (tolower((unsigned char)left[i]) != tolower((unsigned char)right[i]))
       return false;
   }
+  return true;
+}
+
+bool bytes_writeSha256Hex(const unsigned char* bytes, size_t byte_count, char* hex_out)
+{
+  assert(bytes != NULL || byte_count == 0);
+  assert(hex_out != NULL);
+
+  unsigned char digest[SHA256_DIGEST_LENGTH];
+  unsigned int  digest_len = 0;
+  if (EVP_Digest(bytes, byte_count, digest, &digest_len, EVP_sha256(), NULL) != 1 || digest_len != SHA256_DIGEST_LENGTH)
+  {
+    hex_out[0] = '\0';
+    return false;
+  }
+  bytes_writeHex(digest, SHA256_DIGEST_LENGTH, hex_out);
   return true;
 }

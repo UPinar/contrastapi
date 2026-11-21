@@ -441,3 +441,12 @@ bool validate_vendorKey(const char* vendor_key)
   }
   return true;
 }
+
+bool validate_webUrl(const char* value)
+{
+  static const char http_prefix[]  = "http://";
+  static const char https_prefix[] = "https://";
+  bool has_prefix = strncasecmp(value, http_prefix, sizeof(http_prefix) - 1) == 0 ||
+                    strncasecmp(value, https_prefix, sizeof(https_prefix) - 1) == 0;
+  return has_prefix && strchr(value, ' ') == NULL;
+}

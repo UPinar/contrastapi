@@ -12,6 +12,8 @@
 
 #define HEADER_FETCH_PORT 443
 
+#define HEADER_FETCH_HTTP_PORT 80
+
 #define HEADER_FETCH_DEADLINE_MS 5000
 
 #define HEADER_FETCH_MAX_REDIRECT_COUNT 5
@@ -26,6 +28,22 @@
 #define HEADER_FETCH_CONNECT_FAILED_MESSAGE  "no address of the site took a connection on port " MACRO_STR(HEADER_FETCH_PORT)
 #define HEADER_FETCH_TIMEOUT_MESSAGE         "the site did not answer in time: a connection may take " MACRO_STR(HTTP_CONNECT_TIMEOUT_MS) " ms, and the whole fetch " MACRO_STR(HEADER_FETCH_DEADLINE_MS) " ms"
 #define HEADER_FETCH_TLS_FAILED_MESSAGE      "the TLS handshake with the site failed, or its certificate did not verify; /ssl_check shows why"
+
+#define HEADER_FETCH_URL_UNPARSABLE_MESSAGE               "url is not a valid http or https URL"
+#define HEADER_FETCH_URL_USER_INFO_MESSAGE                "url must not carry a user name or a password"
+#define HEADER_FETCH_URL_TOO_LONG_MESSAGE                 "url is longer than " MACRO_STR(HEADER_FETCH_MAX_URL_BYTE_COUNT) " bytes"
+#define HEADER_FETCH_URL_SCHEME_NOT_FOLLOWED_MESSAGE      "url must be an http or https URL"
+#define HEADER_FETCH_URL_PORT_NOT_ALLOWED_MESSAGE         "url must use port 80 for http or port 443 for https"
+#define HEADER_FETCH_URL_IP_ADDRESS_NOT_FOLLOWED_MESSAGE  "url host must be a name, not an IP address"
+#define HEADER_FETCH_URL_HOST_NOT_PUBLIC_MESSAGE          "url host must be a public DNS name; write an internationalized name in punycode (xn--)"
+#define HEADER_FETCH_URL_CONNECT_FAILED_MESSAGE           "no address of the host took a connection on the port of the url"
+
+typedef enum {
+  HEADER_FETCH_URL_OK = 0,
+  HEADER_FETCH_URL_UNPARSABLE,
+  HEADER_FETCH_URL_USER_INFO,
+  HEADER_FETCH_URL_TOO_LONG
+} HeaderFetchUrlStatus_t;
 
 typedef enum {
   HEADER_FETCH_HOP_RULE_SAME_SITE = 0,
@@ -117,10 +135,20 @@ typedef struct {
   char                  ma_checkedAt[HEADERSCHECK_CHECKED_AT_TEXT_SIZE];
 } HEADERSCHECKRecord_t;
 
-HttpError_t header_fetch_fetchChain     (const char* first_url, const HeaderFetchPolicy_t* policy, int64_t deadline_ms, HeaderFetchChain_t* chain_out);
-void        header_fetch_chainFree      (HeaderFetchChain_t* chain);
-HttpError_t header_fetch_chainError     (const HeaderFetchChain_t* chain);
-HttpError_t header_fetch_fetchHomePage  (const char* hostname, HeaderFetchResult_t* result_out);
-void        header_fetch_resultFree     (HeaderFetchResult_t* result);
+typedef struct {
+  char  ma_url[HEADER_FETCH_MAX_URL_BYTE_COUNT + 1];
+} REDIRECTCHAINParams_t;
+
+typedef struct {
+  HeaderFetchChain_t  m_chain;
+  char                ma_checkedAt[HEADERSCHECK_CHECKED_AT_TEXT_SIZE];
+} REDIRECTCHAINRecord_t;
+
+HttpError_t             header_fetch_fetchChain     (const char* first_url, const HeaderFetchPolicy_t* policy, int64_t deadline_ms, HeaderFetchChain_t* chain_out);
+void                    header_fetch_chainFree      (HeaderFetchChain_t* chain);
+HttpError_t             header_fetch_chainError     (const HeaderFetchChain_t* chain);
+HttpError_t             header_fetch_fetchHomePage  (const char* hostname, HeaderFetchResult_t* result_out);
+void                    header_fetch_resultFree     (HeaderFetchResult_t* result);
+HeaderFetchUrlStatus_t  header_fetch_writeNormalUrl (const char* url, char* normal_url_out, size_t normal_url_size);
 
 #endif

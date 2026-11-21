@@ -297,7 +297,7 @@ void test_HEALTH_serializes_every_section(void)
   char* body = static_finishJsonBuf(json_buf);
 
   TEST_ASSERT_EQUAL_STRING(
-    R"({"status":"ok","version":"2.2.0","db":{)"
+    R"({"status":"ok","version":"2.3.0","db":{)"
       R"("nvd":{"cve_count":312000,"last_added":{"cve_id":"CVE-2026-1234",)"
         R"("published_time":"2026-08-29T10:00:00Z"}},)"
       R"("kev":{"entry_count":1300,"last_added":{"cve_id":"CVE-2026-9999",)"
@@ -318,7 +318,7 @@ void test_HEALTH_null_db_serializes_unavailable_and_null_db(void)
   char* body = static_finishJsonBuf(json_buf);
 
   TEST_ASSERT_EQUAL_STRING(
-    R"({"status":"unavailable","version":"2.2.0","db":null})" "\n", body);
+    R"({"status":"unavailable","version":"2.3.0","db":null})" "\n", body);
   free(body);
 }
 
@@ -380,7 +380,7 @@ void test_HEALTH_every_string_is_escaped_through_its_own_class(void)
   char* body = static_finishJsonBuf(json_buf);
 
   TEST_ASSERT_EQUAL_STRING(
-    R"({"status":"ok","version":"2.2.0","db":{)"
+    R"({"status":"ok","version":"2.3.0","db":{)"
       R"("nvd":{"cve_count":1,"last_added":{"cve_id":"CVE-\"1","published_time":"2026\\08"}},)"
       R"("kev":{"entry_count":2,"last_added":{"cve_id":"CVE\n9","date_added":"2026\t28"}},)"
       R"("cwe":{"entry_count":3,"last_updated":{"cwe_id":"CWE\b79","updated_at":"2026)" "\\u0001" R"(27"}},)"
@@ -3615,7 +3615,7 @@ void test_EMAILADDRESSCHECK_disposable_of_each_list_state(void)
 
 #define IPLOOKUP_GOLDEN_LOADED_HEAD \
   R"({"ip_address":"8.8.4.4","asn":4200000000,"asn_name":"EX\"AMPLE\\NET","asn_country":"DE","geo_country":"FR",)" \
-  R"("cloud_provider":"aws","cloud_service":"ec2","is_cdn":false,"is_datacenter":true,"is_tor_exit":true,)" \
+  R"("cloud_provider":"aws","cloud_service":"ec2","is_cdn":false,"is_datacenter":true,"is_tor_exit":true,"crawler":"gptbot",)" \
   R"("listed_on":)" IPLOOKUP_FIX_LISTED_ON ","
 
 static DnsRecordText_t g_iplookupPtrTexts[2] = { { (char*)"ptr.example.net", 15 }, { (char*)"other.example.net", 17 } };
@@ -3640,6 +3640,7 @@ static void static_fillIPLOOKUPRecord(IPLOOKUPRecord_t* record)
   snprintf(record->ma_geoCountry, sizeof(record->ma_geoCountry), "%s", "FR");
   snprintf(record->ma_cloudProvider, sizeof(record->ma_cloudProvider), "%s", "aws");
   snprintf(record->ma_cloudService, sizeof(record->ma_cloudService), "%s", "ec2");
+  snprintf(record->ma_crawler, sizeof(record->ma_crawler), "%s", "gptbot");
   record->m_isCdn                = false;
   record->m_isDatacenter         = true;
   record->m_isTorExit            = true;
@@ -3649,6 +3650,7 @@ static void static_fillIPLOOKUPRecord(IPLOOKUPRecord_t* record)
   record->m_isCloudFeedLoaded    = true;
   record->m_isTorFeedLoaded      = true;
   record->m_isDropListFeedLoaded = true;
+  record->m_isCrawlerFeedLoaded  = true;
   static_setIPLOOKUPPtr(record, DNS_ANSWER_OK, 2, g_iplookupPtrTexts);
 }
 
@@ -3693,7 +3695,7 @@ void test_IPLOOKUP_golden_ipv6_cdn_that_is_not_a_tor_exit(void)
 
   TEST_ASSERT_EQUAL_STRING(
     R"({"ip_address":"2606:4700::1111","asn":4200000000,"asn_name":"EX\"AMPLE\\NET","asn_country":"DE","geo_country":"FR",)"
-    R"("cloud_provider":"cloudflare","cloud_service":"cdn","is_cdn":true,"is_datacenter":true,"is_tor_exit":false,)"
+    R"("cloud_provider":"cloudflare","cloud_service":"cdn","is_cdn":true,"is_datacenter":true,"is_tor_exit":false,"crawler":"gptbot",)"
     R"("listed_on":)" IPLOOKUP_FIX_LISTED_ON R"(,"ptr":"ptr.example.net","is_ptr_forward_confirmed":true,)" IPLOOKUP_GOLDEN_SLOTS R"("unavailable":{}})" "\n", body);
   free(body);
 }
@@ -3708,6 +3710,7 @@ void test_IPLOOKUP_golden_every_source_loaded_without_a_match(void)
   record.ma_geoCountry[0]    = '\0';
   record.ma_cloudProvider[0] = '\0';
   record.ma_cloudService[0]  = '\0';
+  record.ma_crawler[0]       = '\0';
   record.m_isDatacenter      = false;
   record.m_isTorExit         = false;
   record.mp_listedOn         = (char*)"[]";
@@ -3717,7 +3720,7 @@ void test_IPLOOKUP_golden_every_source_loaded_without_a_match(void)
 
   TEST_ASSERT_EQUAL_STRING(
     R"({"ip_address":"8.8.4.4","asn":null,"asn_name":null,"asn_country":null,"geo_country":null,)"
-    R"("cloud_provider":null,"cloud_service":null,"is_cdn":null,"is_datacenter":false,"is_tor_exit":false,)"
+    R"("cloud_provider":null,"cloud_service":null,"is_cdn":null,"is_datacenter":false,"is_tor_exit":false,"crawler":null,)"
     R"("listed_on":[],"ptr":null,"is_ptr_forward_confirmed":null,)" IPLOOKUP_GOLDEN_SLOTS R"("unavailable":{}})" "\n", body);
   free(body);
 }
@@ -3748,6 +3751,23 @@ void test_IPLOOKUP_as_1_is_a_number(void)
   free(body);
 }
 
+void test_IPLOOKUP_crawler_follows_is_tor_exit_and_is_null_without_a_list(void)
+{
+  IPLOOKUPRecord_t record;
+  static_fillIPLOOKUPRecord(&record);
+  snprintf(record.ma_crawler, sizeof(record.ma_crawler), "%s", "anthropic_bots");
+  char* body = static_IPLOOKUPBody(&record);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(body, R"("is_tor_exit":true,"crawler":"anthropic_bots","listed_on":)"), body);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(body, R"("unavailable":{}})"), body);
+  free(body);
+
+  record.ma_crawler[0] = '\0';
+  body = static_IPLOOKUPBody(&record);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(body, R"("is_tor_exit":true,"crawler":null,"listed_on":)"), body);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(body, R"("unavailable":{}})"), body);
+  free(body);
+}
+
 void test_IPLOOKUP_one_source_not_loaded_and_a_failed_ptr(void)
 {
   IPLOOKUPRecord_t record;
@@ -3763,26 +3783,30 @@ void test_IPLOOKUP_golden_each_source_not_loaded(void)
 {
   static const char* const goldens[] = {
     R"({"ip_address":"8.8.4.4","asn":null,"asn_name":null,"asn_country":null,"geo_country":"FR",)"
-    R"("cloud_provider":"aws","cloud_service":"ec2","is_cdn":false,"is_datacenter":null,"is_tor_exit":true,)"
+    R"("cloud_provider":"aws","cloud_service":"ec2","is_cdn":false,"is_datacenter":null,"is_tor_exit":true,"crawler":"gptbot",)"
     R"("listed_on":)" IPLOOKUP_FIX_LISTED_ON R"(,"ptr":"ptr.example.net","is_ptr_forward_confirmed":true,)" IPLOOKUP_GOLDEN_SLOTS R"("unavailable":{"asn":"not_synced"}})" "\n",
 
     R"({"ip_address":"8.8.4.4","asn":4200000000,"asn_name":"EX\"AMPLE\\NET","asn_country":"DE","geo_country":null,)"
-    R"("cloud_provider":"aws","cloud_service":"ec2","is_cdn":false,"is_datacenter":true,"is_tor_exit":true,)"
+    R"("cloud_provider":"aws","cloud_service":"ec2","is_cdn":false,"is_datacenter":true,"is_tor_exit":true,"crawler":"gptbot",)"
     R"("listed_on":)" IPLOOKUP_FIX_LISTED_ON R"(,"ptr":"ptr.example.net","is_ptr_forward_confirmed":true,)" IPLOOKUP_GOLDEN_SLOTS R"("unavailable":{"geo_country":"not_synced"}})" "\n",
 
     R"({"ip_address":"8.8.4.4","asn":4200000000,"asn_name":"EX\"AMPLE\\NET","asn_country":"DE","geo_country":"FR",)"
-    R"("cloud_provider":null,"cloud_service":null,"is_cdn":null,"is_datacenter":null,"is_tor_exit":true,)"
+    R"("cloud_provider":null,"cloud_service":null,"is_cdn":null,"is_datacenter":null,"is_tor_exit":true,"crawler":"gptbot",)"
     R"("listed_on":)" IPLOOKUP_FIX_LISTED_ON R"(,"ptr":"ptr.example.net","is_ptr_forward_confirmed":true,)" IPLOOKUP_GOLDEN_SLOTS R"("unavailable":{"cloud_provider":"not_synced"}})" "\n",
 
     R"({"ip_address":"8.8.4.4","asn":4200000000,"asn_name":"EX\"AMPLE\\NET","asn_country":"DE","geo_country":"FR",)"
-    R"("cloud_provider":"aws","cloud_service":"ec2","is_cdn":false,"is_datacenter":true,"is_tor_exit":null,)"
+    R"("cloud_provider":"aws","cloud_service":"ec2","is_cdn":false,"is_datacenter":true,"is_tor_exit":null,"crawler":"gptbot",)"
     R"("listed_on":)" IPLOOKUP_FIX_LISTED_ON R"(,"ptr":"ptr.example.net","is_ptr_forward_confirmed":true,)" IPLOOKUP_GOLDEN_SLOTS R"("unavailable":{"is_tor_exit":"not_synced"}})" "\n",
 
     R"({"ip_address":"8.8.4.4","asn":4200000000,"asn_name":"EX\"AMPLE\\NET","asn_country":"DE","geo_country":"FR",)"
-    R"("cloud_provider":"aws","cloud_service":"ec2","is_cdn":false,"is_datacenter":true,"is_tor_exit":true,)"
+    R"("cloud_provider":"aws","cloud_service":"ec2","is_cdn":false,"is_datacenter":true,"is_tor_exit":true,"crawler":"gptbot",)"
     R"("listed_on":null,"ptr":"ptr.example.net","is_ptr_forward_confirmed":true,)" IPLOOKUP_GOLDEN_SLOTS R"("unavailable":{"listed_on":"not_synced"}})" "\n",
+
+    R"({"ip_address":"8.8.4.4","asn":4200000000,"asn_name":"EX\"AMPLE\\NET","asn_country":"DE","geo_country":"FR",)"
+    R"("cloud_provider":"aws","cloud_service":"ec2","is_cdn":false,"is_datacenter":true,"is_tor_exit":true,"crawler":null,)"
+    R"("listed_on":)" IPLOOKUP_FIX_LISTED_ON R"(,"ptr":"ptr.example.net","is_ptr_forward_confirmed":true,)" IPLOOKUP_GOLDEN_SLOTS R"("unavailable":{"crawler":"not_synced"}})" "\n",
   };
-  for (int source = 0; source < 5; source++)
+  for (int source = 0; source < 6; source++)
   {
     IPLOOKUPRecord_t record;
     static_fillIPLOOKUPRecord(&record);
@@ -3800,8 +3824,10 @@ void test_IPLOOKUP_golden_each_source_not_loaded(void)
     }
     else if (source == 3)
       record.m_isTorFeedLoaded = false;
-    else
+    else if (source == 4)
       record.m_isDropListFeedLoaded = false;
+    else
+      record.m_isCrawlerFeedLoaded = false;
 
     char* body = static_IPLOOKUPBody(&record);
 
@@ -3819,6 +3845,8 @@ void test_IPLOOKUP_golden_nothing_loaded_and_ptr_timed_out(void)
   record.m_isCloudFeedLoaded    = false;
   record.m_isTorFeedLoaded      = false;
   record.m_isDropListFeedLoaded = false;
+  record.m_isCrawlerFeedLoaded  = false;
+  record.ma_crawler[0]          = '\0';
   record.m_isCdn                = false;
   record.m_isTorExit            = false;
   record.mp_listedOn            = NULL;
@@ -3828,9 +3856,9 @@ void test_IPLOOKUP_golden_nothing_loaded_and_ptr_timed_out(void)
 
   TEST_ASSERT_EQUAL_STRING(
     R"({"ip_address":"8.8.4.4","asn":null,"asn_name":null,"asn_country":null,"geo_country":null,)"
-    R"("cloud_provider":null,"cloud_service":null,"is_cdn":null,"is_datacenter":true,"is_tor_exit":null,)"
+    R"("cloud_provider":null,"cloud_service":null,"is_cdn":null,"is_datacenter":true,"is_tor_exit":null,"crawler":null,)"
     R"("listed_on":null,"ptr":null,"is_ptr_forward_confirmed":null,)" IPLOOKUP_GOLDEN_SLOTS
-    R"("unavailable":{"asn":"not_synced","geo_country":"not_synced","cloud_provider":"not_synced","is_tor_exit":"not_synced","listed_on":"not_synced","ptr":"timeout"}})" "\n", body);
+    R"("unavailable":{"asn":"not_synced","geo_country":"not_synced","cloud_provider":"not_synced","is_tor_exit":"not_synced","crawler":"not_synced","listed_on":"not_synced","ptr":"timeout"}})" "\n", body);
   free(body);
 }
 
@@ -4596,7 +4624,7 @@ void test_IMAGEINSPECT_golden_lists_the_matched_types_in_order(void)
   memset(&result, 0, sizeof(result));
   result.m_format    = IMAGESCAN_FORMAT_PNG;
   result.m_byteCount = 4000;
-  memset(result.ma_sha256Hex, 'a', IMAGESCAN_SHA256_HEX_LEN);
+  memset(result.ma_sha256Hex, 'a', BYTES_SHA256_HEX_LEN);
   result.ma_signatureMatches[IMAGESCAN_FILE_TYPE_ZIP]          = { 3, { 1200, 2400, 3600 } };
   result.ma_signatureMatches[IMAGESCAN_FILE_TYPE_SHELL_SCRIPT] = { 1, { 77 } };
   ExifClientResult_t exif;
@@ -4628,7 +4656,7 @@ void test_IMAGEINSPECT_golden_writes_each_metadata_field_and_indicator(void)
   memset(&result, 0, sizeof(result));
   result.m_format    = IMAGESCAN_FORMAT_JPEG;
   result.m_byteCount = 24;
-  memset(result.ma_sha256Hex, 'd', IMAGESCAN_SHA256_HEX_LEN);
+  memset(result.ma_sha256Hex, 'd', BYTES_SHA256_HEX_LEN);
   ExifClientResult_t exif;
   memset(&exif, 0, sizeof(exif));
   strcpy(exif.ma_cameraMake,          "Canon");
@@ -4696,7 +4724,7 @@ void test_IMAGEINSPECT_escapes_the_metadata_texts(void)
   ImageScanResult_t result;
   memset(&result, 0, sizeof(result));
   result.m_format = IMAGESCAN_FORMAT_PNG;
-  memset(result.ma_sha256Hex, 'e', IMAGESCAN_SHA256_HEX_LEN);
+  memset(result.ma_sha256Hex, 'e', BYTES_SHA256_HEX_LEN);
   ExifClientResult_t exif;
   memset(&exif, 0, sizeof(exif));
   strcpy(exif.ma_software, "a\"b\\c\x01");
@@ -4718,7 +4746,7 @@ void test_IMAGEINSPECT_lists_only_the_kept_offsets(void)
   memset(&result, 0, sizeof(result));
   result.m_format    = IMAGESCAN_FORMAT_JPEG;
   result.m_byteCount = 5000;
-  memset(result.ma_sha256Hex, 'c', IMAGESCAN_SHA256_HEX_LEN);
+  memset(result.ma_sha256Hex, 'c', BYTES_SHA256_HEX_LEN);
   result.ma_signatureMatches[IMAGESCAN_FILE_TYPE_PHP].m_matchCount = 40;
   for (int k = 0; k < IMAGESCAN_MAX_MATCH_OFFSETS; k++)
     result.ma_signatureMatches[IMAGESCAN_FILE_TYPE_PHP].ma_matchOffsets[k] = 10 * (size_t)(k + 1);
@@ -4738,7 +4766,7 @@ void test_IMAGEINSPECT_writes_the_severity_of_each_kind(void)
   ImageScanResult_t result;
   memset(&result, 0, sizeof(result));
   result.m_format = IMAGESCAN_FORMAT_PNG;
-  memset(result.ma_sha256Hex, 'f', IMAGESCAN_SHA256_HEX_LEN);
+  memset(result.ma_sha256Hex, 'f', BYTES_SHA256_HEX_LEN);
   ExifClientResult_t exif;
   memset(&exif, 0, sizeof(exif));
   ImageIndicatorResult_t indicators;
@@ -4759,7 +4787,7 @@ void test_IMAGEINSPECT_no_match_gives_an_empty_list(void)
   memset(&result, 0, sizeof(result));
   result.m_format    = IMAGESCAN_FORMAT_TIFF;
   result.m_byteCount = 9;
-  memset(result.ma_sha256Hex, 'b', IMAGESCAN_SHA256_HEX_LEN);
+  memset(result.ma_sha256Hex, 'b', BYTES_SHA256_HEX_LEN);
   ExifClientResult_t exif;
   memset(&exif, 0, sizeof(exif));
   ImageIndicatorResult_t indicators;
@@ -5767,7 +5795,7 @@ void test_PRODUCTEXPOSURE_top_cve_count_past_its_array_is_clamped(void)
 
 void test_registration_gate_test_count(void)
 {
-  TEST_ASSERT_EQUAL_INT_MESSAGE(345, (int)Unity.NumberOfTests,
+  TEST_ASSERT_EQUAL_INT_MESSAGE(357, (int)Unity.NumberOfTests,
     "RUN_TEST list and test definitions have drifted apart - a test may be unregistered");
 }
 
@@ -11166,6 +11194,273 @@ void test_docs_privacy_vendor_keys_members_match_the_server(void)
   free(section);
 }
 
+#define REDIRECTCHAIN_FIX_CHECKED_AT "2026-11-21T08:09:10Z"
+#define REDIRECTCHAIN_FIX_HEAD "{\"checked_at\":\"" REDIRECTCHAIN_FIX_CHECKED_AT "\","
+
+static void static_REDIRECTCHAINStart(REDIRECTCHAINRecord_t* record, HeaderFetchStopReason_t stop_reason)
+{
+  memset(record, 0, sizeof(*record));
+  snprintf(record->ma_checkedAt, sizeof(record->ma_checkedAt), "%s", REDIRECTCHAIN_FIX_CHECKED_AT);
+  record->m_chain.m_stopReason = stop_reason;
+}
+
+static HeaderFetchHop_t* static_REDIRECTCHAINAddHop(REDIRECTCHAINRecord_t* record, const char* url, int http_status)
+{
+  HeaderFetchHop_t* hop = &record->m_chain.ma_hops[record->m_chain.m_hopCount++];
+  hop->mp_url       = (char*)url;
+  hop->m_httpStatus = http_status;
+  return hop;
+}
+
+static char* static_REDIRECTCHAINBody(const REDIRECTCHAINRecord_t* record)
+{
+  JsonBuf_t* json_buf = static_newJsonBuf(JSONBUF_INITIAL_CAP, JSONBUF_DEFAULT_CEILING);
+  serialize_REDIRECTCHAIN_response(record, json_buf);
+  return static_finishJsonBuf(json_buf);
+}
+
+void test_REDIRECTCHAIN_final_answer_over_three_hops_golden(void)
+{
+  REDIRECTCHAINRecord_t record;
+  static_REDIRECTCHAINStart(&record, HEADER_FETCH_STOP_FINAL_ANSWER);
+  static_REDIRECTCHAINAddHop(&record, "http://a.example/", 301);
+  static_REDIRECTCHAINAddHop(&record, "https://www.b.co.uk/x?y=1", 302);
+  static_REDIRECTCHAINAddHop(&record, "https://c.example/z", 200);
+  record.m_chain.m_retryAfterSeconds  = 17;
+  record.m_chain.mp_invalidLocation   = (char*)"/never-written";
+  char* body = static_REDIRECTCHAINBody(&record);
+  TEST_ASSERT_EQUAL_STRING(
+    REDIRECTCHAIN_FIX_HEAD "\"final_url\":\"https://c.example/z\",\"stop_reason\":\"final_answer\",\"https_downgrade\":false,"
+    "\"hops\":[{\"url\":\"http://a.example/\",\"status_code\":301},{\"url\":\"https://www.b.co.uk/x?y=1\",\"status_code\":302},"
+    "{\"url\":\"https://c.example/z\",\"status_code\":200}]}\n", body);
+  free(body);
+}
+
+void test_REDIRECTCHAIN_https_downgrade_reads_the_hops_and_the_unfollowed_url(void)
+{
+  static const struct { const char* ma_hops[3]; int m_hopCount; const char* mp_unfollowed; bool m_isDowngrade; } cases[] = {
+    { { "http://a.example/",  "https://a.example/", NULL                }, 2, NULL,                 false },
+    { { "https://a.example/", "http://a.example/",  NULL                }, 2, NULL,                 true  },
+    { { "https://a.example/", "https://b.example/", "http://c.example/" }, 3, NULL,                 true  },
+    { { "https://a.example/", "https://b.example/", NULL                }, 2, "http://b.example/",  true  },
+    { { "https://a.example/", NULL,                 NULL                }, 1, "http://a.example/",  true  },
+    { { "http://a.example/",  "https://b.example/", NULL                }, 2, "https://c.example/", false },
+    { { "http://a.example/",  "http://b.example/",  NULL                }, 2, "http://c.example/",  false },
+    { { "https://a.example/", NULL,                 NULL                }, 1, NULL,                 false },
+    { { "http://a.example/",  NULL,                 NULL                }, 1, "https://a.example/", false },
+  };
+  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+  {
+    REDIRECTCHAINRecord_t record;
+    static_REDIRECTCHAINStart(&record, HEADER_FETCH_STOP_LOOP);
+    for (int h = 0; h < cases[i].m_hopCount; h++)
+      static_REDIRECTCHAINAddHop(&record, cases[i].ma_hops[h], 301);
+    record.m_chain.mp_unfollowedUrl = (char*)cases[i].mp_unfollowed;
+    char* body = static_REDIRECTCHAINBody(&record);
+    char case_name[16];
+    snprintf(case_name, sizeof(case_name), "case %zu", i);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(body, cases[i].m_isDowngrade ? "\"https_downgrade\":true," : "\"https_downgrade\":false,"), case_name);
+    free(body);
+  }
+}
+
+void test_REDIRECTCHAIN_request_failed_with_a_tls_failed_hop_golden(void)
+{
+  REDIRECTCHAINRecord_t record;
+  static_REDIRECTCHAINStart(&record, HEADER_FETCH_STOP_REQUEST_FAILED);
+  static_REDIRECTCHAINAddHop(&record, "https://a.example/", 301);
+  HeaderFetchHop_t* failed = static_REDIRECTCHAINAddHop(&record, "https://b.example/", 0);
+  failed->m_error = HTTP_ERROR_TLS;
+  char* body = static_REDIRECTCHAINBody(&record);
+  TEST_ASSERT_EQUAL_STRING(
+    REDIRECTCHAIN_FIX_HEAD "\"final_url\":\"https://b.example/\",\"stop_reason\":\"request_failed\",\"https_downgrade\":false,"
+    "\"hops\":[{\"url\":\"https://a.example/\",\"status_code\":301},{\"url\":\"https://b.example/\",\"error\":\"tls_failed\"}]}\n", body);
+  free(body);
+}
+
+static void static_REDIRECTCHAINWriteAccents(char* text_out, size_t code_point_count)
+{
+  for (size_t i = 0; i < code_point_count; i++)
+  {
+    text_out[2 * i]     = '\xc3';
+    text_out[2 * i + 1] = '\xa9';
+  }
+  text_out[2 * code_point_count] = '\0';
+}
+
+void test_REDIRECTCHAIN_location_invalid_is_cut_after_500_code_points(void)
+{
+  static char location[2 * 501 + 1];
+  static char expected[4096];
+  for (size_t code_point_count = 500; code_point_count <= 501; code_point_count++)
+  {
+    static_REDIRECTCHAINWriteAccents(location, code_point_count);
+    REDIRECTCHAINRecord_t record;
+    static_REDIRECTCHAINStart(&record, HEADER_FETCH_STOP_LOCATION_INVALID);
+    static_REDIRECTCHAINAddHop(&record, "https://a.example/", 302);
+    record.m_chain.mp_invalidLocation = location;
+    char* body = static_REDIRECTCHAINBody(&record);
+    char shown[2 * 500 + 1];
+    static_REDIRECTCHAINWriteAccents(shown, 500);
+    snprintf(expected, sizeof(expected),
+             REDIRECTCHAIN_FIX_HEAD "\"final_url\":null,\"stop_reason\":\"location_invalid\",\"invalid_location\":\"%s\"%s,\"https_downgrade\":false,"
+             "\"hops\":[{\"url\":\"https://a.example/\",\"status_code\":302}]}\n",
+             shown, code_point_count == 501 ? ",\"total_invalid_location_length\":501" : "");
+    TEST_ASSERT_EQUAL_STRING(expected, body);
+    free(body);
+  }
+}
+
+void test_REDIRECTCHAIN_refresh_and_had_userinfo_golden(void)
+{
+  REDIRECTCHAINRecord_t record;
+  static_REDIRECTCHAINStart(&record, HEADER_FETCH_STOP_FINAL_ANSWER);
+  static_REDIRECTCHAINAddHop(&record, "https://a.example/", 302);
+  HeaderFetchHop_t* last = static_REDIRECTCHAINAddHop(&record, "https://b.example/", 200);
+  last->m_isUserInfoDropped = true;
+  last->mp_refresh          = (char*)"0; url=https://x.example/";
+  char* body = static_REDIRECTCHAINBody(&record);
+  TEST_ASSERT_EQUAL_STRING(
+    REDIRECTCHAIN_FIX_HEAD "\"final_url\":\"https://b.example/\",\"stop_reason\":\"final_answer\",\"https_downgrade\":false,"
+    "\"hops\":[{\"url\":\"https://a.example/\",\"status_code\":302},"
+    "{\"url\":\"https://b.example/\",\"status_code\":200,\"had_userinfo\":true,\"refresh\":\"0; url=https://x.example/\"}]}\n", body);
+  free(body);
+
+  static char refresh[2 * 501 + 1];
+  static char expected[4096];
+  char shown[2 * 500 + 1];
+  static_REDIRECTCHAINWriteAccents(shown, 500);
+  for (size_t code_point_count = 500; code_point_count <= 501; code_point_count++)
+  {
+    static_REDIRECTCHAINWriteAccents(refresh, code_point_count);
+    last->m_isUserInfoDropped = false;
+    last->mp_refresh          = refresh;
+    body = static_REDIRECTCHAINBody(&record);
+    snprintf(expected, sizeof(expected),
+             REDIRECTCHAIN_FIX_HEAD "\"final_url\":\"https://b.example/\",\"stop_reason\":\"final_answer\",\"https_downgrade\":false,"
+             "\"hops\":[{\"url\":\"https://a.example/\",\"status_code\":302},"
+             "{\"url\":\"https://b.example/\",\"status_code\":200,\"refresh\":\"%s\"%s}]}\n",
+             shown, code_point_count == 501 ? ",\"total_refresh_length\":501" : "");
+    TEST_ASSERT_EQUAL_STRING(expected, body);
+    free(body);
+  }
+}
+
+void test_REDIRECTCHAIN_quota_exhausted_at_zero_hops_golden(void)
+{
+  REDIRECTCHAINRecord_t record;
+  static_REDIRECTCHAINStart(&record, HEADER_FETCH_STOP_THROTTLED);
+  record.m_chain.mp_unfollowedUrl   = (char*)"https://a.example/";
+  record.m_chain.m_retryAfterSeconds = 23;
+  char* body = static_REDIRECTCHAINBody(&record);
+  TEST_ASSERT_EQUAL_STRING(
+    REDIRECTCHAIN_FIX_HEAD "\"final_url\":\"https://a.example/\",\"stop_reason\":\"quota_exhausted\",\"retry_after_seconds\":23,"
+    "\"https_downgrade\":false,\"hops\":[]}\n", body);
+  free(body);
+}
+
+void test_REDIRECTCHAIN_port_not_allowed_names_the_target_as_final_url_golden(void)
+{
+  REDIRECTCHAINRecord_t record;
+  static_REDIRECTCHAINStart(&record, HEADER_FETCH_STOP_PORT_NOT_ALLOWED);
+  static_REDIRECTCHAINAddHop(&record, "https://a.example/", 301);
+  record.m_chain.mp_unfollowedUrl = (char*)"https://b.example:8443/";
+  char* body = static_REDIRECTCHAINBody(&record);
+  TEST_ASSERT_EQUAL_STRING(
+    REDIRECTCHAIN_FIX_HEAD "\"final_url\":\"https://b.example:8443/\",\"stop_reason\":\"port_not_allowed\",\"https_downgrade\":false,"
+    "\"hops\":[{\"url\":\"https://a.example/\",\"status_code\":301}]}\n", body);
+  free(body);
+}
+
+void test_REDIRECTCHAIN_escapes_a_bidi_code_point_and_an_invalid_byte(void)
+{
+  REDIRECTCHAINRecord_t record;
+  static_REDIRECTCHAINStart(&record, HEADER_FETCH_STOP_LOCATION_INVALID);
+  HeaderFetchHop_t* hop = static_REDIRECTCHAINAddHop(&record, "https://a.example/\xe2\x80\xae" "x\xff", 302);
+  hop->mp_refresh                   = (char*)"5\xe2\x80\xae\xff\"";
+  record.m_chain.mp_invalidLocation = (char*)"q\xe2\x80\xae" "b\xff\\";
+  char* body = static_REDIRECTCHAINBody(&record);
+  TEST_ASSERT_EQUAL_STRING(
+    REDIRECTCHAIN_FIX_HEAD "\"final_url\":null,\"stop_reason\":\"location_invalid\",\"invalid_location\":\"q\\u202eb\xef\xbf\xbd\\\\\",\"https_downgrade\":false,"
+    "\"hops\":[{\"url\":\"https://a.example/\\u202ex\xef\xbf\xbd\",\"status_code\":302,\"refresh\":\"5\\u202e\xef\xbf\xbd\\\"\"}]}\n", body);
+  TEST_ASSERT_NULL(strchr(body, '\xff'));
+  TEST_ASSERT_NULL(strstr(body, "\xe2\x80\xae"));
+  free(body);
+}
+
+void test_REDIRECTCHAIN_names_each_stop_and_its_final_url(void)
+{
+  static const struct { HeaderFetchStopReason_t m_stopReason; const char* mp_head; } cases[] = {
+    { HEADER_FETCH_STOP_FINAL_ANSWER,            "\"final_url\":\"https://a.example/\",\"stop_reason\":\"final_answer\",\"https_downgrade\"" },
+    { HEADER_FETCH_STOP_REQUEST_LIMIT,           "\"final_url\":\"https://u.example/\",\"stop_reason\":\"request_limit\",\"https_downgrade\"" },
+    { HEADER_FETCH_STOP_LOOP,                    "\"final_url\":\"https://u.example/\",\"stop_reason\":\"loop\",\"https_downgrade\"" },
+    { HEADER_FETCH_STOP_LOCATION_INVALID,        "\"final_url\":null,\"stop_reason\":\"location_invalid\",\"invalid_location\":\"bad\",\"https_downgrade\"" },
+    { HEADER_FETCH_STOP_LOCATION_TOO_LONG,       "\"final_url\":null,\"stop_reason\":\"location_too_long\",\"https_downgrade\"" },
+    { HEADER_FETCH_STOP_OFF_SITE,                "\"final_url\":\"https://u.example/\",\"stop_reason\":\"off_site\",\"https_downgrade\"" },
+    { HEADER_FETCH_STOP_SCHEME_NOT_FOLLOWED,     "\"final_url\":\"https://u.example/\",\"stop_reason\":\"scheme_not_followed\",\"https_downgrade\"" },
+    { HEADER_FETCH_STOP_PORT_NOT_ALLOWED,        "\"final_url\":\"https://u.example/\",\"stop_reason\":\"port_not_allowed\",\"https_downgrade\"" },
+    { HEADER_FETCH_STOP_IP_ADDRESS_NOT_FOLLOWED, "\"final_url\":\"https://u.example/\",\"stop_reason\":\"ip_address_not_followed\",\"https_downgrade\"" },
+    { HEADER_FETCH_STOP_HOST_NOT_PUBLIC,         "\"final_url\":\"https://u.example/\",\"stop_reason\":\"host_not_public\",\"https_downgrade\"" },
+    { HEADER_FETCH_STOP_PERMISSION_REFUSED,      "\"final_url\":\"https://u.example/\",\"stop_reason\":\"permission_refused\",\"https_downgrade\"" },
+    { HEADER_FETCH_STOP_THROTTLED,               "\"final_url\":\"https://u.example/\",\"stop_reason\":\"quota_exhausted\",\"retry_after_seconds\":31,\"https_downgrade\"" },
+    { HEADER_FETCH_STOP_DEADLINE,                "\"final_url\":\"https://u.example/\",\"stop_reason\":\"deadline\",\"https_downgrade\"" },
+    { HEADER_FETCH_STOP_REQUEST_FAILED,          "\"final_url\":\"https://a.example/\",\"stop_reason\":\"request_failed\",\"https_downgrade\"" },
+  };
+  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+  {
+    REDIRECTCHAINRecord_t record;
+    static_REDIRECTCHAINStart(&record, cases[i].m_stopReason);
+    static_REDIRECTCHAINAddHop(&record, "https://a.example/", 301);
+    record.m_chain.mp_unfollowedUrl    = (char*)"https://u.example/";
+    record.m_chain.m_retryAfterSeconds = 31;
+    record.m_chain.mp_invalidLocation  = (char*)"bad";
+    char* body = static_REDIRECTCHAINBody(&record);
+    char expected_head[256];
+    snprintf(expected_head, sizeof(expected_head), REDIRECTCHAIN_FIX_HEAD "%s", cases[i].mp_head);
+    TEST_ASSERT_EQUAL_STRING_LEN_MESSAGE(expected_head, body, strlen(expected_head), cases[i].mp_head);
+    free(body);
+  }
+}
+
+void test_REDIRECTCHAIN_final_url_is_null_without_a_url_to_name(void)
+{
+  static const HeaderFetchStopReason_t stops[] = { HEADER_FETCH_STOP_LOOP, HEADER_FETCH_STOP_FINAL_ANSWER, HEADER_FETCH_STOP_REQUEST_FAILED };
+  static const char* const names[] = { "loop", "final_answer", "request_failed" };
+  static char expected[256];
+  for (size_t i = 0; i < sizeof(stops) / sizeof(stops[0]); i++)
+  {
+    REDIRECTCHAINRecord_t record;
+    static_REDIRECTCHAINStart(&record, stops[i]);
+    char* body = static_REDIRECTCHAINBody(&record);
+    snprintf(expected, sizeof(expected), REDIRECTCHAIN_FIX_HEAD "\"final_url\":null,\"stop_reason\":\"%s\",\"https_downgrade\":false,\"hops\":[]}\n", names[i]);
+    TEST_ASSERT_EQUAL_STRING(expected, body);
+    free(body);
+  }
+}
+
+void test_REDIRECTCHAIN_names_each_hop_error(void)
+{
+  static const struct { HttpError_t m_error; const char* mp_hop; } cases[] = {
+    { HTTP_ERROR_RESOLVE,        "{\"url\":\"https://a.example/\",\"error\":\"resolve_failed\"}" },
+    { HTTP_ERROR_CONNECT,        "{\"url\":\"https://a.example/\",\"error\":\"connect_failed\"}" },
+    { HTTP_ERROR_TIMEOUT,        "{\"url\":\"https://a.example/\",\"error\":\"timeout\"}" },
+    { HTTP_ERROR_TLS,            "{\"url\":\"https://a.example/\",\"error\":\"tls_failed\"}" },
+    { HTTP_ERROR_BLOCKED,        "{\"url\":\"https://a.example/\",\"error\":\"address_not_globally_reachable\"}" },
+    { HTTP_ERROR_BODY_TOO_LARGE, "{\"url\":\"https://a.example/\",\"error\":\"other\"}" },
+    { HTTP_ERROR_OTHER,          "{\"url\":\"https://a.example/\",\"error\":\"other\"}" },
+  };
+  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+  {
+    REDIRECTCHAINRecord_t record;
+    static_REDIRECTCHAINStart(&record, HEADER_FETCH_STOP_REQUEST_FAILED);
+    HeaderFetchHop_t* hop = static_REDIRECTCHAINAddHop(&record, "https://a.example/", 0);
+    hop->m_error = cases[i].m_error;
+    char* body = static_REDIRECTCHAINBody(&record);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(body, cases[i].mp_hop), cases[i].mp_hop);
+    free(body);
+  }
+}
+
 int main(void)
 {
   UNITY_BEGIN();
@@ -11314,6 +11609,7 @@ int main(void)
   RUN_TEST(test_IPLOOKUP_golden_every_source_loaded_without_a_match);
   RUN_TEST(test_IPLOOKUP_an_empty_as_text_is_null_alone);
   RUN_TEST(test_IPLOOKUP_as_1_is_a_number);
+  RUN_TEST(test_IPLOOKUP_crawler_follows_is_tor_exit_and_is_null_without_a_list);
   RUN_TEST(test_IPLOOKUP_one_source_not_loaded_and_a_failed_ptr);
   RUN_TEST(test_IPLOOKUP_golden_each_source_not_loaded);
   RUN_TEST(test_IPLOOKUP_golden_nothing_loaded_and_ptr_timed_out);
@@ -11441,6 +11737,17 @@ int main(void)
   RUN_TEST(test_WELLKNOWN_escapes_a_bidi_code_point_an_invalid_byte_and_a_nul);
   RUN_TEST(test_WELLKNOWN_writes_each_total_only_past_its_cap);
   RUN_TEST(test_WELLKNOWN_writer_warnings_follow_a_full_issue_list);
+  RUN_TEST(test_REDIRECTCHAIN_final_answer_over_three_hops_golden);
+  RUN_TEST(test_REDIRECTCHAIN_https_downgrade_reads_the_hops_and_the_unfollowed_url);
+  RUN_TEST(test_REDIRECTCHAIN_request_failed_with_a_tls_failed_hop_golden);
+  RUN_TEST(test_REDIRECTCHAIN_location_invalid_is_cut_after_500_code_points);
+  RUN_TEST(test_REDIRECTCHAIN_refresh_and_had_userinfo_golden);
+  RUN_TEST(test_REDIRECTCHAIN_quota_exhausted_at_zero_hops_golden);
+  RUN_TEST(test_REDIRECTCHAIN_port_not_allowed_names_the_target_as_final_url_golden);
+  RUN_TEST(test_REDIRECTCHAIN_escapes_a_bidi_code_point_and_an_invalid_byte);
+  RUN_TEST(test_REDIRECTCHAIN_names_each_stop_and_its_final_url);
+  RUN_TEST(test_REDIRECTCHAIN_final_url_is_null_without_a_url_to_name);
+  RUN_TEST(test_REDIRECTCHAIN_names_each_hop_error);
   RUN_TEST(test_WELLKNOWN_group_lists_hold_each_item_once_with_commas);
   RUN_TEST(test_WHOISLOOKUP_full_registration_golden);
   RUN_TEST(test_WHOISLOOKUP_empty_texts_and_missing_iana_id_are_null_golden);

@@ -24,6 +24,7 @@
 #include "header_check.h"
 #include "http.h"
 #include "cache.h"
+#include "bytes.h"
 #include "quota.h"
 #include "monotonic.h"
 #include "etld.h"
@@ -932,7 +933,7 @@ EndpointRunStatus_t endpoint_HEADERSCHECKRun(PGconn* conn, const EndpointAnyPara
 #define WELLKNOWN_CACHE_KEY_PREFIX             "well_known:"
 #define WELLKNOWN_CACHE_EXPIRES_AFTER_SECONDS  3600
 
-static const ThrottleRule_t WELLKNOWN_THROTTLE_RULE = { "site_fetch", 60, 10 };
+static const ThrottleRule_t SITE_FETCH_THROTTLE_RULE = { "site_fetch", 60, 10 };
 #define WELLKNOWN_THROTTLE_CHARGE_COUNT 2
 
 static void static_WELLKNOWNWriteCheckedAt(WELLKNOWNRecord_t* record)
@@ -979,7 +980,7 @@ EndpointRunStatus_t endpoint_WELLKNOWNRun(PGconn* conn, const EndpointAnyParams_
   const char* throttle_target_name = etld_findPlusOne(hostname);
   if (throttle_target_name == NULL)
     throttle_target_name = hostname;
-  switch (throttle_dbCharge(conn, &WELLKNOWN_THROTTLE_RULE, throttle_target_name, WELLKNOWN_THROTTLE_CHARGE_COUNT, &record.m_retryAfterSeconds))
+  switch (throttle_dbCharge(conn, &SITE_FETCH_THROTTLE_RULE, throttle_target_name, WELLKNOWN_THROTTLE_CHARGE_COUNT, &record.m_retryAfterSeconds))
   {
     case THROTTLE_CHARGED:
       break;
@@ -1041,6 +1042,205 @@ EndpointRunStatus_t endpoint_WELLKNOWNRun(PGconn* conn, const EndpointAnyParams_
 
   if (is_cacheable && strlen(body) <= CACHE_MAX_BODY_LEN)
     cache_dbPut(conn, cache_key, body, false, WELLKNOWN_CACHE_EXPIRES_AFTER_SECONDS);
+
+  jsonbuf_appendJsonText(json_buf, body);
+
+  free(body);
+  return ENDPOINT_RUN_OK;
+}
+
+#define REDIRECTCHAIN_CACHE_KEY_PREFIX             "redirect_chain:"
+#define REDIRECTCHAIN_CACHE_EXPIRES_AFTER_SECONDS  3600
+#define REDIRECTCHAIN_THROTTLE_CHARGE_COUNT        1
+
+typedef struct {
+  PGconn*  mp_conn;
+  bool     m_isChargeFailed;
+} REDIRECTCHAINPermissionContext_t;
+
+static HeaderFetchPermission_t static_REDIRECTCHAINAskPermission(void* permission_context, const HeaderFetchTarget_t* target, unsigned* retry_after_seconds_out)
+{
+  REDIRECTCHAINPermissionContext_t* context = permission_context;
+
+  size_t host_len = strlen(target->mp_host);
+  if (host_len > VALIDATE_DOMAIN_NAME_MAX_LEN)
+  {
+    context->m_isChargeFailed = true;
+    return HEADER_FETCH_PERMISSION_REFUSED;
+  }
+
+  char lower_host[VALIDATE_DOMAIN_NAME_MAX_LEN + 1];
+  for (size_t i = 0; i < host_len; i++)
+    lower_host[i] = (char)tolower((unsigned char)target->mp_host[i]);
+  lower_host[host_len] = '\0';
+
+  const char* throttle_target_name = etld_findPlusOne(lower_host);
+  if (throttle_target_name == NULL)
+    throttle_target_name = lower_host;
+  switch (throttle_dbCharge(context->mp_conn, &SITE_FETCH_THROTTLE_RULE, throttle_target_name, REDIRECTCHAIN_THROTTLE_CHARGE_COUNT, retry_after_seconds_out))
+  {
+    case THROTTLE_CHARGED:
+      return HEADER_FETCH_PERMISSION_ALLOWED;
+    case THROTTLE_REFUSED:
+      return HEADER_FETCH_PERMISSION_THROTTLED;
+    case THROTTLE_ERROR:
+      break;
+  }
+
+  context->m_isChargeFailed = true;
+  return HEADER_FETCH_PERMISSION_REFUSED;
+}
+
+static void static_REDIRECTCHAINWriteCheckedAt(REDIRECTCHAINRecord_t* record)
+{
+  time_t    now     = time(NULL);
+  struct tm now_utc = { 0 };
+  gmtime_r(&now, &now_utc);
+  strftime(record->ma_checkedAt, sizeof(record->ma_checkedAt), "%Y-%m-%dT%H:%M:%SZ", &now_utc);
+}
+
+static EndpointRunStatus_t static_REDIRECTCHAINUnsentChainStatus(HeaderFetchStopReason_t stop_reason, const char** message_out)
+{
+  switch (stop_reason)
+  {
+    case HEADER_FETCH_STOP_SCHEME_NOT_FOLLOWED:
+      *message_out = HEADER_FETCH_URL_SCHEME_NOT_FOLLOWED_MESSAGE;
+      return ENDPOINT_RUN_REFUSED;
+    case HEADER_FETCH_STOP_PORT_NOT_ALLOWED:
+      *message_out = HEADER_FETCH_URL_PORT_NOT_ALLOWED_MESSAGE;
+      return ENDPOINT_RUN_REFUSED;
+    case HEADER_FETCH_STOP_IP_ADDRESS_NOT_FOLLOWED:
+      *message_out = HEADER_FETCH_URL_IP_ADDRESS_NOT_FOLLOWED_MESSAGE;
+      return ENDPOINT_RUN_REFUSED;
+    case HEADER_FETCH_STOP_HOST_NOT_PUBLIC:
+      *message_out = HEADER_FETCH_URL_HOST_NOT_PUBLIC_MESSAGE;
+      return ENDPOINT_RUN_REFUSED;
+    case HEADER_FETCH_STOP_THROTTLED:
+      return ENDPOINT_RUN_OK;
+    case HEADER_FETCH_STOP_FINAL_ANSWER:
+    case HEADER_FETCH_STOP_REQUEST_LIMIT:
+    case HEADER_FETCH_STOP_LOOP:
+    case HEADER_FETCH_STOP_LOCATION_INVALID:
+    case HEADER_FETCH_STOP_LOCATION_TOO_LONG:
+    case HEADER_FETCH_STOP_OFF_SITE:
+    case HEADER_FETCH_STOP_PERMISSION_REFUSED:
+    case HEADER_FETCH_STOP_DEADLINE:
+    case HEADER_FETCH_STOP_REQUEST_FAILED:
+      break;
+  }
+  return ENDPOINT_RUN_UPSTREAM_ERROR;
+}
+
+EndpointRunStatus_t endpoint_REDIRECTCHAINRun(PGconn* conn, const EndpointAnyParams_t* params, JsonBuf_t* json_buf, const char** message_out)
+{
+  assert(conn != NULL);
+
+  char normal_url[HEADER_FETCH_MAX_URL_BYTE_COUNT + 1];
+  switch (header_fetch_writeNormalUrl(params->m_redirectChain.ma_url, normal_url, sizeof(normal_url)))
+  {
+    case HEADER_FETCH_URL_OK:
+      break;
+    case HEADER_FETCH_URL_UNPARSABLE:
+      *message_out = HEADER_FETCH_URL_UNPARSABLE_MESSAGE;
+      return ENDPOINT_RUN_REFUSED;
+    case HEADER_FETCH_URL_USER_INFO:
+      *message_out = HEADER_FETCH_URL_USER_INFO_MESSAGE;
+      return ENDPOINT_RUN_REFUSED;
+    case HEADER_FETCH_URL_TOO_LONG:
+      *message_out = HEADER_FETCH_URL_TOO_LONG_MESSAGE;
+      return ENDPOINT_RUN_REFUSED;
+  }
+
+  char url_hash[BYTES_SHA256_HEX_LEN + 1];
+  char cache_key[sizeof(REDIRECTCHAIN_CACHE_KEY_PREFIX) + BYTES_SHA256_HEX_LEN];
+  bool is_cache_key_written = false;
+  if (bytes_writeSha256Hex((const unsigned char*)normal_url, strlen(normal_url), url_hash))
+  {
+    int cache_key_len    = snprintf(cache_key, sizeof(cache_key), "%s%s", REDIRECTCHAIN_CACHE_KEY_PREFIX, url_hash);
+    is_cache_key_written = cache_key_len > 0 && (size_t)cache_key_len < sizeof(cache_key);
+  }
+
+  CacheEntry_t cache_entry;
+  if (is_cache_key_written && cache_dbGet(conn, cache_key, &cache_entry) == CACHE_HIT)
+  {
+    jsonbuf_appendJsonText(json_buf, cache_entry.mp_body);
+    cache_entryFree(&cache_entry);
+    return ENDPOINT_RUN_OK;
+  }
+
+  REDIRECTCHAINRecord_t record;
+  memset(&record, 0, sizeof(record));
+  REDIRECTCHAINPermissionContext_t permission_context = { .mp_conn = conn, .m_isChargeFailed = false };
+  const HeaderFetchPolicy_t policy = {
+    .m_hopRule                = HEADER_FETCH_HOP_RULE_ANY_PUBLIC_HOST,
+    .m_maxBodyByteCount       = 1,
+    .mp_headerNamesToCapture  = NULL,
+    .m_askPermission          = static_REDIRECTCHAINAskPermission,
+    .mp_permissionContext     = &permission_context,
+  };
+  switch (header_fetch_fetchChain(normal_url, &policy, monotonic_nowMs() + HEADER_FETCH_DEADLINE_MS, &record.m_chain))
+  {
+    case HTTP_ERROR_NONE:
+      break;
+    case HTTP_ERROR_RESOLVE:
+      *message_out = HEADER_FETCH_RESOLVE_FAILED_MESSAGE;
+      return ENDPOINT_RUN_TARGET_UNREACHABLE;
+    case HTTP_ERROR_CONNECT:
+      *message_out = HEADER_FETCH_URL_CONNECT_FAILED_MESSAGE;
+      return ENDPOINT_RUN_TARGET_UNREACHABLE;
+    case HTTP_ERROR_TIMEOUT:
+      *message_out = HEADER_FETCH_TIMEOUT_MESSAGE;
+      return ENDPOINT_RUN_TARGET_UNREACHABLE;
+    case HTTP_ERROR_TLS:
+      *message_out = HEADER_FETCH_TLS_FAILED_MESSAGE;
+      return ENDPOINT_RUN_TARGET_UNREACHABLE;
+    case HTTP_ERROR_BLOCKED:
+      *message_out = HEADER_FETCH_ADDRESS_NOT_GLOBALLY_REACHABLE_REFUSAL_MESSAGE;
+      return ENDPOINT_RUN_REFUSED;
+    case HTTP_ERROR_BODY_TOO_LARGE:
+    case HTTP_ERROR_OTHER:
+      return ENDPOINT_RUN_UPSTREAM_ERROR;
+  }
+
+  if (permission_context.m_isChargeFailed)
+  {
+    header_fetch_chainFree(&record.m_chain);
+    return ENDPOINT_RUN_DB_ERROR;
+  }
+
+  HeaderFetchStopReason_t stop_reason = record.m_chain.m_stopReason;
+  if (record.m_chain.m_hopCount == 0)
+  {
+    EndpointRunStatus_t unsent_chain_status = static_REDIRECTCHAINUnsentChainStatus(stop_reason, message_out);
+    if (unsent_chain_status != ENDPOINT_RUN_OK)
+    {
+      header_fetch_chainFree(&record.m_chain);
+      return unsent_chain_status;
+    }
+  }
+
+  static_REDIRECTCHAINWriteCheckedAt(&record);
+
+  char*      body     = NULL;
+  JsonBuf_t* body_buf = jsonbuf_create(JSONBUF_INITIAL_CAP, JSONBUF_DEFAULT_CEILING);
+  if (body_buf != NULL)
+  {
+    serialize_REDIRECTCHAIN_response(&record, body_buf);
+    body = jsonbuf_finish(body_buf);
+    jsonbuf_destroy(body_buf);
+  }
+  header_fetch_chainFree(&record.m_chain);
+
+  if (body == NULL)
+    return ENDPOINT_RUN_NO_MEMORY;
+
+  bool is_cacheable = is_cache_key_written                                &&
+                      stop_reason != HEADER_FETCH_STOP_THROTTLED          &&
+                      stop_reason != HEADER_FETCH_STOP_DEADLINE           &&
+                      stop_reason != HEADER_FETCH_STOP_REQUEST_FAILED     &&
+                      stop_reason != HEADER_FETCH_STOP_PERMISSION_REFUSED;
+  if (is_cacheable && strlen(body) <= CACHE_MAX_BODY_LEN)
+    cache_dbPut(conn, cache_key, body, false, REDIRECTCHAIN_CACHE_EXPIRES_AFTER_SECONDS);
 
   jsonbuf_appendJsonText(json_buf, body);
 

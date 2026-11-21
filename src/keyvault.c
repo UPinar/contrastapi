@@ -25,7 +25,7 @@
 
 #define KEYVAULT_VENDOR_KEY_LINK_BYTE_COUNT (KEYVAULT_VENDOR_KEY_LINK_LEN / 2)
 
-#define KEYVAULT_SHA256_BYTE_COUNT (KEYVAULT_VENDOR_KEY_LINK_HASH_HEX_LEN / 2)
+_Static_assert(KEYVAULT_VENDOR_KEY_LINK_HASH_HEX_LEN == BYTES_SHA256_HEX_LEN, "the hash of a link is a SHA-256 written as hex");
 
 static unsigned char g_sealKey[KEYVAULT_HMAC_BYTE_COUNT];
 static bool          g_isMasterKeySet = false;
@@ -167,13 +167,7 @@ bool keyvault_tryHashVendorKeyLink(const char* link, char* link_hash_hex_out)
   if (link_len != KEYVAULT_VENDOR_KEY_LINK_LEN || !static_isLowerCaseHex(link, link_len))
     return false;
 
-  unsigned char link_hash[KEYVAULT_SHA256_BYTE_COUNT];
-  unsigned int  link_hash_len = KEYVAULT_SHA256_BYTE_COUNT;
-  if (EVP_Digest(link, link_len, link_hash, &link_hash_len, EVP_sha256(), NULL) != 1)
-    return false;
-
-  bytes_writeHex(link_hash, sizeof(link_hash), link_hash_hex_out);
-  return true;
+  return bytes_writeSha256Hex((const unsigned char*)link, link_len, link_hash_hex_out);
 }
 
 static void static_writeInt64(int64_t value, unsigned char* bytes_out)

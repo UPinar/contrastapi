@@ -2035,6 +2035,153 @@ void serialize_WELLKNOWN_response(const WELLKNOWNRecord_t* record, JsonBuf_t* js
   jsonbuf_appendFormat(json_buf, "}\n");
 }
 
+#define REDIRECTCHAIN_HTTP_PREFIX   "http://"
+#define REDIRECTCHAIN_HTTPS_PREFIX  "https://"
+
+static const char* static_REDIRECTCHAINStopReasonName(HeaderFetchStopReason_t stop_reason)
+{
+  switch (stop_reason)
+  {
+    case HEADER_FETCH_STOP_FINAL_ANSWER:
+      return "final_answer";
+    case HEADER_FETCH_STOP_REQUEST_LIMIT:
+      return "request_limit";
+    case HEADER_FETCH_STOP_LOOP:
+      return "loop";
+    case HEADER_FETCH_STOP_LOCATION_INVALID:
+      return "location_invalid";
+    case HEADER_FETCH_STOP_LOCATION_TOO_LONG:
+      return "location_too_long";
+    case HEADER_FETCH_STOP_OFF_SITE:
+      return "off_site";
+    case HEADER_FETCH_STOP_SCHEME_NOT_FOLLOWED:
+      return "scheme_not_followed";
+    case HEADER_FETCH_STOP_PORT_NOT_ALLOWED:
+      return "port_not_allowed";
+    case HEADER_FETCH_STOP_IP_ADDRESS_NOT_FOLLOWED:
+      return "ip_address_not_followed";
+    case HEADER_FETCH_STOP_HOST_NOT_PUBLIC:
+      return "host_not_public";
+    case HEADER_FETCH_STOP_PERMISSION_REFUSED:
+      return "permission_refused";
+    case HEADER_FETCH_STOP_THROTTLED:
+      return "quota_exhausted";
+    case HEADER_FETCH_STOP_DEADLINE:
+      return "deadline";
+    case HEADER_FETCH_STOP_REQUEST_FAILED:
+      return "request_failed";
+  }
+  return "";
+}
+
+static const char* static_REDIRECTCHAINHopErrorName(HttpError_t error)
+{
+  switch (error)
+  {
+    case HTTP_ERROR_RESOLVE:
+      return "resolve_failed";
+    case HTTP_ERROR_CONNECT:
+      return "connect_failed";
+    case HTTP_ERROR_TIMEOUT:
+      return "timeout";
+    case HTTP_ERROR_TLS:
+      return "tls_failed";
+    case HTTP_ERROR_BLOCKED:
+      return "address_not_globally_reachable";
+    case HTTP_ERROR_NONE:
+    case HTTP_ERROR_BODY_TOO_LARGE:
+    case HTTP_ERROR_OTHER:
+      break;
+  }
+  return "other";
+}
+
+static void static_REDIRECTCHAINWriteSiteValue(const char* member_name, const char* value, JsonBuf_t* json_buf)
+{
+  size_t code_point_count = 0;
+  size_t shown_len        = header_check_shownSpanLength(value, strlen(value), &code_point_count);
+  jsonbuf_appendFormat(json_buf, R"(,"%s":")", member_name);
+  jsonbuf_appendEscapedBytes(json_buf, value, shown_len);
+  jsonbuf_appendFormat(json_buf, "\"");
+  if (code_point_count > HEADER_CHECK_SHOWN_VALUE_MAX_CODE_POINTS)
+    jsonbuf_appendFormat(json_buf, R"(,"total_%s_length":%zu)", member_name, code_point_count);
+}
+
+static void static_REDIRECTCHAINWriteUrl(const char* url, JsonBuf_t* json_buf)
+{
+  jsonbuf_appendFormat(json_buf, "\"");
+  jsonbuf_appendEscapedBytes(json_buf, url, strlen(url));
+  jsonbuf_appendFormat(json_buf, "\"");
+}
+
+static const char* static_REDIRECTCHAINFinalUrl(const HeaderFetchChain_t* chain)
+{
+  if (chain->m_stopReason == HEADER_FETCH_STOP_FINAL_ANSWER || chain->m_stopReason == HEADER_FETCH_STOP_REQUEST_FAILED)
+    return chain->m_hopCount > 0 ? chain->ma_hops[chain->m_hopCount - 1].mp_url : NULL;
+  else if (chain->m_stopReason == HEADER_FETCH_STOP_LOCATION_INVALID || chain->m_stopReason == HEADER_FETCH_STOP_LOCATION_TOO_LONG)
+    return NULL;
+  return chain->mp_unfollowedUrl;
+}
+
+static bool static_REDIRECTCHAINIsHttpsDowngrade(const HeaderFetchChain_t* chain)
+{
+  bool is_previous_https = false;
+  int  url_count         = chain->m_hopCount + (chain->mp_unfollowedUrl != NULL ? 1 : 0);
+  for (int i = 0; i < url_count; i++)
+  {
+    const char* url = i < chain->m_hopCount ? chain->ma_hops[i].mp_url : chain->mp_unfollowedUrl;
+    if (is_previous_https && strncmp(url, REDIRECTCHAIN_HTTP_PREFIX, sizeof(REDIRECTCHAIN_HTTP_PREFIX) - 1) == 0)
+      return true;
+    is_previous_https = strncmp(url, REDIRECTCHAIN_HTTPS_PREFIX, sizeof(REDIRECTCHAIN_HTTPS_PREFIX) - 1) == 0;
+  }
+  return false;
+}
+
+static void static_REDIRECTCHAINWriteHop(const HeaderFetchHop_t* hop, JsonBuf_t* json_buf)
+{
+  jsonbuf_appendFormat(json_buf, R"({"url":)");
+  static_REDIRECTCHAINWriteUrl(hop->mp_url, json_buf);
+  if (hop->m_error != HTTP_ERROR_NONE)
+    jsonbuf_appendFormat(json_buf, R"(,"error":"%s")", static_REDIRECTCHAINHopErrorName(hop->m_error));
+  else
+    jsonbuf_appendFormat(json_buf, R"(,"status_code":%d)", hop->m_httpStatus);
+  if (hop->m_isUserInfoDropped)
+    jsonbuf_appendFormat(json_buf, R"(,"had_userinfo":true)");
+  if (hop->mp_refresh != NULL)
+    static_REDIRECTCHAINWriteSiteValue("refresh", hop->mp_refresh, json_buf);
+  jsonbuf_appendFormat(json_buf, "}");
+}
+
+void serialize_REDIRECTCHAIN_response(const REDIRECTCHAINRecord_t* record, JsonBuf_t* json_buf)
+{
+  assert(record   != NULL);
+  assert(json_buf != NULL);
+
+  const HeaderFetchChain_t* chain = &record->m_chain;
+
+  jsonbuf_appendFormat(json_buf, "{");
+  static_writeTextOrNull("checked_at", record->ma_checkedAt, json_buf);
+  jsonbuf_appendFormat(json_buf, R"(,"final_url":)");
+  const char* final_url = static_REDIRECTCHAINFinalUrl(chain);
+  if (final_url != NULL)
+    static_REDIRECTCHAINWriteUrl(final_url, json_buf);
+  else
+    jsonbuf_appendFormat(json_buf, "null");
+  jsonbuf_appendFormat(json_buf, R"(,"stop_reason":"%s")", static_REDIRECTCHAINStopReasonName(chain->m_stopReason));
+  if (chain->m_stopReason == HEADER_FETCH_STOP_THROTTLED)
+    jsonbuf_appendFormat(json_buf, R"(,"retry_after_seconds":%u)", chain->m_retryAfterSeconds);
+  if (chain->m_stopReason == HEADER_FETCH_STOP_LOCATION_INVALID && chain->mp_invalidLocation != NULL)
+    static_REDIRECTCHAINWriteSiteValue("invalid_location", chain->mp_invalidLocation, json_buf);
+  jsonbuf_appendFormat(json_buf, R"(,"https_downgrade":%s,"hops":[)", static_REDIRECTCHAINIsHttpsDowngrade(chain) ? "true" : "false");
+  for (int i = 0; i < chain->m_hopCount; i++)
+  {
+    if (i > 0)
+      jsonbuf_appendFormat(json_buf, ",");
+    static_REDIRECTCHAINWriteHop(&chain->ma_hops[i], json_buf);
+  }
+  jsonbuf_appendFormat(json_buf, "]}\n");
+}
+
 static const char* static_WHOISLOOKUPUnavailableReasonText(WHOISLOOKUPUnavailableReason_t unavailable_reason)
 {
   switch (unavailable_reason)
@@ -2746,6 +2893,7 @@ static void static_IPLOOKUPWriteUnavailable(const IPLOOKUPRecord_t* record, Json
     { record->m_isGeoFeedLoaded,      "geo_country" },
     { record->m_isCloudFeedLoaded,    "cloud_provider" },
     { record->m_isTorFeedLoaded,      "is_tor_exit" },
+    { record->m_isCrawlerFeedLoaded,  "crawler" },
     { record->m_isDropListFeedLoaded, "listed_on" },
   };
 
@@ -2882,6 +3030,9 @@ void serialize_IPLOOKUP_response(const IPLOOKUPRecord_t* record, const IPLOOKUPV
     jsonbuf_appendFormat(json_buf, R"("is_tor_exit":%s,)", record->m_isTorExit ? "true" : "false");
   else
     jsonbuf_appendFormat(json_buf, R"("is_tor_exit":null,)");
+
+  static_writeTextOrNull("crawler", record->m_isCrawlerFeedLoaded ? record->ma_crawler : "", json_buf);
+  jsonbuf_appendFormat(json_buf, ",");
 
   jsonbuf_appendFormat(json_buf, R"("listed_on":)");
   if (record->m_isDropListFeedLoaded)

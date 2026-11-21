@@ -5,11 +5,11 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "auth.h"
+#include "bytes.h"
 #include "validate.h"
 
 #define BILLING_LEMONSQUEEZY_SECRET_MIN_LEN 32
-#define BILLING_LEMONSQUEEZY_SIGNATURE_LEN  SHA256_HEX_LEN
+#define BILLING_LEMONSQUEEZY_SIGNATURE_LEN  BYTES_SHA256_HEX_LEN
 
 #define BILLING_LEMONSQUEEZY_SIGNATURE_REFUSAL_MESSAGE "X-Signature does not match the body"
 

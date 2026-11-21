@@ -41,6 +41,7 @@ A trailing slash is not significant: `/cve_search`, `/cve_search/` and `/cve_sea
 - [SSL Check: `GET /ssl_check/{domain}`](#ssl-check-get-ssl_checkdomain)
 - [Headers Check: `GET /headers_check/{domain}`](#headers-check-get-headers_checkdomain)
 - [Well Known: `GET /well_known/{domain}`](#well-known-get-well_knowndomain)
+- [Redirect Chain: `GET /redirect_chain?url=`](#redirect-chain-get-redirect_chainurl)
 - [WHOIS Lookup: `GET /whois_lookup/{domain}`](#whois-lookup-get-whois_lookupdomain)
 - [Wayback Lookup: `GET /wayback_lookup/{domain}`](#wayback-lookup-get-wayback_lookupdomain)
 - [Cert Search: `GET /cert_search/{domain}`](#cert-search-get-cert_searchdomain)
@@ -86,7 +87,7 @@ A request over its budget gets `429`. A request without a key to an endpoint tha
 | Checksum | CRC-32 of the body, lowercase hex    | 8      |
 | Total    | `contrastapi_` + 48 hex + 8 hex      | 68     |
 
-The checksum is the CRC-32 of the 48 body characters, the value zlib's `crc32` computes, written as 8 lowercase hex digits. A key with a wrong checksum is malformed. So a typing error in the body or the checksum gets its `401` without a database lookup, and a secret scanner can recognise a leaked key without asking the server.
+The checksum is the CRC-32 of the 48 body characters, the value zlib's `crc32` computes, written as 8 lowercase hex digits. A key with a wrong checksum is malformed.
 
 ### Sending the key
 
@@ -108,7 +109,7 @@ Both headers are accepted on every endpoint.
 
 - When a request sends both, a well-formed `Bearer` key wins. Otherwise the server reads `X-API-Key`, even if the `Authorization` header holds something else, such as `Basic` credentials.
 - Only the chosen key is looked up. A well-formed `Bearer` key that is not known returns `401`, even when `X-API-Key` holds a known key.
-- The `Bearer` scheme token matches in any case (RFC 9110), so `bearer` and `BEARER` work like `Bearer`. Exactly one space separates the scheme from the key. The key itself is case-sensitive and must be lowercase hex.
+- The `Bearer` scheme token matches in any case, so `bearer` and `BEARER` work like `Bearer`. Exactly one space separates the scheme from the key. The key itself is case-sensitive and must be lowercase hex.
 - A key with the `contrastapi_` prefix but the wrong length, a character that is not lowercase hex, or a wrong checksum is malformed. When neither header holds a well-formed key, a malformed key in either one returns `401`.
 - A credential without the `contrastapi_` prefix is not a malformed key but *no* key. If neither header holds a `contrastapi_` key, the request is served on the anonymous budget.
 - A well-formed key that is not known returns `401`. So does a key that was revoked or has expired, with the code `api_key_inactive`.
@@ -119,15 +120,15 @@ Both headers are accepted on every endpoint.
 A buyer gets the key in four steps.
 
 1. The buyer pays at Lemon Squeezy, or in crypto through NOWPayments. A crypto buyer starts on the pricing page. Its button sends `POST /crypto_checkout`, and the answer holds the address of the NOWPayments invoice page.
-2. The Lemon Squeezy receipt and confirmation button open `/welcome#order_id=<order UUID>` or `/welcome?order_id=<order UUID>`. The page reads the fragment first. A browser does not send the fragment, so the order id reaches no server log. The NOWPayments invoice sends the buyer to `/welcome?order_id=<order UUID>`.
-3. The `/welcome` page sends `POST /api_key_claim` with that order id. While the answer is `404`, it asks again every 5 seconds, at most 120 times, so for up to 10 minutes. A crypto order is claimable only after the payment event has arrived, and the wait covers a late event.
+2. The Lemon Squeezy receipt and confirmation button open `/welcome#order_id=<order UUID>` or `/welcome?order_id=<order UUID>`. The page reads the fragment first. The NOWPayments invoice sends the buyer to `/welcome?order_id=<order UUID>`.
+3. The `/welcome` page sends `POST /api_key_claim` with that order id. While the answer is `404`, it asks again every 5 seconds, at most 120 times, so for up to 10 minutes. A crypto order is claimable only after the payment event has arrived.
 4. The answer holds the new key, and the page shows it. The key is shown this one time.
 
 The server keeps only the SHA-256 hash of the key. It cannot show the key again. An order can be claimed for 24 hours after its payment. A key from a NOWPayments order is valid for 30 days from the payment. A buyer who lost the key, or who missed the 24 hours, contacts support at contact@contrastcyber.com.
 
 ### `POST /api_key_claim`
 
-This endpoint makes the key of a paid order. The `/welcome` page calls it. It costs 0 credits and needs no API key. It has no MCP tool, because its answer holds a new key that an agent's transcript should not keep.
+This endpoint makes the key of a paid order. The `/welcome` page calls it. It costs 0 credits and needs no API key. It has no MCP tool.
 
 ```bash
 curl -X POST https://api.contrastcyber.com/api_key_claim \
@@ -155,7 +156,7 @@ The webhook handles `order_created`, `subscription_cancelled`, `subscription_exp
 
 | Status | Body | When |
 |--------|------|------|
-| 200 | `{"status":"<text>"}` | The event was read. `<text>` is `applied`, `duplicate`, `exists`, `stale`, `revoked`, `unknown` or `ignored`. The answer never repeats a byte of the request body. |
+| 200 | `{"status":"<text>"}` | The event was read. `<text>` is `applied`, `duplicate`, `exists`, `stale`, `revoked`, `unknown` or `ignored`. |
 | 400 | `bad_request`, with the reason | The body is empty (`"body is required"`), `X-Signature` is sent twice, `X-Signature` is longer than 64 characters (`"X-Signature is too long"`), or the signature is right but the body holds no readable event. The body message names the field the server could not read. |
 | 401 | `invalid_signature`, `"X-Signature does not match the body"` | `X-Signature` is missing or wrong. |
 | 413 | `content_too_large` | The body is longer than 64 KiB. |
@@ -182,13 +183,13 @@ The invoice sends the buyer back to `/welcome?order_id=<order UUID>` after the p
 
 ### `POST /webhook_nowpayments`
 
-Only NOWPayments calls this endpoint. It costs 0 credits and has no MCP tool. The request carries `x-nowpayments-sig`, an HMAC-SHA512 of the body with sorted keys and no spaces, under the IPN secret. A caller other than NOWPayments cannot sign a body, so it gets `401`. The body may be up to 64 KiB (65536 bytes).
+Only NOWPayments calls this endpoint. It costs 0 credits and has no MCP tool. The request carries `x-nowpayments-sig`, an HMAC-SHA512 of the body under the IPN secret. A caller other than NOWPayments cannot sign a body, so it gets `401`. The body may be up to 64 KiB (65536 bytes).
 
 The invoice counts as paid when `payment_status` is `finished`, or when it is `partially_paid` and `actually_paid` is at least 0.99 times `pay_amount`. Any other status, in a body with a usable invoice ref and `order_id`, is answered `200` with `{"status":"ignored"}`, and nothing is written. So is a notification with a `parent_payment_id`, which reports a repeated deposit. Every answer about a readable event is `200`, a repeated delivery too. A paid notification writes an order that the buyer claims with `POST /api_key_claim` within 24 hours.
 
 | Status | Body | When |
 |--------|------|------|
-| 200 | `{"status":"<text>"}` | The event was read. `<text>` is `applied`, `duplicate`, `exists` or `ignored`. The answer never repeats a byte of the request body. |
+| 200 | `{"status":"<text>"}` | The event was read. `<text>` is `applied`, `duplicate`, `exists` or `ignored`. |
 | 400 | `bad_request`, with the reason | `x-nowpayments-sig` is longer than 128 characters (`"x-nowpayments-sig is too long"`), or the signature is right but the body holds no readable payment. The body message names the reason, such as `"order_id is missing or not a lower-case UUID"`. |
 | 401 | `invalid_signature`, `"x-nowpayments-sig does not match the body"` | `x-nowpayments-sig` is missing, is not 128 lower-case hex digits or is wrong, or the body cannot be put in the signed form. |
 | 413 | `content_too_large` | The body is longer than 64 KiB. |
@@ -233,7 +234,7 @@ curl "https://api.contrastcyber.com/cve_lookup/CVE-2021-44228?include_ghsa=true"
 | `cvss_v3_vector`         | string or null    | CVSS v3 vector string; null when the CVE has none |
 | `cvss_v3_source`         | string or null    | Who gave the CVSS v3 score shown: `nvd`, `cna` (the CNA that assigned the CVE), `adp` (the CISA ADP) or `other`. When more than one of them scored the CVE, the score shown is the CNA's, else NVD's, else the ADP's. null when the source is not known |
 | `cvss_v4`                | float or null     | CVSS v4 base score (0.0–10.0); null when the CVE has no CVSS v4 vector |
-| `cvss_v4_vector`         | string or null    | CVSS v4 vector string; null when the CVE has none |
+| `cvss_v4_vector`         | string or null    | CVSS v4 vector string; null when the CVE has none. A metric whose value is X (Not Defined) is left out of the vector |
 | `cvss_v4_source`         | string or null    | Who gave the CVSS v4 score shown, with the classes and the order of `cvss_v3_source`. The v4 metric is chosen on its own, so the two classes can differ |
 | `published_time`         | string (datetime) | The earlier of the dates on which the CNA and NVD published the CVE (ISO 8601) |
 | `epss_score`             | float             | EPSS probability of exploitation in the next 30 days (0.0–1.0). 0.0 when no usable score is known, as for a CVE the EPSS feed has left out for 7 days |
@@ -409,7 +410,7 @@ With `?include_ghsa=true` and an advisory found, `ghsa` is an object. The `affec
 
 ### CVE.org state of a missing CVE
 
-When our data does not hold the CVE, the server may ask CVE.org about the id. It asks the CVE Services at `cveawg.mitre.org`. It sends the id and nothing else: no IP address and no API key. It reads only the state of the id. It never reads a record from CVE.org. [Data sources and licenses](#data-sources-and-licenses) lists the source.
+When our data does not hold the CVE, the server may ask CVE.org about the id. It sends only the id: no IP address and no API key. It reads only the state of the id, never a record. [Data sources and licenses](#data-sources-and-licenses) lists the source.
 
 The answer is still `404`, and the call still costs 1 credit. When CVE.org names the state of the id, the `error` object gains the member `cve_org_state`. It holds one of four values. The `message` of each value is fixed.
 
@@ -420,7 +421,7 @@ The answer is still `404`, and the call still costs 1 credit. When CVE.org names
 | `rejected` | `CVE not found; CVE.org lists it as rejected` |
 | `unknown_id` | `CVE not found; CVE.org has no such id` |
 
-A `published` answer also holds `retry_after_seconds`. It is the time between two runs of our feeds, in seconds, so the record may be here after it. The number may change. The other three states hold no `retry_after_seconds`, because they have no record to wait for. The response has no `Retry-After` header.
+A `published` answer also holds `retry_after_seconds`. It is the time between two runs of our feeds, in seconds. The number may change. The other three states hold no `retry_after_seconds`. The response has no `Retry-After` header.
 
 ```json
 {"error":{"code":"not_found","message":"CVE not found; CVE.org has published it and our data does not have it yet; retry later","cve_org_state":"published","retry_after_seconds":7200}}
@@ -430,11 +431,9 @@ A `published` answer also holds `retry_after_seconds`. It is the time between tw
 {"error":{"code":"not_found","message":"CVE not found; CVE.org lists it as rejected","cve_org_state":"rejected"}}
 ```
 
-The member is optional. A `404` without `cve_org_state` is the plain miss `{"error":{"code":"not_found","message":"CVE not found"}}`. It means that the server did not check, not that CVE.org has no such id. The server does not check when CVE.org cannot be asked or does not answer. A small rate limit for the whole server also bounds these requests. So the same id may come with the member at one time and without it at another. Act on `cve_org_state` only when it is present.
+The member is optional. A `404` without `cve_org_state` is the plain miss `{"error":{"code":"not_found","message":"CVE not found"}}`. It means that the server did not check, not that CVE.org has no such id. The server does not always check, so the same id may come with the member at one time and without it at another. Act on `cve_org_state` only when it is present.
 
-An id whose sequence has 5 digits or more and starts with `0` is no id that CVE.org issues. It is answered `unknown_id` with no request to CVE.org.
-
-An id that our data holds is answered as before, and nothing is sent to CVE.org.
+An id whose sequence has 5 digits or more and starts with `0` is no id that CVE.org issues. It is answered `unknown_id` with no request to CVE.org. An id that our data holds is never sent to CVE.org.
 
 ### Error responses
 
@@ -514,8 +513,7 @@ Lists the affected products of one CVE, one page at a time. A call costs 1 credi
 
 The products come in the order of `affected_products` in
 [CVE Lookup](#cve-lookup-get-cve_lookupcve_id): the vulnerable ones first, then the others.
-Within each group the products sort by vendor, then by product. So an update of the CVE record
-that keeps its products gives the same pages. The first page with no filter is the
+Within each group the products sort by vendor, then by product. The first page with no filter is the
 `affected_products` of `/cve_lookup`, and `offset=20` goes on from there.
 
 ```bash
@@ -571,7 +569,7 @@ curl "https://api.contrastcyber.com/cve_products/CVE-2021-44228?vendor=cisco&lim
 
 Searches CVEs by vendor, product, severity, scores, KEV status, weakness class and date, one page at a time. A call costs 1 credit. The data comes from NVD, the CVE List, EPSS, CISA KEV and nuclei-templates; see [Data sources and licenses](#data-sources-and-licenses).
 
-The newest CVEs come first. Within one day, the CVE published at the later time comes first, and the CVEs whose time is not known follow. `sort=epss` or `sort=cvss` orders them by exploitation probability or by CVSS score instead. `sort=kev_date_added` puts the newest KEV entry first. CVEs that tie on the sort key come in `cve_id` order, so `offset` cuts the same pages from the same data.
+The newest CVEs come first. Within one day, the CVE published at the later time comes first, and the CVEs whose time is not known follow. `sort=epss` or `sort=cvss` orders them by exploitation probability or by CVSS score instead. `sort=kev_date_added` puts the newest KEV entry first. CVEs that tie on the sort key come in `cve_id` order.
 
 ```bash
 curl "https://api.contrastcyber.com/cve_search"
@@ -905,11 +903,11 @@ The score is the one of [`/cve_risk_score`](#cve-risk-score-get-cve_risk_scorecv
 
 ### Ordering
 
-Always `risk_score DESC`, then `epss_score DESC`, then `cvss_v3 DESC`, then `cve_id`. CVEs can share all three scores, so the last key makes the order deterministic. There is no `sort` parameter. `results[0]` is the most urgent CVE of the matching set.
+Always `risk_score DESC`, then `epss_score DESC`, then `cvss_v3 DESC`, then `cve_id`. There is no `sort` parameter. `results[0]` is the most urgent CVE of the matching set.
 
 ### Query parameters
 
-The filters are few on purpose. `min_risk_score` already combines CVSS and EPSS, so there is no `severity`, `min_cvss` or `min_epss`. There is no `in_kev`, `known_ransomware`, `cwe_id` or `published_*` filter either. To filter by those, use [`/cve_search`](#cve-search-get-cve_search).
+There is no `severity`, `min_cvss`, `min_epss`, `in_kev`, `known_ransomware`, `cwe_id` or `published_*` filter. To filter by those, use [`/cve_search`](#cve-search-get-cve_search).
 
 | Parameter          | Type   | Example      | Description |
 |--------------------|--------|--------------|-------------|
@@ -991,7 +989,7 @@ An element that is not a well-formed CVE ID does not fail the request. It is cou
 
 ### Response fields
 
-The answer has the counters of [`/cve_lookup_bulk`](#cve-lookup-bulk-post-cve_lookup_bulk): `total`, `processed`, `successful`, `skipped`, `failed` and `not_processed`. `successful` counts the IDs that were found and scored. `results` holds one row of the [`/cve_triage`](#cve-triage-get-cve_triage) shape for each of them, ordered by `risk_score` descending, with ties broken as in `/cve_triage`. The order is by risk, not by input order. IDs that were skipped, failed or not processed are not in `results`.
+The answer has the counters of [`/cve_lookup_bulk`](#cve-lookup-bulk-post-cve_lookup_bulk): `total`, `processed`, `successful`, `skipped`, `failed` and `not_processed`. `successful` counts the IDs that were found and scored. `results` holds one row of the [`/cve_triage`](#cve-triage-get-cve_triage) shape for each of them, ordered by `risk_score` descending, with ties broken as in `/cve_triage`. IDs that were skipped, failed or not processed are not in `results`.
 
 ```json
 {
@@ -1150,7 +1148,7 @@ Returns the public exploits and proofs of concept (PoC) of one CVE. A call costs
 
 The server reads its own copy of each source. See [Data sources and licenses](#data-sources-and-licenses).
 
-GitHub repositories are listed with their stars, but they do not count toward `has_public_exploit`. A repository count measures attention, not a working exploit.
+GitHub repositories are listed with their stars, but they do not count toward `has_public_exploit`.
 
 The answer is 200 even when a source fails. Such a source still appears in `sources`, with `"available": false` and a `reason`. Its `count` is 0 and its `top_results` is empty.
 
@@ -1163,9 +1161,9 @@ curl https://api.contrastcyber.com/cve_exploit/CVE-2021-44228
 | Field                | Type            | Description |
 |----------------------|-----------------|-------------|
 | `cve_id`             | string          | CVE identifier |
-| `exploits_found`     | integer or null | Number of GitHub repositories that the PoC-in-GitHub list names for this CVE. A repository shows attention and is no proof of a working exploit. So `exploits_found` does not decide `has_public_exploit`. `null` when the GitHub source is unavailable |
-| `has_public_exploit` | boolean or null | `true` if an available Metasploit, NVD or ExploitDB source found at least one exploit. Any ExploitDB entry counts, verified or not. GitHub repositories do not count. `null` otherwise. It is never `false`: a CVE can have a public exploit that none of the sources lists, so finding none only means these sources list none. `sources[].available` shows which sources answered |
-| `in_kev`             | boolean or null | Whether the CVE is in the CISA KEV catalog. It is read from the same local record as the NVD source, so it is `null` when that source is unavailable |
+| `exploits_found`     | integer or null | Number of GitHub repositories that the PoC-in-GitHub list names for this CVE. It does not decide `has_public_exploit`. `null` when the GitHub source is unavailable |
+| `has_public_exploit` | boolean or null | `true` if an available Metasploit, NVD or ExploitDB source found at least one exploit. Any ExploitDB entry counts, verified or not. GitHub repositories do not count. `null` otherwise. It is never `false`: finding none only means these sources list none. `sources[].available` shows which sources answered |
+| `in_kev`             | boolean or null | Whether the CVE is in the CISA KEV catalog. `null` when the NVD source is unavailable |
 | `sources`            | array           | Per-source breakdown (see below) |
 
 #### `sources[]`: GitHub
@@ -1178,7 +1176,7 @@ curl https://api.contrastcyber.com/cve_exploit/CVE-2021-44228
 | `count`       | integer | GitHub repositories that the list names for this CVE, never fewer than the repositories in `top_results`; `0` when unavailable |
 | `top_results` | array   | Up to 3 repositories, the most stars first, then by name (see below); empty when unavailable |
 
-The list is [nomi-sec/PoC-in-GitHub](https://github.com/nomi-sec/PoC-in-GitHub). `count` is the number of repositories the list names, not a GitHub search result. Anyone can publish a repository that names a CVE, so a listed repository is no proof of a public exploit.
+The list is [nomi-sec/PoC-in-GitHub](https://github.com/nomi-sec/PoC-in-GitHub). `count` is the number of repositories the list names, not a GitHub search result.
 
 ##### `top_results[]` item fields (GitHub)
 
@@ -1235,14 +1233,14 @@ The modules come from the [Metasploit Framework module metadata](https://github.
 | `count`       | integer | ExploitDB entries for this CVE, never fewer than the entries in `top_results`; `0` when unavailable |
 | `top_results` | array   | Up to 5 entries: verified ones first, then the newest `date_published`. Among entries of the same `verified` value, an entry with no date comes last, and the higher `edb_id` comes first among equal dates (see below); empty when unavailable |
 
-The entries come from `files_exploits.csv` of the [exploit-database repository](https://gitlab.com/exploit-database/exploitdb) on GitLab, under GPL-2.0-only. Only their metadata is kept, no exploit code. Any entry counts toward `has_public_exploit`, verified or not. An entry is listed even when the CVE has no local row.
+The entries come from the [exploit-database repository](https://gitlab.com/exploit-database/exploitdb), under GPL-2.0-only. Only their metadata is kept, no exploit code. Any entry counts toward `has_public_exploit`, verified or not. An entry is listed even when the CVE has no local row.
 
 ##### `top_results[]` item fields (ExploitDB)
 
 | Field            | Type            | Description |
 |------------------|-----------------|-------------|
 | `edb_id`         | integer         | Exploit Database number of the exploit |
-| `url`            | string          | Always `https://www.exploit-db.com/exploits/<edb_id>`. The server builds it from `edb_id` and does not fetch it |
+| `url`            | string          | Always `https://www.exploit-db.com/exploits/<edb_id>` |
 | `type`           | string          | Exploit type, such as `remote`, `local`, `webapps` or `dos`; empty string if the list gives none or gives one outside the stored format |
 | `platform`       | string          | Platform, such as `linux_x86-64`, `php` or `multiple`; empty string if the list gives none or gives one outside the stored format |
 | `date_published` | string or null  | Publication date as `YYYY-MM-DD`; `null` when the entry has no date |
@@ -1454,14 +1452,10 @@ lists for the product. The price of the call does not change.
 - A package maps to a product through the package URLs (purl) that endoflife.date lists for its
   products. The ecosystems that map are `npm`, `PyPI`, `Maven`, `Go`, `NuGet`, `RubyGems`,
   `crates.io` and `Packagist`. `SwiftURL` maps to none. A `Maven` package is the group and the
-  artifact. A package name is compared after the normalization that OSV applies. When two products
-  list one package, the one that sorts first by name is picked. A package has no fixed series, so
-  its `version` alone picks the series.
+  artifact. A package's `version` alone picks the series.
 - A pair maps through the CPE names that endoflife.date lists for its products, and through a
   fixed list of NVD names that endoflife.date writes another way, such as `mac_os_x` and the
-  versioned names of Windows (`windows_10_22h2`). When a pair maps to two endoflife.date products,
-  one is picked: a product from the endoflife.date data before one from the fixed list, then the one
-  that sorts first by name.
+  versioned names of Windows (`windows_10_22h2`).
 - The series is the group of cycles that belong to the `version`. For a fixed-list pair that
   names a version, such as `windows_10_22h2`, the series comes from the fixed list. Otherwise it
   comes from `version`, after one leading `v` is dropped. The version is the series when some
@@ -1483,8 +1477,7 @@ lists for the product. The price of the call does not change.
 - `maintained_cycles` lists the cycles that endoflife.date marks as maintained, the newest release
   first, with `name`, `eol_date` and `is_lts`. It holds at most 10. `maintained_cycles_truncated`
   is `true` when the product has more maintained cycles than it lists.
-- A series of more than 8 cycles is refused with `500`, so the answer never lists part of a
-  series as the whole.
+- A series of more than 8 cycles is refused with `500`.
 
 ### Errors
 
@@ -1619,9 +1612,8 @@ curl "https://api.contrastcyber.com/cvss_calculator?vector=CVSS:3.1/AV:N/AC:L/PR
 
 ### Errors
 
-Every refusal of the vector is a single `400` whose message names the reason. The message never
-repeats the vector. A request target longer than 1023 bytes is answered `414` before the vector is
-read.
+Every refusal of the vector is a single `400` whose message names the reason. A request target
+longer than 1023 bytes is answered `414`.
 
 | Status | When | Message |
 |--------|------|---------|
@@ -1760,9 +1752,9 @@ id matches only itself. `attack_techniques` names each technique id that matched
 lists the ids it matched through in `attack_technique_ids`. An id that no defense counters answers
 `200` with empty lists.
 
-The server answers from its own copy of the MITRE D3FEND catalog, under the MIT license. The
-server refreshes the copy every week from MITRE D3FEND. A refresh that fails keeps the last
-catalog. See [Data sources and licenses](#data-sources-and-licenses).
+The server answers from its own copy of the MITRE D3FEND catalog, under the MIT license. The copy
+is refreshed every week. A refresh that fails keeps the last catalog. See
+[Data sources and licenses](#data-sources-and-licenses).
 
 ```bash
 curl https://api.contrastcyber.com/d3fend_for_attack/T1055.012
@@ -1977,11 +1969,10 @@ A text the catalog leaves empty is `null`, in a match and in its `matched_driver
 
 #### Context, not for blocking
 
-LOLDrivers marks all research evidence of an entry as context only. That includes
-`detection_rules`. Block on the file hashes and the Authenticode hashes of `matched_driver_file`.
-The `tags` are names for hunting. Some stored rules carry a type that looks like a block, such as
-`BlockRule` or `sysmon_hash_block`. Treat every rule as an aid for detection and context, never as a
-blocking rule.
+LOLDrivers marks all research evidence of an entry as context only, `detection_rules` included.
+Block on the file hashes and the Authenticode hashes of `matched_driver_file`. The `tags` are names
+for hunting. Treat every rule as context, never as a blocking rule, even one whose type looks like a
+block, such as `BlockRule` or `sysmon_hash_block`.
 
 ### Example response (with `?include_commands=true`)
 
@@ -2040,7 +2031,7 @@ curl -X POST https://api.contrastcyber.com/driver_lookup_bulk \
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `hashes` | array | 1 to 20 hashes: the MD5, SHA1 or SHA256 of a driver file or of its Authentihash, 32, 40 or 64 hex digits in either case. The server keeps each in lower case. An element that is not such a hash is skipped and costs nothing |
+| `hashes` | array | 1 to 20 hashes: the MD5, SHA1 or SHA256 of a driver file or of its Authentihash, 32, 40 or 64 hex digits in either case. An element that is not such a hash is skipped and costs nothing |
 
 The body takes only `hashes`. Two spellings of one hash are one hash: a body that holds a hash in
 upper case and the same hash in lower case is refused as a repeat.
@@ -2071,7 +2062,7 @@ and one `data_source` around a list of such results:
 | `skipped` | integer | The number of elements that are not a hash |
 | `failed` | integer | The number of hashes whose stored data could not be read. They have no result |
 | `not_processed` | array | The hashes the credit budget did not cover, in lower case |
-| `data_source` | object | As in [Driver Lookup](#driver-lookup-get-driver_lookupfile_hash). `available` is `null` when no hash was looked up, or when no looked-up hash could be read, because no answer gave the catalog state |
+| `data_source` | object | As in [Driver Lookup](#driver-lookup-get-driver_lookupfile_hash). `available` is `null` when no hash was looked up, or when no looked-up hash could be read |
 | `results` | array | One result for each hash looked up and read, in request order. Each has `hash`, `hash_type`, `found`, `match_count` and `matches`, as in Driver Lookup, with `command` always `null`. The same context-only note applies to `detection_rules` |
 
 `total` is `processed` + `skipped` + the length of `not_processed`.
@@ -2210,7 +2201,7 @@ Each result holds these fields:
   `RubyGems` by the order of Ruby's `Gem::Version`, and `npm`, `Go`, `crates.io` and `SwiftURL` by
   Semantic Versioning 2.0. A Go version may start with `v`. `Packagist` takes a version of three
   numbers, an optional `v` before them and an optional stability word after them, such as `v1.2.3`
-  or `1.0.0-beta2`. For these versions, the order of osv.dev and the order of Composer agree.
+  or `1.0.0-beta2`.
 - **A version the server cannot order** gets `affects_version: null`, unless the advisory's version
   list names it as written. Then it gets `true`. A `Maven` version that does not start with a
   digit, such as `latest`, has no order here. A `RubyGems` version with a `-` has none either, and
@@ -2222,8 +2213,7 @@ Each result holds these fields:
 - **`affects_version` is `null`** in two more cases. The server's order of a `Maven` version and
   an interval bound may differ from the order of osv-scalibr. A `PyPI` version with a local part,
   such as `2.6.0+cu124`, gets another answer than the same version without it.
-- **A result is left out only when the advisory shows the version is safe.** Every package row of
-  the advisory is proven: its ranges and its version list decide every version. No interval holds
+- **A result is left out only when the advisory shows the version is safe.** No interval holds
   the version, the list does not name it, and none of the cases above applies. A result that may
   affect the version is listed with `affects_version: null`.
 - **`fixed_version` of a result** comes from the advisories of the result that affect the version
@@ -2276,9 +2266,8 @@ Each result is short: the package, its `fixed_version`, its `malicious` report, 
 advisories with their ids and a short `eol`. For the summary, the ranges and every advisory of one
 package, call Package Check.
 
-The server checks the packages that name the same ecosystem and the same name, as the request
-spells them, together. It folds the advisories of that package once. Each result has the
-`fixed_version` and the `malicious` report that Package Check answers for that package and version.
+Each result has the `fixed_version` and the `malicious` report that Package Check answers for that
+package and version.
 
 ```bash
 curl -X POST https://api.contrastcyber.com/package_check_bulk \
@@ -2359,10 +2348,9 @@ The example shows the first of the five advisories of `lodash`.
 `total` is `processed` + `skipped` + the length of `not_processed`, and `processed` is
 `successful` + `failed`. When a budget does not cover
 every package, the first packages of `items` are looked up. A package that the work budget cut is
-not charged. Before it weighs, the server reads the credits left in the request's budget. That is
-the key's budget, or the anonymous budget of a request without a key. With no credit left, the
-request answers `429` and no package is weighed. Otherwise it weighs at most as many packages as
-the budget has credits left. The price counts only the packages it serves.
+not charged. A request with a key and no credit left answers `429`, and no package is weighed. A
+request without a key gets the `402` offer of [Pay per call (x402)](#pay-per-call-x402) instead. The
+price counts only the packages it serves.
 
 Each result holds these fields:
 
@@ -2400,8 +2388,7 @@ The server sends Have I Been Pwned only the first 5 hex digits of the hash. Have
 answers with the hashes that start with those 5 digits, as its
 [API documentation](https://haveibeenpwned.com/API/v3#PwnedPasswords) describes. The server looks
 for the rest of your hash in that answer, so Have I Been Pwned never learns which hash you asked
-about. The request also asks Have I Been Pwned to pad its answer. The server keeps no answer: each
-request asks again.
+about. The server keeps no answer: each request asks again.
 
 When Have I Been Pwned answers 429, the server stops asking it for the wait that its `Retry-After`
 header names. That request and each request during the wait answer `502`.
@@ -2439,9 +2426,8 @@ curl https://api.contrastcyber.com/password_check/5BAA61E4C9B93F3F0682250B6CF833
 | `breach_count` | integer | How often the list has seen the hash. It is `0` when the hash is not found |
 | `summary` | string | One sentence. A count of 1 reads `"This password has been seen once in data breaches."`. A hash that is not found reads `"This password has not been found in any known data breaches."` |
 
-`breach_count` is the count Have I Been Pwned gives for the hash. Its documentation calls it the number
-of times the password appears in its data set, not a number of breaches. `summary` counts it the
-same way, as the times the password was seen.
+`breach_count` is the number of times the password appears in the data set of Have I Been Pwned,
+not a number of breaches.
 
 ### Errors
 
@@ -2450,24 +2436,24 @@ same way, as the times the password was seen.
 | `400`  | The hash is not 40 hex digits: a prefix, a hash one digit short or long, a byte that is not hex, or a password | `{"error":{"code":"bad_request","message":"Provide the full SHA1 hash (40 hexadecimal characters)."}}` |
 | `400`  | No hash after `/password_check/` | `{"error":{"code":"bad_request","message":"sha1_hash is required"}}` |
 | `500`  | The server could not check whether Have I Been Pwned asked it to wait | `{"error":{"code":"internal_error","message":"internal server error"}}` |
-| `502`  | Have I Been Pwned gave no answer the server can read: no answer, a status other than 200, a body without a readable line, a body whose line for the hash cannot be read, or a body with a NUL byte. A 429 answers `502` too, and so does each request while its hold lasts | `{"error":{"code":"upstream_unavailable","message":"upstream service unavailable"}}` |
+| `502`  | Have I Been Pwned gave no answer the server can read. A 429 answers `502` too, and so does each request while its hold lasts | `{"error":{"code":"upstream_unavailable","message":"upstream service unavailable"}}` |
 | `503`  | The server is busy with requests to outside services. Try again after the `Retry-After` wait | `{"error":{"code":"upstream_busy","message":"upstream service busy","retry_after_seconds":5}}` |
 
 A refused hash pays its 1 credit, and so do a `502` and a `500`. A `503` costs nothing. A failed
-answer is never reported as "not found", because that would tell you a leaked password is safe.
+answer is never reported as "not found".
 
 ---
 
 ## DNS Lookup: `GET /dns_lookup/{domain}`
 
-Returns the DNS records of a domain: A, AAAA, MX, NS, TXT, CNAME, SOA and CAA. The server asks
-its own resolver, the one `/etc/resolv.conf` names, for all eight types at once. The request costs
+Returns the DNS records of a domain: A, AAAA, MX, NS, TXT, CNAME, SOA and CAA. The request costs
 1 credit.
 
 The server also finds two things in the records. `non_public_addresses` lists the A and AAAA
 addresses that cannot be reached from the internet, such as `10.0.0.7`. `services` lists the
-services that a TXT record names. A service asks its customer to publish a TXT record with a word
-the service picked, such as `google-site-verification` for Google. A name in `services` means a TXT record holds the word of that service. It does not mean the service is in use. The service `google-workspace` is listed only when the MX answer also holds a Google mail host.
+services that a TXT record names, by the word each service asks its customers to publish, such as
+`google-site-verification` for Google. A name in `services` means a TXT record holds the word of
+that service. It does not mean the service is in use.
 
 ```bash
 curl https://api.contrastcyber.com/dns_lookup/example.com
@@ -2479,7 +2465,7 @@ curl https://api.contrastcyber.com/dns_lookup/example.com
 |-----------|------|---------|-------------|
 | `domain` | path | `example.com` | A domain name of at most 253 bytes and at least two labels. Dots separate the labels. A label holds 1 to 63 letters, digits and hyphens, and does not start or end with a hyphen. The last label starts with a letter. Upper case is accepted, and the answer writes the name in lower case |
 
-The server refuses a special-use name. No public domain has such a name. It ends with the label
+The server refuses a special-use name. Such a name ends with the label
 `alt`, `corp`, `home`, `internal`, `intranet`, `invalid`, `lan`, `local`, `localdomain`, `localhost`,
 `onion`, `private` or `test`. A name under `arpa` is refused too, such as `home.arpa` or a reverse
 zone like `10.in-addr.arpa`. An internationalized name is accepted only in its `xn--` form. A
@@ -2529,7 +2515,7 @@ An empty array means the resolver answered, and the domain has no record of that
 the question failed, and `unavailable` gives the reason. The one exception is `soa`: it is also
 null when the answer holds no SOA record.
 
-A name is written as glibc's `dn_expand` writes it, without its trailing dot. A space, a control
+A name is written without its trailing dot. A space, a control
 byte and a byte above 0x7E become a decimal escape, such as `\032`. A dot inside a label and some
 punctuation, such as `;` or `(`, get a backslash, such as `\.`. Any other byte, such as `_`, is
 written as it is.
@@ -2540,22 +2526,17 @@ becomes `\u0000`, and a byte that is not part of a whole UTF-8 character becomes
 | Reason | Meaning |
 |--------|---------|
 | `nxdomain` | The resolver answered that the name does not exist. Another record type of the name got an answer. A name whose CNAME points to a name that does not exist can get this reason too, while `cname` shows the CNAME. [DNS Takeover Check](#dns-takeover-check-get-dns_takeover_checkdomain) tells whether it dangles |
-| `server_error` | The resolver answered with another error code. A SERVFAIL, NOTIMP or REFUSED answer counts only once the question has been sent as many times as there are name servers. A send that got no answer counts too |
+| `server_error` | The resolver answered with another error code, such as SERVFAIL, NOTIMP or REFUSED |
 | `truncated` | The answer did not fit in UDP, and the answer over TCP could not be read |
 | `malformed_answer` | The answer could not be read, or it held more than 256 records |
-| `not_public_name` | A record belongs to a name only a local network can answer, or a CNAME of the answer leads to one, such as `db.internal`. The server's resolver may answer that name from its own network, so neither its records nor whether it exists are shown. A `cname` question is the exception: its answer is the CNAME record itself, so the target is shown. A label before the last one may be an underscore and then a usual label, such as `_domainkey`. Such a label does not make a name local, so a CNAME to such a name is followed |
+| `not_public_name` | A record belongs to a name only a local network can answer, or a CNAME of the answer leads to one, such as `db.internal`. Neither its records nor whether it exists are shown. A `cname` question is the exception: it shows the target. A label of an underscore and then a usual label, such as `_domainkey`, before the last label does not make a name local |
 | `timeout` | No answer came within 5 seconds |
 | `no_resolver` | The server has no resolver it can ask |
-
-The eight questions share one deadline of 5 seconds. A question with no UDP answer after 1 second
-is sent again, to the next name server of `/etc/resolv.conf`. A SERVFAIL, NOTIMP or REFUSED answer
-sends it to the next name server at once, as glibc's resolver does. Each question offers 1232 bytes
-for its UDP answer. A longer answer is asked again over TCP, within the same 5 seconds.
 
 `services` comes from the file `dns/txt-service-detect.yaml` of
 [nuclei-templates](https://github.com/projectdiscovery/nuclei-templates) (MIT license). It holds 96
 services and their words. A word matches anywhere in a TXT record. Case must match. A service is listed
-once, even when several records name it. The word `google-site-verification` shows control of the domain, not Google Workspace. So that service is listed only when the answer also holds an MX host that is `google.com`, `googlemail.com` or a name under one. The case of the host name does not matter, and `notgoogle.com` does not count.
+once, even when several records name it.
 
 ### Errors
 
@@ -2579,12 +2560,8 @@ could take the host name over through it. A dangling CNAME points to a name that
 Some services let anyone claim a free name under their own domain. When the CNAME points under such
 a service, whoever claims the name serves content under the host name. The request costs 1 credit.
 
-The server follows the CNAME chain of the host name: it asks for the CNAME record of the host name,
-then for the CNAME record of that target, and so on. NXDOMAIN means the name does not exist. An
-answer without a CNAME record means the name exists, and the chain ends there. The check judges the
-last name of the chain. The questions share one deadline of 5 seconds. A chain of more than 8
-targets, a loop included, gets a `502`. So does a target that is not a public domain name, such as
-one with an underscore label like `_x.example.com`.
+The server follows the CNAME chain of the host name, and the check judges the last name of the
+chain. A loop counts as a chain of more than 8 targets.
 
 ```bash
 curl https://api.contrastcyber.com/dns_takeover_check/shop.example.com
@@ -2628,14 +2605,12 @@ ends `shop-example.cloudapp.net` but not `notcloudapp.net`. Case is ignored.
 The check knows 17 suffixes of three services: 15 of Microsoft Azure, `elasticbeanstalk.com` of
 AWS/Elastic Beanstalk and `trydiscourse.com` of Discourse. They come from `fingerprints.json` of
 [Can I take over XYZ?](https://github.com/EdOverflow/can-i-take-over-xyz) by EdOverflow, licensed
-under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). The check keeps the services that
-file marks vulnerable and whose fingerprint is NXDOMAIN. The server sends no HTTP request to the
-host name, so a service that shows a free name only in its web page is not checked.
+under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). It keeps the services that file
+marks vulnerable with an NXDOMAIN fingerprint. The server sends no HTTP request to the host name,
+so a service that shows a free name only in its web page is not checked.
 
-A null `provider` with a `cname` means the check knows no service that ends the last name of
-`chain`. `takeover_possible` is then null, because such a service may let anyone claim a name that
-exists, or one that does not. `dangling` true with a null `provider` means the target does not
-exist, but the check cannot say whether anyone can claim it.
+`dangling` true with a null `provider` means the target does not exist, but the check cannot say
+whether anyone can claim it.
 
 ### Errors
 
@@ -2644,7 +2619,7 @@ exist, but the check cannot say whether anyone can claim it.
 | `400`  | The host name is not a public domain name, as the Parameters section of DNS Lookup says | `{"error":{"code":"bad_request","message":"Provide a public domain name, such as example.com."}}` |
 | `400`  | No host name after `/dns_takeover_check/` | `{"error":{"code":"bad_request","message":"domain is required"}}` |
 | `404`  | The resolver answered the CNAME question that the host name does not exist | `{"error":{"code":"not_found","message":"hostname does not exist"}}` |
-| `502`  | A CNAME question of the chain failed with an answer other than NXDOMAIN, or got no answer in 5 seconds. Or the chain holds more than 8 targets, or a target that is not a public domain name | `{"error":{"code":"upstream_unavailable","message":"upstream service unavailable"}}` |
+| `502`  | A CNAME question of the chain failed with an answer other than NXDOMAIN, or got no answer in 5 seconds. Or the chain holds more than 8 targets, or a target that is not a public domain name, such as `_x.example.com` | `{"error":{"code":"upstream_unavailable","message":"upstream service unavailable"}}` |
 | `503`  | The server is busy with requests to outside services. Try again after the `Retry-After` wait | `{"error":{"code":"upstream_busy","message":"upstream service busy","retry_after_seconds":5}}` |
 
 A refused host name pays its 1 credit, and so do a `404` and a `502`. A `503` costs nothing.
@@ -2653,14 +2628,13 @@ A refused host name pays its 1 credit, and so do a `404` and a `502`. A `503` co
 
 ## Email Auth Check: `GET /email_auth_check/{domain}`
 
-Checks the records that guard a domain's mail. They are its SPF record (RFC 7208), the DMARC
-record that applies to it (RFC 9989), its DKIM keys (RFC 6376 and RFC 8463), its MX hosts and
-its MTA-STS record (RFC 8461). The answer says what each record holds. It also lists checks,
-each with `pass`, `warn` or `fail`. The request costs 1 credit.
+Checks the records that guard a domain's mail. They are its SPF record, the DMARC record that
+applies to it (RFC 9989), its DKIM keys, its MX hosts and its MTA-STS record. The answer says what
+each record holds. It also lists checks, each with `pass`, `warn` or `fail`. The request costs 1
+credit.
 
-The server asks its own resolver, with one deadline of 5 seconds for all questions. It does not
-read the records of the domains that SPF `include` and `redirect` terms name. A check needs no
-message and no sender, so it judges only what the records say.
+The server does not read the records of the domains that SPF `include` and `redirect` terms name.
+The checks judge only what the records say: they need no message and no sender.
 
 ```bash
 curl https://api.contrastcyber.com/email_auth_check/example.com
@@ -2799,7 +2773,7 @@ The example shows 4 of its 21 checks. The table under **Checks** lists them all.
 | `dkim` | object | The DKIM selectors and keys, below |
 | `mx` | object | `available`, `null_mx` and `hosts`. `null_mx` is true when an MX record is a null MX (RFC 7505). A null MX says that the domain takes no mail. `hosts` lists every other MX record, with its `priority` and `host` |
 | `mail_providers` | array of strings | The mail providers that the MX hosts and the SPF record's `include` and `redirect` domains name, each once, with the MX hosts first. The server knows 32 providers |
-| `mta_sts` | object | `available`, and `record_found`: true when `_mta-sts.<domain>` holds one MTA-STS record. RFC 8461 counts two such records as none. A record counts when it starts with `v=STSv1`, then spaces or tabs and a `;`. `record_found` says only that one such record was found. The `mta_sts` check judges the record further: it needs an `id=` field of 1 to 32 letters or digits, and every field must be a name, an `=` and a value. Neither the name nor the value may be empty. The name `id` is case-sensitive |
+| `mta_sts` | object | `available`, and `record_found`: true when `_mta-sts.<domain>` holds one MTA-STS record. Two such records count as none. A record counts when it starts with `v=STSv1`, then spaces or tabs and a `;`. `record_found` says only that one such record was found. The `mta_sts` check judges the record further: it needs an `id=` field of 1 to 32 letters or digits, and every field must be a name, an `=` and a value. Neither the name nor the value may be empty. The name `id` is case-sensitive |
 | `no_mail_domain` | boolean | True when the domain says it takes and sends no mail. Its `mx` holds a null MX and no host. Its one SPF record holds the single term `-all`, as in `v=spf1 -all`. Its `dmarc.applied_policy` is `reject`. A failed MX, SPF or DMARC question makes it false. A failed DKIM or MTA-STS question does not. When it is true, `checks` holds no DKIM check, no `mta_sts` check and no `dmarc_reporting` check |
 | `checks` | array of objects | The checks the answers allow, in the order of the table below. Each has an `id`, a `result` (`pass`, `warn` or `fail`), a `severity` (`high`, `medium` or `low`, fixed for each check) and a `detail`, a sentence fixed for each check and result |
 | `check_counts` | object | The number of checks with each result: `pass`, `warn` and `fail` |
@@ -2810,7 +2784,7 @@ reason is `server_error`, `truncated`, `malformed_answer`, `not_public_name`, `t
 `no_resolver`, as in [DNS Lookup](#dns-lookup-get-dns_lookupdomain). A name longer than 253 bytes
 is not asked, and its section's reason is `bad_question`.
 
-A domain whose `no_mail_domain` is true has no DKIM check, no `mta_sts` check and no `dmarc_reporting` check, though its sections say what DNS holds. It sends no mail to sign and takes no mail to protect. Its SPF record must be exactly the one term `-all`. A record with any other term, such as `v=spf1 include:_spf.example.net -all`, makes `no_mail_domain` false.
+The sections of a domain whose `no_mail_domain` is true still say what DNS holds. Its SPF record must be exactly the one term `-all`. A record with any other term, such as `v=spf1 include:_spf.example.net -all`, makes `no_mail_domain` false.
 
 **`spf`**
 
@@ -2818,9 +2792,9 @@ A domain whose `no_mail_domain` is true has no DKIM check, no `mta_sts` check an
 |-------|------|-------------|
 | `available` | boolean | False when the TXT question failed |
 | `record_count` | integer | The number of SPF records among the domain's TXT records |
-| `record` | string, or null | The SPF record when the domain has one. RFC 7208 ends the check in an error for more than one, so then it is null, and so are the fields below |
-| `terms` | array of objects, or null | The first 64 terms of the record. Each has a `kind` (`all`, `include`, `a`, `mx`, `ptr`, `ip4`, `ip6`, `exists`, `redirect`, `exp`, `unknown_modifier` or `invalid`), a `qualifier` and a `value`. The `qualifier` is the RFC 7208 name of the mechanism's qualifier: `pass` (`+` or none), `fail` (`-`), `softfail` (`~`) or `neutral` (`?`). It is null for a modifier and an invalid term. The value of a mechanism is the text after its name, without the `:`. The `value` is null when the term has none, such as `-all` |
-| `dns_lookup_term_count` | integer, or null | The number of lookup terms a receiver evaluates (RFC 7208 § 5.1, § 6.1). It counts `include`, `a`, `mx`, `ptr` and `exists` before the first `all`, since a receiver stops there. It counts a `redirect` only when the record has no `all`, since a receiver ignores a `redirect` next to an `all`. It counts the terms after the first 64 too. It covers this record only |
+| `record` | string, or null | The SPF record when the domain has one. It is null when the domain has more than one, and so are the fields below |
+| `terms` | array of objects, or null | The first 64 terms of the record. Each has a `kind` (`all`, `include`, `a`, `mx`, `ptr`, `ip4`, `ip6`, `exists`, `redirect`, `exp`, `unknown_modifier` or `invalid`), a `qualifier` and a `value`. The `qualifier` names the mechanism's qualifier: `pass` (`+` or none), `fail` (`-`), `softfail` (`~`) or `neutral` (`?`). It is null for a modifier and an invalid term. The value of a mechanism is the text after its name, without the `:`. The `value` is null when the term has none, such as `-all` |
+| `dns_lookup_term_count` | integer, or null | The number of lookup terms a receiver evaluates. It counts `include`, `a`, `mx`, `ptr` and `exists` before the first `all`. It counts a `redirect` only when the record has no `all`. It counts the terms after the first 64 too. It covers this record only |
 | `invalid_term_count` | integer, or null | The number of terms RFC 7208 does not allow. It counts the terms after the first 64 too |
 | `unread_term_count` | integer, or null | The number of terms after the first 64. `terms` leaves them out |
 
@@ -2838,22 +2812,17 @@ A domain whose `no_mail_domain` is true has no DKIM check, no `mta_sts` check an
 | `domain_role` | string, or null | The `psd` tag: `public_suffix` for `y`, `organizational` for `n`, `not_public_suffix` for `u`, or `invalid`. Null when the record has no such tag |
 | `aggregate_report_uris`, `failure_report_uris` | array of strings, or null | The first 8 addresses of the `rua` and the `ruf` tags |
 
-When `_dmarc.<domain>` holds no single DMARC record, the server walks the DNS tree, as RFC 9989
-§4.10 says. It asks for `_dmarc.` before each parent name, from the parent down to the top-level
-domain. A domain of more than 8 labels starts at its last 7 labels. A name that holds one DMARC
-record is found. The walk stops at the first found record with `psd=n` or `psd=y`. The
-organizational domain is the name of a `psd=n` record, or the name one label under a `psd=y`
-record. Without either, it is the found name with the fewest labels. Its record applies, and the
-source is `organizational`. When it has no record, the `psd=y` record applies, and the source is
+When `_dmarc.<domain>` holds no single DMARC record, the server walks the DNS tree of the parent
+names, as RFC 9989 §4.10 says. The record of the organizational domain then applies, and the source
+is `organizational`. When that domain has no record, a `psd=y` record applies, and the source is
 `public_suffix`. So the closest parent record does not always apply.
 
 The domain's own record sets its `p` tag. A parent's record sets its `sp` tag, or its `p` tag
 when it has no `sp`. A record without `p` sets `none`. A record whose `p`, `sp` or `np` tag is
 not valid sets `none` when its `rua` tag holds a valid address. Without one, RFC 9989 applies no
-DMARC processing. The `np` tag never applies. The server answers `404` when the TXT or the MX
-question of the domain gets NXDOMAIN and the other gets no NOERROR answer. In every other case
-that answers `200`, it treats the domain as existing. That holds also when both questions time
-out and another question is answered.
+DMARC processing. The `np` tag never applies. Unless the answer is the `404` of Errors, the
+server treats the domain as existing. That holds also when both questions time out and another
+question is answered.
 
 **`dkim`**
 
@@ -2870,9 +2839,8 @@ Without `dkim_selector`, the server tries the selectors that the known providers
 the order of `mail_providers`. Seven providers document theirs: Apple iCloud, Fastmail, Google
 Workspace, Mailchimp Transactional, Mailgun, Microsoft 365 and SendGrid. When none of the listed
 providers documents a selector, the server tries 13 common selectors. A selector whose name would be longer than 253
-bytes is skipped. The check reads every key record of a selector. The check results do not
-depend on the order of the records in the DNS answer. `keys` shows the best record. On a tie
-it shows the earlier one in the answer. So that entry can depend on the order of the answer.
+bytes is skipped. The checks read every key record of a selector, and their results do not depend
+on the order of the records. `keys` shows only the best record of each selector.
 
 **Checks**
 
@@ -2893,7 +2861,7 @@ it shows the earlier one in the answer. So that entry can depend on the order of
 | `dkim_key_found` | high | `key_status` is `found` | `unknown` | `not_found` |
 | `dkim_key_usable` | high | Any key record is `present` | No key is `present`, and one is `unknown_type` | Every key is `revoked` or `unreadable` |
 | `dkim_key_size` | high | Every rsa key of each selector is 2048 to 4096 bits | An rsa key under 2048 or over 4096 bits | An rsa key under 1024 bits |
-| `dkim_key_format` | low | No bare RSAPublicKey, no rsa modulus that DER makes negative, and no `v=DKIM1` tag after another tag | A bare RSAPublicKey, which OpenDKIM and rspamd do not read, an rsa modulus whose top bit is set without a 0 byte before it, or a `v=DKIM1` tag after another tag |  |
+| `dkim_key_format` | low | No bare RSAPublicKey, no rsa modulus that DER makes negative, and no `v=DKIM1` tag after another tag | A bare RSAPublicKey, an rsa modulus whose top bit is set without a 0 byte before it, or a `v=DKIM1` tag after another tag |  |
 | `dkim_test_mode` | medium | No key has `t=y` | A key has `t=y` |  |
 | `dkim_key_restricted` | high | Every DKIM key of each selector may sign mail with sha256 |  | An `h` tag without sha256, or an `s` tag without `email` or `*` |
 | `dkim_multiple_keys` | low | No selector holds more than one key record | A selector holds more than one. The check rated each of them |  |
@@ -2902,10 +2870,10 @@ it shows the earlier one in the answer. So that entry can depend on the order of
 
 The SPF checks after `spf_record` need one SPF record. When `unread_term_count` is above 0, the
 server adds an SPF check only when its result is certain. It leaves out `spf_all`,
-`spf_ignored_terms`, `spf_ptr` and `spf_wide_range`. It keeps `spf_syntax` and `spf_lookup_limit`,
-since their counts cover the unread terms too. `spf_record` and `spf_record_size` stay. The DMARC checks after `dmarc_record` need a record that applies. The DKIM checks after
+`spf_ignored_terms`, `spf_ptr` and `spf_wide_range`. It keeps `spf_syntax` and `spf_lookup_limit`.
+`spf_record` and `spf_record_size` stay. The DMARC checks after `dmarc_record` need a record that applies. The DKIM checks after
 `dkim_key_found` need a key record. Those after `dkim_key_usable` need a `present` key, and they
-judge every `present` key of every selector and give the worst result. The place of a record in the answer does not matter. A key that is not `present` gets no size.
+judge every `present` key of every selector and give the worst result. A key that is not `present` gets no size.
 
 ### Errors
 
@@ -2926,17 +2894,17 @@ A refused value pays its 1 credit, and so do a `404` and a `502`. A `503` costs 
 
 ## IP Lookup: `GET /ip_lookup/{ip_address}`
 
-Looks up a public IPv4 or IPv6 address in the server's own copies of five IP lists. The answer
+Looks up a public IPv4 or IPv6 address in the server's own copies of six IP lists. The answer
 gives the AS that routes the address, the country the address is in, the cloud or CDN range that
-holds it, whether it is a Tor exit, and the DROP prefixes that list it. The server also asks its
-own resolver for the PTR name of the address, and checks whether that name maps back to the
+holds it, whether it is a Tor exit, the crawler list that holds it, and the DROP prefixes that
+list it. It also gives the PTR name of the address, and whether that name maps back to the
 address (forward-confirmed reverse DNS). The request costs 1 credit.
 
 A Pro key that has saved its own Shodan key or AbuseIPDB key also gets the `internet_exposure` and
 `reputation` members filled from that vendor. See [The vendor slots](#the-vendor-slots).
 
 The lists are IPtoASN, DB-IP Lite, the address ranges seven cloud and CDN providers publish, the Tor
-exit list and the DROP list. See [Data sources and licenses](#data-sources-and-licenses). A list
+exit list, the 16 crawler lists of [The crawler lists](#the-crawler-lists) and the DROP list. See [Data sources and licenses](#data-sources-and-licenses). A list
 the server has not loaded yet answers its fields as `null`, and `unavailable` names it. An address
 that no list holds is an answer too: it gets `200`, never `404`.
 
@@ -2948,11 +2916,10 @@ curl https://api.contrastcyber.com/ip_lookup/8.8.8.8
 
 | Parameter | Type | Example | Description |
 |-----------|------|---------|-------------|
-| `ip_address` | path | `8.8.8.8` | A globally reachable IPv4 or IPv6 address, such as `8.8.8.8` or `2001:4860:4860::8888`. Any standard spelling is accepted, such as `2001:4860:4860:0:0:0:0:8888` |
+| `ip_address` | path | `8.8.8.8` | A globally reachable IPv4 or IPv6 address, such as `8.8.8.8` or `2001:4860:4860::8888`. Any standard spelling is accepted, such as `2001:4860:4860:0:0:0:0:8888`. The address may be percent-encoded, such as `2001%3A4860%3A4860%3A%3A8888` |
 
-The server refuses an address that the internet cannot reach. The refused blocks follow IANA's
-special-purpose address registries. Private, loopback, link-local, shared, documentation,
-multicast and reserved blocks are among them. An IPv6 address outside `2000::/3` is refused too,
+The server refuses an address that the internet cannot reach, such as a private, loopback,
+link-local, shared, documentation, multicast or reserved address. An IPv6 address outside `2000::/3` is refused too,
 an IPv4-mapped address such as `::ffff:8.8.8.8` included. A zone id, such as `fe80::1%eth0`, a leading
 zero, such as `08.8.8.8`, a host name and a CIDR prefix are refused too.
 
@@ -2970,6 +2937,7 @@ zero, such as `08.8.8.8`, a host name and a CIDR prefix are refused too.
   "is_cdn": false,
   "is_datacenter": true,
   "is_tor_exit": false,
+  "crawler": null,
   "listed_on": [],
   "ptr": "dns.google",
   "is_ptr_forward_confirmed": true,
@@ -2991,6 +2959,7 @@ zero, such as `08.8.8.8`, a host name and a CIDR prefix are refused too.
 | `is_cdn` | boolean \| null | `true` when the range that `cloud_provider` names belongs to a content delivery network. `false` when that range does not, such as `aws/ec2`. `null` when no range holds the address, or while the cloud ranges are not loaded. The loaded CDN lists do not cover every CDN, so an address that no range holds can still be a CDN edge |
 | `is_datacenter` | boolean \| null | `true` when a cloud range holds the address, or when its AS is one of 15 ASes of Google, AWS, Microsoft, Cloudflare, DigitalOcean, Hetzner, OVH, Linode, Vultr, Oracle, Alibaba, Tencent and Scaleway. `false` only when IPtoASN and the cloud ranges are both loaded and neither matches. Otherwise `null` |
 | `is_tor_exit` | boolean \| null | `true` when the Tor exit list holds the address |
+| `crawler` | string \| null | The name of the crawler list that holds the address, such as `googlebot` or `gptbot`. `null` when no list holds it, or while the crawler lists are not loaded. See [The crawler lists](#the-crawler-lists) |
 | `listed_on` | array \| null | One element for each DROP prefix that holds the address, the longest prefix first. `[]` when no prefix holds it |
 | `ptr` | string \| null | A PTR name of the address, without its trailing dot. It is the first name that maps back to the address when one does, else the first PTR name. `null` when the address has no PTR name, or when the question failed |
 | `is_ptr_forward_confirmed` | boolean \| null | `true` when an A or AAAA record of the `ptr` name holds the address. `false` when no PTR name the server asked maps back. `null` when `ptr` is `null`, or when no name maps back and a forward question failed. See [The PTR name](#the-ptr-name) |
@@ -3000,7 +2969,7 @@ zero, such as `08.8.8.8`, a host name and a CIDR prefix are refused too.
 
 When more than one prefix of IPtoASN, DB-IP Lite or the cloud ranges holds the address, the
 longest prefix wins. Two cloud ranges of one length are ordered by `is_cdn`, a CDN first, then by
-the service name. `listed_on` holds every DROP prefix that holds the address.
+the service name.
 
 Each element of `listed_on`:
 
@@ -3026,11 +2995,11 @@ A list is not loaded while the server's copy of it is empty. Its fields are then
 | `geo_country` | `geo_country` |
 | `cloud_provider` | `cloud_provider`, `cloud_service`, `is_cdn` |
 | `is_tor_exit` | `is_tor_exit` |
+| `crawler` | `crawler` |
 | `listed_on` | `listed_on` |
 
 `is_datacenter` reads two lists and has no key of its own. A `true` stays `true` while one of the
-two lists is not loaded, because the other list proves it. A `false` needs both lists, so it is
-`null` then.
+two lists is not loaded. A `false` needs both lists, so it is `null` then.
 
 ```json
 {
@@ -3040,6 +3009,7 @@ two lists is not loaded, because the other list proves it. A `false` needs both 
   "cloud_provider": null, "cloud_service": null, "is_cdn": null,
   "is_datacenter": true,
   "is_tor_exit": false,
+  "crawler": null,
   "listed_on": null,
   "ptr": null,
   "is_ptr_forward_confirmed": null,
@@ -3049,9 +3019,36 @@ two lists is not loaded, because the other list proves it. A `false` needs both 
 }
 ```
 
+### The crawler lists
+
+`crawler` names the vendor list whose published range holds the address. It says that the address
+is inside the range the vendor publishes for its bot. It is not a reverse-DNS check: that check is
+`is_ptr_forward_confirmed`. The server reads each list again every 6 hours. A list that fails its
+download or its checks keeps its last good prefixes. When the ranges of two lists hold the address, the longer
+prefix wins. Two lists with the same prefix answer the list that comes first in the table below.
+
+| `crawler` | Vendor | The bots the list covers |
+|-----------|--------|--------------------------|
+| `googlebot` | Google | Googlebot and the other common crawlers of Google |
+| `google_special_crawlers` | Google | The special-case crawlers of Google, such as AdsBot-Google |
+| `google_user_fetchers` | Google | Several user-triggered fetchers of Google |
+| `google_user_fetchers_google` | Google | Several user-triggered fetchers of Google, from Google's own addresses |
+| `google_user_agents` | Google | The user-triggered agents of Google |
+| `bingbot` | Microsoft | Bingbot |
+| `gptbot` | OpenAI | GPTBot |
+| `oai_searchbot` | OpenAI | OAI-SearchBot |
+| `chatgpt_user` | OpenAI | ChatGPT-User |
+| `anthropic_bots` | Anthropic | ClaudeBot, Claude-User and Claude-SearchBot |
+| `perplexitybot` | Perplexity | PerplexityBot |
+| `perplexity_user` | Perplexity | Perplexity-User |
+| `applebot` | Apple | Applebot |
+| `duckduckbot` | DuckDuckGo | DuckDuckBot |
+| `duckassistbot` | DuckDuckGo | DuckAssistBot |
+| `ccbot` | Common Crawl | CCBot |
+
 ### The vendor slots
 
-`internet_exposure` is the Shodan slot and `reputation` is the AbuseIPDB slot. Only a Pro key reads its stored vendor keys. The run asks Shodan first and AbuseIPDB second, each with the key of the caller, and each request takes at most 3 seconds. With both keys and the PTR question, an answer can take about 9 seconds. A free Shodan key needs a second Shodan request, so the answer can then take about 12 seconds. A slot that cannot be filled says why, and it never fails the request. The two slots are independent. The request still costs 1 credit, and AbuseIPDB may count an AbuseIPDB check against the daily limit of the key's owner.
+`internet_exposure` is the Shodan slot and `reputation` is the AbuseIPDB slot. Only a Pro key reads its stored vendor keys. The server asks each vendor with the caller's own key, and each request takes at most 3 seconds. With both keys and the PTR question, an answer can take about 9 seconds. A free Shodan key needs a second Shodan request, so the answer can then take about 12 seconds. A slot that cannot be filled says why, and it never fails the request. The two slots are independent. The request still costs 1 credit, and AbuseIPDB may count an AbuseIPDB check against the daily limit of the key's owner.
 
 A slot with no answer holds `available` `false`, a `reason`, and for some reasons more members:
 
@@ -3063,9 +3060,9 @@ A slot with no answer holds `available` `false`, a `reason`, and for some reason
 | `vendor_unavailable` | The vendor gave no usable answer, or limited the rate | `retry_after_seconds`, only when the vendor gave a wait above 0 |
 | `database_error` | The stored keys could not be read, or the stored key did not open | none |
 
-`/ip_lookup` writes nothing and shows no manage link. A missing or rejected key points to `/privacy_my_data`, which shows the manage link that opens the page where the keys are saved. `action_tool` names the MCP tool of that route. `pro_key_required` has no `action_tool`, because a Pro key is bought on the pricing page.
+A missing or rejected key points to `/privacy_my_data`, which shows the manage link that opens the page where the keys are saved. `action_tool` names the MCP tool of that route. `pro_key_required` has no `action_tool`.
 
-A filled Shodan slot has `available` `true`. Its `source` says which Shodan query answered. A key whose plan has the host query gets `shodan`. A key of a free Shodan account gets `shodan_facets`: its plan has no host query, so the server asks the Shodan count query, which gives the ports, the CVE ids and the tags, but no host names and no update time. The Shodan documentation says that query uses no query credit of the key.
+A filled Shodan slot has `available` `true`. Its `source` says which Shodan query answered. A key whose plan has the host query gets `shodan`. A key of a free Shodan account gets `shodan_facets`: the server then asks the Shodan count query, which gives the ports, the CVE ids and the tags, but no host names and no update time. The Shodan documentation says that query uses no query credit of the key.
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -3098,28 +3095,25 @@ A filled AbuseIPDB slot has `available` `true` and `source` `abuseipdb`:
 
 ### The PTR name
 
-The server asks for the PTR record of the address's reverse name, under `in-addr.arpa` or
-`ip6.arpa`. The question waits at most 3 seconds, and it is asked after the lists are read. An
+The server asks for the PTR record of the address's reverse name. An
 NXDOMAIN answer, or an answer with no PTR record, means that the address has no PTR name: `ptr` is
 `null`, and `unavailable` does not name it. Any other failure makes `ptr` `null` and puts `ptr` in
 `unavailable`, with the reason [DNS Lookup](#dns-lookup-get-dns_lookupdomain) gives, such as
-`timeout` or `server_error`. A classless reverse zone (RFC 2317) points the reverse name at another
-name under `arpa` with a CNAME, and gets `not_public_name`. A failed PTR question does not fail the
-request.
+`timeout` or `server_error`. A classless reverse zone (RFC 2317) gets `not_public_name`. A failed
+PTR question does not fail the request.
 
 The server then checks whether a PTR name maps back to the address. It asks about
-up to 10 PTR names, in answer order, all at once: type A for an IPv4 address, type AAAA for an IPv6
-address. The resolver follows a CNAME on the name. `is_ptr_forward_confirmed` is `true` when a
-record of the answer holds the address, and `ptr` then shows the first name that does. A name that
-is not a public host name, such as `printer.local` or a name under `arpa`, is not asked and counts
-as `false`. The same 3 seconds hold both steps. When no name maps back and a forward answer failed,
-`is_ptr_forward_confirmed` is `null`, and `unavailable` names it with the reason of the first failed
-answer, such as `timeout`. A match is a signal, not proof. RFC 8601 § 3 says it shows only that the
-owner of the name and the owner of the address agree. It does not show who sends traffic from the
-address.
+up to 10 PTR names, in answer order: type A for an IPv4 address, type AAAA for an IPv6 address.
+`is_ptr_forward_confirmed` is `true` when a record of the answer holds the address, and `ptr` then
+shows the first name that does. A name that is not a public host name, such as `printer.local` or a
+name under `arpa`, is not asked and counts as `false`. The two steps share one wait of at most 3
+seconds. When no name maps back and a forward answer failed, `is_ptr_forward_confirmed` is `null`,
+and `unavailable` names it with the reason of the first failed answer, such as `timeout`. A match
+shows only that the owner of the name and the owner of the address agree. It does not show who
+sends traffic from the address.
 
-A name is written as on `/dns_lookup/`: as glibc's `dn_expand` writes it, then escaped into a JSON
-string as [Text encoding](#text-encoding) says.
+A name is written as on `/dns_lookup/`, then escaped into a JSON string as
+[Text encoding](#text-encoding) says.
 
 ### Errors
 
@@ -3127,11 +3121,12 @@ string as [Text encoding](#text-encoding) says.
 |--------|------|------|
 | `400`  | The address is not a globally reachable IPv4 or IPv6 address, as the Parameters section above says | `{"error":{"code":"bad_request","message":"Provide a public IPv4 or IPv6 address, such as 8.8.8.8 or 2001:4860:4860::8888."}}` |
 | `400`  | No address after `/ip_lookup/` | `{"error":{"code":"bad_request","message":"ip_address is required"}}` |
+| `400`  | A `%` of the path segment does not start a valid escape | `{"error":{"code":"bad_request","message":"ip_address is not valid percent-encoding"}}` |
+| `400`  | The path segment decodes `%00` | `{"error":{"code":"bad_request","message":"ip_address must not contain control characters"}}` |
 | `500`  | The database is unavailable or the query failed, or a stored value cannot be read | `{"error":{"code":"internal_error","message":"internal server error"}}` |
 | `503`  | The server is busy with requests to outside services. Try again after the `Retry-After` wait | `{"error":{"code":"upstream_busy","message":"upstream service busy","retry_after_seconds":5}}` |
 
-A refused address pays its 1 credit, and so does a failed query. A `503` costs nothing. A failed
-query asks the resolver and the vendors nothing.
+A refused address pays its 1 credit, and so does a failed query. A `503` costs nothing.
 
 ---
 
@@ -3143,9 +3138,8 @@ AS name and the country the AS is registered in. It counts the IPv4 and the IPv6
 and lists one page of each family, up to 50 prefixes. For an address it also gives the prefix that
 holds the address. The request costs 1 credit, for every page.
 
-The prefixes come from IPtoASN, which gives each address to one AS in ranges that do not overlap.
-The server splits each range into CIDR prefixes. So the list is not taken from BGP, and it can
-differ from the prefixes the AS announces. See
+The prefixes are the IPtoASN ranges of the AS, split into CIDR prefixes. They are not taken from
+BGP, so they can differ from the prefixes the AS announces. See
 [Data sources and licenses](#data-sources-and-licenses).
 
 ```bash
@@ -3165,8 +3159,7 @@ curl "https://api.contrastcyber.com/asn_lookup/AS15169?offset=50"
 An AS number with a leading zero, such as `AS015169`, is refused. AS 0 is refused, and so is a number past
 4294967295. The asdot form, such as `1.10`, is refused too. Only `AS` and `as` may come before the
 number. An address is refused for the reasons [IP Lookup](#ip-lookup-get-ip_lookupip_address)
-gives: a private, loopback or other address the internet cannot reach, an IPv4-mapped address, a
-zone id, a leading zero and a CIDR prefix. A host name is refused too.
+gives. A host name is refused too.
 
 ### Response `200 OK`
 
@@ -3217,9 +3210,8 @@ prefixes. `next_offset` is `offset` plus the length of the longer of the two lis
 | `404`  | No IPtoASN prefix holds the address, or IPtoASN holds no AS of that number | `{"error":{"code":"not_found","message":"AS not found"}}` |
 | `500`  | The database is unavailable or a query failed, or a stored value cannot be read | `{"error":{"code":"internal_error","message":"internal server error"}}` |
 
-A refused target pays its 1 credit, and so do a `404` and a failed query. The server reads only its
-own copy of IPtoASN, so this endpoint never answers `503`. While that copy is empty, every target
-the server accepts gets the `404`.
+A refused target pays its 1 credit, and so do a `404` and a failed query. This endpoint never
+answers `503`. While the server's copy of IPtoASN is empty, every target it accepts gets the `404`.
 
 ---
 
@@ -3230,12 +3222,10 @@ domain exists and takes mail, and whether the disposable domain list names the d
 parent of it. The request costs 1 credit.
 
 The server makes no SMTP connection, so the answer cannot tell whether the mailbox itself
-exists. It reads its own copy of the disposable domain list. Then it asks its own resolver for the
-MX, A and AAAA records of the domain, and waits at most 5 seconds. A domain that does not exist is an answer too: it gets `200`, never `404`.
+exists. A domain that does not exist is an answer too: it gets `200`, never `404`.
 
 ```bash
 curl https://api.contrastcyber.com/email_address_check/name@example.com
-curl https://api.contrastcyber.com/email_address_check/first.last%2Btag%40example.com
 ```
 
 ### Parameters
@@ -3253,8 +3243,8 @@ domain must be a public domain name, as the Parameters section of
 as `%3F` and a `#` as `%23`. The path ends at a `?`, and a client sends nothing after a `#`. A `/`
 can go as `%2F` too.
 
-Only this path segment is decoded. The MCP tool takes the address as it is sent, so the same
-address reaches both: `a%2540b@example.com` over REST and `a%40b@example.com` over MCP.
+Only this path segment is decoded. The MCP tool takes the address as it is sent: the address
+`a%2540b@example.com` over REST is `a%40b@example.com` over MCP.
 
 ### Response `200 OK`
 
@@ -3285,15 +3275,14 @@ address reaches both: `a%2540b@example.com` over REST and `a%40b@example.com` ov
 | `unavailable` | object | `{"disposable_listed_domain":"not_synced"}` while the disposable domain list is not loaded, and `{}` otherwise |
 
 A null MX wins over every other record of the domain. A domain with no MX record and no null MX
-takes mail at its own A or AAAA address, when it has one. When its A and AAAA answers hold no address and one of them failed,
-the server cannot tell whether such an address exists, and answers `502`.
+takes mail at its own A or AAAA address, when it has one.
 
 The disposable domain list is the server's copy of the blocklist of
 [disposable-email-domains](https://github.com/disposable-email-domains/disposable-email-domains).
 A name of two or more labels on the list covers every name under it. A single label on the list,
 such as `com`, covers nothing. Nor does a public suffix on the list, such as `co.uk`. The server
-finds a public suffix with the rules of the ICANN section of the Public Suffix List. A community
-keeps the list. It misses every disposable domain it does not name yet, such as a new domain, the
+finds a public suffix with the rules of the ICANN section of the Public Suffix List. The list
+misses every disposable domain it does not name yet, such as a new domain, the
 next domain of a service that rotates them, or a user's own domain with a catch-all mailbox.
 
 ### Errors
@@ -3309,7 +3298,6 @@ next domain of a service that rotates them, or a user's own domain with a catch-
 | `503`  | The server is busy with requests to outside services. Try again after the `Retry-After` wait | `{"error":{"code":"upstream_busy","message":"upstream service busy","retry_after_seconds":5}}` |
 
 A refused address pays its 1 credit, and so do a failed query and a `502`. A `503` costs nothing.
-A failed query asks the resolver nothing.
 
 The address travels in the URL path. The web
 server's access log keeps the path, as the [privacy policy](https://api.contrastcyber.com/privacy) says. The server itself stores
@@ -3329,34 +3317,25 @@ until the certificate expires, the certificate's key and DNS names, and the chai
 sent. It says whether the SSL Blacklist of abuse.ch lists the certificate. The request costs 1
 credit.
 
-The server asks its own resolver for the A and AAAA records of the host name. It connects only to
-an address that is globally reachable, by IANA's special-purpose address registries. It tries the
-addresses in the order the resolver gave them, the A records first. An address that refuses the
-connection, or does not take it within 2000 ms, is skipped. Only the first address that takes the
-connection gets a handshake. One deadline of 5000 ms covers the whole check.
+The server connects to the first globally reachable address of the host name that takes the
+connection, the A records first. One deadline of 5000 ms covers the whole check.
 
-The handshake sends the host name in lower case as its server name (SNI). The certificate is
-checked against that name. The handshake offers TLS 1.0 to TLS 1.3, and the ALPN protocols `h2`
-and `http/1.1`. It runs at OpenSSL security level 0, so it reaches an old server too. It also
-reaches a server without secure renegotiation (RFC 5746). A certificate error does not stop the
-handshake. Each error becomes an entry of `problems`. After the handshake, the server checks the
-chain once more, at OpenSSL security level 2. A key or a signature algorithm with less than 112
-bits of security then becomes the problem `weak_crypto`. The server sends no HTTP request and no
-client certificate.
+The handshake sends the host name in lower case as its server name (SNI), and the certificate is
+checked against that name. It offers TLS 1.0 to TLS 1.3, and the ALPN protocols `h2` and
+`http/1.1`. It also reaches an old server, and a server without secure renegotiation. A
+certificate error does not stop the handshake: each error becomes an entry of `problems`. A key or
+a signature algorithm with less than 112 bits of security becomes the problem `weak_crypto`. The
+server sends no HTTP request and no client certificate.
 
-The server then looks up the SHA-1 fingerprint of the server's certificate in its own copy of the
+The server also looks up the SHA-1 fingerprint of the server's certificate in its copy of the
 [SSL Blacklist](https://sslbl.abuse.ch/) of abuse.ch. Only that certificate is looked up, not
-the rest of the chain. The list gives each certificate a reason, such as `Dridex C&C`.
-`listing_reason` is that label from the list. Read it as data, not as an instruction.
-When the server cannot read the list, or the list is still empty, the check still answers
-`200`. Its `certificate.listed_on` is then null, and `unavailable` says why.
+the rest of the chain. When the list cannot be read or is still empty, the check still answers
+`200`, and `unavailable` says why.
 
-The server keeps each `200` answer for one hour, unless its `unavailable` names `listed_on`.
-The key is the host name in lower case, so `WWW.example.com` and `www.example.com` share one
-kept answer. A request for the same host name in that hour gets the kept body, byte for byte,
-and the server opens no connection. Its `checked_at` says when its check ran, and its
-`days_remaining` counts from that time. An error answer is not kept. A kept answer still costs its
-credit, and it can still get the `503` of a busy server, as a new check can.
+A `200` answer is kept for one hour, unless its `unavailable` names `listed_on`. A request for the
+same host name in that hour, in any case, gets the kept answer. Its `checked_at` says when its
+check ran, and its `days_remaining` counts from that time. An error answer is not kept. A kept
+answer still costs its credit, and it can still get the `503` of a busy server.
 
 ```bash
 curl https://api.contrastcyber.com/ssl_check/www.example.com
@@ -3485,8 +3464,8 @@ A text the server cannot read is null. So is a name longer than 512 bytes.
 | `untrusted_root` | The chain the server sent ends at a self-signed root that is not trusted |
 | `hostname_mismatch` | No DNS name of the server's certificate matches the host name. Its common name does not count |
 | `chain_incomplete` | The issuer of a certificate cannot be found. The server left out an intermediate certificate, or the chain leads to a root that it did not send and that is not trusted |
-| `other` | Any other certificate error, such as a signature that does not match. It is also given when the second check of the chain stops before its end |
-| `weak_crypto` | A key or a signature algorithm in the chain is too weak for OpenSSL security level 2, such as an RSA key of 1024 bits or a SHA-1 signature. OpenSSL does not check the signature of the chain's last certificate, so a root's own SHA-1 signature is no problem |
+| `other` | Any other certificate error, such as a signature that does not match. It is also given when the `weak_crypto` check of the chain stops before its end |
+| `weak_crypto` | A key or a signature algorithm in the chain is too weak for OpenSSL security level 2, such as an RSA key of 1024 bits or a SHA-1 signature. The signature of the chain's last certificate is not checked, so a root's own SHA-1 signature is no problem |
 
 **`revocation`**
 
@@ -3498,9 +3477,8 @@ A text the server cannot read is null. So is a name longer than 512 bytes.
 | `unknown` | The response is signed by a trusted responder, but it does not name the certificate as good or revoked |
 | `unusable` | The response cannot be read, was not successful, is out of date, has no nextUpdate, or is not signed by a trusted responder |
 
-The server reads only the OCSP response that the server of the host staples to its certificate.
-It asks no OCSP responder itself, and it reads no CRL. So `not_sent` does not tell whether the
-certificate is revoked. A revoked certificate can still be `trusted`. The dates of a response are
+The server asks no OCSP responder itself, and it reads no CRL. So `not_sent` does not tell
+whether the certificate is revoked. A revoked certificate can still be `trusted`. The dates of a response are
 checked with 300 seconds of slack.
 
 ### Errors
@@ -3509,7 +3487,7 @@ checked with 300 seconds of slack.
 |--------|------|------|
 | `400`  | The host name is not a public domain name, as the Parameters section of DNS Lookup says | `{"error":{"code":"bad_request","message":"Provide a public domain name, such as example.com."}}` |
 | `400`  | No host name after `/ssl_check/` | `{"error":{"code":"bad_request","message":"domain is required"}}` |
-| `400`  | No address of the host name is globally reachable, or its records lead to a name only a local network can answer. The server opens no connection | `{"error":{"code":"bad_request","message":"hostname has no globally reachable address"}}` |
+| `400`  | No address of the host name is globally reachable, or its records lead to a name only a local network can answer | `{"error":{"code":"bad_request","message":"hostname has no globally reachable address"}}` |
 | `404`  | The resolver said the host name does not exist, or that it has no A or AAAA record | `{"error":{"code":"not_found","message":"hostname does not exist"}}` |
 | `502`  | The resolver gave no answer the server can use, such as a timeout or SERVFAIL, and no answer held an address | `{"error":{"code":"upstream_unavailable","message":"upstream service unavailable"}}` |
 | `503`  | The server is busy with requests to outside services. Try again after the `Retry-After` wait | `{"error":{"code":"upstream_busy","message":"upstream service busy","retry_after_seconds":5}}` |
@@ -3542,39 +3520,31 @@ rule gives one finding. A finding names its severity, its result, its issues and
 value, and a remediation when it does not pass. The request costs 1 credit.
 
 The server sends the request over HTTPS only, and only to port 443. It verifies the
-certificate. It connects only to an address that is globally reachable, by IANA's
-special-purpose address registries. A connection may take 2000 ms. One deadline of 5000 ms
-covers the whole fetch, every redirect included. The request carries the server's `User-Agent`
-and no cookie. This request reads no `robots.txt`. The background scan of a `headers_check`
-watch item does, as [Watchlist Events](#watchlist-events-get-watchlist_events) says. The request
-reads at most 64 KiB of the body. It keeps none of it, and it rates no part of it.
+certificate. One deadline of 5000 ms covers the whole fetch, every redirect included. The
+request carries the server's `User-Agent` and no cookie. This request reads no `robots.txt`.
+The background scan of a `headers_check` watch item does, as
+[Watchlist Events](#watchlist-events-get-watchlist_events) says. No part of the body is rated.
 
 A redirect is followed when its target is `https`, on port 443, and on the host name or its
 www pair. The pair of `example.com` is `www.example.com`, and the pair of `www.example.com`
 is `example.com`. Case does not matter. At most 5 redirects are followed. When the sixth
-redirect also stays on the site, the answer carries `redirect_limit_reached`. A followed
-request leaves out the user name, the password and the fragment of the target, and keeps its
-path and query. Any other redirect ends the fetch. That redirect is the answer rated, and
-`redirect_to` shows its target. A redirect to another host is not followed, so the server
-never fetches a host the request does not name. A redirect that names no target is rated
-without `redirect_to`. So is one whose body passes 64 KiB, because the target is read only
-after the whole body.
+redirect also stays on the site, the answer carries `redirect_limit_reached`. Any other
+redirect ends the fetch. That redirect is the answer rated, and `redirect_to` shows its
+target. A redirect that names no target is rated without `redirect_to`. So is one whose body
+passes 64 KiB.
 
 A site that answers `403`, `404` or `500` is rated too, and `status_code` says so. A site
 behind a bot check may answer with the headers of its check page. When the answer holds a
-header more than once, its copies are joined with `", "` in their order (RFC 9110 § 5.3). An
-answer with more than 16 copies of one header the check reads is a `502`. `Set-Cookie` is the
-exception. Each copy sets one cookie, and the server reads the first 50 copies. An answer with
-more cookies is no error: the rule names how many there were, and it cannot pass. A `1xx`
-answer before the last one, such as `103 Early Hints`, adds no copy.
+header more than once, its copies are joined with `", "` in their order.
+An answer with more than 16 copies of one header the check reads is a `502`. `Set-Cookie` is the exception. Each
+copy sets one cookie, and the server reads the first 50 copies. An answer with more cookies is
+no error: the rule names how many there were, and it cannot pass.
 
 The server keeps each successful answer for one hour, whatever its `status_code`. It does not
-keep an answer longer than 1024 KiB, which only `include_full_header_values` can make. The key
-is the host name in lower case and whether the request asked for whole values, so
-`WWW.example.com` and `www.example.com` share one kept answer. A request for the same host
-name in that hour gets the kept body, byte for byte, and the server sends no request. Its
-`checked_at` says when its fetch ran. An error answer is not kept. A kept answer still costs its
-credit, and it can still get the `503` of a busy server, as a new fetch can.
+keep an answer longer than 1024 KiB, which only `include_full_header_values` can make. A request
+in that hour for the same host name, in any case, and the same `include_full_header_values`
+gets the kept answer. Its `checked_at` says when its fetch ran. An error answer is not kept. A
+kept answer still costs its credit, and it can still get the `503` of a busy server.
 
 ```bash
 curl https://api.contrastcyber.com/headers_check/example.com
@@ -3692,7 +3662,7 @@ A fetch that stopped at a redirect to another host shows `redirect_to`, and rate
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `url` | string | The URL of the last request, without its query. A query can carry a session token, and the answer is shared through the cache. It is cut as a value is |
+| `url` | string | The URL of the last request, without its query. It is cut as a value is |
 | `total_url_length` | integer | Only when `url` was cut. The length of the whole URL in code points |
 | `status_code` | integer | The status the site answered the last request with |
 | `redirect_count` | integer | How many redirects the fetch followed, 0 to 5 |
@@ -3710,17 +3680,16 @@ A fetch that stopped at a redirect to another host shows `redirect_to`, and rate
 | `severity` | string | `high`, `medium` or `low`. Each rule has a fixed severity |
 | `result` | string | `pass`: the header is valid and raised no issue. `warn`: it is valid but raised an issue. `fail`: it is present but not valid. `missing`: it is absent. X-XSS-Protection, Set-Cookie and Access-Control-Allow-Origin are never `missing`: their absence passes |
 | `issues` | array of strings | What the rule found, in the order it found it. An issue never repeats the header's value. It may name a CSP directive from the rule's list, the max-age number of Strict-Transport-Security, or a count of cookies. It names no cookie and no origin |
-| `value` | string, or null | The header's value, as the site sent it. It is null when the header is absent. The Content-Security-Policy finding shows the Report-Only value when only that header is present. The value of the Set-Cookie finding is always null, also with `include_full_header_values`: a cookie can carry a session token, and the answer is kept for other callers |
+| `value` | string, or null | The header's value, as the site sent it. It is null when the header is absent. The Content-Security-Policy finding shows the Report-Only value when only that header is present. The value of the Set-Cookie finding is always null, also with `include_full_header_values` |
 | `total_value_length` | integer | Only when `value` was cut. The length of the whole value in code points |
 | `cookie_count` | integer | Only in the Set-Cookie finding, after `value`. How many cookies the answer set, one for each `Set-Cookie` copy, read or not. It is 0 when the answer set none |
 | `remediation` | string | Only when `result` is not `pass`. A fixed text for the rule |
 
-A value is the site's own bytes. It is cut after 500 code points, and never inside a
-character. The site also picks the path of `url` and `redirect_to`, so they are cut the same
-way. `include_full_header_values` writes them whole too. A byte that is not part of a whole UTF-8
-character counts as one code point, and it is written as U+FFFD. A quote, a backslash and a
-control character are escaped, and so is a code point that hides or reorders text, such as
-U+202E.
+A value is the site's own bytes. It is cut after 500 code points, never inside a character.
+`url` and `redirect_to` are cut the same way, and `include_full_header_values` writes them whole
+too. A byte that is not part of a whole UTF-8 character counts as one code point, and it is
+written as U+FFFD. A quote, a backslash, a control character and a code point that hides or
+reorders text, such as U+202E, are escaped.
 
 **The rules**
 
@@ -3749,43 +3718,32 @@ The issues below make it warn. A fetch directive below is one of these 15: `defa
 - The script directive of a policy has the source `http:`, an `http://` URL or `data:`. The
   script directive is `script-src`, or `default-src` when the policy has no `script-src`.
 - The script directive of a policy, or `object-src`, has a broad source: `https:`, `ftp:`
-  or `https://*`, in any case. Each allows every host of its scheme. The host `*.*` is no
-  broad source: CSP allows `*` only as the first label, so a browser drops it. `http:` is
-  no broad source, because it raises the `http:` issue above.
+  or `https://*`, in any case. `*.*` and `http:` are no broad source.
 - No policy has `object-src`, and no `default-src` is `'none'` or empty.
 - No policy has `base-uri`.
-- A policy has a directive twice or more. The browser uses the first copy and ignores the
-  others. The check counts the 15 fetch directives, `base-uri`, `form-action`,
+- A policy has a directive twice or more. The check counts the 15 fetch directives, `base-uri`, `form-action`,
   `frame-ancestors` and `sandbox`. Each policy is counted on its own, and each directive is
   named once. `report-uri`, `report-to` and the other directives may repeat.
-- Only `Content-Security-Policy-Report-Only` is present. A report-only policy is not enforced.
+- Only `Content-Security-Policy-Report-Only` is present.
 
 The rule still reads the sources of every copy of a directive. The issues come in this order:
 a missing `default-src` and `script-src`, then the issues of the sources, directive by
 directive, then `object-src` and `base-uri`, and the repeated directives last.
 
-Strict-Transport-Security: only the first copy counts (RFC 6797 § 8.1). A second copy is an
-issue, but it does not fail the rule. A comma at the end of the value, with only white space
-after it, starts no second copy. A missing `preload` is no issue, because the value
-that the OWASP Secure Headers Project recommends, `max-age=63072000; includeSubDomains`, has
-none.
+Strict-Transport-Security: only the first copy counts. A second copy is an issue, but it does
+not fail the rule. A comma at the end of the value, with only white space after it, starts no
+second copy. A missing `preload` is no issue.
 
-Referrer-Policy: a value may list policies after a comma. The browser uses the last one it
-knows (W3C Referrer Policy). `origin` and `origin-when-cross-origin` send the origin to a plain
-`http` page too. `strict-origin` and `strict-origin-when-cross-origin` do not. So `origin` and
-`origin-when-cross-origin` warn.
+Referrer-Policy: a value may list policies after a comma. The rule reads the last one it
+knows. `origin` and `origin-when-cross-origin` warn because they send the origin to a plain
+`http` page too.
 
-Permissions-Policy: the value is read as a Dictionary of structured fields (RFC 9651 § 4.2.2).
-A browser ignores a value it cannot parse, so such a value fails. The Feature-Policy form
-`camera 'none'` is one. So is a key in upper case, or a comma at the end. An empty value is an
-empty Dictionary and passes. A feature whose value is the token `*`, or an inner list that
-holds it, allows every origin, so the rule warns. The issue names no feature. The rule
-reads the bare item types of RFC 8941: an integer, a decimal, a string, a token, a byte
-sequence and a boolean. A date or a display string of RFC 9651 fails. A byte sequence is
-checked only for its alphabet. The rule keeps no key, so a `*` that a later copy of its
-feature replaces still warns.
+Permissions-Policy: a value that is not a structured field Dictionary fails. The
+Feature-Policy form `camera 'none'` is one. So is a key in upper case, or a comma at the end.
+An empty value passes. A date or a display string as a value fails. The warning for `*`
+names no feature. A `*` that a later copy of its feature replaces still warns.
 
-Set-Cookie: each copy of the header sets one cookie (RFC 6265). The name is the text before
+Set-Cookie: each copy of the header sets one cookie. The name is the text before
 the first `;`, up to its first `=`. A `;` separates the attributes, and an attribute name
 matches in any case. Each issue counts the cookies it applies to, and names none of them. The
 issues come in this order:
@@ -3796,23 +3754,20 @@ issues come in this order:
 - A cookie has `SameSite=None` without `Secure`. It fails.
 - A cookie breaks the rules of its name prefix. It fails. A name that starts with `__Secure-`
   needs `Secure`. A name that starts with `__Host-` needs `Secure`, `Path=/` and no `Domain`
-  with a value. Both prefixes match in any case (RFC 6265bis). The last `Path` counts.
+  with a value. Both prefixes match in any case. The last `Path` counts.
 - A cookie whose name holds `sess` or `login`, in any case, has no `HttpOnly`. It warns.
-- A cookie whose name holds `csrf`, in any case, has no `SameSite`. It warns. A page script may
-  have to read a CSRF cookie, so it gets no `HttpOnly` issue.
+- A cookie whose name holds `csrf`, in any case, has no `SameSite`. It warns. A CSRF cookie
+  gets no `HttpOnly` issue.
 - The answer set more cookies than the server read: `Cookies not checked: N`. N is the
   number of cookies left out. It warns at least, so the rule cannot pass.
 
-Access-Control-Allow-Origin: the Fetch standard compares the value byte for byte. The
-Access-Control-Allow-Credentials header has no finding of its own. This rule reads it. Each
-issue below warns, and it names no origin.
+Access-Control-Allow-Origin: the Access-Control-Allow-Credentials header has no finding of its
+own. This rule reads it. Each issue below warns, and it names no origin.
 
-- More than one origin: the value holds a comma, or white space inside it. Such a value
-  matches no origin, so every cross-origin read fails.
-- The origin `null`. A sandboxed frame has that origin, so any site can make one.
+- More than one origin: the value holds a comma, or white space inside it.
+- The origin `null`.
 - `*` with Access-Control-Allow-Credentials `true`. White space around `true` is dropped. Any
-  other value, such as `TRUE`, allows no credentials. A browser refuses `*` for a request with
-  credentials.
+  other value, such as `TRUE`, allows no credentials.
 
 ### Errors
 
@@ -3841,29 +3796,27 @@ A refused host name pays its 1 credit, and so do a `502` and a `504`. A `503` co
 ## Well Known: `GET /well_known/{domain}`
 
 Reads the `robots.txt` and the `security.txt` of a web site. The server first sends one `GET` to
-`https://<domain>/robots.txt` and reads the file (RFC 9309). Then it asks that file whether
+`https://<domain>/robots.txt` and reads the file. Then it asks that file whether
 `ContrastAPI` may read `/.well-known/security.txt`. Only when the file allows it does the server
-send one `GET` to `https://<domain>/.well-known/security.txt` and read that file (RFC 9116). A
+send one `GET` to `https://<domain>/.well-known/security.txt` and read that file. A
 `robots.txt` that disallows the path, or one that could not be read, means no `security.txt`
 request at all. The answer lists the `robots.txt` rules that bind `ContrastAPI`, the sitemaps,
 the `security.txt` fields and the issues of both files. The request costs 1 credit.
 
 Each request goes over HTTPS only, to port 443, as [Headers Check](#headers-check-get-headers_checkdomain)
-sends its request. The server verifies the certificate, connects only to an address that is
-globally reachable, and sends its `User-Agent` and no cookie. A connection may take 2000 ms. One
-deadline of 5000 ms covers both files, every redirect included. The server reads at most 512 KiB
-of `robots.txt` and 32 KiB of `security.txt`.
+sends its request. The server verifies the certificate, and sends its `User-Agent` and no
+cookie. One deadline of 5000 ms covers both files, every redirect included. The server reads at
+most 512 KiB of `robots.txt` and 32 KiB of `security.txt`.
 
 A redirect is followed when its target is `https`, on port 443, and on the host name or its www
 pair, as Headers Check says. At most 5 redirects are followed for each file. A redirect of the
 `security.txt` request is asked of `robots.txt` too. A redirect to a path that `robots.txt`
 disallows is not followed, and neither is one to a host whose `robots.txt` was not read.
 
-`robots.txt` decides as RFC 9309 § 2.3.1 says. A `2xx` file is read. A `4xx` answer other than
-`429` means there is no file, so every path is allowed. A `429` or a `5xx` answer asks a crawler
-to stay away, so the request answers `502` and the server reads no `security.txt`. A redirect
-left unfollowed, or a body sent with a `Content-Encoding` other than `identity`, means the file
-could not be read, so no path is allowed. A `security.txt` that answers `429` or `5xx` is a `502` too.
+A `2xx` `robots.txt` is read. A `4xx` answer other than `429` means there is no file, so every
+path is allowed. A `429` or a `5xx` answer makes the request a `502`, and the server reads no
+`security.txt`. A redirect left unfollowed, or a body sent with a `Content-Encoding` other than
+`identity`, means the file could not be read, so no path is allowed. A `security.txt` that answers `429` or `5xx` is a `502` too.
 
 The server counts the files it fetches for each registrable domain, such as `example.co.uk` for
 `www.example.co.uk`. A domain gets at most 10 units in each minute, and each request that fetches
@@ -3871,15 +3824,12 @@ costs 2 units, one for each file. A name that is itself a public suffix, such as
 counted on its own. A request past that limit fetches nothing. It answers `200` with
 `"reason":"quota_exhausted"`, the seconds to wait in `retry_after_seconds`, and `null` for both
 files. It still costs its credit. The limit of a domain is shared by all callers, and no tier
-has a share of its own. A request is counted before the name is resolved, so a name that does not
-resolve counts too. So one caller can use up a domain's minute for everyone.
+has a share of its own. A name that does not resolve counts too.
 
-The server keeps each answer for one hour, unless `security_txt.status` is `not_fetched`: a
-deadline that ran out or a redirect left unfollowed may pass by the next request. It does not keep
-an answer longer than 1024 KiB, nor a `quota_exhausted` answer. The key is the host name in lower
-case. A request for the same host name in that hour gets the kept body, byte for byte. It costs
-no throttle unit, and the server sends no request. Its `checked_at` says when its fetch ran. An
-error answer is not kept.
+The server keeps each answer for one hour, unless `security_txt.status` is `not_fetched`. A
+`quota_exhausted` answer and an error answer are not kept. A request in that hour for the same
+host name, in any case, gets the kept answer. It costs no throttle unit. Its `checked_at` says
+when its fetch ran.
 
 ```bash
 curl https://api.contrastcyber.com/well_known/www.example.com
@@ -4036,9 +3986,8 @@ The issue codes of `security_txt` (`field` is the field as the list members name
 
 The server adds two warnings of its own to a file, after the parser's issues. They count in
 `total_issues` and in `by_severity`. `redirect_limit_reached` says the fetch followed 5 redirects
-and the last answer named one more. Only `robots_txt` can carry it: a `security.txt` fetch that
-stops there is `not_fetched`, which holds no issues. `content_encoded` says the answer came with a
-`Content-Encoding` other than `identity`, so its body was not read.
+and the last answer named one more. Only `robots_txt` can carry it. `content_encoded` says the
+answer came with a `Content-Encoding` other than `identity`, so its body was not read.
 
 ### Errors
 
@@ -4056,6 +4005,160 @@ A refused host name pays its 1 credit, and so do a `502` and a `504`. A `503` co
 
 ---
 
+## Redirect Chain: `GET /redirect_chain?url=`
+
+Follows the redirects of one `http` or `https` URL and lists each request the server sent, with
+the status of its answer. The answer names the final URL, why the chain stopped, and whether it
+stepped from `https` to `http`. The request costs 1 credit.
+
+Percent-encode the URL, as `encodeURIComponent` does, before you put it in the query. An `&` that
+is not encoded ends the value, so the rest is an unknown parameter and the request is a `400`. A
+`+` that is not encoded is a space, and a space is a `400` too. Neither one reaches the site as
+another URL. Over MCP the `url` argument is a plain JSON string.
+
+Each request is a `GET`, and the server reads no body. It sends its `User-Agent`, no cookie and
+no `Referer`. It goes over `http` to port 80 or over `https` to port 443 only, and it verifies
+the certificate of an `https` site. The host must be a public DNS name, not an IP address. Write
+an internationalized name in punycode (`xn--`). At most 10 requests are sent, and one deadline of
+5000 ms covers all of them.
+
+The server follows the target that the `Location` header of a `3xx` answer names, resolved on the
+URL of its request, as a browser resolves it. Each target must pass the rules of the first URL. A
+target the chain requested already is a loop. A user name or a password in the URL is a `400`.
+One in a `Location` is dropped before the request, and that hop says `"had_userinfo":true`. No
+fragment is sent or written. A `Refresh` header is shown on its hop and not followed. A redirect
+written in HTML or JavaScript is not followed either.
+
+The server keeps no HSTS list, so an `http` target is sent as the site wrote it. The server reads
+no `robots.txt`.
+
+The server counts the requests it sends for each registrable domain, such as `example.co.uk` for
+`www.example.co.uk`. Each request costs 1 unit of that domain, which gets at most 10 units in each
+minute. [Well Known](#well-known-get-well_knowndomain) counts against the same units. A request
+past that limit is not sent. The answer is `200` with `"stop_reason":"quota_exhausted"`, the seconds to wait in
+`retry_after_seconds`, and the hops sent before it. It still costs its credit. The limit of a
+domain is shared by all callers, and no tier has a share of its own.
+
+The server keeps each answer for one hour, unless the chain stopped on `quota_exhausted`,
+`deadline` or `request_failed`. An error answer is not kept. A request in that hour for the same
+URL gets the kept answer. The case of the host, the fragment and a default port do not make
+another URL. A kept answer costs no throttle unit. Its `checked_at` says when its fetch ran.
+
+```bash
+curl "https://api.contrastcyber.com/redirect_chain?url=http%3A%2F%2Fexample.com%2F"
+```
+
+### Parameters
+
+| Parameter | Type | Example | Description |
+|-----------|------|---------|-------------|
+| `url` | query, required | `http%3A%2F%2Fexample.com%2F` | The URL to follow, percent-encoded. It starts with `http://` or `https://`, in any case, and holds no space. A request target holds at most 1023 bytes, so the encoded URL must fit that |
+
+### Response `200 OK`
+
+The answer below is what the server writes for the values it shows. The site, the time and the
+values are made up. `http://example.com/` answered `301` to `https://example.com/`, which answered
+`302` to `https://www.example.com/`, which answered `200`.
+
+```json
+{
+  "checked_at": "2026-11-21T09:10:11Z",
+  "final_url": "https://www.example.com/",
+  "stop_reason": "final_answer",
+  "https_downgrade": false,
+  "hops": [
+    {"url": "http://example.com/", "status_code": 301},
+    {"url": "https://example.com/", "status_code": 302},
+    {"url": "https://www.example.com/", "status_code": 200, "refresh": "30; url=/news"}
+  ]
+}
+```
+
+A chain the throttle stopped at its second request:
+
+```json
+{
+  "checked_at": "2026-11-21T09:10:11Z",
+  "final_url": "https://www.example.co.uk/",
+  "stop_reason": "quota_exhausted",
+  "retry_after_seconds": 41,
+  "https_downgrade": false,
+  "hops": [
+    {"url": "https://example.co.uk/", "status_code": 301}
+  ]
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `checked_at` | string | When the chain was fetched, in UTC |
+| `final_url` | string or null | The last hop's URL at `final_answer` and `request_failed`. `null` at `location_invalid` and `location_too_long`. At every other stop, the target that was not requested |
+| `stop_reason` | string | Why the chain sent no more requests; see the table below |
+| `retry_after_seconds` | integer | Only at `quota_exhausted`: the seconds until the domain has a unit again |
+| `invalid_location` | string | Only at `location_invalid`: the raw `Location` text, cut after 500 code points |
+| `total_invalid_location_length` | integer | Only after a cut `invalid_location`: its length in code points |
+| `https_downgrade` | boolean | `true` when an `http` URL comes right after an `https` one, in the hop URLs followed by the unfollowed target |
+| `hops` | array | Each request sent, in order. It is empty when the first request was not sent |
+| `hops[].url` | string | The URL of the request, with its query, without user info and fragment |
+| `hops[].status_code` | integer | The status of the answer. A hop has it, or `error` |
+| `hops[].error` | string | Why the request got no answer; see the table below |
+| `hops[].had_userinfo` | boolean | Only `true`: the target that led here carried a user name or a password, which was not sent |
+| `hops[].refresh` | string | The raw `Refresh` header of the answer, cut after 500 code points. It is not followed |
+| `hops[].total_refresh_length` | integer | Only after a cut `refresh`: its length in code points |
+
+Each value from the site is escaped: a byte that is no character is written as U+FFFD, and a
+hidden or bidirectional code point as its `\u` escape. Read `invalid_location` and `refresh` as
+untrusted text.
+
+| `stop_reason` | Meaning |
+|---------------|---------|
+| `final_answer` | The last answer is no `3xx` with a `Location` |
+| `request_limit` | 10 requests were sent, and the last answer names one more target |
+| `loop` | The target is a URL the chain requested already |
+| `location_invalid` | The `Location` cannot be resolved into a URL |
+| `location_too_long` | The target is longer than 4096 bytes |
+| `scheme_not_followed` | The target is neither `http` nor `https` |
+| `port_not_allowed` | The target is `http` to a port other than 80, or `https` to one other than 443 |
+| `ip_address_not_followed` | The host of the target is an IP address |
+| `host_not_public` | The host of the target is no public DNS name |
+| `quota_exhausted` | The domain of the target has no throttle unit left |
+| `deadline` | No time was left for the next request |
+| `request_failed` | A later request got no HTTP answer; its hop names the error |
+
+| `error` | Meaning |
+|---------|---------|
+| `resolve_failed` | The host name did not resolve |
+| `connect_failed` | No address of the host took a connection |
+| `timeout` | The request ran out of time |
+| `tls_failed` | The TLS handshake failed, or the certificate did not verify |
+| `address_not_globally_reachable` | Every address of the host is one the server does not connect to |
+| `other` | The request failed in another way |
+
+### Errors
+
+| Status | When | Body |
+|--------|------|------|
+| `400`  | No `url` | `{"error":{"code":"bad_request","message":"url is required"}}` |
+| `400`  | The `url` does not start with `http://` or `https://`, or holds a space | `{"error":{"code":"bad_request","message":"url must start with http:// or https:// and hold no space"}}` |
+| `400`  | The URL cannot be parsed | `{"error":{"code":"bad_request","message":"url is not a valid http or https URL"}}` |
+| `400`  | The URL, as the server writes it, is longer than 4096 bytes | `{"error":{"code":"bad_request","message":"url is longer than 4096 bytes"}}` |
+| `400`  | The URL carries a user name or a password | `{"error":{"code":"bad_request","message":"url must not carry a user name or a password"}}` |
+| `400`  | The URL uses a port the first request may not take | `{"error":{"code":"bad_request","message":"url must use port 80 for http or port 443 for https"}}` |
+| `400`  | The URL uses a scheme the first request may not take | `{"error":{"code":"bad_request","message":"url must be an http or https URL"}}` |
+| `400`  | The host of the URL is an IP address | `{"error":{"code":"bad_request","message":"url host must be a name, not an IP address"}}` |
+| `400`  | The host of the URL is no public DNS name | `{"error":{"code":"bad_request","message":"url host must be a public DNS name; write an internationalized name in punycode (xn--)"}}` |
+| `400`  | The server refused an address of the host, because it is not globally reachable, and no other address took the connection | `{"error":{"code":"bad_request","message":"hostname resolves to an address that is not globally reachable"}}` |
+| `500`  | The throttle count could not be read or written, so the chain stopped | `{"error":{"code":"internal_error","message":"internal server error"}}` |
+| `502`  | The first request failed in a way that is no `504` and no `400` | `{"error":{"code":"upstream_unavailable","message":"upstream service unavailable"}}` |
+| `503`  | The server is busy with requests to outside services. Try again after the `Retry-After` wait | `{"error":{"code":"upstream_busy","message":"upstream service busy","retry_after_seconds":5}}` |
+| `504`  | The first request got no answer: the host did not resolve, no address took a connection on the port of the url, the deadline passed, or the TLS handshake failed | `{"error":{"code":"target_unreachable","message":"no address of the host took a connection on the port of the url"}}` |
+
+A refused URL pays its 1 credit, and so do a `500`,
+a `502` and a `504`. A `503` costs nothing. A later request that fails is no error: the chain
+stops with `request_failed` and answers `200`.
+
+---
+
 ## WHOIS Lookup: `GET /whois_lookup/{domain}`
 
 Looks up the registration of a domain name over RDAP, or over WHOIS for a TLD without an RDAP
@@ -4065,49 +4168,38 @@ of the domain. It also says whether the delegation of the domain is signed with 
 holds no registrant and no contact. The request costs 1 credit.
 
 The server asks about the registrable domain of the name: its public suffix and the label before
-it. So `www.example.co.uk` asks about `example.co.uk`. The server finds the public suffix with the
-rules of the ICANN section of the Public Suffix List. `domain` in the answer is the registrable
+it. So `www.example.co.uk` asks about `example.co.uk`. `domain` in the answer is the registrable
 domain, in lower case. A name that is itself a public suffix, such as `co.uk`, is refused.
 
-**Which server is asked.** The server finds the RDAP server of the TLD in its copy of IANA's RDAP
-bootstrap file for domain names (RFC 9224). The copy is compared with the file IANA serves every
-week. A TLD whose server has only an `http://` URL in that file is left out. A TLD without an RDAP
-server is asked over WHOIS when the server's table of WHOIS servers names one, as for `io`. That
-table lists 37 TLDs on 18 WHOIS servers. A server was listed only after its terms were read, and
-every week the terms are read again. A TLD of the table that gets an RDAP server in IANA's file is
-asked over RDAP once the copy holds that server. A domain under a TLD in neither table, such as
-`de` and `tr`, gets `available` false and `registered` null, with the reason `no_registry_server`. The server then sends
-no request.
+**Which server is asked.** The server finds the RDAP server of the TLD in IANA's RDAP bootstrap
+file for domain names. A TLD whose server has only an `http://` URL in that file is left out. A
+TLD without an RDAP server is asked over WHOIS when the server's table of WHOIS servers names
+one, as for `io`. A domain under a TLD in neither table, such as `de` and `tr`, gets `available`
+false and `registered` null, with the reason `no_registry_server`.
 
 **How it asks.** An RDAP request uses HTTPS only and follows at most 5 redirects, each to HTTPS.
-A WHOIS query goes to TCP port 43 of the WHOIS server (RFC 3912). Either way, the server connects
-only to an address that is globally reachable, and one deadline of 5000 ms covers the request. The
-server reads at most 256 KiB of an RDAP answer and 65536 bytes of a WHOIS answer. Port 43 has no
-TLS, so the server trusts nothing in a WHOIS answer.
+A WHOIS query goes to TCP port 43 of the WHOIS server. One deadline of 5000 ms covers the request.
 
 **Limits.** The server sends at most 30 requests in each minute of the clock to one RDAP server, and
-at most 10 queries to one WHOIS server. The count belongs to the host name of the server, so the
-TLDs of one host share one count. `com` and `net` share the host `rdap.verisign.com`. The terms of
-Verisign and of most listed WHOIS servers forbid high-volume, automated queries. The background
-scans of watched names use the same counts, but they take at most 10 RDAP requests a minute to one
-host and 3 WHOIS queries a minute to one server. So callers keep the rest of each count. A request
-past the limit gets `available` false and `registered` null, with the reason `quota_exhausted`, and `retry_after_seconds`
-holds the seconds left in the minute. The limit of a server is shared by all callers, and no tier
-has a share of its own. So one caller can use up a server's minute for everyone.
+at most 10 queries to one WHOIS server. The TLDs of one server host share one count: `com` and
+`net` share the host `rdap.verisign.com`. The background scans of watched names use the same
+counts, but they take at most 10 RDAP requests a minute to one host and 3 WHOIS queries a minute
+to one server. So callers keep the rest of each count. A request past the limit gets `available`
+false and `registered` null, with the reason `quota_exhausted`, and `retry_after_seconds` holds the seconds
+left in the minute. The limit of a server is shared by all callers, and no tier has a share of
+its own.
 
 When an RDAP server answers 429, the server stops asking it for the wait that its `Retry-After`
-header names. The header is read only as whole seconds: one or more digits. A wait of 0 counts as
-1 second, and a wait above 3600 seconds counts as 3600. A missing header, or one in any other form,
-such as an HTTP-date, counts as 60 seconds. The request that got the 429 answers `quota_exhausted`
-with that wait. During the wait, a request that finds no kept answer also gets `quota_exhausted`,
-with the seconds left. A WHOIS server has no `Retry-After`, so it is never held.
+header names in whole seconds, at least 1 and at most 3600. A header in any other form, or none,
+counts as 60 seconds. The request that got the 429 answers `quota_exhausted` with that wait.
+During the wait, a request that finds no kept answer also gets `quota_exhausted`, with the seconds
+left. A WHOIS server is never held.
 
-**Kept answers.** The server keeps each answer that holds a registration for one hour. The key is
-the registrable domain, so `www.example.com` and `example.com` share one kept answer. A request for
-the same registrable domain in that hour gets the kept answer. The server then sends no request,
-and the limit counts nothing. An answer with `available` false is not kept, and an error answer is
-not kept either. A kept answer still costs its credit, and it can still get the `503` of a busy
-server, as a new request can.
+**Kept answers.** The server keeps each answer that holds a registration for one hour. A request
+for the same registrable domain in that hour gets the kept answer, so `www.example.com` and
+`example.com` share one. The limit then counts nothing. An answer with `available` false and an
+error answer are not kept. A kept answer still costs its credit, and it can still get the `503` of
+a busy server.
 
 ```bash
 curl https://api.contrastcyber.com/whois_lookup/example.com
@@ -4176,7 +4268,7 @@ A request past the limit of its server gets the wait in seconds:
 | `whois_server` | string, or null | The host name of the WHOIS server. It is null when the server asked an RDAP server |
 | `registrar_name` | string, or null | The full name (`fn`) in the vCard of the first entity whose roles hold `registrar`. It is null when the answer holds no such name, or one longer than 255 bytes |
 | `registrar_iana_id` | integer, or null | The `IANA Registrar ID` among the `publicIds` of that entity. It is null when the entity holds none of 1 to 9 decimal digits |
-| `created_at`, `updated_at`, `expires_at` | string, or null | The first readable date of the `registration`, `last changed` and `expiration` events, as the RDAP server wrote it. RFC 9083 writes a date in the form of RFC 3339, such as `1995-08-14T04:00:00Z`. A date that is not a string, or is longer than 63 bytes, is skipped. The member is null when no event of its kind has a readable date |
+| `created_at`, `updated_at`, `expires_at` | string, or null | The first readable date of the `registration`, `last changed` and `expiration` events, as the RDAP server wrote it, such as `1995-08-14T04:00:00Z`. A date that is not a string, or is longer than 63 bytes, is skipped. The member is null when no event of its kind has a readable date |
 | `status` | array of strings | The first 16 status values of the domain, such as `client transfer prohibited`. A value that is empty, longer than 63 bytes or not a string is left out |
 | `status_count` | integer | How many status values the answer held, without the ones left out. It counts the ones past the first 16 too |
 | `name_servers` | array of strings | The `ldhName` of the first 16 name servers, in lower case. A name server whose `ldhName` is missing or is not a valid domain name is left out |
@@ -4184,30 +4276,26 @@ A request past the limit of its server gets the wait in seconds:
 | `dnssec_signed` | boolean, or null | `delegationSigned` of the `secureDNS` member. It is null when the answer does not say |
 
 An answer without a registration holds only `domain`, `available`, `registered`, `reason` and
-`retry_after_seconds`. The server reads no entity but the registrar, so the answer holds no
-registrant and no contact. An answer with a registration names one server: one of `rdap_server`
+`retry_after_seconds`. An answer with a registration names one server: one of `rdap_server`
 and `whois_server` is a string, and the other is null.
 
 **An answer from a WHOIS server**
 
 The field table above describes an answer from an RDAP server. A WHOIS server writes lines of a
-key, a colon and a value. Each family of WHOIS servers writes its own keys. The server reads only
-the keys of the WHOIS server's family, so it never keeps a registrant or a contact. A line that
-starts with `%` or `#` is a comment, and the server skips it. The first value of a text or a date
-that the server can read wins.
+key, a colon and a value. The first value of a text or a date that the server can read wins.
 
 - The answer holds a registration only when its domain line names the registrable domain, in any
   case. An answer without such a line, such as a message that the query was refused, is a `502`.
-  So is an answer that names another domain too, because its fields may be the other domain's.
+  So is an answer that names another domain too.
 - Each WHOIS server has its own text for a name no one has registered, and that text answers
   `404`. The WHOIS server of `il` answers such a name with comment lines only.
 - `created_at`, `updated_at` and `expires_at` take the form of RFC 3339. A date with a time in UTC,
   written with `T` and `Z`, keeps its time, such as `2014-06-02T14:31:07Z`. A fraction of a second
   is dropped. A date followed by any other time written as `HH:MM:SS` keeps only its date, such
-  as `2014-06-02`, because the zone of the time is not known. A date followed by other text is
+  as `2014-06-02`. A date followed by other text is
   left out. The server reads a date written as
   `YYYY-MM-DD`, `DD-MM-YYYY` or `DD.MM.YYYY`. A date in another form is left out.
-- A status whose first word is an EPP status code becomes its RDAP name (RFC 8056), such as
+- A status whose first word is an EPP status code becomes its RDAP name, such as
   `client transfer prohibited` for `clientTransferProhibited`, and `active` for `ok`. The rest of
   the value, such as a link to ICANN's page, is dropped. Any other status stays as the server
   wrote it.
@@ -4231,8 +4319,8 @@ that the server can read wins.
 | `400`  | The name is not a public domain name, as the Parameters section of DNS Lookup says | `{"error":{"code":"bad_request","message":"Provide a public domain name, such as example.com."}}` |
 | `400`  | No domain after `/whois_lookup/` | `{"error":{"code":"bad_request","message":"domain is required"}}` |
 | `400`  | The name is a public suffix, such as `co.uk`. The server sends no request | `{"error":{"code":"bad_request","message":"domain is a public suffix, such as co.uk; name a domain registered under it"}}` |
-| `404`  | The RDAP server answered 404 for the registrable domain. RDAP answers 404 when the registry holds no such domain. A WHOIS server answers with its text for a name no one has registered | `{"error":{"code":"not_found","message":"domain is not registered"}}` |
-| `500`  | The server could not count the request, or could not check whether the RDAP server asked it to wait. This can happen for any name the server accepts | `{"error":{"code":"internal_error","message":"internal server error"}}` |
+| `404`  | The RDAP server answered 404 for the registrable domain, or a WHOIS server answered with its text for a name no one has registered | `{"error":{"code":"not_found","message":"domain is not registered"}}` |
+| `500`  | The server could not count the request, or could not check whether the RDAP server asked it to wait | `{"error":{"code":"internal_error","message":"internal server error"}}` |
 | `502`  | The RDAP server gave no answer the server can use, such as no answer within 5000 ms, a status other than 200, 404 or 429, a body longer than 256 KiB, or a body that is not an RDAP domain object | `{"error":{"code":"upstream_unavailable","message":"upstream service unavailable"}}` |
 | `502`  | The WHOIS server gave no answer the server can use, such as no address that took the connection, no whole answer within 5000 ms, a reset connection, an answer longer than 65536 bytes, or an answer whose domain line does not name the registrable domain or names another domain too | `{"error":{"code":"upstream_unavailable","message":"upstream service unavailable"}}` |
 | `503`  | The server is busy with requests to outside services. Try again after the `Retry-After` wait | `{"error":{"code":"upstream_busy","message":"upstream service busy","retry_after_seconds":5}}` |
@@ -4250,14 +4338,10 @@ link to the capture. The request costs 1 credit.
 
 The server asks about the host name as the request names it, in lower case. It does not reduce the
 name to its registrable domain, as `/whois_lookup/` does. `domain` in the answer is that host name.
-The server reads only the list of captures. It never fetches a captured page.
+The server never fetches a captured page.
 
-The server asks the CDX server of the Wayback Machine for one capture of each day, the latest 10
-days. A list shorter than 10 days holds every capture day, so its last day is the first one. A full
-list costs a second request for the earliest capture. The server never asks for the whole list of
-captures, so the answer holds no count of all captures. The requests use HTTPS only and connect
-only to an address that is globally reachable. One deadline of 10000 ms covers both requests. The
-server reads at most 64 KiB of each answer.
+The answer holds one capture of each day, the latest 10 days. It holds no count of all captures.
+One deadline of 10000 ms covers the lookup.
 
 The server sends at most 2 CDX requests in each 10 seconds of the clock, for all callers together.
 A request past the limit gets `available` false with the reason `quota_exhausted`.
@@ -4267,10 +4351,9 @@ read as on [WHOIS Lookup](#whois-lookup-get-whois_lookupdomain). During the wait
 finds no kept answer gets `quota_exhausted`, with the seconds left.
 
 The server keeps each answer that holds the capture list for one day, also for a host without a
-capture. The key is the host name in lower case. A request for the same host name in that day gets
-the kept answer. The server then sends no CDX request, and the limit counts nothing. An answer with
-`available` false is not kept, and an error answer is not kept either. A kept answer still costs
-its credit, and it can still get the `503` of a busy server, as a new request can.
+capture. A request for the same host name in that day gets the kept answer, and the limit counts
+nothing. An answer with `available` false and an error answer are not kept. A kept answer still
+costs its credit, and it can still get the `503` of a busy server.
 
 ```bash
 curl https://api.contrastcyber.com/wayback_lookup/example.com
@@ -4390,24 +4473,18 @@ The server asks about the host name as the request names it, in lower case. It d
 name to its registrable domain, as `/whois_lookup/` does. `domain` in the answer is that host name.
 Cert Spotter lists only unexpired certificates, so an expired certificate is never in the answer.
 
-**Pages.** Cert Spotter puts a limited number of certificates on a page, and it lists the
-certificates it discovered earliest first. The walk ends when a page is empty. It reads at most 5
+**Pages.** Cert Spotter lists the certificates it discovered earliest first. The walk ends when
+a page is empty. It reads at most 5
 pages that hold certificates, so it sends at most 6 requests, and the sixth only looks for another
 page. When the cap of 5 pages stops the walk, `complete` is false. The latest 10 are chosen among
 the certificates read, so a newer certificate may then be missing.
 
-**How it asks.** The requests use HTTPS only and connect only to an address that is globally
-reachable. They carry the server's own Cert Spotter API key. A server that has no key answers `502`
-when it finds no kept answer, and it then sends no request.
-
 **Limits.** The server sends at most 80 requests to Cert Spotter in each hour of the clock, for all
-callers together. A call counts every request it sends: 2 for a host whose list fits one page, 1
-for a host without a certificate, and 6 for a host that reaches the cap. A request past the limit
-gets `available` false with the reason `quota_exhausted`. `retry_after_seconds` is then the seconds
-left in the current window, at most 3600. The background scans of watched `cert_search` items have
-a count of their own and stop at 20 requests in an hour, so they never spend a request of the
-callers. The limit is shared by all
-callers, and no tier has a share of its own. So one caller can use up the hour for everyone.
+callers together. A call counts every request it sends. A request past the limit gets `available`
+false with the reason `quota_exhausted`. `retry_after_seconds` is then the seconds left in the
+current window, at most 3600. The background scans of watched `cert_search` items have a count of
+their own and stop at 20 requests in an hour, so they never spend a request of the callers. The
+limit is shared by all callers, and no tier has a share of its own.
 
 When Cert Spotter answers 429, the server stops asking it for the wait that its `Retry-After`
 header names, read as on [WHOIS Lookup](#whois-lookup-get-whois_lookupdomain). The request that
@@ -4419,11 +4496,9 @@ first request would: no part of the list, and nothing is kept. Only the cap of 5
 partial list, and that answer is kept for one day.
 
 **Kept answers.** The server keeps each answer that holds the certificate list for one day, also
-for a host without a certificate. The key is the host name in lower case. A request for the same
-host name in that day gets the kept answer. The server then sends no request to Cert Spotter, and
-the limit counts nothing. An answer with `available` false is not kept, and an error answer is not
-kept either. A kept answer still costs its 2 credits, and it can still get the `503` of a busy
-server, as a new request can.
+for a host without a certificate. A request for the same host name in that day gets the kept
+answer, and the limit counts nothing. An answer with `available` false and an error answer are not
+kept. A kept answer still costs its 2 credits, and it can still get the `503` of a busy server.
 
 ```bash
 curl https://api.contrastcyber.com/cert_search/example.com
@@ -4484,8 +4559,8 @@ A request past the limit gets an answer without the certificate list:
 | `certificates` | array of objects | The certificates whose validity starts last among those read, at most 10. The latest `valid_from` comes first. Two certificates with the same `valid_from` come in the order of their `sha256_fingerprint`, the smaller first. The array is empty when the host has no certificate |
 | `certificates[].sha256_fingerprint` | string | The SHA-256 digest of the certificate, as 64 lower-case hex digits. When Cert Spotter has seen only the precertificate, it is the digest of the precertificate, and it does not match the `sha256_fingerprint` of [SSL Check](#ssl-check-get-ssl_checkdomain) |
 | `certificates[].issuer` | string, or null | The name Cert Spotter gives the issuer. It is null when Cert Spotter names none or an empty one. It is also null when the name is not a string, is longer than 127 bytes, or is written with a `\u0000` or a lone surrogate escape |
-| `certificates[].issuer_caa_domains` | array of strings, or null | The domains a CAA record can name to allow the issuer. It is null when the list is unknown: Cert Spotter sent none, it holds more than 16 domains, or one of its domains is not a string of 1 to 63 bytes or is written with a `\u0000` or a lone surrogate escape. A part of the list could make an allowed issuer look unauthorized, so the server keeps the whole list or none |
-| `certificates[].valid_from` | string | The start of the certificate's validity, as `YYYY-MM-DDThh:mm:ssZ` in UTC (RFC 3339) |
+| `certificates[].issuer_caa_domains` | array of strings, or null | The domains a CAA record can name to allow the issuer. It is null when the list is unknown: Cert Spotter sent none, it holds more than 16 domains, or one of its domains is not a string of 1 to 63 bytes or is written with a `\u0000` or a lone surrogate escape |
+| `certificates[].valid_from` | string | The start of the certificate's validity, as `YYYY-MM-DDThh:mm:ssZ` in UTC |
 | `certificates[].valid_until` | string | The end of the certificate's validity, in the same form |
 | `certificates[].revoked` | boolean, or null | True when the certificate is revoked. It is null when Cert Spotter does not know |
 | `certificates[].dns_names` | array of strings | The first 20 DNS names the certificate is valid for, in the order Cert Spotter sent them |
@@ -4493,11 +4568,8 @@ A request past the limit gets an answer without the certificate list:
 
 The server leaves out a DNS name that is empty, longer than 253 bytes, or written with a
 `\u0000` or a lone surrogate escape. `dns_name_count` does not count it. The server also
-leaves out a certificate whose entry in Cert Spotter's answer has no valid `cert_sha256`,
-`not_before` or `not_after`, or no `dns_names` array of strings. It also leaves out a
-certificate whose `revoked` is not true, false or null. `certificate_count` does not count
-such a certificate. The walk goes on to the next page. A host whose pages hold only such
-certificates gives `certificate_count` 0 and `complete` true.
+leaves out a certificate whose entry it cannot read, and `certificate_count` does not count it.
+A host whose pages hold only such certificates gives `certificate_count` 0 and `complete` true.
 
 An answer without the certificate list holds no `complete`. It holds only `domain`, `available`, `reason` and
 `retry_after_seconds`.
@@ -4515,7 +4587,7 @@ An answer without the certificate list holds no `complete`. It holds only `domai
 | `400`  | The name is not a public domain name, as the Parameters section of DNS Lookup says | `{"error":{"code":"bad_request",…}}`, with the message of the same row in [Wayback Lookup](#wayback-lookup-get-wayback_lookupdomain) |
 | `400`  | No host name after `/cert_search/` | `{"error":{"code":"bad_request",…}}`, with the message of the same row in [Wayback Lookup](#wayback-lookup-get-wayback_lookupdomain) |
 | `500`  | The server could not count the request, or could not check whether Cert Spotter asked it to wait | `{"error":{"code":"internal_error","message":"internal server error"}}` |
-| `502`  | Cert Spotter gave no answer the server can use, such as no answer within 10000 ms to any request of the walk, a status other than 200 or 429, a body longer than 2097152 bytes, or a body that is not a JSON array. The server also answers `502` when it has no API key for Cert Spotter | `{"error":{"code":"upstream_unavailable","message":"upstream service unavailable"}}` |
+| `502`  | Cert Spotter gave no answer the server can use, such as no answer within 10000 ms to any request of the walk, a status other than 200 or 429, a body longer than 2097152 bytes, or a body that is not a JSON array. The server also answers `502` when it has no API key for Cert Spotter and finds no kept answer | `{"error":{"code":"upstream_unavailable","message":"upstream service unavailable"}}` |
 | `503`  | The server is busy with requests to outside services. Try again after the `Retry-After` wait | `{"error":{"code":"upstream_busy","message":"upstream service busy","retry_after_seconds":5}}` |
 
 A refused name pays its 2 credits, and so do a `502` and a `500`. A `503` costs nothing.
@@ -4537,8 +4609,8 @@ domain itself is never in the list.
 
 **DNS.** The server asks its resolver for the A records of two random names under the domain, for
 the MX, NS and TXT records of the domain, and for the A records of the 94 common names, such as
-`www.<domain>` and `mail.<domain>`. The questions share 2000 ms. A question with no answer in time
-counts as unanswered. A DNS error never fails the request. It only means fewer names.
+`www.<domain>` and `mail.<domain>`. The questions share 2000 ms. A DNS error never fails the
+request. It only means fewer names.
 
 Some domains answer every name under them. A common name that resolves then proves nothing.
 `wildcard_dns` tells what the two random names showed. It is `present` when either one has a
@@ -4548,15 +4620,14 @@ not ask one. The server keeps the common names that resolved only when `wildcard
 
 The MX hosts and the name servers of the domain are listed with the source `dns_records`, whatever
 `wildcard_dns` says. So are the hosts that the SPF record names in its `a`, `mx`, `include`,
-`exists` and `redirect` terms. A prefix length, as in `a:mail.example.com/24`, is cut off. RFC 7208
-makes a domain with more than one SPF record fail, so the server reads none then.
+`exists` and `redirect` terms. A prefix length, as in `a:mail.example.com/24`, is cut off. When
+the domain has more than one SPF record, none is read.
 
-**Cert Spotter.** The server asks Cert Spotter for the certificates of every name under the domain,
-with the server's own API key, as [Cert Search](#cert-search-get-cert_searchdomain) does. The
-request may take 3000 ms, so the DNS questions and this request fit in 5 seconds. The server lists
-each DNS name of each certificate with the source `certificate_logs`. Cert Spotter lists only
-unexpired certificates, the earliest it found first. The server reads only the first page of the
-answer, so a name that only a later certificate holds can be missing.
+**Cert Spotter.** The server asks Cert Spotter for the certificates of every name under the
+domain, as [Cert Search](#cert-search-get-cert_searchdomain) does. It lists each DNS name of each
+certificate with the source `certificate_logs`. Cert Spotter lists only unexpired certificates, the
+earliest it found first. The server reads only the first page of the answer, so a name that only a
+later certificate holds can be missing.
 `certificate_logs_complete` is true only when the first page is empty. When the server has no API
 key for Cert Spotter, the answer lists the DNS names alone, with `certificate_logs_available` false
 and the reason `upstream_error`.
@@ -4571,8 +4642,7 @@ The answer shows no address.
 for all callers together. This limit is apart from the 80 requests of `/cert_search/`. A request
 past the limit still lists the DNS names. `certificate_logs_available` is then false with the
 reason `quota_exhausted`. `retry_after_seconds` is then the seconds left in the current window, at
-most 3600. The limit is shared by all callers, and no tier has a share of its own. So one caller
-can use up the hour for everyone.
+most 3600. The limit is shared by all callers, and no tier has a share of its own.
 
 When Cert Spotter answers 429 to one of these requests, the server stops sending requests of this
 kind for the wait that its `Retry-After` header names, read as on
@@ -4589,11 +4659,8 @@ kind for the wait that its `Retry-After` header names, read as on
 - an answer whose `wildcard_dns` is `undetermined` for 10 minutes, whatever Cert Spotter answered.
 
 A request for the same registrable domain in that time gets the kept answer, whatever name under
-it the request names. The server then asks no DNS question and sends no request to Cert Spotter. A
-kept answer is sent as it was written. So its `retry_after_seconds` is the wait when the answer was
-written, and a kept answer can name a longer wait than is left. An error answer is not kept. A kept
-answer still costs its 2 credits, and it can still get the `503` of a busy server, as a new request
-can.
+it the request names. An error answer is not kept. A kept answer still costs its 2 credits, and it
+can still get the `503` of a busy server.
 
 ```bash
 curl https://api.contrastcyber.com/subdomain_enum/example.com
@@ -4682,26 +4749,23 @@ lists the DNS names, with `certificate_logs_available` false.
 Reads the bytes of an image and tells four things about them: the format, the SHA-256 hash, the
 signatures of other kinds of file hidden inside, and the metadata the image carries, with the
 indicators the server draws from that metadata. The request costs 2 credits.
-The endpoint has no MCP tool: an MCP tool takes its input as JSON arguments, not as a file.
+The endpoint has no MCP tool.
 
 Send the image itself as the request body, up to 16 MiB. The server does not read
 `Content-Type`. It names the format from the first bytes: JPEG, PNG, WebP, TIFF, HEIC or AVIF. A
-camera RAW file that starts with the TIFF bytes is read as TIFF. The body may hold NUL bytes. Every other endpoint
-refuses a body with a NUL.
+camera RAW file that starts with the TIFF bytes is read as TIFF. The body may hold NUL bytes.
 
 ```bash
 curl -X POST --data-binary @photo.jpg https://api.contrastcyber.com/image_inspect
 ```
 
-The server holds the image in memory only while it answers, and clears that memory once the
-answer is sent. It writes the image, its hash and the answer to no disk, log, cache or database.
-It reads the metadata with exiftool on the same server, which writes the image to no disk and
-keeps nothing once it has answered. The server keeps only the fields listed below. The operating
-system may still move memory to swap.
+The server holds the image in memory only while it answers. It writes the image, its hash and
+the answer to no disk, log, cache or database. It reads the metadata with exiftool on the same
+server, which writes the image to no disk and keeps nothing once it has answered. The server
+keeps only the fields listed below.
 
-Only a few image requests are served at once. A request holds its place while its body arrives,
-up to 10 seconds, and while exiftool reads the image, up to 15 seconds more. A request that finds
-no place free gets a `503` before its body is read.
+Only a few image requests are served at once. A request that finds no place free gets a `503`
+before its body is read.
 
 ### Response `200 OK`
 
@@ -4805,8 +4869,7 @@ signature. The server looks for these signatures in every byte of the body:
 | `html_script` | `<script`, letters in either case |
 | `shell_script` | `#!/bin/` or `#!/usr/` |
 
-A match is a sign, not proof. Each signature is at least 5 bytes long. In 16 MiB of uniform random
-bytes, a 5-byte signature is expected about 0.000015 times.
+A match is a sign, not proof. Each signature is at least 5 bytes long.
 
 ### Errors
 
@@ -4817,11 +4880,10 @@ bytes, a 5-byte signature is expected about 0.000015 times.
 | `400`  | The first bytes name a format, but exiftool could not read the image | `{"error":{"code":"bad_request","message":"the metadata of the image could not be read"}}` |
 | `405`  | A method other than `POST`. The `Allow` header is `POST` | `{"error":{"code":"method_not_allowed","message":"method not allowed for this endpoint"}}` |
 | `413`  | `Content-Length` announces more than 16 MiB | `{"error":{"code":"content_too_large","message":"request body too large"}}` |
-| `502`  | exiftool gave no answer the server can use: no connection, a cut or late answer, one longer than the server reads, or one that is not exiftool's JSON | `{"error":{"code":"upstream_unavailable","message":"upstream service unavailable"}}` |
-| `503`  | Every place for an image request is in use. The response carries `Retry-After: 10`. The server then reads and drops what the client still sends, as after a `413` | `{"error":{"code":"raw_body_busy","message":"too many raw request bodies at once","retry_after_seconds":10}}` |
+| `502`  | exiftool gave no answer the server can use | `{"error":{"code":"upstream_unavailable","message":"upstream service unavailable"}}` |
+| `503`  | Every place for an image request is in use. The response carries `Retry-After: 10` | `{"error":{"code":"raw_body_busy","message":"too many raw request bodies at once","retry_after_seconds":10}}` |
 
-A refused image pays its 2 credits, and so does a `502`. A `413` and a `503` cost nothing, because
-they are answered from the head, before the API key is read.
+A refused image pays its 2 credits, and so does a `502`. A `413` and a `503` cost nothing.
 
 ---
 
@@ -4885,18 +4947,13 @@ list holds is not added twice. Removing an item the list does not hold is not an
 | `package_check` | `ecosystem`, `name` | `version` | the three package event types `advisory_added`, `fix_available` and `malware_added`, the two CVE event types `kev_added` and `ransomware_linked` of a CVE that an advisory of the package names, and the three end-of-life types `eol_approaching`, `eol_reached` and `eol_date_changed` of the endoflife.date product the package maps to |
 | `ip_lookup` | `ip_address` |  | the three IP event types of the address: `drop_listed`, `drop_unlisted` and `hosting_changed` |
 
-Any other member in an item is refused. The twenty-six CVE event types are `cve_added`, `kev_added`,
-`kev_removed`, `epss_level_up`, `epss_level_down`, `cvss_added`, `cvss_risk_band_changed`, `exploit_published`,
-`product_added`, `ransomware_linked`, `product_removed`, `vendor_advisory_published`,
-`patch_published`, `cve_disputed`, `cve_rejected`, `metasploit_added`, `nuclei_template_added`,
-`exploitdb_added`, `ssvc_added`, `ssvc_changed`, `github_poc_added`, `description_changed`, `cvss_score_changed`, `cwe_changed`, `kev_updated` and `ghsa_linked`. A `cve_search` item hears two
-more, `epss_above_min` and `epss_below_min`. A `cve_search` item takes no `include_rejected`. Watch events are not
-filtered by status, so a watched CVE that NVD rejects gives a `cve_rejected` event. The twenty-one domain event
-types are listed under [Domain events](#domain-events). A remove that leaves
-the list with no item also deletes the event cursor, as `clear` does.
+Any other member in an item is refused. The twenty-six CVE event types are listed under
+[Watchlist Events](#watchlist-events-get-watchlist_events), and the twenty-one domain event types
+under [Domain events](#domain-events). A `cve_search` item takes no `include_rejected`. Watch events
+are not filtered by status, so a watched CVE that NVD rejects gives a `cve_rejected` event. A remove
+that leaves the list with no item also deletes the event cursor, as `clear` does.
 
-A package item watches one package of one ecosystem. It makes no scan: the server writes the package
-events when it loads the advisories. The ecosystem may come in any case. Two names that OSV
+A package item watches one package of one ecosystem. It makes no scan. The ecosystem may come in any case. Two names that OSV
 normalizes to one name are one item, so `Lodash` and `lodash` in `npm` are one item, and so are
 `Django_X` and `django-x` in `PyPI`. The answer shows the name as it was first given. An item that
 the list holds is not added twice, and the add answers that item. The version is compared as text
@@ -4906,32 +4963,26 @@ server cannot tell. [Watchlist Events](#watchlist-events-get-watchlist_events) g
 An item with no `version` hears the events of every version. An item sees only the events after
 the moment it was added.
 
-An IP item watches one public IPv4 or IPv6 address. It counts in the same 100 items as the CVE and domain items. The request costs 1 credit, as for every item. An add asks no DNS question and makes no scan. The server compares the address with the lists about every 15 minutes, but only after an update of the DROP list, the IPtoASN list or the cloud ranges. [IP events](#ip-events) gives the rule.
+An IP item watches one public IPv4 or IPv6 address. It counts in the same 100 items as the CVE and domain items. An add makes no scan. The server compares the address with the lists about every 15 minutes, but only after an update of the DROP list, the IPtoASN list or the cloud ranges. [IP events](#ip-events) gives the rule.
 
 A domain item watches one name, and the list keeps it in lower case. The item matches only the
-events of that name, not those of a subdomain. A `dns_lookup` item makes a DNS scan, which runs once
-a day. An `ssl_check` item makes a TLS scan, which runs once a day. A `whois_lookup` item makes an
-RDAP/WHOIS scan, which runs once a week, and once a day within 30 days of the end of the
-registration. A `headers_check` item makes a headers scan, and a `cert_search` item makes a CT
-scan. Both run once a day. [Domain events](#domain-events) gives the times. A new item is due at
-once. Each item compares a scan with the values it holds itself.
+events of that name, not those of a subdomain. Each domain endpoint makes a scan of its own, and
+[Domain events](#domain-events) gives how often each runs. A new item is due at once. Each item
+compares a scan with the values it holds itself.
 A key watches at most 20 names under one registered domain: the name's public suffix and the label
 before it, by the ICANN section of the Public Suffix List. `example.com` and `shop.example.com` are two
 names under `example.com`. A name watched by items of several endpoints counts once.
 A name that is itself a public suffix, such as `co.uk`, is refused, on a remove too.
 
 An add of a `dns_lookup`, `ssl_check`, `headers_check` or `cert_search` item asks DNS one CNAME question for its name first. The add is
-refused when DNS answers that the name does not exist (NXDOMAIN). The resolver does not follow a
-CNAME for a CNAME question. So a name whose CNAME points to a name that does not exist is accepted,
-and a `dns_lookup` item of it can report the takeover. An answer with no CNAME record, an error and a timeout do
+refused when DNS answers that the name does not exist (NXDOMAIN). A name whose CNAME points to a
+name that does not exist is accepted, so a `dns_lookup` item of it can report the takeover. An answer with no CNAME record, an error and a timeout do
 not refuse it. A remove asks no DNS question.
 
 An add of a `whois_lookup` item asks no DNS question. Its name must be a registered domain: the
 public suffix and one label before it, by the ICANN section of the Public Suffix List. The registry
 is asked about the name as given, so `shop.example.com` is refused. The TLD must have an RDAP server,
-or a WHOIS server that the server lists. The add is not refused for a name that does not exist. The
-Public Suffix List is read at the add only. If a later list moves the name under a longer suffix,
-the item keeps asking the registry about the name as given.
+or a WHOIS server that the server lists. The add is not refused for a name that does not exist.
 
 A new domain item holds no value yet. The first scan that serves it sends it one event for each
 problem the scanned values show. [Domain events](#domain-events) gives the rule.
@@ -5018,9 +5069,8 @@ curl -X POST https://api.contrastcyber.com/watchlist_edit -H "X-API-Key: $KEY" \
 is not refused: the item stays and matches once such a product appears. A `false` usually means a
 misspelled name; [CPE Search](#cpe-search-get-cpe_search) gives the stored names.
 
-A `product_exposure` item may take one `version`. It keeps the version as it was sent, and compares
-it as text, so a pair with a version and the same pair without one are two items, as are two
-versions written differently. The `version` does not narrow the CVE events of the item: an item with
+A `product_exposure` item may take one `version`, kept and compared as a package item's version is.
+A pair with a version and the same pair without one are two items. The `version` does not narrow the CVE events of the item: an item with
 a version hears the same CVE events as the item of the pair without one. It picks the release
 cycles of the end-of-life events, as [End-of-life events](#end-of-life-events) gives. The item
 answers `version` always, as a string, or `null` for an item with no version.
@@ -5117,7 +5167,7 @@ The answer of a package list edit, here an `add` of two packages of which the li
 | `400`  | An add of a new `package_check` item, or a package list `add` that adds one, that would make the package items of the list weigh more than 100000. A list at the package item cap answers the `400` above instead. An add of an item the list holds answers that item | `{"error":{"code":"bad_request","message":"watchlist package items weigh at most 100000: each weighs 100 plus the OSV rows of its package and 1 per 20 versions those rows list"}}` |
 | `400`  | An add of a domain item whose name would be the key's 21st name under its registered domain. A list of 100 items that are not package items answers the `400` above instead | `{"error":{"code":"bad_request","message":"limit: at most 20 watched names per registered domain per key"}}` |
 | `405`  | A method other than `POST` | `Allow: POST` |
-| `503`  | An add of a `dns_lookup`, `ssl_check`, `headers_check` or `cert_search` item while the server is busy with requests to outside services, because the add asks DNS about the name. Such an add gets it also without a Pro key or with a wrong item shape. No other call of this endpoint gets this `503` | `{"error":{"code":"upstream_busy","message":"upstream service busy","retry_after_seconds":5}}` |
+| `503`  | An add of a `dns_lookup`, `ssl_check`, `headers_check` or `cert_search` item while the server is busy with requests to outside services. Such an add gets it also without a Pro key or with a wrong item shape. No other call of this endpoint gets this `503` | `{"error":{"code":"upstream_busy","message":"upstream service busy","retry_after_seconds":5}}` |
 
 ---
 
@@ -5136,20 +5186,13 @@ such an event counts once. A page holds at most 600 pairs of an item and an even
 of a plain call or a `cursor` call would pass that, the page ends at the last event that fits.
 `has_more` is then `true`, and `next_cursor` is your key's number of that event.
 
-The `cves` map holds each CVE of the page once, keyed by CVE id. Its entries follow the order in which
-the answer first names each CVE. An entry gives the risk score and label, whether the CVE is in KEV,
-the KEV patch deadline, known ransomware use, the Metasploit flag and the PoC count. The map also holds the alias CVEs of each advisory that a package event of the page
-names. Each fact is read at answer time. [`/kev_lookup`](#kev-lookup-get-kev_lookupcve_id) and
-[`/cve_exploit`](#cve-exploit-get-cve_exploitcve_id) give the details behind them. The `domains` map
-holds each domain name of the page once, in the same way. An entry gives the current value of each
-DNS kind. The map holds no TLS, RDAP/WHOIS, headers or CT value: the events of those scans carry their values, and
-[SSL Check](#ssl-check-get-ssl_checkdomain), [WHOIS Lookup](#whois-lookup-get-whois_lookupdomain),
-[Headers Check](#headers-check-get-headers_checkdomain) and [Cert Search](#cert-search-get-cert_searchdomain)
-give them now. The DNS kinds of an entry are `null` unless an item of endpoint `dns_lookup` of the calling
-key watches the name. They show the values of that item. So an entry never tells whether another
-key watches it. `dns_presence`, `ns`, `mx`, `ip_address_reachability` and `cname_takeover` take the forms the
-domain events below use. `email_auth_failing` names the checks that do not pass. A current value is the first value a scan read for the item, or the
-last change a scan confirmed for it.
+The `cves` map holds each CVE of the page once, keyed by CVE id. It also holds the alias CVEs of
+each advisory that a package event of the page names. Each fact is read at answer time. The
+`domains` map holds each domain name of the page once, with the current value of each DNS kind. It
+holds no TLS, RDAP/WHOIS, headers or CT value: the events of those scans carry their values. The
+DNS kinds of an entry are `null` unless an item of endpoint `dns_lookup` of the calling key watches
+the name, and they show the values of that item. A current value is the first value a scan read for
+the item, or the last change a scan confirmed for it. The response fields below give each member.
 
 A CVE change is one of twenty-six events: `cve_added`, `kev_added`, `kev_removed`, `epss_level_up`,
 `epss_level_down`, `cvss_added`, `cvss_risk_band_changed`, `exploit_published`, `product_added`,
@@ -5202,10 +5245,9 @@ event comes when the EPSS score rises from under the `min_epss` of the item to `
 An `epss_below_min` event comes when the score falls from `min_epss` or above to under it. Unlike
 the levels, these two have no margin: a score that moves back and forth across `min_epss` gives an
 event each time it crosses. Each of the two carries the previous and the current score. No other
-item hears them. They reach the item even when the CVE is under `min_epss` now, because a fall
-under `min_epss` is the news itself. Every other filter of the item still applies to them. When
-`min_epss` is one of the seven level scores, the item does not hear the level event of a move that
-crosses `min_epss`. That level event would repeat the `min_epss` event.
+item hears them. They reach the item even when the CVE is under `min_epss` now. Every other filter
+of the item still applies to them. When `min_epss` is one of the seven level scores, the item does
+not hear the level event of a move that crosses `min_epss`.
 
 Events older than 90 days are deleted, CVE, package, domain, IP and end-of-life events alike.
 
@@ -5218,11 +5260,9 @@ and `malware_added`. The server writes them when it loads the advisories of OSV.
 Each fixed version writes its own event, and the event carries that version. A `malware_added`
 event comes when an advisory of the OpenSSF malicious packages names the package for the first time. The two CVE events are
 `kev_added` and `ransomware_linked`. They reach the item when the CVE is an alias of an advisory
-that names the package, so a package item hears that a vulnerability of its package entered KEV or
-gained ransomware use. Such an event is written as a CVE event: it has a `cve_id`, and it stands
+that names the package. Such an event is written as a CVE event: it has a `cve_id`, and it stands
 under the package item. The three end-of-life events reach it through the endoflife.date product its
-package maps to, as [End-of-life events](#end-of-life-events) gives. Package events older than 90
-days are deleted, as CVE and domain events are.
+package maps to, as [End-of-life events](#end-of-life-events) gives.
 
 A package event matches an item of the same ecosystem whose name is the package name after the
 normalization that OSV applies. An item with no `version` hears every event of its package.
@@ -5230,9 +5270,7 @@ An item with a `version` hears a package event only when its advisory affects th
 the server cannot tell. The server checks the version of the item against the advisory, as
 [Package Check](#package-check-get-package_check) does. A pair whose advisory is proven not to
 affect the version is left out of the answer, and it does not count for `limit` or for the 600
-pairs of a page. The server checks only the items that match an event of the scan, once for each
-item. A kept pair stores its result, so a `repeat` and a `cursor` call answer the same
-`affects_version` again. A CVE event of a package item is left out the same way, when every advisory
+pairs of a page. A `repeat` and a `cursor` call answer the same `affects_version` again. A CVE event of a package item is left out the same way, when every advisory
 that links the CVE to the package is proven not to affect the version.
 
 The answer lists each advisory of a package event once in the `advisories` map, and the sources of
@@ -5258,12 +5296,10 @@ product. The server writes them when it loads the release cycles of
 
 A cycle whose `eol_date` is today writes both `eol_approaching` and `eol_reached`. A cycle that is
 new in the data writes `eol_reached` only when its end is at most 30 days past, and never when it
-has no `eol_date`. So a new product does not tell the old ends of its cycles as news. A cycle or a
-product that endoflife.date leaves out and lists again counts as new: it can write `eol_approaching`
-again, and `eol_reached` again when its end is at most 30 days past. The first load of the data
-writes no event, and neither does a load that runs with change events switched off. A load still
-records what it saw, so a later load does not tell the same state again. When a load writes several
-events for one cycle, they come in this order: `eol_date_changed`, `eol_approaching`, `eol_reached`.
+has no `eol_date`. A cycle or a product that endoflife.date leaves out and lists again counts as
+new: it can write `eol_approaching` again, and `eol_reached` again when its end is at most 30 days
+past. The first load of the data writes no event. When a load writes several events for one cycle,
+they come in this order: `eol_date_changed`, `eol_approaching`, `eol_reached`.
 
 A `product_exposure` item hears the events of the endoflife.date product that
 [`/product_exposure`](#the-eol-member) shows for its `vendor` and `product`. A pair that maps to no
@@ -5280,12 +5316,9 @@ no product hears none. The `version` of the item picks the cycles:
 - An item whose `version` picks no series hears none.
 - An item hears only the events written after it was added.
 
-An EOL event row holds `event`, `changed_at`, `cve_id` and `eol`. `cve_id` is `null`. `eol` holds
-`product`, `cycle`, `eol_date` and `previous_eol_date`. Each of the four is always written, as
-`null` when it has no value, as `fixed_version` is on a package event. A row has no `advisory_id`
-and no `affects_version`. It adds no entry to `cves` or `advisories`. `eol_date` is `null` only on
-an `eol_reached` event of a cycle with no date. `previous_eol_date` is `null` on every type but
-`eol_date_changed`. An answer that holds an EOL event names endoflife.date, under the MIT license,
+An EOL event row holds `event`, `changed_at`, `cve_id` and `eol`. `cve_id` is `null`. The `eol`
+row of the response fields below gives the members of `eol`. A row adds no entry to `cves` or
+`advisories`. An answer that holds an EOL event names endoflife.date, under the MIT license,
 in `attribution`, before the other sources. EOL events older than 90 days are deleted.
 
 ### Domain events
@@ -5293,22 +5326,18 @@ in `attribution`, before the other sources. EOL events older than 90 days are de
 A domain item hears of changes through a background scan of its name. Each domain endpoint has a
 scan of its own: a `dns_lookup` item gets a DNS scan, an `ssl_check` item a TLS scan, a
 `whois_lookup` item an RDAP/WHOIS scan, a `headers_check` item a headers scan and a `cert_search`
-item a CT scan. The five scans share one frame. Each one asks about the name on its own schedule
-and reads a fixed set of values. Each value is compared with the value the item holds. A kind whose
-question failed keeps its value, so a failed question is never a change.
-Each scan but the CT scan has a daily count for all keys. The count is a guard against a fault, not
-a schedule. When a count is full, no scan of that kind runs until 00:00 UTC. The CT scan has no
-daily count. It stops until the end of the hour when its share of the Cert Spotter requests is
-spent. A scan that waits loses nothing: the items stay due. The subsections below give each scan in
-the same order: what it asks, how often, its values, its first-value events and its limits.
+item a CT scan. Each scan reads a fixed set of values and compares each with the value the item
+holds. A kind whose question failed keeps its value, so a failed question is never a change.
+Each scan but the CT scan has a daily count for all keys. When a count is full, no scan of that kind
+runs until 00:00 UTC. The CT scan stops until the end of the hour when its share of the Cert Spotter
+requests is spent. A scan that waits loses nothing: the items stay due.
 
 #### DNS scan
 
 A DNS scan asks the NS, MX, A and AAAA records of the name and follows its CNAME chain. It also runs
 the checks of [Email Auth Check](#email-auth-check-get-email_auth_checkdomain) on every scan,
 whatever the MX answer holds. It names no DKIM selector, so the checks choose the selectors themselves.
-The server runs it once a day for each name that a `dns_lookup` item watches, at a second of the UTC
-day that a hash of the name picks. A DNS scan asks only the names that a `dns_lookup` item watches.
+The server runs it once a day for each name that a `dns_lookup` item watches.
 
 It reads seven values: whether the name exists, its NS names, its MX records, whether its addresses
 are public, whether its CNAME chain dangles, the result of each e-mail check, and the hosting classes
@@ -5324,8 +5353,7 @@ The server runs at most 200000 DNS scans in a day, for all keys.
 A TLS scan opens one TLS handshake to port 443 of the name, and it looks up the server's certificate
 in the server's copy of the SSL Blacklist of abuse.ch. The handshake is passive: it reads the
 certificate and the protocol and sends no HTTP request. The server runs it once a day for each name
-that an `ssl_check` item watches. The name picks its second of the UTC day, and a DNS scan of the
-name uses the same second.
+that an `ssl_check` item watches.
 
 It reads four values: the end of the certificate with its bucket of days left, the problems of the
 certificate, whether the SSL Blacklist lists it with the reason, and the TLS protocol version.
@@ -5341,15 +5369,10 @@ The server runs at most 20000 TLS scans in a day, for all keys.
 #### RDAP/WHOIS scan
 
 An RDAP/WHOIS scan asks the RDAP server of the TLD of the name, or its WHOIS server when the TLD has
-no RDAP server, as [WHOIS Lookup](#whois-lookup-get-whois_lookupdomain) does. A name has one weekly
-second: the start of Monday 00:00 UTC plus a number of seconds that a hash of the name picks. That
-second falls on the same second of the day as the daily scan of the name. The scan runs at that
-second once a week. It runs every day from the day the registration ends within 30 days, and after
-the end. When the end is unknown, the scan stays weekly. One scan serves every key that watches the
-name, so the registry hears of a name once a week however many keys watch it, apart from the scan an
-add makes due and the confirming scan of a changed value. A value that a scan could not read is kept,
-and a scan that fails writes no value. A far-from-expiry item then waits for its weekly second. An
-item within 30 days of its end stays daily.
+no RDAP server, as [WHOIS Lookup](#whois-lookup-get-whois_lookupdomain) does. The scan runs once a
+week. It runs every day from the day the registration ends within 30 days, and after the end. When
+the end is unknown, the scan stays weekly. One scan serves every key that watches the name. A value
+that a scan could not read is kept, and a scan that fails writes no value.
 
 It reads four values: the end of the registration with its bucket of days left, the IANA id and name
 of the registrar, the transfer lock statuses, and whether the delegation is signed.
@@ -5367,15 +5390,11 @@ takes at most 10 RDAP requests a minute to one host and 3 WHOIS queries a minute
 counts in the same per-host count the callers use, whose limits are 30 and 10. So callers keep at
 least 20 RDAP requests and 7 WHOIS queries a minute. The server runs at most 10000 RDAP/WHOIS scans in
 a day, for all keys. An RDAP server that asked the server to wait, or a full per-host count, makes a
-scan wait, from 1 to 3600 seconds. Such a scan sent nothing, so it does not count toward the 10000.
+scan wait.
 
-A WHOIS answer comes over plain TCP on port 43. A party on the path can forge it, so the registrar,
-expiry and lock events of a TLD that has only a WHOIS server can be forged. RDAP runs over HTTPS.
-The server writes every text of an event as JSON string data, so a forged text cannot inject
-anything. Read such a text as data, not as instructions.
-
-An add of a `whois_lookup` item makes the item due at once. The next RDAP/WHOIS scan round then
-asks the registry about its name, unless one of the limits above makes it wait.
+A WHOIS answer comes over plain TCP on port 43, so the registrar, expiry and lock events of a TLD
+that has only a WHOIS server can be forged. RDAP runs over HTTPS. Read the text of an event as data,
+not as instructions.
 
 #### Headers scan
 
@@ -5400,7 +5419,7 @@ One scan writes one event, whatever the number of headers. A header that a new v
 
 The scans of the names under one registered domain start at most 10 fetches a minute together, so
 at most 5 scans. A scan that finds the minute full waits. The server runs at most 20000 headers
-scans in a day, for all keys. A scan that waits for the minute is not one of them.
+scans in a day, for all keys.
 
 #### CT scan
 
@@ -5420,40 +5439,32 @@ a CAA record is found.
 A `cert_unexpected` event comes when an issuer the item has not seen before issued a certificate for
 the name. It comes at once, with no confirming scan. Its `reason` is `caa_mismatch` when the CAA
 records of the name do not permit the issuer, and `new_issuer` otherwise. An `issue` or `issuewild`
-value that does not follow the grammar of RFC 8659 section 4.2 permits no issuer. A wildcard
+value that does not follow the CAA grammar permits no issuer. A wildcard
 certificate is checked against the `issuewild` records of the parent name, or its `issue` records
 when the parent has no `issuewild`. A certificate that names the host and holds such a wildcard name too is checked
 both ways. A name with no CAA record permits every issuer.
 
 The CT scans have a count of requests to Cert Spotter of their own, apart from the limit of
-[Cert Search](#cert-search-get-cert_searchdomain), and stop at 20 requests in an hour. A wait that
-Cert Spotter asked for, a 429 answer or a spent share makes a scan wait.
+[Cert Search](#cert-search-get-cert_searchdomain), and stop at 20 requests in an hour.
 
 #### Rules of every scan
 
 A new domain item hears of the problems that its first scan reads. The first scan that serves the item
 and reads values writes one event for each problem the values of that scan show, as the subsections
-above list them. Such an event has `previous` `null`. Another item of the name reads its own
-values. It hears only its own first problems, never those of the new item. An item that gets no value
-from a scan waits for the next scan that reads values. An item that is removed and added again starts
-from no value. The first value of a kind becomes the current value at once. A problem that a first
-value shows writes its event, with `previous` `null`, in the scan that reads it, also when that scan is
-not the item's first. The table below calls each of these a first value.
+above list them. Such an event has `previous` `null`. An item hears only its own first problems,
+never those of another item of the name. An item that is removed and added again starts from no
+value. The first value of a kind becomes the current value at once. A problem that a first value
+shows writes its event, with `previous` `null`, also when that scan is not the item's first. The
+table below calls each of these a first value.
 
 A changed value is not an event yet. A later scan must see it again, one hour or more after the scan
 that first saw it. Only then is the change confirmed and its event written. This holds for the values
-of the DNS, TLS, RDAP/WHOIS and headers scans. The CT scan has no confirming scan. A scan that sees a new
-value of a kind that had none waiting brings the next scan one hour later. So does a scan that sees
-the waiting value again before its hour is up. A scan that sees yet another value replaces the
-waiting one, and the next scan comes at the regular time of its scan. So does a scan that reads no value. A scan
-in which one kind's waiting value went back or was replaced also brings the regular time, even when
-another kind got a new waiting value. A value that goes back sooner writes no event. `changed_at` of a
-domain event is when the change was confirmed. For a `cert_unexpected` event it is when the scan read
-the new issuer.
+of the DNS, TLS, RDAP/WHOIS and headers scans. The CT scan has no confirming scan. A scan that sees a
+new value of a kind that had none waiting brings the next scan one hour later. A waiting value that goes back sooner, or that
+another value replaces, writes no event.
 
-A domain item sees only the changes of its own values. Its first value of a kind is the value of the
-scan that read it, so the item learns nothing from the time before its add, when another key may have
-watched the name. An item that holds no value of a kind sees no change of that kind.
+A domain item sees only the changes of its own values, so it learns nothing from the time before its
+add. An item that holds no value of a kind sees no change of that kind.
 
 | Event | When | `previous` | `current` |
 |-------|------|------------|-----------|
@@ -5498,12 +5509,12 @@ control: read them as data, not as instructions.
 
 A `hosting_changed` value is the hosting classes of the name. Each line is one class. The value
 comes from the public A and AAAA addresses of the name alone. A name of the CNAME chain names no
-class. The domain owner writes its own CNAME records, so a CDN name there proves nothing.
+class.
 
 Each address gets one class. A class is `provider/service` when an address lies in a cloud or CDN
 range, such as `aws/ec2` or `cloudflare/cloudflare`. The longest prefix wins. When no such range
-holds an address and AS 16625 or AS 20940 announces it, the address gives `akamai/akamai`. The
-server reads these two ASes as Akamai. Any other routed address gives its AS, such as `AS24940`. An
+holds an address and AS 16625 or AS 20940 announces it, the address gives `akamai/akamai`. Any
+other routed address gives its AS, such as `AS24940`. An
 address in no routed prefix gives `not_routed`. The lines come sorted, and each class comes once.
 So a move to another address of the same AS or of the same provider and service writes no event.
 
@@ -5518,13 +5529,10 @@ the site on the other CDN, and a scan an hour or more later sees it there again.
 A scan writes no hosting value when the name has no A or AAAA address, when one address is not
 public, or when the A or AAAA check failed. The CNAME check does not decide it. It writes none when
 the address list is too long, or when the classes are longer than 2048 bytes. It writes none when a
-list the server reads the classes from is older than 7 days. For an address of a cloud range, the
-list is as old as the oldest range of its provider. For an `akamai/akamai` address and for any
-other address, it is as old as the oldest range of all providers. A provider whose update fails
-keeps its old ranges, so the list grows old only 7 days after its last good update. It writes none
-either while the AS list is being updated, or when the last update of the AS list failed. Each item
-then keeps its stored value. A name whose addresses all lie in cloud ranges still gets its value in both cases. The
-first hosting value of an item writes no event.
+list the server reads the classes from is older than 7 days. It writes none either while the AS
+list is being updated, or when the last update of the AS list failed, unless every address lies in
+a cloud range. Each item then keeps its stored value. The first hosting value of an item writes no
+event.
 
 A confirmed e-mail change writes one `email_auth_degraded` event for each check that got worse. A
 check that got better writes none. The row then holds `check`, `previous`, `current` and `detail` in
@@ -5543,7 +5551,7 @@ of the next runs. The comparison makes no request to the address.
 
 The server keeps two values for each item. The first value is the DROP listings that hold the
 address. A listing is a prefix and a listing id, such as `192.0.2.0/24` and `SBL1`. The value holds
-no date and no copyright text, because those change with every file. The second value is the
+no date and no copyright text. The second value is the
 hosting class of the address, written as the hosting classes of the domain events are. It is
 `provider/service`, such as `aws/ec2`, or `akamai/akamai`, or an AS such as `AS24940`, or
 `not_routed`.
@@ -5566,15 +5574,13 @@ comparison writes no DROP event and keeps the stored value. An empty list never 
 A hosting class needs a confirmation. A different class becomes a candidate, and the item keeps its
 value. A later comparison that sees the candidate again writes `hosting_changed`, but only after
 the IPtoASN list and every provider of the cloud ranges were updated since the candidate first
-showed. An update of the DROP list alone confirms nothing. So a hosting list that is wrong for one
-update writes no event. A third class replaces the candidate. The old class seen again clears it,
+showed. An update of the DROP list alone confirms nothing. A third class replaces the candidate. The old class seen again clears it,
 and writes no event. The first hosting class of an item writes no event. A comparison writes no
 hosting class when a list it reads is older than 7 days. It writes none for an address outside the
 cloud ranges either, when the last update of the IPtoASN list failed. The item keeps its stored
 value then.
 
-An item hears only the events of its own address. The server deletes an IP event 90 days after it
-was written.
+An item hears only the events of its own address.
 
 ```json
 {
@@ -5591,15 +5597,12 @@ was written.
 
 ### Pages
 
-A plain call scans at most 10000 CVE and package events after the last one your key looked at. It gives your
+A plain call scans at most 10000 CVE, package and end-of-life events after the last one your key looked at. It gives your
 key's next numbers to the events that match, and it answers at most `limit` of them. A `cursor`
 call scans nothing. It answers at most `limit` of the events after the cursor that a plain call
 has already numbered. A `repeat` call answers the last batch again, whole, whatever its `limit`.
-After a plain call, `has_more` is true when the page is full, when it ended at 600 pairs, when it
-scanned 10000 events, or when a domain or IP event waits for its number. After a `cursor` call or a
-`repeat`, `has_more` is true when a numbered event follows the answer, when a domain or IP event waits
-for its number, or when a CVE or package event is newer than the last one your key looked at. A watch list
-with few matches among many events moves on 10000 events per plain call.
+The `has_more` row below says when another call may answer more. A watch list with few matches
+among many events moves on 10000 events per plain call.
 
 ```bash
 curl "https://api.contrastcyber.com/watchlist_events?limit=50" -H "X-API-Key: $KEY"
@@ -5609,7 +5612,7 @@ curl "https://api.contrastcyber.com/watchlist_events?limit=50" -H "X-API-Key: $K
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `limit` | integer | 20 | Events per answer, 1 to 100 |
+| `limit` | integer | 20 | Events per answer, 1 to 100. A shorter page with `has_more` `true` is not the end |
 | `cursor` | string |  | The `next_cursor` of an earlier answer. Reads the events after it that a plain call has already numbered, and leaves the position where it is. A cursor is `0` or up to 18 digits with no leading 0 |
 | `repeat` | boolean |  | `true` answers the last batch again, whole, and leaves the position where it is. Cannot be combined with `cursor` |
 
@@ -5619,7 +5622,7 @@ curl "https://api.contrastcyber.com/watchlist_events?limit=50" -H "X-API-Key: $K
 |-------|------|-------------|
 | `limit`, `cursor`, `repeat` | as sent | `cursor` is `null` when the request sent none |
 | `next_cursor` | string or null | The number this answer ends at. It is the number of the answer's last event, or the number the call started after when the answer holds no event. Each key numbers its own events 1, 2, 3 and so on, so no other key's list changes your numbers. A `cursor` call with this value reads on from there. After a plain call it is also the key's new position. `null` when a call without `cursor` comes from a key with no position: the key never added an item, or it cleared its list or removed its last item and added none since |
-| `has_more` | boolean | `true` after a plain call when the page is full, when it ended at 600 pairs, when it scanned 10000 events or when a domain or IP event waits for its number, so another call may answer more. After a `cursor` call or a `repeat`, `true` when a numbered event follows, a domain or IP event waits for its number or a CVE or package event is newer than the last one your key looked at |
+| `has_more` | boolean | `true` after a plain call when the page is full, when it ended at 600 pairs, when it scanned 10000 events or when a domain or IP event waits for its number, so another call may answer more. After a `cursor` call or a `repeat`, `true` when a numbered event follows, a domain or IP event waits for its number or a CVE, package or end-of-life event is newer than the last one your key looked at |
 | `items[].item` | object | The item, as [Watchlist Edit](#watchlist-edit-post-watchlist_edit) lists it |
 | `items[].events` | array | The events of the page that match the item, oldest first |
 | `items[].events[].event` | string | One of the twenty-six CVE events, `epss_above_min`, `epss_below_min`, the twenty-one domain events, the three package events `advisory_added`, `fix_available` and `malware_added`, the three IP events `drop_listed`, `drop_unlisted` and `hosting_changed`, or the three end-of-life events `eol_approaching`, `eol_reached` and `eol_date_changed` |
@@ -5735,7 +5738,7 @@ curl "https://api.contrastcyber.com/watchlist_events?limit=50" -H "X-API-Key: $K
 
 Tells whether the API is up, and how fresh each data source is. It costs 0 credits.
 
-It answers HTTP 200 when every health query succeeds. Each server worker keeps its last 200 answer for 5 seconds and sends it again during that time. So the counts and feed states can be up to 5 seconds old, and a 200 can still come up to 5 seconds after the database stopped answering. A worker keeps no 503: once its 200 is 5 seconds old, it reads the database again. It answers 503 Service Unavailable when the data cannot be read, such as when the database is down or a stored value cannot be read. The 503 body has `"status":"unavailable"` and `"db":null`, and the response carries a `Retry-After: 5` header. The 5 seconds is only a hint. It answers 500 only when the server cannot build the answer.
+It answers HTTP 200 when every health query succeeds. Each server worker keeps its last 200 answer for 5 seconds and sends it again during that time. So the counts and feed states can be up to 5 seconds old, and a 200 can still come up to 5 seconds after the database stopped answering. A worker keeps no 503. It answers 503 Service Unavailable when the data cannot be read, such as when the database is down or a stored value cannot be read. The 503 body has `"status":"unavailable"` and `"db":null`, and the response carries a `Retry-After: 5` header. The 5 seconds is only a hint. It answers 500 only when the server cannot build the answer.
 
 ```bash
 curl https://api.contrastcyber.com/health
@@ -5778,7 +5781,7 @@ A feed whose name, time or status cannot be read is left out of `db.feeds`. The 
 ```json
 {
   "status": "ok",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "db": {
     "nvd": {
       "cve_count": 251430,
@@ -5812,7 +5815,7 @@ A feed whose name, time or status cannot be read is left out of `db.feeds`. The 
 When the database cannot be read, the answer is HTTP 503 with a `Retry-After: 5` header and this body:
 
 ```json
-{"status":"unavailable","version":"2.2.0","db":null}
+{"status":"unavailable","version":"2.3.0","db":null}
 ```
 
 ---
@@ -5823,7 +5826,7 @@ The answer shows the tier, the rate limit left and the hash the request was mete
 
 `stored` names the credit budget this request was charged to. A request without an API key is metered by an HMAC-SHA256 of the client address, keyed with a server secret. For an IPv6 address the HMAC covers the /64 prefix. A request with an active API key is metered by the SHA-256 of the key, and its address is not hashed. `stored.metered_by` names which of the two it is, and `stored.hash` holds the hash.
 
-Four members of `rate_limit` repeat this response's `X-RateLimit-*` headers; `resets_in` can trail `X-RateLimit-Reset-Human` by one second. The endpoint takes no query parameters. Its MCP tool is `privacy_my_data`, and a `tools/call` of it shows the credit budget the `POST /mcp` was charged to. That text then reaches the model the MCP client runs on, and the model's provider sees it too.
+Four members of `rate_limit` repeat this response's `X-RateLimit-*` headers. The endpoint takes no query parameters. Its MCP tool is `privacy_my_data`, and a `tools/call` of it shows the credit budget the `POST /mcp` was charged to. That text then reaches the model the MCP client runs on, and the model's provider sees it too.
 
 A Pro answer also shows whether each vendor key is stored, and a manage link. The link opens the page where the keys are saved or deleted. Each answer writes a new link. It works for 15 minutes from its mint. A save that passes in full uses it up. The links of earlier answers keep working for their own 15 minutes. While it works, the link is a credential: whoever holds it can save or delete the keys of your API key. A key regenerate makes the links of the old key invalid.
 
@@ -5864,7 +5867,7 @@ curl https://api.contrastcyber.com/privacy_my_data
 | `rate_limit.remaining_in_window` | integer | Credits left after this request. Same as `X-RateLimit-Remaining` |
 | `rate_limit.resets_at` | integer | Unix time the budget resets: the start of the next hour. Same as `X-RateLimit-Reset-Machine` |
 | `rate_limit.resets_at_utc` | string or null | `resets_at` as an ISO 8601 UTC time, e.g. `2025-10-09T10:00:00Z`. `null` only for a reset that cannot be written as a date |
-| `rate_limit.resets_in` | string | Time left until the reset, as `HH:MM:SS`. The same format as `X-RateLimit-Reset-Human`; the body reads the clock just before the headers do, so the two can differ by one second |
+| `rate_limit.resets_in` | string | Time left until the reset, as `HH:MM:SS`. The same format as `X-RateLimit-Reset-Human`. The two can differ by one second |
 | `stored.metered_by` | string | `ip_hmac` without a key, `key_sha256` with an active one |
 | `stored.hash` | string | The 64-hex-digit hash the request was metered by |
 | `vendor_keys` | object or null | `null` off the Pro tier. On the Pro tier it holds `shodan`, `abuseipdb` and `manage_url` |
@@ -5926,7 +5929,7 @@ A request names the keys in one of two ways.
 
 ### The manage link
 
-A manage link is `https://api.contrastcyber.com/vendor-keys#l=` and the link. A browser does not send the part after `#`. A link is 64 lower-case hex digits: 32 random bytes. It carries no data. Each answer that shows a manage link writes a new link, so an API key may hold several open links. No cap counts them: the credit budget bounds how many a key can ask for. A link lives 15 minutes from its mint. The server stores only the SHA-256 of the link. Its row also holds the row id of the key, the key fingerprint and the end of the link. The key fingerprint is the first 16 bytes of the SHA-256 of the key's hash. A key regenerate gives the key a new fingerprint, so it makes the links of the old key invalid. The database alone judges the end of a link. An apply on the link way uses the link up when every change in it passed: it deletes the stored row. A used link cannot save again.
+A manage link is `https://api.contrastcyber.com/vendor-keys#l=` and the link. A link is 64 lower-case hex digits: 32 random bytes. It carries no data. Each answer that shows a manage link writes a new link, so an API key may hold several open links. No cap counts them: the credit budget bounds how many a key can ask for. A link lives 15 minutes from its mint. The server stores only the SHA-256 of the link. Its row also holds the row id of the key and the key fingerprint. The key fingerprint is the first 16 bytes of the SHA-256 of the key's hash. A key regenerate gives the key a new fingerprint, so it makes the links of the old key invalid. An apply on the link way uses the link up when every change in it passed. A used link cannot save again.
 
 ### Request body
 
@@ -5943,7 +5946,7 @@ An apply must name at least one key or one delete. One vendor takes a key or a d
 
 ### Apply
 
-An apply checks each new key with its vendor before it stores it. Shodan gets a call that checks the key alone. AbuseIPDB has no call that checks a key alone, so the server asks it about `127.0.0.1`. AbuseIPDB may count that check against the daily limit of the key's owner. The server stores only a key its vendor accepts, sealed with AES-256-GCM. Each vendor is handled on its own, so a key that passes is saved even when the other key fails. A delete always passes. The link is used up only when every change the request names passed. After a partial save the same link can try again.
+An apply checks each new key with its vendor before it stores it. AbuseIPDB has no call that checks a key alone, so the server asks it about `127.0.0.1`. AbuseIPDB may count that check against the daily limit of the key's owner. The server stores only a key its vendor accepts. Each vendor is handled on its own, so a key that passes is saved even when the other key fails. A delete always passes. After a partial save the same link can try again.
 
 The answer holds a `shodan` and an `abuseipdb` object:
 
@@ -5965,7 +5968,7 @@ On the API key way the answer also holds `"manage_url": "https://api.contrastcyb
 
 ### Status
 
-A status needs a link. It never writes and never uses the link up. It checks each stored key with its vendor, live. AbuseIPDB is asked about `127.0.0.1`, as in an apply, so each status may count one check against the daily limit of the key's owner.
+A status needs a link. It never writes and never uses the link up. It checks each stored key with its vendor, live. As in an apply, each status may count one AbuseIPDB check against the daily limit of the key's owner.
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -6010,7 +6013,6 @@ See [HTTP status codes](#http-status-codes).
 
 The server also answers files that are not API endpoints: the web pages and their static files,
 `robots.txt`, the `llms` files, the sitemap, `security.txt`, and the discovery documents of MCP.
-The files are part of the server.
 
 - A web file costs no credit. It needs no API key and sends no `X-RateLimit-*` header.
 - A request for a web file that carries an API key has the key checked, as on `/health`. A
@@ -6021,8 +6023,6 @@ The files are part of the server.
 - A path finds a web file only when it is the whole path, byte for byte. The query string is not
   part of the path, so `/static/style.css?v=30` is `/static/style.css`. A trailing slash is
   dropped before the lookup, so `/quickstart/` is `/quickstart`.
-- A page links each stylesheet and script with `?v=` and the version of that file: 8 hex digits
-  of a hash of its bytes. A changed file gets a new link, so no cache serves the old file for it.
 - An HTML page also sends a `Content-Security-Policy` line. It lets the page load styles,
   scripts, images and fonts from this server only. It allows no inline style and no inline
   script.
@@ -6114,7 +6114,7 @@ A request that the endpoint refuses is never offered a payment. A bad method, a 
 3. Sign a USDC transfer as that entry asks. Send the same request again with a `PAYMENT-SIGNATURE` header. Its value is base64 of the x402 payment payload.
 4. The server checks and verifies the payment before the endpoint runs. It settles the payment only after a run that answers `200`. If that settle is refused, the answer is `402` with `payment_refused` and the body is withheld. If the settle has no result in time, the answer is `402` with `payment_pending` and the body is withheld.
 5. The `200` carries a `PAYMENT-RESPONSE` header. Its value is base64 of a JSON object with `success`, `transaction` (the transaction signature) and `network`. It names no payer. A paid answer carries no `X-RateLimit-*` headers.
-6. Any other answer of the run releases a fresh payment, and charges nothing. Each such release counts against the payment (see [Limits](#limits)). A `5xx` also counts as a failed attempt of the client and as a failed run of the paying token account. A `400`, `401`, `404` or `410` counts against the client and the paying token account under looser limits instead. A payment that was pending and that Solana has confirmed is paid on chain. An answer other than `200` leaves it pending, and a retry with the same payment serves it.
+6. Any other answer of the run releases a fresh payment, and charges nothing. Each such release counts against the payment (see [Limits](#limits)). A `5xx` also counts against the client and the paying token account, and a `400`, `401`, `404` or `410` counts against them under looser limits. A payment that was pending and that Solana has confirmed is paid on chain. An answer other than `200` leaves it pending, and a retry with the same payment serves it.
 
 A request without a key that carries `PAYMENT-SIGNATURE` pays per call at once. It never touches the free budget, even when free credits are left.
 
@@ -6156,14 +6156,9 @@ The header value may be up to 3416 bytes long. A long request target together wi
 
 ### A pending payment
 
-A settle is pending when the server found no result in time. The answer is `402` with `payment_pending`. It has no `PAYMENT-REQUIRED` header, because a client that signs a second payment may pay twice. Retry the same request with the same payment after the `Retry-After` wait.
+A settle is pending when the server found no result in time. The answer is `402` with `payment_pending`. It has no `PAYMENT-REQUIRED` header. Do not sign a second payment: you may pay twice. Retry the same request with the same payment after the `Retry-After` wait.
 
-The server then asks a Solana RPC provider about the transaction. A pending payment may hold a transaction signature, or it may hold none. The settle names none when it timed out, when the facilitator stopped, or when its answer was unusable.
-
-- With a signature: the server asks the provider for the status of that transaction.
-- With no signature: the server asks the provider for the 20 most recent transactions of the paying token account. It keeps only a transaction that its own fee payer signed for this exact payment. So the provider cannot invent one.
-
-Both ways cost one request to the provider and count as one ask (see [Limits](#limits)). The answer follows from what the server finds:
+The server then looks the transaction up on Solana. Each retry counts as one ask (see [Limits](#limits)). The answer follows from what the server finds:
 
 - Confirmed: the server serves the answer. The `200` carries `PAYMENT-RESPONSE` with the signature of that transaction. It charges nothing a second time.
 - Failed on chain: the answer is `402` with `payment_refused`. Sign a new payment.
@@ -6171,7 +6166,7 @@ Both ways cost one request to the provider and count as one ask (see [Limits](#l
 
 A payment that Solana never saw stays pending until the server forgets it. The server keeps a payment for 1 hour. The wallet can pay anew once its 150-second lock frees.
 
-A payment whose settle never finished is treated the same way. The server may have stopped during that settle. From 195 seconds after the server reserved the payment, a retry looks for the transaction as for a pending payment with no signature. Before that, a retry of that payment gets `429` with `payment_busy`. The wallet lock frees sooner, at 150 seconds, so another payment of the wallet may go through in between.
+A payment whose settle never finished is treated the same way. From 195 seconds after the server reserved the payment, a retry looks for the transaction as for a pending payment with no signature. Before that, a retry of that payment gets `429` with `payment_busy`. The wallet lock frees sooner, at 150 seconds, so another payment of the wallet may go through in between.
 
 A retry of a pending payment may get `402` with `payment_refused` and a new `PAYMENT-REQUIRED` header. That happens when the price of `/package_check_bulk` changed since the first request. Do not sign a new payment at once. Wait until the 150-second wallet lock frees, then check the wallet. If the first transfer went through, contact us instead of paying again.
 
@@ -6234,7 +6229,7 @@ Every string the server writes into a response is valid UTF-8.
 
 A stored value or an upstream value can hold bytes that are not valid UTF-8. Each byte that is not part of a whole character is sent as one U+FFFD, the replacement character, in its three UTF-8 bytes. So `E2 82 41`, a euro sign cut short before an `A`, is sent as two U+FFFD and the `A`.
 
-The hidden characters are valid, but they are sent as a `\uXXXX` escape instead of raw: U+007F, the zero-width characters U+200B to U+200D and U+2060, U+2028 and U+2029, the bidirectional controls U+202A to U+202E and U+2066 to U+2069, and U+FEFF. A JSON parser turns the escape back into the character, so the value does not change. The escape shows the character to a person who reads the raw text.
+The hidden characters are valid, but they are sent as a `\uXXXX` escape instead of raw: U+007F, the zero-width characters U+200B to U+200D and U+2060, U+2028 and U+2029, the bidirectional controls U+202A to U+202E and U+2066 to U+2069, and U+FEFF. A JSON parser turns the escape back into the character, so the value does not change.
 
 The two rules above also apply inside a member that holds a JSON document from the database, such as `affected_products` of `/cve_lookup`.
 
@@ -6291,9 +6286,9 @@ That `rate_limited` body is the one an active key gets. A request with no key, o
 | 503 | `upstream_busy` | The server is busy with requests to outside services. The response carries `Retry-After: 5`. |
 | 503 | `raw_body_busy` | Every place for an image request is in use, so a request to `/image_inspect` is refused from its head. The response carries `Retry-After: 10`. |
 | 503 | `payment_unavailable` | Both settle places are taken, or the facilitator gave no answer to the verify. The response carries `Retry-After: 5`. |
-| 504 | `target_unreachable` | `/ssl_check/` reached no TLS server at the host name. No address took a connection on port 443, the deadline of the check passed, or the TLS handshake failed. `/headers_check/` and `/well_known/` got no answer from the site: the host name did not resolve, no address took a connection on port 443, the deadline passed, or the TLS handshake failed. `message` says why. |
+| 504 | `target_unreachable` | `/ssl_check/` reached no TLS server at the host name. No address took a connection on port 443, the deadline of the check passed, or the TLS handshake failed. `/headers_check/` and `/well_known/` got no answer from the site: the host name did not resolve, no address took a connection on port 443, the deadline passed, or the TLS handshake failed. `/redirect_chain` got no answer to its first request in the same ways, on the port of the url. `message` says why. |
 
-`POST /mcp` uses this shape for its 400, 405, 413, 414, 431 and 501 answers. Its 400 refuses a query parameter on the URL, or the request's framing. Its 401, 429, 500 and 503 answers keep their HTTP status, but the body is a JSON-RPC `error` object with the `message` this table's row sends. The `rate_limited` 429 `message` also names the wait, as in `rate limit exceeded: retry in 42 seconds`. A JSON-RPC fault on `/mcp` answers a JSON-RPC `error` object too. Its `code` is a number. The `ssl_check`, `headers_check` and `well_known` tools answer a `target_unreachable` case with a tool result that has `isError` and the same `message`. See [MCP: `POST /mcp`](#mcp-post-mcp).
+`POST /mcp` uses this shape for its 400, 405, 413, 414, 431 and 501 answers. Its 400 refuses a query parameter on the URL, or the request's framing. Its 401, 429, 500 and 503 answers keep their HTTP status, but the body is a JSON-RPC `error` object with the `message` this table's row sends. The `rate_limited` 429 `message` also names the wait, as in `rate limit exceeded: retry in 42 seconds`. A JSON-RPC fault on `/mcp` answers a JSON-RPC `error` object too. Its `code` is a number. The `ssl_check`, `headers_check`, `well_known` and `redirect_chain` tools answer a `target_unreachable` case with a tool result that has `isError` and the same `message`. See [MCP: `POST /mcp`](#mcp-post-mcp).
 
 [HTTP status codes](#http-status-codes) lists each REST case with the endpoints it applies to.
 
@@ -6316,9 +6311,9 @@ request target counts the bytes as sent.
 | 200  | Success | all |
 | 400  | The server refuses a query parameter, a path value or a request body. Some cases: a query parameter name the endpoint does not read, a name sent twice, or a segment without `=`, such as `?vendor`; a value out of range or in the wrong form, such as `limit=abc` or `min_cvss=nan`; a value that is not valid percent-encoding, holds a control character or is not valid UTF-8; a body that is not a JSON object, or a bulk body that breaks its rules. `message` names the reason. See the Errors table of each endpoint | all |
 | 400  | A query parameter is longer than its field; body message `"<name> is too long"`. The value is refused, never truncated. Longest accepted values, in decoded bytes: `vendor`, `product` and `search` 128 bytes, the `version` of `/product_exposure` 128 bytes, `vector` 127, `sort` 15, `severity` 16, `cwe_id` 16, `published_after` / `published_before` / `kev_added_after` 31 (`/cve_search` only), every numeric parameter 31, and the `ecosystem`, `name` and `version` of `/package_check` 16, 256 and 128. A boolean parameter such as `include_ghsa` is read up to 31 bytes too, but it accepts only `true` or `false` | all that read a query value |
-| 400  | The request's framing is malformed: a `Content-Length` that is not one header of decimal digits (`"Content-Length must be one decimal number"`; a second `Content-Length` header is refused even when it repeats the value), `Content-Length` sent with `Transfer-Encoding` (`"send Content-Length or Transfer-Encoding, not both"`), or a body that holds a NUL byte (`"request body must not contain a NUL byte"`). `/image_inspect` takes a body with a NUL. Answered before authentication, so it carries no `X-RateLimit-*` headers and costs no credits | all |
+| 400  | The request's framing is malformed: a `Content-Length` that is not one header of decimal digits (`"Content-Length must be one decimal number"`; a second `Content-Length` header is refused even when it repeats the value), `Content-Length` sent with `Transfer-Encoding` (`"send Content-Length or Transfer-Encoding, not both"`), or a body that holds a NUL byte (`"request body must not contain a NUL byte"`). `/image_inspect` takes a body with a NUL. It carries no `X-RateLimit-*` headers and costs no credits | all |
 | 400  | A `PAYMENT-SIGNATURE` header on an endpoint that takes no payment; body code `payment_not_offered`. See [Pay per call (x402)](#pay-per-call-x402) | every endpoint that takes no payment |
-| 400  | A query parameter name that the endpoint does not read. A percent-encoded spelling of a known name is unknown too, because names are compared byte for byte. The body message lists the query parameters the endpoint takes, e.g. `"unknown query parameter; this endpoint takes include_ghsa"` on `/cve_lookup/`. An endpoint that reads none answers `"this endpoint takes no query parameters"`, so `/health?_=1` and `POST /mcp?x=1` are refused too. The message never repeats the name that was sent | all |
+| 400  | A query parameter name that the endpoint does not read. A percent-encoded spelling of a known name is unknown too. The body message lists the query parameters the endpoint takes, e.g. `"unknown query parameter; this endpoint takes include_ghsa"` on `/cve_lookup/`. An endpoint that reads none answers `"this endpoint takes no query parameters"`, so `/health?_=1` and `POST /mcp?x=1` are refused too. The message never repeats the name that was sent | all |
 | 400  | A query parameter name that appears twice, e.g. `"include_ghsa appears more than once"`. Neither copy is read | all |
 | 400  | A query segment without `=`, or with an empty name, such as `?vendor` or `?=x`; body message `"every query parameter must be name=value"`. An empty segment is skipped: `&&`, a trailing `&` and a lone `?` are not errors | all |
 | 400  | `include_ghsa` is not `true` or `false`; body message `"include_ghsa must be true or false"`. The match is exact, so `TRUE`, `1` and an empty `include_ghsa=` are refused too. The request costs 1 credit | `/cve_lookup/` |
@@ -6334,12 +6329,12 @@ request target counts the bytes as sent.
 | 400  | The address in the path is not a globally reachable IPv4 or IPv6 address; body `{"error":{"code":"bad_request","message":"Provide a public IPv4 or IPv6 address, such as 8.8.8.8 or 2001:4860:4860::8888."}}` | `/ip_lookup/` |
 | 400  | The id in the path is not a MITRE ATT&CK technique id in upper case; body `{"error":{"code":"bad_request","message":"Provide a MITRE ATT&CK technique id in upper case, such as T1059 or T1059.001."}}` | `/d3fend_for_attack/` |
 | 400  | No id in the path; body message `"attack_technique_id is required"` | `/d3fend_for_attack/` |
-| 400  | No address of the host name is globally reachable, or its records lead to a name only a local network can answer; body `{"error":{"code":"bad_request","message":"hostname has no globally reachable address"}}`. The server opens no connection, and the request still pays its credit | `/ssl_check/` |
-| 400  | The server refused an address of the host name, because it is not globally reachable, and no other address took the connection; body `{"error":{"code":"bad_request","message":"hostname resolves to an address that is not globally reachable"}}`. The request still pays its credit | `/headers_check/`, `/well_known/` |
+| 400  | No address of the host name is globally reachable, or its records lead to a name only a local network can answer; body `{"error":{"code":"bad_request","message":"hostname has no globally reachable address"}}`. The request still pays its credit | `/ssl_check/` |
+| 400  | The server refused an address of the host name, because it is not globally reachable, and no other address took the connection; body `{"error":{"code":"bad_request","message":"hostname resolves to an address that is not globally reachable"}}`. The request still pays its credit | `/headers_check/`, `/well_known/`, `/redirect_chain` |
 | 400  | The domain is a public suffix, such as `co.uk`; body `{"error":{"code":"bad_request","message":"domain is a public suffix, such as co.uk; name a domain registered under it"}}`. The server sends no request, and the request still pays its credit | `/whois_lookup/` |
 | 400  | The body is empty; body message `"image is required"`. The request still pays its 2 credits | `/image_inspect` |
 | 400  | The `PAYMENT-SIGNATURE` header is not well formed, is sent twice, or is longer than 3416 bytes; body code `payment_invalid`. See [Pay per call (x402)](#pay-per-call-x402) | every endpoint that takes payment |
-| 401  | The API key is malformed, unknown, revoked or expired, or a webhook signature does not match its body. A key that is unknown, revoked or expired is charged to the anonymous budget (1 credit), so guessing keys is not free. A `401` for an API key carries no `X-RateLimit-*` headers. [Sending the key](#sending-the-key) gives the rules | all |
+| 401  | The API key is malformed, unknown, revoked or expired, or a webhook signature does not match its body. A key that is unknown, revoked or expired is charged to the anonymous budget (1 credit). A `401` for an API key carries no `X-RateLimit-*` headers. [Sending the key](#sending-the-key) gives the rules | all |
 | 401  | The key is in the database but was revoked or has expired; body `{"error":{"code":"api_key_inactive","message":"API key expired or revoked"}}`. It is charged like a key that is not in the database, and carries no `X-RateLimit-*` headers | all |
 | 402  | A request without an API key has spent its free budget on an endpoint that takes payment. The `PAYMENT-REQUIRED` header offers the payment; body code `payment_required`, with `upgrade_url`, the page that sells a Pro key. The answer keeps `Retry-After` and the `X-RateLimit-*` headers. See [Pay per call (x402)](#pay-per-call-x402) | every endpoint that takes payment |
 | 402  | The payment was refused, or was settled already; body code `payment_refused` or `payment_already_used`. The answer carries a new `PAYMENT-REQUIRED` header | every endpoint that takes payment |
@@ -6353,19 +6348,19 @@ request target counts the bytes as sent.
 | 404  | The CVE is not in our data, and CVE.org names the state of the id; body `{"error":{"code":"not_found","message":"CVE not found; CVE.org lists it as rejected","cve_org_state":"rejected"}}`. The state `published` adds `retry_after_seconds`, and there is no `Retry-After` header. The request pays 1 credit as any other `404` of this endpoint. See [CVE.org state of a missing CVE](#cveorg-state-of-a-missing-cve) | `/cve_lookup/{cve_id}` |
 | 405  | HTTP method not allowed; `Allow` header lists permitted methods. An endpoint takes no `HEAD`, and a web file's `Allow` is `GET, HEAD`. An answer to a `HEAD` request leaves its body out, a `405` too, and its `Content-Length` still counts the body. A refusal that comes before routing keeps its body: a `400` for `Content-Length` or `Transfer-Encoding`, a `413`, a `414`, a `431` or a `501`. The `400` for a body with a NUL comes after routing, so its answer to a `HEAD` request has no body | all |
 | 410  | The key of the order was claimed already, its 24-hour claim window has passed, or the order was refunded or has ended | `/api_key_claim` |
-| 413  | The body that `Content-Length` announces is longer than the endpoint takes. Any request may carry a body that fits, with its head, in 4095 bytes. A POST to a row that reads a JSON body may also carry as many bytes as its JSON object limit: 2048, or 65536 on `/package_check_bulk` and `/watchlist_edit`. A POST to `/mcp` may carry 69632 bytes, a POST to `/image_inspect` 16 MiB, a POST to `/webhook_lemonsqueezy` 64 KiB (65536 bytes), and a POST to `/webhook_nowpayments` 64 KiB (65536 bytes). The body is `{"error":{"code":"content_too_large",…}}`. Answered from the head, before the body is read, so it carries no `X-RateLimit-*` headers and costs no credits | all |
+| 413  | The body that `Content-Length` announces is longer than the endpoint takes. Any request may carry a body that fits, with its head, in 4095 bytes. A POST to a row that reads a JSON body may also carry as many bytes as its JSON object limit: 2048, or 65536 on `/package_check_bulk` and `/watchlist_edit`. A POST to `/mcp` may carry 69632 bytes, a POST to `/image_inspect` 16 MiB, a POST to `/webhook_lemonsqueezy` 64 KiB (65536 bytes), and a POST to `/webhook_nowpayments` 64 KiB (65536 bytes). The body is `{"error":{"code":"content_too_large",…}}`. It carries no `X-RateLimit-*` headers and costs no credits | all |
 | 414  | The request target (path plus query string) is longer than 1023 bytes, or the request line does not fit in 4095 bytes. It costs no credits and carries no `X-RateLimit-*` headers | all |
 | 429  | The credit budget is spent. The response carries a `Retry-After` header with the seconds until the budget resets. A request with no key, or with an unknown, revoked or expired key, also gets `upgrade_url` in the body; an active key does not. A request without an API key to an endpoint that takes payment gets `402` in its place. A bulk request with fewer credits left than its price is served in part, and `not_processed` lists the rest. A request that costs no credit never gets it, but a request with an unknown, revoked or expired API key pays 1 credit for its key check and can. `payment_busy` and `payment_limited` are the `429` answers of a payment | all that cost credits |
 | 431  | The request has more than 64 header lines, or its head does not fit in 4095 bytes. It costs no credits and carries no `X-RateLimit-*` headers | all |
 | 500  | The database or the server failed, or a stored value cannot be read. A request whose well-formed API key could not be looked up, or that could not be charged, gets it too, with no `X-RateLimit-*` headers. `/health` answers a database failure with `503`, and `/cve_lookup_bulk`, `/cve_triage_bulk` and `/driver_lookup_bulk` count an unreadable record in `failed` | all |
 | 501  | The request sends `Transfer-Encoding`, such as `chunked`, without `Content-Length`. The server reads a body only by its `Content-Length`. It costs no credits and carries no `X-RateLimit-*` headers | all |
 | 502  | The outside service the endpoint asks, or exiftool of `/image_inspect`, gave no answer the server can use. The request still pays its credits | the endpoints that ask an outside service |
-| 502  | The fetch of the site failed in a way that is no `504` and no `400`, such as an answer with more than 16 copies of one header the check reads, other than `Set-Cookie`. `/well_known/` answers it too when `robots.txt` or `security.txt` answered `429` or `5xx`. The body is `{"error":{"code":"upstream_unavailable","message":"upstream service unavailable"}}`. The request still pays its credit | `/headers_check/`, `/well_known/` |
-| 503  | The server is busy with requests to outside services (`upstream_busy`). The response carries `Retry-After: 5`. It costs no credits and carries no `X-RateLimit-*` headers. A request that the endpoint refuses for its method, its parameter names or its values gets that refusal instead. The 503 comes before the API key is read, so a request with a malformed, unknown, revoked or expired key gets it too | the endpoints that ask an outside service, `/mcp` |
-| 503  | Every place for an image request is in use (`raw_body_busy`). The response carries `Retry-After: 10`, the deadline that the head and the body share. It costs no credits | `/image_inspect` |
+| 502  | The fetch of the site failed in a way that is no `504` and no `400`, such as an answer with more than 16 copies of one header the check reads, other than `Set-Cookie`. `/well_known/` answers it too when `robots.txt` or `security.txt` answered `429` or `5xx`. The body is `{"error":{"code":"upstream_unavailable","message":"upstream service unavailable"}}`. The request still pays its credit | `/headers_check/`, `/well_known/`, `/redirect_chain` |
+| 503  | The server is busy with requests to outside services (`upstream_busy`). The response carries `Retry-After: 5`. It costs no credits and carries no `X-RateLimit-*` headers. A request that the endpoint refuses for its method, its parameter names or its values gets that refusal instead. A request with a malformed, unknown, revoked or expired key gets it too | the endpoints that ask an outside service, `/mcp` |
+| 503  | Every place for an image request is in use (`raw_body_busy`). The response carries `Retry-After: 10`. It costs no credits | `/image_inspect` |
 | 503  | The payment cannot be settled now (`payment_unavailable`). The response carries `Retry-After: 5` | every endpoint that takes payment |
-| 503  | The database cannot be read. The body is `{"status":"unavailable","version":"2.2.0","db":null}` and the response carries `Retry-After: 5` | `/health` |
-| 504  | No TLS server or site was reached at the host name. `message` says why | `/ssl_check/`, `/headers_check/`, `/well_known/` |
+| 503  | The database cannot be read. The body is `{"status":"unavailable","version":"2.3.0","db":null}` and the response carries `Retry-After: 5` | `/health` |
+| 504  | No TLS server or site was reached at the host name. `message` says why | `/ssl_check/`, `/headers_check/`, `/well_known/`, `/redirect_chain` |
 
 ---
 
@@ -6398,6 +6393,7 @@ request target counts the bytes as sent.
 | `GET /ssl_check/{domain}`                         | 1 credit  |
 | `GET /headers_check/{domain}`                     | 1 credit  |
 | `GET /well_known/{domain}`                        | 1 credit  |
+| `GET /redirect_chain?url=`                        | 1 credit  |
 | `GET /whois_lookup/{domain}`                      | 1 credit  |
 | `GET /wayback_lookup/{domain}`                    | 1 credit  |
 | `GET /cert_search/{domain}`                       | 2 credits |
@@ -6418,11 +6414,11 @@ request target counts the bytes as sent.
 | `GET /privacy_my_data`                            | 1 credit  |
 | `POST /vendor_key_edit`                           | 1 credit  |
 | `POST /mcp` (`initialize`, `ping`, `server/discover`, notifications/* without an id) | 0 credits |
-| `POST /mcp` (`tools/list`) | 1 credit. A tiny request returns the whole tool catalogue, so it is metered even though it touches no data |
+| `POST /mcp` (`tools/list`) | 1 credit |
 | `POST /mcp` (any other method, e.g. `resources/list`) | 1 credit |
 | `POST /mcp` (`tools/call`)                        | cost of the matching endpoint (e.g. `cve_lookup` = 1, bulk = per-id) |
 
-The price belongs to the route, not to the ID. A request that reaches a route pays that route's price even when the handler refuses it: `POST /image_inspect` with an empty body answers `400` and still costs the route's 2 credits. The per-ID price is charged only when the bulk body is accepted. A request refused for its query parameter names pays the route's price, so `POST /cve_lookup_bulk?x=1` costs 1 credit whatever its body holds. A bulk body that is refused costs 1 credit, not 1 credit per ID, and so does a bulk `tools/call` that the tool refuses. An accepted bulk request pays for its well-formed IDs only, and at least 1 credit, so `{"cve_ids":["foo"]}` answers 200 and costs 1 credit. A bulk request with fewer credits left than its price is charged the credits that remain, at least 1, and serves that many IDs. Every other request is charged its whole price or refused with 429. A path that no route serves costs 0 credits, and so does a [web file](#web-files). A request with a refused API key on such a path still pays 1 credit for the key check. A request with a method its route does not take answers `405` and pays the route's price, so `GET /image_inspect` costs 2 credits. `GET /mcp` and `DELETE /mcp` answer `405` and cost 0 credits. An MCP client may send a `GET` to open a stream and a `DELETE` to end a session, and this server has neither. A body is priced only on `POST`, so a bulk endpoint called with any other method costs 1 credit, and so does `/mcp` with a method other than `POST`, `GET` or `DELETE`. A `503` because the server is busy costs nothing, and so does a `503` because every place for an image request is in use.
+The price belongs to the route, not to the ID. A request that reaches a route pays that route's price even when the handler refuses it: `POST /image_inspect` with an empty body answers `400` and still costs the route's 2 credits. The per-ID price is charged only when the bulk body is accepted. A request refused for its query parameter names pays the route's price, so `POST /cve_lookup_bulk?x=1` costs 1 credit whatever its body holds. A bulk body that is refused costs 1 credit, not 1 credit per ID, and so does a bulk `tools/call` that the tool refuses. An accepted bulk request pays for its well-formed IDs only, and at least 1 credit, so `{"cve_ids":["foo"]}` answers 200 and costs 1 credit. A bulk request with fewer credits left than its price is charged the credits that remain, at least 1, and serves that many IDs. Every other request is charged its whole price or refused with 429. A path that no route serves costs 0 credits, and so does a [web file](#web-files). A request with a refused API key on such a path still pays 1 credit for the key check. A request with a method its route does not take answers `405` and pays the route's price, so `GET /image_inspect` costs 2 credits. `GET /mcp` and `DELETE /mcp` answer `405` and cost 0 credits. A body is priced only on `POST`, so a bulk endpoint called with any other method costs 1 credit, and so does `/mcp` with a method other than `POST`, `GET` or `DELETE`. A `503` because the server is busy costs nothing, and so does a `503` because every place for an image request is in use.
 
 ---
 
@@ -6450,10 +6446,9 @@ An `nvd` element comes from the CPE configurations NVD assigns. A `cna` element 
 normalized: lower case, `_` for white space, a corporate suffix such as `Inc.` dropped, each
 special character quoted with a `\` as NVD quotes it (`Notepad++` is `notepad\+\+`), and the
 vendor dropped from the start of the product. It is written only while the CVE has no `nvd` and no
-`cna_cpe` element, and once written it stays, so a product the CNA named does not vanish when NVD
-adds its CPEs; the CNA's own update rebuilds it. A `cna_cpe` element comes from the CNA's `cpes`
-list and `cpeApplicability` block in [cvelistV5](https://github.com/CVEProject/cvelistV5), which the
-server reads apart from NVD. An element whose name normalizes to nothing, such as `n/a` or
+`cna_cpe` element. Once written it stays until the CNA's own update rebuilds it. A `cna_cpe` element
+comes from the CNA's `cpes` list and `cpeApplicability` block in
+[cvelistV5](https://github.com/CVEProject/cvelistV5). An element whose name normalizes to nothing, such as `n/a` or
 `unknown`, or is longer than 128 bytes, is left out. One CVE keeps at most 5000 `cna_cpe` elements.
 
 ---
@@ -6461,7 +6456,7 @@ server reads apart from NVD. An element whose name normalizes to nothing, such a
 ## Data sources and licenses
 
 Some answers hold data from catalogs and archives that their authors publish under a license or
-terms of use. The table names twenty-seven of them, the license or the terms of each and the
+terms of use. The table names thirty-five of them, the license or the terms of each and the
 endpoint that serves it.
 
 | Source | License | Served by |
@@ -6480,12 +6475,20 @@ endpoint that serves it.
 | [RustSec advisory database](https://github.com/rustsec/advisory-db), through OSV.dev | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/); an advisory may name [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) instead | `/package_check`, `/package_check_bulk` |
 | [OpenSSF Malicious Packages](https://github.com/ossf/malicious-packages), through OSV.dev | [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) | `/package_check`, `/package_check_bulk` |
 | [Can I take over XYZ?](https://github.com/EdOverflow/can-i-take-over-xyz) by EdOverflow | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) | `/dns_takeover_check/` |
-| [CVE List](https://github.com/CVEProject/cvelistV5) | [CVE Program Terms of Use](https://www.cve.org/Legal/TermsOfUse), Copyright © 1999–2026 The MITRE Corporation | the description, CWE, CVSS scores, SSVC assessment, dates, reference tags and CVE tags that a CVE record gives a CVE row. A field of an equal or better source class replaces the stored one, and a CVE that NVD has not published yet takes them all. A full sync reads the GitHub release zip. A delta reads each changed record through the CVE Services API, else through GitHub. The CVE List also gives the `cna` and `cna_cpe` elements of `affected_products` and of `/cve_products`, and the rows they give `/cve_search`, `/cve_triage`, `/cve_leading`, `/epss_risers`, `/product_exposure` and `/cpe_search` |
+| [CVE List](https://github.com/CVEProject/cvelistV5) | [CVE Program Terms of Use](https://www.cve.org/Legal/TermsOfUse), Copyright © 1999–2026 The MITRE Corporation | the description, CWE, CVSS scores, SSVC assessment, dates, reference tags and CVE tags that a CVE record gives a CVE row. A CVE that NVD has not published yet takes them all. The CVE List also gives the `cna` and `cna_cpe` elements of `affected_products` and of `/cve_products`, and the rows they give `/cve_search`, `/cve_triage`, `/cve_leading`, `/epss_risers`, `/product_exposure` and `/cpe_search` |
 | [CVE Services](https://cveawg.mitre.org/api-docs/) of the CVE Program | [CVE Program Terms of Use](https://www.cve.org/Legal/TermsOfUse), Copyright © 1999–2026 The MITRE Corporation; only the state of an id is read | `cve_org_state` of a `404` from `/cve_lookup/` |
 | [IPtoASN](https://iptoasn.com/) | [PDDL 1.0](https://opendatacommons.org/licenses/pddl/1-0/) | `asn`, `asn_name`, `asn_country` and part of `is_datacenter` of `/ip_lookup/`; every field of `/asn_lookup/` but `target` |
 | [DB-IP IP to Country Lite](https://db-ip.com/db/lite.php) | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/); <a href='https://db-ip.com'>IP Geolocation by DB-IP</a> | `geo_country` of `/ip_lookup/` |
 | [Tor bulk exit list](https://check.torproject.org/torbulkexitlist) of The Tor Project | The list names no license. [Tor Metrics](https://metrics.torproject.org/), the Tor Project's data site, publishes its data under [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) | `is_tor_exit` of `/ip_lookup/` |
 | [DROP list](https://www.spamhaus.org/blocklists/do-not-route-or-peer/), The Spamhaus Project | Free of charge under the [DROP Fair Use Policy](https://www.spamhaus.org/blocklists/drop-fair-use-policy/) | `listed_on` of `/ip_lookup/`; the `drop_listed` and `drop_unlisted` events of `/watchlist_events` |
+| The five crawler lists of Google, such as [common-crawlers.json](https://developers.google.com/static/crawling/ipranges/common-crawlers.json) | Published for verifying Google's crawlers. No page of Google states terms on storing or re-serving the ranges (read 2026-11-21) | `crawler` of `/ip_lookup/` |
+| The [Bingbot list](https://www.bing.com/toolbox/bingbot.json) of Microsoft | Published for verifying Bingbot. No page of Microsoft states terms on storing or re-serving the ranges (read 2026-11-21) | `crawler` of `/ip_lookup/` |
+| The three crawler lists of OpenAI, such as [gptbot.json](https://openai.com/gptbot.json) | Published for verifying OpenAI's crawlers. No page of OpenAI states terms on storing or re-serving the ranges (read 2026-11-21) | `crawler` of `/ip_lookup/` |
+| The [crawler list](https://claude.com/crawling/bots.json) of Anthropic | Published for verifying Anthropic's crawlers. No page of Anthropic states terms on storing or re-serving the ranges (read 2026-11-21) | `crawler` of `/ip_lookup/` |
+| The two crawler lists of Perplexity, such as [perplexitybot.json](https://www.perplexity.ai/perplexitybot.json) | Published for verifying Perplexity's crawlers. No page of Perplexity states terms on storing or re-serving the ranges (read 2026-11-21) | `crawler` of `/ip_lookup/` |
+| The [Applebot list](https://search.developer.apple.com/applebot.json) of Apple | Published for verifying Applebot. No page of Apple states terms on storing or re-serving the ranges (read 2026-11-21) | `crawler` of `/ip_lookup/` |
+| The two crawler lists of DuckDuckGo, such as [duckduckbot.json](https://duckduckgo.com/duckduckbot.json) | Published for verifying DuckDuckGo's crawlers. No page of DuckDuckGo states terms on storing or re-serving the ranges (read 2026-11-21) | `crawler` of `/ip_lookup/` |
+| The [CCBot list](https://index.commoncrawl.org/ccbot.json) of Common Crawl | Published for verifying CCBot. No page of Common Crawl states terms on storing or re-serving the ranges (read 2026-11-21) | `crawler` of `/ip_lookup/` |
 | [Wayback Machine](https://web.archive.org/) of the Internet Archive, through its CDX server | Used under the Internet Archive's [Terms of Use](https://archive.org/about/terms.php) | `/wayback_lookup/` |
 | [Cert Spotter Certificate Search API](https://sslmate.com/ct_search_api/) of SSLMate | Used under SSLMate's [Terms of Service](https://sslmate.com/policies/tos), with an account and an API key | `/cert_search/`; `certificate_logs` of `/subdomain_enum/` |
 | [SecLists](https://github.com/danielmiessler/SecLists), its `Discovery/DNS/subdomains-top1million-5000.txt` at commit fd02038d8b47 | MIT, Copyright © 2018 Daniel Miessler | the common names of `/subdomain_enum/` |
@@ -6522,7 +6525,7 @@ A `drop_listed` or `drop_unlisted` event of `/watchlist_events` holds them too.
 
 `cloud_provider`, `cloud_service` and `is_cdn` of `/ip_lookup/` come from the address ranges that
 AWS, Google, Microsoft Azure, Cloudflare, Fastly, Bunny and Gcore publish. The Gcore list is
-`api.gcore.com/cdn/public-net-list`, one prefix per line. The server leaves out a published prefix
+`api.gcore.com/cdn/public-net-list`. The server leaves out a published prefix
 wider than /8 for IPv4 or /24 for IPv6.
 
 "Tor" is a registered trademark of The Tor Project, Inc.
@@ -6534,16 +6537,13 @@ CC0 1.0. CC0 asks for no credit; the server names the project here all the same.
 The SSVC decisions of `/cve_lookup/` come from the decision tree of the CISA SSVC Guide. See
 [The `ssvc` object](#the-ssvc-object).
 
-`/whois_lookup/` serves no catalog. It finds the RDAP server of a TLD in its copy of IANA's RDAP
-bootstrap file for domain names (RFC 9224). The registration in an answer comes from that RDAP
+`/whois_lookup/` serves no catalog. It finds the RDAP server of a TLD in IANA's RDAP bootstrap file
+for domain names. The registration in an answer comes from that RDAP
 server, at the time of the request. A TLD without an RDAP server is asked over WHOIS, on TCP port
 43, when the server lists its WHOIS server. That list is written by hand. A WHOIS server was
 listed only after its terms were read on 2026-10-25.
-Each registry sets the terms of its own server. Verisign
-runs the RDAP servers of `com` and `net`. Its RDAP terms forbid high-volume, automated processes
-that send queries to its systems. So the server sends at most 30 requests in each minute to one
-RDAP server, and at most 10 queries to one WHOIS server. All callers share that limit, so one
-caller can use up a server's minute for everyone. It keeps each answer that holds a registration for one hour, and a repeated question
+Each registry sets the terms of its own server. The server sends at most 30 requests in each minute
+to one RDAP server, and at most 10 queries to one WHOIS server, for all callers together. It keeps each answer that holds a registration for one hour, and a repeated question
 in that hour sends no request.
 
 `/wayback_lookup/` reads only the capture list of the Wayback Machine: the time, the HTTP status
@@ -6588,9 +6588,9 @@ returns HTTP `202` with no body; the 2026-07-28 era refuses it with `-32600`.
 
 **Tools** (one per data endpoint but `/image_inspect`; the account and payment endpoints are not tools): `cve_lookup`, `cve_lookup_bulk`, `cve_products`, `cve_search`, `cve_triage`,
 `cve_triage_bulk`, `cve_leading`, `epss_risers`, `kev_lookup`, `cwe_lookup`, `cve_risk_score`, `cve_exploit`,
-`product_exposure`, `cpe_search`, `cvss_calculator`, `watchlist_edit`, `watchlist_events`, `password_check`, `dns_lookup`, `dns_takeover_check`, `email_auth_check`, `email_address_check`, `ssl_check`, `headers_check`, `well_known`, `whois_lookup`, `wayback_lookup`, `cert_search`, `subdomain_enum`, `ip_lookup`, `asn_lookup`, `d3fend_for_attack`, `driver_lookup`, `driver_lookup_bulk`, `package_check`, `package_check_bulk`, `health`, `privacy_my_data`, `vendor_key_edit`. Call `tools/list` for each tool's `inputSchema`. Path-id tools take `{"cve_id": "..."}`
+`product_exposure`, `cpe_search`, `cvss_calculator`, `watchlist_edit`, `watchlist_events`, `password_check`, `dns_lookup`, `dns_takeover_check`, `email_auth_check`, `email_address_check`, `ssl_check`, `headers_check`, `well_known`, `redirect_chain`, `whois_lookup`, `wayback_lookup`, `cert_search`, `subdomain_enum`, `ip_lookup`, `asn_lookup`, `d3fend_for_attack`, `driver_lookup`, `driver_lookup_bulk`, `package_check`, `package_check_bulk`, `health`, `privacy_my_data`, `vendor_key_edit`. Call `tools/list` for each tool's `inputSchema`. Path-id tools take `{"cve_id": "..."}`
 (`cwe_lookup` takes `{"cwe_id": "..."}`); `cve_lookup_bulk` and `cve_triage_bulk` take `{"cve_ids": [...]}` (max 50); `product_exposure` takes a
-required `{"vendor": "...", "product": "..."}` and an optional `version` and `include_rejected`; `cpe_search` takes a required `{"search": "..."}` and an optional `limit` and `offset`; `cve_products` takes a required `{"cve_id": "..."}` and an optional `vendor`, `product`, `limit` and `offset`; `cvss_calculator` takes a required `{"vector": "..."}`; `password_check` takes a required `{"sha1_hash": "..."}`; `email_address_check` takes a required `{"email": "..."}`, not percent-decoded; `headers_check` takes a required `{"domain": "..."}` and an optional boolean `include_full_header_values`; `well_known` takes a required `{"domain": "..."}`; `ip_lookup` takes a required `{"ip_address": "..."}`; `asn_lookup` takes a required `{"target": "..."}` and an optional `limit` and `offset`; `d3fend_for_attack` takes a required `{"attack_technique_id": "..."}`; `driver_lookup` takes a required `{"file_hash": "..."}` and an optional boolean `include_commands`; `driver_lookup_bulk` takes `{"hashes": [...]}` (max 20); `package_check` takes a required `{"ecosystem": "...", "name": "..."}` and an optional `version`, `limit` and `offset`; `package_check_bulk` takes `{"items": [...]}` (max 500); `watchlist_edit` takes the body members of [Watchlist Edit](#watchlist-edit-post-watchlist_edit) and `watchlist_events` the query parameters of [Watchlist Events](#watchlist-events-get-watchlist_events), and both need an API key; `vendor_key_edit` takes a required `{"action": "..."}` and an optional `link`, `shodan_key`, `abuseipdb_key`, `shodan_delete` and `abuseipdb_delete`, the body members of [Vendor Key Edit](#vendor-key-edit-post-vendor_key_edit); `health` and `privacy_my_data` take no arguments; `cve_search`/`cve_triage`/`cve_leading`/`epss_risers` take
+required `{"vendor": "...", "product": "..."}` and an optional `version` and `include_rejected`; `cpe_search` takes a required `{"search": "..."}` and an optional `limit` and `offset`; `cve_products` takes a required `{"cve_id": "..."}` and an optional `vendor`, `product`, `limit` and `offset`; `cvss_calculator` takes a required `{"vector": "..."}`; `password_check` takes a required `{"sha1_hash": "..."}`; `email_address_check` takes a required `{"email": "..."}`, not percent-decoded; `headers_check` takes a required `{"domain": "..."}` and an optional boolean `include_full_header_values`; `well_known` takes a required `{"domain": "..."}`; `redirect_chain` takes a required `{"url": "..."}`, a plain URL that is not percent-encoded; `ip_lookup` takes a required `{"ip_address": "..."}`; `asn_lookup` takes a required `{"target": "..."}` and an optional `limit` and `offset`; `d3fend_for_attack` takes a required `{"attack_technique_id": "..."}`; `driver_lookup` takes a required `{"file_hash": "..."}` and an optional boolean `include_commands`; `driver_lookup_bulk` takes `{"hashes": [...]}` (max 20); `package_check` takes a required `{"ecosystem": "...", "name": "..."}` and an optional `version`, `limit` and `offset`; `package_check_bulk` takes `{"items": [...]}` (max 500); `watchlist_edit` takes the body members of [Watchlist Edit](#watchlist-edit-post-watchlist_edit) and `watchlist_events` the query parameters of [Watchlist Events](#watchlist-events-get-watchlist_events), and both need an API key; `vendor_key_edit` takes a required `{"action": "..."}` and an optional `link`, `shodan_key`, `abuseipdb_key`, `shodan_delete` and `abuseipdb_delete`, the body members of [Vendor Key Edit](#vendor-key-edit-post-vendor_key_edit); `health` and `privacy_my_data` take no arguments; `cve_search`/`cve_triage`/`cve_leading`/`epss_risers` take
 the same filters as their REST query params. On the tools that carry them, `in_kev`,
 `known_ransomware` and `has_nuclei_template` are JSON booleans. They are refused, not silently dropped, when they are anything else;
 `known_ransomware` and `has_nuclei_template` take only `true`, matching the REST `400`. `cve_triage` carries none of them.

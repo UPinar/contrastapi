@@ -4,7 +4,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 
-#define IMAGESCAN_SHA256_HEX_LEN 64
+#include "bytes.h"
 
 #define IMAGESCAN_UNKNOWN_FORMAT_REFUSAL_MESSAGE "the body is not a JPEG, PNG, WebP, TIFF, HEIC or AVIF image"
 
@@ -41,7 +41,7 @@ typedef struct {
 typedef struct {
   ImageScanFormat_t         m_format;
   size_t                    m_byteCount;
-  char                      ma_sha256Hex[IMAGESCAN_SHA256_HEX_LEN + 1];
+  char                      ma_sha256Hex[BYTES_SHA256_HEX_LEN + 1];
   ImageScanSignatureMatch_t ma_signatureMatches[IMAGESCAN_FILE_TYPE_COUNT];
 } ImageScanResult_t;
 
@@ -54,7 +54,6 @@ typedef enum {
 ImageScanStatus_t imagescan_scan                       (const unsigned char* bytes, size_t byte_count, ImageScanResult_t* result_out);
 ImageScanFormat_t imagescan_findFormat                 (const unsigned char* bytes, size_t byte_count);
 const char*       imagescan_formatName                 (ImageScanFormat_t format);
-bool              imagescan_writeSha256Hex             (const unsigned char* bytes, size_t byte_count, char* hex_out);
 void              imagescan_findEmbeddedFileSignatures (const unsigned char* bytes, size_t byte_count, ImageScanSignatureMatch_t* matches_out);
 const char*       imagescan_fileTypeName               (ImageScanFileType_t file_type);
 

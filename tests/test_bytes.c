@@ -1,9 +1,34 @@
 #include <string.h>
 
+#include <openssl/evp.h>
+
 #include "unity/unity.h"
 #include "bytes.h"
 
-void setUp(void)    {}
+typedef enum {
+  TEST_DIGEST_PASS = 0,
+  TEST_DIGEST_FAIL,
+  TEST_DIGEST_SHORT_LENGTH,
+  TEST_DIGEST_FAIL_HASHED,
+} BytesTestDigestFault_t;
+
+static BytesTestDigestFault_t g_digestFault = TEST_DIGEST_PASS;
+
+int __real_EVP_Digest(const void* data, size_t count, unsigned char* md, unsigned int* size, const EVP_MD* type, ENGINE* impl);
+
+int __wrap_EVP_Digest(const void* data, size_t count, unsigned char* md, unsigned int* size, const EVP_MD* type, ENGINE* impl)
+{
+  BytesTestDigestFault_t fault = g_digestFault;
+  g_digestFault = TEST_DIGEST_PASS;
+  if (fault == TEST_DIGEST_FAIL)
+    return 0;
+  int digest_status = __real_EVP_Digest(data, count, md, size, type, impl);
+  if (fault == TEST_DIGEST_SHORT_LENGTH)
+    *size = 20;
+  return fault == TEST_DIGEST_FAIL_HASHED ? 0 : digest_status;
+}
+
+void setUp(void)    { g_digestFault = TEST_DIGEST_PASS; }
 void tearDown(void) {}
 
 void test_same_bytes_are_equal(void)
@@ -253,9 +278,42 @@ void test_read_hex_of_no_digits_writes_nothing(void)
   TEST_ASSERT_EQUAL_HEX8(0xEE, bytes[0]);
 }
 
+void test_writeSha256Hex_hashes_every_byte_nul_bytes_included(void)
+{
+  static const struct {
+    const char* mp_bytes;
+    size_t      m_byteCount;
+    const char* mp_hex;
+  } cases[] = {
+    { "",                 0, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" },
+    { "abc",              3, "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad" },
+    { "\x00\x01\x02\x00", 4, "856aaf43b61beefd07691ab6e60cd50522b8c08721f6570dba877c5222745b04" },
+  };
+  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+  {
+    char hex[BYTES_SHA256_HEX_LEN + 1];
+    memset(hex, 'Z', sizeof(hex));
+    TEST_ASSERT_TRUE(bytes_writeSha256Hex((const unsigned char*)cases[i].mp_bytes, cases[i].m_byteCount, hex));
+    TEST_ASSERT_EQUAL_STRING(cases[i].mp_hex, hex);
+  }
+}
+
+void test_writeSha256Hex_answers_false_and_empty_when_openssl_fails(void)
+{
+  static const BytesTestDigestFault_t faults[] = { TEST_DIGEST_FAIL, TEST_DIGEST_SHORT_LENGTH, TEST_DIGEST_FAIL_HASHED };
+  for (size_t i = 0; i < sizeof(faults) / sizeof(faults[0]); i++)
+  {
+    char hex[BYTES_SHA256_HEX_LEN + 1];
+    memset(hex, 'Z', sizeof(hex));
+    g_digestFault = faults[i];
+    TEST_ASSERT_FALSE(bytes_writeSha256Hex((const unsigned char*)"abc", 3, hex));
+    TEST_ASSERT_EQUAL_STRING("", hex);
+  }
+}
+
 void test_registration_gate_test_count(void)
 {
-  TEST_ASSERT_EQUAL_INT_MESSAGE(31, (int)Unity.NumberOfTests,
+  TEST_ASSERT_EQUAL_INT_MESSAGE(33, (int)Unity.NumberOfTests,
     "RUN_TEST list and test definitions have drifted apart - a test may be unregistered");
 }
 
@@ -292,6 +350,8 @@ int main(void)
   RUN_TEST(test_read_hex_reads_digits_of_either_case);
   RUN_TEST(test_read_hex_refuses_an_odd_count_or_a_byte_that_is_not_a_digit);
   RUN_TEST(test_read_hex_of_no_digits_writes_nothing);
+  RUN_TEST(test_writeSha256Hex_hashes_every_byte_nul_bytes_included);
+  RUN_TEST(test_writeSha256Hex_answers_false_and_empty_when_openssl_fails);
   RUN_TEST(test_registration_gate_test_count);
   return UNITY_END();
 }

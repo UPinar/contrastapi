@@ -270,10 +270,10 @@ void test_robots_gate_compares_the_host_in_any_case(void)
   static_setAnswers(answers, 2);
   WellKnownRobotsGate_t gate;
   TEST_ASSERT_EQUAL_INT(HTTP_ERROR_NONE, static_fetchGate(&gate));
-  TEST_ASSERT_EQUAL_INT(2, g_stub_http_call_count);
-  TEST_ASSERT_EQUAL_STRING("https://EXAMPLE.COM/robots.txt", g_stub_requests[1].ma_url);
-  TEST_ASSERT_EQUAL_INT(WELL_KNOWN_ROBOTS_FILE_READ, gate.m_state);
-  TEST_ASSERT_FALSE(static_hasRobotsIssue(&gate.m_robots, ROBOTSTXT_ISSUE_REDIRECTED_TO_OTHER_HOST));
+  TEST_ASSERT_EQUAL_INT(1, g_stub_http_call_count);
+  TEST_ASSERT_EQUAL_INT(HEADER_FETCH_STOP_LOOP, gate.m_chain.m_stopReason);
+  TEST_ASSERT_EQUAL_STRING("https://EXAMPLE.COM/robots.txt", gate.m_chain.mp_unfollowedUrl);
+  TEST_ASSERT_EQUAL_INT(WELL_KNOWN_ROBOTS_UNKNOWN, gate.m_state);
   well_known_robotsGateFree(&gate);
 }
 
@@ -760,13 +760,30 @@ void test_failed_host_read_does_not_send_the_redirect(void)
 
 void test_registration_gate_test_count(void)
 {
-  TEST_ASSERT_EQUAL_INT_MESSAGE(28, (int)Unity.NumberOfTests,
+  TEST_ASSERT_EQUAL_INT_MESSAGE(29, (int)Unity.NumberOfTests,
     "RUN_TEST list and test definitions have drifted apart - a test may be unregistered");
+}
+
+void test_robots_redirect_to_its_host_in_another_case_is_no_other_host(void)
+{
+  static const char* const redirect_lines[] = { "Location: https://EXAMPLE.COM/robots.txt?v=1", NULL };
+  HttpStubAnswer_t answers[] = {
+    { .m_status = 301, .mp_headerLines = redirect_lines },
+    { .m_status = 200, .mp_body = "User-agent: *\nAllow: /\n", .mp_headerLines = TEST_TEXT_LINES },
+  };
+  static_setAnswers(answers, 2);
+  WellKnownRobotsGate_t gate;
+  TEST_ASSERT_EQUAL_INT(HTTP_ERROR_NONE, static_fetchGate(&gate));
+  TEST_ASSERT_EQUAL_INT(2, g_stub_http_call_count);
+  TEST_ASSERT_EQUAL_INT(WELL_KNOWN_ROBOTS_FILE_READ, gate.m_state);
+  TEST_ASSERT_FALSE(static_hasRobotsIssue(&gate.m_robots, ROBOTSTXT_ISSUE_REDIRECTED_TO_OTHER_HOST));
+  well_known_robotsGateFree(&gate);
 }
 
 int main(void)
 {
   UNITY_BEGIN();
+  RUN_TEST(test_robots_redirect_to_its_host_in_another_case_is_no_other_host);
   RUN_TEST(test_robots_gate_state_follows_the_status);
   RUN_TEST(test_check_path_answers_for_each_state);
   RUN_TEST(test_robots_gate_does_not_read_an_encoded_body);

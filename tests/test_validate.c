@@ -1226,6 +1226,23 @@ void test_vendorKey_takes_1_to_128_printable_bytes(void)
   TEST_ASSERT_FALSE(validate_vendorKey("a\x1f" "b"));
 }
 
+void test_webUrl_takes_an_http_or_https_prefix_and_no_space(void)
+{
+  static const char* const accepted[] = {
+    "http://a", "https://a", "HTTP://A", "HtTpS://a.example/p?q=1", "http://", "https://",
+    "http://a/%20b",
+  };
+  for (size_t i = 0; i < sizeof(accepted) / sizeof(accepted[0]); i++)
+    TEST_ASSERT_TRUE_MESSAGE(validate_webUrl(accepted[i]), accepted[i]);
+
+  static const char* const refused[] = {
+    "ftp://a", "//a", "https:/a", "http:/a", "https//a", "httpss://a", "htp://a", "https://a b",
+    " https://a", "https://a ", "", "h", "http", "https:", "httpx://a",
+  };
+  for (size_t i = 0; i < sizeof(refused) / sizeof(refused[0]); i++)
+    TEST_ASSERT_FALSE_MESSAGE(validate_webUrl(refused[i]), refused[i]);
+}
+
 int main(void)
 {
   UNITY_BEGIN();
@@ -1352,5 +1369,6 @@ int main(void)
   RUN_TEST(test_uuid_length_and_other_forms_refused);
   RUN_TEST(test_vendorKeyLink_takes_64_lower_case_hex_digits);
   RUN_TEST(test_vendorKey_takes_1_to_128_printable_bytes);
+  RUN_TEST(test_webUrl_takes_an_http_or_https_prefix_and_no_space);
   return UNITY_END();
 }

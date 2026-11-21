@@ -1538,7 +1538,7 @@ static const char* const g_driverLookupRowValues[DRIVERLOOKUP_ROW_COLUMN_COUNT] 
   DRIVERLOOKUP_TEST_HASH, "7", "t", R"([{"driver_id":"00000000-0000-0000-0000-00000000000a"}])"
 };
 
-#define IPLOOKUP_ROW_COLUMN_COUNT 15
+#define IPLOOKUP_ROW_COLUMN_COUNT 17
 #define IPLOOKUP_CALL "SELECT * FROM api.fn_ip_lookup($1)"
 #define IPLOOKUP_TEST_IP "2001:4860:4860::8888"
 #define IPLOOKUP_TEST_LISTED_ON \
@@ -1547,19 +1547,20 @@ static const char* const g_driverLookupRowValues[DRIVERLOOKUP_ROW_COLUMN_COUNT] 
 enum {
   IPLOOKUP_COL_ASN = 0, IPLOOKUP_COL_ASN_NAME, IPLOOKUP_COL_ASN_COUNTRY, IPLOOKUP_COL_GEO_COUNTRY,
   IPLOOKUP_COL_CLOUD_PROVIDER, IPLOOKUP_COL_CLOUD_SERVICE, IPLOOKUP_COL_IS_CDN, IPLOOKUP_COL_IS_DATACENTER,
-  IPLOOKUP_COL_IS_TOR_EXIT, IPLOOKUP_COL_LISTED_ON, IPLOOKUP_COL_ASN_FEED_LOADED, IPLOOKUP_COL_GEO_FEED_LOADED,
-  IPLOOKUP_COL_CLOUD_FEED_LOADED, IPLOOKUP_COL_TOR_FEED_LOADED, IPLOOKUP_COL_DROP_LIST_FEED_LOADED
+  IPLOOKUP_COL_IS_TOR_EXIT, IPLOOKUP_COL_CRAWLER, IPLOOKUP_COL_LISTED_ON, IPLOOKUP_COL_ASN_FEED_LOADED,
+  IPLOOKUP_COL_GEO_FEED_LOADED, IPLOOKUP_COL_CLOUD_FEED_LOADED, IPLOOKUP_COL_TOR_FEED_LOADED,
+  IPLOOKUP_COL_DROP_LIST_FEED_LOADED, IPLOOKUP_COL_CRAWLER_FEED_LOADED
 };
 
 static const char* const g_ipLookupColumnNames[IPLOOKUP_ROW_COLUMN_COUNT] = {
   "asn", "asn_name", "asn_country", "geo_country", "cloud_provider", "cloud_service", "is_cdn",
-  "is_datacenter", "is_tor_exit", "listed_on", "asn_feed_loaded", "geo_feed_loaded",
-  "cloud_feed_loaded", "tor_feed_loaded", "drop_list_feed_loaded"
+  "is_datacenter", "is_tor_exit", "crawler", "listed_on", "asn_feed_loaded", "geo_feed_loaded",
+  "cloud_feed_loaded", "tor_feed_loaded", "drop_list_feed_loaded", "crawler_feed_loaded"
 };
 
 static const char* const g_ipLookupRowValues[IPLOOKUP_ROW_COLUMN_COUNT] = {
-  "15169", "GOOGLE", "US", "AU", "google", "googlecloud", "t", "t", "f", IPLOOKUP_TEST_LISTED_ON,
-  "t", "t", "t", "t", "t"
+  "15169", "GOOGLE", "US", "AU", "google", "googlecloud", "t", "t", "f", "gptbot", IPLOOKUP_TEST_LISTED_ON,
+  "t", "t", "t", "t", "t", "t"
 };
 
 static FakeAnswer_t* static_queueIpLookupAnswer(void)
@@ -4945,11 +4946,12 @@ void test_unreadable_number_or_boolean_is_error(void)
     { DB_CALL_IPLOOKUP,         0, 0,  6, "IPLOOKUP is_cdn" },
     { DB_CALL_IPLOOKUP,         0, 0,  7, "IPLOOKUP is_datacenter" },
     { DB_CALL_IPLOOKUP,         0, 0,  8, "IPLOOKUP is_tor_exit" },
-    { DB_CALL_IPLOOKUP,         0, 0, 10, "IPLOOKUP asn_feed_loaded" },
-    { DB_CALL_IPLOOKUP,         0, 0, 11, "IPLOOKUP geo_feed_loaded" },
-    { DB_CALL_IPLOOKUP,         0, 0, 12, "IPLOOKUP cloud_feed_loaded" },
-    { DB_CALL_IPLOOKUP,         0, 0, 13, "IPLOOKUP tor_feed_loaded" },
-    { DB_CALL_IPLOOKUP,         0, 0, 14, "IPLOOKUP drop_list_feed_loaded" },
+    { DB_CALL_IPLOOKUP,         0, 0, 11, "IPLOOKUP asn_feed_loaded" },
+    { DB_CALL_IPLOOKUP,         0, 0, 12, "IPLOOKUP geo_feed_loaded" },
+    { DB_CALL_IPLOOKUP,         0, 0, 13, "IPLOOKUP cloud_feed_loaded" },
+    { DB_CALL_IPLOOKUP,         0, 0, 14, "IPLOOKUP tor_feed_loaded" },
+    { DB_CALL_IPLOOKUP,         0, 0, 15, "IPLOOKUP drop_list_feed_loaded" },
+    { DB_CALL_IPLOOKUP,         0, 0, 16, "IPLOOKUP crawler_feed_loaded" },
     { DB_CALL_ASNLOOKUP,        0, 0,  0, "ASNLOOKUPPREFIX asn" },
     { DB_CALL_ASNLOOKUP,        1, 0,  0, "ASNLOOKUP asn" },
     { DB_CALL_ASNLOOKUP,        1, 0,  3, "ASNLOOKUP ipv4_prefix_count" },
@@ -5020,7 +5022,8 @@ void test_answer_with_other_column_names_is_error(void)
     { DB_CALL_DRIVERLOOKUP,    0, 0,  "DRIVERLOOKUP hash" },
     { DB_CALL_DRIVERLOOKUP,    0, 3,  "DRIVERLOOKUP matches" },
     { DB_CALL_IPLOOKUP,        0, 0,  "IPLOOKUP asn" },
-    { DB_CALL_IPLOOKUP,        0, 14, "IPLOOKUP drop_list_feed_loaded" },
+    { DB_CALL_IPLOOKUP,        0, 9,  "IPLOOKUP crawler" },
+    { DB_CALL_IPLOOKUP,        0, 16, "IPLOOKUP crawler_feed_loaded" },
     { DB_CALL_ASNLOOKUP,       0, 0,  "ASNLOOKUPPREFIX asn" },
     { DB_CALL_ASNLOOKUP,       0, 1,  "ASNLOOKUPPREFIX prefix" },
     { DB_CALL_ASNLOOKUP,       1, 0,  "ASNLOOKUP asn" },
@@ -7370,13 +7373,15 @@ void test_DRIVERLOOKUPBULK_other_row_count_is_error(void)
   TEST_ASSERT_NULL(results.mp_items);
 }
 
-static void static_IPLOOKUPFeedFlags(const IPLOOKUPRecord_t* record, bool flags_out[5])
+#define IPLOOKUP_FEED_COUNT 6
+static void static_IPLOOKUPFeedFlags(const IPLOOKUPRecord_t* record, bool flags_out[IPLOOKUP_FEED_COUNT])
 {
   flags_out[0] = record->m_isAsnFeedLoaded;
   flags_out[1] = record->m_isGeoFeedLoaded;
   flags_out[2] = record->m_isCloudFeedLoaded;
   flags_out[3] = record->m_isTorFeedLoaded;
   flags_out[4] = record->m_isDropListFeedLoaded;
+  flags_out[5] = record->m_isCrawlerFeedLoaded;
 }
 
 void test_IPLOOKUP_sends_the_address_and_reads_each_column(void)
@@ -7402,6 +7407,7 @@ void test_IPLOOKUP_sends_the_address_and_reads_each_column(void)
     TEST_ASSERT_EQUAL_STRING("AU", record.ma_geoCountry);
     TEST_ASSERT_EQUAL_STRING("google", record.ma_cloudProvider);
     TEST_ASSERT_EQUAL_STRING("googlecloud", record.ma_cloudService);
+    TEST_ASSERT_EQUAL_STRING("gptbot", record.ma_crawler);
     TEST_ASSERT_EQUAL_STRING(IPLOOKUP_TEST_LISTED_ON, record.mp_listedOn);
     const bool booleans[3] = { record.m_isCdn, record.m_isDatacenter, record.m_isTorExit };
     for (int n = 0; n < 3; n++)
@@ -7410,9 +7416,9 @@ void test_IPLOOKUP_sends_the_address_and_reads_each_column(void)
       snprintf(message, sizeof(message), "pass %d, boolean %d", pass, n);
       TEST_ASSERT_TRUE_MESSAGE(booleans[n] == ((((n + 1) >> pass) & 1) != 0), message);
     }
-    bool flags[5];
+    bool flags[IPLOOKUP_FEED_COUNT];
     static_IPLOOKUPFeedFlags(&record, flags);
-    for (int n = 0; n < 5; n++)
+    for (int n = 0; n < IPLOOKUP_FEED_COUNT; n++)
       TEST_ASSERT_TRUE_MESSAGE(flags[n], g_ipLookupColumnNames[IPLOOKUP_COL_ASN_FEED_LOADED + n]);
     unsigned char untouched[sizeof(record.m_ptrAnswer)];
     memset(untouched, 0xA5, sizeof(untouched));
@@ -7445,6 +7451,19 @@ void test_IPLOOKUP_null_texts_and_asn_read_as_empty(void)
   db_IPLOOKUPRecordFree(&record);
 }
 
+void test_IPLOOKUP_null_crawler_in_a_loaded_feed_reads_as_empty(void)
+{
+  static_queueIpLookupAnswer()->ma_cells[0][IPLOOKUP_COL_CRAWLER] = FAKE_SQL_NULL;
+  IPLOOKUPRecord_t record;
+  memset(&record, 0xA5, sizeof(record));
+
+  TEST_ASSERT_EQUAL_INT(DB_OK, db_IPLOOKUP(FAKE_CONN, IPLOOKUP_TEST_IP, &record));
+
+  TEST_ASSERT_EQUAL_STRING("", record.ma_crawler);
+  TEST_ASSERT_TRUE(record.m_isCrawlerFeedLoaded);
+  db_IPLOOKUPRecordFree(&record);
+}
+
 void test_IPLOOKUP_unloaded_feed_leaves_its_column_unread(void)
 {
   static const struct { int m_flagColumn; int m_dependentColumn; const char* mp_filled; } feeds[] = {
@@ -7453,6 +7472,7 @@ void test_IPLOOKUP_unloaded_feed_leaves_its_column_unread(void)
     { IPLOOKUP_COL_CLOUD_FEED_LOADED,     IPLOOKUP_COL_IS_CDN,      "t" },
     { IPLOOKUP_COL_TOR_FEED_LOADED,       IPLOOKUP_COL_IS_TOR_EXIT, "t" },
     { IPLOOKUP_COL_DROP_LIST_FEED_LOADED, IPLOOKUP_COL_LISTED_ON,   "[]" },
+    { IPLOOKUP_COL_CRAWLER_FEED_LOADED,   IPLOOKUP_COL_CRAWLER,     "googlebot" },
   };
   for (size_t i = 0; i < sizeof(feeds) / sizeof(feeds[0]); i++)
   {
@@ -7469,13 +7489,14 @@ void test_IPLOOKUP_unloaded_feed_leaves_its_column_unread(void)
 
       TEST_ASSERT_EQUAL_INT_MESSAGE(DB_OK, db_IPLOOKUP(FAKE_CONN, IPLOOKUP_TEST_IP, &record), name);
 
-      bool flags[5];
+      bool flags[IPLOOKUP_FEED_COUNT];
       static_IPLOOKUPFeedFlags(&record, flags);
-      for (int n = 0; n < 5; n++)
+      for (int n = 0; n < IPLOOKUP_FEED_COUNT; n++)
         TEST_ASSERT_TRUE_MESSAGE(flags[n] == (IPLOOKUP_COL_ASN_FEED_LOADED + n != feeds[i].m_flagColumn), name);
       TEST_ASSERT_TRUE_MESSAGE(record.m_isDatacenter, name);
       TEST_ASSERT_TRUE_MESSAGE(record.m_isCdn == (feeds[i].m_dependentColumn != IPLOOKUP_COL_IS_CDN), name);
       TEST_ASSERT_FALSE_MESSAGE(record.m_isTorExit, name);
+      TEST_ASSERT_EQUAL_STRING_MESSAGE(feeds[i].m_dependentColumn == IPLOOKUP_COL_CRAWLER ? "" : "gptbot", record.ma_crawler, name);
       if (feeds[i].m_dependentColumn == IPLOOKUP_COL_LISTED_ON)
         TEST_ASSERT_NULL_MESSAGE(record.mp_listedOn, name);
       else
@@ -7490,7 +7511,7 @@ void test_IPLOOKUP_null_in_a_loaded_feed_or_a_feed_flag_is_error(void)
   static const int null_columns[] = {
     IPLOOKUP_COL_IS_CDN, IPLOOKUP_COL_IS_TOR_EXIT, IPLOOKUP_COL_LISTED_ON,
     IPLOOKUP_COL_ASN_FEED_LOADED, IPLOOKUP_COL_GEO_FEED_LOADED, IPLOOKUP_COL_CLOUD_FEED_LOADED,
-    IPLOOKUP_COL_TOR_FEED_LOADED, IPLOOKUP_COL_DROP_LIST_FEED_LOADED,
+    IPLOOKUP_COL_TOR_FEED_LOADED, IPLOOKUP_COL_DROP_LIST_FEED_LOADED, IPLOOKUP_COL_CRAWLER_FEED_LOADED,
   };
   for (size_t i = 0; i < sizeof(null_columns) / sizeof(null_columns[0]); i++)
   {
@@ -7599,6 +7620,7 @@ void test_IPLOOKUP_texts_and_listed_on_at_their_limits_and_past_them(void)
     { IPLOOKUP_COL_GEO_COUNTRY,    2 },
     { IPLOOKUP_COL_CLOUD_PROVIDER, 10 },
     { IPLOOKUP_COL_CLOUD_SERVICE,  32 },
+    { IPLOOKUP_COL_CRAWLER,        32 },
     { IPLOOKUP_COL_LISTED_ON,      IPLOOKUP_LISTED_ON_MAX_LEN },
   };
   for (size_t i = 0; i < sizeof(limits) / sizeof(limits[0]); i++)
@@ -7625,6 +7647,7 @@ void test_IPLOOKUP_texts_and_listed_on_at_their_limits_and_past_them(void)
         fields[IPLOOKUP_COL_GEO_COUNTRY]    = record.ma_geoCountry;
         fields[IPLOOKUP_COL_CLOUD_PROVIDER] = record.ma_cloudProvider;
         fields[IPLOOKUP_COL_CLOUD_SERVICE]  = record.ma_cloudService;
+        fields[IPLOOKUP_COL_CRAWLER]        = record.ma_crawler;
         fields[IPLOOKUP_COL_LISTED_ON]      = record.mp_listedOn;
         TEST_ASSERT_EQUAL_STRING_MESSAGE(text, fields[limits[i].m_column], name);
       }
@@ -13171,7 +13194,7 @@ void test_recordCtScan_refuses_any_other_answer(void)
 
 void test_registration_gate_test_count(void)
 {
-  TEST_ASSERT_EQUAL_INT_MESSAGE(282, (int)Unity.NumberOfTests,
+  TEST_ASSERT_EQUAL_INT_MESSAGE(283, (int)Unity.NumberOfTests,
     "RUN_TEST list and test definitions have drifted apart - a test may be unregistered");
 }
 
@@ -13348,6 +13371,7 @@ int main(void)
   RUN_TEST(test_DRIVERLOOKUPBULK_other_row_count_is_error);
   RUN_TEST(test_IPLOOKUP_sends_the_address_and_reads_each_column);
   RUN_TEST(test_IPLOOKUP_null_texts_and_asn_read_as_empty);
+  RUN_TEST(test_IPLOOKUP_null_crawler_in_a_loaded_feed_reads_as_empty);
   RUN_TEST(test_IPLOOKUP_unloaded_feed_leaves_its_column_unread);
   RUN_TEST(test_IPLOOKUP_null_in_a_loaded_feed_or_a_feed_flag_is_error);
   RUN_TEST(test_IPLOOKUP_no_cloud_range_leaves_is_cdn_unread);

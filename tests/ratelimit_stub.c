@@ -10,10 +10,10 @@ time_t g_stub_credit_budget_reset = 0;
 unsigned int g_stub_credit_budget_remaining = RL_STUB_BUDGET_UNCAPPED;
 unsigned int g_stub_last_credit_cost = 0;
 bool g_stub_last_is_partial_charge_allowed = false;
-char g_stub_last_ip_hash[SHA256_HEX_LEN + 1] = "";
+char g_stub_last_ip_hash[BYTES_SHA256_HEX_LEN + 1] = "";
 int g_stub_credit_budget_check_call_count = 0;
 int g_stub_credit_budget_remaining_call_count = 0;
-char g_stub_last_remaining_ip_hash[SHA256_HEX_LEN + 1] = "";
+char g_stub_last_remaining_ip_hash[BYTES_SHA256_HEX_LEN + 1] = "";
 bool g_stub_last_remaining_has_api_key = false;
 bool g_stub_credit_budget_is_check_denied = false;
 

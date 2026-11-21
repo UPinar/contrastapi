@@ -36,7 +36,7 @@ _Static_assert(2 * AUTH_UUID_RANDOM_BYTE_COUNT + 4 == VALIDATE_UUID_LEN, "a UUID
 _Static_assert(API_KEY_PREFIX_LEN + API_KEY_BODY_LEN + API_KEY_CHECKSUM_LEN == API_KEY_TOTAL_LEN, "key length mismatch");
 _Static_assert(sizeof(API_KEY_PREFIX) - 1 == API_KEY_PREFIX_LEN, "key prefix length mismatch");
 _Static_assert(API_KEY_CHECKSUM_LEN == 2 * sizeof(uint32_t), "a checksum is one uint32_t in hex");
-_Static_assert(SHA256_HEX_LEN == SHA256_DIGEST_LENGTH * 2, "hex hash length mismatch");
+_Static_assert(BYTES_SHA256_HEX_LEN == SHA256_DIGEST_LENGTH * 2, "hex hash length mismatch");
 _Static_assert(2 * AUTH_API_KEY_RANDOM_BYTE_COUNT == API_KEY_BODY_LEN, "a key body is its random bytes in hex");
 
 static const struct phr_header* static_findHeader                     (const struct phr_header* headers, size_t header_count, const char* header_name);
@@ -77,15 +77,12 @@ AuthApiKeyParseResult_t auth_parseApiKey(const struct phr_header* headers, size_
   return no_usable_key_result;
 }
 
-void auth_hashApiKey(const char* api_key, char* hex_out_buf)
+bool auth_tryHashApiKey(const char* api_key, char* hex_out_buf)
 {
   assert(api_key != NULL);
   assert(hex_out_buf != NULL);
 
-  unsigned char sha256_digest[SHA256_DIGEST_LENGTH];
-  unsigned int  digest_len = SHA256_DIGEST_LENGTH;
-  EVP_Digest(api_key, strlen(api_key), sha256_digest, &digest_len, EVP_sha256(), NULL);
-  bytes_writeHex(sha256_digest, SHA256_DIGEST_LENGTH, hex_out_buf);
+  return bytes_writeSha256Hex((const unsigned char*)api_key, strlen(api_key), hex_out_buf);
 }
 
 void auth_hashIp(const char* ip, const char* secret, char* hex_out_buf)
@@ -98,7 +95,7 @@ void auth_hashIp(const char* ip, const char* secret, char* hex_out_buf)
 
   if (!secret)
   {
-    auth_hashApiKey(bucket, hex_out_buf);
+    bytes_writeSha256Hex((const unsigned char*)bucket, strlen(bucket), hex_out_buf);
     return;
   }
   unsigned char digest[SHA256_DIGEST_LENGTH];

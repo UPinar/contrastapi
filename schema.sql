@@ -1625,6 +1625,17 @@ CREATE TABLE ip_cloud_range (
 );
 CREATE INDEX idx_ip_cloud_range_prefix ON ip_cloud_range USING gist (prefix inet_ops);
 
+CREATE TABLE ip_crawler_range (
+  crawler     TEXT          NOT NULL,
+  prefix      CIDR          NOT NULL,
+  synced_at   TIMESTAMPTZ   NOT NULL DEFAULT now(),
+  PRIMARY KEY (crawler, prefix),
+
+  CONSTRAINT ip_crawler_range_crawler_format CHECK (crawler ~ '^[a-z][a-z0-9_]{0,31}$'),
+  CONSTRAINT ip_crawler_range_prefix_min_len CHECK (masklen(prefix) >= CASE family(prefix) WHEN 4 THEN 16 ELSE 32 END)
+);
+CREATE INDEX idx_ip_crawler_range_prefix ON ip_crawler_range USING gist (prefix inet_ops);
+
 CREATE TABLE ip_tor_exit (
   ip_address  INET  PRIMARY KEY,
 

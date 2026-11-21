@@ -317,7 +317,7 @@ static void test_tags_list_every_category_in_home_page_order(void)
                    "{\"name\":\"Monitoring\"},{\"name\":\"Operations\"}]");
 }
 
-static void test_document_holds_42_operations(void)
+static void test_document_holds_43_operations(void)
 {
   JsonReadSpan_t paths = static_at(g_root, "paths", NULL);
 
@@ -328,8 +328,8 @@ static void test_document_holds_42_operations(void)
   while (jsonread_objectNextMember(paths, &offset, &key, &path_item) == JSONREAD_OK)
     operation_count += static_memberCount(path_item);
 
-  TEST_ASSERT_EQUAL_INT(42, operation_count);
-  TEST_ASSERT_EQUAL_INT(42, static_memberCount(paths));
+  TEST_ASSERT_EQUAL_INT(43, operation_count);
+  TEST_ASSERT_EQUAL_INT(43, static_memberCount(paths));
 }
 
 static void test_mcp_row_has_no_path(void)
@@ -594,7 +594,7 @@ static void test_every_tool_row_has_its_tool_name_as_operation_id(void)
     static_assertString(static_at(static_findOperation(paths, row), "operationId", NULL), row->mp_mcpToolName);
     tool_count++;
   }
-  TEST_ASSERT_EQUAL_INT(39, tool_count);
+  TEST_ASSERT_EQUAL_INT(40, tool_count);
 }
 
 static void test_every_operation_follows_its_row(void)
@@ -689,7 +689,7 @@ static void test_every_operation_follows_its_row(void)
     }
     row_count++;
   }
-  TEST_ASSERT_EQUAL_INT(42, row_count);
+  TEST_ASSERT_EQUAL_INT(43, row_count);
 }
 
 static void test_buffer_that_stops_at_its_ceiling_answers_false(void)
@@ -756,7 +756,7 @@ int main(void)
   RUN_TEST(test_error_response_refers_to_the_error_schema);
   RUN_TEST(test_package_item_schema_is_the_tools_list_item_schema);
   RUN_TEST(test_tags_list_every_category_in_home_page_order);
-  RUN_TEST(test_document_holds_42_operations);
+  RUN_TEST(test_document_holds_43_operations);
   RUN_TEST(test_mcp_row_has_no_path);
   RUN_TEST(test_cve_lookup_names_its_path_segment);
   RUN_TEST(test_operation_keys_come_in_their_order);

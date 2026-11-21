@@ -34,6 +34,24 @@ CREATE FUNCTION api.fn_ip_listed_on(p_ip inet)
      ORDER BY masklen(idlp.prefix) DESC;
   END;
 
+CREATE FUNCTION api.fn_ip_crawler(p_ip inet)
+  RETURNS TABLE (crawler text)
+  LANGUAGE sql STABLE STRICT SECURITY INVOKER
+  ROWS 1
+  SET search_path = pg_catalog
+  BEGIN ATOMIC
+    SELECT icr.crawler AS crawler
+      FROM public.ip_crawler_range AS icr
+     WHERE icr.prefix >>= p_ip
+     ORDER BY masklen(icr.prefix) DESC,
+              array_position(ARRAY['googlebot', 'google_special_crawlers', 'google_user_fetchers', 'google_user_fetchers_google',
+                                   'google_user_agents', 'bingbot', 'gptbot', 'oai_searchbot', 'chatgpt_user', 'anthropic_bots',
+                                   'perplexitybot', 'perplexity_user', 'applebot', 'duckduckbot', 'duckassistbot', 'ccbot']::text[],
+                             icr.crawler) NULLS LAST,
+              icr.crawler
+     LIMIT 1;
+  END;
+
 CREATE FUNCTION api.fn_ip_lookup(p_ip inet)
   RETURNS TABLE (asn                   bigint,
                  asn_name              text,
@@ -44,12 +62,14 @@ CREATE FUNCTION api.fn_ip_lookup(p_ip inet)
                  is_cdn                boolean,
                  is_datacenter         boolean,
                  is_tor_exit           boolean,
+                 crawler               text,
                  listed_on             jsonb,
                  asn_feed_loaded       boolean,
                  geo_feed_loaded       boolean,
                  cloud_feed_loaded     boolean,
                  tor_feed_loaded       boolean,
-                 drop_list_feed_loaded boolean)
+                 drop_list_feed_loaded boolean,
+                 crawler_feed_loaded   boolean)
   LANGUAGE sql STABLE STRICT SECURITY DEFINER
   SET search_path = pg_catalog
   BEGIN ATOMIC
@@ -58,7 +78,8 @@ CREATE FUNCTION api.fn_ip_lookup(p_ip inet)
              EXISTS (SELECT 1 FROM public.ip_geo_prefix)       AS geo_feed_loaded,
              EXISTS (SELECT 1 FROM public.ip_cloud_range)      AS cloud_feed_loaded,
              EXISTS (SELECT 1 FROM public.ip_tor_exit)         AS tor_feed_loaded,
-             EXISTS (SELECT 1 FROM public.ip_drop_list_prefix) AS drop_list_feed_loaded)
+             EXISTS (SELECT 1 FROM public.ip_drop_list_prefix) AS drop_list_feed_loaded,
+             EXISTS (SELECT 1 FROM public.ip_crawler_range)    AS crawler_feed_loaded)
     SELECT ia.asn                                                          AS asn,
            ia.asn_name                                                     AS asn_name,
            ia.country                                                      AS asn_country,
@@ -73,6 +94,8 @@ CREATE FUNCTION api.fn_ip_lookup(p_ip inet)
                                                                            AS is_datacenter,
            CASE WHEN f.tor_feed_loaded
                 THEN EXISTS (SELECT 1 FROM public.ip_tor_exit AS ite WHERE ite.ip_address = p_ip) END AS is_tor_exit,
+           CASE WHEN f.crawler_feed_loaded
+                THEN (SELECT ic.crawler FROM api.fn_ip_crawler(p_ip) AS ic) END    AS crawler,
            CASE WHEN f.drop_list_feed_loaded
                 THEN coalesce((SELECT jsonb_agg(jsonb_build_object('source', lo.source, 'prefix', lo.prefix, 'listing_id', lo.listing_id,
                                                                    'list_time', lo.list_time, 'copyright', lo.copyright)
@@ -83,7 +106,8 @@ CREATE FUNCTION api.fn_ip_lookup(p_ip inet)
            f.geo_feed_loaded                                               AS geo_feed_loaded,
            f.cloud_feed_loaded                                             AS cloud_feed_loaded,
            f.tor_feed_loaded                                               AS tor_feed_loaded,
-           f.drop_list_feed_loaded                                         AS drop_list_feed_loaded
+           f.drop_list_feed_loaded                                         AS drop_list_feed_loaded,
+           f.crawler_feed_loaded                                           AS crawler_feed_loaded
       FROM feed AS f
       LEFT JOIN LATERAL (SELECT iap.asn
                            FROM public.ip_asn_prefix AS iap

@@ -5,16 +5,16 @@ BEGIN
   ASSERT (SELECT array_agg(attname::text ORDER BY attnum) FROM pg_attribute
           WHERE attrelid = 't_ip_lookup_call'::regclass AND attnum > 0)
          = ARRAY['asn', 'asn_name', 'asn_country', 'geo_country', 'cloud_provider', 'cloud_service', 'is_cdn', 'is_datacenter',
-                 'is_tor_exit', 'listed_on', 'asn_feed_loaded', 'geo_feed_loaded', 'cloud_feed_loaded', 'tor_feed_loaded',
-                 'drop_list_feed_loaded'],
-         'api.fn_ip_lookup answers its 15 columns in this order';
+                 'is_tor_exit', 'crawler', 'listed_on', 'asn_feed_loaded', 'geo_feed_loaded', 'cloud_feed_loaded',
+                 'tor_feed_loaded', 'drop_list_feed_loaded', 'crawler_feed_loaded'],
+         'api.fn_ip_lookup answers its 17 columns in this order';
   ASSERT (SELECT array_agg(format_type(atttypid, atttypmod) ORDER BY attnum) FROM pg_attribute
           WHERE attrelid = 't_ip_lookup_call'::regclass AND attnum > 0)
-         = ARRAY['bigint', 'text', 'text', 'text', 'text', 'text', 'boolean', 'boolean', 'boolean', 'jsonb',
-                 'boolean', 'boolean', 'boolean', 'boolean', 'boolean'],
+         = ARRAY['bigint', 'text', 'text', 'text', 'text', 'text', 'boolean', 'boolean', 'boolean', 'text', 'jsonb',
+                 'boolean', 'boolean', 'boolean', 'boolean', 'boolean', 'boolean'],
          'asn is bigint, listed_on is jsonb, the flags are boolean and the names are text';
   ASSERT (SELECT row(c.*)::text FROM t_ip_lookup_call AS c)
-         = row(NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, false, false, false, false, false)::text,
+         = row(NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, false, false, false, false, false, false)::text,
          'with every table empty, each flag is false and each value is NULL';
 END
 $$;
@@ -61,11 +61,11 @@ BEGIN
          'api.fn_ip_listed_on is STRICT: a NULL address answers no row';
 
   ASSERT (SELECT row(c.*)::text FROM api.fn_ip_lookup('203.0.113.7') AS c)
-         = row(64496, 'Example AS', 'NL', 'BE', NULL, NULL, NULL, false, true,
+         = row(64496, 'Example AS', 'NL', 'BE', NULL, NULL, NULL, false, true, NULL,
                '[{"prefix": "203.0.113.0/24", "listing_id": "SBL1", "source": "drop", "copyright": "(c) 2026 Narrow", "list_time": "2026-10-23T09:24:02Z"},
                  {"prefix": "203.0.0.0/16", "listing_id": "SBL2", "source": "drop", "copyright": "(c) 2026 Wide", "list_time": "2026-10-22T08:00:00Z"}]'::jsonb,
-               true, true, true, true, true)::text,
-         'an address in a longer prefix and a /16 of a list answers the values of the longer prefix, every row of listed_on, and is_cdn NULL with no provider prefix';
+               true, true, true, true, true, false)::text,
+         'an address in a longer prefix and a /16 of a list answers the values of the longer prefix, every row of listed_on, is_cdn NULL with no provider prefix, and crawler NULL while ip_crawler_range is empty';
   ASSERT (SELECT row(c.asn, c.is_datacenter, c.is_tor_exit, c.listed_on, c.geo_country)::text FROM api.fn_ip_lookup('8.8.8.8') AS c)
          = row(15169, true, false, '[]'::jsonb, NULL)::text,
          'an address of a hosting AS is a datacenter, an address off the lists is no Tor exit and has an empty listed_on';
@@ -113,6 +113,50 @@ BEGIN
 END
 $$;
 
+INSERT INTO ip_crawler_range (crawler, prefix) VALUES
+  ('applebot',             '100.70.3.7/32'),
+  ('applebot',             '2001:db8:5000::7/128'),
+  ('gptbot',               '198.51.100.0/24'),
+  ('googlebot',            '100.66.0.0/16'),
+  ('bingbot',              '100.66.1.0/24'),
+  ('google_user_fetchers', '100.67.0.0/24'),
+  ('googlebot',            '100.67.0.0/24'),
+  ('zzbot',                '100.68.0.0/24'),
+  ('aabot',                '100.68.0.0/24'),
+  ('ccbot',                '100.68.0.0/24'),
+  ('zzbot',                '100.69.0.0/24'),
+  ('aabot',                '100.69.0.0/24'),
+  ('ccbot',                '2001:db8:4000::/34');
+DO $$
+BEGIN
+  ASSERT (SELECT array_agg(coalesce((SELECT ic.crawler FROM api.fn_ip_crawler(a.ip) AS ic), '-') ORDER BY a.n)
+            FROM unnest(ARRAY['100.66.1.5', '100.66.2.5', '100.67.0.5', '100.68.0.5', '100.69.0.5', '2001:db8:4000::1',
+                              '100.70.3.7', '2001:db8:5000::7', '8.8.8.8']::inet[]) WITH ORDINALITY AS a (ip, n))
+         = ARRAY['bingbot', 'googlebot', 'googlebot', 'ccbot', 'aabot', 'ccbot', 'applebot', 'applebot', '-'],
+         'the longest prefix wins, then the order of the lists, then a name in the order over one that is not, then the name';
+  ASSERT (SELECT count(*) FROM api.fn_ip_crawler('100.68.0.5')) = 1, 'api.fn_ip_crawler answers one row for an address of three lists';
+  ASSERT NOT EXISTS (SELECT 1 FROM api.fn_ip_crawler(NULL)), 'api.fn_ip_crawler is STRICT: a NULL address answers no row';
+
+  ASSERT (SELECT row(c.crawler, c.crawler_feed_loaded)::text FROM api.fn_ip_lookup('100.67.0.5') AS c) = row('googlebot', true)::text,
+         'two lists with the same prefix answer the first list of the order';
+  ASSERT (SELECT row(c.crawler, c.crawler_feed_loaded)::text FROM api.fn_ip_lookup('100.66.1.5') AS c) = row('bingbot', true)::text,
+         'an address in two lists of different lengths answers the longer prefix';
+  ASSERT (SELECT row(c.crawler, c.crawler_feed_loaded, c.is_datacenter, c.asn)::text FROM api.fn_ip_lookup('8.8.8.8') AS c)
+         = row(NULL, true, true, 15169)::text,
+         'an address in no list answers crawler NULL while the feed is loaded';
+  ASSERT (SELECT row(c.crawler, c.is_datacenter, c.cloud_provider)::text FROM api.fn_ip_lookup('100.66.2.5') AS c)
+         = row('googlebot', false, NULL)::text,
+         'a crawler range alone does not make the address a datacenter or a cloud range';
+  ASSERT (SELECT row(c.cloud_provider, c.cloud_service, c.is_cdn, c.is_datacenter, c.crawler)::text FROM api.fn_ip_lookup('198.51.100.10') AS c)
+         = row('aws', 'cloudfront', true, true, 'gptbot')::text,
+         'an address in a crawler range and a cloud range keeps the cloud answer it has without the crawler row';
+  ASSERT (SELECT array_agg(row(p.provider, p.service, p.is_cdn)::text) FROM api.fn_ip_cloud_provider('198.51.100.200') AS p)
+         = ARRAY[row('aws', 'amazon', false)::text],
+         'api.fn_ip_cloud_provider does not read the crawler rows';
+  ASSERT (SELECT c.crawler FROM api.fn_ip_lookup('2001:db8:4000::1') AS c) = 'ccbot', 'an IPv6 address answers from the IPv6 prefixes';
+END
+$$;
+
 SAVEPOINT t_ip_lookup_feed;
 DELETE FROM ip_cloud_range;
 DO $$
@@ -124,6 +168,8 @@ BEGIN
          'with no provider row, is_cdn is NULL, and is_datacenter is NULL for an AS that is not a hosting AS';
   ASSERT (SELECT c.is_datacenter FROM api.fn_ip_lookup('8.8.8.8') AS c),
          'with no provider row, an address of a hosting AS is still a datacenter';
+  ASSERT (SELECT row(c.crawler, c.crawler_feed_loaded)::text FROM api.fn_ip_lookup('198.51.100.10') AS c) = row('gptbot', true)::text,
+         'with no provider row, the crawler of an address still answers: crawler reads only its own flag';
 END
 $$;
 ROLLBACK TO SAVEPOINT t_ip_lookup_feed;
@@ -162,6 +208,7 @@ BEGIN
             FROM api.fn_ip_lookup('203.0.113.7') AS c)
          = row(NULL, true, true, true, false, true)::text,
          'with no Tor row, is_tor_exit is NULL, not false';
+  ASSERT (SELECT c.crawler FROM api.fn_ip_lookup('100.67.0.5') AS c) = 'googlebot', 'with no Tor row, the crawler of an address still answers';
 END
 $$;
 ROLLBACK TO SAVEPOINT t_ip_lookup_feed;
@@ -174,6 +221,18 @@ BEGIN
             FROM api.fn_ip_lookup('203.0.113.7') AS c)
          = row(NULL, true, true, true, true, false)::text,
          'with no DROP row, listed_on is NULL, not an empty array';
+END
+$$;
+ROLLBACK TO SAVEPOINT t_ip_lookup_feed;
+
+DELETE FROM ip_crawler_range;
+DO $$
+BEGIN
+  ASSERT (SELECT row(c.crawler, c.cloud_provider, c.asn_feed_loaded, c.geo_feed_loaded, c.cloud_feed_loaded, c.tor_feed_loaded,
+                     c.drop_list_feed_loaded, c.crawler_feed_loaded)::text
+            FROM api.fn_ip_lookup('198.51.100.10') AS c)
+         = row(NULL, 'aws', true, true, true, true, true, false)::text,
+         'with no crawler row, crawler is NULL and crawler_feed_loaded is false';
 END
 $$;
 ROLLBACK TO SAVEPOINT t_ip_lookup_feed;
@@ -195,13 +254,16 @@ BEGIN
                           AND p.proisstrict AND p.provolatile = 's' AND p.proconfig = ARRAY['search_path=pg_catalog'])
             FROM pg_proc AS p
            WHERE p.oid IN ('api.fn_ip_cloud_provider(inet)'::regprocedure, 'api.fn_ip_listed_on(inet)'::regprocedure,
-                           'api.fn_ip_lookup(inet)'::regprocedure)),
-         'api.fn_ip_lookup is SECURITY DEFINER and the two helpers SECURITY INVOKER; the three are STRICT, STABLE and set search_path to pg_catalog';
+                           'api.fn_ip_crawler(inet)'::regprocedure, 'api.fn_ip_lookup(inet)'::regprocedure)),
+         'api.fn_ip_lookup is SECURITY DEFINER and the three helpers SECURITY INVOKER; the four are STRICT, STABLE and set search_path to pg_catalog';
+  ASSERT (SELECT p.prorows FROM pg_proc AS p WHERE p.oid = 'api.fn_ip_crawler(inet)'::regprocedure) = 1,
+         'api.fn_ip_crawler declares ROWS 1';
 END
 $$;
 
 DELETE FROM ip_drop_list_prefix;
 DELETE FROM ip_tor_exit;
+DELETE FROM ip_crawler_range;
 DELETE FROM ip_cloud_range;
 DELETE FROM ip_geo_prefix;
 DELETE FROM ip_asn_prefix;

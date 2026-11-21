@@ -223,8 +223,9 @@ $(PQ_FAKE_OBJ): tests/pq_fake.c
 	$(CC) $(TEST_CFLAGS) $(CWARN) -c -o $@ $<
 
 # --wrap=RAND_bytes: the bytes of a generated key are fixed, and the random source can fail.
+# --wrap=EVP_Digest: the hash of a key can fail.
 bin/test_auth: tests/test_auth.c obj/auth.o obj/validate.o obj/ipguard.o obj/picohttpparser.o $(REQUEST_TEXT_OBJ) obj/bytes.o $(UNITY_OBJ) | bin
-	$(CC) $(TEST_CFLAGS) -o $@ $^ -Wl,--wrap=RAND_bytes -lcrypto
+	$(CC) $(TEST_CFLAGS) -o $@ $^ -Wl,--wrap=RAND_bytes -Wl,--wrap=EVP_Digest -lcrypto
 
 # Linked with --wrap: tests/test_jsonbuf.cpp defines __wrap_realloc
 # and __wrap_malloc so a growth step and an initial allocation can each be forced
@@ -249,7 +250,7 @@ bin/test_jsonbuf: tests/test_jsonbuf.cpp obj/jsonbuf.o obj/utf8.o $(UNITY_OBJ) |
 # real obj/etld.o and obj/etld_table.o are linked, with obj/validate.o and obj/ipguard.o.
 # etld.o checks each name with validate.o, and validate.o calls ipguard.o.
 bin/test_db: tests/test_db.c obj/db.o obj/db_watchlist.o obj/ssvc.o obj/watchlist/watchlist.o obj/dbhelper.o obj/etld.o obj/etld_table.o obj/validate.o obj/ipguard.o obj/jsonread.o obj/bytes.o $(UNITY_OBJ) | bin
-	$(CC) $(TEST_CFLAGS) -o $@ $^ -Wl,--wrap=PQexecParams,--wrap=time,--wrap=PQresultErrorField,--wrap=PQstatus,--wrap=strdup,--wrap=malloc -lpq
+	$(CC) $(TEST_CFLAGS) -o $@ $^ -Wl,--wrap=PQexecParams,--wrap=time,--wrap=PQresultErrorField,--wrap=PQstatus,--wrap=strdup,--wrap=malloc -lpq -lcrypto
 
 # The real obj/ratelimit.o and obj/dbhelper.o, with PQexec and PQexecParams replaced at
 # link time: tests/test_ratelimit.c defines both wraps and answers each call from a queue,
@@ -280,8 +281,10 @@ bin/test_x402_ledger: tests/test_x402_ledger.c obj/x402_ledger.o obj/dbhelper.o 
 bin/test_retryafter: tests/test_retryafter.c obj/retryafter.o $(UNITY_OBJ) | bin
 	$(CC) $(TEST_CFLAGS) -o $@ $^
 
+# bytes_writeSha256Hex hashes with OpenSSL, hence -lcrypto. --wrap=EVP_Digest: tests/test_bytes.c
+# can make the hash fail.
 bin/test_bytes: tests/test_bytes.c obj/bytes.o $(UNITY_OBJ) | bin
-	$(CC) $(TEST_CFLAGS) -o $@ $^
+	$(CC) $(TEST_CFLAGS) -o $@ $^ -lcrypto -Wl,--wrap=EVP_Digest
 
 # --wrap=clock_gettime: each test sets the time the clock reads.
 bin/test_monotonic: tests/test_monotonic.c obj/monotonic.o $(UNITY_OBJ) | bin
@@ -298,11 +301,11 @@ bin/test_registryask: tests/test_registryask.c obj/registryask.o obj/registryask
 
 # --wrap=realloc lets a test fail one allocation and measure what robotstxt.c asks for.
 bin/test_robotstxt: tests/test_robotstxt.c obj/robotstxt.o obj/utf8.o obj/bytes.o $(UNITY_OBJ) | bin
-	$(CC) $(TEST_CFLAGS) -o $@ $^ -Wl,--wrap=realloc
+	$(CC) $(TEST_CFLAGS) -o $@ $^ -Wl,--wrap=realloc -lcrypto
 
 # securitytxt.o reads the Expires date with datetime.o.
 bin/test_securitytxt: tests/test_securitytxt.c obj/securitytxt.o obj/datetime.o obj/utf8.o obj/bytes.o $(UNITY_OBJ) | bin
-	$(CC) $(TEST_CFLAGS) -o $@ $^
+	$(CC) $(TEST_CFLAGS) -o $@ $^ -lcrypto
 
 # WATCHLIST_DOMAIN_LANE_OBJS are the five lane objects of the domain watch and the value writer
 # they share. Each lane object holds the value writers and the scan of its lane.
@@ -352,17 +355,17 @@ bin/test_watchlist_domain_scan: tests/test_watchlist_domain_scan.c $(WATCHLIST_D
 	  -Wl,--wrap=quota_windowRemainingSeconds,--wrap=db_recordCtScan,--wrap=robotstxt_parse
 
 bin/test_jsonread: tests/test_jsonread.c obj/jsonread.o obj/bytes.o $(UNITY_OBJ) | bin
-	$(CC) $(TEST_CFLAGS) -o $@ $^
+	$(CC) $(TEST_CFLAGS) -o $@ $^ -lcrypto
 
 bin/test_utf8: tests/test_utf8.c obj/utf8.o $(UNITY_OBJ) | bin
 	$(CC) $(TEST_CFLAGS) -o $@ $^
 
 bin/test_jsoncanon: tests/test_jsoncanon.c obj/jsoncanon.o obj/jsonread.o obj/jsonbuf.o obj/utf8.o obj/bytes.o $(UNITY_OBJ) | bin
-	$(CC) $(TEST_CFLAGS) -o $@ $^
+	$(CC) $(TEST_CFLAGS) -o $@ $^ -lcrypto
 
 # header_check.o rates header values it is given and measures them with utf8.o.
 bin/test_header_check: tests/test_header_check.c obj/header_check.o obj/utf8.o obj/bytes.o $(UNITY_OBJ) | bin
-	$(CC) $(TEST_CFLAGS) -o $@ $^
+	$(CC) $(TEST_CFLAGS) -o $@ $^ -lcrypto
 
 # --wrap=EVP_Digest: tests/test_handler.c can make the hash of the image_inspect run fail.
 # exifclient_stub replaces obj/exifclient.o, so no image reaches the exif service. The
@@ -473,7 +476,7 @@ bin/test_keyvault: tests/test_keyvault.c obj/keyvault.o obj/bytes.o $(UNITY_OBJ)
 # test_x402 links x402.c and what it writes and reads with. jsonbuf.o needs utf8.o, and
 # jsonread.o needs bytes.o.
 bin/test_x402: tests/test_x402.cpp obj/x402.o obj/jsonbuf.o obj/utf8.o obj/jsonread.o obj/bytes.o $(UNITY_OBJ) | bin
-	$(CXX) $(TEST_CXXFLAGS) -o $@ $^
+	$(CXX) $(TEST_CXXFLAGS) -o $@ $^ -lcrypto
 
 # x402_solana.o uses OpenSSL for SHA-256 and Ed25519, and test_x402_solana signs its
 # transactions with Ed25519 keys it makes, hence -lcrypto.
@@ -488,9 +491,10 @@ bin/test_x402_facilitator: tests/test_x402_facilitator.cpp obj/x402_facilitator.
 
 # bin/test_x402_solana_rpc links the real x402_solana_rpc.c with the recording HTTP stub. Each
 # answer is a fixture. It checks the signature text with x402_solana.o, hence -lcrypto, and
-# reads the answers with jsonread.o, which needs bytes.o.
-bin/test_x402_solana_rpc: tests/test_x402_solana_rpc.cpp obj/x402_solana_rpc.o obj/x402_solana.o obj/jsonread.o obj/bytes.o $(HTTP_STUB_OBJ) $(UNITY_OBJ) | bin
-	$(CXX) $(TEST_CXXFLAGS) -o $@ $^ -lcrypto
+# reads the answers with jsonread.o, which needs bytes.o. The page walk reads its deadline
+# with monotonic.o. --wrap=monotonic_nowMs lets a test move the clock between two pages.
+bin/test_x402_solana_rpc: tests/test_x402_solana_rpc.cpp obj/x402_solana_rpc.o obj/x402_solana.o obj/jsonread.o obj/bytes.o obj/monotonic.o $(HTTP_STUB_OBJ) $(UNITY_OBJ) | bin
+	$(CXX) $(TEST_CXXFLAGS) -o $@ $^ -Wl,--wrap=monotonic_nowMs -lcrypto
 
 # bin/test_x402_request links the real x402_request.o, x402.o and x402_solana.o with the
 # facilitator, RPC, ledger and throttle stubs. x402.o writes with jsonbuf.o, which needs
@@ -522,7 +526,7 @@ bin/test_emailauth: tests/test_emailauth.c obj/emailauth.o obj/bytes.o $(UNITY_O
 
 # The test checks each selector of the tables with validate.o.
 bin/test_emaildata: tests/test_emaildata.c obj/emaildata.o obj/validate.o obj/ipguard.o obj/bytes.o $(UNITY_OBJ) | bin
-	$(CC) $(TEST_CFLAGS) -o $@ $^
+	$(CC) $(TEST_CFLAGS) -o $@ $^ -lcrypto
 
 # emailcheck.o asks with dns.o and reads the records with emailauth.o and emaildata.o.
 # emailcheck_table.o holds the id of each check.
@@ -656,7 +660,7 @@ rdap-update:
 	$(MAKE) test
 
 bin/test_query: tests/test_query.c obj/query.o obj/bytes.o $(UNITY_OBJ) | bin
-	$(CC) $(TEST_CFLAGS) -o $@ $^
+	$(CC) $(TEST_CFLAGS) -o $@ $^ -lcrypto
 
 # The image_inspect writer names formats and file types with imagescan.o, and imagescan.o
 # hashes with libcrypto. It names the indicators with imageindicator.o. The headers_check
@@ -680,7 +684,7 @@ bin/test_http: tests/test_http.c obj/http.o obj/ipguard.o $(UNITY_OBJ) | bin
 	$(CC) $(TEST_CFLAGS) -o $@ $^ -Wl,--wrap=curl_easy_setopt,--wrap=curl_easy_perform,--wrap=curl_slist_append,--wrap=curl_easy_header,--wrap=strdup,--wrap=calloc,--wrap=realloc,--wrap=ipguard_isGloballyReachableSockaddr -lcurl
 
 bin/test_cvss: tests/test_cvss.c obj/cvss.o obj/bytes.o $(UNITY_OBJ) | bin
-	$(CC) $(TEST_CFLAGS) -o $@ $^ -lm
+	$(CC) $(TEST_CFLAGS) -o $@ $^ -lm -lcrypto
 
 bin/test_ssvc: tests/test_ssvc.c obj/ssvc.o $(UNITY_OBJ) | bin
 	$(CC) $(TEST_CFLAGS) -o $@ $^
@@ -701,7 +705,7 @@ bin/test_imagescan: tests/test_imagescan.c obj/imagescan.o obj/bytes.o $(UNITY_O
 bin/test_exifclient: tests/test_exifclient.c obj/exifclient.o obj/jsonread.o obj/monotonic.o obj/bytes.o $(UNITY_OBJ) | bin
 	$(CC) $(TEST_CFLAGS) -o $@ $^ \
 	  -Wl,--wrap=socket,--wrap=connect,--wrap=send,--wrap=recv,--wrap=__recv_chk,--wrap=poll,--wrap=__poll_chk,--wrap=shutdown,--wrap=close,--wrap=clock_gettime \
-	  -Wl,--wrap=malloc,--wrap=explicit_bzero,--wrap=__explicit_bzero_chk
+	  -Wl,--wrap=malloc,--wrap=explicit_bzero,--wrap=__explicit_bzero_chk -lcrypto
 
 # imageindicator.o alone: the rules read a result struct and the clock. --wrap=time:
 # tests/test_imageindicator.c fixes the clock the rule about the future reads.
@@ -830,25 +834,25 @@ bin/test_hibp: tests/test_hibp.c obj/external/hibp.o obj/retryafter.o obj/valida
 # answer is a fixture. The stub records the URL, the headers, the timeout, the body limit and
 # the trust flag of each request.
 bin/test_rdap: tests/test_rdap.c obj/external/rdap.o obj/external/rdap_table.o obj/retryafter.o obj/validate.o obj/ipguard.o obj/jsonread.o $(HTTP_STUB_OBJ) obj/bytes.o $(UNITY_OBJ) | bin
-	$(CC) $(TEST_CFLAGS) -o $@ $^
+	$(CC) $(TEST_CFLAGS) -o $@ $^ -lcrypto
 
 # bin/test_wayback links the real wayback.c with the recording HTTP stub. Each answer is a
 # fixture. --wrap=monotonic_nowMs: the deadline of each request runs on a fake clock.
 bin/test_wayback: tests/test_wayback.c obj/external/wayback.o obj/retryafter.o obj/validate.o obj/ipguard.o obj/jsonread.o $(HTTP_STUB_OBJ) obj/bytes.o $(UNITY_OBJ) | bin
-	$(CC) $(TEST_CFLAGS) -o $@ $^ -Wl,--wrap=monotonic_nowMs
+	$(CC) $(TEST_CFLAGS) -o $@ $^ -Wl,--wrap=monotonic_nowMs -lcrypto
 
 # bin/test_cveservices links the real cveservices.c with the recording HTTP stub. The 200,
 # 404 and 400 bodies are answers the CVE Services API sent. --wrap=monotonic_nowMs: the
 # deadline of each request runs on a fake clock.
 bin/test_cveservices: tests/test_cveservices.c obj/external/cveservices.o obj/retryafter.o obj/jsonread.o $(HTTP_STUB_OBJ) obj/bytes.o $(UNITY_OBJ) | bin
-	$(CC) $(TEST_CFLAGS) -o $@ $^ -Wl,--wrap=monotonic_nowMs
+	$(CC) $(TEST_CFLAGS) -o $@ $^ -Wl,--wrap=monotonic_nowMs -lcrypto
 
 # bin/test_nowpayments links the real nowpayments.c with the recording HTTP stub.
 # --wrap=explicit_bzero: the test checks that the key header buffer is cleared after the
 # call. -D_FORTIFY_SOURCE=2 can turn explicit_bzero into __explicit_bzero_chk, so both are
 # wrapped.
 bin/test_nowpayments: tests/test_nowpayments.c obj/external/nowpayments.o obj/validate.o obj/ipguard.o obj/jsonread.o obj/bytes.o $(HTTP_STUB_OBJ) $(UNITY_OBJ) | bin
-	$(CC) $(TEST_CFLAGS) -o $@ $^ -Wl,--wrap=explicit_bzero,--wrap=__explicit_bzero_chk
+	$(CC) $(TEST_CFLAGS) -o $@ $^ -Wl,--wrap=explicit_bzero,--wrap=__explicit_bzero_chk -lcrypto
 
 # bin/test_shodan links the real shodan.c with the recording HTTP stub. Each answer is a
 # fixture, and the stub records the URL, the flags, the timeout and the body cap. shodan.o
@@ -891,7 +895,7 @@ bin/test_subdomain: tests/test_subdomain.c obj/subdomain.o obj/emailauth.o obj/d
 bin/test_whois: tests/test_whois.c obj/external/whois.o obj/external/whois_table.o obj/external/rdap_table.o obj/dns.o obj/dns_table.o obj/monotonic.o obj/netconnect.o obj/validate.o obj/ipguard.o obj/bytes.o obj/datetime.o $(UNITY_OBJ) | bin
 	$(CC) $(TEST_CFLAGS) -o $@ $^ \
 	  -Wl,--wrap=socket,--wrap=connect,--wrap=getsockopt,--wrap=send,--wrap=poll,--wrap=__poll_chk,--wrap=close,--wrap=monotonic_nowMs \
-	  -Wl,--wrap=dns_askQuestions,--wrap=malloc,--wrap=explicit_bzero,--wrap=__explicit_bzero_chk -lresolv
+	  -Wl,--wrap=dns_askQuestions,--wrap=malloc,--wrap=explicit_bzero,--wrap=__explicit_bzero_chk -lresolv -lcrypto
 
 # bin/test_header_fetch links the real header_fetch.c with the recording HTTP stub. It links
 # header_check.o for the list of names to keep. The public web rule asks validate.o about a
@@ -899,7 +903,7 @@ bin/test_whois: tests/test_whois.c obj/external/whois.o obj/external/whois_table
 # --wrap=monotonic_nowMs: the deadline of the chain runs on a fake clock. --wrap=curl_url, --wrap=curl_url_dup and
 # --wrap=curl_url_get: a test makes one call fail, as it fails when memory runs out. The URL parsing itself is libcurl's.
 bin/test_header_fetch: tests/test_header_fetch.c obj/header_fetch.o obj/header_check.o obj/validate.o obj/ipguard.o obj/utf8.o $(HTTP_STUB_OBJ) obj/bytes.o $(UNITY_OBJ) | bin
-	$(CC) $(TEST_CFLAGS) -o $@ $^ -Wl,--wrap=monotonic_nowMs,--wrap=curl_url,--wrap=curl_url_dup,--wrap=curl_url_get -lcurl
+	$(CC) $(TEST_CFLAGS) -o $@ $^ -Wl,--wrap=monotonic_nowMs,--wrap=curl_url,--wrap=curl_url_dup,--wrap=curl_url_get -lcurl -lcrypto
 
 # bin/test_well_known links the real well_known.c with the real header_fetch.o, robotstxt.o and
 # securitytxt.o, against the recording HTTP stub, as bin/test_header_fetch does. header_fetch.o
@@ -908,7 +912,7 @@ bin/test_header_fetch: tests/test_header_fetch.c obj/header_fetch.o obj/header_c
 # --wrap=curl_url and --wrap=curl_url_get count the calls, and a test makes one curl_url_get call fail.
 # --wrap=robotstxt_parse: a test makes the parse fail, as a failed allocation does.
 bin/test_well_known: tests/test_well_known.c obj/well_known.o obj/header_fetch.o obj/header_check.o obj/robotstxt.o obj/securitytxt.o obj/datetime.o obj/validate.o obj/ipguard.o obj/utf8.o $(HTTP_STUB_OBJ) obj/bytes.o $(UNITY_OBJ) | bin
-	$(CC) $(TEST_CFLAGS) -o $@ $^ -Wl,--wrap=monotonic_nowMs,--wrap=curl_url,--wrap=curl_url_get,--wrap=robotstxt_parse -lcurl
+	$(CC) $(TEST_CFLAGS) -o $@ $^ -Wl,--wrap=monotonic_nowMs,--wrap=curl_url,--wrap=curl_url_get,--wrap=robotstxt_parse -lcurl -lcrypto
 
 # bin/test_usagelog links usagelog.o and monotonic.o. --wrap=time and --wrap=monotonic_nowMs give every
 # line a fixed time and a fixed "duration_ms", so a test can pin a whole line. A test of
@@ -928,10 +932,10 @@ bin/test_usagelog: tests/test_usagelog.c obj/usagelog.o obj/monotonic.o $(UNITY_
 bin/test_dns: tests/test_dns.c obj/dns.o obj/dns_table.o obj/monotonic.o obj/validate.o obj/ipguard.o obj/bytes.o $(UNITY_OBJ) | bin
 	$(CC) $(TEST_CFLAGS) -o $@ $^ -Wl,--wrap=malloc,--wrap=calloc,--wrap=strdup \
 	  -Wl,--wrap=socket,--wrap=connect,--wrap=send,--wrap=recv,--wrap=__recv_chk,--wrap=poll,--wrap=__poll_chk,--wrap=close,--wrap=clock_gettime \
-	  -Wl,--wrap=__res_ninit,--wrap=__res_nclose -lresolv
+	  -Wl,--wrap=__res_ninit,--wrap=__res_nclose -lresolv -lcrypto
 
 bin/test_jsonrpc: tests/test_jsonrpc.c obj/jsonrpc.o obj/jsonread.o obj/jsonbuf.o obj/utf8.o obj/bytes.o $(UNITY_OBJ) | bin
-	$(CC) $(TEST_CFLAGS) -o $@ $^
+	$(CC) $(TEST_CFLAGS) -o $@ $^ -lcrypto
 
 bin/test_response_context: tests/test_response_context.c obj/response.o obj/usagelog.o obj/monotonic.o $(UNITY_OBJ) | bin
 	$(CC) $(TEST_CFLAGS) -o $@ $^
@@ -940,7 +944,7 @@ bin/test_response_context: tests/test_response_context.c obj/response.o obj/usag
 # pages_table.o and web_assets.o: the test also reads the table the server serves.
 # securitytxt.o reads our own security.txt; it reads the Expires date with datetime.o.
 bin/test_pages: tests/test_pages.c obj/pages.o obj/pages_table.o obj/web_assets.o obj/response.o obj/usagelog.o obj/monotonic.o obj/securitytxt.o obj/datetime.o obj/utf8.o obj/bytes.o $(UNITY_OBJ) | bin
-	$(CC) $(TEST_CFLAGS) -o $@ $^
+	$(CC) $(TEST_CFLAGS) -o $@ $^ -lcrypto
 
 # upstream.o alone: the upstream thread counter needs no other object. The test starts
 # threads, hence the pthread flag that TEST_CFLAGS already carries.
@@ -955,7 +959,7 @@ bin/test_rawbody: tests/test_rawbody.c obj/rawbody.o $(UNITY_OBJ) | bin
 # config.o and the bytes.o it reads hex with: the test sets the environment variables that
 # config.c reads.
 bin/test_config: tests/test_config.c obj/config.o obj/bytes.o $(UNITY_OBJ) | bin
-	$(CC) $(TEST_CFLAGS) -o $@ $^
+	$(CC) $(TEST_CFLAGS) -o $@ $^ -lcrypto
 
 # worker.o alone: tests/test_worker.c defines db_open, db_close and usagelog_writeEvent, and
 # replaces PQstatus at link time, so a worker runs on a fake connection. The link needs no
@@ -985,7 +989,7 @@ bin/test_maintenance: tests/test_maintenance.c obj/maintenance.o obj/monotonic.o
 # of a large body fail. It can check that the mapping is marked MADV_DONTDUMP, and that the
 # mapping it unmaps is the one it made.
 bin/test_receive: tests/test_receive.c obj/receive.o obj/picohttpparser.o obj/bytes.o $(UNITY_OBJ) | bin
-	$(CC) $(TEST_CFLAGS) -o $@ $^ -Wl,--wrap=clock_gettime,--wrap=mmap,--wrap=madvise,--wrap=munmap
+	$(CC) $(TEST_CFLAGS) -o $@ $^ -Wl,--wrap=clock_gettime,--wrap=mmap,--wrap=madvise,--wrap=munmap -lcrypto
 
 # mcp.c reads each tool's row from endpoint_table.o, through the lookup and the gate in
 # endpoint.o, and calls the row's run in endpoint_run.o or endpoint_run_watchlist.o. The
@@ -1054,7 +1058,7 @@ FUZZ_X402_OBJS     = $(addprefix obj/fuzz/, x402.o jsonbuf.o utf8.o jsonread.o b
 FUZZ_X402_SOLANA_OBJS = obj/fuzz/x402_solana.o
 FUZZ_X402_FACILITATOR_OBJS = $(addprefix obj/fuzz/, x402_facilitator.o x402.o x402_solana.o jsonbuf.o utf8.o jsonread.o bytes.o) \
                              obj/fuzz/tests/http_stub.o
-FUZZ_X402_SOLANA_RPC_OBJS  = $(addprefix obj/fuzz/, x402_solana_rpc.o x402_solana.o jsonread.o bytes.o) obj/fuzz/tests/http_stub.o
+FUZZ_X402_SOLANA_RPC_OBJS  = $(addprefix obj/fuzz/, x402_solana_rpc.o x402_solana.o jsonread.o bytes.o monotonic.o) obj/fuzz/tests/http_stub.o
 
 # FUZZ_OPTS_<name> holds the options of one harness. -max_len is the longest input
 # libFuzzer makes for it. fuzz_request and fuzz_price also skip a longer input.
@@ -1100,10 +1104,10 @@ obj/fuzz/%.o: src/%.S
 obj/fuzz/web_assets.o: $(shell find web -type f) docs/API_Documentation.md
 
 bin/fuzz_jsonread: tests/fuzz/fuzz_jsonread.c $(FUZZ_JSONREAD_OBJS) | bin
-	$(FUZZ_CC) $(FUZZ_CFLAGS) -fsanitize=fuzzer -o $@ $(filter %.c %.o,$^)
+	$(FUZZ_CC) $(FUZZ_CFLAGS) -fsanitize=fuzzer -o $@ $(filter %.c %.o,$^) -lcrypto
 
 bin/fuzz_query: tests/fuzz/fuzz_query.c $(FUZZ_QUERY_OBJS) | bin
-	$(FUZZ_CC) $(FUZZ_CFLAGS) -fsanitize=fuzzer -o $@ $(filter %.c %.o,$^)
+	$(FUZZ_CC) $(FUZZ_CFLAGS) -fsanitize=fuzzer -o $@ $(filter %.c %.o,$^) -lcrypto
 
 # fuzz_request wraps read() so that each read of the client socket returns at most
 # as many bytes as the input's first byte says (0 is no cap).
@@ -1123,7 +1127,7 @@ bin/fuzz_dns: tests/fuzz/fuzz_dns.c $(FUZZ_DNS_OBJS) | bin
 	$(FUZZ_CC) $(FUZZ_CFLAGS) -fsanitize=fuzzer -o $@ $(filter %.c %.o,$^) -lcrypto -lresolv -lm
 
 bin/fuzz_x402: tests/fuzz/fuzz_x402.c $(FUZZ_X402_OBJS) | bin
-	$(FUZZ_CC) $(FUZZ_CFLAGS) -fsanitize=fuzzer -o $@ $(filter %.c %.o,$^)
+	$(FUZZ_CC) $(FUZZ_CFLAGS) -fsanitize=fuzzer -o $@ $(filter %.c %.o,$^) -lcrypto
 
 bin/fuzz_x402_solana: tests/fuzz/fuzz_x402_solana.c $(FUZZ_X402_SOLANA_OBJS) | bin
 	$(FUZZ_CC) $(FUZZ_CFLAGS) -fsanitize=fuzzer -o $@ $(filter %.c %.o,$^) -lcrypto

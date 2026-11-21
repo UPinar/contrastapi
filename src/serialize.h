@@ -53,6 +53,7 @@ void   serialize_EMAILADDRESSCHECK_response                 (const EMAILADDRESSC
 void   serialize_SSLCHECK_response                          (const SSLCHECKRecord_t* record, JsonBuf_t* json_buf);
 void   serialize_HEADERSCHECK_response                      (const HEADERSCHECKRecord_t* record, const HEADERSCHECKParams_t* params, JsonBuf_t* json_buf);
 void   serialize_WELLKNOWN_response                         (const WELLKNOWNRecord_t* record, JsonBuf_t* json_buf);
+void   serialize_REDIRECTCHAIN_response                     (const REDIRECTCHAINRecord_t* record, JsonBuf_t* json_buf);
 void   serialize_WHOISLOOKUP_response                       (const WHOISLOOKUPRecord_t* record, JsonBuf_t* json_buf);
 void   serialize_WAYBACKLOOKUP_response                     (const WAYBACKLOOKUPRecord_t* record, JsonBuf_t* json_buf);
 void   serialize_CERTSEARCH_response                        (const CERTSEARCHRecord_t* record, JsonBuf_t* json_buf);

@@ -510,6 +510,14 @@ void setUp(void)
   g_stub_HEADER_FETCH_last_hostname[0]          = '\0';
   g_stub_HEADER_FETCH_free_count                = 0;
   g_stub_HEADER_FETCH_on_call                   = NULL;
+  g_stub_HEADER_FETCH_url_status                = HEADER_FETCH_URL_OK;
+  g_stub_HEADER_FETCH_url_check_count           = 0;
+  g_stub_HEADER_FETCH_chain_error               = HTTP_ERROR_NONE;
+  g_stub_HEADER_FETCH_chain_script              = g_stub_HEADER_FETCH_default_chain_script;
+  g_stub_HEADER_FETCH_chain_call_count          = 0;
+  g_stub_HEADER_FETCH_chain_first_url[0]        = '\0';
+  g_stub_HEADER_FETCH_chain_free_count          = 0;
+  g_stub_HEADER_FETCH_before_hop                = NULL;
   g_stub_WELL_KNOWN_error                       = HTTP_ERROR_NONE;
   memset(&g_stub_WELL_KNOWN_report, 0, sizeof(g_stub_WELL_KNOWN_report));
   g_stub_WELL_KNOWN_call_count                  = 0;
@@ -680,7 +688,7 @@ void test_tool_count_is_the_number_of_tools_listed(void)
   int listed_tool_count = 0;
   for (const char* cursor = response; (cursor = strstr(cursor, R"("inputSchema")")) != NULL; cursor++)
     listed_tool_count++;
-  TEST_ASSERT_EQUAL_INT(39, listed_tool_count);
+  TEST_ASSERT_EQUAL_INT(40, listed_tool_count);
   TEST_ASSERT_EQUAL_INT(listed_tool_count, endpoint_mcpToolCount());
   free(response);
 }
@@ -916,7 +924,7 @@ void test_tools_list_is_the_whole_catalogue(void)
       R"json(,"annotations":{"readOnlyHint":false,"destructiveHint":true,"idempotentHint":true,"openWorldHint":true},"_meta":{"com.contrastcyber/category":"Monitoring"}})json",
     R"json({"name":"watchlist_events","title":"Monitoring Events","description":"Report what changed on the items this API key watches, such as a new advisory for a package or a certificate about to expire, oldest first. A plain call continues where the last one stopped. Requires a Pro API key.",)json"
       R"json("inputSchema":{"type":"object","properties":{)json"
-      R"json("limit":{"type":"integer","minimum":1,"maximum":100,"default":20,"description":"Events per call; repeat=true answers the whole last batch"},)json"
+      R"json("limit":{"type":"integer","minimum":1,"maximum":100,"default":20,"description":"Most events per call; a shorter page with has_more true is not the end; repeat=true answers the whole last batch"},)json"
       R"json("cursor":{"type":"string","maxLength":18,"description":"next_cursor of an earlier answer; reads after it and keeps the position"},)json"
       R"json("repeat":{"type":"boolean","const":true,"description":"Answers the last batch again; cannot be combined with cursor"})json"
       R"json(},"additionalProperties":false})json"
@@ -976,6 +984,11 @@ void test_tools_list_is_the_whole_catalogue(void)
       R"json("domain":{"type":"string","maxLength":253,"description":"Host name of the site, such as www.example.com"})json"
       R"json(},"required":["domain"],"additionalProperties":false})json"
       R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":true},"_meta":{"com.contrastcyber/category":"Domain Intelligence"}})json",
+    R"json({"name":"redirect_chain","title":"Redirect Chain Check","description":"Follow an http or https URL's redirects, up to 10 requests on ports 80 and 443. Lists each hop and status, the final URL, the stop reason and any https to http step. Reads no body; no HTML or JavaScript redirect. Location text is untrusted.",)json"
+      R"json("inputSchema":{"type":"object","properties":{)json"
+      R"json("url":{"type":"string","maxLength":4096,"description":"The http or https URL to follow; REST takes it percent-encoded"})json"
+      R"json(},"required":["url"],"additionalProperties":false})json"
+      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":true},"_meta":{"com.contrastcyber/category":"Domain Intelligence"}})json",
     R"json({"name":"whois_lookup","title":"WHOIS / RDAP Lookup","description":"Look up a domain's registration over RDAP, or WHOIS where allowed: registrar, dates, status, name servers and DNSSEC. A name under a registered domain asks about that domain. No registrant data.",)json"
       R"json("inputSchema":{"type":"object","properties":{)json"
       R"json("domain":{"type":"string","maxLength":253,"description":"Domain name, such as example.com; www.example.com asks about example.com"})json"
@@ -996,7 +1009,7 @@ void test_tools_list_is_the_whole_catalogue(void)
       R"json("domain":{"type":"string","maxLength":253,"description":"Domain name, such as example.com; www.example.com asks about example.com"})json"
       R"json(},"required":["domain"],"additionalProperties":false})json"
       R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":true},"_meta":{"com.contrastcyber/category":"Domain Intelligence"}})json",
-    R"json({"name":"ip_lookup","title":"IP Lookup","description":"Look up a public IP address: AS, country, cloud provider, CDN, datacenter or Tor exit, DROP listing and PTR name. A Pro key with its own Shodan or AbuseIPDB key adds exposure and reputation. For every prefix of the AS, call asn_lookup.",)json"
+    R"json({"name":"ip_lookup","title":"IP Lookup","description":"Look up a public IP: AS, country, cloud provider, CDN, datacenter, Tor exit, crawler, DROP listing and PTR name. A Pro key with its own Shodan or AbuseIPDB key adds exposure and reputation. For every prefix of the AS, call asn_lookup.",)json"
       R"json("inputSchema":{"type":"object","properties":{)json"
       R"json("ip_address":{"type":"string","maxLength":45,"description":"Public IPv4 or IPv6 address, such as 8.8.8.8 or 2001:4860:4860::8888"})json"
       R"json(},"required":["ip_address"],"additionalProperties":false})json"
@@ -2035,7 +2048,7 @@ void test_every_tool_refuses_names_and_values_it_does_not_read(void)
     }
     called++;
   }
-  TEST_ASSERT_EQUAL_INT(39, called);
+  TEST_ASSERT_EQUAL_INT(40, called);
 }
 
 void test_readToolCall_reads_the_name_and_the_arguments(void)
@@ -3986,6 +3999,53 @@ void test_tool_WELLKNOWN_answer(void)
   TEST_ASSERT_EQUAL_STRING("well_known:www.example.com", g_stub_CACHE_last_get_key);
   TEST_ASSERT_TRUE(g_stub_CACHE_last_get_conn == g_conn);
   TEST_ASSERT_EQUAL_INT(0, g_stub_CACHE_put_count);
+}
+
+void test_tool_REDIRECTCHAIN_answer(void)
+{
+  char before[HEADERSCHECK_CHECKED_AT_TEXT_SIZE];
+  char after[HEADERSCHECK_CHECKED_AT_TEXT_SIZE];
+  static_HEADERSCHECKUtcNow(before);
+  int status;
+  char* response = static_dispatch(R"({"jsonrpc":"2.0","id":97,"method":"tools/call",)"
+                     R"("params":{"name":"redirect_chain","arguments":{"url":"https://www.stub.example.com/"}}})", &status);
+  static_HEADERSCHECKUtcNow(after);
+  TEST_ASSERT_EQUAL_INT(200, status);
+  static_HEADERSCHECKMaskCheckedAt(response, before, after);
+  TEST_ASSERT_EQUAL_STRING(
+    R"({"jsonrpc":"2.0","id":97,"result":{"content":[{"type":"text","text":")"
+    R"x({\"checked_at\":\"YYYY-MM-DDTHH:MM:SSZ\",\"final_url\":\"https://www.stub.example.com/\",\"stop_reason\":\"final_answer\",)x"
+    R"x(\"https_downgrade\":false,\"hops\":[{\"url\":\"https://www.stub.example.com/\",\"status_code\":200}]})x"
+    R"(\n"}],"isError":false}})", response);
+  free(response);
+  TEST_ASSERT_EQUAL_INT(1, g_stub_HEADER_FETCH_chain_call_count);
+  TEST_ASSERT_EQUAL_STRING("https://www.stub.example.com/", g_stub_HEADER_FETCH_chain_first_url);
+  TEST_ASSERT_EQUAL_INT(1, g_stub_HEADER_FETCH_chain_free_count);
+  TEST_ASSERT_EQUAL_INT(1, g_stub_THROTTLE_charge_count);
+  TEST_ASSERT_EQUAL_STRING("example.com", g_stub_THROTTLE_last_target_name);
+  TEST_ASSERT_EQUAL_STRING("site_fetch", g_stub_THROTTLE_last_rule.mp_throttleRuleName);
+  TEST_ASSERT_EQUAL_UINT(1, g_stub_THROTTLE_last_charged_count);
+  TEST_ASSERT_EQUAL_INT(1, g_stub_CACHE_get_count);
+  TEST_ASSERT_EQUAL_STRING("redirect_chain:b69d535a4efc1bac6bf2a2b3a53aff7f91d11b09b9c4fcdf2c84b40d4fd41047", g_stub_CACHE_last_get_key);
+  TEST_ASSERT_TRUE(g_stub_CACHE_last_get_conn == g_conn);
+  TEST_ASSERT_EQUAL_INT(1, g_stub_CACHE_put_count);
+}
+
+void test_tool_REDIRECTCHAIN_missing_and_schemeless_url(void)
+{
+  int status;
+  char* response = static_dispatch(R"({"jsonrpc":"2.0","id":98,"method":"tools/call","params":{"name":"redirect_chain"}})", &status);
+  TEST_ASSERT_EQUAL_STRING(R"({"jsonrpc":"2.0","id":98,"error":{"code":-32602,"message":"Invalid params: url is required"}})", response);
+  free(response);
+  response = static_dispatch(R"({"jsonrpc":"2.0","id":99,"method":"tools/call",)"
+                     R"("params":{"name":"redirect_chain","arguments":{"url":"example.com"}}})", &status);
+  TEST_ASSERT_EQUAL_INT(200, status);
+  TEST_ASSERT_EQUAL_STRING(R"({"jsonrpc":"2.0","id":99,"result":{"content":[{"type":"text","text":"url must start with http:// or https:// and hold no space"}],"isError":true}})", response);
+  free(response);
+  TEST_ASSERT_EQUAL_INT(0, g_stub_HEADER_FETCH_url_check_count);
+  TEST_ASSERT_EQUAL_INT(0, g_stub_CACHE_get_count);
+  TEST_ASSERT_EQUAL_INT(0, g_stub_THROTTLE_charge_count);
+  TEST_ASSERT_EQUAL_INT(0, g_stub_HEADER_FETCH_chain_call_count);
 }
 
 void test_tool_WELLKNOWN_missing_and_private_name(void)
@@ -6136,7 +6196,7 @@ void test_tool_EPSSRISERS_uncomputable_window_is_a_result(void)
   TEST_ASSERT_EQUAL_INT(1, g_stub_EPSSRISERS_call_count);
 }
 
-#define TEST_TOOLS_LIST_MAX_BYTE_COUNT 33280
+#define TEST_TOOLS_LIST_MAX_BYTE_COUNT 33792
 
 #define TEST_MCP_TOOL_DESCRIPTION_MAX_LEN 240
 
@@ -7222,7 +7282,7 @@ void test_mcp_credit_cost_offers_no_payment_for_tools_list_and_notifications(voi
   }
 }
 
-#define X402_PAYABLE_TOOL_COUNT 34
+#define X402_PAYABLE_TOOL_COUNT 35
 void test_mcp_credit_cost_payable_tools_are_the_payable_rows(void)
 {
   int payable_tool_count = 0;
@@ -7472,7 +7532,7 @@ void test_mcp_server_instructions_name_x402_pay_per_call(void)
 
 void test_registration_gate_test_count(void)
 {
-  TEST_ASSERT_EQUAL_INT_MESSAGE(415, (int)Unity.NumberOfTests,
+  TEST_ASSERT_EQUAL_INT_MESSAGE(417, (int)Unity.NumberOfTests,
     "RUN_TEST list and test definitions have drifted apart - a test may be unregistered");
 }
 
@@ -7672,7 +7732,7 @@ void test_every_arguments_copy_refuses_arguments_too_large(void)
     free(response);
     called++;
   }
-  TEST_ASSERT_EQUAL_INT(39, called);
+  TEST_ASSERT_EQUAL_INT(40, called);
 }
 
 void test_tool_arguments_reach_the_lookup(void)
@@ -8132,6 +8192,8 @@ int main(void)
   RUN_TEST(test_tool_HEADERSCHECK_answer);
   RUN_TEST(test_tool_HEADERSCHECK_missing_and_refused_values);
   RUN_TEST(test_tool_WELLKNOWN_answer);
+  RUN_TEST(test_tool_REDIRECTCHAIN_answer);
+  RUN_TEST(test_tool_REDIRECTCHAIN_missing_and_schemeless_url);
   RUN_TEST(test_tool_WELLKNOWN_missing_and_private_name);
   RUN_TEST(test_tool_HEADERSCHECK_failed_fetches);
   RUN_TEST(test_tool_HEADERSCHECK_body_buffer_failure_is_32603);

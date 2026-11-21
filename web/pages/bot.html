@@ -88,9 +88,9 @@
       whether the transaction is confirmed. That is one POST over HTTPS with a JSON-RPC
       <code>getSignatureStatuses</code> call. The call holds the transaction signature, which is
       public on Solana, and nothing else about the caller. A pending payment that holds no
-      signature gets one <code>getSignaturesForAddress</code> call instead. It holds the address
-      of the paying token account, and asks for its 20 most recent transactions. Both calls
-      carry the User-Agent above. The server follows no redirect, and the request ends after 5 seconds. The operator names the
+      signature gets <code>getSignaturesForAddress</code> calls instead. Each holds the address
+      of the paying token account, and asks for its most recent transactions, 1000 at a time, in at most three calls. Both kinds of call
+      carry the User-Agent above. The server follows no redirect, each request ends after 5 seconds, and a lookup ends after 12 seconds. The operator names the
       provider in the server settings, and this page does not list its host. No other request
       of the API server asks the provider. The x402 facilitator on the same host also asks a Solana
       RPC provider, to verify and settle a payment, as the privacy policy describes. The server also talks to the x402 facilitator, a program on the same
@@ -140,6 +140,18 @@
       all callers, so it caps the load on your site whoever asks. The server keeps the
       answer for one hour, unless it could not fetch <code>security.txt</code>, and a repeat
       request in that hour usually gets the kept answer.
+    </p>
+    <p class="endpoints-lede">
+      When a caller asks <code>/redirect_chain</code>, the server sends a GET request to the URL
+      the caller gave, and one to each target that a Location header of an answer names. It goes
+      over HTTP to port 80 or over HTTPS to port 443 only, and only to a host that is a public DNS
+      name. It sends at most 10 requests, and one deadline of 5 seconds covers them all. It reads
+      no body and sends no cookie. It does not read <code>robots.txt</code>: it sends only the
+      requests that one browser visit of that URL would send, and only while the caller waits
+      for them. Each request costs 1 unit of the same count that <code>/well_known</code> uses,
+      and that count allows 10 units a minute for each registered domain. A request past that
+      count is not sent. The server keeps the answer for one hour, and a repeat request
+      in that hour usually gets the kept answer.
     </p>
     <p class="endpoints-lede">
       When a caller asks <code>/whois_lookup</code>, the server sends a GET request over HTTPS
@@ -293,15 +305,15 @@
     <div class="endpoint-group rules">
       <div class="endpoint">
         <span class="method get">RULE</span>
-        <span class="endpoint-path">Our API server fetches your site only for <code>/headers_check</code>, for <code>/well_known</code> and for the daily scan of a <code>headers_check</code> watch item: one GET of <code>/</code>, one GET of <code>/robots.txt</code> for the scan and for <code>/well_known</code>, one GET of <code>/.well-known/security.txt</code> for <code>/well_known</code> when <code>robots.txt</code> allows it, and the redirects it follows on the same host name or its www pair. Its other HTTP hosts are <code>api.pwnedpasswords.com</code>, <code>web.archive.org</code>, <code>api.certspotter.com</code>, <code>cveawg.mitre.org</code>, <code>api.shodan.io</code>, <code>api.abuseipdb.com</code>, <code>api.nowpayments.io</code>, the RDAP servers that IANA lists for each TLD, the HTTPS servers those redirect to, and the Solana RPC provider that the operator configures. Its WHOIS queries go to TCP port 43 of the 18 WHOIS servers listed above, and to no other host. A <code>/ssl_check</code> handshake reads your certificate and sends no HTTP request.</span>
+        <span class="endpoint-path">Our API server fetches your site only for <code>/headers_check</code>, for <code>/well_known</code>, for <code>/redirect_chain</code> and for the daily scan of a <code>headers_check</code> watch item: one GET of <code>/</code>, one GET of <code>/robots.txt</code> for the scan and for <code>/well_known</code>, one GET of <code>/.well-known/security.txt</code> for <code>/well_known</code> when <code>robots.txt</code> allows it, and the redirects it follows on the same host name or its www pair. For <code>/redirect_chain</code> it sends one GET of the URL a caller gives and one of each Location target, at most 10 in all. Its other HTTP hosts are <code>api.pwnedpasswords.com</code>, <code>web.archive.org</code>, <code>api.certspotter.com</code>, <code>cveawg.mitre.org</code>, <code>api.shodan.io</code>, <code>api.abuseipdb.com</code>, <code>api.nowpayments.io</code>, the RDAP servers that IANA lists for each TLD, the HTTPS servers those redirect to, and the Solana RPC provider that the operator configures. Its WHOIS queries go to TCP port 43 of the 18 WHOIS servers listed above, and to no other host. A <code>/ssl_check</code> handshake reads your certificate and sends no HTTP request.</span>
       </div>
       <div class="endpoint">
         <span class="method get">RULE</span>
-        <span class="endpoint-path">Our API server sends GET requests over HTTPS only, with three exceptions: the invoice POST to <code>api.nowpayments.io</code>, also over HTTPS, the JSON-RPC POST to the Solana RPC provider, also over HTTPS, and the requests to the x402 facilitator, plain HTTP over a Unix socket on the same host. It sends no PUT or DELETE, and no plain HTTP request to another host. A WHOIS query on TCP port 43 is not HTTP: it is one line of plain text, as RFC 3912 defines it.</span>
+        <span class="endpoint-path">Our API server sends GET requests over HTTPS only, with four exceptions: the invoice POST to <code>api.nowpayments.io</code>, also over HTTPS, the JSON-RPC POST to the Solana RPC provider, also over HTTPS, the requests to the x402 facilitator, plain HTTP over a Unix socket on the same host, and the GET requests of <code>/redirect_chain</code>, which go over plain HTTP to port 80 when the URL or a redirect target names <code>http</code>. It sends no PUT or DELETE, and no other plain HTTP request to another host. A WHOIS query on TCP port 43 is not HTTP: it is one line of plain text, as RFC 3912 defines it.</span>
       </div>
       <div class="endpoint">
         <span class="method get">RULE</span>
-        <span class="endpoint-path">Our API server follows no link and crawls no page. Its background work is a scan of each name that a paying user watches. A <code>headers_check</code> watch reads <code>robots.txt</code> and the home page of the name about once a day. It sends no request for the home page when <code>robots.txt</code> disallows <code>/</code> for <code>ContrastAPI</code>. A <code>cert_search</code> watch asks Cert Spotter and the DNS resolver, and sends no request to the name. A <code>dns_lookup</code> watch asks its own DNS resolver about the name, about once a day. An <code>ssl_check</code> watch asks the resolver for the name's addresses and opens one TLS handshake to port 443 of one of them, about once a day. A handshake reads the certificate and sends no HTTP request. A <code>whois_lookup</code> watch asks the registry of the name over RDAP or WHOIS once a week, and once a day while its registration ends within 30 days, as above. Every other outbound request happens only while a caller's request waits for it.</span>
+        <span class="endpoint-path">Our API server follows no link in a page and crawls no page. Only <code>/redirect_chain</code> follows a redirect off the host name and its www pair: it follows the Location headers of the URL a caller gives, at most 10 requests. Its background work is a scan of each name that a paying user watches. A <code>headers_check</code> watch reads <code>robots.txt</code> and the home page of the name about once a day. It sends no request for the home page when <code>robots.txt</code> disallows <code>/</code> for <code>ContrastAPI</code>. A <code>cert_search</code> watch asks Cert Spotter and the DNS resolver, and sends no request to the name. A <code>dns_lookup</code> watch asks its own DNS resolver about the name, about once a day. An <code>ssl_check</code> watch asks the resolver for the name's addresses and opens one TLS handshake to port 443 of one of them, about once a day. A handshake reads the certificate and sends no HTTP request. A <code>whois_lookup</code> watch asks the registry of the name over RDAP or WHOIS once a week, and once a day while its registration ends within 30 days, as above. Every other outbound request happens only while a caller's request waits for it.</span>
       </div>
     </div>
 
@@ -313,8 +325,9 @@
       exploits from the exploit-database repository on GitLab, the LOLDrivers catalog of loldrivers.io,
       the disposable-email-domains blocklist, the SSL Blacklist of abuse.ch, the release cycles of endoflife.date, the MITRE D3FEND catalog of d3fend.mitre.org, and these IP lists:
       IPtoASN, DB-IP IP to Country Lite, the Spamhaus DROP lists, the Tor Project's exit list,
-      and the address ranges that AWS, Google, Microsoft Azure, Cloudflare, Fastly, bunny.net and Gcore
-      publish. It never calls exploit-db.com. It sends its own User-Agent:
+      the address ranges that AWS, Google, Microsoft Azure, Cloudflare, Fastly, bunny.net and Gcore
+      publish, and the crawler address lists that Google, Microsoft Bing, OpenAI, Anthropic,
+      Perplexity, Apple, DuckDuckGo and Common Crawl publish for their bots. It never calls exploit-db.com. It sends its own User-Agent:
       <code class="ua">ContrastAPI-Sync (+https://api.contrastcyber.com/bot; contact@contrastcyber.com)</code>
     </p>
 
