@@ -8,8 +8,9 @@ Each server is asked once about "nic.<tld>", for the first TLD the table lists f
 query per second. Only the terms lines of the answer are kept: comment lines, and lines with a
 word such as "terms", "lawful" or "automated". A record line such as "Registrar: ..." is
 dropped, and so is a line that changes with each query: the time of the last update, the
-number of the server that answered (.am answers from #1 or #2 in turn), or a greeting that
-names the asking address. tests/whois_terms/<host>.txt holds the kept lines of
+number of the server that answered (.am answers from #1 or #2 in turn), a greeting that
+names the asking address, or a version number. A version number changes without the terms
+text (.dk went from 6.3.0 to 6.3.1 with the same text), so it is not compared. tests/whois_terms/<host>.txt holds the kept lines of
 the day the terms were read.
 """
 import os
@@ -29,7 +30,8 @@ KEYWORDS = re.compile(
     r"permitted|permission|agree|copyright|reproduc|marketing|unsolicited|spam|"
     r"data protection|privacy|gdpr|lawful|legal|abuse|acceptable use|not allowed|"
     r"may not|must not|shall not|restricted|only for|solely)\b")
-NOISE = re.compile(r"(?i)(last update of whois database|>>>.*<<<|\d{4}-\d{2}-\d{2}t\d{2}:\d{2}|whois server #\d+)")
+NOISE = re.compile(r"(?i)(last update of whois database|>>>.*<<<|\d{4}-\d{2}-\d{2}t\d{2}:\d{2}|whois server #\d+|"
+                   r"\bversion:?\s*\d+(\.\d+)+)")
 ASKER = re.compile(r"(?i)(your session has been logged|\b\d{1,3}(\.\d{1,3}){3}\b|\b[0-9a-f]{1,4}(:[0-9a-f]{0,4}){2,7}\b)")
 
 

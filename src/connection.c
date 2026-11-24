@@ -19,6 +19,7 @@ ConnectionServeStatus_t connection_serveRequest(int client_fd, const char* clien
 
   usagelog_beginRequest();
   response_clearRateLimitInfo();
+  response_clearChargedCreditCount();
 
   struct timeval receive_timeout = { .tv_sec = CONNECTION_READ_TIMEOUT_SEC, .tv_usec = 0 };
   struct timeval send_timeout    = { .tv_sec = CONNECTION_SEND_TIMEOUT_SEC, .tv_usec = 0 };

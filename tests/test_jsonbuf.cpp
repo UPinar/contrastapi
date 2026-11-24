@@ -709,7 +709,7 @@ void test_a_zero_size_is_refused_at_create(void)
 
 void test_registration_gate_test_count(void)
 {
-  TEST_ASSERT_EQUAL_INT_MESSAGE(36, (int)Unity.NumberOfTests,
+  TEST_ASSERT_EQUAL_INT_MESSAGE(43, (int)Unity.NumberOfTests,
     "RUN_TEST list and test definitions have drifted apart - a test may be unregistered");
 }
 
@@ -751,6 +751,119 @@ void test_appendEscapedBytes_on_a_failed_buffer_is_refused(void)
   jsonbuf_destroy(buf);
 }
 
+static void static_assertMemberAppended(const char* start_text, const char* member_text, const char* expected_text)
+{
+  JsonBuf_t* buf = jsonbuf_create(4, 64);
+  TEST_ASSERT_NOT_NULL(buf);
+  TEST_ASSERT_TRUE(jsonbuf_appendFormat(buf, "%s", start_text));
+
+  TEST_ASSERT_TRUE_MESSAGE(jsonbuf_appendMemberToClosedObject(buf, member_text), start_text);
+  TEST_ASSERT_EQUAL_size_t_MESSAGE(strlen(expected_text), jsonbuf_length(buf), start_text);
+
+  char* body = jsonbuf_finish(buf);
+  TEST_ASSERT_NOT_NULL_MESSAGE(body, start_text);
+  TEST_ASSERT_EQUAL_STRING_MESSAGE(expected_text, body, start_text);
+  free(body);
+  jsonbuf_destroy(buf);
+}
+
+static void static_assertMemberRefused(const char* start_text)
+{
+  JsonBuf_t* buf = jsonbuf_create(4, 64);
+  TEST_ASSERT_NOT_NULL(buf);
+  TEST_ASSERT_TRUE(jsonbuf_appendFormat(buf, "%s", start_text));
+  size_t start_len = jsonbuf_length(buf);
+
+  TEST_ASSERT_FALSE_MESSAGE(jsonbuf_appendMemberToClosedObject(buf, R"("b":2)"), start_text);
+  TEST_ASSERT_EQUAL_size_t_MESSAGE(start_len, jsonbuf_length(buf), start_text);
+  TEST_ASSERT_FALSE_MESSAGE(jsonbuf_appendFormat(buf, "}"), start_text);
+  TEST_ASSERT_NULL_MESSAGE(jsonbuf_finish(buf), start_text);
+  jsonbuf_destroy(buf);
+}
+
+void test_appendMemberToClosedObject_adds_a_comma_and_the_member_before_the_brace(void)
+{
+  static_assertMemberAppended(R"({"a":1})", R"("b":2)", R"({"a":1,"b":2})");
+}
+
+void test_appendMemberToClosedObject_writes_no_comma_into_an_empty_object(void)
+{
+  static_assertMemberAppended("{}", R"("b":2)", R"({"b":2})");
+}
+
+void test_appendMemberToClosedObject_writes_into_the_outer_object(void)
+{
+  static_assertMemberAppended(R"({"a":{}})", R"("b":2)", R"({"a":{},"b":2})");
+}
+
+void test_appendMemberToClosedObject_keeps_each_trailing_whitespace_byte(void)
+{
+  static const char* const TRAILING_TEXTS[] = { " ", "\t", "\r", "\n", "\r\n", "\n \t\r\n" };
+
+  for (size_t i = 0; i < sizeof(TRAILING_TEXTS) / sizeof(TRAILING_TEXTS[0]); i++)
+  {
+    char start_text[32];
+    char expected_text[32];
+    snprintf(start_text, sizeof(start_text), R"({"a":1}%s)", TRAILING_TEXTS[i]);
+    snprintf(expected_text, sizeof(expected_text), R"({"a":1,"b":2}%s)", TRAILING_TEXTS[i]);
+    static_assertMemberAppended(start_text, R"("b":2)", expected_text);
+  }
+}
+
+void test_appendMemberToClosedObject_refuses_a_text_that_does_not_end_with_a_brace(void)
+{
+  static const char* const REFUSED_TEXTS[] = { "", "\n", "[1]", R"({"a":1)", R"({"a":1}x)", "{\"a\":1}\v", "{\"a\":1}\f", "{\"a\":1}\n]" };
+
+  for (size_t i = 0; i < sizeof(REFUSED_TEXTS) / sizeof(REFUSED_TEXTS[0]); i++)
+    static_assertMemberRefused(REFUSED_TEXTS[i]);
+}
+
+void test_appendMemberToClosedObject_on_a_failed_buffer_is_refused(void)
+{
+  JsonBuf_t* buf = jsonbuf_create(4, 8);
+  TEST_ASSERT_NOT_NULL(buf);
+  TEST_ASSERT_TRUE(jsonbuf_appendFormat(buf, "{}"));
+  TEST_ASSERT_FALSE(jsonbuf_appendFormat(buf, DIGITS_10));
+
+  TEST_ASSERT_FALSE(jsonbuf_appendMemberToClosedObject(buf, R"("b":2)"));
+  TEST_ASSERT_EQUAL_size_t(2, jsonbuf_length(buf));
+  TEST_ASSERT_NULL(jsonbuf_finish(buf));
+  jsonbuf_destroy(buf);
+
+  buf = jsonbuf_create(16, 64);
+  TEST_ASSERT_NOT_NULL(buf);
+  TEST_ASSERT_TRUE(jsonbuf_appendFormat(buf, "{}"));
+  free(jsonbuf_finish(buf));
+
+  TEST_ASSERT_FALSE(jsonbuf_appendMemberToClosedObject(buf, R"("b":2)"));
+  TEST_ASSERT_EQUAL_size_t(0, jsonbuf_length(buf));
+  TEST_ASSERT_NULL(jsonbuf_finish(buf));
+  jsonbuf_destroy(buf);
+}
+
+void test_appendMemberToClosedObject_fits_exactly_at_the_ceiling(void)
+{
+  JsonBuf_t* buf = jsonbuf_create(4, 14);
+  TEST_ASSERT_NOT_NULL(buf);
+  TEST_ASSERT_TRUE(jsonbuf_appendFormat(buf, "{\"a\":1}\n"));
+
+  TEST_ASSERT_FALSE(jsonbuf_appendMemberToClosedObject(buf, R"("b":2)"));
+  TEST_ASSERT_EQUAL_size_t(8, jsonbuf_length(buf));
+  TEST_ASSERT_NULL(jsonbuf_finish(buf));
+  jsonbuf_destroy(buf);
+
+  buf = jsonbuf_create(4, 15);
+  TEST_ASSERT_NOT_NULL(buf);
+  TEST_ASSERT_TRUE(jsonbuf_appendFormat(buf, "{\"a\":1}\n"));
+
+  TEST_ASSERT_TRUE(jsonbuf_appendMemberToClosedObject(buf, R"("b":2)"));
+  char* body = jsonbuf_finish(buf);
+  TEST_ASSERT_NOT_NULL(body);
+  TEST_ASSERT_EQUAL_STRING("{\"a\":1,\"b\":2}\n", body);
+  free(body);
+  jsonbuf_destroy(buf);
+}
+
 int main(void)
 {
   UNITY_BEGIN();
@@ -789,6 +902,13 @@ int main(void)
   RUN_TEST(test_a_zero_size_is_refused_at_create);
   RUN_TEST(test_appendEscapedBytes_reads_by_the_count);
   RUN_TEST(test_appendEscapedBytes_on_a_failed_buffer_is_refused);
+  RUN_TEST(test_appendMemberToClosedObject_adds_a_comma_and_the_member_before_the_brace);
+  RUN_TEST(test_appendMemberToClosedObject_writes_no_comma_into_an_empty_object);
+  RUN_TEST(test_appendMemberToClosedObject_writes_into_the_outer_object);
+  RUN_TEST(test_appendMemberToClosedObject_keeps_each_trailing_whitespace_byte);
+  RUN_TEST(test_appendMemberToClosedObject_refuses_a_text_that_does_not_end_with_a_brace);
+  RUN_TEST(test_appendMemberToClosedObject_on_a_failed_buffer_is_refused);
+  RUN_TEST(test_appendMemberToClosedObject_fits_exactly_at_the_ceiling);
   RUN_TEST(test_registration_gate_test_count);
   return UNITY_END();
 }

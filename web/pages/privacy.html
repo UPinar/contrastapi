@@ -35,7 +35,7 @@
 
   <main class="page">
     <h1>Privacy Policy</h1>
-    <p class="subtitle">Last updated: 2026-11-14</p>
+    <p class="subtitle">Last updated: 2026-11-24</p>
 
     <h2 class="section-title">1. Introduction</h2>
     <p class="endpoints-lede">ContrastCyber ("we", "us") operates <strong>ContrastAPI</strong> at api.contrastcyber.com. This Privacy Policy covers the data we handle when you call the API, over REST or over MCP. It also covers the web pages at api.contrastcyber.com, the website at contrastcyber.com and its CVE pages.</p>
@@ -71,6 +71,7 @@
       <li>The web server's access log holds the raw IP address, the request path without its query, the user agent and the referer of each request.</li>
       <li>The web server logs nothing about a <code>/password_check/</code> request, because its path holds a password's SHA-1. An <code>/email_address_check/</code> path holds an e-mail address, and the access log keeps it as it keeps any other path.</li>
       <li>The host's security tooling keeps the raw IP address of a request it flags or blocks.</li>
+      <li>When the security tooling blocks an address, a script writes one record of the ban on the server. The record holds the first two groups of the address, its AS number and name, the reason and length of the ban, counts of the address's requests, the family of its client and the first path segments it asked for. It never holds the full address, a user agent, a referer or a query. The record ends with a short token that lets the operators lift the ban. Only our server can find the address from the token. The script finds the AS in the server's own copy of the IPtoASN list, so the address goes to no other host. The operators also get a short notice of the ban. The notice names only the kind of ban, the rule that made it and the time, and nothing of the address.</li>
       <li>The website at contrastcyber.com uses the same web server and the same access log. Its own program also writes one line for each request: the method, the path, the status and the duration. That line holds no IP address.</li>
     </ul>
     <p class="endpoints-lede"><strong>2.8 Values you send.</strong> The application stores no path, query, body or looked-up value of a request in its database, except the items above. These endpoints take extra care:</p>
@@ -116,6 +117,7 @@
       <li><strong>Upstream limits:</strong> the counts of section 2.5 keep our requests to each upstream source within its limits. They are keyed by the source, not by you.</li>
       <li><strong>Pay per call:</strong> the ledger of section 2.10 tells whether a payment was used already, holds one wallet to one payment at a time, and limits payment attempts.</li>
       <li><strong>Operations:</strong> the usage log shows how the Service is used and where it fails.</li>
+      <li><strong>Security:</strong> the access log and the security tooling find and block abusive traffic, and the ban records tell the operators about each block.</li>
     </ul>
 
     <h2 class="section-title">7. Data Retention</h2>
@@ -131,6 +133,7 @@
       <li><strong>Payment events:</strong> a payment processor sends us an event when an order is paid, cancelled, resumed, expired or refunded. The first purge after an event is 365 days old deletes it, if it names an order we hold or no order at all. The latest cancel or resume of an order is kept while we hold the order. An event of an order we do not hold yet is kept until that order comes.</li>
       <li><strong>Usage log:</strong> about @@USAGELOG_RETENTION_DAYS@@ days. A new file starts each day, and the last @@USAGELOG_RETENTION_DAYS@@ are kept. While the access log keeps a request, the time of a usage log line can match it to that request's IP address.</li>
       <li><strong>Web server access log:</strong> up to about 48 hours.</li>
+      <li><strong>Ban records:</strong> about 7 days. A new file starts each day, and the last 7 are kept.</li>
       <li><strong>API key rows:</strong> while the key exists. An expired key no longer works, but its row stays until we delete it. To have your key row deleted, write to us. Deleting a key also deletes its monitoring list and its vendor keys. The order row of a Pro key stays. It keeps the processor's order and subscription numbers and the claim code, and it is marked revoked. So a payment event sent to us again cannot create a new key.</li>
     </ul>
 

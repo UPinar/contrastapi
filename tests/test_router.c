@@ -439,7 +439,7 @@ void test_header_param_reaches_the_run(void)
   char buf[RESP_BUF];
   static_dispatchSigned("", headers, 1, buf, sizeof(buf));
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "HTTP/1.1 200 "), buf);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "{\"signature\":\"good\"}"), buf);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "{\"signature\":\"good\",\"credits\":{\"charged\":4294967295}}"), buf);
 }
 
 void test_header_param_refusals_answer_400(void)

@@ -598,6 +598,19 @@ void test_connection_framing_answer_carries_no_rate_limit_headers(void)
   TEST_ASSERT_NULL(strstr(buf, "X-RateLimit"));
 }
 
+void test_connection_framing_answer_carries_no_credits_charged_line(void)
+{
+  response_setChargedCreditCount(37);
+  static char text[2 * REQUEST_BUFFER_SIZE];
+  size_t text_len = static_buildFramingRequest(FRAMING_CONTENT_TOO_LARGE, text, sizeof(text));
+  const char* parts[1] = { text };
+  ClientScript_t script = { -1, parts, 1, 0, true, text_len };
+  char buf[RESP_BUF];
+  TEST_ASSERT_EQUAL_INT(CONNECTION_SERVE_HANDLED, static_serveScript(script, buf, sizeof(buf)));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 413 "));
+  TEST_ASSERT_NULL(strstr(buf, "X-Credits-Charged"));
+}
+
 void test_connection_refuses_a_body_whose_last_byte_is_a_nul(void)
 {
   static const char text[] = "POST /mcp HTTP/1.1\r\nContent-Length: 3\r\n\r\nab";
@@ -1199,7 +1212,7 @@ void test_connection_serves_a_raw_body_at_its_row_limit_and_refuses_one_byte_mor
   char buf[RESP_BUF];
   static_serveRawPost("/test_small_raw", TEST_SMALL_RAW_LIMIT, buf, sizeof(buf));
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "HTTP/1.1 200 "), buf);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "{\"byte_count\":100}"), buf);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "{\"byte_count\":100,\"credits\":{\"charged\":0}}"), buf);
 
   static_serveRawPost("/test_small_raw", TEST_SMALL_RAW_LIMIT + 1, buf, sizeof(buf));
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "HTTP/1.1 413 "), buf);
@@ -1246,7 +1259,7 @@ void test_connection_reads_a_header_param_for_pricing_and_serving(void)
   static_serveSignedPost("x-signature: abc\r\n", buf, sizeof(buf));
   upstream_setThreadCount(0);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "HTTP/1.1 200 "), buf);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "{\"signature\":\"abc\"}"), buf);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "{\"signature\":\"abc\",\"credits\":{\"charged\":0}}"), buf);
 }
 
 int main(void)
@@ -1288,6 +1301,7 @@ int main(void)
   RUN_TEST(test_connection_answers_each_framing_refusal);
   RUN_TEST(test_connection_closes_a_malformed_head_without_an_answer);
   RUN_TEST(test_connection_framing_answer_carries_no_rate_limit_headers);
+  RUN_TEST(test_connection_framing_answer_carries_no_credits_charged_line);
   RUN_TEST(test_connection_refuses_a_body_whose_last_byte_is_a_nul);
   RUN_TEST(test_connection_refuses_a_nul_body_on_a_path_no_row_serves);
   RUN_TEST(test_connection_reads_the_refused_body_before_it_closes);

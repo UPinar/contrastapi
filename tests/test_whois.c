@@ -183,7 +183,7 @@ static const char* static_readDate(const char* value)
 
 void test_servers_are_sorted_lower_case_tlds_with_a_host_and_a_key_map(void)
 {
-  TEST_ASSERT_EQUAL_INT(37, whois_serverCount);
+  TEST_ASSERT_EQUAL_INT(36, whois_serverCount);
   for (int i = 0; i < whois_serverCount; i++)
   {
     const WhoisServer_t* server = &whois_servers[i];

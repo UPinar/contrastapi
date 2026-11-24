@@ -173,6 +173,7 @@ void request_handle(const ReceiveResult_t* request, const RequestHead_t* head, i
   assert(head != NULL);
 
   response_clearRateLimitInfo();
+  response_clearChargedCreditCount();
 
   if (head->m_status == REQUEST_HEAD_ERR_TARGETTOOLONG)
   {
@@ -252,6 +253,9 @@ void request_handle(const ReceiveResult_t* request, const RequestHead_t* head, i
 
   X402RequestPayment_t  payment;
   RequestAccessResult_t access_result = static_checkRequestAccess(conn, request, endpoint, routing_headers, &price, metered_ip, ip_secret, &payment);
+  unsigned int charged_credit_count = access_result.m_hasOpenPayment ? 0 : access_result.m_chargedCreditCount;
+  if (endpoint != NULL || charged_credit_count > 0)
+    response_setChargedCreditCount(charged_credit_count);
   if (access_result.m_status != REQUEST_ACCESS_OK)
     static_sendAccessRefusal(client_fd, endpoint, req.mp_body, is_modern, access_result);
   else
@@ -375,22 +379,17 @@ static RequestAccessResult_t static_checkRequestAccess(PGconn* conn, const Recei
           return access_result;
         else if (weigh_status != X402_REQUEST_OPEN_OK)
         {
-          response_clearRateLimitInfo();
           access_result.m_status = REQUEST_ACCESS_INTERNAL_ERROR;
           return access_result;
         }
       }
       if (!static_tryWeighWholeRequest(conn, price))
       {
-        response_clearRateLimitInfo();
         access_result.m_status = REQUEST_ACCESS_INTERNAL_ERROR;
         return access_result;
       }
       if (endpoint != NULL && endpoint->m_isMcpEndpoint && static_isMcpLadderRefused(request, routing_headers, &access_result))
-      {
-        response_clearRateLimitInfo();
         return access_result;
-      }
       access_result.m_status             = REQUEST_ACCESS_PAYMENT_REQUIRED;
       access_result.m_paymentCreditCount = price->m_creditCost;
       access_result.mp_pricedEndpoint    = price->mp_pricedEndpoint;
@@ -588,7 +587,6 @@ static RequestAccessResult_t static_chargeRefusedKeyGetAccessResult(PGconn* conn
   if (access_result.m_status != REQUEST_ACCESS_OK)
     return access_result;
 
-  response_clearRateLimitInfo();
   access_result.m_status = refusal_status;
   return access_result;
 }

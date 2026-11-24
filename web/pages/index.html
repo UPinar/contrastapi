@@ -266,7 +266,7 @@
       <div class="endpoint">
         <span class="method get">GET</span>
         <span class="endpoint-path">/subdomain_enum/{domain}</span>
-        <span class="endpoint-desc">The subdomains of a registrable domain, from Certificate Transparency, DNS guesses of 94 common names and the domain's MX, NS and SPF records: up to 50 names, each with its sources, and a wildcard DNS check</span>
+        <span class="endpoint-desc">The subdomains of a registrable domain, from Certificate Transparency, DNS guesses of 94 common names and the domain's MX, NS and SPF records: up to 50 names, each with its sources and whether it has an IPv4 address, and a wildcard DNS check</span>
       </div>
     </div>
 
@@ -383,7 +383,7 @@
   <section id="costs" class="endpoints">
     <h2 class="section-title">Credit costs</h2>
     <p class="endpoints-lede">
-      Transparent pricing: each answer that spends credits carries <code class="code-accent">X-RateLimit-Remaining</code> so you can budget calls. An MCP <code>tools/call</code> costs the same as its REST endpoint.
+      Transparent pricing: each answer that spends credits carries <code class="code-accent">X-RateLimit-Remaining</code> so you can budget calls. An answer sent after the key and budget check carries an <code>X-Credits-Charged</code> header with what the call cost, and a <code>200</code> answer of a REST endpoint ends with a <code>credits</code> member. An MCP <code>tools/call</code> costs the same as its REST endpoint.
     </p>
     <div class="endpoint-group">
       <div class="endpoint">
@@ -409,7 +409,7 @@
       <div class="endpoint">
         <span class="method get">2&times;</span>
         <span class="endpoint-path">/subdomain_enum/{domain}</span>
-        <span class="endpoint-desc">Up to 99 DNS questions, and a request to Cert Spotter that carries this server's API key</span>
+        <span class="endpoint-desc">Up to 109 DNS questions, then up to 50 more, and a request to Cert Spotter that carries this server's API key</span>
       </div>
       <div class="endpoint">
         <span class="method post">N&times;</span>

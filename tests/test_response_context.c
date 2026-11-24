@@ -1,3 +1,4 @@
+#include <limits.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <string.h>
@@ -15,6 +16,7 @@ void setUp(void)    {}
 void tearDown(void)
 {
   response_clearRateLimitInfo();
+  response_clearChargedCreditCount();
   response_setHeadRequest(false);
 }
 
@@ -146,6 +148,79 @@ void test_send503_includes_retry_after_and_ratelimit(void)
   TEST_ASSERT_NOT_NULL(strstr(buf, "X-RateLimit-Limit: 30"));
   TEST_ASSERT_NOT_NULL(strstr(buf, "\r\n\r\n{\"status\":\"unavailable\"}"));
   TEST_ASSERT_NOT_NULL(strstr(buf, "\r\nContent-Length: 24\r\n"));
+}
+
+void test_credits_charged_line_present_when_set(void)
+{
+  response_setChargedCreditCount(37);
+  char buf[RESP_BUF];
+  static_captureSend(buf, sizeof(buf), 200, "{}");
+  TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 200"));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "\r\nX-Credits-Charged: 37\r\n"), buf);
+}
+
+void test_credits_charged_line_absent_after_clear(void)
+{
+  response_setChargedCreditCount(37);
+  response_clearChargedCreditCount();
+  char buf[RESP_BUF];
+  static_captureSend(buf, sizeof(buf), 200, "{}");
+  TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 200"));
+  TEST_ASSERT_NULL_MESSAGE(strstr(buf, "X-Credits-Charged"), buf);
+}
+
+void test_credits_charged_line_absent_when_never_set(void)
+{
+  char buf[RESP_BUF];
+  static_captureSend(buf, sizeof(buf), 404, "{}");
+  TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 404"));
+  TEST_ASSERT_NULL_MESSAGE(strstr(buf, "X-Credits-Charged"), buf);
+}
+
+void test_rate_limit_clear_leaves_the_credits_charged_line(void)
+{
+  response_setRateLimitInfo(500, 480, time(NULL) + 3600);
+  response_setChargedCreditCount(37);
+  response_clearRateLimitInfo();
+  char buf[RESP_BUF];
+  static_captureSend(buf, sizeof(buf), 401, "{}");
+  TEST_ASSERT_NULL_MESSAGE(strstr(buf, "X-RateLimit-"), buf);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "\r\nX-Credits-Charged: 37\r\n"), buf);
+}
+
+void test_credits_charged_clear_leaves_the_rate_limit_lines(void)
+{
+  response_setRateLimitInfo(500, 480, time(NULL) + 3600);
+  response_setChargedCreditCount(37);
+  response_clearChargedCreditCount();
+  char buf[RESP_BUF];
+  static_captureSend(buf, sizeof(buf), 200, "{}");
+  TEST_ASSERT_NULL_MESSAGE(strstr(buf, "X-Credits-Charged"), buf);
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\r\nX-RateLimit-Limit: 500\r\n"));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\r\nX-RateLimit-Remaining: 480\r\n"));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\r\nX-RateLimit-Reset-Machine: "));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\r\nX-RateLimit-Reset-Human: "));
+}
+
+void test_zero_charge_is_written_as_0(void)
+{
+  response_setChargedCreditCount(0);
+  char buf[RESP_BUF];
+  static_captureSend(buf, sizeof(buf), 200, "{}");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "\r\nX-Credits-Charged: 0\r\n"), buf);
+}
+
+void test_largest_charge_fits_right_after_the_rate_limit_lines(void)
+{
+  response_setRateLimitInfo(4294967295u, -2147483647, (time_t)9999999999LL);
+  response_setChargedCreditCount(UINT_MAX);
+  char buf[RESP_BUF];
+  static_captureSend(buf, sizeof(buf), 200, "{}");
+  const char* human = strstr(buf, "\r\nX-RateLimit-Reset-Human: ");
+  TEST_ASSERT_NOT_NULL_MESSAGE(human, buf);
+  const char* human_end = strstr(human + 2, "\r\n");
+  TEST_ASSERT_NOT_NULL(human_end);
+  TEST_ASSERT_EQUAL_STRING_MESSAGE("\r\nX-Credits-Charged: 4294967295\r\nConnection: close\r\n\r\n{}", human_end, buf);
 }
 
 void test_plain_response_carries_no_extra_header(void)
@@ -512,6 +587,13 @@ int main(void)
   RUN_TEST(test_usage_line_of_a_head_answer_counts_the_body_left_out);
   RUN_TEST(test_usage_line_marks_a_head_that_could_not_be_sent);
   RUN_TEST(test_usage_line_marks_a_body_that_could_not_be_sent);
+  RUN_TEST(test_credits_charged_line_present_when_set);
+  RUN_TEST(test_credits_charged_line_absent_after_clear);
+  RUN_TEST(test_credits_charged_line_absent_when_never_set);
+  RUN_TEST(test_rate_limit_clear_leaves_the_credits_charged_line);
+  RUN_TEST(test_credits_charged_clear_leaves_the_rate_limit_lines);
+  RUN_TEST(test_zero_charge_is_written_as_0);
+  RUN_TEST(test_largest_charge_fits_right_after_the_rate_limit_lines);
   
   return UNITY_END();
 }

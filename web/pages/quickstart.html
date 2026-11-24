@@ -116,13 +116,15 @@ curl -H "Authorization: Bearer $CONTRASTAPI_API_KEY" \
 const res = await fetch('https://api.contrastcyber.com/cve_exploit/CVE-2021-44228', {
   headers: { 'Authorization': `Bearer ${process.env.CONTRASTAPI_API_KEY}` }
 });
-console.log(res.headers.get('X-RateLimit-Remaining'));  // credits left this hour</code></div>
+console.log(res.headers.get('X-RateLimit-Remaining'));  // credits left this hour
+console.log(res.headers.get('X-Credits-Charged'));  // credits this call cost</code></div>
 
     <div class="code-block"><span class="lang">python</span><code>import os, requests
 
 headers = {'Authorization': f'Bearer {os.environ["CONTRASTAPI_API_KEY"]}'}
 r = requests.get('https://api.contrastcyber.com/cve_exploit/CVE-2021-44228', headers=headers)
-print(r.headers['X-RateLimit-Remaining'])</code></div>
+print(r.headers['X-RateLimit-Remaining'])
+print(r.headers['X-Credits-Charged'])</code></div>
 
   </div>
 

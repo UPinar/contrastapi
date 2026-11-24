@@ -11,13 +11,14 @@
 
 typedef struct JsonBuf JsonBuf_t;
 
-JsonBuf_t* jsonbuf_create             (size_t initial_cap, size_t ceiling)          __attribute__((warn_unused_result));
-bool       jsonbuf_appendFormat       (JsonBuf_t* json_buf, const char* fmt, ...)   __attribute__((format(printf, 2, 3)));
-bool       jsonbuf_appendEscaped      (JsonBuf_t* json_buf, const char* str);
-bool       jsonbuf_appendEscapedBytes (JsonBuf_t* json_buf, const char* bytes, size_t byte_count);
-bool       jsonbuf_appendJsonText     (JsonBuf_t* json_buf, const char* json_text);
-char*      jsonbuf_finish             (JsonBuf_t* json_buf)                         __attribute__((warn_unused_result));
-void       jsonbuf_destroy            (JsonBuf_t* json_buf);
+JsonBuf_t* jsonbuf_create                     (size_t initial_cap, size_t ceiling)                 __attribute__((warn_unused_result));
+bool       jsonbuf_appendFormat               (JsonBuf_t* json_buf, const char* fmt, ...)          __attribute__((format(printf, 2, 3)));
+bool       jsonbuf_appendEscaped              (JsonBuf_t* json_buf, const char* str);
+bool       jsonbuf_appendEscapedBytes         (JsonBuf_t* json_buf, const char* bytes, size_t byte_count);
+bool       jsonbuf_appendJsonText             (JsonBuf_t* json_buf, const char* json_text);
+bool       jsonbuf_appendMemberToClosedObject (JsonBuf_t* json_buf, const char* member_json_text);
+char*      jsonbuf_finish                     (JsonBuf_t* json_buf)                                __attribute__((warn_unused_result));
+void       jsonbuf_destroy                    (JsonBuf_t* json_buf);
 
 bool jsonbuf_isCodePointHidden(uint32_t code_point);
 

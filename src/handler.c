@@ -537,6 +537,7 @@ static void static_sendPaidAnswer(int client_fd, const Endpoint_t* endpoint, PGc
     case X402_REQUEST_CLOSE_SERVE:
       if (!x402_request_tryWriteReceiptLine(&receipt, receipt_line, sizeof(receipt_line)))
         fprintf(stderr, "handler_runRestEndpoint: the receipt line did not fit; the answer is served without it\n");
+      response_setChargedCreditCount(charge->m_chargedCreditCount);
       response_sendWithExtraHeaders(client_fd, 200, "OK", receipt_line, body);
       usagelog_setCreditCount(charge->m_chargedCreditCount);
       break;
@@ -570,6 +571,7 @@ static void static_sendPaidMcpAnswer(int client_fd, const char* body, PGconn* co
 
       if (!answer)
         fprintf(stderr, "handler_MCP: the receipt did not fit; the answer is served without it\n");
+      response_setChargedCreditCount(charge->m_chargedCreditCount);
       response_send(client_fd, 200, "OK", answer ? answer : response_json);
       free(answer);
       usagelog_setCreditCount(charge->m_chargedCreditCount);

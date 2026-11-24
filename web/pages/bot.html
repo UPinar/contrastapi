@@ -173,7 +173,6 @@
       connects only to an address that is globally reachable. It sends at most 10 queries in each
       minute to one WHOIS server, and all callers share that count. It asks only these WHOIS
       servers:
-      <code>whois.afilias-srs.net</code>,
       <code>whois.amnic.net</code>,
       <code>whois.dmdomains.dm</code>,
       <code>whois.domreg.lt</code>,
@@ -265,15 +264,17 @@
     </p>
     <p class="endpoints-lede">
       When a caller asks <code>/subdomain_enum</code>, the server asks its own DNS resolver first.
-      It asks for the A records of two random names under the domain, to find a wildcard
-      record. It asks for the MX, NS and TXT records of the domain. It asks for the A records of
-      94 common names under the domain, such as <code>www</code> and <code>mail</code>. These are
-      at most 99 DNS questions, and they all end within 2 seconds. The resolver may then ask the
-      domain's name servers. No HTTP request goes to the domain or to a name under it. Then the
-      server sends one GET request over HTTPS to Cert Spotter at <code>api.certspotter.com</code>.
+      It asks for the A and CNAME records of six random names under the domain, to find a
+      wildcard record. It asks for the MX, NS and TXT records of the domain. It asks for the A
+      records of 94 common names under the domain, such as <code>www</code> and <code>mail</code>.
+      These are at most 109 DNS questions, and they all end within 2 seconds. The resolver may
+      then ask the domain's name servers. No HTTP request goes to the domain or to a name under
+      it. Then the server sends one GET request over HTTPS to Cert Spotter at <code>api.certspotter.com</code>.
       The request names the registered domain and asks for the unexpired certificates of every
       name under it. It carries the User-Agent above and our API key for Cert Spotter, as for
-      <code>/cert_search</code>. The server sends at most 5 such requests in each hour of the
+      <code>/cert_search</code>. After that, the server asks its DNS resolver for the A records of
+      the names the answer lists. These are at most 50 more questions, and they end within 1
+      second. The server sends at most 5 such requests to Cert Spotter in each hour of the
       clock. When <code>api.certspotter.com</code> answers 429 to one, the server sends none of
       them for the wait its Retry-After header names, and at most one hour. It keeps each answer
       for one day when it holds the names of Cert Spotter. It keeps any other answer for 10

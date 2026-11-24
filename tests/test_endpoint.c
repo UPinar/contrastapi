@@ -39,6 +39,7 @@
 #include "dns.h"
 #include "usagelog.h"
 #include "robotstxt.h"
+#include "x402_request.h"
 
 static const RequestCharge_t TEST_FULL_CHARGE = { .m_chargedCreditCount = ENDPOINT_FULL_CHARGE, .mp_creditBudget = NULL, .mp_x402Payment = NULL };
 
@@ -662,8 +663,16 @@ void test_every_row_fits_the_params_union(void)
 
 void test_mcp_tool_description_ends_with_a_price_other_than_one(void)
 {
-  int priced_count = 0;
-  int plain_count  = 0;
+  static const char* const bulk_sentences[][2] = {
+    { "cve_lookup_bulk",    " Costs 1 credit per CVE ID looked up, at least 1."  },
+    { "cve_triage_bulk",    " Costs 1 credit per CVE ID triaged, at least 1."    },
+    { "driver_lookup_bulk", " Costs 1 credit per hash looked up, at least 1."    },
+    { "package_check_bulk", " Costs 1 credit per package checked, at least 1."   },
+  };
+  const size_t bulk_sentence_count = sizeof(bulk_sentences) / sizeof(bulk_sentences[0]);
+  size_t bulk_count   = 0;
+  int    priced_count = 0;
+  int    plain_count  = 0;
   for (int i = 0; i < endpoint_count; i++)
   {
     const Endpoint_t* endpoint = &endpoints[i];
@@ -673,16 +682,26 @@ void test_mcp_tool_description_ends_with_a_price_other_than_one(void)
     TEST_ASSERT_NOT_NULL_MESSAGE(description, endpoint->mp_mcpToolName);
     const char* price_hit = strstr(description, "Costs ");
     TEST_ASSERT_NULL_MESSAGE(strstr(description, "costs "), endpoint->mp_mcpToolName);
-    if (endpoint->m_costRule != ENDPOINT_COST_FLAT || endpoint->m_creditCost == 1)
+
+    char sentence[64];
+    int written = 0;
+    if (endpoint->m_costRule == ENDPOINT_COST_BULK_IDS)
+    {
+      const char* bulk_sentence = NULL;
+      for (size_t k = 0; k < bulk_sentence_count; k++)
+        if (strcmp(bulk_sentences[k][0], endpoint->mp_mcpToolName) == 0)
+          bulk_sentence = bulk_sentences[k][1];
+      TEST_ASSERT_NOT_NULL_MESSAGE(bulk_sentence, endpoint->mp_mcpToolName);
+      written = snprintf(sentence, sizeof(sentence), "%s", bulk_sentence);
+      bulk_count++;
+    }
+    else if (endpoint->m_creditCost == 1)
     {
       TEST_ASSERT_NULL_MESSAGE(price_hit, endpoint->mp_mcpToolName);
       plain_count++;
       continue;
     }
-
-    char sentence[32];
-    int written = 0;
-    if (endpoint->m_creditCost == 0)
+    else if (endpoint->m_creditCost == 0)
       written = snprintf(sentence, sizeof(sentence), " Costs no credits.");
     else
       written = snprintf(sentence, sizeof(sentence), " Costs %u credits.", endpoint->m_creditCost);
@@ -694,7 +713,8 @@ void test_mcp_tool_description_ends_with_a_price_other_than_one(void)
     TEST_ASSERT_TRUE_MESSAGE(price_hit == description + description_len - sentence_len + 1, endpoint->mp_mcpToolName);
     priced_count++;
   }
-  TEST_ASSERT_TRUE(priced_count > 0);
+  TEST_ASSERT_EQUAL_size_t(bulk_sentence_count, bulk_count);
+  TEST_ASSERT_TRUE((size_t)priced_count > bulk_count);
   TEST_ASSERT_TRUE(plain_count > 0);
 }
 
@@ -1037,6 +1057,128 @@ void test_runRow_hands_the_credit_budget_only_to_its_row(void)
   memcpy(&untouched, &params, sizeof(params));
   TEST_ASSERT_EQUAL_INT(ENDPOINT_RUN_NO_CONNECTION, endpoint_runRow(lookup, &params, NULL, &charge_with_budget).m_status);
   TEST_ASSERT_EQUAL_MEMORY(&untouched, &params, sizeof(params));
+}
+
+static EndpointRunStatus_t g_creditsRunStatus = ENDPOINT_RUN_OK;
+
+#define CREDITS_RUN_BODY "{\"a\":1}\n"
+
+static EndpointRunStatus_t static_runCreditsFixedBody(PGconn* conn, const EndpointAnyParams_t* params, JsonBuf_t* json_buf, const char** message_out)
+{
+  (void)conn;
+  (void)params;
+  (void)message_out;
+  jsonbuf_appendJsonText(json_buf, CREDITS_RUN_BODY);
+  return g_creditsRunStatus;
+}
+
+static EndpointRunResult_t static_runCreditsRow(EndpointRunStatus_t run_status, size_t json_ceiling, const RequestCharge_t* charge)
+{
+  const Endpoint_t* lookup = endpoint_findByMcpName("cve_lookup");
+  TEST_ASSERT_NOT_NULL(lookup);
+  TEST_ASSERT_EQUAL_INT(ENDPOINT_COST_FLAT, lookup->m_costRule);
+  TEST_ASSERT_FALSE(lookup->m_readsCreditBudget);
+
+  Endpoint_t row = *lookup;
+  row.m_runFunction  = static_runCreditsFixedBody;
+  row.m_isDbRequired = false;
+  row.m_jsonCeiling  = json_ceiling;
+
+  EndpointAnyParams_t params;
+  memset(&params, 0, sizeof(params));
+  g_creditsRunStatus = run_status;
+  return endpoint_runRow(&row, &params, NULL, charge);
+}
+
+static const EndpointRunStatus_t CREDITS_BODY_STATUSES[] = { ENDPOINT_RUN_OK, ENDPOINT_RUN_NOT_FOUND_WITH_BODY, ENDPOINT_RUN_REFUSED_WITH_BODY, ENDPOINT_RUN_DEGRADED };
+
+static void static_assertCreditsBody(const RequestCharge_t* charge, EndpointRunStatus_t run_status, const char* expected_body)
+{
+  EndpointRunResult_t run_result = static_runCreditsRow(run_status, JSONBUF_DEFAULT_CEILING, charge);
+  TEST_ASSERT_EQUAL_INT(run_status, run_result.m_status);
+  TEST_ASSERT_NOT_NULL(run_result.mp_body);
+  TEST_ASSERT_EQUAL_STRING(expected_body, run_result.mp_body);
+  free(run_result.mp_body);
+}
+
+void test_runRow_ends_the_body_with_the_charge_and_the_credits_left(void)
+{
+  RequestCreditBudget_t credit_budget;
+  memset(&credit_budget, 0, sizeof(credit_budget));
+  credit_budget.m_rateLimitInfo.m_limit     = 100;
+  credit_budget.m_rateLimitInfo.m_remaining = 87;
+  const RequestCharge_t charge = { .m_chargedCreditCount = 3, .mp_creditBudget = &credit_budget, .mp_x402Payment = NULL };
+
+  for (size_t i = 0; i < sizeof(CREDITS_BODY_STATUSES) / sizeof(CREDITS_BODY_STATUSES[0]); i++)
+    static_assertCreditsBody(&charge, CREDITS_BODY_STATUSES[i], "{\"a\":1,\"credits\":{\"charged\":3,\"remaining\":87}}\n");
+}
+
+void test_runRow_writes_the_longest_credits_member(void)
+{
+  RequestCreditBudget_t credit_budget;
+  memset(&credit_budget, 0, sizeof(credit_budget));
+  credit_budget.m_rateLimitInfo.m_remaining = INT_MIN;
+  const RequestCharge_t charge = { .m_chargedCreditCount = UINT_MAX, .mp_creditBudget = &credit_budget, .mp_x402Payment = NULL };
+
+  for (size_t i = 0; i < sizeof(CREDITS_BODY_STATUSES) / sizeof(CREDITS_BODY_STATUSES[0]); i++)
+    static_assertCreditsBody(&charge, CREDITS_BODY_STATUSES[i], "{\"a\":1,\"credits\":{\"charged\":4294967295,\"remaining\":-2147483648}}\n");
+}
+
+void test_runRow_writes_only_the_charge_without_a_credit_budget(void)
+{
+  const RequestCharge_t charge = { .m_chargedCreditCount = 0, .mp_creditBudget = NULL, .mp_x402Payment = NULL };
+
+  for (size_t i = 0; i < sizeof(CREDITS_BODY_STATUSES) / sizeof(CREDITS_BODY_STATUSES[0]); i++)
+    static_assertCreditsBody(&charge, CREDITS_BODY_STATUSES[i], "{\"a\":1,\"credits\":{\"charged\":0}}\n");
+}
+
+void test_runRow_writes_the_paid_charge_without_the_credits_left(void)
+{
+  RequestCreditBudget_t credit_budget;
+  memset(&credit_budget, 0, sizeof(credit_budget));
+  credit_budget.m_rateLimitInfo.m_remaining = 87;
+  X402RequestPayment_t payment;
+  memset(&payment, 0, sizeof(payment));
+  const RequestCharge_t charge = { .m_chargedCreditCount = 5, .mp_creditBudget = &credit_budget, .mp_x402Payment = &payment };
+
+  static_assertCreditsBody(&charge, ENDPOINT_RUN_OK, "{\"a\":1,\"credits\":{\"charged\":5}}\n");
+}
+
+void test_runRow_writes_a_zero_charge_for_a_paid_run_that_is_not_ok(void)
+{
+  RequestCreditBudget_t credit_budget;
+  memset(&credit_budget, 0, sizeof(credit_budget));
+  credit_budget.m_rateLimitInfo.m_remaining = 87;
+  X402RequestPayment_t payment;
+  memset(&payment, 0, sizeof(payment));
+  const RequestCharge_t charge = { .m_chargedCreditCount = 5, .mp_creditBudget = &credit_budget, .mp_x402Payment = &payment };
+
+  for (size_t i = 1; i < sizeof(CREDITS_BODY_STATUSES) / sizeof(CREDITS_BODY_STATUSES[0]); i++)
+    static_assertCreditsBody(&charge, CREDITS_BODY_STATUSES[i], "{\"a\":1,\"credits\":{\"charged\":0}}\n");
+}
+
+void test_runRow_answers_no_memory_when_the_credits_do_not_fit_the_ceiling(void)
+{
+  RequestCreditBudget_t credit_budget;
+  memset(&credit_budget, 0, sizeof(credit_budget));
+  credit_budget.m_rateLimitInfo.m_remaining = 87;
+  const RequestCharge_t charge = { .m_chargedCreditCount = 3, .mp_creditBudget = &credit_budget, .mp_x402Payment = NULL };
+  const char* full_body = "{\"a\":1,\"credits\":{\"charged\":3,\"remaining\":87}}\n";
+  size_t full_body_len  = strlen(full_body);
+
+  EndpointRunResult_t run_result = static_runCreditsRow(ENDPOINT_RUN_OK, full_body_len, &charge);
+  TEST_ASSERT_EQUAL_INT(ENDPOINT_RUN_NO_MEMORY, run_result.m_status);
+  TEST_ASSERT_NULL(run_result.mp_body);
+
+  run_result = static_runCreditsRow(ENDPOINT_RUN_DEGRADED, full_body_len, &charge);
+  TEST_ASSERT_EQUAL_INT(ENDPOINT_RUN_DEGRADED, run_result.m_status);
+  TEST_ASSERT_NULL(run_result.mp_body);
+
+  run_result = static_runCreditsRow(ENDPOINT_RUN_OK, full_body_len + 1, &charge);
+  TEST_ASSERT_EQUAL_INT(ENDPOINT_RUN_OK, run_result.m_status);
+  TEST_ASSERT_NOT_NULL(run_result.mp_body);
+  TEST_ASSERT_EQUAL_STRING(full_body, run_result.mp_body);
+  free(run_result.mp_body);
 }
 
 void test_only_an_accepted_request_will_call_upstream(void)
@@ -4695,7 +4837,7 @@ void test_robots_txt_keeps_the_example_urls_open_to_user_agents_only(void)
 
 void test_registration_gate_test_count(void)
 {
-  TEST_ASSERT_EQUAL_INT_MESSAGE(258, (int)Unity.NumberOfTests,
+  TEST_ASSERT_EQUAL_INT_MESSAGE(266, (int)Unity.NumberOfTests,
     "RUN_TEST list and test definitions have drifted apart - a test may be unregistered");
 }
 
@@ -6651,32 +6793,37 @@ void test_runRow_refuses_cert_search_without_a_connection_before_the_run(void)
 
 #define SUBDOMAINENUM_TEST_CONN ((PGconn*)11)
 
-#define SUBDOMAINENUM_FULL_BODY                                                                   \
-  "{\"domain\":\"example.com\",\"subdomain_count\":4,\"subdomains\":["                            \
-  "{\"hostname\":\"mail.example.com\",\"sources\":[\"dns_records\"]},"                            \
-  "{\"hostname\":\"www.example.com\",\"sources\":[\"certificate_logs\",\"dns_wordlist\"]},"       \
-  "{\"hostname\":\"api.example.com\",\"sources\":[\"certificate_logs\"]},"                        \
-  "{\"hostname\":\"dev.example.com\",\"sources\":[\"certificate_logs\"]}],"                       \
+#define SUBDOMAINENUM_FULL_BODY                                                                                       \
+  "{\"domain\":\"example.com\",\"subdomain_count\":4,\"subdomains\":["                                                \
+  "{\"hostname\":\"mail.example.com\",\"sources\":[\"dns_records\"],\"has_ipv4_address\":true},"                      \
+  "{\"hostname\":\"www.example.com\",\"sources\":[\"certificate_logs\",\"dns_wordlist\"],\"has_ipv4_address\":true}," \
+  "{\"hostname\":\"api.example.com\",\"sources\":[\"certificate_logs\"],\"has_ipv4_address\":true},"                  \
+  "{\"hostname\":\"dev.example.com\",\"sources\":[\"certificate_logs\"],\"has_ipv4_address\":true}],"                 \
   "\"wildcard_dns\":\"absent\",\"certificate_logs_available\":true,\"certificate_logs_complete\":false}\n"
 
 #define SUBDOMAINENUM_DNS_ONLY_HEAD                                                               \
   "{\"domain\":\"example.com\",\"subdomain_count\":2,\"subdomains\":["                            \
-  "{\"hostname\":\"mail.example.com\",\"sources\":[\"dns_records\"]},"                            \
-  "{\"hostname\":\"www.example.com\",\"sources\":[\"dns_wordlist\"]}],"                           \
+  "{\"hostname\":\"mail.example.com\",\"sources\":[\"dns_records\"],\"has_ipv4_address\":true},"  \
+  "{\"hostname\":\"www.example.com\",\"sources\":[\"dns_wordlist\"],\"has_ipv4_address\":true}]," \
   "\"wildcard_dns\":\"absent\",\"certificate_logs_available\":false,"
 
 static void static_SUBDOMAINENUMResetStubs(void)
 {
   static_CERTSEARCHResetStubs();
-  g_stub_CERTSPOTTER_subtree_answer         = g_stub_CERTSPOTTER_default_subtree_answer;
-  g_stub_CERTSPOTTER_subtree_lookup_count   = 0;
-  g_stub_CERTSPOTTER_last_subtree_domain[0] = '\0';
-  g_stub_SUBDOMAIN_dns_answer               = g_stub_SUBDOMAIN_default_dns_answer;
-  g_stub_SUBDOMAIN_lookup_count             = 0;
-  g_stub_SUBDOMAIN_last_lookup_domain[0]    = '\0';
-  g_stub_SUBDOMAIN_create_fails             = false;
-  g_stub_SUBDOMAIN_create_count             = 0;
-  g_stub_SUBDOMAIN_destroy_count            = 0;
+  g_stub_CERTSPOTTER_subtree_answer            = g_stub_CERTSPOTTER_default_subtree_answer;
+  g_stub_CERTSPOTTER_subtree_lookup_count      = 0;
+  g_stub_CERTSPOTTER_last_subtree_domain[0]    = '\0';
+  g_stub_SUBDOMAIN_dns_answer                  = g_stub_SUBDOMAIN_default_dns_answer;
+  g_stub_SUBDOMAIN_lookup_count                = 0;
+  g_stub_SUBDOMAIN_last_lookup_domain[0]       = '\0';
+  g_stub_SUBDOMAIN_create_fails                = false;
+  g_stub_SUBDOMAIN_address_state               = SUBDOMAIN_ADDRESS_FOUND;
+  g_stub_SUBDOMAIN_address_lookup_count        = 0;
+  g_stub_SUBDOMAIN_last_address_index_count    = 0;
+  g_stub_SUBDOMAIN_last_address_wildcard_dns   = SUBDOMAIN_WILDCARD_ABSENT;
+  g_stub_SUBDOMAIN_last_address_wildcard_count = 0;
+  g_stub_SUBDOMAIN_create_count                = 0;
+  g_stub_SUBDOMAIN_destroy_count               = 0;
 }
 
 static char* static_SUBDOMAINENUMRun(const char* domain, EndpointRunStatus_t* status_out, const char** message_out)
@@ -6730,6 +6877,7 @@ void test_SUBDOMAINENUMRun_answer_merges_dns_and_certificate_logs_and_is_kept_fo
   TEST_ASSERT_FALSE(g_stub_CACHE_last_put_is_error);
   TEST_ASSERT_EQUAL_UINT(86400, g_stub_CACHE_last_put_expires_after_seconds);
   TEST_ASSERT_EQUAL_INT(0, g_stub_QUOTA_hold_set_count);
+  TEST_ASSERT_EQUAL_INT(1, g_stub_SUBDOMAIN_address_lookup_count);
   TEST_ASSERT_EQUAL_INT(1, g_stub_SUBDOMAIN_create_count);
   free(body);
   static_SUBDOMAINENUMResetStubs();
@@ -6754,6 +6902,67 @@ void test_SUBDOMAINENUMRun_asks_dns_before_cert_spotter(void)
   TEST_ASSERT_EQUAL_INT(ENDPOINT_RUN_OK, status);
   TEST_ASSERT_EQUAL_INT(1, g_dnsLookupCountAtCertSpotterCall);
   free(body);
+  static_SUBDOMAINENUMResetStubs();
+}
+
+static int g_addressLookupCountAtCertSpotterCall = -1;
+
+static void static_recordAddressLookupCount(void)
+{
+  g_addressLookupCountAtCertSpotterCall = g_stub_SUBDOMAIN_address_lookup_count;
+}
+
+void test_SUBDOMAINENUMRun_asks_the_listed_addresses_after_cert_spotter(void)
+{
+  static_SUBDOMAINENUMResetStubs();
+  g_stub_SUBDOMAIN_dns_answer.m_wildcardDns                 = SUBDOMAIN_WILDCARD_PRESENT;
+  g_stub_SUBDOMAIN_dns_answer.m_wildcardIpAddresses.m_count = 2;
+  g_addressLookupCountAtCertSpotterCall = -1;
+  g_stub_CERTSPOTTER_on_call            = static_recordAddressLookupCount;
+  EndpointRunStatus_t status;
+  const char* message;
+  char* body = static_SUBDOMAINENUMRun("example.com", &status, &message);
+  g_stub_CERTSPOTTER_on_call = NULL;
+  TEST_ASSERT_EQUAL_INT(ENDPOINT_RUN_OK, status);
+  TEST_ASSERT_EQUAL_INT(0, g_addressLookupCountAtCertSpotterCall);
+  TEST_ASSERT_EQUAL_INT(1, g_stub_SUBDOMAIN_address_lookup_count);
+  TEST_ASSERT_EQUAL_INT(4, g_stub_SUBDOMAIN_last_address_index_count);
+  TEST_ASSERT_EQUAL_INT(1, g_stub_SUBDOMAIN_last_address_indexes[0]);
+  TEST_ASSERT_EQUAL_INT(0, g_stub_SUBDOMAIN_last_address_indexes[1]);
+  TEST_ASSERT_EQUAL_INT(3, g_stub_SUBDOMAIN_last_address_indexes[2]);
+  TEST_ASSERT_EQUAL_INT(2, g_stub_SUBDOMAIN_last_address_indexes[3]);
+  TEST_ASSERT_EQUAL_INT(SUBDOMAIN_WILDCARD_PRESENT, g_stub_SUBDOMAIN_last_address_wildcard_dns);
+  TEST_ASSERT_EQUAL_INT(2, g_stub_SUBDOMAIN_last_address_wildcard_count);
+  free(body);
+  static_SUBDOMAINENUMResetStubs();
+}
+
+void test_SUBDOMAINENUMRun_answer_carries_each_address_state(void)
+{
+  static const struct { SubdomainAddressState_t m_addressState; const char* mp_body; } cases[] = {
+    { SUBDOMAIN_ADDRESS_FOUND, SUBDOMAINENUM_FULL_BODY },
+    { SUBDOMAIN_ADDRESS_NONE,
+      "{\"domain\":\"example.com\",\"subdomain_count\":4,\"subdomains\":["
+      "{\"hostname\":\"mail.example.com\",\"sources\":[\"dns_records\"],\"has_ipv4_address\":false},"
+      "{\"hostname\":\"www.example.com\",\"sources\":[\"certificate_logs\",\"dns_wordlist\"],\"has_ipv4_address\":false},"
+      "{\"hostname\":\"api.example.com\",\"sources\":[\"certificate_logs\"],\"has_ipv4_address\":false},"
+      "{\"hostname\":\"dev.example.com\",\"sources\":[\"certificate_logs\"],\"has_ipv4_address\":false}],"
+      "\"wildcard_dns\":\"absent\",\"certificate_logs_available\":true,\"certificate_logs_complete\":false}\n" },
+  };
+  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+  {
+    char label[16];
+    snprintf(label, sizeof(label), "case %zu", i);
+    static_SUBDOMAINENUMResetStubs();
+    g_stub_SUBDOMAIN_address_state = cases[i].m_addressState;
+    EndpointRunStatus_t status;
+    const char* message;
+    char* body = static_SUBDOMAINENUMRun("example.com", &status, &message);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(ENDPOINT_RUN_OK, status, label);
+    TEST_ASSERT_EQUAL_STRING_MESSAGE(cases[i].mp_body, body, label);
+    TEST_ASSERT_EQUAL_STRING_MESSAGE(body, g_stub_CACHE_last_put_body, label);
+    free(body);
+  }
   static_SUBDOMAINENUMResetStubs();
 }
 
@@ -6785,6 +6994,7 @@ void test_SUBDOMAINENUMRun_refuses_a_public_suffix_before_any_question(void)
   TEST_ASSERT_EQUAL_INT(0, g_stub_CACHE_get_count);
   TEST_ASSERT_EQUAL_INT(0, g_stub_SUBDOMAIN_create_count);
   TEST_ASSERT_EQUAL_INT(0, g_stub_SUBDOMAIN_lookup_count);
+  TEST_ASSERT_EQUAL_INT(0, g_stub_SUBDOMAIN_address_lookup_count);
   TEST_ASSERT_EQUAL_INT(0, g_stub_CERTSPOTTER_subtree_lookup_count);
   TEST_ASSERT_EQUAL_INT(0, g_stub_QUOTA_hold_read_count);
   TEST_ASSERT_EQUAL_INT(0, g_stub_QUOTA_reserve_count);
@@ -6808,6 +7018,7 @@ void test_SUBDOMAINENUMRun_sends_a_cached_answer_as_it_was_kept(void)
   TEST_ASSERT_EQUAL_INT(1, g_stub_CACHE_free_count);
   TEST_ASSERT_EQUAL_INT(0, g_stub_SUBDOMAIN_create_count);
   TEST_ASSERT_EQUAL_INT(0, g_stub_SUBDOMAIN_lookup_count);
+  TEST_ASSERT_EQUAL_INT(0, g_stub_SUBDOMAIN_address_lookup_count);
   TEST_ASSERT_EQUAL_INT(0, g_stub_CERTSPOTTER_subtree_lookup_count);
   TEST_ASSERT_EQUAL_INT(0, g_stub_QUOTA_hold_read_count);
   TEST_ASSERT_EQUAL_INT(0, g_stub_QUOTA_reserve_count);
@@ -6838,6 +7049,7 @@ void test_SUBDOMAINENUMRun_asks_on_a_cache_miss_or_error_and_answers_past_a_fail
     TEST_ASSERT_EQUAL_STRING_MESSAGE(SUBDOMAINENUM_FULL_BODY, g_stub_CACHE_last_put_body, label);
     TEST_ASSERT_EQUAL_INT_MESSAGE(1, g_stub_SUBDOMAIN_lookup_count, label);
     TEST_ASSERT_EQUAL_INT_MESSAGE(1, g_stub_CERTSPOTTER_subtree_lookup_count, label);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(1, g_stub_SUBDOMAIN_address_lookup_count, label);
     TEST_ASSERT_EQUAL_INT_MESSAGE(1, g_stub_CACHE_put_count, label);
     free(body);
   }
@@ -6855,6 +7067,7 @@ void test_SUBDOMAINENUMRun_without_a_key_answers_the_dns_names_for_ten_minutes(v
   TEST_ASSERT_NULL(message);
   TEST_ASSERT_EQUAL_STRING(SUBDOMAINENUM_DNS_ONLY_HEAD "\"certificate_logs_reason\":\"upstream_error\"}\n", body);
   TEST_ASSERT_EQUAL_INT(1, g_stub_SUBDOMAIN_lookup_count);
+  TEST_ASSERT_EQUAL_INT(1, g_stub_SUBDOMAIN_address_lookup_count);
   TEST_ASSERT_EQUAL_INT(0, g_stub_QUOTA_hold_read_count);
   TEST_ASSERT_EQUAL_INT(0, g_stub_QUOTA_reserve_count);
   TEST_ASSERT_EQUAL_INT(0, g_stub_CERTSPOTTER_subtree_lookup_count);
@@ -6887,6 +7100,7 @@ void test_SUBDOMAINENUMRun_held_cert_spotter_answers_the_dns_names_with_the_wait
     TEST_ASSERT_EQUAL_INT_MESSAGE(1, g_stub_QUOTA_hold_read_count, label);
     TEST_ASSERT_EQUAL_STRING_MESSAGE("certspotter_subtree", g_stub_QUOTA_last_hold_read_name, label);
     TEST_ASSERT_EQUAL_INT_MESSAGE(1, g_stub_SUBDOMAIN_lookup_count, label);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(1, g_stub_SUBDOMAIN_address_lookup_count, label);
     TEST_ASSERT_EQUAL_INT_MESSAGE(0, g_stub_QUOTA_reserve_count, label);
     TEST_ASSERT_EQUAL_INT_MESSAGE(0, g_stub_CERTSPOTTER_subtree_lookup_count, label);
     TEST_ASSERT_EQUAL_INT_MESSAGE(0, g_stub_QUOTA_hold_set_count, label);
@@ -6909,6 +7123,7 @@ void test_SUBDOMAINENUMRun_unread_hold_is_a_db_error(void)
   TEST_ASSERT_NULL(message);
   TEST_ASSERT_EQUAL_STRING("", body);
   TEST_ASSERT_EQUAL_INT(0, g_stub_SUBDOMAIN_lookup_count);
+  TEST_ASSERT_EQUAL_INT(0, g_stub_SUBDOMAIN_address_lookup_count);
   TEST_ASSERT_EQUAL_INT(0, g_stub_QUOTA_reserve_count);
   TEST_ASSERT_EQUAL_INT(0, g_stub_CERTSPOTTER_subtree_lookup_count);
   TEST_ASSERT_EQUAL_INT(0, g_stub_CACHE_put_count);
@@ -6943,6 +7158,7 @@ void test_SUBDOMAINENUMRun_used_up_quota_answers_the_dns_names_and_unread_quota_
     TEST_ASSERT_EQUAL_STRING_MESSAGE(cases[i].mp_body, body, label);
     TEST_ASSERT_EQUAL_INT_MESSAGE(1, g_stub_QUOTA_reserve_count, label);
     TEST_ASSERT_EQUAL_INT_MESSAGE(cases[i].m_dnsLookupCount, g_stub_SUBDOMAIN_lookup_count, label);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(cases[i].m_dnsLookupCount, g_stub_SUBDOMAIN_address_lookup_count, label);
     TEST_ASSERT_EQUAL_INT_MESSAGE(0, g_stub_CERTSPOTTER_subtree_lookup_count, label);
     TEST_ASSERT_EQUAL_INT_MESSAGE(0, g_stub_QUOTA_hold_set_count, label);
     TEST_ASSERT_EQUAL_INT_MESSAGE(cases[i].m_putCount, g_stub_CACHE_put_count, label);
@@ -7028,6 +7244,7 @@ void test_SUBDOMAINENUMRun_refused_name_gets_the_text_of_the_gate(void)
   TEST_ASSERT_EQUAL_STRING(VALIDATE_PUBLIC_DNS_NAME_REFUSAL_MESSAGE, message);
   TEST_ASSERT_EQUAL_STRING("", body);
   TEST_ASSERT_EQUAL_INT(1, g_stub_SUBDOMAIN_lookup_count);
+  TEST_ASSERT_EQUAL_INT(0, g_stub_SUBDOMAIN_address_lookup_count);
   TEST_ASSERT_EQUAL_INT(1, g_stub_CERTSPOTTER_subtree_lookup_count);
   TEST_ASSERT_EQUAL_INT(0, g_stub_QUOTA_hold_set_count);
   TEST_ASSERT_EQUAL_INT(0, g_stub_CACHE_put_count);
@@ -7049,6 +7266,7 @@ void test_SUBDOMAINENUMRun_set_that_cannot_be_made_is_no_memory(void)
   TEST_ASSERT_EQUAL_INT(0, g_stub_QUOTA_hold_read_count);
   TEST_ASSERT_EQUAL_INT(0, g_stub_QUOTA_reserve_count);
   TEST_ASSERT_EQUAL_INT(0, g_stub_SUBDOMAIN_lookup_count);
+  TEST_ASSERT_EQUAL_INT(0, g_stub_SUBDOMAIN_address_lookup_count);
   TEST_ASSERT_EQUAL_INT(0, g_stub_CERTSPOTTER_subtree_lookup_count);
   TEST_ASSERT_EQUAL_INT(0, g_stub_CACHE_put_count);
   free(body);
@@ -7111,8 +7329,8 @@ void test_SUBDOMAINENUMRun_empty_certificate_log_answer_is_complete(void)
   TEST_ASSERT_EQUAL_INT(ENDPOINT_RUN_OK, status);
   TEST_ASSERT_EQUAL_STRING(
     "{\"domain\":\"example.com\",\"subdomain_count\":2,\"subdomains\":["
-    "{\"hostname\":\"mail.example.com\",\"sources\":[\"dns_records\"]},"
-    "{\"hostname\":\"www.example.com\",\"sources\":[\"dns_wordlist\"]}],"
+    "{\"hostname\":\"mail.example.com\",\"sources\":[\"dns_records\"],\"has_ipv4_address\":true},"
+    "{\"hostname\":\"www.example.com\",\"sources\":[\"dns_wordlist\"],\"has_ipv4_address\":true}],"
     "\"wildcard_dns\":\"absent\",\"certificate_logs_available\":true,\"certificate_logs_complete\":true}\n", body);
   TEST_ASSERT_EQUAL_INT(1, g_stub_CACHE_put_count);
   TEST_ASSERT_EQUAL_STRING(body, g_stub_CACHE_last_put_body);
@@ -8829,6 +9047,12 @@ int main(void)
   RUN_TEST(test_runRow_finishes_a_body_only_on_ok_and_degraded);
   RUN_TEST(test_runRow_cuts_only_a_bulk_row_before_the_connection_check);
   RUN_TEST(test_runRow_hands_the_credit_budget_only_to_its_row);
+  RUN_TEST(test_runRow_ends_the_body_with_the_charge_and_the_credits_left);
+  RUN_TEST(test_runRow_writes_the_longest_credits_member);
+  RUN_TEST(test_runRow_writes_only_the_charge_without_a_credit_budget);
+  RUN_TEST(test_runRow_writes_the_paid_charge_without_the_credits_left);
+  RUN_TEST(test_runRow_writes_a_zero_charge_for_a_paid_run_that_is_not_ok);
+  RUN_TEST(test_runRow_answers_no_memory_when_the_credits_do_not_fit_the_ceiling);
   RUN_TEST(test_only_an_accepted_request_will_call_upstream);
   RUN_TEST(test_only_the_add_of_a_domain_item_of_watchlist_edit_will_call_upstream);
   RUN_TEST(test_query_specs_carry_a_message_and_a_default);
@@ -8972,6 +9196,8 @@ int main(void)
   RUN_TEST(test_runRow_refuses_cert_search_without_a_connection_before_the_run);
   RUN_TEST(test_SUBDOMAINENUMRun_answer_merges_dns_and_certificate_logs_and_is_kept_for_a_day);
   RUN_TEST(test_SUBDOMAINENUMRun_asks_dns_before_cert_spotter);
+  RUN_TEST(test_SUBDOMAINENUMRun_asks_the_listed_addresses_after_cert_spotter);
+  RUN_TEST(test_SUBDOMAINENUMRun_answer_carries_each_address_state);
   RUN_TEST(test_SUBDOMAINENUMRun_asks_about_the_registrable_domain_of_a_name);
   RUN_TEST(test_SUBDOMAINENUMRun_refuses_a_public_suffix_before_any_question);
   RUN_TEST(test_SUBDOMAINENUMRun_sends_a_cached_answer_as_it_was_kept);

@@ -2432,7 +2432,44 @@ static void static_SUBDOMAINENUMWriteName(const SubdomainNameSet_t* name_set, in
     jsonbuf_appendFormat(json_buf, is_first ? R"("%s")" : R"(,"%s")", SOURCE_TEXTS[i].mp_text);
     is_first = false;
   }
-  jsonbuf_appendFormat(json_buf, "]}");
+  jsonbuf_appendFormat(json_buf, "]");
+  switch (name_set->mp_addressStates[index])
+  {
+    case SUBDOMAIN_ADDRESS_FOUND:
+      jsonbuf_appendFormat(json_buf, R"(,"has_ipv4_address":true)");
+      break;
+    case SUBDOMAIN_ADDRESS_NONE:
+      jsonbuf_appendFormat(json_buf, R"(,"has_ipv4_address":false)");
+      break;
+    case SUBDOMAIN_ADDRESS_UNMEASURED:
+      break;
+  }
+  jsonbuf_appendFormat(json_buf, "}");
+}
+
+int serialize_SUBDOMAINENUM_orderListedNames(const SubdomainNameSet_t* name_set, int order_out[SUBDOMAIN_MAX_NAME_COUNT])
+{
+  assert(name_set  != NULL);
+  assert(order_out != NULL);
+
+  int name_count   = name_set->m_count < SUBDOMAIN_MAX_NAME_COUNT ? name_set->m_count : SUBDOMAIN_MAX_NAME_COUNT;
+  int listed_count = name_count < SUBDOMAINENUM_MAX_LISTED_NAME_COUNT ? name_count : SUBDOMAINENUM_MAX_LISTED_NAME_COUNT;
+
+  for (int i = 0; i < name_count; i++)
+    order_out[i] = i;
+  for (int place = 0; place < listed_count; place++)
+  {
+    int first = place;
+    for (int i = place + 1; i < name_count; i++)
+    {
+      if (static_SUBDOMAINENUMIsListedBefore(name_set, order_out[i], order_out[first]))
+        first = i;
+    }
+    int moved        = order_out[place];
+    order_out[place] = order_out[first];
+    order_out[first] = moved;
+  }
+  return listed_count;
 }
 
 void serialize_SUBDOMAINENUM_response(const SUBDOMAINENUMRecord_t* record, JsonBuf_t* json_buf)
@@ -2441,24 +2478,8 @@ void serialize_SUBDOMAINENUM_response(const SUBDOMAINENUMRecord_t* record, JsonB
   assert(json_buf != NULL);
 
   const SubdomainNameSet_t* name_set = record->mp_nameSet;
-  int name_count   = name_set->m_count < SUBDOMAIN_MAX_NAME_COUNT ? name_set->m_count : SUBDOMAIN_MAX_NAME_COUNT;
-  int listed_count = name_count < SUBDOMAINENUM_MAX_LISTED_NAME_COUNT ? name_count : SUBDOMAINENUM_MAX_LISTED_NAME_COUNT;
-
   int order[SUBDOMAIN_MAX_NAME_COUNT];
-  for (int i = 0; i < name_count; i++)
-    order[i] = i;
-  for (int place = 0; place < listed_count; place++)
-  {
-    int first = place;
-    for (int i = place + 1; i < name_count; i++)
-    {
-      if (static_SUBDOMAINENUMIsListedBefore(name_set, order[i], order[first]))
-        first = i;
-    }
-    int moved    = order[place];
-    order[place] = order[first];
-    order[first] = moved;
-  }
+  int listed_count = serialize_SUBDOMAINENUM_orderListedNames(name_set, order);
 
   jsonbuf_appendFormat(json_buf, R"({"domain":")");
   jsonbuf_appendEscaped(json_buf, record->ma_domain);

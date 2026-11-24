@@ -84,7 +84,6 @@ const WhoisServer_t whois_servers[] = {
   { "me",               "whois.nic.me",                   &ICANN_KEY_MAP, IDENTITY_DIGITAL_NOT_FOUND },
   { "mn",               "whois.nic.mn",                   &ICANN_KEY_MAP, IDENTITY_DIGITAL_NOT_FOUND },
   { "my",               "whois.mynic.my",                 &ICANN_KEY_MAP, "is available for registration" },
-  { "pr",               "whois.afilias-srs.net",          &ICANN_KEY_MAP, IDENTITY_DIGITAL_NOT_FOUND },
   { "sa",               "whois.nic.net.sa",               &ICANN_KEY_MAP, "No Match for domain" },
   { "sh",               "whois.nic.sh",                   &ICANN_KEY_MAP, IDENTITY_DIGITAL_NOT_FOUND },
   { "tc",               "whois.nic.tc",                   &ICANN_KEY_MAP, "No Object Found" },

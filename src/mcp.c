@@ -47,6 +47,8 @@ static const size_t MCP_HANDSHAKE_COUNT = sizeof(MCP_HANDSHAKE_VERSIONS) / sizeo
 
 #define MCP_META_KEY_TOOL_CATEGORY       "com.contrastcyber/category"
 
+#define MCP_META_KEY_TOOL_CREDITS        "com.contrastcyber/credits"
+
 #define MCP_SERVER_INFO_JSON \
   "\"serverInfo\":{\"name\":\"contrastapi\",\"title\":\"ContrastAPI\",\"version\":\"" CONTRASTAPI_VERSION "\"}"
 
@@ -770,12 +772,32 @@ static void static_appendMcpToolAnnotations(const Endpoint_t* endpoint, JsonBuf_
 static void static_appendMcpToolMeta(const Endpoint_t* endpoint, JsonBuf_t* json_buf)
 {
   const char* category_name = endpoint_mcpToolCategoryName(endpoint->m_mcpToolCategory);
-  if (category_name == NULL)
-    return;
 
-  jsonbuf_appendFormat(json_buf, ",\"_meta\":{\"" MCP_META_KEY_TOOL_CATEGORY "\":\"");
-  jsonbuf_appendEscaped(json_buf, category_name);
-  jsonbuf_appendFormat(json_buf, "\"}");
+  jsonbuf_appendFormat(json_buf, ",\"_meta\":{");
+  if (category_name != NULL)
+  {
+    jsonbuf_appendFormat(json_buf, "\"" MCP_META_KEY_TOOL_CATEGORY "\":\"");
+    jsonbuf_appendEscaped(json_buf, category_name);
+    jsonbuf_appendFormat(json_buf, "\",");
+  }
+  jsonbuf_appendFormat(json_buf, "\"" MCP_META_KEY_TOOL_CREDITS "\":");
+
+  switch (endpoint->m_costRule)
+  {
+    case ENDPOINT_COST_FLAT:
+      jsonbuf_appendFormat(json_buf, "{\"per_call\":%u}}", endpoint->m_creditCost);
+      return;
+
+    case ENDPOINT_COST_BULK_IDS:
+      if (endpoint->m_weighFunction != NULL)
+        jsonbuf_appendFormat(json_buf, "{\"per_item\":1,\"min\":%u,\"weighed\":true}}", endpoint->m_creditCost);
+      else
+        jsonbuf_appendFormat(json_buf, "{\"per_item\":1,\"min\":%u}}", endpoint->m_creditCost);
+      return;
+  }
+
+  assert(false && "every cost rule has a case above");
+  jsonbuf_appendFormat(json_buf, "{\"per_call\":%u}}", endpoint->m_creditCost);
 }
 
 static void static_appendMcpTool(const Endpoint_t* endpoint, JsonBuf_t* json_buf)

@@ -297,7 +297,7 @@ void test_HEALTH_serializes_every_section(void)
   char* body = static_finishJsonBuf(json_buf);
 
   TEST_ASSERT_EQUAL_STRING(
-    R"({"status":"ok","version":"2.3.0","db":{)"
+    R"({"status":"ok","version":"2.3.1","db":{)"
       R"("nvd":{"cve_count":312000,"last_added":{"cve_id":"CVE-2026-1234",)"
         R"("published_time":"2026-08-29T10:00:00Z"}},)"
       R"("kev":{"entry_count":1300,"last_added":{"cve_id":"CVE-2026-9999",)"
@@ -318,7 +318,7 @@ void test_HEALTH_null_db_serializes_unavailable_and_null_db(void)
   char* body = static_finishJsonBuf(json_buf);
 
   TEST_ASSERT_EQUAL_STRING(
-    R"({"status":"unavailable","version":"2.3.0","db":null})" "\n", body);
+    R"({"status":"unavailable","version":"2.3.1","db":null})" "\n", body);
   free(body);
 }
 
@@ -380,7 +380,7 @@ void test_HEALTH_every_string_is_escaped_through_its_own_class(void)
   char* body = static_finishJsonBuf(json_buf);
 
   TEST_ASSERT_EQUAL_STRING(
-    R"({"status":"ok","version":"2.3.0","db":{)"
+    R"({"status":"ok","version":"2.3.1","db":{)"
       R"("nvd":{"cve_count":1,"last_added":{"cve_id":"CVE-\"1","published_time":"2026\\08"}},)"
       R"("kev":{"entry_count":2,"last_added":{"cve_id":"CVE\n9","date_added":"2026\t28"}},)"
       R"("cwe":{"entry_count":3,"last_updated":{"cwe_id":"CWE\b79","updated_at":"2026)" "\\u0001" R"(27"}},)"
@@ -5795,7 +5795,7 @@ void test_PRODUCTEXPOSURE_top_cve_count_past_its_array_is_clamped(void)
 
 void test_registration_gate_test_count(void)
 {
-  TEST_ASSERT_EQUAL_INT_MESSAGE(357, (int)Unity.NumberOfTests,
+  TEST_ASSERT_EQUAL_INT_MESSAGE(362, (int)Unity.NumberOfTests,
     "RUN_TEST list and test definitions have drifted apart - a test may be unregistered");
 }
 
@@ -9260,9 +9260,10 @@ void test_CERTSEARCH_quota_exhausted_golden(void)
 
 #define SUBDOMAINENUM_TEST_NAME_ROOM (SUBDOMAINENUM_MAX_LISTED_NAME_COUNT + 1)
 
-static char               g_SUBDOMAINENUMNames[SUBDOMAINENUM_TEST_NAME_ROOM][VALIDATE_DOMAIN_NAME_MAX_LEN + 1];
-static unsigned int       g_SUBDOMAINENUMSources[SUBDOMAINENUM_TEST_NAME_ROOM];
-static SubdomainNameSet_t g_SUBDOMAINENUMNameSet;
+static char                    g_SUBDOMAINENUMNames[SUBDOMAINENUM_TEST_NAME_ROOM][VALIDATE_DOMAIN_NAME_MAX_LEN + 1];
+static unsigned int            g_SUBDOMAINENUMSources[SUBDOMAINENUM_TEST_NAME_ROOM];
+static SubdomainAddressState_t g_SUBDOMAINENUMAddressStates[SUBDOMAINENUM_TEST_NAME_ROOM];
+static SubdomainNameSet_t      g_SUBDOMAINENUMNameSet;
 
 static void static_addSUBDOMAINENUMName(const char* name, unsigned int source)
 {
@@ -9278,9 +9279,11 @@ static void static_fillSUBDOMAINENUMRecord(SUBDOMAINENUMRecord_t* record)
   memset(record, 0, sizeof(*record));
   memset(g_SUBDOMAINENUMNames, 0, sizeof(g_SUBDOMAINENUMNames));
   memset(g_SUBDOMAINENUMSources, 0, sizeof(g_SUBDOMAINENUMSources));
+  memset(g_SUBDOMAINENUMAddressStates, 0, sizeof(g_SUBDOMAINENUMAddressStates));
   memset(&g_SUBDOMAINENUMNameSet, 0, sizeof(g_SUBDOMAINENUMNameSet));
-  g_SUBDOMAINENUMNameSet.mp_names   = g_SUBDOMAINENUMNames;
-  g_SUBDOMAINENUMNameSet.mp_sources = g_SUBDOMAINENUMSources;
+  g_SUBDOMAINENUMNameSet.mp_names         = g_SUBDOMAINENUMNames;
+  g_SUBDOMAINENUMNameSet.mp_sources       = g_SUBDOMAINENUMSources;
+  g_SUBDOMAINENUMNameSet.mp_addressStates = g_SUBDOMAINENUMAddressStates;
   snprintf(record->ma_domain, sizeof(record->ma_domain), "%s", "example.org");
   record->mp_nameSet             = &g_SUBDOMAINENUMNameSet;
   record->m_wildcardDns          = SUBDOMAIN_WILDCARD_ABSENT;
@@ -9342,6 +9345,96 @@ void test_SUBDOMAINENUM_lists_at_most_fifty_names_and_counts_them_all(void)
     TEST_ASSERT_EQUAL_STRING(expected, body);
     free(body);
   }
+}
+
+void test_SUBDOMAINENUM_each_address_state_golden(void)
+{
+  static SUBDOMAINENUMRecord_t record;
+  static_fillSUBDOMAINENUMRecord(&record);
+  static_addSUBDOMAINENUMName("gamma.example.org", SUBDOMAIN_SOURCE_DNS_RECORDS);
+  static_addSUBDOMAINENUMName("alpha.example.org", SUBDOMAIN_SOURCE_DNS_WORDLIST);
+  static_addSUBDOMAINENUMName("beta.example.org",  SUBDOMAIN_SOURCE_CERTIFICATE_LOGS | SUBDOMAIN_SOURCE_DNS_WORDLIST);
+  g_SUBDOMAINENUMAddressStates[0] = SUBDOMAIN_ADDRESS_UNMEASURED;
+  g_SUBDOMAINENUMAddressStates[1] = SUBDOMAIN_ADDRESS_FOUND;
+  g_SUBDOMAINENUMAddressStates[2] = SUBDOMAIN_ADDRESS_NONE;
+  char* body = static_SUBDOMAINENUMBody(&record);
+  TEST_ASSERT_EQUAL_STRING(
+    R"({"domain":"example.org","subdomain_count":3,"subdomains":[)"
+    R"({"hostname":"alpha.example.org","sources":["dns_wordlist"],"has_ipv4_address":true},)"
+    R"({"hostname":"beta.example.org","sources":["certificate_logs","dns_wordlist"],"has_ipv4_address":false},)"
+    R"({"hostname":"gamma.example.org","sources":["dns_records"]}],)"
+    R"("wildcard_dns":"absent","certificate_logs_available":true,"certificate_logs_complete":false})" "\n", body);
+  free(body);
+}
+
+void test_SUBDOMAINENUM_orderListedNames_gives_the_answer_order(void)
+{
+  static SUBDOMAINENUMRecord_t record;
+  static int order[SUBDOMAIN_MAX_NAME_COUNT];
+  static_fillSUBDOMAINENUMRecord(&record);
+  static_addSUBDOMAINENUMName("zeta.example.org",  SUBDOMAIN_SOURCE_CERTIFICATE_LOGS);
+  static_addSUBDOMAINENUMName("beta.example.org",  SUBDOMAIN_SOURCE_DNS_WORDLIST);
+  static_addSUBDOMAINENUMName("alpha.example.org", SUBDOMAIN_SOURCE_CERTIFICATE_LOGS | SUBDOMAIN_SOURCE_DNS_RECORDS);
+  static_addSUBDOMAINENUMName("delta.example.org", SUBDOMAIN_SOURCE_CERTIFICATE_LOGS);
+  static_addSUBDOMAINENUMName("mx.example.org",    SUBDOMAIN_SOURCE_DNS_RECORDS);
+  int listed_count = serialize_SUBDOMAINENUM_orderListedNames(&g_SUBDOMAINENUMNameSet, order);
+  TEST_ASSERT_EQUAL_INT(5, listed_count);
+  TEST_ASSERT_EQUAL_INT(2, order[0]);
+  TEST_ASSERT_EQUAL_INT(1, order[1]);
+  TEST_ASSERT_EQUAL_INT(4, order[2]);
+  TEST_ASSERT_EQUAL_INT(3, order[3]);
+  TEST_ASSERT_EQUAL_INT(0, order[4]);
+}
+
+void test_SUBDOMAINENUM_orderListedNames_lists_at_most_fifty(void)
+{
+  static SUBDOMAINENUMRecord_t record;
+  static int order[SUBDOMAIN_MAX_NAME_COUNT];
+  static_fillSUBDOMAINENUMRecord(&record);
+  char name[32];
+  for (int i = SUBDOMAINENUM_MAX_LISTED_NAME_COUNT; i >= 1; i--)
+  {
+    snprintf(name, sizeof(name), "c%02d.example.org", i);
+    static_addSUBDOMAINENUMName(name, SUBDOMAIN_SOURCE_CERTIFICATE_LOGS);
+  }
+  static_addSUBDOMAINENUMName("z.example.org", SUBDOMAIN_SOURCE_DNS_WORDLIST);
+  int listed_count = serialize_SUBDOMAINENUM_orderListedNames(&g_SUBDOMAINENUMNameSet, order);
+  TEST_ASSERT_EQUAL_INT(SUBDOMAINENUM_MAX_LISTED_NAME_COUNT, listed_count);
+  TEST_ASSERT_EQUAL_INT(SUBDOMAINENUM_MAX_LISTED_NAME_COUNT, order[0]);
+  for (int place = 1; place < SUBDOMAINENUM_MAX_LISTED_NAME_COUNT; place++)
+    TEST_ASSERT_EQUAL_INT(SUBDOMAINENUM_MAX_LISTED_NAME_COUNT - place, order[place]);
+}
+
+void test_SUBDOMAINENUM_orderListedNames_full_set_stays_in_bounds(void)
+{
+  static char                    names[SUBDOMAIN_MAX_NAME_COUNT][VALIDATE_DOMAIN_NAME_MAX_LEN + 1];
+  static unsigned int            sources[SUBDOMAIN_MAX_NAME_COUNT];
+  static SubdomainAddressState_t states[SUBDOMAIN_MAX_NAME_COUNT];
+  static int                     order[SUBDOMAIN_MAX_NAME_COUNT + 1];
+  SubdomainNameSet_t name_set;
+  memset(&name_set, 0, sizeof(name_set));
+  name_set.mp_names         = names;
+  name_set.mp_sources       = sources;
+  name_set.mp_addressStates = states;
+  for (int i = 0; i < SUBDOMAIN_MAX_NAME_COUNT; i++)
+  {
+    snprintf(names[i], sizeof(names[i]), "n%04d.example.org", i);
+    sources[i] = SUBDOMAIN_SOURCE_CERTIFICATE_LOGS;
+  }
+  name_set.m_count = SUBDOMAIN_MAX_NAME_COUNT;
+  order[SUBDOMAIN_MAX_NAME_COUNT] = -7;
+  TEST_ASSERT_EQUAL_INT(SUBDOMAINENUM_MAX_LISTED_NAME_COUNT, serialize_SUBDOMAINENUM_orderListedNames(&name_set, order));
+  TEST_ASSERT_EQUAL_INT(-7, order[SUBDOMAIN_MAX_NAME_COUNT]);
+  for (int place = 0; place < SUBDOMAINENUM_MAX_LISTED_NAME_COUNT; place++)
+    TEST_ASSERT_EQUAL_INT(place, order[place]);
+}
+
+void test_SUBDOMAINENUM_orderListedNames_empty_set_lists_none(void)
+{
+  static SUBDOMAINENUMRecord_t record;
+  static int order[SUBDOMAIN_MAX_NAME_COUNT];
+  static_fillSUBDOMAINENUMRecord(&record);
+  TEST_ASSERT_EQUAL_INT(0, serialize_SUBDOMAINENUM_orderListedNames(&g_SUBDOMAINENUMNameSet, order));
 }
 
 void test_SUBDOMAINENUM_quota_exhausted_golden(void)
@@ -10555,7 +10648,13 @@ void test_docs_cert_search_copies_match_the_server(void)
   size_t body_len = strlen(body);
   TEST_ASSERT_TRUE(body_len > 0 && body[body_len - 1] == '\n');
   body[body_len - 1] = '\0';
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(section, body), body);
+  TEST_ASSERT_TRUE(body[body_len - 2] == '}');
+  static const char credits_tail[] = R"(,"credits":{"charged":2,"remaining":28}})";
+  char* docs_body = (char*)malloc(body_len + sizeof(credits_tail));
+  TEST_ASSERT_NOT_NULL(docs_body);
+  snprintf(docs_body, body_len + sizeof(credits_tail), "%.*s%s", (int)(body_len - 2), body, credits_tail);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(section, docs_body), docs_body);
+  free(docs_body);
   TEST_ASSERT_EQUAL_INT(1, sscanf(strstr(body, R"("complete":)"), R"("complete":%15[a-z])", word));
   free(body);
   char* llms = static_readDocsFile("web/llms.txt");
@@ -10660,8 +10759,9 @@ void test_docs_subdomain_enum_members_match_the_server(void)
   TEST_ASSERT_NOT_NULL(at);
   char word[16];
   TEST_ASSERT_EQUAL_INT(1, sscanf(at, R"("certificate_logs_complete":%15[a-z])", word));
-  char example[64];
-  snprintf(example, sizeof(example), "\"certificate_logs_complete\": %s\n", word);
+  char example[128];
+  snprintf(example, sizeof(example), "\"certificate_logs_complete\": %s,\n"
+                                     "  \"credits\": {\"charged\": 2, \"remaining\": 28}\n", word);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(section, example), example);
   free(body);
   free(section);
@@ -11776,6 +11876,11 @@ int main(void)
   RUN_TEST(test_SUBDOMAINENUM_empty_list_golden);
   RUN_TEST(test_SUBDOMAINENUM_each_wildcard_value);
   RUN_TEST(test_SUBDOMAINENUM_escapes_a_name);
+  RUN_TEST(test_SUBDOMAINENUM_each_address_state_golden);
+  RUN_TEST(test_SUBDOMAINENUM_orderListedNames_gives_the_answer_order);
+  RUN_TEST(test_SUBDOMAINENUM_orderListedNames_lists_at_most_fifty);
+  RUN_TEST(test_SUBDOMAINENUM_orderListedNames_empty_set_lists_none);
+  RUN_TEST(test_SUBDOMAINENUM_orderListedNames_full_set_stays_in_bounds);
   RUN_TEST(test_WATCHLISTEDIT_golden);
   RUN_TEST(test_WATCHLISTEDIT_golden_each_kind);
   RUN_TEST(test_WATCHLISTEDIT_domain_items_golden);

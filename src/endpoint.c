@@ -1761,6 +1761,32 @@ _Static_assert(offsetof(WATCHLISTEVENTSParams_t, mp_creditBudget) == 0,
 _Static_assert(offsetof(PRIVACYMYDATAParams_t, mp_creditBudget) == 0,
                "endpoint_runRow writes the credit budget at offset 0 of the privacy_my_data params");
 
+#define ENDPOINT_CREDITS_MEMBER_BUF_SIZE sizeof("\"credits\":{\"charged\":4294967295,\"remaining\":-2147483648}")
+
+static bool static_appendCreditsMember(const RequestCharge_t* charge, EndpointRunStatus_t run_status, JsonBuf_t* json_buf)
+{
+  assert(charge   != NULL);
+  assert(json_buf != NULL);
+
+  bool         is_payment_released  = charge->mp_x402Payment != NULL && run_status != ENDPOINT_RUN_OK;
+  unsigned int charged_credit_count = is_payment_released ? 0 : charge->m_chargedCreditCount;
+
+  char member[ENDPOINT_CREDITS_MEMBER_BUF_SIZE];
+  int  member_len;
+  if (charge->mp_creditBudget != NULL && charge->mp_x402Payment == NULL)
+    member_len = snprintf(member, sizeof(member), "\"credits\":{\"charged\":%u,\"remaining\":%d}", charged_credit_count, charge->mp_creditBudget->m_rateLimitInfo.m_remaining);
+  else
+    member_len = snprintf(member, sizeof(member), "\"credits\":{\"charged\":%u}", charged_credit_count);
+
+  if (member_len < 0 || (size_t)member_len >= sizeof(member))
+  {
+    fprintf(stderr, "static_appendCreditsMember: the credits member does not fit %zu bytes\n", sizeof(member));
+    return false;
+  }
+
+  return jsonbuf_appendMemberToClosedObject(json_buf, member);
+}
+
 EndpointRunResult_t endpoint_runRow(const Endpoint_t* endpoint, EndpointAnyParams_t* params, PGconn* conn, const RequestCharge_t* charge)
 {
   assert(endpoint != NULL);
@@ -1814,7 +1840,8 @@ EndpointRunResult_t endpoint_runRow(const Endpoint_t* endpoint, EndpointAnyParam
       run_result.m_status == ENDPOINT_RUN_REFUSED_WITH_BODY   ||
       run_result.m_status == ENDPOINT_RUN_DEGRADED)
   {
-    run_result.mp_body = jsonbuf_finish(json_buf);
+    if (static_appendCreditsMember(charge, run_result.m_status, json_buf))
+      run_result.mp_body = jsonbuf_finish(json_buf);
     if (!run_result.mp_body && run_result.m_status != ENDPOINT_RUN_DEGRADED)
       run_result.m_status = ENDPOINT_RUN_NO_MEMORY;
   }

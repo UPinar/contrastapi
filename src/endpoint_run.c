@@ -1645,12 +1645,17 @@ EndpointRunStatus_t endpoint_SUBDOMAINENUMRun(PGconn* conn, const EndpointAnyPar
   EndpointRunStatus_t status = static_SUBDOMAINENUMReserveRequest(conn, &record);
   if (status == ENDPOINT_RUN_OK)
   {
-    subdomain_lookupDnsNames(record.ma_domain, record.mp_nameSet, &record.m_wildcardDns);
+    subdomain_lookupDnsNames(record.ma_domain, record.mp_nameSet, &record.m_wildcardDns, &record.m_wildcardIpAddresses);
     if (record.m_certificateLogStatus == SUBDOMAINENUM_CERTIFICATE_LOGS_AVAILABLE)
       status = static_SUBDOMAINENUMAskCertSpotter(conn, &record, message_out);
   }
   if (status == ENDPOINT_RUN_OK)
+  {
+    int listed_indexes[SUBDOMAIN_MAX_NAME_COUNT];
+    int listed_count = serialize_SUBDOMAINENUM_orderListedNames(record.mp_nameSet, listed_indexes);
+    subdomain_lookupAddressStates(record.mp_nameSet, listed_indexes, listed_count, record.m_wildcardDns, &record.m_wildcardIpAddresses);
     status = static_SUBDOMAINENUMWriteAndCache(conn, cache_key, &record, json_buf);
+  }
 
   subdomain_destroyNameSet(record.mp_nameSet);
   return status;

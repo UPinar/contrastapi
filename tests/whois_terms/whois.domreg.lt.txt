@@ -8,5 +8,4 @@ otherwise;
 - to cause nuisance in any possible way to the registrants by sending
 (whether by automated, electronic processes capable of enabling
 high volumes or other possible means) messages to them.
-Version 0.4
 For more information please visit https://whois.lt

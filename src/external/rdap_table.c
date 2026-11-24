@@ -5,7 +5,7 @@
  * tests/rdap_bootstrap/dns.json, a copy of IANA's RDAP bootstrap file for domain names.
  * Do not edit it. Run `make rdap-table` after the copy changes.
  *
- * Publication: 2026-10-28T22:00:04Z
+ * Publication: 2026-11-20T23:00:03Z
  *
  * rdap_servers holds one entry for each TLD whose server has an https base URL, in the
  * order strcmp sorts the TLDs.
@@ -787,6 +787,7 @@ const RdapServer_t rdap_servers[] = {
   { "politie", "https://rdap.nic.politie/" },
   { "porn", "https://rdap.nic.porn/" },
   { "post", "https://rdap.identitydigital.services/rdap/" },
+  { "pr", "https://rdap.identitydigital.services/rdap/" },
   { "praxi", "https://rdap.nic.praxi/" },
   { "press", "https://rdap.radix.host/rdap/" },
   { "prime", "https://rdap.nominet.uk/prime/" },
@@ -1096,7 +1097,6 @@ const RdapServer_t rdap_servers[] = {
   { "wtf", "https://rdap.identitydigital.services/rdap/" },
   { "xbox", "https://rdap.nominet.uk/xbox/" },
   { "xerox", "https://rdap.nic.xerox/" },
-  { "xihuan", "https://rdap.teleinfo.cn/" },
   { "xin", "https://rdap.identitydigital.services/rdap/" },
   { "xn--11b4c3d", "https://tld-rdap.verisign.com/xn--11b4c3d/v1/" },
   { "xn--1ck2e1b", "https://rdap.identitydigital.services/rdap/" },

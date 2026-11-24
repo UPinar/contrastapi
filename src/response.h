@@ -24,6 +24,11 @@ void response_setHeadRequest(bool is_head_request);
 void response_setRateLimitInfo(unsigned int limit, int remaining_credit_count, time_t reset);
 void response_clearRateLimitInfo(void);
 
+#define RESPONSE_CREDITS_CHARGED_HEADER_NAME "X-Credits-Charged"
+
+void response_setChargedCreditCount(unsigned int charged_credit_count);
+void response_clearChargedCreditCount(void);
+
 #define RESPONSE_RESET_COUNTDOWN_BUF_SIZE 16
 
 void response_formatResetCountdown(time_t reset, time_t now, char* countdown_out, size_t countdown_size);

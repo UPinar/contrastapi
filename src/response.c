@@ -13,6 +13,9 @@
 #define RESPONSE_EXTRA_HEADER_BUF_SIZE        64
 #define RESPONSE_HEAD_BUF_SIZE              2048
 
+#define RESPONSE_CREDITS_CHARGED_LINE_BUF_SIZE 32
+_Static_assert(sizeof(RESPONSE_CREDITS_CHARGED_HEADER_NAME ": 4294967295\r\n") <= RESPONSE_CREDITS_CHARGED_LINE_BUF_SIZE, "RESPONSE_CREDITS_CHARGED_LINE_BUF_SIZE must fit the line of UINT_MAX and its NUL");
+
 #define RESPONSE_JSON_CONTENT_TYPE   "application/json"
 #define RESPONSE_JSON_CACHE_CONTROL  "no-store"
 
@@ -22,6 +25,9 @@ static __thread bool         g_rl_set       = false;
 static __thread unsigned int g_rl_limit     = 0;
 static __thread int          g_rl_remaining = 0;
 static __thread time_t       g_rl_reset     = 0;
+
+static __thread bool         g_isChargedCreditCountSet = false;
+static __thread unsigned int g_chargedCreditCount      = 0;
 
 static __thread bool         g_isHeadRequest = false;
 
@@ -42,6 +48,17 @@ void response_setRateLimitInfo(unsigned int limit, int remaining_credit_count, t
 void response_clearRateLimitInfo(void)
 {
   g_rl_set = false;
+}
+
+void response_setChargedCreditCount(unsigned int charged_credit_count)
+{
+  g_chargedCreditCount      = charged_credit_count;
+  g_isChargedCreditCountSet = true;
+}
+
+void response_clearChargedCreditCount(void)
+{
+  g_isChargedCreditCountSet = false;
 }
 
 void response_setHeadRequest(bool is_head_request)
@@ -145,6 +162,14 @@ static void static_sendResponse(int client_fd, int status_code, const char* stat
       rl_headers[0] = '\0';
   }
 
+  char credits_charged_line[RESPONSE_CREDITS_CHARGED_LINE_BUF_SIZE] = "";
+  if (g_isChargedCreditCountSet)
+  {
+    int credits_charged_line_len = snprintf(credits_charged_line, sizeof(credits_charged_line), RESPONSE_CREDITS_CHARGED_HEADER_NAME ": %u\r\n", g_chargedCreditCount);
+    if (credits_charged_line_len < 0 || (size_t)credits_charged_line_len >= sizeof(credits_charged_line))
+      credits_charged_line[0] = '\0';
+  }
+
   char response_head[RESPONSE_HEAD_BUF_SIZE];
   int headers_len = snprintf(response_head, sizeof(response_head),
     "HTTP/1.1 %d %s\r\n"
@@ -158,9 +183,10 @@ static void static_sendResponse(int client_fd, int status_code, const char* stat
     "Cache-Control: %s\r\n"
     "%s"
     "%s"
+    "%s"
     "Connection: close\r\n"
     "\r\n",
-    status_code, status_text, content_type, body_byte_count, robots_line, cache_control, rl_headers, extra_headers);
+    status_code, status_text, content_type, body_byte_count, robots_line, cache_control, rl_headers, credits_charged_line, extra_headers);
 
   if (headers_len > 0 && headers_len < (int)sizeof(response_head))
   {

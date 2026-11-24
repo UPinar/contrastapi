@@ -55,7 +55,7 @@ A *well-formed but unknown* key is charged even though it is rejected, and even 
 (one credit there). A revoked or expired key is charged the same way. So a client stuck on a
 rotated key sees `429` instead of `401` once the budget is spent. A bulk call keeps getting its
 `401` until no credit is left, as it may be charged in part. Callers behind a shared IPv4 address
-or IPv6 /64 draw from the same anonymous budget. The `401` itself carries no `X-RateLimit-*` headers.
+or IPv6 /64 draw from the same anonymous budget. The `401` of an unknown, revoked or expired key carries the `X-RateLimit-*` headers of that anonymous budget.
 
 When the database is unreachable, a key cannot be checked at all. Paid calls then answer `500`, not
 `401`. Free calls are still served, so an authenticated health probe keeps working.
@@ -152,7 +152,7 @@ The modern era has no handshake. Discovery is a plain request, and it costs no c
     "cacheScope":"public", "ttlMs":3600000,
     "supportedVersions":["2026-07-28"],
     "capabilities":{ "tools":{} },
-    "serverInfo":{ "name":"contrastapi", "title":"ContrastAPI", "version":"2.3.0" },
+    "serverInfo":{ "name":"contrastapi", "title":"ContrastAPI", "version":"2.3.1" },
     "instructions":"ContrastAPI is a security data and monitoring server, with watchlists of CVEs, packages, domains and IP addresses. Call cve_lookup for a CVE, package_check for a package, dns_lookup for a domain and ip_lookup for an IP address. Call watchlist_edit and watchlist_events for monitoring, which needs an API key. A Pro API key is sold at https://api.contrastcyber.com/pricing. It looks up, searches and scores CVE, KEV and CWE records. It gives public exploit intelligence. It decodes and scores a CVSS v3 vector. It checks a password's SHA-1 against Have I Been Pwned. It reads a domain's DNS records and checks a host name for a dangling CNAME. It checks a domain's SPF, DMARC, DKIM and MTA-STS records. It checks whether an e-mail address's domain takes mail and whether the address is disposable. It checks the TLS certificate and settings of a host name and rates the security headers of a web site. It reads the robots.txt and the security.txt of a web site. It looks up the registration of a domain name over RDAP or WHOIS. It lists the Wayback Machine captures of a host name. It lists the unexpired certificates that Certificate Transparency logs hold for a host name. It lists the subdomains of a registrable domain from Certificate Transparency and DNS. It names the MITRE D3FEND defenses that counter a MITRE ATT&CK technique. It finds a driver file hash in the LOLDrivers catalog. It looks up the AS, the country, the cloud range, the Tor exit, the crawler range and the DROP listing of a public IP address. It looks up an AS by its number or by an address it holds. It checks a package or a list of packages of nine ecosystems against OSV.dev advisories and malicious packages. It gives the end-of-life dates of a product or a package from endoflife.date. The watchlist keeps CVE, package, domain and IP items for an API key, and watchlist_events reads their change events. A Pro API key can save its own Shodan and AbuseIPDB keys with vendor_key_edit, and ip_lookup then adds their answers. It says what it keeps about the caller. It follows the redirect chain of a URL and lists each hop. A call with no API key and no credits left can pay per call with x402 in USDC on Solana."
   } }
 ```
@@ -267,7 +267,7 @@ An id longer than 64 bytes is still served, but its reply carries `"id":null`.
   "result":{
     "protocolVersion":"2025-11-25",
     "capabilities":{ "tools":{} },
-    "serverInfo":{ "name":"contrastapi", "title":"ContrastAPI", "version":"2.3.0" },
+    "serverInfo":{ "name":"contrastapi", "title":"ContrastAPI", "version":"2.3.1" },
     "instructions":"ContrastAPI is a security data and monitoring server, with watchlists of CVEs, packages, domains and IP addresses. Call cve_lookup for a CVE, package_check for a package, dns_lookup for a domain and ip_lookup for an IP address. Call watchlist_edit and watchlist_events for monitoring, which needs an API key. A Pro API key is sold at https://api.contrastcyber.com/pricing. It looks up, searches and scores CVE, KEV and CWE records. It gives public exploit intelligence. It decodes and scores a CVSS v3 vector. It checks a password's SHA-1 against Have I Been Pwned. It reads a domain's DNS records and checks a host name for a dangling CNAME. It checks a domain's SPF, DMARC, DKIM and MTA-STS records. It checks whether an e-mail address's domain takes mail and whether the address is disposable. It checks the TLS certificate and settings of a host name and rates the security headers of a web site. It reads the robots.txt and the security.txt of a web site. It looks up the registration of a domain name over RDAP or WHOIS. It lists the Wayback Machine captures of a host name. It lists the unexpired certificates that Certificate Transparency logs hold for a host name. It lists the subdomains of a registrable domain from Certificate Transparency and DNS. It names the MITRE D3FEND defenses that counter a MITRE ATT&CK technique. It finds a driver file hash in the LOLDrivers catalog. It looks up the AS, the country, the cloud range, the Tor exit, the crawler range and the DROP listing of a public IP address. It looks up an AS by its number or by an address it holds. It checks a package or a list of packages of nine ecosystems against OSV.dev advisories and malicious packages. It gives the end-of-life dates of a product or a package from endoflife.date. The watchlist keeps CVE, package, domain and IP items for an API key, and watchlist_events reads their change events. A Pro API key can save its own Shodan and AbuseIPDB keys with vendor_key_edit, and ip_lookup then adds their answers. It says what it keeps about the caller. It follows the redirect chain of a URL and lists each hop. A call with no API key and no credits left can pay per call with x402 in USDC on Solana."
   } }
 ```
@@ -305,15 +305,17 @@ Do not approve a call without asking only because its tool's `readOnlyHint` is t
 `openWorldHint` is true too, the call can ask a service outside this server, and its arguments
 decide what it asks.
 
-`_meta` holds one key, `com.contrastcyber/category`. The value names the home page section that the tool belongs to.
+`_meta` holds two keys. `com.contrastcyber/category` names the home page section that the tool belongs to.
 `Monitoring` stands for the section `Monitoring (watchlist)`. The values are a closed set: `CVE Intelligence`,
 `Package Vulnerabilities (SBOM)`, `Credential Checks`, `Domain Intelligence`, `IP Intelligence`,
 `Threat Defense`, `Monitoring` and `Operations`.
 
+`com.contrastcyber/credits` gives the price of a call. A tool with a fixed price has `{"per_call":N}`, such as `{"per_call":0}` for `health` and `{"per_call":2}` for `cert_search` and `subdomain_enum`. A bulk tool has `{"per_item":1,"min":1}`: 1 credit for each item, and at least 1 credit. `package_check_bulk` adds `"weighed":true`: a package that its work budget cuts is not charged.
+
 One entry, with its description shortened to `…`:
 
 ```json
-{"name":"kev_lookup","title":"CISA KEV Lookup","description":"…","inputSchema":{"type":"object","properties":{"cve_id":{"type":"string","maxLength":24,"description":"CVE ID"}},"required":["cve_id"],"additionalProperties":false},"annotations":{"readOnlyHint":true,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"CVE Intelligence"}}
+{"name":"kev_lookup","title":"CISA KEV Lookup","description":"…","inputSchema":{"type":"object","properties":{"cve_id":{"type":"string","maxLength":24,"description":"CVE ID"}},"required":["cve_id"],"additionalProperties":false},"annotations":{"readOnlyHint":true,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"CVE Intelligence","com.contrastcyber/credits":{"per_call":1}}}
 ```
 
 `tools/list` returns each tool's `inputSchema`. The schema gives each argument's type and names the
@@ -994,7 +996,8 @@ curl -sX POST https://api.contrastcyber.com/mcp \
 { "score":96.6, "label":"CRITICAL", "has_public_poc":true,
   "components":{ "exploitability":{ "score":60.00, "max":60.00 },
                  "impact":{ "score":30.00, "max":30.00 },
-                 "evidence":{ "score":6.60, "max":10.00 } } }
+                 "evidence":{ "score":6.60, "max":10.00 } },
+  "credits":{"charged":1,"remaining":29} }
 ```
 
 ---
@@ -1170,7 +1173,8 @@ curl -sX POST https://api.contrastcyber.com/mcp \
 ```jsonc
 // decoded payload:
 { "hash_prefix":"5BAA6", "found":true, "breach_count":3861493,
-  "summary":"This password has been seen 3,861,493 times in data breaches." }
+  "summary":"This password has been seen 3,861,493 times in data breaches.",
+  "credits":{"charged":1,"remaining":29} }
 ```
 
 ---
@@ -1239,7 +1243,8 @@ curl -sX POST https://api.contrastcyber.com/mcp \
 // decoded payload:
 { "hostname":"shop.example.com", "cname":"shop-example.cloudapp.net", "chain":["shop-example.cloudapp.net"], "target_exists":false,
   "dangling":true, "provider":"Microsoft Azure", "takeover_possible":true,
-  "summary":"shop.example.com points to shop-example.cloudapp.net, which does not exist. Microsoft Azure lets anyone claim that name, so shop.example.com can be taken over." }
+  "summary":"shop.example.com points to shop-example.cloudapp.net, which does not exist. Microsoft Azure lets anyone claim that name, so shop.example.com can be taken over.",
+  "credits":{"charged":1,"remaining":29} }
 ```
 
 ---
@@ -1320,7 +1325,8 @@ curl -sX POST https://api.contrastcyber.com/mcp \
 // decoded payload:
 { "email":"Admin+ci@example.com", "domain":"example.com", "domain_exists":true, "accepts_mail":false,
   "mail_route":"null_mx", "mx_hosts":[],
-  "disposable":false, "disposable_listed_domain":null, "unavailable":{} }
+  "disposable":false, "disposable_listed_domain":null, "unavailable":{},
+  "credits":{"charged":1,"remaining":29} }
 ```
 
 ---
@@ -1378,7 +1384,8 @@ curl -sX POST https://api.contrastcyber.com/mcp \
   "is_tor_exit":false, "crawler":null, "listed_on":[], "ptr":"dns.google", "is_ptr_forward_confirmed":true,
   "reputation":{"available":false,"reason":"pro_key_required","action_url":"https://api.contrastcyber.com/pricing"},
   "internet_exposure":{"available":false,"reason":"pro_key_required","action_url":"https://api.contrastcyber.com/pricing"},
-  "unavailable":{} }
+  "unavailable":{},
+  "credits":{"charged":1,"remaining":29} }
 ```
 
 ---
@@ -1622,7 +1629,8 @@ curl -sX POST https://api.contrastcyber.com/mcp \
 // decoded payload (written by the server for made-up values):
 { "checked_at":"2026-11-21T09:10:11Z", "final_url":"https://www.example.com/", "stop_reason":"final_answer",
   "https_downgrade":false,
-  "hops":[ { "url":"http://example.com/", "status_code":301 }, { "url":"https://www.example.com/", "status_code":200 } ] }
+  "hops":[ { "url":"http://example.com/", "status_code":301 }, { "url":"https://www.example.com/", "status_code":200 } ],
+  "credits":{"charged":1,"remaining":29} }
 ```
 
 ---
@@ -1673,7 +1681,8 @@ curl -sX POST https://api.contrastcyber.com/mcp \
   "registrar_name":"Example Registrar, Inc.", "registrar_iana_id":1234,
   "created_at":"1997-03-21T05:00:00Z", "updated_at":"2026-02-11T16:20:43Z", "expires_at":"2027-03-20T04:00:00Z",
   "status":["client delete prohibited","client transfer prohibited"], "status_count":2,
-  "name_servers":["ns1.example.net","ns2.example.net"], "name_server_count":2, "dnssec_signed":true }
+  "name_servers":["ns1.example.net","ns2.example.net"], "name_server_count":2, "dnssec_signed":true,
+  "credits":{"charged":1,"remaining":29} }
 ```
 
 ---
@@ -1792,12 +1801,25 @@ certificates that SSLMate's Cert Spotter lists for the domain and every name und
 `certificate_logs_complete` is true only when that page is empty. Otherwise a later page may hold
 more names. It asks DNS for the A records of 94 common names. It reads the names in the MX, NS and
 SPF records of the domain. Each name gives its `hostname` and lists its sources:
-`certificate_logs`, `dns_wordlist` or `dns_records`. `subdomains` lists up to 50 names, those that
+`certificate_logs`, `dns_wordlist` or `dns_records`. It also says whether the name has an IPv4
+address, in `has_ipv4_address`. `subdomains` lists up to 50 names, those that
 DNS confirms first, then by name. `subdomain_count` counts every name found, up to 1000, so 1000
 means 1000 or more. The call costs 2 credits.
 
 `wildcard_dns` says whether the domain answers any name under it: `absent`, `present` or
-`undetermined`. When it is not `absent`, the common names that resolved are left out.
+`undetermined`. A wildcard CNAME whose target does not exist makes it `present`. When it is
+`absent`, the common names that resolved are listed. When it is `present`, they are listed only if
+all six random names got the same IPv4 addresses, none got a CNAME record, and the IPv4 addresses
+of the common name share none with them. Otherwise they are left out. A wildcard that gives each
+name one address of a few can still let a common name through, in about 1 run in 32 when it has
+two such addresses.
+
+`has_ipv4_address` is true when the name has an A record. It is false when the name does not exist
+or has no A record, and only when `wildcard_dns` is `absent`. A name with only an IPv6 address gets
+false. The member is left out when the server has no clear answer: no answer came within the time,
+`wildcard_dns` is `undetermined`, `wildcard_dns` is `present` and the rule above does not hold, or
+one of the addresses of the name is an address of the wildcard. Only the listed names, at most 50,
+carry it. The answer is kept like the rest, so the member tells what DNS said when it was built.
 
 The server sends at most 5 of these requests to Cert Spotter in each hour of the clock, for all
 callers together. A call past that limit answers `certificate_logs_available` false with the `certificate_logs_reason` `quota_exhausted`.
@@ -1826,11 +1848,12 @@ curl -sX POST https://api.contrastcyber.com/mcp \
 ```jsonc
 // decoded payload (the names are an example):
 { "domain":"example.com", "subdomain_count":4,
-  "subdomains":[ { "hostname":"mail.example.com", "sources":["dns_records"] },
-                 { "hostname":"www.example.com", "sources":["certificate_logs","dns_wordlist"] },
-                 { "hostname":"api.example.com", "sources":["certificate_logs"] },
-                 { "hostname":"dev.example.com", "sources":["certificate_logs"] } ],
-  "wildcard_dns":"absent", "certificate_logs_available":true, "certificate_logs_complete":false }
+  "subdomains":[ { "hostname":"mail.example.com", "sources":["dns_records"], "has_ipv4_address":true },
+                 { "hostname":"www.example.com", "sources":["certificate_logs","dns_wordlist"], "has_ipv4_address":true },
+                 { "hostname":"api.example.com", "sources":["certificate_logs"], "has_ipv4_address":true },
+                 { "hostname":"dev.example.com", "sources":["certificate_logs"], "has_ipv4_address":false } ],
+  "wildcard_dns":"absent", "certificate_logs_available":true, "certificate_logs_complete":false,
+  "credits":{"charged":2,"remaining":28} }
 ```
 
 ---
@@ -2180,7 +2203,8 @@ curl -sX POST https://api.contrastcyber.com/mcp -H "X-API-Key: $KEY" \
 ```jsonc
 // decoded payload:
 { "items":[ { "endpoint":"product_exposure", "vendor":"apache", "product":"log4j", "version":null, "product_has_cves":true } ],
-  "item_count":1, "item_limit":100, "package_item_count":0, "package_item_limit":500 }
+  "item_count":1, "item_limit":100, "package_item_count":0, "package_item_limit":500,
+  "credits":{"charged":1,"remaining":499} }
 ```
 
 ---
@@ -2263,11 +2287,12 @@ curl -sX POST https://api.contrastcyber.com/mcp -H "X-API-Key: $KEY" \
 ```
 ```jsonc
 // result.content[0].text (decoded):
-{ "status":"ok", "version":"2.3.0",
+{ "status":"ok", "version":"2.3.1",
   "db":{ "nvd":{ "cve_count":352507, "last_added":{ "cve_id":"CVE-2026-47782", "published_time":"2026-05-31" } },
          "kev":{ "entry_count":1592, "last_added":{ "cve_id":"CVE-2026-42897", "date_added":"2026-05-15" } },
          "cwe":{ "entry_count":944, "last_updated":{ "cwe_id":"CWE-1434", "updated_at":"2026-05-20T14:07:56Z" } },
-         "feeds":[ { "name":"nvd", "last_synced":"2026-05-31T02:00:12Z", "last_status":"ok", "records_updated":21874 } ] } }
+         "feeds":[ { "name":"nvd", "last_synced":"2026-05-31T02:00:12Z", "last_status":"ok", "records_updated":21874 } ] },
+  "credits":{"charged":0} }
 ```
 
 ---
@@ -2301,7 +2326,8 @@ curl -sX POST https://api.contrastcyber.com/mcp \
                  "resets_at_utc":"…", "resets_in":"00:39:38" },
   "stored":{ "metered_by":"ip_hmac", "hash":"…" },
   "vendor_keys":null,
-  "policy":"https://api.contrastcyber.com/privacy" }
+  "policy":"https://api.contrastcyber.com/privacy",
+  "credits":{"charged":1,"remaining":29} }
 ```
 
 ---
@@ -2332,7 +2358,8 @@ curl -sX POST https://api.contrastcyber.com/mcp -H "X-API-Key: $KEY" \
 ```jsonc
 // decoded payload:
 { "shodan":{"result":"deleted","configured":false}, "abuseipdb":{"result":"unchanged","configured":true},
-  "manage_url":"https://api.contrastcyber.com/vendor-keys#l=<64 hex digits>" }
+  "manage_url":"https://api.contrastcyber.com/vendor-keys#l=<64 hex digits>",
+  "credits":{"charged":1,"remaining":499} }
 ```
 
 ---
@@ -2343,7 +2370,7 @@ curl -sX POST https://api.contrastcyber.com/mcp -H "X-API-Key: $KEY" \
 |---|---|
 | Invalid CVE format | `{"jsonrpc":"2.0","id":17,"result":{"content":[{"type":"text","text":"CVE ID must be CVE-YYYY-NNNN[N...]"}],"isError":true}}` |
 | CVE not found | `{"jsonrpc":"2.0","id":20,"result":{"content":[{"type":"text","text":"CVE not found"}],"isError":true}}` |
-| CVE not found, state known | `{"jsonrpc":"2.0","id":20,"result":{"content":[{"type":"text","text":"{\"error\":{\"code\":\"not_found\",\"message\":\"CVE not found; CVE.org lists it as rejected\",\"cve_org_state\":\"rejected\"}}\n"}],"isError":true}}` |
+| CVE not found, state known | `{"jsonrpc":"2.0","id":20,"result":{"content":[{"type":"text","text":"{\"error\":{\"code\":\"not_found\",\"message\":\"CVE not found; CVE.org lists it as rejected\",\"cve_org_state\":\"rejected\"},\"credits\":{\"charged\":1,\"remaining\":29}}\n"}],"isError":true}}` |
 | Missing required `cve_id` | `{"jsonrpc":"2.0","id":18,"error":{"code":-32602,"message":"Invalid params: missing CVE ID"}}` |
 | Unknown tool | `{"jsonrpc":"2.0","id":19,"error":{"code":-32602,"message":"Unknown tool"}}` |
 | Malformed JSON | `{"jsonrpc":"2.0","id":null,"error":{"code":-32700,"message":"Parse error"}}` |
@@ -2461,6 +2488,7 @@ That answer is a normal result with `X-RateLimit-Remaining: 0` and no `Retry-Aft
 A `package_check_bulk` call is also cut by its work budget, and a package it cuts is not charged.
 A call cut only by its work budget is a normal result too. Its `X-RateLimit-Remaining` shows the
 credits still left.
+The `credits` member ends the answer text of a successful tool result. It says what the call cost and, for a call paid from a credit budget, what is left. The tool error of a `cve_lookup` miss whose CVE.org state is known carries it too, and so does the `watchlist_edit` error that holds `problems`. An `initialize`, `ping` or `tools/list` result, a protocol error and any other tool error carry none. [The credits member](API_Documentation.md#the-credits-member) says which answers carry it. The HTTP response carries `X-Credits-Charged` with the credits of that request.
 When the budget is exceeded the request is rejected with HTTP `429` (with `X-RateLimit-*` headers
 and `Retry-After`), before the tool runs. A keyless `tools/call` of a tool that takes payment gets the
 offer of [Pay per call (x402) over MCP](#pay-per-call-x402-over-mcp) in place of the `429`, when x402 is on. A bulk call gets it only when no credit is left, or when
@@ -2475,7 +2503,7 @@ and code `-32003` because the server is busy costs nothing, and it carries no
 
 A `tools/call` without an API key can pay for one call with USDC on Solana. It then needs no free credit and no Pro key. The payment follows x402 version 2, scheme `exact`, as on REST. The price, the payment and its checks are the ones of [Pay per call (x402)](API_Documentation.md#pay-per-call-x402): the credits of the tool times 10000 atomic USDC, so one credit costs USD 0.01.
 
-`/mcp` ignores the `PAYMENT-SIGNATURE` header. Only `params._meta["x402/payment"]` counts. `tools/list` shows no price.
+`/mcp` ignores the `PAYMENT-SIGNATURE` header. Only `params._meta["x402/payment"]` counts. `tools/list` shows the price of each tool in `_meta`; see [Tools](#tools).
 
 Every tool takes payment but `health`, `watchlist_edit`, `watchlist_events`, `privacy_my_data` and `vendor_key_edit`.
 

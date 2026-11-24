@@ -685,6 +685,11 @@ void setUp(void)
   g_stub_SUBDOMAIN_lookup_count                = 0;
   g_stub_SUBDOMAIN_last_lookup_domain[0]       = '\0';
   g_stub_SUBDOMAIN_create_fails                = false;
+  g_stub_SUBDOMAIN_address_state               = SUBDOMAIN_ADDRESS_FOUND;
+  g_stub_SUBDOMAIN_address_lookup_count        = 0;
+  g_stub_SUBDOMAIN_last_address_index_count    = 0;
+  g_stub_SUBDOMAIN_last_address_wildcard_dns   = SUBDOMAIN_WILDCARD_ABSENT;
+  g_stub_SUBDOMAIN_last_address_wildcard_count = 0;
   g_stub_HEADER_FETCH_error                    = HTTP_ERROR_NONE;
   g_stub_HEADER_FETCH_answer                   = g_stub_HEADER_FETCH_default_answer;
   g_stub_HEADER_FETCH_call_count               = 0;
@@ -1084,7 +1089,7 @@ void test_PRODUCTEXPOSURE_version_reaches_the_query_and_a_bad_one_is_refused(voi
   static_callRequestHandle("GET /product_exposure?vendor=nodejs&product=node.js&version=v22.21.1 HTTP/1.1\r\nHost: localhost\r\n\r\n",
                            buf, sizeof(buf));
   TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 200"));
-  TEST_ASSERT_NOT_NULL(strstr(buf, R"("eol":null})"));
+  TEST_ASSERT_NOT_NULL(strstr(buf, R"("eol":null,"credits":{"charged":1,"remaining":10}})"));
   TEST_ASSERT_EQUAL_STRING("v22.21.1", g_stub_PRODUCTEXPOSURE_last_params.ma_version);
   TEST_ASSERT_FALSE(g_stub_PRODUCTEXPOSURE_last_params.m_isRejectedIncluded);
 
@@ -1115,6 +1120,23 @@ static const char* static_responseBody(const char* buf)
   const char* head_end = strstr(buf, "\r\n\r\n");
   TEST_ASSERT_NOT_NULL_MESSAGE(head_end, "the response has no blank line after its head");
   return head_end + strlen("\r\n\r\n");
+}
+
+#define CREDITS_1 R"("credits":{"charged":1,"remaining":10})"
+#define CREDITS_2 R"("credits":{"charged":2,"remaining":10})"
+
+static void static_assertBodyWithCredits(const char* run_body, const char* credits_member, const char* sent_body)
+{
+  size_t run_body_len = strlen(run_body);
+  size_t newline_len  = (run_body_len > 0 && run_body[run_body_len - 1] == '\n') ? 1 : 0;
+  TEST_ASSERT_TRUE_MESSAGE(run_body_len > newline_len + 1, run_body);
+  size_t brace_index = run_body_len - newline_len - 1;
+  TEST_ASSERT_EQUAL_CHAR_MESSAGE('}', run_body[brace_index], run_body);
+
+  char expected[RESP_BUF];
+  int expected_len = snprintf(expected, sizeof(expected), "%.*s,%s}%s", (int)brace_index, run_body, credits_member, newline_len ? "\n" : "");
+  TEST_ASSERT_TRUE(expected_len > 0 && (size_t)expected_len < sizeof(expected));
+  TEST_ASSERT_EQUAL_STRING(expected, sent_body);
 }
 
 void test_CVESEARCH_refusal_stops_later_parameter_checks(void)
@@ -2079,16 +2101,16 @@ void test_CVELOOKUP_ghsa_without_an_advisory_answers_null(void)
   char buf[RESP_BUF];
   static_CVELOOKUPWithGhsa("true", buf, sizeof(buf));
   TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 200"));
-  TEST_ASSERT_NOT_NULL(strstr(buf, R"("ghsa":null})"));
+  TEST_ASSERT_NOT_NULL(strstr(buf, R"("ghsa":null,"credits":{"charged":1,"remaining":10}})"));
   TEST_ASSERT_NOT_NULL(strstr(buf, R"("ransomware_campaign":"Known",)"));
 }
 
 void test_CVELOOKUP_ghsa_answers_the_advisory_or_why_it_has_none(void)
 {
   static const struct { DbStatus_t m_status; bool m_isFeedLoaded; const char* mp_advisory; const char* mp_ghsa; } cases[] = {
-    { DB_OK,    true,  R"({"ghsa_id": "GHSA-jfh8-c2jp-5v3q"})", R"("ghsa":{"ghsa_id": "GHSA-jfh8-c2jp-5v3q"}})" },
-    { DB_ERROR, true,  NULL,                                   R"("ghsa":{"available":false,"reason":"database_error"}})" },
-    { DB_OK,    false, NULL,                                   R"("ghsa":{"available":false,"reason":"not_synced"}})" },
+    { DB_OK,    true,  R"({"ghsa_id": "GHSA-jfh8-c2jp-5v3q"})", R"("ghsa":{"ghsa_id": "GHSA-jfh8-c2jp-5v3q"},"credits":{"charged":1,"remaining":10}})" },
+    { DB_ERROR, true,  NULL,                                   R"("ghsa":{"available":false,"reason":"database_error"},"credits":{"charged":1,"remaining":10}})" },
+    { DB_OK,    false, NULL,                                   R"("ghsa":{"available":false,"reason":"not_synced"},"credits":{"charged":1,"remaining":10}})" },
   };
   for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
   {
@@ -2999,7 +3021,7 @@ void test_HEALTH_db_ok_returns_counts(void)
   TEST_ASSERT_NOT_NULL(strstr(buf, R"("cwe_id":"CWE-79")"));
   TEST_ASSERT_NOT_NULL(strstr(buf,
     R"("feeds":[{"name":"nvd","last_synced":"2026-05-22T10:05:00Z","last_status":"ok","records_updated":21874},)"
-    R"({"name":"cwe","last_synced":null,"last_status":"in_progress","records_updated":0}]}})"));
+    R"({"name":"cwe","last_synced":null,"last_status":"in_progress","records_updated":0}]},"credits":{"charged":0}})"));
 }
 
 void test_HEALTH_db_error_answers_503_with_retry_after(void)
@@ -3013,7 +3035,7 @@ void test_HEALTH_db_error_answers_503_with_retry_after(void)
   TEST_ASSERT_EQUAL_INT(1, static_countResponses(buf));
   TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 503 Service Unavailable\r\n"));
   TEST_ASSERT_NOT_NULL(strstr(buf, "\r\nRetry-After: 5\r\n"));
-  TEST_ASSERT_NOT_NULL(strstr(buf, R"({"status":"unavailable","version":"2.3.0","db":null})"));
+  TEST_ASSERT_NOT_NULL(strstr(buf, R"({"status":"unavailable","version":"2.3.1","db":null,"credits":{"charged":0}})"));
   TEST_ASSERT_NULL(strstr(buf, R"("cve_count")"));
 }
 
@@ -3027,7 +3049,7 @@ void test_HEALTH_db_not_found_also_answers_503(void)
   static_callRequestHandle(req, buf, sizeof(buf));
   TEST_ASSERT_EQUAL_INT(1, static_countResponses(buf));
   TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 503 Service Unavailable\r\n"));
-  TEST_ASSERT_NOT_NULL(strstr(buf, R"({"status":"unavailable","version":"2.3.0","db":null})"));
+  TEST_ASSERT_NOT_NULL(strstr(buf, R"({"status":"unavailable","version":"2.3.1","db":null,"credits":{"charged":0}})"));
   TEST_ASSERT_NULL(strstr(buf, R"("cve_count")"));
 }
 
@@ -3637,9 +3659,18 @@ void test_unknown_key_on_free_path_is_charged_one_credit(void)
   TEST_ASSERT_EQUAL_UINT(1, g_stub_last_credit_cost);
 }
 
-void test_unknown_key_401_carries_no_ratelimit_headers(void)
+static void static_assertAnonymousRateLimitLines(const char* buf, unsigned int remaining, const char* label)
 {
-  g_stub_api_key_state = DB_API_KEY_UNKNOWN;
+  char lines[96];
+  int  len = snprintf(lines, sizeof(lines), "\r\nX-RateLimit-Limit: 30\r\nX-RateLimit-Remaining: %u\r\n", remaining);
+  TEST_ASSERT_TRUE(len > 0 && (size_t)len < sizeof(lines));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, lines), label);
+}
+
+void test_unknown_key_401_carries_the_anonymous_ratelimit_lines(void)
+{
+  g_stub_api_key_state           = DB_API_KEY_UNKNOWN;
+  g_stub_credit_budget_remaining = 30;
 
   const char* req =
     "GET /cve_lookup/CVE-2021-44228 HTTP/1.1\r\n"
@@ -3648,8 +3679,7 @@ void test_unknown_key_401_carries_no_ratelimit_headers(void)
   static_callRequestHandle(req, buf, sizeof(buf));
 
   TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 401"));
-  TEST_ASSERT_NULL    (strstr(buf, "X-RateLimit-Limit:"));
-  TEST_ASSERT_NULL    (strstr(buf, "X-RateLimit-Remaining:"));
+  static_assertAnonymousRateLimitLines(buf, 29, buf);
 }
 
 static void static_errorMessageOf(const char* buf, char* out, size_t out_size);
@@ -3675,9 +3705,10 @@ void test_mcp_malformed_key_is_a_jsonrpc_401(void)
   TEST_ASSERT_EQUAL_STRING(R"({"jsonrpc":"2.0","id":11,"error":{"code":-32001,"message":"Invalid API key"}})", static_responseBody(buf));
 }
 
-void test_mcp_unknown_key_is_a_jsonrpc_401_without_rate_limit_headers(void)
+void test_mcp_unknown_key_is_a_jsonrpc_401_with_the_anonymous_rate_limit_lines(void)
 {
-  g_stub_api_key_state = DB_API_KEY_UNKNOWN;
+  g_stub_api_key_state           = DB_API_KEY_UNKNOWN;
+  g_stub_credit_budget_remaining = 30;
 
   const char* req =
     "POST /mcp HTTP/1.1\r\nX-API-Key: " VALID_KEY "\r\nContent-Type: application/json\r\n\r\n"
@@ -3688,7 +3719,7 @@ void test_mcp_unknown_key_is_a_jsonrpc_401_without_rate_limit_headers(void)
   TEST_ASSERT_EQUAL_INT(1, static_countResponses(buf));
   TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 401"));
   TEST_ASSERT_EQUAL_STRING(R"({"jsonrpc":"2.0","id":"abc","error":{"code":-32001,"message":"Invalid API key"}})", static_responseBody(buf));
-  TEST_ASSERT_NULL(strstr(buf, "X-RateLimit-"));
+  static_assertAnonymousRateLimitLines(buf, 29, buf);
   TEST_ASSERT_EQUAL_UINT(1, g_stub_last_credit_cost);
 }
 
@@ -3713,10 +3744,12 @@ void test_inactive_key_is_charged_like_an_unknown_key(void)
       g_stub_api_key_state                  = states[s];
       g_stub_last_credit_cost               = CREDIT_COST_SENTINEL;
       g_stub_last_is_partial_charge_allowed = true;
+      g_stub_credit_budget_remaining        = 30;
       static_callRequestHandle(reqs[i], buf, sizeof(buf));
       TEST_ASSERT_EQUAL_INT_MESSAGE(1, static_countResponses(buf), reqs[i]);
       TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "HTTP/1.1 401"), reqs[i]);
-      TEST_ASSERT_NULL_MESSAGE(strstr(buf, "X-RateLimit-"), reqs[i]);
+      TEST_ASSERT_TRUE_MESSAGE(g_stub_last_credit_cost >= 1 && g_stub_last_credit_cost <= 30, reqs[i]);
+      static_assertAnonymousRateLimitLines(buf, 30 - g_stub_last_credit_cost, reqs[i]);
       costs[s]         = g_stub_last_credit_cost;
       partial_flags[s] = g_stub_last_is_partial_charge_allowed;
       snprintf(buckets[s], sizeof(buckets[s]), "%s", g_stub_last_ip_hash);
@@ -4344,7 +4377,7 @@ void test_password_check_found_is_200(void)
   TEST_ASSERT_EQUAL_INT(1, static_countResponses(buf));
   TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 200 OK\r\n"));
   TEST_ASSERT_EQUAL_STRING(R"({"hash_prefix":"5BAA6","found":true,"breach_count":3861493,)"
-                           R"("summary":"This password has been seen 3,861,493 times in data breaches."})" "\n", static_responseBody(buf));
+                           R"("summary":"This password has been seen 3,861,493 times in data breaches.","credits":{"charged":1,"remaining":10}})" "\n", static_responseBody(buf));
   TEST_ASSERT_EQUAL_UINT(1, g_stub_last_credit_cost);
   TEST_ASSERT_EQUAL_STRING("5BAA61E4C9B93F3F0682250B6CF8331B7EE68FD8", g_stub_PASSWORDCHECK_last_sha1_hex);
 }
@@ -4357,7 +4390,7 @@ void test_password_check_not_found_is_200(void)
   TEST_ASSERT_EQUAL_INT(1, static_countResponses(buf));
   TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 200 OK\r\n"));
   TEST_ASSERT_EQUAL_STRING(R"({"hash_prefix":"00000","found":false,"breach_count":0,)"
-                           R"("summary":"This password has not been found in any known data breaches."})" "\n", static_responseBody(buf));
+                           R"("summary":"This password has not been found in any known data breaches.","credits":{"charged":1,"remaining":10}})" "\n", static_responseBody(buf));
 }
 
 void test_password_check_refused_hash_is_400(void)
@@ -4508,7 +4541,7 @@ void test_dns_lookup_answer_is_200(void)
   static_callRequestHandle("GET /dns_lookup/Example.COM HTTP/1.1\r\nX-API-Key: " VALID_KEY "\r\n\r\n", buf, sizeof(buf));
   TEST_ASSERT_EQUAL_INT(1, static_countResponses(buf));
   TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 200 OK\r\n"));
-  TEST_ASSERT_EQUAL_STRING(DNSLOOKUP_STUB_BODY, static_responseBody(buf));
+  static_assertBodyWithCredits(DNSLOOKUP_STUB_BODY, CREDITS_1, static_responseBody(buf));
   TEST_ASSERT_EQUAL_UINT(1, g_stub_last_credit_cost);
   TEST_ASSERT_EQUAL_STRING("example.com", g_stub_DNSLOOKUP_last_domain);
   TEST_ASSERT_EQUAL_INT(1, g_stub_DNSLOOKUP_call_count);
@@ -4624,7 +4657,7 @@ void test_dns_takeover_check_answer_is_200(void)
   TEST_ASSERT_EQUAL_STRING(
     R"({"hostname":"shop.example.com","cname":"shop-example.cloudapp.net","chain":["shop-example.cloudapp.net"],)"
     R"("target_exists":false,"dangling":true,"provider":"Microsoft Azure","takeover_possible":true,)"
-    R"("summary":"shop.example.com points to shop-example.cloudapp.net, which does not exist. Microsoft Azure lets anyone claim that name, so shop.example.com can be taken over."})" "\n",
+    R"("summary":"shop.example.com points to shop-example.cloudapp.net, which does not exist. Microsoft Azure lets anyone claim that name, so shop.example.com can be taken over.","credits":{"charged":1,"remaining":10}})" "\n",
     static_responseBody(buf));
   TEST_ASSERT_EQUAL_UINT(1, g_stub_last_credit_cost);
   TEST_ASSERT_EQUAL_STRING("shop.example.com", g_stub_DNSTAKEOVERCHECK_last_hostname);
@@ -4748,7 +4781,7 @@ void test_email_auth_check_answer_is_200(void)
   static_callRequestHandle("GET /email_auth_check/Example.COM?dkim_selector=Google HTTP/1.1\r\nX-API-Key: " VALID_KEY "\r\n\r\n", buf, sizeof(buf));
   TEST_ASSERT_EQUAL_INT(1, static_countResponses(buf));
   TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 200 OK\r\n"));
-  TEST_ASSERT_EQUAL_STRING(EMAILAUTHCHECK_STUB_BODY "\n", static_responseBody(buf));
+  static_assertBodyWithCredits(EMAILAUTHCHECK_STUB_BODY "\n", CREDITS_1, static_responseBody(buf));
   TEST_ASSERT_EQUAL_UINT(1, g_stub_last_credit_cost);
   TEST_ASSERT_EQUAL_STRING("example.com", g_stub_EMAILAUTHCHECK_last_domain);
   TEST_ASSERT_EQUAL_STRING("Google", g_stub_EMAILAUTHCHECK_last_dkim_selector);
@@ -4921,7 +4954,7 @@ void test_ssl_check_answer_is_200_and_is_kept_for_an_hour(void)
   static_SSLCHECKCheckedAtOf(body, checked_at);
   TEST_ASSERT_TRUE_MESSAGE(strcmp(before, checked_at) <= 0 && strcmp(checked_at, after) <= 0, checked_at);
   char* expected = static_SSLCHECKBodyOf("shop.example.com", checked_at);
-  TEST_ASSERT_EQUAL_STRING(expected, body);
+  static_assertBodyWithCredits(expected, CREDITS_1, body);
   free(expected);
 
   TEST_ASSERT_EQUAL_UINT(1, g_stub_last_credit_cost);
@@ -4935,8 +4968,8 @@ void test_ssl_check_answer_is_200_and_is_kept_for_an_hour(void)
   TEST_ASSERT_EQUAL_INT(1, g_stub_CACHE_put_count);
   TEST_ASSERT_EQUAL_STRING("ssl_check:shop.example.com", g_stub_CACHE_last_put_key);
   TEST_ASSERT_TRUE(g_stub_CACHE_last_put_conn == FAKE_CONN);
-  TEST_ASSERT_EQUAL_STRING(body, g_stub_CACHE_last_put_body);
-  TEST_ASSERT_EQUAL_size_t(strlen(body), g_stub_CACHE_last_put_body_len);
+  static_assertBodyWithCredits(g_stub_CACHE_last_put_body, CREDITS_1, body);
+  TEST_ASSERT_EQUAL_size_t(strlen(g_stub_CACHE_last_put_body), g_stub_CACHE_last_put_body_len);
   TEST_ASSERT_FALSE(g_stub_CACHE_last_put_is_error);
   TEST_ASSERT_EQUAL_UINT(3600, g_stub_CACHE_last_put_expires_after_seconds);
 }
@@ -4955,12 +4988,12 @@ void test_ssl_check_listed_certificate_is_named_and_kept(void)
   static const char listed_on[] =
     R"("dns_names_truncated":false,"listed_on":[{"source":"sslbl","listing_reason":"Dridex C&C","listing_time":"2024-05-06T07:08:09Z"}]},"chain":)";
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(body, listed_on), body);
-  static const char body_end[] = R"(,"chain_truncated":false,"unavailable":{}})" "\n";
+  static const char body_end[] = R"(,"chain_truncated":false,"unavailable":{},"credits":{"charged":1,"remaining":10}})" "\n";
   TEST_ASSERT_TRUE_MESSAGE(strlen(body) > strlen(body_end), body);
   TEST_ASSERT_EQUAL_STRING(body_end, body + strlen(body) - strlen(body_end));
   TEST_ASSERT_EQUAL_INT(1, g_stub_SSLCHECK_call_count);
   TEST_ASSERT_EQUAL_INT(1, g_stub_CACHE_put_count);
-  TEST_ASSERT_EQUAL_STRING(body, g_stub_CACHE_last_put_body);
+  static_assertBodyWithCredits(g_stub_CACHE_last_put_body, CREDITS_1, body);
 }
 
 void test_ssl_check_answer_without_a_loaded_list_is_not_kept(void)
@@ -4972,9 +5005,9 @@ void test_ssl_check_answer_without_a_loaded_list_is_not_kept(void)
     const char* mp_unavailable;
     int         m_putCount;
   } cases[] = {
-    { DB_ERROR, true,  R"("listed_on":null},"chain":)", R"(,"unavailable":{"listed_on":"database_error"}})", 0 },
-    { DB_OK,    false, R"("listed_on":null},"chain":)", R"(,"unavailable":{"listed_on":"not_synced"}})",     0 },
-    { DB_OK,    true,  R"("listed_on":[]},"chain":)",   R"(,"unavailable":{}})",                             1 },
+    { DB_ERROR, true,  R"("listed_on":null},"chain":)", R"(,"unavailable":{"listed_on":"database_error"},"credits":{"charged":1,"remaining":10}})", 0 },
+    { DB_OK,    false, R"("listed_on":null},"chain":)", R"(,"unavailable":{"listed_on":"not_synced"},"credits":{"charged":1,"remaining":10}})",     0 },
+    { DB_OK,    true,  R"("listed_on":[]},"chain":)",   R"(,"unavailable":{},"credits":{"charged":1,"remaining":10}})",                             1 },
   };
   g_stub_api_key_state = DB_API_KEY_ACTIVE;
   for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
@@ -5030,7 +5063,7 @@ void test_ssl_check_cached_answer_is_sent_as_it_was_kept(void)
   static_callRequestHandle("GET /ssl_check/Shop.Example.com HTTP/1.1\r\nX-API-Key: " VALID_KEY "\r\n\r\n", buf, sizeof(buf));
   TEST_ASSERT_EQUAL_INT(1, static_countResponses(buf));
   TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 200 OK\r\n"));
-  TEST_ASSERT_EQUAL_STRING(SSLCHECK_CACHED_BODY, static_responseBody(buf));
+  static_assertBodyWithCredits(SSLCHECK_CACHED_BODY, CREDITS_1, static_responseBody(buf));
   TEST_ASSERT_EQUAL_UINT(1, g_stub_last_credit_cost);
   TEST_ASSERT_EQUAL_INT(1, g_stub_CACHE_get_count);
   TEST_ASSERT_EQUAL_STRING("ssl_check:shop.example.com", g_stub_CACHE_last_get_key);
@@ -5053,7 +5086,7 @@ void test_ssl_check_probes_when_the_cache_misses_or_fails(void)
     static_callRequestHandle("GET /ssl_check/shop.example.com HTTP/1.1\r\nX-API-Key: " VALID_KEY "\r\n\r\n", buf, sizeof(buf));
     TEST_ASSERT_EQUAL_INT(1, static_countResponses(buf));
     TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 200 OK\r\n"));
-    TEST_ASSERT_EQUAL_STRING(g_stub_CACHE_last_put_body, static_responseBody(buf));
+    static_assertBodyWithCredits(g_stub_CACHE_last_put_body, CREDITS_1, static_responseBody(buf));
     TEST_ASSERT_EQUAL_INT(1, g_stub_TLSPROBE_call_count);
     TEST_ASSERT_EQUAL_INT(1, g_stub_CACHE_put_count);
   }
@@ -5068,7 +5101,7 @@ void test_ssl_check_answer_survives_a_failed_cache_write(void)
   TEST_ASSERT_EQUAL_INT(1, static_countResponses(buf));
   TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 200 OK\r\n"));
   TEST_ASSERT_EQUAL_INT(1, g_stub_CACHE_put_count);
-  TEST_ASSERT_EQUAL_STRING(g_stub_CACHE_last_put_body, static_responseBody(buf));
+  static_assertBodyWithCredits(g_stub_CACHE_last_put_body, CREDITS_1, static_responseBody(buf));
 }
 
 void test_ssl_check_refused_domain_is_400(void)
@@ -5428,10 +5461,10 @@ void test_headers_check_answer_is_200_and_is_kept_for_an_hour(void)
   TEST_ASSERT_EQUAL_INT(1, static_countResponses(buf));
   TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 200 OK\r\n"));
   char* body = (char*)static_responseBody(buf);
-  TEST_ASSERT_EQUAL_STRING(body, g_stub_CACHE_last_put_body);
-  TEST_ASSERT_EQUAL_size_t(strlen(body), g_stub_CACHE_last_put_body_len);
+  static_assertBodyWithCredits(g_stub_CACHE_last_put_body, CREDITS_1, body);
+  TEST_ASSERT_EQUAL_size_t(strlen(g_stub_CACHE_last_put_body), g_stub_CACHE_last_put_body_len);
   static_HEADERSCHECKMaskCheckedAt(body, before, after);
-  TEST_ASSERT_EQUAL_STRING(HEADERSCHECK_STUB_BODY, body);
+  static_assertBodyWithCredits(HEADERSCHECK_STUB_BODY, CREDITS_1, body);
 
   TEST_ASSERT_EQUAL_UINT(1, g_stub_last_credit_cost);
   TEST_ASSERT_EQUAL_INT(1, g_stub_HEADER_FETCH_call_count);
@@ -5471,7 +5504,7 @@ void test_headers_check_include_full_values_keeps_a_whole_value_under_a_key_of_i
     char* body = (char*)static_responseBody(buf);
     static_HEADERSCHECKMaskCheckedAt(body, before, after);
     char* expected = static_HEADERSCHECKBodyOf(cases[i].m_isFullHeaderValueIncluded);
-    TEST_ASSERT_EQUAL_STRING(expected, body);
+    static_assertBodyWithCredits(expected, CREDITS_1, body);
     free(expected);
     TEST_ASSERT_EQUAL_STRING(cases[i].mp_key, g_stub_CACHE_last_put_key);
   }
@@ -5487,7 +5520,7 @@ void test_headers_check_cached_answer_is_sent_as_it_was_kept(void)
   static_callRequestHandle("GET /headers_check/Www.Stub.Example.com?include_full_header_values=true HTTP/1.1\r\nX-API-Key: " VALID_KEY "\r\n\r\n", buf, sizeof(buf));
   TEST_ASSERT_EQUAL_INT(1, static_countResponses(buf));
   TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 200 OK\r\n"));
-  TEST_ASSERT_EQUAL_STRING(HEADERSCHECK_CACHED_BODY, static_responseBody(buf));
+  static_assertBodyWithCredits(HEADERSCHECK_CACHED_BODY, CREDITS_1, static_responseBody(buf));
   TEST_ASSERT_EQUAL_UINT(1, g_stub_last_credit_cost);
   TEST_ASSERT_EQUAL_INT(1, g_stub_CACHE_get_count);
   TEST_ASSERT_EQUAL_STRING("headers_check:full:www.stub.example.com", g_stub_CACHE_last_get_key);
@@ -5639,7 +5672,7 @@ void test_whois_lookup_answer_is_200_and_is_kept_for_an_hour(void)
   TEST_ASSERT_EQUAL_INT(1, static_countResponses(buf));
   TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 200 OK\r\n"));
   const char* body = static_responseBody(buf);
-  TEST_ASSERT_EQUAL_STRING(WHOISLOOKUP_STUB_BODY, body);
+  static_assertBodyWithCredits(WHOISLOOKUP_STUB_BODY, CREDITS_1, body);
   TEST_ASSERT_EQUAL_UINT(1, g_stub_last_credit_cost);
 
   TEST_ASSERT_EQUAL_INT(1, g_stub_RDAP_find_count);
@@ -5658,8 +5691,8 @@ void test_whois_lookup_answer_is_200_and_is_kept_for_an_hour(void)
   TEST_ASSERT_EQUAL_INT(1, g_stub_CACHE_put_count);
   TEST_ASSERT_EQUAL_STRING("rdap:example.co.uk", g_stub_CACHE_last_put_key);
   TEST_ASSERT_TRUE(g_stub_CACHE_last_put_conn == FAKE_CONN);
-  TEST_ASSERT_EQUAL_STRING(body, g_stub_CACHE_last_put_body);
-  TEST_ASSERT_EQUAL_size_t(strlen(body), g_stub_CACHE_last_put_body_len);
+  static_assertBodyWithCredits(g_stub_CACHE_last_put_body, CREDITS_1, body);
+  TEST_ASSERT_EQUAL_size_t(strlen(g_stub_CACHE_last_put_body), g_stub_CACHE_last_put_body_len);
   TEST_ASSERT_FALSE(g_stub_CACHE_last_put_is_error);
   TEST_ASSERT_EQUAL_UINT(3600, g_stub_CACHE_last_put_expires_after_seconds);
 }
@@ -5673,7 +5706,7 @@ void test_whois_lookup_cached_answer_is_sent_as_it_was_kept(void)
   static_callRequestHandle(WHOISLOOKUP_KEPT_REQUEST, buf, sizeof(buf));
   TEST_ASSERT_EQUAL_INT(1, static_countResponses(buf));
   TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 200 OK\r\n"));
-  TEST_ASSERT_EQUAL_STRING(WHOISLOOKUP_CACHED_BODY, static_responseBody(buf));
+  static_assertBodyWithCredits(WHOISLOOKUP_CACHED_BODY, CREDITS_1, static_responseBody(buf));
   TEST_ASSERT_EQUAL_UINT(1, g_stub_last_credit_cost);
   TEST_ASSERT_EQUAL_INT(1, g_stub_CACHE_get_count);
   TEST_ASSERT_EQUAL_STRING("rdap:example.co.uk", g_stub_CACHE_last_get_key);
@@ -5697,7 +5730,7 @@ void test_whois_lookup_asks_when_the_cache_misses_or_fails(void)
     static_callRequestHandle(WHOISLOOKUP_KEPT_REQUEST, buf, sizeof(buf));
     TEST_ASSERT_EQUAL_INT(1, static_countResponses(buf));
     TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 200 OK\r\n"));
-    TEST_ASSERT_EQUAL_STRING(WHOISLOOKUP_STUB_BODY, static_responseBody(buf));
+    static_assertBodyWithCredits(WHOISLOOKUP_STUB_BODY, CREDITS_1, static_responseBody(buf));
     TEST_ASSERT_EQUAL_STRING(WHOISLOOKUP_STUB_BODY, g_stub_CACHE_last_put_body);
     TEST_ASSERT_EQUAL_INT(1, g_stub_THROTTLE_charge_count);
     TEST_ASSERT_EQUAL_INT(1, g_stub_RDAP_lookup_count);
@@ -5713,7 +5746,7 @@ void test_whois_lookup_answer_survives_a_failed_cache_write(void)
   static_callRequestHandle(WHOISLOOKUP_KEPT_REQUEST, buf, sizeof(buf));
   TEST_ASSERT_EQUAL_INT(1, static_countResponses(buf));
   TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 200 OK\r\n"));
-  TEST_ASSERT_EQUAL_STRING(WHOISLOOKUP_STUB_BODY, static_responseBody(buf));
+  static_assertBodyWithCredits(WHOISLOOKUP_STUB_BODY, CREDITS_1, static_responseBody(buf));
   TEST_ASSERT_EQUAL_INT(1, g_stub_CACHE_put_count);
   TEST_ASSERT_EQUAL_STRING(WHOISLOOKUP_STUB_BODY, g_stub_CACHE_last_put_body);
 }
@@ -5762,9 +5795,9 @@ void test_whois_lookup_unavailable_and_failed_answers_on_both_transports(void)
     int              m_lookupCount;
   } cases[] = {
     { false, THROTTLE_CHARGED, RDAP_OK, "HTTP/1.1 200 OK\r\n",
-      R"({"domain":"example.co.uk","available":false,"registered":null,"reason":"no_registry_server","retry_after_seconds":null})" "\n", NULL, 0, 0 },
+      R"({"domain":"example.co.uk","available":false,"registered":null,"reason":"no_registry_server","retry_after_seconds":null,"credits":{"charged":1,"remaining":10}})" "\n", NULL, 0, 0 },
     { true, THROTTLE_REFUSED, RDAP_OK, "HTTP/1.1 200 OK\r\n",
-      R"({"domain":"example.co.uk","available":false,"registered":null,"reason":"quota_exhausted","retry_after_seconds":17})" "\n", NULL, 1, 0 },
+      R"({"domain":"example.co.uk","available":false,"registered":null,"reason":"quota_exhausted","retry_after_seconds":17,"credits":{"charged":1,"remaining":10}})" "\n", NULL, 1, 0 },
     { true, THROTTLE_ERROR, RDAP_OK, "HTTP/1.1 500 Internal Server Error\r\n",
       R"({"error":{"code":"internal_error","message":"internal server error"}})" "\n",
       R"({"jsonrpc":"2.0","id":54,"error":{"code":-32603,"message":"Internal error: database query failed"}})", 1, 0 },
@@ -5857,7 +5890,7 @@ void test_wayback_lookup_answer_is_200_and_is_kept_for_a_day(void)
   TEST_ASSERT_EQUAL_INT(1, static_countResponses(buf));
   TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 200 OK\r\n"));
   const char* body = static_responseBody(buf);
-  TEST_ASSERT_EQUAL_STRING(WAYBACKLOOKUP_STUB_BODY, body);
+  static_assertBodyWithCredits(WAYBACKLOOKUP_STUB_BODY, CREDITS_1, body);
   TEST_ASSERT_EQUAL_UINT(1, g_stub_last_credit_cost);
 
   TEST_ASSERT_EQUAL_INT(1, g_stub_WAYBACK_lookup_count);
@@ -5874,8 +5907,8 @@ void test_wayback_lookup_answer_is_200_and_is_kept_for_a_day(void)
   TEST_ASSERT_EQUAL_INT(1, g_stub_CACHE_put_count);
   TEST_ASSERT_EQUAL_STRING("wayback:www.example.com", g_stub_CACHE_last_put_key);
   TEST_ASSERT_TRUE(g_stub_CACHE_last_put_conn == FAKE_CONN);
-  TEST_ASSERT_EQUAL_STRING(body, g_stub_CACHE_last_put_body);
-  TEST_ASSERT_EQUAL_size_t(strlen(body), g_stub_CACHE_last_put_body_len);
+  static_assertBodyWithCredits(g_stub_CACHE_last_put_body, CREDITS_1, body);
+  TEST_ASSERT_EQUAL_size_t(strlen(g_stub_CACHE_last_put_body), g_stub_CACHE_last_put_body_len);
   TEST_ASSERT_FALSE(g_stub_CACHE_last_put_is_error);
   TEST_ASSERT_EQUAL_UINT(86400, g_stub_CACHE_last_put_expires_after_seconds);
 }
@@ -5919,7 +5952,7 @@ void test_cert_search_answer_is_200_for_two_credits_and_is_kept_for_a_day(void)
   TEST_ASSERT_EQUAL_INT(1, static_countResponses(buf));
   TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 200 OK\r\n"));
   const char* body = static_responseBody(buf);
-  TEST_ASSERT_EQUAL_STRING(CERTSEARCH_STUB_BODY, body);
+  static_assertBodyWithCredits(CERTSEARCH_STUB_BODY, CREDITS_2, body);
   TEST_ASSERT_EQUAL_UINT(2, g_stub_last_credit_cost);
 
   TEST_ASSERT_EQUAL_INT(1, g_stub_CERTSPOTTER_lookup_count);
@@ -5939,8 +5972,8 @@ void test_cert_search_answer_is_200_for_two_credits_and_is_kept_for_a_day(void)
   TEST_ASSERT_EQUAL_INT(1, g_stub_CACHE_put_count);
   TEST_ASSERT_EQUAL_STRING("certspotter:www.example.com", g_stub_CACHE_last_put_key);
   TEST_ASSERT_TRUE(g_stub_CACHE_last_put_conn == FAKE_CONN);
-  TEST_ASSERT_EQUAL_STRING(body, g_stub_CACHE_last_put_body);
-  TEST_ASSERT_EQUAL_size_t(strlen(body), g_stub_CACHE_last_put_body_len);
+  static_assertBodyWithCredits(g_stub_CACHE_last_put_body, CREDITS_2, body);
+  TEST_ASSERT_EQUAL_size_t(strlen(g_stub_CACHE_last_put_body), g_stub_CACHE_last_put_body_len);
   TEST_ASSERT_FALSE(g_stub_CACHE_last_put_is_error);
   TEST_ASSERT_EQUAL_UINT(86400, g_stub_CACHE_last_put_expires_after_seconds);
 }
@@ -5983,9 +6016,9 @@ void test_cert_search_unavailable_answer_is_200_and_is_not_kept(void)
     unsigned int        m_holdSeconds;
     const char*         mp_body;
   } cases[] = {
-    { QUOTA_EXHAUSTED, CERTSPOTTER_OK,           0,  R"({"domain":"www.example.com","available":false,"reason":"quota_exhausted","retry_after_seconds":1800})" "\n" },
-    { QUOTA_GRANTED,   CERTSPOTTER_RATE_LIMITED, 0,  R"({"domain":"www.example.com","available":false,"reason":"quota_exhausted","retry_after_seconds":61})" "\n" },
-    { QUOTA_GRANTED,   CERTSPOTTER_OK,           29, R"({"domain":"www.example.com","available":false,"reason":"quota_exhausted","retry_after_seconds":29})" "\n" },
+    { QUOTA_EXHAUSTED, CERTSPOTTER_OK,           0,  R"({"domain":"www.example.com","available":false,"reason":"quota_exhausted","retry_after_seconds":1800,"credits":{"charged":2,"remaining":10}})" "\n" },
+    { QUOTA_GRANTED,   CERTSPOTTER_RATE_LIMITED, 0,  R"({"domain":"www.example.com","available":false,"reason":"quota_exhausted","retry_after_seconds":61,"credits":{"charged":2,"remaining":10}})" "\n" },
+    { QUOTA_GRANTED,   CERTSPOTTER_OK,           29, R"({"domain":"www.example.com","available":false,"reason":"quota_exhausted","retry_after_seconds":29,"credits":{"charged":2,"remaining":10}})" "\n" },
   };
   g_stub_api_key_state = DB_API_KEY_ACTIVE;
   for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
@@ -6012,12 +6045,12 @@ void test_cert_search_unavailable_answer_is_200_and_is_not_kept(void)
   TEST_ASSERT_EQUAL_INT(0, g_stub_CACHE_put_count);
 }
 
-#define SUBDOMAINENUM_STUB_BODY                                                      \
-  R"({"domain":"example.com","subdomain_count":4,"subdomains":[)"                    \
-  R"({"hostname":"mail.example.com","sources":["dns_records"]},)"                    \
-  R"({"hostname":"www.example.com","sources":["certificate_logs","dns_wordlist"]},)" \
-  R"({"hostname":"api.example.com","sources":["certificate_logs"]},)"                \
-  R"({"hostname":"dev.example.com","sources":["certificate_logs"]}],)"               \
+#define SUBDOMAINENUM_STUB_BODY                                                                              \
+  R"({"domain":"example.com","subdomain_count":4,"subdomains":[)"                                            \
+  R"({"hostname":"mail.example.com","sources":["dns_records"],"has_ipv4_address":true},)"                    \
+  R"({"hostname":"www.example.com","sources":["certificate_logs","dns_wordlist"],"has_ipv4_address":true},)" \
+  R"({"hostname":"api.example.com","sources":["certificate_logs"],"has_ipv4_address":true},)"                \
+  R"({"hostname":"dev.example.com","sources":["certificate_logs"],"has_ipv4_address":true}],)"               \
   R"("wildcard_dns":"absent","certificate_logs_available":true,"certificate_logs_complete":false})" "\n"
 
 void test_subdomain_enum_is_one_upstream_thread_while_it_asks_cert_spotter(void)
@@ -6051,7 +6084,7 @@ void test_subdomain_enum_answer_is_200_for_two_credits_and_is_kept_for_a_day(voi
   TEST_ASSERT_EQUAL_INT(1, static_countResponses(buf));
   TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 200 OK\r\n"));
   const char* body = static_responseBody(buf);
-  TEST_ASSERT_EQUAL_STRING(SUBDOMAINENUM_STUB_BODY, body);
+  static_assertBodyWithCredits(SUBDOMAINENUM_STUB_BODY, CREDITS_2, body);
   TEST_ASSERT_EQUAL_UINT(2, g_stub_last_credit_cost);
 
   TEST_ASSERT_EQUAL_INT(1, g_stub_SUBDOMAIN_lookup_count);
@@ -6073,18 +6106,18 @@ void test_subdomain_enum_answer_is_200_for_two_credits_and_is_kept_for_a_day(voi
   TEST_ASSERT_EQUAL_INT(1, g_stub_CACHE_put_count);
   TEST_ASSERT_EQUAL_STRING("subdomain:example.com", g_stub_CACHE_last_put_key);
   TEST_ASSERT_TRUE(g_stub_CACHE_last_put_conn == FAKE_CONN);
-  TEST_ASSERT_EQUAL_STRING(body, g_stub_CACHE_last_put_body);
-  TEST_ASSERT_EQUAL_size_t(strlen(body), g_stub_CACHE_last_put_body_len);
+  static_assertBodyWithCredits(g_stub_CACHE_last_put_body, CREDITS_2, body);
+  TEST_ASSERT_EQUAL_size_t(strlen(g_stub_CACHE_last_put_body), g_stub_CACHE_last_put_body_len);
   TEST_ASSERT_FALSE(g_stub_CACHE_last_put_is_error);
   TEST_ASSERT_EQUAL_UINT(86400, g_stub_CACHE_last_put_expires_after_seconds);
 }
 
 void test_subdomain_enum_answer_without_certificate_logs_is_200_and_is_kept_for_its_wait_or_ten_minutes(void)
 {
-#define SUBDOMAINENUM_DNS_ONLY_HEAD                                                 \
-  R"({"domain":"example.com","subdomain_count":2,"subdomains":[)"                   \
-  R"({"hostname":"mail.example.com","sources":["dns_records"]},)"                   \
-  R"({"hostname":"www.example.com","sources":["dns_wordlist"]}],)"                  \
+#define SUBDOMAINENUM_DNS_ONLY_HEAD                                                        \
+  R"({"domain":"example.com","subdomain_count":2,"subdomains":[)"                          \
+  R"({"hostname":"mail.example.com","sources":["dns_records"],"has_ipv4_address":true},)"  \
+  R"({"hostname":"www.example.com","sources":["dns_wordlist"],"has_ipv4_address":true}],)" \
   R"("wildcard_dns":"absent","certificate_logs_available":false,)"
   static const struct {
     QuotaStatus_t       m_quotaStatus;
@@ -6093,10 +6126,10 @@ void test_subdomain_enum_answer_without_certificate_logs_is_200_and_is_kept_for_
     const char*         mp_body;
     unsigned int        m_keepSeconds;
   } cases[] = {
-    { QUOTA_EXHAUSTED, CERTSPOTTER_OK,             0,  SUBDOMAINENUM_DNS_ONLY_HEAD R"("certificate_logs_reason":"quota_exhausted","retry_after_seconds":1800})" "\n", 1800 },
-    { QUOTA_GRANTED,   CERTSPOTTER_RATE_LIMITED,   0,  SUBDOMAINENUM_DNS_ONLY_HEAD R"("certificate_logs_reason":"quota_exhausted","retry_after_seconds":61})" "\n",   600  },
-    { QUOTA_GRANTED,   CERTSPOTTER_OK,             29, SUBDOMAINENUM_DNS_ONLY_HEAD R"("certificate_logs_reason":"quota_exhausted","retry_after_seconds":29})" "\n",   600  },
-    { QUOTA_GRANTED,   CERTSPOTTER_UPSTREAM_ERROR, 0,  SUBDOMAINENUM_DNS_ONLY_HEAD R"("certificate_logs_reason":"upstream_error"})" "\n",                              600  },
+    { QUOTA_EXHAUSTED, CERTSPOTTER_OK,             0,  SUBDOMAINENUM_DNS_ONLY_HEAD R"("certificate_logs_reason":"quota_exhausted","retry_after_seconds":1800,"credits":{"charged":2,"remaining":10}})" "\n", 1800 },
+    { QUOTA_GRANTED,   CERTSPOTTER_RATE_LIMITED,   0,  SUBDOMAINENUM_DNS_ONLY_HEAD R"("certificate_logs_reason":"quota_exhausted","retry_after_seconds":61,"credits":{"charged":2,"remaining":10}})" "\n",   600  },
+    { QUOTA_GRANTED,   CERTSPOTTER_OK,             29, SUBDOMAINENUM_DNS_ONLY_HEAD R"("certificate_logs_reason":"quota_exhausted","retry_after_seconds":29,"credits":{"charged":2,"remaining":10}})" "\n",   600  },
+    { QUOTA_GRANTED,   CERTSPOTTER_UPSTREAM_ERROR, 0,  SUBDOMAINENUM_DNS_ONLY_HEAD R"("certificate_logs_reason":"upstream_error","credits":{"charged":2,"remaining":10}})" "\n",                              600  },
   };
 #undef SUBDOMAINENUM_DNS_ONLY_HEAD
   g_stub_api_key_state = DB_API_KEY_ACTIVE;
@@ -6177,7 +6210,7 @@ void test_ip_lookup_answer_is_200_for_the_canonical_address(void)
     int written = snprintf(req, sizeof(req), "GET /ip_lookup/%s HTTP/1.1\r\nX-API-Key: " VALID_KEY "\r\n\r\n", cases[i].mp_path);
     TEST_ASSERT_TRUE(written > 0 && (size_t)written < sizeof(req));
     char body[RESP_BUF];
-    written = snprintf(body, sizeof(body), R"({"ip_address":"%s)" IPLOOKUP_STUB_BODY_HEAD R"("ptr":"one.one.one.one","is_ptr_forward_confirmed":true,)" IPLOOKUP_STUB_BODY_TAIL R"("unavailable":{}})" "\n", cases[i].mp_canonical);
+    written = snprintf(body, sizeof(body), R"({"ip_address":"%s)" IPLOOKUP_STUB_BODY_HEAD R"("ptr":"one.one.one.one","is_ptr_forward_confirmed":true,)" IPLOOKUP_STUB_BODY_TAIL R"("unavailable":{},"credits":{"charged":1,"remaining":10}})" "\n", cases[i].mp_canonical);
     TEST_ASSERT_TRUE(written > 0 && (size_t)written < sizeof(body));
 
     char buf[RESP_BUF];
@@ -6317,7 +6350,7 @@ void test_ip_lookup_without_a_ptr_name_is_200_on_both_transports(void)
     g_stub_PTR_record_count = cases[i].m_recordCount;
     g_stub_PTR_free_count   = 0;
     char body[RESP_BUF];
-    int written = snprintf(body, sizeof(body), R"({"ip_address":"1.1.1.1)" IPLOOKUP_STUB_BODY_HEAD R"("ptr":null,"is_ptr_forward_confirmed":null,)" IPLOOKUP_STUB_BODY_TAIL R"("unavailable":%s})" "\n", cases[i].mp_unavailable);
+    int written = snprintf(body, sizeof(body), R"({"ip_address":"1.1.1.1)" IPLOOKUP_STUB_BODY_HEAD R"("ptr":null,"is_ptr_forward_confirmed":null,)" IPLOOKUP_STUB_BODY_TAIL R"("unavailable":%s,"credits":{"charged":1,"remaining":10}})" "\n", cases[i].mp_unavailable);
     TEST_ASSERT_TRUE(written > 0 && (size_t)written < sizeof(body));
     char buf[RESP_BUF];
 
@@ -6360,7 +6393,7 @@ void test_ip_lookup_forward_confirmation_reaches_the_body(void)
     g_stub_PTR_shown_name_index = cases[i].m_shownNameIndex;
     g_stub_PTR_free_count       = 0;
     char body[RESP_BUF];
-    int written = snprintf(body, sizeof(body), R"({"ip_address":"1.1.1.1)" IPLOOKUP_STUB_BODY_HEAD "%s" IPLOOKUP_STUB_BODY_TAIL R"("unavailable":%s})" "\n", cases[i].mp_ptrMembers, cases[i].mp_unavailable);
+    int written = snprintf(body, sizeof(body), R"({"ip_address":"1.1.1.1)" IPLOOKUP_STUB_BODY_HEAD "%s" IPLOOKUP_STUB_BODY_TAIL R"("unavailable":%s,"credits":{"charged":1,"remaining":10}})" "\n", cases[i].mp_ptrMembers, cases[i].mp_unavailable);
     TEST_ASSERT_TRUE(written > 0 && (size_t)written < sizeof(body));
     char buf[RESP_BUF];
 
@@ -6415,21 +6448,21 @@ void test_email_address_check_answer_is_200(void)
     { "Admin%2Bci%40Example.COM", true, "", DNS_LOOKUP_OK, EMAILCHECK_MAIL_ROUTE_MX, "example.com",
       R"({"email":"Admin+ci@example.com","domain":"example.com","domain_exists":true,"accepts_mail":true,"mail_route":"mx","mx_hosts":)"
       EMAILADDRESSCHECK_STUB_MX_HOSTS
-      R"(,"disposable":false,"disposable_listed_domain":null,"unavailable":{}})" "\n" },
+      R"(,"disposable":false,"disposable_listed_domain":null,"unavailable":{},"credits":{"charged":1,"remaining":10}})" "\n" },
     { "x.y@A.B.Mailinator.com", true, "mailinator.com", DNS_LOOKUP_OK, EMAILCHECK_MAIL_ROUTE_IMPLICIT_MX, "a.b.mailinator.com",
       R"({"email":"x.y@a.b.mailinator.com","domain":"a.b.mailinator.com","domain_exists":true,"accepts_mail":true,"mail_route":"implicit_mx","mx_hosts":[],)"
-      R"("disposable":true,"disposable_listed_domain":"mailinator.com","unavailable":{}})" "\n" },
+      R"("disposable":true,"disposable_listed_domain":"mailinator.com","unavailable":{},"credits":{"charged":1,"remaining":10}})" "\n" },
     { "noreply+ci@Gmail.com", false, "", DNS_LOOKUP_OK, EMAILCHECK_MAIL_ROUTE_NULL_MX, "gmail.com",
       R"({"email":"noreply+ci@gmail.com","domain":"gmail.com","domain_exists":true,"accepts_mail":false,"mail_route":"null_mx","mx_hosts":[],)"
       R"("disposable":null,"disposable_listed_domain":null,)"
-      R"("unavailable":{"disposable_listed_domain":"not_synced"}})" "\n" },
+      R"("unavailable":{"disposable_listed_domain":"not_synced"},"credits":{"charged":1,"remaining":10}})" "\n" },
     { "Support@Gone.Example.org", true, "", DNS_LOOKUP_NOT_FOUND, EMAILCHECK_MAIL_ROUTE_MX, "gone.example.org",
       R"({"email":"Support@gone.example.org","domain":"gone.example.org","domain_exists":false,"accepts_mail":false,"mail_route":null,"mx_hosts":[],)"
-      R"("disposable":false,"disposable_listed_domain":null,"unavailable":{}})" "\n" },
+      R"("disposable":false,"disposable_listed_domain":null,"unavailable":{},"credits":{"charged":1,"remaining":10}})" "\n" },
     { "bob@example.net", false, "", DNS_LOOKUP_OK, EMAILCHECK_MAIL_ROUTE_NONE, "example.net",
       R"({"email":"bob@example.net","domain":"example.net","domain_exists":true,"accepts_mail":false,"mail_route":"none","mx_hosts":[],)"
       R"("disposable":null,"disposable_listed_domain":null,)"
-      R"("unavailable":{"disposable_listed_domain":"not_synced"}})" "\n" },
+      R"("unavailable":{"disposable_listed_domain":"not_synced"},"credits":{"charged":1,"remaining":10}})" "\n" },
   };
   for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
   {
@@ -6548,7 +6581,7 @@ void test_email_address_check_no_db_is_500(void)
 
 #define ASNLOOKUP_STUB_BODY_COUNTS  R"(,"ipv4_prefix_count":1789,"ipv6_prefix_count":214,)"
 #define ASNLOOKUP_STUB_BODY_LISTS \
-  R"("ipv4_prefixes":)" ASNLOOKUP_STUB_IPV4_PREFIXES R"(,"ipv6_prefixes":)" ASNLOOKUP_STUB_IPV6_PREFIXES "}\n"
+  R"("ipv4_prefixes":)" ASNLOOKUP_STUB_IPV4_PREFIXES R"(,"ipv6_prefixes":)" ASNLOOKUP_STUB_IPV6_PREFIXES R"(,"credits":{"charged":1,"remaining":10}})" "\n"
 
 void test_asn_lookup_answer_is_200_for_the_canonical_target(void)
 {
@@ -7048,7 +7081,7 @@ void test_d3fend_for_attack_found_is_200(void)
   static_callRequestHandle("GET /d3fend_for_attack/T1055.012 HTTP/1.1\r\nX-API-Key: " VALID_KEY "\r\n\r\n", buf, sizeof(buf));
   TEST_ASSERT_EQUAL_INT(1, static_countResponses(buf));
   TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 200 OK\r\n"));
-  TEST_ASSERT_EQUAL_STRING(D3FENDFORATTACK_STUB_BODY, static_responseBody(buf));
+  static_assertBodyWithCredits(D3FENDFORATTACK_STUB_BODY, CREDITS_1, static_responseBody(buf));
   TEST_ASSERT_EQUAL_UINT(1, g_stub_last_credit_cost);
   TEST_ASSERT_EQUAL_INT(1, g_stub_D3FENDFORATTACK_call_count);
   TEST_ASSERT_EQUAL_STRING("T1055.012", g_stub_D3FENDFORATTACK_last_id);
@@ -7066,7 +7099,7 @@ void test_d3fend_for_attack_no_defense_is_200_with_empty_lists(void)
   TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 200 OK\r\n"));
   TEST_ASSERT_EQUAL_STRING(R"({"attack_technique_id":"T9999","attack_techniques":[],)"
                            R"("defense_count_by_defense_tactic":{"Model":0,"Harden":0,"Detect":0,"Isolate":0,"Deceive":0,"Evict":0,"Restore":0},)"
-                           R"("defenses":[]})" "\n", static_responseBody(buf));
+                           R"("defenses":[],"credits":{"charged":1,"remaining":10}})" "\n", static_responseBody(buf));
   TEST_ASSERT_EQUAL_UINT(1, g_stub_last_credit_cost);
   TEST_ASSERT_EQUAL_STRING("T9999", g_stub_D3FENDFORATTACK_last_id);
   TEST_ASSERT_EQUAL_INT(1, g_stub_D3FENDFORATTACKResultFree_call_count);
@@ -7128,7 +7161,7 @@ void test_driver_lookup_found_is_200(void)
   static_callRequestHandle("GET /driver_lookup/" DB_HIT_SHA256_OF_PASSWORD_UPPER " HTTP/1.1\r\nX-API-Key: " VALID_KEY "\r\n\r\n", buf, sizeof(buf));
   TEST_ASSERT_EQUAL_INT(1, static_countResponses(buf));
   TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 200 OK\r\n"));
-  TEST_ASSERT_EQUAL_STRING(DRIVERLOOKUP_STUB_BODY, static_responseBody(buf));
+  static_assertBodyWithCredits(DRIVERLOOKUP_STUB_BODY, CREDITS_1, static_responseBody(buf));
   TEST_ASSERT_EQUAL_UINT(1, g_stub_last_credit_cost);
   TEST_ASSERT_EQUAL_INT(1, g_stub_DRIVERLOOKUP_call_count);
   TEST_ASSERT_EQUAL_STRING(DB_HIT_SHA256_OF_PASSWORD_UPPER, g_stub_DRIVERLOOKUP_last_hash);
@@ -7175,7 +7208,7 @@ void test_driver_lookup_catalog_not_loaded_is_200_with_found_null(void)
   TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 200 OK\r\n"));
   TEST_ASSERT_EQUAL_STRING(R"({"hash":")" DB_HIT_SHA256_OF_PASSWORD R"(","hash_type":"sha256",)"
                            R"("data_source":{"source":"loldrivers","available":false,"reason":"not_synced","license":"Apache-2.0"},)"
-                           R"("found":null,"match_count":null,"matches":[]})" "\n", static_responseBody(buf));
+                           R"("found":null,"match_count":null,"matches":[],"credits":{"charged":1,"remaining":10}})" "\n", static_responseBody(buf));
   TEST_ASSERT_EQUAL_INT(1, g_stub_DRIVERLOOKUPRecordFree_call_count);
 }
 
@@ -7237,7 +7270,7 @@ void test_package_check_with_a_version_is_200(void)
   static_callRequestHandle("GET /package_check?ecosystem=pypi&name=Foo_Bar&version=2.19.0 HTTP/1.1\r\nX-API-Key: " VALID_KEY "\r\n\r\n", buf, sizeof(buf));
   TEST_ASSERT_EQUAL_INT(1, static_countResponses(buf));
   TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 200 OK\r\n"));
-  TEST_ASSERT_EQUAL_STRING(PACKAGECHECK_STUB_BODY_HEAD R"("fixed_version":")" PACKAGECHECK_STUB_FIXED_VERSION R"(",)" PACKAGECHECK_STUB_BODY_TAIL,
+  static_assertBodyWithCredits(PACKAGECHECK_STUB_BODY_HEAD R"("fixed_version":")" PACKAGECHECK_STUB_FIXED_VERSION R"(",)" PACKAGECHECK_STUB_BODY_TAIL, CREDITS_1,
                            static_responseBody(buf));
   TEST_ASSERT_EQUAL_UINT(1, g_stub_last_credit_cost);
   TEST_ASSERT_EQUAL_INT(1, g_stub_PACKAGECHECK_call_count);
@@ -7407,7 +7440,7 @@ void test_package_check_bulk_serves_each_kept_package(void)
   TEST_ASSERT_EQUAL_STRING(
     R"({"total":3,"processed":2,"successful":2,"skipped":1,"failed":0,"not_processed":[],)"
     R"("data_source":{"source":"osv","available":true},"results":)" PACKAGECHECKBULK_STUB_RESULTS
-    R"(,"attribution":)" PACKAGECHECKBULK_STUB_ATTRIBUTION "}\n", static_responseBody(buf));
+    R"(,"attribution":)" PACKAGECHECKBULK_STUB_ATTRIBUTION R"(,"credits":{"charged":2,"remaining":10}})" "\n", static_responseBody(buf));
   TEST_ASSERT_EQUAL_UINT(2, g_stub_last_credit_cost);
   TEST_ASSERT_EQUAL_INT(1, g_stub_PACKAGECHECKBULK_call_count);
   TEST_ASSERT_EQUAL_INT(2, g_stub_PACKAGECHECKBULK_last_item_count);
@@ -7430,7 +7463,7 @@ void test_package_check_bulk_every_package_skipped_asks_nothing(void)
   TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 200 OK\r\n"));
   TEST_ASSERT_EQUAL_STRING(
     R"({"total":1,"processed":0,"successful":0,"skipped":1,"failed":0,"not_processed":[],)"
-    R"("data_source":{"source":"osv","available":null},"results":[],"attribution":[]})" "\n", static_responseBody(buf));
+    R"("data_source":{"source":"osv","available":null},"results":[],"attribution":[],"credits":{"charged":1,"remaining":10}})" "\n", static_responseBody(buf));
   TEST_ASSERT_EQUAL_UINT(1, g_stub_last_credit_cost);
   TEST_ASSERT_EQUAL_INT(0, g_stub_PACKAGECHECKBULK_call_count);
 }
@@ -7776,7 +7809,7 @@ void test_driver_lookup_bulk_serves_each_hash_in_lower_case(void)
     R"("data_source":{"source":"loldrivers","available":true,"license":"Apache-2.0"},"results":[)"
     R"({"hash":")" DB_HIT_SHA256_OF_PASSWORD R"(","hash_type":"sha256","found":true,"match_count":1,"matches":)" DRIVERLOOKUP_STUB_MATCHES "}\n"
     R"(,{"hash":")" DB_HIT_MD5_OF_PASSWORD R"(","hash_type":"md5","found":true,"match_count":1,"matches":)" DRIVERLOOKUP_STUB_MATCHES "}\n"
-    "]}", static_responseBody(buf));
+    "]" R"(,"credits":{"charged":2,"remaining":10}})", static_responseBody(buf));
   TEST_ASSERT_EQUAL_UINT(2, g_stub_last_credit_cost);
   TEST_ASSERT_EQUAL_INT(1, g_stub_DRIVERLOOKUPBULK_call_count);
   TEST_ASSERT_EQUAL_INT(2, g_stub_DRIVERLOOKUPBULK_last_id_count);
@@ -7799,7 +7832,7 @@ void test_driver_lookup_bulk_failed_row_and_empty_catalog(void)
     R"({"total":2,"processed":2,"successful":1,"skipped":0,"failed":1,"not_processed":[],)"
     R"("data_source":{"source":"loldrivers","available":false,"reason":"not_synced","license":"Apache-2.0"},"results":[)"
     R"({"hash":")" DB_HIT_MD5_OF_PASSWORD R"(","hash_type":"md5","found":null,"match_count":null,"matches":[]})" "\n"
-    "]}", static_responseBody(buf));
+    "]" R"(,"credits":{"charged":2,"remaining":10}})", static_responseBody(buf));
 }
 
 void test_driver_lookup_bulk_every_element_skipped_asks_nothing(void)
@@ -7812,7 +7845,7 @@ void test_driver_lookup_bulk_every_element_skipped_asks_nothing(void)
   TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 200 OK\r\n"));
   TEST_ASSERT_EQUAL_STRING(
     R"({"total":1,"processed":0,"successful":0,"skipped":1,"failed":0,"not_processed":[],)"
-    R"("data_source":{"source":"loldrivers","available":null,"license":"Apache-2.0"},"results":[]})", static_responseBody(buf));
+    R"("data_source":{"source":"loldrivers","available":null,"license":"Apache-2.0"},"results":[],"credits":{"charged":1,"remaining":10}})", static_responseBody(buf));
   TEST_ASSERT_EQUAL_UINT(1, g_stub_last_credit_cost);
   TEST_ASSERT_EQUAL_INT(0, g_stub_DRIVERLOOKUPBULK_call_count);
 }
@@ -7895,7 +7928,7 @@ void test_EPSSRISERS_defaults_reach_db_params(void)
   TEST_ASSERT_EQUAL_STRING("", g_stub_EPSSRISERS_last_params.ma_vendor);
   TEST_ASSERT_EQUAL_STRING("", g_stub_EPSSRISERS_last_params.ma_product);
   TEST_ASSERT_NOT_NULL(strstr(buf, R"({"window_days":7,"from_date":"2026-11-12","to_date":"2026-11-19","total":1,"limit":20,"offset":0,"next_offset":1,"results":[)"));
-  TEST_ASSERT_NOT_NULL(strstr(buf, R"({"cve_id":"CVE-2025-55182","epss_score":0.81870,"epss_previous_score":0.03042,"epss_delta":0.78828,"epss_percentile":0.99412,"in_kev":true}]})"));
+  TEST_ASSERT_NOT_NULL(strstr(buf, R"({"cve_id":"CVE-2025-55182","epss_score":0.81870,"epss_previous_score":0.03042,"epss_delta":0.78828,"epss_percentile":0.99412,"in_kev":true}],"credits":{"charged":1,"remaining":10}})"));
   TEST_ASSERT_NULL(strstr(buf, "window_note"));
   TEST_ASSERT_EQUAL_INT(1, g_stub_EPSSRISERSResultFree_call_count);
 }
@@ -7954,7 +7987,7 @@ void test_EPSSRISERS_uncomputable_window_answers_200_with_window_note(void)
   static_callRequestHandle("GET /epss_risers?window_days=30 HTTP/1.1\r\nHost: localhost\r\n\r\n", buf, sizeof(buf));
   TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 200"));
   TEST_ASSERT_NOT_NULL(strstr(buf, R"({"window_days":30,"from_date":null,"to_date":"2026-11-19","window_note":"EPSS history holds no day that can start this window yet","total":0,)"));
-  TEST_ASSERT_NOT_NULL(strstr(buf, R"("results":[]})"));
+  TEST_ASSERT_NOT_NULL(strstr(buf, R"("results":[],"credits":{"charged":1,"remaining":10}})"));
 }
 
 void test_EPSSRISERS_price_is_flat(void)
@@ -8880,7 +8913,7 @@ void test_CVETRIAGE_full_page_past_initial_capacity_ships_whole(void)
   body += 4;
   TEST_ASSERT_GREATER_THAN_size_t(JSONBUF_INITIAL_CAP, strlen(body));
   TEST_ASSERT_EQUAL_INT(CVE_LIST_MAX_LIMIT, static_countOccurrences(body, R"("cve_id":)"));
-  static_assertBodyEndsWith(body, "]}\n");
+  static_assertBodyEndsWith(body, R"(],"credits":{"charged":1,"remaining":10}})" "\n");
 }
 
 #define FAT_AFFECTED_PRODUCTS_LEN (80u * 1024u)
@@ -8913,7 +8946,7 @@ void test_CVELOOKUPBULK_body_just_under_ceiling_ships_whole(void)
   body += 4;
   size_t body_len = strlen(body);
   TEST_ASSERT_GREATER_THAN_size_t(JSONBUF_DEFAULT_CEILING / 4 * 3, body_len);
-  static_assertBodyEndsWith(body, "]}");
+  static_assertBodyEndsWith(body, "\n" R"(],"credits":{"charged":50,"remaining":10}})");
   const char* cursor = body;
   for (int i = 0; i < CVELOOKUPBULK_MAX_IDS; i++)
   {
@@ -8953,7 +8986,7 @@ static void static_assertPageShipsWhole(const char* path)
   body += 4;
   TEST_ASSERT_GREATER_THAN_size_t_MESSAGE(JSONBUF_INITIAL_CAP, strlen(body), "the page no longer outgrows the starting capacity");
   TEST_ASSERT_EQUAL_INT(LIST_PAGE_ITEMS, static_countOccurrences(body, R"("cve_id":)"));
-  static_assertBodyEndsWith(body, "]}\n");
+  static_assertBodyEndsWith(body, R"(],"credits":{"charged":1,"remaining":10}})" "\n");
 }
 
 static void static_assertPageThatCannotGrowAnswers500(const char* path)
@@ -9009,7 +9042,7 @@ void test_CVELOOKUP_record_past_initial_capacity_ships_whole(void)
   body += 4;
   size_t body_len = strlen(body);
   TEST_ASSERT_GREATER_THAN_size_t(JSONBUF_INITIAL_CAP, body_len);
-  static_assertBodyEndsWith(body, R"(?include_ghsa=true"})" "\n");
+  static_assertBodyEndsWith(body, R"(?include_ghsa=true","credits":{"charged":1,"remaining":10}})" "\n");
 }
 
 void test_CVELOOKUP_record_just_under_ceiling_ships_whole(void)
@@ -9029,7 +9062,7 @@ void test_CVELOOKUP_record_just_under_ceiling_ships_whole(void)
   body += 4;
   size_t body_len = strlen(body);
   TEST_ASSERT_GREATER_THAN_size_t(JSONBUF_DEFAULT_CEILING - JSONBUF_INITIAL_CAP, body_len);
-  static_assertBodyEndsWith(body, R"(?include_ghsa=true"})" "\n");
+  static_assertBodyEndsWith(body, R"(?include_ghsa=true","credits":{"charged":1,"remaining":10}})" "\n");
   free(buf);
 }
 
@@ -9228,7 +9261,7 @@ void test_KEVLOOKUP_body_past_initial_capacity_ships_whole(void)
   TEST_ASSERT_NOT_NULL(body);
   body += 4;
   TEST_ASSERT_GREATER_THAN_size_t(JSONBUF_INITIAL_CAP, strlen(body));
-  static_assertBodyEndsWith(body, R"("date_removed":""})" "\n");
+  static_assertBodyEndsWith(body, R"("date_removed":"","credits":{"charged":1,"remaining":10}})" "\n");
 }
 
 void test_CWELOOKUP_body_past_initial_capacity_ships_whole(void)
@@ -9247,7 +9280,7 @@ void test_CWELOOKUP_body_past_initial_capacity_ships_whole(void)
   TEST_ASSERT_NOT_NULL(body);
   body += 4;
   TEST_ASSERT_GREATER_THAN_size_t(JSONBUF_INITIAL_CAP, strlen(body));
-  static_assertBodyEndsWith(body, R"("updated_at":"2026-05-21T00:00:00+00:00"})" "\n");
+  static_assertBodyEndsWith(body, R"("updated_at":"2026-05-21T00:00:00+00:00","credits":{"charged":1,"remaining":10}})" "\n");
 }
 
 void test_HEALTH_body_past_initial_capacity_ships_whole(void)
@@ -9264,7 +9297,7 @@ void test_HEALTH_body_past_initial_capacity_ships_whole(void)
   TEST_ASSERT_NOT_NULL(body);
   body += 4;
   TEST_ASSERT_GREATER_THAN_size_t(JSONBUF_INITIAL_CAP, strlen(body));
-  static_assertBodyEndsWith(body, R"("records_updated":31}]}})" "\n");
+  static_assertBodyEndsWith(body, R"("records_updated":31}]},"credits":{"charged":0}})" "\n");
 }
 
 void test_CVEEXPLOIT_body_past_initial_capacity_ships_whole(void)
@@ -9282,7 +9315,7 @@ void test_CVEEXPLOIT_body_past_initial_capacity_ships_whole(void)
   TEST_ASSERT_NOT_NULL(body);
   body += 4;
   TEST_ASSERT_GREATER_THAN_size_t(JSONBUF_INITIAL_CAP, strlen(body));
-  static_assertBodyEndsWith(body, R"(]}]})" "\n");
+  static_assertBodyEndsWith(body, R"(]}],"credits":{"charged":1,"remaining":10}})" "\n");
 }
 
 void test_CVEEXPLOIT_github_unavailable_is_200_with_available_false(void)
@@ -11424,6 +11457,21 @@ static size_t static_CVELOOKUPStateIndex(const CveServicesCveIdState_t* states, 
   return s;
 }
 
+static void static_readServedCreditsTail(char* tail_out, size_t tail_size)
+{
+  g_stub_CVELOOKUP_status        = DB_NOT_FOUND;
+  g_stub_credit_budget_remaining = 30;
+  char buf[RESP_BUF];
+  static_callRequestHandle("GET /cve_lookup/CVE-2026-00001 HTTP/1.1\r\n\r\n", buf, sizeof(buf));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "HTTP/1.1 404"), buf);
+  const char* tail = strstr(static_responseBody(buf), R"(,"credits":{)");
+  TEST_ASSERT_NOT_NULL_MESSAGE(tail, buf);
+  size_t tail_len = strcspn(tail, "\n");
+  TEST_ASSERT_TRUE(tail_len < tail_size);
+  memcpy(tail_out, tail, tail_len);
+  tail_out[tail_len] = '\0';
+}
+
 void test_docs_cve_org_state_copies_match_the_server(void)
 {
   static const CveServicesCveIdState_t STATES[] = {
@@ -11457,6 +11505,12 @@ void test_docs_cve_org_state_copies_match_the_server(void)
   }
 
   static const char MISS_START[] = R"({"error":{"code":"not_found","message":"CVE not found;)";
+  char CREDITS_TAIL[DOCS_ROW_MAX];
+  static_readServedCreditsTail(CREDITS_TAIL, sizeof(CREDITS_TAIL));
+  const size_t CREDITS_TAIL_LEN = strlen(CREDITS_TAIL);
+  TEST_ASSERT_TRUE_MESSAGE(CREDITS_TAIL_LEN > strlen(":1,:29}}"), CREDITS_TAIL);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(CREDITS_TAIL, "\":1,\""), CREDITS_TAIL);
+  TEST_ASSERT_EQUAL_STRING_MESSAGE("\":29}}", CREDITS_TAIL + CREDITS_TAIL_LEN - strlen("\":29}}"), CREDITS_TAIL);
   int body_count = 0;
   for (const char* found = strstr(section, MISS_START); found && found < section_end; found = strstr(found + 1, MISS_START))
   {
@@ -11466,8 +11520,10 @@ void test_docs_cve_org_state_copies_match_the_server(void)
     size_t s = static_CVELOOKUPStateIndex(STATES, STATE_COUNT, state_at, strcspn(state_at, "\""));
     TEST_ASSERT_TRUE_MESSAGE(s < STATE_COUNT, "docs miss body names no state the server names");
     size_t body_len = strlen(bodies[s]);
-    TEST_ASSERT_EQUAL_INT_MESSAGE(0, strncmp(found, bodies[s], body_len), "docs miss body differs from the server's");
-    TEST_ASSERT_EQUAL_CHAR_MESSAGE('\n', found[body_len], "docs miss body has more after the server's");
+    TEST_ASSERT_TRUE(body_len > 0 && bodies[s][body_len - 1] == '}');
+    TEST_ASSERT_EQUAL_INT_MESSAGE(0, strncmp(found, bodies[s], body_len - 1), "docs miss body differs from the server's");
+    TEST_ASSERT_EQUAL_INT_MESSAGE(0, strncmp(found + body_len - 1, CREDITS_TAIL, CREDITS_TAIL_LEN), "docs miss body does not end with the credits member");
+    TEST_ASSERT_EQUAL_CHAR_MESSAGE('\n', found[body_len - 1 + CREDITS_TAIL_LEN], "docs miss body has more after the credits member");
     body_count++;
   }
   TEST_ASSERT_TRUE_MESSAGE(body_count >= 2, "docs show fewer than two miss bodies");
@@ -11479,8 +11535,10 @@ void test_docs_cve_org_state_copies_match_the_server(void)
     size_t s = static_CVELOOKUPStateIndex(STATES, STATE_COUNT, state_at, strcspn(state_at, "\""));
     TEST_ASSERT_TRUE_MESSAGE(s < STATE_COUNT, "docs miss body anywhere names no state the server names");
     size_t body_len = strlen(bodies[s]);
-    TEST_ASSERT_EQUAL_INT_MESSAGE(0, strncmp(found, bodies[s], body_len), "docs miss body anywhere differs from the server's");
-    TEST_ASSERT_TRUE_MESSAGE(found[body_len] == '\n' || found[body_len] == '`', "docs miss body anywhere has more after the server's");
+    TEST_ASSERT_EQUAL_INT_MESSAGE(0, strncmp(found, bodies[s], body_len - 1), "docs miss body anywhere differs from the server's");
+    TEST_ASSERT_EQUAL_INT_MESSAGE(0, strncmp(found + body_len - 1, CREDITS_TAIL, CREDITS_TAIL_LEN), "docs miss body anywhere does not end with the credits member");
+    char after_tail = found[body_len - 1 + CREDITS_TAIL_LEN];
+    TEST_ASSERT_TRUE_MESSAGE(after_tail == '\n' || after_tail == '`', "docs miss body anywhere has more after the credits member");
   }
   int row_count = 0;
   for (const char* r = strstr(section, "` | `CVE not found"); r && r < section_end; r = strstr(r + 1, "` | `CVE not found"))
@@ -11520,8 +11578,23 @@ void test_docs_cve_org_state_copies_match_the_server(void)
   }
   escaped[escaped_len] = '\0';
   TEST_ASSERT_EQUAL_CHAR_MESSAGE('\0', *c, "the escaped body does not fit DOCS_ROW_MAX");
-  TEST_ASSERT_EQUAL_INT_MESSAGE(0, strncmp(text, escaped, escaped_len), "docs MCP state-known text differs from the server's body");
-  TEST_ASSERT_EQUAL_INT_MESSAGE(0, strncmp(text + escaped_len, R"(\n"}],"isError":true}}`)", strlen(R"(\n"}],"isError":true}}`)")), "docs MCP state-known text does not end as the server's");
+  TEST_ASSERT_TRUE(escaped_len > 0 && escaped[escaped_len - 1] == '}');
+  char ESCAPED_CREDITS_TAIL[DOCS_ROW_MAX];
+  size_t escaped_tail_len = 0;
+  const char* t = CREDITS_TAIL;
+  for (; *t && escaped_tail_len + 2 < sizeof(ESCAPED_CREDITS_TAIL); t++)
+  {
+    if (*t == '"' || *t == '\\')
+      ESCAPED_CREDITS_TAIL[escaped_tail_len++] = '\\';
+    ESCAPED_CREDITS_TAIL[escaped_tail_len++] = *t;
+  }
+  ESCAPED_CREDITS_TAIL[escaped_tail_len] = '\0';
+  TEST_ASSERT_EQUAL_CHAR_MESSAGE('\0', *t, "the escaped credits member does not fit DOCS_ROW_MAX");
+  static const char MCP_ROW_END[] = R"(\n"}],"isError":true}}`)";
+  const char* tail_at = text + escaped_len - 1;
+  TEST_ASSERT_EQUAL_INT_MESSAGE(0, strncmp(text, escaped, escaped_len - 1), "docs MCP state-known text differs from the server's body");
+  TEST_ASSERT_EQUAL_INT_MESSAGE(0, strncmp(tail_at, ESCAPED_CREDITS_TAIL, strlen(ESCAPED_CREDITS_TAIL)), "docs MCP state-known text does not end with the credits member");
+  TEST_ASSERT_EQUAL_INT_MESSAGE(0, strncmp(tail_at + strlen(ESCAPED_CREDITS_TAIL), MCP_ROW_END, strlen(MCP_ROW_END)), "docs MCP state-known text does not end as the server's");
   free(mcp);
 
   char* llms = static_readDocsFile("web/llms.txt");
@@ -14523,12 +14596,12 @@ void test_webhook_lemonsqueezy_each_action_reaches_its_billing_function(void)
     DbBillingEventStatus_t m_status;
     const char*            mp_answer;
   } cases[] = {
-    { 0, "db_billingLemonSqueezyOrderPaid",   WEBHOOK_ORDER_WEBHOOK_ID,   DB_BILLING_EVENT_APPLIED,       "{\"status\":\"stub_status_0\"}\n" },
-    { 1, "db_billingLemonSqueezySetExpiry",   WEBHOOK_SUB_WEBHOOK_ID,     DB_BILLING_EVENT_DUPLICATE,     "{\"status\":\"stub_status_1\"}\n" },
-    { 2, "db_billingLemonSqueezyClearExpiry", WEBHOOK_SUB_WEBHOOK_ID,     DB_BILLING_EVENT_EXISTS,        "{\"status\":\"stub_status_2\"}\n" },
-    { 3, "db_billingLemonSqueezyRevoke",      WEBHOOK_SUB_WEBHOOK_ID,     DB_BILLING_EVENT_STALE,         "{\"status\":\"stub_status_3\"}\n" },
-    { 4, "db_billingLemonSqueezyEventRecord", WEBHOOK_INVOICE_WEBHOOK_ID, DB_BILLING_EVENT_ORDER_REVOKED, "{\"status\":\"stub_status_4\"}\n" },
-    { 5, "db_billingLemonSqueezyEventRecord", WEBHOOK_ORDER_WEBHOOK_ID,   DB_BILLING_EVENT_UNKNOWN_ORDER, "{\"status\":\"stub_status_5\"}\n" },
+    { 0, "db_billingLemonSqueezyOrderPaid",   WEBHOOK_ORDER_WEBHOOK_ID,   DB_BILLING_EVENT_APPLIED,       "{\"status\":\"stub_status_0\",\"credits\":{\"charged\":0}}\n" },
+    { 1, "db_billingLemonSqueezySetExpiry",   WEBHOOK_SUB_WEBHOOK_ID,     DB_BILLING_EVENT_DUPLICATE,     "{\"status\":\"stub_status_1\",\"credits\":{\"charged\":0}}\n" },
+    { 2, "db_billingLemonSqueezyClearExpiry", WEBHOOK_SUB_WEBHOOK_ID,     DB_BILLING_EVENT_EXISTS,        "{\"status\":\"stub_status_2\",\"credits\":{\"charged\":0}}\n" },
+    { 3, "db_billingLemonSqueezyRevoke",      WEBHOOK_SUB_WEBHOOK_ID,     DB_BILLING_EVENT_STALE,         "{\"status\":\"stub_status_3\",\"credits\":{\"charged\":0}}\n" },
+    { 4, "db_billingLemonSqueezyEventRecord", WEBHOOK_INVOICE_WEBHOOK_ID, DB_BILLING_EVENT_ORDER_REVOKED, "{\"status\":\"stub_status_4\",\"credits\":{\"charged\":0}}\n" },
+    { 5, "db_billingLemonSqueezyEventRecord", WEBHOOK_ORDER_WEBHOOK_ID,   DB_BILLING_EVENT_UNKNOWN_ORDER, "{\"status\":\"stub_status_5\",\"credits\":{\"charged\":0}}\n" },
   };
   const char* bodies[] = { WEBHOOK_ORDER_BODY, WEBHOOK_SUB_BODY, resumed, expired, WEBHOOK_INVOICE_BODY, refunded };
 
@@ -14613,7 +14686,7 @@ void test_webhook_lemonsqueezy_answers_an_ignored_event_without_a_billing_call(v
     char buf[RESP_BUF];
     static_postSignedWebhook(bodies[i], buf, sizeof(buf));
     TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "HTTP/1.1 200"), buf);
-    TEST_ASSERT_EQUAL_STRING_MESSAGE("{\"status\":\"ignored\"}\n", static_responseBody(buf), bodies[i]);
+    TEST_ASSERT_EQUAL_STRING_MESSAGE("{\"status\":\"ignored\",\"credits\":{\"charged\":0}}\n", static_responseBody(buf), bodies[i]);
   }
   TEST_ASSERT_EQUAL_INT(0, g_stub_billing_call_count);
 }
@@ -14739,7 +14812,7 @@ void test_webhook_nowpayments_python_vector_writes_a_paid_order(void)
   static_postNowPayments("x-nowpayments-sig: " NP_RAW_BODY_HMAC "\r\n", NP_RAW_BODY, strlen(NP_RAW_BODY), buf, sizeof(buf));
 
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "HTTP/1.1 200 OK"), buf);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "{\"status\":\"stub_status_0\"}\n"), buf);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "{\"status\":\"stub_status_0\",\"credits\":{\"charged\":0}}\n"), buf);
   TEST_ASSERT_EQUAL_INT(1, g_jsonCanonCallCount);
   TEST_ASSERT_EQUAL_INT(1, g_stub_billing_call_count);
   TEST_ASSERT_EQUAL_STRING("db_billingNowPaymentsOrderPaid", g_stub_billing_last_function);
@@ -14775,7 +14848,7 @@ void test_webhook_nowpayments_tolerated_partial_payment_is_written(void)
   char buf[RESP_BUF];
   static_postSignedNowPayments(NP_PAID_BODY, buf, sizeof(buf));
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "HTTP/1.1 200 OK"), buf);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "{\"status\":\"stub_status_1\"}\n"), buf);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "{\"status\":\"stub_status_1\",\"credits\":{\"charged\":0}}\n"), buf);
   TEST_ASSERT_EQUAL_INT(1, g_stub_billing_call_count);
   TEST_ASSERT_EQUAL_STRING("partially_paid", g_stub_billing_last_np_event_name);
   TEST_ASSERT_EQUAL_STRING("paid:77", g_stub_billing_last_np_event_ref);
@@ -14876,7 +14949,7 @@ void test_webhook_nowpayments_ignored_and_refused_events_write_nothing(void)
   char buf[RESP_BUF];
   static_postSignedNowPayments(NP_WAITING_BODY, buf, sizeof(buf));
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "HTTP/1.1 200 OK"), buf);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "{\"status\":\"ignored\"}\n"), buf);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "{\"status\":\"ignored\",\"credits\":{\"charged\":0}}\n"), buf);
 
   static_postSignedNowPayments("{\"order_id\":\"" NP_ORDER_ID "\",\"payment_status\":\"finished\"}", buf, sizeof(buf));
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "HTTP/1.1 400"), buf);
@@ -15017,7 +15090,7 @@ void test_crypto_checkout_answers_the_invoice_and_pays_one_credit(void)
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "X-RateLimit-Remaining"), buf);
 
   char expected[256];
-  snprintf(expected, sizeof(expected), "{\"invoice_id\":\"5532266\",\"invoice_url\":\"https://nowpayments.io/payment/?iid=5532266\",\"order_id\":\"%s\"}\n", g_stub_nowpayments_last_order_id);
+  snprintf(expected, sizeof(expected), "{\"invoice_id\":\"5532266\",\"invoice_url\":\"https://nowpayments.io/payment/?iid=5532266\",\"order_id\":\"%s\",\"credits\":{\"charged\":1,\"remaining\":10}}\n", g_stub_nowpayments_last_order_id);
   TEST_ASSERT_EQUAL_STRING(expected, static_responseBody(buf));
 }
 
@@ -15085,7 +15158,7 @@ static void static_claimedKey(const char* buf, char key_out[API_KEY_TOTAL_LEN + 
   const char* prefix = "{\"api_key\":\"";
   TEST_ASSERT_EQUAL_INT_MESSAGE(0, strncmp(body, prefix, strlen(prefix)), buf);
   const char* key = body + strlen(prefix);
-  TEST_ASSERT_EQUAL_STRING_MESSAGE("\"}\n", key + API_KEY_TOTAL_LEN, buf);
+  TEST_ASSERT_EQUAL_STRING_MESSAGE("\",\"credits\":{\"charged\":0}}\n", key + API_KEY_TOTAL_LEN, buf);
   memcpy(key_out, key, API_KEY_TOTAL_LEN);
   key_out[API_KEY_TOTAL_LEN] = '\0';
 }
@@ -15209,7 +15282,7 @@ void test_api_key_claim_refuses_an_order_id_that_is_not_a_uuid(void)
 
 void test_registration_gate_test_count(void)
 {
-  int expected_test_count = 779;
+  int expected_test_count = 800;
   TEST_ASSERT_EQUAL_INT_MESSAGE(expected_test_count, (int)Unity.NumberOfTests,
     "RUN_TEST list and test definitions have drifted apart - a test may be unregistered");
 }
@@ -15623,9 +15696,6 @@ static char* static_mcpAnswerForParityCall(const ParityCall_t* call)
 {
   const Endpoint_t* endpoint = endpoint_findByMcpName(call->mp_tool);
   TEST_ASSERT_NOT_NULL_MESSAGE(endpoint, call->mp_tool);
-  if (!endpoint->m_readsCreditBudget)
-    return static_mcpArgumentsCall(call->mp_tool, call->mp_mcpArguments);
-
   static char buf[RESP_BUF];
   char* copy = strdup(static_mcpCallThroughRequestHandle(call->m_needsApiKey ? PARITY_KEY_HEADER : "", call->mp_tool, call->mp_mcpArguments, NULL, buf, sizeof(buf)));
   TEST_ASSERT_NOT_NULL(copy);
@@ -16900,8 +16970,8 @@ void test_watchlist_package_list_answers_alike_on_rest_and_mcp(void)
   const char* add    = R"({"action":"add","packages":[{"ecosystem":"npm","name":"lodash"},{"ecosystem":"PyPI","name":"Django","version":"4.2.1"}]})";
   const char* remove = R"({"action":"remove","packages":[{"ecosystem":"npm","name":"lodash"},{"ecosystem":"PyPI","name":"Django","version":"4.2.1"}]})";
   const struct { const char* mp_object; WATCHLISTEDITAction_t m_action; const char* mp_body; } edits[] = {
-    { add,    WATCHLISTEDIT_ACTION_ADD,    R"({"added_count":1,"unchanged_count":2,"package_item_count":3,"package_item_limit":500})" "\n" },
-    { remove, WATCHLISTEDIT_ACTION_REMOVE, R"({"removed_count":1,"unchanged_count":2,"package_item_count":3,"package_item_limit":500})" "\n" },
+    { add,    WATCHLISTEDIT_ACTION_ADD,    R"({"added_count":1,"unchanged_count":2,"package_item_count":3,"package_item_limit":500,"credits":{"charged":1,"remaining":10}})" "\n" },
+    { remove, WATCHLISTEDIT_ACTION_REMOVE, R"({"removed_count":1,"unchanged_count":2,"package_item_count":3,"package_item_limit":500,"credits":{"charged":1,"remaining":10}})" "\n" },
   };
   for (size_t i = 0; i < sizeof(edits) / sizeof(edits[0]); i++)
   {
@@ -16928,7 +16998,7 @@ void test_watchlist_package_list_answers_alike_on_rest_and_mcp(void)
   TEST_ASSERT_EQUAL_INT(400, static_watchlistRestBody(refused, rest_body, sizeof(rest_body)));
   TEST_ASSERT_EQUAL_STRING(R"({"error":{"code":"bad_request","message":"packages holds elements that are not packages or that repeat an earlier element: problems lists each one, and nothing changed"},"problems":[)"
                            R"({"index":1,"ecosystem":null,"name":null,"version":null,"reason":"the element is not a JSON object"},)"
-                           R"({"index":2,"ecosystem":"PyPI","name":"foo-bar","version":null,"reason":"names the package and version of packages[0] once the names are normalized"}]})" "\n",
+                           R"({"index":2,"ecosystem":"PyPI","name":"foo-bar","version":null,"reason":"names the package and version of packages[0] once the names are normalized"}],"credits":{"charged":1,"remaining":10}})" "\n",
                            rest_body);
   TEST_ASSERT_EQUAL_UINT(1, g_stub_last_credit_cost);
   TEST_ASSERT_TRUE(static_mcpToolText("watchlist_edit", refused, mcp_text, sizeof(mcp_text)));
@@ -17324,7 +17394,7 @@ void test_watchlist_events_rest_body_holds_items_and_domains(void)
     R"x("domains":{"example.com":{"registered_domain":"example.com","dns_presence":"found","ns":["ns1.example.org"],"mx":["10 mx.example.com"],)x"
       R"x("ip_address_reachability":"public","cname_takeover":"none","email_auth_failing":{"dmarc_record":"fail","dmarc_policy":"warn"}}},)x"
     R"x("advisories":{"GHSA-p6mc-m468-83gw":{"source":"ghsa","aliases":["CVE-2020-8203"]}},)x"
-    R"x("attribution":[{"source":"endoflife.date","license":"MIT"},{"source":"ghsa","license":"CC-BY-4.0"}]})x";
+    R"x("attribution":[{"source":"endoflife.date","license":"MIT"},{"source":"ghsa","license":"CC-BY-4.0"}],"credits":{"charged":1,"remaining":10}})x";
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, expected), buf);
   TEST_ASSERT_EQUAL_INT(1, g_stub_WATCHLISTEVENTS_call_count);
   TEST_ASSERT_EQUAL_INT(1, g_stub_WATCHLISTEVENTSResultFree_call_count);
@@ -17339,7 +17409,7 @@ void test_ssl_check_tool_answer_is_kept_and_read_from_the_cache(void)
   static_mcpTextOf(answer, decoded, sizeof(decoded), "ssl_check");
   static const char text_start[] = R"({"hostname":"shop.example.com","ip_address":"192.0.2.10",)";
   TEST_ASSERT_EQUAL_STRING_LEN(text_start, decoded, strlen(text_start));
-  TEST_ASSERT_EQUAL_STRING(g_stub_CACHE_last_put_body, decoded);
+  static_assertBodyWithCredits(g_stub_CACHE_last_put_body, CREDITS_1, decoded);
   TEST_ASSERT_EQUAL_STRING("ssl_check:shop.example.com", g_stub_CACHE_last_put_key);
   TEST_ASSERT_FALSE(g_stub_CACHE_last_put_is_error);
   TEST_ASSERT_EQUAL_UINT(3600, g_stub_CACHE_last_put_expires_after_seconds);
@@ -17349,7 +17419,7 @@ void test_ssl_check_tool_answer_is_kept_and_read_from_the_cache(void)
   g_stub_CACHE_get_body   = SSLCHECK_CACHED_BODY;
   answer = static_mcpCallThroughRequestHandle(PARITY_KEY_HEADER, "ssl_check", R"({"domain":"Shop.Example.com"})", NULL, buf, sizeof(buf));
   static_mcpTextOf(answer, decoded, sizeof(decoded), "ssl_check");
-  TEST_ASSERT_EQUAL_STRING(SSLCHECK_CACHED_BODY, decoded);
+  static_assertBodyWithCredits(SSLCHECK_CACHED_BODY, CREDITS_1, decoded);
   TEST_ASSERT_EQUAL_STRING("ssl_check:shop.example.com", g_stub_CACHE_last_get_key);
   TEST_ASSERT_EQUAL_INT(2, g_stub_CACHE_get_count);
   TEST_ASSERT_EQUAL_INT(1, g_stub_CACHE_free_count);
@@ -17364,7 +17434,7 @@ void test_ssl_check_without_a_database_probes_and_keeps_nothing(void)
   (void)static_collectResponse(static_writeRouterDispatch, "GET /ssl_check/shop.example.com HTTP/1.1\r\n\r\n", buf, sizeof(buf));
   TEST_ASSERT_EQUAL_INT(1, static_countResponses(buf));
   TEST_ASSERT_EQUAL_INT(200, static_restStatusOf(buf));
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, R"(,"unavailable":{"listed_on":"database_error"}})"), buf);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, R"(,"unavailable":{"listed_on":"database_error"},"credits":{"charged":4294967295}})"), buf);
   char* answer = static_mcpArgumentsCall("ssl_check", R"({"domain":"shop.example.com"})");
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(answer, R"("isError":false)"), answer);
   free(answer);
@@ -17396,7 +17466,7 @@ void test_whois_lookup_tool_answer_is_kept_and_read_from_the_cache(void)
   char decoded[RESP_BUF];
   const char* answer = static_mcpCallThroughRequestHandle(PARITY_KEY_HEADER, "whois_lookup", R"({"domain":"www.Example.CO.uk"})", NULL, buf, sizeof(buf));
   static_mcpTextOf(answer, decoded, sizeof(decoded), "whois_lookup");
-  TEST_ASSERT_EQUAL_STRING(WHOISLOOKUP_STUB_BODY, decoded);
+  static_assertBodyWithCredits(WHOISLOOKUP_STUB_BODY, CREDITS_1, decoded);
   TEST_ASSERT_EQUAL_STRING(WHOISLOOKUP_STUB_BODY, g_stub_CACHE_last_put_body);
   TEST_ASSERT_EQUAL_STRING("rdap:example.co.uk", g_stub_CACHE_last_put_key);
   TEST_ASSERT_FALSE(g_stub_CACHE_last_put_is_error);
@@ -17408,7 +17478,7 @@ void test_whois_lookup_tool_answer_is_kept_and_read_from_the_cache(void)
   g_stub_CACHE_get_body   = WHOISLOOKUP_CACHED_BODY;
   answer = static_mcpCallThroughRequestHandle(PARITY_KEY_HEADER, "whois_lookup", R"({"domain":"www.Example.CO.uk"})", NULL, buf, sizeof(buf));
   static_mcpTextOf(answer, decoded, sizeof(decoded), "whois_lookup");
-  TEST_ASSERT_EQUAL_STRING(WHOISLOOKUP_CACHED_BODY, decoded);
+  static_assertBodyWithCredits(WHOISLOOKUP_CACHED_BODY, CREDITS_1, decoded);
   TEST_ASSERT_EQUAL_STRING("rdap:example.co.uk", g_stub_CACHE_last_get_key);
   TEST_ASSERT_EQUAL_INT(2, g_stub_CACHE_get_count);
   TEST_ASSERT_EQUAL_INT(1, g_stub_CACHE_free_count);
@@ -18062,7 +18132,7 @@ void test_ip_lookup_without_a_pro_key_asks_no_vendor(void)
   char buf[RESP_BUF];
   static_callRequestHandle("GET /ip_lookup/8.8.8.8 HTTP/1.1\r\n\r\n", buf, sizeof(buf));
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "HTTP/1.1 200 OK\r\n"), buf);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(static_responseBody(buf), R"("ptr":"one.one.one.one","is_ptr_forward_confirmed":true,)" IPLOOKUP_PRO_KEY_REQUIRED_SLOTS R"("unavailable":{}})"), buf);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(static_responseBody(buf), R"("ptr":"one.one.one.one","is_ptr_forward_confirmed":true,)" IPLOOKUP_PRO_KEY_REQUIRED_SLOTS R"("unavailable":{},"credits":{"charged":1,"remaining":10}})"), buf);
   TEST_ASSERT_EQUAL_INT(2, g_stub_SHODAN_free_count);
   TEST_ASSERT_EQUAL_INT(0, g_stub_SHODAN_free_unknown_host_count);
 
@@ -18237,7 +18307,7 @@ void test_vendor_key_edit_over_mcp(void)
   snprintf(arguments, sizeof(arguments), R"({"action":"apply","link":"%s","abuseipdb_key":")" VENDORKEY_ABUSEIPDB_KEY R"("})", link);
   static char buf[RESP_BUF];
   const char* answer = static_mcpCallThroughRequestHandle("", "vendor_key_edit", arguments, NULL, buf, sizeof(buf));
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(answer, R"({\"shodan\":{\"result\":\"unchanged\",\"configured\":false},\"abuseipdb\":{\"result\":\"rejected\",\"configured\":false}})"), answer);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(answer, R"({\"shodan\":{\"result\":\"unchanged\",\"configured\":false},\"abuseipdb\":{\"result\":\"rejected\",\"configured\":false},\"credits\":{\"charged\":1,\"remaining\":10}})"), answer);
   TEST_ASSERT_NULL(strstr(answer, "abuse-key"));
   TEST_ASSERT_EQUAL_INT(1, g_stub_ABUSEIPDB_check_count);
 }
@@ -20520,7 +20590,7 @@ void test_x402_offer_over_the_weigh_limit_is_429_without_an_offer(void)
   TEST_ASSERT_EQUAL_STRING("x402_weigh", g_stub_THROTTLE_calls[0].ma_ruleName);
 }
 
-void test_x402_offer_whose_weigh_count_fails_is_500_without_rate_limit_headers(void)
+void test_x402_offer_whose_weigh_count_fails_is_500_with_the_budget_lines(void)
 {
   static_startX402();
   g_stub_credit_budget_remaining          = 0;
@@ -20533,9 +20603,28 @@ void test_x402_offer_whose_weigh_count_fails_is_500_without_rate_limit_headers(v
   static_callX402(req, buf);
   TEST_ASSERT_EQUAL_INT(1, static_countResponses(buf));
   static_assertLine(buf, "HTTP/1.1 500 Internal Server Error\r\n");
-  static_assertNoLine(buf, "X-RateLimit-Limit");
+  static_assertAnonymousRateLimitLines(buf, 0, buf);
   static_assertNoLine(buf, "PAYMENT-REQUIRED");
   TEST_ASSERT_EQUAL_INT(0, g_stub_PACKAGECHECKBULKWeigh_call_count);
+}
+
+void test_x402_offer_whose_weigh_fails_is_500_with_the_budget_lines(void)
+{
+  static_startX402();
+  g_stub_credit_budget_remaining          = 0;
+  g_stub_THROTTLE_charge_status           = THROTTLE_CHARGED;
+  g_stub_PACKAGECHECKBULKWeigh_status     = DB_ERROR;
+  g_stub_PACKAGECHECKBULKWeigh_call_count = 0;
+  static char req[16384];
+  int written = snprintf(req, sizeof(req), "POST /package_check_bulk HTTP/1.1\r\nContent-Type: application/json\r\n\r\n{\"items\":%s}", WEIGH_ITEMS);
+  TEST_ASSERT_TRUE(written > 0 && (size_t)written < sizeof(req));
+  char buf[RESP_BUF];
+  static_callX402(req, buf);
+  TEST_ASSERT_EQUAL_INT(1, static_countResponses(buf));
+  static_assertLine(buf, "HTTP/1.1 500 Internal Server Error\r\n");
+  static_assertAnonymousRateLimitLines(buf, 0, buf);
+  static_assertNoLine(buf, "PAYMENT-REQUIRED");
+  TEST_ASSERT_EQUAL_INT(1, g_stub_PACKAGECHECKBULKWeigh_call_count);
 }
 
 void test_docs_api_source_lock_matches_the_sql_interval(void)
@@ -20685,7 +20774,7 @@ void test_mcp_x402_payment_on_an_unknown_tool_is_not_offered(void)
   static_assertNoX402Call();
 }
 
-void test_mcp_x402_ladder_refusal_over_budget_has_no_rate_limit_lines(void)
+void test_mcp_x402_ladder_refusal_over_budget_keeps_the_rate_limit_lines(void)
 {
   static_startX402();
   g_stub_credit_budget_status = RATELIMIT_DENY;
@@ -20693,7 +20782,11 @@ void test_mcp_x402_ladder_refusal_over_budget_has_no_rate_limit_lines(void)
   char buf[RESP_BUF];
   static_callMcpX402(X402_TEST_MCP_MODERN_HEADERS("cve_lookup"), X402_TEST_MCP_CVE_CALL(""), buf, false);
   static_assertLine(buf, "HTTP/1.1 400 Bad Request\r\n");
-  static_assertNoLine(buf, "X-RateLimit-Limit");
+  static_assertAnonymousRateLimitLines(buf, 0, buf);
+  char reset_line[64];
+  int  len = snprintf(reset_line, sizeof(reset_line), "\r\nX-RateLimit-Reset-Machine: %lld\r\n", (long long)g_stub_credit_budget_reset);
+  TEST_ASSERT_TRUE(len > 0 && (size_t)len < sizeof(reset_line));
+  static_assertLine(buf, reset_line);
 }
 
 void test_mcp_x402_parse_gets_the_member_value(void)
@@ -21069,16 +21162,16 @@ typedef struct {
 
 static const CveLookupIdStateCase_t CVELOOKUP_ID_STATE_CASES[] = {
   { CVESERVICES_CVE_ID_STATE_PUBLISHED, R"({"state":"published"})",
-    R"({"error":{"code":"not_found","message":"CVE not found; CVE.org has published it and our data does not have it yet; retry later","cve_org_state":"published","retry_after_seconds":7200}})" "\n",
+    R"({"error":{"code":"not_found","message":"CVE not found; CVE.org has published it and our data does not have it yet; retry later","cve_org_state":"published","retry_after_seconds":7200},"credits":{"charged":1,"remaining":10}})" "\n",
     600 },
   { CVESERVICES_CVE_ID_STATE_RESERVED, R"({"state":"reserved"})",
-    R"({"error":{"code":"not_found","message":"CVE not found; CVE.org lists the id as reserved, not published yet","cve_org_state":"reserved"}})" "\n",
+    R"({"error":{"code":"not_found","message":"CVE not found; CVE.org lists the id as reserved, not published yet","cve_org_state":"reserved"},"credits":{"charged":1,"remaining":10}})" "\n",
     3600 },
   { CVESERVICES_CVE_ID_STATE_REJECTED, R"({"state":"rejected"})",
-    R"({"error":{"code":"not_found","message":"CVE not found; CVE.org lists it as rejected","cve_org_state":"rejected"}})" "\n",
+    R"({"error":{"code":"not_found","message":"CVE not found; CVE.org lists it as rejected","cve_org_state":"rejected"},"credits":{"charged":1,"remaining":10}})" "\n",
     86400 },
   { CVESERVICES_CVE_ID_STATE_UNKNOWN_ID, R"({"state":"unknown_id"})",
-    R"({"error":{"code":"not_found","message":"CVE not found; CVE.org has no such id","cve_org_state":"unknown_id"}})" "\n",
+    R"({"error":{"code":"not_found","message":"CVE not found; CVE.org has no such id","cve_org_state":"unknown_id"},"credits":{"charged":1,"remaining":10}})" "\n",
     600 },
 };
 
@@ -21376,7 +21469,7 @@ void test_CVELOOKUP_known_state_is_one_answer_over_rest_and_mcp(void)
     TEST_ASSERT_EQUAL_STRING(CVELOOKUP_ID_STATE_CASES[i].mp_body, rest_body);
     TEST_ASSERT_NULL(strstr(rest_body, CVELOOKUP_MISS_ID));
 
-    char* answer = static_mcpArgumentsCall("cve_lookup", R"({"cve_id":")" CVELOOKUP_MISS_ID R"("})");
+    char* answer = strdup(static_mcpCallThroughRequestHandle("", "cve_lookup", R"({"cve_id":")" CVELOOKUP_MISS_ID R"("})", NULL, buf, sizeof(buf)));
     char text[RESP_BUF];
     static_CVELOOKUPMcpErrorTextOf(answer, text, sizeof(text), CVELOOKUP_ID_STATE_CASES[i].mp_cacheValue);
     TEST_ASSERT_EQUAL_STRING(CVELOOKUP_ID_STATE_CASES[i].mp_body, text);
@@ -21405,6 +21498,296 @@ void test_docs_rate_limited_upgrade_url_sentences_name_the_free_tier(void)
   static_assertPhraseCount(DOCS_API_PATH, "That `rate_limited` body is the one an active key gets. A request with no key, or with an unknown, revoked or expired key, gets `upgrade_url` too:", 1);
   static_assertPhraseCount(DOCS_API_PATH, "A 429 to an active key has no `upgrade_url`.", 1);
   static_assertPhraseCount(DOCS_API_PATH, "An active key gets none. |", 1);
+}
+
+static void static_assertChargedLine(const char* buf, const char* count)
+{
+  char line[64];
+  snprintf(line, sizeof(line), "\r\nX-Credits-Charged: %s\r\n", count);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, line), buf);
+}
+
+static void static_assertNoChargedLine(const char* buf)
+{
+  TEST_ASSERT_NULL_MESSAGE(strstr(buf, "X-Credits-Charged"), buf);
+}
+
+void test_credits_charged_flat_row_says_1(void)
+{
+  g_stub_CVELOOKUP_status = DB_OK;
+  char buf[RESP_BUF];
+  static_callRequestHandle("GET /cve_lookup/CVE-2021-44228 HTTP/1.1\r\n\r\n", buf, sizeof(buf));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "HTTP/1.1 200"), buf);
+  static_assertChargedLine(buf, "1");
+}
+
+void test_credits_charged_two_credit_row_says_2(void)
+{
+  g_stub_api_key_state = DB_API_KEY_ACTIVE;
+  char buf[RESP_BUF];
+  static_callRequestHandle("GET /cert_search/WWW.Example.COM HTTP/1.1\r\nX-API-Key: " VALID_KEY "\r\n\r\n", buf, sizeof(buf));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "HTTP/1.1 200"), buf);
+  TEST_ASSERT_EQUAL_UINT(2, g_stub_last_credit_cost);
+  static_assertChargedLine(buf, "2");
+}
+
+void test_credits_charged_partial_bulk_says_the_charge(void)
+{
+  g_stub_api_key_state           = DB_API_KEY_ACTIVE;
+  g_stub_CVELOOKUP_status        = DB_OK;
+  g_stub_credit_budget_remaining = 2;
+  char buf[RESP_BUF * 4];
+  static_postBulk("/cve_lookup_bulk", buf, sizeof(buf));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "HTTP/1.1 200"), buf);
+  TEST_ASSERT_EQUAL_UINT(5, g_stub_last_credit_cost);
+  static_assertChargedLine(buf, "2");
+}
+
+void test_credits_charged_weighed_bulk_says_the_weighed_charge(void)
+{
+  for (size_t t = 0; t < sizeof(g_weighTransports) / sizeof(g_weighTransports[0]); t++)
+  {
+    setUp();
+    g_stub_api_key_state                            = DB_API_KEY_ACTIVE;
+    g_stub_PACKAGECHECKBULK_status                  = DB_OK;
+    g_stub_PACKAGECHECKBULKWeigh_served_item_count = 3;
+    char buf[RESP_BUF];
+    static_sendPackageCheckBulk(g_weighTransports[t], true, WEIGH_ITEMS, buf, sizeof(buf));
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "HTTP/1.1 200 OK\r\n"), buf);
+    TEST_ASSERT_EQUAL_UINT(3, g_stub_last_credit_cost);
+    static_assertChargedLine(buf, "3");
+    tearDown();
+  }
+}
+
+void test_credits_charged_gate_refusal_says_the_row_cost(void)
+{
+  char buf[RESP_BUF];
+  static_callRequestHandle("GET /cert_search/printer.local HTTP/1.1\r\n\r\n", buf, sizeof(buf));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "HTTP/1.1 400"), buf);
+  TEST_ASSERT_EQUAL_UINT(2, g_stub_last_credit_cost);
+  static_assertChargedLine(buf, "2");
+}
+
+void test_credits_charged_nul_body_refusal_carries_no_line(void)
+{
+  g_stub_api_key_state = DB_API_KEY_ACTIVE;
+  static const char head[] = "POST /watchlist_edit HTTP/1.1\r\nX-API-Key: " VALID_KEY "\r\n\r\n";
+  BinaryRequestCall_t call = { head, "a\0b", 3 };
+  char buf[RESP_BUF];
+  TEST_ASSERT_FALSE(static_collectResponse(static_writeBinaryRequestHandle, &call, buf, sizeof(buf)));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "HTTP/1.1 400"), buf);
+  static_assertNoLine(buf, "X-Credits-Charged");
+}
+
+void test_credits_charged_free_row_says_0(void)
+{
+  char buf[RESP_BUF];
+  static_callRequestHandle("GET /health HTTP/1.1\r\n\r\n", buf, sizeof(buf));
+  TEST_ASSERT_NULL_MESSAGE(strstr(buf, "X-RateLimit-"), buf);
+  static_assertChargedLine(buf, "0");
+}
+
+void test_credits_charged_rate_limited_says_0(void)
+{
+  g_stub_api_key_state        = DB_API_KEY_ACTIVE;
+  g_stub_credit_budget_status = RATELIMIT_DENY;
+  char buf[RESP_BUF];
+  static_callRequestHandle("GET /cve_search HTTP/1.1\r\nX-API-Key: " VALID_KEY "\r\n\r\n", buf, sizeof(buf));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "HTTP/1.1 429"), buf);
+  static_assertChargedLine(buf, "0");
+}
+
+void test_credits_charged_refused_key_says_the_anonymous_charge(void)
+{
+  static const char* const reqs[] = {
+    "GET /cve_lookup/CVE-2021-44228 HTTP/1.1\r\nX-API-Key: " VALID_KEY "\r\n\r\n",
+    "GET /health HTTP/1.1\r\nX-API-Key: " VALID_KEY "\r\n\r\n",
+  };
+  for (size_t i = 0; i < sizeof(reqs) / sizeof(reqs[0]); i++)
+  {
+    g_stub_api_key_state           = DB_API_KEY_UNKNOWN;
+    g_stub_credit_budget_remaining = 30;
+    char buf[RESP_BUF];
+    static_callRequestHandle(reqs[i], buf, sizeof(buf));
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "HTTP/1.1 401"), buf);
+    static_assertAnonymousRateLimitLines(buf, 29, buf);
+    static_assertChargedLine(buf, "1");
+  }
+}
+
+void test_credits_charged_malformed_key_says_0(void)
+{
+  char buf[RESP_BUF];
+  static_callRequestHandle("GET /cve_lookup/CVE-2021-44228 HTTP/1.1\r\nX-API-Key: contrastapi_0000\r\n\r\n", buf, sizeof(buf));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "HTTP/1.1 401"), buf);
+  static_assertChargedLine(buf, "0");
+}
+
+void test_credits_charged_upstream_busy_carries_no_line(void)
+{
+  g_stub_api_key_state = DB_API_KEY_ACTIVE;
+  static_useEveryUpstreamThread();
+  char buf[RESP_BUF];
+  static_callRequestHandle("GET /dns_lookup/example.com HTTP/1.1\r\nX-API-Key: " VALID_KEY "\r\n\r\n", buf, sizeof(buf));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "HTTP/1.1 503"), buf);
+  static_assertNoLine(buf, "X-Credits-Charged");
+}
+
+void test_credits_charged_x402_offer_says_0(void)
+{
+  static_startX402();
+  g_stub_credit_budget_status = RATELIMIT_DENY;
+  char buf[RESP_BUF];
+  static_callX402(X402_TEST_CVE_LOOKUP_GET "\r\n", buf);
+  static_assertLine(buf, "HTTP/1.1 402 Payment Required\r\n");
+  static_assertChargedLine(buf, "0");
+}
+
+void test_credits_charged_x402_served_says_the_paid_credits(void)
+{
+  static_startX402();
+  g_stub_CVELOOKUP_status = DB_OK;
+  char buf[RESP_BUF];
+  static_callX402(X402_TEST_CVE_LOOKUP_GET X402_TEST_PAYMENT_LINE "\r\n", buf);
+  static_assertLine(buf, "HTTP/1.1 200 OK\r\n");
+  TEST_ASSERT_EQUAL_INT(1, g_stub_X402_LEDGER_mark_settled_count);
+  static_assertChargedLine(buf, "1");
+  tearDown();
+
+  setUp();
+  static_startX402();
+  g_stub_CVELOOKUP_status = DB_OK;
+  static_callMcpX402("", X402_TEST_MCP_CVE_CALL(X402_TEST_MCP_PAID_META), buf, false);
+  static_assertLine(buf, "HTTP/1.1 200 OK\r\n");
+  TEST_ASSERT_EQUAL_INT(1, g_stub_X402_LEDGER_mark_settled_count);
+  static_assertChargedLine(buf, "1");
+}
+
+void test_credits_charged_x402_unserved_says_0(void)
+{
+  static_startX402();
+  g_stub_CVELOOKUP_status = DB_ERROR;
+  char buf[RESP_BUF];
+  static_callX402(X402_TEST_CVE_LOOKUP_GET X402_TEST_PAYMENT_LINE "\r\n", buf);
+  static_assertLine(buf, "HTTP/1.1 500");
+  TEST_ASSERT_EQUAL_INT(1, g_stub_X402_LEDGER_release_count);
+  static_assertChargedLine(buf, "0");
+  tearDown();
+
+  setUp();
+  static_startX402();
+  g_stub_CVELOOKUP_status                     = DB_OK;
+  g_stub_X402_FACILITATOR_settlement.m_status = X402_FACILITATOR_SETTLE_REFUSED;
+  static_callX402(X402_TEST_CVE_LOOKUP_GET X402_TEST_PAYMENT_LINE "\r\n", buf);
+  static_assertLine(buf, "HTTP/1.1 402 Payment Required\r\n");
+  static_assertChargedLine(buf, "0");
+}
+
+void test_credits_charged_x402_pending_and_mcp_unserved_say_0(void)
+{
+  char buf[RESP_BUF];
+  static_startX402();
+  g_stub_CVELOOKUP_status                     = DB_OK;
+  g_stub_X402_FACILITATOR_settlement.m_status = X402_FACILITATOR_SETTLE_PENDING;
+  static_callX402(X402_TEST_CVE_LOOKUP_GET X402_TEST_PAYMENT_LINE "\r\n", buf);
+  static_assertLine(buf, "HTTP/1.1 402 Payment Required\r\n");
+  static_assertChargedLine(buf, "0");
+  tearDown();
+
+  const X402FacilitatorSettleStatus_t SETTLES[] = { X402_FACILITATOR_SETTLE_REFUSED, X402_FACILITATOR_SETTLE_PENDING };
+  for (size_t i = 0; i < 2; i++)
+  {
+    setUp();
+    static_startX402();
+    g_stub_CVELOOKUP_status                     = DB_OK;
+    g_stub_X402_FACILITATOR_settlement.m_status = SETTLES[i];
+    static_callMcpX402("", X402_TEST_MCP_CVE_CALL(X402_TEST_MCP_PAID_META), buf, false);
+    static_assertLine(buf, "HTTP/1.1 ");
+    static_assertChargedLine(buf, "0");
+    if (i == 0)
+      tearDown();
+  }
+}
+
+void test_credits_charged_mcp_says_the_charge_of_the_request(void)
+{
+  g_stub_api_key_state    = DB_API_KEY_ACTIVE;
+  g_stub_CVELOOKUP_status = DB_OK;
+  char buf[RESP_BUF * 4];
+  static_callRequestHandle(
+    "POST /mcp HTTP/1.1\r\nX-API-Key: " VALID_KEY "\r\nContent-Type: application/json\r\n\r\n"
+    R"({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"cve_lookup","arguments":{"cve_id":"CVE-2021-44228"}}})",
+    buf, sizeof(buf));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "HTTP/1.1 200"), buf);
+  static_assertChargedLine(buf, "1");
+
+  g_stub_credit_budget_remaining = 2;
+  static_postBulkTool("cve_lookup_bulk", buf, sizeof(buf));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "HTTP/1.1 200"), buf);
+  static_assertChargedLine(buf, "2");
+
+  static_callRequestHandle(
+    "POST /mcp HTTP/1.1\r\nX-API-Key: " VALID_KEY "\r\nContent-Type: application/json\r\n\r\n"
+    R"({"jsonrpc":"2.0","id":2,"method":"initialize","params":{"protocolVersion":"2025-11-25"}})",
+    buf, sizeof(buf));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "HTTP/1.1 200"), buf);
+  static_assertChargedLine(buf, "0");
+}
+
+void test_credits_charged_web_file_and_unknown_path_carry_no_line(void)
+{
+  static char buf[65536];
+  static_callRequestHandle("GET /static/style.css HTTP/1.1\r\n\r\n", buf, sizeof(buf));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "HTTP/1.1 200"), buf);
+  static_assertNoChargedLine(buf);
+
+  static_callRequestHandle("GET /no_such_endpoint HTTP/1.1\r\n\r\n", buf, sizeof(buf));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "HTTP/1.1 404"), buf);
+  static_assertNoChargedLine(buf);
+}
+
+void test_credits_charged_unknown_key_on_a_free_path_says_1(void)
+{
+  static const char* const reqs[] = {
+    "GET /no_such_endpoint HTTP/1.1\r\nX-API-Key: " VALID_KEY "\r\n\r\n",
+    "GET /robots.txt HTTP/1.1\r\nX-API-Key: " VALID_KEY "\r\n\r\n",
+  };
+  g_stub_api_key_state = DB_API_KEY_UNKNOWN;
+
+  char buf[RESP_BUF];
+  for (size_t i = 0; i < sizeof(reqs) / sizeof(reqs[0]); i++)
+  {
+    g_stub_credit_budget_remaining = 30;
+    static_callRequestHandle(reqs[i], buf, sizeof(buf));
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "HTTP/1.1 401"), reqs[i]);
+    static_assertChargedLine(buf, "1");
+    static_assertAnonymousRateLimitLines(buf, 29, reqs[i]);
+  }
+}
+
+void test_credits_charged_failed_run_says_the_charge(void)
+{
+  g_stub_api_key_state        = DB_API_KEY_ACTIVE;
+  g_stub_QUOTA_reserve_status = QUOTA_ERROR;
+  g_stub_last_credit_cost     = CREDIT_COST_SENTINEL;
+  char buf[RESP_BUF];
+  static_callRequestHandle("GET /cert_search/www.example.com HTTP/1.1\r\nX-API-Key: " VALID_KEY "\r\n\r\n", buf, sizeof(buf));
+  TEST_ASSERT_EQUAL_INT_MESSAGE(1, static_countResponses(buf), buf);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "HTTP/1.1 500"), buf);
+  TEST_ASSERT_EQUAL_UINT(2, g_stub_last_credit_cost);
+  static_assertChargedLine(buf, "2");
+}
+
+void test_credits_charged_unknown_key_on_a_two_credit_row_says_2(void)
+{
+  g_stub_api_key_state           = DB_API_KEY_UNKNOWN;
+  g_stub_credit_budget_remaining = 30;
+  char buf[RESP_BUF];
+  static_callRequestHandle("GET /cert_search/example.com HTTP/1.1\r\nX-API-Key: " VALID_KEY "\r\n\r\n", buf, sizeof(buf));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "HTTP/1.1 401"), buf);
+  static_assertAnonymousRateLimitLines(buf, 28, buf);
+  static_assertChargedLine(buf, "2");
 }
 
 int main(void)
@@ -21625,10 +22008,10 @@ int main(void)
   RUN_TEST(test_anonymous_paid_path_needing_no_db_is_refused_without_db);
   RUN_TEST(test_anonymous_zero_cost_path_reaches_its_handler_without_db);
   RUN_TEST(test_unknown_key_on_free_path_is_charged_one_credit);
-  RUN_TEST(test_unknown_key_401_carries_no_ratelimit_headers);
+  RUN_TEST(test_unknown_key_401_carries_the_anonymous_ratelimit_lines);
 
   RUN_TEST(test_mcp_malformed_key_is_a_jsonrpc_401);
-  RUN_TEST(test_mcp_unknown_key_is_a_jsonrpc_401_without_rate_limit_headers);
+  RUN_TEST(test_mcp_unknown_key_is_a_jsonrpc_401_with_the_anonymous_rate_limit_lines);
   RUN_TEST(test_inactive_key_is_charged_like_an_unknown_key);
   RUN_TEST(test_inactive_key_answers_its_own_code);
   RUN_TEST(test_key_lookup_failure_is_refused_with_500);
@@ -22149,7 +22532,8 @@ int main(void)
   RUN_TEST(test_x402_header_of_the_max_length_reaches_the_parse);
   RUN_TEST(test_x402_malformed_header_on_a_weighed_row_costs_no_weigh);
   RUN_TEST(test_x402_offer_over_the_weigh_limit_is_429_without_an_offer);
-  RUN_TEST(test_x402_offer_whose_weigh_count_fails_is_500_without_rate_limit_headers);
+  RUN_TEST(test_x402_offer_whose_weigh_count_fails_is_500_with_the_budget_lines);
+  RUN_TEST(test_x402_offer_whose_weigh_fails_is_500_with_the_budget_lines);
   RUN_TEST(test_docs_api_source_lock_matches_the_sql_interval);
   RUN_TEST(test_x402_weighed_bulk_offer_and_payment_agree);
   RUN_TEST(test_x402_offer_after_a_denied_check_prices_every_kept_package);
@@ -22190,7 +22574,7 @@ int main(void)
   RUN_TEST(test_mcp_x402_open_refusals_keep_era_and_price);
   RUN_TEST(test_mcp_x402_open_pending_keeps_the_era);
   RUN_TEST(test_mcp_x402_payment_on_an_unknown_tool_is_not_offered);
-  RUN_TEST(test_mcp_x402_ladder_refusal_over_budget_has_no_rate_limit_lines);
+  RUN_TEST(test_mcp_x402_ladder_refusal_over_budget_keeps_the_rate_limit_lines);
   RUN_TEST(test_mcp_x402_parse_gets_the_member_value);
   RUN_TEST(test_mcp_x402_paid_answer_that_cannot_be_encoded_is_released);
   RUN_TEST(test_mcp_x402_paid_call_whose_dispatch_fails_is_released);
@@ -22219,6 +22603,26 @@ int main(void)
   RUN_TEST(test_CVELOOKUP_spent_day_rule_sends_no_request_and_is_logged_once_a_day);
   RUN_TEST(test_CVELOOKUP_known_state_is_one_answer_over_rest_and_mcp);
   RUN_TEST(test_CVELOOKUP_usage_line_names_a_known_state_apart);
+  RUN_TEST(test_credits_charged_flat_row_says_1);
+  RUN_TEST(test_credits_charged_two_credit_row_says_2);
+  RUN_TEST(test_credits_charged_partial_bulk_says_the_charge);
+  RUN_TEST(test_credits_charged_weighed_bulk_says_the_weighed_charge);
+  RUN_TEST(test_credits_charged_gate_refusal_says_the_row_cost);
+  RUN_TEST(test_credits_charged_nul_body_refusal_carries_no_line);
+  RUN_TEST(test_credits_charged_free_row_says_0);
+  RUN_TEST(test_credits_charged_rate_limited_says_0);
+  RUN_TEST(test_credits_charged_refused_key_says_the_anonymous_charge);
+  RUN_TEST(test_credits_charged_malformed_key_says_0);
+  RUN_TEST(test_credits_charged_upstream_busy_carries_no_line);
+  RUN_TEST(test_credits_charged_x402_offer_says_0);
+  RUN_TEST(test_credits_charged_x402_served_says_the_paid_credits);
+  RUN_TEST(test_credits_charged_x402_unserved_says_0);
+  RUN_TEST(test_credits_charged_x402_pending_and_mcp_unserved_say_0);
+  RUN_TEST(test_credits_charged_mcp_says_the_charge_of_the_request);
+  RUN_TEST(test_credits_charged_web_file_and_unknown_path_carry_no_line);
+  RUN_TEST(test_credits_charged_unknown_key_on_a_free_path_says_1);
+  RUN_TEST(test_credits_charged_failed_run_says_the_charge);
+  RUN_TEST(test_credits_charged_unknown_key_on_a_two_credit_row_says_2);
   RUN_TEST(test_registration_gate_test_count);
   return UNITY_END();
 }

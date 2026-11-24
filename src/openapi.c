@@ -9,6 +9,7 @@
 #include "endpoint.h"
 #include "jsonbuf.h"
 #include "pricing.h"
+#include "response.h"
 #include "version.h"
 
 #define OPENAPI_SPEC_VERSION "3.1.0"
@@ -20,14 +21,17 @@ typedef struct {
   const char* mp_name;
   const char* mp_schemaType;
   const char* mp_description;
-} OpenApiRateLimitHeader_t;
+} OpenApiHeader_t;
 
-static const OpenApiRateLimitHeader_t OPENAPI_RATE_LIMIT_HEADERS[] = {
+static const OpenApiHeader_t OPENAPI_RATE_LIMIT_HEADERS[] = {
   { "X-RateLimit-Limit",         "integer", "The credits the caller may spend in one window." },
   { "X-RateLimit-Remaining",     "integer", "The credits left in the current window." },
   { "X-RateLimit-Reset-Machine", "integer", "The Unix time, in seconds, at which the window resets." },
   { "X-RateLimit-Reset-Human",   "string",  "The time left until the window resets, as HH:MM:SS." },
 };
+
+static const OpenApiHeader_t OPENAPI_CREDITS_CHARGED_HEADER =
+  { RESPONSE_CREDITS_CHARGED_HEADER_NAME, "integer", "The credits this request was charged." };
 
 static const char*            static_findShapeProblem        (const Endpoint_t* row);
 static void                   static_appendTags              (JsonBuf_t* json_buf);
@@ -161,14 +165,12 @@ static void static_appendComponents(JsonBuf_t* json_buf)
   jsonbuf_appendFormat(json_buf, ",\"headers\":{");
   for (size_t i = 0; i < sizeof(OPENAPI_RATE_LIMIT_HEADERS) / sizeof(OPENAPI_RATE_LIMIT_HEADERS[0]); i++)
   {
-    const OpenApiRateLimitHeader_t* header = &OPENAPI_RATE_LIMIT_HEADERS[i];
-    jsonbuf_appendFormat(json_buf, "%s\"%s\":{\"description\":\"%s\",\"schema\":{\"type\":\"%s\"}}",
-                         i == 0 ? "" : ",", header->mp_name, header->mp_description, header->mp_schemaType);
+    const OpenApiHeader_t* header = &OPENAPI_RATE_LIMIT_HEADERS[i];
+    jsonbuf_appendFormat(json_buf, "\"%s\":{\"description\":\"%s\",\"schema\":{\"type\":\"%s\"}},", header->mp_name, header->mp_description, header->mp_schemaType);
   }
-  jsonbuf_appendFormat(json_buf, "}");
+  jsonbuf_appendFormat(json_buf, "\"%s\":{\"description\":\"%s\",\"schema\":{\"type\":\"%s\"}}}", OPENAPI_CREDITS_CHARGED_HEADER.mp_name, OPENAPI_CREDITS_CHARGED_HEADER.mp_description, OPENAPI_CREDITS_CHARGED_HEADER.mp_schemaType);
 
-  jsonbuf_appendFormat(json_buf, R"(,"responses":{"Error":{"description":"An error. The body names an error code and a message.",)"
-                                 R"("content":{"application/json":{"schema":{"$ref":"#/components/schemas/Error"}}}}})");
+  jsonbuf_appendFormat(json_buf, R"(,"responses":{"Error":{"description":"An error. The body names an error code and a message.","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Error"}}}}})");
 
   jsonbuf_appendFormat(json_buf, R"(,"schemas":{"Error":{"type":"object","required":["error"],"properties":{"error":{"type":"object",)"
                                  R"("required":["code","message"],"properties":{"code":{"type":"string"},"message":{"type":"string"},)"
@@ -321,17 +323,16 @@ static void static_appendRequestBody(const Endpoint_t* row, JsonBuf_t* json_buf)
 
 static void static_appendResponses(const Endpoint_t* row, JsonBuf_t* json_buf)
 {
-  jsonbuf_appendFormat(json_buf, ",\"responses\":{\"200\":{\"description\":\"The answer of the endpoint.\"");
+  jsonbuf_appendFormat(json_buf, ",\"responses\":{\"200\":{\"description\":\"The answer of the endpoint.\",\"headers\":{");
   if (row->m_creditCost > 0)
   {
-    jsonbuf_appendFormat(json_buf, ",\"headers\":{");
     for (size_t i = 0; i < sizeof(OPENAPI_RATE_LIMIT_HEADERS) / sizeof(OPENAPI_RATE_LIMIT_HEADERS[0]); i++)
     {
       const char* name = OPENAPI_RATE_LIMIT_HEADERS[i].mp_name;
-      jsonbuf_appendFormat(json_buf, "%s\"%s\":{\"$ref\":\"#/components/headers/%s\"}", i == 0 ? "" : ",", name, name);
+      jsonbuf_appendFormat(json_buf, "\"%s\":{\"$ref\":\"#/components/headers/%s\"},", name, name);
     }
-    jsonbuf_appendFormat(json_buf, "}");
   }
+  jsonbuf_appendFormat(json_buf, "\"%s\":{\"$ref\":\"#/components/headers/%s\"}}", OPENAPI_CREDITS_CHARGED_HEADER.mp_name, OPENAPI_CREDITS_CHARGED_HEADER.mp_name);
   jsonbuf_appendFormat(json_buf, R"(,"content":{"application/json":{"schema":{"type":"object"}}}},"default":{"$ref":"#/components/responses/Error"}})");
 }
 

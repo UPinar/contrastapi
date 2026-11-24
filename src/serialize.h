@@ -58,6 +58,7 @@ void   serialize_WHOISLOOKUP_response                       (const WHOISLOOKUPRe
 void   serialize_WAYBACKLOOKUP_response                     (const WAYBACKLOOKUPRecord_t* record, JsonBuf_t* json_buf);
 void   serialize_CERTSEARCH_response                        (const CERTSEARCHRecord_t* record, JsonBuf_t* json_buf);
 void   serialize_SUBDOMAINENUM_response                     (const SUBDOMAINENUMRecord_t* record, JsonBuf_t* json_buf);
+int    serialize_SUBDOMAINENUM_orderListedNames             (const SubdomainNameSet_t* name_set, int order_out[SUBDOMAIN_MAX_NAME_COUNT]);
 void   serialize_IPLOOKUP_response                          (const IPLOOKUPRecord_t* record, const IPLOOKUPVendorSlots_t* slots, JsonBuf_t* json_buf);
 void   serialize_ASNLOOKUP_response                         (const ASNLOOKUPRecord_t* record, const ASNLOOKUPParams_t* params, JsonBuf_t* json_buf);
 void   serialize_WATCHLISTEDITItems_response                (const WATCHLISTEDITItemsResult_t* result, JsonBuf_t* json_buf);

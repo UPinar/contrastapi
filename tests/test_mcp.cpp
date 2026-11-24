@@ -535,6 +535,11 @@ void setUp(void)
   g_stub_SUBDOMAIN_lookup_count                 = 0;
   g_stub_SUBDOMAIN_last_lookup_domain[0]        = '\0';
   g_stub_SUBDOMAIN_create_fails                 = false;
+  g_stub_SUBDOMAIN_address_state                = SUBDOMAIN_ADDRESS_FOUND;
+  g_stub_SUBDOMAIN_address_lookup_count         = 0;
+  g_stub_SUBDOMAIN_last_address_index_count     = 0;
+  g_stub_SUBDOMAIN_last_address_wildcard_dns    = SUBDOMAIN_WILDCARD_ABSENT;
+  g_stub_SUBDOMAIN_last_address_wildcard_count  = 0;
   g_reallocFailsNext                      = false;
   g_mallocFailSize                        = 0;
   g_mallocFailSkipCount                   = 0;
@@ -780,18 +785,18 @@ void test_tools_list_is_the_whole_catalogue(void)
   static const char* const tools[] = {
     R"json({"name":"health","title":"Health and Data Freshness","description":"Database freshness: CVE/KEV/CWE counts and latest entries, and the sync state of each upstream feed. Costs no credits.",)json"
       R"json("inputSchema":{"type":"object","properties":{},"additionalProperties":false})json"
-      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"Operations"}})json",
+      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"Operations","com.contrastcyber/credits":{"per_call":0}}})json",
     R"json({"name":"cve_lookup","title":"CVE Lookup","description":"Full CVE record by ID (CVSS, EPSS, KEV, CWE, references, CISA SSVC, Nuclei templates), with the optional GitHub Security Advisory. Call the cve_products tool for every affected product. If your SSVC level is unknown, read high.",)json"
       R"json("inputSchema":{"type":"object","properties":{)json"
       R"json("cve_id":{"type":"string","maxLength":24,"description":"CVE ID, e.g. CVE-2021-44228"},)json"
       R"json("include_ghsa":{"type":"boolean","description":"Add the GitHub Security Advisory of the CVE, from the local copy of the GitHub Advisory Database"})json"
       R"json(},"required":["cve_id"],"additionalProperties":false})json"
-      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":true},"_meta":{"com.contrastcyber/category":"CVE Intelligence"}})json",
-    R"json({"name":"cve_lookup_bulk","title":"Bulk CVE Lookup","description":"Look up many CVEs at once, each with the fields of cve_lookup. Ids beyond the remaining credits come back in not_processed.",)json"
+      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":true},"_meta":{"com.contrastcyber/category":"CVE Intelligence","com.contrastcyber/credits":{"per_call":1}}})json",
+    R"json({"name":"cve_lookup_bulk","title":"Bulk CVE Lookup","description":"Look up many CVEs at once, each with the fields of cve_lookup. Ids beyond the remaining credits come back in not_processed. Costs 1 credit per CVE ID looked up, at least 1.",)json"
       R"json("inputSchema":{"type":"object","properties":{)json"
       R"json("cve_ids":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":50,"description":"CVE IDs"})json"
       R"json(},"required":["cve_ids"],"additionalProperties":false})json"
-      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"CVE Intelligence"}})json",
+      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"CVE Intelligence","com.contrastcyber/credits":{"per_item":1,"min":1}}})json",
     R"json({"name":"cve_products","title":"CVE Affected Products","description":"The products a CVE affects, one page at a time, with the vulnerable products first. The vendor and product arguments keep only the products with that exact name. For the CVEs of one product, call cve_search.",)json"
       R"json("inputSchema":{"type":"object","properties":{)json"
       R"json("cve_id":{"type":"string","maxLength":24,"description":"CVE ID, e.g. CVE-2021-44228"},)json"
@@ -800,7 +805,7 @@ void test_tools_list_is_the_whole_catalogue(void)
       R"json("limit":{"type":"integer","minimum":1,"maximum":50,"default":20,"description":"Products per page"},)json"
       R"json("offset":{"type":"integer","minimum":0,"default":0,"description":"Products to skip; pass next_offset of the previous page"})json"
       R"json(},"required":["cve_id"],"additionalProperties":false})json"
-      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"CVE Intelligence"}})json",
+      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"CVE Intelligence","com.contrastcyber/credits":{"per_call":1}}})json",
     R"json({"name":"cve_search","title":"CVE Search","description":"Search CVEs by severity, CWE, CVSS, EPSS, CISA KEV, ransomware use, Nuclei template, vendor, product and publish date, one page at a time. Call the cve_lookup tool for a full record, and the cpe_search tool to find the names.",)json"
       R"json("inputSchema":{"type":"object","properties":{)json"
       R"json("severity":{"type":"string","enum":["CRITICAL","HIGH","MEDIUM","LOW","NONE"],"maxLength":16,"description":"CVSS severity: CRITICAL, HIGH, MEDIUM, LOW or NONE, from the v3 rating when the CVE has one"},)json"
@@ -820,7 +825,7 @@ void test_tools_list_is_the_whole_catalogue(void)
       R"json("limit":{"type":"integer","minimum":1,"maximum":100,"default":20,"description":"CVEs per page"},)json"
       R"json("offset":{"type":"integer","minimum":0,"maximum":10000,"default":0,"description":"CVEs to skip; pass next_offset of the previous page"})json"
       R"json(},"additionalProperties":false})json"
-      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"CVE Intelligence"}})json",
+      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"CVE Intelligence","com.contrastcyber/credits":{"per_call":1}}})json",
     R"json({"name":"cve_leading","title":"Leading CVEs by EPSS","description":"List the CVEs most likely to be exploited, by EPSS score (the probability of exploitation in the next 30 days), with a verdict on the top score. To rank by composite risk score, call the cve_triage tool.",)json"
       R"json("inputSchema":{"type":"object","properties":{)json"
       R"json("vendor":{"type":"string","maxLength":128,"description":"Exact vendor name as cpe_search lists it, e.g. apache"},)json"
@@ -832,27 +837,27 @@ void test_tools_list_is_the_whole_catalogue(void)
       R"json("include_rejected":{"type":"boolean","description":"Also list the CVEs that NVD marks Rejected"},)json"
       R"json("limit":{"type":"integer","minimum":1,"maximum":50,"default":20,"description":"How many CVEs to list, highest EPSS first"})json"
       R"json(},"additionalProperties":false})json"
-      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"CVE Intelligence"}})json",
+      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"CVE Intelligence","com.contrastcyber/credits":{"per_call":1}}})json",
     R"json({"name":"kev_lookup","title":"CISA KEV Lookup","description":"CISA KEV catalog entry for a CVE: the required action, the patch deadline and known ransomware use. A CVE that CISA removed answers in_kev false, and one never listed answers \"KEV entry not found\".",)json"
       R"json("inputSchema":{"type":"object","properties":{)json"
       R"json("cve_id":{"type":"string","maxLength":24,"description":"CVE ID"})json"
       R"json(},"required":["cve_id"],"additionalProperties":false})json"
-      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"CVE Intelligence"}})json",
+      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"CVE Intelligence","com.contrastcyber/credits":{"per_call":1}}})json",
     R"json({"name":"cwe_lookup","title":"CWE Lookup","description":"CWE weakness details (description, mitigations, examples, OWASP Top 10 category in 2021 and 2025), with how many CVEs and CISA KEV entries name it. To list them, call the cve_search tool with its cwe_id argument.",)json"
       R"json("inputSchema":{"type":"object","properties":{)json"
       R"json("cwe_id":{"type":"string","maxLength":16,"description":"CWE ID, e.g. CWE-79"})json"
       R"json(},"required":["cwe_id"],"additionalProperties":false})json"
-      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"CVE Intelligence"}})json",
+      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"CVE Intelligence","com.contrastcyber/credits":{"per_call":1}}})json",
     R"json({"name":"cve_risk_score","title":"CVE Risk Score","description":"Composite risk score of a CVE, 0-100, for patch priority. It reads EPSS, CISA KEV, Metasploit, CVSS, NVD and CNA exploit references, and ExploitDB. has_public_poc is null when no source names an exploit. For many CVEs, call cve_triage_bulk.",)json"
       R"json("inputSchema":{"type":"object","properties":{)json"
       R"json("cve_id":{"type":"string","maxLength":24,"description":"CVE ID"})json"
       R"json(},"required":["cve_id"],"additionalProperties":false})json"
-      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"CVE Intelligence"}})json",
+      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"CVE Intelligence","com.contrastcyber/credits":{"per_call":1}}})json",
     R"json({"name":"cve_exploit","title":"CVE Exploit Intelligence","description":"Public exploit intelligence (GitHub PoCs, Metasploit, NVD and CNA exploit references, ExploitDB). GitHub PoC repositories are listed but not counted as proof of a public exploit. For a single patch-priority score, call cve_risk_score.",)json"
       R"json("inputSchema":{"type":"object","properties":{)json"
       R"json("cve_id":{"type":"string","maxLength":24,"description":"CVE ID"})json"
       R"json(},"required":["cve_id"],"additionalProperties":false})json"
-      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"CVE Intelligence"}})json",
+      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"CVE Intelligence","com.contrastcyber/credits":{"per_call":1}}})json",
     R"json({"name":"cve_triage","title":"CVE Triage","description":"Rank the CVEs of a vendor or product by composite risk score, at or above the optional min_risk_score argument, as lean rows (cve_id, risk_score, label). Call the cve_lookup tool for detail, and the cpe_search tool to find the names.",)json"
       R"json("inputSchema":{"type":"object","properties":{)json"
       R"json("vendor":{"type":"string","maxLength":128,"description":"Exact vendor name as cpe_search lists it, e.g. apache"},)json"
@@ -862,7 +867,7 @@ void test_tools_list_is_the_whole_catalogue(void)
       R"json("limit":{"type":"integer","minimum":1,"maximum":100,"default":20,"description":"CVEs per page"},)json"
       R"json("offset":{"type":"integer","minimum":0,"maximum":10000,"default":0,"description":"CVEs to skip; pass next_offset of the previous page"})json"
       R"json(},"additionalProperties":false})json"
-      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"CVE Intelligence"}})json",
+      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"CVE Intelligence","com.contrastcyber/credits":{"per_call":1}}})json",
     R"json({"name":"epss_risers","title":"EPSS Risers","description":"List the CVEs whose EPSS score rose most over the last 7 or 30 days, with the old and the new score. Filter by vendor, product, KEV state or a minimum score. Call the cve_lookup tool for the details of a CVE.",)json"
       R"json("inputSchema":{"type":"object","properties":{)json"
       R"json("window_days":{"type":"integer","minimum":7,"maximum":30,"default":7,"description":"Days to look back: 7 or 30. Default 7."},)json"
@@ -873,12 +878,12 @@ void test_tools_list_is_the_whole_catalogue(void)
       R"json("limit":{"type":"integer","minimum":1,"maximum":100,"default":20,"description":"CVEs per page"},)json"
       R"json("offset":{"type":"integer","minimum":0,"maximum":10000,"default":0,"description":"CVEs to skip; pass next_offset of the previous page"})json"
       R"json(},"additionalProperties":false})json"
-      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"CVE Intelligence"}})json",
-    R"json({"name":"cve_triage_bulk","title":"Bulk CVE Triage","description":"Triage many CVEs at once, ranked by composite risk score. Ids beyond the remaining credits come back in not_processed.",)json"
+      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"CVE Intelligence","com.contrastcyber/credits":{"per_call":1}}})json",
+    R"json({"name":"cve_triage_bulk","title":"Bulk CVE Triage","description":"Triage many CVEs at once, ranked by composite risk score. Ids beyond the remaining credits come back in not_processed. Costs 1 credit per CVE ID triaged, at least 1.",)json"
       R"json("inputSchema":{"type":"object","properties":{)json"
       R"json("cve_ids":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":50,"description":"CVE IDs"})json"
       R"json(},"required":["cve_ids"],"additionalProperties":false})json"
-      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"CVE Intelligence"}})json",
+      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"CVE Intelligence","com.contrastcyber/credits":{"per_item":1,"min":1}}})json",
     R"json({"name":"product_exposure","title":"Product Exposure","description":"CVE exposure of one vendor and product: severity, KEV and PoC counts, CVSS, EPSS, the worst risk score, the top CVEs and the endoflife.date support dates. To find the names, call the cpe_search tool.",)json"
       R"json("inputSchema":{"type":"object","properties":{)json"
       R"json("vendor":{"type":"string","maxLength":128,"description":"Exact vendor name as cpe_search lists it, e.g. apache"},)json"
@@ -886,19 +891,19 @@ void test_tools_list_is_the_whole_catalogue(void)
       R"json("version":{"type":"string","maxLength":128,"description":"Product version, e.g. 22.21.1 or 11-24h2; picks the release cycle of eol"},)json"
       R"json("include_rejected":{"type":"boolean","description":"Also count and list the CVEs that NVD marks Rejected"})json"
       R"json(},"required":["vendor","product"],"additionalProperties":false})json"
-      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"CVE Intelligence"}})json",
+      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"CVE Intelligence","com.contrastcyber/credits":{"per_call":1}}})json",
     R"json({"name":"cpe_search","title":"CPE Search","description":"Find the CPE vendor and product names that hold a text, ranked by vulnerable CVE count. Pass a name with no % as it is to the vendor and product arguments of the cve_search, cve_triage, cve_leading, product_exposure and epss_risers tools.",)json"
       R"json("inputSchema":{"type":"object","properties":{)json"
       R"json("search":{"type":"string","maxLength":128,"description":"Text in vendor or product names, at least 3 bytes; case does not matter, and _ matches a space"},)json"
       R"json("limit":{"type":"integer","minimum":1,"maximum":50,"default":20,"description":"Vendor and product pairs per page"},)json"
       R"json("offset":{"type":"integer","minimum":0,"maximum":10000,"default":0,"description":"Pairs to skip; pass next_offset of the previous page"})json"
       R"json(},"required":["search"],"additionalProperties":false})json"
-      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"CVE Intelligence"}})json",
+      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"CVE Intelligence","com.contrastcyber/credits":{"per_call":1}}})json",
     R"json({"name":"cvss_calculator","title":"CVSS Calculator","description":"Decode a CVSS v3.0/v3.1 vector into its base metrics and recompute its base, temporal and environmental scores. Use it on a vector you hold; cve_lookup already gives the scores of a CVE. v2 and v4 are refused.",)json"
       R"json("inputSchema":{"type":"object","properties":{)json"
       R"json("vector":{"type":"string","maxLength":127,"description":"CVSS:3.0/ or CVSS:3.1/ vector with all eight base metrics; temporal and environmental metrics are optional, e.g. CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"})json"
       R"json(},"required":["vector"],"additionalProperties":false})json"
-      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"CVE Intelligence"}})json",
+      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"CVE Intelligence","com.contrastcyber/credits":{"per_call":1}}})json",
     R"json({"name":"watchlist_edit","title":"Watchlist: CVE, Package, Domain and IP Monitoring","description":"Add, remove, list or clear the items this API key watches: CVEs, products, CVE searches, packages, domains and IP addresses. Read their changes with the watchlist_events tool. Requires a Pro API key.",)json"
       R"json("inputSchema":{"type":"object","properties":{)json"
       R"json("action":{"type":"string","enum":["add","remove"],"maxLength":8,"description":"add or remove; leave out to list the items"},)json"
@@ -921,17 +926,17 @@ void test_tools_list_is_the_whole_catalogue(void)
       R"json("clear":{"type":"boolean","const":true,"description":"Deletes every item and the event cursor; takes no other argument"},)json"
       R"json("packages":{"type":"array","items":{"type":"object","properties":{"ecosystem":{"type":"string"},"name":{"type":"string"},"version":{"type":"string"}},"required":["ecosystem","name"],"additionalProperties":false},"minItems":1,"maxItems":500,"description":"package_check items, each with an ecosystem, a name and an optional version"})json"
       R"json(},"additionalProperties":false})json"
-      R"json(,"annotations":{"readOnlyHint":false,"destructiveHint":true,"idempotentHint":true,"openWorldHint":true},"_meta":{"com.contrastcyber/category":"Monitoring"}})json",
+      R"json(,"annotations":{"readOnlyHint":false,"destructiveHint":true,"idempotentHint":true,"openWorldHint":true},"_meta":{"com.contrastcyber/category":"Monitoring","com.contrastcyber/credits":{"per_call":1}}})json",
     R"json({"name":"watchlist_events","title":"Monitoring Events","description":"Report what changed on the items this API key watches, such as a new advisory for a package or a certificate about to expire, oldest first. A plain call continues where the last one stopped. Requires a Pro API key.",)json"
       R"json("inputSchema":{"type":"object","properties":{)json"
       R"json("limit":{"type":"integer","minimum":1,"maximum":100,"default":20,"description":"Most events per call; a shorter page with has_more true is not the end; repeat=true answers the whole last batch"},)json"
       R"json("cursor":{"type":"string","maxLength":18,"description":"next_cursor of an earlier answer; reads after it and keeps the position"},)json"
       R"json("repeat":{"type":"boolean","const":true,"description":"Answers the last batch again; cannot be combined with cursor"})json"
       R"json(},"additionalProperties":false})json"
-      R"json(,"annotations":{"readOnlyHint":false,"destructiveHint":false,"idempotentHint":false,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"Monitoring"}})json",
+      R"json(,"annotations":{"readOnlyHint":false,"destructiveHint":false,"idempotentHint":false,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"Monitoring","com.contrastcyber/credits":{"per_call":1}}})json",
     R"json({"name":"privacy_my_data","title":"Privacy: My Data","description":"What this server keeps about the caller: the hash its credits are counted under, the rate limit left in this hour and the privacy policy. For a Pro key, which vendor keys are stored and a 15-minute link to change them.",)json"
       R"json("inputSchema":{"type":"object","properties":{},"additionalProperties":false})json"
-      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"Operations"}})json",
+      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"Operations","com.contrastcyber/credits":{"per_call":1}}})json",
     R"json({"name":"vendor_key_edit","title":"Vendor key edit","description":"Save, delete or check your own Shodan and AbuseIPDB keys, which the ip_lookup tool uses. Needs a Pro API key or a manage link. The privacy_my_data tool gives a web link where a person can save the keys without the agent seeing them.",)json"
       R"json("inputSchema":{"type":"object","properties":{)json"
       R"json("action":{"type":"string","enum":["apply","status"],"maxLength":6,"description":"apply saves or deletes keys; status reports the stored keys and needs link"},)json"
@@ -941,102 +946,102 @@ void test_tools_list_is_the_whole_catalogue(void)
       R"json("abuseipdb_key":{"type":"string","maxLength":128,"description":"an AbuseIPDB key to check and save"},)json"
       R"json("abuseipdb_delete":{"type":"boolean","const":true,"description":"deletes the stored AbuseIPDB key"})json"
       R"json(},"required":["action"],"additionalProperties":false})json"
-      R"json(,"annotations":{"readOnlyHint":false,"destructiveHint":true,"idempotentHint":true,"openWorldHint":true},"_meta":{"com.contrastcyber/category":"Operations"}})json",
+      R"json(,"annotations":{"readOnlyHint":false,"destructiveHint":true,"idempotentHint":true,"openWorldHint":true},"_meta":{"com.contrastcyber/category":"Operations","com.contrastcyber/credits":{"per_call":1}}})json",
     R"json({"name":"password_check","title":"Breached Password Check","description":"Check a password's SHA-1 against Have I Been Pwned's Pwned Passwords list. It takes the full SHA-1, never the password. Only its first 5 hex digits leave this server.",)json"
       R"json("inputSchema":{"type":"object","properties":{)json"
       R"json("sha1_hash":{"type":"string","maxLength":40,"description":"SHA-1 of the password: 40 hex digits, either case"})json"
       R"json(},"required":["sha1_hash"],"additionalProperties":false})json"
-      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":true},"_meta":{"com.contrastcyber/category":"Credential Checks"}})json",
+      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":true},"_meta":{"com.contrastcyber/category":"Credential Checks","com.contrastcyber/credits":{"per_call":1}}})json",
     R"json({"name":"dns_lookup","title":"DNS Lookup","description":"Look up a domain's DNS records: A, AAAA, MX, NS, TXT, CNAME, SOA and CAA. A record type the resolver could not answer is listed under unavailable.",)json"
       R"json("inputSchema":{"type":"object","properties":{)json"
       R"json("domain":{"type":"string","maxLength":253,"description":"Domain name, such as example.com"})json"
       R"json(},"required":["domain"],"additionalProperties":false})json"
-      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":true},"_meta":{"com.contrastcyber/category":"Domain Intelligence"}})json",
+      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":true},"_meta":{"com.contrastcyber/category":"Domain Intelligence","com.contrastcyber/credits":{"per_call":1}}})json",
     R"json({"name":"dns_takeover_check","title":"Subdomain Takeover Check","description":"Check a host name for subdomain takeover through a dangling CNAME. takeover_possible is null when the CNAME points to a service whose DNS does not show whether the name can be claimed.",)json"
       R"json("inputSchema":{"type":"object","properties":{)json"
       R"json("domain":{"type":"string","maxLength":253,"description":"Host name, such as shop.example.com"})json"
       R"json(},"required":["domain"],"additionalProperties":false})json"
-      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":true},"_meta":{"com.contrastcyber/category":"Domain Intelligence"}})json",
+      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":true},"_meta":{"com.contrastcyber/category":"Domain Intelligence","com.contrastcyber/credits":{"per_call":1}}})json",
     R"json({"name":"email_auth_check","title":"Email Authentication Check (SPF, DMARC, DKIM)","description":"Check a domain's mail authentication: SPF, DMARC (from a parent domain when the domain has no record of its own), DKIM, MX and MTA-STS, each check with pass, warn or fail and a severity.",)json"
       R"json("inputSchema":{"type":"object","properties":{)json"
       R"json("domain":{"type":"string","maxLength":253,"description":"Domain name, such as example.com"},)json"
       R"json("dkim_selector":{"type":"string","maxLength":238,"description":"DKIM selector, such as google; without it the check tries the selectors of the domain's mail providers"})json"
       R"json(},"required":["domain"],"additionalProperties":false})json"
-      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":true},"_meta":{"com.contrastcyber/category":"Domain Intelligence"}})json",
+      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":true},"_meta":{"com.contrastcyber/category":"Domain Intelligence","com.contrastcyber/credits":{"per_call":1}}})json",
     R"json({"name":"email_address_check","title":"Email Address Check","description":"Check an e-mail address without sending mail: whether its domain exists and takes mail, and whether a disposable domain list names it. It cannot tell whether the mailbox exists.",)json"
       R"json("inputSchema":{"type":"object","properties":{)json"
       R"json("email":{"type":"string","maxLength":254,"description":"E-mail address, such as name@example.com"})json"
       R"json(},"required":["email"],"additionalProperties":false})json"
-      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":true},"_meta":{"com.contrastcyber/category":"Domain Intelligence"}})json",
+      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":true},"_meta":{"com.contrastcyber/category":"Domain Intelligence","com.contrastcyber/credits":{"per_call":1}}})json",
     R"json({"name":"ssl_check","title":"SSL/TLS Certificate Check","description":"Check the TLS certificate and settings of a host name on port 443: version, cipher, trust, OCSP revocation, expiry, DNS names, the chain and an abuse.ch SSL Blacklist listing.",)json"
       R"json("inputSchema":{"type":"object","properties":{)json"
       R"json("domain":{"type":"string","maxLength":253,"description":"Host name, such as www.example.com"})json"
       R"json(},"required":["domain"],"additionalProperties":false})json"
-      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":true},"_meta":{"com.contrastcyber/category":"Domain Intelligence"}})json",
+      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":true},"_meta":{"com.contrastcyber/category":"Domain Intelligence","com.contrastcyber/credits":{"per_call":1}}})json",
     R"json({"name":"headers_check","title":"Security Headers Check","description":"Rate nine security headers of a web site, such as CSP, HSTS and Set-Cookie, from one GET to https://<domain>/ that follows up to 5 redirects on the same host or its www pair. Each finding that does not pass has a remediation.",)json"
       R"json("inputSchema":{"type":"object","properties":{)json"
       R"json("domain":{"type":"string","maxLength":253,"description":"Host name of the site, such as www.example.com"},)json"
       R"json("include_full_header_values":{"type":"boolean","description":"true sends each header value and URL whole, instead of cutting it after 500 code points"})json"
       R"json(},"required":["domain"],"additionalProperties":false})json"
-      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":true},"_meta":{"com.contrastcyber/category":"Domain Intelligence"}})json",
+      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":true},"_meta":{"com.contrastcyber/category":"Domain Intelligence","com.contrastcyber/credits":{"per_call":1}}})json",
     R"json({"name":"well_known","title":"Robots.txt and security.txt Check","description":"Read robots.txt of https://<domain> and, if it allows us, /.well-known/security.txt, with up to 5 redirects on the host or its www pair. Gives the rules that bind us, sitemaps, fields such as Contact and Expires, and RFC 9309/9116 issues.",)json"
       R"json("inputSchema":{"type":"object","properties":{)json"
       R"json("domain":{"type":"string","maxLength":253,"description":"Host name of the site, such as www.example.com"})json"
       R"json(},"required":["domain"],"additionalProperties":false})json"
-      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":true},"_meta":{"com.contrastcyber/category":"Domain Intelligence"}})json",
+      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":true},"_meta":{"com.contrastcyber/category":"Domain Intelligence","com.contrastcyber/credits":{"per_call":1}}})json",
     R"json({"name":"redirect_chain","title":"Redirect Chain Check","description":"Follow an http or https URL's redirects, up to 10 requests on ports 80 and 443. Lists each hop and status, the final URL, the stop reason and any https to http step. Reads no body; no HTML or JavaScript redirect. Location text is untrusted.",)json"
       R"json("inputSchema":{"type":"object","properties":{)json"
       R"json("url":{"type":"string","maxLength":4096,"description":"The http or https URL to follow; REST takes it percent-encoded"})json"
       R"json(},"required":["url"],"additionalProperties":false})json"
-      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":true},"_meta":{"com.contrastcyber/category":"Domain Intelligence"}})json",
+      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":true},"_meta":{"com.contrastcyber/category":"Domain Intelligence","com.contrastcyber/credits":{"per_call":1}}})json",
     R"json({"name":"whois_lookup","title":"WHOIS / RDAP Lookup","description":"Look up a domain's registration over RDAP, or WHOIS where allowed: registrar, dates, status, name servers and DNSSEC. A name under a registered domain asks about that domain. No registrant data.",)json"
       R"json("inputSchema":{"type":"object","properties":{)json"
       R"json("domain":{"type":"string","maxLength":253,"description":"Domain name, such as example.com; www.example.com asks about example.com"})json"
       R"json(},"required":["domain"],"additionalProperties":false})json"
-      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":true},"_meta":{"com.contrastcyber/category":"Domain Intelligence"}})json",
+      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":true},"_meta":{"com.contrastcyber/category":"Domain Intelligence","com.contrastcyber/credits":{"per_call":1}}})json",
     R"json({"name":"wayback_lookup","title":"Wayback Machine Lookup","description":"List when the Wayback Machine captured a host's home page: the first and last capture, the years between them (archive span, not domain age) and the latest 10 captures with links.",)json"
       R"json("inputSchema":{"type":"object","properties":{)json"
       R"json("domain":{"type":"string","maxLength":253,"description":"Host name, such as example.com"})json"
       R"json(},"required":["domain"],"additionalProperties":false})json"
-      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":true},"_meta":{"com.contrastcyber/category":"Domain Intelligence"}})json",
+      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":true},"_meta":{"com.contrastcyber/category":"Domain Intelligence","com.contrastcyber/credits":{"per_call":1}}})json",
     R"json({"name":"cert_search","title":"Certificate Transparency Search","description":"List the unexpired certificates that Certificate Transparency logs hold for a host name, wildcards included, from SSLMate's Cert Spotter: the 10 newest, with issuer, validity and DNS names. Costs 2 credits.",)json"
       R"json("inputSchema":{"type":"object","properties":{)json"
       R"json("domain":{"type":"string","maxLength":253,"description":"Host name, such as example.com or www.example.com"})json"
       R"json(},"required":["domain"],"additionalProperties":false})json"
-      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":true},"_meta":{"com.contrastcyber/category":"Domain Intelligence"}})json",
-    R"json({"name":"subdomain_enum","title":"Subdomain Enumeration","description":"List up to 50 subdomains of a registrable domain from Certificate Transparency, DNS queries for 94 common names and the domain's MX, NS and SPF records. Costs 2 credits.",)json"
+      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":true},"_meta":{"com.contrastcyber/category":"Domain Intelligence","com.contrastcyber/credits":{"per_call":2}}})json",
+    R"json({"name":"subdomain_enum","title":"Subdomain Enumeration","description":"List up to 50 subdomains of a registrable domain from Certificate Transparency, DNS queries for 94 common names and the domain's MX, NS and SPF records, and, when DNS can tell, whether each listed name has an IPv4 address. Costs 2 credits.",)json"
       R"json("inputSchema":{"type":"object","properties":{)json"
       R"json("domain":{"type":"string","maxLength":253,"description":"Domain name, such as example.com; www.example.com asks about example.com"})json"
       R"json(},"required":["domain"],"additionalProperties":false})json"
-      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":true},"_meta":{"com.contrastcyber/category":"Domain Intelligence"}})json",
+      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":true},"_meta":{"com.contrastcyber/category":"Domain Intelligence","com.contrastcyber/credits":{"per_call":2}}})json",
     R"json({"name":"ip_lookup","title":"IP Lookup","description":"Look up a public IP: AS, country, cloud provider, CDN, datacenter, Tor exit, crawler, DROP listing and PTR name. A Pro key with its own Shodan or AbuseIPDB key adds exposure and reputation. For every prefix of the AS, call asn_lookup.",)json"
       R"json("inputSchema":{"type":"object","properties":{)json"
       R"json("ip_address":{"type":"string","maxLength":45,"description":"Public IPv4 or IPv6 address, such as 8.8.8.8 or 2001:4860:4860::8888"})json"
       R"json(},"required":["ip_address"],"additionalProperties":false})json"
-      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":true},"_meta":{"com.contrastcyber/category":"IP Intelligence"}})json",
+      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":true},"_meta":{"com.contrastcyber/category":"IP Intelligence","com.contrastcyber/credits":{"per_call":1}}})json",
     R"json({"name":"asn_lookup","title":"ASN Lookup","description":"Look up an autonomous system by number, such as AS15169, or by an IP address it holds: name, country and one page of its IPv4 and IPv6 prefixes, derived from IPtoASN.",)json"
       R"json("inputSchema":{"type":"object","properties":{)json"
       R"json("target":{"type":"string","maxLength":45,"description":"AS number, such as AS15169 or 15169, or a public IPv4 or IPv6 address, such as 8.8.8.8"},)json"
       R"json("limit":{"type":"integer","minimum":1,"maximum":50,"default":50,"description":"Prefixes per page, in each address family"},)json"
       R"json("offset":{"type":"integer","minimum":0,"default":0,"description":"Prefixes to skip in each family; pass next_offset of the previous page"})json"
       R"json(},"required":["target"],"additionalProperties":false})json"
-      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"IP Intelligence"}})json",
+      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"IP Intelligence","com.contrastcyber/credits":{"per_call":1}}})json",
     R"json({"name":"d3fend_for_attack","title":"D3FEND Defenses for ATT&CK","description":"MITRE D3FEND defenses that counter a MITRE ATT&CK technique. A technique id such as T1055 also matches its sub-techniques. Source: MITRE D3FEND (MIT license).",)json"
       R"json("inputSchema":{"type":"object","properties":{)json"
       R"json("attack_technique_id":{"type":"string","maxLength":9,"description":"MITRE ATT&CK technique id in upper case, e.g. T1055 or T1055.012"})json"
       R"json(},"required":["attack_technique_id"],"additionalProperties":false})json"
-      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"Threat Defense"}})json",
+      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"Threat Defense","com.contrastcyber/credits":{"per_call":1}}})json",
     R"json({"name":"driver_lookup","title":"Windows Driver Lookup (LOLDrivers)","description":"Look up a Windows driver hash in the LOLDrivers catalog of vulnerable and malicious drivers. Block on the file and Authenticode hashes, not on the detection rules. For many hashes, call driver_lookup_bulk. Source: LOLDrivers (Apache-2.0).",)json"
       R"json("inputSchema":{"type":"object","properties":{)json"
       R"json("file_hash":{"type":"string","maxLength":64,"description":"MD5, SHA1 or SHA256 of the driver file, or its Authentihash: 32, 40 or 64 hex digits, either case"},)json"
       R"json("include_commands":{"type":"boolean","description":"true adds the catalog's command text to each match"})json"
       R"json(},"required":["file_hash"],"additionalProperties":false})json"
-      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"Threat Defense"}})json",
-    R"json({"name":"driver_lookup_bulk","title":"Bulk Windows Driver Lookup","description":"Look up many driver file hashes in the LOLDrivers catalog at once, each with the fields of driver_lookup. Hashes beyond the remaining credits come back in not_processed.",)json"
+      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"Threat Defense","com.contrastcyber/credits":{"per_call":1}}})json",
+    R"json({"name":"driver_lookup_bulk","title":"Bulk Windows Driver Lookup","description":"Look up many driver file hashes in the LOLDrivers catalog at once, each with the fields of driver_lookup. Hashes beyond the remaining credits come back in not_processed. Costs 1 credit per hash looked up, at least 1.",)json"
       R"json("inputSchema":{"type":"object","properties":{)json"
       R"json("hashes":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":20,"description":"MD5, SHA1 or SHA256 of driver files or of their Authentihash"})json"
       R"json(},"required":["hashes"],"additionalProperties":false})json"
-      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"Threat Defense"}})json",
+      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"Threat Defense","com.contrastcyber/credits":{"per_item":1,"min":1}}})json",
     R"json({"name":"package_check","title":"Package Vulnerability Check","description":"Check a package against the OSV.dev advisories (GitHub, Go, PyPA, RustSec) and the OpenSSF malicious package list, with the fixed version and endoflife.date dates. For severity, pass the CVE aliases to the cve_triage_bulk tool.",)json"
       R"json("inputSchema":{"type":"object","properties":{)json"
       R"json("ecosystem":{"type":"string","maxLength":16,"description":"npm, PyPI, Maven, Go, NuGet, RubyGems, crates.io, Packagist or SwiftURL. Case does not matter."},)json"
@@ -1045,12 +1050,12 @@ void test_tools_list_is_the_whole_catalogue(void)
       R"json("limit":{"type":"integer","minimum":1,"maximum":50,"default":20,"description":"Results per page"},)json"
       R"json("offset":{"type":"integer","minimum":0,"default":0,"description":"Results to skip; pass next_offset of the previous page"})json"
       R"json(},"required":["ecosystem","name"],"additionalProperties":false})json"
-      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"Package Vulnerabilities (SBOM)"}})json",
-    R"json({"name":"package_check_bulk","title":"Bulk Package Check (SBOM)","description":"Check many packages at once, each an ecosystem, a name and an exact version, against the advisories package_check reads. For the summary and ranges of an advisory, call the package_check tool.",)json"
+      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"Package Vulnerabilities (SBOM)","com.contrastcyber/credits":{"per_call":1}}})json",
+    R"json({"name":"package_check_bulk","title":"Bulk Package Check (SBOM)","description":"Check many packages at once, each an ecosystem, a name and an exact version, against the advisories package_check reads. For the summary and ranges of an advisory, call the package_check tool. Costs 1 credit per package checked, at least 1.",)json"
       R"json("inputSchema":{"type":"object","properties":{)json"
       R"json("items":{"type":"array","items":{"type":"object","properties":{"ecosystem":{"type":"string"},"name":{"type":"string"},"version":{"type":"string"}},"required":["ecosystem","name","version"],"additionalProperties":false},"minItems":1,"maxItems":500,"description":"Packages, each with its ecosystem, name and exact version"})json"
       R"json(},"required":["items"],"additionalProperties":false})json"
-      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"Package Vulnerabilities (SBOM)"}})json",
+      R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"Package Vulnerabilities (SBOM)","com.contrastcyber/credits":{"per_item":1,"min":1,"weighed":true}}})json",
   };
   static char expected[65536];
   size_t used = 0;
@@ -1264,7 +1269,7 @@ void test_tool_CVELOOKUP_ghsa_enriches(void)
   TEST_ASSERT_EQUAL_INT(200, status);
   TEST_ASSERT_EQUAL_INT(1, g_stub_CVELOOKUPGHSA_call_count);
   TEST_ASSERT_EQUAL_STRING("CVE-2021-44228", g_stub_CVELOOKUPGHSA_last_cve_id);
-  static_assertContains(response, R"(\"ghsa\":{\"ghsa_id\": \"GHSA-jfh8-c2jp-5v3q\"}})");
+  static_assertContains(response, R"(\"ghsa\":{\"ghsa_id\": \"GHSA-jfh8-c2jp-5v3q\"},\"credits\":{\"charged\":4294967295}})");
   free(response);
 }
 
@@ -1352,7 +1357,7 @@ void test_tool_CVELOOKUP_ghsa_without_an_advisory_answers_null(void)
   char* response = static_dispatch(R"({"jsonrpc":"2.0","id":10,"method":"tools/call","params":)"
                      R"({"name":"cve_lookup","arguments":{"cve_id":"CVE-2021-44228","include_ghsa":true}}})", &status);
   TEST_ASSERT_EQUAL_INT(200, status);
-  static_assertContains(response, R"(\"ghsa\":null})");
+  static_assertContains(response, R"(\"ghsa\":null,\"credits\":{\"charged\":4294967295}})");
   static_assertContains(response, R"(\"ransomware_campaign\":\"Known\",)");
   free(response);
 }
@@ -2904,7 +2909,7 @@ void test_watchlist_edit_answers_the_list_and_each_db_status(void)
   char* response = static_watchlistCall("watchlist_edit", R"({"action":"add","endpoint":"cve_search","vendor":"apache","min_cvss":7.5,"in_kev":true,"has_nuclei_template":true})", &credit_budget, &status);
   TEST_ASSERT_EQUAL_INT(200, status);
   static_assertContains(response, R"("isError":false)");
-  static_assertContains(response, R"(\"items\":[{\"endpoint\":\"cve_lookup\",\"cve_id\":\"CVE-2021-44228\"},{\"endpoint\":\"product_exposure\",\"vendor\":\"apache\",\"product\":\"log4j\",\"version\":\"2.14.1\",\"product_has_cves\":true}],\"item_count\":2,\"item_limit\":100,\"package_item_count\":0,\"package_item_limit\":500})");
+  static_assertContains(response, R"(\"items\":[{\"endpoint\":\"cve_lookup\",\"cve_id\":\"CVE-2021-44228\"},{\"endpoint\":\"product_exposure\",\"vendor\":\"apache\",\"product\":\"log4j\",\"version\":\"2.14.1\",\"product_has_cves\":true}],\"item_count\":2,\"item_limit\":100,\"package_item_count\":0,\"package_item_limit\":500,\"credits\":{\"charged\":4294967295,\"remaining\":0}})");
   free(response);
   TEST_ASSERT_EQUAL_INT(1, g_stub_WATCHLISTEDIT_call_count);
   TEST_ASSERT_EQUAL_PTR(&credit_budget, g_stub_WATCHLISTEDIT_last_params.mp_creditBudget);
@@ -2959,7 +2964,7 @@ void test_watchlist_edit_sends_a_package_list_and_answers_its_counts(void)
   const char* add = R"({"action":"add","packages":[{"ecosystem":"npm","name":"lodash"},{"ecosystem":"PyPI","name":"Django","version":"4.2.1"}]})";
   char* response = static_watchlistCall("watchlist_edit", add, &credit_budget, &status);
   TEST_ASSERT_EQUAL_INT(200, status);
-  static_assertContains(response, R"("text":"{\"added_count\":1,\"unchanged_count\":2,\"package_item_count\":3,\"package_item_limit\":500}\n"}],"isError":false)");
+  static_assertContains(response, R"("text":"{\"added_count\":1,\"unchanged_count\":2,\"package_item_count\":3,\"package_item_limit\":500,\"credits\":{\"charged\":4294967295,\"remaining\":0}}\n"}],"isError":false)");
   free(response);
   TEST_ASSERT_EQUAL_INT(1, g_stub_WATCHLISTEDIT_call_count);
   TEST_ASSERT_EQUAL_INT(WATCHLISTEDIT_ACTION_ADD, g_stub_WATCHLISTEDIT_last_params.m_action);
@@ -3010,7 +3015,7 @@ void test_watchlist_edit_names_the_earlier_position_of_a_normalized_repeat(void)
   g_stub_WATCHLISTEDIT_package_repeat = { .m_currentIndex = 2, .m_earlierIndex = 1 };
   int status;
   char* response = static_watchlistCall("watchlist_edit", R"({"action":"add","packages":[{"ecosystem":"npm","name":"a"},{"ecosystem":"npm","name":"b"},{"ecosystem":"npm","name":"B"}]})", &credit_budget, &status);
-  static_assertContains(response, R"(\"index\":2,\"ecosystem\":\"npm\",\"name\":\"B\",\"version\":null,\"reason\":\"names the package and version of packages[1] once the names are normalized\"}]})");
+  static_assertContains(response, R"(\"index\":2,\"ecosystem\":\"npm\",\"name\":\"B\",\"version\":null,\"reason\":\"names the package and version of packages[1] once the names are normalized\"}],\"credits\":{\"charged\":4294967295,\"remaining\":0}})");
   free(response);
   g_stub_WATCHLISTEDIT_package_repeat = { .m_currentIndex = -1, .m_earlierIndex = -1 };
 }
@@ -3030,7 +3035,7 @@ void test_watchlist_edit_answers_every_package_problem_as_a_tool_error(void)
                                   R"({\"index\":1,\"ecosystem\":null,\"name\":null,\"version\":null,\"reason\":\"the element is not a JSON object\"},)"
                                   R"({\"index\":2,\"ecosystem\":\"npm\",\"name\":\"a\",\"version\":null,\"reason\":\"repeats packages[0]\"},)"
                                   R"({\"index\":3,\"ecosystem\":\"npm\",\"name\":\"A\",\"version\":null,\"reason\":\"names the package and version of packages[0] once the names are normalized\"},)"
-                                  R"({\"index\":4,\"ecosystem\":\"npm\",\"name\":null,\"version\":null,\"reason\":\"name is missing or empty\"}]}\n"}],"isError":true)");
+                                  R"({\"index\":4,\"ecosystem\":\"npm\",\"name\":null,\"version\":null,\"reason\":\"name is missing or empty\"}],\"credits\":{\"charged\":4294967295,\"remaining\":0}}\n"}],"isError":true)");
   free(response);
   TEST_ASSERT_EQUAL_INT(5, g_stub_WATCHLISTEDIT_last_package_count);
   TEST_ASSERT_EQUAL_INT(PACKAGE_ELEMENT_PROBLEM_NOT_AN_OBJECT, g_stub_WATCHLISTEDIT_last_packages[1].m_problem);
@@ -3263,7 +3268,7 @@ void test_watchlist_events_answers_the_feed_and_each_db_status(void)
   char* response = static_watchlistCall("watchlist_events", R"({"limit":7})", &credit_budget, &status);
   TEST_ASSERT_EQUAL_INT(200, status);
   static_assertContains(response, R"("isError":false)");
-  static_assertContains(response, R"({\"limit\":7,\"cursor\":null,\"repeat\":false,\"next_cursor\":\"58\",\"has_more\":false,\"items\":[{\"item\":{\"endpoint\":\"cve_lookup\",\"cve_id\":\"CVE-2021-44228\"},\"events\":[{\"event\":\"kev_added\",\"changed_at\":\"2026-10-15T08:09:10Z\",\"cve_id\":\"CVE-2021-44228\",\"previous\":null,\"current\":null,\"vendor\":null,\"product\":null}]},{\"item\":{\"endpoint\":\"dns_lookup\",\"domain\":\"example.com\"},\"events\":[{\"event\":\"ns_changed\",\"changed_at\":\"2026-10-15T08:09:11Z\",\"previous\":[\"ns1.example.net\",\"ns2.example.net\"],\"current\":[\"ns1.example.org\"]}]},{\"item\":{\"endpoint\":\"package_check\",\"ecosystem\":\"npm\",\"name\":\"lodash\",\"version\":\"4.17.20\"},\"events\":[{\"event\":\"fix_available\",\"changed_at\":\"2026-10-15T08:09:12Z\",\"cve_id\":null,\"advisory_id\":\"GHSA-p6mc-m468-83gw\",\"fixed_version\":\"4.17.21\",\"affects_version\":true}]},{\"item\":{\"endpoint\":\"product_exposure\",\"vendor\":\"f5\",\"product\":\"nginx\",\"version\":\"1.24.0\",\"product_has_cves\":true},\"events\":[{\"event\":\"eol_date_changed\",\"changed_at\":\"2026-10-15T08:09:13Z\",\"cve_id\":null,\"eol\":{\"product\":\"nginx\",\"cycle\":\"1.24\",\"eol_date\":\"2027-05-31\",\"previous_eol_date\":\"2026-11-30\"}}]}],\"cves\":{\"CVE-2021-44228\":{\"risk_score\":96.5,\"label\":\"CRITICAL\",\"in_kev\":true,\"kev_patch_deadline\":\"2021-12-24\",\"known_ransomware\":true,\"has_metasploit\":false,\"poc_count\":3},\"CVE-2020-8203\":{\"risk_score\":74.0,\"label\":\"HIGH\",\"in_kev\":false,\"kev_patch_deadline\":null,\"known_ransomware\":false,\"has_metasploit\":true,\"poc_count\":9}},\"domains\":{\"example.com\":{\"registered_domain\":\"example.com\",\"dns_presence\":\"found\",\"ns\":[\"ns1.example.org\"],\"mx\":[\"10 mx.example.com\"],\"ip_address_reachability\":\"public\",\"cname_takeover\":\"none\",\"email_auth_failing\":{\"dmarc_record\":\"fail\",\"dmarc_policy\":\"warn\"}}},\"advisories\":{\"GHSA-p6mc-m468-83gw\":{\"source\":\"ghsa\",\"aliases\":[\"CVE-2020-8203\"]}},\"attribution\":[{\"source\":\"endoflife.date\",\"license\":\"MIT\"},{\"source\":\"ghsa\",\"license\":\"CC-BY-4.0\"}]})");
+  static_assertContains(response, R"({\"limit\":7,\"cursor\":null,\"repeat\":false,\"next_cursor\":\"58\",\"has_more\":false,\"items\":[{\"item\":{\"endpoint\":\"cve_lookup\",\"cve_id\":\"CVE-2021-44228\"},\"events\":[{\"event\":\"kev_added\",\"changed_at\":\"2026-10-15T08:09:10Z\",\"cve_id\":\"CVE-2021-44228\",\"previous\":null,\"current\":null,\"vendor\":null,\"product\":null}]},{\"item\":{\"endpoint\":\"dns_lookup\",\"domain\":\"example.com\"},\"events\":[{\"event\":\"ns_changed\",\"changed_at\":\"2026-10-15T08:09:11Z\",\"previous\":[\"ns1.example.net\",\"ns2.example.net\"],\"current\":[\"ns1.example.org\"]}]},{\"item\":{\"endpoint\":\"package_check\",\"ecosystem\":\"npm\",\"name\":\"lodash\",\"version\":\"4.17.20\"},\"events\":[{\"event\":\"fix_available\",\"changed_at\":\"2026-10-15T08:09:12Z\",\"cve_id\":null,\"advisory_id\":\"GHSA-p6mc-m468-83gw\",\"fixed_version\":\"4.17.21\",\"affects_version\":true}]},{\"item\":{\"endpoint\":\"product_exposure\",\"vendor\":\"f5\",\"product\":\"nginx\",\"version\":\"1.24.0\",\"product_has_cves\":true},\"events\":[{\"event\":\"eol_date_changed\",\"changed_at\":\"2026-10-15T08:09:13Z\",\"cve_id\":null,\"eol\":{\"product\":\"nginx\",\"cycle\":\"1.24\",\"eol_date\":\"2027-05-31\",\"previous_eol_date\":\"2026-11-30\"}}]}],\"cves\":{\"CVE-2021-44228\":{\"risk_score\":96.5,\"label\":\"CRITICAL\",\"in_kev\":true,\"kev_patch_deadline\":\"2021-12-24\",\"known_ransomware\":true,\"has_metasploit\":false,\"poc_count\":3},\"CVE-2020-8203\":{\"risk_score\":74.0,\"label\":\"HIGH\",\"in_kev\":false,\"kev_patch_deadline\":null,\"known_ransomware\":false,\"has_metasploit\":true,\"poc_count\":9}},\"domains\":{\"example.com\":{\"registered_domain\":\"example.com\",\"dns_presence\":\"found\",\"ns\":[\"ns1.example.org\"],\"mx\":[\"10 mx.example.com\"],\"ip_address_reachability\":\"public\",\"cname_takeover\":\"none\",\"email_auth_failing\":{\"dmarc_record\":\"fail\",\"dmarc_policy\":\"warn\"}}},\"advisories\":{\"GHSA-p6mc-m468-83gw\":{\"source\":\"ghsa\",\"aliases\":[\"CVE-2020-8203\"]}},\"attribution\":[{\"source\":\"endoflife.date\",\"license\":\"MIT\"},{\"source\":\"ghsa\",\"license\":\"CC-BY-4.0\"}],\"credits\":{\"charged\":4294967295,\"remaining\":0}})");
   free(response);
   TEST_ASSERT_EQUAL_INT(7, g_stub_WATCHLISTEVENTS_last_event_row_count);
   TEST_ASSERT_EQUAL_PTR(&credit_budget, g_stub_WATCHLISTEVENTS_last_params.mp_creditBudget);
@@ -3280,7 +3285,7 @@ void test_watchlist_events_answers_the_feed_and_each_db_status(void)
   g_stub_WATCHLISTEVENTS_result_status = WATCHLISTEVENTS_NO_POSITION;
   response = static_watchlistCall("watchlist_events", "{}", &credit_budget, &status);
   TEST_ASSERT_EQUAL_INT(200, status);
-  static_assertContains(response, R"({\"limit\":20,\"cursor\":null,\"repeat\":false,\"next_cursor\":null,\"has_more\":false,\"items\":[],\"cves\":{},\"domains\":{},\"advisories\":{},\"attribution\":[]})");
+  static_assertContains(response, R"({\"limit\":20,\"cursor\":null,\"repeat\":false,\"next_cursor\":null,\"has_more\":false,\"items\":[],\"cves\":{},\"domains\":{},\"advisories\":{},\"attribution\":[],\"credits\":{\"charged\":4294967295,\"remaining\":0}})");
   free(response);
 
   g_stub_WATCHLISTEVENTS_result_status = WATCHLISTEVENTS_CURSOR_INVALID;
@@ -3419,7 +3424,7 @@ void test_tool_D3FENDFORATTACK_found(void)
                      R"("params":{"name":"d3fend_for_attack","arguments":{"attack_technique_id":"T1055.012"}}})", &status);
   static_assertContains(response, R"({\"attack_technique_id\":\"T1055.012\",\"attack_techniques\":[{\"attack_technique_id\":\"T1055.012\",\"subtechnique_of\":\"T1055\",\"attack_label\":\"Process Hollowing\"}],)");
   static_assertContains(response, R"(\"defense_count_by_defense_tactic\":{\"Model\":0,\"Harden\":1,\"Detect\":1,\"Isolate\":0,\"Deceive\":0,\"Evict\":0,\"Restore\":0},)");
-  static_assertContains(response, R"(\"parent_defense_labels\":[\"Process Analysis\"],\"defense_tactic\":\"Detect\",\"digital_artifact\":\"System Call\",\"attack_technique_ids\":[\"T1055.012\"]}]})");
+  static_assertContains(response, R"(\"parent_defense_labels\":[\"Process Analysis\"],\"defense_tactic\":\"Detect\",\"digital_artifact\":\"System Call\",\"attack_technique_ids\":[\"T1055.012\"]}],\"credits\":{\"charged\":4294967295}})");
   TEST_ASSERT_EQUAL_INT(1, g_stub_D3FENDFORATTACK_call_count);
   TEST_ASSERT_EQUAL_STRING("T1055.012", g_stub_D3FENDFORATTACK_last_id);
   TEST_ASSERT_EQUAL_INT(1, g_stub_D3FENDFORATTACKResultFree_call_count);
@@ -3585,7 +3590,7 @@ void test_tool_PACKAGECHECKBULK_found(void)
   static_assertContains(response, R"("text":"{\"total\":2,\"processed\":1,\"successful\":1,\"skipped\":1,\"failed\":0,\"not_processed\":[],)"
                                   R"(\"data_source\":{\"source\":\"osv\",\"available\":true},)"
                                   R"(\"results\":[{\"name\":\"lodash\",\"advisories\":[]}],)"
-                                  R"(\"attribution\":[{\"source\":\"ghsa\",\"license\":\"CC-BY-4.0\"}]}\n"}])");
+                                  R"(\"attribution\":[{\"source\":\"ghsa\",\"license\":\"CC-BY-4.0\"}],\"credits\":{\"charged\":4294967295}}\n"}])");
   TEST_ASSERT_EQUAL_INT(1, g_stub_PACKAGECHECKBULK_call_count);
   TEST_ASSERT_EQUAL_INT(1, g_stub_PACKAGECHECKBULK_last_item_count);
   TEST_ASSERT_EQUAL_STRING("npm", g_stub_PACKAGECHECKBULK_last_items[0].ma_ecosystem);
@@ -3814,7 +3819,7 @@ void test_tool_SSLCHECK_answer(void)
   g_stub_CACHE_get_body   = R"({"kept":true})";
   response = static_dispatch(R"({"jsonrpc":"2.0","id":67,"method":"tools/call",)"
                      R"("params":{"name":"ssl_check","arguments":{"domain":"shop.example.com"}}})", &status);
-  static_assertContains(response, R"("content":[{"type":"text","text":"{\"kept\":true}"}],"isError":false)");
+  static_assertContains(response, R"("content":[{"type":"text","text":"{\"kept\":true,\"credits\":{\"charged\":4294967295}}"}],"isError":false)");
   TEST_ASSERT_EQUAL_INT(1, g_stub_TLSPROBE_call_count);
   TEST_ASSERT_EQUAL_INT(1, g_stub_CACHE_put_count);
   TEST_ASSERT_EQUAL_INT(1, g_stub_CACHE_free_count);
@@ -3927,7 +3932,7 @@ void test_tool_HEADERSCHECK_answer(void)
     R"x(,{\"header\":\"X-XSS-Protection\",\"severity\":\"low\",\"result\":\"warn\",\"issues\":[\"A value other than 0 turns on the legacy XSS filter, which can create XSS vulnerabilities\"],\"value\":\"1; mode=block\",\"remediation\":\"Remove X-XSS-Protection or set it to 0; use Content-Security-Policy against XSS\"})x"
     R"x(,{\"header\":\"Set-Cookie\",\"severity\":\"medium\",\"result\":\"fail\",\"issues\":[\"Cookies with no Secure attribute: 1\"],\"value\":null,\"cookie_count\":2,\"remediation\":\"Mark every cookie Secure with SameSite=Lax or Strict, and mark session cookies HttpOnly\"})x"
     R"x(,{\"header\":\"Access-Control-Allow-Origin\",\"severity\":\"low\",\"result\":\"warn\",\"issues\":[\"Allowing the origin null lets any sandboxed frame read the answer\"],\"value\":\"null\",\"remediation\":\"Send Access-Control-Allow-Origin with one trusted origin; never null, and never * with credentials\"})x"
-    R"x(]})x"
+    R"x(],\"credits\":{\"charged\":4294967295}})x"
     R"(\n"}],"isError":false}})", response);
   free(response);
   TEST_ASSERT_EQUAL_INT(1, g_stub_HEADER_FETCH_call_count);
@@ -3944,7 +3949,7 @@ void test_tool_HEADERSCHECK_answer(void)
   response = static_dispatch(R"({"jsonrpc":"2.0","id":88,"method":"tools/call",)"
                      R"("params":{"name":"headers_check","arguments":{"domain":"WWW.Stub.Example.com","include_full_header_values":true}}})", &status);
   TEST_ASSERT_EQUAL_INT(200, status);
-  TEST_ASSERT_EQUAL_STRING(R"({"jsonrpc":"2.0","id":88,"result":{"content":[{"type":"text","text":"{\"kept\":true}"}],"isError":false}})", response);
+  TEST_ASSERT_EQUAL_STRING(R"({"jsonrpc":"2.0","id":88,"result":{"content":[{"type":"text","text":"{\"kept\":true,\"credits\":{\"charged\":4294967295}}"}],"isError":false}})", response);
   free(response);
   TEST_ASSERT_EQUAL_INT(1, g_stub_HEADER_FETCH_call_count);
   TEST_ASSERT_EQUAL_INT(1, g_stub_CACHE_put_count);
@@ -3985,7 +3990,7 @@ void test_tool_WELLKNOWN_answer(void)
   TEST_ASSERT_EQUAL_STRING(
     R"({"jsonrpc":"2.0","id":94,"result":{"content":[{"type":"text","text":")"
     R"x({\"checked_at\":\"YYYY-MM-DDTHH:MM:SSZ\",\"robots_txt\":{\"groups\":[],\"sitemaps\":[],\"issues\":[],\"by_severity\":{\"warning\":0,\"info\":0}},)x"
-    R"x(\"security_txt\":{\"status\":\"not_fetched\"}})x"
+    R"x(\"security_txt\":{\"status\":\"not_fetched\"},\"credits\":{\"charged\":4294967295}})x"
     R"(\n"}],"isError":false}})", response);
   free(response);
   TEST_ASSERT_EQUAL_INT(1, g_stub_WELL_KNOWN_call_count);
@@ -4015,7 +4020,7 @@ void test_tool_REDIRECTCHAIN_answer(void)
   TEST_ASSERT_EQUAL_STRING(
     R"({"jsonrpc":"2.0","id":97,"result":{"content":[{"type":"text","text":")"
     R"x({\"checked_at\":\"YYYY-MM-DDTHH:MM:SSZ\",\"final_url\":\"https://www.stub.example.com/\",\"stop_reason\":\"final_answer\",)x"
-    R"x(\"https_downgrade\":false,\"hops\":[{\"url\":\"https://www.stub.example.com/\",\"status_code\":200}]})x"
+    R"x(\"https_downgrade\":false,\"hops\":[{\"url\":\"https://www.stub.example.com/\",\"status_code\":200}],\"credits\":{\"charged\":4294967295}})x"
     R"(\n"}],"isError":false}})", response);
   free(response);
   TEST_ASSERT_EQUAL_INT(1, g_stub_HEADER_FETCH_chain_call_count);
@@ -4127,7 +4132,7 @@ void test_tool_WHOISLOOKUP_answer(void)
     R"(\"registrar_name\":\"Stub Registrar LLC\",\"registrar_iana_id\":1234,)"
     R"(\"created_at\":\"2001-02-03T04:05:06Z\",\"updated_at\":\"2025-06-07T08:09:10Z\",\"expires_at\":\"2030-11-12T13:14:15Z\",)"
     R"(\"status\":[\"client transfer prohibited\",\"server delete prohibited\"],\"status_count\":2,)"
-    R"(\"name_servers\":[\"ns1.stub-dns.test\",\"ns2.stub-dns.test\"],\"name_server_count\":2,\"dnssec_signed\":true}\n)"
+    R"(\"name_servers\":[\"ns1.stub-dns.test\",\"ns2.stub-dns.test\"],\"name_server_count\":2,\"dnssec_signed\":true,\"credits\":{\"charged\":4294967295}}\n)"
     R"("}],"isError":false}})", response);
   free(response);
   TEST_ASSERT_EQUAL_INT(1, g_stub_RDAP_find_count);
@@ -4151,7 +4156,7 @@ void test_tool_WHOISLOOKUP_answer(void)
   response = static_dispatch(R"({"jsonrpc":"2.0","id":75,"method":"tools/call",)"
                      R"("params":{"name":"whois_lookup","arguments":{"domain":"www.Example.CO.uk"}}})", &status);
   TEST_ASSERT_EQUAL_INT(200, status);
-  TEST_ASSERT_EQUAL_STRING(R"({"jsonrpc":"2.0","id":75,"result":{"content":[{"type":"text","text":"{\"kept\":true}"}],"isError":false}})", response);
+  TEST_ASSERT_EQUAL_STRING(R"({"jsonrpc":"2.0","id":75,"result":{"content":[{"type":"text","text":"{\"kept\":true,\"credits\":{\"charged\":4294967295}}"}],"isError":false}})", response);
   free(response);
   TEST_ASSERT_EQUAL_INT(1, g_stub_THROTTLE_charge_count);
   TEST_ASSERT_EQUAL_INT(1, g_stub_RDAP_lookup_count);
@@ -4190,9 +4195,9 @@ void test_tool_WHOISLOOKUP_unavailable_answers_and_errors(void)
     const char*      mp_response;
   } cases[] = {
     { false, THROTTLE_CHARGED, RDAP_OK,
-      R"({"jsonrpc":"2.0","id":79,"result":{"content":[{"type":"text","text":"{\"domain\":\"example.co.uk\",\"available\":false,\"registered\":null,\"reason\":\"no_registry_server\",\"retry_after_seconds\":null}\n"}],"isError":false}})" },
+      R"({"jsonrpc":"2.0","id":79,"result":{"content":[{"type":"text","text":"{\"domain\":\"example.co.uk\",\"available\":false,\"registered\":null,\"reason\":\"no_registry_server\",\"retry_after_seconds\":null,\"credits\":{\"charged\":4294967295}}\n"}],"isError":false}})" },
     { true, THROTTLE_REFUSED, RDAP_OK,
-      R"({"jsonrpc":"2.0","id":79,"result":{"content":[{"type":"text","text":"{\"domain\":\"example.co.uk\",\"available\":false,\"registered\":null,\"reason\":\"quota_exhausted\",\"retry_after_seconds\":17}\n"}],"isError":false}})" },
+      R"({"jsonrpc":"2.0","id":79,"result":{"content":[{"type":"text","text":"{\"domain\":\"example.co.uk\",\"available\":false,\"registered\":null,\"reason\":\"quota_exhausted\",\"retry_after_seconds\":17,\"credits\":{\"charged\":4294967295}}\n"}],"isError":false}})" },
     { true, THROTTLE_ERROR, RDAP_OK,
       R"({"jsonrpc":"2.0","id":79,"error":{"code":-32603,"message":"Internal error: database query failed"}})" },
     { true, THROTTLE_CHARGED, RDAP_NOT_REGISTERED,
@@ -4244,7 +4249,7 @@ void test_tool_WAYBACKLOOKUP_answer(void)
     R"({\"domain\":\"www.example.com\",\"available\":true,\"first_seen\":\"2019-03-05\",\"last_seen\":\"2026-10-24\",\"years_online\":7,\"latest_captures\":[)"
     R"({\"captured_at\":\"2026-10-24T16:22:30Z\",\"http_status\":200,\"media_type\":\"text/html\",\"url\":\"https://web.archive.org/web/20261024162230/www.example.com\"})"
     R"(,{\"captured_at\":\"2019-03-05T01:02:03Z\",\"http_status\":301,\"media_type\":\"text/plain\",\"url\":\"https://web.archive.org/web/20190305010203/www.example.com\"})"
-    R"(],\"archive_url\":\"https://web.archive.org/web/*/www.example.com\"}\n)"
+    R"(],\"archive_url\":\"https://web.archive.org/web/*/www.example.com\",\"credits\":{\"charged\":4294967295}}\n)"
     R"("}],"isError":false}})", response);
   free(response);
   TEST_ASSERT_EQUAL_INT(1, g_stub_WAYBACK_lookup_count);
@@ -4265,7 +4270,7 @@ void test_tool_WAYBACKLOOKUP_answer(void)
   response = static_dispatch(R"({"jsonrpc":"2.0","id":82,"method":"tools/call",)"
                      R"("params":{"name":"wayback_lookup","arguments":{"domain":"WWW.Example.COM"}}})", &status);
   TEST_ASSERT_EQUAL_INT(200, status);
-  TEST_ASSERT_EQUAL_STRING(R"({"jsonrpc":"2.0","id":82,"result":{"content":[{"type":"text","text":"{\"kept\":true}"}],"isError":false}})", response);
+  TEST_ASSERT_EQUAL_STRING(R"({"jsonrpc":"2.0","id":82,"result":{"content":[{"type":"text","text":"{\"kept\":true,\"credits\":{\"charged\":4294967295}}"}],"isError":false}})", response);
   free(response);
   TEST_ASSERT_EQUAL_INT(1, g_stub_QUOTA_reserve_count);
   TEST_ASSERT_EQUAL_INT(1, g_stub_WAYBACK_lookup_count);
@@ -4297,11 +4302,11 @@ void test_tool_WAYBACKLOOKUP_unavailable_answers_and_errors(void)
     const char*     mp_response;
   } cases[] = {
     { QUOTA_EXHAUSTED, WAYBACK_OK,
-      R"({"jsonrpc":"2.0","id":85,"result":{"content":[{"type":"text","text":"{\"domain\":\"www.example.com\",\"available\":false,\"reason\":\"quota_exhausted\",\"retry_after_seconds\":7}\n"}],"isError":false}})" },
+      R"({"jsonrpc":"2.0","id":85,"result":{"content":[{"type":"text","text":"{\"domain\":\"www.example.com\",\"available\":false,\"reason\":\"quota_exhausted\",\"retry_after_seconds\":7,\"credits\":{\"charged\":4294967295}}\n"}],"isError":false}})" },
     { QUOTA_ERROR, WAYBACK_OK,
       R"({"jsonrpc":"2.0","id":85,"error":{"code":-32603,"message":"Internal error: database query failed"}})" },
     { QUOTA_GRANTED, WAYBACK_RATE_LIMITED,
-      R"({"jsonrpc":"2.0","id":85,"result":{"content":[{"type":"text","text":"{\"domain\":\"www.example.com\",\"available\":false,\"reason\":\"quota_exhausted\",\"retry_after_seconds\":45}\n"}],"isError":false}})" },
+      R"({"jsonrpc":"2.0","id":85,"result":{"content":[{"type":"text","text":"{\"domain\":\"www.example.com\",\"available\":false,\"reason\":\"quota_exhausted\",\"retry_after_seconds\":45,\"credits\":{\"charged\":4294967295}}\n"}],"isError":false}})" },
     { QUOTA_GRANTED, WAYBACK_UPSTREAM_ERROR,
       R"({"jsonrpc":"2.0","id":85,"error":{"code":-32603,"message":"Internal error: upstream unavailable"}})" },
     { QUOTA_GRANTED, WAYBACK_INVALID_NAME,
@@ -4344,7 +4349,7 @@ void test_tool_WAYBACKLOOKUP_body_buffer_failure_is_32603(void)
   R"({\"sha256_fingerprint\":\"aa11bb22cc33dd44ee55ff6600778899aa11bb22cc33dd44ee55ff6600778899\",\"issuer\":\"Stub Trust CA\",)"                     \
   R"(\"issuer_caa_domains\":[\"stubtrust.example\",\"stub-ca.example\"],\"valid_from\":\"2026-09-01T01:02:03Z\",)"                            \
   R"(\"valid_until\":\"2026-12-01T04:05:06Z\",\"revoked\":true,\"dns_names\":[\"stub.example.com\",\"www.stub.example.com\"],\"dns_name_count\":2})" \
-  R"(]}\n)"
+  R"(],\"credits\":{\"charged\":4294967295}}\n)"
 
 void test_tool_CERTSEARCH_answer(void)
 {
@@ -4376,7 +4381,7 @@ void test_tool_CERTSEARCH_answer(void)
   response = static_dispatch(R"({"jsonrpc":"2.0","id":88,"method":"tools/call",)"
                      R"("params":{"name":"cert_search","arguments":{"domain":"WWW.Example.COM"}}})", &status);
   TEST_ASSERT_EQUAL_INT(200, status);
-  TEST_ASSERT_EQUAL_STRING(R"({"jsonrpc":"2.0","id":88,"result":{"content":[{"type":"text","text":"{\"kept\":true}"}],"isError":false}})", response);
+  TEST_ASSERT_EQUAL_STRING(R"({"jsonrpc":"2.0","id":88,"result":{"content":[{"type":"text","text":"{\"kept\":true,\"credits\":{\"charged\":4294967295}}"}],"isError":false}})", response);
   free(response);
   TEST_ASSERT_EQUAL_INT(1, g_stub_QUOTA_reserve_count);
   TEST_ASSERT_EQUAL_INT(1, g_stub_CERTSPOTTER_lookup_count);
@@ -4408,11 +4413,11 @@ void test_tool_CERTSEARCH_unavailable_answers_and_errors(void)
     const char*         mp_response;
   } cases[] = {
     { QUOTA_EXHAUSTED, CERTSPOTTER_OK,
-      R"({"jsonrpc":"2.0","id":91,"result":{"content":[{"type":"text","text":"{\"domain\":\"www.example.com\",\"available\":false,\"reason\":\"quota_exhausted\",\"retry_after_seconds\":1800}\n"}],"isError":false}})" },
+      R"({"jsonrpc":"2.0","id":91,"result":{"content":[{"type":"text","text":"{\"domain\":\"www.example.com\",\"available\":false,\"reason\":\"quota_exhausted\",\"retry_after_seconds\":1800,\"credits\":{\"charged\":4294967295}}\n"}],"isError":false}})" },
     { QUOTA_ERROR, CERTSPOTTER_OK,
       R"({"jsonrpc":"2.0","id":91,"error":{"code":-32603,"message":"Internal error: database query failed"}})" },
     { QUOTA_GRANTED, CERTSPOTTER_RATE_LIMITED,
-      R"({"jsonrpc":"2.0","id":91,"result":{"content":[{"type":"text","text":"{\"domain\":\"www.example.com\",\"available\":false,\"reason\":\"quota_exhausted\",\"retry_after_seconds\":45}\n"}],"isError":false}})" },
+      R"({"jsonrpc":"2.0","id":91,"result":{"content":[{"type":"text","text":"{\"domain\":\"www.example.com\",\"available\":false,\"reason\":\"quota_exhausted\",\"retry_after_seconds\":45,\"credits\":{\"charged\":4294967295}}\n"}],"isError":false}})" },
     { QUOTA_GRANTED, CERTSPOTTER_UPSTREAM_ERROR,
       R"({"jsonrpc":"2.0","id":91,"error":{"code":-32603,"message":"Internal error: upstream unavailable"}})" },
     { QUOTA_GRANTED, CERTSPOTTER_NO_API_KEY,
@@ -4453,13 +4458,13 @@ void test_tool_CERTSEARCH_body_buffer_failure_is_32603(void)
   free(response);
 }
 
-#define SUBDOMAINENUM_MCP_TEXT                                                                 \
-  R"({\"domain\":\"example.com\",\"subdomain_count\":4,\"subdomains\":[)"                      \
-  R"({\"hostname\":\"mail.example.com\",\"sources\":[\"dns_records\"]},)"                      \
-  R"({\"hostname\":\"www.example.com\",\"sources\":[\"certificate_logs\",\"dns_wordlist\"]},)" \
-  R"({\"hostname\":\"api.example.com\",\"sources\":[\"certificate_logs\"]},)"                  \
-  R"({\"hostname\":\"dev.example.com\",\"sources\":[\"certificate_logs\"]}],)"                 \
-  R"(\"wildcard_dns\":\"absent\",\"certificate_logs_available\":true,\"certificate_logs_complete\":false}\n)"
+#define SUBDOMAINENUM_MCP_TEXT                                                                                           \
+  R"({\"domain\":\"example.com\",\"subdomain_count\":4,\"subdomains\":[)"                                                \
+  R"({\"hostname\":\"mail.example.com\",\"sources\":[\"dns_records\"],\"has_ipv4_address\":true},)"                      \
+  R"({\"hostname\":\"www.example.com\",\"sources\":[\"certificate_logs\",\"dns_wordlist\"],\"has_ipv4_address\":true},)" \
+  R"({\"hostname\":\"api.example.com\",\"sources\":[\"certificate_logs\"],\"has_ipv4_address\":true},)"                  \
+  R"({\"hostname\":\"dev.example.com\",\"sources\":[\"certificate_logs\"],\"has_ipv4_address\":true}],)"                 \
+  R"(\"wildcard_dns\":\"absent\",\"certificate_logs_available\":true,\"certificate_logs_complete\":false,\"credits\":{\"charged\":4294967295}}\n)"
 
 void test_tool_SUBDOMAINENUM_answer(void)
 {
@@ -4493,7 +4498,7 @@ void test_tool_SUBDOMAINENUM_answer(void)
   response = static_dispatch(R"({"jsonrpc":"2.0","id":194,"method":"tools/call",)"
                      R"("params":{"name":"subdomain_enum","arguments":{"domain":"WWW.Example.COM"}}})", &status);
   TEST_ASSERT_EQUAL_INT(200, status);
-  TEST_ASSERT_EQUAL_STRING(R"({"jsonrpc":"2.0","id":194,"result":{"content":[{"type":"text","text":"{\"kept\":true}"}],"isError":false}})", response);
+  TEST_ASSERT_EQUAL_STRING(R"({"jsonrpc":"2.0","id":194,"result":{"content":[{"type":"text","text":"{\"kept\":true,\"credits\":{\"charged\":4294967295}}"}],"isError":false}})", response);
   free(response);
   TEST_ASSERT_EQUAL_INT(1, g_stub_SUBDOMAIN_lookup_count);
   TEST_ASSERT_EQUAL_INT(1, g_stub_QUOTA_reserve_count);
@@ -4525,11 +4530,11 @@ void test_tool_SUBDOMAINENUM_missing_and_refused_domain(void)
 
 void test_tool_SUBDOMAINENUM_answers_without_certificate_logs_and_errors(void)
 {
-#define SUBDOMAINENUM_MCP_DNS_ONLY_HEAD                                             \
-  R"({"jsonrpc":"2.0","id":198,"result":{"content":[{"type":"text","text":")"       \
-  R"({\"domain\":\"example.com\",\"subdomain_count\":2,\"subdomains\":[)"           \
-  R"({\"hostname\":\"mail.example.com\",\"sources\":[\"dns_records\"]},)"           \
-  R"({\"hostname\":\"www.example.com\",\"sources\":[\"dns_wordlist\"]}],)"          \
+#define SUBDOMAINENUM_MCP_DNS_ONLY_HEAD                                                              \
+  R"({"jsonrpc":"2.0","id":198,"result":{"content":[{"type":"text","text":")"                        \
+  R"({\"domain\":\"example.com\",\"subdomain_count\":2,\"subdomains\":[)"                            \
+  R"({\"hostname\":\"mail.example.com\",\"sources\":[\"dns_records\"],\"has_ipv4_address\":true},)"  \
+  R"({\"hostname\":\"www.example.com\",\"sources\":[\"dns_wordlist\"],\"has_ipv4_address\":true}],)" \
   R"(\"wildcard_dns\":\"absent\",\"certificate_logs_available\":false,)"
   static const struct {
     QuotaStatus_t       m_quotaStatus;
@@ -4537,15 +4542,15 @@ void test_tool_SUBDOMAINENUM_answers_without_certificate_logs_and_errors(void)
     const char*         mp_response;
   } cases[] = {
     { QUOTA_EXHAUSTED, CERTSPOTTER_OK,
-      SUBDOMAINENUM_MCP_DNS_ONLY_HEAD R"(\"certificate_logs_reason\":\"quota_exhausted\",\"retry_after_seconds\":1800}\n"}],"isError":false}})" },
+      SUBDOMAINENUM_MCP_DNS_ONLY_HEAD R"(\"certificate_logs_reason\":\"quota_exhausted\",\"retry_after_seconds\":1800,\"credits\":{\"charged\":4294967295}}\n"}],"isError":false}})" },
     { QUOTA_ERROR, CERTSPOTTER_OK,
       R"({"jsonrpc":"2.0","id":198,"error":{"code":-32603,"message":"Internal error: database query failed"}})" },
     { QUOTA_GRANTED, CERTSPOTTER_RATE_LIMITED,
-      SUBDOMAINENUM_MCP_DNS_ONLY_HEAD R"(\"certificate_logs_reason\":\"quota_exhausted\",\"retry_after_seconds\":45}\n"}],"isError":false}})" },
+      SUBDOMAINENUM_MCP_DNS_ONLY_HEAD R"(\"certificate_logs_reason\":\"quota_exhausted\",\"retry_after_seconds\":45,\"credits\":{\"charged\":4294967295}}\n"}],"isError":false}})" },
     { QUOTA_GRANTED, CERTSPOTTER_UPSTREAM_ERROR,
-      SUBDOMAINENUM_MCP_DNS_ONLY_HEAD R"(\"certificate_logs_reason\":\"upstream_error\"}\n"}],"isError":false}})" },
+      SUBDOMAINENUM_MCP_DNS_ONLY_HEAD R"(\"certificate_logs_reason\":\"upstream_error\",\"credits\":{\"charged\":4294967295}}\n"}],"isError":false}})" },
     { QUOTA_GRANTED, CERTSPOTTER_NO_API_KEY,
-      SUBDOMAINENUM_MCP_DNS_ONLY_HEAD R"(\"certificate_logs_reason\":\"upstream_error\"}\n"}],"isError":false}})" },
+      SUBDOMAINENUM_MCP_DNS_ONLY_HEAD R"(\"certificate_logs_reason\":\"upstream_error\",\"credits\":{\"charged\":4294967295}}\n"}],"isError":false}})" },
     { QUOTA_GRANTED, CERTSPOTTER_INVALID_NAME,
       R"({"jsonrpc":"2.0","id":198,"result":{"content":[{"type":"text","text":"Provide a public domain name, such as example.com."}],"isError":true}})" },
   };
@@ -4596,7 +4601,7 @@ void test_tool_IPLOOKUP_answer(void)
   static_assertContains(response, R"("text":"{\"ip_address\":\"2001:4860:4860::8888\",\"asn\":13335,\"asn_name\":\"CLOUDFLARENET\",)");
   static_assertContains(response, R"(\"ptr\":\"one.one.one.one\",\"is_ptr_forward_confirmed\":true,)"
                                   R"(\"reputation\":{\"available\":false,\"reason\":\"pro_key_required\",\"action_url\":\"https://api.contrastcyber.com/pricing\"},)"
-                                  R"(\"internet_exposure\":{\"available\":false,\"reason\":\"pro_key_required\",\"action_url\":\"https://api.contrastcyber.com/pricing\"},\"unavailable\":{}})");
+                                  R"(\"internet_exposure\":{\"available\":false,\"reason\":\"pro_key_required\",\"action_url\":\"https://api.contrastcyber.com/pricing\"},\"unavailable\":{},\"credits\":{\"charged\":4294967295,\"remaining\":0}})");
   TEST_ASSERT_EQUAL_INT(1, g_stub_IPLOOKUP_call_count);
   TEST_ASSERT_EQUAL_STRING("2001:4860:4860::8888", g_stub_IPLOOKUP_last_ip_address);
   TEST_ASSERT_EQUAL_INT(1, g_stub_PTR_call_count);
@@ -4648,11 +4653,11 @@ void test_tool_EMAILADDRESSCHECK_answer(void)
     { "Admin+ci@Example.COM", "example.com",
       R"("text":"{\"email\":\"Admin+ci@example.com\",\"domain\":\"example.com\",\"domain_exists\":true,\"accepts_mail\":true,)"
       EMAILADDRESSCHECK_STUB_TEXT_MX
-      R"(\"unavailable\":{}}\n"}])" },
+      R"(\"unavailable\":{},\"credits\":{\"charged\":4294967295}}\n"}])" },
     { "a%40b@Gmail.com", "gmail.com",
       R"("text":"{\"email\":\"a%40b@gmail.com\",\"domain\":\"gmail.com\",\"domain_exists\":true,\"accepts_mail\":true,)"
       EMAILADDRESSCHECK_STUB_TEXT_MX
-      R"(\"unavailable\":{}}\n"}])" },
+      R"(\"unavailable\":{},\"credits\":{\"charged\":4294967295}}\n"}])" },
   };
   for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
   {
@@ -4730,7 +4735,7 @@ void test_tool_EMAILADDRESSCHECK_db_error_upstream_error_and_no_domain(void)
 
 #define ASNLOOKUP_STUB_TEXT_COUNTS  R"(,\"ipv4_prefix_count\":1789,\"ipv6_prefix_count\":214,)"
 #define ASNLOOKUP_STUB_TEXT_LISTS \
-  R"(\"ipv4_prefixes\":[\"1.0.0.0/24\", \"1.1.1.0/24\"],\"ipv6_prefixes\":[\"2606:4700::/32\"]}\n"}])"
+  R"(\"ipv4_prefixes\":[\"1.0.0.0/24\", \"1.1.1.0/24\"],\"ipv6_prefixes\":[\"2606:4700::/32\"],\"credits\":{\"charged\":4294967295}}\n"}])"
 
 void test_tool_ASNLOOKUP_answer(void)
 {
@@ -6191,12 +6196,12 @@ void test_tool_EPSSRISERS_uncomputable_window_is_a_result(void)
   int status;
   char* response = static_dispatch(R"({"jsonrpc":"2.0","id":948,"method":"tools/call","params":{"name":"epss_risers","arguments":{"window_days":30}}})", &status);
   static_assertContains(response, R"(\"window_days\":30,\"from_date\":null,\"to_date\":\"2026-11-19\",\"window_note\":\"EPSS history holds no day that can start this window yet\",\"total\":0,)");
-  static_assertContains(response, R"(\"results\":[]})");
+  static_assertContains(response, R"(\"results\":[],\"credits\":{\"charged\":4294967295}})");
   static_assertToolSucceeded(response, status);
   TEST_ASSERT_EQUAL_INT(1, g_stub_EPSSRISERS_call_count);
 }
 
-#define TEST_TOOLS_LIST_MAX_BYTE_COUNT 33792
+#define TEST_TOOLS_LIST_MAX_BYTE_COUNT 35840
 
 #define TEST_MCP_TOOL_DESCRIPTION_MAX_LEN 240
 
@@ -6417,7 +6422,77 @@ void test_tools_list_meta_names_the_category(void)
   char* response = static_dispatch(R"({"jsonrpc":"2.0","id":993,"method":"tools/list"})", &status);
   TEST_ASSERT_EQUAL_INT(200, status);
 
-  static_assertToolEntryHas(response, "kev_lookup", R"("_meta":{"com.contrastcyber/category":"CVE Intelligence"})", true);
+  static_assertToolEntryHas(response, "kev_lookup", R"("_meta":{"com.contrastcyber/category":"CVE Intelligence")", true);
+  free(response);
+}
+
+static void static_assertToolMetaIs(const char* tool_name, const char* meta_member)
+{
+  int status;
+  char* response = static_dispatch(R"({"jsonrpc":"2.0","id":994,"method":"tools/list"})", &status);
+  TEST_ASSERT_EQUAL_INT(200, status);
+
+  char needle[512] = "";
+  int written = snprintf(needle, sizeof(needle), "%s}", meta_member);
+  TEST_ASSERT_TRUE(written > 0 && (size_t)written < sizeof(needle));
+  static_assertToolEntryHas(response, tool_name, needle, true);
+  free(response);
+}
+
+void test_tools_list_meta_prices_a_one_credit_tool_per_call(void)
+{
+  static_assertToolMetaIs("kev_lookup", R"("_meta":{"com.contrastcyber/category":"CVE Intelligence","com.contrastcyber/credits":{"per_call":1}})");
+}
+
+void test_tools_list_meta_prices_a_two_credit_tool_per_call(void)
+{
+  static_assertToolMetaIs("cert_search", R"("_meta":{"com.contrastcyber/category":"Domain Intelligence","com.contrastcyber/credits":{"per_call":2}})");
+}
+
+void test_tools_list_meta_prices_health_at_zero(void)
+{
+  static_assertToolMetaIs("health", R"("_meta":{"com.contrastcyber/category":"Operations","com.contrastcyber/credits":{"per_call":0}})");
+}
+
+void test_tools_list_meta_prices_a_bulk_tool_per_item(void)
+{
+  static_assertToolMetaIs("cve_lookup_bulk", R"("_meta":{"com.contrastcyber/category":"CVE Intelligence","com.contrastcyber/credits":{"per_item":1,"min":1}})");
+}
+
+void test_tools_list_meta_prices_package_check_bulk_as_weighed(void)
+{
+  static_assertToolMetaIs("package_check_bulk", R"json("_meta":{"com.contrastcyber/category":"Package Vulnerabilities (SBOM)","com.contrastcyber/credits":{"per_item":1,"min":1,"weighed":true}})json");
+}
+
+void test_tools_list_every_tool_has_one_meta_with_credits(void)
+{
+  int status;
+  char* response = static_dispatch(R"({"jsonrpc":"2.0","id":995,"method":"tools/list"})", &status);
+  TEST_ASSERT_EQUAL_INT(200, status);
+
+  const char* anchor      = R"({"name":")";
+  const char* meta_key    = R"("_meta":)";
+  const char* credits_key = R"("com.contrastcyber/credits":{)";
+  int entry_count = 0;
+  for (const char* entry = strstr(response, anchor); entry != NULL; )
+  {
+    const char* next_entry = strstr(entry + 1, anchor);
+    const char* entry_end  = next_entry ? next_entry : entry + strlen(entry);
+    int meta_count    = 0;
+    int credits_count = 0;
+    for (const char* hit = strstr(entry, meta_key); hit != NULL && hit < entry_end; hit = strstr(hit + 1, meta_key))
+      meta_count++;
+    for (const char* hit = strstr(entry, credits_key); hit != NULL && hit < entry_end; hit = strstr(hit + 1, credits_key))
+      credits_count++;
+
+    char message[96] = "";
+    snprintf(message, sizeof(message), "%.64s", entry);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(1, meta_count, message);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(1, credits_count, message);
+    entry_count++;
+    entry = next_entry;
+  }
+  TEST_ASSERT_EQUAL_INT(endpoint_mcpToolCount(), entry_count);
   free(response);
 }
 
@@ -6500,7 +6575,7 @@ void test_tool_CVETRIAGE_full_page_past_initial_capacity_is_a_result(void)
   TEST_ASSERT_NOT_NULL(response);
   TEST_ASSERT_GREATER_THAN_size_t(JSONBUF_INITIAL_CAP, strlen(response));
   static_assertContains(response, R"(\"total\":100)");
-  static_assertContains(response, R"(]}\n"}],"isError":false)");
+  static_assertContains(response, R"(],\"credits\":{\"charged\":4294967295}}\n"}],"isError":false)");
   TEST_ASSERT_EQUAL_INT(200, status);
   TEST_ASSERT_NULL(strstr(response, "-32603"));
   free(response);
@@ -6516,7 +6591,7 @@ void test_tool_CVELOOKUPBULK_body_just_under_ceiling_is_a_result(void)
   TEST_ASSERT_NOT_NULL(response);
   TEST_ASSERT_GREATER_THAN_size_t(JSONBUF_DEFAULT_CEILING / 4 * 3, strlen(response));
   static_assertContains(response, R"(\"successful\":50)");
-  static_assertContains(response, R"(]}"}],"isError":false)");
+  static_assertContains(response, R"(],\"credits\":{\"charged\":4294967295}}"}],"isError":false)");
   TEST_ASSERT_EQUAL_INT(200, status);
   TEST_ASSERT_NULL(strstr(response, "-32603"));
   const char* cursor = response;
@@ -6551,7 +6626,7 @@ static void static_assertListPageIsAResult(char* response, int status)
 {
   TEST_ASSERT_NOT_NULL(response);
   TEST_ASSERT_GREATER_THAN_size_t(JSONBUF_INITIAL_CAP, strlen(response));
-  static_assertContains(response, R"(]}\n"}],"isError":false)");
+  static_assertContains(response, R"(],\"credits\":{\"charged\":4294967295}}\n"}],"isError":false)");
   static_assertToolSucceeded(response, status);
 }
 
@@ -6599,7 +6674,7 @@ void test_tool_CVELOOKUP_record_past_initial_capacity_is_a_result(void)
   char* response = static_dispatch(CVELOOKUP_REQUEST_BODY, &status);
   TEST_ASSERT_NOT_NULL(response);
   TEST_ASSERT_GREATER_THAN_size_t(JSONBUF_INITIAL_CAP, strlen(response));
-  static_assertContains(response, R"(?include_ghsa=true\"}\n"}],"isError":false)");
+  static_assertContains(response, R"(?include_ghsa=true\",\"credits\":{\"charged\":4294967295}}\n"}],"isError":false)");
   static_assertToolSucceeded(response, status);
 }
 
@@ -6611,7 +6686,7 @@ void test_tool_CVELOOKUP_record_just_under_ceiling_is_a_result(void)
   char* response = static_dispatch(CVELOOKUP_REQUEST_BODY, &status);
   TEST_ASSERT_NOT_NULL(response);
   TEST_ASSERT_GREATER_THAN_size_t(JSONBUF_DEFAULT_CEILING - JSONBUF_INITIAL_CAP, strlen(response));
-  static_assertContains(response, R"(?include_ghsa=true\"}\n"}],"isError":false)");
+  static_assertContains(response, R"(?include_ghsa=true\",\"credits\":{\"charged\":4294967295}}\n"}],"isError":false)");
   static_assertToolSucceeded(response, status);
 }
 
@@ -6866,7 +6941,7 @@ void test_tool_KEVLOOKUP_body_past_initial_capacity_is_a_result(void)
 
   TEST_ASSERT_NOT_NULL(response);
   TEST_ASSERT_GREATER_THAN_size_t(JSONBUF_INITIAL_CAP, strlen(response));
-  static_assertContains(response, R"(\"date_removed\":\"\"}\n"}],"isError":false)");
+  static_assertContains(response, R"(\"date_removed\":\"\",\"credits\":{\"charged\":4294967295}}\n"}],"isError":false)");
   static_assertToolSucceeded(response, status);
 }
 
@@ -6881,7 +6956,7 @@ void test_tool_CWELOOKUP_body_past_initial_capacity_is_a_result(void)
 
   TEST_ASSERT_NOT_NULL(response);
   TEST_ASSERT_GREATER_THAN_size_t(JSONBUF_INITIAL_CAP, strlen(response));
-  static_assertContains(response, R"(\"updated_at\":\"2026-05-21T00:00:00+00:00\"}\n"}],"isError":false)");
+  static_assertContains(response, R"(\"updated_at\":\"2026-05-21T00:00:00+00:00\",\"credits\":{\"charged\":4294967295}}\n"}],"isError":false)");
   static_assertToolSucceeded(response, status);
 }
 
@@ -6895,7 +6970,7 @@ void test_tool_CVEEXPLOIT_body_past_initial_capacity_is_a_result(void)
 
   TEST_ASSERT_NOT_NULL(response);
   TEST_ASSERT_GREATER_THAN_size_t(JSONBUF_INITIAL_CAP, strlen(response));
-  static_assertContains(response, R"(]}]}\n"}],"isError":false)");
+  static_assertContains(response, R"(]}],\"credits\":{\"charged\":4294967295}}\n"}],"isError":false)");
   static_assertToolSucceeded(response, status);
 }
 
@@ -7145,8 +7220,8 @@ void test_tool_content_that_cannot_be_created_is_internal_error(void)
   static_assertToolInternalError(response, status);
 }
 
-#define MCP_ENVELOPE_OVER_CEILING_MATCHES_LEN  (838738u)
-#define MCP_ENVELOPE_UNDER_CEILING_MATCHES_LEN (838726u)
+#define MCP_ENVELOPE_OVER_CEILING_MATCHES_LEN  (838736u)
+#define MCP_ENVELOPE_UNDER_CEILING_MATCHES_LEN (838724u)
 
 static char* static_callDRIVERLOOKUPBULKWithMaxIds(int request_id, int* status)
 {
@@ -7179,7 +7254,7 @@ void test_tool_DRIVERLOOKUPBULK_body_whose_envelope_just_fits_is_a_result(void)
   char* response = static_callDRIVERLOOKUPBULKWithMaxIds(1037, &status);
   TEST_ASSERT_NOT_NULL(response);
   TEST_ASSERT_GREATER_THAN_size_t(JSONBUF_MAX_CEILING - 1024, strlen(response));
-  static_assertEndsWith(response, R"(]}"}],"isError":false}})");
+  static_assertEndsWith(response, R"(],\"credits\":{\"charged\":4294967295}}"}],"isError":false}})");
   static_assertToolSucceeded(response, status);
 }
 
@@ -7532,7 +7607,7 @@ void test_mcp_server_instructions_name_x402_pay_per_call(void)
 
 void test_registration_gate_test_count(void)
 {
-  TEST_ASSERT_EQUAL_INT_MESSAGE(417, (int)Unity.NumberOfTests,
+  TEST_ASSERT_EQUAL_INT_MESSAGE(423, (int)Unity.NumberOfTests,
     "RUN_TEST list and test definitions have drifted apart - a test may be unregistered");
 }
 
@@ -8370,6 +8445,12 @@ int main(void)
   RUN_TEST(test_tools_list_open_world_hint_follows_the_upstream_call);
   RUN_TEST(test_tools_list_watchlist_annotations_follow_the_effect);
   RUN_TEST(test_tools_list_meta_names_the_category);
+  RUN_TEST(test_tools_list_meta_prices_a_one_credit_tool_per_call);
+  RUN_TEST(test_tools_list_meta_prices_a_two_credit_tool_per_call);
+  RUN_TEST(test_tools_list_meta_prices_health_at_zero);
+  RUN_TEST(test_tools_list_meta_prices_a_bulk_tool_per_item);
+  RUN_TEST(test_tools_list_meta_prices_package_check_bulk_as_weighed);
+  RUN_TEST(test_tools_list_every_tool_has_one_meta_with_credits);
   RUN_TEST(test_tool_call_scalar_arguments_is_protocol_error);
   RUN_TEST(test_tool_call_empty_array_arguments_is_protocol_error);
   RUN_TEST(test_tool_call_array_wrapped_arguments_is_protocol_error);

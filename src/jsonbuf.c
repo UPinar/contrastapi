@@ -237,6 +237,62 @@ bool jsonbuf_appendJsonText(JsonBuf_t* json_buf, const char* json_text)
   return static_jsonbufAppendSequences(json_buf, json_text, strlen(json_text), static_jsonbufJsonTextSequence);
 }
 
+bool jsonbuf_appendMemberToClosedObject(JsonBuf_t* json_buf, const char* member_json_text)
+{
+  assert(json_buf != NULL);
+  assert(member_json_text != NULL);
+
+  if (json_buf->m_failed)
+    return false;
+
+  if (!json_buf->mp_data)
+  {
+    json_buf->m_failed = true;
+    return false;
+  }
+
+  if (json_buf->m_len >= json_buf->m_capacity)
+  {
+    fprintf(stderr, "jsonbuf_appendMemberToClosedObject: m_len %zu is not below m_capacity %zu\n", json_buf->m_len, json_buf->m_capacity);
+    json_buf->m_failed = true;
+    return false;
+  }
+
+  size_t object_end = json_buf->m_len;
+  while (object_end > 0 && (json_buf->mp_data[object_end - 1] == ' '  ||
+                            json_buf->mp_data[object_end - 1] == '\t' ||
+                            json_buf->mp_data[object_end - 1] == '\r' ||
+                            json_buf->mp_data[object_end - 1] == '\n'))
+  {
+    object_end--;
+  }
+
+  if (object_end == 0 || json_buf->mp_data[object_end - 1] != '}')
+  {
+    fprintf(stderr, "jsonbuf_appendMemberToClosedObject: the %zu byte text does not end with '}'\n", json_buf->m_len);
+    json_buf->m_failed = true;
+    return false;
+  }
+
+  size_t brace_index   = object_end - 1;
+  bool   is_empty      = brace_index > 0 && json_buf->mp_data[brace_index - 1] == '{';
+  size_t comma_len     = is_empty ? 0 : 1;
+  size_t member_len    = strlen(member_json_text);
+  size_t insert_len    = comma_len + member_len;
+
+  if (!static_jsonbufReserve(json_buf, insert_len))
+    return false;
+
+  char* data = json_buf->mp_data;
+  memmove(data + brace_index + insert_len, data + brace_index, json_buf->m_len - brace_index);
+  if (!is_empty)
+    data[brace_index] = ',';
+  memcpy(data + brace_index + comma_len, member_json_text, member_len);
+  json_buf->m_len += insert_len;
+  data[json_buf->m_len] = '\0';
+  return true;
+}
+
 bool jsonbuf_isCodePointHidden(uint32_t code_point)
 {
   return code_point == 0x7F

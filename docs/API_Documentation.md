@@ -58,6 +58,7 @@ A trailing slash is not significant: `/cve_search`, `/cve_search/` and `/cve_sea
 - [Web files](#web-files)
 - [Pay per call (x402)](#pay-per-call-x402)
 - [Response headers](#response-headers)
+- [The credits member](#the-credits-member)
 - [The available member](#the-available-member)
 - [Text encoding](#text-encoding)
 - [Error codes](#error-codes)
@@ -76,7 +77,7 @@ A trailing slash is not significant: `/cve_search`, `/cve_search/` and `/cve_sea
 | Free (no key) | 30 credits / hour | per IPv4 address or IPv6 /64 |
 | Pro (API key) | 500 credits / hour | per key |
 
-A request over its budget gets `429`. A request without a key to an endpoint that takes payment gets `402` instead and may pay per call. A `tools/call` on `/mcp` pays through `params._meta`. See [Pay per call (x402)](#pay-per-call-x402).
+A request over its budget gets `429`. `X-Credits-Charged` says what a call cost, and `X-RateLimit-Remaining` says what is left: see [Response headers](#response-headers). A request without a key to an endpoint that takes payment gets `402` instead and may pay per call. A `tools/call` on `/mcp` pays through `params._meta`. See [Pay per call (x402)](#pay-per-call-x402).
 
 ### Key format
 
@@ -140,7 +141,7 @@ The body is a JSON object with one member, `order_id`. It is a UUID of 36 lower-
 
 | Status | Body | When |
 |--------|------|------|
-| 200 | `{"api_key":"contrastapi_…"}` | The order is paid and had no key yet. This answer is the one place the key is shown. |
+| 200 | `{"api_key":"contrastapi_…","credits":{"charged":0}}` | The order is paid and had no key yet. This answer is the one place the key is shown. |
 | 400 | `bad_request`, with the message of the member | `order_id` is missing, too long, or not a lower-case UUID. |
 | 404 | `not_found`, `"no paid order has this order_id yet"` | No paid order has this id. The payment event can arrive a few seconds late. |
 | 410 | `gone`, `"the API key of this order was claimed already; it is shown only once, so contact support"` | The key of the order was handed out before. |
@@ -152,11 +153,11 @@ The body is a JSON object with one member, `order_id`. It is a UUID of 36 lower-
 
 Only Lemon Squeezy calls this endpoint. It costs 0 credits and has no MCP tool. The request carries `X-Signature`, an HMAC-SHA256 of the raw body under the signing secret of the webhook. A caller other than Lemon Squeezy cannot sign a body, so it gets `401`. The body may be up to 64 KiB (65536 bytes).
 
-The webhook handles `order_created`, `subscription_cancelled`, `subscription_expired`, `subscription_resumed`, `order_refunded` and `subscription_payment_refunded`. Any other event name, a test-mode event, and an `order_created` that is not paid are answered `200` with `{"status":"ignored"}`. Every answer about a readable event is `200`, a repeated delivery too, so Lemon Squeezy does not send it again.
+The webhook handles `order_created`, `subscription_cancelled`, `subscription_expired`, `subscription_resumed`, `order_refunded` and `subscription_payment_refunded`. Any other event name, a test-mode event, and an `order_created` that is not paid are answered `200` with `{"status":"ignored","credits":{"charged":0}}`. Every answer about a readable event is `200`, a repeated delivery too, so Lemon Squeezy does not send it again.
 
 | Status | Body | When |
 |--------|------|------|
-| 200 | `{"status":"<text>"}` | The event was read. `<text>` is `applied`, `duplicate`, `exists`, `stale`, `revoked`, `unknown` or `ignored`. |
+| 200 | `{"status":"<text>","credits":{"charged":0}}` | The event was read. `<text>` is `applied`, `duplicate`, `exists`, `stale`, `revoked`, `unknown` or `ignored`. |
 | 400 | `bad_request`, with the reason | The body is empty (`"body is required"`), `X-Signature` is sent twice, `X-Signature` is longer than 64 characters (`"X-Signature is too long"`), or the signature is right but the body holds no readable event. The body message names the field the server could not read. |
 | 401 | `invalid_signature`, `"X-Signature does not match the body"` | `X-Signature` is missing or wrong. |
 | 413 | `content_too_large` | The body is longer than 64 KiB. |
@@ -174,7 +175,7 @@ The invoice sends the buyer back to `/welcome?order_id=<order UUID>` after the p
 
 | Status | Body | When |
 |--------|------|------|
-| 200 | `{"invoice_id":"<text>","invoice_url":"<text>","order_id":"<UUID>"}` | NOWPayments opened the invoice. `invoice_url` is the page where the buyer pays. |
+| 200 | `{"invoice_id":"<text>","invoice_url":"<text>","order_id":"<UUID>","credits":{"charged":1,"remaining":29}}` | NOWPayments opened the invoice. `invoice_url` is the page where the buyer pays. |
 | 400 | `bad_request` | The request sends a query string. |
 | 429 | `rate_limited` | The caller's credit budget is spent. |
 | 500 | `internal_error` | The random source could not make the order id. |
@@ -185,11 +186,11 @@ The invoice sends the buyer back to `/welcome?order_id=<order UUID>` after the p
 
 Only NOWPayments calls this endpoint. It costs 0 credits and has no MCP tool. The request carries `x-nowpayments-sig`, an HMAC-SHA512 of the body under the IPN secret. A caller other than NOWPayments cannot sign a body, so it gets `401`. The body may be up to 64 KiB (65536 bytes).
 
-The invoice counts as paid when `payment_status` is `finished`, or when it is `partially_paid` and `actually_paid` is at least 0.99 times `pay_amount`. Any other status, in a body with a usable invoice ref and `order_id`, is answered `200` with `{"status":"ignored"}`, and nothing is written. So is a notification with a `parent_payment_id`, which reports a repeated deposit. Every answer about a readable event is `200`, a repeated delivery too. A paid notification writes an order that the buyer claims with `POST /api_key_claim` within 24 hours.
+The invoice counts as paid when `payment_status` is `finished`, or when it is `partially_paid` and `actually_paid` is at least 0.99 times `pay_amount`. Any other status, in a body with a usable invoice ref and `order_id`, is answered `200` with `{"status":"ignored","credits":{"charged":0}}`, and nothing is written. So is a notification with a `parent_payment_id`, which reports a repeated deposit. Every answer about a readable event is `200`, a repeated delivery too. A paid notification writes an order that the buyer claims with `POST /api_key_claim` within 24 hours.
 
 | Status | Body | When |
 |--------|------|------|
-| 200 | `{"status":"<text>"}` | The event was read. `<text>` is `applied`, `duplicate`, `exists` or `ignored`. |
+| 200 | `{"status":"<text>","credits":{"charged":0}}` | The event was read. `<text>` is `applied`, `duplicate`, `exists` or `ignored`. |
 | 400 | `bad_request`, with the reason | `x-nowpayments-sig` is longer than 128 characters (`"x-nowpayments-sig is too long"`), or the signature is right but the body holds no readable payment. The body message names the reason, such as `"order_id is missing or not a lower-case UUID"`. |
 | 401 | `invalid_signature`, `"x-nowpayments-sig does not match the body"` | `x-nowpayments-sig` is missing, is not 128 lower-case hex digits or is wrong, or the body cannot be put in the signed form. |
 | 413 | `content_too_large` | The body is longer than 64 KiB. |
@@ -382,7 +383,8 @@ the first 20 of each.
       "high": {"decision": "Act", "remediation_advice": "as soon as possible"}
     }
   },
-  "ghsa": "/cve_lookup/CVE-2021-44228?include_ghsa=true"
+  "ghsa": "/cve_lookup/CVE-2021-44228?include_ghsa=true",
+  "credits": {"charged": 1, "remaining": 29}
 }
 ```
 
@@ -424,11 +426,11 @@ The answer is still `404`, and the call still costs 1 credit. When CVE.org names
 A `published` answer also holds `retry_after_seconds`. It is the time between two runs of our feeds, in seconds. The number may change. The other three states hold no `retry_after_seconds`. The response has no `Retry-After` header.
 
 ```json
-{"error":{"code":"not_found","message":"CVE not found; CVE.org has published it and our data does not have it yet; retry later","cve_org_state":"published","retry_after_seconds":7200}}
+{"error":{"code":"not_found","message":"CVE not found; CVE.org has published it and our data does not have it yet; retry later","cve_org_state":"published","retry_after_seconds":7200},"credits":{"charged":1,"remaining":29}}
 ```
 
 ```json
-{"error":{"code":"not_found","message":"CVE not found; CVE.org lists it as rejected","cve_org_state":"rejected"}}
+{"error":{"code":"not_found","message":"CVE not found; CVE.org lists it as rejected","cve_org_state":"rejected"},"credits":{"charged":1,"remaining":29}}
 ```
 
 The member is optional. A `404` without `cve_org_state` is the plain miss `{"error":{"code":"not_found","message":"CVE not found"}}`. It means that the server did not check, not that CVE.org has no such id. The server does not always check, so the same id may come with the member at one time and without it at another. Act on `cve_org_state` only when it is present.
@@ -485,7 +487,8 @@ The [CVE Lookup example](#example-response-without-include_ghsa) shows one recor
   "skipped": 0,
   "failed": 1,
   "not_processed": [],
-  "results": [ … ]
+  "results": [ … ],
+  "credits": {"charged": 3, "remaining": 27}
 }
 ```
 
@@ -542,7 +545,8 @@ curl "https://api.contrastcyber.com/cve_products/CVE-2021-44228?vendor=cisco&lim
   "results": [
     {"vendor": "cisco", "product": "advanced_malware_protection_virtual_private_cloud_appliance", "cpe_part": "a", "is_vulnerable": true, "product_source": "nvd", "version_end_excluding": "3.5.4"},
     {"vendor": "cisco", "product": "automated_subsea_tuning", "cpe_part": "a", "is_vulnerable": true, "product_source": "nvd", "version_end_excluding": "2.1.0"}
-  ]
+  ],
+  "credits": {"charged": 1, "remaining": 29}
 }
 ```
 
@@ -643,7 +647,8 @@ Rules for the values:
       "cwe_id": "CWE-20",
       "cwe_source": "cna"
     }
-  ]
+  ],
+  "credits": {"charged": 1, "remaining": 29}
 }
 ```
 
@@ -695,7 +700,8 @@ With `vendor=apache`, the body holds `product_filter_note` before `results`. `re
   "offset": 0,
   "next_offset": 2,
   "product_filter_note": "This filter matches names exactly. It can miss a CVE whose CNA spelled the vendor or product another way. Use cpe_search to find other spellings.",
-  "results": [ … ]
+  "results": [ … ],
+  "credits": {"charged": 1, "remaining": 29}
 }
 ```
 
@@ -787,7 +793,8 @@ Each result has the fields of a [CVE Search](#cve-search-get-cve_search) result.
       "cwe_id": "CWE-20",
       "cwe_source": "cna"
     }
-  ]
+  ],
+  "credits": {"charged": 1, "remaining": 29}
 }
 ```
 
@@ -861,7 +868,8 @@ The final score is capped at 100 and rounded to one decimal place. `/cve_triage`
     "exploitability": {"score": 60.00, "max": 60.00},
     "impact":         {"score": 30.00, "max": 30.00},
     "evidence":       {"score": 6.60,  "max": 10.00}
-  }
+  },
+  "credits": {"charged": 1, "remaining": 29}
 }
 ```
 
@@ -951,7 +959,8 @@ Each object of `results` holds:
       "risk_score": 96.6,
       "label": "CRITICAL"
     }
-  ]
+  ],
+  "credits": {"charged": 1, "remaining": 29}
 }
 ```
 
@@ -1001,7 +1010,8 @@ The answer has the counters of [`/cve_lookup_bulk`](#cve-lookup-bulk-post-cve_lo
   "not_processed": [],
   "results": [
     {"cve_id": "CVE-2021-44228", "risk_score": 96.6, "label": "CRITICAL"}
-  ]
+  ],
+  "credits": {"charged": 3, "remaining": 27}
 }
 ```
 
@@ -1102,7 +1112,8 @@ The four numbers are clamped to 0.0–1.0 and written with five decimals.
       "epss_percentile": 0.99412,
       "in_kev": false
     }
-  ]
+  ],
+  "credits": {"charged": 1, "remaining": 29}
 }
 ```
 
@@ -1118,7 +1129,8 @@ A window that cannot be computed answers:
   "limit": 20,
   "offset": 0,
   "next_offset": 0,
-  "results": []
+  "results": [],
+  "credits": {"charged": 1, "remaining": 29}
 }
 ```
 
@@ -1315,7 +1327,8 @@ The author and the advisory link of an entry are not served.
         {"edb_id": 50590, "url": "https://www.exploit-db.com/exploits/50590", "type": "remote", "platform": "java", "date_published": "2021-12-14", "verified": false}
       ]
     }
-  ]
+  ],
+  "credits": {"charged": 1, "remaining": 29}
 }
 ```
 
@@ -1382,7 +1395,8 @@ curl "https://api.contrastcyber.com/product_exposure?vendor=nodejs&product=node.
   "top_cves": [
     { "cve_id": "CVE-2023-20198", "risk_score": 98.5, "label": "CRITICAL" }
   ],
-  "eol": null
+  "eol": null,
+  "credits": {"charged": 1, "remaining": 29}
 }
 ```
 
@@ -1412,7 +1426,8 @@ A product that endoflife.date lists, asked with a `version`:
       { "name": "24", "eol_date": "2028-04-30", "is_lts": true }
     ],
     "maintained_cycles_truncated": false
-  }
+  },
+  "credits": {"charged": 1, "remaining": 29}
 }
 ```
 
@@ -1524,7 +1539,8 @@ curl "https://api.contrastcyber.com/cpe_search?search=windows+10&limit=3"
     { "vendor": "microsoft", "product": "windows_10_1809", "vulnerable_cve_count": 3126, "product_named_by": ["cna_cpe", "nvd"] },
     { "vendor": "microsoft", "product": "windows_10_21h2", "vulnerable_cve_count": 3069, "product_named_by": ["nvd"] },
     { "vendor": "microsoft", "product": "windows_10_22h2", "vulnerable_cve_count": 3068, "product_named_by": ["nvd"] }
-  ]
+  ],
+  "credits": {"charged": 1, "remaining": 29}
 }
 ```
 
@@ -1596,7 +1612,8 @@ curl "https://api.contrastcyber.com/cvss_calculator?vector=CVSS:3.1/AV:N/AC:L/PR
   },
   "temporal_score": 9.2,
   "environmental_score": 9.2,
-  "summary": "CVSS v3.1 CRITICAL (10.0). AV=NETWORK, AC=LOW, PR=NONE, UI=NONE, Scope=CHANGED."
+  "summary": "CVSS v3.1 CRITICAL (10.0). AV=NETWORK, AC=LOW, PR=NONE, UI=NONE, Scope=CHANGED.",
+  "credits": {"charged": 1, "remaining": 29}
 }
 ```
 
@@ -1672,7 +1689,8 @@ curl https://api.contrastcyber.com/kev_lookup/CVE-2021-44228
   "short_description": "Remote code execution via JNDI lookup.",
   "notes": "https://logging.apache.org/log4j/2.x/security.html",
   "cwes": ["CWE-917"],
-  "date_removed": ""
+  "date_removed": "",
+  "credits": {"charged": 1, "remaining": 29}
 }
 ```
 
@@ -1734,7 +1752,8 @@ curl https://api.contrastcyber.com/cwe_lookup/CWE-89
   "kev_count": 26,
   "avg_cvss": 6.00,
   "avg_epss": 0.0287,
-  "updated_at": "2026-05-20T14:07:56.162610+00:00"
+  "updated_at": "2026-05-20T14:07:56.162610+00:00",
+  "credits": {"charged": 1, "remaining": 29}
 }
 ```
 
@@ -1812,7 +1831,8 @@ curl https://api.contrastcyber.com/d3fend_for_attack/T1055.012
       "digital_artifact": "Process Segment",
       "attack_technique_ids": ["T1055.012"]
     }
-  ]
+  ],
+  "credits": {"charged": 1, "remaining": 29}
 }
 ```
 
@@ -1919,7 +1939,8 @@ curl https://api.contrastcyber.com/driver_lookup/01aa278b07b58dc46c84bd0b1b5c8e9
       },
       "attack_technique_ids": "T1068"
     }
-  ]
+  ],
+  "credits": {"charged": 1, "remaining": 29}
 }
 ```
 
@@ -2157,7 +2178,8 @@ name exactly. Over REST, a `+` in a query value is a space; send a `+` as `%2B`.
       "source": "ghsa",
       "license": "CC-BY-4.0"
     }
-  ]
+  ],
+  "credits": {"charged": 1, "remaining": 29}
 }
 ```
 
@@ -2327,7 +2349,8 @@ takes them as one.
   ],
   "attribution": [
     {"url": "https://github.com/github/advisory-database", "source": "ghsa", "license": "CC-BY-4.0"}
-  ]
+  ],
+  "credits": {"charged": 1, "remaining": 29}
 }
 ```
 
@@ -2415,7 +2438,8 @@ curl https://api.contrastcyber.com/password_check/5BAA61E4C9B93F3F0682250B6CF833
   "hash_prefix": "5BAA6",
   "found": true,
   "breach_count": 3861493,
-  "summary": "This password has been seen 3,861,493 times in data breaches."
+  "summary": "This password has been seen 3,861,493 times in data breaches.",
+  "credits": {"charged": 1, "remaining": 29}
 }
 ```
 
@@ -2490,7 +2514,8 @@ trailing dot, an IP address, a URL and a port are refused.
   "unavailable": {"caa": "timeout"},
   "non_public_addresses": [],
   "services": [{"name": "google-workspace", "evidence": "google-site-verification"}],
-  "summary": "1 A, 1 AAAA, 2 NS, 1 MX, 2 TXT, 1 SOA records for example.com; 1 record type unavailable"
+  "summary": "1 A, 1 AAAA, 2 NS, 1 MX, 2 TXT, 1 SOA records for example.com; 1 record type unavailable",
+  "credits": {"charged": 1, "remaining": 29}
 }
 ```
 
@@ -2584,7 +2609,8 @@ curl https://api.contrastcyber.com/dns_takeover_check/shop.example.com
   "dangling": true,
   "provider": "Microsoft Azure",
   "takeover_possible": true,
-  "summary": "shop.example.com points to shop-example.cloudapp.net, which does not exist. Microsoft Azure lets anyone claim that name, so shop.example.com can be taken over."
+  "summary": "shop.example.com points to shop-example.cloudapp.net, which does not exist. Microsoft Azure lets anyone claim that name, so shop.example.com can be taken over.",
+  "credits": {"charged": 1, "remaining": 29}
 }
 ```
 
@@ -2759,7 +2785,8 @@ curl "https://api.contrastcyber.com/email_auth_check/example.com?dkim_selector=g
     "pass": 20,
     "warn": 1,
     "fail": 0
-  }
+  },
+  "credits": {"charged": 1, "remaining": 29}
 }
 ```
 
@@ -2943,7 +2970,8 @@ zero, such as `08.8.8.8`, a host name and a CIDR prefix are refused too.
   "is_ptr_forward_confirmed": true,
   "reputation": {"available": false, "reason": "pro_key_required", "action_url": "https://api.contrastcyber.com/pricing"},
   "internet_exposure": {"available": false, "reason": "pro_key_required", "action_url": "https://api.contrastcyber.com/pricing"},
-  "unavailable": {}
+  "unavailable": {},
+  "credits": {"charged": 1, "remaining": 29}
 }
 ```
 
@@ -3015,7 +3043,8 @@ two lists is not loaded. A `false` needs both lists, so it is `null` then.
   "is_ptr_forward_confirmed": null,
   "reputation": {"available": false, "reason": "pro_key_required", "action_url": "https://api.contrastcyber.com/pricing"},
   "internet_exposure": {"available": false, "reason": "pro_key_required", "action_url": "https://api.contrastcyber.com/pricing"},
-  "unavailable": {"cloud_provider": "not_synced", "listed_on": "not_synced", "ptr": "timeout"}
+  "unavailable": {"cloud_provider": "not_synced", "listed_on": "not_synced", "ptr": "timeout"},
+  "credits": {"charged": 1, "remaining": 29}
 }
 ```
 
@@ -3176,7 +3205,8 @@ gives. A host name is refused too.
   "offset": 0,
   "next_offset": 5,
   "ipv4_prefixes": ["9.9.9.0/24", "147.72.242.0/24", "149.112.112.0/24", "149.112.149.0/24", "199.249.255.0/24"],
-  "ipv6_prefixes": ["2620:fe::/48"]
+  "ipv6_prefixes": ["2620:fe::/48"],
+  "credits": {"charged": 1, "remaining": 29}
 }
 ```
 
@@ -3258,7 +3288,8 @@ Only this path segment is decoded. The MCP tool takes the address as it is sent:
   "mx_hosts": [],
   "disposable": false,
   "disposable_listed_domain": null,
-  "unavailable": {}
+  "unavailable": {},
+  "credits": {"charged": 1, "remaining": 29}
 }
 ```
 
@@ -3405,7 +3436,8 @@ are made up.
     }
   ],
   "chain_truncated": false,
-  "unavailable": {}
+  "unavailable": {},
+  "credits": {"charged": 1, "remaining": 29}
 }
 ```
 
@@ -3654,7 +3686,8 @@ counts one cookie. The answer shows no cookie.
       "issues": [],
       "value": "*"
     }
-  ]
+  ],
+  "credits": {"charged": 1, "remaining": 29}
 }
 ```
 
@@ -3881,14 +3914,15 @@ found there at once.
     "unknown_field_count": 0,
     "issues": [{"code": "expires_too_far_ahead", "severity": "warning", "field": "expires", "line": 2}],
     "by_severity": {"error": 0, "warning": 1, "info": 0}
-  }
+  },
+  "credits": {"charged": 1, "remaining": 29}
 }
 ```
 
 A request past the throttle:
 
 ```json
-{"checked_at":"2026-11-20T10:11:12Z","reason":"quota_exhausted","retry_after_seconds":37,"robots_txt":null,"security_txt":null}
+{"checked_at":"2026-11-20T10:11:12Z","reason":"quota_exhausted","retry_after_seconds":37,"robots_txt":null,"security_txt":null,"credits":{"charged":1,"remaining":29}}
 ```
 
 | Field | Type | Description |
@@ -4070,7 +4104,8 @@ values are made up. `http://example.com/` answered `301` to `https://example.com
     {"url": "http://example.com/", "status_code": 301},
     {"url": "https://example.com/", "status_code": 302},
     {"url": "https://www.example.com/", "status_code": 200, "refresh": "30; url=/news"}
-  ]
+  ],
+  "credits": {"charged": 1, "remaining": 29}
 }
 ```
 
@@ -4085,7 +4120,8 @@ A chain the throttle stopped at its second request:
   "https_downgrade": false,
   "hops": [
     {"url": "https://example.co.uk/", "status_code": 301}
-  ]
+  ],
+  "credits": {"charged": 1, "remaining": 29}
 }
 ```
 
@@ -4238,7 +4274,8 @@ servers are made up.
     "ns2.example.net"
   ],
   "name_server_count": 2,
-  "dnssec_signed": true
+  "dnssec_signed": true,
+  "credits": {"charged": 1, "remaining": 29}
 }
 ```
 
@@ -4248,13 +4285,13 @@ A domain under a TLD that the server asks over WHOIS names the WHOIS server inst
 A domain under a TLD in neither table gets an answer without a registration:
 
 ```json
-{"domain":"example.de","available":false,"registered":null,"reason":"no_registry_server","retry_after_seconds":null}
+{"domain":"example.de","available":false,"registered":null,"reason":"no_registry_server","retry_after_seconds":null,"credits":{"charged":1,"remaining":29}}
 ```
 
 A request past the limit of its server gets the wait in seconds:
 
 ```json
-{"domain":"example.com","available":false,"registered":null,"reason":"quota_exhausted","retry_after_seconds":42}
+{"domain":"example.com","available":false,"registered":null,"reason":"quota_exhausted","retry_after_seconds":42,"credits":{"charged":1,"remaining":29}}
 ```
 
 | Field | Type | Description |
@@ -4275,8 +4312,8 @@ A request past the limit of its server gets the wait in seconds:
 | `name_server_count` | integer | How many name servers the answer held, without the ones left out. It counts the ones past the first 16 too |
 | `dnssec_signed` | boolean, or null | `delegationSigned` of the `secureDNS` member. It is null when the answer does not say |
 
-An answer without a registration holds only `domain`, `available`, `registered`, `reason` and
-`retry_after_seconds`. An answer with a registration names one server: one of `rdap_server`
+An answer without a registration holds only `domain`, `available`, `registered`, `reason`,
+`retry_after_seconds` and `credits`. An answer with a registration names one server: one of `rdap_server`
 and `whois_server` is a string, and the other is null.
 
 **An answer from a WHOIS server**
@@ -4397,7 +4434,8 @@ The answer lists up to 10.
       "url": "https://web.archive.org/web/20261022040511/example.com"
     }
   ],
-  "archive_url": "https://web.archive.org/web/*/example.com"
+  "archive_url": "https://web.archive.org/web/*/example.com",
+  "credits": {"charged": 1, "remaining": 29}
 }
 ```
 
@@ -4411,14 +4449,15 @@ A host the Wayback Machine never captured gets an empty list:
   "last_seen": null,
   "years_online": null,
   "latest_captures": [],
-  "archive_url": "https://web.archive.org/web/*/shop.example.com"
+  "archive_url": "https://web.archive.org/web/*/shop.example.com",
+  "credits": {"charged": 1, "remaining": 29}
 }
 ```
 
 A request past the limit gets an answer without the capture list:
 
 ```json
-{"domain":"example.com","available":false,"reason":"quota_exhausted","retry_after_seconds":6}
+{"domain":"example.com","available":false,"reason":"quota_exhausted","retry_after_seconds":6,"credits":{"charged":1,"remaining":29}}
 ```
 
 | Field | Type | Description |
@@ -4437,8 +4476,8 @@ A request past the limit gets an answer without the capture list:
 | `latest_captures[].url` | string | The link to the capture: `https://web.archive.org/web/`, the capture time as 14 digits, `/` and the host name |
 | `archive_url` | string | The link to the host's home page on the Wayback Machine: `https://web.archive.org/web/*/` and the host name |
 
-An answer without the capture list holds only `domain`, `available`, `reason` and
-`retry_after_seconds`.
+An answer without the capture list holds only `domain`, `available`, `reason`,
+`retry_after_seconds` and `credits`.
 
 **`reason`**
 
@@ -4532,20 +4571,21 @@ The answer lists up to 10.
       "dns_names": ["example.com", "www.example.com"],
       "dns_name_count": 2
     }
-  ]
+  ],
+  "credits": {"charged": 2, "remaining": 28}
 }
 ```
 
 A host without an unexpired certificate gets an empty list, and `complete` is true:
 
 ```json
-{"domain":"shop.example.com","available":true,"complete":true,"certificate_count":0,"certificates":[]}
+{"domain":"shop.example.com","available":true,"complete":true,"certificate_count":0,"certificates":[],"credits":{"charged":2,"remaining":28}}
 ```
 
 A request past the limit gets an answer without the certificate list:
 
 ```json
-{"domain":"example.com","available":false,"reason":"quota_exhausted","retry_after_seconds":1800}
+{"domain":"example.com","available":false,"reason":"quota_exhausted","retry_after_seconds":1800,"credits":{"charged":2,"remaining":28}}
 ```
 
 | Field | Type | Description |
@@ -4571,8 +4611,8 @@ The server leaves out a DNS name that is empty, longer than 253 bytes, or writte
 leaves out a certificate whose entry it cannot read, and `certificate_count` does not count it.
 A host whose pages hold only such certificates gives `certificate_count` 0 and `complete` true.
 
-An answer without the certificate list holds no `complete`. It holds only `domain`, `available`, `reason` and
-`retry_after_seconds`.
+An answer without the certificate list holds no `complete`. It holds only `domain`, `available`, `reason`,
+`retry_after_seconds` and `credits`.
 
 **`reason`**
 
@@ -4599,24 +4639,42 @@ A refused name pays its 2 credits, and so do a `502` and a `500`. A `503` costs 
 Lists the host names under a registrable domain. The server finds them in three ways. SSLMate's
 Cert Spotter gives some, from Certificate Transparency logs. DNS A questions for 94 common
 names find others. The MX, NS and SPF records of the domain name more. Each name in the answer
-lists the ways it was found. The answer counts the names and lists up to 50 of them. The request
-costs 2 credits.
+lists the ways it was found. It also says whether it has an IPv4 address. The answer counts the
+names and lists up to 50 of them. The request costs 2 credits.
 
 The server asks about the registrable domain of the name, as `/whois_lookup/` does. So
 `www.shop.example.co.uk` asks about `example.co.uk`. `domain` in the answer is the registrable
 domain, in lower case. A name that is itself a public suffix, such as `co.uk`, is refused. The
 domain itself is never in the list.
 
-**DNS.** The server asks its resolver for the A records of two random names under the domain, for
-the MX, NS and TXT records of the domain, and for the A records of the 94 common names, such as
-`www.<domain>` and `mail.<domain>`. The questions share 2000 ms. A DNS error never fails the
-request. It only means fewer names.
+**DNS.** The server asks its resolver for the A and CNAME records of six random names under the
+domain, for the MX, NS and TXT records of the domain, and for the A records of the 94 common
+names, such as `www.<domain>` and `mail.<domain>`. These are up to 109 questions. They share
+2000 ms. Then the server asks for the A records of the listed names, at most 50 questions. They
+share 1000 ms. A DNS error never fails the request. It only means fewer names, or a name with
+no `has_ipv4_address`.
 
 Some domains answer every name under them. A common name that resolves then proves nothing.
-`wildcard_dns` tells what the two random names showed. It is `present` when either one has a
-record. It is `absent` when each one got NXDOMAIN, or NOERROR without a record. It is
+`wildcard_dns` tells what the six random names showed. It is `present` when any of the twelve
+questions got a record. A wildcard CNAME whose target does not exist makes it `present` too. It
+is `absent` when each of the twelve got NXDOMAIN, or NOERROR without a record. It is
 `undetermined` in any other case. A random name may have got no clear answer, or the server could
-not ask one. The server keeps the common names that resolved only when `wildcard_dns` is `absent`.
+not ask one.
+
+The server keeps the common names that resolved when `wildcard_dns` is `absent`. It keeps them
+when `wildcard_dns` is `present` too, but only if three things hold. All six random names got the
+same IPv4 addresses. None got a CNAME record. The IPv4 addresses of the common name share none
+with them. Some wildcards give each name one address of a few. When all six random names get the
+same one, a common name on another of those addresses is listed although it has no record of its
+own. With two such addresses this happens in about 1 run in 32.
+
+`has_ipv4_address` of a name is true when the name has an A record. It is false when the name does
+not exist or has no A record. It is false only when `wildcard_dns` is `absent`. A name with only
+an IPv6 address gets false, because the server asks for A records alone. A common name that
+resolved has it true at once. The member is left out when the server has no clear answer: no
+answer came within the time, `wildcard_dns` is `undetermined`, or `wildcard_dns` is `present` and
+the rule above does not hold. It is left out too, when `wildcard_dns` is `present` and one of
+the addresses of the name is an address of the wildcard.
 
 The MX hosts and the name servers of the domain are listed with the source `dns_records`, whatever
 `wildcard_dns` says. So are the hosts that the SPF record names in its `a`, `mx`, `include`,
@@ -4681,14 +4739,15 @@ The names below are an example.
   "domain": "example.com",
   "subdomain_count": 4,
   "subdomains": [
-    {"hostname": "mail.example.com", "sources": ["dns_records"]},
-    {"hostname": "www.example.com", "sources": ["certificate_logs", "dns_wordlist"]},
-    {"hostname": "api.example.com", "sources": ["certificate_logs"]},
-    {"hostname": "dev.example.com", "sources": ["certificate_logs"]}
+    {"hostname": "mail.example.com", "sources": ["dns_records"], "has_ipv4_address": true},
+    {"hostname": "www.example.com", "sources": ["certificate_logs", "dns_wordlist"], "has_ipv4_address": true},
+    {"hostname": "api.example.com", "sources": ["certificate_logs"], "has_ipv4_address": true},
+    {"hostname": "dev.example.com", "sources": ["certificate_logs"], "has_ipv4_address": false}
   ],
   "wildcard_dns": "absent",
   "certificate_logs_available": true,
-  "certificate_logs_complete": false
+  "certificate_logs_complete": false,
+  "credits": {"charged": 2, "remaining": 28}
 }
 ```
 
@@ -4699,13 +4758,14 @@ A request past the limit still gets the DNS names:
   "domain": "example.com",
   "subdomain_count": 2,
   "subdomains": [
-    {"hostname": "mail.example.com", "sources": ["dns_records"]},
-    {"hostname": "www.example.com", "sources": ["dns_wordlist"]}
+    {"hostname": "mail.example.com", "sources": ["dns_records"], "has_ipv4_address": true},
+    {"hostname": "www.example.com", "sources": ["dns_wordlist"], "has_ipv4_address": true}
   ],
   "wildcard_dns": "absent",
   "certificate_logs_available": false,
   "certificate_logs_reason": "quota_exhausted",
-  "retry_after_seconds": 1800
+  "retry_after_seconds": 1800,
+  "credits": {"charged": 2, "remaining": 28}
 }
 ```
 
@@ -4716,7 +4776,8 @@ A request past the limit still gets the DNS names:
 | `subdomains` | array of objects | The names, at most 50. The names that DNS confirms come first: those with the source `dns_wordlist` or `dns_records`. The names that only Cert Spotter gives come next. Each group is in the byte order of the name. The array is empty when the server found no name |
 | `subdomains[].hostname` | string | A host name under the domain, in lower case |
 | `subdomains[].sources` | array of strings | How the name was found, in the order `certificate_logs`, `dns_wordlist`, `dns_records`. `certificate_logs` means a certificate names it. `dns_wordlist` means a common name resolved. `dns_records` means an MX, NS or SPF record of the domain names it |
-| `wildcard_dns` | string | `absent`, `present` or `undetermined`, as above. When it is not `absent`, no name has the source `dns_wordlist`. An answer with `undetermined` is kept for 600 seconds |
+| `subdomains[].has_ipv4_address` | boolean | True when the name has an A record. False when the name does not exist or has no A record, and `wildcard_dns` is `absent`. Left out when the server has no clear answer, as above. Only the names the answer lists carry it. The answer is kept like the rest, so the member shows what DNS said when the answer was built |
+| `wildcard_dns` | string | `absent`, `present` or `undetermined`, as above. When it is `present`, a name has the source `dns_wordlist` only under the rule above. When it is `undetermined`, no name has it. An answer with `undetermined` is kept for 600 seconds |
 | `certificate_logs_available` | boolean | True when Cert Spotter answered and its names are in the answer |
 | `certificate_logs_complete` | boolean | True only when the first page of Cert Spotter's answer holds no certificate. Otherwise a later page may hold more names. It is present only when `certificate_logs_available` is true |
 | `certificate_logs_reason` | string | Why the answer holds no names of Cert Spotter, below. It is present only when `certificate_logs_available` is false |
@@ -4808,7 +4869,8 @@ before its body is read.
     {"code": "edit_history", "severity": "info", "note": "The XMP history lists at least one edit."},
     {"code": "thumbnail", "severity": "info", "note": "The file carries an embedded thumbnail. A thumbnail can show an earlier version of the image."}
   ],
-  "indicator_note": "An indicator is a sign, not proof. Metadata is easy to write, to edit and to strip, and absent metadata is not a sign of forgery."
+  "indicator_note": "An indicator is a sign, not proof. Metadata is easy to write, to edit and to strip, and absent metadata is not a sign of forgery.",
+  "credits": {"charged": 2, "remaining": 28}
 }
 ```
 
@@ -5029,7 +5091,8 @@ at the same version, such as `PyPI` `Foo_Bar` and `foo-bar`.
   "problems": [
     {"index": 1, "ecosystem": "cpan", "name": "Moose", "version": null, "reason": "ecosystem must be one of npm, PyPI, Maven, Go, NuGet, RubyGems, crates.io, Packagist or SwiftURL"},
     {"index": 3, "ecosystem": "PyPI", "name": "foo-bar", "version": "1.0", "reason": "names the package and version of packages[2] once the names are normalized"}
-  ]
+  ],
+  "credits": {"charged": 1, "remaining": 499}
 }
 ```
 
@@ -5099,7 +5162,8 @@ wrote the item's name. Otherwise it reaches the item when its affected products 
   "item_count": 8,
   "item_limit": 100,
   "package_item_count": 2,
-  "package_item_limit": 500
+  "package_item_limit": 500,
+  "credits": {"charged": 1, "remaining": 499}
 }
 ```
 
@@ -5113,7 +5177,8 @@ This is the answer to a call without `action`. An add of the `npm` item answers 
   "item_count": 8,
   "item_limit": 100,
   "package_item_count": 2,
-  "package_item_limit": 500
+  "package_item_limit": 500,
+  "credits": {"charged": 1, "remaining": 499}
 }
 ```
 
@@ -5124,7 +5189,8 @@ The answer of a package list edit, here an `add` of two packages of which the li
   "added_count": 1,
   "unchanged_count": 1,
   "package_item_count": 3,
-  "package_item_limit": 500
+  "package_item_limit": 500,
+  "credits": {"charged": 1, "remaining": 499}
 }
 ```
 
@@ -5717,7 +5783,8 @@ curl "https://api.contrastcyber.com/watchlist_events?limit=50" -H "X-API-Key: $K
      "notice": "Retrieved from endoflife.date. ContrastAPI selected the fields and matched the release cycles to the watched product. No warranty; the source does not endorse ContrastAPI."},
     {"source": "ghsa", "license": "CC-BY-4.0", "url": "https://github.com/github/advisory-database",
      "notice": "Retrieved through OSV.dev. ContrastAPI selected and normalized the fields and computed affects_version and fixed_version. No warranty; the source does not endorse ContrastAPI."}
-  ]
+  ],
+  "credits": {"charged": 1, "remaining": 499}
 }
 ```
 
@@ -5781,7 +5848,7 @@ A feed whose name, time or status cannot be read is left out of `db.feeds`. The 
 ```json
 {
   "status": "ok",
-  "version": "2.3.0",
+  "version": "2.3.1",
   "db": {
     "nvd": {
       "cve_count": 251430,
@@ -5808,14 +5875,15 @@ A feed whose name, time or status cannot be read is left out of `db.feeds`. The 
       {"name": "cwe", "last_synced": "2026-05-22T10:04:12Z", "last_status": "in_progress", "records_updated": 0},
       {"name": "nvd", "last_synced": "2026-05-22T10:05:00Z", "last_status": "ok", "records_updated": 21874}
     ]
-  }
+  },
+  "credits": {"charged": 0}
 }
 ```
 
 When the database cannot be read, the answer is HTTP 503 with a `Retry-After: 5` header and this body:
 
 ```json
-{"status":"unavailable","version":"2.3.0","db":null}
+{"status":"unavailable","version":"2.3.1","db":null,"credits":{"charged":0}}
 ```
 
 ---
@@ -5898,7 +5966,8 @@ The hash is shortened here. This example is a request without a key. A Pro key's
     "hash": "5f0c…e41a"
   },
   "vendor_keys": null,
-  "policy": "https://api.contrastcyber.com/privacy"
+  "policy": "https://api.contrastcyber.com/privacy",
+  "credits": {"charged": 1, "remaining": 29}
 }
 ```
 
@@ -5960,7 +6029,8 @@ The answer holds a `shodan` and an `abuseipdb` object:
 ```json
 {
   "shodan": {"result": "saved", "configured": true},
-  "abuseipdb": {"result": "vendor_unavailable", "configured": false, "retry_after_seconds": 1}
+  "abuseipdb": {"result": "vendor_unavailable", "configured": false, "retry_after_seconds": 1},
+  "credits": {"charged": 1, "remaining": 29}
 }
 ```
 
@@ -5976,7 +6046,7 @@ A status needs a link. It never writes and never uses the link up. It checks eac
 | `expires_in_seconds` | integer | How long the link lives, 0 or more |
 
 ```json
-{"shodan": {"state": "working"}, "abuseipdb": {"state": "working"}, "expires_in_seconds": 612}
+{"shodan": {"state": "working"}, "abuseipdb": {"state": "working"}, "expires_in_seconds": 612,"credits":{"charged":1,"remaining":29}}
 ```
 
 No answer and no refusal holds a vendor key.
@@ -6014,10 +6084,10 @@ See [HTTP status codes](#http-status-codes).
 The server also answers files that are not API endpoints: the web pages and their static files,
 `robots.txt`, the `llms` files, the sitemap, `security.txt`, and the discovery documents of MCP.
 
-- A web file costs no credit. It needs no API key and sends no `X-RateLimit-*` header.
+- A web file costs no credit. It needs no API key. It sends no `X-RateLimit-*` or `X-Credits-Charged` header unless its key check is charged.
 - A request for a web file that carries an API key has the key checked, as on `/health`. A
   malformed, unknown, revoked or expired key answers `401`. An unknown, revoked or expired key
-  pays 1 credit for the check.
+  pays 1 credit for the check. Its `401` says `X-Credits-Charged: 1` and carries the `X-RateLimit-*` headers.
 - A web file takes `GET` and `HEAD`. A `HEAD` gets the head of the `GET` answer and no body. Any
   other method gets `405` with `Allow: GET, HEAD`, and costs no credit either.
 - A path finds a web file only when it is the whole path, byte for byte. The query string is not
@@ -6027,9 +6097,9 @@ The server also answers files that are not API endpoints: the web pages and thei
   scripts, images and fonts from this server only. It allows no inline style and no inline
   script.
 - A path that is not in the table, such as `/static/missing.css`, is an unknown path.
-  An unknown path answers `404` and costs 0 credits. It sends no `X-RateLimit-*` header. Its API
+  An unknown path answers `404` and costs 0 credits. Its `404` sends no `X-RateLimit-*` or `X-Credits-Charged` header. Its API
   key is checked as on a web file: an unknown, revoked or expired key answers `401` and pays 1
-  credit for the check.
+  credit for the check. That `401` says `X-Credits-Charged: 1` and carries the `X-RateLimit-*` headers.
 - No web file has the path of an endpoint.
 
 | Path | Content-Type | Cache-Control |
@@ -6113,7 +6183,7 @@ A request that the endpoint refuses is never offered a payment. A bad method, a 
 2. Decode the `PAYMENT-REQUIRED` value. It is base64 of a JSON object with `x402Version` 2, an `error` text, a `resource` and one entry in `accepts`. The entry holds `scheme`, `network`, `amount`, `asset`, `payTo`, `maxTimeoutSeconds` and `extra.feePayer`.
 3. Sign a USDC transfer as that entry asks. Send the same request again with a `PAYMENT-SIGNATURE` header. Its value is base64 of the x402 payment payload.
 4. The server checks and verifies the payment before the endpoint runs. It settles the payment only after a run that answers `200`. If that settle is refused, the answer is `402` with `payment_refused` and the body is withheld. If the settle has no result in time, the answer is `402` with `payment_pending` and the body is withheld.
-5. The `200` carries a `PAYMENT-RESPONSE` header. Its value is base64 of a JSON object with `success`, `transaction` (the transaction signature) and `network`. It names no payer. A paid answer carries no `X-RateLimit-*` headers.
+5. The `200` carries a `PAYMENT-RESPONSE` header. Its value is base64 of a JSON object with `success`, `transaction` (the transaction signature) and `network`. It names no payer. A paid answer carries no `X-RateLimit-*` headers. Its `X-Credits-Charged` says the paid credits.
 6. Any other answer of the run releases a fresh payment, and charges nothing. Each such release counts against the payment (see [Limits](#limits)). A `5xx` also counts against the client and the paying token account, and a `400`, `401`, `404` or `410` counts against them under looser limits. A payment that was pending and that Solana has confirmed is paid on chain. An answer other than `200` leaves it pending, and a retry with the same payment serves it.
 
 A request without a key that carries `PAYMENT-SIGNATURE` pays per call at once. It never touches the free budget, even when free credits are left.
@@ -6197,7 +6267,7 @@ The server keeps a hash of the payment and of the paying token account for 1 hou
 
 ## Response headers
 
-Every request that is charged credits carries the following rate limit headers, with or without an API key. A free request omits them, such as `GET /health`, a web file, an unknown path, `GET` and `DELETE` of `/mcp`, or a free JSON-RPC method of `POST /mcp`. A `401` for an API key omits them too, although its key check is charged.
+Every request that is charged credits carries the `X-RateLimit-*` headers below, with or without an API key. A free request omits them, such as `GET /health`, a web file, an unknown path, `GET` and `DELETE` of `/mcp`, or a free JSON-RPC method of `POST /mcp`. A `401` for a key that is unknown, revoked or expired carries them, because its key check is charged. A `401` for a malformed key omits them. `X-Credits-Charged` is the exception. It is on every answer to a request whose key and budget the server checked, an error answer too. A `400` for a NUL byte in the body and the `503` `upstream_busy` come before that check and carry none. A request refused on its head or its length gets none either: a `400` for `Content-Length` or `Transfer-Encoding`, a `413`, a `414`, a `431`, a `501`, and a `500` or `503` for a body the server cannot take.
 
 | Header                       | Type    | Description |
 |------------------------------|---------|-------------|
@@ -6205,6 +6275,7 @@ Every request that is charged credits carries the following rate limit headers, 
 | `X-RateLimit-Remaining`      | integer | Credits remaining after this request; never negative (floored at 0) |
 | `X-RateLimit-Reset-Machine`  | integer | Unix timestamp when the budget resets (next hour boundary) |
 | `X-RateLimit-Reset-Human`    | string  | Time remaining until reset in `HH:MM:SS` format (e.g. `00:39:38`) |
+| `X-Credits-Charged`          | integer | Credits this request was charged. See [The credits member](#the-credits-member) |
 
 A 429 also carries a `Retry-After` header with the seconds until the budget resets, and its body holds the same seconds as `retry_after_seconds`. A `rate_limited` 429 to a request with no key, or with an unknown, revoked or expired key, also holds `upgrade_url`, the page that sells a Pro key. A 429 to an active key has no `upgrade_url`. See [Error codes](#error-codes) for both bodies. A payment (x402) carries the two headers below. A paid answer carries no `X-RateLimit-*` headers. See [Pay per call (x402)](#pay-per-call-x402).
 
@@ -6213,7 +6284,32 @@ A 429 also carries a `Retry-After` header with the seconds until the budget rese
 | `PAYMENT-REQUIRED` | string | On a `402` that offers or asks for a payment: base64 of the JSON that says what to pay |
 | `PAYMENT-RESPONSE` | string | On a paid `200`: base64 of the JSON with `success`, `transaction` and `network` |
 
+A `429` and a `402` offer say `X-Credits-Charged: 0`. Any other error answer that carries the header says the credits its request was charged: 0 when nothing was charged, and the charge after it, a `500` of a failed run too. A `401` for a key that is unknown, revoked or expired says the credits of its key check: the price of the endpoint, or 1 on a path that costs nothing. A `401` for a malformed key says 0. An answer to a call paid with x402 says the paid credits when it is served, and 0 when it is not. `POST /mcp` carries the header for that HTTP request. A web file and an unknown path carry it only on the `401` for a key that is unknown, revoked or expired: see [Web files](#web-files).
+
 `POST /cve_lookup_bulk` costs 1 credit per well-formed ID, so `X-RateLimit-Remaining` after a 10-ID request drops by 10. With fewer credits left than IDs, the request is charged the credits that remain and lists the IDs it did not process in `not_processed`. Use this header to decide how many IDs to batch in the next call.
+
+---
+
+## The credits member
+
+The `credits` object is the last member of each answer listed below. It says what the call cost.
+
+| Member | Type | Description |
+|--------|------|-------------|
+| `credits.charged` | integer | The credits this call was charged. It is 0 for a call that costs nothing, such as `/health` |
+| `credits.remaining` | integer | The credits left in the budget after this call. It is left out for a call paid with x402 and for a call that costs 0 |
+
+These are the three shapes:
+
+```json
+{"credits": {"charged": 1, "remaining": 29}}
+{"credits": {"charged": 1}}
+{"credits": {"charged": 0}}
+```
+
+The first shape is a call charged to a credit budget, with or without an API key. The second is a call paid with x402. The third is a call that costs 0. A call paid with x402 that does not answer `200` is not charged, and its `credits` say `"charged": 0`.
+
+These answers carry `credits`: every `200` answer of an endpoint other than `/mcp`, the `404` of [CVE Lookup](#cve-lookup-get-cve_lookupcve_id) that holds `cve_org_state`, the `400` with `problems` of [Watchlist Edit](#watchlist-edit-post-watchlist_edit), and the `503` of [Health](#health). Every other error answer carries none. A web file carries none. On `/mcp`, the text of a successful `tools/call` result carries `credits`, and so does the tool error of that `404` or that `400`. An `initialize`, `ping` or `tools/list` result, a protocol error and any other tool error carry none. The `402` offer carries none either. A bulk call charges its credits, so its `credits.charged` is the number it charged, not its price.
 
 ---
 
@@ -6334,8 +6430,8 @@ request target counts the bytes as sent.
 | 400  | The domain is a public suffix, such as `co.uk`; body `{"error":{"code":"bad_request","message":"domain is a public suffix, such as co.uk; name a domain registered under it"}}`. The server sends no request, and the request still pays its credit | `/whois_lookup/` |
 | 400  | The body is empty; body message `"image is required"`. The request still pays its 2 credits | `/image_inspect` |
 | 400  | The `PAYMENT-SIGNATURE` header is not well formed, is sent twice, or is longer than 3416 bytes; body code `payment_invalid`. See [Pay per call (x402)](#pay-per-call-x402) | every endpoint that takes payment |
-| 401  | The API key is malformed, unknown, revoked or expired, or a webhook signature does not match its body. A key that is unknown, revoked or expired is charged to the anonymous budget (1 credit). A `401` for an API key carries no `X-RateLimit-*` headers. [Sending the key](#sending-the-key) gives the rules | all |
-| 401  | The key is in the database but was revoked or has expired; body `{"error":{"code":"api_key_inactive","message":"API key expired or revoked"}}`. It is charged like a key that is not in the database, and carries no `X-RateLimit-*` headers | all |
+| 401  | The API key is malformed, unknown, revoked or expired, or a webhook signature does not match its body. A key that is unknown, revoked or expired is charged to the anonymous budget: the price of the endpoint, or 1 credit on a path that costs nothing. A `401` for an unknown, revoked or expired key carries the `X-RateLimit-*` headers. A `401` for a malformed key carries none. [Response headers](#response-headers) gives its `X-Credits-Charged`. [Sending the key](#sending-the-key) gives the rules | all |
+| 401  | The key is in the database but was revoked or has expired; body `{"error":{"code":"api_key_inactive","message":"API key expired or revoked"}}`. It is charged like a key that is not in the database, and carries the `X-RateLimit-*` headers | all |
 | 402  | A request without an API key has spent its free budget on an endpoint that takes payment. The `PAYMENT-REQUIRED` header offers the payment; body code `payment_required`, with `upgrade_url`, the page that sells a Pro key. The answer keeps `Retry-After` and the `X-RateLimit-*` headers. See [Pay per call (x402)](#pay-per-call-x402) | every endpoint that takes payment |
 | 402  | The payment was refused, or was settled already; body code `payment_refused` or `payment_already_used`. The answer carries a new `PAYMENT-REQUIRED` header | every endpoint that takes payment |
 | 402  | The settle of the payment has no result yet; body code `payment_pending`. Retry with the same payment. The answer has no `PAYMENT-REQUIRED` header | every endpoint that takes payment |
@@ -6345,7 +6441,7 @@ request target counts the bytes as sent.
 | 404  | The TXT or the MX question of the domain got NXDOMAIN, and neither of the two got a NOERROR answer; body `{"error":{"code":"not_found","message":"domain does not exist"}}` | `/email_auth_check/{domain}` |
 | 404  | The resolver said the host name does not exist, or that it has no A or AAAA record; body `{"error":{"code":"not_found","message":"hostname does not exist"}}` | `/ssl_check/{domain}` |
 | 404  | The RDAP server answered 404 for the registrable domain, or the WHOIS server answered with its text for a name no one has registered; body `{"error":{"code":"not_found","message":"domain is not registered"}}`. The request still pays its credit | `/whois_lookup/{domain}` |
-| 404  | The CVE is not in our data, and CVE.org names the state of the id; body `{"error":{"code":"not_found","message":"CVE not found; CVE.org lists it as rejected","cve_org_state":"rejected"}}`. The state `published` adds `retry_after_seconds`, and there is no `Retry-After` header. The request pays 1 credit as any other `404` of this endpoint. See [CVE.org state of a missing CVE](#cveorg-state-of-a-missing-cve) | `/cve_lookup/{cve_id}` |
+| 404  | The CVE is not in our data, and CVE.org names the state of the id; body `{"error":{"code":"not_found","message":"CVE not found; CVE.org lists it as rejected","cve_org_state":"rejected"},"credits":{"charged":1,"remaining":29}}`. The state `published` adds `retry_after_seconds`, and there is no `Retry-After` header. The request pays 1 credit as any other `404` of this endpoint. See [CVE.org state of a missing CVE](#cveorg-state-of-a-missing-cve) | `/cve_lookup/{cve_id}` |
 | 405  | HTTP method not allowed; `Allow` header lists permitted methods. An endpoint takes no `HEAD`, and a web file's `Allow` is `GET, HEAD`. An answer to a `HEAD` request leaves its body out, a `405` too, and its `Content-Length` still counts the body. A refusal that comes before routing keeps its body: a `400` for `Content-Length` or `Transfer-Encoding`, a `413`, a `414`, a `431` or a `501`. The `400` for a body with a NUL comes after routing, so its answer to a `HEAD` request has no body | all |
 | 410  | The key of the order was claimed already, its 24-hour claim window has passed, or the order was refunded or has ended | `/api_key_claim` |
 | 413  | The body that `Content-Length` announces is longer than the endpoint takes. Any request may carry a body that fits, with its head, in 4095 bytes. A POST to a row that reads a JSON body may also carry as many bytes as its JSON object limit: 2048, or 65536 on `/package_check_bulk` and `/watchlist_edit`. A POST to `/mcp` may carry 69632 bytes, a POST to `/image_inspect` 16 MiB, a POST to `/webhook_lemonsqueezy` 64 KiB (65536 bytes), and a POST to `/webhook_nowpayments` 64 KiB (65536 bytes). The body is `{"error":{"code":"content_too_large",…}}`. It carries no `X-RateLimit-*` headers and costs no credits | all |
@@ -6359,7 +6455,7 @@ request target counts the bytes as sent.
 | 503  | The server is busy with requests to outside services (`upstream_busy`). The response carries `Retry-After: 5`. It costs no credits and carries no `X-RateLimit-*` headers. A request that the endpoint refuses for its method, its parameter names or its values gets that refusal instead. A request with a malformed, unknown, revoked or expired key gets it too | the endpoints that ask an outside service, `/mcp` |
 | 503  | Every place for an image request is in use (`raw_body_busy`). The response carries `Retry-After: 10`. It costs no credits | `/image_inspect` |
 | 503  | The payment cannot be settled now (`payment_unavailable`). The response carries `Retry-After: 5` | every endpoint that takes payment |
-| 503  | The database cannot be read. The body is `{"status":"unavailable","version":"2.3.0","db":null}` and the response carries `Retry-After: 5` | `/health` |
+| 503  | The database cannot be read. The body is `{"status":"unavailable","version":"2.3.1","db":null,"credits":{"charged":0}}` and the response carries `Retry-After: 5` | `/health` |
 | 504  | No TLS server or site was reached at the host name. `message` says why | `/ssl_check/`, `/headers_check/`, `/well_known/`, `/redirect_chain` |
 
 ---

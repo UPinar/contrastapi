@@ -20,6 +20,14 @@ bool g_stub_SUBDOMAIN_create_fails  = false;
 int  g_stub_SUBDOMAIN_create_count  = 0;
 int  g_stub_SUBDOMAIN_destroy_count = 0;
 
+SubdomainAddressState_t g_stub_SUBDOMAIN_address_state = SUBDOMAIN_ADDRESS_FOUND;
+
+int                 g_stub_SUBDOMAIN_address_lookup_count        = 0;
+int                 g_stub_SUBDOMAIN_last_address_index_count    = 0;
+int                 g_stub_SUBDOMAIN_last_address_indexes[SUBDOMAINENUM_MAX_LISTED_NAME_COUNT];
+SubdomainWildcard_t g_stub_SUBDOMAIN_last_address_wildcard_dns   = SUBDOMAIN_WILDCARD_ABSENT;
+int                 g_stub_SUBDOMAIN_last_address_wildcard_count = 0;
+
 SubdomainNameSet_t* subdomain_createNameSet(void)
 {
   if (g_stub_SUBDOMAIN_create_fails)
@@ -28,12 +36,14 @@ SubdomainNameSet_t* subdomain_createNameSet(void)
   SubdomainNameSet_t* name_set = calloc(1, sizeof(*name_set));
   if (name_set == NULL)
     return NULL;
-  name_set->mp_names   = calloc(SUBDOMAIN_MAX_NAME_COUNT, sizeof(name_set->mp_names[0]));
-  name_set->mp_sources = calloc(SUBDOMAIN_MAX_NAME_COUNT, sizeof(name_set->mp_sources[0]));
-  if (name_set->mp_names == NULL || name_set->mp_sources == NULL)
+  name_set->mp_names         = calloc(SUBDOMAIN_MAX_NAME_COUNT, sizeof(name_set->mp_names[0]));
+  name_set->mp_sources       = calloc(SUBDOMAIN_MAX_NAME_COUNT, sizeof(name_set->mp_sources[0]));
+  name_set->mp_addressStates = calloc(SUBDOMAIN_MAX_NAME_COUNT, sizeof(name_set->mp_addressStates[0]));
+  if (name_set->mp_names == NULL || name_set->mp_sources == NULL || name_set->mp_addressStates == NULL)
   {
     free(name_set->mp_names);
     free(name_set->mp_sources);
+    free(name_set->mp_addressStates);
     free(name_set);
     return NULL;
   }
@@ -49,6 +59,7 @@ void subdomain_destroyNameSet(SubdomainNameSet_t* name_set)
   g_stub_SUBDOMAIN_destroy_count++;
   free(name_set->mp_names);
   free(name_set->mp_sources);
+  free(name_set->mp_addressStates);
   free(name_set);
 }
 
@@ -79,7 +90,7 @@ void subdomain_addName(SubdomainNameSet_t* name_set, const char* name, const cha
   name_set->m_count++;
 }
 
-void subdomain_lookupDnsNames(const char* domain, SubdomainNameSet_t* name_set, SubdomainWildcard_t* wildcard_dns_out)
+void subdomain_lookupDnsNames(const char* domain, SubdomainNameSet_t* name_set, SubdomainWildcard_t* wildcard_dns_out, SubdomainWildcardIpAddresses_t* wildcard_ip_addresses_out)
 {
   g_stub_SUBDOMAIN_lookup_count++;
   strncpy(g_stub_SUBDOMAIN_last_lookup_domain, domain, VALIDATE_DOMAIN_NAME_MAX_LEN);
@@ -88,5 +99,19 @@ void subdomain_lookupDnsNames(const char* domain, SubdomainNameSet_t* name_set, 
   const SubdomainStubDnsAnswer_t* answer = &g_stub_SUBDOMAIN_dns_answer;
   for (int i = 0; i < answer->m_nameCount && i < SUBDOMAIN_STUB_NAME_MAX_COUNT; i++)
     subdomain_addName(name_set, answer->ma_names[i], domain, answer->ma_sources[i]);
-  *wildcard_dns_out = answer->m_wildcardDns;
+  *wildcard_dns_out          = answer->m_wildcardDns;
+  *wildcard_ip_addresses_out = answer->m_wildcardIpAddresses;
+}
+
+void subdomain_lookupAddressStates(SubdomainNameSet_t* name_set, const int* name_indexes, int name_index_count, SubdomainWildcard_t wildcard_dns, const SubdomainWildcardIpAddresses_t* wildcard_ip_addresses)
+{
+  g_stub_SUBDOMAIN_address_lookup_count++;
+  g_stub_SUBDOMAIN_last_address_index_count    = name_index_count;
+  g_stub_SUBDOMAIN_last_address_wildcard_dns   = wildcard_dns;
+  g_stub_SUBDOMAIN_last_address_wildcard_count = wildcard_ip_addresses->m_count;
+  for (int i = 0; i < name_index_count && i < SUBDOMAINENUM_MAX_LISTED_NAME_COUNT; i++)
+  {
+    g_stub_SUBDOMAIN_last_address_indexes[i]    = name_indexes[i];
+    name_set->mp_addressStates[name_indexes[i]] = g_stub_SUBDOMAIN_address_state;
+  }
 }

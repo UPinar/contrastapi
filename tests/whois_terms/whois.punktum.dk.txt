@@ -1,5 +1,4 @@
 Copyright (c) 2002 - 2026 by Punktum dk A/S
-Version: 6.3.0
 The data in the DK Whois database is provided by Punktum dk A/S
 for information purposes only, and to assist persons in obtaining
 information about or related to a domain name registration record.

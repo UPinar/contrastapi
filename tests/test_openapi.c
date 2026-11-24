@@ -268,7 +268,7 @@ static void test_security_schemes_name_the_key_header_and_bearer(void)
 static void test_rate_limit_headers_are_four_components(void)
 {
   JsonReadSpan_t headers = static_at(g_root, "components", "headers", NULL);
-  TEST_ASSERT_EQUAL_INT(4, static_memberCount(headers));
+  TEST_ASSERT_EQUAL_INT(5, static_memberCount(headers));
 
   const char* names[]   = { "X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset-Machine", "X-RateLimit-Reset-Human" };
   const char* schemas[] = { "{\"type\":\"integer\"}", "{\"type\":\"integer\"}", "{\"type\":\"integer\"}", "{\"type\":\"string\"}" };
@@ -281,6 +281,42 @@ static void test_rate_limit_headers_are_four_components(void)
     static_assertRaw(static_at(headers, names[i], "schema", NULL), schemas[i]);
     static_assertString(static_at(headers, names[i], "description", NULL), descriptions[i]);
   }
+}
+
+static void test_credits_charged_header_is_a_component(void)
+{
+  JsonReadSpan_t header = static_at(g_root, "components", "headers", "X-Credits-Charged", NULL);
+  static_assertRaw(static_at(header, "schema", NULL), "{\"type\":\"integer\"}");
+  static_assertString(static_at(header, "description", NULL), "The credits this request was charged.");
+}
+
+static void test_every_operation_200_lists_the_credits_charged_header(void)
+{
+  JsonReadSpan_t paths     = static_at(g_root, "paths", NULL);
+  int            row_count = 0;
+  for (int i = 0; i < endpoint_count; i++)
+  {
+    const Endpoint_t* row = &endpoints[i];
+    if (!openapi_isRowInDocument(row))
+      continue;
+    JsonReadSpan_t operation = static_findOperation(paths, row);
+    static_assertRaw(static_at(operation, "responses", "200", "headers", "X-Credits-Charged", NULL),
+                     "{\"$ref\":\"#/components/headers/X-Credits-Charged\"}");
+    row_count++;
+  }
+  int ref_count = 0;
+  for (const char* at = strstr(g_document, "\"#/components/headers/X-Credits-Charged\""); at != NULL;
+       at = strstr(at + 1, "\"#/components/headers/X-Credits-Charged\""))
+    ref_count++;
+  TEST_ASSERT_TRUE(row_count > 0);
+  TEST_ASSERT_EQUAL_INT(row_count, ref_count);
+}
+
+static void test_free_health_lists_only_the_credits_charged_header(void)
+{
+  JsonReadSpan_t ok = static_at(g_root, "paths", "/health", "get", "responses", "200", NULL);
+  static_assertRaw(static_at(ok, "headers", NULL),
+                   "{\"X-Credits-Charged\":{\"$ref\":\"#/components/headers/X-Credits-Charged\"}}");
 }
 
 static void test_error_response_refers_to_the_error_schema(void)
@@ -394,7 +430,8 @@ static void test_responses_name_the_rate_limit_headers_and_the_error(void)
                    "{\"X-RateLimit-Limit\":{\"$ref\":\"#/components/headers/X-RateLimit-Limit\"},"
                    "\"X-RateLimit-Remaining\":{\"$ref\":\"#/components/headers/X-RateLimit-Remaining\"},"
                    "\"X-RateLimit-Reset-Machine\":{\"$ref\":\"#/components/headers/X-RateLimit-Reset-Machine\"},"
-                   "\"X-RateLimit-Reset-Human\":{\"$ref\":\"#/components/headers/X-RateLimit-Reset-Human\"}}");
+                   "\"X-RateLimit-Reset-Human\":{\"$ref\":\"#/components/headers/X-RateLimit-Reset-Human\"},"
+                   "\"X-Credits-Charged\":{\"$ref\":\"#/components/headers/X-Credits-Charged\"}}");
   static_assertRaw(static_at(ok, "content", NULL), "{\"application/json\":{\"schema\":{\"type\":\"object\"}}}");
   static_assertRaw(static_at(responses, "default", NULL), "{\"$ref\":\"#/components/responses/Error\"}");
 }
@@ -402,7 +439,7 @@ static void test_responses_name_the_rate_limit_headers_and_the_error(void)
 static void test_free_health_lists_no_rate_limit_headers(void)
 {
   JsonReadSpan_t ok = static_at(g_root, "paths", "/health", "get", "responses", "200", NULL);
-  static_assertKeyAbsent(ok, "headers");
+  static_assertRaw(static_at(ok, "headers", NULL), "{\"X-Credits-Charged\":{\"$ref\":\"#/components/headers/X-Credits-Charged\"}}");
   static_assertRaw(static_at(ok, "content", NULL), "{\"application/json\":{\"schema\":{\"type\":\"object\"}}}");
 }
 
@@ -658,9 +695,10 @@ static void test_every_operation_follows_its_row(void)
                        "{\"X-RateLimit-Limit\":{\"$ref\":\"#/components/headers/X-RateLimit-Limit\"},"
                        "\"X-RateLimit-Remaining\":{\"$ref\":\"#/components/headers/X-RateLimit-Remaining\"},"
                        "\"X-RateLimit-Reset-Machine\":{\"$ref\":\"#/components/headers/X-RateLimit-Reset-Machine\"},"
-                       "\"X-RateLimit-Reset-Human\":{\"$ref\":\"#/components/headers/X-RateLimit-Reset-Human\"}}");
+                       "\"X-RateLimit-Reset-Human\":{\"$ref\":\"#/components/headers/X-RateLimit-Reset-Human\"},"
+                       "\"X-Credits-Charged\":{\"$ref\":\"#/components/headers/X-Credits-Charged\"}}");
     else
-      static_assertKeyAbsent(ok, "headers");
+      static_assertRaw(static_at(ok, "headers", NULL), "{\"X-Credits-Charged\":{\"$ref\":\"#/components/headers/X-Credits-Charged\"}}");
 
     for (int j = 0; j < row->m_paramCount; j++)
     {
@@ -781,5 +819,8 @@ int main(void)
   RUN_TEST(test_a_row_with_a_header_param_is_not_in_the_document);
   RUN_TEST(test_only_the_claim_row_of_the_two_billing_rows_is_in_the_document);
   RUN_TEST(test_crypto_checkout_appears_as_a_post_with_no_input);
+  RUN_TEST(test_credits_charged_header_is_a_component);
+  RUN_TEST(test_every_operation_200_lists_the_credits_charged_header);
+  RUN_TEST(test_free_health_lists_only_the_credits_charged_header);
   return UNITY_END();
 }

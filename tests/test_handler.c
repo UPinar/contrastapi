@@ -427,7 +427,7 @@ void test_HEALTH_no_db_answers_503(void)
   static_runEndpointWithQuery("/health", "", buf, sizeof(buf));
   TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 503 Service Unavailable\r\n"));
   TEST_ASSERT_NOT_NULL(strstr(buf, "\r\nRetry-After: 5\r\n"));
-  TEST_ASSERT_NOT_NULL(strstr(buf, "{\"status\":\"unavailable\",\"version\":\"2.3.0\",\"db\":null}"));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "{\"status\":\"unavailable\",\"version\":\"2.3.1\",\"db\":null,\"credits\":{\"charged\":4294967295}}"));
 }
 
 void test_CVELOOKUP_null_param_400(void)
@@ -601,7 +601,7 @@ void test_IMAGEINSPECT_answers_the_format_the_hash_and_the_signatures(void)
     "\"generator_parameters\":false,\"identifiers_present\":{\"serial_number\":false,\"owner_name\":false,\"unique_id\":false,\"host_computer\":false,"
     "\"author\":false,\"copyright\":false,\"person_in_image\":false,\"original_file_name\":false},\"edit_history\":[],\"edit_history_has_more\":false},"
     "\"indicators\":[{\"code\":\"no_capture_metadata\",\"severity\":\"info\",\"note\":\"The file names no camera make, no model and no original time. Absent metadata is not a sign of forgery: many tools strip it.\"}],"
-    "\"indicator_note\":\"An indicator is a sign, not proof. Metadata is easy to write, to edit and to strip, and absent metadata is not a sign of forgery.\"}\n",
+    "\"indicator_note\":\"An indicator is a sign, not proof. Metadata is easy to write, to edit and to strip, and absent metadata is not a sign of forgery.\",\"credits\":{\"charged\":4294967295}}\n",
     static_bodyOf(buf));
   TEST_ASSERT_EQUAL_INT(1, g_stub_IMAGEINSPECT_exif_call_count);
   TEST_ASSERT_EQUAL_size_t(24, g_stub_IMAGEINSPECT_exif_last_byte_count);
@@ -1793,7 +1793,7 @@ void test_paid_run_ok_closes_once_and_sends_the_receipt(void)
   char buf[RESP_BUF];
   static_callPaidRow(&TEST_PAID_ROW, "2026-02-28", &payment, buf);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "HTTP/1.1 200 OK\r\n"), buf);
-  TEST_ASSERT_EQUAL_STRING("{\"paid\":true}", static_bodyOf(buf));
+  TEST_ASSERT_EQUAL_STRING("{\"paid\":true,\"credits\":{\"charged\":1}}", static_bodyOf(buf));
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "\r\nPAYMENT-RESPONSE: eyJzdWNjZXNzIjp0cnVlLCJ0cmFuc2FjdGlvbiI6IjNQZW5kaW5nU2lnbmF0dXJlT2ZUaGVMZWRnZXJSb3ciLCJuZXR3b3JrIjoic29sYW5hOkV0V1RSQUJaYVlxNmlNZmVZS291UnUxNjZWVTJ4cWExIn0=\r\n"), buf);
   TEST_ASSERT_EQUAL_INT(1, g_stub_X402_LEDGER_mark_settled_count);
   TEST_ASSERT_EQUAL_INT(0, g_stub_X402_LEDGER_release_count);
