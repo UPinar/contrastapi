@@ -1767,7 +1767,7 @@ const Endpoint_t endpoints[] = {
     .ma_allowedMethods         = {"GET", NULL},
     .m_isPayable               = true,
     .mp_mcpToolName            = "kev_lookup",
-    .mp_mcpToolDescription     = "CISA KEV catalog entry for a CVE: the required action, the patch deadline and known ransomware use. A CVE that CISA removed answers in_kev false, and one never listed answers \"KEV entry not found\".",
+    .mp_mcpToolDescription     = "CISA KEV entry of a CVE: required action, patch deadline, ransomware use. A removed CVE gives in_kev false, a never-listed one the tool error \"KEV entry not found\". Full CVE record: cve_lookup. CVEs in KEV now: cve_search with in_kev=true.",
     .mp_mcpToolTitle           = "CISA KEV Lookup",
     .mp_mcpToolOutputSchema    = output_schema_kevLookup,
     .m_mcpToolCategory         = ENDPOINT_MCP_TOOL_CATEGORY_CVE,

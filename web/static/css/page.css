@@ -1,13 +1,13 @@
-.page { max-inline-size: 50rem; margin-inline: auto; padding: 3rem 2rem; position: relative; z-index: 1; }
+.page { max-inline-size: 50rem; margin-inline: auto; padding: 3rem var(--page-pad-inline); position: relative; z-index: 1; }
 .page h1 { font-size: var(--text-preset-1); font-weight: 800; letter-spacing: -0.02em; margin-block-end: 0.5rem; }
 .page h1 span { color: var(--primary); }
 .page h1.capability-title { margin-block-end: 1.25rem; }
 .page .subtitle { color: var(--text-dim); margin: 0 0 3rem; max-width: none; }
 .page h2 { font-size: var(--text-preset-2); margin: 0 0 1rem; padding-block-end: 0.5rem; border-block-end: 1px solid var(--border); }
 .page h2 .num { color: var(--primary); }
-/* A paragraph and a list item are long text, so they take the reading font, a paragraph a little
-   larger than the 14px base. */
-.page p { font-family: var(--font-prose); font-size: 1.1em; color: var(--text-muted); margin-block-end: 1rem; line-height: var(--leading-prose); }
+/* A paragraph and a list item are long text, so they take the reading font. A paragraph is larger
+   than the 14px base: 16px on a phone, 15.4px from 640px on (--text-prose). */
+.page p { font-family: var(--font-prose); font-size: var(--text-prose); color: var(--text-muted); margin-block-end: 1rem; line-height: var(--leading-prose); }
 /* A list keeps its markers on a small indent, as .freshness-list does. */
 .page ul, .page ol { color: var(--text-muted); margin: 0 0 1rem; padding-inline-start: 1rem; }
 .page li { font-family: var(--font-prose); margin-block-end: 0.4rem; line-height: var(--leading-list); }
@@ -18,7 +18,7 @@
 .agent-tools dt { margin-block-end: 0.15rem; }
 .agent-tools dd { font-family: var(--font-prose); color: var(--text-muted); margin: 0 0 0.75rem; line-height: var(--leading-list); }
 .code-block { display: flex; flex-direction: column; background: var(--bg-code); border: 1px solid var(--border); border-radius: 0.5rem; padding: 0.5rem 1.25rem 1rem; margin-block-end: 1.5rem; }
-.code-block code { display: block; overflow-x: auto; color: var(--text); font-size: var(--text-preset-5); white-space: pre; font-family: var(--font-mono); }
+.code-block code { display: block; overflow-x: auto; color: var(--text); font-size: var(--text-code); white-space: pre; font-family: var(--font-mono); }
 .code-block .lang { align-self: flex-end; margin-block-end: 0.25rem; color: var(--primary); font-size: var(--text-preset-5); text-transform: uppercase; }
 /* On a phone a code line wraps inside its box. A box that scrolls sideways shows no sign of it
    on a phone, so its lines look cut off. pre-wrap keeps the indentation, and

@@ -920,7 +920,7 @@ void test_tools_list_is_the_whole_catalogue(void)
       R"json("credits":{"type":"object","properties":{"charged":{"type":"integer","description":"Credits this call cost; 0 for a free tool."},"remaining":{"type":"integer","description":"Credits left in the budget window. Absent when not paid from a credit budget."}},"required":["charged"]})json"
       R"json(},"required":["count","total","limit","verdict","summary","results","credits"]})json"
       R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"CVE Intelligence","com.contrastcyber/credits":{"per_call":1}}})json",
-    R"json({"name":"kev_lookup","title":"CISA KEV Lookup","description":"CISA KEV catalog entry for a CVE: the required action, the patch deadline and known ransomware use. A CVE that CISA removed answers in_kev false, and one never listed answers \"KEV entry not found\".",)json"
+    R"json({"name":"kev_lookup","title":"CISA KEV Lookup","description":"CISA KEV entry of a CVE: required action, patch deadline, ransomware use. A removed CVE gives in_kev false, a never-listed one the tool error \"KEV entry not found\". Full CVE record: cve_lookup. CVEs in KEV now: cve_search with in_kev=true.",)json"
       R"json("inputSchema":{"type":"object","properties":{)json"
       R"json("cve_id":{"type":"string","maxLength":24,"description":"CVE ID"})json"
       R"json(},"required":["cve_id"],"additionalProperties":false})json"

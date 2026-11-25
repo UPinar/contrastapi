@@ -94,6 +94,14 @@
   --text-preset-3: 1rem;
   --text-preset-4: 0.875rem;
   --text-preset-5: 0.75rem;
+  /* Three sizes differ between a phone and a wider screen (user 2026-11-25, after a 390px
+     measure against the Go site). --page-pad-inline is the side padding of the nav and the
+     page. On a phone it is 1.25rem, as on the Go site, so the logo, the headings and the
+     footer links start on one line. --text-prose is a paragraph of long text: 16px on a
+     phone. --text-code is code: 13px on a phone. The 640px block sets the wider values. */
+  --page-pad-inline: 1.25rem;
+  --text-prose: 1rem;
+  --text-code: 0.8125rem;
   /* Four line heights cover the text. --leading-tight is a heading, --leading-ui a label or a
      table row, --leading-list a list item or a note, --leading-prose long text and code. A chip
      keeps 1 and a row of the event table keeps 2. */
@@ -209,7 +217,7 @@ nav {
   max-inline-size: 50rem;
   margin-inline: auto;
   padding-block: 1rem;
-  padding-inline: 2rem;
+  padding-inline: var(--page-pad-inline);
   /* Transparent, so the page background shows behind the nav and the open menu. */
   background-color: transparent;
 }
@@ -349,19 +357,6 @@ nav {
   max-width: 42rem;
   margin: 0 auto;
   padding: 3rem 1.25rem 1.5rem;
-}
-
-.pill {
-  display: inline-block;
-  padding: 0.3rem 0.9rem;
-  border-radius: 6.25rem;
-  border: 1px solid var(--border);
-  background: var(--bg-card);
-  font-size: var(--text-preset-5);
-  font-weight: 500;
-  color: var(--text-muted);
-  letter-spacing: 0.08em;
-  margin-block-end: 1.75rem;
 }
 
 h1 {
@@ -510,7 +505,7 @@ pre {
   padding: 1.25rem;
   overflow-x: auto;
   font-family: var(--font-mono);
-  font-size: var(--text-preset-5);
+  font-size: var(--text-code);
   line-height: var(--leading-prose);
   color: var(--text-muted);
   margin-block-end: 1rem;
@@ -527,7 +522,7 @@ code {
   background: var(--bg-code-inline);
   padding: 0.15rem 0.4rem;
   border-radius: 0.25rem;
-  font-size: var(--text-preset-5);
+  font-size: var(--text-code);
   font-family: var(--font-mono);
   white-space: nowrap;
 }
@@ -642,7 +637,7 @@ footer p { color: var(--text-dim); margin: 0; }
 /* The site is written for a phone first. From 640px on, this block adds the wider layout.
    It is the one breakpoint of style.css and css/page.css. */
 @media screen and (min-width: 640px) {
-  :root { --text-preset-1: 2.25rem; }
+  :root { --text-preset-1: 2.25rem; --page-pad-inline: 2rem; --text-prose: 1.1em; --text-code: var(--text-preset-5); }
   .subtitle { font-size: var(--text-preset-3); }
   .hero { padding: 4rem 2rem 2rem; }
   .endpoints, .auth-section { padding: 0 2rem; }
@@ -695,10 +690,11 @@ footer p { color: var(--text-dim); margin: 0; }
   }
 }
 
-/* Page column. The nav, the page and the footer share one box of 50rem with 2rem of side
-   padding, so they hold one column of 46rem of text, as on the Go site (user 2026-11-24).
-   The logo, the headings and the footer links start on one line. */
-.page { max-inline-size: 50rem; margin-inline: auto; padding: 3rem 2rem; position: relative; z-index: 1; }
+/* Page column. The nav, the page and the footer share one box of 50rem. From 640px on its
+   side padding is 2rem, so it holds one column of 46rem of text, as on the Go site (user
+   2026-11-24). On a phone the padding is 1.25rem (--page-pad-inline). The logo, the headings
+   and the footer links start on one line. */
+.page { max-inline-size: 50rem; margin-inline: auto; padding: 3rem var(--page-pad-inline); position: relative; z-index: 1; }
 .page h1 { font-size: var(--text-preset-1); font-weight: 800; letter-spacing: -0.02em; margin-block-end: 0.5rem; }
 .page h1 span { color: var(--primary); }
 .page .subtitle { color: var(--text-dim); margin: 0 0 3rem; max-width: none; }
@@ -797,7 +793,7 @@ div.copy-wrap > pre { flex: 1; min-width: 0; margin: 0; background: none; border
   border-radius: 0.375rem;
   padding: 0.7rem 0.85rem;
   font-family: var(--font-mono);
-  font-size: var(--text-preset-5);
+  font-size: var(--text-code);
   color: var(--text);
   margin: 0 0 0.6rem;
   /* A long line wraps inside the box. A box that scrolls sideways shows no sign of it on a
