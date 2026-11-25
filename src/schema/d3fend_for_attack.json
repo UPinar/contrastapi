@@ -1,0 +1,152 @@
+{
+  "type": "object",
+  "properties": {
+    "attack_technique_id": {
+      "type": "string",
+      "description": "The id as sent."
+    },
+    "attack_techniques": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "attack_label": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The ATT&CK name of the id. null when the catalog gives none."
+          },
+          "subtechnique_of": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The parent technique of a sub-technique, such as T1055. null for a technique."
+          },
+          "attack_technique_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "attack_label",
+          "subtechnique_of",
+          "attack_technique_id"
+        ]
+      },
+      "description": "Each technique id that matched, once, in id order. A technique id also matches its sub-techniques. [] when no D3FEND defense counters the id. defenses is then [] too."
+    },
+    "defense_count_by_defense_tactic": {
+      "type": "object",
+      "description": "Defenses per D3FEND tactic. Each of the seven tactics has a key, also with a count of 0.",
+      "properties": {
+        "Model": {
+          "type": "integer"
+        },
+        "Harden": {
+          "type": "integer"
+        },
+        "Detect": {
+          "type": "integer"
+        },
+        "Isolate": {
+          "type": "integer"
+        },
+        "Deceive": {
+          "type": "integer"
+        },
+        "Evict": {
+          "type": "integer"
+        },
+        "Restore": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "Model",
+        "Harden",
+        "Detect",
+        "Isolate",
+        "Deceive",
+        "Evict",
+        "Restore"
+      ]
+    },
+    "defenses": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "defense_id": {
+            "type": "string"
+          },
+          "defense_label": {
+            "type": "string"
+          },
+          "uri": {
+            "type": "string",
+            "description": "The defense's IRI in the D3FEND ontology."
+          },
+          "parent_defense_labels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Parents in the D3FEND tree, the nearest first. [] for a top-level defense."
+          },
+          "defense_tactic": {
+            "type": "string",
+            "description": "One of the seven keys of defense_count_by_defense_tactic."
+          },
+          "digital_artifact": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "A D3FEND digital artifact of the defense. null when the catalog gives none."
+          },
+          "attack_technique_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The matched ids this defense counters, in id order."
+          }
+        },
+        "required": [
+          "defense_id",
+          "defense_label",
+          "uri",
+          "parent_defense_labels",
+          "defense_tactic",
+          "digital_artifact",
+          "attack_technique_ids"
+        ]
+      },
+      "description": "In defense_label order."
+    },
+    "credits": {
+      "type": "object",
+      "properties": {
+        "charged": {
+          "type": "integer",
+          "description": "Credits this call cost; 0 for a free tool."
+        },
+        "remaining": {
+          "type": "integer",
+          "description": "Credits left in the budget window. Absent when not paid from a credit budget."
+        }
+      },
+      "required": [
+        "charged"
+      ]
+    }
+  },
+  "required": [
+    "attack_technique_id",
+    "attack_techniques",
+    "defense_count_by_defense_tactic",
+    "defenses",
+    "credits"
+  ]
+}

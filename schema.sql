@@ -1625,6 +1625,44 @@ CREATE TABLE ip_cloud_range (
 );
 CREATE INDEX idx_ip_cloud_range_prefix ON ip_cloud_range USING gist (prefix inet_ops);
 
+CREATE TABLE ip_hosting_asn (
+  asn                  BIGINT   PRIMARY KEY,
+  provider             TEXT     NOT NULL,
+  is_cdn_without_list  BOOLEAN  NOT NULL,
+
+  CONSTRAINT ip_hosting_asn_asn_range       CHECK (asn BETWEEN 1 AND 4294967295),
+  CONSTRAINT ip_hosting_asn_provider_format CHECK (provider ~ '^[a-z][a-z0-9_]{0,31}$')
+);
+INSERT INTO ip_hosting_asn (asn, provider, is_cdn_without_list) VALUES
+  (8075,   'microsoft',    false),
+  (9009,   'm247',         false),
+  (12876,  'scaleway',     false),
+  (13335,  'cloudflare',   false),
+  (14061,  'digitalocean', false),
+  (14618,  'aws',          false),
+  (15169,  'google',       false),
+  (16276,  'ovh',          false),
+  (16509,  'aws',          false),
+  (16625,  'akamai',       true),
+  (20473,  'vultr',        false),
+  (20940,  'akamai',       true),
+  (24940,  'hetzner',      false),
+  (28753,  'leaseweb',     false),
+  (30633,  'leaseweb',     false),
+  (31898,  'oracle',       false),
+  (36352,  'colocrossing', false),
+  (40509,  'flyio',        false),
+  (45102,  'alibaba',      false),
+  (47583,  'hostinger',    false),
+  (51167,  'contabo',      false),
+  (53667,  'frantech',     false),
+  (55286,  'servermania',  false),
+  (60781,  'leaseweb',     false),
+  (63949,  'linode',       false),
+  (132203, 'tencent',      false),
+  (136258, 'brainstorm',   false),
+  (396982, 'google',       false);
+
 CREATE TABLE ip_crawler_range (
   crawler     TEXT          NOT NULL,
   prefix      CIDR          NOT NULL,

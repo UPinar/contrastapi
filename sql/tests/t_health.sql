@@ -11,8 +11,8 @@ BEGIN
   ASSERT (SELECT array_agg(format_type(atttypid, atttypmod) ORDER BY attnum) FROM pg_attribute
           WHERE attrelid = 't_health_call'::regclass AND attnum > 0)
          = ARRAY['bigint', 'text', 'date', 'bigint', 'text', 'text', 'bigint', 'text',
-                 'timestamp with time zone'],
-         'the counts are bigint, and each newest-row column keeps the type of its table column';
+                 'text'],
+         'the counts are bigint, and cwe_last_updated_at is UTC text';
 END
 $$;
 
@@ -55,7 +55,7 @@ BEGIN
   ASSERT (SELECT kev_last_cve_id = 'CVE-2001-0042' AND kev_last_date_added = '2099-02-02'
             FROM api.fn_health()),
          'the newest KEV entry has the latest kev_date_added, and the larger id wins a tie';
-  ASSERT (SELECT cwe_last_id = 'CWE-2042' AND cwe_last_updated_at = '2099-01-01 00:00:00+00'
+  ASSERT (SELECT cwe_last_id = 'CWE-2042' AND cwe_last_updated_at = '2099-01-01T00:00:00Z'
             FROM api.fn_health()),
          'the newest CWE has the latest updated_at, and the larger id wins a tie';
 END
@@ -77,6 +77,29 @@ DO $$
 BEGIN
   ASSERT (SELECT cwe_last_id = 'CWE-2040' AND cwe_last_updated_at IS NULL FROM api.fn_health()),
          'a CWE with no updated_at counts as the newest CWE';
+END
+$$;
+
+DELETE FROM cwes;
+SET LOCAL TimeZone = 'Europe/Istanbul';
+INSERT INTO cwes (cwe_id, updated_at) VALUES
+  ('CWE-2044', '2026-05-20 17:07:56.999999+03'),
+  ('CWE-2045', '2026-05-20 14:07:56.162610+00');
+
+DO $$
+BEGIN
+  ASSERT (SELECT cwe_last_id = 'CWE-2044' AND cwe_last_updated_at = '2026-05-20T14:07:56Z'
+            FROM api.fn_health()),
+         'cwe_last_updated_at is UTC text with the fraction cut, and the newest time wins';
+END
+$$;
+
+UPDATE cwes SET updated_at = '2026-05-20 17:07:56.162610+03' WHERE cwe_id = 'CWE-2044';
+
+DO $$
+BEGIN
+  ASSERT (SELECT cwe_last_updated_at FROM api.fn_health()) = '2026-05-20T14:07:56Z',
+         'a session in Europe/Istanbul still reads cwe_last_updated_at in UTC';
 END
 $$;
 

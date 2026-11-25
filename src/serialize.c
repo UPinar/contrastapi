@@ -100,6 +100,16 @@ static void static_writeCvssScore(const char* key, double score, bool has_score,
     jsonbuf_appendFormat(json_buf, R"("%s":null,)", key);
 }
 
+static void static_writeEpssScoreAndPercentile(double score, double percentile, JsonBuf_t* json_buf)
+{
+  double clamped_score = static_clampDouble(score, 0.0, 1.0);
+
+  if (clamped_score > 0.0)
+    jsonbuf_appendFormat(json_buf, R"("epss_score":%.5f,"epss_percentile":%.5f,)", clamped_score, static_clampDouble(percentile, 0.0, 1.0));
+  else
+    jsonbuf_appendFormat(json_buf, R"("epss_score":null,"epss_percentile":null,)");
+}
+
 static void static_writeCvssVector(const char* key, const char* vector, JsonBuf_t* json_buf)
 {
   assert(key    != NULL);
@@ -209,8 +219,8 @@ static void static_CVELOOKUPWriteRecord(const CVELOOKUPRecord_t* record, JsonBuf
 
   jsonbuf_appendFormat(json_buf, R"("published_time":")");
   jsonbuf_appendEscaped(json_buf, record->ma_publishedTime);
-  jsonbuf_appendFormat(json_buf, R"(","epss_score":%.5f,)", record->m_epssScore);
-  jsonbuf_appendFormat(json_buf, R"("epss_percentile":%.5f,)", record->m_epssPercentile);
+  jsonbuf_appendFormat(json_buf, R"(",)");
+  static_writeEpssScoreAndPercentile(record->m_epssScore, record->m_epssPercentile, json_buf);
   jsonbuf_appendFormat(json_buf, R"("cwe_id":")");
   jsonbuf_appendEscaped(json_buf, record->ma_cweId);
   jsonbuf_appendFormat(json_buf, R"(",)");
@@ -218,9 +228,8 @@ static void static_CVELOOKUPWriteRecord(const CVELOOKUPRecord_t* record, JsonBuf
   jsonbuf_appendFormat(json_buf, R"(,"cwes":)");
   jsonbuf_appendJsonText(json_buf, record->mp_cwes ? record->mp_cwes : "[]");
   jsonbuf_appendFormat(json_buf, R"(,"in_kev":%s,)", record->m_inKev ? "true" : "false");
-  jsonbuf_appendFormat(json_buf, R"("kev_date_added":")");
-  jsonbuf_appendEscaped(json_buf, record->ma_kevDateAdded);
-  jsonbuf_appendFormat(json_buf, R"(","vulnerability_status":")");
+  static_writeTextOrNull("kev_date_added", record->ma_kevDateAdded, json_buf);
+  jsonbuf_appendFormat(json_buf, R"(,"vulnerability_status":")");
   jsonbuf_appendEscaped(json_buf, record->ma_vulnerabilityStatus);
   jsonbuf_appendFormat(json_buf, R"(","affected_products":)");
   jsonbuf_appendJsonText(json_buf, record->mp_affectedProducts ? record->mp_affectedProducts : "[]");
@@ -367,8 +376,7 @@ static void static_cveListWriteItem(const CveListItem_t* item, JsonBuf_t* json_b
   static_writeCvssScore("cvss_v4", item->m_cvssV4, item->m_hasCvssV4, json_buf);
   static_writeTextOrNull("cvss_v4_source", item->ma_cvssV4Source, json_buf);
   jsonbuf_appendFormat(json_buf, ",");
-  jsonbuf_appendFormat(json_buf, R"("epss_score":%.5f,)", item->m_epssScore);
-  jsonbuf_appendFormat(json_buf, R"("epss_percentile":%.5f,)", item->m_epssPercentile);
+  static_writeEpssScoreAndPercentile(item->m_epssScore, item->m_epssPercentile, json_buf);
   jsonbuf_appendFormat(json_buf, R"("in_kev":%s,)", item->m_inKev ? "true" : "false");
   static_writeTextOrNull("kev_date_added", item->ma_kevDateAdded, json_buf);
   jsonbuf_appendFormat(json_buf, R"(,"published_time":")");
@@ -476,8 +484,14 @@ static void static_CWELOOKUPWriteRecord(const CWELOOKUPRecord_t* record, JsonBuf
   jsonbuf_appendJsonText(json_buf, (record->mp_owaspTop10 && *record->mp_owaspTop10) ? record->mp_owaspTop10 : "null");
   jsonbuf_appendFormat(json_buf, R"(,"cve_count":%d,)", record->m_cveCount);
   jsonbuf_appendFormat(json_buf, R"("kev_count":%d,)", record->m_kevCount);
-  jsonbuf_appendFormat(json_buf, R"("avg_cvss":%.2f,)", record->m_avgCvss);
-  jsonbuf_appendFormat(json_buf, R"("avg_epss":%.4f,)", record->m_avgEpss);
+  if (record->m_avgCvss > 0)
+    jsonbuf_appendFormat(json_buf, R"("avg_cvss":%.2f,)", record->m_avgCvss);
+  else
+    jsonbuf_appendFormat(json_buf, R"("avg_cvss":null,)");
+  if (record->m_avgEpss > 0)
+    jsonbuf_appendFormat(json_buf, R"("avg_epss":%.4f,)", record->m_avgEpss);
+  else
+    jsonbuf_appendFormat(json_buf, R"("avg_epss":null,)");
   jsonbuf_appendFormat(json_buf, R"("updated_at":")");
   jsonbuf_appendEscaped(json_buf, record->ma_updatedAt);
   jsonbuf_appendFormat(json_buf, R"("})");
@@ -509,15 +523,6 @@ static int static_clampItemCount(int count, int max_count)
   return count < max_count ? count : max_count;
 }
 
-static void static_cveListWriteItemClamped(const CveListItem_t* item, JsonBuf_t* json_buf)
-{
-  CveListItem_t clamped = *item;
-  clamped.m_epssScore      = static_clampDouble(item->m_epssScore, 0.0, 1.0);
-  clamped.m_epssPercentile = static_clampDouble(item->m_epssPercentile, 0.0, 1.0);
-
-  static_cveListWriteItem(&clamped, json_buf);
-}
-
 void serialize_CVELEADING_response(const CveListResult_t* results, const CVELEADINGParams_t* params, JsonBuf_t* json_buf)
 {
   assert(results  != NULL);
@@ -529,10 +534,13 @@ void serialize_CVELEADING_response(const CveListResult_t* results, const CVELEAD
     if (results->mp_items[i].m_inKev) kev_count++;
 
   double top_epss = static_clampDouble((results->m_count > 0) ? results->mp_items[0].m_epssScore : 0.0, 0.0, 1.0);
+  bool is_top_unscored = !(top_epss > 0.0);
 
   const char* verdict;
   if (results->m_count <= 0)
     verdict = "none";
+  else if (is_top_unscored)
+    verdict = "unknown";
   else if (top_epss >= 0.5)
     verdict = "critical";
   else if (top_epss >= 0.2)
@@ -546,6 +554,13 @@ void serialize_CVELEADING_response(const CveListResult_t* results, const CVELEAD
   int summary_len;
   if (results->m_count <= 0)
     summary_len = snprintf(summary, sizeof(summary), "No CVEs matched this filter.");
+  else if (is_top_unscored)
+    summary_len = snprintf(summary, sizeof(summary),
+                          "%d CVE%s ranked by exploitation probability; %s leads; it has no EPSS score. %d in CISA KEV.",
+                          results->m_count,
+                          results->m_count == 1 ? "" : "s",
+                          results->mp_items[0].ma_cveId,
+                          kev_count);
   else
     summary_len = snprintf(summary, sizeof(summary),
                           "%d CVE%s ranked by exploitation probability; %s leads at %.1f%% (EPSS, next 30 days). %d in CISA KEV.",
@@ -569,7 +584,7 @@ void serialize_CVELEADING_response(const CveListResult_t* results, const CVELEAD
     if (i > 0)
       jsonbuf_appendFormat(json_buf, ",");
 
-    static_cveListWriteItemClamped(&results->mp_items[i], json_buf);
+    static_cveListWriteItem(&results->mp_items[i], json_buf);
   }
 
   jsonbuf_appendFormat(json_buf, R"(]})" "\n");
@@ -1087,12 +1102,21 @@ void serialize_PRODUCTEXPOSURE_response(const PRODUCTEXPOSURERecord_t* record, J
   jsonbuf_appendFormat(json_buf,
     "\",\"exposure\":{\"total_cves\":%d,\"critical\":%d,\"high\":%d,\"medium\":%d,\"low\":%d,\"kev_count\":%d,",
     record->m_totalCveCount, record->m_criticalCount, record->m_highCount, record->m_mediumCount, record->m_lowCount, record->m_kevCount);
-  jsonbuf_appendFormat(json_buf,
-    "\"max_cvss\":%.1f,\"avg_cvss\":%.2f,\"max_epss\":%.4f,\"poc_backed_count\":%d,\"worst_risk_score\":%.1f,",
-    record->m_maxCvss, record->m_avgCvss, record->m_maxEpss, record->m_pocBackedCount, record->m_worstRiskScore);
-  jsonbuf_appendFormat(json_buf, "\"most_recent_published\":\"");
-  jsonbuf_appendEscaped(json_buf, record->ma_mostRecentPublished);
-  jsonbuf_appendFormat(json_buf, "\"},");
+  if (record->m_maxCvss > 0)
+    jsonbuf_appendFormat(json_buf, R"("max_cvss":%.1f,)", record->m_maxCvss);
+  else
+    jsonbuf_appendFormat(json_buf, R"("max_cvss":null,)");
+  if (record->m_avgCvss > 0)
+    jsonbuf_appendFormat(json_buf, R"("avg_cvss":%.2f,)", record->m_avgCvss);
+  else
+    jsonbuf_appendFormat(json_buf, R"("avg_cvss":null,)");
+  if (record->m_maxEpss > 0)
+    jsonbuf_appendFormat(json_buf, R"("max_epss":%.4f,)", record->m_maxEpss);
+  else
+    jsonbuf_appendFormat(json_buf, R"("max_epss":null,)");
+  jsonbuf_appendFormat(json_buf, R"("poc_backed_count":%d,"worst_risk_score":%.1f,)", record->m_pocBackedCount, record->m_worstRiskScore);
+  static_writeTextOrNull("most_recent_published", record->ma_mostRecentPublished, json_buf);
+  jsonbuf_appendFormat(json_buf, "},");
   static_writeProductFilterNote(record->ma_vendor, record->ma_product, json_buf);
   jsonbuf_appendFormat(json_buf, "\"top_cves\":[");
   int top_cve_count = static_clampItemCount(record->m_topCveCount, PRODUCTEXPOSURE_TOP_N);
@@ -3358,9 +3382,22 @@ static void static_WATCHLISTEVENTSWriteStringOrNull(JsonBuf_t* json_buf, bool is
     jsonbuf_appendFormat(json_buf, "null");
 }
 
+static bool static_isEpssEventType(const char* event_type)
+{
+  assert(event_type != NULL);
+
+  return strcmp(event_type, "epss_level_up")   == 0
+      || strcmp(event_type, "epss_level_down") == 0
+      || strcmp(event_type, "epss_above_min")  == 0
+      || strcmp(event_type, "epss_below_min")  == 0;
+}
+
 static void static_WATCHLISTEVENTSWriteCveEvent(const WATCHLISTEVENTSEvent_t* event, JsonBuf_t* json_buf)
 {
   const WATCHLISTEVENTSCveChange_t* change = &event->m_cveChange;
+  bool has_previous_value = change->m_hasPreviousValue;
+  if (has_previous_value && change->m_previousValue == 0.0 && static_isEpssEventType(event->ma_eventType))
+    has_previous_value = false;
   jsonbuf_appendFormat(json_buf, R"({"event":")");
   jsonbuf_appendEscaped(json_buf, event->ma_eventType);
   jsonbuf_appendFormat(json_buf, R"(","changed_at":")");
@@ -3368,7 +3405,7 @@ static void static_WATCHLISTEVENTSWriteCveEvent(const WATCHLISTEVENTSEvent_t* ev
   jsonbuf_appendFormat(json_buf, R"(","cve_id":")");
   jsonbuf_appendEscaped(json_buf, change->ma_cveId);
   jsonbuf_appendFormat(json_buf, R"(","previous":)");
-  static_WATCHLISTEVENTSWriteCveScore(json_buf, change->m_hasPreviousValue, change->m_previousValue);
+  static_WATCHLISTEVENTSWriteCveScore(json_buf, has_previous_value, change->m_previousValue);
   jsonbuf_appendFormat(json_buf, R"(,"current":)");
   static_WATCHLISTEVENTSWriteCveScore(json_buf, change->m_hasCurrentValue, change->m_currentValue);
   jsonbuf_appendFormat(json_buf, R"(,"vendor":)");

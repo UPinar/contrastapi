@@ -1,0 +1,549 @@
+{
+  "type": "object",
+  "description": "It reports the changes on this key's watched items, oldest first, grouped by item. A plain call moves the key's position past the page. A cursor call reads on from the cursor, and a repeat call answers the last batch again. Neither moves the position.",
+  "properties": {
+    "limit": {
+      "type": "integer",
+      "description": "It repeats the limit argument. A repeat answers the whole last batch, whatever its limit."
+    },
+    "cursor": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "It repeats the cursor argument, and is null when the call sent none."
+    },
+    "repeat": {
+      "type": "boolean",
+      "description": "true when the call asked for the last batch again."
+    },
+    "next_cursor": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Pass it as cursor to read on from here without moving the position. After a plain call it is also the key's new position. null when the key has no position: it never added an item, or it emptied its list."
+    },
+    "has_more": {
+      "type": "boolean",
+      "description": "true when another call may answer more. A short page with has_more true is not the end."
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "item": {
+            "type": "object",
+            "description": "A watched item. endpoint names the tool it watches, and the other members hold its saved arguments.",
+            "properties": {
+              "endpoint": {
+                "type": "string",
+                "description": "It is cve_lookup, kev_lookup, cve_exploit, product_exposure, cve_search, dns_lookup, ssl_check, whois_lookup, headers_check, cert_search, package_check or ip_lookup."
+              },
+              "cve_id": {
+                "type": "string",
+                "description": "Present only on cve_lookup, kev_lookup and cve_exploit items."
+              },
+              "vendor": {
+                "type": "string",
+                "description": "Present on product_exposure items, and on cve_search items when the filter is set."
+              },
+              "product": {
+                "type": "string",
+                "description": "Present on product_exposure items, and on cve_search items when the filter is set."
+              },
+              "version": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Present only on product_exposure and package_check items. null for an item of every version."
+              },
+              "product_has_cves": {
+                "type": "boolean",
+                "description": "Present only on product_exposure items. false when no vulnerable product has the pair yet. The item still matches once one appears, but false often means a misspelled name."
+              },
+              "severity": {
+                "type": "string",
+                "description": "Present only on cve_search items, when the filter is set."
+              },
+              "cwe_id": {
+                "type": "string",
+                "description": "Present only on cve_search items, when the filter is set."
+              },
+              "min_cvss": {
+                "type": "number",
+                "description": "Present only on cve_search items, when the filter is set."
+              },
+              "min_epss": {
+                "type": "number",
+                "description": "Present only on cve_search items, when the filter is set."
+              },
+              "in_kev": {
+                "type": "boolean",
+                "description": "Present only on cve_search items, when the filter is set. true keeps the CVEs in CISA KEV, and false keeps the CVEs outside it."
+              },
+              "known_ransomware": {
+                "type": "boolean",
+                "description": "Present only on cve_search items, when the filter is set. It is then true."
+              },
+              "has_nuclei_template": {
+                "type": "boolean",
+                "description": "Present only on cve_search items, when the filter is set. It is then true."
+              },
+              "domain": {
+                "type": "string",
+                "description": "Present only on dns_lookup, ssl_check, whois_lookup, headers_check and cert_search items."
+              },
+              "ecosystem": {
+                "type": "string",
+                "description": "Present only on package_check items."
+              },
+              "name": {
+                "type": "string",
+                "description": "Present only on package_check items."
+              },
+              "ip_address": {
+                "type": "string",
+                "description": "Present only on ip_lookup items."
+              }
+            },
+            "required": [
+              "endpoint"
+            ]
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "event": {
+                  "type": "string",
+                  "description": "It names the change. Each item kind hears its own types. The CVE types report a change to a CVE's record, scores, KEV entry, exploits or fixes: cve_added, cve_rejected, cve_disputed, description_changed, cwe_changed, product_added, product_removed, cvss_added, cvss_score_changed, cvss_risk_band_changed, epss_level_up, epss_level_down, kev_added, kev_removed, kev_updated, ransomware_linked, exploit_published, metasploit_added, exploitdb_added, nuclei_template_added, github_poc_added, vendor_advisory_published, patch_published, ssvc_added, ssvc_changed and ghsa_linked. A cve_lookup, product_exposure or cve_search item hears them all. A kev_lookup item hears only kev_added, kev_removed, kev_updated and ransomware_linked. A cve_exploit item hears only exploit_published, metasploit_added, exploitdb_added and github_poc_added. A cve_search item with min_epss also hears epss_above_min and epss_below_min when the score crosses min_epss. epss_level_up comes when the score reaches a higher level of 0.05, 0.1, 0.2, 0.3, 0.5, 0.7 and 0.9, and epss_level_down when it falls under 0.8 times a level the CVE held. A package_check item hears advisory_added, fix_available and malware_added for its package. It also hears kev_added and ransomware_linked of a CVE that an advisory of the package names. A product_exposure or package_check item hears eol_approaching, eol_reached and eol_date_changed. eol_approaching comes 90 days or fewer before the end. The domain types report a change that the server's recurring check of the name saw. A dns_lookup item hears domain_not_found, domain_found, ns_changed, mx_changed, ip_address_not_public, ip_address_lost, ip_address_restored, cname_takeover_detected, cname_takeover_resolved, email_auth_degraded and hosting_changed. An ssl_check item hears cert_expiring, cert_invalid, cert_listed and tls_downgraded. A whois_lookup item hears domain_expiring, registrar_changed, transfer_lock_removed and dnssec_disabled. A headers_check item hears security_header_removed. A cert_search item hears cert_unexpected: a certificate for the name came from an issuer the item had not seen. An ip_lookup item hears drop_listed and drop_unlisted when the address enters or leaves the Spamhaus DROP list, and hosting_changed."
+                },
+                "changed_at": {
+                  "type": "string",
+                  "description": "It is UTC, YYYY-MM-DDTHH:MM:SSZ. It tells when the server wrote the event, at the sync or check that saw the change. For a domain event, that is when the change was confirmed."
+                },
+                "cve_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "It names the CVE of a CVE event, and cves holds its facts. A package item's kev_added and ransomware_linked are CVE events too. The package events are advisory_added, fix_available and malware_added. null on them and on end-of-life events. Absent on domain and IP events."
+                },
+                "previous": {
+                  "type": [
+                    "number",
+                    "integer",
+                    "string",
+                    "array",
+                    "null"
+                  ],
+                  "items": {
+                    "type": [
+                      "string",
+                      "integer",
+                      "object",
+                      "null"
+                    ],
+                    "properties": {
+                      "prefix": {
+                        "type": "string"
+                      },
+                      "listing_id": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "prefix",
+                      "listing_id"
+                    ]
+                  },
+                  "description": "It is the value before the change. null means no value on that side, so the first value of a domain or IP item has previous null. The form depends on the event. A CVE event carries a score or null. epss_level_up, epss_level_down, epss_above_min and epss_below_min carry EPSS scores, 0-1. cvss_score_changed and cvss_risk_band_changed carry CVSS base scores, 0-10. cvss_added has previous null. The other CVE events carry null. email_auth_degraded carries the check's result: pass, warn or fail. ns_changed, mx_changed, hosting_changed and transfer_lock_removed carry an array of NS names, of MX lines (priority and host, the null MX as \"0 .\"), of hosting classes such as aws/ec2 or AS64500, or of transfer lock statuses. cert_invalid carries an array of certificate problem names, as ssl_check writes them, and [] for a valid certificate. security_header_removed carries an array of header names, and cert_unexpected an array of issuers. cert_expiring and domain_expiring carry the bucket of days left: 7 or 1 for a certificate, and 30, 7 or 1 for a registration. A side outside every bucket is null. registrar_changed carries [IANA id, name], with null for a part the registry does not give. cert_listed always has previous null. drop_listed and drop_unlisted carry an array of DROP listings, [] for none. The item's first drop_listed has previous null, not []. The other domain events carry a state, such as found or not_found, public, not_public or empty, none or vulnerable and the provider, signed or unsigned, or a TLS version. Absent on package and end-of-life events."
+                },
+                "current": {
+                  "type": [
+                    "number",
+                    "integer",
+                    "string",
+                    "array",
+                    "null"
+                  ],
+                  "items": {
+                    "type": [
+                      "string",
+                      "integer",
+                      "object",
+                      "null"
+                    ],
+                    "properties": {
+                      "prefix": {
+                        "type": "string"
+                      },
+                      "listing_id": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "prefix",
+                      "listing_id"
+                    ]
+                  },
+                  "description": "It is the value after the change, in the form previous gives. On cert_listed, it is the listing reason abuse.ch gives. Absent on package and end-of-life events."
+                },
+                "vendor": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Present only on CVE events. It names the pair a product_added event gained or a product_removed event lost. null on the other CVE events."
+                },
+                "product": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Present only on CVE events. It pairs with vendor."
+                },
+                "check": {
+                  "type": "string",
+                  "description": "Present only on email_auth_degraded. It is the id of the check that got worse, as email_auth_check names it."
+                },
+                "detail": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Present only on email_auth_degraded. It is the email_auth_check text of the current result, or null."
+                },
+                "valid_until": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Present only on cert_expiring. It tells when the certificate ends."
+                },
+                "expires_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Present only on domain_expiring. It tells when the registration ends, as the registry wrote it."
+                },
+                "url": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Present only on security_header_removed. It is the page both values were read from."
+                },
+                "removed": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "Present only on security_header_removed. It lists the header names the current value lacks."
+                },
+                "new_issuers": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "issuer": {
+                        "type": "string"
+                      },
+                      "reason": {
+                        "type": "string",
+                        "description": "It is caa_mismatch when the CAA records of the name do not permit the issuer, else new_issuer."
+                      }
+                    },
+                    "required": [
+                      "issuer",
+                      "reason"
+                    ]
+                  },
+                  "description": "Present only on cert_unexpected. It lists each issuer the item had not seen."
+                },
+                "advisory_id": {
+                  "type": "string",
+                  "description": "Present only on package events. advisories holds its source and aliases."
+                },
+                "fixed_version": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Present only on package events. It is the fixed version on fix_available, and null on the others."
+                },
+                "affects_version": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ],
+                  "description": "Present only on package events. true when the advisory affects the item's version. null when the item has no version or it cannot be told. An advisory that does not affect the version is not reported."
+                },
+                "list_time": {
+                  "type": "string",
+                  "description": "Present only on drop_listed and drop_unlisted. It is the date of the DROP list. The DROP terms ask that list_time and copyright stay with the data."
+                },
+                "copyright": {
+                  "type": "string",
+                  "description": "Present only on drop_listed and drop_unlisted."
+                },
+                "eol": {
+                  "type": "object",
+                  "description": "Present only on end-of-life events.",
+                  "properties": {
+                    "product": {
+                      "type": "string",
+                      "description": "It is the endoflife.date name of the product."
+                    },
+                    "cycle": {
+                      "type": "string"
+                    },
+                    "eol_date": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "It is the YYYY-MM-DD the cycle ends. null on eol_reached of a cycle with no date."
+                    },
+                    "previous_eol_date": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "It holds the date before an eol_date_changed event. null on the other types."
+                    }
+                  },
+                  "required": [
+                    "product",
+                    "cycle",
+                    "eol_date",
+                    "previous_eol_date"
+                  ]
+                }
+              },
+              "required": [
+                "event",
+                "changed_at"
+              ]
+            },
+            "description": "It lists the item's events in this page, oldest first."
+          }
+        },
+        "required": [
+          "item",
+          "events"
+        ]
+      },
+      "description": "It lists each item with an event in this page, in the order the items were added. An event that matches two items stands under each."
+    },
+    "cves": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "risk_score": {
+            "type": "number",
+            "description": "0-100, from CVSS, EPSS, CISA KEV and public exploit signals."
+          },
+          "label": {
+            "type": "string",
+            "description": "CRITICAL at 90+, HIGH at 70+, MEDIUM at 40+, else LOW."
+          },
+          "in_kev": {
+            "type": "boolean",
+            "description": "true when CISA KEV lists the CVE now."
+          },
+          "kev_patch_deadline": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "It is the YYYY-MM-DD by which US federal agencies must patch. It is \"\" when the KEV entry gives no valid date. null when CISA KEV holds no entry for the CVE."
+          },
+          "known_ransomware": {
+            "type": "boolean",
+            "description": "true when the KEV entry records ransomware use, and false without an entry."
+          },
+          "has_metasploit": {
+            "type": "boolean",
+            "description": "true when a Metasploit module targets the CVE."
+          },
+          "poc_count": {
+            "type": "integer",
+            "description": "It counts the references that NVD or the CNA tag Exploit."
+          }
+        },
+        "required": [
+          "risk_score",
+          "label",
+          "in_kev",
+          "kev_patch_deadline",
+          "known_ransomware",
+          "has_metasploit",
+          "poc_count"
+        ]
+      },
+      "description": "It holds the facts of each CVE the page names, keyed by CVE id, as they are now. The CVE aliases of the advisories are here too. Use them to pick the next step without another call. in_kev and kev_patch_deadline say whether CISA KEV lists the CVE and by when to patch. known_ransomware, has_metasploit and poc_count say how it is exploited, and risk_score ranks it."
+    },
+    "domains": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "registered_domain": {
+            "type": "string",
+            "description": "The registrable domain of the name: its public suffix and one label more."
+          },
+          "dns_presence": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "It is found or not_found."
+          },
+          "ns": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "mx": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "It holds MX lines, as previous gives them."
+          },
+          "ip_address_reachability": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "It is public, not_public or empty."
+          },
+          "cname_takeover": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "It is none, or vulnerable and the provider."
+          },
+          "email_auth_failing": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "It maps each e-mail check that does not pass, by its email_auth_check id, to warn or fail. {} when every check passes, and null when no result can be read."
+          }
+        },
+        "required": [
+          "registered_domain",
+          "dns_presence",
+          "ns",
+          "mx",
+          "ip_address_reachability",
+          "cname_takeover",
+          "email_auth_failing"
+        ]
+      },
+      "description": "It holds the current DNS facts of each domain name the page names, keyed by name. The DNS members are null unless a dns_lookup item of this key watches the name. Each is also null until a check has stored its first value."
+    },
+    "advisories": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "It is ghsa, go, pysec, rustsec or mal. null when the server no longer holds the advisory."
+          },
+          "aliases": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "It lists the other ids of the advisory, such as CVE ids. [] when the server no longer holds it."
+          }
+        },
+        "required": [
+          "source",
+          "aliases"
+        ]
+      },
+      "description": "It holds each advisory of the page's package events, keyed by advisory id."
+    },
+    "attribution": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string"
+          },
+          "notice": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "license": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "notice",
+          "source",
+          "license"
+        ]
+      },
+      "description": "It lists each source of the page's package and end-of-life events, with its license and notice. [] without such events."
+    },
+    "credits": {
+      "type": "object",
+      "properties": {
+        "charged": {
+          "type": "integer",
+          "description": "Credits this call cost; 0 for a free tool."
+        },
+        "remaining": {
+          "type": "integer",
+          "description": "Credits left in the budget window. Absent when not paid from a credit budget."
+        }
+      },
+      "required": [
+        "charged"
+      ]
+    }
+  },
+  "required": [
+    "limit",
+    "cursor",
+    "repeat",
+    "next_cursor",
+    "has_more",
+    "items",
+    "cves",
+    "domains",
+    "advisories",
+    "attribution",
+    "credits"
+  ]
+}

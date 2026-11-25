@@ -1,0 +1,358 @@
+{
+  "type": "object",
+  "properties": {
+    "hash": {
+      "type": "string",
+      "description": "The hash as sent, in lower case."
+    },
+    "hash_type": {
+      "type": "string",
+      "description": "md5, sha1 or sha256, from the length of the hash."
+    },
+    "data_source": {
+      "type": "object",
+      "properties": {
+        "source": {
+          "type": "string",
+          "description": "Always loldrivers."
+        },
+        "available": {
+          "type": "boolean",
+          "description": "false while the catalog is not loaded."
+        },
+        "reason": {
+          "type": "string",
+          "description": "not_synced. Present only when available is false."
+        },
+        "license": {
+          "type": "string",
+          "description": "Always Apache-2.0, the license of the catalog."
+        }
+      },
+      "required": [
+        "source",
+        "available",
+        "license"
+      ]
+    },
+    "found": {
+      "type": [
+        "boolean",
+        "null"
+      ],
+      "description": "true when at least one driver file carries the hash, false when none does. null while the catalog is not loaded."
+    },
+    "match_count": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "description": "Driver files that carry the hash. matches lists at most 16. null while the catalog is not loaded."
+    },
+    "matches": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "description": "One driver file that carries the hash. A text the catalog leaves empty is null.",
+        "properties": {
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": [
+                "string",
+                "object"
+              ],
+              "description": "A text, or an object of texts.",
+              "additionalProperties": {
+                "type": "string"
+              }
+            },
+            "description": "Names for hunting, mostly file names."
+          },
+          "command": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The catalog's command text, only with include_commands true. null otherwise, and always in driver_lookup_bulk."
+          },
+          "cve_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "CVE ids the catalog files the driver under."
+          },
+          "category": {
+            "type": "string",
+            "description": "vulnerable driver or malicious."
+          },
+          "use_case": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "What an attacker uses the driver for, such as Elevate privileges."
+          },
+          "verified": {
+            "type": "boolean"
+          },
+          "driver_id": {
+            "type": "string",
+            "description": "The catalog id of the driver."
+          },
+          "matched_on": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The hashes of the file that equal the hash: md5, sha1, sha256, authentihash_md5, authentihash_sha1 or authentihash_sha256."
+          },
+          "privileges": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The privileges that use needs, such as kernel."
+          },
+          "references": {
+            "type": "array",
+            "items": {
+              "type": [
+                "string",
+                "object"
+              ],
+              "description": "A text, or an object of texts.",
+              "additionalProperties": {
+                "type": "string"
+              }
+            },
+            "description": "Links the catalog gives."
+          },
+          "source_url": {
+            "type": "string",
+            "description": "The driver's page on loldrivers.io."
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "catalog_added": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "YYYY-MM-DD the catalog added the entry."
+          },
+          "detection_rules": {
+            "type": "array",
+            "items": {
+              "type": [
+                "string",
+                "object"
+              ],
+              "description": "A text, or an object of texts.",
+              "additionalProperties": {
+                "type": "string"
+              }
+            },
+            "description": "Detection rules, mostly a type and a value. Use them as context, not as blocking rules."
+          },
+          "operating_system": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The Windows versions the catalog names."
+          },
+          "matched_driver_file": {
+            "type": "object",
+            "description": "The driver file that carries the hash.",
+            "properties": {
+              "md5": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "sha1": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "sha256": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "company": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "imphash": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "The hash of the import table. A lookup does not match on it."
+              },
+              "file_name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "publisher": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "description": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "authentihash": {
+                "type": "object",
+                "description": "Authenticode hashes. They stay the same when the driver is signed again.",
+                "properties": {
+                  "md5": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "sha1": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "sha256": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "md5",
+                  "sha1",
+                  "sha256"
+                ]
+              },
+              "file_version": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "product_name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "product_version": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "loads_despite_hvci": {
+                "type": [
+                  "boolean",
+                  "null"
+                ],
+                "description": "true when Windows loads the driver with memory integrity (HVCI) on, false when it refuses it. null when the catalog does not say."
+              },
+              "original_file_name": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "The name the file's version resource gives. It can differ from file_name."
+              }
+            },
+            "required": [
+              "md5",
+              "sha1",
+              "sha256",
+              "company",
+              "imphash",
+              "file_name",
+              "publisher",
+              "description",
+              "authentihash",
+              "file_version",
+              "product_name",
+              "product_version",
+              "loads_despite_hvci",
+              "original_file_name"
+            ]
+          },
+          "attack_technique_ids": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "ATT&CK technique ids as one comma-separated text, such as T1542, T1068. It is not an array."
+          }
+        },
+        "required": [
+          "tags",
+          "command",
+          "cve_ids",
+          "category",
+          "use_case",
+          "verified",
+          "driver_id",
+          "matched_on",
+          "privileges",
+          "references",
+          "source_url",
+          "description",
+          "catalog_added",
+          "detection_rules",
+          "operating_system",
+          "matched_driver_file",
+          "attack_technique_ids"
+        ]
+      },
+      "description": "At most 16 driver files, in driver_id order. [] when none matches or the catalog is not loaded."
+    },
+    "credits": {
+      "type": "object",
+      "properties": {
+        "charged": {
+          "type": "integer",
+          "description": "Credits this call cost; 0 for a free tool."
+        },
+        "remaining": {
+          "type": "integer",
+          "description": "Credits left in the budget window. Absent when not paid from a credit budget."
+        }
+      },
+      "required": [
+        "charged"
+      ]
+    }
+  },
+  "required": [
+    "hash",
+    "hash_type",
+    "data_source",
+    "found",
+    "match_count",
+    "matches",
+    "credits"
+  ]
+}

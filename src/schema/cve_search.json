@@ -1,0 +1,146 @@
+{
+  "type": "object",
+  "properties": {
+    "total": {
+      "type": "integer",
+      "description": "CVEs that match the filters, before paging."
+    },
+    "limit": {
+      "type": "integer",
+      "description": "Most items in results: the limit argument, 20 by default."
+    },
+    "offset": {
+      "type": "integer",
+      "description": "Items skipped: the offset argument, 0 by default."
+    },
+    "next_offset": {
+      "type": "integer",
+      "description": "offset plus this page's items; total on the last page."
+    },
+    "product_filter_note": {
+      "type": "string",
+      "description": "Present only with a vendor or product filter: such a filter can miss CVEs."
+    },
+    "results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "cve_id": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string",
+            "description": "From CVSS v3, else v4, else v2: CRITICAL, HIGH, MEDIUM, LOW, NONE (score 0.0), or UNKNOWN (no CVSS)."
+          },
+          "cvss_v3": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "Base score, 0-10. null without a v3 vector."
+          },
+          "cvss_v3_source": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Source: nvd, cna (the CVE's CNA), adp (CISA's ADP) or other (any other source). null if none recorded."
+          },
+          "cvss_v4": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "Base score, 0-10. null without a v4 vector."
+          },
+          "cvss_v4_source": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Coded as cvss_v3_source; chosen apart from it."
+          },
+          "epss_score": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "EPSS probability, 0-1, of exploitation in the next 30 days. null if unscored."
+          },
+          "epss_percentile": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "Share of scored CVEs with an equal or lower EPSS score, 0-1. null with epss_score."
+          },
+          "in_kev": {
+            "type": "boolean"
+          },
+          "kev_date_added": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "YYYY-MM-DD it entered CISA KEV. null if not in KEV or undated."
+          },
+          "published_time": {
+            "type": "string",
+            "description": "YYYY-MM-DD."
+          },
+          "cwe_id": {
+            "type": "string",
+            "description": "Main CWE, such as CWE-79. Empty when none is known."
+          },
+          "cwe_source": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Source of cwe_id, coded as cvss_v3_source; null if none recorded."
+          }
+        },
+        "required": [
+          "cve_id",
+          "severity",
+          "cvss_v3",
+          "cvss_v3_source",
+          "cvss_v4",
+          "cvss_v4_source",
+          "epss_score",
+          "epss_percentile",
+          "in_kev",
+          "kev_date_added",
+          "published_time",
+          "cwe_id",
+          "cwe_source"
+        ]
+      }
+    },
+    "credits": {
+      "type": "object",
+      "properties": {
+        "charged": {
+          "type": "integer",
+          "description": "Credits this call cost; 0 for a free tool."
+        },
+        "remaining": {
+          "type": "integer",
+          "description": "Credits left in the budget window. Absent when not paid from a credit budget."
+        }
+      },
+      "required": [
+        "charged"
+      ]
+    }
+  },
+  "required": [
+    "total",
+    "limit",
+    "offset",
+    "next_offset",
+    "results",
+    "credits"
+  ]
+}

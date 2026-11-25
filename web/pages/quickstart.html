@@ -62,7 +62,7 @@ curl -X POST https://api.contrastcyber.com/cve_lookup_bulk \
 const res = await fetch('https://api.contrastcyber.com/cve_lookup/CVE-2024-3094');
 const vuln = await res.json();
 console.log(vuln.severity);     // "CRITICAL", "HIGH", "MEDIUM", "LOW" or "NONE"
-console.log(vuln.epss_score);   // 0.0 - 1.0
+console.log(vuln.epss_score);   // 0.0 - 1.0, or null when EPSS has no score
 console.log(vuln.in_kev);       // true or false
 
 // Composite risk score

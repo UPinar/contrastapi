@@ -1,0 +1,82 @@
+{
+  "type": "object",
+  "properties": {
+    "total": {
+      "type": "integer",
+      "description": "Elements submitted. Equals processed + skipped + the length of not_processed."
+    },
+    "processed": {
+      "type": "integer",
+      "description": "Well-formed IDs that were looked up. Equals successful + failed."
+    },
+    "successful": {
+      "type": "integer",
+      "description": "IDs found; results holds their scores."
+    },
+    "skipped": {
+      "type": "integer",
+      "description": "Elements that are not a well-formed CVE ID."
+    },
+    "failed": {
+      "type": "integer",
+      "description": "Well-formed IDs not in the database or unreadable. Counted only here, not in results."
+    },
+    "not_processed": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Well-formed IDs the credit budget did not cover. They were not looked up."
+    },
+    "results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "cve_id": {
+            "type": "string"
+          },
+          "risk_score": {
+            "type": "number",
+            "description": "0-100, from CVSS, EPSS, CISA KEV and public exploit signals."
+          },
+          "label": {
+            "type": "string",
+            "description": "CRITICAL at 90+, HIGH at 70+, MEDIUM at 40+, else LOW."
+          }
+        },
+        "required": [
+          "cve_id",
+          "risk_score",
+          "label"
+        ]
+      }
+    },
+    "credits": {
+      "type": "object",
+      "properties": {
+        "charged": {
+          "type": "integer",
+          "description": "Credits this call cost; 0 for a free tool."
+        },
+        "remaining": {
+          "type": "integer",
+          "description": "Credits left in the budget window. Absent when not paid from a credit budget."
+        }
+      },
+      "required": [
+        "charged"
+      ]
+    }
+  },
+  "required": [
+    "total",
+    "processed",
+    "successful",
+    "skipped",
+    "failed",
+    "not_processed",
+    "results",
+    "credits"
+  ]
+}

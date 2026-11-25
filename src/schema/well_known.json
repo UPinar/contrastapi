@@ -1,0 +1,422 @@
+{
+  "type": "object",
+  "properties": {
+    "checked_at": {
+      "type": "string",
+      "description": "When the check ran, in UTC, as YYYY-MM-DDTHH:MM:SSZ. A cached answer keeps the time of its own check, up to an hour old."
+    },
+    "reason": {
+      "type": "string",
+      "description": "Present only when the throttle refused the fetch. It is then quota_exhausted, and robots_txt and security_txt are null."
+    },
+    "retry_after_seconds": {
+      "type": "integer",
+      "description": "Seconds to wait before the server sends that request again. Present only when reason is quota_exhausted."
+    },
+    "robots_txt": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "null only when reason is quota_exhausted.",
+      "properties": {
+        "url": {
+          "type": "string",
+          "description": "It is the URL of the last request, without its query. A value longer than 500 code points is cut there. Absent, with status_code and redirect_count, when no request was sent."
+        },
+        "total_url_length": {
+          "type": "integer",
+          "description": "Present only when url was cut. It gives the whole length in code points."
+        },
+        "status_code": {
+          "type": "integer",
+          "description": "It is the status of the last answer."
+        },
+        "redirect_count": {
+          "type": "integer",
+          "description": "How many redirects came before the last request."
+        },
+        "redirect_to": {
+          "type": "string",
+          "description": "Present only when a redirect was left unfollowed. It holds its target, cut as url is."
+        },
+        "total_redirect_to_length": {
+          "type": "integer",
+          "description": "Present only when redirect_to was cut. It gives the whole length in code points."
+        },
+        "groups": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "line": {
+                "type": "integer",
+                "description": "The line where the group starts."
+              },
+              "user_agents": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "allow": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "disallow": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "crawl_delay": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "description": "It is in seconds. null when the group has no valid Crawl-delay."
+              }
+            },
+            "required": [
+              "line",
+              "user_agents",
+              "allow",
+              "disallow",
+              "crawl_delay"
+            ]
+          },
+          "description": "The groups that bind ContrastAPI, its own and those of *, in file order. [] when no file was read. A file is read only when status_code is 2xx and issues lacks content_encoded. [] also when no group binds ContrastAPI or *."
+        },
+        "total_groups": {
+          "type": "integer",
+          "description": "Present only when groups dropped items. It counts them all."
+        },
+        "total_rules": {
+          "type": "integer",
+          "description": "Present only when a rule of those groups was dropped. It counts them all."
+        },
+        "sitemaps": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "It lists the Sitemap values, at most 100. [] when no file was read, as for groups."
+        },
+        "total_sitemaps": {
+          "type": "integer",
+          "description": "Present only when sitemaps dropped items. It counts them all."
+        },
+        "issues": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "severity": {
+                "type": "string"
+              },
+              "field": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "The directive or field the issue is about, or null."
+              },
+              "line": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "description": "It is the line, from 1, or null."
+              }
+            },
+            "required": [
+              "code",
+              "severity",
+              "field",
+              "line"
+            ]
+          },
+          "description": "It lists at most 50 parser issues, then the server's own warnings. code is a fixed snake_case name of what the parser found, such as line_syntax_invalid. The server adds redirect_limit_reached when the fetch stopped at its redirect limit, and content_encoded when the body came encoded and was not read. severity is warning or info."
+        },
+        "total_issues": {
+          "type": "integer",
+          "description": "Present only when issues dropped items. It counts them all."
+        },
+        "by_severity": {
+          "type": "object",
+          "description": "It counts every issue the file raised, dropped ones too.",
+          "properties": {
+            "warning": {
+              "type": "integer"
+            },
+            "info": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "warning",
+            "info"
+          ]
+        }
+      },
+      "required": [
+        "groups",
+        "sitemaps",
+        "issues",
+        "by_severity"
+      ]
+    },
+    "security_txt": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "null only when reason is quota_exhausted. The members from content_type to by_severity are present only when status is found. Each field list holds at most 20 values.",
+      "properties": {
+        "status": {
+          "type": "string",
+          "description": "found: a file came back with a 2xx status. not_found: the site answered an error status such as 404, so there is no file. too_large: the file passed the size limit. robots_disallowed: robots.txt forbids the fetch. robots_unknown: robots.txt could not be read, so no fetch was sent. not_fetched: no answer was read, such as when time ran out."
+        },
+        "url": {
+          "type": "string",
+          "description": "As in robots_txt."
+        },
+        "total_url_length": {
+          "type": "integer",
+          "description": "As in robots_txt."
+        },
+        "status_code": {
+          "type": "integer",
+          "description": "As in robots_txt."
+        },
+        "redirect_count": {
+          "type": "integer",
+          "description": "As in robots_txt."
+        },
+        "redirect_to": {
+          "type": "string",
+          "description": "As in robots_txt."
+        },
+        "total_redirect_to_length": {
+          "type": "integer",
+          "description": "As in robots_txt."
+        },
+        "deciding_rule": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "description": "Present only when status is robots_disallowed. The robots.txt rule that decided, or null when no single rule did.",
+          "properties": {
+            "line": {
+              "type": "integer"
+            },
+            "kind": {
+              "type": "string",
+              "description": "It is allow or disallow."
+            },
+            "path": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "line",
+            "kind",
+            "path"
+          ]
+        },
+        "content_type": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "It is the Content-Type of the answer, or null without one."
+        },
+        "openpgp_signed": {
+          "type": "boolean",
+          "description": "true when the file is a whole OpenPGP signed message. The signature is not verified."
+        },
+        "expires": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The first Expires value as the file writes it, or null."
+        },
+        "contact": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "total_contact": {
+          "type": "integer",
+          "description": "Present only when contact dropped items. It counts them all."
+        },
+        "encryption": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "total_encryption": {
+          "type": "integer",
+          "description": "Present only when encryption dropped items. It counts them all."
+        },
+        "acknowledgments": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "total_acknowledgments": {
+          "type": "integer",
+          "description": "Present only when acknowledgments dropped items. It counts them all."
+        },
+        "preferred_languages": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "total_preferred_languages": {
+          "type": "integer",
+          "description": "Present only when preferred_languages dropped items. It counts them all."
+        },
+        "canonical": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "total_canonical": {
+          "type": "integer",
+          "description": "Present only when canonical dropped items. It counts them all."
+        },
+        "policy": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "total_policy": {
+          "type": "integer",
+          "description": "Present only when policy dropped items. It counts them all."
+        },
+        "hiring": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "total_hiring": {
+          "type": "integer",
+          "description": "Present only when hiring dropped items. It counts them all."
+        },
+        "csaf": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "total_csaf": {
+          "type": "integer",
+          "description": "Present only when csaf dropped items. It counts them all."
+        },
+        "unknown_field_count": {
+          "type": "integer",
+          "description": "It counts the lines whose field name is not known."
+        },
+        "issues": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "severity": {
+                "type": "string"
+              },
+              "field": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "The directive or field the issue is about, or null."
+              },
+              "line": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "description": "It is the line, from 1, or null."
+              }
+            },
+            "required": [
+              "code",
+              "severity",
+              "field",
+              "line"
+            ]
+          },
+          "description": "It lists at most 50 parser issues, then content_encoded when the body came encoded. Their codes work as in robots_txt, such as contact_missing. severity is error, warning or info."
+        },
+        "total_issues": {
+          "type": "integer",
+          "description": "Present only when issues dropped items. It counts them all."
+        },
+        "by_severity": {
+          "type": "object",
+          "description": "It counts every issue the file raised, dropped ones too.",
+          "properties": {
+            "error": {
+              "type": "integer"
+            },
+            "warning": {
+              "type": "integer"
+            },
+            "info": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "error",
+            "warning",
+            "info"
+          ]
+        }
+      },
+      "required": [
+        "status"
+      ]
+    },
+    "credits": {
+      "type": "object",
+      "properties": {
+        "charged": {
+          "type": "integer",
+          "description": "Credits this call cost; 0 for a free tool."
+        },
+        "remaining": {
+          "type": "integer",
+          "description": "Credits left in the budget window. Absent when not paid from a credit budget."
+        }
+      },
+      "required": [
+        "charged"
+      ]
+    }
+  },
+  "required": [
+    "checked_at",
+    "robots_txt",
+    "security_txt",
+    "credits"
+  ]
+}

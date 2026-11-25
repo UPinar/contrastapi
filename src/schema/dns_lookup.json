@@ -1,0 +1,232 @@
+{
+  "type": "object",
+  "properties": {
+    "domain": {
+      "type": "string"
+    },
+    "records": {
+      "type": "object",
+      "description": "It holds one member for each record type. [] means the domain has no record of that type. null means the question failed, and unavailable says why. soa is also null when the domain has no SOA record. Then unavailable has no soa member.",
+      "properties": {
+        "a": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "aaaa": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "mx": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "object",
+            "properties": {
+              "priority": {
+                "type": "integer"
+              },
+              "host": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "priority",
+              "host"
+            ]
+          }
+        },
+        "ns": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "txt": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "total_txt_records": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "null when txt is null."
+        },
+        "cname": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "soa": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "mname": {
+              "type": "string"
+            },
+            "rname": {
+              "type": "string",
+              "description": "It is the mailbox of the zone's administrator, written as a DNS name."
+            },
+            "serial": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "mname",
+            "rname",
+            "serial"
+          ]
+        },
+        "caa": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "object",
+            "properties": {
+              "flags": {
+                "type": "integer",
+                "description": "128 marks a critical record."
+              },
+              "tag": {
+                "type": "string"
+              },
+              "value": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "flags",
+              "tag",
+              "value"
+            ]
+          }
+        }
+      },
+      "required": [
+        "a",
+        "aaaa",
+        "mx",
+        "ns",
+        "txt",
+        "total_txt_records",
+        "cname",
+        "soa",
+        "caa"
+      ]
+    },
+    "unavailable": {
+      "type": "object",
+      "description": "It names each record type whose question failed, with its reason code. It is {} when every question was answered. The code says why the DNS question failed. It is nxdomain, server_error, truncated, malformed_answer, timeout or not_public_name.",
+      "properties": {
+        "a": {
+          "type": "string"
+        },
+        "aaaa": {
+          "type": "string"
+        },
+        "mx": {
+          "type": "string"
+        },
+        "ns": {
+          "type": "string"
+        },
+        "txt": {
+          "type": "string"
+        },
+        "cname": {
+          "type": "string"
+        },
+        "soa": {
+          "type": "string"
+        },
+        "caa": {
+          "type": "string"
+        }
+      },
+      "required": []
+    },
+    "non_public_addresses": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "The A and AAAA addresses that are not globally reachable."
+    },
+    "services": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "evidence": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "evidence"
+        ]
+      },
+      "description": "The services a TXT record names. evidence is the word the service asks its customers to publish. A listed service is not proof that the domain uses it."
+    },
+    "summary": {
+      "type": "string"
+    },
+    "credits": {
+      "type": "object",
+      "properties": {
+        "charged": {
+          "type": "integer",
+          "description": "Credits this call cost; 0 for a free tool."
+        },
+        "remaining": {
+          "type": "integer",
+          "description": "Credits left in the budget window. Absent when not paid from a credit budget."
+        }
+      },
+      "required": [
+        "charged"
+      ]
+    }
+  },
+  "required": [
+    "domain",
+    "records",
+    "unavailable",
+    "non_public_addresses",
+    "services",
+    "summary",
+    "credits"
+  ]
+}

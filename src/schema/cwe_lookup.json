@@ -1,0 +1,142 @@
+{
+  "type": "object",
+  "properties": {
+    "cwe_id": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "abstraction": {
+      "type": "string",
+      "description": "MITRE's level of the entry, such as Pillar, Class, Base or Variant. May be empty."
+    },
+    "status": {
+      "type": "string",
+      "description": "MITRE's status of the entry, such as Stable, Draft or Incomplete. May be empty."
+    },
+    "description": {
+      "type": "string"
+    },
+    "extended_description": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "likelihood_of_exploit": {
+      "type": "string",
+      "description": "High, Medium, Low or Unknown. Empty when MITRE gives none."
+    },
+    "mitigations": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "string"
+      }
+    },
+    "examples": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "string"
+      },
+      "description": "Each is a reference, usually a CVE ID, then \": \" and a note when MITRE gives one."
+    },
+    "parent_cwe": {
+      "type": "string",
+      "description": "Empty when the CWE has no parent."
+    },
+    "owasp_top10": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "year": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "year"
+        ]
+      },
+      "description": "OWASP Top 10 categories naming this CWE, oldest edition first. Empty: none. null: mapping not loaded."
+    },
+    "cve_count": {
+      "type": "integer",
+      "description": "CVEs with this CWE, rejected ones included."
+    },
+    "kev_count": {
+      "type": "integer",
+      "description": "CVEs with this CWE that are in CISA KEV, rejected ones included."
+    },
+    "avg_cvss": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "description": "Mean CVSS v3 score of the CVEs with this CWE that have one. null when none has one."
+    },
+    "avg_epss": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "description": "Mean EPSS of its scored CVEs. null if none is scored or the mean rounds to 0.0000."
+    },
+    "updated_at": {
+      "type": "string",
+      "description": "UTC YYYY-MM-DDTHH:MM:SSZ when the CWE sync last wrote this record. Empty when unknown."
+    },
+    "credits": {
+      "type": "object",
+      "properties": {
+        "charged": {
+          "type": "integer",
+          "description": "Credits this call cost; 0 for a free tool."
+        },
+        "remaining": {
+          "type": "integer",
+          "description": "Credits left in the budget window. Absent when not paid from a credit budget."
+        }
+      },
+      "required": [
+        "charged"
+      ]
+    }
+  },
+  "required": [
+    "cwe_id",
+    "name",
+    "abstraction",
+    "status",
+    "description",
+    "extended_description",
+    "likelihood_of_exploit",
+    "mitigations",
+    "examples",
+    "parent_cwe",
+    "owasp_top10",
+    "cve_count",
+    "kev_count",
+    "avg_cvss",
+    "avg_epss",
+    "updated_at",
+    "credits"
+  ]
+}

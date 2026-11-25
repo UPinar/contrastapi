@@ -1,0 +1,116 @@
+{
+  "type": "object",
+  "properties": {
+    "domain": {
+      "type": "string",
+      "description": "The host name the server asked about."
+    },
+    "available": {
+      "type": "boolean",
+      "description": "false when the server could not fetch the list. Then only reason and retry_after_seconds follow. It is true for a host without a certificate too."
+    },
+    "reason": {
+      "type": "string",
+      "description": "Present only when available is false. It is quota_exhausted: the server reached its request limit for the source."
+    },
+    "retry_after_seconds": {
+      "type": "integer",
+      "description": "Seconds to wait before the server sends that request again. Present only when available is false."
+    },
+    "complete": {
+      "type": "boolean",
+      "description": "true when the walk read every page. false when the page cap stopped it. A certificate on an unread page is then left out, a newer one too."
+    },
+    "certificate_count": {
+      "type": "integer",
+      "description": "It counts the certificates read, over all the pages read."
+    },
+    "certificates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "sha256_fingerprint": {
+            "type": "string",
+            "description": "It is lower-case hex. For a precertificate it does not match the fingerprint of ssl_check."
+          },
+          "issuer": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The issuer name Cert Spotter gives. null when it gives none that fits."
+          },
+          "issuer_caa_domains": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "The domains a CAA record can name to allow the issuer. null when the list is unknown."
+          },
+          "valid_from": {
+            "type": "string",
+            "description": "It is a UTC time, as YYYY-MM-DDTHH:MM:SSZ."
+          },
+          "valid_until": {
+            "type": "string",
+            "description": "It is a UTC time, as YYYY-MM-DDTHH:MM:SSZ."
+          },
+          "revoked": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "null when Cert Spotter does not know."
+          },
+          "dns_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "It lists the first 20 DNS names."
+          },
+          "dns_name_count": {
+            "type": "integer",
+            "description": "It counts every DNS name, past the first 20 too."
+          }
+        },
+        "required": [
+          "sha256_fingerprint",
+          "issuer",
+          "issuer_caa_domains",
+          "valid_from",
+          "valid_until",
+          "revoked",
+          "dns_names",
+          "dns_name_count"
+        ]
+      },
+      "description": "At most 10 of the certificates read, those whose validity starts last, the latest first."
+    },
+    "credits": {
+      "type": "object",
+      "properties": {
+        "charged": {
+          "type": "integer",
+          "description": "Credits this call cost; 0 for a free tool."
+        },
+        "remaining": {
+          "type": "integer",
+          "description": "Credits left in the budget window. Absent when not paid from a credit budget."
+        }
+      },
+      "required": [
+        "charged"
+      ]
+    }
+  },
+  "required": [
+    "domain",
+    "available",
+    "credits"
+  ]
+}

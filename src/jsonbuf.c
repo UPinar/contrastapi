@@ -29,6 +29,8 @@ static bool   static_jsonbufAppendSequences   (JsonBuf_t* json_buf, const char* 
 static size_t static_jsonbufEscapeSequence    (Utf8Sequence_t sequence, const unsigned char* bytes, char* out);
 static size_t static_jsonbufJsonTextSequence  (Utf8Sequence_t sequence, const unsigned char* bytes, char* out);
 static size_t static_jsonbufEscapeByte        (unsigned char c, char* out);
+static bool   static_jsonbufIsBlank           (char byte);
+static size_t static_jsonbufKeptRunLength     (const char* text);
 
 JsonBuf_t* jsonbuf_create(size_t initial_cap, size_t ceiling)
 {
@@ -235,6 +237,51 @@ bool jsonbuf_appendJsonText(JsonBuf_t* json_buf, const char* json_text)
     return true;
 
   return static_jsonbufAppendSequences(json_buf, json_text, strlen(json_text), static_jsonbufJsonTextSequence);
+}
+
+static bool static_jsonbufIsBlank(char byte)
+{
+  return byte == ' ' || byte == '\t' || byte == '\r' || byte == '\n';
+}
+
+static size_t static_jsonbufKeptRunLength(const char* text)
+{
+  bool   is_in_string = false;
+  size_t length       = 0;
+  while (text[length] != '\0' && (is_in_string || !static_jsonbufIsBlank(text[length])))
+  {
+    if (is_in_string && text[length] == '\\' && text[length + 1] != '\0')
+      length++;
+    else if (text[length] == '"')
+      is_in_string = !is_in_string;
+    length++;
+  }
+  return length;
+}
+
+bool jsonbuf_appendJsonTextWithoutBlanks(JsonBuf_t* json_buf, const char* json_text)
+{
+  assert(json_buf != NULL);
+
+  if (!jsonbuf_appendJsonText(json_buf, ""))
+    return false;
+
+  if (!json_text)
+    return true;
+
+  while (*json_text != '\0')
+  {
+    if (static_jsonbufIsBlank(*json_text))
+    {
+      json_text++;
+      continue;
+    }
+    size_t run_length = static_jsonbufKeptRunLength(json_text);
+    if (!static_jsonbufAppendSequences(json_buf, json_text, run_length, static_jsonbufJsonTextSequence))
+      return false;
+    json_text += run_length;
+  }
+  return true;
 }
 
 bool jsonbuf_appendMemberToClosedObject(JsonBuf_t* json_buf, const char* member_json_text)

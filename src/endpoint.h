@@ -239,6 +239,7 @@ typedef struct {
   const char*                     mp_mcpToolName;
   const char*                     mp_mcpToolDescription;
   const char*                     mp_mcpToolTitle;
+  const char*                     mp_mcpToolOutputSchema;
   EndpointMcpToolCategory_t       m_mcpToolCategory;
   EndpointMcpToolEffect_t         m_mcpToolEffect;
   unsigned int                    m_creditCost;

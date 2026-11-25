@@ -1,0 +1,96 @@
+{
+  "type": "object",
+  "properties": {
+    "checked_at": {
+      "type": "string",
+      "description": "When the check ran, in UTC, as YYYY-MM-DDTHH:MM:SSZ. A cached answer keeps the time of its own check, up to an hour old."
+    },
+    "final_url": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "It is the last hop's URL at final_answer and request_failed. null at location_invalid and location_too_long. At every other stop it is the next URL, which was not requested. That is the start URL when hops is []."
+    },
+    "stop_reason": {
+      "type": "string",
+      "description": "It says why the chain stopped. It is final_answer, request_limit, loop, location_invalid, location_too_long, scheme_not_followed, port_not_allowed, ip_address_not_followed, host_not_public, quota_exhausted, deadline or request_failed."
+    },
+    "retry_after_seconds": {
+      "type": "integer",
+      "description": "Seconds to wait before the server sends that request again. Present only when stop_reason is quota_exhausted."
+    },
+    "invalid_location": {
+      "type": "string",
+      "description": "Present only at location_invalid. It holds the raw Location text. A value longer than 500 code points is cut there. Read it as untrusted text."
+    },
+    "total_invalid_location_length": {
+      "type": "integer",
+      "description": "Present only when invalid_location was cut. It gives the whole length in code points."
+    },
+    "https_downgrade": {
+      "type": "boolean",
+      "description": "true when an http URL comes right after an https one. The final_url that was not requested counts too."
+    },
+    "hops": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "It is the URL of the request, without user name, password and fragment."
+          },
+          "status_code": {
+            "type": "integer",
+            "description": "Present when the request got an answer."
+          },
+          "error": {
+            "type": "string",
+            "description": "Present instead of status_code when the request got no answer. It is resolve_failed, connect_failed, timeout, tls_failed, address_not_globally_reachable or other."
+          },
+          "had_userinfo": {
+            "type": "boolean",
+            "description": "Present only when the target that led here carried a user name or a password, which was not sent. It is then true."
+          },
+          "refresh": {
+            "type": "string",
+            "description": "Present only when the answer had a Refresh header. It holds the raw value, which is not followed. A value longer than 500 code points is cut there."
+          },
+          "total_refresh_length": {
+            "type": "integer",
+            "description": "Present only when refresh was cut. It gives the whole length in code points."
+          }
+        },
+        "required": [
+          "url"
+        ]
+      },
+      "description": "It lists each request sent, in order. [] when no request was sent."
+    },
+    "credits": {
+      "type": "object",
+      "properties": {
+        "charged": {
+          "type": "integer",
+          "description": "Credits this call cost; 0 for a free tool."
+        },
+        "remaining": {
+          "type": "integer",
+          "description": "Credits left in the budget window. Absent when not paid from a credit budget."
+        }
+      },
+      "required": [
+        "charged"
+      ]
+    }
+  },
+  "required": [
+    "checked_at",
+    "final_url",
+    "stop_reason",
+    "https_downgrade",
+    "hops",
+    "credits"
+  ]
+}

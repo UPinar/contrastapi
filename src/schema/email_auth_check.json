@@ -1,0 +1,409 @@
+{
+  "type": "object",
+  "properties": {
+    "domain": {
+      "type": "string"
+    },
+    "spf": {
+      "type": "object",
+      "description": "available is false when the DNS question failed. Then only reason follows.",
+      "properties": {
+        "available": {
+          "type": "boolean"
+        },
+        "reason": {
+          "type": "string",
+          "description": "The code says why the DNS question failed. It is server_error, truncated, malformed_answer, timeout or not_public_name."
+        },
+        "record_count": {
+          "type": "integer",
+          "description": "It counts the SPF records among the domain's TXT records."
+        },
+        "record": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "null unless record_count is 1. terms and the three counts are then null too."
+        },
+        "terms": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "description": "It is all, include, a, mx, ptr, ip4, ip6, exists, redirect, exp, unknown_modifier or invalid."
+              },
+              "qualifier": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "It is pass, fail, softfail or neutral. null for a modifier and for an invalid term."
+              },
+              "value": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "It is the text after the term's name. null when the term has none, such as -all."
+              }
+            },
+            "required": [
+              "kind",
+              "qualifier",
+              "value"
+            ]
+          },
+          "description": "It holds the first 64 terms of the record."
+        },
+        "dns_lookup_term_count": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "It counts the terms that make a DNS lookup, as a receiver counts them. It covers this record only."
+        },
+        "invalid_term_count": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "unread_term_count": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "It counts the terms after the first 64, which terms leaves out."
+        }
+      },
+      "required": [
+        "available"
+      ]
+    },
+    "dmarc": {
+      "type": "object",
+      "description": "Its forms are as in spf.",
+      "properties": {
+        "available": {
+          "type": "boolean"
+        },
+        "reason": {
+          "type": "string",
+          "description": "The code says why the DNS question failed. It is server_error, truncated, malformed_answer, timeout, no_resolver, bad_question or not_public_name."
+        },
+        "record_name": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The DNS name of the record that applies. null when no record applies, and then every member below is null."
+        },
+        "source": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "It is domain, organizational or public_suffix: whose record applies."
+        },
+        "record": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "policy": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "It is none, quarantine, reject or invalid. null when the record lacks the tag."
+        },
+        "subdomain_policy": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "It is none, quarantine, reject or invalid. null when the record lacks the tag."
+        },
+        "nonexistent_subdomain_policy": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "It is none, quarantine, reject or invalid. null when the record lacks the tag."
+        },
+        "applied_policy": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The policy a receiver applies to the domain's mail. null when no record applies. Also null when a policy tag is invalid and rua holds no valid address, since receivers then ignore the record."
+        },
+        "test_mode": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "description": "true when the record has t=y."
+        },
+        "domain_role": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "It is public_suffix, organizational, not_public_suffix or invalid, from the psd tag. null when the record lacks the tag."
+        },
+        "aggregate_report_uris": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          },
+          "description": "It lists the first 8 addresses of the rua tag."
+        },
+        "failure_report_uris": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          },
+          "description": "It lists the first 8 addresses of the ruf tag."
+        }
+      },
+      "required": [
+        "available"
+      ]
+    },
+    "dkim": {
+      "type": "object",
+      "description": "Its forms are as in spf.",
+      "properties": {
+        "available": {
+          "type": "boolean"
+        },
+        "reason": {
+          "type": "string",
+          "description": "The code says why the DNS question failed. It is server_error, truncated, malformed_answer, timeout, no_resolver, bad_question or not_public_name."
+        },
+        "key_status": {
+          "type": "string",
+          "description": "It is found when a tested selector holds a key. not_found means the selector the caller gave holds none. unknown means none of the selectors the server picked holds one, so the domain may sign with another."
+        },
+        "usable_key_count": {
+          "type": "integer",
+          "description": "It counts the selectors whose key state is present."
+        },
+        "selector_source": {
+          "type": "string",
+          "description": "It is given, provider or common. It says where the tested selectors come from."
+        },
+        "tested_selectors": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "keys": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "selector": {
+                "type": "string"
+              },
+              "state": {
+                "type": "string",
+                "description": "It is present, revoked, unreadable or unknown_type."
+              },
+              "key_type": {
+                "type": "string",
+                "description": "The k tag, or rsa when the record has none."
+              },
+              "key_bits": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "description": "null unless state is present."
+              },
+              "test_mode": {
+                "type": "boolean",
+                "description": "true when the key has t=y."
+              }
+            },
+            "required": [
+              "selector",
+              "state",
+              "key_type",
+              "key_bits",
+              "test_mode"
+            ]
+          },
+          "description": "The best key record of each selector that holds one."
+        }
+      },
+      "required": [
+        "available"
+      ]
+    },
+    "mx": {
+      "type": "object",
+      "description": "Its forms are as in spf.",
+      "properties": {
+        "available": {
+          "type": "boolean"
+        },
+        "reason": {
+          "type": "string",
+          "description": "The code says why the DNS question failed. It is server_error, truncated, malformed_answer, timeout or not_public_name."
+        },
+        "null_mx": {
+          "type": "boolean",
+          "description": "true when an MX record is a null MX, which says the domain takes no mail."
+        },
+        "hosts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "priority": {
+                "type": "integer"
+              },
+              "host": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "priority",
+              "host"
+            ]
+          },
+          "description": "It lists every other MX record."
+        }
+      },
+      "required": [
+        "available"
+      ]
+    },
+    "mail_providers": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "The mail providers that the MX hosts and the SPF record name, each once."
+    },
+    "mta_sts": {
+      "type": "object",
+      "description": "Its forms are as in spf.",
+      "properties": {
+        "available": {
+          "type": "boolean"
+        },
+        "reason": {
+          "type": "string",
+          "description": "The code says why the DNS question failed. It is server_error, truncated, malformed_answer, timeout, bad_question or not_public_name."
+        },
+        "record_found": {
+          "type": "boolean",
+          "description": "true when the MTA-STS name holds exactly one MTA-STS record."
+        }
+      },
+      "required": [
+        "available"
+      ]
+    },
+    "no_mail_domain": {
+      "type": "boolean",
+      "description": "true when the domain says it takes and sends no mail."
+    },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "It is spf_record, spf_syntax, spf_lookup_limit, spf_all, spf_ignored_terms, spf_ptr, spf_wide_range, spf_record_size, dmarc_record, dmarc_policy, dmarc_test_mode, dmarc_reporting, dkim_key_found, dkim_key_usable, dkim_key_size, dkim_key_format, dkim_test_mode, dkim_key_restricted, dkim_multiple_keys, mx or mta_sts."
+          },
+          "result": {
+            "type": "string",
+            "description": "It is pass, warn or fail."
+          },
+          "severity": {
+            "type": "string",
+            "description": "It is high, medium or low, fixed for each check."
+          },
+          "detail": {
+            "type": "string",
+            "description": "It is a fixed sentence for the check and its result."
+          }
+        },
+        "required": [
+          "id",
+          "result",
+          "severity",
+          "detail"
+        ]
+      },
+      "description": "The checks the answers allow, in a fixed order."
+    },
+    "check_counts": {
+      "type": "object",
+      "properties": {
+        "pass": {
+          "type": "integer"
+        },
+        "warn": {
+          "type": "integer"
+        },
+        "fail": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "pass",
+        "warn",
+        "fail"
+      ]
+    },
+    "credits": {
+      "type": "object",
+      "properties": {
+        "charged": {
+          "type": "integer",
+          "description": "Credits this call cost; 0 for a free tool."
+        },
+        "remaining": {
+          "type": "integer",
+          "description": "Credits left in the budget window. Absent when not paid from a credit budget."
+        }
+      },
+      "required": [
+        "charged"
+      ]
+    }
+  },
+  "required": [
+    "domain",
+    "spf",
+    "dmarc",
+    "dkim",
+    "mx",
+    "mail_providers",
+    "mta_sts",
+    "no_mail_domain",
+    "checks",
+    "check_counts",
+    "credits"
+  ]
+}

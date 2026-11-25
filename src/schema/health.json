@@ -1,0 +1,162 @@
+{
+  "type": "object",
+  "properties": {
+    "status": {
+      "type": "string",
+      "description": "Always ok in a result. A database the server cannot read gives a protocol error instead."
+    },
+    "version": {
+      "type": "string",
+      "description": "Server version, such as 2.3.1."
+    },
+    "db": {
+      "type": "object",
+      "properties": {
+        "nvd": {
+          "type": "object",
+          "properties": {
+            "cve_count": {
+              "type": "integer"
+            },
+            "last_added": {
+              "type": "object",
+              "properties": {
+                "cve_id": {
+                  "type": "string"
+                },
+                "published_time": {
+                  "type": "string",
+                  "description": "YYYY-MM-DD. Empty when the table is empty."
+                }
+              },
+              "required": [
+                "cve_id",
+                "published_time"
+              ]
+            }
+          },
+          "required": [
+            "cve_count",
+            "last_added"
+          ]
+        },
+        "kev": {
+          "type": "object",
+          "properties": {
+            "entry_count": {
+              "type": "integer"
+            },
+            "last_added": {
+              "type": "object",
+              "properties": {
+                "cve_id": {
+                  "type": "string"
+                },
+                "date_added": {
+                  "type": "string",
+                  "description": "YYYY-MM-DD. Empty when the table is empty."
+                }
+              },
+              "required": [
+                "cve_id",
+                "date_added"
+              ]
+            }
+          },
+          "required": [
+            "entry_count",
+            "last_added"
+          ]
+        },
+        "cwe": {
+          "type": "object",
+          "properties": {
+            "entry_count": {
+              "type": "integer"
+            },
+            "last_updated": {
+              "type": "object",
+              "properties": {
+                "cwe_id": {
+                  "type": "string"
+                },
+                "updated_at": {
+                  "type": "string",
+                  "description": "UTC YYYY-MM-DDTHH:MM:SSZ. Empty when unknown."
+                }
+              },
+              "required": [
+                "cwe_id",
+                "updated_at"
+              ]
+            }
+          },
+          "required": [
+            "entry_count",
+            "last_updated"
+          ]
+        },
+        "feeds": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "last_synced": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "UTC YYYY-MM-DDTHH:MM:SSZ when the feed's state was last written, not its last success. May be null."
+              },
+              "last_status": {
+                "type": "string",
+                "description": "ok, error or in_progress. May be empty."
+              },
+              "records_updated": {
+                "type": "integer",
+                "description": "The count that the feed's last run recorded with last_status. Each feed counts its own unit."
+              }
+            },
+            "required": [
+              "name",
+              "last_synced",
+              "last_status",
+              "records_updated"
+            ]
+          }
+        }
+      },
+      "required": [
+        "nvd",
+        "kev",
+        "cwe",
+        "feeds"
+      ]
+    },
+    "credits": {
+      "type": "object",
+      "properties": {
+        "charged": {
+          "type": "integer",
+          "description": "Credits this call cost; 0 for a free tool."
+        },
+        "remaining": {
+          "type": "integer",
+          "description": "Credits left in the budget window. Absent when not paid from a credit budget."
+        }
+      },
+      "required": [
+        "charged"
+      ]
+    }
+  },
+  "required": [
+    "status",
+    "version",
+    "db",
+    "credits"
+  ]
+}

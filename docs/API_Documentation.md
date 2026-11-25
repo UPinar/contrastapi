@@ -232,19 +232,19 @@ curl "https://api.contrastcyber.com/cve_lookup/CVE-2021-44228?include_ghsa=true"
 | `cve_id`                 | string            | CVE identifier |
 | `severity`               | string            | CRITICAL / HIGH / MEDIUM / LOW / NONE / UNKNOWN. It is the band of the CVSS v3 score shown, else of the v4 score shown: `NONE` for 0.0, `LOW` up to 3.9, `MEDIUM` up to 6.9, `HIGH` up to 8.9 and `CRITICAL` from 9.0. A CVE that shows neither score takes its label from NVD, such as the label of its first CVSS v2 metric. It is `UNKNOWN` while no label is known |
 | `cvss_v3`                | float or null     | CVSS v3 base score (0.0–10.0); null when the CVE has no CVSS v3 vector |
-| `cvss_v3_vector`         | string or null    | CVSS v3 vector string; null when the CVE has none |
+| `cvss_v3_vector`         | string or null    | CVSS v3 vector string; null when the CVE has none. Its metrics are in the order of the CVSS 3.1 table, and a metric whose value is X (Not Defined) is left out |
 | `cvss_v3_source`         | string or null    | Who gave the CVSS v3 score shown: `nvd`, `cna` (the CNA that assigned the CVE), `adp` (the CISA ADP) or `other`. When more than one of them scored the CVE, the score shown is the CNA's, else NVD's, else the ADP's. null when the source is not known |
 | `cvss_v4`                | float or null     | CVSS v4 base score (0.0–10.0); null when the CVE has no CVSS v4 vector |
 | `cvss_v4_vector`         | string or null    | CVSS v4 vector string; null when the CVE has none. A metric whose value is X (Not Defined) is left out of the vector |
 | `cvss_v4_source`         | string or null    | Who gave the CVSS v4 score shown, with the classes and the order of `cvss_v3_source`. The v4 metric is chosen on its own, so the two classes can differ |
-| `published_time`         | string (datetime) | The earlier of the dates on which the CNA and NVD published the CVE (ISO 8601) |
-| `epss_score`             | float             | EPSS probability of exploitation in the next 30 days (0.0–1.0). 0.0 when no usable score is known, as for a CVE the EPSS feed has left out for 7 days |
-| `epss_percentile`        | float             | EPSS percentile rank (0.0–1.0). 0.0 when no usable score is known, as for `epss_score` |
+| `published_time`         | string (date)     | The earlier of the dates on which the CNA and NVD published the CVE, `YYYY-MM-DD` |
+| `epss_score`             | float or null     | EPSS probability of exploitation in the next 30 days (0.0–1.0). null when no usable score is known, as for a CVE the EPSS feed has left out for 7 days |
+| `epss_percentile`        | float or null     | EPSS percentile rank (0.0–1.0). null when `epss_score` is null: the two are null together |
 | `cwe_id`                 | string            | The CWE identifier shown first: the first CWE of the source `cwe_source` names |
 | `cwe_source`             | string or null    | Who gave `cwe_id`, with the classes and the order of `cvss_v3_source`; null when the source is not known |
-| `cwes`                   | array             | All associated CWE identifiers |
+| `cwes`                   | array             | The CWE identifiers of the source `cwe_source` names, in its order; `cwe_id` is the first. The CWEs of a source later in the order of `cvss_v3_source` are left out |
 | `in_kev`                 | boolean           | Whether the CVE is in the CISA KEV list |
-| `kev_date_added`         | string (date)     | Date CISA added the CVE to KEV, as `YYYY-MM-DD`; empty string when the CVE is not in KEV now, or when KEV holds no date for it |
+| `kev_date_added`         | string or null    | Date CISA added the CVE to KEV, as `YYYY-MM-DD`; null when the CVE is not in KEV now, or when KEV holds no date for it |
 | `vulnerability_status`   | string            | NVD status (e.g. `Analyzed`, `Modified`). A CVE that NVD has not published yet has an empty string, or `Rejected` when the CNA rejected it |
 | `affected_products`      | array             | The first 20 products the CVE names, one object per product and version range. The vulnerable ones come first, and each group sorts by vendor, then by product. They are the first page of [CVE Products](#cve-products-get-cve_productscve_id); see [Affected products](#affected-products) |
 | `affected_product_count` | integer           | Number of products the CVE names, also the ones `affected_products` leaves out |
@@ -332,12 +332,12 @@ the first 20 of each.
   "cvss_v4": null,
   "cvss_v4_vector": null,
   "cvss_v4_source": null,
-  "published_time": "2021-12-10T00:00:00Z",
+  "published_time": "2021-12-10",
   "epss_score": 0.97566,
   "epss_percentile": 0.99970,
   "cwe_id": "CWE-20",
   "cwe_source": "cna",
-  "cwes": ["CWE-20", "CWE-400", "CWE-502", "CWE-917"],
+  "cwes": ["CWE-20", "CWE-400", "CWE-502"],
   "in_kev": true,
   "kev_date_added": "2021-12-10",
   "vulnerability_status": "Analyzed",
@@ -643,7 +643,7 @@ Rules for the values:
       "epss_percentile": 0.99970,
       "in_kev": true,
       "kev_date_added": "2021-12-10",
-      "published_time": "2021-12-10T00:00:00Z",
+      "published_time": "2021-12-10",
       "cwe_id": "CWE-20",
       "cwe_source": "cna"
     }
@@ -671,11 +671,11 @@ Each object of `results` holds:
 | `cvss_v3_source` | string or null | Who gave the CVSS v3 score: `nvd`, `cna`, `adp` or `other`, as in [CVE Lookup](#cve-lookup-get-cve_lookupcve_id); null when the source is not known |
 | `cvss_v4`        | float or null | CVSS v4 base score (0.0–10.0); null when the CVE has no CVSS v4 vector |
 | `cvss_v4_source` | string or null | Who gave the CVSS v4 score, with the same classes; null when the source is not known |
-| `epss_score`     | float         | EPSS probability of exploitation in the next 30 days (0.0–1.0); 0.0 when no usable score is known, as for a CVE the EPSS feed has left out for 7 days |
-| `epss_percentile`| float         | EPSS percentile rank (0.0–1.0); 0.0 when no usable score is known |
+| `epss_score`     | float or null | EPSS probability of exploitation in the next 30 days (0.0–1.0); null when no usable score is known, as for a CVE the EPSS feed has left out for 7 days |
+| `epss_percentile`| float or null | EPSS percentile rank (0.0–1.0); null when `epss_score` is null: the two are null together |
 | `in_kev`         | boolean           | Whether the CVE is in the CISA KEV list |
 | `kev_date_added` | string or null    | The date CISA added the CVE to KEV, as `YYYY-MM-DD`; null when the CVE is not in KEV now, or when KEV holds no date for it |
-| `published_time` | string (datetime) | Published timestamp (ISO 8601) |
+| `published_time` | string (date)     | The date the CVE was published, as `YYYY-MM-DD` |
 | `cwe_id`         | string            | The CWE identifier shown first: the first CWE of the source `cwe_source` names |
 | `cwe_source`     | string or null    | Who gave `cwe_id`, with the same classes; null when the source is not known |
 
@@ -747,26 +747,27 @@ The filters follow the rules of [CVE Search](#cve-search-get-cve_search).
 | `count`     | int    | Number of CVEs returned in this response |
 | `total`     | int    | Total CVEs matching the filters (may exceed `count`). Rejected CVEs are not counted unless `include_rejected=true` |
 | `limit`     | int    | The effective limit applied |
-| `verdict`   | string | Risk label from the top result's EPSS score, or `"none"` when nothing matched (see table below) |
-| `summary`   | string | A one-line summary: how many CVEs, which one leads, its EPSS as a percentage rounded to one decimal, and the KEV overlap. A page with no results carries a fixed sentence with no numbers. |
+| `verdict`   | string | Risk label from the top result's EPSS score, `"unknown"` when the top result has no EPSS score, or `"none"` when nothing matched (see table below) |
+| `summary`   | string | A one-line summary: how many CVEs, which one leads, its EPSS as a percentage rounded to one decimal, and the KEV overlap. When the top result has no EPSS score, the sentence says so in place of the percentage: `"3 CVEs ranked by exploitation probability; CVE-2024-3400 leads; it has no EPSS score. 1 in CISA KEV."` A page with no results carries a fixed sentence with no numbers. |
 | `product_filter_note` | string | Present only when `vendor` or `product` is set. It stands after `summary`, before `results`. It holds the text of [CVE Search](#cve-search-get-cve_search): a product filter matches a CVE that NVD has not analysed only when its CNA wrote the same name |
 | `results`   | array  | CVE objects ordered by EPSS descending |
 
 #### Verdict values
 
-The first four are thresholds on the highest EPSS in `results`. `"none"` says that the filter matched nothing.
+The first four are thresholds on the highest EPSS in `results`. `"unknown"` says that the top result has no EPSS score. `"none"` says that the filter matched nothing.
 
 | Verdict      | Condition         |
 |--------------|-------------------|
 | `"critical"` | top EPSS ≥ 0.50   |
 | `"high"`     | top EPSS ≥ 0.20   |
 | `"moderate"` | top EPSS ≥ 0.05   |
-| `"low"`      | top EPSS < 0.05   |
+| `"low"`      | 0 < top EPSS < 0.05 |
+| `"unknown"`  | top `epss_score` is null |
 | `"none"`     | no results        |
 
 #### Result object fields
 
-Each result has the fields of a [CVE Search](#cve-search-get-cve_search) result. Scores are clamped to their ranges: `cvss_v3` and `cvss_v4` to 0.0–10.0, `epss_score` and `epss_percentile` to 0.0–1.0.
+Each result has the fields of a [CVE Search](#cve-search-get-cve_search) result. Scores are clamped to their ranges: `cvss_v3` and `cvss_v4` to 0.0–10.0, `epss_score` and `epss_percentile` to 0.0–1.0, or null.
 
 ### Example response
 
@@ -789,7 +790,7 @@ Each result has the fields of a [CVE Search](#cve-search-get-cve_search) result.
       "epss_percentile": 0.99970,
       "in_kev": true,
       "kev_date_added": "2021-12-10",
-      "published_time": "2021-12-10T00:00:00Z",
+      "published_time": "2021-12-10",
       "cwe_id": "CWE-20",
       "cwe_source": "cna"
     }
@@ -1389,7 +1390,7 @@ curl "https://api.contrastcyber.com/product_exposure?vendor=nodejs&product=node.
     "max_epss": 0.9753,
     "poc_backed_count": 84,
     "worst_risk_score": 98.5,
-    "most_recent_published": "2024-11-02T00:00:00Z"
+    "most_recent_published": "2024-11-02"
   },
   "product_filter_note": "This filter matches names exactly. It can miss a CVE whose CNA spelled the vendor or product another way. Use cpe_search to find other spellings.",
   "top_cves": [
@@ -1447,8 +1448,10 @@ A product that endoflife.date lists, asked with a `version`:
   `product` answers the whole list, page by page: the same CVEs in the same order.
 - `max_cvss` and `avg_cvss` read CVSS v3 scores only. The risk scores also count a
   CVSS v4 score, for a CVE that has no v3 vector.
-- A product with no matching CVEs returns `200` with zeroed counts and an empty
-  `top_cves`. A near-miss spelling matches nothing.
+- `max_cvss`, `avg_cvss` and `max_epss` are `null` when no CVE of the product has the score.
+- A product with no matching CVEs returns `200` with an empty `top_cves`. Its counts are 0,
+  and `worst_risk_score` is 0.0. `max_cvss`, `avg_cvss`, `max_epss` and
+  `most_recent_published` are `null`. A near-miss spelling matches nothing.
   [`/cpe_search`](#cpe-search-get-cpe_search) finds the exact names that hold a text.
 - `vendor`, `product` and `version` accept up to 128 bytes each. The whole request target,
   path plus query string, must fit 1023 bytes, or the answer is `414`.
@@ -1723,9 +1726,9 @@ curl https://api.contrastcyber.com/cwe_lookup/CWE-89
 | `owasp_top10`            | array \| null  | The OWASP Top 10 categories that list this weakness, one element for each edition (2021, 2025) that lists it, the older edition first. Each element holds `id` (`A01` to `A10`), `name` (the name of the category) and `year` (the edition). `[]` means the weakness is in no category. null means the category data has not been loaded yet, so nothing is known. Only a direct listing counts: a weakness gets no category from its parent |
 | `cve_count`              | integer        | Total CVEs in the database associated with this CWE. The count still includes the CVEs that NVD marks Rejected, so it can exceed the `total` of `/cve_search?cwe_id=` for that CWE |
 | `kev_count`              | integer        | Number of those CVEs listed in the CISA KEV catalog |
-| `avg_cvss`               | number         | Average CVSS v3 score across associated CVEs that have a v3 score (2 decimal places) |
-| `avg_epss`               | number         | Average EPSS probability across associated CVEs that have an EPSS score (4 decimal places) |
-| `updated_at`             | string         | ISO 8601 timestamp of the last record update |
+| `avg_cvss`               | number \| null | Average CVSS v3 score across associated CVEs that have a v3 score (2 decimal places); null when no associated CVE has one |
+| `avg_epss`               | number \| null | Average EPSS probability across associated CVEs that have an EPSS score (4 decimal places); null when no associated CVE has one |
+| `updated_at`             | string         | Time the CWE sync last wrote the record, in UTC (`YYYY-MM-DDTHH:MM:SSZ`); empty string when not known |
 
 ### Example response
 
@@ -1752,7 +1755,7 @@ curl https://api.contrastcyber.com/cwe_lookup/CWE-89
   "kev_count": 26,
   "avg_cvss": 6.00,
   "avg_epss": 0.0287,
-  "updated_at": "2026-05-20T14:07:56.162610+00:00",
+  "updated_at": "2026-05-20T14:07:56Z",
   "credits": {"charged": 1, "remaining": 29}
 }
 ```
@@ -2039,7 +2042,7 @@ A refused hash pays its 1 credit.
 Looks up many driver file hashes in the LOLDrivers catalog at once: up to 20 in one request. Each
 well-formed hash costs 1 credit, and the request costs at least 1 credit. Each result has the fields of
 [Driver Lookup](#driver-lookup-get-driver_lookupfile_hash), but the `data_source` object comes once,
-at the top. A bulk request carries no command text. A response body that would reach 16 MiB is not
+at the top. A bulk request carries no command text. A response body that would reach 4 MiB is not
 sent and the request answers 500 instead.
 
 ```bash
@@ -2556,7 +2559,7 @@ becomes `\u0000`, and a byte that is not part of a whole UTF-8 character becomes
 | `malformed_answer` | The answer could not be read, or it held more than 256 records |
 | `not_public_name` | A record belongs to a name only a local network can answer, or a CNAME of the answer leads to one, such as `db.internal`. Neither its records nor whether it exists are shown. A `cname` question is the exception: it shows the target. A label of an underscore and then a usual label, such as `_domainkey`, before the last label does not make a name local |
 | `timeout` | No answer came within 5 seconds |
-| `no_resolver` | The server has no resolver it can ask |
+| `no_resolver` | The server has no resolver it can ask. A DNS Lookup answer never shows it: then no record type is answered, and the request fails with `502`. Other endpoints that point here can show it |
 
 `services` comes from the file `dns/txt-service-detect.yaml` of
 [nuclei-templates](https://github.com/projectdiscovery/nuclei-templates) (MIT license). It holds 96
@@ -2985,7 +2988,7 @@ zero, such as `08.8.8.8`, a host name and a CIDR prefix are refused too.
 | `cloud_provider` | string \| null | `aws`, `google`, `azure`, `cloudflare`, `fastly`, `bunny` or `gcore`, when a range the provider publishes holds the address. `null` when no range holds it |
 | `cloud_service` | string \| null | The service of that range, such as `ec2`, `cloudfront` or `azurefrontdoor_frontend` |
 | `is_cdn` | boolean \| null | `true` when the range that `cloud_provider` names belongs to a content delivery network. `false` when that range does not, such as `aws/ec2`. `null` when no range holds the address, or while the cloud ranges are not loaded. The loaded CDN lists do not cover every CDN, so an address that no range holds can still be a CDN edge |
-| `is_datacenter` | boolean \| null | `true` when a cloud range holds the address, or when its AS is one of 15 ASes of Google, AWS, Microsoft, Cloudflare, DigitalOcean, Hetzner, OVH, Linode, Vultr, Oracle, Alibaba, Tencent and Scaleway. `false` only when IPtoASN and the cloud ranges are both loaded and neither matches. Otherwise `null` |
+| `is_datacenter` | boolean \| null | `true` when a cloud range holds the address, or when its AS is a hosting AS that the server knows: an AS of a cloud, CDN or server-rental company, such as Google, AWS, Microsoft, Cloudflare, Akamai, Hetzner, OVH, Contabo or Fly.io. `false` only when IPtoASN and the cloud ranges are both loaded and neither matches. Otherwise `null` |
 | `is_tor_exit` | boolean \| null | `true` when the Tor exit list holds the address |
 | `crawler` | string \| null | The name of the crawler list that holds the address, such as `googlebot` or `gptbot`. `null` when no list holds it, or while the crawler lists are not loaded. See [The crawler lists](#the-crawler-lists) |
 | `listed_on` | array \| null | One element for each DROP prefix that holds the address, the longest prefix first. `[]` when no prefix holds it |
@@ -5304,7 +5307,9 @@ little after it reaches a level writes no level event. A score set to 0 because 
 left the CVE out for 7 days writes no EPSS event. Each of the two carries both scores, and a move
 past more than one level writes one event. When the feed scores a CVE set to 0 again, the server
 first puts back the last score it had in the past 365 days. So a return with the same score writes
-no EPSS event, and a return with another score writes its events from that last score.
+no EPSS event, and a return with another score writes its events from that last score. A CVE that
+gets its first score, or has had none in the past 365 days, writes its events with `previous`
+`null`.
 
 A `cve_search` item that sets `min_epss` also hears two events of its own. An `epss_above_min`
 event comes when the EPSS score rises from under the `min_epss` of the item to `min_epss` or above.
@@ -5698,7 +5703,7 @@ curl "https://api.contrastcyber.com/watchlist_events?limit=50" -H "X-API-Key: $K
 | `items[].events[].fixed_version` | string or null | A package event only. The version that fixes the advisory on a `fix_available` event, and `null` on the other two package events |
 | `items[].events[].eol` | object | An end-of-life event only. `product`, the endoflife.date name of the product, `cycle`, the name of the release cycle, `eol_date`, the end date of the cycle when the event was written, and `previous_eol_date`, the date before an `eol_date_changed` event. All four keys are always present. `eol_date` is `null` only on an `eol_reached` event of a cycle with no date. `previous_eol_date` is `null` on the other two types. The row has no `advisory_id`, `fixed_version` or `affects_version` |
 | `items[].events[].affects_version` | boolean or null | A package event only. `true` when the advisory affects the `version` of the item. `null` when the item has no `version`, or when the server cannot tell whether the advisory affects it. It is never `false`, because such a pair is not answered. A CVE event under a package item carries no `affects_version` |
-| `items[].events[].previous`, `items[].events[].current` | number or null | A CVE event: the two scores of an `epss_level_up`, `epss_level_down`, `epss_above_min`, `epss_below_min`, `cvss_risk_band_changed` or `cvss_score_changed` event (`current` is `null` when a `cvss_score_changed` event removed the last vector), and the score of a `cvss_added` event. `null` for the other CVE events |
+| `items[].events[].previous`, `items[].events[].current` | number or null | A CVE event: the two scores of an `epss_level_up`, `epss_level_down`, `epss_above_min`, `epss_below_min`, `cvss_risk_band_changed` or `cvss_score_changed` event (`current` is `null` when a `cvss_score_changed` event removed the last vector), and the score of a `cvss_added` event. `previous` of the four EPSS events is `null` when the CVE had no EPSS score before. `null` for the other CVE events |
 | `items[].events[].vendor`, `items[].events[].product` | string or null | A CVE event only. The vendor and product pair that the CVE gained in a `product_added` event or lost in a `product_removed` event. `null` for the other CVE events |
 | `items[].events[].previous`, `items[].events[].current` | array, string or null | A domain event: the value before and after the change, as [Domain events](#domain-events) gives them. An array of strings for `ns_changed`, `mx_changed` and `hosting_changed`, a string for the others, and `null` for a side with no value. `cert_expiring`, `cert_invalid`, `cert_listed`, `domain_expiring`, `registrar_changed` and `transfer_lock_removed` write their own forms instead, as the rows below give them. `tls_downgraded` and `dnssec_disabled` write strings |
 | `items[].events[].previous`, `items[].events[].current` | number, array or null | A `domain_expiring` event: the bucket as the number `30`, `7` or `1`, or `null`. A `registrar_changed` event: `[iana_id, name]`, where `iana_id` is a number or `null` and `name` is a string or `null`. A `transfer_lock_removed` event: an array of lock statuses, `[]` for none |
@@ -5820,13 +5825,13 @@ curl https://api.contrastcyber.com/health
 | `db`                             | object or null | The blocks below; `null` when `status` is `"unavailable"` |
 | `db.nvd.cve_count`               | integer       | Total CVEs in the database |
 | `db.nvd.last_added.cve_id`       | string        | CVE ID of the most recently published entry |
-| `db.nvd.last_added.published_time` | string (datetime) | Published datetime of the most recent NVD entry (ISO 8601) |
+| `db.nvd.last_added.published_time` | string (date) | Publish date of the most recent NVD entry, as `YYYY-MM-DD`; empty string when the table is empty |
 | `db.kev.entry_count`             | integer       | Total CISA KEV entries in the database |
 | `db.kev.last_added.cve_id`       | string        | CVE ID most recently added to KEV |
-| `db.kev.last_added.date_added`   | string (datetime) | Datetime that CVE was added to the KEV catalog (ISO 8601) |
+| `db.kev.last_added.date_added`   | string (date)     | Date that CVE was added to the KEV catalog, as `YYYY-MM-DD`; empty string when the table is empty |
 | `db.cwe.entry_count`             | integer           | Total CWE entries in the database |
 | `db.cwe.last_updated.cwe_id`     | string            | CWE ID of the most recently updated entry |
-| `db.cwe.last_updated.updated_at` | string (datetime) | Datetime of that CWE's last update (ISO 8601) |
+| `db.cwe.last_updated.updated_at` | string (datetime) | Time the CWE sync last wrote that CWE, in UTC (`YYYY-MM-DDTHH:MM:SSZ`); empty string when not known |
 | `db.feeds`                       | array             | Update state of each data feed, in name order (see below) |
 | `db.feeds[].name`                | string            | Feed name, such as `nvd`, `epss`, `kev`, `cwe`, `cwe_owasp` or `metasploit` |
 | `db.feeds[].last_synced`         | string (datetime) or null | When the feed update last wrote the feed's state, in UTC (`YYYY-MM-DDTHH:MM:SSZ`); null if not recorded |
@@ -5848,20 +5853,20 @@ A feed whose name, time or status cannot be read is left out of `db.feeds`. The 
 ```json
 {
   "status": "ok",
-  "version": "2.3.1",
+  "version": "2.3.3",
   "db": {
     "nvd": {
       "cve_count": 251430,
       "last_added": {
         "cve_id": "CVE-2026-1234",
-        "published_time": "2026-05-22T10:00:00Z"
+        "published_time": "2026-05-22"
       }
     },
     "kev": {
       "entry_count": 1602,
       "last_added": {
         "cve_id": "CVE-2024-5678",
-        "date_added": "2026-05-20T00:00:00Z"
+        "date_added": "2026-05-20"
       }
     },
     "cwe": {
@@ -5883,7 +5888,7 @@ A feed whose name, time or status cannot be read is left out of `db.feeds`. The 
 When the database cannot be read, the answer is HTTP 503 with a `Retry-After: 5` header and this body:
 
 ```json
-{"status":"unavailable","version":"2.3.1","db":null,"credits":{"charged":0}}
+{"status":"unavailable","version":"2.3.3","db":null,"credits":{"charged":0}}
 ```
 
 ---
@@ -6126,7 +6131,9 @@ The server also answers files that are not API endpoints: the web pages and thei
 | `/static/js/crypto_checkout.js` | `text/javascript; charset=utf-8` | `public, max-age=3600` |
 | `/static/js/theme-init.js` | `text/javascript; charset=utf-8` | `public, max-age=3600` |
 | `/static/js/theme.js` | `text/javascript; charset=utf-8` | `public, max-age=3600` |
-| `/static/fonts/geist-mono.woff2` | `font/woff2` | `public, max-age=3600` |
+| `/static/fonts/saira-variable.woff2` | `font/woff2` | `public, max-age=3600` |
+| `/static/fonts/nunito-sans-variable.woff2` | `font/woff2` | `public, max-age=3600` |
+| `/static/fonts/droid-sans-mono.woff2` | `font/woff2` | `public, max-age=3600` |
 | `/static/favicon.svg` | `image/svg+xml` | `public, max-age=3600` |
 | `/static/favicon-32.png` | `image/png` | `public, max-age=3600` |
 | `/static/favicon-192.png` | `image/png` | `public, max-age=3600` |
@@ -6455,7 +6462,7 @@ request target counts the bytes as sent.
 | 503  | The server is busy with requests to outside services (`upstream_busy`). The response carries `Retry-After: 5`. It costs no credits and carries no `X-RateLimit-*` headers. A request that the endpoint refuses for its method, its parameter names or its values gets that refusal instead. A request with a malformed, unknown, revoked or expired key gets it too | the endpoints that ask an outside service, `/mcp` |
 | 503  | Every place for an image request is in use (`raw_body_busy`). The response carries `Retry-After: 10`. It costs no credits | `/image_inspect` |
 | 503  | The payment cannot be settled now (`payment_unavailable`). The response carries `Retry-After: 5` | every endpoint that takes payment |
-| 503  | The database cannot be read. The body is `{"status":"unavailable","version":"2.3.1","db":null,"credits":{"charged":0}}` and the response carries `Retry-After: 5` | `/health` |
+| 503  | The database cannot be read. The body is `{"status":"unavailable","version":"2.3.3","db":null,"credits":{"charged":0}}` and the response carries `Retry-After: 5` | `/health` |
 | 504  | No TLS server or site was reached at the host name. `message` says why | `/ssl_check/`, `/headers_check/`, `/well_known/`, `/redirect_chain` |
 
 ---
@@ -6622,7 +6629,7 @@ A `drop_listed` or `drop_unlisted` event of `/watchlist_events` holds them too.
 `cloud_provider`, `cloud_service` and `is_cdn` of `/ip_lookup/` come from the address ranges that
 AWS, Google, Microsoft Azure, Cloudflare, Fastly, Bunny and Gcore publish. The Gcore list is
 `api.gcore.com/cdn/public-net-list`. The server leaves out a published prefix
-wider than /8 for IPv4 or /24 for IPv6.
+wider than /8 for IPv4 or /24 for IPv6, and a prefix that is not globally reachable.
 
 "Tor" is a registered trademark of The Tor Project, Inc.
 

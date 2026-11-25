@@ -1,0 +1,339 @@
+{
+  "type": "object",
+  "properties": {
+    "ip_address": {
+      "type": "string",
+      "description": "The address in canonical form."
+    },
+    "asn": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "description": "The AS of the IPtoASN prefix that holds the address. null when no prefix holds it or the list is not loaded. asn_name and asn_country are then null too."
+    },
+    "asn_name": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "The name IPtoASN gives the AS."
+    },
+    "asn_country": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "The two-letter country where the AS is registered. null when IPtoASN names none."
+    },
+    "geo_country": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "The two-letter country of the address, from DB-IP Lite. null when no prefix holds the address or the list is not loaded."
+    },
+    "cloud_provider": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "The cloud or CDN provider whose published range holds the address, such as aws. null when no range holds it or the ranges are not loaded."
+    },
+    "cloud_service": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "The service of that range, such as ec2 or cloudfront."
+    },
+    "is_cdn": {
+      "type": [
+        "boolean",
+        "null"
+      ],
+      "description": "true when the cloud range that holds the address belongs to a CDN, false when it does not. null when no range holds it or the ranges are not loaded. An address of no range can still be a CDN edge."
+    },
+    "is_datacenter": {
+      "type": [
+        "boolean",
+        "null"
+      ],
+      "description": "true when a cloud range or a datacenter AS holds the address. false only when IPtoASN and the cloud ranges are both loaded and neither matches. null when it is not true and either is not loaded."
+    },
+    "is_tor_exit": {
+      "type": [
+        "boolean",
+        "null"
+      ],
+      "description": "true when the Tor Project's exit list holds the address, false when it does not. null while the list is not loaded."
+    },
+    "crawler": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "The crawler list whose range holds the address, such as googlebot. null when no list holds it or the lists are not loaded."
+    },
+    "listed_on": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "prefix": {
+            "type": "string",
+            "description": "The listed prefix in CIDR form."
+          },
+          "source": {
+            "type": "string",
+            "description": "Always drop, the DROP list."
+          },
+          "copyright": {
+            "type": "string",
+            "description": "The copy text of that file. The list asks that it stays with the data."
+          },
+          "list_time": {
+            "type": "string",
+            "description": "UTC YYYY-MM-DDTHH:MM:SSZ of the file that listed the prefix."
+          },
+          "listing_id": {
+            "type": "string",
+            "description": "The id of the prefix's record in the list."
+          }
+        },
+        "required": [
+          "prefix",
+          "source",
+          "copyright",
+          "list_time",
+          "listing_id"
+        ]
+      },
+      "description": "DROP prefixes that hold the address, the longest first. [] when none holds it. null while the list is not loaded."
+    },
+    "ptr": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "A PTR name of the address. It is the first of the first 10 names whose A or AAAA record holds the address. When none does, it is the first name. null when there is none or the question failed."
+    },
+    "is_ptr_forward_confirmed": {
+      "type": [
+        "boolean",
+        "null"
+      ],
+      "description": "true when an A or AAAA record of ptr holds the address. false when every forward question was answered and none of the first 10 PTR names maps back. null when ptr is null or a forward question failed."
+    },
+    "reputation": {
+      "type": "object",
+      "description": "The AbuseIPDB slot, filled with the caller's own stored key. available true adds source and the report members. available false adds reason and the members that reason names.",
+      "properties": {
+        "available": {
+          "type": "boolean",
+          "description": "true when the slot holds the vendor's answer."
+        },
+        "reason": {
+          "type": "string",
+          "description": "Why the slot is empty: pro_key_required (no Pro API key), vendor_key_missing (no stored key for this vendor), vendor_key_rejected (the vendor refused it), vendor_unavailable or database_error."
+        },
+        "action_url": {
+          "type": "string",
+          "description": "The page that fixes the reason. Present for pro_key_required, vendor_key_missing and vendor_key_rejected."
+        },
+        "action_tool": {
+          "type": "string",
+          "description": "privacy_my_data, the tool whose answer holds the link that saves vendor keys. Present for vendor_key_missing and vendor_key_rejected."
+        },
+        "retry_after_seconds": {
+          "type": "integer",
+          "description": "Seconds the vendor asked to wait. Present only for vendor_unavailable when the vendor gave a wait."
+        },
+        "source": {
+          "type": "string",
+          "description": "Always abuseipdb."
+        },
+        "abuse_confidence_score": {
+          "type": "integer",
+          "description": "AbuseIPDB's confidence that the address is abusive, from 0 to 100."
+        },
+        "total_reports": {
+          "type": "integer",
+          "description": "Reports AbuseIPDB holds for the address."
+        },
+        "distinct_reporter_count": {
+          "type": "integer",
+          "description": "Different reporters that sent those reports."
+        },
+        "last_reported_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "When the last report came, as AbuseIPDB writes it. null when it gives none."
+        },
+        "is_whitelisted": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "description": "null when AbuseIPDB does not say."
+        },
+        "usage_type": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The usage type AbuseIPDB gives, such as Data Center/Web Hosting/Transit. null when it gives none."
+        }
+      },
+      "required": [
+        "available"
+      ]
+    },
+    "internet_exposure": {
+      "type": "object",
+      "description": "The Shodan slot, filled with the caller's own stored key. Its forms are as in reputation. available true adds source and the members from ports to last_update.",
+      "properties": {
+        "available": {
+          "type": "boolean",
+          "description": "As in reputation."
+        },
+        "reason": {
+          "type": "string",
+          "description": "As in reputation."
+        },
+        "action_url": {
+          "type": "string",
+          "description": "As in reputation."
+        },
+        "action_tool": {
+          "type": "string",
+          "description": "As in reputation."
+        },
+        "retry_after_seconds": {
+          "type": "integer",
+          "description": "As in reputation."
+        },
+        "source": {
+          "type": "string",
+          "description": "shodan for the host query. shodan_facets for the count query that a free Shodan key gets."
+        },
+        "ports": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          },
+          "description": "The ports Shodan saw open."
+        },
+        "vulns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "CVE ids Shodan lists."
+        },
+        "vulns_truncated": {
+          "type": "boolean",
+          "description": "true when shodan_facets cut the CVE list at its limit, so Shodan may hold more. Always false for shodan."
+        },
+        "hostnames": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Always [] for shodan_facets."
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The labels Shodan gives the host."
+        },
+        "last_update": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "When Shodan last updated the host. null when it gives none, and always for shodan_facets."
+        }
+      },
+      "required": [
+        "available"
+      ]
+    },
+    "unavailable": {
+      "type": "object",
+      "description": "Each key names a part that could not be answered. A list that is not loaded gets not_synced under the first field of its group. asn also stands for asn_name and asn_country, and cloud_provider for cloud_service and is_cdn. {} when every part answered.",
+      "properties": {
+        "asn": {
+          "type": "string"
+        },
+        "geo_country": {
+          "type": "string"
+        },
+        "cloud_provider": {
+          "type": "string"
+        },
+        "is_tor_exit": {
+          "type": "string"
+        },
+        "crawler": {
+          "type": "string"
+        },
+        "listed_on": {
+          "type": "string"
+        },
+        "ptr": {
+          "type": "string",
+          "description": "Present when the PTR question failed. The code says why. It is server_error, truncated, malformed_answer, no_memory, timeout, no_resolver or not_public_name. A name that does not exist is no failure."
+        },
+        "is_ptr_forward_confirmed": {
+          "type": "string",
+          "description": "Present when ptr has a name, no name maps back and a forward question failed. The code says why the first failed one failed. It is server_error, truncated, malformed_answer, no_memory, timeout or no_resolver."
+        }
+      },
+      "required": []
+    },
+    "credits": {
+      "type": "object",
+      "properties": {
+        "charged": {
+          "type": "integer",
+          "description": "Credits this call cost; 0 for a free tool."
+        },
+        "remaining": {
+          "type": "integer",
+          "description": "Credits left in the budget window. Absent when not paid from a credit budget."
+        }
+      },
+      "required": [
+        "charged"
+      ]
+    }
+  },
+  "required": [
+    "ip_address",
+    "asn",
+    "asn_name",
+    "asn_country",
+    "geo_country",
+    "cloud_provider",
+    "cloud_service",
+    "is_cdn",
+    "is_datacenter",
+    "is_tor_exit",
+    "crawler",
+    "listed_on",
+    "ptr",
+    "is_ptr_forward_confirmed",
+    "reputation",
+    "internet_exposure",
+    "unavailable",
+    "credits"
+  ]
+}

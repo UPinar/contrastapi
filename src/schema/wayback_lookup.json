@@ -1,0 +1,103 @@
+{
+  "type": "object",
+  "properties": {
+    "domain": {
+      "type": "string",
+      "description": "The host name the server asked about."
+    },
+    "available": {
+      "type": "boolean",
+      "description": "false when the server could not fetch the list. Then only reason and retry_after_seconds follow. It is true for a host without a capture too."
+    },
+    "reason": {
+      "type": "string",
+      "description": "Present only when available is false. It is quota_exhausted: the server reached its request limit for the source."
+    },
+    "retry_after_seconds": {
+      "type": "integer",
+      "description": "Seconds to wait before the server sends that request again. Present only when available is false."
+    },
+    "first_seen": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "It is the day of the earliest capture, as YYYY-MM-DD. null when the host has no capture."
+    },
+    "last_seen": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "It is the day of the latest capture, as YYYY-MM-DD. null when the host has no capture."
+    },
+    "years_online": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "description": "It is the year of last_seen minus the year of first_seen, and 1 when that difference is 0. It spans the archive's captures, not the domain's age. null when the host has no capture."
+    },
+    "latest_captures": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "captured_at": {
+            "type": "string",
+            "description": "It is a UTC time, as YYYY-MM-DDTHH:MM:SSZ."
+          },
+          "http_status": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "null when the archive lists no status."
+          },
+          "media_type": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "url": {
+            "type": "string",
+            "description": "It links to the capture."
+          }
+        },
+        "required": [
+          "captured_at",
+          "http_status",
+          "media_type",
+          "url"
+        ]
+      },
+      "description": "It lists the latest days with a capture, at most 10, the latest first. Each day shows one capture of it."
+    },
+    "archive_url": {
+      "type": "string",
+      "description": "It links to the host's page on the Wayback Machine."
+    },
+    "credits": {
+      "type": "object",
+      "properties": {
+        "charged": {
+          "type": "integer",
+          "description": "Credits this call cost; 0 for a free tool."
+        },
+        "remaining": {
+          "type": "integer",
+          "description": "Credits left in the budget window. Absent when not paid from a credit budget."
+        }
+      },
+      "required": [
+        "charged"
+      ]
+    }
+  },
+  "required": [
+    "domain",
+    "available",
+    "credits"
+  ]
+}

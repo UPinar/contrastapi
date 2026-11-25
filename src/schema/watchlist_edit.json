@@ -1,0 +1,139 @@
+{
+  "type": "object",
+  "description": "It shows the watch list after the call. A call without packages answers items and the item counts. A call with packages answers only counts.",
+  "properties": {
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "description": "A watched item. endpoint names the tool it watches, and the other members hold its saved arguments.",
+        "properties": {
+          "endpoint": {
+            "type": "string",
+            "description": "It is cve_lookup, kev_lookup, cve_exploit, product_exposure, cve_search, dns_lookup, ssl_check, whois_lookup, headers_check, cert_search, package_check or ip_lookup."
+          },
+          "cve_id": {
+            "type": "string",
+            "description": "Present only on cve_lookup, kev_lookup and cve_exploit items."
+          },
+          "vendor": {
+            "type": "string",
+            "description": "Present on product_exposure items, and on cve_search items when the filter is set."
+          },
+          "product": {
+            "type": "string",
+            "description": "Present on product_exposure items, and on cve_search items when the filter is set."
+          },
+          "version": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Present only on product_exposure and package_check items. null for an item of every version."
+          },
+          "product_has_cves": {
+            "type": "boolean",
+            "description": "Present only on product_exposure items. false when no vulnerable product has the pair yet. The item still matches once one appears, but false often means a misspelled name."
+          },
+          "severity": {
+            "type": "string",
+            "description": "Present only on cve_search items, when the filter is set."
+          },
+          "cwe_id": {
+            "type": "string",
+            "description": "Present only on cve_search items, when the filter is set."
+          },
+          "min_cvss": {
+            "type": "number",
+            "description": "Present only on cve_search items, when the filter is set."
+          },
+          "min_epss": {
+            "type": "number",
+            "description": "Present only on cve_search items, when the filter is set."
+          },
+          "in_kev": {
+            "type": "boolean",
+            "description": "Present only on cve_search items, when the filter is set. true keeps the CVEs in CISA KEV, and false keeps the CVEs outside it."
+          },
+          "known_ransomware": {
+            "type": "boolean",
+            "description": "Present only on cve_search items, when the filter is set. It is then true."
+          },
+          "has_nuclei_template": {
+            "type": "boolean",
+            "description": "Present only on cve_search items, when the filter is set. It is then true."
+          },
+          "domain": {
+            "type": "string",
+            "description": "Present only on dns_lookup, ssl_check, whois_lookup, headers_check and cert_search items."
+          },
+          "ecosystem": {
+            "type": "string",
+            "description": "Present only on package_check items."
+          },
+          "name": {
+            "type": "string",
+            "description": "Present only on package_check items."
+          },
+          "ip_address": {
+            "type": "string",
+            "description": "Present only on ip_lookup items."
+          }
+        },
+        "required": [
+          "endpoint"
+        ]
+      },
+      "description": "Present only when the call has no packages. A call without action lists every item, oldest first. An add or a remove lists the one item it changed. A remove that matched nothing, and a clear, list none."
+    },
+    "item_count": {
+      "type": "integer",
+      "description": "Present only when the call has no packages. It counts the items that are not package items, after the call."
+    },
+    "item_limit": {
+      "type": "integer",
+      "description": "Present only when the call has no packages. It is the cap on item_count, 100."
+    },
+    "package_item_count": {
+      "type": "integer",
+      "description": "It counts the package items after the call."
+    },
+    "package_item_limit": {
+      "type": "integer",
+      "description": "It is the cap on package_item_count, 500."
+    },
+    "added_count": {
+      "type": "integer",
+      "description": "Present only on an add with packages. It counts the packages the call added."
+    },
+    "unchanged_count": {
+      "type": "integer",
+      "description": "Present only when the call has packages. An add counts the packages the list already held. A remove counts the packages the list did not hold."
+    },
+    "removed_count": {
+      "type": "integer",
+      "description": "Present only on a remove with packages. It counts the packages the call removed."
+    },
+    "credits": {
+      "type": "object",
+      "properties": {
+        "charged": {
+          "type": "integer",
+          "description": "Credits this call cost; 0 for a free tool."
+        },
+        "remaining": {
+          "type": "integer",
+          "description": "Credits left in the budget window. Absent when not paid from a credit budget."
+        }
+      },
+      "required": [
+        "charged"
+      ]
+    }
+  },
+  "required": [
+    "package_item_count",
+    "package_item_limit",
+    "credits"
+  ]
+}

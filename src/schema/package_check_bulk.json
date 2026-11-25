@@ -1,0 +1,338 @@
+{
+  "type": "object",
+  "properties": {
+    "total": {
+      "type": "integer",
+      "description": "Elements submitted. Equals processed + skipped + the length of not_processed."
+    },
+    "processed": {
+      "type": "integer",
+      "description": "Packages that were looked up. Equals successful + failed."
+    },
+    "successful": {
+      "type": "integer",
+      "description": "Packages with a result in results."
+    },
+    "skipped": {
+      "type": "integer",
+      "description": "Elements that are not a well-formed package with a known ecosystem, a name and an exact version. They cost nothing."
+    },
+    "failed": {
+      "type": "integer",
+      "description": "Looked-up packages left out of results, because their eol series holds more than 8 cycles. They are charged."
+    },
+    "not_processed": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "ecosystem": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "ecosystem",
+          "name",
+          "version"
+        ]
+      },
+      "description": "Packages this call did not look up, in request order. The credits left ran out, or the call reached its limit of database work, which grows with the advisories stored for each package. They are not charged, and they can be sent again as items."
+    },
+    "data_source": {
+      "type": "object",
+      "properties": {
+        "source": {
+          "type": "string",
+          "description": "Always osv."
+        },
+        "available": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "description": "false while the advisory copy is not loaded. null when no package has a result."
+        },
+        "reason": {
+          "type": "string",
+          "description": "not_synced. Present only when available is false."
+        }
+      },
+      "required": [
+        "source",
+        "available"
+      ]
+    },
+    "results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "eol": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Support dates from endoflife.date, without the maintained cycles. null when the package maps to no endoflife.date product.",
+            "properties": {
+              "url": {
+                "type": "string"
+              },
+              "cycle": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "description": "The one release cycle that the version picks. null when none or more than one is picked.",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "is_eol": {
+                    "type": "boolean",
+                    "description": "true when eol_date is today or earlier. Without an eol_date, endoflife.date's own flag."
+                  },
+                  "is_lts": {
+                    "type": "boolean"
+                  },
+                  "eol_date": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "description": "YYYY-MM-DD. null if the cycle has no date."
+                  },
+                  "is_maintained": {
+                    "type": "boolean"
+                  },
+                  "latest_version": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "description": "null if endoflife.date gives none."
+                  }
+                },
+                "required": [
+                  "name",
+                  "is_eol",
+                  "is_lts",
+                  "eol_date",
+                  "is_maintained",
+                  "latest_version"
+                ]
+              },
+              "source": {
+                "type": "string",
+                "description": "Always endoflife.date."
+              },
+              "product": {
+                "type": "string",
+                "description": "The endoflife.date name of the product."
+              },
+              "cycle_variants": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "is_eol": {
+                      "type": "boolean",
+                      "description": "true when eol_date is today or earlier. Without an eol_date, endoflife.date's own flag."
+                    },
+                    "eol_date": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "YYYY-MM-DD. null if the cycle has no date."
+                    },
+                    "is_maintained": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "is_eol",
+                    "eol_date",
+                    "is_maintained"
+                  ]
+                },
+                "description": "The release cycles picked when there are two or more, such as the editions of one release. null otherwise."
+              }
+            },
+            "required": [
+              "url",
+              "cycle",
+              "source",
+              "product",
+              "cycle_variants"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "ecosystem": {
+            "type": "string"
+          },
+          "malicious": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "The OpenSSF malware report, with only id and affects_version. null when there is none.",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "affects_version": {
+                "type": [
+                  "boolean",
+                  "null"
+                ],
+                "description": "true when the version is affected, null when the server cannot tell."
+              }
+            },
+            "required": [
+              "id",
+              "affects_version"
+            ]
+          },
+          "advisories": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "aliases": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "Ids that the result's advisories list as aliases, such as CVE ids, and the ids of the advisories folded into this result."
+                },
+                "affects_version": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ],
+                  "description": "true when the version is affected, null when the server cannot tell."
+                }
+              },
+              "required": [
+                "id",
+                "aliases",
+                "affects_version"
+              ]
+            },
+            "description": "The first 10 results that package_check lists for this package and version, in its order."
+          },
+          "fixed_version": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The fixed_version that package_check answers for this version."
+          },
+          "advisory_total": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "Results that package_check lists for this package and version: its total."
+          },
+          "has_advisory_data": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "true when an advisory of any source names the package. false does not mean that the package does not exist."
+          }
+        },
+        "required": [
+          "eol",
+          "name",
+          "version",
+          "ecosystem",
+          "malicious",
+          "advisories",
+          "fixed_version",
+          "advisory_total",
+          "has_advisory_data"
+        ]
+      },
+      "description": "One result for each looked-up package that did not fail, in request order. ecosystem, name and version are as the request sent them."
+    },
+    "attribution": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The link of the source. null for a source with no known link."
+          },
+          "source": {
+            "type": "string",
+            "description": "ghsa, go, pysec, rustsec, mal or endoflife.date."
+          },
+          "license": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "source",
+          "license"
+        ]
+      },
+      "description": "Each source and license of the results, once."
+    },
+    "credits": {
+      "type": "object",
+      "properties": {
+        "charged": {
+          "type": "integer",
+          "description": "Credits this call cost; 0 for a free tool."
+        },
+        "remaining": {
+          "type": "integer",
+          "description": "Credits left in the budget window. Absent when not paid from a credit budget."
+        }
+      },
+      "required": [
+        "charged"
+      ]
+    }
+  },
+  "required": [
+    "total",
+    "processed",
+    "successful",
+    "skipped",
+    "failed",
+    "not_processed",
+    "data_source",
+    "results",
+    "attribution",
+    "credits"
+  ]
+}

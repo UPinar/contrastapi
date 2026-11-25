@@ -1,0 +1,73 @@
+{
+  "type": "object",
+  "properties": {
+    "total": {
+      "type": "integer",
+      "description": "CVEs that match the filters, before paging."
+    },
+    "limit": {
+      "type": "integer",
+      "description": "Most items in results: the limit argument, 20 by default."
+    },
+    "offset": {
+      "type": "integer",
+      "description": "Items skipped: the offset argument, 0 by default."
+    },
+    "next_offset": {
+      "type": "integer",
+      "description": "offset plus this page's items; total on the last page."
+    },
+    "product_filter_note": {
+      "type": "string",
+      "description": "Present only with a vendor or product filter: such a filter can miss CVEs."
+    },
+    "results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "cve_id": {
+            "type": "string"
+          },
+          "risk_score": {
+            "type": "number",
+            "description": "0-100, from CVSS, EPSS, CISA KEV and public exploit signals."
+          },
+          "label": {
+            "type": "string",
+            "description": "CRITICAL at 90+, HIGH at 70+, MEDIUM at 40+, else LOW."
+          }
+        },
+        "required": [
+          "cve_id",
+          "risk_score",
+          "label"
+        ]
+      }
+    },
+    "credits": {
+      "type": "object",
+      "properties": {
+        "charged": {
+          "type": "integer",
+          "description": "Credits this call cost; 0 for a free tool."
+        },
+        "remaining": {
+          "type": "integer",
+          "description": "Credits left in the budget window. Absent when not paid from a credit budget."
+        }
+      },
+      "required": [
+        "charged"
+      ]
+    }
+  },
+  "required": [
+    "total",
+    "limit",
+    "offset",
+    "next_offset",
+    "results",
+    "credits"
+  ]
+}

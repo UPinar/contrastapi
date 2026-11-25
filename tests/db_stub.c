@@ -102,7 +102,7 @@ static char* static_paddedStringArrayDocument(size_t wanted)
 static char* static_affectedProductsDocument(void)
 {
   if (g_stub_CVELOOKUP_affected_products_len == 0)
-    return strdup("[{\"vendor\":\"apache\",\"product\":\"log4j\"}]");
+    return strdup("[{\"vendor\":\"apache\",\"product\":\"log4j\",\"cpe_part\":\"a\",\"product_source\":\"nvd\",\"is_vulnerable\":true,\"version_end_excluding\":\"2.15.0\"}]");
   return static_paddedStringArrayDocument(g_stub_CVELOOKUP_affected_products_len);
 }
 
@@ -464,8 +464,9 @@ void db_CveListResultFree(CveListResult_t* r)
   g_stub_CveListResultFree_call_count++;
 }
 
-DbStatus_t g_stub_KEVLOOKUP_status   = DB_NOT_FOUND;
-size_t     g_stub_KEVLOOKUP_cwes_len = 0;
+DbStatus_t g_stub_KEVLOOKUP_status    = DB_NOT_FOUND;
+size_t     g_stub_KEVLOOKUP_cwes_len  = 0;
+bool       g_stub_KEVLOOKUP_cwes_null = false;
 
 DbStatus_t db_KEVLOOKUP(PGconn* conn, const char* cve_id, KEVLOOKUPRecord_t* record_out)
 {
@@ -497,11 +498,14 @@ DbStatus_t db_KEVLOOKUP(PGconn* conn, const char* cve_id, KEVLOOKUPRecord_t* rec
     record_out->ma_dateAdded[CVELOOKUP_PUBLISHED_LEN] = '\0';
     strncpy(record_out->ma_dateRemoved, "", KEVLOOKUP_DATE_REMOVED_LEN);
     record_out->ma_dateRemoved[KEVLOOKUP_DATE_REMOVED_LEN] = '\0';
-    record_out->mp_cwes = g_stub_KEVLOOKUP_cwes_len == 0
-                        ? strdup("[\"CWE-917\"]")
-                        : static_paddedStringArrayDocument(g_stub_KEVLOOKUP_cwes_len);
-    if (!record_out->mp_cwes)
-      return DB_ERROR;
+    if (!g_stub_KEVLOOKUP_cwes_null)
+    {
+      record_out->mp_cwes = g_stub_KEVLOOKUP_cwes_len == 0
+                          ? strdup("[\"CWE-917\"]")
+                          : static_paddedStringArrayDocument(g_stub_KEVLOOKUP_cwes_len);
+      if (!record_out->mp_cwes)
+        return DB_ERROR;
+    }
     record_out->mp_notes = strdup("https://logging.apache.org/log4j/2.x/security.html");
     if (!record_out->mp_notes)
     {
@@ -527,6 +531,7 @@ void db_KEVLOOKUPRecordFree(KEVLOOKUPRecord_t* r)
 
 DbStatus_t g_stub_CWELOOKUP_status          = DB_NOT_FOUND;
 size_t     g_stub_CWELOOKUP_mitigations_len = 0;
+bool       g_stub_CWELOOKUP_documents_null  = false;
 
 DbStatus_t db_CWELOOKUP(PGconn* conn, const char* cwe_id, CWELOOKUPRecord_t* record_out)
 {
@@ -552,12 +557,14 @@ DbStatus_t db_CWELOOKUP(PGconn* conn, const char* cwe_id, CWELOOKUPRecord_t* rec
     record_out->ma_likelihood[CWELOOKUP_LIKELIHOOD_LEN] = '\0';
     strncpy(record_out->ma_parentCwe, "CWE-74", CWELOOKUP_PARENT_CWE_LEN);
     record_out->ma_parentCwe[CWELOOKUP_PARENT_CWE_LEN] = '\0';
-    strncpy(record_out->ma_updatedAt, "2026-05-21T00:00:00+00:00", CWELOOKUP_UPDATED_AT_LEN);
+    strncpy(record_out->ma_updatedAt, "2026-05-21T00:00:00Z", CWELOOKUP_UPDATED_AT_LEN);
     record_out->ma_updatedAt[CWELOOKUP_UPDATED_AT_LEN] = '\0';
     record_out->m_cveCount = 42;
     record_out->m_kevCount       = 3;
     record_out->m_avgCvss        = 6.5;
     record_out->m_avgEpss  = 0.0287;
+    if (g_stub_CWELOOKUP_documents_null)
+      return g_stub_CWELOOKUP_status;
     record_out->mp_mitigations = g_stub_CWELOOKUP_mitigations_len == 0
                                ? strdup("[\"Use allowlists.\"]")
                                : static_paddedStringArrayDocument(g_stub_CWELOOKUP_mitigations_len);
@@ -631,6 +638,7 @@ DbStatus_t db_CVELEADING(PGconn* conn, const CVELEADINGParams_t* params, CveList
 
 DbStatus_t g_stub_HEALTH_status     = DB_OK;
 bool       g_stub_HEALTH_full_feeds = false;
+bool       g_stub_HEALTH_no_feeds   = false;
 int        g_stub_HEALTH_call_count = 0;
 
 DbStatus_t db_HEALTH(PGconn* conn, HEALTHData_t* result_out)
@@ -645,13 +653,13 @@ DbStatus_t db_HEALTH(PGconn* conn, HEALTHData_t* result_out)
     result_out->m_cveCount = 251430;
     strncpy(result_out->ma_nvdLastCveId,     "CVE-2026-1234", CVELOOKUP_ID_MAX_LEN);
     result_out->ma_nvdLastCveId[CVELOOKUP_ID_MAX_LEN] = '\0';
-    strncpy(result_out->ma_nvdLastPublishedTime, "2026-05-22T10:00:00Z", CVELOOKUP_PUBLISHED_LEN);
+    strncpy(result_out->ma_nvdLastPublishedTime, "2026-05-22",           CVELOOKUP_PUBLISHED_LEN);
     result_out->ma_nvdLastPublishedTime[CVELOOKUP_PUBLISHED_LEN] = '\0';
 
     result_out->m_kevCount       = 1602;
     strncpy(result_out->ma_kevLastCveId,     "CVE-2024-5678", CVELOOKUP_ID_MAX_LEN);
     result_out->ma_kevLastCveId[CVELOOKUP_ID_MAX_LEN] = '\0';
-    strncpy(result_out->ma_kevLastDateAdded, "2026-05-20T00:00:00Z", CVELOOKUP_PUBLISHED_LEN);
+    strncpy(result_out->ma_kevLastDateAdded, "2026-05-20",           CVELOOKUP_PUBLISHED_LEN);
     result_out->ma_kevLastDateAdded[CVELOOKUP_PUBLISHED_LEN] = '\0';
 
     result_out->m_cweCount = 944;
@@ -660,7 +668,9 @@ DbStatus_t db_HEALTH(PGconn* conn, HEALTHData_t* result_out)
     strncpy(result_out->ma_cweLastUpdatedAt, "2026-03-15T14:07:56Z", CWELOOKUP_UPDATED_AT_LEN);
     result_out->ma_cweLastUpdatedAt[CWELOOKUP_UPDATED_AT_LEN] = '\0';
 
-    if (g_stub_HEALTH_full_feeds)
+    if (g_stub_HEALTH_no_feeds)
+      result_out->m_feedCount = 0;
+    else if (g_stub_HEALTH_full_feeds)
     {
       result_out->m_feedCount = HEALTH_MAX_FEEDS;
       for (int i = 0; i < HEALTH_MAX_FEEDS; i++)
@@ -1045,7 +1055,7 @@ DbStatus_t db_WATCHLISTEVENTS(PGconn* conn, const WATCHLISTEVENTSParams_t* param
   strncpy(advisory->ma_advisoryId, "GHSA-p6mc-m468-83gw", sizeof(advisory->ma_advisoryId) - 1);
   strncpy(advisory->ma_source, "ghsa", sizeof(advisory->ma_source) - 1);
   advisory->mp_aliases       = strdup("[\"CVE-2020-8203\"]");
-  result_out->mp_attribution = strdup("[{\"source\":\"endoflife.date\",\"license\":\"MIT\"},{\"source\":\"ghsa\",\"license\":\"CC-BY-4.0\"}]");
+  result_out->mp_attribution = strdup(WATCHLISTEVENTS_STUB_ATTRIBUTION);
 
   WATCHLISTEVENTSDomainFacts_t* domain_facts = &result_out->mp_domainFacts[0];
   strncpy(domain_facts->ma_domainName, "example.com", sizeof(domain_facts->ma_domainName) - 1);
@@ -1129,7 +1139,7 @@ DbStatus_t db_PRODUCTEXPOSURE(PGconn* conn, const PRODUCTEXPOSUREParams_t* param
     record_out->m_maxEpss        = 0.97531;
     record_out->m_pocBackedCount = 12;
     record_out->m_worstRiskScore = 96.5;
-    strncpy(record_out->ma_mostRecentPublished, "2024-01-15T00:00:00Z", CVELOOKUP_PUBLISHED_LEN);
+    strncpy(record_out->ma_mostRecentPublished, "2024-01-15", CVELOOKUP_PUBLISHED_LEN);
     record_out->ma_mostRecentPublished[CVELOOKUP_PUBLISHED_LEN] = '\0';
     static_fillTriageItem(&record_out->ma_topCves[0], "CVE-2021-44228");
     static_fillTriageItem(&record_out->ma_topCves[1], "CVE-2014-0160");
@@ -1335,6 +1345,7 @@ DbStatus_t g_stub_IPLOOKUP_status                              = DB_ERROR;
 char       g_stub_IPLOOKUP_last_ip_address[INET6_ADDRSTRLEN]   = "";
 int        g_stub_IPLOOKUP_call_count                          = 0;
 int        g_stub_IPLOOKUPRecordFree_call_count                = 0;
+void     (*g_stub_IPLOOKUP_change_record)(IPLOOKUPRecord_t* record) = NULL;
 
 DbStatus_t db_IPLOOKUP(PGconn* conn, const char* ip_address, IPLOOKUPRecord_t* record_out)
 {
@@ -1366,6 +1377,8 @@ DbStatus_t db_IPLOOKUP(PGconn* conn, const char* ip_address, IPLOOKUPRecord_t* r
   record_out->mp_listedOn            = strdup(IPLOOKUP_STUB_LISTED_ON);
   if (!record_out->mp_listedOn)
     return DB_ERROR;
+  if (g_stub_IPLOOKUP_change_record != NULL)
+    g_stub_IPLOOKUP_change_record(record_out);
   return DB_OK;
 }
 
@@ -1607,12 +1620,20 @@ int        g_stub_DRIVERLOOKUPBULK_last_id_count                            = 0;
 int        g_stub_DRIVERLOOKUPBULK_failed_index                             = -1;
 int        g_stub_DRIVERLOOKUPBULKResultFree_call_count                     = 0;
 size_t     g_stub_DRIVERLOOKUPBULK_matches_len                              = 0;
+bool       g_stub_DRIVERLOOKUPBULK_matches_escaped                          = false;
 
 static char* static_driverMatchesDocument(void)
 {
   if (g_stub_DRIVERLOOKUPBULK_matches_len == 0)
     return strdup(DRIVERLOOKUP_STUB_MATCHES);
-  return static_paddedStringArrayDocument(g_stub_DRIVERLOOKUPBULK_matches_len);
+  char* doc = static_paddedStringArrayDocument(g_stub_DRIVERLOOKUPBULK_matches_len);
+  if (doc != NULL && g_stub_DRIVERLOOKUPBULK_matches_escaped)
+    for (size_t k = 2; k + 3 < g_stub_DRIVERLOOKUPBULK_matches_len; k += 2)
+    {
+      doc[k]     = '\\';
+      doc[k + 1] = '\\';
+    }
+  return doc;
 }
 
 DbStatus_t db_DRIVERLOOKUPBULK(PGconn* conn, const BulkIdsParams_t* params, DRIVERLOOKUPBULKResult_t* results_out)

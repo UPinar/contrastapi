@@ -30,15 +30,16 @@ CREATE FUNCTION api.fn_ip_hosting_classes(p_ip_addresses inet[])
                                      AND coalesce((SELECT min(icr.synced_at) FROM public.ip_cloud_range AS icr) >= now() - interval '7 days', false)
                            END AS is_ip_range_list_fresh
                       FROM (SELECT DISTINCT
-                                   CASE WHEN cloud.provider IS NOT NULL   THEN cloud.provider || '/' || cloud.service
-                                        WHEN routed.asn IN (16625, 20940) THEN 'akamai/akamai'
-                                        WHEN routed.asn IS NOT NULL       THEN 'AS' || routed.asn
+                                   CASE WHEN cloud.provider IS NOT NULL       THEN cloud.provider || '/' || cloud.service
+                                        WHEN hosting.is_cdn_without_list      THEN hosting.provider || '/' || hosting.provider
+                                        WHEN routed.asn IS NOT NULL           THEN 'AS' || routed.asn
                                         ELSE 'not_routed'
                                    END            AS hosting_class,
                                    cloud.provider AS provider
                               FROM unnest(p_ip_addresses) AS address (ip)
                               LEFT JOIN LATERAL api.fn_ip_cloud_provider(address.ip) AS cloud ON true
-                              LEFT JOIN LATERAL api.fn_ip_asn_prefix(address.ip) AS routed ON true) AS classified) AS hosted) AS joined;
+                              LEFT JOIN LATERAL api.fn_ip_asn_prefix(address.ip) AS routed ON true
+                              LEFT JOIN public.ip_hosting_asn AS hosting ON hosting.asn = routed.asn) AS classified) AS hosted) AS joined;
   END;
 
 CREATE FUNCTION api.fn_asn_lookup(p_asn               bigint,

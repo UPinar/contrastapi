@@ -1,0 +1,84 @@
+{
+  "type": "object",
+  "description": "An apply tells what the call did to each vendor key. A status tells the state of each stored key. No answer holds a vendor key.",
+  "properties": {
+    "shodan": {
+      "type": "object",
+      "description": "It holds the answer for the Shodan key.",
+      "properties": {
+        "result": {
+          "type": "string",
+          "description": "Present only on an apply. It is saved, deleted, rejected when the vendor refused the key, vendor_unavailable when the vendor gave no usable answer or limited the rate, or unchanged when the call named nothing for this vendor."
+        },
+        "configured": {
+          "type": "boolean",
+          "description": "Present only on an apply. true when a key is stored after the call."
+        },
+        "retry_after_seconds": {
+          "type": "integer",
+          "description": "Present only on an apply, on vendor_unavailable with a wait above 0. It is the wait the vendor asked for."
+        },
+        "state": {
+          "type": "string",
+          "description": "Present only on a status. It is working or rejected when the vendor accepted or refused the stored key just now, vendor_unavailable when the key could not be checked, or not_configured when no key is stored."
+        }
+      },
+      "required": []
+    },
+    "abuseipdb": {
+      "type": "object",
+      "description": "It holds the answer for the AbuseIPDB key.",
+      "properties": {
+        "result": {
+          "type": "string",
+          "description": "As in shodan."
+        },
+        "configured": {
+          "type": "boolean",
+          "description": "As in shodan."
+        },
+        "retry_after_seconds": {
+          "type": "integer",
+          "description": "As in shodan."
+        },
+        "state": {
+          "type": "string",
+          "description": "As in shodan."
+        }
+      },
+      "required": []
+    },
+    "manage_url": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Present only on an apply called with an API key, not with a manage link. It is a new manage link where a human can save keys, and it is valid for 15 minutes. It is a credential: show it only to the key's owner. null when none could be written."
+    },
+    "expires_in_seconds": {
+      "type": "integer",
+      "description": "Present only on a status, which is called with a manage link. It counts the seconds that link has left, 0 or more."
+    },
+    "credits": {
+      "type": "object",
+      "properties": {
+        "charged": {
+          "type": "integer",
+          "description": "Credits this call cost; 0 for a free tool."
+        },
+        "remaining": {
+          "type": "integer",
+          "description": "Credits left in the budget window. Absent when not paid from a credit budget."
+        }
+      },
+      "required": [
+        "charged"
+      ]
+    }
+  },
+  "required": [
+    "shodan",
+    "abuseipdb",
+    "credits"
+  ]
+}

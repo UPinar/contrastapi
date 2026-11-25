@@ -1,0 +1,108 @@
+{
+  "type": "object",
+  "properties": {
+    "version": {
+      "type": "string",
+      "description": "3.0 or 3.1."
+    },
+    "vector": {
+      "type": "string",
+      "description": "The vector as sent."
+    },
+    "base_score": {
+      "type": "number",
+      "description": "0-10."
+    },
+    "base_severity": {
+      "type": "string",
+      "description": "NONE at 0.0, LOW below 4.0, MEDIUM below 7.0, HIGH below 9.0, else CRITICAL."
+    },
+    "metrics": {
+      "type": "object",
+      "description": "The eight base metrics, spelled out.",
+      "properties": {
+        "attack_vector": {
+          "type": "string",
+          "description": "NETWORK, ADJACENT_NETWORK, LOCAL or PHYSICAL."
+        },
+        "attack_complexity": {
+          "type": "string",
+          "description": "LOW or HIGH."
+        },
+        "privileges_required": {
+          "type": "string",
+          "description": "NONE, LOW or HIGH."
+        },
+        "user_interaction": {
+          "type": "string",
+          "description": "NONE or REQUIRED."
+        },
+        "scope": {
+          "type": "string",
+          "description": "UNCHANGED or CHANGED."
+        },
+        "confidentiality_impact": {
+          "type": "string",
+          "description": "HIGH, LOW or NONE."
+        },
+        "integrity_impact": {
+          "type": "string",
+          "description": "HIGH, LOW or NONE."
+        },
+        "availability_impact": {
+          "type": "string",
+          "description": "HIGH, LOW or NONE."
+        }
+      },
+      "required": [
+        "attack_vector",
+        "attack_complexity",
+        "privileges_required",
+        "user_interaction",
+        "scope",
+        "confidentiality_impact",
+        "integrity_impact",
+        "availability_impact"
+      ]
+    },
+    "temporal_score": {
+      "type": "number",
+      "description": "0-10, with the temporal metrics of the vector. A metric it leaves out counts as Not Defined. With none, it equals base_score."
+    },
+    "environmental_score": {
+      "type": "number",
+      "description": "0-10, with the environmental metrics of the vector. A metric it leaves out counts as Not Defined. With none, it usually equals base_score, but CVSS 3.1 can give another value."
+    },
+    "summary": {
+      "type": "string",
+      "description": "One sentence: version, severity, base score, and AV, AC, PR, UI and Scope."
+    },
+    "credits": {
+      "type": "object",
+      "properties": {
+        "charged": {
+          "type": "integer",
+          "description": "Credits this call cost; 0 for a free tool."
+        },
+        "remaining": {
+          "type": "integer",
+          "description": "Credits left in the budget window. Absent when not paid from a credit budget."
+        }
+      },
+      "required": [
+        "charged"
+      ]
+    }
+  },
+  "required": [
+    "version",
+    "vector",
+    "base_score",
+    "base_severity",
+    "metrics",
+    "temporal_score",
+    "environmental_score",
+    "summary",
+    "credits"
+  ]
+}

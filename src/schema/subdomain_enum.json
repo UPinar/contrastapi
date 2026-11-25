@@ -1,0 +1,84 @@
+{
+  "type": "object",
+  "properties": {
+    "domain": {
+      "type": "string",
+      "description": "The registrable domain the server asked about."
+    },
+    "subdomain_count": {
+      "type": "integer",
+      "description": "It counts the names found, up to 1000. subdomains lists at most 50."
+    },
+    "subdomains": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "hostname": {
+            "type": "string"
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "It says how the name was found: certificate_logs, dns_wordlist or dns_records."
+          },
+          "has_ipv4_address": {
+            "type": "boolean",
+            "description": "true when the name has an A record, false when it has none. Absent when the server has no clear answer."
+          }
+        },
+        "required": [
+          "hostname",
+          "sources"
+        ]
+      },
+      "description": "The names DNS confirms come first, then the names only certificate logs give. Each group is in byte order."
+    },
+    "wildcard_dns": {
+      "type": "string",
+      "description": "It says whether random names under the domain resolve. The value absent means they do not, present means they do, and undetermined means the test gave no clear answer."
+    },
+    "certificate_logs_available": {
+      "type": "boolean",
+      "description": "true when Cert Spotter answered and its names are in the answer."
+    },
+    "certificate_logs_complete": {
+      "type": "boolean",
+      "description": "Present only when certificate_logs_available is true. The server reads one page from Cert Spotter. true when that page held no certificate. false when it held some, since a later page may hold more names."
+    },
+    "certificate_logs_reason": {
+      "type": "string",
+      "description": "Present only when certificate_logs_available is false. It is quota_exhausted or upstream_error."
+    },
+    "retry_after_seconds": {
+      "type": "integer",
+      "description": "Seconds to wait before the server sends that request again. Present only when certificate_logs_reason is quota_exhausted. A cached answer shows the wait from when it was made."
+    },
+    "credits": {
+      "type": "object",
+      "properties": {
+        "charged": {
+          "type": "integer",
+          "description": "Credits this call cost; 0 for a free tool."
+        },
+        "remaining": {
+          "type": "integer",
+          "description": "Credits left in the budget window. Absent when not paid from a credit budget."
+        }
+      },
+      "required": [
+        "charged"
+      ]
+    }
+  },
+  "required": [
+    "domain",
+    "subdomain_count",
+    "subdomains",
+    "wildcard_dns",
+    "certificate_logs_available",
+    "credits"
+  ]
+}

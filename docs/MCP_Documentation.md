@@ -80,9 +80,10 @@ Only a top-level `protocolVersion` member of `params` is read. One inside anothe
 `clientInfo`, counts as absent, and so does one inside `params` that are an array.
 
 The wire shape of `initialize`, of the `tools/call` text content and of `isError` is the same in all
-three revisions. A `tools/list` entry carries `title` and `_meta`. The 2025-03-26 revision does not
-define these two members of a tool. The `tools/list` document does not change with the negotiated
-version.
+three revisions. A `tools/list` entry carries `title`, `_meta` and `outputSchema`. A successful
+`tools/call` result carries `structuredContent`. The
+2025-03-26 revision does not define these members. The `tools/list` document and the result do not
+change with the negotiated version, so every supported version gets them, 2025-03-26 included.
 
 ---
 
@@ -152,7 +153,7 @@ The modern era has no handshake. Discovery is a plain request, and it costs no c
     "cacheScope":"public", "ttlMs":3600000,
     "supportedVersions":["2026-07-28"],
     "capabilities":{ "tools":{} },
-    "serverInfo":{ "name":"contrastapi", "title":"ContrastAPI", "version":"2.3.1" },
+    "serverInfo":{ "name":"contrastapi", "title":"ContrastAPI", "version":"2.3.3" },
     "instructions":"ContrastAPI is a security data and monitoring server, with watchlists of CVEs, packages, domains and IP addresses. Call cve_lookup for a CVE, package_check for a package, dns_lookup for a domain and ip_lookup for an IP address. Call watchlist_edit and watchlist_events for monitoring, which needs an API key. A Pro API key is sold at https://api.contrastcyber.com/pricing. It looks up, searches and scores CVE, KEV and CWE records. It gives public exploit intelligence. It decodes and scores a CVSS v3 vector. It checks a password's SHA-1 against Have I Been Pwned. It reads a domain's DNS records and checks a host name for a dangling CNAME. It checks a domain's SPF, DMARC, DKIM and MTA-STS records. It checks whether an e-mail address's domain takes mail and whether the address is disposable. It checks the TLS certificate and settings of a host name and rates the security headers of a web site. It reads the robots.txt and the security.txt of a web site. It looks up the registration of a domain name over RDAP or WHOIS. It lists the Wayback Machine captures of a host name. It lists the unexpired certificates that Certificate Transparency logs hold for a host name. It lists the subdomains of a registrable domain from Certificate Transparency and DNS. It names the MITRE D3FEND defenses that counter a MITRE ATT&CK technique. It finds a driver file hash in the LOLDrivers catalog. It looks up the AS, the country, the cloud range, the Tor exit, the crawler range and the DROP listing of a public IP address. It looks up an AS by its number or by an address it holds. It checks a package or a list of packages of nine ecosystems against OSV.dev advisories and malicious packages. It gives the end-of-life dates of a product or a package from endoflife.date. The watchlist keeps CVE, package, domain and IP items for an API key, and watchlist_events reads their change events. A Pro API key can save its own Shodan and AbuseIPDB keys with vendor_key_edit, and ip_lookup then adds their answers. It says what it keeps about the caller. It follows the redirect chain of a URL and lists each hop. A call with no API key and no credits left can pay per call with x402 in USDC on Solana."
   } }
 ```
@@ -239,8 +240,8 @@ era changes only the envelope rules and the HTTP statuses.
 |---|---|---|
 | `initialize` | **Legacy era only.** Handshake; negotiate protocol version, advertise capabilities | `result` with `protocolVersion`, `capabilities`, `serverInfo`, `instructions` |
 | `server/discover` | **Modern era only.** Self-description; replaces the handshake | `result` with `supportedVersions`, `capabilities`, `serverInfo`, `instructions` and cache hints; see [Protocol eras](#protocol-eras--the-2026-07-28-stateless-envelope) |
-| `tools/list` | Enumerate the available tools and their JSON Schemas | `result` with `tools[]` (each has `name`, `title`, `description`, `inputSchema`, `annotations`, `_meta`) |
-| `tools/call` | Invoke one tool by name with `arguments` | `result` with a text content block (see below) |
+| `tools/list` | Enumerate the available tools and their JSON Schemas | `result` with `tools[]` (each has `name`, `title`, `description`, `inputSchema`, `annotations`, `_meta`, `outputSchema`) |
+| `tools/call` | Invoke one tool by name with `arguments` | `result` with a text content block, and `structuredContent` on success (see below) |
 | `ping` | Liveness check | `result` `{}` |
 | `notifications/*` | **Legacy era only.** Client→server notification (no `id`), e.g. `notifications/initialized` | **HTTP 202**, no body |
 
@@ -267,7 +268,7 @@ An id longer than 64 bytes is still served, but its reply carries `"id":null`.
   "result":{
     "protocolVersion":"2025-11-25",
     "capabilities":{ "tools":{} },
-    "serverInfo":{ "name":"contrastapi", "title":"ContrastAPI", "version":"2.3.1" },
+    "serverInfo":{ "name":"contrastapi", "title":"ContrastAPI", "version":"2.3.3" },
     "instructions":"ContrastAPI is a security data and monitoring server, with watchlists of CVEs, packages, domains and IP addresses. Call cve_lookup for a CVE, package_check for a package, dns_lookup for a domain and ip_lookup for an IP address. Call watchlist_edit and watchlist_events for monitoring, which needs an API key. A Pro API key is sold at https://api.contrastcyber.com/pricing. It looks up, searches and scores CVE, KEV and CWE records. It gives public exploit intelligence. It decodes and scores a CVSS v3 vector. It checks a password's SHA-1 against Have I Been Pwned. It reads a domain's DNS records and checks a host name for a dangling CNAME. It checks a domain's SPF, DMARC, DKIM and MTA-STS records. It checks whether an e-mail address's domain takes mail and whether the address is disposable. It checks the TLS certificate and settings of a host name and rates the security headers of a web site. It reads the robots.txt and the security.txt of a web site. It looks up the registration of a domain name over RDAP or WHOIS. It lists the Wayback Machine captures of a host name. It lists the unexpired certificates that Certificate Transparency logs hold for a host name. It lists the subdomains of a registrable domain from Certificate Transparency and DNS. It names the MITRE D3FEND defenses that counter a MITRE ATT&CK technique. It finds a driver file hash in the LOLDrivers catalog. It looks up the AS, the country, the cloud range, the Tor exit, the crawler range and the DROP listing of a public IP address. It looks up an AS by its number or by an address it holds. It checks a package or a list of packages of nine ecosystems against OSV.dev advisories and malicious packages. It gives the end-of-life dates of a product or a package from endoflife.date. The watchlist keeps CVE, package, domain and IP items for an API key, and watchlist_events reads their change events. A Pro API key can save its own Shodan and AbuseIPDB keys with vendor_key_edit, and ip_lookup then adds their answers. It says what it keeps about the caller. It follows the redirect chain of a URL and lists each hop. A call with no API key and no credits left can pay per call with x402 in USDC on Solana."
   } }
 ```
@@ -279,8 +280,22 @@ Because the server is stateless, you may skip `initialize` entirely and call `to
 ## Tools
 
 `tools/list` returns one entry for each tool. The members of an entry come in this order: `name`,
-`title`, `description`, `inputSchema`, `annotations` and `_meta`. The same list goes to every
-negotiated protocol version.
+`title`, `description`, `inputSchema`, `outputSchema`, `annotations` and `_meta`. Every tool has an
+`outputSchema`. The same list goes to every negotiated protocol version.
+
+`outputSchema` is the JSON Schema of the tool's successful answer. It lists each member the answer
+writes, in the answer's order, and `required` names the members the answer always holds. A declared
+member that is not in `required` is sometimes absent. Its description says when, or a sibling's
+description says it for the group. A member that can be `null` has a type array, such as
+`["string","null"]`. A member whose JSON type changes
+has a type array too, such as `["string","object","null"]`. A member with more than one object form
+declares the members of every form, none of them required, and its description says which form
+means what. An
+object whose keys are data, such as a count for each vendor, has `additionalProperties` with the
+schema of each value and no `properties`. The schema uses only `type`, `properties`, `required`,
+`items`, `description` and `additionalProperties`. Every schema ends with the same `credits`
+member: `charged` is always there, and `remaining` is absent when the call was not paid from a
+credit budget, such as a call paid with x402.
 
 `title` is the name a client shows to a person. No two tools share a title.
 
@@ -315,7 +330,7 @@ decide what it asks.
 One entry, with its description shortened to `…`:
 
 ```json
-{"name":"kev_lookup","title":"CISA KEV Lookup","description":"…","inputSchema":{"type":"object","properties":{"cve_id":{"type":"string","maxLength":24,"description":"CVE ID"}},"required":["cve_id"],"additionalProperties":false},"annotations":{"readOnlyHint":true,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"CVE Intelligence","com.contrastcyber/credits":{"per_call":1}}}
+{"name":"kev_lookup","title":"CISA KEV Lookup","description":"…","inputSchema":{"type":"object","properties":{"cve_id":{"type":"string","maxLength":24,"description":"CVE ID"}},"required":["cve_id"],"additionalProperties":false},"outputSchema":{"type":"object","description":"A CVE in CISA KEV now or removed from it. A CVE never listed gets the tool error KEV entry not found.","properties":{"cve_id":{"type":"string"},"in_kev":{"type":"boolean","description":"false for an entry CISA removed from the catalog."},"date_added":{"type":"string","description":"YYYY-MM-DD, or empty."},"vendor_project":{"type":"string"},"product":{"type":"string"},"patch_deadline":{"type":"string","description":"YYYY-MM-DD by which US federal agencies must patch, or empty."},"required_action":{"type":"string"},"known_ransomware_use":{"type":"boolean"},"vulnerability_name":{"type":"string"},"short_description":{"type":"string"},"notes":{"type":"string","description":"CISA's free text, often URLs, or empty."},"cwes":{"type":["array","null"],"items":{"type":"string"}},"date_removed":{"type":"string","description":"UTC YYYY-MM-DDTHH:MM:SSZ the KEV sync found it gone from CISA's feed. Empty while listed."},"credits":{"type":"object","properties":{"charged":{"type":"integer","description":"Credits this call cost; 0 for a free tool."},"remaining":{"type":"integer","description":"Credits left in the budget window. Absent when not paid from a credit budget."}},"required":["charged"]}},"required":["cve_id","in_kev","date_added","vendor_project","product","patch_deadline","required_action","known_ransomware_use","vulnerability_name","short_description","notes","cwes","date_removed","credits"]},"annotations":{"readOnlyHint":true,"openWorldHint":false},"_meta":{"com.contrastcyber/category":"CVE Intelligence","com.contrastcyber/credits":{"per_call":1}}}
 ```
 
 `tools/list` returns each tool's `inputSchema`. The schema gives each argument's type and names the
@@ -562,6 +577,23 @@ inner `text` is the data payload as a JSON *string* (escaped):
 
 Clients parse `result.content[0].text` to recover the data object.
 
+Every tool also sends the data object as `result.structuredContent`, after
+`content` and before `isError`. It is the same JSON as the text, without the text's trailing newline,
+so a client may read either one:
+
+```json
+{ "jsonrpc":"2.0", "id":3,
+  "result":{
+    "content":[ { "type":"text", "text":"{\"cve_id\":\"CVE-2021-44228\", ...}\n" } ],
+    "structuredContent":{ "cve_id":"CVE-2021-44228", ... },
+    "isError":false
+  } }
+```
+
+A tool error (`isError:true`) and a JSON-RPC `error` carry no `structuredContent`, even for these
+tools. The x402 payment offer is the same for every tool: its `structuredContent` is the
+PaymentRequired object, not the tool's answer.
+
 ---
 
 ## Per-tool call reference
@@ -612,7 +644,7 @@ curl -sX POST https://api.contrastcyber.com/mcp \
 ```
 On the wire (note the escaped `text`):
 ```json
-{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"{\"cve_id\":\"CVE-2021-44228\",\"severity\":\"CRITICAL\",\"cvss_v3\":10.0,\"epss_score\":0.94358,\"in_kev\":true, ... }"}],"isError":false}}
+{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"{\"cve_id\":\"CVE-2021-44228\",\"severity\":\"CRITICAL\",\"cvss_v3\":10.0,\"epss_score\":0.94358,\"in_kev\":true, ... }"}],"structuredContent":{"cve_id":"CVE-2021-44228","severity":"CRITICAL","cvss_v3":10.0,"epss_score":0.94358,"in_kev":true, ... },"isError":false}}
 ```
 ```jsonc
 // decoded payload (trimmed):
@@ -620,7 +652,7 @@ On the wire (note the escaped `text`):
   "cvss_v3_vector":"CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H", "cvss_v3_source":"nvd",
   "cvss_v4":null, "cvss_v4_vector":null, "cvss_v4_source":null,
   "published_time":"2021-12-10", "epss_score":0.94358, "epss_percentile":0.99963, "cwe_id":"CWE-20", "cwe_source":"cna",
-  "cwes":["CWE-20","CWE-400","CWE-502","CWE-917"], "in_kev":true, "kev_date_added":"2021-12-10",
+  "cwes":["CWE-20","CWE-400","CWE-502"], "in_kev":true, "kev_date_added":"2021-12-10",
   "vulnerability_status":"Analyzed", "affected_products":[…], "affected_product_count":356,
   "product_count_by_vendor":{"apple":1,"cisco":258,"intel":6,"apache":4,"debian":3,"netapp":10,"bentley":2,"siemens":66,"snowsoftware":2,"fedoraproject":2}, "refs":[…], "ref_count":52 /* + ransomware_campaign: "Known" | "Unknown" from the local KEV table, null outside KEV */
   /* + ssvc: CISA's SSVC assessment and the decision for each mission and well-being level (low, medium, high); null when CISA has not assessed the CVE */
@@ -630,6 +662,8 @@ On the wire (note the escaped `text`):
 `affected_products` holds the first 20 products, the vulnerable ones first, each group sorted by
 vendor and product. `refs` holds the first 20 references, sorted by URL. `affected_product_count` and `ref_count` count all of them, and `product_count_by_vendor`
 counts the products of at most 10 vendors, the ones with the most. For the other products, call `cve_products`.
+
+The tool has an `outputSchema`, so a found CVE also comes as `structuredContent`.
 
 `ssvc` is the object that [`GET /cve_lookup`](API_Documentation.md#the-ssvc-object) describes. The
 tool description tells a model that does not know its level to read `high`. The advice to read
@@ -650,7 +684,9 @@ the state of the id, the call is a tool error (`isError` true). Its text is the 
 | `cve_ids` | string[] | ✅ | CVE IDs, **max 50**. Billed **per id**. IDs beyond the remaining budget come back in `not_processed`. |
 
 Mirrors [`POST /cve_lookup_bulk`](API_Documentation.md#cve-lookup-bulk-post-cve_lookup_bulk).
-A body that would reach 4 MiB answers `-32603` here, where REST answers `500`.
+A body that would reach 4 MiB answers `-32603` here, where REST answers `500`. The tool has an
+`outputSchema`, so the answer also comes as `structuredContent`. The bulk text ends at its closing
+brace, with no newline, so `structuredContent` is the whole text.
 
 A `cve_ids` that names one ID twice is a tool `isError`, e.g. `cve_ids[2] repeats cve_ids[0]`.
 The text gives the two positions, the repeat first, and never holds an ID. An element that is not a
@@ -706,6 +742,8 @@ curl -sX POST https://api.contrastcyber.com/mcp \
 { "cve_id":"CVE-2021-44228", "total":258, "limit":2, "offset":0, "next_offset":2,
   "results":[ { "vendor":"cisco", "product":"advanced_malware_protection_virtual_private_cloud_appliance", … }, … ] }
 ```
+
+The tool has an `outputSchema`, so a found CVE's page also comes as `structuredContent`.
 
 ---
 
@@ -770,6 +808,8 @@ When `vendor` or `product` is set, the answer holds `product_filter_note` before
 that NVD has not analysed carries only the names its CNA wrote. The exact match finds such a CVE
 only when its CNA wrote the same name.
 
+The tool has an `outputSchema`, so the answer also comes as `structuredContent`.
+
 ---
 
 ### `cve_triage` — risk-ranked remediation order
@@ -810,6 +850,7 @@ curl -sX POST https://api.contrastcyber.com/mcp \
 ```
 With `vendor` or `product` set, the answer holds `product_filter_note` before `results`, as in
 `cve_search`. A `next_offset` above 10000 is refused.
+The tool has an `outputSchema`, so the answer also comes as `structuredContent`.
 
 ---
 
@@ -838,6 +879,7 @@ The payload has the bulk fields of [`cve_lookup_bulk`](#cve_lookup_bulk--many-cv
 result is a lean row of [`cve_triage`](#cve_triage--risk-ranked-remediation-order): `cve_id`,
 `risk_score` and `label`. The rows are ordered by `risk_score`, not by input order.
 `skipped` counts the elements that are not a well-formed CVE ID; `failed` counts valid ids not found; `not_processed` lists the well-formed ids the credit budget did not cover. A CVE whose stored record cannot be read counts in `failed` too. The other ids are still answered.
+The tool has an `outputSchema`, so the answer also comes as `structuredContent`.
 
 ---
 
@@ -874,6 +916,7 @@ With `vendor` or `product` set, the answer holds `product_filter_note` after `su
 `cve_search`.
 `cve_leading` leaves out the CVEs that NVD marks Rejected, and its `total` counts the same rows. Set
 `include_rejected` to `true` to list them too.
+The tool has an `outputSchema`, so the answer also comes as `structuredContent`.
 
 ---
 
@@ -915,6 +958,7 @@ When the window cannot be computed, the answer is a tool result, not an error. I
 `"from_date":null`, a `window_note` after `to_date` and an empty `results` list.
 With `vendor` or `product` set, the answer holds `product_filter_note` before `results`, as in
 `cve_search`. A `next_offset` above 10000 is refused.
+The tool has an `outputSchema`, so the answer also comes as `structuredContent`.
 
 ---
 
@@ -925,6 +969,7 @@ With `vendor` or `product` set, the answer holds `product_filter_note` before `r
 | `cve_id` | string | ✅ | CVE ID |
 
 Mirrors [`GET /kev_lookup/{cve_id}`](API_Documentation.md#kev-lookup-get-kev_lookupcve_id). Returns `isError:true` "KEV entry not found" when the CVE has no KEV entry. An entry that CISA removed from the catalog is still returned, with `in_kev` false.
+The tool has an `outputSchema`, so a found entry also comes as `structuredContent`.
 
 **Example prompts:**
 - "Is CVE-2021-44228 in CISA KEV, and what is its patch deadline?"
@@ -953,6 +998,8 @@ The `cve_count` still includes the CVEs that NVD marks Rejected. It can exceed t
 `cve_search` with the same `cwe_id`.
 The `owasp_top10` field lists the OWASP Top 10 categories of the weakness in the 2021 and 2025 editions.
 It is `[]` for a weakness in no category and null while the category data is not loaded.
+`updated_at` is UTC, in the form `YYYY-MM-DDTHH:MM:SSZ`. The tool has an `outputSchema`, so a found
+weakness also comes as `structuredContent`.
 
 **Example prompts:**
 - "Explain CWE-79."
@@ -970,7 +1017,8 @@ curl -sX POST https://api.contrastcyber.com/mcp \
   "name":"Improper Neutralization of Input During Web Page Generation ('Cross-site Scripting')",
   "description":"The product does not neutralize or incorrectly neutralizes user-controllable input …",
   "extended_description":"There are many variants of cross-site scripting …",
-  "owasp_top10":[{"id": "A03", "name": "Injection", "year": 2021}, {"id": "A05", "name": "Injection", "year": 2025}] }
+  "owasp_top10":[{"id": "A03", "name": "Injection", "year": 2021}, {"id": "A05", "name": "Injection", "year": 2025}],
+  "updated_at":"2026-05-20T14:07:56Z" }
 ```
 
 ---
@@ -999,6 +1047,8 @@ curl -sX POST https://api.contrastcyber.com/mcp \
                  "evidence":{ "score":6.60, "max":10.00 } },
   "credits":{"charged":1,"remaining":29} }
 ```
+
+The tool has an `outputSchema`, so the answer also comes as `structuredContent`.
 
 ---
 
@@ -1030,6 +1080,8 @@ curl -sX POST https://api.contrastcyber.com/mcp \
                 "top_results":[ { "url":"https://github.com/fullhunt/log4j-scan",
                                   "name":"fullhunt/log4j-scan", "stars":3428 }, … ] }, … ] }
 ```
+
+The tool has an `outputSchema`, so the answer also comes as `structuredContent`.
 
 ---
 
@@ -1080,6 +1132,11 @@ is `cycle_variants`. The other member is `null`, and with no series both are.
 `maintained_cycles` lists at most 10 cycles, the newest release first. The API page gives the whole rule:
 [the `eol` member](API_Documentation.md#the-eol-member).
 
+`max_cvss`, `avg_cvss` and `max_epss` are `null` when no CVE of the pair has the score, and
+`most_recent_published` is `null` when no CVE matches.
+
+The tool has an `outputSchema`, so the answer also comes as `structuredContent`.
+
 ---
 
 ### `cpe_search` — CPE vendor and product names
@@ -1108,6 +1165,8 @@ curl -sX POST https://api.contrastcyber.com/mcp \
   "results":[ { "vendor":"microsoft", "product":"windows_10_1809", "vulnerable_cve_count":3126, "product_named_by":["cna_cpe","nvd"] }, … ] }
 ```
 A `next_offset` above 10000 is refused.
+
+The tool has an `outputSchema`, so the answer also comes as `structuredContent`.
 
 ---
 
@@ -1141,6 +1200,8 @@ curl -sX POST https://api.contrastcyber.com/mcp \
   "temporal_score":9.2, "environmental_score":9.2,
   "summary":"CVSS v3.1 CRITICAL (10.0). AV=NETWORK, AC=LOW, PR=NONE, UI=NONE, Scope=CHANGED." }
 ```
+
+The tool has an `outputSchema`, so the answer also comes as `structuredContent`.
 
 ---
 
@@ -1177,6 +1238,8 @@ curl -sX POST https://api.contrastcyber.com/mcp \
   "credits":{"charged":1,"remaining":29} }
 ```
 
+The tool has an `outputSchema`, so the answer also comes as `structuredContent`.
+
 ---
 
 ### `dns_lookup` — the DNS records of a domain
@@ -1212,6 +1275,8 @@ curl -sX POST https://api.contrastcyber.com/mcp \
   "summary":"1 A, 2 NS, 1 TXT, 1 SOA records for example.com" }
 ```
 
+The tool has an `outputSchema`, so the answer also comes as `structuredContent`.
+
 ---
 
 ### `dns_takeover_check` — a dangling CNAME that someone could claim
@@ -1246,6 +1311,8 @@ curl -sX POST https://api.contrastcyber.com/mcp \
   "summary":"shop.example.com points to shop-example.cloudapp.net, which does not exist. Microsoft Azure lets anyone claim that name, so shop.example.com can be taken over.",
   "credits":{"charged":1,"remaining":29} }
 ```
+
+The tool has an `outputSchema`, so the answer also comes as `structuredContent`.
 
 ---
 
@@ -1289,6 +1356,8 @@ curl -sX POST https://api.contrastcyber.com/mcp \
   "check_counts":{ "pass":20, "warn":1, "fail":0 } }
 ```
 
+The tool has an `outputSchema`, so the answer also comes as `structuredContent`.
+
 ---
 
 
@@ -1328,6 +1397,8 @@ curl -sX POST https://api.contrastcyber.com/mcp \
   "disposable":false, "disposable_listed_domain":null, "unavailable":{},
   "credits":{"charged":1,"remaining":29} }
 ```
+
+The tool has an `outputSchema`, so the answer also comes as `structuredContent`.
 
 ---
 
@@ -1388,6 +1459,8 @@ curl -sX POST https://api.contrastcyber.com/mcp \
   "credits":{"charged":1,"remaining":29} }
 ```
 
+The tool has an `outputSchema`, so the answer also comes as `structuredContent`.
+
 ---
 
 
@@ -1430,6 +1503,8 @@ curl -sX POST https://api.contrastcyber.com/mcp \
   "ipv4_prefix_count":317, "ipv6_prefix_count":143, "limit":50, "offset":0, "next_offset":50,
   "ipv4_prefixes":["8.8.4.0/24", "8.8.8.0/24", …], "ipv6_prefixes":["2001:4860::/36", "2001:4860:1000::/43", …] }
 ```
+
+The tool has an `outputSchema`, so the answer also comes as `structuredContent`.
 
 ---
 
@@ -1478,6 +1553,8 @@ curl -sX POST https://api.contrastcyber.com/mcp \
                  "dns_names":["www.example.com","example.com"], "listed_on":[], … },
   "chain":[ … ], "chain_truncated":false, "unavailable":{} }
 ```
+
+The tool has an `outputSchema`, so the answer also comes as `structuredContent`.
 
 ---
 
@@ -1536,6 +1613,8 @@ curl -sX POST https://api.contrastcyber.com/mcp \
     { "header":"Access-Control-Allow-Origin", "severity":"low", "result":"pass", "issues":[], "value":"*" } ] }
 ```
 
+The tool has an `outputSchema`, so the answer also comes as `structuredContent`.
+
 ---
 
 
@@ -1585,6 +1664,8 @@ curl -sX POST https://api.contrastcyber.com/mcp \
     "unknown_field_count":0, "issues":[], "by_severity":{ "error":0, "warning":0, "info":0 } } }
 ```
 
+The tool has an `outputSchema`, so the answer also comes as `structuredContent`.
+
 ---
 
 
@@ -1632,6 +1713,8 @@ curl -sX POST https://api.contrastcyber.com/mcp \
   "hops":[ { "url":"http://example.com/", "status_code":301 }, { "url":"https://www.example.com/", "status_code":200 } ],
   "credits":{"charged":1,"remaining":29} }
 ```
+
+The tool has an `outputSchema`, so the answer also comes as `structuredContent`.
 
 ---
 
@@ -1685,6 +1768,8 @@ curl -sX POST https://api.contrastcyber.com/mcp \
   "credits":{"charged":1,"remaining":29} }
 ```
 
+The tool has an `outputSchema`, so the answer also comes as `structuredContent`.
+
 ---
 
 
@@ -1729,6 +1814,8 @@ curl -sX POST https://api.contrastcyber.com/mcp \
                         "url":"https://web.archive.org/web/20261024162230/example.com" }, … ],
   "archive_url":"https://web.archive.org/web/*/example.com" }
 ```
+
+The tool has an `outputSchema`, so the answer also comes as `structuredContent`.
 
 ---
 
@@ -1784,6 +1871,8 @@ curl -sX POST https://api.contrastcyber.com/mcp \
                             "valid_from":"2026-09-15T00:00:00Z", "valid_until":"2027-03-14T23:59:59Z",
                             "revoked":false, "dns_names":["example.com","www.example.com"], "dns_name_count":2 }, … ] }
 ```
+
+The tool has an `outputSchema`, so the answer also comes as `structuredContent`.
 
 ---
 
@@ -1856,6 +1945,8 @@ curl -sX POST https://api.contrastcyber.com/mcp \
   "credits":{"charged":2,"remaining":28} }
 ```
 
+The tool has an `outputSchema`, so the answer also comes as `structuredContent`.
+
 ---
 
 
@@ -1891,6 +1982,8 @@ curl -sX POST https://api.contrastcyber.com/mcp \
                "defense_tactic":"Detect","digital_artifact":"Process Code Segment",
                "attack_technique_ids":["T1055.012"]}, …] }
 ```
+
+The tool has an `outputSchema`, so the answer also comes as `structuredContent`.
 
 ---
 
@@ -1938,6 +2031,8 @@ curl -sX POST https://api.contrastcyber.com/mcp \
               "attack_technique_ids":"T1068"}] }
 ```
 
+The tool has an `outputSchema`, so the answer also comes as `structuredContent`.
+
 ---
 
 ### `driver_lookup_bulk` — many driver file hashes in the LOLDrivers catalog
@@ -1947,9 +2042,9 @@ curl -sX POST https://api.contrastcyber.com/mcp \
 | `hashes` | string[] | ✅ | MD5, SHA1 or SHA256 hashes of driver files or of their Authentihash, **max 20**. Billed **per hash**. Hashes beyond the remaining budget come back in `not_processed`, in lower case. |
 
 Mirrors [`POST /driver_lookup_bulk`](API_Documentation.md#driver-lookup-bulk-post-driver_lookup_bulk).
-Both answers share the 16 MiB limit, but the MCP answer is longer: it escapes the payload into
-one JSON string. A payload just under the limit can therefore ship over REST with `200` and still
-answer `-32603` here.
+A body that would reach 4 MiB answers `-32603` here, where REST answers `500`. The tool has an
+`outputSchema`, so the answer also comes as `structuredContent`. The bulk text ends at its closing
+brace, with no newline, so `structuredContent` is the whole text.
 Each result has the fields of `driver_lookup`, but the `data_source` object comes once, at the top.
 The context-only note on `detection_rules` applies to each result. A bulk call carries no command text. The tool keeps each hash in lower case, so a hash given twice, in
 either case, is a tool `isError`, e.g. `hashes[1] repeats hashes[0]`. An element that is not a hash is
@@ -2008,6 +2103,8 @@ curl -sX POST https://api.contrastcyber.com/mcp \
 `has_advisory_data` is `false` for a package no advisory names; it does not say the package does not
 exist.
 
+The tool has an `outputSchema`, so the answer also comes as `structuredContent`.
+
 ---
 
 ### `package_check_bulk` — many packages against OSV.dev advisories and malicious packages
@@ -2043,6 +2140,8 @@ curl -sX POST https://api.contrastcyber.com/mcp \
 The payload has the bulk fields of [`cve_lookup_bulk`](#cve_lookup_bulk--many-cves-at-once), with
 `not_processed` as package objects, and `data_source`, `results` and `attribution`. `data_source.available` is `null` when no
 package was looked up.
+
+The tool has an `outputSchema`, so the answer also comes as `structuredContent`.
 
 ---
 
@@ -2207,6 +2306,8 @@ curl -sX POST https://api.contrastcyber.com/mcp -H "X-API-Key: $KEY" \
   "credits":{"charged":1,"remaining":499} }
 ```
 
+The tool has an `outputSchema`, so the answer also comes as `structuredContent`.
+
 ---
 
 ### `watchlist_events` — the changes that match the watch list
@@ -2270,12 +2371,18 @@ curl -sX POST https://api.contrastcyber.com/mcp -H "X-API-Key: $KEY" \
                               "ip_address_reachability":"public", "cname_takeover":"none", "email_auth_failing":{} } } }
 ```
 
+The tool has an `outputSchema`, so the answer also comes as `structuredContent`.
+
 ---
 
 
 ### `health` — data-source freshness
 
 No arguments. Free (0 credits). Mirrors [`GET /health`](API_Documentation.md#health). The answer can be up to 5 seconds old, as the REST answer can. When the database cannot be read, the tool answers `-32603` rather than the REST 503 body.
+The tool has an `outputSchema`, so the answer also comes as `structuredContent`. Over MCP `db` is
+never null. `last_synced` is when a feed's state was last written, not its last success: read it
+with `last_status`. `cwe.last_updated.updated_at` and `last_synced` are UTC, in the form
+`YYYY-MM-DDTHH:MM:SSZ`.
 
 **Example prompts:**
 - "Is the CVE/KEV/CWE data up to date?"
@@ -2287,7 +2394,7 @@ curl -sX POST https://api.contrastcyber.com/mcp -H "X-API-Key: $KEY" \
 ```
 ```jsonc
 // result.content[0].text (decoded):
-{ "status":"ok", "version":"2.3.1",
+{ "status":"ok", "version":"2.3.3",
   "db":{ "nvd":{ "cve_count":352507, "last_added":{ "cve_id":"CVE-2026-47782", "published_time":"2026-05-31" } },
          "kev":{ "entry_count":1592, "last_added":{ "cve_id":"CVE-2026-42897", "date_added":"2026-05-15" } },
          "cwe":{ "entry_count":944, "last_updated":{ "cwe_id":"CWE-1434", "updated_at":"2026-05-20T14:07:56Z" } },
@@ -2330,6 +2437,8 @@ curl -sX POST https://api.contrastcyber.com/mcp \
   "credits":{"charged":1,"remaining":29} }
 ```
 
+The tool has an `outputSchema`, so the answer also comes as `structuredContent`.
+
 ---
 
 ### `vendor_key_edit` — the Shodan and AbuseIPDB keys of a Pro key
@@ -2361,6 +2470,8 @@ curl -sX POST https://api.contrastcyber.com/mcp -H "X-API-Key: $KEY" \
   "manage_url":"https://api.contrastcyber.com/vendor-keys#l=<64 hex digits>",
   "credits":{"charged":1,"remaining":499} }
 ```
+
+The tool has an `outputSchema`, so the answer also comes as `structuredContent`.
 
 ---
 

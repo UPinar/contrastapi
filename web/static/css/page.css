@@ -1,61 +1,69 @@
-.page { max-inline-size: 52rem; margin-inline: auto; padding: 3rem 2rem; position: relative; z-index: 1; }
-.page h1 { font-size: 2.25rem; font-weight: 800; letter-spacing: -0.04em; margin-block-end: 0.5rem; }
+.page { max-inline-size: 50rem; margin-inline: auto; padding: 3rem 2rem; position: relative; z-index: 1; }
+.page h1 { font-size: var(--text-preset-1); font-weight: 800; letter-spacing: -0.02em; margin-block-end: 0.5rem; }
 .page h1 span { color: var(--primary); }
 .page h1.capability-title { margin-block-end: 1.25rem; }
 .page .subtitle { color: var(--text-dim); margin: 0 0 3rem; max-width: none; }
-.page h2 { font-size: 1.1rem; margin: 0 0 1rem; padding-block-end: 0.5rem; border-block-end: 1px solid var(--border); }
+.page h2 { font-size: var(--text-preset-2); margin: 0 0 1rem; padding-block-end: 0.5rem; border-block-end: 1px solid var(--border); }
 .page h2 .num { color: var(--primary); }
-.page p { color: var(--text-muted); margin-block-end: 1rem; }
+/* A paragraph and a list item are long text, so they take the reading font, a paragraph a little
+   larger than the 14px base. */
+.page p { font-family: var(--font-prose); font-size: 1.1em; color: var(--text-muted); margin-block-end: 1rem; line-height: var(--leading-prose); }
 /* A list keeps its markers on a small indent, as .freshness-list does. */
 .page ul, .page ol { color: var(--text-muted); margin: 0 0 1rem; padding-inline-start: 1rem; }
-.page li { margin-block-end: 0.4rem; line-height: 1.5; }
+.page li { font-family: var(--font-prose); margin-block-end: 0.4rem; line-height: var(--leading-list); }
+/* A list marker takes the link colour, so the list reads as a list at a glance. */
+.page li::marker { color: var(--primary); }
 /* .agent-tools lists the MCP tools of a page, each with a question it answers below its name. */
 .agent-tools { margin: 0 0 1rem; }
 .agent-tools dt { margin-block-end: 0.15rem; }
-.agent-tools dd { color: var(--text-muted); margin: 0 0 0.75rem; line-height: 1.5; }
+.agent-tools dd { font-family: var(--font-prose); color: var(--text-muted); margin: 0 0 0.75rem; line-height: var(--leading-list); }
 .code-block { display: flex; flex-direction: column; background: var(--bg-code); border: 1px solid var(--border); border-radius: 0.5rem; padding: 0.5rem 1.25rem 1rem; margin-block-end: 1.5rem; }
-.code-block code { display: block; overflow-x: auto; color: var(--text); font-size: 0.75rem; white-space: pre; font-family: var(--font-mono); }
-.code-block .lang { align-self: flex-end; margin-block-end: 0.25rem; color: var(--primary); font-size: 0.75rem; text-transform: uppercase; }
-/* Under 640px a code line wraps inside its box. A box that scrolls sideways shows no sign of it
+.code-block code { display: block; overflow-x: auto; color: var(--text); font-size: var(--text-preset-5); white-space: pre; font-family: var(--font-mono); }
+.code-block .lang { align-self: flex-end; margin-block-end: 0.25rem; color: var(--primary); font-size: var(--text-preset-5); text-transform: uppercase; }
+/* On a phone a code line wraps inside its box. A box that scrolls sideways shows no sign of it
    on a phone, so its lines look cut off. pre-wrap keeps the indentation, and
    overflow-wrap: anywhere breaks a URL, which has no space to break at. The box also takes
-   less side padding, so more of each line fits. */
-@media (max-width: 639px) {
-  .code-block { padding-inline: 0.75rem; }
-  .code-block code { white-space: pre-wrap; overflow-wrap: anywhere; }
+   less side padding, so more of each line fits. From 640px on a line keeps its shape. */
+.code-block { padding-inline: 0.75rem; }
+.code-block code { white-space: pre-wrap; overflow-wrap: anywhere; }
+@media screen and (min-width: 640px) {
+  .code-block { padding-inline: 1.25rem; }
+  .code-block code { white-space: pre; overflow-wrap: normal; }
 }
-.pill-inline { display: inline-block; background: var(--tint-primary); color: var(--primary); border: 1px solid var(--tint-primary-edge); border-radius: 4px; padding: 0.1rem 0.5rem; font-size: 0.75rem; }
+.pill-inline { display: inline-block; background: var(--tint-primary); color: var(--primary); border: 1px solid var(--tint-primary-edge); border-radius: 4px; padding: 0.1rem 0.5rem; font-size: var(--text-preset-5); }
 .pill-inline.green { background: var(--tint-green); color: var(--green-on-tint); border-color: var(--tint-green-edge); }
-.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+.grid { display: grid; grid-template-columns: 1fr; gap: 1rem; }
 .grid .card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 0.5rem; padding: 1.25rem; }
-.grid .card h3 { font-size: 0.95rem; margin-block-end: 0.5rem; }
-.grid .card p { font-size: 0.85rem; margin: 0; }
+.grid .card h3 { font-size: var(--text-preset-3); margin-block-end: 0.5rem; }
+.grid .card p { font-size: var(--text-preset-4); margin: 0; }
 .grid .card a { color: var(--primary); }
 .grid .card a:visited { color: var(--primary); }
-.tool { background: var(--bg-card); border: 1px solid var(--border-dim); border-radius: 0.375rem; padding: 0.5rem 0.75rem; font-size: 0.8rem; }
+.tool { background: var(--bg-card); border: 1px solid var(--border-dim); border-radius: 0.375rem; padding: 0.5rem 0.75rem; font-size: var(--text-preset-5); }
 .tool .name { color: var(--primary); }
-.tool .desc { color: var(--text-dim); font-size: 0.75rem; }
+.tool .desc { color: var(--text-dim); font-size: var(--text-preset-5); }
 
-.tier-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; margin: 0 0 2.5rem; }
+.tier-grid { display: grid; grid-template-columns: 1fr; gap: 1.25rem; margin: 0 0 2.5rem; }
 .tier { background: var(--bg-card); border: 1px solid var(--border); border-radius: 0.625rem; padding: 1.75rem 1.5rem; display: flex; flex-direction: column; }
 .tier.featured { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary); }
-.tier-badge { align-self: flex-end; margin-block-end: 0.5rem; background: var(--primary); color: var(--on-primary); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 700; padding: 0.2rem 0.55rem; border-radius: 999px; }
-.tier h2 { font-size: 1rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.08em; margin: 0 0 0.5rem; padding: 0; border: 0; font-weight: 600; }
+.tier-badge { align-self: flex-end; margin-block-end: 0.5rem; background: var(--primary); color: var(--on-primary); font-size: var(--text-preset-5); text-transform: uppercase; letter-spacing: 0.08em; font-weight: 700; padding: 0.2rem 0.55rem; border-radius: 999px; }
+.tier h2 { font-size: var(--text-preset-3); color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.08em; margin: 0 0 0.5rem; padding: 0; border: 0; font-weight: 600; }
 .tier .price { font-size: 2.5rem; font-weight: 800; color: var(--text); letter-spacing: -0.04em; line-height: 1; margin-block-end: 1.5rem; }
-.tier .price span { font-size: 0.95rem; color: var(--text-dim); font-weight: 400; letter-spacing: 0; margin-inline-start: 0.25rem; }
+.tier .price span { font-size: var(--text-preset-3); color: var(--text-dim); font-weight: 400; letter-spacing: 0; margin-inline-start: 0.25rem; }
 .tier .price:has(+ .price-alt) { margin-block-end: 0.6rem; }
 .tier .price-alt { font-size: 1.25rem; font-weight: 700; color: var(--text); letter-spacing: -0.02em; line-height: 1; margin-block-end: 1.5rem; }
-.tier .price-alt span { font-size: 0.85rem; color: var(--text-dim); font-weight: 400; letter-spacing: 0; }
+.tier .price-alt span { font-size: var(--text-preset-4); color: var(--text-dim); font-weight: 400; letter-spacing: 0; }
 .tier .price-alt span:last-child { margin-inline-start: 0.2rem; }
 .tier .price-alt span:only-child { margin-inline-start: 0; }
 .tier ul { list-style: none; padding: 0; margin: 0 0 1.5rem; display: flex; flex-direction: column; gap: 0.55rem; flex: 1; }
-.tier li { display: flex; align-items: flex-start; gap: 0.55rem; font-size: 0.85rem; color: var(--text-muted); line-height: 1.5; }
-.tier li::before { content: '✓'; flex-shrink: 0; color: var(--primary); font-weight: 700; line-height: 1.5; min-width: 0.75rem; }
-:is(.tier, .vendor-form) .tier-cta { display: block; width: 100%; padding: 0.75rem 1rem; border-radius: 0.5rem; text-align: center; font-family: var(--font-mono); font-size: 0.85rem; font-weight: 600; text-decoration: none; cursor: pointer; border: 1px solid var(--border); background: transparent; color: var(--text); transition: background 0.15s, border-color 0.15s; margin-block-end: 0.5rem; }
+.tier li { display: flex; align-items: flex-start; gap: 0.55rem; font-size: var(--text-preset-4); color: var(--text-muted); line-height: var(--leading-list); }
+/* A line under each item but the last sets the items of a card apart, as on a pricing card. */
+.tier li:not(:last-child) { padding-block-end: 0.55rem; border-block-end: 1px solid var(--border-dim); }
+.tier li::before { content: '✓'; flex-shrink: 0; color: var(--primary); font-weight: 700; line-height: var(--leading-list); min-width: 0.75rem; }
+:is(.tier, .vendor-form) .tier-cta { display: block; width: 100%; padding: 0.75rem 1rem; border-radius: 0.5rem; text-align: center; font-family: var(--font-ui); font-size: var(--text-preset-4); font-weight: 600; text-decoration: none; cursor: pointer; border: 1px solid var(--border); background: transparent; color: var(--text); transition: background 0.15s, border-color 0.15s; margin-block-end: 0.5rem; }
 /* key-field is the read-only box of the /welcome page that shows a new API key.
    No rule of style.css or page.css gives an input a background or a border, so without
    it the browser draws a white box. */
-.tier .key-field { display: block; inline-size: 100%; box-sizing: border-box; padding: 0.75rem 1rem; margin-block-end: 0.75rem; border: 1px solid var(--border); border-radius: 0.5rem; background: var(--bg); color: var(--text); font-family: var(--font-mono); font-size: 0.85rem; }
+.tier .key-field { display: block; inline-size: 100%; box-sizing: border-box; padding: 0.75rem 1rem; margin-block-end: 0.75rem; border: 1px solid var(--border); border-radius: 0.5rem; background: var(--bg); color: var(--text); font-family: var(--font-mono); font-size: var(--text-preset-4); }
 .tier .key-field:focus { outline: 2px solid var(--focus); outline-offset: 2px; }
 /* vendor-form is the form of the /vendor-keys page. Its two vendor blocks and the Save
    button stand apart. A hidden form stays hidden. */
@@ -75,22 +83,22 @@
 .vendor-form .vendor-expiry { color: var(--primary); font-weight: 700; }
 .vendor-form .vendor-expiry:empty { display: none; }
 /* vendor-state is the state line of a vendor block on the /vendor-keys page. */
-.tier .vendor-state { margin-block-end: 0.75rem; font-size: 0.85rem; }
+.tier .vendor-state { margin-block-end: 0.75rem; font-size: var(--text-preset-4); }
 .tier .vendor-state.bad { color: var(--red); }
 .tier .vendor-state.ok { color: var(--green); }
 /* vendor-result is the answer to the key just sent, under its field. The field above it
    then sits closer to it. */
 .tier .key-field:has(+ .vendor-result:not([hidden])) { margin-block-end: 0.5rem; }
-.tier .vendor-result { margin: 0 0 0.75rem; font-size: 0.85rem; font-weight: 700; color: var(--text-muted); }
+.tier .vendor-result { margin: 0 0 0.75rem; font-size: var(--text-preset-4); font-weight: 700; color: var(--text-muted); }
 .tier .vendor-result.bad { color: var(--red); }
 .tier .vendor-result.ok { color: var(--green); }
-.tier label:not([hidden]):has(> input[type="checkbox"]) { display: flex; align-items: center; gap: 0.5rem; margin-block-end: 0.5rem; font-size: 0.85rem; color: var(--text-muted); }
+.tier label:not([hidden]):has(> input[type="checkbox"]) { display: flex; align-items: center; gap: 0.5rem; margin-block-end: 0.5rem; font-size: var(--text-preset-4); color: var(--text-muted); }
 :is(.tier, .vendor-form) .tier-cta:hover:not(:disabled) { border-color: var(--primary); background: var(--bg-hover); }
 :is(.tier, .vendor-form) .tier-cta.primary { background: var(--primary); border-color: var(--primary); color: var(--on-primary); }
 :is(.tier, .vendor-form) .tier-cta.primary:hover:not(:disabled) { background: var(--primary-hover); border-color: var(--primary-hover); }
 :is(.tier, .vendor-form) .tier-cta:disabled { opacity: 0.6; }
 .tier .tier-cta:disabled { cursor: wait; }
-.tier .cta-note { font-size: 0.75rem; color: var(--text-dim); text-align: center; margin: 0 0 0.75rem; line-height: 1.4; }
+.tier .cta-note { font-size: var(--text-preset-5); color: var(--text-dim); text-align: center; margin: 0 0 0.75rem; line-height: var(--leading-list); }
 
 /* .page .faq takes the width of the page column. The narrow centred box of style.css is
    made for the home page, which has no .page column. */
@@ -98,8 +106,9 @@
 /* The block before an FAQ keeps the room above it. */
 .page :has(+ .faq) { margin-block-end: 3rem; }
 .page .faq h2 { margin-block-end: 1.25rem; }
-.faq dt { color: var(--text); font-weight: 600; font-size: 0.95rem; margin-block-end: 0.4rem; }
-.faq dd { margin: 0 0 1.25rem; color: var(--text-muted); font-size: 0.9rem; line-height: 1.6; }
+.faq dt { color: var(--text); font-weight: 600; font-size: var(--text-preset-3); margin-block-end: 0.4rem; }
+.faq dd { font-family: var(--font-prose); margin: 0 0 1.25rem; color: var(--text-muted); font-size: var(--text-preset-4); line-height: var(--leading-prose); }
+.page .faq dd:not(:last-child) { padding-block-end: 1rem; margin-block-end: 1rem; }
 
 /* All in-page links (paragraphs, lists, FAQ, dd, ul, ol) keep the primary
    blue color even after visit. The UA :visited purple breaks the design. */
@@ -107,25 +116,34 @@
 .page a:not(.tier-cta):visited { color: var(--primary); }
 .page a:not(.tier-cta):hover { text-decoration: underline; }
 
-@media (max-width: 600px) { .grid { grid-template-columns: 1fr; }.tier-grid { grid-template-columns: 1fr; } .page h1 { font-size: 1.75rem; } }
-.watch-events { inline-size: 100%; border-collapse: collapse; margin-block-end: 1.5rem; font-size: 0.85rem; }
+@media screen and (min-width: 640px) { .grid, .tier-grid { grid-template-columns: 1fr 1fr; } }
+.watch-events { inline-size: 100%; border-collapse: collapse; margin-block-end: 1.5rem; font-size: var(--text-preset-4); }
 .watch-events th, .watch-events td { text-align: start; vertical-align: top; padding: 0.75rem; border-block-end: 1px solid var(--border); }
 .watch-events th { color: var(--text); font-weight: 600; }
-/* Only the body cells get the tall line: the chips wrap there. Both headers keep one line
-   height, so they sit on the same baseline. */
-.watch-events th:first-child, .watch-events td:first-child { white-space: nowrap; }
-.watch-events td { line-height: 2; }
-.watch-events code { margin-inline-end: 0.25rem; }
-/* Below 640px the two columns do not fit a 360px screen: the endpoint and its events stack.
+/* On a phone the two columns do not fit a 360px screen: the endpoint and its events stack.
    Each row names its endpoint, so the header row hides. The endpoint reads as a bold heading
    without the chip fill, so it stands apart from its events. The events stand one per line,
    indented under it. */
-@media (max-width: 639px) {
-  .watch-events thead { display: none; }
-  .watch-events, .watch-events tbody, .watch-events tr, .watch-events td { display: block; }
-  .watch-events td:first-child { border-block-end: 0; padding-block-end: 0.5rem; }
-  .watch-events td:first-child code { background: none; padding: 0; color: var(--text); font-size: 0.95rem; font-weight: 700; }
-  .watch-events td:last-child { padding-inline-start: 1.5rem; line-height: 1.5; }
-  .watch-events td:last-child code { display: block; inline-size: fit-content; margin-block-end: 0.35rem; }
-  .watch-events code { overflow-wrap: anywhere; }
+.watch-events thead { display: none; }
+.watch-events, .watch-events tbody, .watch-events tr, .watch-events td { display: block; }
+.watch-events td:first-child { border-block-end: 0; padding-block-end: 0.5rem; }
+.watch-events td:first-child code { background: none; padding: 0; color: var(--text); font-size: var(--text-preset-3); font-weight: 700; }
+.watch-events td:last-child { padding-inline-start: 1.5rem; line-height: var(--leading-list); }
+.watch-events td:last-child code { display: block; inline-size: fit-content; margin-block-end: 0.35rem; }
+.watch-events code { margin-inline-end: 0.25rem; overflow-wrap: anywhere; }
+/* From 640px on the table has its two columns again. Only the body cells get the tall line:
+   the chips wrap there. Both headers keep one line height, so they sit on the same
+   baseline. */
+@media screen and (min-width: 640px) {
+  .watch-events { display: table; }
+  .watch-events thead { display: table-header-group; }
+  .watch-events tbody { display: table-row-group; }
+  .watch-events tr { display: table-row; }
+  .watch-events td { display: table-cell; line-height: 2; }
+  .watch-events th:first-child, .watch-events td:first-child { white-space: nowrap; }
+  .watch-events td:first-child { border-block-end: 1px solid var(--border); padding-block-end: 0.75rem; }
+  .watch-events td:first-child code { background: var(--bg-code-inline); padding: 0.15rem 0.4rem; color: inherit; font-size: var(--text-preset-5); font-weight: inherit; }
+  .watch-events td:last-child { padding-inline-start: 0.75rem; line-height: 2; }
+  .watch-events td:last-child code { display: inline; inline-size: auto; margin-block-end: 0; }
+  .watch-events code { overflow-wrap: normal; }
 }

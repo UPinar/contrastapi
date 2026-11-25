@@ -1,4 +1,5 @@
 #include <ctype.h>
+#include <dirent.h>
 #include <limits.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -17,6 +18,7 @@
 #include "endpoint_weight.h"
 #include "ipguard.h"
 #include "jsonbuf.h"
+#include "jsonread.h"
 #include "watchlist/watchlist.h"
 #include "package.h"
 #include "ratelimit.h"
@@ -425,6 +427,276 @@ void test_mcp_tool_titles_are_unique(void)
   }
 }
 
+#define OUTPUT_SCHEMA_CREDITS_JSON \
+  "{\"type\":\"object\",\"properties\":{\"charged\":{\"type\":\"integer\",\"description\":\"Credits this call cost; 0 for a free tool.\"}," \
+  "\"remaining\":{\"type\":\"integer\",\"description\":\"Credits left in the budget window. Absent when not paid from a credit budget.\"}}," \
+  "\"required\":[\"charged\"]}"
+
+#define OUTPUT_SCHEMA_DIRECTORY           "src/schema"
+#define OUTPUT_SCHEMA_FILE_MAX_BYTE_COUNT 32768
+
+static void static_compactJson(const char* text, size_t len, char* out, size_t out_size)
+{
+  size_t out_len   = 0;
+  bool   in_string = false;
+  for (size_t k = 0; k < len; k++)
+  {
+    char byte = text[k];
+    bool is_blank = byte == ' ' || byte == '\t' || byte == '\r' || byte == '\n';
+    if (!in_string && is_blank)
+      continue;
+    TEST_ASSERT_TRUE_MESSAGE(out_len + 2 < out_size, "the compact text does not fit");
+    out[out_len++] = byte;
+    if (in_string && byte == '\\' && k + 1 < len)
+      out[out_len++] = text[++k];
+    else if (byte == '"')
+      in_string = !in_string;
+  }
+  out[out_len] = '\0';
+}
+
+void test_output_schema_rows_have_a_tool(void)
+{
+  int schema_count = 0;
+  for (int i = 0; i < endpoint_count; i++)
+  {
+    if (endpoints[i].mp_mcpToolOutputSchema == NULL)
+      continue;
+    TEST_ASSERT_NOT_NULL_MESSAGE(endpoints[i].mp_mcpToolName, endpoints[i].mp_httpPath);
+    schema_count++;
+  }
+  TEST_ASSERT_GREATER_THAN_INT(0, schema_count);
+}
+
+void test_output_schema_on_every_tool_row(void)
+{
+  int tool_count = 0;
+  for (int i = 0; i < endpoint_count; i++)
+  {
+    if (endpoints[i].mp_mcpToolName == NULL)
+      continue;
+    TEST_ASSERT_NOT_NULL_MESSAGE(endpoints[i].mp_mcpToolOutputSchema, endpoints[i].mp_mcpToolName);
+    tool_count++;
+  }
+  TEST_ASSERT_GREATER_THAN_INT(0, tool_count);
+}
+
+void test_output_schemas_parse_as_object_schemas(void)
+{
+  for (int i = 0; i < endpoint_count; i++)
+  {
+    const char* schema = endpoints[i].mp_mcpToolOutputSchema;
+    if (schema == NULL)
+      continue;
+    JsonReadSpan_t root;
+    JsonReadSpan_t type;
+    TEST_ASSERT_EQUAL_INT_MESSAGE(JSONREAD_OK, jsonread_root(schema, strlen(schema), &root), endpoints[i].mp_mcpToolName);
+    TEST_ASSERT_TRUE_MESSAGE(jsonread_isObject(root), endpoints[i].mp_mcpToolName);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(JSONREAD_OK, jsonread_objectKey(root, "type", &type), endpoints[i].mp_mcpToolName);
+    TEST_ASSERT_TRUE_MESSAGE(jsonread_isSpanEqual(type, "\"object\""), endpoints[i].mp_mcpToolName);
+    for (const char* rest = root.mp_start + root.m_len; *rest != '\0'; rest++)
+      TEST_ASSERT_TRUE_MESSAGE(*rest == ' ' || *rest == '\t' || *rest == '\r' || *rest == '\n', endpoints[i].mp_mcpToolName);
+  }
+}
+
+void test_output_schema_credits_text_is_shared(void)
+{
+  for (int i = 0; i < endpoint_count; i++)
+  {
+    const char* schema = endpoints[i].mp_mcpToolOutputSchema;
+    if (schema == NULL)
+      continue;
+    JsonReadSpan_t root;
+    JsonReadSpan_t properties;
+    TEST_ASSERT_EQUAL_INT(JSONREAD_OK, jsonread_root(schema, strlen(schema), &root));
+    TEST_ASSERT_EQUAL_INT_MESSAGE(JSONREAD_OK, jsonread_objectKey(root, "properties", &properties), endpoints[i].mp_mcpToolName);
+
+    JsonReadSpan_t key;
+    JsonReadSpan_t value;
+    JsonReadSpan_t last_key   = { 0 };
+    JsonReadSpan_t last_value = { 0 };
+    size_t member_offset = 0;
+    JsonReadStatus_t walk_status;
+    while ((walk_status = jsonread_objectNextMember(properties, &member_offset, &key, &value)) == JSONREAD_OK)
+    {
+      last_key   = key;
+      last_value = value;
+    }
+    TEST_ASSERT_EQUAL_INT_MESSAGE(JSONREAD_ERR_NOTFOUND, walk_status, endpoints[i].mp_mcpToolName);
+    TEST_ASSERT_TRUE_MESSAGE(jsonread_isSpanEqual(last_key, "credits"), endpoints[i].mp_mcpToolName);
+    char compact[1024];
+    static_compactJson(last_value.mp_start, last_value.m_len, compact, sizeof(compact));
+    TEST_ASSERT_EQUAL_STRING_MESSAGE(OUTPUT_SCHEMA_CREDITS_JSON, compact, endpoints[i].mp_mcpToolName);
+  }
+}
+
+void test_output_schema_files_are_the_rows_schemas(void)
+{
+  DIR* dir = opendir(OUTPUT_SCHEMA_DIRECTORY);
+  TEST_ASSERT_NOT_NULL_MESSAGE(dir, OUTPUT_SCHEMA_DIRECTORY);
+  int file_count = 0;
+  for (struct dirent* entry = readdir(dir); entry != NULL; entry = readdir(dir))
+  {
+    size_t name_len = strlen(entry->d_name);
+    if (name_len <= strlen(".json") || strcmp(entry->d_name + name_len - strlen(".json"), ".json") != 0)
+      continue;
+    char path[512];
+    int path_len = snprintf(path, sizeof(path), "%s/%s", OUTPUT_SCHEMA_DIRECTORY, entry->d_name);
+    TEST_ASSERT_TRUE_MESSAGE(path_len > 0 && (size_t)path_len < sizeof(path), entry->d_name);
+
+    static char text[OUTPUT_SCHEMA_FILE_MAX_BYTE_COUNT];
+    FILE* file = fopen(path, "rb");
+    TEST_ASSERT_NOT_NULL_MESSAGE(file, path);
+    size_t text_len = fread(text, 1, sizeof(text) - 1, file);
+    fclose(file);
+    TEST_ASSERT_TRUE_MESSAGE(text_len > 0 && text_len < sizeof(text) - 1, path);
+    text[text_len] = '\0';
+    TEST_ASSERT_NULL_MESSAGE(memchr(text, '\t', text_len), path);
+    TEST_ASSERT_NULL_MESSAGE(memchr(text, '\r', text_len), path);
+    TEST_ASSERT_TRUE_MESSAGE(text_len >= 2 && text[text_len - 1] == '\n' && text[text_len - 2] != '\n', path);
+
+    int match_count = 0;
+    for (int i = 0; i < endpoint_count; i++)
+    {
+      const char* schema = endpoints[i].mp_mcpToolOutputSchema;
+      if (schema == NULL || strcmp(schema, text) != 0)
+        continue;
+      match_count++;
+      size_t tool_len = strlen(endpoints[i].mp_mcpToolName);
+      TEST_ASSERT_EQUAL_size_t_MESSAGE(tool_len + strlen(".json"), name_len, path);
+      TEST_ASSERT_EQUAL_INT_MESSAGE(0, strncmp(entry->d_name, endpoints[i].mp_mcpToolName, tool_len), path);
+    }
+    TEST_ASSERT_EQUAL_INT_MESSAGE(1, match_count, path);
+    file_count++;
+  }
+  closedir(dir);
+
+  int schema_count = 0;
+  for (int i = 0; i < endpoint_count; i++)
+    if (endpoints[i].mp_mcpToolOutputSchema != NULL)
+      schema_count++;
+  TEST_ASSERT_GREATER_THAN_INT(0, file_count);
+  TEST_ASSERT_EQUAL_INT(file_count, schema_count);
+}
+
+static const char* const OUTPUT_SCHEMA_KEYWORDS[] = { "type", "properties", "required", "items", "description", "additionalProperties" };
+
+static const char* static_outputSchemaRuleViolation(JsonReadSpan_t schema)
+{
+  if (!jsonread_isObject(schema))
+    return "a schema is not an object";
+
+  JsonReadSpan_t key, value, member_key, member_value, name, found;
+  JsonReadSpan_t properties = { 0 };
+  JsonReadSpan_t required   = { 0 };
+  size_t member_offset = 0;
+  while (jsonread_objectNextMember(schema, &member_offset, &key, &value) == JSONREAD_OK)
+  {
+    bool is_known = false;
+    for (size_t k = 0; k < sizeof(OUTPUT_SCHEMA_KEYWORDS) / sizeof(OUTPUT_SCHEMA_KEYWORDS[0]); k++)
+      if (jsonread_isSpanEqual(key, OUTPUT_SCHEMA_KEYWORDS[k]))
+        is_known = true;
+    if (!is_known)
+      return "a keyword the rules do not allow";
+
+    const char* violation = NULL;
+    if (jsonread_isSpanEqual(key, "properties"))
+    {
+      if (!jsonread_isObject(value))
+        return "properties is not an object";
+      properties = value;
+      size_t property_offset = 0;
+      while (violation == NULL && jsonread_objectNextMember(value, &property_offset, &member_key, &member_value) == JSONREAD_OK)
+        violation = static_outputSchemaRuleViolation(member_value);
+    }
+    else if (jsonread_isSpanEqual(key, "additionalProperties") && !jsonread_isObject(value))
+      return "additionalProperties is not a schema object";
+    else if (jsonread_isSpanEqual(key, "additionalProperties") || jsonread_isSpanEqual(key, "items"))
+      violation = static_outputSchemaRuleViolation(value);
+    else if (jsonread_isSpanEqual(key, "required"))
+      required = value;
+    if (violation != NULL)
+      return violation;
+  }
+
+  if (required.m_len == 0)
+    return NULL;
+  if (!jsonread_isArray(required))
+    return "required is not an array";
+  size_t element_offset = 0;
+  while (jsonread_arrayNextElement(required, &element_offset, &name) == JSONREAD_OK)
+  {
+    char name_text[128];
+    if (jsonread_spanToStrStatus(name, name_text, sizeof(name_text)) != JSONREAD_OK)
+      return "required holds a name that is not a string";
+    if (properties.m_len == 0 || jsonread_objectKey(properties, name_text, &found) != JSONREAD_OK)
+      return "required names a property the schema does not declare";
+  }
+  return NULL;
+}
+
+void test_output_schema_keeps_the_keyword_and_required_rules(void)
+{
+  int schema_count = 0;
+  for (int i = 0; i < endpoint_count; i++)
+  {
+    const char* schema = endpoints[i].mp_mcpToolOutputSchema;
+    if (schema == NULL)
+      continue;
+    JsonReadSpan_t root;
+    TEST_ASSERT_EQUAL_INT(JSONREAD_OK, jsonread_root(schema, strlen(schema), &root));
+    const char* violation = static_outputSchemaRuleViolation(root);
+    char message[256];
+    snprintf(message, sizeof(message), "%s: %s", endpoints[i].mp_mcpToolName, violation ? violation : "");
+    TEST_ASSERT_NULL_MESSAGE(violation, message);
+    schema_count++;
+  }
+  TEST_ASSERT_GREATER_THAN_INT(0, schema_count);
+}
+
+static const char* static_ruleViolationOf(const char* schema_text)
+{
+  JsonReadSpan_t root;
+  TEST_ASSERT_EQUAL_INT(JSONREAD_OK, jsonread_root(schema_text, strlen(schema_text), &root));
+  return static_outputSchemaRuleViolation(root);
+}
+
+void test_output_schema_rule_walk_refuses_each_shape_outside_the_rules(void)
+{
+  TEST_ASSERT_NULL(static_ruleViolationOf(R"({"type":"object","additionalProperties":{"type":"integer","description":"d"}})"));
+  TEST_ASSERT_NULL(static_ruleViolationOf(R"({"type":"object","properties":{"g":{"type":["string","object","null"],"properties":{"id":{"type":"string"}}},)"
+                                          R"("o":{"type":"array","items":{"type":"string"}}},"required":["g"]})"));
+  static const char* const refused[] = {
+    R"({"type":"string","enum":["a"]})",
+    R"({"type":"object","$ref":"#/x"})",
+    R"({"type":"string","format":"date"})",
+    R"({"type":"object","properties":{"a":{"oneOf":[{"type":"string"}]}}})",
+    R"({"type":"object","additionalProperties":false})",
+    R"({"type":"object","additionalProperties":true})",
+    R"({"type":"array","items":{"type":"string","pattern":"x"}})",
+    R"({"type":"object","additionalProperties":{"type":"string","$defs":{}}})",
+    R"({"type":"object","properties":{"a":{"type":"string"}},"required":["a","b"]})",
+    R"({"type":"object","required":["a"]})",
+    R"({"type":"object","properties":{"a":{"type":"object","properties":{"b":{"type":"string"}},"required":["c"]}}})",
+  };
+  for (size_t i = 0; i < sizeof(refused) / sizeof(refused[0]); i++)
+    TEST_ASSERT_NOT_NULL_MESSAGE(static_ruleViolationOf(refused[i]), refused[i]);
+  TEST_ASSERT_EQUAL_STRING("additionalProperties is not a schema object", static_ruleViolationOf(R"({"type":"object","additionalProperties":false})"));
+  TEST_ASSERT_EQUAL_STRING("additionalProperties is not a schema object", static_ruleViolationOf(R"({"type":"object","additionalProperties":true})"));
+}
+
+#define HEALTH_DESCRIPTION_MAX_LEN 240
+
+void test_health_description_names_last_synced_within_the_cap(void)
+{
+  const Endpoint_t* endpoint = endpoint_findByMcpName("health");
+  TEST_ASSERT_NOT_NULL(endpoint);
+  TEST_ASSERT_EQUAL_STRING("Database freshness: CVE/KEV/CWE counts and latest entries, and the sync state of each upstream feed. "
+                           "last_synced is when a feed's state was last written; read it with last_status. Costs no credits.",
+                           endpoint->mp_mcpToolDescription);
+  TEST_ASSERT_LESS_OR_EQUAL_size_t(HEALTH_DESCRIPTION_MAX_LEN, strlen(endpoint->mp_mcpToolDescription));
+}
+
 void test_mcp_tool_category_names_are_the_home_page_titles(void)
 {
   TEST_ASSERT_NULL(endpoint_mcpToolCategoryName(ENDPOINT_MCP_TOOL_CATEGORY_NONE));
@@ -544,7 +816,7 @@ void test_each_row_holds_its_run_its_db_need_its_upstream_call_and_its_ceiling(v
     { "/asn_lookup/",          endpoint_ASNLOOKUPRun,          true,  false, JSONBUF_DEFAULT_CEILING },
     { "/d3fend_for_attack/",   endpoint_D3FENDFORATTACKRun,    true,  false, JSONBUF_DEFAULT_CEILING },
     { "/driver_lookup/",       endpoint_DRIVERLOOKUPRun,       true,  false, JSONBUF_DEFAULT_CEILING },
-    { "/driver_lookup_bulk",   endpoint_DRIVERLOOKUPBULKRun,   true,  false, JSONBUF_MAX_CEILING },
+    { "/driver_lookup_bulk",   endpoint_DRIVERLOOKUPBULKRun,   true,  false, JSONBUF_DEFAULT_CEILING },
     { "/package_check",        endpoint_PACKAGECHECKRun,       true,  false, JSONBUF_DEFAULT_CEILING },
     { "/package_check_bulk",   endpoint_PACKAGECHECKBULKRun,   true,  false, JSONBUF_DEFAULT_CEILING },
     { "/image_inspect",    endpoint_IMAGEINSPECTRun,    false, false, JSONBUF_DEFAULT_CEILING },
@@ -4837,7 +5109,7 @@ void test_robots_txt_keeps_the_example_urls_open_to_user_agents_only(void)
 
 void test_registration_gate_test_count(void)
 {
-  TEST_ASSERT_EQUAL_INT_MESSAGE(266, (int)Unity.NumberOfTests,
+  TEST_ASSERT_EQUAL_INT_MESSAGE(274, (int)Unity.NumberOfTests,
     "RUN_TEST list and test definitions have drifted apart - a test may be unregistered");
 }
 
@@ -9025,6 +9297,14 @@ int main(void)
   RUN_TEST(test_every_parameter_is_read_from_a_place_its_row_serves);
   RUN_TEST(test_a_row_that_reads_a_body_takes_post_alone);
   RUN_TEST(test_mcp_fields_come_with_a_tool);
+  RUN_TEST(test_output_schema_rows_have_a_tool);
+  RUN_TEST(test_output_schema_on_every_tool_row);
+  RUN_TEST(test_output_schemas_parse_as_object_schemas);
+  RUN_TEST(test_output_schema_credits_text_is_shared);
+  RUN_TEST(test_output_schema_files_are_the_rows_schemas);
+  RUN_TEST(test_output_schema_keeps_the_keyword_and_required_rules);
+  RUN_TEST(test_output_schema_rule_walk_refuses_each_shape_outside_the_rules);
+  RUN_TEST(test_health_description_names_last_synced_within_the_cap);
   RUN_TEST(test_mcp_tool_titles_are_unique);
   RUN_TEST(test_mcp_tool_category_names_are_the_home_page_titles);
   RUN_TEST(test_only_record_lookups_carry_a_not_found_message);

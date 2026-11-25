@@ -1,0 +1,101 @@
+{
+  "type": "object",
+  "properties": {
+    "score": {
+      "type": "number",
+      "description": "0-100: the three component scores added up, rounded to 0.1."
+    },
+    "label": {
+      "type": "string",
+      "description": "CRITICAL at 90+, HIGH at 70+, MEDIUM at 40+, else LOW."
+    },
+    "has_public_poc": {
+      "type": [
+        "boolean",
+        "null"
+      ],
+      "description": "true when an NVD or CNA exploit reference, a Metasploit module or an ExploitDB entry is found. Never false: null means none of these sources names one."
+    },
+    "components": {
+      "type": "object",
+      "properties": {
+        "exploitability": {
+          "type": "object",
+          "description": "From EPSS, CISA KEV and a Metasploit module. max is 60.",
+          "properties": {
+            "score": {
+              "type": "number"
+            },
+            "max": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "score",
+            "max"
+          ]
+        },
+        "impact": {
+          "type": "object",
+          "description": "From the CVSS base score, v3 or else v4. max is 30.",
+          "properties": {
+            "score": {
+              "type": "number"
+            },
+            "max": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "score",
+            "max"
+          ]
+        },
+        "evidence": {
+          "type": "object",
+          "description": "From the count of exploit references in the NVD and CNA records, or 1 when there is none and ExploitDB lists the CVE. max is 10.",
+          "properties": {
+            "score": {
+              "type": "number"
+            },
+            "max": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "score",
+            "max"
+          ]
+        }
+      },
+      "required": [
+        "exploitability",
+        "impact",
+        "evidence"
+      ]
+    },
+    "credits": {
+      "type": "object",
+      "properties": {
+        "charged": {
+          "type": "integer",
+          "description": "Credits this call cost; 0 for a free tool."
+        },
+        "remaining": {
+          "type": "integer",
+          "description": "Credits left in the budget window. Absent when not paid from a credit budget."
+        }
+      },
+      "required": [
+        "charged"
+      ]
+    }
+  },
+  "required": [
+    "score",
+    "label",
+    "has_public_poc",
+    "components",
+    "credits"
+  ]
+}

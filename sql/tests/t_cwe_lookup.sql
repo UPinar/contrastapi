@@ -21,10 +21,17 @@ BEGIN
          'api.fn_cwe_lookup answers the 16 columns db_CWELOOKUP reads, in its order';
   ASSERT (SELECT array_agg(format_type(atttypid, atttypmod) ORDER BY attnum) FROM pg_attribute
           WHERE attrelid = 't_cwe_lookup_call'::regclass AND attnum > 0)
-         = ARRAY['text', 'text', 'text', 'text', 'text', 'timestamp with time zone', 'jsonb',
+         = ARRAY['text', 'text', 'text', 'text', 'text', 'text', 'jsonb',
                  'text', 'jsonb', 'text', 'text', 'bigint', 'double precision',
                  'double precision', 'bigint', 'jsonb'],
-         'each cwes column keeps its type, and the numbers are bigint and double precision';
+         'updated_at is text, the numbers are bigint and double precision, and the rest keep their type';
+  ASSERT (SELECT updated_at = '2001-01-01T00:00:00Z' AND cwe_name = 'Name'
+             AND cwe_description = 'Description' AND likelihood = 'High'
+             AND extended_description = 'Extended'
+            FROM t_cwe_lookup_call),
+         'updated_at answers UTC text, and each text column answers its own cwes column';
+  ASSERT (SELECT updated_at IS NULL FROM api.fn_cwe_lookup('CWE-2002')),
+         'a NULL updated_at answers NULL';
   ASSERT (SELECT abstract_type = 'Base' AND cwe_status = 'Stable' AND parent_cwe = 'CWE-2000'
             FROM t_cwe_lookup_call),
          'the cwes columns hold the row of the CWE';
@@ -89,6 +96,26 @@ BEGIN
          'the edition year orders the array, not the category id';
 END
 $$;
+
+SAVEPOINT t_cwe_lookup_time_zone;
+SET LOCAL TimeZone = 'Europe/Istanbul';
+INSERT INTO cwes (cwe_id, updated_at) VALUES
+  ('CWE-2004', '2026-05-20 17:07:56.162610+03'),
+  ('CWE-2005', '2026-05-20 17:07:56.999999+03'),
+  ('CWE-2006', '2027-01-01 15:00:00+03');
+
+DO $$
+BEGIN
+  ASSERT (SELECT updated_at FROM api.fn_cwe_lookup('CWE-2004')) = '2026-05-20T14:07:56Z',
+         'a session in Europe/Istanbul still reads updated_at in UTC';
+  ASSERT (SELECT updated_at FROM api.fn_cwe_lookup('CWE-2005')) = '2026-05-20T14:07:56Z',
+         'the fraction of a second is cut, not rounded';
+  ASSERT (SELECT updated_at FROM api.fn_cwe_lookup('CWE-2006')) = '2027-01-01T12:00:00Z',
+         'the year is the calendar year: 2027-01-01 lies in ISO week year 2026';
+END
+$$;
+
+ROLLBACK TO SAVEPOINT t_cwe_lookup_time_zone;
 
 PREPARE t_cwe_lookup_query AS SELECT * FROM api.fn_cwe_lookup($1);
 CREATE TEMP TABLE t_cwe_lookup_answer AS EXECUTE t_cwe_lookup_query('CWE-2001');

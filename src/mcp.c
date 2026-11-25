@@ -75,6 +75,7 @@ typedef enum {
 typedef struct {
   McpToolKind_t m_kind;
   char*         mp_json;
+  bool          m_hasStructuredContent;
   int           m_protocolErrorCode;
   char          ma_message[MCP_MESSAGE_BUF_SIZE];
 } McpToolResult_t;
@@ -87,13 +88,14 @@ static char*        static_buildRpcResultEnvelope          (const char* id_raw, 
 static char*        static_buildToolsListResponse          (const char* id_raw, bool is_modern);
 static char*        static_buildRpcErrorEnvelope           (const char* id_raw, int code, const char* message);
 static char*        static_buildUnsupportedVersionEnvelope (const char* id_raw, const char* envelope_version);
-static char*        static_buildToolContent                (const char* id_raw, const char* text, bool is_error, bool is_modern, size_t* meta_offset_out);
+static char*        static_buildToolContent                (const char* id_raw, const char* text, bool is_error, bool has_structured_content, bool is_modern, size_t* meta_offset_out);
 static void         static_setUsageLogMethodName           (const char* rpc_method);
 
 static bool   static_isMcpArg                  (const EndpointParam_t* param);
 static void   static_appendMcpArgSchema        (const EndpointParam_t* param, JsonBuf_t* json_buf);
 static void   static_appendMcpArgProperties    (const Endpoint_t* endpoint, JsonBuf_t* json_buf);
 static void   static_appendMcpRequiredList     (const Endpoint_t* endpoint, JsonBuf_t* json_buf);
+static void   static_appendMcpToolOutputSchema (const Endpoint_t* endpoint, JsonBuf_t* json_buf);
 static void   static_appendMcpToolAnnotations  (const Endpoint_t* endpoint, JsonBuf_t* json_buf);
 static void   static_appendMcpToolMeta         (const Endpoint_t* endpoint, JsonBuf_t* json_buf);
 static void   static_appendMcpTool             (const Endpoint_t* endpoint, JsonBuf_t* json_buf);
@@ -594,9 +596,10 @@ static char* static_encodeToolResult(const char* id_raw, const McpToolResult_t* 
     return static_buildRpcErrorEnvelope(id_raw, result->m_protocolErrorCode, result->ma_message);
 
   bool is_error = (result->m_kind != MCP_TOOL_KIND_JSON);
+  bool has_structured_content = result->m_kind == MCP_TOOL_KIND_JSON && result->m_hasStructuredContent;
   const char* text = (result->m_kind == MCP_TOOL_KIND_TOOL_ERROR) ? result->ma_message : result->mp_json;
 
-  char* response = static_buildToolContent(id_raw, text, is_error, is_modern, meta_offset_out);
+  char* response = static_buildToolContent(id_raw, text, is_error, has_structured_content, is_modern, meta_offset_out);
   if (response)
     return response;
 
@@ -748,6 +751,15 @@ static void static_appendMcpRequiredList(const Endpoint_t* endpoint, JsonBuf_t* 
     jsonbuf_appendFormat(json_buf, "]");
 }
 
+static void static_appendMcpToolOutputSchema(const Endpoint_t* endpoint, JsonBuf_t* json_buf)
+{
+  if (endpoint->mp_mcpToolOutputSchema == NULL)
+    return;
+
+  jsonbuf_appendFormat(json_buf, ",\"outputSchema\":");
+  jsonbuf_appendJsonTextWithoutBlanks(json_buf, endpoint->mp_mcpToolOutputSchema);
+}
+
 static void static_appendMcpToolAnnotations(const Endpoint_t* endpoint, JsonBuf_t* json_buf)
 {
   bool is_open_world_hint = endpoint->m_callsUpstream || endpoint->m_callsUpstreamFunction != NULL || endpoint->m_callsUpstreamOnMiss;
@@ -820,6 +832,7 @@ static void static_appendMcpTool(const Endpoint_t* endpoint, JsonBuf_t* json_buf
   static_appendMcpArgProperties(endpoint, json_buf);
   static_appendMcpRequiredList(endpoint, json_buf);
   jsonbuf_appendFormat(json_buf, ",\"additionalProperties\":false}");
+  static_appendMcpToolOutputSchema(endpoint, json_buf);
   static_appendMcpToolAnnotations(endpoint, json_buf);
   static_appendMcpToolMeta(endpoint, json_buf);
   jsonbuf_appendFormat(json_buf, "}");
@@ -894,8 +907,21 @@ static char* static_buildUnsupportedVersionEnvelope(const char* id_raw, const ch
   return response;
 }
 
-static char* static_buildToolContent(const char* id_raw, const char* text, bool is_error, bool is_modern, size_t* meta_offset_out)
+static char* static_buildToolContent(const char* id_raw, const char* text, bool is_error, bool has_structured_content, bool is_modern, size_t* meta_offset_out)
 {
+  size_t structured_len = 0;
+  if (has_structured_content)
+  {
+    structured_len = strlen(text);
+    if (structured_len > 0 && text[structured_len - 1] == '\n')
+      structured_len--;
+    if (structured_len == 0 || structured_len > INT_MAX)
+    {
+      fprintf(stderr, "static_buildToolContent: structuredContent of %zu bytes cannot be written\n", structured_len);
+      return NULL;
+    }
+  }
+
   JsonBuf_t* json_buf = jsonbuf_create(JSONBUF_INITIAL_CAP, MCP_ENVELOPE_JSONBUF_CEILING);
   if (!json_buf)
     return NULL;
@@ -904,7 +930,10 @@ static char* static_buildToolContent(const char* id_raw, const char* text, bool 
   size_t meta_offset = jsonbuf_length(json_buf);
   jsonbuf_appendFormat(json_buf, "\"content\":[{\"type\":\"text\",\"text\":\"");
   jsonbuf_appendEscaped(json_buf, text);
-  jsonbuf_appendFormat(json_buf, "\"}],\"isError\":%s%s}}", is_error ? "true" : "false", is_modern ? ",\"resultType\":\"complete\"" : "");
+  jsonbuf_appendFormat(json_buf, "\"}]");
+  if (has_structured_content)
+    jsonbuf_appendFormat(json_buf, ",\"structuredContent\":%.*s", (int)structured_len, text);
+  jsonbuf_appendFormat(json_buf, ",\"isError\":%s%s}}", is_error ? "true" : "false", is_modern ? ",\"resultType\":\"complete\"" : "");
   char* response = jsonbuf_finish(json_buf);
   jsonbuf_destroy(json_buf);
   if (response && meta_offset_out)
@@ -916,7 +945,7 @@ char* mcp_buildToolErrorResult(const char* id_raw, const char* text, bool is_mod
 {
   assert(id_raw != NULL);
   assert(text   != NULL);
-  return static_buildToolContent(id_raw, text, true, is_modern, NULL);
+  return static_buildToolContent(id_raw, text, true, false, is_modern, NULL);
 }
 
 char* mcp_buildPaymentRequiredResult(const char* id_raw, const char* payment_required_json, bool is_modern)
@@ -983,6 +1012,7 @@ static void static_runTool(const Endpoint_t* endpoint, JsonReadSpan_t args_span,
   {
     case ENDPOINT_RUN_OK:
       static_setResultJson(result_out, run_result.mp_body);
+      result_out->m_hasStructuredContent = endpoint->mp_mcpToolOutputSchema != NULL;
       run_result.mp_body = NULL;
       break;
     case ENDPOINT_RUN_NOT_FOUND:
@@ -1024,8 +1054,9 @@ static void static_setResultJson(McpToolResult_t* result_out, char* json)
 {
   assert(json != NULL);
 
-  result_out->m_kind   = MCP_TOOL_KIND_JSON;
-  result_out->mp_json  = json;
+  result_out->m_kind                 = MCP_TOOL_KIND_JSON;
+  result_out->mp_json                = json;
+  result_out->m_hasStructuredContent = false;
 }
 
 static void static_setToolError(McpToolResult_t* result_out, const char* fmt, ...)

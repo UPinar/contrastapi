@@ -1,0 +1,424 @@
+{
+  "type": "object",
+  "properties": {
+    "data_source": {
+      "type": "object",
+      "properties": {
+        "source": {
+          "type": "string",
+          "description": "Always osv."
+        },
+        "available": {
+          "type": "boolean",
+          "description": "false while the advisory copy is not loaded."
+        },
+        "reason": {
+          "type": "string",
+          "description": "not_synced. Present only when available is false."
+        }
+      },
+      "required": [
+        "source",
+        "available"
+      ]
+    },
+    "has_advisory_data": {
+      "type": "boolean",
+      "description": "true when an advisory of any source names the package. false does not mean that the package does not exist."
+    },
+    "total": {
+      "type": "integer",
+      "description": "Listed results, before paging. malicious is not counted."
+    },
+    "limit": {
+      "type": "integer",
+      "description": "Most items in results: the limit argument, 20 by default."
+    },
+    "offset": {
+      "type": "integer",
+      "description": "Items skipped: the offset argument, 0 by default."
+    },
+    "next_offset": {
+      "type": "integer",
+      "description": "offset plus this page's items; total on the last page."
+    },
+    "fixed_version": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Present only with a version. The upgrade target: the highest fixed version of the listed results, so no listed result affects it. null when a listed result has no fixed version, no result is listed, or an advisory still affects or may affect that version."
+    },
+    "malicious": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "The OpenSSF report that the package is malware. null when there is none, or none that may affect the version.",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "summary": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "published_time": {
+          "type": "string",
+          "description": "UTC YYYY-MM-DDTHH:MM:SSZ."
+        },
+        "affects_version": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "description": "Present only with a version. true when the version is affected, null when the server cannot tell."
+        }
+      },
+      "required": [
+        "id",
+        "summary",
+        "published_time"
+      ]
+    },
+    "results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "fixed": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Each fixed version of the ranges, in version order."
+          },
+          "ranges": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": {
+                "type": [
+                  "string",
+                  "number",
+                  "boolean",
+                  "null",
+                  "object",
+                  "array"
+                ],
+                "items": {
+                  "type": [
+                    "string",
+                    "number",
+                    "boolean",
+                    "null",
+                    "object",
+                    "array"
+                  ],
+                  "items": {
+                    "type": [
+                      "string",
+                      "number",
+                      "boolean",
+                      "null",
+                      "object"
+                    ]
+                  },
+                  "additionalProperties": {
+                    "type": [
+                      "string",
+                      "number",
+                      "boolean",
+                      "null",
+                      "object"
+                    ]
+                  }
+                },
+                "additionalProperties": {
+                  "type": [
+                    "string",
+                    "number",
+                    "boolean",
+                    "null",
+                    "object",
+                    "array"
+                  ],
+                  "items": {
+                    "type": [
+                      "string",
+                      "number",
+                      "boolean",
+                      "null",
+                      "object"
+                    ]
+                  },
+                  "additionalProperties": {
+                    "type": [
+                      "string",
+                      "number",
+                      "boolean",
+                      "null",
+                      "object"
+                    ]
+                  }
+                }
+              }
+            },
+            "description": "The advisory's version ranges for the package, as OSV writes them."
+          },
+          "source": {
+            "type": "string",
+            "description": "ghsa, go, pysec or rustsec."
+          },
+          "aliases": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Ids that the result's advisories list as aliases, such as CVE ids, and the ids of the advisories folded into this result."
+          },
+          "summary": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "fixed_version": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Present only with a version. The version that ends the ranges holding the version. null when there is none or affects_version is null."
+          },
+          "published_time": {
+            "type": "string",
+            "description": "UTC YYYY-MM-DDTHH:MM:SSZ."
+          },
+          "affects_version": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Present only with a version. true when the version is affected, null when the server cannot tell. A result that does not affect the version is not listed, so it is never false."
+          }
+        },
+        "required": [
+          "id",
+          "fixed",
+          "ranges",
+          "source",
+          "aliases",
+          "summary",
+          "published_time"
+        ]
+      },
+      "description": "One vulnerability each, newest first."
+    },
+    "eol": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "Support dates from endoflife.date. null when the package maps to no endoflife.date product. Then the dates are unknown.",
+      "properties": {
+        "source": {
+          "type": "string",
+          "description": "Always endoflife.date."
+        },
+        "product": {
+          "type": "string",
+          "description": "The endoflife.date name of the product."
+        },
+        "url": {
+          "type": "string"
+        },
+        "cycle": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "description": "The one release cycle that the version argument picks. null without a version, or when none or more than one is picked.",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "eol_date": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "YYYY-MM-DD. null if the cycle has no date."
+            },
+            "is_eol": {
+              "type": "boolean",
+              "description": "true when eol_date is today or earlier. Without an eol_date, endoflife.date's own flag."
+            },
+            "is_maintained": {
+              "type": "boolean"
+            },
+            "is_lts": {
+              "type": "boolean"
+            },
+            "latest_version": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "null if endoflife.date gives none."
+            }
+          },
+          "required": [
+            "name",
+            "eol_date",
+            "is_eol",
+            "is_maintained",
+            "is_lts",
+            "latest_version"
+          ]
+        },
+        "cycle_variants": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "eol_date": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "YYYY-MM-DD. null if the cycle has no date."
+              },
+              "is_eol": {
+                "type": "boolean",
+                "description": "true when eol_date is today or earlier. Without an eol_date, endoflife.date's own flag."
+              },
+              "is_maintained": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "name",
+              "eol_date",
+              "is_eol",
+              "is_maintained"
+            ]
+          },
+          "description": "The release cycles picked when there are two or more, such as the editions of one release. null otherwise."
+        },
+        "maintained_cycles": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "eol_date": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "YYYY-MM-DD. null if the cycle has no date."
+              },
+              "is_lts": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "name",
+              "eol_date",
+              "is_lts"
+            ]
+          },
+          "description": "At most 10 cycles endoflife.date marks maintained, newest release first."
+        },
+        "maintained_cycles_truncated": {
+          "type": "boolean",
+          "description": "true when more cycles are maintained than listed."
+        }
+      },
+      "required": [
+        "source",
+        "product",
+        "url",
+        "cycle",
+        "cycle_variants",
+        "maintained_cycles",
+        "maintained_cycles_truncated"
+      ]
+    },
+    "attribution": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The link of the source. null for a source with no known link."
+          },
+          "notice": {
+            "type": "string",
+            "description": "What ContrastAPI changed. Keep it with the data."
+          },
+          "source": {
+            "type": "string",
+            "description": "ghsa, go, pysec, rustsec, mal or endoflife.date."
+          },
+          "license": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "notice",
+          "source",
+          "license"
+        ]
+      },
+      "description": "Each source and license of the listed results, of malicious and of eol, once."
+    },
+    "credits": {
+      "type": "object",
+      "properties": {
+        "charged": {
+          "type": "integer",
+          "description": "Credits this call cost; 0 for a free tool."
+        },
+        "remaining": {
+          "type": "integer",
+          "description": "Credits left in the budget window. Absent when not paid from a credit budget."
+        }
+      },
+      "required": [
+        "charged"
+      ]
+    }
+  },
+  "required": [
+    "data_source",
+    "has_advisory_data",
+    "total",
+    "limit",
+    "offset",
+    "next_offset",
+    "malicious",
+    "results",
+    "eol",
+    "attribution",
+    "credits"
+  ]
+}

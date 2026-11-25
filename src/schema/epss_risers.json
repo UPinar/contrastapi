@@ -1,0 +1,112 @@
+{
+  "type": "object",
+  "properties": {
+    "window_days": {
+      "type": "integer",
+      "description": "7 or 30."
+    },
+    "from_date": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Older day, YYYY-MM-DD. null if EPSS history is too short to start the window; total is then 0."
+    },
+    "to_date": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Newer day, YYYY-MM-DD. null only if EPSS history is empty; from_date is then null too."
+    },
+    "window_note": {
+      "type": "string",
+      "description": "Present only when from_date is null: a fixed sentence that the EPSS history cannot start the window yet."
+    },
+    "total": {
+      "type": "integer",
+      "description": "CVEs that rose over the window and match the filters, before paging."
+    },
+    "limit": {
+      "type": "integer",
+      "description": "Most items in results: the limit argument, 20 by default."
+    },
+    "offset": {
+      "type": "integer",
+      "description": "Items skipped: the offset argument, 0 by default."
+    },
+    "next_offset": {
+      "type": "integer",
+      "description": "offset plus this page's items; total on the last page."
+    },
+    "product_filter_note": {
+      "type": "string",
+      "description": "Present only with a vendor or product filter: such a filter can miss CVEs."
+    },
+    "results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "cve_id": {
+            "type": "string"
+          },
+          "epss_score": {
+            "type": "number",
+            "description": "EPSS score on to_date, 0-1."
+          },
+          "epss_previous_score": {
+            "type": "number",
+            "description": "EPSS score on from_date, 0-1."
+          },
+          "epss_delta": {
+            "type": "number",
+            "description": "epss_score less epss_previous_score, 0-1. Always above 0: a CVE is listed only when its score rose."
+          },
+          "epss_percentile": {
+            "type": "number",
+            "description": "Share of all scored CVEs whose EPSS score on to_date is the same or lower, 0-1."
+          },
+          "in_kev": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "cve_id",
+          "epss_score",
+          "epss_previous_score",
+          "epss_delta",
+          "epss_percentile",
+          "in_kev"
+        ]
+      }
+    },
+    "credits": {
+      "type": "object",
+      "properties": {
+        "charged": {
+          "type": "integer",
+          "description": "Credits this call cost; 0 for a free tool."
+        },
+        "remaining": {
+          "type": "integer",
+          "description": "Credits left in the budget window. Absent when not paid from a credit budget."
+        }
+      },
+      "required": [
+        "charged"
+      ]
+    }
+  },
+  "required": [
+    "window_days",
+    "from_date",
+    "to_date",
+    "total",
+    "limit",
+    "offset",
+    "next_offset",
+    "results",
+    "credits"
+  ]
+}

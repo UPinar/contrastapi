@@ -1,0 +1,188 @@
+{
+  "type": "object",
+  "properties": {
+    "cve_id": {
+      "type": "string"
+    },
+    "total": {
+      "type": "integer",
+      "description": "Products that match the filters, before paging."
+    },
+    "limit": {
+      "type": "integer",
+      "description": "Most items in results: the limit argument, 20 by default."
+    },
+    "offset": {
+      "type": "integer",
+      "description": "Items skipped: the offset argument, 0 by default."
+    },
+    "next_offset": {
+      "type": "integer",
+      "description": "offset plus this page's items; total on the last page."
+    },
+    "results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "vendor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "null when the CPE name leaves the vendor open."
+          },
+          "product": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "null when the CPE name leaves the product open."
+          },
+          "cpe_part": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "a, o or h from the CPE name: application, operating system or hardware. Absent on a cna element."
+          },
+          "versions": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "object",
+              "additionalProperties": {
+                "type": [
+                  "string",
+                  "number",
+                  "boolean",
+                  "null",
+                  "object",
+                  "array"
+                ],
+                "items": {
+                  "type": [
+                    "string",
+                    "number",
+                    "boolean",
+                    "null",
+                    "object",
+                    "array"
+                  ],
+                  "items": {
+                    "type": [
+                      "string",
+                      "number",
+                      "boolean",
+                      "null",
+                      "object"
+                    ]
+                  },
+                  "additionalProperties": {
+                    "type": [
+                      "string",
+                      "number",
+                      "boolean",
+                      "null",
+                      "object"
+                    ]
+                  }
+                },
+                "additionalProperties": {
+                  "type": [
+                    "string",
+                    "number",
+                    "boolean",
+                    "null",
+                    "object",
+                    "array"
+                  ],
+                  "items": {
+                    "type": [
+                      "string",
+                      "number",
+                      "boolean",
+                      "null",
+                      "object"
+                    ]
+                  },
+                  "additionalProperties": {
+                    "type": [
+                      "string",
+                      "number",
+                      "boolean",
+                      "null",
+                      "object"
+                    ]
+                  }
+                }
+              }
+            },
+            "description": "The CNA's version entries as written; null if none. Only on a cna element."
+          },
+          "is_vulnerable": {
+            "type": "boolean"
+          },
+          "default_status": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "affected, unaffected or unknown from the CNA; null if none. Absent on an nvd element."
+          },
+          "product_source": {
+            "type": "string",
+            "description": "nvd, cna_cpe or cna."
+          },
+          "version_end_excluding": {
+            "type": "string"
+          },
+          "version_end_including": {
+            "type": "string"
+          },
+          "version_start_excluding": {
+            "type": "string"
+          },
+          "version_start_including": {
+            "type": "string",
+            "description": "Absent when the range has no such bound. The same holds for each other version_* member."
+          }
+        },
+        "required": [
+          "vendor",
+          "product",
+          "is_vulnerable",
+          "product_source"
+        ]
+      },
+      "description": "Vulnerable products first, then by vendor and product."
+    },
+    "credits": {
+      "type": "object",
+      "properties": {
+        "charged": {
+          "type": "integer",
+          "description": "Credits this call cost; 0 for a free tool."
+        },
+        "remaining": {
+          "type": "integer",
+          "description": "Credits left in the budget window. Absent when not paid from a credit budget."
+        }
+      },
+      "required": [
+        "charged"
+      ]
+    }
+  },
+  "required": [
+    "cve_id",
+    "total",
+    "limit",
+    "offset",
+    "next_offset",
+    "results",
+    "credits"
+  ]
+}

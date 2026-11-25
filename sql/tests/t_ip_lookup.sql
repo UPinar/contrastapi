@@ -84,11 +84,13 @@ END
 $$;
 
 INSERT INTO ip_asn (asn, asn_name, country)
-SELECT h.asn, 'Host ' || h.asn, 'US' FROM unnest(ARRAY[8075, 12876, 13335, 14061, 14618, 16276, 16509, 20473, 24940, 31898, 45102,
-                                                     63949, 132203, 396982]::bigint[]) AS h (asn);
+SELECT h.asn, 'Host ' || h.asn, 'US' FROM unnest(ARRAY[8075, 9009, 12876, 13335, 14061, 14618, 16276, 16509, 16625, 20473, 20940,
+                                                     24940, 28753, 30633, 31898, 36352, 40509, 45102, 47583, 51167, 53667,
+                                                     55286, 60781, 63949, 132203, 136258, 396982]::bigint[]) AS h (asn);
 INSERT INTO ip_asn_prefix (prefix, asn)
 SELECT ('100.65.0.' || h.n || '/32')::cidr, h.asn
-  FROM unnest(ARRAY[8075, 12876, 13335, 14061, 14618, 15169, 16276, 16509, 20473, 24940, 31898, 45102, 63949, 132203, 396982,
+  FROM unnest(ARRAY[8075, 9009, 12876, 13335, 14061, 14618, 15169, 16276, 16509, 16625, 20473, 20940, 24940, 28753, 30633,
+                    31898, 36352, 40509, 45102, 47583, 51167, 53667, 55286, 60781, 63949, 132203, 136258, 396982,
                     64496]::bigint[])
        WITH ORDINALITY AS h (asn, n);
 INSERT INTO ip_asn_prefix (prefix, asn) VALUES ('192.0.2.77/32', 64496);
@@ -106,12 +108,70 @@ BEGIN
          'list_time is on the 24-hour clock';
   ASSERT (SELECT c.is_datacenter IS FALSE FROM api.fn_ip_lookup('100.64.200.1') AS c),
          'with both tables loaded, an address of no AS and no provider prefix is no datacenter';
-  ASSERT (SELECT array_agg(c.is_datacenter ORDER BY n) FROM generate_series(1, 16) AS n,
+  ASSERT (SELECT array_agg(c.is_datacenter ORDER BY n) FROM generate_series(1, 29) AS n,
                  LATERAL api.fn_ip_lookup(('100.65.0.' || n)::inet) AS c)
-         = array_fill(true, ARRAY[15]) || false,
-         'each of the 15 hosting ASes is a datacenter, and another AS is not';
+         = array_fill(true, ARRAY[28]) || false,
+         'each of the 28 hosting ASes is a datacenter, and another AS is not';
+  ASSERT (SELECT string_agg(iha.asn::text || ' ' || iha.provider || ' ' || iha.is_cdn_without_list::text, ', ' ORDER BY iha.asn)
+            FROM ip_hosting_asn AS iha)
+         = '8075 microsoft false, 9009 m247 false, 12876 scaleway false, 13335 cloudflare false, 14061 digitalocean false, '
+           || '14618 aws false, 15169 google false, 16276 ovh false, 16509 aws false, 16625 akamai true, 20473 vultr false, '
+           || '20940 akamai true, 24940 hetzner false, 28753 leaseweb false, 30633 leaseweb false, 31898 oracle false, '
+           || '36352 colocrossing false, 40509 flyio false, 45102 alibaba false, 47583 hostinger false, 51167 contabo false, '
+           || '53667 frantech false, 55286 servermania false, 60781 leaseweb false, 63949 linode false, 132203 tencent false, '
+           || '136258 brainstorm false, 396982 google false',
+         'ip_hosting_asn holds the 28 rows of schema.sql, and only the two Akamai rows are a CDN without a list';
 END
 $$;
+
+SAVEPOINT t_ip_hosting_asn_check;
+DO $$
+BEGIN
+  INSERT INTO ip_hosting_asn (asn, provider, is_cdn_without_list) VALUES (1, 'a', false), (4294967295, 'a' || repeat('b', 31), false);
+  BEGIN
+    INSERT INTO ip_hosting_asn (asn, provider, is_cdn_without_list) VALUES (0, 'example', false);
+    RAISE EXCEPTION 'ip_hosting_asn took AS 0';
+  EXCEPTION WHEN check_violation THEN NULL;
+  END;
+  BEGIN
+    INSERT INTO ip_hosting_asn (asn, provider, is_cdn_without_list) VALUES (4294967296, 'example', false);
+    RAISE EXCEPTION 'ip_hosting_asn took AS 4294967296';
+  EXCEPTION WHEN check_violation THEN NULL;
+  END;
+  BEGIN
+    INSERT INTO ip_hosting_asn (asn, provider, is_cdn_without_list) VALUES (64511, 'a' || repeat('b', 32), false);
+    RAISE EXCEPTION 'ip_hosting_asn took a provider of 33 bytes';
+  EXCEPTION WHEN check_violation THEN NULL;
+  END;
+  BEGIN
+    INSERT INTO ip_hosting_asn (asn, provider, is_cdn_without_list) VALUES (64511, 'Akamai', false);
+    RAISE EXCEPTION 'ip_hosting_asn took a provider with a capital letter';
+  EXCEPTION WHEN check_violation THEN NULL;
+  END;
+  BEGIN
+    INSERT INTO ip_hosting_asn (asn, provider, is_cdn_without_list) VALUES (64511, 'a-b', false);
+    RAISE EXCEPTION 'ip_hosting_asn took a provider with a hyphen';
+  EXCEPTION WHEN check_violation THEN NULL;
+  END;
+  BEGIN
+    INSERT INTO ip_hosting_asn (asn, provider, is_cdn_without_list) VALUES (1, 'b', false);
+    RAISE EXCEPTION 'ip_hosting_asn took a second row of one AS';
+  EXCEPTION WHEN unique_violation THEN NULL;
+  END;
+  BEGIN
+    INSERT INTO ip_hosting_asn (asn, provider, is_cdn_without_list) VALUES (64511, NULL, false);
+    RAISE EXCEPTION 'ip_hosting_asn took a NULL provider';
+  EXCEPTION WHEN not_null_violation THEN NULL;
+  END;
+  BEGIN
+    INSERT INTO ip_hosting_asn (asn, provider, is_cdn_without_list) VALUES (64511, 'example', NULL);
+    RAISE EXCEPTION 'ip_hosting_asn took a NULL is_cdn_without_list';
+  EXCEPTION WHEN not_null_violation THEN NULL;
+  END;
+END
+$$;
+ROLLBACK TO SAVEPOINT t_ip_hosting_asn_check;
+RELEASE SAVEPOINT t_ip_hosting_asn_check;
 
 INSERT INTO ip_crawler_range (crawler, prefix) VALUES
   ('applebot',             '100.70.3.7/32'),
@@ -401,8 +461,22 @@ ROLLBACK TO SAVEPOINT t_ip_hosting_gcore;
 RELEASE SAVEPOINT t_ip_hosting_gcore;
 
 SAVEPOINT t_ip_hosting_akamai;
-INSERT INTO ip_asn (asn, asn_name, country) VALUES (16625, 'Akamai AS', 'US'), (20940, 'Akamai Intl AS', 'NL'), (63949, 'Linode AS', 'US');
-INSERT INTO ip_asn_prefix (prefix, asn) VALUES ('2001:db8:a000::/48', 16625), ('2001:db8:a001::/48', 20940), ('2001:db8:a002::/48', 63949), ('198.18.0.0/24', 16625);
+INSERT INTO ip_asn (asn, asn_name, country) VALUES (16625, 'Akamai AS', 'US'), (20940, 'Akamai Intl AS', 'NL'), (63949, 'Linode AS', 'US'),
+                                                   (64511, 'Example CDN AS', 'US');
+INSERT INTO ip_asn_prefix (prefix, asn) VALUES ('2001:db8:a000::/48', 16625), ('2001:db8:a001::/48', 20940), ('2001:db8:a002::/48', 63949), ('198.18.0.0/24', 16625),
+                                               ('2001:db8:a003::/48', 64511);
+INSERT INTO ip_hosting_asn (asn, provider, is_cdn_without_list) VALUES (64511, 'examplecdn', true);
+INSERT INTO ip_asn (asn, asn_name, country)
+SELECT h.asn, 'Host ' || h.asn, 'US'
+  FROM unnest(ARRAY[8075, 9009, 12876, 13335, 14061, 14618, 15169, 16276, 16509, 20473, 24940, 28753, 30633, 31898,
+                    36352, 40509, 45102, 47583, 51167, 53667, 55286, 60781, 132203, 136258, 396982]::bigint[]) AS h (asn)
+ON CONFLICT (asn) DO NOTHING;
+INSERT INTO ip_asn_prefix (prefix, asn)
+SELECT ('100.70.0.' || h.n || '/32')::cidr, h.asn
+  FROM unnest(ARRAY[8075, 9009, 12876, 13335, 14061, 14618, 15169, 16276, 16509, 16625, 20473, 20940, 24940, 28753, 30633,
+                    31898, 36352, 40509, 45102, 47583, 51167, 53667, 55286, 60781, 63949, 132203, 136258, 396982,
+                    64496]::bigint[])
+       WITH ORDINALITY AS h (asn, n);
 INSERT INTO ip_cloud_range (provider, service, prefix, is_cdn, synced_at) VALUES ('aws', 'cloudfront', '2001:db8:a000:1::/64', true, now());
 DO $$
 BEGIN
@@ -411,6 +485,13 @@ BEGIN
   ASSERT pg_temp.t_hosting('198.18.0.1') = 'akamai/akamai', 'an IPv4 address of AS 16625 answers akamai/akamai';
   ASSERT pg_temp.t_hosting('2001:db8:a000:1::1') = 'aws/cloudfront', 'a cloud prefix inside an AS 16625 prefix wins over akamai/akamai';
   ASSERT pg_temp.t_hosting('2001:db8:a002::1') = 'AS63949', 'an address of AS 63949 answers its AS, not akamai/akamai';
+  ASSERT pg_temp.t_hosting('2001:db8:a003::1') = 'examplecdn/examplecdn',
+         'an address of a CDN without a list answers provider/provider of its ip_hosting_asn row';
+  ASSERT pg_temp.t_hosting((SELECT string_agg('100.70.0.' || n, ',') FROM generate_series(1, 29) AS n))
+         = E'AS12876\nAS132203\nAS13335\nAS136258\nAS14061\nAS14618\nAS15169\nAS16276\nAS16509\nAS20473\nAS24940\nAS28753\nAS30633\n'
+           || E'AS31898\nAS36352\nAS396982\nAS40509\nAS45102\nAS47583\nAS51167\nAS53667\nAS55286\nAS60781\nAS63949\nAS64496\nAS8075\nAS9009\n'
+           || 'akamai/akamai',
+         'each seeded hosting AS but the two Akamai ASes answers its AS, so no class changed';
 
   PERFORM pg_temp.t_feed('iptoasn', 'ok', interval '7 days' + interval '1 minute');
   ASSERT pg_temp.t_hosting('2001:db8:a000::1') IS NULL, 'with iptoasn synced 7 days and a minute ago, akamai/akamai is NULL';

@@ -1,0 +1,98 @@
+{
+  "type": "object",
+  "properties": {
+    "email": {
+      "type": "string",
+      "description": "It is the address, with its domain in lower case."
+    },
+    "domain": {
+      "type": "string"
+    },
+    "domain_exists": {
+      "type": "boolean",
+      "description": "false when the resolver said the domain does not exist."
+    },
+    "accepts_mail": {
+      "type": "boolean",
+      "description": "true when mail_route is mx or implicit_mx."
+    },
+    "mail_route": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "It is mx when MX hosts take the mail, implicit_mx when the domain has no MX and its own address takes it, null_mx when it takes no mail, or none when it has no MX, A or AAAA record. null when the domain does not exist."
+    },
+    "mx_hosts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "priority": {
+            "type": "integer"
+          },
+          "host": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "priority",
+          "host"
+        ]
+      },
+      "description": "The MX records, as dns_lookup writes them."
+    },
+    "disposable": {
+      "type": [
+        "boolean",
+        "null"
+      ],
+      "description": "true when the disposable domain list names the domain or a parent of it. null while the list is not loaded."
+    },
+    "disposable_listed_domain": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "The name the list holds: the domain or a parent of it. null unless disposable is true."
+    },
+    "unavailable": {
+      "type": "object",
+      "description": "It holds disposable_listed_domain with not_synced while the disposable domain list is not loaded. It is {} otherwise.",
+      "properties": {
+        "disposable_listed_domain": {
+          "type": "string"
+        }
+      },
+      "required": []
+    },
+    "credits": {
+      "type": "object",
+      "properties": {
+        "charged": {
+          "type": "integer",
+          "description": "Credits this call cost; 0 for a free tool."
+        },
+        "remaining": {
+          "type": "integer",
+          "description": "Credits left in the budget window. Absent when not paid from a credit budget."
+        }
+      },
+      "required": [
+        "charged"
+      ]
+    }
+  },
+  "required": [
+    "email",
+    "domain",
+    "domain_exists",
+    "accepts_mail",
+    "mail_route",
+    "mx_hosts",
+    "disposable",
+    "disposable_listed_domain",
+    "unavailable",
+    "credits"
+  ]
+}

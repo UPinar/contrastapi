@@ -132,14 +132,29 @@ extern int        g_stub_DRIVERLOOKUPBULK_last_id_count;
 extern int        g_stub_DRIVERLOOKUPBULK_failed_index;
 extern int        g_stub_DRIVERLOOKUPBULKResultFree_call_count;
 extern size_t     g_stub_DRIVERLOOKUPBULK_matches_len;
+extern bool       g_stub_DRIVERLOOKUPBULK_matches_escaped;
 
 #define DRIVERLOOKUP_STUB_MATCHES \
-  R"([{"driver_id":"00000000-0000-0000-0000-00000000000a","category":"vulnerable driver","matched_on":["sha256"]}])"
+  R"([{"tags": ["RTCore64.sys"], "command": null, "cve_ids": ["CVE-2019-16098"], "category": "vulnerable driver", )" \
+  R"("use_case": "Elevate privileges", "verified": true, "driver_id": "00000000-0000-0000-0000-00000000000a", )" \
+  R"("matched_on": ["sha256"], "privileges": "kernel", "references": ["https://github.com/Barakat/CVE-2019-16098"], )" \
+  R"("source_url": "https://www.loldrivers.io/drivers/00000000-0000-0000-0000-00000000000a/", )" \
+  R"("description": "The driver lets a user read and write kernel memory.", "catalog_added": "2023-01-09", )" \
+  R"("detection_rules": [{"type": "Sigma", "value": "driver_load_win_vuln_drivers.yml"}], "operating_system": "Windows 10", )" \
+  R"("matched_driver_file": {"md5": "2d8e4f38b36c334d0a32a7324832501d", "sha1": "f6f11ad2cd2b0cf95ed42324876bee1d83e01775", )" \
+  R"("sha256": "01aa278b07b58dc46c84bd0b1b5c8e9ee4e62ea0bf7a695862444af32e87f1fd", "company": "Micro-Star International", )" \
+  R"("imphash": "a5d2d4b3f4a5f6e7d8c9b0a1f2e3d4c5", "file_name": "RTCore64.sys", "publisher": "Micro-Star International Co., Ltd.", )" \
+  R"("description": "RTCore64.sys", "authentihash": {"md5": "bcd9f192e2f6c1b8f1d4c3a2b1e0f9a8", )" \
+  R"("sha1": "8d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8091a2b3c4", "sha256": "d7d8e2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8091a2b"}, )" \
+  R"("file_version": "4.6.2.15658", "product_name": "RTCore64", "product_version": "4.6.2.15658", "loads_despite_hvci": false, )" \
+  R"("original_file_name": "RTCore64.sys"}, "attack_technique_ids": "T1068"}])"
 
 extern DbStatus_t g_stub_IPLOOKUP_status;
 extern char       g_stub_IPLOOKUP_last_ip_address[INET6_ADDRSTRLEN];
 extern int        g_stub_IPLOOKUP_call_count;
 extern int        g_stub_IPLOOKUPRecordFree_call_count;
+
+extern void     (*g_stub_IPLOOKUP_change_record)(IPLOOKUPRecord_t* record);
 
 #define IPLOOKUP_STUB_LISTED_ON \
   R"([{"prefix": "1.10.16.0/20", "source": "drop", "copyright": "(c) 2026 The Spamhaus Project SLU", "list_time": "2026-10-24T00:00:00Z", "listing_id": "SBL256894"}])"
@@ -173,9 +188,16 @@ extern bool                 g_stub_PACKAGECHECK_is_advisory_feed_loaded;
 extern int                  g_stub_PACKAGECHECKResultFree_call_count;
 
 #define PACKAGECHECK_STUB_FIXED_VERSION "4.17.21"
-#define PACKAGECHECK_STUB_MALICIOUS     R"({"id":"MAL-2024-1"})"
-#define PACKAGECHECK_STUB_RESULTS       R"([{"id":"GHSA-35jh-r3h4-6jhm","aliases":["CVE-2021-23337"]}])"
-#define PACKAGECHECK_STUB_ATTRIBUTION   R"([{"source":"ghsa","license":"CC-BY-4.0"}])"
+#define PACKAGECHECK_STUB_MALICIOUS \
+  R"json({"id":"MAL-2024-1","summary":"Malicious code in stub (npm)","published_time":"2024-01-01T00:00:00Z","affects_version":true})json"
+#define PACKAGECHECK_STUB_RESULTS \
+  R"([{"id":"GHSA-35jh-r3h4-6jhm","fixed":["4.17.21"],"ranges":[{"type":"SEMVER","events":[{"introduced":"0"},{"fixed":"4.17.21"}]}],)" \
+  R"("source":"ghsa","aliases":["CVE-2021-23337"],"summary":"Command Injection in lodash","fixed_version":"4.17.21",)" \
+  R"("published_time":"2021-02-15T11:36:55Z","affects_version":true}])"
+#define PACKAGECHECK_STUB_ATTRIBUTION \
+  R"([{"url":"https://github.com/github/advisory-database","notice":"Retrieved through OSV.dev. ContrastAPI selected and normalized )" \
+  R"(the fields and computed affects_version and fixed_version. No warranty; the source does not endorse ContrastAPI.",)" \
+  R"("source":"ghsa","license":"CC-BY-4.0"}])"
 
 extern DbStatus_t             g_stub_PACKAGECHECKBULK_status;
 extern int                    g_stub_PACKAGECHECKBULK_failed_item_count;
@@ -190,8 +212,12 @@ extern PACKAGECHECKBULKItem_t g_stub_PACKAGECHECKBULKWeigh_last_items[PACKAGECHE
 extern int                    g_stub_PACKAGECHECKBULKWeigh_last_item_count;
 extern int                    g_stub_PACKAGECHECKBULKWeigh_call_count;
 
-#define PACKAGECHECKBULK_STUB_RESULTS     R"([{"name":"lodash","advisories":[]}])"
-#define PACKAGECHECKBULK_STUB_ATTRIBUTION R"([{"source":"ghsa","license":"CC-BY-4.0"}])"
+#define PACKAGECHECKBULK_STUB_RESULTS \
+  R"([{"eol":null,"name":"lodash","version":"4.17.20","ecosystem":"npm","malicious":null,)" \
+  R"("advisories":[{"id":"GHSA-35jh-r3h4-6jhm","aliases":["CVE-2021-23337"],"affects_version":true}],)" \
+  R"("fixed_version":"4.17.21","advisory_total":1,"has_advisory_data":true}])"
+#define PACKAGECHECKBULK_STUB_ATTRIBUTION \
+  R"([{"url":"https://github.com/github/advisory-database","source":"ghsa","license":"CC-BY-4.0"}])"
 
 extern DbStatus_t          g_stub_CVEPRODUCTS_status;
 extern CVEPRODUCTSParams_t g_stub_CVEPRODUCTS_last_params;
@@ -210,7 +236,12 @@ extern size_t g_stub_CVELOOKUP_affected_products_len;
 extern size_t g_stub_KEVLOOKUP_cwes_len;
 extern size_t g_stub_CWELOOKUP_mitigations_len;
 
+extern bool g_stub_KEVLOOKUP_cwes_null;
+extern bool g_stub_CWELOOKUP_documents_null;
+
 extern bool g_stub_HEALTH_full_feeds;
+
+extern bool g_stub_HEALTH_no_feeds;
 
 #define STUB_WATCHLISTEDIT_PACKAGE_COPY_COUNT 3
 extern DbStatus_t                    g_stub_WATCHLISTEDIT_status;
@@ -229,5 +260,12 @@ extern WATCHLISTEVENTSParams_t       g_stub_WATCHLISTEVENTS_last_params;
 extern int                           g_stub_WATCHLISTEVENTS_last_event_row_count;
 extern int                           g_stub_WATCHLISTEVENTS_call_count;
 extern int                           g_stub_WATCHLISTEVENTSResultFree_call_count;
+
+#define WATCHLISTEVENTS_STUB_ATTRIBUTION \
+  R"([{"url":"https://endoflife.date","notice":"Retrieved from endoflife.date. ContrastAPI selected the fields and matched the release )" \
+  R"(cycles to the watched product. No warranty; the source does not endorse ContrastAPI.","source":"endoflife.date","license":"MIT"},)" \
+  R"({"url":"https://github.com/github/advisory-database","notice":"Retrieved through OSV.dev. ContrastAPI selected and normalized )" \
+  R"(the fields and computed affects_version and fixed_version. No warranty; the source does not endorse ContrastAPI.",)" \
+  R"("source":"ghsa","license":"CC-BY-4.0"}])"
 
 #endif

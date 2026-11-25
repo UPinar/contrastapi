@@ -1,6 +1,7 @@
 #include <ctype.h>
 #include <string.h>
 #include <stdio.h>
+#include <errno.h>
 #include <stdlib.h>
 #include <time.h>
 #include <unistd.h>
@@ -332,7 +333,7 @@ extern "C" char                      g_stub_WAYBACK_last_lookup_name[VALIDATE_DO
 extern "C" void                    (*g_stub_WAYBACK_on_call)(void);
 extern char    g_stub_CVERISKSCORE_last_cve_id[CVELOOKUP_ID_MAX_LEN + 1];
 
-#define RESP_BUF 65536
+#define RESP_BUF 262144
 
 #define HEX48 "000000000000000000000000000000000000000000000000"
 #define HEX48_CRC "0fa16679"
@@ -511,6 +512,8 @@ void setUp(void)
   g_stub_DRIVERLOOKUPBULK_last_id_count           = 0;
   g_stub_DRIVERLOOKUPBULK_failed_index            = -1;
   g_stub_DRIVERLOOKUPBULKResultFree_call_count    = 0;
+  g_stub_DRIVERLOOKUPBULK_matches_len             = 0;
+  g_stub_DRIVERLOOKUPBULK_matches_escaped         = false;
   g_stub_PACKAGECHECK_status                      = DB_ERROR;
   memset(&g_stub_PACKAGECHECK_last_params, 0, sizeof(g_stub_PACKAGECHECK_last_params));
   g_stub_PACKAGECHECK_call_count         = 0;
@@ -547,6 +550,9 @@ void setUp(void)
   g_stub_EPSSRISERSResultFree_call_count = 0;
   g_stub_CVELOOKUP_affected_products_len = 0;
   g_stub_KEVLOOKUP_cwes_len              = 0;
+  g_stub_KEVLOOKUP_cwes_null             = false;
+  g_stub_CWELOOKUP_documents_null        = false;
+  g_stub_HEALTH_no_feeds                 = false;
   g_stub_HEALTH_full_feeds               = false;
   g_stub_CWELOOKUP_mitigations_len       = 0;
   g_stub_CVEEXPLOIT_escape_heavy         = false;
@@ -598,6 +604,7 @@ void setUp(void)
   memset(&g_stub_ASNLOOKUP_last_params, 0, sizeof(g_stub_ASNLOOKUP_last_params));
   g_stub_IPLOOKUP_call_count                = 0;
   g_stub_IPLOOKUPRecordFree_call_count      = 0;
+  g_stub_IPLOOKUP_change_record             = NULL;
   memset(g_stub_IPLOOKUP_last_ip_address, 0, sizeof(g_stub_IPLOOKUP_last_ip_address));
   g_stub_PTR_status                         = DNS_ANSWER_OK;
   g_stub_PTR_record_count                   = 1;
@@ -1650,7 +1657,7 @@ void test_row_neighbours_answer_404_for_free(void)
 
 void test_credit_cost_web_files_0_skip_check(void)
 {
-  TEST_ASSERT_EQUAL_INT(40, pages_sourceCount);
+  TEST_ASSERT_EQUAL_INT(42, pages_sourceCount);
   for (int i = 0; i < pages_sourceCount; i++)
     TEST_ASSERT_EQUAL_UINT_MESSAGE(CREDIT_COST_SENTINEL, static_costForRequest("HEAD", pages_sources[i].mp_httpPath, ""), pages_sources[i].mp_httpPath);
   TEST_ASSERT_EQUAL_UINT(CREDIT_COST_SENTINEL, static_costForPath("/robots.txt"));
@@ -3035,7 +3042,7 @@ void test_HEALTH_db_error_answers_503_with_retry_after(void)
   TEST_ASSERT_EQUAL_INT(1, static_countResponses(buf));
   TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 503 Service Unavailable\r\n"));
   TEST_ASSERT_NOT_NULL(strstr(buf, "\r\nRetry-After: 5\r\n"));
-  TEST_ASSERT_NOT_NULL(strstr(buf, R"({"status":"unavailable","version":"2.3.1","db":null,"credits":{"charged":0}})"));
+  TEST_ASSERT_NOT_NULL(strstr(buf, R"({"status":"unavailable","version":"2.3.3","db":null,"credits":{"charged":0}})"));
   TEST_ASSERT_NULL(strstr(buf, R"("cve_count")"));
 }
 
@@ -3049,7 +3056,7 @@ void test_HEALTH_db_not_found_also_answers_503(void)
   static_callRequestHandle(req, buf, sizeof(buf));
   TEST_ASSERT_EQUAL_INT(1, static_countResponses(buf));
   TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 503 Service Unavailable\r\n"));
-  TEST_ASSERT_NOT_NULL(strstr(buf, R"({"status":"unavailable","version":"2.3.1","db":null,"credits":{"charged":0}})"));
+  TEST_ASSERT_NOT_NULL(strstr(buf, R"({"status":"unavailable","version":"2.3.3","db":null,"credits":{"charged":0}})"));
   TEST_ASSERT_NULL(strstr(buf, R"("cve_count")"));
 }
 
@@ -7290,7 +7297,7 @@ void test_package_check_without_a_version_is_200_without_fixed_version(void)
   static_callRequestHandle("GET /package_check?ecosystem=npm&name=%40babel%2Fcore&limit=7&offset=3 HTTP/1.1\r\nX-API-Key: " VALID_KEY "\r\n\r\n", buf, sizeof(buf));
   TEST_ASSERT_EQUAL_INT(1, static_countResponses(buf));
   TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 200 OK\r\n"));
-  TEST_ASSERT_NULL(strstr(static_responseBody(buf), "fixed_version"));
+  TEST_ASSERT_NOT_NULL(strstr(static_responseBody(buf), R"("limit":7,"offset":3,"next_offset":3,"malicious":)"));
   TEST_ASSERT_EQUAL_STRING("npm", g_stub_PACKAGECHECK_last_params.ma_ecosystem);
   TEST_ASSERT_EQUAL_STRING("@babel/core", g_stub_PACKAGECHECK_last_params.ma_packageName);
   TEST_ASSERT_EQUAL_STRING("", g_stub_PACKAGECHECK_last_params.ma_version);
@@ -9093,6 +9100,64 @@ void test_CVELOOKUPBULK_body_over_ceiling_answers_500_once(void)
   TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 500"));
 }
 
+#define DRIVER_FAT_MATCHES_LEN          (200u * 1024u)
+#define DRIVER_OVER_CEILING_MATCHES_LEN (220u * 1024u)
+
+static void static_DRIVERLOOKUPBULKFillMaxIdsBody(char* body, size_t body_size)
+{
+  size_t pos = (size_t)snprintf(body, body_size, R"({"hashes":[)");
+  for (int i = 0; i < DRIVERLOOKUPBULK_MAX_IDS; i++)
+    pos += (size_t)snprintf(body + pos, body_size - pos, R"(%s"%032d")", i ? "," : "", i);
+  snprintf(body + pos, body_size - pos, "]}");
+}
+
+void test_DRIVERLOOKUPBULK_body_just_under_ceiling_ships_whole(void)
+{
+  g_stub_api_key_state                = DB_API_KEY_ACTIVE;
+  g_stub_DRIVERLOOKUPBULK_status      = DB_OK;
+  g_stub_DRIVERLOOKUPBULK_matches_len = DRIVER_FAT_MATCHES_LEN;
+  TEST_ASSERT_GREATER_THAN_size_t(JSONBUF_DEFAULT_CEILING / 4 * 3, (size_t)DRIVERLOOKUPBULK_MAX_IDS * DRIVER_FAT_MATCHES_LEN);
+  char hashes_body[1024];
+  static_DRIVERLOOKUPBULKFillMaxIdsBody(hashes_body, sizeof(hashes_body));
+  char* buf = (char*)malloc(FAT_BULK_BUF);
+  TEST_ASSERT_NOT_NULL(buf);
+  static_postDriverLookupBulk(hashes_body, buf, FAT_BULK_BUF);
+  TEST_ASSERT_EQUAL_INT(1, static_countResponses(buf));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 200"));
+  TEST_ASSERT_NOT_NULL(strstr(buf, R"("successful":20)"));
+  const char* body = strstr(buf, "\r\n\r\n");
+  TEST_ASSERT_NOT_NULL(body);
+  body += 4;
+  TEST_ASSERT_GREATER_THAN_size_t(JSONBUF_DEFAULT_CEILING / 4 * 3, strlen(body));
+  static_assertBodyEndsWith(body, "\n" R"(],"credits":{"charged":20,"remaining":10}})");
+  const char* cursor = body;
+  for (int i = 0; i < DRIVERLOOKUPBULK_MAX_IDS; i++)
+  {
+    char needle[64];
+    snprintf(needle, sizeof(needle), R"(%s{"hash":"%032d")", i ? "}\n," : R"("results":[)", i);
+    cursor = strstr(cursor, needle);
+    TEST_ASSERT_NOT_NULL_MESSAGE(cursor, needle);
+    cursor += strlen(needle);
+  }
+  free(buf);
+}
+
+void test_DRIVERLOOKUPBULK_body_over_ceiling_answers_500_once(void)
+{
+  g_stub_api_key_state                = DB_API_KEY_ACTIVE;
+  g_stub_DRIVERLOOKUPBULK_status      = DB_OK;
+  g_stub_DRIVERLOOKUPBULK_matches_len = DRIVER_OVER_CEILING_MATCHES_LEN;
+  TEST_ASSERT_GREATER_THAN_size_t(JSONBUF_DEFAULT_CEILING, (size_t)DRIVERLOOKUPBULK_MAX_IDS * DRIVER_OVER_CEILING_MATCHES_LEN);
+  TEST_ASSERT_LESS_THAN_size_t(JSONBUF_MAX_CEILING, (size_t)DRIVERLOOKUPBULK_MAX_IDS * DRIVER_OVER_CEILING_MATCHES_LEN);
+  char hashes_body[1024];
+  static_DRIVERLOOKUPBULKFillMaxIdsBody(hashes_body, sizeof(hashes_body));
+  char buf[RESP_BUF];
+  static_postDriverLookupBulk(hashes_body, buf, sizeof(buf));
+  TEST_ASSERT_EQUAL_INT(1, static_countResponses(buf));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 500"));
+  TEST_ASSERT_EQUAL_INT(1, g_stub_DRIVERLOOKUPBULKResultFree_call_count);
+}
+
 void test_content_length_is_the_length_of_the_body_sent(void)
 {
   const char* req = "GET /health HTTP/1.1\r\n\r\n";
@@ -9280,7 +9345,7 @@ void test_CWELOOKUP_body_past_initial_capacity_ships_whole(void)
   TEST_ASSERT_NOT_NULL(body);
   body += 4;
   TEST_ASSERT_GREATER_THAN_size_t(JSONBUF_INITIAL_CAP, strlen(body));
-  static_assertBodyEndsWith(body, R"("updated_at":"2026-05-21T00:00:00+00:00","credits":{"charged":1,"remaining":10}})" "\n");
+  static_assertBodyEndsWith(body, R"("updated_at":"2026-05-21T00:00:00Z","credits":{"charged":1,"remaining":10}})" "\n");
 }
 
 void test_HEALTH_body_past_initial_capacity_ships_whole(void)
@@ -10692,8 +10757,10 @@ static const char* static_toolsListElement(const char* catalogue, const char* to
   TEST_ASSERT_TRUE_MESSAGE(needle_len > 0 && (size_t)needle_len < sizeof(needle), tool);
   const char* start = strstr(catalogue, needle);
   TEST_ASSERT_NOT_NULL_MESSAGE(start, tool);
-  const char* next = strstr(start + 1, R"(,{"name":")");
-  const char* end  = next != NULL ? next : strstr(start, R"(]})");
+  const char* end = strstr(start + 1, R"(,{"name":")");
+  if (end == NULL)
+    for (const char* list_end = strstr(start, R"(]})"); list_end != NULL; list_end = strstr(list_end + 1, R"(]})"))
+      end = list_end;
   TEST_ASSERT_NOT_NULL_MESSAGE(end, tool);
   *len_out = (size_t)(end - start);
   return start;
@@ -10759,6 +10826,35 @@ void test_docs_mcp_example_entry_matches_tools_list(void)
   TEST_ASSERT_EQUAL_size_t_MESSAGE((size_t)live_len, line_len, live);
   TEST_ASSERT_EQUAL_INT_MESSAGE(0, memcmp(line, live, line_len), live);
   free(text);
+  free(catalogue);
+}
+
+void test_tools_list_element_reads_the_last_tool_whole(void)
+{
+  const char* list_body = R"({"jsonrpc":"2.0","id":1,"method":"tools/list"})";
+  char* catalogue = NULL;
+  int status = 0;
+  TEST_ASSERT_TRUE(mcp_dispatch(list_body, strlen(list_body), NULL, &catalogue, &status, g_conn, &TEST_FULL_CHARGE, NULL));
+  TEST_ASSERT_NOT_NULL(catalogue);
+
+  JsonReadSpan_t root, result, tools, entry, last_entry = { NULL, 0 }, name;
+  TEST_ASSERT_EQUAL_INT(JSONREAD_OK, jsonread_root(catalogue, strlen(catalogue), &root));
+  TEST_ASSERT_EQUAL_INT(JSONREAD_OK, jsonread_objectKey(root, "result", &result));
+  TEST_ASSERT_EQUAL_INT(JSONREAD_OK, jsonread_objectKey(result, "tools", &tools));
+  size_t element_offset = 0;
+  while (jsonread_arrayNextElement(tools, &element_offset, &entry) == JSONREAD_OK)
+    last_entry = entry;
+  TEST_ASSERT_NOT_NULL(last_entry.mp_start);
+  TEST_ASSERT_EQUAL_INT(JSONREAD_OK, jsonread_objectKey(last_entry, "name", &name));
+  char tool[64];
+  TEST_ASSERT_EQUAL_INT(JSONREAD_OK, jsonread_spanToStrStatus(name, tool, sizeof(tool)));
+
+  size_t element_len = 0;
+  const char* element = static_toolsListElement(catalogue, tool, &element_len);
+  const char* meta_key = R"("_meta":)";
+  TEST_ASSERT_NOT_NULL_MESSAGE(memmem(element, element_len, meta_key, strlen(meta_key)), tool);
+  TEST_ASSERT_EQUAL_PTR(last_entry.mp_start, element);
+  TEST_ASSERT_EQUAL_size_t_MESSAGE(last_entry.m_len, element_len, tool);
   free(catalogue);
 }
 
@@ -15282,7 +15378,7 @@ void test_api_key_claim_refuses_an_order_id_that_is_not_a_uuid(void)
 
 void test_registration_gate_test_count(void)
 {
-  int expected_test_count = 800;
+  int expected_test_count = 891;
   TEST_ASSERT_EQUAL_INT_MESSAGE(expected_test_count, (int)Unity.NumberOfTests,
     "RUN_TEST list and test definitions have drifted apart - a test may be unregistered");
 }
@@ -15981,6 +16077,4594 @@ void test_rest_and_mcp_send_one_success_body(void)
   }
   TEST_ASSERT_EQUAL_INT(40, checked);
   TEST_ASSERT_EQUAL_INT((int)(sizeof(PARITY_CALLS) / sizeof(PARITY_CALLS[0])), checked);
+}
+
+typedef enum {
+  SCHEMA_CHECK_OK = 0,
+  SCHEMA_CHECK_UNDECLARED_MEMBER,
+  SCHEMA_CHECK_MISSING_REQUIRED,
+  SCHEMA_CHECK_WRONG_TYPE,
+  SCHEMA_CHECK_UNKNOWN_KEYWORD,
+  SCHEMA_CHECK_BAD_SCHEMA,
+} SchemaCheckStatus_t;
+
+static const char* const SCHEMA_CHECK_STATUS_NAMES[] = {
+  "ok", "undeclared member", "missing required member", "wrong type", "unknown keyword", "bad schema",
+};
+
+#define SCHEMA_CHECK_KEY_MAX_LEN 128
+
+static const char* static_jsonTypeOf(JsonReadSpan_t value)
+{
+  if (value.m_len == 0)
+    return "";
+  char first = value.mp_start[0];
+  if (first == '{')
+    return "object";
+  else if (first == '[')
+    return "array";
+  else if (first == '"')
+    return "string";
+  else if (first == 't' || first == 'f')
+    return "boolean";
+  else if (first == 'n')
+    return "null";
+  for (size_t k = 0; k < value.m_len; k++)
+    if (value.mp_start[k] == '.' || value.mp_start[k] == 'e' || value.mp_start[k] == 'E')
+      return "number";
+  return "integer";
+}
+
+static bool static_isTypeNameAllowed(JsonReadSpan_t type_name, const char* value_type)
+{
+  char name[16];
+  if (jsonread_spanToStrStatus(type_name, name, sizeof(name)) != JSONREAD_OK)
+    return false;
+  return strcmp(name, value_type) == 0 || (strcmp(name, "number") == 0 && strcmp(value_type, "integer") == 0);
+}
+
+static bool static_isTypeAllowed(JsonReadSpan_t type_span, const char* value_type)
+{
+  if (!jsonread_isArray(type_span))
+    return static_isTypeNameAllowed(type_span, value_type);
+  JsonReadSpan_t type_name;
+  size_t element_offset = 0;
+  while (jsonread_arrayNextElement(type_span, &element_offset, &type_name) == JSONREAD_OK)
+    if (static_isTypeNameAllowed(type_name, value_type))
+      return true;
+  return false;
+}
+
+static SchemaCheckStatus_t static_checkAgainstSchema(JsonReadSpan_t schema, JsonReadSpan_t value)
+{
+  if (!jsonread_isObject(schema))
+    return SCHEMA_CHECK_BAD_SCHEMA;
+
+  JsonReadSpan_t key, keyword_value;
+  JsonReadSpan_t type_span  = { NULL, 0 };
+  JsonReadSpan_t properties = { NULL, 0 };
+  JsonReadSpan_t required   = { NULL, 0 };
+  JsonReadSpan_t items      = { NULL, 0 };
+  JsonReadSpan_t map_values = { NULL, 0 };
+  size_t member_offset = 0;
+  while (jsonread_objectNextMember(schema, &member_offset, &key, &keyword_value) == JSONREAD_OK)
+  {
+    if (jsonread_isSpanEqual(key, "type"))
+      type_span = keyword_value;
+    else if (jsonread_isSpanEqual(key, "properties"))
+      properties = keyword_value;
+    else if (jsonread_isSpanEqual(key, "required"))
+      required = keyword_value;
+    else if (jsonread_isSpanEqual(key, "items"))
+      items = keyword_value;
+    else if (jsonread_isSpanEqual(key, "additionalProperties"))
+      map_values = keyword_value;
+    else if (!jsonread_isSpanEqual(key, "description"))
+      return SCHEMA_CHECK_UNKNOWN_KEYWORD;
+  }
+  if (type_span.m_len == 0)
+    return SCHEMA_CHECK_BAD_SCHEMA;
+  if (static_isTypeAllowed(type_span, "array") != (items.m_len > 0))
+    return SCHEMA_CHECK_BAD_SCHEMA;
+  if (map_values.m_len > 0 && !jsonread_isObject(map_values))
+    return SCHEMA_CHECK_BAD_SCHEMA;
+
+  const char* value_type = static_jsonTypeOf(value);
+  if (!static_isTypeAllowed(type_span, value_type))
+    return SCHEMA_CHECK_WRONG_TYPE;
+
+  if (strcmp(value_type, "object") == 0)
+  {
+    JsonReadSpan_t member_key, member_value, member_schema;
+    member_offset = 0;
+    while (jsonread_objectNextMember(value, &member_offset, &member_key, &member_value) == JSONREAD_OK)
+    {
+      char name[SCHEMA_CHECK_KEY_MAX_LEN];
+      if (member_key.m_len >= sizeof(name))
+        return SCHEMA_CHECK_UNDECLARED_MEMBER;
+      memcpy(name, member_key.mp_start, member_key.m_len);
+      name[member_key.m_len] = '\0';
+      bool is_declared = properties.m_len > 0 && jsonread_objectKey(properties, name, &member_schema) == JSONREAD_OK;
+      if (!is_declared && map_values.m_len == 0)
+        return SCHEMA_CHECK_UNDECLARED_MEMBER;
+      if (!is_declared)
+        member_schema = map_values;
+      SchemaCheckStatus_t member_status = static_checkAgainstSchema(member_schema, member_value);
+      if (member_status != SCHEMA_CHECK_OK)
+        return member_status;
+    }
+    JsonReadSpan_t required_name, found;
+    size_t element_offset = 0;
+    while (required.m_len > 0 && jsonread_arrayNextElement(required, &element_offset, &required_name) == JSONREAD_OK)
+    {
+      char name[SCHEMA_CHECK_KEY_MAX_LEN];
+      if (jsonread_spanToStrStatus(required_name, name, sizeof(name)) != JSONREAD_OK)
+        return SCHEMA_CHECK_BAD_SCHEMA;
+      if (jsonread_objectKey(value, name, &found) != JSONREAD_OK)
+        return SCHEMA_CHECK_MISSING_REQUIRED;
+    }
+  }
+  else if (strcmp(value_type, "array") == 0)
+  {
+    JsonReadSpan_t element;
+    size_t element_offset = 0;
+    while (jsonread_arrayNextElement(value, &element_offset, &element) == JSONREAD_OK)
+    {
+      SchemaCheckStatus_t element_status = static_checkAgainstSchema(items, element);
+      if (element_status != SCHEMA_CHECK_OK)
+        return element_status;
+    }
+  }
+  return SCHEMA_CHECK_OK;
+}
+
+static SchemaCheckStatus_t static_checkTexts(const char* schema_text, const char* value_text)
+{
+  JsonReadSpan_t schema, value;
+  TEST_ASSERT_EQUAL_INT(JSONREAD_OK, jsonread_root(schema_text, strlen(schema_text), &schema));
+  TEST_ASSERT_EQUAL_INT(JSONREAD_OK, jsonread_root(value_text, strlen(value_text), &value));
+  return static_checkAgainstSchema(schema, value);
+}
+
+static void static_assertConforms(JsonReadSpan_t schema, JsonReadSpan_t value, const char* label)
+{
+  SchemaCheckStatus_t status = static_checkAgainstSchema(schema, value);
+  char message[256];
+  snprintf(message, sizeof(message), "%s: %s", label, SCHEMA_CHECK_STATUS_NAMES[status]);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(SCHEMA_CHECK_OK, status, message);
+}
+
+static char* static_toolsListCatalogue(void)
+{
+  return static_mcpCall(R"({"jsonrpc":"2.0","id":1,"method":"tools/list"})");
+}
+
+static JsonReadSpan_t static_listedOutputSchema(const char* catalogue, const char* tool)
+{
+  JsonReadSpan_t root, result, tools, entry, name, schema = { NULL, 0 };
+  TEST_ASSERT_EQUAL_INT(JSONREAD_OK, jsonread_root(catalogue, strlen(catalogue), &root));
+  TEST_ASSERT_EQUAL_INT(JSONREAD_OK, jsonread_objectKey(root, "result", &result));
+  TEST_ASSERT_EQUAL_INT(JSONREAD_OK, jsonread_objectKey(result, "tools", &tools));
+  size_t element_offset = 0;
+  while (jsonread_arrayNextElement(tools, &element_offset, &entry) == JSONREAD_OK)
+  {
+    TEST_ASSERT_EQUAL_INT(JSONREAD_OK, jsonread_objectKey(entry, "name", &name));
+    char name_text[64];
+    TEST_ASSERT_EQUAL_INT(JSONREAD_OK, jsonread_spanToStrStatus(name, name_text, sizeof(name_text)));
+    if (strcmp(name_text, tool) != 0)
+      continue;
+    TEST_ASSERT_EQUAL_INT_MESSAGE(JSONREAD_OK, jsonread_objectKey(entry, "outputSchema", &schema), tool);
+    return schema;
+  }
+  TEST_FAIL_MESSAGE(tool);
+  return schema;
+}
+
+static JsonReadSpan_t static_structuredContentOf(const char* answer, const char* label)
+{
+  JsonReadSpan_t root, result, structured;
+  TEST_ASSERT_EQUAL_INT_MESSAGE(JSONREAD_OK, jsonread_root(answer, strlen(answer), &root), label);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(JSONREAD_OK, jsonread_objectKey(root, "result", &result), label);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(JSONREAD_OK, jsonread_objectKey(result, "structuredContent", &structured), label);
+  TEST_ASSERT_TRUE_MESSAGE(jsonread_isObject(structured), label);
+  return structured;
+}
+
+static const char* const LOOKUP_OPTIONAL_MEMBERS[] = {
+  "affected_products.cpe_part", "affected_products.version_start_including",
+  "affected_products.version_start_excluding", "affected_products.version_end_including",
+  "affected_products.version_end_excluding", "affected_products.default_status",
+  "affected_products.versions", "nuclei_templates.reason", "ghsa.ghsa_id", "ghsa.affected",
+  "ghsa.affected_total", "ghsa.attribution", "ghsa.available", "ghsa.reason", "credits.remaining",
+};
+static const char* const LOOKUPBULK_OPTIONAL_MEMBERS[] = {
+  "affected_products.cpe_part", "affected_products.version_start_including",
+  "affected_products.version_start_excluding", "affected_products.version_end_including",
+  "affected_products.version_end_excluding", "affected_products.default_status",
+  "affected_products.versions", "nuclei_templates.reason", "credits.remaining",
+};
+static const char* const CREDITS_OPTIONAL_MEMBERS[] = { "credits.remaining" };
+static const char* const LIST_OPTIONAL_MEMBERS[]    = { "product_filter_note", "credits.remaining" };
+static const char* const RISERS_OPTIONAL_MEMBERS[]  = { "window_note", "product_filter_note", "credits.remaining" };
+static const char* const PRODUCTS_OPTIONAL_MEMBERS[] = {
+  "results.cpe_part", "results.version_start_including", "results.version_start_excluding",
+  "results.version_end_including", "results.version_end_excluding", "results.default_status",
+  "results.versions", "credits.remaining",
+};
+static const char* const EXPLOIT_OPTIONAL_MEMBERS[] = {
+  "sources.reason", "sources.has_module", "sources.license", "top_results.edb_id", "top_results.url",
+  "top_results.name", "top_results.stars", "top_results.type", "top_results.platform",
+  "top_results.date_published", "top_results.verified", "credits.remaining",
+};
+static const char* const IPLOOKUP_OPTIONAL_MEMBERS[] = {
+  "reputation.reason", "reputation.action_url", "reputation.action_tool", "reputation.retry_after_seconds",
+  "reputation.source", "reputation.abuse_confidence_score", "reputation.total_reports",
+  "reputation.distinct_reporter_count", "reputation.last_reported_at", "reputation.is_whitelisted",
+  "reputation.usage_type", "internet_exposure.reason", "internet_exposure.action_url",
+  "internet_exposure.action_tool", "internet_exposure.retry_after_seconds", "internet_exposure.source",
+  "internet_exposure.ports", "internet_exposure.vulns", "internet_exposure.vulns_truncated",
+  "internet_exposure.hostnames", "internet_exposure.tags", "internet_exposure.last_update",
+  "unavailable.asn", "unavailable.geo_country", "unavailable.cloud_provider", "unavailable.is_tor_exit",
+  "unavailable.crawler", "unavailable.listed_on", "unavailable.ptr", "unavailable.is_ptr_forward_confirmed",
+  "credits.remaining",
+};
+static const char* const DRIVERLOOKUP_OPTIONAL_MEMBERS[] = {
+  "data_source.reason", "credits.remaining",
+};
+
+static const char* const PACKAGECHECK_OPTIONAL_MEMBERS[] = {
+  "data_source.reason", "fixed_version", "malicious.affects_version", "results.fixed_version",
+  "results.affects_version", "credits.remaining",
+};
+static const char* const PACKAGECHECKBULK_OPTIONAL_MEMBERS[] = {
+  "data_source.reason", "credits.remaining",
+};
+static const char* const DNSLOOKUP_OPTIONAL_MEMBERS[] = {
+  "unavailable.a", "unavailable.aaaa", "unavailable.mx", "unavailable.ns", "unavailable.txt",
+  "unavailable.cname", "unavailable.soa", "unavailable.caa", "credits.remaining",
+};
+static const char* const EMAILADDRESSCHECK_OPTIONAL_MEMBERS[] = {
+  "unavailable.disposable_listed_domain", "credits.remaining",
+};
+static const char* const EMAILAUTHCHECK_OPTIONAL_MEMBERS[] = {
+  "spf.reason", "spf.record_count", "spf.record", "spf.terms", "spf.dns_lookup_term_count",
+  "spf.invalid_term_count", "spf.unread_term_count", "dmarc.reason", "dmarc.record_name",
+  "dmarc.source", "dmarc.record", "dmarc.policy", "dmarc.subdomain_policy",
+  "dmarc.nonexistent_subdomain_policy", "dmarc.applied_policy", "dmarc.test_mode",
+  "dmarc.domain_role", "dmarc.aggregate_report_uris", "dmarc.failure_report_uris", "dkim.reason",
+  "dkim.key_status", "dkim.usable_key_count", "dkim.selector_source", "dkim.tested_selectors",
+  "dkim.keys", "mx.reason", "mx.null_mx", "mx.hosts", "mta_sts.reason", "mta_sts.record_found",
+  "credits.remaining",
+};
+static const char* const WHOISLOOKUP_OPTIONAL_MEMBERS[] = {
+  "reason", "retry_after_seconds", "rdap_server", "whois_server", "registrar_name", "registrar_iana_id",
+  "created_at", "updated_at", "expires_at", "status", "status_count", "name_servers", "name_server_count",
+  "dnssec_signed", "credits.remaining",
+};
+static const char* const WAYBACKLOOKUP_OPTIONAL_MEMBERS[] = {
+  "reason", "retry_after_seconds", "first_seen", "last_seen", "years_online", "latest_captures",
+  "archive_url", "credits.remaining",
+};
+static const char* const CERTSEARCH_OPTIONAL_MEMBERS[] = {
+  "reason", "retry_after_seconds", "complete", "certificate_count", "certificates", "credits.remaining",
+};
+static const char* const SUBDOMAINENUM_OPTIONAL_MEMBERS[] = {
+  "subdomains.has_ipv4_address", "certificate_logs_complete", "certificate_logs_reason",
+  "retry_after_seconds", "credits.remaining",
+};
+static const char* const SSLCHECK_OPTIONAL_MEMBERS[] = {
+  "unavailable.listed_on", "credits.remaining",
+};
+static const char* const HEADERSCHECK_OPTIONAL_MEMBERS[] = {
+  "total_url_length", "redirect_to", "total_redirect_to_length", "redirect_limit_reached",
+  "findings.total_value_length", "findings.cookie_count", "findings.remediation", "credits.remaining",
+};
+static const char* const REDIRECTCHAIN_OPTIONAL_MEMBERS[] = {
+  "retry_after_seconds", "invalid_location", "total_invalid_location_length", "hops.status_code",
+  "hops.error", "hops.had_userinfo", "hops.refresh", "hops.total_refresh_length", "credits.remaining",
+};
+static const char* const WELLKNOWN_OPTIONAL_MEMBERS[] = {
+  "reason", "retry_after_seconds",
+  "robots_txt.url", "robots_txt.total_url_length", "robots_txt.status_code", "robots_txt.redirect_count",
+  "robots_txt.redirect_to", "robots_txt.total_redirect_to_length", "robots_txt.total_groups", "robots_txt.total_rules",
+  "robots_txt.total_sitemaps", "robots_txt.total_issues",
+  "security_txt.url", "security_txt.total_url_length", "security_txt.status_code", "security_txt.redirect_count",
+  "security_txt.redirect_to", "security_txt.total_redirect_to_length", "security_txt.deciding_rule",
+  "security_txt.content_type", "security_txt.openpgp_signed", "security_txt.expires",
+  "security_txt.contact", "security_txt.total_contact", "security_txt.encryption", "security_txt.total_encryption",
+  "security_txt.acknowledgments", "security_txt.total_acknowledgments",
+  "security_txt.preferred_languages", "security_txt.total_preferred_languages",
+  "security_txt.canonical", "security_txt.total_canonical", "security_txt.policy", "security_txt.total_policy",
+  "security_txt.hiring", "security_txt.total_hiring", "security_txt.csaf", "security_txt.total_csaf",
+  "security_txt.unknown_field_count", "security_txt.issues", "security_txt.total_issues", "security_txt.by_severity",
+  "credits.remaining",
+};
+
+static const char* const WATCHLISTEDIT_OPTIONAL_MEMBERS[] = {
+  "items", "items.cve_id", "items.vendor", "items.product", "items.version", "items.product_has_cves",
+  "items.severity", "items.cwe_id", "items.min_cvss", "items.min_epss", "items.in_kev", "items.known_ransomware",
+  "items.has_nuclei_template", "items.domain", "items.ecosystem", "items.name", "items.ip_address",
+  "item_count", "item_limit", "added_count", "unchanged_count", "removed_count", "credits.remaining",
+};
+static const char* const VENDORKEYEDIT_OPTIONAL_MEMBERS[] = {
+  "shodan.result", "shodan.configured", "shodan.retry_after_seconds", "shodan.state",
+  "abuseipdb.result", "abuseipdb.configured", "abuseipdb.retry_after_seconds", "abuseipdb.state",
+  "manage_url", "expires_in_seconds", "credits.remaining",
+};
+static const char* const WATCHLISTEVENTS_OPTIONAL_MEMBERS[] = {
+  "item.cve_id", "item.vendor", "item.product", "item.version", "item.product_has_cves", "item.severity",
+  "item.cwe_id", "item.min_cvss", "item.min_epss", "item.in_kev", "item.known_ransomware",
+  "item.has_nuclei_template", "item.domain", "item.ecosystem", "item.name", "item.ip_address",
+  "events.cve_id", "events.previous", "events.current", "events.vendor", "events.product", "events.check",
+  "events.detail", "events.valid_until", "events.expires_at", "events.url", "events.removed",
+  "events.new_issuers", "events.advisory_id", "events.fixed_version", "events.affects_version",
+  "events.list_time", "events.copyright", "events.eol", "credits.remaining",
+};
+
+typedef struct {
+  const char*        mp_tool;
+  const char* const* mp_members;
+  size_t             m_memberCount;
+} OptionalMembersRow_t;
+
+#define OPTIONAL_MEMBERS_ROW(tool, list) { tool, list, sizeof(list) / sizeof(list[0]) }
+
+static const OptionalMembersRow_t OPTIONAL_MEMBERS_BY_TOOL[] = {
+  OPTIONAL_MEMBERS_ROW("health",          CREDITS_OPTIONAL_MEMBERS),
+  OPTIONAL_MEMBERS_ROW("kev_lookup",      CREDITS_OPTIONAL_MEMBERS),
+  OPTIONAL_MEMBERS_ROW("cwe_lookup",      CREDITS_OPTIONAL_MEMBERS),
+  OPTIONAL_MEMBERS_ROW("cve_lookup",      LOOKUP_OPTIONAL_MEMBERS),
+  OPTIONAL_MEMBERS_ROW("cve_lookup_bulk", LOOKUPBULK_OPTIONAL_MEMBERS),
+  OPTIONAL_MEMBERS_ROW("cve_search",      LIST_OPTIONAL_MEMBERS),
+  OPTIONAL_MEMBERS_ROW("cve_leading",     LIST_OPTIONAL_MEMBERS),
+  OPTIONAL_MEMBERS_ROW("cve_triage",      LIST_OPTIONAL_MEMBERS),
+  OPTIONAL_MEMBERS_ROW("cve_triage_bulk", CREDITS_OPTIONAL_MEMBERS),
+  OPTIONAL_MEMBERS_ROW("epss_risers",     RISERS_OPTIONAL_MEMBERS),
+  OPTIONAL_MEMBERS_ROW("cve_products",     PRODUCTS_OPTIONAL_MEMBERS),
+  OPTIONAL_MEMBERS_ROW("cve_risk_score",   CREDITS_OPTIONAL_MEMBERS),
+  OPTIONAL_MEMBERS_ROW("cve_exploit",      EXPLOIT_OPTIONAL_MEMBERS),
+  OPTIONAL_MEMBERS_ROW("product_exposure", CREDITS_OPTIONAL_MEMBERS),
+  OPTIONAL_MEMBERS_ROW("cpe_search",       CREDITS_OPTIONAL_MEMBERS),
+  OPTIONAL_MEMBERS_ROW("cvss_calculator",  CREDITS_OPTIONAL_MEMBERS),
+  OPTIONAL_MEMBERS_ROW("password_check",   CREDITS_OPTIONAL_MEMBERS),
+  OPTIONAL_MEMBERS_ROW("privacy_my_data",  CREDITS_OPTIONAL_MEMBERS),
+  OPTIONAL_MEMBERS_ROW("asn_lookup",       CREDITS_OPTIONAL_MEMBERS),
+  OPTIONAL_MEMBERS_ROW("ip_lookup",        IPLOOKUP_OPTIONAL_MEMBERS),
+  OPTIONAL_MEMBERS_ROW("d3fend_for_attack", CREDITS_OPTIONAL_MEMBERS),
+  OPTIONAL_MEMBERS_ROW("driver_lookup",    DRIVERLOOKUP_OPTIONAL_MEMBERS),
+  OPTIONAL_MEMBERS_ROW("driver_lookup_bulk", DRIVERLOOKUP_OPTIONAL_MEMBERS),
+  OPTIONAL_MEMBERS_ROW("package_check",      PACKAGECHECK_OPTIONAL_MEMBERS),
+  OPTIONAL_MEMBERS_ROW("package_check_bulk", PACKAGECHECKBULK_OPTIONAL_MEMBERS),
+  OPTIONAL_MEMBERS_ROW("dns_lookup",          DNSLOOKUP_OPTIONAL_MEMBERS),
+  OPTIONAL_MEMBERS_ROW("dns_takeover_check",  CREDITS_OPTIONAL_MEMBERS),
+  OPTIONAL_MEMBERS_ROW("email_address_check", EMAILADDRESSCHECK_OPTIONAL_MEMBERS),
+  OPTIONAL_MEMBERS_ROW("email_auth_check",    EMAILAUTHCHECK_OPTIONAL_MEMBERS),
+  OPTIONAL_MEMBERS_ROW("whois_lookup",        WHOISLOOKUP_OPTIONAL_MEMBERS),
+  OPTIONAL_MEMBERS_ROW("wayback_lookup",      WAYBACKLOOKUP_OPTIONAL_MEMBERS),
+  OPTIONAL_MEMBERS_ROW("cert_search",         CERTSEARCH_OPTIONAL_MEMBERS),
+  OPTIONAL_MEMBERS_ROW("subdomain_enum",      SUBDOMAINENUM_OPTIONAL_MEMBERS),
+  OPTIONAL_MEMBERS_ROW("ssl_check",           SSLCHECK_OPTIONAL_MEMBERS),
+  OPTIONAL_MEMBERS_ROW("headers_check",       HEADERSCHECK_OPTIONAL_MEMBERS),
+  OPTIONAL_MEMBERS_ROW("redirect_chain",      REDIRECTCHAIN_OPTIONAL_MEMBERS),
+  OPTIONAL_MEMBERS_ROW("well_known",          WELLKNOWN_OPTIONAL_MEMBERS),
+  OPTIONAL_MEMBERS_ROW("watchlist_edit",      WATCHLISTEDIT_OPTIONAL_MEMBERS),
+  OPTIONAL_MEMBERS_ROW("vendor_key_edit",     VENDORKEYEDIT_OPTIONAL_MEMBERS),
+  OPTIONAL_MEMBERS_ROW("watchlist_events",    WATCHLISTEVENTS_OPTIONAL_MEMBERS),
+};
+
+static bool static_isMemberOptional(const char* tool, const char* parent, JsonReadSpan_t key)
+{
+  char name[256];
+  int written = parent[0] != '\0'
+              ? snprintf(name, sizeof(name), "%s.%.*s", parent, (int)key.m_len, key.mp_start)
+              : snprintf(name, sizeof(name), "%.*s", (int)key.m_len, key.mp_start);
+  TEST_ASSERT_TRUE(written > 0 && (size_t)written < sizeof(name));
+  for (size_t i = 0; i < sizeof(OPTIONAL_MEMBERS_BY_TOOL) / sizeof(OPTIONAL_MEMBERS_BY_TOOL[0]); i++)
+  {
+    const OptionalMembersRow_t* row = &OPTIONAL_MEMBERS_BY_TOOL[i];
+    if (strcmp(row->mp_tool, tool) != 0)
+      continue;
+    for (size_t k = 0; k < row->m_memberCount; k++)
+      if (strcmp(name, row->mp_members[k]) == 0)
+        return true;
+    return false;
+  }
+  TEST_FAIL_MESSAGE(tool);
+  return false;
+}
+
+static bool static_isNameInArray(JsonReadSpan_t array, JsonReadSpan_t key)
+{
+  JsonReadSpan_t element;
+  size_t offset = 0;
+  while (jsonread_arrayNextElement(array, &offset, &element) == JSONREAD_OK)
+    if (element.m_len == key.m_len + 2 && memcmp(element.mp_start + 1, key.mp_start, key.m_len) == 0)
+      return true;
+  return false;
+}
+
+static void static_assertWrittenMembersRequired(const char* tool, JsonReadSpan_t schema, JsonReadSpan_t value, const char* parent, const char* label)
+{
+  JsonReadSpan_t sub;
+  if (value.m_len > 0 && value.mp_start[0] == '[')
+  {
+    if (jsonread_objectKey(schema, "items", &sub) != JSONREAD_OK)
+      return;
+    JsonReadSpan_t element;
+    size_t offset = 0;
+    while (jsonread_arrayNextElement(value, &offset, &element) == JSONREAD_OK)
+      static_assertWrittenMembersRequired(tool, sub, element, parent, label);
+    return;
+  }
+  JsonReadSpan_t properties;
+  if (value.m_len == 0 || value.mp_start[0] != '{' || jsonread_objectKey(schema, "properties", &properties) != JSONREAD_OK)
+    return;
+  JsonReadSpan_t required = { "[]", 2 };
+  (void)jsonread_objectKey(schema, "required", &required);
+  JsonReadSpan_t key, member;
+  size_t offset = 0;
+  while (jsonread_objectNextMember(value, &offset, &key, &member) == JSONREAD_OK)
+  {
+    char where[256];
+    snprintf(where, sizeof(where), "%s: %s.%.*s", label, parent, (int)key.m_len, key.mp_start);
+    if (!static_isMemberOptional(tool, parent, key))
+      TEST_ASSERT_TRUE_MESSAGE(static_isNameInArray(required, key), where);
+    char child[128];
+    snprintf(child, sizeof(child), "%.*s", (int)key.m_len, key.mp_start);
+    if (jsonread_objectKey(properties, child, &sub) == JSONREAD_OK)
+      static_assertWrittenMembersRequired(tool, sub, member, child, label);
+  }
+}
+
+static void static_assertStructuredConforms(const char* answer, const char* tool)
+{
+  char* catalogue = static_toolsListCatalogue();
+  JsonReadSpan_t schema     = static_listedOutputSchema(catalogue, tool);
+  JsonReadSpan_t structured = static_structuredContentOf(answer, tool);
+  static_assertConforms(schema, structured, tool);
+  static_assertWrittenMembersRequired(tool, schema, structured, "", tool);
+
+  static char text[RESP_BUF];
+  static_mcpTextOf(answer, text, sizeof(text), tool);
+  size_t text_len = strlen(text);
+  if (text_len > 0 && text[text_len - 1] == '\n')
+    text_len--;
+  TEST_ASSERT_TRUE_MESSAGE(text_len >= 1 && text[text_len - 1] == '}', tool);
+  TEST_ASSERT_EQUAL_size_t_MESSAGE(text_len, structured.m_len, tool);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(0, memcmp(text, structured.mp_start, structured.m_len), tool);
+  free(catalogue);
+}
+
+static JsonReadSpan_t static_memberOf(JsonReadSpan_t object, const char* key)
+{
+  JsonReadSpan_t member;
+  TEST_ASSERT_EQUAL_INT_MESSAGE(JSONREAD_OK, jsonread_objectKey(object, key, &member), key);
+  return member;
+}
+
+void test_mcp_structured_content_conforms_to_the_listed_schema(void)
+{
+  static_setParityStubsOk();
+  int checked = 0;
+  for (int i = 0; i < endpoint_count; i++)
+  {
+    const Endpoint_t* endpoint = &endpoints[i];
+    if (endpoint->mp_mcpToolOutputSchema == NULL)
+      continue;
+    const ParityCall_t* call = static_parityCallFor(endpoint->mp_mcpToolName);
+    TEST_ASSERT_NOT_NULL_MESSAGE(call, endpoint->mp_mcpToolName);
+    char* answer = static_mcpAnswerForParityCall(call);
+    static_assertStructuredConforms(answer, endpoint->mp_mcpToolName);
+    free(answer);
+    checked++;
+  }
+  TEST_ASSERT_EQUAL_INT(40, checked);
+}
+
+void test_mcp_structured_content_is_the_text_without_its_newline(void)
+{
+  static_setParityStubsOk();
+  static const struct { const char* mp_tool; bool m_hasNewline; } TOOLS[] = {
+    { "health", true }, { "kev_lookup", true }, { "cwe_lookup", true }, { "cve_lookup", true }, { "cve_lookup_bulk", false },
+    { "cve_search", true }, { "cve_leading", true }, { "cve_triage", true }, { "cve_triage_bulk", true }, { "epss_risers", true },
+    { "cve_products", true }, { "cve_risk_score", true }, { "cve_exploit", true }, { "product_exposure", true }, { "cpe_search", true },
+    { "cvss_calculator", true }, { "password_check", true }, { "privacy_my_data", true }, { "asn_lookup", true },
+    { "ip_lookup", true }, { "d3fend_for_attack", true }, { "driver_lookup", true }, { "driver_lookup_bulk", false },
+    { "package_check", true }, { "package_check_bulk", true }, { "dns_lookup", true }, { "dns_takeover_check", true },
+    { "email_address_check", true }, { "email_auth_check", true }, { "whois_lookup", true }, { "wayback_lookup", true },
+    { "cert_search", true }, { "subdomain_enum", true }, { "ssl_check", true }, { "headers_check", true },
+    { "redirect_chain", true }, { "well_known", true }, { "watchlist_edit", true }, { "vendor_key_edit", true },
+    { "watchlist_events", true },
+  };
+  for (size_t i = 0; i < sizeof(TOOLS) / sizeof(TOOLS[0]); i++)
+  {
+    const char* tool = TOOLS[i].mp_tool;
+    char* answer = static_mcpAnswerForParityCall(static_parityCallFor(tool));
+    JsonReadSpan_t structured = static_structuredContentOf(answer, tool);
+    static char text[RESP_BUF];
+    static_mcpTextOf(answer, text, sizeof(text), tool);
+    TEST_ASSERT_EQUAL_size_t_MESSAGE(structured.m_len + (TOOLS[i].m_hasNewline ? 1 : 0), strlen(text), tool);
+    TEST_ASSERT_EQUAL_CHAR_ARRAY_MESSAGE(text, structured.mp_start, structured.m_len, tool);
+    TEST_ASSERT_EQUAL_CHAR_MESSAGE(TOOLS[i].m_hasNewline ? '\n' : '\0', text[structured.m_len], tool);
+    free(answer);
+  }
+}
+
+void test_mcp_KEVLOOKUP_null_cwes_conforms(void)
+{
+  g_stub_KEVLOOKUP_status     = DB_OK;
+  g_stub_KEVLOOKUP_cwes_null  = true;
+  char* answer = static_mcpAnswerForParityCall(static_parityCallFor("kev_lookup"));
+  JsonReadSpan_t structured = static_structuredContentOf(answer, "kev_lookup");
+  TEST_ASSERT_TRUE(jsonread_isSpanEqual(static_memberOf(structured, "cwes"), "null"));
+  static_assertStructuredConforms(answer, "kev_lookup");
+  free(answer);
+}
+
+void test_mcp_CWELOOKUP_null_documents_conform(void)
+{
+  g_stub_CWELOOKUP_status         = DB_OK;
+  g_stub_CWELOOKUP_documents_null = true;
+  char* answer = static_mcpAnswerForParityCall(static_parityCallFor("cwe_lookup"));
+  JsonReadSpan_t structured = static_structuredContentOf(answer, "cwe_lookup");
+  TEST_ASSERT_TRUE(jsonread_isSpanEqual(static_memberOf(structured, "extended_description"), "null"));
+  TEST_ASSERT_TRUE(jsonread_isSpanEqual(static_memberOf(structured, "mitigations"), "null"));
+  TEST_ASSERT_TRUE(jsonread_isSpanEqual(static_memberOf(structured, "examples"), "null"));
+  TEST_ASSERT_TRUE(jsonread_isSpanEqual(static_memberOf(structured, "owasp_top10"), "null"));
+  static_assertStructuredConforms(answer, "cwe_lookup");
+  free(answer);
+}
+
+void test_mcp_HEALTH_feed_without_last_synced_conforms(void)
+{
+  char* answer = static_mcpAnswerForParityCall(static_parityCallFor("health"));
+  JsonReadSpan_t structured = static_structuredContentOf(answer, "health");
+  JsonReadSpan_t feeds = static_memberOf(static_memberOf(structured, "db"), "feeds");
+  JsonReadSpan_t feed;
+  size_t element_offset = 0;
+  TEST_ASSERT_EQUAL_INT(JSONREAD_OK, jsonread_arrayNextElement(feeds, &element_offset, &feed));
+  TEST_ASSERT_EQUAL_INT(JSONREAD_OK, jsonread_arrayNextElement(feeds, &element_offset, &feed));
+  TEST_ASSERT_TRUE(jsonread_isSpanEqual(static_memberOf(feed, "last_synced"), "null"));
+  static_assertStructuredConforms(answer, "health");
+  free(answer);
+}
+
+void test_mcp_HEALTH_no_feeds_conforms(void)
+{
+  g_stub_HEALTH_no_feeds = true;
+  char* answer = static_mcpAnswerForParityCall(static_parityCallFor("health"));
+  JsonReadSpan_t structured = static_structuredContentOf(answer, "health");
+  TEST_ASSERT_TRUE(jsonread_isSpanEqual(static_memberOf(static_memberOf(structured, "db"), "feeds"), "[]"));
+  static_assertStructuredConforms(answer, "health");
+  free(answer);
+}
+
+#define LOOKUP_CONFORMANCE_PRODUCTS \
+  R"([{"vendor":"apache","product":"log4j","cpe_part":"a","product_source":"nvd","is_vulnerable":true,)" \
+  R"("version_start_including":"2.0.1","version_end_excluding":"2.15.0"},)" \
+  R"({"vendor":"apache","product":"log4j_core","cpe_part":"a","product_source":"cna_cpe","is_vulnerable":false,)" \
+  R"("version_start_excluding":"1.9","version_end_including":"2.14.1","default_status":null},)" \
+  R"({"vendor":"apache","product":"log4j2","product_source":"cna","is_vulnerable":true,"default_status":"unaffected",)" \
+  R"("versions":[{"version":"2.0-beta9","status":"affected","lessThan":"2.15.0","versionType":"maven",)" \
+  R"("changes":[{"at":"2.12.2","status":"unaffected"}]}]},)" \
+  R"({"vendor":"n/a","product":"n/a","product_source":"cna","is_vulnerable":true,"default_status":null,"versions":null},)" \
+  R"({"vendor":null,"product":null,"cpe_part":null,"product_source":"nvd","is_vulnerable":true}])"
+
+#define LOOKUP_CONFORMANCE_GHSA \
+  R"({"ghsa_id":"GHSA-jfh8-c2jp-5v3q","affected":[{"ecosystem":"Maven","package":"org.apache.logging.log4j:log4j-core",)" \
+  R"("vulnerable_version_range":">= 2.13.0, < 2.15.0","patched_versions":"2.15.0"}],"affected_total":3,)" \
+  R"("attribution":{"source":"ghsa","license":"CC-BY-4.0","url":"https://github.com/github/advisory-database"}})"
+
+static void static_CVELOOKUPFillConformingRecord(CVELOOKUPRecord_t* record)
+{
+  static const char* const DECISIONS[SSVC_MISSION_WELLBEING_LEVEL_COUNT] = { "Attend", "Act", "Act" };
+  static const char* const ADVICE[SSVC_MISSION_WELLBEING_LEVEL_COUNT]    = { "sooner than standard update timelines", "as soon as possible", "as soon as possible" };
+  memset(record, 0, sizeof(*record));
+  snprintf(record->ma_cveId,               sizeof(record->ma_cveId),               "%s", "CVE-2021-44228");
+  snprintf(record->ma_description,         sizeof(record->ma_description),         "%s", "Remote code execution");
+  snprintf(record->ma_severity,            sizeof(record->ma_severity),            "%s", "CRITICAL");
+  record->m_cvssV3 = 10.0;
+  snprintf(record->ma_cvssV3Vector,        sizeof(record->ma_cvssV3Vector),        "%s", "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H");
+  snprintf(record->ma_cvssV3Source,        sizeof(record->ma_cvssV3Source),        "%s", "nvd");
+  record->m_cvssV4 = 9.3;
+  snprintf(record->ma_cvssV4Vector,        sizeof(record->ma_cvssV4Vector),        "%s", "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N");
+  snprintf(record->ma_cvssV4Source,        sizeof(record->ma_cvssV4Source),        "%s", "cna");
+  snprintf(record->ma_publishedTime,       sizeof(record->ma_publishedTime),       "%s", "2021-12-10");
+  record->m_epssScore      = 0.94358;
+  record->m_epssPercentile = 0.99957;
+  snprintf(record->ma_cweId,               sizeof(record->ma_cweId),               "%s", "CWE-917");
+  snprintf(record->ma_cweSource,           sizeof(record->ma_cweSource),           "%s", "adp");
+  record->mp_cwes = const_cast<char*>(R"(["CWE-917","CWE-20"])");
+  record->m_inKev = true;
+  snprintf(record->ma_kevDateAdded,        sizeof(record->ma_kevDateAdded),        "%s", "2021-12-10");
+  snprintf(record->ma_vulnerabilityStatus, sizeof(record->ma_vulnerabilityStatus), "%s", "Analyzed");
+  record->mp_affectedProducts     = const_cast<char*>(LOOKUP_CONFORMANCE_PRODUCTS);
+  record->m_affectedProductCount  = 356;
+  record->mp_productCountByVendor = const_cast<char*>(R"({"apache":4,"n/a":1})");
+  record->mp_refs                 = const_cast<char*>(R"([{"url":"https://logging.apache.org/security.html","tags":["Vendor Advisory","Exploit"]},{"url":"https://example.com","tags":[]}])");
+  record->m_refCount              = 52;
+  record->m_pocCount              = 22;
+  record->m_vendorAdvisoryCount   = 3;
+  record->mp_epssTrend            = const_cast<char*>(R"([{"epss_date":"2026-11-23","score":0.94358,"percentile":0.99957},{"epss_date":"2026-11-22","score":1,"percentile":1}])");
+  record->mp_cveTags              = const_cast<char*>(R"(["unsupported-when-assigned"])");
+  snprintf(record->ma_ransomwareCampaign,  sizeof(record->ma_ransomwareCampaign),  "%s", "Known");
+  snprintf(record->ma_ssvcExploitation,    sizeof(record->ma_ssvcExploitation),    "%s", "active");
+  snprintf(record->ma_ssvcAutomatable,     sizeof(record->ma_ssvcAutomatable),     "%s", "yes");
+  snprintf(record->ma_ssvcTechnicalImpact, sizeof(record->ma_ssvcTechnicalImpact), "%s", "total");
+  snprintf(record->ma_ssvcVersion,         sizeof(record->ma_ssvcVersion),         "%s", "2.0.3");
+  snprintf(record->ma_ssvcScoredAt,        sizeof(record->ma_ssvcScoredAt),        "%s", "2024-04-17T04:00:13Z");
+  for (int level = 0; level < SSVC_MISSION_WELLBEING_LEVEL_COUNT; level++)
+  {
+    snprintf(record->m_ssvcResult.ma_decisions[level],         sizeof(record->m_ssvcResult.ma_decisions[level]),         "%s", DECISIONS[level]);
+    snprintf(record->m_ssvcResult.ma_remediationAdvice[level], sizeof(record->m_ssvcResult.ma_remediationAdvice[level]), "%s", ADVICE[level]);
+  }
+  record->m_metasploitModuleCount      = 2;
+  record->m_isMetasploitFeedLoaded     = true;
+  record->m_nucleiTemplateCount        = 7;
+  record->m_isNucleiTemplateFeedLoaded = true;
+  record->mp_nucleiTemplates           = const_cast<char*>(R"([{"template_id":"CVE-2021-44228","name":"Apache Log4j2 Remote Code Injection","severity":"critical",)"
+                                                           R"("template_path":"http/cves/2021/CVE-2021-44228.yaml","url":"https://github.com/projectdiscovery/nuclei-templates/blob/main/http/cves/2021/CVE-2021-44228.yaml"}])");
+}
+
+#define SEEN_TYPE_ENTRY_MAX_LEN 128
+
+#define SEEN_TYPE_MAX_COUNT 512
+
+static char   g_seenTypes[SEEN_TYPE_MAX_COUNT][SEEN_TYPE_ENTRY_MAX_LEN];
+static size_t g_seenTypeCount;
+
+static void static_resetSeenTypes(void)
+{
+  g_seenTypeCount = 0;
+}
+
+static bool static_isSeenType(const char* entry)
+{
+  for (size_t i = 0; i < g_seenTypeCount; i++)
+    if (strcmp(g_seenTypes[i], entry) == 0)
+      return true;
+  return false;
+}
+
+static bool static_isRecordMap(JsonReadSpan_t map_values)
+{
+  JsonReadSpan_t type_span, properties;
+  if (jsonread_objectKey(map_values, "properties", &properties) == JSONREAD_OK)
+    return true;
+  if (jsonread_objectKey(map_values, "type", &type_span) != JSONREAD_OK)
+    return false;
+  return !(static_isTypeAllowed(type_span, "object") && static_isTypeAllowed(type_span, "array"));
+}
+
+static void static_recordWrittenTypes(JsonReadSpan_t schema, JsonReadSpan_t value, const char* path)
+{
+  char entry[SEEN_TYPE_ENTRY_MAX_LEN];
+  int written = snprintf(entry, sizeof(entry), "%s|%s", path, static_jsonTypeOf(value));
+  TEST_ASSERT_TRUE_MESSAGE(written > 0 && (size_t)written < sizeof(entry), path);
+  if (!static_isSeenType(entry))
+  {
+    TEST_ASSERT_TRUE_MESSAGE(g_seenTypeCount < SEEN_TYPE_MAX_COUNT, entry);
+    memcpy(g_seenTypes[g_seenTypeCount], entry, (size_t)written + 1);
+    g_seenTypeCount++;
+  }
+  JsonReadSpan_t sub, key, member, properties;
+  char child[SEEN_TYPE_ENTRY_MAX_LEN];
+  if (value.m_len > 0 && value.mp_start[0] == '[')
+  {
+    if (jsonread_objectKey(schema, "items", &sub) != JSONREAD_OK)
+      return;
+    written = snprintf(child, sizeof(child), "%s[]", path);
+    TEST_ASSERT_TRUE_MESSAGE(written > 0 && (size_t)written < sizeof(child), path);
+    size_t offset = 0;
+    while (jsonread_arrayNextElement(value, &offset, &member) == JSONREAD_OK)
+      static_recordWrittenTypes(sub, member, child);
+    return;
+  }
+  if (value.m_len == 0 || value.mp_start[0] != '{')
+    return;
+  if (jsonread_objectKey(schema, "properties", &properties) != JSONREAD_OK)
+  {
+    if (jsonread_objectKey(schema, "additionalProperties", &sub) != JSONREAD_OK || !static_isRecordMap(sub))
+      return;
+    written = snprintf(child, sizeof(child), "%s{}", path);
+    TEST_ASSERT_TRUE_MESSAGE(written > 0 && (size_t)written < sizeof(child), path);
+    size_t map_offset = 0;
+    while (jsonread_objectNextMember(value, &map_offset, &key, &member) == JSONREAD_OK)
+      static_recordWrittenTypes(sub, member, child);
+    return;
+  }
+  size_t offset = 0;
+  while (jsonread_objectNextMember(value, &offset, &key, &member) == JSONREAD_OK)
+  {
+    char name[SCHEMA_CHECK_KEY_MAX_LEN];
+    written = snprintf(name, sizeof(name), "%.*s", (int)key.m_len, key.mp_start);
+    TEST_ASSERT_TRUE_MESSAGE(written > 0 && (size_t)written < sizeof(name), path);
+    written = snprintf(child, sizeof(child), "%s.%s", path, name);
+    TEST_ASSERT_TRUE_MESSAGE(written > 0 && (size_t)written < sizeof(child), path);
+    if (jsonread_objectKey(properties, name, &sub) == JSONREAD_OK)
+      static_recordWrittenTypes(sub, member, child);
+  }
+}
+
+static void static_assertTypeNameSeen(JsonReadSpan_t type_name, const char* path)
+{
+  char name[16];
+  char entry[SEEN_TYPE_ENTRY_MAX_LEN];
+  TEST_ASSERT_EQUAL_INT(JSONREAD_OK, jsonread_spanToStrStatus(type_name, name, sizeof(name)));
+  int written = snprintf(entry, sizeof(entry), "%s|%s", path, name);
+  TEST_ASSERT_TRUE_MESSAGE(written > 0 && (size_t)written < sizeof(entry), path);
+  TEST_ASSERT_TRUE_MESSAGE(static_isSeenType(entry), entry);
+}
+
+static void static_assertDeclaredTypesSeen(JsonReadSpan_t schema, const char* path)
+{
+  JsonReadSpan_t type_span, sub, key, member, properties;
+  TEST_ASSERT_EQUAL_INT_MESSAGE(JSONREAD_OK, jsonread_objectKey(schema, "type", &type_span), path);
+  if (jsonread_isArray(type_span))
+  {
+    size_t offset = 0;
+    while (jsonread_arrayNextElement(type_span, &offset, &member) == JSONREAD_OK)
+      static_assertTypeNameSeen(member, path);
+  }
+  else
+    static_assertTypeNameSeen(type_span, path);
+  char child[SEEN_TYPE_ENTRY_MAX_LEN];
+  int written;
+  if (jsonread_objectKey(schema, "items", &sub) == JSONREAD_OK)
+  {
+    written = snprintf(child, sizeof(child), "%s[]", path);
+    TEST_ASSERT_TRUE_MESSAGE(written > 0 && (size_t)written < sizeof(child), path);
+    static_assertDeclaredTypesSeen(sub, child);
+  }
+  if (jsonread_objectKey(schema, "properties", &properties) != JSONREAD_OK)
+  {
+    if (jsonread_objectKey(schema, "additionalProperties", &sub) == JSONREAD_OK && static_isRecordMap(sub))
+    {
+      written = snprintf(child, sizeof(child), "%s{}", path);
+      TEST_ASSERT_TRUE_MESSAGE(written > 0 && (size_t)written < sizeof(child), path);
+      static_assertDeclaredTypesSeen(sub, child);
+    }
+    return;
+  }
+  size_t offset = 0;
+  while (jsonread_objectNextMember(properties, &offset, &key, &member) == JSONREAD_OK)
+  {
+    written = snprintf(child, sizeof(child), "%s.%.*s", path, (int)key.m_len, key.mp_start);
+    TEST_ASSERT_TRUE_MESSAGE(written > 0 && (size_t)written < sizeof(child), path);
+    static_assertDeclaredTypesSeen(member, child);
+  }
+}
+
+static void static_assertToolDeclaresOnlySeenTypes(const char* tool)
+{
+  char* catalogue = static_toolsListCatalogue();
+  static_assertDeclaredTypesSeen(static_listedOutputSchema(catalogue, tool), "");
+  free(catalogue);
+}
+
+#define TEST_CREDITS_MEMBER       R"("credits":{"charged":1,"remaining":99})"
+#define TEST_PAID_CREDITS_MEMBER  R"("credits":{"charged":1})"
+
+static void static_bodyWithCreditsMember(const char* body, const char* credits_member, char* out, size_t out_size, const char* label)
+{
+  size_t body_len = strlen(body);
+  if (body_len > 0 && body[body_len - 1] == '\n')
+    body_len--;
+  TEST_ASSERT_TRUE_MESSAGE(body_len > 0 && body[body_len - 1] == '}', label);
+  int written = snprintf(out, out_size, "%.*s,%s}", (int)(body_len - 1), body, credits_member);
+  TEST_ASSERT_TRUE_MESSAGE(written > 0 && (size_t)written < out_size, label);
+}
+
+static void static_bodyWithCredits(const char* body, char* out, size_t out_size, const char* label)
+{
+  static_bodyWithCreditsMember(body, TEST_CREDITS_MEMBER, out, out_size, label);
+}
+
+static void static_assertLookupRecordConforms(const CVELOOKUPRecord_t* record, const char* marker, const char* label)
+{
+  char* catalogue = static_toolsListCatalogue();
+  static char text[RESP_BUF];
+  JsonReadSpan_t value;
+
+  JsonBuf_t* json_buf = jsonbuf_create(JSONBUF_INITIAL_CAP, JSONBUF_DEFAULT_CEILING);
+  TEST_ASSERT_NOT_NULL(json_buf);
+  serialize_CVELOOKUP_response(record, json_buf);
+  char* body = jsonbuf_finish(json_buf);
+  jsonbuf_destroy(json_buf);
+  TEST_ASSERT_NOT_NULL_MESSAGE(body, label);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(body, marker), label);
+  static_bodyWithCredits(body, text, sizeof(text), label);
+  free(body);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(JSONREAD_OK, jsonread_root(text, strlen(text), &value), label);
+  static_assertConforms(static_listedOutputSchema(catalogue, "cve_lookup"), value, label);
+  static_assertWrittenMembersRequired("cve_lookup", static_listedOutputSchema(catalogue, "cve_lookup"), value, "", label);
+  static_recordWrittenTypes(static_listedOutputSchema(catalogue, "cve_lookup"), value, "");
+
+  if (!record->m_isGhsaAsked)
+  {
+    static const char not_processed_ids[2][BULK_ID_MAX_LEN + 1] = { "CVE-2023-0001", "CVE-2023-0002" };
+    CVELOOKUPRecord_t items[2] = { *record, *record };
+    CVELOOKUPBULKResult_t results;
+    memset(&results, 0, sizeof(results));
+    results.m_total             = 6;
+    results.m_processed         = 4;
+    results.m_successful        = 2;
+    results.m_skipped           = 1;
+    results.m_failed            = 1;
+    results.mp_items            = items;
+    results.mp_notProcessedIds  = not_processed_ids;
+    results.m_notProcessedCount = 2;
+    json_buf = jsonbuf_create(JSONBUF_INITIAL_CAP, JSONBUF_DEFAULT_CEILING);
+    TEST_ASSERT_NOT_NULL(json_buf);
+    serialize_CVELOOKUPBULK_response(&results, json_buf);
+    body = jsonbuf_finish(json_buf);
+    jsonbuf_destroy(json_buf);
+    TEST_ASSERT_NOT_NULL_MESSAGE(body, label);
+    static_bodyWithCredits(body, text, sizeof(text), label);
+    free(body);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(JSONREAD_OK, jsonread_root(text, strlen(text), &value), label);
+    static_assertConforms(static_listedOutputSchema(catalogue, "cve_lookup_bulk"), value, label);
+    static_assertWrittenMembersRequired("cve_lookup_bulk", static_listedOutputSchema(catalogue, "cve_lookup_bulk"), value, "", label);
+  }
+  free(catalogue);
+}
+
+static void static_CVELOOKUPBranchGhsaAdvisory(CVELOOKUPRecord_t* record)
+{
+  record->m_isGhsaAsked      = true;
+  record->m_isGhsaFeedLoaded = true;
+  record->mp_ghsa            = const_cast<char*>(LOOKUP_CONFORMANCE_GHSA);
+}
+
+static void static_CVELOOKUPBranchGhsaNull(CVELOOKUPRecord_t* record)
+{
+  record->m_isGhsaAsked      = true;
+  record->m_isGhsaFeedLoaded = true;
+}
+
+static void static_CVELOOKUPBranchGhsaNotSynced(CVELOOKUPRecord_t* record)
+{
+  record->m_isGhsaAsked = true;
+}
+
+static void static_CVELOOKUPBranchGhsaDatabaseError(CVELOOKUPRecord_t* record)
+{
+  record->m_isGhsaAsked     = true;
+  record->m_ghsaUnavailable = true;
+}
+
+static void static_CVELOOKUPBranchSsvcNull(CVELOOKUPRecord_t* record)
+{
+  record->ma_ssvcExploitation[0]    = '\0';
+  record->ma_ssvcAutomatable[0]     = '\0';
+  record->ma_ssvcTechnicalImpact[0] = '\0';
+  record->ma_ssvcVersion[0]         = '\0';
+  record->ma_ssvcScoredAt[0]        = '\0';
+  memset(&record->m_ssvcResult, 0, sizeof(record->m_ssvcResult));
+}
+
+static void static_CVELOOKUPBranchSsvcWithoutTime(CVELOOKUPRecord_t* record)
+{
+  record->ma_ssvcScoredAt[0] = '\0';
+}
+
+static void static_CVELOOKUPBranchOutsideKev(CVELOOKUPRecord_t* record)
+{
+  record->m_inKev                  = false;
+  record->ma_kevDateAdded[0]       = '\0';
+  record->ma_ransomwareCampaign[0] = '\0';
+}
+
+static void static_CVELOOKUPBranchFeedsNotLoaded(CVELOOKUPRecord_t* record)
+{
+  record->m_isMetasploitFeedLoaded     = false;
+  record->m_metasploitModuleCount      = 0;
+  record->m_isNucleiTemplateFeedLoaded = false;
+  record->m_nucleiTemplateCount        = 0;
+  record->mp_nucleiTemplates           = NULL;
+}
+
+static void static_CVELOOKUPBranchWithoutScores(CVELOOKUPRecord_t* record)
+{
+  snprintf(record->ma_severity, sizeof(record->ma_severity), "%s", "UNKNOWN");
+  record->ma_cvssV3Vector[0] = '\0';
+  record->ma_cvssV3Source[0] = '\0';
+  record->ma_cvssV4Vector[0] = '\0';
+  record->ma_cvssV4Source[0] = '\0';
+  record->ma_cweSource[0]    = '\0';
+  record->ma_cweId[0]        = '\0';
+  record->m_epssScore        = 0.0;
+  record->m_epssPercentile   = 0.85;
+}
+
+static void static_CVELOOKUPBranchEmptyDocuments(CVELOOKUPRecord_t* record)
+{
+  record->mp_cwes                 = NULL;
+  record->mp_affectedProducts     = NULL;
+  record->mp_productCountByVendor = NULL;
+  record->mp_refs                 = NULL;
+  record->mp_epssTrend            = NULL;
+  record->mp_cveTags              = NULL;
+  record->m_affectedProductCount  = 0;
+  record->m_refCount              = 0;
+}
+
+void test_schema_checker_refuses_a_missing_second_required_member(void)
+{
+  TEST_ASSERT_EQUAL_INT(SCHEMA_CHECK_MISSING_REQUIRED,
+    static_checkTexts(R"({"type":"object","properties":{"a":{"type":"string"},"b":{"type":"string"}},"required":["a","b"]})", R"({"a":"x"})"));
+}
+
+void test_mcp_CVELOOKUP_every_branch_conforms(void)
+{
+  static_resetSeenTypes();
+  static const struct {
+    const char* mp_label;
+    void      (*m_change)(CVELOOKUPRecord_t* record);
+    const char* mp_marker;
+  } branches[] = {
+    { "full",                NULL,                                   R"("ghsa":"/cve_lookup/CVE-2021-44228?include_ghsa=true")" },
+    { "ghsa advisory",       static_CVELOOKUPBranchGhsaAdvisory,        R"("ghsa":{"ghsa_id":"GHSA-jfh8-c2jp-5v3q")" },
+    { "ghsa null",           static_CVELOOKUPBranchGhsaNull,            R"("ghsa":null})" },
+    { "ghsa not_synced",     static_CVELOOKUPBranchGhsaNotSynced,       R"("ghsa":{"available":false,"reason":"not_synced"})" },
+    { "ghsa database_error", static_CVELOOKUPBranchGhsaDatabaseError,   R"("ghsa":{"available":false,"reason":"database_error"})" },
+    { "ssvc null",           static_CVELOOKUPBranchSsvcNull,            R"("ssvc":null,)" },
+    { "ssvc without time",   static_CVELOOKUPBranchSsvcWithoutTime,     R"("scored_at":null,)" },
+    { "outside kev",         static_CVELOOKUPBranchOutsideKev,          R"("ransomware_campaign":null,)" },
+    { "feeds not loaded",    static_CVELOOKUPBranchFeedsNotLoaded,      R"("has_metasploit_module":null,"metasploit_module_count":null,"nuclei_templates":{"source":"nuclei-templates","available":false,"reason":"not_synced")" },
+    { "without scores",      static_CVELOOKUPBranchWithoutScores,       R"("cvss_v3":null,"cvss_v3_vector":null,"cvss_v3_source":null,"cvss_v4":null,"cvss_v4_vector":null,"cvss_v4_source":null,"published_time":"2021-12-10","epss_score":null,"epss_percentile":null,"cwe_id":"","cwe_source":null)" },
+    { "empty documents",     static_CVELOOKUPBranchEmptyDocuments,      R"("affected_products":[],"affected_product_count":0,"product_count_by_vendor":{},"refs":[])" },
+  };
+  for (size_t i = 0; i < sizeof(branches) / sizeof(branches[0]); i++)
+  {
+    CVELOOKUPRecord_t record;
+    static_CVELOOKUPFillConformingRecord(&record);
+    if (branches[i].m_change != NULL)
+      branches[i].m_change(&record);
+    static_assertLookupRecordConforms(&record, branches[i].mp_marker, branches[i].mp_label);
+  }
+  static_assertToolDeclaresOnlySeenTypes("cve_lookup");
+}
+
+void test_mcp_CVELOOKUP_schema_refuses_a_product_of_the_wrong_type(void)
+{
+  char* catalogue = static_toolsListCatalogue();
+  JsonReadSpan_t schema = static_listedOutputSchema(catalogue, "cve_lookup");
+  CVELOOKUPRecord_t record;
+  static_CVELOOKUPFillConformingRecord(&record);
+  record.mp_affectedProducts = const_cast<char*>("[1]");
+  JsonBuf_t* json_buf = jsonbuf_create(JSONBUF_INITIAL_CAP, JSONBUF_DEFAULT_CEILING);
+  TEST_ASSERT_NOT_NULL(json_buf);
+  serialize_CVELOOKUP_response(&record, json_buf);
+  char* body = jsonbuf_finish(json_buf);
+  jsonbuf_destroy(json_buf);
+  TEST_ASSERT_NOT_NULL(body);
+  static char text[RESP_BUF];
+  static_bodyWithCredits(body, text, sizeof(text), "number product");
+  free(body);
+  JsonReadSpan_t value;
+  TEST_ASSERT_EQUAL_INT(JSONREAD_OK, jsonread_root(text, strlen(text), &value));
+  TEST_ASSERT_EQUAL_INT(SCHEMA_CHECK_WRONG_TYPE, static_checkAgainstSchema(schema, value));
+  free(catalogue);
+}
+
+#define CVELOOKUPBULK_GHSA_SCHEMA R"({"type":"string","description":"Link that asks /cve_lookup for this CVE's GitHub advisory."})"
+
+static bool static_requiredNameAt(JsonReadSpan_t required, size_t* element_offset, char* name, size_t name_size)
+{
+  JsonReadSpan_t element;
+  if (jsonread_arrayNextElement(required, element_offset, &element) != JSONREAD_OK)
+    return false;
+  TEST_ASSERT_EQUAL_INT(JSONREAD_OK, jsonread_spanToStrStatus(element, name, name_size));
+  return true;
+}
+
+void test_mcp_CVELOOKUPBULK_record_schema_is_the_lookup_schema(void)
+{
+  char* catalogue = static_toolsListCatalogue();
+  JsonReadSpan_t lookup = static_listedOutputSchema(catalogue, "cve_lookup");
+  JsonReadSpan_t record = static_memberOf(static_memberOf(static_memberOf(static_listedOutputSchema(catalogue, "cve_lookup_bulk"), "properties"), "results"), "items");
+
+  JsonReadSpan_t lookup_key, lookup_value, record_key, record_value;
+  size_t lookup_offset = 0;
+  size_t record_offset = 0;
+  int keyword_count = 0;
+  while (jsonread_objectNextMember(lookup, &lookup_offset, &lookup_key, &lookup_value) == JSONREAD_OK)
+  {
+    TEST_ASSERT_EQUAL_INT(JSONREAD_OK, jsonread_objectNextMember(record, &record_offset, &record_key, &record_value));
+    TEST_ASSERT_EQUAL_size_t(lookup_key.m_len, record_key.m_len);
+    TEST_ASSERT_EQUAL_CHAR_ARRAY(lookup_key.mp_start, record_key.mp_start, lookup_key.m_len);
+    keyword_count++;
+    if (jsonread_isSpanEqual(lookup_key, "properties"))
+    {
+      JsonReadSpan_t lookup_name, lookup_schema, record_name, record_schema;
+      size_t lookup_property_offset = 0;
+      size_t record_property_offset = 0;
+      int property_count = 0;
+      while (jsonread_objectNextMember(lookup_value, &lookup_property_offset, &lookup_name, &lookup_schema) == JSONREAD_OK)
+      {
+        if (jsonread_isSpanEqual(lookup_name, "credits"))
+        {
+          TEST_ASSERT_EQUAL_INT(JSONREAD_ERR_NOTFOUND, jsonread_objectNextMember(lookup_value, &lookup_property_offset, &lookup_name, &lookup_schema));
+          break;
+        }
+        TEST_ASSERT_EQUAL_INT(JSONREAD_OK, jsonread_objectNextMember(record_value, &record_property_offset, &record_name, &record_schema));
+        TEST_ASSERT_EQUAL_size_t(lookup_name.m_len, record_name.m_len);
+        TEST_ASSERT_EQUAL_CHAR_ARRAY(lookup_name.mp_start, record_name.mp_start, lookup_name.m_len);
+        if (jsonread_isSpanEqual(lookup_name, "ghsa"))
+          TEST_ASSERT_TRUE(jsonread_isSpanEqual(record_schema, CVELOOKUPBULK_GHSA_SCHEMA));
+        else
+        {
+          TEST_ASSERT_EQUAL_size_t_MESSAGE(lookup_schema.m_len, record_schema.m_len, lookup_name.mp_start);
+          TEST_ASSERT_EQUAL_CHAR_ARRAY_MESSAGE(lookup_schema.mp_start, record_schema.mp_start, lookup_schema.m_len, lookup_name.mp_start);
+        }
+        property_count++;
+      }
+      TEST_ASSERT_EQUAL_INT(JSONREAD_ERR_NOTFOUND, jsonread_objectNextMember(record_value, &record_property_offset, &record_name, &record_schema));
+      TEST_ASSERT_GREATER_THAN_INT(30, property_count);
+    }
+    else if (jsonread_isSpanEqual(lookup_key, "required"))
+    {
+      char lookup_name[64];
+      char record_name[64];
+      size_t lookup_element_offset = 0;
+      size_t record_element_offset = 0;
+      while (static_requiredNameAt(lookup_value, &lookup_element_offset, lookup_name, sizeof(lookup_name)))
+      {
+        if (strcmp(lookup_name, "credits") == 0)
+          continue;
+        TEST_ASSERT_TRUE_MESSAGE(static_requiredNameAt(record_value, &record_element_offset, record_name, sizeof(record_name)), lookup_name);
+        TEST_ASSERT_EQUAL_STRING(lookup_name, record_name);
+      }
+      TEST_ASSERT_FALSE(static_requiredNameAt(record_value, &record_element_offset, record_name, sizeof(record_name)));
+    }
+    else
+    {
+      TEST_ASSERT_EQUAL_size_t(lookup_value.m_len, record_value.m_len);
+      TEST_ASSERT_EQUAL_CHAR_ARRAY(lookup_value.mp_start, record_value.mp_start, lookup_value.m_len);
+    }
+  }
+  TEST_ASSERT_EQUAL_INT(JSONREAD_ERR_NOTFOUND, jsonread_objectNextMember(record, &record_offset, &record_key, &record_value));
+  TEST_ASSERT_EQUAL_INT(3, keyword_count);
+  free(catalogue);
+}
+
+static char* static_finishBody(JsonBuf_t* json_buf)
+{
+  char* body = jsonbuf_finish(json_buf);
+  jsonbuf_destroy(json_buf);
+  return body;
+}
+
+static JsonBuf_t* static_newBodyBuf(void)
+{
+  JsonBuf_t* json_buf = jsonbuf_create(JSONBUF_INITIAL_CAP, JSONBUF_DEFAULT_CEILING);
+  TEST_ASSERT_NOT_NULL(json_buf);
+  return json_buf;
+}
+
+static void static_assertBodyWithCreditsMemberConforms(const char* tool, char* body, const char* credits_member, const char* marker, const char* item_marker, const char* label)
+{
+  TEST_ASSERT_NOT_NULL_MESSAGE(body, label);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(body, marker), label);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(body, item_marker), label);
+  static char text[RESP_BUF];
+  static_bodyWithCreditsMember(body, credits_member, text, sizeof(text), label);
+  free(body);
+  char* catalogue = static_toolsListCatalogue();
+  JsonReadSpan_t schema = static_listedOutputSchema(catalogue, tool);
+  JsonReadSpan_t value;
+  TEST_ASSERT_EQUAL_INT_MESSAGE(JSONREAD_OK, jsonread_root(text, strlen(text), &value), label);
+  static_assertConforms(schema, value, label);
+  static_assertWrittenMembersRequired(tool, schema, value, "", label);
+  static_recordWrittenTypes(schema, value, "");
+  free(catalogue);
+}
+
+static void static_assertBodyConforms(const char* tool, char* body, const char* marker, const char* item_marker, const char* label)
+{
+  static_assertBodyWithCreditsMemberConforms(tool, body, TEST_CREDITS_MEMBER, marker, item_marker, label);
+}
+
+#define LIST_FULL_ITEM_JSON \
+  R"({"cve_id":"CVE-2021-44228","severity":"CRITICAL","cvss_v3":10.0,"cvss_v3_source":"nvd","cvss_v4":9.3,"cvss_v4_source":"cna",)" \
+  R"("epss_score":0.94358,"epss_percentile":0.99957,"in_kev":true,"kev_date_added":"2021-12-10","published_time":"2021-12-10",)" \
+  R"("cwe_id":"CWE-917","cwe_source":"adp"})"
+
+#define LIST_NULL_ITEM_JSON \
+  R"({"cve_id":"CVE-2024-0001","severity":"UNKNOWN","cvss_v3":null,"cvss_v3_source":null,"cvss_v4":null,"cvss_v4_source":null,)" \
+  R"("epss_score":null,"epss_percentile":null,"in_kev":false,"kev_date_added":null,"published_time":"2024-01-02",)" \
+  R"("cwe_id":"","cwe_source":null})"
+
+static void static_fillListItemFull(CveListItem_t* item)
+{
+  memset(item, 0, sizeof(*item));
+  snprintf(item->ma_cveId,         sizeof(item->ma_cveId),         "%s", "CVE-2021-44228");
+  snprintf(item->ma_severity,      sizeof(item->ma_severity),      "%s", "CRITICAL");
+  item->m_cvssV3    = 10.0;
+  item->m_hasCvssV3 = true;
+  snprintf(item->ma_cvssV3Source,  sizeof(item->ma_cvssV3Source),  "%s", "nvd");
+  item->m_cvssV4    = 9.3;
+  item->m_hasCvssV4 = true;
+  snprintf(item->ma_cvssV4Source,  sizeof(item->ma_cvssV4Source),  "%s", "cna");
+  item->m_epssScore      = 0.94358;
+  item->m_epssPercentile = 0.99957;
+  item->m_inKev          = true;
+  snprintf(item->ma_kevDateAdded,  sizeof(item->ma_kevDateAdded),  "%s", "2021-12-10");
+  snprintf(item->ma_publishedTime, sizeof(item->ma_publishedTime), "%s", "2021-12-10");
+  snprintf(item->ma_cweId,         sizeof(item->ma_cweId),         "%s", "CWE-917");
+  snprintf(item->ma_cweSource,     sizeof(item->ma_cweSource),     "%s", "adp");
+}
+
+static void static_fillListItemNull(CveListItem_t* item)
+{
+  memset(item, 0, sizeof(*item));
+  snprintf(item->ma_cveId,         sizeof(item->ma_cveId),         "%s", "CVE-2024-0001");
+  snprintf(item->ma_severity,      sizeof(item->ma_severity),      "%s", "UNKNOWN");
+  item->m_epssPercentile = 0.85;
+  snprintf(item->ma_publishedTime, sizeof(item->ma_publishedTime), "%s", "2024-01-02");
+}
+
+typedef struct {
+  const char* mp_label;
+  int         m_fullCount;
+  int         m_nullCount;
+  const char* mp_vendor;
+  const char* mp_marker;
+  const char* mp_itemMarker;
+} ListBranch_t;
+
+static int static_fillListPage(const ListBranch_t* branch, CveListItem_t* items, int item_capacity)
+{
+  int count = branch->m_fullCount + branch->m_nullCount;
+  TEST_ASSERT_TRUE(count <= item_capacity);
+  for (int k = 0; k < count; k++)
+  {
+    if (k < branch->m_fullCount)
+      static_fillListItemFull(&items[k]);
+    else
+      static_fillListItemNull(&items[k]);
+  }
+  return count;
+}
+
+void test_mcp_CVESEARCH_every_branch_conforms(void)
+{
+  static_resetSeenTypes();
+  static const ListBranch_t branches[] = {
+    { "full item, note",   1, 0, "apache", R"("next_offset":4,"product_filter_note":")",    R"("results":[)" LIST_FULL_ITEM_JSON "]" },
+    { "null item, none",   0, 1, "",       R"("next_offset":4,"results":[)",                LIST_NULL_ITEM_JSON "]" },
+    { "empty page, note",  0, 0, "",       R"("next_offset":3,"product_filter_note":")",    R"("results":[]})" },
+    { "both items, none",  1, 1, "",       R"("next_offset":5,"results":[)",                LIST_FULL_ITEM_JSON "," LIST_NULL_ITEM_JSON "]" },
+  };
+  for (size_t i = 0; i < sizeof(branches) / sizeof(branches[0]); i++)
+  {
+    CveListItem_t items[2];
+    CveListResult_t results = { 0, 0, items };
+    results.m_count = static_fillListPage(&branches[i], items, 2);
+    results.m_total = 41;
+    CVESEARCHParams_t params;
+    memset(&params, 0, sizeof(params));
+    params.m_limit  = 7;
+    params.m_offset = 3;
+    snprintf(params.ma_vendor, sizeof(params.ma_vendor), "%s", branches[i].mp_vendor);
+    if (results.m_count == 0)
+      snprintf(params.ma_product, sizeof(params.ma_product), "%s", "log4j");
+    JsonBuf_t* json_buf = static_newBodyBuf();
+    serialize_CVESEARCH_response(&results, &params, json_buf);
+    static_assertBodyConforms("cve_search", static_finishBody(json_buf), branches[i].mp_marker, branches[i].mp_itemMarker, branches[i].mp_label);
+  }
+  static_assertToolDeclaresOnlySeenTypes("cve_search");
+}
+
+void test_mcp_CVELEADING_every_verdict_conforms(void)
+{
+  static_resetSeenTypes();
+  static const ListBranch_t branches[] = {
+    { "none",     0, 0, "",       R"("count":0,"total":0,"limit":7,"verdict":"none","summary":"No CVEs matched this filter.","results":[]})", "[]" },
+    { "unknown",  0, 1, "apache", R"("verdict":"unknown",)",  R"(","product_filter_note":")" },
+    { "critical", 1, 1, "",       R"("verdict":"critical",)", R"("results":[)" LIST_FULL_ITEM_JSON "," LIST_NULL_ITEM_JSON "]" },
+  };
+  for (size_t i = 0; i < sizeof(branches) / sizeof(branches[0]); i++)
+  {
+    CveListItem_t items[2];
+    CveListResult_t results = { 0, 0, items };
+    results.m_count = static_fillListPage(&branches[i], items, 2);
+    results.m_total = results.m_count;
+    CVELEADINGParams_t params;
+    memset(&params, 0, sizeof(params));
+    params.m_limit = 7;
+    snprintf(params.ma_vendor, sizeof(params.ma_vendor), "%s", branches[i].mp_vendor);
+    if (results.m_count == 2)
+      snprintf(params.ma_product, sizeof(params.ma_product), "%s", "log4j");
+    JsonBuf_t* json_buf = static_newBodyBuf();
+    serialize_CVELEADING_response(&results, &params, json_buf);
+    static_assertBodyConforms("cve_leading", static_finishBody(json_buf), branches[i].mp_marker, branches[i].mp_itemMarker, branches[i].mp_label);
+  }
+  static_assertToolDeclaresOnlySeenTypes("cve_leading");
+}
+
+#define TRIAGE_ITEM_JSON R"({"cve_id":"CVE-2021-44228","risk_score":96.5,"label":"CRITICAL"})"
+
+static void static_CVETRIAGEFillItems(CVETRIAGEItem_t* items, int count)
+{
+  for (int k = 0; k < count; k++)
+  {
+    memset(&items[k], 0, sizeof(items[k]));
+    snprintf(items[k].ma_cveId, sizeof(items[k].ma_cveId), "%s", "CVE-2021-44228");
+    items[k].m_riskScore = 96.5;
+    snprintf(items[k].ma_label, sizeof(items[k].ma_label), "%s", "CRITICAL");
+  }
+}
+
+void test_mcp_CVETRIAGE_every_branch_conforms(void)
+{
+  static_resetSeenTypes();
+  static const struct {
+    const char* mp_label;
+    int         m_itemCount;
+    const char* mp_vendor;
+    const char* mp_marker;
+  } branches[] = {
+    { "empty page",      0, "",       R"("next_offset":3,"results":[]})" },
+    { "two items, note", 2, "apache", R"("next_offset":5,"product_filter_note":")" },
+  };
+  for (size_t i = 0; i < sizeof(branches) / sizeof(branches[0]); i++)
+  {
+    CVETRIAGEItem_t items[2];
+    static_CVETRIAGEFillItems(items, branches[i].m_itemCount);
+    CVETRIAGEResult_t results = { 9, branches[i].m_itemCount, items };
+    CVETRIAGEParams_t params;
+    memset(&params, 0, sizeof(params));
+    params.m_limit  = 7;
+    params.m_offset = 3;
+    snprintf(params.ma_vendor, sizeof(params.ma_vendor), "%s", branches[i].mp_vendor);
+    JsonBuf_t* json_buf = static_newBodyBuf();
+    serialize_CVETRIAGE_response(&results, &params, json_buf);
+    const char* item_marker = branches[i].m_itemCount > 0 ? R"("results":[)" TRIAGE_ITEM_JSON "," TRIAGE_ITEM_JSON "]" : "[]";
+    static_assertBodyConforms("cve_triage", static_finishBody(json_buf), branches[i].mp_marker, item_marker, branches[i].mp_label);
+  }
+  static_assertToolDeclaresOnlySeenTypes("cve_triage");
+}
+
+void test_mcp_CVETRIAGEBULK_every_branch_conforms(void)
+{
+  static_resetSeenTypes();
+  static const char not_processed_ids[2][BULK_ID_MAX_LEN + 1] = { "CVE-2023-0001", "CVE-2023-0002" };
+  CVETRIAGEItem_t items[1];
+  static_CVETRIAGEFillItems(items, 1);
+
+  CVETRIAGEBULKResult_t results;
+  memset(&results, 0, sizeof(results));
+  results.m_total              = 5;
+  results.m_processed          = 2;
+  results.m_successful         = 1;
+  results.m_skipped            = 1;
+  results.m_failed             = 1;
+  results.mp_items             = items;
+  results.mp_notProcessedIds   = not_processed_ids;
+  results.m_notProcessedCount  = 2;
+  JsonBuf_t* json_buf = static_newBodyBuf();
+  serialize_CVETRIAGEBULK_response(&results, json_buf);
+  static_assertBodyConforms("cve_triage_bulk", static_finishBody(json_buf),
+                            R"({"total":5,"processed":2,"successful":1,"skipped":1,"failed":1,"not_processed":["CVE-2023-0001","CVE-2023-0002"],)",
+                            R"("results":[)" TRIAGE_ITEM_JSON "]", "failed and not processed");
+
+  memset(&results, 0, sizeof(results));
+  results.m_total   = 2;
+  results.m_skipped = 2;
+  json_buf = static_newBodyBuf();
+  serialize_CVETRIAGEBULK_response(&results, json_buf);
+  static_assertBodyConforms("cve_triage_bulk", static_finishBody(json_buf),
+                            R"("failed":0,"not_processed":[],)", R"("results":[]})", "all skipped");
+  static_assertToolDeclaresOnlySeenTypes("cve_triage_bulk");
+}
+
+#define RISER_ITEM_JSON \
+  R"({"cve_id":"CVE-2025-55182","epss_score":0.81870,"epss_previous_score":0.03042,"epss_delta":0.78828,"epss_percentile":0.99412,"in_kev":true})"
+
+static void static_EPSSRISERSFillItems(EPSSRISERSItem_t* items, int count)
+{
+  for (int k = 0; k < count; k++)
+  {
+    memset(&items[k], 0, sizeof(items[k]));
+    snprintf(items[k].ma_cveId, sizeof(items[k].ma_cveId), "%s", "CVE-2025-55182");
+    items[k].m_epssCurrentScore  = 0.8187;
+    items[k].m_epssPreviousScore = 0.03042;
+    items[k].m_epssDelta         = 0.78828;
+    items[k].m_epssPercentile    = 0.99412;
+    items[k].m_inKev             = true;
+  }
+}
+
+void test_mcp_EPSSRISERS_every_branch_conforms(void)
+{
+  static_resetSeenTypes();
+  static const struct {
+    const char* mp_label;
+    const char* mp_fromDate;
+    const char* mp_toDate;
+    int         m_itemCount;
+    const char* mp_vendor;
+    const char* mp_product;
+    const char* mp_marker;
+    const char* mp_itemMarker;
+  } branches[] = {
+    { "window, note",      "2026-11-12", "2026-11-19", 2, "apache", "",      R"({"window_days":7,"from_date":"2026-11-12","to_date":"2026-11-19","total":2,)", R"("product_filter_note":")" },
+    { "no from_date",      "",           "2026-11-19", 0, "",       "",      R"("from_date":null,"to_date":"2026-11-19","window_note":")",                    R"("next_offset":3,"results":[]})" },
+    { "no day, note",      "",           "",           0, "",       "log4j", R"("from_date":null,"to_date":null,"window_note":")",                            R"("product_filter_note":")" },
+  };
+  for (size_t i = 0; i < sizeof(branches) / sizeof(branches[0]); i++)
+  {
+    EPSSRISERSItem_t items[2];
+    static_EPSSRISERSFillItems(items, branches[i].m_itemCount);
+    EPSSRISERSResult_t results;
+    memset(&results, 0, sizeof(results));
+    results.m_total    = branches[i].m_itemCount;
+    results.m_count    = branches[i].m_itemCount;
+    results.mp_items   = branches[i].m_itemCount > 0 ? items : NULL;
+    snprintf(results.ma_fromDate, sizeof(results.ma_fromDate), "%s", branches[i].mp_fromDate);
+    snprintf(results.ma_toDate,   sizeof(results.ma_toDate),   "%s", branches[i].mp_toDate);
+    EPSSRISERSParams_t params;
+    memset(&params, 0, sizeof(params));
+    params.m_windowDays = 7;
+    params.m_limit      = 7;
+    params.m_offset     = 3;
+    snprintf(params.ma_vendor,  sizeof(params.ma_vendor),  "%s", branches[i].mp_vendor);
+    snprintf(params.ma_product, sizeof(params.ma_product), "%s", branches[i].mp_product);
+    JsonBuf_t* json_buf = static_newBodyBuf();
+    serialize_EPSSRISERS_response(&results, &params, json_buf);
+    char* body = static_finishBody(json_buf);
+    TEST_ASSERT_NOT_NULL_MESSAGE(body, branches[i].mp_label);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(branches[i].m_itemCount > 0, strstr(body, "[" RISER_ITEM_JSON "," RISER_ITEM_JSON "]") != NULL, branches[i].mp_label);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(branches[i].mp_fromDate[0] == '\0', strstr(body, "window_note") != NULL, branches[i].mp_label);
+    static_assertBodyConforms("epss_risers", body, branches[i].mp_marker, branches[i].mp_itemMarker, branches[i].mp_label);
+  }
+  static_assertToolDeclaresOnlySeenTypes("epss_risers");
+}
+
+static void static_CWELOOKUPFillConformingRecord(CWELOOKUPRecord_t* record)
+{
+  memset(record, 0, sizeof(*record));
+  snprintf(record->ma_cweId,       sizeof(record->ma_cweId),       "%s", "CWE-79");
+  snprintf(record->ma_name,        sizeof(record->ma_name),        "%s", "Improper Neutralization");
+  snprintf(record->ma_abstraction, sizeof(record->ma_abstraction), "%s", "Base");
+  snprintf(record->ma_status,      sizeof(record->ma_status),      "%s", "Stable");
+  snprintf(record->ma_description, sizeof(record->ma_description), "%s", "XSS description");
+  snprintf(record->ma_likelihood,  sizeof(record->ma_likelihood),  "%s", "High");
+  snprintf(record->ma_parentCwe,   sizeof(record->ma_parentCwe),   "%s", "CWE-74");
+  snprintf(record->ma_updatedAt,   sizeof(record->ma_updatedAt),   "%s", "2026-05-21T00:00:00Z");
+  record->m_cveCount = 42;
+  record->m_kevCount = 3;
+}
+
+void test_mcp_CWELOOKUP_every_branch_conforms(void)
+{
+  static_resetSeenTypes();
+  CWELOOKUPRecord_t record;
+  static_CWELOOKUPFillConformingRecord(&record);
+  record.m_avgCvss                = 6.5;
+  record.m_avgEpss                = 0.0287;
+  record.mp_extendedDescription   = const_cast<char*>("Extended description");
+  record.mp_mitigations           = const_cast<char*>(R"(["escape output"])");
+  record.mp_examples              = const_cast<char*>(R"(["CVE-2024-1234"])");
+  record.mp_owaspTop10            = const_cast<char*>(R"([{"id":"A03","name":"Injection","year":2021}])");
+  JsonBuf_t* json_buf = static_newBodyBuf();
+  serialize_CWELOOKUP_response(&record, json_buf);
+  static_assertBodyConforms("cwe_lookup", static_finishBody(json_buf),
+                            R"("avg_cvss":6.50,"avg_epss":0.0287,)", R"("owasp_top10":[{"id":"A03")", "scored, documents");
+
+  static_CWELOOKUPFillConformingRecord(&record);
+  json_buf = static_newBodyBuf();
+  serialize_CWELOOKUP_response(&record, json_buf);
+  static_assertBodyConforms("cwe_lookup", static_finishBody(json_buf),
+                            R"("avg_cvss":null,"avg_epss":null,)", R"("extended_description":null,)", "unscored, no documents");
+  static_assertToolDeclaresOnlySeenTypes("cwe_lookup");
+}
+
+#define PRODUCTS_CONFORMANCE_PAGE \
+  R"([{"vendor":"apache","product":"log4j","cpe_part":"a","product_source":"nvd","is_vulnerable":true,)" \
+  R"("version_start_including":"2.0.1","version_start_excluding":"2.0","version_end_including":"2.14.1","version_end_excluding":"2.15.0"},)" \
+  R"({"vendor":null,"product":null,"product_source":"cna","is_vulnerable":true,"default_status":null,"versions":null},)" \
+  R"({"vendor":"apache","product":"log4j_core","cpe_part":null,"product_source":"cna_cpe","is_vulnerable":false},)" \
+  R"({"vendor":"apache","product":"log4j2","product_source":"cna","is_vulnerable":true,"default_status":"unaffected",)" \
+  R"("versions":[{"version":"2.0-beta9","status":"affected","lessThan":"2.15.0","versionType":"maven"}]}])"
+
+void test_mcp_CVEPRODUCTS_every_branch_conforms(void)
+{
+  static_resetSeenTypes();
+  static const struct {
+    const char* mp_label;
+    const char* mp_page;
+    int         m_listedCount;
+    const char* mp_marker;
+    const char* mp_itemMarker;
+  } branches[] = {
+    { "four elements", PRODUCTS_CONFORMANCE_PAGE, 4, R"("total":356,"limit":7,"offset":3,"next_offset":7,)", R"("cpe_part":null,"product_source":"cna_cpe")" },
+    { "empty page",    NULL,                      0, R"("total":356,"limit":7,"offset":3,"next_offset":3,)", R"("results":[]})" },
+  };
+  for (size_t i = 0; i < sizeof(branches) / sizeof(branches[0]); i++)
+  {
+    CVEPRODUCTSResult_t result;
+    memset(&result, 0, sizeof(result));
+    result.m_affectedProductCount = 356;
+    result.m_listedProductCount   = branches[i].m_listedCount;
+    result.mp_affectedProducts    = const_cast<char*>(branches[i].mp_page);
+    CVEPRODUCTSParams_t params;
+    memset(&params, 0, sizeof(params));
+    snprintf(params.ma_cveId, sizeof(params.ma_cveId), "%s", "CVE-2021-44228");
+    params.m_limit  = 7;
+    params.m_offset = 3;
+    JsonBuf_t* json_buf = static_newBodyBuf();
+    serialize_CVEPRODUCTS_response(&result, &params, json_buf);
+    static_assertBodyConforms("cve_products", static_finishBody(json_buf), branches[i].mp_marker, branches[i].mp_itemMarker, branches[i].mp_label);
+  }
+  static_assertToolDeclaresOnlySeenTypes("cve_products");
+}
+
+void test_mcp_CVERISKSCORE_every_branch_conforms(void)
+{
+  static_resetSeenTypes();
+  static const struct {
+    const char* mp_label;
+    bool        m_hasPublicPoc;
+    const char* mp_marker;
+  } branches[] = {
+    { "poc",    true,  R"("score":97.8,"label":"CRITICAL","has_public_poc":true,)" },
+    { "no poc", false, R"("score":97.8,"label":"CRITICAL","has_public_poc":null,)" },
+  };
+  for (size_t i = 0; i < sizeof(branches) / sizeof(branches[0]); i++)
+  {
+    CVERISKSCORERecord_t record;
+    memset(&record, 0, sizeof(record));
+    record.m_score = 97.8;
+    snprintf(record.ma_label, sizeof(record.ma_label), "%s", "CRITICAL");
+    record.m_hasPublicPoc            = branches[i].m_hasPublicPoc;
+    record.m_exploitabilityComponent = 58.25;
+    record.m_impactComponent         = 29.4;
+    record.m_evidenceComponent       = 7.8;
+    JsonBuf_t* json_buf = static_newBodyBuf();
+    serialize_CVERISKSCORE_response(&record, json_buf);
+    static_assertBodyConforms("cve_risk_score", static_finishBody(json_buf), branches[i].mp_marker,
+                              R"("evidence":{"score":7.80,"max":10.00}})", branches[i].mp_label);
+  }
+  static_assertToolDeclaresOnlySeenTypes("cve_risk_score");
+}
+
+static void static_CVEEXPLOITFillAvailableRecord(CVEEXPLOITRecord_t* record)
+{
+  memset(record, 0, sizeof(*record));
+  snprintf(record->ma_cveId, sizeof(record->ma_cveId), "%s", "CVE-2021-44228");
+  record->m_githubAvailable           = true;
+  record->m_githubPocRepoTotal        = 41;
+  record->m_githubTopStarredRepoCount = 1;
+  snprintf(record->ma_githubTopStarredRepos[0].ma_url,  sizeof(record->ma_githubTopStarredRepos[0].ma_url),  "%s", "https://github.com/example/log4shell-poc");
+  snprintf(record->ma_githubTopStarredRepos[0].ma_name, sizeof(record->ma_githubTopStarredRepos[0].ma_name), "%s", "example/log4shell-poc");
+  record->ma_githubTopStarredRepos[0].m_starCount = 1712;
+  record->m_metasploitAvailable   = true;
+  record->m_metasploitModuleTotal = 2;
+  record->m_metasploitModuleCount = 1;
+  snprintf(record->ma_metasploitModules[0].ma_name, sizeof(record->ma_metasploitModules[0].ma_name), "%s", "exploit_multi/http/log4shell_header_injection");
+  snprintf(record->ma_metasploitModules[0].ma_type, sizeof(record->ma_metasploitModules[0].ma_type), "%s", "exploit");
+  record->m_nvdAvailable       = true;
+  record->m_inKev              = true;
+  record->m_nvdExploitRefTotal = 5;
+  record->m_nvdExploitRefCount = 1;
+  snprintf(record->ma_nvdExploitRefs[0].ma_url, sizeof(record->ma_nvdExploitRefs[0].ma_url), "%s", "http://packetstormsecurity.com/files/165225");
+  record->m_exploitdbAvailable  = true;
+  record->m_exploitdbEntryTotal = 2;
+  record->m_exploitdbEntryCount = 2;
+  for (int k = 0; k < 2; k++)
+  {
+    CVEEXPLOITExploitdbEntry_t* entry = &record->ma_exploitdbEntries[k];
+    entry->m_edbId      = 50592 + k;
+    entry->m_isVerified = k == 0;
+    snprintf(entry->ma_type,     sizeof(entry->ma_type),     "%s", "remote");
+    snprintf(entry->ma_platform, sizeof(entry->ma_platform), "%s", "java");
+    snprintf(entry->ma_url,      sizeof(entry->ma_url),      "https://www.exploit-db.com/exploits/%d", entry->m_edbId);
+  }
+  snprintf(record->ma_exploitdbEntries[0].ma_datePublished, sizeof(record->ma_exploitdbEntries[0].ma_datePublished), "%s", "2021-12-14");
+}
+
+static void static_CVEEXPLOITBranchDatabaseErrors(CVEEXPLOITRecord_t* record)
+{
+  record->m_githubAvailable     = false;
+  record->m_metasploitAvailable = false;
+  record->m_nvdAvailable        = false;
+  record->m_exploitdbAvailable  = false;
+}
+
+static void static_CVEEXPLOITBranchNotSynced(CVEEXPLOITRecord_t* record)
+{
+  static_CVEEXPLOITBranchDatabaseErrors(record);
+  record->m_isGithubTableEmpty     = true;
+  record->m_isMetasploitTableEmpty = true;
+  record->m_cveNotInLocalDatabase  = true;
+  record->m_isExploitdbTableEmpty  = true;
+}
+
+static void static_CVEEXPLOITBranchNothingFound(CVEEXPLOITRecord_t* record)
+{
+  record->m_githubPocRepoTotal        = 0;
+  record->m_githubTopStarredRepoCount = 0;
+  record->m_metasploitModuleTotal     = 0;
+  record->m_metasploitModuleCount     = 0;
+  record->m_inKev                     = false;
+  record->m_nvdExploitRefTotal        = 0;
+  record->m_nvdExploitRefCount        = 0;
+  record->m_exploitdbEntryTotal       = 0;
+  record->m_exploitdbEntryCount       = 0;
+}
+
+void test_mcp_CVEEXPLOIT_every_branch_conforms(void)
+{
+  static_resetSeenTypes();
+  static const struct {
+    const char* mp_label;
+    void      (*m_change)(CVEEXPLOITRecord_t* record);
+    const char* mp_marker;
+    const char* mp_itemMarker;
+  } branches[] = {
+    { "available, items", NULL,
+      R"("exploits_found":41,"has_public_exploit":true,"in_kev":true,)",
+      R"("date_published":"2021-12-14","verified":true},{"edb_id":50593,"url":"https://www.exploit-db.com/exploits/50593","type":"remote","platform":"java","date_published":null,"verified":false}]})" },
+    { "database_error",   static_CVEEXPLOITBranchDatabaseErrors,
+      R"("exploits_found":null,"has_public_exploit":null,"in_kev":null,)",
+      R"("source":"nvd","available":false,"reason":"database_error",)" },
+    { "not_synced",       static_CVEEXPLOITBranchNotSynced,
+      R"({"source":"github","available":false,"reason":"not_synced",)",
+      R"("source":"nvd","available":false,"reason":"cve_not_in_database",)" },
+    { "nothing found",    static_CVEEXPLOITBranchNothingFound,
+      R"("exploits_found":0,"has_public_exploit":null,"in_kev":false,)",
+      R"("has_module":false,"count":0,"top_results":[]})" },
+  };
+  for (size_t i = 0; i < sizeof(branches) / sizeof(branches[0]); i++)
+  {
+    CVEEXPLOITRecord_t record;
+    static_CVEEXPLOITFillAvailableRecord(&record);
+    if (branches[i].m_change != NULL)
+      branches[i].m_change(&record);
+    JsonBuf_t* json_buf = static_newBodyBuf();
+    serialize_CVEEXPLOIT_response(&record, json_buf);
+    static_assertBodyConforms("cve_exploit", static_finishBody(json_buf), branches[i].mp_marker, branches[i].mp_itemMarker, branches[i].mp_label);
+  }
+  static_assertToolDeclaresOnlySeenTypes("cve_exploit");
+}
+
+static void static_setConformanceEolCycle(PRODUCTEXPOSUREEolCycle_t* cycle, const char* name, const char* eol_date, bool is_lts, const char* latest_version)
+{
+  snprintf(cycle->ma_name,          sizeof(cycle->ma_name),          "%s", name);
+  snprintf(cycle->ma_eolDate,       sizeof(cycle->ma_eolDate),       "%s", eol_date);
+  snprintf(cycle->ma_latestVersion, sizeof(cycle->ma_latestVersion), "%s", latest_version);
+  cycle->m_isEol        = eol_date[0] != '\0';
+  cycle->m_isMaintained = eol_date[0] == '\0';
+  cycle->m_isLts        = is_lts;
+}
+
+static void static_PRODUCTEXPOSUREFillRecord(PRODUCTEXPOSURERecord_t* record, bool is_scored)
+{
+  memset(record, 0, sizeof(*record));
+  snprintf(record->ma_vendor,  sizeof(record->ma_vendor),  "%s", "apache");
+  snprintf(record->ma_product, sizeof(record->ma_product), "%s", "log4j");
+  if (!is_scored)
+    return;
+  record->m_totalCveCount  = 42;
+  record->m_criticalCount  = 10;
+  record->m_highCount      = 20;
+  record->m_mediumCount    = 8;
+  record->m_lowCount       = 4;
+  record->m_kevCount       = 7;
+  record->m_maxCvss        = 9.8;
+  record->m_avgCvss        = 6.42;
+  record->m_maxEpss        = 0.97531;
+  record->m_pocBackedCount = 12;
+  record->m_worstRiskScore = 96.5;
+  snprintf(record->ma_mostRecentPublished, sizeof(record->ma_mostRecentPublished), "%s", "2024-01-15");
+  static_CVETRIAGEFillItems(record->ma_topCves, 2);
+  record->m_topCveCount = 2;
+}
+
+static void static_setExposureEol(PRODUCTEXPOSURERecord_t* record, int series_count, const char* first_date, int maintained_count, const char* latest_version)
+{
+  record->m_eol.m_hasEol = true;
+  snprintf(record->m_eol.ma_eolProduct, sizeof(record->m_eol.ma_eolProduct), "%s", "log4j");
+  snprintf(record->m_eol.ma_eolUrl,     sizeof(record->m_eol.ma_eolUrl),     "%s", "https://endoflife.date/log4j");
+  record->m_eol.m_eolSeriesCycleCount = series_count;
+  for (int k = 0; k < series_count; k++)
+    static_setConformanceEolCycle(&record->m_eol.ma_eolSeriesCycles[k], k == 0 ? "2" : "1", k == 0 ? first_date : "2015-10-01", k == 0, latest_version);
+  record->m_eol.m_eolMaintainedCycleCount = maintained_count;
+  for (int k = 0; k < maintained_count; k++)
+    static_setConformanceEolCycle(&record->m_eol.ma_eolMaintainedCycles[k], k == 0 ? "2" : "1", k == 0 ? "" : "2015-10-01", k == 0, "");
+  record->m_eol.m_hasMoreEolMaintainedCycles = maintained_count > 1;
+}
+
+void test_mcp_PRODUCTEXPOSURE_every_branch_conforms(void)
+{
+  static_resetSeenTypes();
+  static const struct {
+    const char* mp_label;
+    bool        m_isScored;
+    int         m_seriesCount;
+    const char* mp_firstDate;
+    int         m_maintainedCount;
+    const char* mp_latestVersion;
+    const char* mp_marker;
+    const char* mp_itemMarker;
+  } branches[] = {
+    { "no eol, unscored", false, -1, "", 0, "",
+      R"("max_cvss":null,"avg_cvss":null,"max_epss":null,"poc_backed_count":0,"worst_risk_score":0.0,"most_recent_published":null},)",
+      R"("top_cves":[],"eol":null})" },
+    { "one cycle, latest", true, 1, "", 0, "2.24.3",
+      R"("max_cvss":9.8,"avg_cvss":6.42,"max_epss":0.9753,"poc_backed_count":12,"worst_risk_score":96.5,"most_recent_published":"2024-01-15"},)",
+      R"("cycle":{"name":"2","eol_date":null,"is_eol":false,"is_maintained":true,"is_lts":true,"latest_version":"2.24.3"},"cycle_variants":null,"maintained_cycles":[],)" },
+    { "one cycle, no latest", false, 1, "2015-10-01", 2, "",
+      R"("cycle":{"name":"2","eol_date":"2015-10-01","is_eol":true,"is_maintained":false,"is_lts":true,"latest_version":null},)",
+      R"("maintained_cycles":[{"name":"2","eol_date":null,"is_lts":true},{"name":"1","eol_date":"2015-10-01","is_lts":false}],"maintained_cycles_truncated":true})" },
+    { "variants", true, 2, "", 1, "",
+      R"("top_cves":[)" TRIAGE_ITEM_JSON "," TRIAGE_ITEM_JSON "],",
+      R"("cycle":null,"cycle_variants":[{"name":"2","eol_date":null,"is_eol":false,"is_maintained":true},{"name":"1","eol_date":"2015-10-01","is_eol":true,"is_maintained":false}],)" },
+    { "no series", false, 0, "", 1, "",
+      R"("eol":{"source":"endoflife.date","product":"log4j","url":"https://endoflife.date/log4j",)",
+      R"("cycle":null,"cycle_variants":null,"maintained_cycles":[{"name":"2","eol_date":null,"is_lts":true}],"maintained_cycles_truncated":false})" },
+  };
+  for (size_t i = 0; i < sizeof(branches) / sizeof(branches[0]); i++)
+  {
+    PRODUCTEXPOSURERecord_t record;
+    static_PRODUCTEXPOSUREFillRecord(&record, branches[i].m_isScored);
+    if (branches[i].m_seriesCount >= 0)
+      static_setExposureEol(&record, branches[i].m_seriesCount, branches[i].mp_firstDate, branches[i].m_maintainedCount, branches[i].mp_latestVersion);
+    JsonBuf_t* json_buf = static_newBodyBuf();
+    serialize_PRODUCTEXPOSURE_response(&record, json_buf);
+    static_assertBodyConforms("product_exposure", static_finishBody(json_buf), branches[i].mp_marker, branches[i].mp_itemMarker, branches[i].mp_label);
+  }
+  static_assertToolDeclaresOnlySeenTypes("product_exposure");
+}
+
+void test_mcp_CPESEARCH_every_branch_conforms(void)
+{
+  static_resetSeenTypes();
+  CPESEARCHItem_t items[2];
+  memset(items, 0, sizeof(items));
+  snprintf(items[0].ma_vendor,  sizeof(items[0].ma_vendor),  "%s", "apache");
+  snprintf(items[0].ma_product, sizeof(items[0].ma_product), "%s", "log4j");
+  items[0].m_vulnerableCveCount = 31;
+  items[0].mp_productNamedBy    = const_cast<char*>(R"(["nvd","cna"])");
+  snprintf(items[1].ma_vendor,  sizeof(items[1].ma_vendor),  "%s", "apache");
+  snprintf(items[1].ma_product, sizeof(items[1].ma_product), "%s", "log4j_core");
+  items[1].m_vulnerableCveCount = 4;
+  items[1].mp_productNamedBy    = const_cast<char*>(R"(["nvd"])");
+  static const struct {
+    const char* mp_label;
+    int         m_itemCount;
+    const char* mp_marker;
+  } branches[] = {
+    { "two pairs",  2, R"("next_offset":5,"results":[{"vendor":"apache","product":"log4j","vulnerable_cve_count":31,"product_named_by":["nvd","cna"]},)" },
+    { "empty page", 0, R"("next_offset":3,"results":[]})" },
+  };
+  for (size_t i = 0; i < sizeof(branches) / sizeof(branches[0]); i++)
+  {
+    CPESEARCHResult_t results = { 9, branches[i].m_itemCount, items };
+    CPESEARCHParams_t params;
+    memset(&params, 0, sizeof(params));
+    snprintf(params.ma_search, sizeof(params.ma_search), "%s", "log4j");
+    params.m_limit  = 7;
+    params.m_offset = 3;
+    JsonBuf_t* json_buf = static_newBodyBuf();
+    serialize_CPESEARCH_response(&results, &params, json_buf);
+    static_assertBodyConforms("cpe_search", static_finishBody(json_buf), branches[i].mp_marker, R"({"total":9,"limit":7,"offset":3,)", branches[i].mp_label);
+  }
+  static_assertToolDeclaresOnlySeenTypes("cpe_search");
+}
+
+void test_mcp_CVSSCALCULATOR_result_conforms(void)
+{
+  static_resetSeenTypes();
+  CvssResult_t result;
+  TEST_ASSERT_EQUAL_INT(CVSS_OK, cvss_parse("CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H/E:H/RL:O/RC:C/CR:H", &result));
+  JsonBuf_t* json_buf = static_newBodyBuf();
+  serialize_CVSSCALCULATOR_response(&result, json_buf);
+  static_assertBodyConforms("cvss_calculator", static_finishBody(json_buf), R"("base_score":10.0,"base_severity":"CRITICAL",)",
+                            R"("metrics":{"attack_vector":"NETWORK",)", "one result");
+  static_assertToolDeclaresOnlySeenTypes("cvss_calculator");
+}
+
+void test_mcp_PASSWORDCHECK_every_branch_conforms(void)
+{
+  static_resetSeenTypes();
+  static const struct {
+    const char* mp_label;
+    uint64_t    m_breachCount;
+    const char* mp_marker;
+    const char* mp_itemMarker;
+  } branches[] = {
+    { "not found", 0,       R"("found":false,"breach_count":0,)",       "has not been found in any known data breaches." },
+    { "once",      1,       R"("found":true,"breach_count":1,)",        "has been seen once in data breaches." },
+    { "many",      3861493, R"("found":true,"breach_count":3861493,)",  "has been seen 3,861,493 times in data breaches." },
+  };
+  for (size_t i = 0; i < sizeof(branches) / sizeof(branches[0]); i++)
+  {
+    PASSWORDCHECKRecord_t record;
+    memset(&record, 0, sizeof(record));
+    snprintf(record.ma_hashPrefix, sizeof(record.ma_hashPrefix), "%s", "5BAA6");
+    record.m_breachCount = branches[i].m_breachCount;
+    JsonBuf_t* json_buf = static_newBodyBuf();
+    serialize_PASSWORDCHECK_response(&record, json_buf);
+    static_assertBodyConforms("password_check", static_finishBody(json_buf), branches[i].mp_marker, branches[i].mp_itemMarker, branches[i].mp_label);
+  }
+  static_assertToolDeclaresOnlySeenTypes("password_check");
+}
+
+#define PRIVACYMYDATA_BRANCH_BEYOND_GMTIME ((int64_t)100000000000000000LL)
+
+typedef struct {
+  const char* mp_label;
+  bool        m_isPro;
+  bool        m_hasExpiry;
+  int64_t     m_expiresAt;
+  time_t      m_reset;
+  const char* mp_manageUrl;
+  const char* mp_marker;
+  const char* mp_itemMarker;
+} PrivacyBranch_t;
+
+void test_mcp_PRIVACYMYDATA_every_branch_conforms(void)
+{
+  static_resetSeenTypes();
+  static const PrivacyBranch_t branches[] = {
+    { "free", false, false, 0, 1767225600, NULL,
+      R"({"tier":"free","upgrade_url":"https://)",
+      R"("key_expires_at":null,"key_expires_at_utc":null,"rate_limit":{"hourly_limit":100,"remaining_in_window":42,"resets_at":1767225600,"resets_at_utc":"2026-01-01T00:00:00Z",)" },
+    { "pro with expiry", true, true, 1798761600, 1767225600, "https://api.contrastcyber.com/vendor_keys#l=00ff",
+      R"({"tier":"pro","upgrade_url":null,"key_expires_at":1798761600,"key_expires_at_utc":"2027-01-01T00:00:00Z",)",
+      R"("vendor_keys":{"shodan":{"configured":true},"abuseipdb":{"configured":true},"manage_url":"https://api.contrastcyber.com/vendor_keys#l=00ff"},)" },
+    { "pro without expiry", true, false, 0, 1767225600, "https://api.contrastcyber.com/vendor_keys#l=11ee",
+      R"("upgrade_url":null,"key_expires_at":null,"key_expires_at_utc":null,)",
+      R"("vendor_keys":{"shodan":{"configured":false},"abuseipdb":{"configured":false},"manage_url":")" },
+    { "vendor key read failed", true, true, 1798761600, 1767225600, "",
+      R"("stored":{"metered_by":"key_sha256","hash":")",
+      R"("vendor_keys":{"shodan":{"configured":null},"abuseipdb":{"configured":null},"manage_url":null},)" },
+    { "gmtime_r failure", true, true, PRIVACYMYDATA_BRANCH_BEYOND_GMTIME, (time_t)PRIVACYMYDATA_BRANCH_BEYOND_GMTIME, "",
+      R"("key_expires_at":100000000000000000,"key_expires_at_utc":null,)",
+      R"("resets_at":100000000000000000,"resets_at_utc":null,"resets_in":"00:59:59"},)" },
+  };
+  for (size_t i = 0; i < sizeof(branches) / sizeof(branches[0]); i++)
+  {
+    const PrivacyBranch_t* branch = &branches[i];
+    RequestCreditBudget_t credit_budget;
+    memset(&credit_budget, 0, sizeof(credit_budget));
+    snprintf(credit_budget.ma_budgetHash, sizeof(credit_budget.ma_budgetHash), "%s", "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08");
+    credit_budget.m_tier                      = branch->m_isPro ? REQUEST_TIER_PRO : REQUEST_TIER_FREE;
+    credit_budget.m_keyExpiry.m_hasExpiry     = branch->m_hasExpiry;
+    credit_budget.m_keyExpiry.m_expiresAt     = branch->m_expiresAt;
+    credit_budget.m_rateLimitInfo.m_limit     = 100;
+    credit_budget.m_rateLimitInfo.m_remaining = 42;
+    credit_budget.m_rateLimitInfo.m_reset     = branch->m_reset;
+    bool is_stored = i == 1;
+    PRIVACYMYDATAVendorKeys_t vendor_keys = { is_stored, is_stored, branch->mp_manageUrl };
+    JsonBuf_t* json_buf = static_newBodyBuf();
+    serialize_PRIVACYMYDATA_response(&credit_budget, "00:59:59", branch->mp_manageUrl != NULL ? &vendor_keys : NULL, json_buf);
+    static_assertBodyConforms("privacy_my_data", static_finishBody(json_buf), branch->mp_marker, branch->mp_itemMarker, branch->mp_label);
+  }
+  static_assertToolDeclaresOnlySeenTypes("privacy_my_data");
+}
+
+typedef struct {
+  const char* mp_label;
+  const char* mp_target;
+  const char* mp_asnName;
+  const char* mp_asnCountry;
+  const char* mp_prefix;
+  int         m_offset;
+  const char* mp_ipv4Prefixes;
+  const char* mp_ipv6Prefixes;
+  const char* mp_marker;
+  const char* mp_itemMarker;
+} AsnBranch_t;
+
+void test_mcp_ASNLOOKUP_every_branch_conforms(void)
+{
+  static_resetSeenTypes();
+  static const AsnBranch_t branches[] = {
+    { "AS target", "AS13335", "CLOUDFLARENET", "US", "", 0, R"(["1.0.0.0/24", "1.1.1.0/24"])", R"(["2606:4700::/32"])",
+      R"({"target":"AS13335","asn":13335,"asn_name":"CLOUDFLARENET","asn_country":"US","prefix":null,)",
+      R"("ipv4_prefixes":["1.0.0.0/24", "1.1.1.0/24"],"ipv6_prefixes":["2606:4700::/32"]})" },
+    { "IP target", "1.1.1.1", "CLOUDFLARENET", "US", "1.1.1.0/24", 0, R"(["1.0.0.0/24", "1.1.1.0/24"])", R"(["2606:4700::/32"])",
+      R"({"target":"1.1.1.1","asn":13335,)",
+      R"("prefix":"1.1.1.0/24","ipv4_prefix_count":1789,"ipv6_prefix_count":214,"limit":2,"offset":0,"next_offset":2,)" },
+    { "offset past both counts", "AS13335", "CLOUDFLARENET", "US", "", 5000, "[]", "[]",
+      R"("limit":2,"offset":5000,"next_offset":5000,)",
+      R"("ipv4_prefixes":[],"ipv6_prefixes":[]})" },
+    { "no name or country", "AS64512", "", "", "", 0, R"(["1.0.0.0/24", "1.1.1.0/24"])", "[]",
+      R"("asn_name":null,"asn_country":null,"prefix":null,)",
+      R"("ipv6_prefixes":[]})" },
+  };
+  for (size_t i = 0; i < sizeof(branches) / sizeof(branches[0]); i++)
+  {
+    const AsnBranch_t* branch = &branches[i];
+    ASNLOOKUPParams_t params;
+    memset(&params, 0, sizeof(params));
+    snprintf(params.ma_target, sizeof(params.ma_target), "%s", branch->mp_target);
+    params.m_limit  = 2;
+    params.m_offset = branch->m_offset;
+    ASNLOOKUPRecord_t record;
+    memset(&record, 0, sizeof(record));
+    record.m_asn = i == 3 ? 64512 : 13335;
+    snprintf(record.ma_asnName,    sizeof(record.ma_asnName),    "%s", branch->mp_asnName);
+    snprintf(record.ma_asnCountry, sizeof(record.ma_asnCountry), "%s", branch->mp_asnCountry);
+    snprintf(record.ma_prefix,     sizeof(record.ma_prefix),     "%s", branch->mp_prefix);
+    record.m_ipv4PrefixCount = 1789;
+    record.m_ipv6PrefixCount = 214;
+    record.mp_ipv4Prefixes   = const_cast<char*>(branch->mp_ipv4Prefixes);
+    record.mp_ipv6Prefixes   = const_cast<char*>(branch->mp_ipv6Prefixes);
+    JsonBuf_t* json_buf = static_newBodyBuf();
+    serialize_ASNLOOKUP_response(&record, &params, json_buf);
+    static_assertBodyConforms("asn_lookup", static_finishBody(json_buf), branch->mp_marker, branch->mp_itemMarker, branch->mp_label);
+  }
+  static_assertToolDeclaresOnlySeenTypes("asn_lookup");
+}
+
+#define D3FENDBRANCH_MAX_DEFENSES 2
+
+typedef struct {
+  const char* mp_defenseId;
+  const char* mp_defenseLabel;
+  const char* mp_defenseTactic;
+  const char* mp_digitalArtifact;
+  const char* mp_parentDefenseLabels;
+  const char* mp_attackTechniqueIds;
+} D3fendBranchDefense_t;
+
+typedef struct {
+  const char*           mp_label;
+  const char*           mp_attackTechniqueId;
+  const char*           mp_attackTechniques;
+  int                   m_defenseCount;
+  D3fendBranchDefense_t ma_defenses[D3FENDBRANCH_MAX_DEFENSES];
+  const char*           mp_marker;
+  const char*           mp_itemMarker;
+} D3fendBranch_t;
+
+void test_mcp_D3FENDFORATTACK_every_branch_conforms(void)
+{
+  static_resetSeenTypes();
+  static const D3fendBranch_t branches[] = {
+    { "defenses found", "T1055",
+      R"([{"attack_label": "Process Injection", "subtechnique_of": null, "attack_technique_id": "T1055"}, )"
+      R"({"attack_label": "Process Hollowing", "subtechnique_of": "T1055", "attack_technique_id": "T1055.012"}])",
+      2,
+      { { "ProcessSegmentExecutionPrevention", "Process Segment Execution Prevention", "Harden", "Process Segment",
+          R"(["Application Hardening"])", R"(["T1055", "T1055.012"])" },
+        { "SystemCallAnalysis", "System Call Analysis", "Detect", "System Call",
+          R"(["Process Analysis", "Dynamic Analysis"])", R"(["T1055.012"])" } },
+      R"({"attack_technique_id":"T1055","attack_techniques":[{"attack_label": "Process Injection", "subtechnique_of": null, )",
+      R"("defense_count_by_defense_tactic":{"Model":0,"Harden":1,"Detect":1,"Isolate":0,"Deceive":0,"Evict":0,"Restore":0},)"
+      R"("defenses":[{"defense_id":"ProcessSegmentExecutionPrevention",)" },
+    { "none matched", "T1595", NULL, 0, { },
+      R"({"attack_technique_id":"T1595","attack_techniques":[],)"
+      R"("defense_count_by_defense_tactic":{"Model":0,"Harden":0,"Detect":0,"Isolate":0,"Deceive":0,"Evict":0,"Restore":0},)",
+      R"("defenses":[]})" },
+    { "attack_label null", "T1650",
+      R"([{"attack_label": null, "subtechnique_of": null, "attack_technique_id": "T1650"}])",
+      1,
+      { { "DomainTrustPolicy", "Domain Trust Policy", "Model", "Domain Trust", R"(["Access Modeling"])", R"(["T1650"])" } },
+      R"("attack_techniques":[{"attack_label": null, "subtechnique_of": null, "attack_technique_id": "T1650"}],)",
+      R"("Model":1,"Harden":0,)" },
+    { "digital_artifact null", "T1110",
+      R"([{"attack_label": "Brute Force", "subtechnique_of": null, "attack_technique_id": "T1110"}])",
+      1,
+      { { "Multi-factorAuthentication", "Multi-factor Authentication", "Harden", "", "[]", R"(["T1110"])" } },
+      R"("defense_label":"Multi-factor Authentication",)",
+      R"("parent_defense_labels":[],"defense_tactic":"Harden","digital_artifact":null,"attack_technique_ids":["T1110"]}]})" },
+  };
+  for (size_t i = 0; i < sizeof(branches) / sizeof(branches[0]); i++)
+  {
+    const D3fendBranch_t* branch = &branches[i];
+    D3FENDFORATTACKParams_t params;
+    memset(&params, 0, sizeof(params));
+    snprintf(params.ma_attackTechniqueId, sizeof(params.ma_attackTechniqueId), "%s", branch->mp_attackTechniqueId);
+    D3FENDFORATTACKItem_t defenses[D3FENDBRANCH_MAX_DEFENSES];
+    memset(defenses, 0, sizeof(defenses));
+    for (int j = 0; j < branch->m_defenseCount; j++)
+    {
+      const D3fendBranchDefense_t* defense = &branch->ma_defenses[j];
+      snprintf(defenses[j].ma_defenseId,       sizeof(defenses[j].ma_defenseId),       "%s", defense->mp_defenseId);
+      snprintf(defenses[j].ma_defenseLabel,    sizeof(defenses[j].ma_defenseLabel),    "%s", defense->mp_defenseLabel);
+      snprintf(defenses[j].ma_defenseTactic,   sizeof(defenses[j].ma_defenseTactic),   "%s", defense->mp_defenseTactic);
+      snprintf(defenses[j].ma_digitalArtifact, sizeof(defenses[j].ma_digitalArtifact), "%s", defense->mp_digitalArtifact);
+      defenses[j].mp_parentDefenseLabels = const_cast<char*>(defense->mp_parentDefenseLabels);
+      defenses[j].mp_attackTechniqueIds  = const_cast<char*>(defense->mp_attackTechniqueIds);
+    }
+    D3FENDFORATTACKResult_t result;
+    memset(&result, 0, sizeof(result));
+    result.mp_attackTechniques = const_cast<char*>(branch->mp_attackTechniques);
+    result.m_defenseCount      = branch->m_defenseCount;
+    result.mp_defenses         = defenses;
+    JsonBuf_t* json_buf = static_newBodyBuf();
+    serialize_D3FENDFORATTACK_response(&result, &params, json_buf);
+    static_assertBodyConforms("d3fend_for_attack", static_finishBody(json_buf), branch->mp_marker, branch->mp_itemMarker, branch->mp_label);
+  }
+  static_assertToolDeclaresOnlySeenTypes("d3fend_for_attack");
+}
+
+#define DRIVERLOOKUP_BRANCH_COMMAND_MATCHES \
+  R"([{"tags": ["RTCore64.sys", {"name": "RTCore32.sys"}], "command": "sc.exe create RTCore64 type= kernel start= demand", )" \
+  R"("cve_ids": ["CVE-2019-16098"], "category": "vulnerable driver", "use_case": "Elevate privileges", "verified": false, )" \
+  R"("driver_id": "00000000-0000-0000-0000-00000000000b", "matched_on": ["sha256", "authentihash_sha256"], "privileges": "kernel", )" \
+  R"("references": ["https://github.com/Barakat/CVE-2019-16098", {"url": "https://www.loldrivers.io/", "title": "LOLDrivers"}], )" \
+  R"("source_url": "https://www.loldrivers.io/drivers/00000000-0000-0000-0000-00000000000b/", )" \
+  R"("description": "The driver lets a user read and write kernel memory.", "catalog_added": "2023-01-09", )" \
+  R"("detection_rules": ["driver_load_win_vuln_drivers.yml", {"type": "Sigma", "value": "driver_load_win_vuln_drivers_names.yml"}], )" \
+  R"("operating_system": "Windows 10", "matched_driver_file": {"md5": null, "sha1": "f6f11ad2cd2b0cf95ed42324876bee1d83e01775", )" \
+  R"("sha256": "01aa278b07b58dc46c84bd0b1b5c8e9ee4e62ea0bf7a695862444af32e87f1fd", "company": "Micro-Star International", )" \
+  R"("imphash": "a5d2d4b3f4a5f6e7d8c9b0a1f2e3d4c5", "file_name": "RTCore64.sys", "publisher": "Micro-Star International Co., Ltd.", )" \
+  R"("description": "RTCore64.sys", "authentihash": {"md5": "bcd9f192e2f6c1b8f1d4c3a2b1e0f9a8", )" \
+  R"("sha1": "8d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8091a2b3c4", "sha256": "01aa278b07b58dc46c84bd0b1b5c8e9ee4e62ea0bf7a695862444af32e87f1fd"}, )" \
+  R"("file_version": "4.6.2.15658", "product_name": "RTCore64", "product_version": "4.6.2.15658", "loads_despite_hvci": true, )" \
+  R"("original_file_name": "RTCore64.sys"}, "attack_technique_ids": "T1068, T1543.003"}])"
+
+#define DRIVERLOOKUP_BRANCH_NULL_TEXT_MATCHES \
+  R"([{"tags": [], "command": null, "cve_ids": [], "category": "malicious", "use_case": null, "verified": false, )" \
+  R"("driver_id": "00000000-0000-0000-0000-00000000000c", "matched_on": ["md5"], "privileges": null, "references": [], )" \
+  R"("source_url": "https://www.loldrivers.io/drivers/00000000-0000-0000-0000-00000000000c/", "description": null, )" \
+  R"("catalog_added": null, "detection_rules": [], "operating_system": null, )" \
+  R"("matched_driver_file": {"md5": "5f4dcc3b5aa765d61d8327deb882cf99", "sha1": null, "sha256": null, "company": null, )" \
+  R"("imphash": null, "file_name": null, "publisher": null, "description": null, )" \
+  R"("authentihash": {"md5": null, "sha1": null, "sha256": null}, "file_version": null, "product_name": null, )" \
+  R"("product_version": null, "loads_despite_hvci": null, "original_file_name": null}, "attack_technique_ids": null}])"
+
+typedef struct {
+  const char* mp_label;
+  bool        m_isDriverFeedLoaded;
+  int         m_matchCount;
+  const char* mp_matches;
+  const char* mp_marker;
+  const char* mp_itemMarker;
+} DriverBranch_t;
+
+void test_mcp_DRIVERLOOKUP_every_branch_conforms(void)
+{
+  static_resetSeenTypes();
+  static const DriverBranch_t branches[] = {
+    { "catalog empty", false, 0, "[]",
+      R"("data_source":{"source":"loldrivers","available":false,"reason":"not_synced","license":"Apache-2.0"},)",
+      R"("found":null,"match_count":null,"matches":[]})" },
+    { "not found", true, 0, "[]",
+      R"("data_source":{"source":"loldrivers","available":true,"license":"Apache-2.0"},)",
+      R"("found":false,"match_count":0,"matches":[]})" },
+    { "found", true, 1, DRIVERLOOKUP_STUB_MATCHES,
+      R"({"hash":"5f4dcc3b5aa765d61d8327deb882cf99","hash_type":"md5",)",
+      R"("found":true,"match_count":1,"matches":[{"tags": ["RTCore64.sys"], "command": null,)" },
+    { "command text and mixed lists", true, 17, DRIVERLOOKUP_BRANCH_COMMAND_MATCHES,
+      R"("found":true,"match_count":17,"matches":[{"tags": ["RTCore64.sys", {"name": "RTCore32.sys"}], "command": "sc.exe )",
+      R"("loads_despite_hvci": true,)" },
+    { "every match text null", true, 1, DRIVERLOOKUP_BRANCH_NULL_TEXT_MATCHES,
+      R"("category": "malicious", "use_case": null,)",
+      R"("loads_despite_hvci": null, "original_file_name": null}, "attack_technique_ids": null}]})" },
+  };
+  for (size_t i = 0; i < sizeof(branches) / sizeof(branches[0]); i++)
+  {
+    const DriverBranch_t* branch = &branches[i];
+    DRIVERLOOKUPRecord_t record;
+    memset(&record, 0, sizeof(record));
+    snprintf(record.ma_fileHash, sizeof(record.ma_fileHash), "%s", "5f4dcc3b5aa765d61d8327deb882cf99");
+    record.m_matchCount         = branch->m_matchCount;
+    record.m_isDriverFeedLoaded = branch->m_isDriverFeedLoaded;
+    record.mp_matches           = const_cast<char*>(branch->mp_matches);
+    JsonBuf_t* json_buf = static_newBodyBuf();
+    serialize_DRIVERLOOKUP_response(&record, json_buf);
+    static_assertBodyConforms("driver_lookup", static_finishBody(json_buf), branch->mp_marker, branch->mp_itemMarker, branch->mp_label);
+  }
+  static_assertToolDeclaresOnlySeenTypes("driver_lookup");
+}
+
+typedef struct {
+  const char* mp_label;
+  int         m_idCount;
+  int         m_skippedIdCount;
+  int         m_notProcessedIdCount;
+  int         m_failedIndex;
+  int         m_matchCount;
+  bool        m_isDriverFeedLoaded;
+  const char* mp_marker;
+  const char* mp_itemMarker;
+} DriverBulkBranch_t;
+
+void test_mcp_DRIVERLOOKUPBULK_every_branch_conforms(void)
+{
+  static_resetSeenTypes();
+  static const DriverBulkBranch_t branches[] = {
+    { "all skipped", 0, 2, 0, -1, 1, true,
+      R"({"total":2,"processed":0,"successful":0,"skipped":2,"failed":0,"not_processed":[],)"
+      R"("data_source":{"source":"loldrivers","available":null,"license":"Apache-2.0"},"results":[]})",
+      R"("results":[]})" },
+    { "every row failed", 1, 0, 0, 0, 1, true,
+      R"({"total":1,"processed":1,"successful":0,"skipped":0,"failed":1,"not_processed":[],)"
+      R"("data_source":{"source":"loldrivers","available":null,)",
+      R"("results":[]})" },
+    { "found, failed, skipped and not processed", 3, 1, 2, 1, 1, true,
+      R"({"total":6,"processed":3,"successful":2,"skipped":1,"failed":1,)"
+      R"("not_processed":["00000000000000000000000000000003","00000000000000000000000000000004"],)"
+      R"("data_source":{"source":"loldrivers","available":true,"license":"Apache-2.0"},"results":[)",
+      R"(,{"hash":"00000000000000000000000000000002","hash_type":"md5","found":true,"match_count":1,"matches":[{"tags": [)" },
+    { "catalog empty", 2, 0, 0, -1, 0, false,
+      R"("data_source":{"source":"loldrivers","available":false,"reason":"not_synced","license":"Apache-2.0"},)",
+      R"({"hash":"00000000000000000000000000000001","hash_type":"md5","found":null,"match_count":null,"matches":[]})" },
+    { "not found", 1, 0, 0, -1, 0, true,
+      R"("available":true,"license":"Apache-2.0"},"results":[)",
+      R"({"hash":"00000000000000000000000000000000","hash_type":"md5","found":false,"match_count":0,"matches":[]})" },
+  };
+  g_stub_DRIVERLOOKUPBULK_status = DB_OK;
+  for (size_t i = 0; i < sizeof(branches) / sizeof(branches[0]); i++)
+  {
+    const DriverBulkBranch_t* branch = &branches[i];
+    g_stub_DRIVERLOOKUPBULK_call_count        = 0;
+    g_stub_DRIVERLOOKUPBULK_failed_index      = branch->m_failedIndex;
+    g_stub_DRIVERLOOKUP_match_count           = branch->m_matchCount;
+    g_stub_DRIVERLOOKUP_is_driver_feed_loaded = branch->m_isDriverFeedLoaded;
+    EndpointAnyParams_t params;
+    memset(&params, 0, sizeof(params));
+    BulkIdsParams_t* bulk_ids = &params.m_bulkIds;
+    for (int j = 0; j < branch->m_idCount + branch->m_notProcessedIdCount; j++)
+      snprintf(bulk_ids->ma_ids[j], sizeof(bulk_ids->ma_ids[j]), "%032d", j);
+    bulk_ids->m_idCount             = branch->m_idCount;
+    bulk_ids->m_skippedIdCount      = branch->m_skippedIdCount;
+    bulk_ids->m_notProcessedIdCount = branch->m_notProcessedIdCount;
+    JsonBuf_t* json_buf = static_newBodyBuf();
+    const char* message = NULL;
+    TEST_ASSERT_EQUAL_INT_MESSAGE(ENDPOINT_RUN_OK, endpoint_DRIVERLOOKUPBULKRun(FAKE_CONN, &params, json_buf, &message), branch->mp_label);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(branch->m_idCount > 0 ? 1 : 0, g_stub_DRIVERLOOKUPBULK_call_count, branch->mp_label);
+    static_assertBodyConforms("driver_lookup_bulk", static_finishBody(json_buf), branch->mp_marker, branch->mp_itemMarker, branch->mp_label);
+  }
+
+  static const char* const MATCHES[] = { DRIVERLOOKUP_BRANCH_COMMAND_MATCHES, DRIVERLOOKUP_BRANCH_NULL_TEXT_MATCHES };
+  const int record_count = (int)(sizeof(MATCHES) / sizeof(MATCHES[0]));
+  DRIVERLOOKUPRecord_t records[sizeof(MATCHES) / sizeof(MATCHES[0])];
+  memset(records, 0, sizeof(records));
+  for (int j = 0; j < record_count; j++)
+  {
+    snprintf(records[j].ma_fileHash, sizeof(records[j].ma_fileHash), "%s", j == 0 ? "01aa278b07b58dc46c84bd0b1b5c8e9ee4e62ea0bf7a695862444af32e87f1fd" : "5f4dcc3b5aa765d61d8327deb882cf99");
+    records[j].m_matchCount         = 1;
+    records[j].m_isDriverFeedLoaded = true;
+    records[j].mp_matches           = const_cast<char*>(MATCHES[j]);
+  }
+  DRIVERLOOKUPBULKResult_t result;
+  memset(&result, 0, sizeof(result));
+  result.m_total      = record_count;
+  result.m_processed  = record_count;
+  result.m_successful = record_count;
+  result.mp_items     = records;
+  JsonBuf_t* json_buf = static_newBodyBuf();
+  serialize_DRIVERLOOKUPBULK_response(&result, json_buf);
+  static_assertBodyConforms("driver_lookup_bulk", static_finishBody(json_buf),
+                            R"({"hash":"01aa278b07b58dc46c84bd0b1b5c8e9ee4e62ea0bf7a695862444af32e87f1fd","hash_type":"sha256","found":true,)",
+                            R"("loads_despite_hvci": null, "original_file_name": null}, "attack_technique_ids": null}]})", "mixed lists and null texts");
+  static_assertToolDeclaresOnlySeenTypes("driver_lookup_bulk");
+}
+
+#define PACKAGECHECK_BRANCH_RESULTS_WITHOUT_VERSION \
+  R"([{"id":"GHSA-35jh-r3h4-6jhm","fixed":["4.17.21"],"ranges":[{"type":"SEMVER","events":[{"introduced":"0"},{"fixed":"4.17.21"}]}],)" \
+  R"("source":"ghsa","aliases":["CVE-2021-23337"],"summary":"Command Injection in lodash","published_time":"2021-02-15T11:36:55Z"},)" \
+  R"({"id":"PYSEC-2024-7","fixed":[],"ranges":[{"type":"ECOSYSTEM","events":[{"introduced":"0"}],)" \
+  R"("database_specific":{"last_known_affected_version_range":"<= 1.2"}}],"source":"pysec","aliases":[],"summary":null,)" \
+  R"("published_time":"2024-03-01T00:00:00Z"}])"
+
+#define PACKAGECHECK_BRANCH_RESULTS_UNORDERABLE \
+  R"([{"id":"GHSA-p6mc-m468-83gw","fixed":["4.17.19"],"ranges":[{"type":"SEMVER","events":[{"introduced":"3.7.0"},{"fixed":"4.17.19"}]}],)" \
+  R"("source":"ghsa","aliases":["CVE-2020-8203"],"summary":"Prototype Pollution in lodash","fixed_version":null,)" \
+  R"("published_time":"2020-07-15T19:15:48Z","affects_version":null}])"
+
+#define PACKAGECHECK_BRANCH_MALICIOUS_WITHOUT_VERSION \
+  R"({"id":"MAL-2024-2","summary":null,"published_time":"2024-02-01T00:00:00Z"})"
+#define PACKAGECHECK_BRANCH_MALICIOUS_UNORDERABLE \
+  R"json({"id":"MAL-2024-3","summary":"Malicious code in stub (npm)","published_time":"2024-02-01T00:00:00Z","affects_version":null})json"
+
+#define PACKAGECHECK_BRANCH_ATTRIBUTION_NO_LINK \
+  R"([{"url":null,"notice":"Retrieved through OSV.dev. ContrastAPI selected and normalized the fields and computed affects_version )" \
+  R"(and fixed_version. No warranty; the source does not endorse ContrastAPI.","source":"cve","license":"CC-BY-4.0"}])"
+#define PACKAGECHECK_BRANCH_ATTRIBUTION_EOL \
+  R"([{"url":"https://endoflife.date","notice":"Retrieved from endoflife.date. ContrastAPI selected the fields and matched the )" \
+  R"(release cycles to the package. No warranty; the source does not endorse ContrastAPI.","source":"endoflife.date","license":"MIT"}])"
+
+typedef struct {
+  const char* mp_label;
+  bool        m_isAdvisoryFeedLoaded;
+  bool        m_hasAdvisoryData;
+  int         m_resultCount;
+  int         m_limit;
+  int         m_offset;
+  const char* mp_version;
+  const char* mp_fixedVersion;
+  const char* mp_malicious;
+  const char* mp_results;
+  const char* mp_attribution;
+  int         m_eolSeriesCount;
+  const char* mp_eolFirstDate;
+  int         m_eolMaintainedCount;
+  const char* mp_eolLatestVersion;
+  const char* mp_marker;
+  const char* mp_itemMarker;
+} PackageCheckBranch_t;
+
+void test_mcp_PACKAGECHECK_every_branch_conforms(void)
+{
+  static_resetSeenTypes();
+  static const PackageCheckBranch_t branches[] = {
+    { "with a version", true, true, 1, 20, 0, "4.17.20", PACKAGECHECK_STUB_FIXED_VERSION,
+      PACKAGECHECK_STUB_MALICIOUS, PACKAGECHECK_STUB_RESULTS, PACKAGECHECK_STUB_ATTRIBUTION, 1, "", 0, "4.17.21",
+      R"("next_offset":1,"fixed_version":"4.17.21","malicious":{"id":"MAL-2024-1",)",
+      R"("cycle":{"name":"2","eol_date":null,"is_eol":false,"is_maintained":true,"is_lts":true,"latest_version":"4.17.21"},"cycle_variants":null,"maintained_cycles":[],)" },
+    { "without a version", true, true, 2, 20, 0, "", "",
+      PACKAGECHECK_BRANCH_MALICIOUS_WITHOUT_VERSION, PACKAGECHECK_BRANCH_RESULTS_WITHOUT_VERSION, PACKAGECHECK_BRANCH_ATTRIBUTION_NO_LINK, -1, "", 0, "",
+      R"("limit":20,"offset":0,"next_offset":2,"malicious":{"id":"MAL-2024-2","summary":null,"published_time":"2024-02-01T00:00:00Z"},)",
+      R"("eol":null,"attribution":[{"url":null,)" },
+    { "advisory copy not loaded", false, false, 0, 20, 0, "", "", NULL, NULL, NULL, -1, "", 0, "",
+      R"({"data_source":{"source":"osv","available":false,"reason":"not_synced"},"has_advisory_data":false,"total":0,)",
+      R"("malicious":null,"results":[],"eol":null,"attribution":[]})" },
+    { "no advisory, eol dates only", true, false, 0, 20, 0, "1.0.0", "", NULL, NULL, PACKAGECHECK_BRANCH_ATTRIBUTION_EOL, 0, "", 1, "",
+      R"("has_advisory_data":false,"total":0,"limit":20,"offset":0,"next_offset":0,"fixed_version":null,"malicious":null,"results":[],)",
+      R"("cycle":null,"cycle_variants":null,"maintained_cycles":[{"name":"2","eol_date":null,"is_lts":true}],"maintained_cycles_truncated":false})" },
+    { "offset past the total", true, true, 3, 20, 10, "", "", NULL, NULL, PACKAGECHECK_STUB_ATTRIBUTION, 2, "", 1, "",
+      R"("total":3,"limit":20,"offset":10,"next_offset":10,"malicious":null,"results":[],)",
+      R"("cycle":null,"cycle_variants":[{"name":"2","eol_date":null,"is_eol":false,"is_maintained":true},{"name":"1","eol_date":"2015-10-01","is_eol":true,"is_maintained":false}],)" },
+    { "a version the server cannot order", true, true, 1, 5, 0, "4.0.0-custom", "",
+      PACKAGECHECK_BRANCH_MALICIOUS_UNORDERABLE, PACKAGECHECK_BRANCH_RESULTS_UNORDERABLE, PACKAGECHECK_STUB_ATTRIBUTION, 1, "2015-10-01", 2, "",
+      R"json("next_offset":1,"fixed_version":null,"malicious":{"id":"MAL-2024-3","summary":"Malicious code in stub (npm)","published_time":"2024-02-01T00:00:00Z","affects_version":null},)json",
+      R"("cycle":{"name":"2","eol_date":"2015-10-01","is_eol":true,"is_maintained":false,"is_lts":true,"latest_version":null},)" },
+  };
+  for (size_t i = 0; i < sizeof(branches) / sizeof(branches[0]); i++)
+  {
+    const PackageCheckBranch_t* branch = &branches[i];
+    PACKAGECHECKParams_t params;
+    memset(&params, 0, sizeof(params));
+    snprintf(params.ma_ecosystem,   sizeof(params.ma_ecosystem),   "%s", "npm");
+    snprintf(params.ma_packageName, sizeof(params.ma_packageName), "%s", "lodash");
+    snprintf(params.ma_version,     sizeof(params.ma_version),     "%s", branch->mp_version);
+    params.m_limit  = branch->m_limit;
+    params.m_offset = branch->m_offset;
+
+    static PRODUCTEXPOSURERecord_t exposure;
+    static_PRODUCTEXPOSUREFillRecord(&exposure, false);
+    if (branch->m_eolSeriesCount >= 0)
+      static_setExposureEol(&exposure, branch->m_eolSeriesCount, branch->mp_eolFirstDate, branch->m_eolMaintainedCount, branch->mp_eolLatestVersion);
+
+    PACKAGECHECKResult_t result;
+    memset(&result, 0, sizeof(result));
+    result.m_isAdvisoryFeedLoaded = branch->m_isAdvisoryFeedLoaded;
+    result.m_hasAdvisoryData      = branch->m_hasAdvisoryData;
+    result.m_resultCount          = branch->m_resultCount;
+    snprintf(result.ma_fixedVersion, sizeof(result.ma_fixedVersion), "%s", branch->mp_fixedVersion);
+    result.mp_malicious   = const_cast<char*>(branch->mp_malicious);
+    result.mp_results     = const_cast<char*>(branch->mp_results);
+    result.mp_attribution = const_cast<char*>(branch->mp_attribution);
+    result.m_eol          = exposure.m_eol;
+    JsonBuf_t* json_buf = static_newBodyBuf();
+    serialize_PACKAGECHECK_response(&result, &params, json_buf);
+    static_assertBodyConforms("package_check", static_finishBody(json_buf), branch->mp_marker, branch->mp_itemMarker, branch->mp_label);
+  }
+  static_assertToolDeclaresOnlySeenTypes("package_check");
+}
+
+#define PACKAGECHECKBULK_BRANCH_ITEMS \
+  R"([{"ecosystem":"npm","name":"lodash","version":"4.17.20"},5,{"ecosystem":"PyPI","name":"requests","version":"2.31.0"},)" \
+  R"({"ecosystem":"npm","name":"express","version":"4.18.2"}])"
+
+#define PACKAGECHECKBULK_BRANCH_RESULTS \
+  R"([{"eol":null,"name":"left-pad","version":"1.3.0","ecosystem":"Pub","malicious":null,"advisories":[],)" \
+  R"("fixed_version":null,"advisory_total":null,"has_advisory_data":null},)" \
+  R"({"eol":{"url":"https://endoflife.date/nodejs","cycle":{"name":"20","is_eol":false,"is_lts":true,"eol_date":null,"is_maintained":true,)" \
+  R"("latest_version":null},"source":"endoflife.date","product":"nodejs","cycle_variants":null},"name":"node","version":"20.0.0-custom",)" \
+  R"("ecosystem":"npm","malicious":{"id":"MAL-2024-3","affects_version":null},)" \
+  R"("advisories":[{"id":"GHSA-p6mc-m468-83gw","aliases":["CVE-2020-8203"],"affects_version":null}],)" \
+  R"("fixed_version":null,"advisory_total":1,"has_advisory_data":true},)" \
+  R"({"eol":{"url":"https://endoflife.date/log4j","cycle":null,"source":"endoflife.date","product":"log4j",)" \
+  R"("cycle_variants":[{"name":"2","is_eol":false,"eol_date":null,"is_maintained":true},{"name":"1","is_eol":true,"eol_date":"2015-10-01","is_maintained":false}]},)" \
+  R"("name":"org.apache.logging.log4j:log4j-core","version":"2.14.1","ecosystem":"Maven","malicious":{"id":"MAL-2024-4","affects_version":true},)" \
+  R"("advisories":[{"id":"GHSA-jfh8-c2jp-5v3q","aliases":["CVE-2021-44228"],"affects_version":true}],)" \
+  R"("fixed_version":"2.15.0","advisory_total":12,"has_advisory_data":true},)" \
+  R"({"eol":{"url":"https://endoflife.date/log4j","cycle":{"name":"2","is_eol":true,"is_lts":false,"eol_date":"2015-10-01","is_maintained":false,)" \
+  R"("latest_version":"2.24.3"},"source":"endoflife.date","product":"log4j","cycle_variants":null},"name":"log4j","version":"2.0",)" \
+  R"("ecosystem":"Maven","malicious":null,"advisories":[],"fixed_version":null,"advisory_total":0,"has_advisory_data":false}])"
+
+#define PACKAGECHECKBULK_BRANCH_ATTRIBUTION \
+  R"([{"url":"https://endoflife.date","source":"endoflife.date","license":"MIT"},{"url":null,"source":"cve","license":"CC-BY-4.0"}])"
+
+typedef struct {
+  const char* mp_label;
+  int         m_itemCount;
+  int         m_skippedItemCount;
+  int         m_notProcessedItemCount;
+  int         m_failedItemCount;
+  bool        m_isAdvisoryFeedLoaded;
+  const char* mp_marker;
+  const char* mp_itemMarker;
+} PackageBulkBranch_t;
+
+void test_mcp_PACKAGECHECKBULK_every_branch_conforms(void)
+{
+  static_resetSeenTypes();
+  static const PackageBulkBranch_t branches[] = {
+    { "all skipped", 0, 2, 0, 0, true,
+      R"({"total":2,"processed":0,"successful":0,"skipped":2,"failed":0,"not_processed":[],"data_source":{"source":"osv","available":null},)",
+      R"("results":[],"attribution":[]})" },
+    { "one package failed", 2, 0, 0, 1, true,
+      R"({"total":2,"processed":2,"successful":1,"skipped":0,"failed":1,"not_processed":[],"data_source":{"source":"osv","available":true},)",
+      R"("results":[{"eol":null,"name":"lodash",)" },
+    { "not processed", 1, 1, 2, 0, true,
+      R"({"total":4,"processed":1,"successful":1,"skipped":1,"failed":0,)",
+      R"("not_processed":[{"ecosystem":"PyPI","name":"requests","version":"2.31.0"},{"ecosystem":"npm","name":"express","version":"4.18.2"}],)" },
+    { "advisory copy not loaded", 1, 0, 0, 0, false,
+      R"("data_source":{"source":"osv","available":false,"reason":"not_synced"},)",
+      R"("advisory_total":1,"has_advisory_data":true}],)" },
+  };
+  g_stub_PACKAGECHECKBULK_status = DB_OK;
+  for (size_t i = 0; i < sizeof(branches) / sizeof(branches[0]); i++)
+  {
+    const PackageBulkBranch_t* branch = &branches[i];
+    g_stub_PACKAGECHECKBULK_call_count          = 0;
+    g_stub_PACKAGECHECKBULK_failed_item_count   = branch->m_failedItemCount;
+    g_stub_PACKAGECHECK_is_advisory_feed_loaded = branch->m_isAdvisoryFeedLoaded;
+    EndpointAnyParams_t params;
+    memset(&params, 0, sizeof(params));
+    PACKAGECHECKBULKParams_t* bulk_params = &params.m_packageCheckBulk;
+    TEST_ASSERT_EQUAL_INT(JSONREAD_OK, jsonread_root(PACKAGECHECKBULK_BRANCH_ITEMS, strlen(PACKAGECHECKBULK_BRANCH_ITEMS), &bulk_params->m_itemArraySpan));
+    bulk_params->m_itemCount             = branch->m_itemCount;
+    bulk_params->m_skippedItemCount      = branch->m_skippedItemCount;
+    bulk_params->m_notProcessedItemCount = branch->m_notProcessedItemCount;
+    JsonBuf_t* json_buf = static_newBodyBuf();
+    const char* message = NULL;
+    TEST_ASSERT_EQUAL_INT_MESSAGE(ENDPOINT_RUN_OK, endpoint_PACKAGECHECKBULKRun(FAKE_CONN, &params, json_buf, &message), branch->mp_label);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(branch->m_itemCount > 0 ? 1 : 0, g_stub_PACKAGECHECKBULK_call_count, branch->mp_label);
+    static_assertBodyConforms("package_check_bulk", static_finishBody(json_buf), branch->mp_marker, branch->mp_itemMarker, branch->mp_label);
+  }
+
+  PACKAGECHECKBULKResult_t result;
+  memset(&result, 0, sizeof(result));
+  result.m_total                = 4;
+  result.m_processed            = 4;
+  result.m_successful           = 4;
+  result.m_isAdvisoryFeedLoaded = true;
+  result.mp_results             = const_cast<char*>(PACKAGECHECKBULK_BRANCH_RESULTS);
+  result.mp_attribution         = const_cast<char*>(PACKAGECHECKBULK_BRANCH_ATTRIBUTION);
+  JsonBuf_t* json_buf = static_newBodyBuf();
+  serialize_PACKAGECHECKBULK_response(&result, json_buf);
+  static_assertBodyConforms("package_check_bulk", static_finishBody(json_buf),
+                            R"("ecosystem":"Pub","malicious":null,"advisories":[],"fixed_version":null,"advisory_total":null,"has_advisory_data":null},)",
+                            R"("malicious":{"id":"MAL-2024-3","affects_version":null},)", "unknown ecosystem, malware, eol forms");
+  static_assertToolDeclaresOnlySeenTypes("package_check_bulk");
+}
+
+#define DNSBRANCH_TEXT(literal) { const_cast<char*>(literal), sizeof(literal) - 1 }
+
+static DnsRecordText_t DNSLOOKUP_BRANCH_A[]       = { DNSBRANCH_TEXT("93.184.215.14"), DNSBRANCH_TEXT("10.0.0.7") };
+static DnsRecordText_t DNSLOOKUP_BRANCH_AAAA[]    = { DNSBRANCH_TEXT("2606:2800:21f:cb07:6820:80da:af6b:8b2c") };
+static DnsMxRecord_t   DNSLOOKUP_BRANCH_MX[]      = { { 10, const_cast<char*>("mail.example.com") } };
+static DnsRecordText_t DNSLOOKUP_BRANCH_NS[]      = { DNSBRANCH_TEXT("a.iana-servers.net"), DNSBRANCH_TEXT("b.iana-servers.net") };
+static DnsRecordText_t DNSLOOKUP_BRANCH_TXT[]     = { DNSBRANCH_TEXT("v=spf1 -all"), DNSBRANCH_TEXT("google-site-verification=abc") };
+static DnsRecordText_t DNSLOOKUP_BRANCH_NUL_TXT[] = { DNSBRANCH_TEXT("v=spf1\0 -all") };
+static DnsRecordText_t DNSLOOKUP_BRANCH_CNAME[]   = { DNSBRANCH_TEXT("example.net") };
+static DnsSoaRecord_t  DNSLOOKUP_BRANCH_SOA       = { const_cast<char*>("ns.icann.org"), const_cast<char*>("noc.dns.icann.org"), 2024081450 };
+static DnsCaaRecord_t  DNSLOOKUP_BRANCH_CAA[]     = {
+  { 0,   DNSBRANCH_TEXT("issue"), DNSBRANCH_TEXT("letsencrypt.org") },
+  { 128, DNSBRANCH_TEXT("iodef"), DNSBRANCH_TEXT("mailto:security@example.com") },
+};
+static const DnsRecordText_t* DNSLOOKUP_BRANCH_NON_PUBLIC[] = { &DNSLOOKUP_BRANCH_A[1] };
+static const DnsTxtService_t  DNSLOOKUP_BRANCH_GOOGLE       = { "google-workspace", "google-site-verification" };
+
+static void static_DNSLOOKUPFillAnsweredRecord(DNSLOOKUPRecord_t* record)
+{
+  memset(record, 0, sizeof(*record));
+  snprintf(record->ma_domain, sizeof(record->ma_domain), "%s", "example.com");
+  DnsAnswer_t* answers = record->ma_answers;
+  answers[DNS_RECORD_TYPE_A].mp_texts         = DNSLOOKUP_BRANCH_A;
+  answers[DNS_RECORD_TYPE_A].m_recordCount    = (int)(sizeof(DNSLOOKUP_BRANCH_A) / sizeof(DNSLOOKUP_BRANCH_A[0]));
+  answers[DNS_RECORD_TYPE_AAAA].mp_texts      = DNSLOOKUP_BRANCH_AAAA;
+  answers[DNS_RECORD_TYPE_AAAA].m_recordCount = (int)(sizeof(DNSLOOKUP_BRANCH_AAAA) / sizeof(DNSLOOKUP_BRANCH_AAAA[0]));
+  answers[DNS_RECORD_TYPE_MX].mp_mxRecords    = DNSLOOKUP_BRANCH_MX;
+  answers[DNS_RECORD_TYPE_MX].m_recordCount   = (int)(sizeof(DNSLOOKUP_BRANCH_MX) / sizeof(DNSLOOKUP_BRANCH_MX[0]));
+  answers[DNS_RECORD_TYPE_NS].mp_texts        = DNSLOOKUP_BRANCH_NS;
+  answers[DNS_RECORD_TYPE_NS].m_recordCount   = (int)(sizeof(DNSLOOKUP_BRANCH_NS) / sizeof(DNSLOOKUP_BRANCH_NS[0]));
+  answers[DNS_RECORD_TYPE_TXT].mp_texts       = DNSLOOKUP_BRANCH_TXT;
+  answers[DNS_RECORD_TYPE_TXT].m_recordCount  = (int)(sizeof(DNSLOOKUP_BRANCH_TXT) / sizeof(DNSLOOKUP_BRANCH_TXT[0]));
+  answers[DNS_RECORD_TYPE_SOA].mp_soaRecord   = &DNSLOOKUP_BRANCH_SOA;
+  answers[DNS_RECORD_TYPE_SOA].m_recordCount  = 1;
+  answers[DNS_RECORD_TYPE_CAA].mp_caaRecords  = DNSLOOKUP_BRANCH_CAA;
+  answers[DNS_RECORD_TYPE_CAA].m_recordCount  = (int)(sizeof(DNSLOOKUP_BRANCH_CAA) / sizeof(DNSLOOKUP_BRANCH_CAA[0]));
+  record->mp_nonPublicAddresses   = DNSLOOKUP_BRANCH_NON_PUBLIC;
+  record->m_nonPublicAddressCount = 1;
+  record->ma_services[0]          = &DNSLOOKUP_BRANCH_GOOGLE;
+  record->m_serviceCount          = 1;
+}
+
+static void static_DNSLOOKUPBranchOnlyCnameAnswered(DNSLOOKUPRecord_t* record)
+{
+  static const DnsAnswerStatus_t STATUSES[DNS_LOOKUP_DOMAIN_RECORD_TYPE_COUNT] = {
+    DNS_ANSWER_SERVER_ERROR, DNS_ANSWER_TRUNCATED, DNS_ANSWER_MALFORMED, DNS_ANSWER_TIMEOUT,
+    DNS_ANSWER_TIMEOUT, DNS_ANSWER_OK, DNS_ANSWER_SERVER_ERROR, DNS_ANSWER_NOT_PUBLIC_NAME,
+  };
+  for (int type = 0; type < DNS_LOOKUP_DOMAIN_RECORD_TYPE_COUNT; type++)
+  {
+    memset(&record->ma_answers[type], 0, sizeof(record->ma_answers[type]));
+    record->ma_answers[type].m_status = STATUSES[type];
+  }
+  record->ma_answers[DNS_RECORD_TYPE_CNAME].mp_texts      = DNSLOOKUP_BRANCH_CNAME;
+  record->ma_answers[DNS_RECORD_TYPE_CNAME].m_recordCount = 1;
+  record->m_nonPublicAddressCount = 0;
+  record->m_serviceCount          = 0;
+}
+
+static void static_DNSLOOKUPBranchNxdomainBesideEmpty(DNSLOOKUPRecord_t* record)
+{
+  for (int type = 0; type < DNS_LOOKUP_DOMAIN_RECORD_TYPE_COUNT; type++)
+    memset(&record->ma_answers[type], 0, sizeof(record->ma_answers[type]));
+  record->ma_answers[DNS_RECORD_TYPE_CNAME].m_status = DNS_ANSWER_NXDOMAIN;
+  record->m_nonPublicAddressCount = 0;
+  record->m_serviceCount          = 0;
+}
+
+static void static_DNSLOOKUPBranchNulTxt(DNSLOOKUPRecord_t* record)
+{
+  record->ma_answers[DNS_RECORD_TYPE_TXT].mp_texts      = DNSLOOKUP_BRANCH_NUL_TXT;
+  record->ma_answers[DNS_RECORD_TYPE_TXT].m_recordCount = 1;
+  record->m_serviceCount = 0;
+}
+
+void test_mcp_DNSLOOKUP_every_branch_conforms(void)
+{
+  static_resetSeenTypes();
+  static const struct {
+    const char* mp_label;
+    void      (*m_change)(DNSLOOKUPRecord_t* record);
+    const char* mp_marker;
+    const char* mp_itemMarker;
+  } branches[] = {
+    { "all answered", NULL,
+      R"("caa":[{"flags":0,"tag":"issue","value":"letsencrypt.org"},{"flags":128,"tag":"iodef","value":"mailto:security@example.com"}]},"unavailable":{},)",
+      R"("non_public_addresses":["10.0.0.7"],"services":[{"name":"google-workspace","evidence":"google-site-verification"}],)"
+      R"("summary":"2 A, 1 AAAA, 2 NS, 1 MX, 2 TXT, 1 SOA, 2 CAA records for example.com"})" },
+    { "only cname answered", static_DNSLOOKUPBranchOnlyCnameAnswered,
+      R"("records":{"a":null,"aaaa":null,"mx":null,"ns":null,"txt":null,"total_txt_records":null,"cname":["example.net"],"soa":null,"caa":null},)",
+      R"("unavailable":{"a":"server_error","aaaa":"truncated","mx":"malformed_answer","ns":"timeout","txt":"timeout","soa":"server_error","caa":"not_public_name"},)" },
+    { "nxdomain beside empty answers", static_DNSLOOKUPBranchNxdomainBesideEmpty,
+      R"("records":{"a":[],"aaaa":[],"mx":[],"ns":[],"txt":[],"total_txt_records":0,"cname":null,"soa":null,"caa":[]},"unavailable":{"cname":"nxdomain"},)",
+      R"("summary":"No records for example.com; 1 record type unavailable"})" },
+    { "txt with a NUL byte", static_DNSLOOKUPBranchNulTxt,
+      R"("txt":["v=spf1\u0000 -all"],"total_txt_records":1,)",
+      R"("unavailable":{},"non_public_addresses":["10.0.0.7"],"services":[],)" },
+  };
+  for (size_t i = 0; i < sizeof(branches) / sizeof(branches[0]); i++)
+  {
+    DNSLOOKUPRecord_t record;
+    static_DNSLOOKUPFillAnsweredRecord(&record);
+    if (branches[i].m_change != NULL)
+      branches[i].m_change(&record);
+    JsonBuf_t* json_buf = static_newBodyBuf();
+    serialize_DNSLOOKUP_response(&record, json_buf);
+    static_assertBodyConforms("dns_lookup", static_finishBody(json_buf), branches[i].mp_marker, branches[i].mp_itemMarker, branches[i].mp_label);
+  }
+  static_assertToolDeclaresOnlySeenTypes("dns_lookup");
+}
+
+static const DnsTakeoverSuffix_t DNSTAKEOVERBRANCH_AZURE = { "Microsoft Azure", "cloudapp.net" };
+
+typedef struct {
+  const char*                mp_label;
+  const char*                ma_chain[2];
+  int                        m_chainLength;
+  bool                       m_isTargetFound;
+  const DnsTakeoverSuffix_t* mp_suffix;
+  const char*                mp_marker;
+  const char*                mp_itemMarker;
+} DnsTakeoverBranch_t;
+
+void test_mcp_DNSTAKEOVERCHECK_every_branch_conforms(void)
+{
+  static_resetSeenTypes();
+  static const DnsTakeoverBranch_t branches[] = {
+    { "no cname", { NULL, NULL }, 0, false, NULL,
+      R"("cname":null,"chain":[],"target_exists":null,"dangling":false,"provider":null,"takeover_possible":false,)",
+      R"("summary":"shop.example.com has no CNAME record, so it has no dangling CNAME."})" },
+    { "dangling at a known provider", { "shop.example.net", "shop-example.cloudapp.net" }, 2, false, &DNSTAKEOVERBRANCH_AZURE,
+      R"("cname":"shop.example.net","chain":["shop.example.net","shop-example.cloudapp.net"],"target_exists":false,"dangling":true,"provider":"Microsoft Azure","takeover_possible":true,)",
+      R"( points through 2 CNAME records to shop-example.cloudapp.net, which does not exist.)" },
+    { "unknown provider", { "shop.example-cdn.net", NULL }, 1, false, NULL,
+      R"("target_exists":false,"dangling":true,"provider":null,"takeover_possible":null,)",
+      R"(This check knows no service that lets anyone claim that name."})" },
+    { "known provider, target exists", { "shop-example.cloudapp.net", NULL }, 1, true, &DNSTAKEOVERBRANCH_AZURE,
+      R"("target_exists":true,"dangling":false,"provider":"Microsoft Azure","takeover_possible":false,)",
+      R"(points to shop-example.cloudapp.net, which exists."})" },
+  };
+  for (size_t i = 0; i < sizeof(branches) / sizeof(branches[0]); i++)
+  {
+    const DnsTakeoverBranch_t* branch = &branches[i];
+    DNSTAKEOVERCHECKRecord_t record;
+    memset(&record, 0, sizeof(record));
+    snprintf(record.ma_hostname, sizeof(record.ma_hostname), "%s", "shop.example.com");
+    for (int k = 0; k < branch->m_chainLength; k++)
+      snprintf(record.ma_hostnameChain[k], sizeof(record.ma_hostnameChain[k]), "%s", branch->ma_chain[k]);
+    record.m_hostnameChainLength = branch->m_chainLength;
+    record.m_isTargetFound       = branch->m_isTargetFound;
+    record.mp_matchedSuffix      = branch->mp_suffix;
+    JsonBuf_t* json_buf = static_newBodyBuf();
+    serialize_DNSTAKEOVERCHECK_response(&record, json_buf);
+    static_assertBodyConforms("dns_takeover_check", static_finishBody(json_buf), branch->mp_marker, branch->mp_itemMarker, branch->mp_label);
+  }
+  static_assertToolDeclaresOnlySeenTypes("dns_takeover_check");
+}
+
+static DnsMxRecord_t EMAILADDRESSBRANCH_MX[] = {
+  { 10, const_cast<char*>("mx1.example.com") },
+  { 20, const_cast<char*>("mx2.example.com") },
+};
+
+typedef struct {
+  const char*           mp_label;
+  const char*           mp_email;
+  const char*           mp_domain;
+  bool                  m_isDisposableFeedLoaded;
+  const char*           mp_disposableListedDomain;
+  bool                  m_isDomainFound;
+  EmailCheckMailRoute_t m_mailRoute;
+  DnsAnswerStatus_t     m_mxStatus;
+  int                   m_mxRecordCount;
+  const char*           mp_marker;
+  const char*           mp_itemMarker;
+} EmailAddressBranch_t;
+
+void test_mcp_EMAILADDRESSCHECK_every_branch_conforms(void)
+{
+  static_resetSeenTypes();
+  static const EmailAddressBranch_t branches[] = {
+    { "mx, not disposable", "Alice@example.com", "example.com", true, "", true, EMAILCHECK_MAIL_ROUTE_MX, DNS_ANSWER_OK, 2,
+      R"({"email":"Alice@example.com","domain":"example.com","domain_exists":true,"accepts_mail":true,"mail_route":"mx",)"
+      R"("mx_hosts":[{"priority":10,"host":"mx1.example.com"},{"priority":20,"host":"mx2.example.com"}],)",
+      R"("disposable":false,"disposable_listed_domain":null,"unavailable":{}})" },
+    { "disposable parent", "x@inbox.mailinator.com", "inbox.mailinator.com", true, "mailinator.com", true, EMAILCHECK_MAIL_ROUTE_IMPLICIT_MX, DNS_ANSWER_OK, 0,
+      R"("domain_exists":true,"accepts_mail":true,"mail_route":"implicit_mx","mx_hosts":[],)",
+      R"("disposable":true,"disposable_listed_domain":"mailinator.com","unavailable":{}})" },
+    { "no domain, list not loaded", "bob@no-such-domain.example", "no-such-domain.example", false, "", false, EMAILCHECK_MAIL_ROUTE_NONE, DNS_ANSWER_NXDOMAIN, 0,
+      R"("domain_exists":false,"accepts_mail":false,"mail_route":null,"mx_hosts":[],)",
+      R"("disposable":null,"disposable_listed_domain":null,"unavailable":{"disposable_listed_domain":"not_synced"}})" },
+  };
+  for (size_t i = 0; i < sizeof(branches) / sizeof(branches[0]); i++)
+  {
+    const EmailAddressBranch_t* branch = &branches[i];
+    EMAILADDRESSCHECKRecord_t record;
+    memset(&record, 0, sizeof(record));
+    snprintf(record.ma_email,                  sizeof(record.ma_email),                  "%s", branch->mp_email);
+    snprintf(record.ma_domain,                 sizeof(record.ma_domain),                 "%s", branch->mp_domain);
+    snprintf(record.ma_disposableListedDomain, sizeof(record.ma_disposableListedDomain), "%s", branch->mp_disposableListedDomain);
+    record.m_isDisposableFeedLoaded = branch->m_isDisposableFeedLoaded;
+    record.m_isDomainFound          = branch->m_isDomainFound;
+    record.m_mailRoute              = branch->m_mailRoute;
+    record.m_mxAnswer.m_status      = branch->m_mxStatus;
+    record.m_mxAnswer.m_recordCount = branch->m_mxRecordCount;
+    record.m_mxAnswer.mp_mxRecords  = branch->m_mxRecordCount > 0 ? EMAILADDRESSBRANCH_MX : NULL;
+    JsonBuf_t* json_buf = static_newBodyBuf();
+    serialize_EMAILADDRESSCHECK_response(&record, json_buf);
+    static_assertBodyConforms("email_address_check", static_finishBody(json_buf), branch->mp_marker, branch->mp_itemMarker, branch->mp_label);
+  }
+  static_assertToolDeclaresOnlySeenTypes("email_address_check");
+}
+
+static DnsRecordText_t EMAILAUTHBRANCH_SPF_TEXTS[] = {
+  DNSBRANCH_TEXT("google-site-verification=abc"),
+  DNSBRANCH_TEXT("v=spf1 include:_spf.google.com ~ip4:192.0.2.0/24 -all exp=explain.example.com"),
+};
+static DnsRecordText_t EMAILAUTHBRANCH_TWO_SPF_TEXTS[]      = { DNSBRANCH_TEXT("v=spf1 -all"), DNSBRANCH_TEXT("v=spf1 include:_spf.google.com ~all") };
+static DnsRecordText_t EMAILAUTHBRANCH_OWN_DMARC_TEXTS[]    = { DNSBRANCH_TEXT("v=DMARC1; p=reject; sp=quarantine; np=none; psd=n; rua=mailto:dmarc@example.com; ruf=mailto:forensic@example.com") };
+static DnsRecordText_t EMAILAUTHBRANCH_PARENT_DMARC_TEXTS[] = { DNSBRANCH_TEXT("v=DMARC1; p=quarantine; np=bogus; t=y") };
+static DnsMxRecord_t   EMAILAUTHBRANCH_MX[]                 = { { 1, const_cast<char*>("aspmx.l.google.com") } };
+
+static EmailAuthSpan_t static_EMAILAUTHCHECKStringSpan(const char* text)
+{
+  EmailAuthSpan_t span = { text, strlen(text) };
+  return span;
+}
+
+static void static_EMAILAUTHCHECKSetSpfTerm(EmailAuthSpfTerm_t* term, EmailAuthSpfTermKind_t kind, EmailAuthQualifier_t qualifier, const char* value)
+{
+  memset(term, 0, sizeof(*term));
+  term->m_kind            = kind;
+  term->m_qualifier       = qualifier;
+  term->m_ip4PrefixLength = -1;
+  term->m_ip6PrefixLength = -1;
+  if (value != NULL)
+    term->m_value = static_EMAILAUTHCHECKStringSpan(value);
+}
+
+static void static_EMAILAUTHCHECKSetChecks(EMAILAUTHCHECKRecord_t* record, const EmailCheckItem_t* checks, int check_count)
+{
+  TEST_ASSERT_TRUE(check_count <= EMAILCHECK_KIND_COUNT);
+  memcpy(record->ma_checks, checks, (size_t)check_count * sizeof(checks[0]));
+  record->m_checkCount = check_count;
+}
+
+static void static_EMAILAUTHCHECKFillFullRecord(EMAILAUTHCHECKRecord_t* record)
+{
+  static EmailDataProvider_t provider;
+  provider.mp_name = "Google Workspace";
+  static const EmailCheckItem_t CHECKS[] = {
+    { EMAILCHECK_KIND_SPF_RECORD,     EMAILCHECK_RESULT_PASS }, { EMAILCHECK_KIND_SPF_ALL,       EMAILCHECK_RESULT_PASS },
+    { EMAILCHECK_KIND_DMARC_RECORD,   EMAILCHECK_RESULT_PASS }, { EMAILCHECK_KIND_DMARC_POLICY,  EMAILCHECK_RESULT_PASS },
+    { EMAILCHECK_KIND_DKIM_KEY_FOUND, EMAILCHECK_RESULT_PASS }, { EMAILCHECK_KIND_DKIM_KEY_SIZE, EMAILCHECK_RESULT_PASS },
+    { EMAILCHECK_KIND_MX,             EMAILCHECK_RESULT_PASS }, { EMAILCHECK_KIND_MTA_STS,       EMAILCHECK_RESULT_PASS },
+  };
+  memset(record, 0, sizeof(*record));
+  snprintf(record->ma_domain, sizeof(record->ma_domain), "%s", "example.com");
+
+  record->m_spfAnswer.mp_texts      = EMAILAUTHBRANCH_SPF_TEXTS;
+  record->m_spfAnswer.m_recordCount = (int)(sizeof(EMAILAUTHBRANCH_SPF_TEXTS) / sizeof(EMAILAUTHBRANCH_SPF_TEXTS[0]));
+  record->m_spfRecordCount          = 1;
+  record->m_spfRecordIndex          = 1;
+  EmailAuthSpf_t* spf = &record->m_spfRecord;
+  static_EMAILAUTHCHECKSetSpfTerm(&spf->ma_terms[0], EMAILAUTH_SPF_TERM_INCLUDE, EMAILAUTH_QUALIFIER_PASS,     "_spf.google.com");
+  static_EMAILAUTHCHECKSetSpfTerm(&spf->ma_terms[1], EMAILAUTH_SPF_TERM_IP4,     EMAILAUTH_QUALIFIER_SOFTFAIL, "192.0.2.0/24");
+  static_EMAILAUTHCHECKSetSpfTerm(&spf->ma_terms[2], EMAILAUTH_SPF_TERM_ALL,     EMAILAUTH_QUALIFIER_FAIL,     NULL);
+  static_EMAILAUTHCHECKSetSpfTerm(&spf->ma_terms[3], EMAILAUTH_SPF_TERM_EXP,     EMAILAUTH_QUALIFIER_PASS,     "explain.example.com");
+  spf->m_termCount          = 4;
+  spf->m_dnsLookupTermCount = 1;
+
+  snprintf(record->ma_dmarcNames[0], sizeof(record->ma_dmarcNames[0]), "%s", "_dmarc.example.com");
+  record->ma_dmarcAnswers[0].mp_texts      = EMAILAUTHBRANCH_OWN_DMARC_TEXTS;
+  record->ma_dmarcAnswers[0].m_recordCount = 1;
+  record->m_dmarcNameCount      = 1;
+  record->m_ownDmarcRecordCount = EMAILAUTH_RECORD_ONE;
+  record->m_dmarcSource         = EMAILCHECK_DMARC_SOURCE_DOMAIN;
+  EmailAuthDmarc_t* dmarc = &record->m_dmarcRecord;
+  dmarc->m_policy                     = EMAILAUTH_DMARC_POLICY_REJECT;
+  dmarc->m_subdomainPolicy            = EMAILAUTH_DMARC_POLICY_QUARANTINE;
+  dmarc->m_nonexistentSubdomainPolicy = EMAILAUTH_DMARC_POLICY_NONE;
+  dmarc->m_testMode                   = EMAILAUTH_DMARC_TEST_MODE_OFF;
+  dmarc->m_domainRole                 = EMAILAUTH_DMARC_DOMAIN_ROLE_ORGANIZATIONAL;
+  dmarc->ma_aggregateUris[0].m_uri    = static_EMAILAUTHCHECKStringSpan("mailto:dmarc@example.com");
+  dmarc->m_aggregateUriCount          = 1;
+  dmarc->m_validAggregateUriCount     = 1;
+  dmarc->ma_failureUris[0].m_uri      = static_EMAILAUTHCHECKStringSpan("mailto:forensic@example.com");
+  dmarc->m_failureUriCount            = 1;
+  record->m_isDmarcApplied     = true;
+  record->m_appliedDmarcPolicy = EMAILAUTH_DMARC_POLICY_REJECT;
+
+  record->m_mxAnswer.mp_mxRecords  = EMAILAUTHBRANCH_MX;
+  record->m_mxAnswer.m_recordCount = 1;
+  record->ma_mailProviders[0]      = &provider;
+  record->m_mailProviderCount      = 1;
+  record->m_hasMtaStsRecord        = true;
+  record->m_isMtaStsRecordValid    = true;
+
+  snprintf(record->ma_dkimSelectors[0].ma_selector, sizeof(record->ma_dkimSelectors[0].ma_selector), "%s", "google");
+  snprintf(record->ma_dkimSelectors[1].ma_selector, sizeof(record->ma_dkimSelectors[1].ma_selector), "%s", "selector1");
+  record->ma_dkimSelectors[0].m_hasKeyRecord                = true;
+  record->ma_dkimSelectors[0].m_bestKeyRecord.m_keyState    = EMAILAUTH_DKIM_KEY_PRESENT;
+  record->ma_dkimSelectors[0].m_bestKeyRecord.m_keyTypeName = static_EMAILAUTHCHECKStringSpan("rsa");
+  record->ma_dkimSelectors[0].m_bestKeyRecord.m_keyBits     = 2048;
+  record->m_dkimSelectorCount  = 2;
+  record->m_dkimSelectorSource = EMAILCHECK_DKIM_SELECTOR_SOURCE_PROVIDER;
+  record->m_dkimKeyStatus      = EMAILCHECK_DKIM_KEY_FOUND;
+  record->m_dkimUsableKeyCount = 1;
+  static_EMAILAUTHCHECKSetChecks(record, CHECKS, (int)(sizeof(CHECKS) / sizeof(CHECKS[0])));
+}
+
+static void static_EMAILAUTHCHECKBranchNoRecords(EMAILAUTHCHECKRecord_t* record)
+{
+  static const EmailCheckItem_t CHECKS[] = {
+    { EMAILCHECK_KIND_SPF_RECORD,     EMAILCHECK_RESULT_FAIL }, { EMAILCHECK_KIND_DMARC_RECORD, EMAILCHECK_RESULT_FAIL },
+    { EMAILCHECK_KIND_DKIM_KEY_FOUND, EMAILCHECK_RESULT_WARN }, { EMAILCHECK_KIND_MX,           EMAILCHECK_RESULT_PASS },
+    { EMAILCHECK_KIND_MTA_STS,        EMAILCHECK_RESULT_WARN },
+  };
+  record->m_spfAnswer.mp_texts      = EMAILAUTHBRANCH_TWO_SPF_TEXTS;
+  record->m_spfAnswer.m_recordCount = (int)(sizeof(EMAILAUTHBRANCH_TWO_SPF_TEXTS) / sizeof(EMAILAUTHBRANCH_TWO_SPF_TEXTS[0]));
+  record->m_spfRecordCount          = 2;
+  record->m_spfRecordIndex          = 0;
+  memset(&record->m_spfRecord, 0, sizeof(record->m_spfRecord));
+
+  memset(&record->ma_dmarcAnswers[0], 0, sizeof(record->ma_dmarcAnswers[0]));
+  memset(&record->m_dmarcRecord, 0, sizeof(record->m_dmarcRecord));
+  record->m_ownDmarcRecordCount = EMAILAUTH_RECORD_NONE;
+  record->m_dmarcSource         = EMAILCHECK_DMARC_SOURCE_NONE;
+  record->m_isDmarcApplied      = false;
+  record->m_appliedDmarcPolicy  = EMAILAUTH_DMARC_POLICY_ABSENT;
+
+  memset(record->ma_dkimSelectors, 0, sizeof(record->ma_dkimSelectors));
+  snprintf(record->ma_dkimSelectors[0].ma_selector, sizeof(record->ma_dkimSelectors[0].ma_selector), "%s", "default");
+  snprintf(record->ma_dkimSelectors[1].ma_selector, sizeof(record->ma_dkimSelectors[1].ma_selector), "%s", "selector1");
+  record->m_dkimSelectorCount  = 2;
+  record->m_dkimSelectorSource = EMAILCHECK_DKIM_SELECTOR_SOURCE_COMMON;
+  record->m_dkimKeyStatus      = EMAILCHECK_DKIM_KEY_UNKNOWN;
+  record->m_dkimUsableKeyCount = 0;
+
+  memset(&record->m_mxAnswer, 0, sizeof(record->m_mxAnswer));
+  record->m_mxAnswer.m_hasNullMx   = true;
+  record->m_mailProviderCount      = 0;
+  record->m_mtaStsAnswer.m_status  = DNS_ANSWER_NXDOMAIN;
+  record->m_hasMtaStsRecord        = false;
+  record->m_isMtaStsRecordValid    = false;
+  static_EMAILAUTHCHECKSetChecks(record, CHECKS, (int)(sizeof(CHECKS) / sizeof(CHECKS[0])));
+}
+
+static void static_EMAILAUTHCHECKBranchNoSpfRecord(EMAILAUTHCHECKRecord_t* record)
+{
+  static_EMAILAUTHCHECKBranchNoRecords(record);
+  memset(&record->m_spfAnswer, 0, sizeof(record->m_spfAnswer));
+  record->m_spfRecordCount        = 0;
+  record->m_mxAnswer.m_status     = DNS_ANSWER_NXDOMAIN;
+  record->m_mxAnswer.m_hasNullMx  = false;
+  record->ma_checks[3].m_result   = EMAILCHECK_RESULT_WARN;
+}
+
+static void static_EMAILAUTHCHECKBranchEverySectionUnavailable(EMAILAUTHCHECKRecord_t* record)
+{
+  memset(&record->m_spfAnswer, 0, sizeof(record->m_spfAnswer));
+  record->m_spfAnswer.m_status = DNS_ANSWER_TIMEOUT;
+  record->m_spfRecordCount     = 0;
+  record->m_dmarcStatus        = DNS_ANSWER_SERVER_ERROR;
+  record->m_dkimStatus         = DNS_ANSWER_BAD_QUESTION;
+  memset(&record->m_mxAnswer, 0, sizeof(record->m_mxAnswer));
+  record->m_mxAnswer.m_status    = DNS_ANSWER_TRUNCATED;
+  record->m_mtaStsAnswer.m_status = DNS_ANSWER_NOT_PUBLIC_NAME;
+  record->m_hasMtaStsRecord      = false;
+  record->m_mailProviderCount    = 0;
+  record->m_checkCount           = 0;
+}
+
+static void static_EMAILAUTHCHECKBranchParentDmarc(EMAILAUTHCHECKRecord_t* record)
+{
+  static const EmailCheckItem_t CHECKS[] = {
+    { EMAILCHECK_KIND_SPF_RECORD,      EMAILCHECK_RESULT_PASS }, { EMAILCHECK_KIND_DMARC_RECORD,    EMAILCHECK_RESULT_PASS },
+    { EMAILCHECK_KIND_DMARC_POLICY,    EMAILCHECK_RESULT_FAIL }, { EMAILCHECK_KIND_DMARC_TEST_MODE, EMAILCHECK_RESULT_WARN },
+    { EMAILCHECK_KIND_DKIM_KEY_FOUND,  EMAILCHECK_RESULT_PASS }, { EMAILCHECK_KIND_DKIM_KEY_USABLE, EMAILCHECK_RESULT_FAIL },
+    { EMAILCHECK_KIND_MX,              EMAILCHECK_RESULT_PASS }, { EMAILCHECK_KIND_MTA_STS,         EMAILCHECK_RESULT_PASS },
+  };
+  snprintf(record->ma_domain, sizeof(record->ma_domain), "%s", "mail.example.com");
+  snprintf(record->ma_dmarcNames[0], sizeof(record->ma_dmarcNames[0]), "%s", "_dmarc.mail.example.com");
+  snprintf(record->ma_dmarcNames[1], sizeof(record->ma_dmarcNames[1]), "%s", "_dmarc.example.com");
+  memset(&record->ma_dmarcAnswers[0], 0, sizeof(record->ma_dmarcAnswers[0]));
+  record->ma_dmarcAnswers[0].m_status      = DNS_ANSWER_NXDOMAIN;
+  record->ma_dmarcAnswers[1].mp_texts      = EMAILAUTHBRANCH_PARENT_DMARC_TEXTS;
+  record->ma_dmarcAnswers[1].m_recordCount = 1;
+  record->m_dmarcNameCount      = 2;
+  record->m_dmarcNameIndex      = 1;
+  record->m_dmarcRecordIndex    = 0;
+  record->m_ownDmarcRecordCount = EMAILAUTH_RECORD_NONE;
+  record->m_dmarcSource         = EMAILCHECK_DMARC_SOURCE_ORGANIZATIONAL;
+  EmailAuthDmarc_t* dmarc = &record->m_dmarcRecord;
+  memset(dmarc, 0, sizeof(*dmarc));
+  dmarc->m_policy                     = EMAILAUTH_DMARC_POLICY_QUARANTINE;
+  dmarc->m_nonexistentSubdomainPolicy = EMAILAUTH_DMARC_POLICY_INVALID;
+  dmarc->m_testMode                   = EMAILAUTH_DMARC_TEST_MODE_ON;
+  record->m_isDmarcApplied     = false;
+  record->m_appliedDmarcPolicy = EMAILAUTH_DMARC_POLICY_ABSENT;
+
+  EmailAuthDkim_t* key = &record->ma_dkimSelectors[0].m_bestKeyRecord;
+  key->m_keyState   = EMAILAUTH_DKIM_KEY_REVOKED;
+  key->m_keyBits    = 0;
+  key->m_isTestMode = true;
+  record->m_dkimUsableKeyCount = 0;
+  static_EMAILAUTHCHECKSetChecks(record, CHECKS, (int)(sizeof(CHECKS) / sizeof(CHECKS[0])));
+}
+
+void test_mcp_EMAILAUTHCHECK_every_branch_conforms(void)
+{
+  static_resetSeenTypes();
+  static const struct {
+    const char* mp_label;
+    void      (*m_change)(EMAILAUTHCHECKRecord_t* record);
+    const char* mp_marker;
+    const char* mp_itemMarker;
+    const char* mp_extraMarker;
+  } branches[] = {
+    { "every section with a record", NULL,
+      R"("spf":{"available":true,"record_count":1,"record":"v=spf1 include:_spf.google.com ~ip4:192.0.2.0/24 -all exp=explain.example.com",)"
+      R"("terms":[{"kind":"include","qualifier":"pass","value":"_spf.google.com"},{"kind":"ip4","qualifier":"softfail","value":"192.0.2.0/24"},)"
+      R"({"kind":"all","qualifier":"fail","value":null},{"kind":"exp","qualifier":null,"value":"explain.example.com"}],)"
+      R"("dns_lookup_term_count":1,"invalid_term_count":0,"unread_term_count":0},)",
+      R"("dmarc":{"available":true,"record_name":"_dmarc.example.com","source":"domain",)"
+      R"("record":"v=DMARC1; p=reject; sp=quarantine; np=none; psd=n; rua=mailto:dmarc@example.com; ruf=mailto:forensic@example.com",)"
+      R"("policy":"reject","subdomain_policy":"quarantine","nonexistent_subdomain_policy":"none","applied_policy":"reject","test_mode":false,)"
+      R"("domain_role":"organizational","aggregate_report_uris":["mailto:dmarc@example.com"],"failure_report_uris":["mailto:forensic@example.com"]},)",
+      R"("dkim":{"available":true,"key_status":"found","usable_key_count":1,"selector_source":"provider","tested_selectors":["google","selector1"],)"
+      R"("keys":[{"selector":"google","state":"present","key_type":"rsa","key_bits":2048,"test_mode":false}]},)"
+      R"("mx":{"available":true,"null_mx":false,"hosts":[{"priority":1,"host":"aspmx.l.google.com"}]},"mail_providers":["Google Workspace"],)"
+      R"("mta_sts":{"available":true,"record_found":true},"no_mail_domain":false,)" },
+    { "two spf records, no dmarc, no dkim key, null mx", static_EMAILAUTHCHECKBranchNoRecords,
+      R"("spf":{"available":true,"record_count":2,"record":null,"terms":null,"dns_lookup_term_count":null,"invalid_term_count":null,"unread_term_count":null},)",
+      R"("dmarc":{"available":true,"record_name":null,"source":null,"record":null,"policy":null,"subdomain_policy":null,"nonexistent_subdomain_policy":null,)"
+      R"("applied_policy":null,"test_mode":null,"domain_role":null,"aggregate_report_uris":null,"failure_report_uris":null},)",
+      R"("dkim":{"available":true,"key_status":"unknown","usable_key_count":0,"selector_source":"common","tested_selectors":["default","selector1"],"keys":[]},)"
+      R"("mx":{"available":true,"null_mx":true,"hosts":[]},"mail_providers":[],"mta_sts":{"available":true,"record_found":false},)" },
+    { "no spf record, mx nxdomain", static_EMAILAUTHCHECKBranchNoSpfRecord,
+      R"("spf":{"available":true,"record_count":0,"record":null,)",
+      R"("mx":{"available":true,"null_mx":false,"hosts":[]},)",
+      R"("check_counts":{"pass":0,"warn":3,"fail":2}})" },
+    { "every section unavailable", static_EMAILAUTHCHECKBranchEverySectionUnavailable,
+      R"("spf":{"available":false,"reason":"timeout"},"dmarc":{"available":false,"reason":"server_error"},)"
+      R"("dkim":{"available":false,"reason":"bad_question"},"mx":{"available":false,"reason":"truncated"},)",
+      R"("mail_providers":[],"mta_sts":{"available":false,"reason":"not_public_name"},)",
+      R"("checks":[],"check_counts":{"pass":0,"warn":0,"fail":0}})" },
+    { "parent dmarc record, revoked dkim key", static_EMAILAUTHCHECKBranchParentDmarc,
+      R"("dmarc":{"available":true,"record_name":"_dmarc.example.com","source":"organizational","record":"v=DMARC1; p=quarantine; np=bogus; t=y",)"
+      R"("policy":"quarantine","subdomain_policy":null,"nonexistent_subdomain_policy":"invalid","applied_policy":null,"test_mode":true,)"
+      R"("domain_role":null,"aggregate_report_uris":[],"failure_report_uris":[]},)",
+      R"("keys":[{"selector":"google","state":"revoked","key_type":"rsa","key_bits":null,"test_mode":true}]},)",
+      R"("check_counts":{"pass":5,"warn":1,"fail":2}})" },
+  };
+  static EMAILAUTHCHECKRecord_t record;
+  for (size_t i = 0; i < sizeof(branches) / sizeof(branches[0]); i++)
+  {
+    static_EMAILAUTHCHECKFillFullRecord(&record);
+    if (branches[i].m_change != NULL)
+      branches[i].m_change(&record);
+    JsonBuf_t* json_buf = static_newBodyBuf();
+    serialize_EMAILAUTHCHECK_response(&record, json_buf);
+    char* body = static_finishBody(json_buf);
+    TEST_ASSERT_NOT_NULL_MESSAGE(body, branches[i].mp_label);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(body, branches[i].mp_extraMarker), branches[i].mp_label);
+    static_assertBodyConforms("email_auth_check", body, branches[i].mp_marker, branches[i].mp_itemMarker, branches[i].mp_label);
+  }
+  static_assertToolDeclaresOnlySeenTypes("email_auth_check");
+}
+
+typedef struct {
+  const char*                     mp_label;
+  const char*                     mp_rdapServerBaseUrl;
+  const char*                     mp_whoisServerHost;
+  WHOISLOOKUPUnavailableReason_t  m_unavailableReason;
+  unsigned int                    m_retryAfterSeconds;
+  bool                            m_isRegistrationFilled;
+  int                             m_statusCount;
+  RdapDelegationSigned_t          m_delegationSigned;
+  const char*                     mp_marker;
+  const char*                     mp_itemMarker;
+} WhoisLookupBranch_t;
+
+static void static_WHOISLOOKUPFillRegistration(RdapRegistration_t* registration, int status_count, RdapDelegationSigned_t delegation_signed)
+{
+  snprintf(registration->ma_registrarName, sizeof(registration->ma_registrarName), "%s", "Example Registrar, Inc.");
+  registration->m_registrarIanaId = 292;
+  snprintf(registration->ma_createdAt, sizeof(registration->ma_createdAt), "%s", "1995-08-14T04:00:00Z");
+  snprintf(registration->ma_updatedAt, sizeof(registration->ma_updatedAt), "%s", "2024-08-14T07:01:34Z");
+  snprintf(registration->ma_expiresAt, sizeof(registration->ma_expiresAt), "%s", "2025-08-13T04:00:00Z");
+  for (int i = 0; i < status_count && i < RDAP_STATUS_MAX_COUNT; i++)
+    snprintf(registration->ma_statuses[i], sizeof(registration->ma_statuses[i]), "status %02d", i + 1);
+  registration->m_statusCount = status_count;
+  snprintf(registration->ma_nameServers[0], sizeof(registration->ma_nameServers[0]), "%s", "a.iana-servers.net");
+  snprintf(registration->ma_nameServers[1], sizeof(registration->ma_nameServers[1]), "%s", "b.iana-servers.net");
+  registration->m_nameServerCount  = 2;
+  registration->m_delegationSigned = delegation_signed;
+}
+
+void test_mcp_WHOISLOOKUP_every_branch_conforms(void)
+{
+  static_resetSeenTypes();
+  static const WhoisLookupBranch_t branches[] = {
+    { "rdap registration", "https://rdap.verisign.com/com/v1/", NULL, WHOISLOOKUP_UNAVAILABLE_NONE, 0, true, 2, RDAP_DELEGATION_SIGNED_YES,
+      R"({"domain":"example.com","available":true,"registered":true,"rdap_server":"https://rdap.verisign.com/com/v1/","whois_server":null,)"
+      R"("registrar_name":"Example Registrar, Inc.","registrar_iana_id":292,"created_at":"1995-08-14T04:00:00Z",)",
+      R"("status":["status 01","status 02"],"status_count":2,"name_servers":["a.iana-servers.net","b.iana-servers.net"],"name_server_count":2,"dnssec_signed":true})" },
+    { "whois registration without a text", NULL, "whois.nic.example", WHOISLOOKUP_UNAVAILABLE_NONE, 0, false, 0, RDAP_DELEGATION_SIGNED_UNKNOWN,
+      R"("rdap_server":null,"whois_server":"whois.nic.example","registrar_name":null,"registrar_iana_id":null,"created_at":null,"updated_at":null,"expires_at":null,)",
+      R"("status":[],"status_count":0,"name_servers":[],"name_server_count":0,"dnssec_signed":null})" },
+    { "more status values than kept", "https://rdap.verisign.com/com/v1/", NULL, WHOISLOOKUP_UNAVAILABLE_NONE, 0, true, 20, RDAP_DELEGATION_SIGNED_NO,
+      R"("status 15","status 16"],"status_count":20,)",
+      R"("name_server_count":2,"dnssec_signed":false})" },
+    { "no registry server", NULL, NULL, WHOISLOOKUP_UNAVAILABLE_NO_REGISTRY_SERVER, 0, false, 0, RDAP_DELEGATION_SIGNED_UNKNOWN,
+      R"({"domain":"example.com","available":false,"registered":null,)",
+      R"("reason":"no_registry_server","retry_after_seconds":null})" },
+    { "quota exhausted", NULL, NULL, WHOISLOOKUP_UNAVAILABLE_QUOTA_EXHAUSTED, 42, false, 0, RDAP_DELEGATION_SIGNED_UNKNOWN,
+      R"({"domain":"example.com","available":false,"registered":null,)",
+      R"("reason":"quota_exhausted","retry_after_seconds":42})" },
+  };
+  for (size_t i = 0; i < sizeof(branches) / sizeof(branches[0]); i++)
+  {
+    const WhoisLookupBranch_t* branch = &branches[i];
+    WHOISLOOKUPRecord_t record;
+    memset(&record, 0, sizeof(record));
+    snprintf(record.ma_domain, sizeof(record.ma_domain), "%s", "example.com");
+    record.mp_rdapServerBaseUrl  = branch->mp_rdapServerBaseUrl;
+    record.mp_whoisServerHost    = branch->mp_whoisServerHost;
+    record.m_unavailableReason   = branch->m_unavailableReason;
+    record.m_retryAfterSeconds   = branch->m_retryAfterSeconds;
+    record.m_registration.m_registrarIanaId  = -1;
+    record.m_registration.m_delegationSigned = branch->m_delegationSigned;
+    if (branch->m_isRegistrationFilled)
+      static_WHOISLOOKUPFillRegistration(&record.m_registration, branch->m_statusCount, branch->m_delegationSigned);
+    JsonBuf_t* json_buf = static_newBodyBuf();
+    serialize_WHOISLOOKUP_response(&record, json_buf);
+    static_assertBodyConforms("whois_lookup", static_finishBody(json_buf), branch->mp_marker, branch->mp_itemMarker, branch->mp_label);
+  }
+  static_assertToolDeclaresOnlySeenTypes("whois_lookup");
+}
+
+static void static_WAYBACKLOOKUPFillCapture(WaybackCapture_t* capture, const char* timestamp, int http_status, const char* media_type)
+{
+  snprintf(capture->ma_timestamp, sizeof(capture->ma_timestamp), "%s", timestamp);
+  capture->m_httpStatus = http_status;
+  snprintf(capture->ma_mediaType, sizeof(capture->ma_mediaType), "%s", media_type);
+}
+
+void test_mcp_WAYBACKLOOKUP_every_branch_conforms(void)
+{
+  static_resetSeenTypes();
+  static const struct {
+    const char*                       mp_label;
+    WAYBACKLOOKUPUnavailableReason_t  m_unavailableReason;
+    int                               m_captureCount;
+    const char*                       mp_marker;
+    const char*                       mp_itemMarker;
+  } branches[] = {
+    { "two capture days", WAYBACKLOOKUP_UNAVAILABLE_NONE, 2,
+      R"({"domain":"example.com","available":true,"first_seen":"2015-02-03","last_seen":"2024-11-05","years_online":9,"latest_captures":[)"
+      R"({"captured_at":"2024-11-05T12:34:56Z","http_status":200,"media_type":"text/html","url":"https://web.archive.org/web/20241105123456/example.com"},)",
+      R"({"captured_at":"2023-01-01T00:00:00Z","http_status":null,"media_type":null,"url":"https://web.archive.org/web/20230101000000/example.com"}],)"
+      R"("archive_url":"https://web.archive.org/web/*/example.com"})" },
+    { "no capture", WAYBACKLOOKUP_UNAVAILABLE_NONE, 0,
+      R"("available":true,"first_seen":null,"last_seen":null,"years_online":null,"latest_captures":[],)",
+      R"("archive_url":"https://web.archive.org/web/*/example.com"})" },
+    { "quota exhausted", WAYBACKLOOKUP_UNAVAILABLE_QUOTA_EXHAUSTED, 0,
+      R"({"domain":"example.com","available":false,)",
+      R"("reason":"quota_exhausted","retry_after_seconds":7})" },
+  };
+  for (size_t i = 0; i < sizeof(branches) / sizeof(branches[0]); i++)
+  {
+    WAYBACKLOOKUPRecord_t record;
+    memset(&record, 0, sizeof(record));
+    snprintf(record.ma_domain, sizeof(record.ma_domain), "%s", "example.com");
+    record.m_unavailableReason = branches[i].m_unavailableReason;
+    record.m_retryAfterSeconds = 7;
+    static_WAYBACKLOOKUPFillCapture(&record.ma_latestCaptures[0], "20241105123456", 200, "text/html");
+    static_WAYBACKLOOKUPFillCapture(&record.ma_latestCaptures[1], "20230101000000", 0, "");
+    static_WAYBACKLOOKUPFillCapture(&record.m_firstCapture, "20150203040506", 200, "text/html");
+    record.m_latestCaptureCount = branches[i].m_captureCount;
+    JsonBuf_t* json_buf = static_newBodyBuf();
+    serialize_WAYBACKLOOKUP_response(&record, json_buf);
+    static_assertBodyConforms("wayback_lookup", static_finishBody(json_buf), branches[i].mp_marker, branches[i].mp_itemMarker, branches[i].mp_label);
+  }
+  static_assertToolDeclaresOnlySeenTypes("wayback_lookup");
+}
+
+static void static_CERTSEARCHFillCertificates(CertSpotterCertificateList_t* list)
+{
+  CertSpotterCertificate_t* first  = &list->ma_certificates[0];
+  CertSpotterCertificate_t* second = &list->ma_certificates[1];
+  snprintf(first->ma_sha256Hex, sizeof(first->ma_sha256Hex), "%s", "aa11bb22cc33dd44ee55ff6600778899aa11bb22cc33dd44ee55ff6600778899");
+  snprintf(first->ma_issuer, sizeof(first->ma_issuer), "%s", "Let's Encrypt");
+  snprintf(first->ma_caaDomains[0], sizeof(first->ma_caaDomains[0]), "%s", "letsencrypt.org");
+  first->m_caaDomainCount       = 1;
+  first->m_isCaaDomainListKnown = true;
+  snprintf(first->ma_validFrom, sizeof(first->ma_validFrom), "%s", "2026-09-01T01:02:03Z");
+  snprintf(first->ma_validUntil, sizeof(first->ma_validUntil), "%s", "2026-12-01T04:05:06Z");
+  first->m_revocation = CERTSPOTTER_REVOCATION_NOT_REVOKED;
+  snprintf(first->ma_dnsNames[0], sizeof(first->ma_dnsNames[0]), "%s", "example.com");
+  snprintf(first->ma_dnsNames[1], sizeof(first->ma_dnsNames[1]), "%s", "www.example.com");
+  first->m_dnsNameCount = 2;
+
+  snprintf(second->ma_sha256Hex, sizeof(second->ma_sha256Hex), "%s", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
+  second->m_isCaaDomainListKnown = false;
+  snprintf(second->ma_validFrom, sizeof(second->ma_validFrom), "%s", "2026-03-04T07:08:09Z");
+  snprintf(second->ma_validUntil, sizeof(second->ma_validUntil), "%s", "2027-03-05T10:11:12Z");
+  second->m_revocation = CERTSPOTTER_REVOCATION_UNKNOWN;
+  snprintf(second->ma_dnsNames[0], sizeof(second->ma_dnsNames[0]), "%s", "*.example.com");
+  for (int i = 1; i < CERTSPOTTER_DNS_NAME_MAX_COUNT; i++)
+    snprintf(second->ma_dnsNames[i], sizeof(second->ma_dnsNames[i]), "n%02d.example.com", i);
+  second->m_dnsNameCount = CERTSPOTTER_DNS_NAME_MAX_COUNT + 5;
+  list->m_keptCount = 2;
+  list->m_readCount = 3;
+}
+
+void test_mcp_CERTSEARCH_every_branch_conforms(void)
+{
+  static_resetSeenTypes();
+  static const struct {
+    const char*                    mp_label;
+    CERTSEARCHUnavailableReason_t  m_unavailableReason;
+    bool                           m_isComplete;
+    bool                           m_hasCertificates;
+    const char*                    mp_marker;
+    const char*                    mp_itemMarker;
+  } branches[] = {
+    { "complete walk", CERTSEARCH_UNAVAILABLE_NONE, true, true,
+      R"({"domain":"example.com","available":true,"complete":true,"certificate_count":3,"certificates":[)"
+      R"({"sha256_fingerprint":"aa11bb22cc33dd44ee55ff6600778899aa11bb22cc33dd44ee55ff6600778899","issuer":"Let's Encrypt","issuer_caa_domains":["letsencrypt.org"],)"
+      R"("valid_from":"2026-09-01T01:02:03Z","valid_until":"2026-12-01T04:05:06Z","revoked":false,"dns_names":["example.com","www.example.com"],"dns_name_count":2},)",
+      R"("issuer":null,"issuer_caa_domains":null,"valid_from":"2026-03-04T07:08:09Z","valid_until":"2027-03-05T10:11:12Z","revoked":null,)"
+      R"("dns_names":["*.example.com","n01.example.com","n02.example.com","n03.example.com","n04.example.com","n05.example.com","n06.example.com","n07.example.com","n08.example.com","n09.example.com")"
+      R"(,"n10.example.com","n11.example.com","n12.example.com","n13.example.com","n14.example.com","n15.example.com","n16.example.com","n17.example.com","n18.example.com","n19.example.com"],"dns_name_count":25}]})" },
+    { "page cap before any certificate", CERTSEARCH_UNAVAILABLE_NONE, false, false,
+      R"({"domain":"example.com","available":true,)",
+      R"("complete":false,"certificate_count":0,"certificates":[]})" },
+    { "quota exhausted", CERTSEARCH_UNAVAILABLE_QUOTA_EXHAUSTED, false, false,
+      R"({"domain":"example.com","available":false,)",
+      R"("reason":"quota_exhausted","retry_after_seconds":1800})" },
+  };
+  for (size_t i = 0; i < sizeof(branches) / sizeof(branches[0]); i++)
+  {
+    CERTSEARCHRecord_t* record = static_cast<CERTSEARCHRecord_t*>(calloc(1, sizeof(CERTSEARCHRecord_t)));
+    TEST_ASSERT_NOT_NULL(record);
+    snprintf(record->ma_domain, sizeof(record->ma_domain), "%s", "example.com");
+    record->m_unavailableReason = branches[i].m_unavailableReason;
+    record->m_retryAfterSeconds = 1800;
+    if (branches[i].m_hasCertificates)
+      static_CERTSEARCHFillCertificates(&record->m_certificateList);
+    record->m_certificateList.m_isComplete = branches[i].m_isComplete;
+    JsonBuf_t* json_buf = static_newBodyBuf();
+    serialize_CERTSEARCH_response(record, json_buf);
+    free(record);
+    static_assertBodyConforms("cert_search", static_finishBody(json_buf), branches[i].mp_marker, branches[i].mp_itemMarker, branches[i].mp_label);
+  }
+  static_assertToolDeclaresOnlySeenTypes("cert_search");
+}
+
+#define SUBDOMAINENUMBRANCH_NAME_COUNT 3
+
+typedef struct {
+  const char*                          mp_label;
+  int                                  m_nameCount;
+  SubdomainWildcard_t                  m_wildcardDns;
+  SUBDOMAINENUMCertificateLogStatus_t  m_certificateLogStatus;
+  bool                                 m_isCertificateLogAnswerEmpty;
+  const char*                          mp_marker;
+  const char*                          mp_itemMarker;
+} SubdomainEnumBranch_t;
+
+void test_mcp_SUBDOMAINENUM_every_branch_conforms(void)
+{
+  static_resetSeenTypes();
+  static char names[SUBDOMAINENUMBRANCH_NAME_COUNT][VALIDATE_DOMAIN_NAME_MAX_LEN + 1] = { "old.example.com", "mail.example.com", "api.example.com" };
+  static unsigned int sources[SUBDOMAINENUMBRANCH_NAME_COUNT] = {
+    SUBDOMAIN_SOURCE_CERTIFICATE_LOGS,
+    SUBDOMAIN_SOURCE_DNS_RECORDS,
+    SUBDOMAIN_SOURCE_CERTIFICATE_LOGS | SUBDOMAIN_SOURCE_DNS_WORDLIST,
+  };
+  static SubdomainAddressState_t address_states[SUBDOMAINENUMBRANCH_NAME_COUNT] = {
+    SUBDOMAIN_ADDRESS_UNMEASURED, SUBDOMAIN_ADDRESS_NONE, SUBDOMAIN_ADDRESS_FOUND,
+  };
+  static const SubdomainEnumBranch_t branches[] = {
+    { "logs with certificates", SUBDOMAINENUMBRANCH_NAME_COUNT, SUBDOMAIN_WILDCARD_ABSENT, SUBDOMAINENUM_CERTIFICATE_LOGS_AVAILABLE, false,
+      R"({"domain":"example.com","subdomain_count":3,"subdomains":[{"hostname":"api.example.com","sources":["certificate_logs","dns_wordlist"],"has_ipv4_address":true},)"
+      R"({"hostname":"mail.example.com","sources":["dns_records"],"has_ipv4_address":false},{"hostname":"old.example.com","sources":["certificate_logs"]}],)",
+      R"("wildcard_dns":"absent","certificate_logs_available":true,"certificate_logs_complete":false})" },
+    { "empty logs, undetermined wildcard", 0, SUBDOMAIN_WILDCARD_UNDETERMINED, SUBDOMAINENUM_CERTIFICATE_LOGS_AVAILABLE, true,
+      R"({"domain":"example.com","subdomain_count":0,"subdomains":[],)",
+      R"("wildcard_dns":"undetermined","certificate_logs_available":true,"certificate_logs_complete":true})" },
+    { "quota exhausted", 1, SUBDOMAIN_WILDCARD_PRESENT, SUBDOMAINENUM_CERTIFICATE_LOGS_QUOTA_EXHAUSTED, false,
+      R"("subdomain_count":1,"subdomains":[{"hostname":"old.example.com","sources":["certificate_logs"]}],"wildcard_dns":"present",)",
+      R"("certificate_logs_available":false,"certificate_logs_reason":"quota_exhausted","retry_after_seconds":3600})" },
+    { "upstream error", 1, SUBDOMAIN_WILDCARD_ABSENT, SUBDOMAINENUM_CERTIFICATE_LOGS_UPSTREAM_ERROR, false,
+      R"("subdomain_count":1,)",
+      R"("certificate_logs_available":false,"certificate_logs_reason":"upstream_error"})" },
+  };
+  for (size_t i = 0; i < sizeof(branches) / sizeof(branches[0]); i++)
+  {
+    const SubdomainEnumBranch_t* branch = &branches[i];
+    SubdomainNameSet_t name_set = { names, sources, address_states, branch->m_nameCount };
+    SUBDOMAINENUMRecord_t record;
+    memset(&record, 0, sizeof(record));
+    snprintf(record.ma_domain, sizeof(record.ma_domain), "%s", "example.com");
+    record.mp_nameSet                   = &name_set;
+    record.m_wildcardDns                = branch->m_wildcardDns;
+    record.m_certificateLogStatus       = branch->m_certificateLogStatus;
+    record.m_retryAfterSeconds          = 3600;
+    record.m_isCertificateLogAnswerEmpty = branch->m_isCertificateLogAnswerEmpty;
+    JsonBuf_t* json_buf = static_newBodyBuf();
+    serialize_SUBDOMAINENUM_response(&record, json_buf);
+    static_assertBodyConforms("subdomain_enum", static_finishBody(json_buf), branch->mp_marker, branch->mp_itemMarker, branch->mp_label);
+  }
+  static_assertToolDeclaresOnlySeenTypes("subdomain_enum");
+}
+
+#define TEST_BRANCH_CHECKED_AT "2026-11-25T10:00:00Z"
+
+static void static_SSLCHECKFillFullRecord(SSLCHECKRecord_t* record)
+{
+  memset(record, 0, sizeof(*record));
+  TlsProbeResult_t* result = &record->m_result;
+  snprintf(result->ma_hostname, sizeof(result->ma_hostname), "%s", "shop.example.com");
+  snprintf(result->ma_ipAddress, sizeof(result->ma_ipAddress), "%s", "192.0.2.10");
+  snprintf(result->ma_protocol, sizeof(result->ma_protocol), "%s", "TLSv1.2");
+  snprintf(result->ma_cipherName, sizeof(result->ma_cipherName), "%s", "ECDHE-RSA-AES128-GCM-SHA256");
+  result->m_cipherBits = 128;
+  snprintf(result->ma_keyExchangeGroup, sizeof(result->ma_keyExchangeGroup), "%s", "X25519");
+  result->m_keyExchangeBits = 253;
+  snprintf(result->ma_alpnProtocol, sizeof(result->ma_alpnProtocol), "%s", "h2");
+  result->m_secureRenegotiation = TLSPROBE_SECURE_RENEGOTIATION_SUPPORTED;
+  result->m_isTrusted     = false;
+  result->m_problems      = TLSPROBE_PROBLEM_SELF_SIGNED;
+  result->m_revokeStatus  = TLSPROBE_REVOKE_NOT_REVOKED;
+  result->m_daysRemaining = 45;
+
+  TlsProbeCertificate_t* certificate = &result->m_serverCertificate;
+  snprintf(certificate->ma_subject, sizeof(certificate->ma_subject), "%s", "shop.example.com");
+  snprintf(certificate->ma_issuer, sizeof(certificate->ma_issuer), "%s", "shop.example.com");
+  snprintf(certificate->ma_serialHex, sizeof(certificate->ma_serialHex), "%s", "0A1B2C3D");
+  snprintf(certificate->ma_sha256Hex, sizeof(certificate->ma_sha256Hex), "%s", "5e2a4f0c9d1b3a6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6");
+  snprintf(certificate->ma_sha1Hex, sizeof(certificate->ma_sha1Hex), "%s", "d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0");
+  snprintf(certificate->ma_validFrom, sizeof(certificate->ma_validFrom), "%s", "2026-10-01T00:00:00Z");
+  snprintf(certificate->ma_validUntil, sizeof(certificate->ma_validUntil), "%s", "2027-01-09T00:00:00Z");
+  snprintf(certificate->ma_signatureAlgorithm, sizeof(certificate->ma_signatureAlgorithm), "%s", "sha256WithRSAEncryption");
+  snprintf(certificate->ma_keyType, sizeof(certificate->ma_keyType), "%s", "RSA");
+  certificate->m_keyBits = 2048;
+  snprintf(certificate->ma_dnsNames[0], sizeof(certificate->ma_dnsNames[0]), "%s", "shop.example.com");
+  snprintf(certificate->ma_dnsNames[1], sizeof(certificate->ma_dnsNames[1]), "%s", "www.shop.example.com");
+  certificate->m_dnsNameCount = 2;
+
+  snprintf(result->ma_chain[0].ma_subjectFullName, sizeof(result->ma_chain[0].ma_subjectFullName), "%s", "CN=shop.example.com");
+  snprintf(result->ma_chain[0].ma_issuerFullName, sizeof(result->ma_chain[0].ma_issuerFullName), "%s", "CN=shop.example.com");
+  snprintf(result->ma_chain[0].ma_validUntil, sizeof(result->ma_chain[0].ma_validUntil), "%s", "2027-01-09T00:00:00Z");
+  result->m_chainCount = 1;
+
+  snprintf(record->ma_checkedAt, sizeof(record->ma_checkedAt), "%s", TEST_BRANCH_CHECKED_AT);
+  record->m_isBlacklistFeedLoaded = true;
+  snprintf(record->ma_blacklistListingReason, sizeof(record->ma_blacklistListingReason), "%s", "Dridex C&C");
+  snprintf(record->ma_blacklistListingTime, sizeof(record->ma_blacklistListingTime), "%s", "2024-05-06T07:08:09Z");
+}
+
+static void static_SSLCHECKBranchEveryNullableNull(SSLCHECKRecord_t* record)
+{
+  TlsProbeResult_t* result = &record->m_result;
+  result->ma_protocol[0]         = '\0';
+  result->ma_cipherName[0]       = '\0';
+  result->ma_keyExchangeGroup[0] = '\0';
+  result->ma_alpnProtocol[0]     = '\0';
+  result->m_secureRenegotiation  = TLSPROBE_SECURE_RENEGOTIATION_NOT_APPLICABLE;
+  result->m_isTrusted            = true;
+  result->m_problems             = 0;
+  result->m_revokeStatus         = TLSPROBE_REVOKE_NOT_SENT;
+  TlsProbeCertificate_t* certificate = &result->m_serverCertificate;
+  certificate->ma_subject[0]            = '\0';
+  certificate->ma_issuer[0]             = '\0';
+  certificate->ma_serialHex[0]          = '\0';
+  certificate->ma_signatureAlgorithm[0] = '\0';
+  certificate->ma_keyType[0]            = '\0';
+  certificate->m_dnsNameCount           = 0;
+  memset(&result->ma_chain[0], 0, sizeof(result->ma_chain[0]));
+  result->m_isChainTruncated       = true;
+  record->m_isBlacklistUnavailable = true;
+}
+
+static void static_SSLCHECKBranchTls13NotListed(SSLCHECKRecord_t* record)
+{
+  TlsProbeResult_t* result = &record->m_result;
+  snprintf(result->ma_protocol, sizeof(result->ma_protocol), "%s", "TLSv1.3");
+  result->ma_keyExchangeGroup[0]  = '\0';
+  result->m_secureRenegotiation   = TLSPROBE_SECURE_RENEGOTIATION_NOT_SUPPORTED;
+  result->m_serverCertificate.m_isDnsNameListTruncated = true;
+  record->ma_blacklistListingReason[0] = '\0';
+}
+
+static void static_SSLCHECKBranchExpiredNotSynced(SSLCHECKRecord_t* record)
+{
+  record->m_result.m_problems      = TLSPROBE_PROBLEM_EXPIRED | TLSPROBE_PROBLEM_SELF_SIGNED;
+  record->m_result.m_revokeStatus  = TLSPROBE_REVOKE_REVOKED;
+  record->m_result.m_daysRemaining = -3;
+  record->m_isBlacklistFeedLoaded  = false;
+}
+
+void test_mcp_SSLCHECK_every_branch_conforms(void)
+{
+  static_resetSeenTypes();
+  static const struct {
+    const char* mp_label;
+    void      (*m_change)(SSLCHECKRecord_t* record);
+    const char* mp_marker;
+    const char* mp_itemMarker;
+  } branches[] = {
+    { "tls 1.2 with one listing", NULL,
+      R"({"hostname":"shop.example.com","ip_address":"192.0.2.10","checked_at":"2026-11-25T10:00:00Z","protocol":"TLSv1.2",)"
+      R"("cipher":{"name":"ECDHE-RSA-AES128-GCM-SHA256","bits":128},"key_exchange":{"group":"X25519","bits":253},"alpn_protocol":"h2",)"
+      R"("secure_renegotiation":true,"trusted":false,"problems":["self_signed"],"revocation":"not_revoked","days_remaining":45,)",
+      R"("key":{"type":"RSA","bits":2048},"dns_names":["shop.example.com","www.shop.example.com"],"dns_names_truncated":false,)"
+      R"("listed_on":[{"source":"sslbl","listing_reason":"Dridex C&C","listing_time":"2024-05-06T07:08:09Z"}]},)"
+      R"("chain":[{"subject":"CN=shop.example.com","issuer":"CN=shop.example.com","valid_until":"2027-01-09T00:00:00Z"}],"chain_truncated":false,"unavailable":{}})" },
+    { "every nullable null, list not read", static_SSLCHECKBranchEveryNullableNull,
+      R"("protocol":null,"cipher":null,"key_exchange":null,"alpn_protocol":null,"secure_renegotiation":null,"trusted":true,"problems":[],"revocation":"not_sent",)"
+      R"("days_remaining":45,"certificate":{"subject":null,"issuer":null,"serial_number":null,)",
+      R"("signature_algorithm":null,"key":null,"dns_names":[],"dns_names_truncated":false,"listed_on":null},)"
+      R"("chain":[{"subject":null,"issuer":null,"valid_until":null}],"chain_truncated":true,"unavailable":{"listed_on":"database_error"}})" },
+    { "tls 1.3, not listed", static_SSLCHECKBranchTls13NotListed,
+      R"("protocol":"TLSv1.3","cipher":{"name":"ECDHE-RSA-AES128-GCM-SHA256","bits":128},"key_exchange":null,"alpn_protocol":"h2","secure_renegotiation":false,)",
+      R"("dns_names_truncated":true,"listed_on":[]},)" },
+    { "expired, list not synced", static_SSLCHECKBranchExpiredNotSynced,
+      R"("problems":["expired","self_signed"],"revocation":"revoked","days_remaining":-3,)",
+      R"("listed_on":null},"chain":[{"subject":"CN=shop.example.com",)" },
+  };
+  for (size_t i = 0; i < sizeof(branches) / sizeof(branches[0]); i++)
+  {
+    SSLCHECKRecord_t* record = static_cast<SSLCHECKRecord_t*>(calloc(1, sizeof(SSLCHECKRecord_t)));
+    TEST_ASSERT_NOT_NULL(record);
+    static_SSLCHECKFillFullRecord(record);
+    if (branches[i].m_change != NULL)
+      branches[i].m_change(record);
+    JsonBuf_t* json_buf = static_newBodyBuf();
+    serialize_SSLCHECK_response(record, json_buf);
+    bool is_not_synced = !record->m_isBlacklistUnavailable && !record->m_isBlacklistFeedLoaded;
+    free(record);
+    char* body = static_finishBody(json_buf);
+    if (is_not_synced)
+      TEST_ASSERT_NOT_NULL_MESSAGE(strstr(body, R"("unavailable":{"listed_on":"not_synced"}})"), branches[i].mp_label);
+    static_assertBodyConforms("ssl_check", body, branches[i].mp_marker, branches[i].mp_itemMarker, branches[i].mp_label);
+  }
+  static_assertToolDeclaresOnlySeenTypes("ssl_check");
+}
+
+#define HEADERSCHECKBRANCH_SITE_TEXT_LEN 620
+
+typedef struct {
+  const char*  mp_label;
+  const char*  mp_url;
+  int          m_httpStatus;
+  int          m_followedRedirectCount;
+  const char*  mp_unfollowedRedirectUrl;
+  bool         m_isRedirectLimitReached;
+  const char*  ma_values[HEADER_CHECK_HEADER_COUNT];
+  size_t       m_setCookieCopyCount;
+  const char*  mp_marker;
+  const char*  mp_itemMarker;
+} HeadersCheckBranch_t;
+
+static void static_longSiteText(char* out, size_t out_size, const char* prefix)
+{
+  TEST_ASSERT_TRUE(out_size > HEADERSCHECKBRANCH_SITE_TEXT_LEN);
+  size_t prefix_len = strlen(prefix);
+  memcpy(out, prefix, prefix_len);
+  memset(out + prefix_len, 'a', HEADERSCHECKBRANCH_SITE_TEXT_LEN - prefix_len);
+  out[HEADERSCHECKBRANCH_SITE_TEXT_LEN] = '\0';
+}
+
+void test_mcp_HEADERSCHECK_every_branch_conforms(void)
+{
+  static_resetSeenTypes();
+  static char long_url[HEADERSCHECKBRANCH_SITE_TEXT_LEN + 1];
+  static char long_redirect_url[HEADERSCHECKBRANCH_SITE_TEXT_LEN + 1];
+  static char long_csp[HEADERSCHECKBRANCH_SITE_TEXT_LEN + 1];
+  static_longSiteText(long_url, sizeof(long_url), "https://www.example.com/");
+  static_longSiteText(long_redirect_url, sizeof(long_redirect_url), "https://www.example.com/next/");
+  static_longSiteText(long_csp, sizeof(long_csp), "default-src 'self'; report-uri /csp?");
+  const HeadersCheckBranch_t branches[] = {
+    { "plain 200", "https://www.example.com/", 200, 0, NULL, false,
+      { "default-src 'self'; object-src 'none'; base-uri 'self'", "max-age=63072000; includeSubDomains", "nosniff", "DENY", "no-referrer",
+        "camera=(), microphone=()", NULL, NULL, NULL, NULL, NULL }, 0,
+      R"({"url":"https://www.example.com/","status_code":200,"redirect_count":0,"checked_at":"2026-11-25T10:00:00Z","findings":[)"
+      R"({"header":"Content-Security-Policy","severity":"high","result":"pass","issues":[],"value":"default-src 'self'; object-src 'none'; base-uri 'self'"},)",
+      R"({"header":"Set-Cookie","severity":"medium","result":"pass","issues":[],"value":null,"cookie_count":0},)" },
+    { "cut at the redirect limit", long_url, 301, 5, long_redirect_url, true,
+      { long_csp, NULL, "nosniff", NULL, NULL, NULL, NULL, "sid=1; Secure; HttpOnly; SameSite=Lax\nlang=en; Secure; HttpOnly; SameSite=Lax", NULL, NULL, NULL }, 2,
+      R"(","total_url_length":620,"status_code":301,"redirect_count":5,"redirect_to":"https://www.example.com/next/aaa)",
+      R"(","total_redirect_to_length":620,"redirect_limit_reached":true,"checked_at":"2026-11-25T10:00:00Z","findings":[)" },
+    { "redirect not followed below the limit", "https://example.com/", 302, 0, "https://www.example.com/", false,
+      { NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL }, 0,
+      R"({"url":"https://example.com/","status_code":302,"redirect_count":0,"redirect_to":"https://www.example.com/","checked_at":"2026-11-25T10:00:00Z",)",
+      R"({"header":"X-Frame-Options","severity":"medium","result":"missing","issues":[],"value":null,"remediation":"Add X-Frame-Options: DENY or SAMEORIGIN"})" },
+  };
+  for (size_t i = 0; i < sizeof(branches) / sizeof(branches[0]); i++)
+  {
+    const HeadersCheckBranch_t* branch = &branches[i];
+    HEADERSCHECKRecord_t record;
+    memset(&record, 0, sizeof(record));
+    record.m_fetchResult.m_httpStatus               = branch->m_httpStatus;
+    record.m_fetchResult.mp_url                     = const_cast<char*>(branch->mp_url);
+    record.m_fetchResult.m_followedRedirectCount    = branch->m_followedRedirectCount;
+    record.m_fetchResult.mp_unfollowedRedirectUrl   = const_cast<char*>(branch->mp_unfollowedRedirectUrl);
+    record.m_fetchResult.m_isRedirectLimitReached   = branch->m_isRedirectLimitReached;
+    record.m_fetchResult.mp_capturedHeaderValues    = const_cast<char**>(branch->ma_values);
+    record.m_fetchResult.m_capturedHeaderValueCount = HEADER_CHECK_HEADER_COUNT;
+    record.m_fetchResult.m_setCookieCopyCount       = branch->m_setCookieCopyCount;
+    header_check_evaluate(record.m_fetchResult.mp_capturedHeaderValues, branch->m_setCookieCopyCount, &record.m_report);
+    snprintf(record.ma_checkedAt, sizeof(record.ma_checkedAt), "%s", TEST_BRANCH_CHECKED_AT);
+    HEADERSCHECKParams_t params;
+    memset(&params, 0, sizeof(params));
+    snprintf(params.ma_hostname, sizeof(params.ma_hostname), "%s", "www.example.com");
+    JsonBuf_t* json_buf = static_newBodyBuf();
+    serialize_HEADERSCHECK_response(&record, &params, json_buf);
+    char* body = static_finishBody(json_buf);
+    if (i == 1)
+    {
+      TEST_ASSERT_NOT_NULL_MESSAGE(strstr(body, R"(","total_value_length":620)"), branch->mp_label);
+      TEST_ASSERT_NOT_NULL_MESSAGE(strstr(body, R"({"header":"Set-Cookie","severity":"medium","result":"pass","issues":[],"value":null,"cookie_count":2})"), branch->mp_label);
+      TEST_ASSERT_NOT_NULL_MESSAGE(strstr(body, R"({"header":"Strict-Transport-Security","severity":"high","result":"missing","issues":[],"value":null,"remediation":")"), branch->mp_label);
+    }
+    static_assertBodyConforms("headers_check", body, branch->mp_marker, branch->mp_itemMarker, branch->mp_label);
+  }
+  static_assertToolDeclaresOnlySeenTypes("headers_check");
+}
+
+#define REDIRECTCHAINBRANCH_INVALID_LOCATION_LEN 600
+#define REDIRECTCHAINBRANCH_REFRESH_LEN          700
+
+typedef struct {
+  const char*              mp_label;
+  HeaderFetchStopReason_t  m_stopReason;
+  HeaderFetchHop_t         ma_hops[2];
+  int                      m_hopCount;
+  const char*              mp_unfollowedUrl;
+  const char*              mp_invalidLocation;
+  const char*              mp_marker;
+  const char*              mp_itemMarker;
+} RedirectChainBranch_t;
+
+void test_mcp_REDIRECTCHAIN_every_branch_conforms(void)
+{
+  static_resetSeenTypes();
+  static char invalid_location[REDIRECTCHAINBRANCH_INVALID_LOCATION_LEN + 1];
+  static char long_refresh[REDIRECTCHAINBRANCH_REFRESH_LEN + 1];
+  memset(invalid_location, 'x', REDIRECTCHAINBRANCH_INVALID_LOCATION_LEN);
+  invalid_location[REDIRECTCHAINBRANCH_INVALID_LOCATION_LEN] = '\0';
+  memset(long_refresh, 'r', REDIRECTCHAINBRANCH_REFRESH_LEN);
+  long_refresh[REDIRECTCHAINBRANCH_REFRESH_LEN] = '\0';
+  static char first_url[]    = "http://example.com/";
+  static char https_url[]    = "https://www.example.com/";
+  static char next_url[]     = "http://www.example.com/next";
+  static char refresh_text[] = "0; url=/next";
+  const RedirectChainBranch_t branches[] = {
+    { "final answer with userinfo and refresh", HEADER_FETCH_STOP_FINAL_ANSWER,
+      { { first_url, 301, HTTP_ERROR_NONE, false, NULL }, { https_url, 200, HTTP_ERROR_NONE, true, refresh_text } }, 2, NULL, NULL,
+      R"({"checked_at":"2026-11-25T10:00:00Z","final_url":"https://www.example.com/","stop_reason":"final_answer","https_downgrade":false,"hops":[)",
+      R"({"url":"http://example.com/","status_code":301},{"url":"https://www.example.com/","status_code":200,"had_userinfo":true,"refresh":"0; url=/next"}]})" },
+    { "quota exhausted before a request", HEADER_FETCH_STOP_THROTTLED,
+      { { NULL, 0, HTTP_ERROR_NONE, false, NULL }, { NULL, 0, HTTP_ERROR_NONE, false, NULL } }, 0, "https://example.com/", NULL,
+      R"("final_url":"https://example.com/","stop_reason":"quota_exhausted","retry_after_seconds":30,)",
+      R"("https_downgrade":false,"hops":[]})" },
+    { "invalid location after a long refresh", HEADER_FETCH_STOP_LOCATION_INVALID,
+      { { https_url, 302, HTTP_ERROR_NONE, false, long_refresh }, { NULL, 0, HTTP_ERROR_NONE, false, NULL } }, 1, NULL, invalid_location,
+      R"("final_url":null,"stop_reason":"location_invalid","invalid_location":"xxx)",
+      R"(","total_invalid_location_length":600,"https_downgrade":false,"hops":[{"url":"https://www.example.com/","status_code":302,"refresh":"rrr)" },
+    { "request failed after an https hop", HEADER_FETCH_STOP_REQUEST_FAILED,
+      { { https_url, 301, HTTP_ERROR_NONE, false, NULL }, { next_url, 0, HTTP_ERROR_TIMEOUT, false, NULL } }, 2, NULL, NULL,
+      R"("final_url":"http://www.example.com/next","stop_reason":"request_failed","https_downgrade":true,)",
+      R"({"url":"http://www.example.com/next","error":"timeout"}]})" },
+    { "location too long", HEADER_FETCH_STOP_LOCATION_TOO_LONG,
+      { { https_url, 301, HTTP_ERROR_NONE, false, NULL }, { NULL, 0, HTTP_ERROR_NONE, false, NULL } }, 1, NULL, NULL,
+      R"("final_url":null,"stop_reason":"location_too_long","https_downgrade":false,)",
+      R"("hops":[{"url":"https://www.example.com/","status_code":301}]})" },
+  };
+  for (size_t i = 0; i < sizeof(branches) / sizeof(branches[0]); i++)
+  {
+    const RedirectChainBranch_t* branch = &branches[i];
+    REDIRECTCHAINRecord_t record;
+    memset(&record, 0, sizeof(record));
+    record.m_chain.m_stopReason = branch->m_stopReason;
+    for (int k = 0; k < branch->m_hopCount; k++)
+      record.m_chain.ma_hops[k] = branch->ma_hops[k];
+    record.m_chain.m_hopCount           = branch->m_hopCount;
+    record.m_chain.mp_unfollowedUrl     = const_cast<char*>(branch->mp_unfollowedUrl);
+    record.m_chain.mp_invalidLocation   = const_cast<char*>(branch->mp_invalidLocation);
+    record.m_chain.m_retryAfterSeconds  = 30;
+    snprintf(record.ma_checkedAt, sizeof(record.ma_checkedAt), "%s", TEST_BRANCH_CHECKED_AT);
+    JsonBuf_t* json_buf = static_newBodyBuf();
+    serialize_REDIRECTCHAIN_response(&record, json_buf);
+    char* body = static_finishBody(json_buf);
+    if (branch->m_stopReason == HEADER_FETCH_STOP_LOCATION_INVALID)
+      TEST_ASSERT_NOT_NULL_MESSAGE(strstr(body, R"(","total_refresh_length":700}]})"), branch->mp_label);
+    static_assertBodyConforms("redirect_chain", body, branch->mp_marker, branch->mp_itemMarker, branch->mp_label);
+  }
+  static_assertToolDeclaresOnlySeenTypes("redirect_chain");
+}
+
+#define WELLKNOWNBRANCH_NOW_EPOCH 1795600800
+
+static const char WELLKNOWNBRANCH_ROBOTS_TXT[] =
+  "User-agent: ContrastAPI\n"
+  "Crawl-delay: 2.5\n"
+  "Disallow: /private/\n"
+  "\n"
+  "User-agent: *\n"
+  "Allow: /public/\n"
+  "Disallow: /.well-known/\n"
+  "Crawl-delay: soon\n"
+  "\n"
+  "User-agent: *\n"
+  "Crawl-delay: 1\n"
+  "\n"
+  "Sitemap: https://www.example.com/sitemap.xml\n"
+  "Noindex: /drafts/\n";
+
+static const char WELLKNOWNBRANCH_DISALLOWING_ROBOTS_TXT[] =
+  "User-agent: *\n"
+  "Disallow: /.well-known/\n";
+
+static const char WELLKNOWNBRANCH_SECURITY_TXT[] =
+  "Contact: mailto:security@example.com\n"
+  "Contact: https://www.example.com/security\n"
+  "Expires: 2027-06-01T00:00:00Z\n"
+  "Encryption: https://www.example.com/pgp-key.txt\n"
+  "Acknowledgments: https://www.example.com/hall-of-fame\n"
+  "Preferred-Languages: en, tr\n"
+  "Canonical: https://www.example.com/.well-known/security.txt\n"
+  "Policy: https://www.example.com/policy\n"
+  "Policy: http://www.example.com/old-policy\n"
+  "Hiring: https://www.example.com/jobs\n"
+  "CSAF: https://www.example.com/.well-known/csaf/provider-metadata.json\n"
+  "X-Bounty: none\n";
+
+static char g_wellKnownBranchRobotsUrl[]   = "https://www.example.com/robots.txt";
+static char g_wellKnownBranchSecurityUrl[] = "https://www.example.com/.well-known/security.txt";
+static char g_wellKnownBranchRobotsBody[sizeof(WELLKNOWNBRANCH_ROBOTS_TXT)];
+static char g_wellKnownBranchSecurityBody[sizeof(WELLKNOWNBRANCH_SECURITY_TXT)];
+static char g_wellKnownBranchLongRobotsUrl[HEADERSCHECKBRANCH_SITE_TEXT_LEN + 1];
+static char g_wellKnownBranchLongSecurityUrl[HEADERSCHECKBRANCH_SITE_TEXT_LEN + 1];
+static char g_wellKnownBranchLongTarget[HEADERSCHECKBRANCH_SITE_TEXT_LEN + 1];
+static char g_wellKnownBranchContentType[] = "text/plain; charset=utf-8";
+static char g_wellKnownBranchContentEncoding[] = "gzip";
+
+static char* g_wellKnownBranchSecurityHeaders[WELL_KNOWN_PLAIN_TEXT_CHECK_HEADER_COUNT] = { g_wellKnownBranchContentType, NULL };
+static char* g_wellKnownBranchEncodedHeaders[WELL_KNOWN_PLAIN_TEXT_CHECK_HEADER_COUNT]  = { g_wellKnownBranchContentType, g_wellKnownBranchContentEncoding };
+
+static void static_WELLKNOWNBranchSetHop(HeaderFetchChain_t* chain, char* url, int http_status)
+{
+  TEST_ASSERT_TRUE(chain->m_hopCount < HEADER_FETCH_MAX_REQUEST_COUNT);
+  chain->ma_hops[chain->m_hopCount].mp_url       = url;
+  chain->ma_hops[chain->m_hopCount].m_httpStatus = http_status;
+  chain->m_hopCount++;
+}
+
+static void static_WELLKNOWNBranchReadRobotsText(WellKnownRobotsGate_t* gate, const char* text)
+{
+  size_t text_len = strlen(text);
+  TEST_ASSERT_TRUE(text_len < sizeof(g_wellKnownBranchRobotsBody));
+  memcpy(g_wellKnownBranchRobotsBody, text, text_len + 1);
+  static_WELLKNOWNBranchSetHop(&gate->m_chain, g_wellKnownBranchRobotsUrl, 200);
+  gate->m_chain.mp_body   = g_wellKnownBranchRobotsBody;
+  gate->m_chain.m_bodyLen = text_len;
+  TEST_ASSERT_TRUE(robotstxt_parse(gate->m_chain.mp_body, gate->m_chain.m_bodyLen, false, HTTP_USER_AGENT_PRODUCT_TOKEN, &gate->m_robots));
+  robotstxt_checkResponse(&gate->m_robots, g_wellKnownBranchContentType, false);
+  gate->m_state = WELL_KNOWN_ROBOTS_FILE_READ;
+}
+
+static void static_WELLKNOWNBranchReadRobots(WellKnownRobotsGate_t* gate)
+{
+  static_WELLKNOWNBranchReadRobotsText(gate, WELLKNOWNBRANCH_ROBOTS_TXT);
+}
+
+static void static_WELLKNOWNBranchReadSecurityTxt(WellKnownSecurityTxt_t* security)
+{
+  memcpy(g_wellKnownBranchSecurityBody, WELLKNOWNBRANCH_SECURITY_TXT, sizeof(WELLKNOWNBRANCH_SECURITY_TXT));
+  static_WELLKNOWNBranchSetHop(&security->m_chain, g_wellKnownBranchSecurityUrl, 200);
+  security->m_chain.mp_body                  = g_wellKnownBranchSecurityBody;
+  security->m_chain.m_bodyLen                = sizeof(WELLKNOWNBRANCH_SECURITY_TXT) - 1;
+  security->m_chain.mp_capturedHeaderValues  = g_wellKnownBranchSecurityHeaders;
+  security->m_chain.m_capturedHeaderValueCount = WELL_KNOWN_PLAIN_TEXT_CHECK_HEADER_COUNT;
+  securitytxt_parse(security->m_chain.mp_body, security->m_chain.m_bodyLen, false, WELLKNOWNBRANCH_NOW_EPOCH, &security->m_report);
+  securitytxt_checkResponse(&security->m_report, security->m_chain.mp_body, g_wellKnownBranchContentType, g_wellKnownBranchSecurityUrl, false);
+  security->m_status = WELL_KNOWN_SECURITY_TXT_FOUND;
+}
+
+static void static_WELLKNOWNBranchFound(WELLKNOWNRecord_t* record)
+{
+  static_WELLKNOWNBranchReadRobots(&record->m_report.m_robotsGate);
+  static_WELLKNOWNBranchReadSecurityTxt(&record->m_report.m_securityTxt);
+}
+
+static void static_WELLKNOWNBranchEveryTotal(WELLKNOWNRecord_t* record)
+{
+  static_WELLKNOWNBranchFound(record);
+  WellKnownRobotsGate_t*  gate     = &record->m_report.m_robotsGate;
+  WellKnownSecurityTxt_t* security = &record->m_report.m_securityTxt;
+  gate->m_chain.ma_hops[0].mp_url     = g_wellKnownBranchLongRobotsUrl;
+  security->m_chain.ma_hops[0].mp_url = g_wellKnownBranchLongSecurityUrl;
+  gate->m_robots.m_groupTotalCount   = gate->m_robots.m_groupKeptCount + 1024;
+  gate->m_robots.m_ruleTotalCount    = gate->m_robots.m_ruleKeptCount + 16384;
+  gate->m_robots.m_sitemapTotalCount = gate->m_robots.m_sitemapKeptCount + 100;
+  gate->m_robots.m_issueTotalCount   = gate->m_robots.m_issueKeptCount + 50;
+  for (int field = 0; field < SECURITYTXT_FIELD_COUNT; field++)
+    security->m_report.ma_valueTotalCount[field] = security->m_report.ma_valueKeptCount[field] + 20;
+  security->m_report.m_issueTotalCount = security->m_report.m_issueKeptCount + 50;
+}
+
+static void static_WELLKNOWNBranchDisallowedByRule(WELLKNOWNRecord_t* record)
+{
+  WellKnownRobotsGate_t*  gate     = &record->m_report.m_robotsGate;
+  WellKnownSecurityTxt_t* security = &record->m_report.m_securityTxt;
+  static_WELLKNOWNBranchReadRobotsText(gate, WELLKNOWNBRANCH_DISALLOWING_ROBOTS_TXT);
+  security->m_pathRobotsVerdict = robotstxt_checkPath(&gate->m_robots, gate->m_chain.mp_body, "/.well-known/security.txt", strlen("/.well-known/security.txt"));
+  TEST_ASSERT_EQUAL_INT(ROBOTSTXT_DECISION_DISALLOWED, security->m_pathRobotsVerdict.m_decision);
+  security->m_chain.m_stopReason = HEADER_FETCH_STOP_PERMISSION_REFUSED;
+  security->m_status             = WELL_KNOWN_SECURITY_TXT_ROBOTS_DISALLOWED;
+}
+
+static void static_WELLKNOWNBranchDisallowedWithoutRule(WELLKNOWNRecord_t* record)
+{
+  WellKnownSecurityTxt_t* security = &record->m_report.m_securityTxt;
+  security->m_pathRobotsVerdict.m_decision                 = ROBOTSTXT_DECISION_DISALLOWED;
+  security->m_pathRobotsVerdict.m_decidingRuleIndexInRules = -1;
+  security->m_chain.m_stopReason = HEADER_FETCH_STOP_PERMISSION_REFUSED;
+  security->m_status             = WELL_KNOWN_SECURITY_TXT_ROBOTS_DISALLOWED;
+}
+
+static void static_WELLKNOWNBranchNotFound(WELLKNOWNRecord_t* record)
+{
+  static_WELLKNOWNBranchSetHop(&record->m_report.m_robotsGate.m_chain, g_wellKnownBranchRobotsUrl, 404);
+  record->m_report.m_robotsGate.m_state = WELL_KNOWN_ROBOTS_NO_FILE;
+  static_WELLKNOWNBranchSetHop(&record->m_report.m_securityTxt.m_chain, g_wellKnownBranchSecurityUrl, 404);
+  record->m_report.m_securityTxt.m_status = WELL_KNOWN_SECURITY_TXT_NOT_FOUND;
+}
+
+static void static_WELLKNOWNBranchNotFetched(WELLKNOWNRecord_t* record)
+{
+  static_WELLKNOWNBranchReadRobots(&record->m_report.m_robotsGate);
+  WellKnownSecurityTxt_t* security = &record->m_report.m_securityTxt;
+  static_WELLKNOWNBranchSetHop(&security->m_chain, g_wellKnownBranchSecurityUrl, 301);
+  security->m_chain.m_stopReason      = HEADER_FETCH_STOP_OFF_SITE;
+  security->m_chain.mp_unfollowedUrl  = g_wellKnownBranchLongTarget;
+  security->m_status                  = WELL_KNOWN_SECURITY_TXT_NOT_FETCHED;
+}
+
+static void static_WELLKNOWNBranchRobotsUnknown(WELLKNOWNRecord_t* record)
+{
+  HeaderFetchChain_t* chain = &record->m_report.m_robotsGate.m_chain;
+  for (int k = 0; k < 6; k++)
+    static_WELLKNOWNBranchSetHop(chain, g_wellKnownBranchRobotsUrl, 301);
+  chain->m_stopReason     = HEADER_FETCH_STOP_REQUEST_LIMIT;
+  chain->mp_unfollowedUrl = g_wellKnownBranchLongTarget;
+  record->m_report.m_robotsGate.m_state = WELL_KNOWN_ROBOTS_UNKNOWN;
+  record->m_report.m_securityTxt.m_chain.m_stopReason = HEADER_FETCH_STOP_PERMISSION_REFUSED;
+  record->m_report.m_securityTxt.m_status             = WELL_KNOWN_SECURITY_TXT_ROBOTS_UNKNOWN;
+}
+
+static void static_WELLKNOWNBranchTooLarge(WELLKNOWNRecord_t* record)
+{
+  WellKnownRobotsGate_t* gate = &record->m_report.m_robotsGate;
+  static_WELLKNOWNBranchSetHop(&gate->m_chain, g_wellKnownBranchRobotsUrl, 200);
+  gate->m_chain.mp_capturedHeaderValues   = g_wellKnownBranchEncodedHeaders;
+  gate->m_chain.m_capturedHeaderValueCount = WELL_KNOWN_PLAIN_TEXT_CHECK_HEADER_COUNT;
+  gate->m_hasContentEncoding = true;
+  gate->m_state              = WELL_KNOWN_ROBOTS_UNKNOWN;
+  WellKnownSecurityTxt_t* security = &record->m_report.m_securityTxt;
+  static_WELLKNOWNBranchSetHop(&security->m_chain, g_wellKnownBranchSecurityUrl, 200);
+  security->m_chain.m_isBodyCut = true;
+  security->m_status            = WELL_KNOWN_SECURITY_TXT_TOO_LARGE;
+}
+
+static void static_WELLKNOWNBranchFoundEncoded(WELLKNOWNRecord_t* record)
+{
+  static_WELLKNOWNBranchReadRobots(&record->m_report.m_robotsGate);
+  WellKnownSecurityTxt_t* security = &record->m_report.m_securityTxt;
+  static_WELLKNOWNBranchSetHop(&security->m_chain, g_wellKnownBranchSecurityUrl, 200);
+  security->m_hasContentEncoding = true;
+  security->m_status             = WELL_KNOWN_SECURITY_TXT_FOUND;
+}
+
+static void static_WELLKNOWNBranchThrottled(WELLKNOWNRecord_t* record)
+{
+  record->m_isThrottled       = true;
+  record->m_retryAfterSeconds = 42;
+}
+
+void test_mcp_WELLKNOWN_every_branch_conforms(void)
+{
+  static_resetSeenTypes();
+  static_longSiteText(g_wellKnownBranchLongRobotsUrl, sizeof(g_wellKnownBranchLongRobotsUrl), "https://www.example.com/robots/");
+  static_longSiteText(g_wellKnownBranchLongSecurityUrl, sizeof(g_wellKnownBranchLongSecurityUrl), "https://www.example.com/.well-known/");
+  static_longSiteText(g_wellKnownBranchLongTarget, sizeof(g_wellKnownBranchLongTarget), "https://other.example.net/");
+  static const struct {
+    const char* mp_label;
+    void      (*m_fill)(WELLKNOWNRecord_t* record);
+    const char* mp_marker;
+    const char* mp_itemMarker;
+  } branches[] = {
+    { "both files read", static_WELLKNOWNBranchFound,
+      R"({"checked_at":"2026-11-25T10:00:00Z","robots_txt":{"url":"https://www.example.com/robots.txt","status_code":200,"redirect_count":0,"groups":[)"
+      R"({"line":1,"user_agents":["ContrastAPI"],"allow":[],"disallow":["/private/"],"crawl_delay":2.5},)"
+      R"({"line":5,"user_agents":["*"],"allow":["/public/"],"disallow":["/.well-known/"],"crawl_delay":null},)"
+      R"({"line":10,"user_agents":["*"],"allow":[],"disallow":[],"crawl_delay":1}],"sitemaps":["https://www.example.com/sitemap.xml"],)"
+      R"("issues":[{"code":"crawl_delay_invalid","severity":"info","field":"crawl-delay","line":8},{"code":"unknown_directive","severity":"info","field":null,"line":14}],)"
+      R"("by_severity":{"warning":0,"info":2}},)",
+      R"("security_txt":{"status":"found","url":"https://www.example.com/.well-known/security.txt","status_code":200,"redirect_count":0,)"
+      R"("content_type":"text/plain; charset=utf-8","openpgp_signed":false,"expires":"2027-06-01T00:00:00Z",)"
+      R"("contact":["mailto:security@example.com","https://www.example.com/security"],"encryption":["https://www.example.com/pgp-key.txt"],)"
+      R"("acknowledgments":["https://www.example.com/hall-of-fame"],"preferred_languages":["en","tr"],"canonical":["https://www.example.com/.well-known/security.txt"],)"
+      R"("policy":["https://www.example.com/policy","http://www.example.com/old-policy"],"hiring":["https://www.example.com/jobs"],)"
+      R"("csaf":["https://www.example.com/.well-known/csaf/provider-metadata.json"],"unknown_field_count":1,)"
+      R"("issues":[{"code":"uri_not_https","severity":"error","field":"policy","line":9}],"by_severity":{"error":1,"warning":0,"info":0}}})" },
+    { "every total", static_WELLKNOWNBranchEveryTotal,
+      R"(","total_url_length":620,"status_code":200,"redirect_count":0,"groups":[{"line":1,)",
+      R"("total_groups":1027,"total_rules":16387,"sitemaps":["https://www.example.com/sitemap.xml"],"total_sitemaps":101,"issues":[)" },
+    { "disallowed by a rule", static_WELLKNOWNBranchDisallowedByRule,
+      R"("groups":[{"line":1,"user_agents":["*"],"allow":[],"disallow":["/.well-known/"],"crawl_delay":null}],"sitemaps":[],)",
+      R"("security_txt":{"status":"robots_disallowed","deciding_rule":{"line":2,"kind":"disallow","path":"/.well-known/"}}})" },
+    { "disallowed without a rule", static_WELLKNOWNBranchDisallowedWithoutRule,
+      R"("robots_txt":{"groups":[],"sitemaps":[],"issues":[],"by_severity":{"warning":0,"info":0}},)",
+      R"("security_txt":{"status":"robots_disallowed","deciding_rule":null}})" },
+    { "not found", static_WELLKNOWNBranchNotFound,
+      R"("robots_txt":{"url":"https://www.example.com/robots.txt","status_code":404,"redirect_count":0,"groups":[],"sitemaps":[],)",
+      R"("security_txt":{"status":"not_found","url":"https://www.example.com/.well-known/security.txt","status_code":404,"redirect_count":0}})" },
+    { "redirect not followed", static_WELLKNOWNBranchNotFetched,
+      R"("security_txt":{"status":"not_fetched","url":"https://www.example.com/.well-known/security.txt","status_code":301,"redirect_count":0,)"
+      R"("redirect_to":"https://other.example.net/aaa)",
+      R"(","total_redirect_to_length":620}})" },
+    { "robots.txt unknown", static_WELLKNOWNBranchRobotsUnknown,
+      R"("robots_txt":{"url":"https://www.example.com/robots.txt","status_code":301,"redirect_count":5,"redirect_to":"https://other.example.net/aaa)",
+      R"(","total_redirect_to_length":620,"groups":[],"sitemaps":[],)"
+      R"("issues":[{"code":"redirect_limit_reached","severity":"warning","field":null,"line":null}],"by_severity":{"warning":1,"info":0}},)"
+      R"("security_txt":{"status":"robots_unknown"}})" },
+    { "too large", static_WELLKNOWNBranchTooLarge,
+      R"("groups":[],"sitemaps":[],"issues":[{"code":"content_encoded","severity":"warning","field":null,"line":null}],"by_severity":{"warning":1,"info":0}},)",
+      R"("security_txt":{"status":"too_large","url":"https://www.example.com/.well-known/security.txt","status_code":200,"redirect_count":0}})" },
+    { "found but encoded", static_WELLKNOWNBranchFoundEncoded,
+      R"("content_type":null,"openpgp_signed":false,"expires":null,"contact":[],"encryption":[],"acknowledgments":[],"preferred_languages":[],)"
+      R"("canonical":[],"policy":[],"hiring":[],"csaf":[],"unknown_field_count":0,)",
+      R"("issues":[{"code":"content_encoded","severity":"warning","field":null,"line":null}],"by_severity":{"error":0,"warning":1,"info":0}}})" },
+    { "throttled", static_WELLKNOWNBranchThrottled,
+      R"({"checked_at":"2026-11-25T10:00:00Z","reason":"quota_exhausted","retry_after_seconds":42,"robots_txt":null,"security_txt":null})",
+      R"("retry_after_seconds":42,)" },
+  };
+  for (size_t i = 0; i < sizeof(branches) / sizeof(branches[0]); i++)
+  {
+    WELLKNOWNRecord_t* record = static_cast<WELLKNOWNRecord_t*>(calloc(1, sizeof(WELLKNOWNRecord_t)));
+    TEST_ASSERT_NOT_NULL(record);
+    snprintf(record->ma_checkedAt, sizeof(record->ma_checkedAt), "%s", TEST_BRANCH_CHECKED_AT);
+    branches[i].m_fill(record);
+    JsonBuf_t* json_buf = static_newBodyBuf();
+    serialize_WELLKNOWN_response(record, json_buf);
+    robotstxt_free(&record->m_report.m_robotsGate.m_robots);
+    free(record);
+    char* body = static_finishBody(json_buf);
+    if (branches[i].m_fill == static_WELLKNOWNBranchEveryTotal)
+    {
+      TEST_ASSERT_NOT_NULL_MESSAGE(strstr(body, R"(],"total_issues":52,"by_severity":{"warning":0,"info":2}},"security_txt":{"status":"found","url":"https://www.example.com/.well-known/aaa)"), branches[i].mp_label);
+      TEST_ASSERT_NOT_NULL_MESSAGE(strstr(body, R"(","total_url_length":620,"status_code":200,"redirect_count":0,"content_type":"text/plain; charset=utf-8",)"), branches[i].mp_label);
+      TEST_ASSERT_NOT_NULL_MESSAGE(strstr(body, R"("contact":["mailto:security@example.com","https://www.example.com/security"],"total_contact":22,)"), branches[i].mp_label);
+      TEST_ASSERT_NOT_NULL_MESSAGE(strstr(body, R"("csaf":["https://www.example.com/.well-known/csaf/provider-metadata.json"],"total_csaf":21,)"), branches[i].mp_label);
+      TEST_ASSERT_NOT_NULL_MESSAGE(strstr(body, R"(],"total_issues":51,"by_severity":{"error":1,"warning":0,"info":0}}})"), branches[i].mp_label);
+    }
+    static_assertBodyConforms("well_known", body, branches[i].mp_marker, branches[i].mp_itemMarker, branches[i].mp_label);
+  }
+  static_assertToolDeclaresOnlySeenTypes("well_known");
+}
+
+static void static_watchlistBranchItem(WatchlistItem_t* item, WatchlistItemKind_t kind)
+{
+  memset(item, 0, sizeof(*item));
+  item->m_itemKind = kind;
+  switch (kind)
+  {
+    case WATCHLIST_ITEM_CVE_LOOKUP:
+      snprintf(item->m_cveLookup.ma_cveId, sizeof(item->m_cveLookup.ma_cveId), "%s", "CVE-2021-44228");
+      break;
+    case WATCHLIST_ITEM_KEV_LOOKUP:
+      snprintf(item->m_kevLookup.ma_cveId, sizeof(item->m_kevLookup.ma_cveId), "%s", "CVE-2023-4966");
+      break;
+    case WATCHLIST_ITEM_CVE_EXPLOIT:
+      snprintf(item->m_cveExploit.ma_cveId, sizeof(item->m_cveExploit.ma_cveId), "%s", "CVE-2024-3400");
+      break;
+    case WATCHLIST_ITEM_PRODUCT_EXPOSURE:
+      snprintf(item->m_productExposure.ma_vendor, sizeof(item->m_productExposure.ma_vendor), "%s", "apache");
+      snprintf(item->m_productExposure.ma_product, sizeof(item->m_productExposure.ma_product), "%s", "log4j");
+      snprintf(item->m_productExposure.ma_version, sizeof(item->m_productExposure.ma_version), "%s", "2.14.1");
+      item->m_productExposure.m_hasCves = true;
+      break;
+    case WATCHLIST_ITEM_CVE_SEARCH:
+      snprintf(item->m_cveSearch.ma_vendor, sizeof(item->m_cveSearch.ma_vendor), "%s", "apache");
+      snprintf(item->m_cveSearch.ma_product, sizeof(item->m_cveSearch.ma_product), "%s", "tomcat");
+      snprintf(item->m_cveSearch.ma_severity, sizeof(item->m_cveSearch.ma_severity), "%s", "CRITICAL");
+      snprintf(item->m_cveSearch.ma_cweId, sizeof(item->m_cveSearch.ma_cweId), "%s", "CWE-502");
+      item->m_cveSearch.m_minCvss           = 7.5;
+      item->m_cveSearch.m_minEpss           = 0.25;
+      item->m_cveSearch.m_kevFilter         = CVE_KEV_FILTER_ONLY_IN_KEV;
+      item->m_cveSearch.m_knownRansomware   = true;
+      item->m_cveSearch.m_hasNucleiTemplate = true;
+      break;
+    case WATCHLIST_ITEM_DNS_LOOKUP:
+      snprintf(item->m_dnsLookup.ma_domainName, sizeof(item->m_dnsLookup.ma_domainName), "%s", "example.com");
+      break;
+    case WATCHLIST_ITEM_SSL_CHECK:
+      snprintf(item->m_sslCheck.ma_domainName, sizeof(item->m_sslCheck.ma_domainName), "%s", "shop.example.com");
+      break;
+    case WATCHLIST_ITEM_WHOIS_LOOKUP:
+      snprintf(item->m_whoisLookup.ma_domainName, sizeof(item->m_whoisLookup.ma_domainName), "%s", "example.org");
+      break;
+    case WATCHLIST_ITEM_HEADERS_CHECK:
+      snprintf(item->m_headersCheck.ma_domainName, sizeof(item->m_headersCheck.ma_domainName), "%s", "www.example.com");
+      break;
+    case WATCHLIST_ITEM_CERT_SEARCH:
+      snprintf(item->m_certSearch.ma_domainName, sizeof(item->m_certSearch.ma_domainName), "%s", "example.net");
+      break;
+    case WATCHLIST_ITEM_PACKAGE_CHECK:
+      snprintf(item->m_packageCheck.ma_ecosystem, sizeof(item->m_packageCheck.ma_ecosystem), "%s", "npm");
+      snprintf(item->m_packageCheck.ma_name, sizeof(item->m_packageCheck.ma_name), "%s", "lodash");
+      snprintf(item->m_packageCheck.ma_version, sizeof(item->m_packageCheck.ma_version), "%s", "4.17.20");
+      break;
+    case WATCHLIST_ITEM_IP_LOOKUP:
+      snprintf(item->m_ipLookup.ma_ipAddress, sizeof(item->m_ipLookup.ma_ipAddress), "%s", "8.8.8.8");
+      break;
+  }
+}
+
+static void static_assertWATCHLISTEDITItemsBodyConforms(WatchlistItem_t* items, int item_count, int key_item_count, int key_package_item_count,
+                                                        const char* marker, const char* item_marker, const char* label)
+{
+  WATCHLISTEDITItemsResult_t result;
+  memset(&result, 0, sizeof(result));
+  result.m_status                           = WATCHLISTEDIT_OK;
+  result.mp_items                           = items;
+  result.m_itemCount                        = item_count;
+  result.m_itemCountForCurrentApiKey        = key_item_count;
+  result.m_packageItemCountForCurrentApiKey = key_package_item_count;
+  JsonBuf_t* json_buf = static_newBodyBuf();
+  serialize_WATCHLISTEDITItems_response(&result, json_buf);
+  static_assertBodyConforms("watchlist_edit", static_finishBody(json_buf), marker, item_marker, label);
+}
+
+static void static_assertWATCHLISTEDITPackageListBodyConforms(WATCHLISTEDITAction_t action, int changed_count, int unchanged_count, int key_package_item_count,
+                                                              const char* marker, const char* label)
+{
+  WATCHLISTEDITPackageListResult_t result;
+  memset(&result, 0, sizeof(result));
+  result.m_status                           = WATCHLISTEDIT_OK;
+  result.m_action                           = action;
+  result.m_addedCount                       = (action == WATCHLISTEDIT_ACTION_ADD) ? changed_count : 0;
+  result.m_removedCount                     = (action == WATCHLISTEDIT_ACTION_REMOVE) ? changed_count : 0;
+  result.m_unchangedCount                   = unchanged_count;
+  result.m_packageItemCountForCurrentApiKey = key_package_item_count;
+  JsonBuf_t* json_buf = static_newBodyBuf();
+  serialize_WATCHLISTEDITPackageList_response(&result, json_buf);
+  static_assertBodyConforms("watchlist_edit", static_finishBody(json_buf), marker, R"("package_item_limit":500})", label);
+}
+
+void test_mcp_WATCHLISTEDIT_every_branch_conforms(void)
+{
+  static_resetSeenTypes();
+  static WatchlistItem_t items[WATCHLIST_ITEM_KIND_COUNT];
+  for (int kind = 0; kind < WATCHLIST_ITEM_KIND_COUNT; kind++)
+    static_watchlistBranchItem(&items[kind], (WatchlistItemKind_t)kind);
+  static_assertWATCHLISTEDITItemsBodyConforms(items, WATCHLIST_ITEM_KIND_COUNT, 11, 1,
+    R"({"endpoint":"cve_search","vendor":"apache","product":"tomcat","severity":"CRITICAL","cwe_id":"CWE-502","min_cvss":7.5,"min_epss":0.25000,"in_kev":true,"known_ransomware":true,"has_nuclei_template":true})",
+    R"({"endpoint":"product_exposure","vendor":"apache","product":"log4j","version":"2.14.1","product_has_cves":true})", "list of all twelve kinds");
+  static_assertWATCHLISTEDITItemsBodyConforms(NULL, 0, 0, 0, R"({"items":[],"item_count":0,)", R"("package_item_count":0,)", "empty list");
+  static_assertWATCHLISTEDITItemsBodyConforms(NULL, 0, 0, 0, R"({"items":[],"item_count":0,"item_limit":100,)", R"("package_item_count":0,"package_item_limit":500})", "clear");
+  static_assertWATCHLISTEDITItemsBodyConforms(NULL, 0, 4, 2, R"({"items":[],"item_count":4,)", R"("package_item_count":2,)", "remove that matched nothing");
+  static_assertWATCHLISTEDITItemsBodyConforms(&items[WATCHLIST_ITEM_CVE_LOOKUP], 1, 5, 2, R"({"items":[{"endpoint":"cve_lookup","cve_id":"CVE-2021-44228"}],)", R"("item_count":5,)", "add one");
+
+  WatchlistItem_t item;
+  static_watchlistBranchItem(&item, WATCHLIST_ITEM_CVE_SEARCH);
+  snprintf(item.m_cveSearch.ma_vendor, sizeof(item.m_cveSearch.ma_vendor), "%s", "");
+  snprintf(item.m_cveSearch.ma_product, sizeof(item.m_cveSearch.ma_product), "%s", "");
+  snprintf(item.m_cveSearch.ma_severity, sizeof(item.m_cveSearch.ma_severity), "%s", "");
+  snprintf(item.m_cveSearch.ma_cweId, sizeof(item.m_cveSearch.ma_cweId), "%s", "");
+  item.m_cveSearch.m_minCvss           = -1.0;
+  item.m_cveSearch.m_minEpss           = -1.0;
+  item.m_cveSearch.m_kevFilter         = CVE_KEV_FILTER_ANY;
+  item.m_cveSearch.m_knownRansomware   = false;
+  item.m_cveSearch.m_hasNucleiTemplate = false;
+  static_assertWATCHLISTEDITItemsBodyConforms(&item, 1, 6, 2, R"({"items":[{"endpoint":"cve_search"}],)", R"("item_count":6,)", "cve_search without a filter");
+  static_watchlistBranchItem(&item, WATCHLIST_ITEM_CVE_SEARCH);
+  item.m_cveSearch.m_kevFilter = CVE_KEV_FILTER_NOT_IN_KEV;
+  static_assertWATCHLISTEDITItemsBodyConforms(&item, 1, 7, 2, R"("min_cvss":7.5,"min_epss":0.25000,"in_kev":false,"known_ransomware":true,"has_nuclei_template":true}],)", R"("item_count":7,)", "cve_search with every filter, in_kev false");
+  static_watchlistBranchItem(&item, WATCHLIST_ITEM_PRODUCT_EXPOSURE);
+  item.m_productExposure.ma_version[0] = '\0';
+  item.m_productExposure.m_hasCves     = false;
+  static_assertWATCHLISTEDITItemsBodyConforms(&item, 1, 8, 2, R"({"endpoint":"product_exposure","vendor":"apache","product":"log4j","version":null,"product_has_cves":false})", R"("item_count":8,)", "product_exposure of every version");
+  static_watchlistBranchItem(&item, WATCHLIST_ITEM_PACKAGE_CHECK);
+  item.m_packageCheck.ma_version[0] = '\0';
+  static_assertWATCHLISTEDITItemsBodyConforms(&item, 1, 8, 3, R"({"endpoint":"package_check","ecosystem":"npm","name":"lodash","version":null})", R"("package_item_count":3,)", "package_check of every version");
+
+  static_assertWATCHLISTEDITPackageListBodyConforms(WATCHLISTEDIT_ACTION_ADD, 2, 1, 5, R"({"added_count":2,"unchanged_count":1,"package_item_count":5,)", "package add");
+  static_assertWATCHLISTEDITPackageListBodyConforms(WATCHLISTEDIT_ACTION_REMOVE, 1, 3, 4, R"({"removed_count":1,"unchanged_count":3,"package_item_count":4,)", "package remove");
+  static_assertToolDeclaresOnlySeenTypes("watchlist_edit");
+}
+
+#define VENDORKEYBRANCH_MANAGE_URL "https://api.contrastcyber.com/vendor_keys#l=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+static void static_assertVENDORKEYEDITApplyBodyConforms(VENDORKEYEDITVendorResult_t shodan, VENDORKEYEDITVendorResult_t abuseipdb, const char* manage_url,
+                                                        const char* marker, const char* item_marker, const char* label)
+{
+  VENDORKEYEDITApplyResult_t result;
+  memset(&result, 0, sizeof(result));
+  result.m_shodan      = shodan;
+  result.m_abuseIpDb   = abuseipdb;
+  result.mp_manageUrl  = manage_url;
+  JsonBuf_t* json_buf = static_newBodyBuf();
+  serialize_VENDORKEYEDIT_applyResponse(&result, json_buf);
+  static_assertBodyConforms("vendor_key_edit", static_finishBody(json_buf), marker, item_marker, label);
+}
+
+static void static_assertVENDORKEYEDITStatusBodyConforms(VENDORKEYEDITState_t shodan, VENDORKEYEDITState_t abuseipdb, int64_t expires_in_seconds,
+                                                         const char* marker, const char* label)
+{
+  VENDORKEYEDITStatusResult_t result;
+  memset(&result, 0, sizeof(result));
+  result.m_shodanState      = shodan;
+  result.m_abuseIpDbState   = abuseipdb;
+  result.m_expiresInSeconds = expires_in_seconds;
+  JsonBuf_t* json_buf = static_newBodyBuf();
+  serialize_VENDORKEYEDIT_statusResponse(&result, json_buf);
+  static_assertBodyConforms("vendor_key_edit", static_finishBody(json_buf), marker, R"("expires_in_seconds":)", label);
+}
+
+void test_mcp_VENDORKEYEDIT_every_branch_conforms(void)
+{
+  static_resetSeenTypes();
+  static_assertVENDORKEYEDITApplyBodyConforms({ VENDORKEYEDIT_OUTCOME_SAVED, true, 0 }, { VENDORKEYEDIT_OUTCOME_UNAVAILABLE, false, 60 }, NULL,
+    R"({"shodan":{"result":"saved","configured":true},)", R"("abuseipdb":{"result":"vendor_unavailable","configured":false,"retry_after_seconds":60}})" "\n",
+    "apply by link");
+  static_assertVENDORKEYEDITApplyBodyConforms({ VENDORKEYEDIT_OUTCOME_DELETED, false, 0 }, { VENDORKEYEDIT_OUTCOME_REJECTED, true, 0 }, "",
+    R"({"shodan":{"result":"deleted","configured":false},)", R"("abuseipdb":{"result":"rejected","configured":true},"manage_url":null})",
+    "apply without a written link");
+  static_assertVENDORKEYEDITApplyBodyConforms({ VENDORKEYEDIT_OUTCOME_UNAVAILABLE, true, 30 }, { VENDORKEYEDIT_OUTCOME_UNCHANGED, true, 0 }, VENDORKEYBRANCH_MANAGE_URL,
+    R"({"shodan":{"result":"vendor_unavailable","configured":true,"retry_after_seconds":30},)",
+    R"("abuseipdb":{"result":"unchanged","configured":true},"manage_url":")" VENDORKEYBRANCH_MANAGE_URL R"("})", "apply with a link");
+  static_assertVENDORKEYEDITStatusBodyConforms(VENDORKEYEDIT_STATE_WORKING, VENDORKEYEDIT_STATE_REJECTED, 840,
+    R"({"shodan":{"state":"working"},"abuseipdb":{"state":"rejected"},"expires_in_seconds":840})", "status of a working and a rejected key");
+  static_assertVENDORKEYEDITStatusBodyConforms(VENDORKEYEDIT_STATE_UNAVAILABLE, VENDORKEYEDIT_STATE_NOT_CONFIGURED, 0,
+    R"({"shodan":{"state":"vendor_unavailable"},"abuseipdb":{"state":"not_configured"},"expires_in_seconds":0})", "status of an unchecked and a missing key");
+  static_assertToolDeclaresOnlySeenTypes("vendor_key_edit");
+}
+
+#define WATCHLISTEVENTSBRANCH_EVENT_MAX_COUNT 64
+#define WATCHLISTEVENTSBRANCH_ITEM_MAX_COUNT  (WATCHLIST_ITEM_KIND_COUNT + 2)
+
+#define WATCHLISTEVENTSBRANCH_CHANGED_AT "2026-11-20T10:00:00Z"
+
+typedef struct {
+  WATCHLISTEVENTSEvent_t      ma_events[WATCHLISTEVENTSBRANCH_EVENT_MAX_COUNT];
+  int                         ma_pairEventIndexes[WATCHLISTEVENTSBRANCH_EVENT_MAX_COUNT];
+  bool                        ma_pairIsVersionAffected[WATCHLISTEVENTSBRANCH_EVENT_MAX_COUNT];
+  int                         m_eventCount;
+  WATCHLISTEVENTSAnswerItem_t ma_answerItems[WATCHLISTEVENTSBRANCH_ITEM_MAX_COUNT];
+  int                         m_answerItemCount;
+} WatchlistEventsBranch_t;
+
+static WatchlistItem_t* static_WATCHLISTEVENTSBranchAddItem(WatchlistEventsBranch_t* branch, WatchlistItemKind_t kind)
+{
+  TEST_ASSERT_LESS_THAN_INT(WATCHLISTEVENTSBRANCH_ITEM_MAX_COUNT, branch->m_answerItemCount);
+  WATCHLISTEVENTSAnswerItem_t* answer_item = &branch->ma_answerItems[branch->m_answerItemCount];
+  branch->m_answerItemCount++;
+  memset(answer_item, 0, sizeof(*answer_item));
+  static_watchlistBranchItem(&answer_item->m_item, kind);
+  answer_item->m_firstPairIndex = branch->m_eventCount;
+  return &answer_item->m_item;
+}
+
+static WATCHLISTEVENTSEvent_t* static_WATCHLISTEVENTSBranchAddEvent(WatchlistEventsBranch_t* branch, WatchlistEventKind_t kind, const char* event_type, bool is_version_affected)
+{
+  TEST_ASSERT_GREATER_THAN_INT(0, branch->m_answerItemCount);
+  TEST_ASSERT_LESS_THAN_INT(WATCHLISTEVENTSBRANCH_EVENT_MAX_COUNT, branch->m_eventCount);
+  int event_index = branch->m_eventCount;
+  branch->m_eventCount++;
+  WATCHLISTEVENTSEvent_t* event = &branch->ma_events[event_index];
+  memset(event, 0, sizeof(*event));
+  event->m_eventKind = kind;
+  snprintf(event->ma_eventType, sizeof(event->ma_eventType), "%s", event_type);
+  snprintf(event->ma_changedAt, sizeof(event->ma_changedAt), "%s", WATCHLISTEVENTSBRANCH_CHANGED_AT);
+  branch->ma_pairEventIndexes[event_index]      = event_index;
+  branch->ma_pairIsVersionAffected[event_index] = is_version_affected;
+  branch->ma_answerItems[branch->m_answerItemCount - 1].m_pairCount++;
+  return event;
+}
+
+static void static_WATCHLISTEVENTSBranchCveEvent(WatchlistEventsBranch_t* branch, const char* event_type, const char* cve_id, bool has_previous,
+                                                 double previous, bool has_current, double current, const char* vendor, const char* product)
+{
+  WATCHLISTEVENTSCveChange_t* change = &static_WATCHLISTEVENTSBranchAddEvent(branch, WATCHLIST_EVENT_CVE, event_type, false)->m_cveChange;
+  snprintf(change->ma_cveId, sizeof(change->ma_cveId), "%s", cve_id);
+  change->m_hasPreviousValue = has_previous;
+  change->m_previousValue    = previous;
+  change->m_hasCurrentValue  = has_current;
+  change->m_currentValue     = current;
+  change->m_hasProductPair   = vendor != NULL;
+  if (vendor != NULL)
+  {
+    snprintf(change->ma_vendor, sizeof(change->ma_vendor), "%s", vendor);
+    snprintf(change->ma_product, sizeof(change->ma_product), "%s", product);
+  }
+}
+
+static void static_WATCHLISTEVENTSBranchDomainEvent(WatchlistEventsBranch_t* branch, WatchlistEventKind_t kind, const char* event_type, const char* check_id,
+                                                    const char* previous, const char* current)
+{
+  WATCHLISTEVENTSEvent_t* event = static_WATCHLISTEVENTSBranchAddEvent(branch, kind, event_type, false);
+  char** previous_field = NULL;
+  char** current_field  = NULL;
+  switch (kind)
+  {
+    case WATCHLIST_EVENT_DNS_LOOKUP:
+      if (check_id != NULL)
+        snprintf(event->m_dnsLookupChange.ma_degradedEmailCheckId, sizeof(event->m_dnsLookupChange.ma_degradedEmailCheckId), "%s", check_id);
+      previous_field = &event->m_dnsLookupChange.mp_previousValue;
+      current_field  = &event->m_dnsLookupChange.mp_currentValue;
+      break;
+    case WATCHLIST_EVENT_SSL_CHECK:
+      previous_field = &event->m_sslCheckChange.mp_previousValue;
+      current_field  = &event->m_sslCheckChange.mp_currentValue;
+      break;
+    case WATCHLIST_EVENT_WHOIS_LOOKUP:
+      previous_field = &event->m_whoisLookupChange.mp_previousValue;
+      current_field  = &event->m_whoisLookupChange.mp_currentValue;
+      break;
+    case WATCHLIST_EVENT_HEADERS_CHECK:
+      previous_field = &event->m_headersCheckChange.mp_previousValue;
+      current_field  = &event->m_headersCheckChange.mp_currentValue;
+      break;
+    case WATCHLIST_EVENT_CERT_SEARCH:
+      previous_field = &event->m_certSearchChange.mp_previousValue;
+      current_field  = &event->m_certSearchChange.mp_currentValue;
+      break;
+    case WATCHLIST_EVENT_CVE:
+    case WATCHLIST_EVENT_PACKAGE_CHECK:
+    case WATCHLIST_EVENT_IP_LOOKUP:
+    case WATCHLIST_EVENT_PRODUCT_EXPOSURE:
+      break;
+  }
+  TEST_ASSERT_NOT_NULL_MESSAGE(previous_field, event_type);
+  TEST_ASSERT_TRUE_MESSAGE(check_id == NULL || kind == WATCHLIST_EVENT_DNS_LOOKUP, event_type);
+  *previous_field = const_cast<char*>(previous);
+  *current_field  = const_cast<char*>(current);
+}
+
+static void static_WATCHLISTEVENTSBranchPackageEvent(WatchlistEventsBranch_t* branch, const char* event_type, const char* advisory_id, const char* fixed_version,
+                                                     bool is_version_affected)
+{
+  WATCHLISTPACKAGECHECKChange_t* change = &static_WATCHLISTEVENTSBranchAddEvent(branch, WATCHLIST_EVENT_PACKAGE_CHECK, event_type, is_version_affected)->m_packageCheckChange;
+  snprintf(change->ma_advisoryId, sizeof(change->ma_advisoryId), "%s", advisory_id);
+  snprintf(change->ma_fixedVersion, sizeof(change->ma_fixedVersion), "%s", fixed_version);
+}
+
+static void static_WATCHLISTEVENTSBranchIpEvent(WatchlistEventsBranch_t* branch, const char* event_type, const char* previous, const char* current,
+                                                const char* list_time, const char* copyright)
+{
+  WATCHLISTIPLOOKUPChange_t* change = &static_WATCHLISTEVENTSBranchAddEvent(branch, WATCHLIST_EVENT_IP_LOOKUP, event_type, false)->m_ipLookupChange;
+  change->mp_previousValue = const_cast<char*>(previous);
+  change->mp_currentValue  = const_cast<char*>(current);
+  snprintf(change->ma_dropListTime, sizeof(change->ma_dropListTime), "%s", list_time);
+  snprintf(change->ma_dropCopyright, sizeof(change->ma_dropCopyright), "%s", copyright);
+}
+
+static void static_WATCHLISTEVENTSBranchEolEvent(WatchlistEventsBranch_t* branch, const char* event_type, const char* cycle, const char* eol_date, const char* previous_eol_date)
+{
+  WATCHLISTPRODUCTEXPOSUREChange_t* change = &static_WATCHLISTEVENTSBranchAddEvent(branch, WATCHLIST_EVENT_PRODUCT_EXPOSURE, event_type, false)->m_productExposureChange;
+  snprintf(change->ma_eolProduct, sizeof(change->ma_eolProduct), "%s", "log4j");
+  snprintf(change->ma_cycle, sizeof(change->ma_cycle), "%s", cycle);
+  snprintf(change->ma_eolDate, sizeof(change->ma_eolDate), "%s", eol_date);
+  snprintf(change->ma_previousEolDate, sizeof(change->ma_previousEolDate), "%s", previous_eol_date);
+}
+
+static void static_WATCHLISTEVENTSBranchCveFacts(WATCHLISTEVENTSCveFacts_t* facts, const char* cve_id, double risk_score, const char* label, bool is_in_kev,
+                                                 const char* kev_patch_deadline)
+{
+  memset(facts, 0, sizeof(*facts));
+  snprintf(facts->ma_cveId, sizeof(facts->ma_cveId), "%s", cve_id);
+  facts->m_riskScore = risk_score;
+  snprintf(facts->ma_riskLabel, sizeof(facts->ma_riskLabel), "%s", label);
+  facts->m_isInKev            = is_in_kev;
+  facts->m_hasKev             = kev_patch_deadline != NULL;
+  snprintf(facts->ma_kevPatchDeadline, sizeof(facts->ma_kevPatchDeadline), "%s", kev_patch_deadline != NULL ? kev_patch_deadline : "");
+  facts->m_kevKnownRansomware = is_in_kev;
+  facts->m_hasMetasploit      = !is_in_kev;
+  facts->m_pocCount           = is_in_kev ? 12 : 0;
+}
+
+static void static_WATCHLISTEVENTSBranchDomainFacts(WATCHLISTEVENTSDomainFacts_t* facts, const char* domain_name, const char* presence, const char* ns,
+                                                    const char* mx, const char* reachability, const char* takeover, const char* email_auth)
+{
+  memset(facts, 0, sizeof(*facts));
+  snprintf(facts->ma_domainName, sizeof(facts->ma_domainName), "%s", domain_name);
+  snprintf(facts->ma_registeredDomain, sizeof(facts->ma_registeredDomain), "%s", "example.com");
+  facts->m_dnsFacts.mp_dnsPresenceValue           = const_cast<char*>(presence);
+  facts->m_dnsFacts.mp_nsValue                    = const_cast<char*>(ns);
+  facts->m_dnsFacts.mp_mxValue                    = const_cast<char*>(mx);
+  facts->m_dnsFacts.mp_ipAddressReachabilityValue = const_cast<char*>(reachability);
+  facts->m_dnsFacts.mp_cnameTakeoverValue         = const_cast<char*>(takeover);
+  facts->m_dnsFacts.mp_emailAuthValue             = const_cast<char*>(email_auth);
+}
+
+static void static_assertWATCHLISTEVENTSBodyConforms(WatchlistEventsBranch_t* branch, const WATCHLISTEVENTSParams_t* params, const char* next_cursor, bool has_more,
+                                                     WATCHLISTEVENTSCveFacts_t* cve_facts, int cve_fact_count, WATCHLISTEVENTSDomainFacts_t* domain_facts,
+                                                     int domain_fact_count, WATCHLISTPACKAGECHECKAdvisory_t* advisories, int advisory_count,
+                                                     char* attribution, const char* const* markers, const char* label)
+{
+  WATCHLISTEVENTSResult_t result;
+  memset(&result, 0, sizeof(result));
+  result.m_status = next_cursor[0] != '\0' ? WATCHLISTEVENTS_OK : WATCHLISTEVENTS_NO_POSITION;
+  snprintf(result.ma_nextCursor, sizeof(result.ma_nextCursor), "%s", next_cursor);
+  result.m_hasMore                  = has_more;
+  result.mp_events                  = branch->m_eventCount > 0 ? branch->ma_events : NULL;
+  result.m_eventCount               = branch->m_eventCount;
+  result.mp_answerItems             = branch->m_answerItemCount > 0 ? branch->ma_answerItems : NULL;
+  result.m_answerItemCount          = branch->m_answerItemCount;
+  result.mp_pairEventIndexes        = branch->m_eventCount > 0 ? branch->ma_pairEventIndexes : NULL;
+  result.mp_pairIsVersionAffected   = branch->m_eventCount > 0 ? branch->ma_pairIsVersionAffected : NULL;
+  result.m_pairCount                = branch->m_eventCount;
+  result.mp_cveFacts                = cve_facts;
+  result.m_cveFactCount             = cve_fact_count;
+  result.mp_domainFacts             = domain_facts;
+  result.m_domainFactCount          = domain_fact_count;
+  result.mp_advisories              = advisories;
+  result.m_advisoryCount            = advisory_count;
+  result.mp_attribution             = attribution;
+  JsonBuf_t* json_buf = static_newBodyBuf();
+  serialize_WATCHLISTEVENTS_response(&result, params, json_buf);
+  char* body = static_finishBody(json_buf);
+  TEST_ASSERT_NOT_NULL_MESSAGE(body, label);
+  TEST_ASSERT_TRUE_MESSAGE(markers[0] != NULL && markers[1] != NULL, label);
+  for (size_t i = 0; markers[i] != NULL; i++)
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(body, markers[i]), markers[i]);
+  static_assertBodyConforms("watchlist_events", body, markers[0], markers[1], label);
+}
+
+#define WATCHLISTEVENTSBRANCH_EMAIL_ALL_PASS "ppppppppppppppppppppp"
+#define WATCHLISTEVENTSBRANCH_EMAIL_DEGRADED "ppp-pppppfppppppppppw"
+#define WATCHLISTEVENTSBRANCH_EMAIL_LATER    "fppwpppppfppppppppppw"
+
+#define WATCHLISTEVENTSBRANCH_DROP_COPYRIGHT "(c) 2026 The Spamhaus Project SLU"
+
+void test_mcp_WATCHLISTEVENTS_every_branch_conforms(void)
+{
+  static_resetSeenTypes();
+  TEST_ASSERT_EQUAL_size_t(EMAILCHECK_KIND_COUNT, strlen(WATCHLISTEVENTSBRANCH_EMAIL_ALL_PASS));
+  TEST_ASSERT_EQUAL_size_t(EMAILCHECK_KIND_COUNT, strlen(WATCHLISTEVENTSBRANCH_EMAIL_DEGRADED));
+  TEST_ASSERT_EQUAL_size_t(EMAILCHECK_KIND_COUNT, strlen(WATCHLISTEVENTSBRANCH_EMAIL_LATER));
+  static WatchlistEventsBranch_t branch;
+  memset(&branch, 0, sizeof(branch));
+
+  static_WATCHLISTEVENTSBranchAddItem(&branch, WATCHLIST_ITEM_CVE_LOOKUP);
+  static_WATCHLISTEVENTSBranchCveEvent(&branch, "kev_added",          "CVE-2021-44228", false, 0.0,     false, 0.0,     NULL, NULL);
+  static_WATCHLISTEVENTSBranchCveEvent(&branch, "epss_level_up",      "CVE-2021-44228", true,  0.12345, true,  0.45678, NULL, NULL);
+  static_WATCHLISTEVENTSBranchCveEvent(&branch, "epss_level_up",      "CVE-2021-44228", true,  0.0,     true,  0.20125, NULL, NULL);
+  static_WATCHLISTEVENTSBranchCveEvent(&branch, "cvss_score_changed", "CVE-2021-44228", true,  9.8,     false, 0.0,     NULL, NULL);
+  static_WATCHLISTEVENTSBranchAddItem(&branch, WATCHLIST_ITEM_KEV_LOOKUP);
+  static_WATCHLISTEVENTSBranchCveEvent(&branch, "epss_above_min",     "CVE-2023-4966",  true,  0.08,    true,  0.31,    NULL, NULL);
+  static_WATCHLISTEVENTSBranchAddItem(&branch, WATCHLIST_ITEM_CVE_EXPLOIT);
+  static_WATCHLISTEVENTSBranchCveEvent(&branch, "epss_below_min",     "CVE-2024-3400",  true,  0.31,    true,  0.08,    NULL, NULL);
+  static_WATCHLISTEVENTSBranchCveEvent(&branch, "cvss_added",         "CVE-2024-3400",  false, 0.0,     true,  7.5,     NULL, NULL);
+  static_WATCHLISTEVENTSBranchAddItem(&branch, WATCHLIST_ITEM_PRODUCT_EXPOSURE);
+  static_WATCHLISTEVENTSBranchCveEvent(&branch, "product_added",      "CVE-2021-44228", false, 0.0,     false, 0.0,     "apache", "log4j");
+  static_WATCHLISTEVENTSBranchEolEvent(&branch, "eol_date_changed", "2.14", "2025-12-31", "2025-06-30");
+  static_WATCHLISTEVENTSBranchEolEvent(&branch, "eol_reached",      "2.12", "",           "");
+  static_WATCHLISTEVENTSBranchAddItem(&branch, WATCHLIST_ITEM_CVE_SEARCH);
+  static_WATCHLISTEVENTSBranchCveEvent(&branch, "epss_above_min",     "CVE-2021-44228", true,  0.1,     true,  0.97,    NULL, NULL);
+
+  static_WATCHLISTEVENTSBranchAddItem(&branch, WATCHLIST_ITEM_DNS_LOOKUP);
+  static_WATCHLISTEVENTSBranchDomainEvent(&branch, WATCHLIST_EVENT_DNS_LOOKUP, "email_auth_degraded", "dmarc_policy", WATCHLISTEVENTSBRANCH_EMAIL_ALL_PASS, WATCHLISTEVENTSBRANCH_EMAIL_DEGRADED);
+  static_WATCHLISTEVENTSBranchDomainEvent(&branch, WATCHLIST_EVENT_DNS_LOOKUP, "email_auth_degraded", "bimi_record",  WATCHLISTEVENTSBRANCH_EMAIL_ALL_PASS, WATCHLISTEVENTSBRANCH_EMAIL_LATER);
+  static_WATCHLISTEVENTSBranchDomainEvent(&branch, WATCHLIST_EVENT_DNS_LOOKUP, "email_auth_degraded", "spf_all",      WATCHLISTEVENTSBRANCH_EMAIL_DEGRADED, WATCHLISTEVENTSBRANCH_EMAIL_LATER);
+  static_WATCHLISTEVENTSBranchDomainEvent(&branch, WATCHLIST_EVENT_DNS_LOOKUP, "domain_not_found",        NULL, NULL,                         "not_found");
+  static_WATCHLISTEVENTSBranchDomainEvent(&branch, WATCHLIST_EVENT_DNS_LOOKUP, "domain_found",            NULL, "not_found",                  "found");
+  static_WATCHLISTEVENTSBranchDomainEvent(&branch, WATCHLIST_EVENT_DNS_LOOKUP, "cname_takeover_detected", NULL, "none",                       "vulnerable shop.example.com");
+  static_WATCHLISTEVENTSBranchDomainEvent(&branch, WATCHLIST_EVENT_DNS_LOOKUP, "ns_changed",              NULL, "ns1.example.net\nns2.example.net", "ns1.example.org");
+  static_WATCHLISTEVENTSBranchDomainEvent(&branch, WATCHLIST_EVENT_DNS_LOOKUP, "mx_changed",              NULL, "10 mx1.example.com",         "null");
+  static_WATCHLISTEVENTSBranchDomainEvent(&branch, WATCHLIST_EVENT_DNS_LOOKUP, "hosting_changed",         NULL, "aws/cloudfront",             "cloudflare/cloudflare");
+
+  static_WATCHLISTEVENTSBranchAddItem(&branch, WATCHLIST_ITEM_SSL_CHECK);
+  static_WATCHLISTEVENTSBranchDomainEvent(&branch, WATCHLIST_EVENT_SSL_CHECK, "cert_expiring",  NULL, "none\n2026-12-20T00:00:00Z", "7\n2026-11-27T00:00:00Z");
+  static_WATCHLISTEVENTSBranchDomainEvent(&branch, WATCHLIST_EVENT_SSL_CHECK, "cert_expiring",  NULL, "7\n2026-11-27T00:00:00Z",    "1\n");
+  static_WATCHLISTEVENTSBranchDomainEvent(&branch, WATCHLIST_EVENT_SSL_CHECK, "cert_expiring",  NULL, "1\n2026-11-21T00:00:00Z",    "none");
+  static_WATCHLISTEVENTSBranchDomainEvent(&branch, WATCHLIST_EVENT_SSL_CHECK, "cert_invalid",   NULL, "valid",                      "expired\nself_signed");
+  static_WATCHLISTEVENTSBranchDomainEvent(&branch, WATCHLIST_EVENT_SSL_CHECK, "cert_listed",    NULL, "not_listed",                 "listed\nDridex C&C");
+  static_WATCHLISTEVENTSBranchDomainEvent(&branch, WATCHLIST_EVENT_SSL_CHECK, "cert_listed",    NULL, NULL,                         "listed");
+  static_WATCHLISTEVENTSBranchDomainEvent(&branch, WATCHLIST_EVENT_SSL_CHECK, "tls_downgraded", NULL, "TLSv1.3",                    "TLSv1.2");
+
+  static_WATCHLISTEVENTSBranchAddItem(&branch, WATCHLIST_ITEM_WHOIS_LOOKUP);
+  static_WATCHLISTEVENTSBranchDomainEvent(&branch, WATCHLIST_EVENT_WHOIS_LOOKUP, "domain_expiring",       NULL, "30\n2026-12-01",      "7\n2026-12-01");
+  static_WATCHLISTEVENTSBranchDomainEvent(&branch, WATCHLIST_EVENT_WHOIS_LOOKUP, "domain_expiring",       NULL, NULL,                  "1\n");
+  static_WATCHLISTEVENTSBranchDomainEvent(&branch, WATCHLIST_EVENT_WHOIS_LOOKUP, "domain_expiring",       NULL, "1\n2026-11-21",       "none");
+  static_WATCHLISTEVENTSBranchDomainEvent(&branch, WATCHLIST_EVENT_WHOIS_LOOKUP, "registrar_changed",     NULL, "146\nGoDaddy.com, LLC", "-\nExample Registrar");
+  static_WATCHLISTEVENTSBranchDomainEvent(&branch, WATCHLIST_EVENT_WHOIS_LOOKUP, "registrar_changed",     NULL, "-\n",                 "292");
+  static_WATCHLISTEVENTSBranchDomainEvent(&branch, WATCHLIST_EVENT_WHOIS_LOOKUP, "registrar_changed",     NULL, NULL,                  "146\nGoDaddy.com, LLC");
+  static_WATCHLISTEVENTSBranchDomainEvent(&branch, WATCHLIST_EVENT_WHOIS_LOOKUP, "transfer_lock_removed", NULL, "clientTransferProhibited\nserverTransferProhibited", "");
+  static_WATCHLISTEVENTSBranchDomainEvent(&branch, WATCHLIST_EVENT_WHOIS_LOOKUP, "dnssec_disabled",       NULL, "signed",              "unsigned");
+
+  static_WATCHLISTEVENTSBranchAddItem(&branch, WATCHLIST_ITEM_HEADERS_CHECK);
+  static_WATCHLISTEVENTSBranchDomainEvent(&branch, WATCHLIST_EVENT_HEADERS_CHECK, "security_header_removed", NULL,
+                                          "https://www.example.com/\nStrict-Transport-Security\nX-Frame-Options", "https://www.example.com/\nX-Frame-Options");
+  static_WATCHLISTEVENTSBranchDomainEvent(&branch, WATCHLIST_EVENT_HEADERS_CHECK, "security_header_removed", NULL, NULL, "https://www.example.com/");
+  static_WATCHLISTEVENTSBranchDomainEvent(&branch, WATCHLIST_EVENT_HEADERS_CHECK, "security_header_removed", NULL, "https://www.example.com/\nContent-Security-Policy", NULL);
+
+  static_WATCHLISTEVENTSBranchAddItem(&branch, WATCHLIST_ITEM_CERT_SEARCH);
+  static_WATCHLISTEVENTSBranchDomainEvent(&branch, WATCHLIST_EVENT_CERT_SEARCH, "cert_unexpected", NULL, "Let's Encrypt",
+                                          "known Let's Encrypt\nnew_issuer DigiCert Inc\ncaa_mismatch Sectigo Limited");
+  static_WATCHLISTEVENTSBranchDomainEvent(&branch, WATCHLIST_EVENT_CERT_SEARCH, "cert_unexpected", NULL, NULL, NULL);
+
+  static_WATCHLISTEVENTSBranchAddItem(&branch, WATCHLIST_ITEM_PACKAGE_CHECK);
+  static_WATCHLISTEVENTSBranchPackageEvent(&branch, "fix_available",  "GHSA-35jh-r3h4-6jhm", "4.17.21", true);
+  static_WATCHLISTEVENTSBranchPackageEvent(&branch, "advisory_added", "GHSA-29mw-wpgm-hmr9", "",        false);
+  static_WATCHLISTEVENTSBranchCveEvent(&branch, "kev_added", "CVE-2021-23337", false, 0.0, false, 0.0, NULL, NULL);
+
+  static_WATCHLISTEVENTSBranchAddItem(&branch, WATCHLIST_ITEM_IP_LOOKUP);
+  static_WATCHLISTEVENTSBranchIpEvent(&branch, "drop_listed",     NULL, "192.0.2.0/24 SBL1\n192.0.0.0/16 SBL22", "2026-11-20T00:00:00Z", WATCHLISTEVENTSBRANCH_DROP_COPYRIGHT);
+  static_WATCHLISTEVENTSBranchIpEvent(&branch, "drop_unlisted",   "192.0.2.0/24 SBL1", "",                       "2026-11-21T00:00:00Z", WATCHLISTEVENTSBRANCH_DROP_COPYRIGHT);
+  static_WATCHLISTEVENTSBranchIpEvent(&branch, "hosting_changed", "aws/ec2",           "cloudflare/cloudflare",  "",                     "");
+
+  static WATCHLISTEVENTSCveFacts_t cve_facts[3];
+  static_WATCHLISTEVENTSBranchCveFacts(&cve_facts[0], "CVE-2021-44228", 97.3, "CRITICAL", true,  "2021-12-24");
+  static_WATCHLISTEVENTSBranchCveFacts(&cve_facts[1], "CVE-2021-23337", 41.5, "MEDIUM",   false, NULL);
+  static_WATCHLISTEVENTSBranchCveFacts(&cve_facts[2], "CVE-2024-3400",  0.0,  "LOW",      false, "");
+  static WATCHLISTEVENTSDomainFacts_t domain_facts[3];
+  static_WATCHLISTEVENTSBranchDomainFacts(&domain_facts[0], "example.com", "found", "ns1.example.net\nns2.example.net", "10 mx1.example.com\nnull", "public",
+                                          "vulnerable shop.example.com", WATCHLISTEVENTSBRANCH_EMAIL_LATER);
+  static_WATCHLISTEVENTSBranchDomainFacts(&domain_facts[1], "www.example.com", "", "", "", "", "", WATCHLISTEVENTSBRANCH_EMAIL_ALL_PASS);
+  static_WATCHLISTEVENTSBranchDomainFacts(&domain_facts[2], "shop.example.com", NULL, NULL, NULL, NULL, NULL, NULL);
+  static char aliases[] = R"(["CVE-2021-23337"])";
+  static WATCHLISTPACKAGECHECKAdvisory_t advisories[2];
+  memset(advisories, 0, sizeof(advisories));
+  snprintf(advisories[0].ma_advisoryId, sizeof(advisories[0].ma_advisoryId), "%s", "GHSA-35jh-r3h4-6jhm");
+  snprintf(advisories[0].ma_source, sizeof(advisories[0].ma_source), "%s", "github");
+  advisories[0].mp_aliases = aliases;
+  snprintf(advisories[1].ma_advisoryId, sizeof(advisories[1].ma_advisoryId), "%s", "GHSA-29mw-wpgm-hmr9");
+  static char attribution[] =
+    R"([{"url":"https://osv.dev","notice":"Advisory data from OSV.dev.","source":"osv","license":"CC-BY-4.0"},)"
+    R"({"url":"https://github.com/advisories","notice":"Advisory data from the GitHub Advisory Database.","source":"github","license":"CC-BY-4.0"}])";
+
+  WATCHLISTEVENTSParams_t params;
+  memset(&params, 0, sizeof(params));
+  params.m_limit = 20;
+  snprintf(params.ma_cursor, sizeof(params.ma_cursor), "%s", "41");
+  static const char* const EVERY_EVENT_MARKERS[] = {
+    R"({"limit":20,"cursor":"41","repeat":false,"next_cursor":"57","has_more":true,"items":[{"item":{"endpoint":"cve_lookup","cve_id":"CVE-2021-44228"},"events":[)",
+    R"("cve_id":"CVE-2021-44228","previous":0.12345,"current":0.45678,"vendor":null,"product":null},)",
+    R"("cve_id":"CVE-2021-44228","previous":null,"current":0.20125,"vendor":null,"product":null},)",
+    R"("cve_id":"CVE-2021-44228","previous":9.80000,"current":null,"vendor":null,"product":null}]},)",
+    R"("cve_id":"CVE-2024-3400","previous":null,"current":7.50000,"vendor":null,"product":null}]},)",
+    R"("cve_id":"CVE-2021-44228","previous":null,"current":null,"vendor":"apache","product":"log4j"},)",
+    R"("eol":{"product":"log4j","cycle":"2.14","eol_date":"2025-12-31","previous_eol_date":"2025-06-30"}},)",
+    R"("eol":{"product":"log4j","cycle":"2.12","eol_date":null,"previous_eol_date":null}}]},)",
+    R"("check":"dmarc_policy","previous":"pass","current":"fail","detail":")",
+    R"("check":"bimi_record","previous":null,"current":null,"detail":null},)",
+    R"("check":"spf_all","previous":null,"current":"warn","detail":")",
+    R"({"event":"domain_not_found","changed_at":"2026-11-20T10:00:00Z","previous":null,"current":"not_found"},)",
+    R"("previous":["ns1.example.net","ns2.example.net"],"current":["ns1.example.org"]},)",
+    R"("previous":["10 mx1.example.com"],"current":["0 ."]},)",
+    R"("previous":null,"current":7,"valid_until":"2026-11-27T00:00:00Z"},)",
+    R"("previous":7,"current":1,"valid_until":""},)",
+    R"("previous":1,"current":null,"valid_until":null},)",
+    R"("previous":[],"current":["expired","self_signed"]},)",
+    R"({"event":"cert_listed","changed_at":"2026-11-20T10:00:00Z","previous":null,"current":"Dridex C&C"},)",
+    R"({"event":"cert_listed","changed_at":"2026-11-20T10:00:00Z","previous":null,"current":null},)",
+    R"("previous":30,"current":7,"expires_at":"2026-12-01"},)",
+    R"("previous":null,"current":1,"expires_at":""},)",
+    R"("previous":1,"current":null,"expires_at":null},)",
+    R"("previous":[146,"GoDaddy.com, LLC"],"current":[null,"Example Registrar"]},)",
+    R"("previous":[null,null],"current":[292,null]},)",
+    R"("previous":null,"current":[146,"GoDaddy.com, LLC"]},)",
+    R"("previous":["clientTransferProhibited","serverTransferProhibited"],"current":[]},)",
+    R"("previous":["Strict-Transport-Security","X-Frame-Options"],"current":["X-Frame-Options"],"url":"https://www.example.com/","removed":["Strict-Transport-Security"]},)",
+    R"("previous":null,"current":[],"url":"https://www.example.com/","removed":[]},)",
+    R"("previous":["Content-Security-Policy"],"current":null,"url":null,"removed":["Content-Security-Policy"]}]},)",
+    R"("previous":["Let's Encrypt"],"current":["Let's Encrypt","DigiCert Inc","Sectigo Limited"],)"
+      R"("new_issuers":[{"issuer":"DigiCert Inc","reason":"new_issuer"},{"issuer":"Sectigo Limited","reason":"caa_mismatch"}]},)",
+    R"("previous":null,"current":null,"new_issuers":[]}]},)",
+    R"("cve_id":null,"advisory_id":"GHSA-35jh-r3h4-6jhm","fixed_version":"4.17.21","affects_version":true},)",
+    R"("cve_id":null,"advisory_id":"GHSA-29mw-wpgm-hmr9","fixed_version":null,"affects_version":null},)",
+    R"("previous":null,"current":[{"prefix":"192.0.2.0/24","listing_id":"SBL1"},{"prefix":"192.0.0.0/16","listing_id":"SBL22"}],"list_time":"2026-11-20T00:00:00Z",)",
+    R"("previous":[{"prefix":"192.0.2.0/24","listing_id":"SBL1"}],"current":[],"list_time":"2026-11-21T00:00:00Z",)",
+    R"("previous":["aws/ec2"],"current":["cloudflare/cloudflare"]}]}],)",
+    R"("cves":{"CVE-2021-44228":{"risk_score":97.3,"label":"CRITICAL","in_kev":true,"kev_patch_deadline":"2021-12-24","known_ransomware":true,"has_metasploit":false,"poc_count":12},)",
+    R"("CVE-2021-23337":{"risk_score":41.5,"label":"MEDIUM","in_kev":false,"kev_patch_deadline":null,"known_ransomware":false,"has_metasploit":true,"poc_count":0},)",
+    R"("CVE-2024-3400":{"risk_score":0.0,"label":"LOW","in_kev":false,"kev_patch_deadline":"",)",
+    R"("domains":{"example.com":{"registered_domain":"example.com","dns_presence":"found","ns":["ns1.example.net","ns2.example.net"],"mx":["10 mx1.example.com","0 ."],)"
+      R"("ip_address_reachability":"public","cname_takeover":"vulnerable shop.example.com","email_auth_failing":{"spf_record":"fail","spf_all":"warn","dmarc_policy":"fail","mta_sts":"warn"}},)",
+    R"("www.example.com":{"registered_domain":"example.com","dns_presence":"","ns":[],"mx":[],"ip_address_reachability":"","cname_takeover":"","email_auth_failing":{}},)",
+    R"("shop.example.com":{"registered_domain":"example.com","dns_presence":null,"ns":null,"mx":null,"ip_address_reachability":null,"cname_takeover":null,"email_auth_failing":null}},)",
+    R"("advisories":{"GHSA-35jh-r3h4-6jhm":{"source":"github","aliases":["CVE-2021-23337"]},"GHSA-29mw-wpgm-hmr9":{"source":null,"aliases":[]}},)",
+    R"("attribution":[{"url":"https://osv.dev","notice":"Advisory data from OSV.dev.","source":"osv","license":"CC-BY-4.0"},{"url":)",
+    NULL,
+  };
+  static_assertWATCHLISTEVENTSBodyConforms(&branch, &params, "57", true, cve_facts, 3, domain_facts, 3, advisories, 2, attribution, EVERY_EVENT_MARKERS, "every event");
+
+  memset(&branch, 0, sizeof(branch));
+  WatchlistItem_t* item = static_WATCHLISTEVENTSBranchAddItem(&branch, WATCHLIST_ITEM_PRODUCT_EXPOSURE);
+  item->m_productExposure.ma_version[0] = '\0';
+  item->m_productExposure.m_hasCves     = false;
+  item = static_WATCHLISTEVENTSBranchAddItem(&branch, WATCHLIST_ITEM_PACKAGE_CHECK);
+  item->m_packageCheck.ma_version[0] = '\0';
+  memset(&params, 0, sizeof(params));
+  params.m_limit    = 20;
+  params.m_isRepeat = true;
+  static const char* const REPEAT_MARKERS[] = {
+    R"({"limit":20,"cursor":null,"repeat":true,"next_cursor":"0","has_more":false,"items":[)",
+    R"({"item":{"endpoint":"package_check","ecosystem":"npm","name":"lodash","version":null},"events":[]}],"cves":{},"domains":{},"advisories":{},"attribution":[]})",
+    R"({"item":{"endpoint":"product_exposure","vendor":"apache","product":"log4j","version":null,"product_has_cves":false},"events":[]},)",
+    NULL,
+  };
+  static_assertWATCHLISTEVENTSBodyConforms(&branch, &params, "0", false, NULL, 0, NULL, 0, NULL, 0, NULL, REPEAT_MARKERS, "repeat of an empty page");
+
+  memset(&branch, 0, sizeof(branch));
+  memset(&params, 0, sizeof(params));
+  params.m_limit = 5;
+  static const char* const NO_POSITION_MARKERS[] = {
+    R"({"limit":5,"cursor":null,"repeat":false,"next_cursor":null,"has_more":false,"items":[],)", R"("attribution":[]})", NULL,
+  };
+  static_assertWATCHLISTEVENTSBodyConforms(&branch, &params, "", false, NULL, 0, NULL, 0, NULL, 0, NULL, NO_POSITION_MARKERS, "no position");
+  static_assertToolDeclaresOnlySeenTypes("watchlist_events");
+}
+
+static void static_assertListedItemsEqual(const char* tool, const char* other_tool)
+{
+  char* catalogue = static_toolsListCatalogue();
+  JsonReadSpan_t items       = static_memberOf(static_memberOf(static_memberOf(static_listedOutputSchema(catalogue, tool), "properties"), "results"), "items");
+  JsonReadSpan_t other_items = static_memberOf(static_memberOf(static_memberOf(static_listedOutputSchema(catalogue, other_tool), "properties"), "results"), "items");
+  TEST_ASSERT_GREATER_THAN_size_t(0, items.m_len);
+  TEST_ASSERT_EQUAL_size_t_MESSAGE(items.m_len, other_items.m_len, other_tool);
+  TEST_ASSERT_EQUAL_CHAR_ARRAY_MESSAGE(items.mp_start, other_items.mp_start, items.m_len, other_tool);
+  free(catalogue);
+}
+
+void test_mcp_CVESEARCH_item_schema_is_the_CVELEADING_item_schema(void)
+{
+  static_assertListedItemsEqual("cve_search", "cve_leading");
+}
+
+void test_mcp_CVETRIAGE_item_schema_is_the_CVETRIAGEBULK_item_schema(void)
+{
+  static_assertListedItemsEqual("cve_triage", "cve_triage_bulk");
+}
+
+static int static_assertListedMembersEqual(JsonReadSpan_t properties, JsonReadSpan_t other_properties, const char* label)
+{
+  JsonReadSpan_t key, member, other_member;
+  size_t offset = 0;
+  int compared_count = 0;
+  while (jsonread_objectNextMember(properties, &offset, &key, &member) == JSONREAD_OK)
+  {
+    char name[SCHEMA_CHECK_KEY_MAX_LEN];
+    int written = snprintf(name, sizeof(name), "%.*s", (int)key.m_len, key.mp_start);
+    TEST_ASSERT_TRUE_MESSAGE(written > 0 && (size_t)written < sizeof(name), label);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(JSONREAD_OK, jsonread_objectKey(other_properties, name, &other_member), name);
+    TEST_ASSERT_EQUAL_size_t_MESSAGE(member.m_len, other_member.m_len, name);
+    TEST_ASSERT_EQUAL_CHAR_ARRAY_MESSAGE(member.mp_start, other_member.mp_start, member.m_len, name);
+    compared_count++;
+  }
+  return compared_count;
+}
+
+void test_mcp_CVESEARCH_item_members_are_the_CVELOOKUP_members(void)
+{
+  char* catalogue = static_toolsListCatalogue();
+  JsonReadSpan_t item_properties   = static_memberOf(static_memberOf(static_memberOf(static_memberOf(static_listedOutputSchema(catalogue, "cve_search"), "properties"), "results"), "items"), "properties");
+  JsonReadSpan_t lookup_properties = static_memberOf(static_listedOutputSchema(catalogue, "cve_lookup"), "properties");
+  TEST_ASSERT_EQUAL_INT(13, static_assertListedMembersEqual(item_properties, lookup_properties, "cve_search item"));
+  free(catalogue);
+}
+
+void test_mcp_CVETRIAGEBULK_counters_are_the_CVELOOKUPBULK_counters(void)
+{
+  static const char* const SHARED_COUNTERS[] = { "total", "processed", "skipped", "failed", "not_processed" };
+  char* catalogue = static_toolsListCatalogue();
+  JsonReadSpan_t triage_properties = static_memberOf(static_listedOutputSchema(catalogue, "cve_triage_bulk"), "properties");
+  JsonReadSpan_t lookup_properties = static_memberOf(static_listedOutputSchema(catalogue, "cve_lookup_bulk"), "properties");
+  for (size_t i = 0; i < sizeof(SHARED_COUNTERS) / sizeof(SHARED_COUNTERS[0]); i++)
+  {
+    JsonReadSpan_t triage_counter = static_memberOf(triage_properties, SHARED_COUNTERS[i]);
+    JsonReadSpan_t lookup_counter = static_memberOf(lookup_properties, SHARED_COUNTERS[i]);
+    TEST_ASSERT_EQUAL_size_t_MESSAGE(lookup_counter.m_len, triage_counter.m_len, SHARED_COUNTERS[i]);
+    TEST_ASSERT_EQUAL_CHAR_ARRAY_MESSAGE(lookup_counter.mp_start, triage_counter.mp_start, lookup_counter.m_len, SHARED_COUNTERS[i]);
+  }
+  JsonReadSpan_t triage_successful = static_memberOf(triage_properties, "successful");
+  JsonReadSpan_t lookup_successful = static_memberOf(lookup_properties, "successful");
+  TEST_ASSERT_FALSE(triage_successful.m_len == lookup_successful.m_len &&
+                    memcmp(triage_successful.mp_start, lookup_successful.mp_start, triage_successful.m_len) == 0);
+  free(catalogue);
+}
+
+static void static_assertSpansEqual(JsonReadSpan_t expected, JsonReadSpan_t actual, const char* label)
+{
+  TEST_ASSERT_GREATER_THAN_size_t_MESSAGE(0, expected.m_len, label);
+  TEST_ASSERT_EQUAL_size_t_MESSAGE(expected.m_len, actual.m_len, label);
+  TEST_ASSERT_EQUAL_CHAR_ARRAY_MESSAGE(expected.mp_start, actual.mp_start, expected.m_len, label);
+}
+
+static JsonReadSpan_t static_propertyOf(JsonReadSpan_t schema, const char* name)
+{
+  return static_memberOf(static_memberOf(schema, "properties"), name);
+}
+
+void test_mcp_list_paging_members_are_one_text(void)
+{
+  static const char* const PAGED_TOOLS[]       = { "cve_triage", "epss_risers", "cve_products", "cpe_search", "package_check" };
+  static const char* const PAGING_MEMBERS[]    = { "limit", "offset", "next_offset" };
+  static const char* const LIMIT_ONLY_TOOLS[]  = { "cve_leading" };
+  static const char* const OFFSET_ONLY_TOOLS[] = { "asn_lookup" };
+  char* catalogue = static_toolsListCatalogue();
+  JsonReadSpan_t search = static_listedOutputSchema(catalogue, "cve_search");
+  for (size_t i = 0; i < sizeof(PAGED_TOOLS) / sizeof(PAGED_TOOLS[0]); i++)
+  {
+    JsonReadSpan_t tool = static_listedOutputSchema(catalogue, PAGED_TOOLS[i]);
+    for (size_t k = 0; k < sizeof(PAGING_MEMBERS) / sizeof(PAGING_MEMBERS[0]); k++)
+    {
+      char label[64];
+      snprintf(label, sizeof(label), "%s.%s", PAGED_TOOLS[i], PAGING_MEMBERS[k]);
+      static_assertSpansEqual(static_propertyOf(search, PAGING_MEMBERS[k]), static_propertyOf(tool, PAGING_MEMBERS[k]), label);
+    }
+  }
+  for (size_t i = 0; i < sizeof(LIMIT_ONLY_TOOLS) / sizeof(LIMIT_ONLY_TOOLS[0]); i++)
+    static_assertSpansEqual(static_propertyOf(search, "limit"), static_propertyOf(static_listedOutputSchema(catalogue, LIMIT_ONLY_TOOLS[i]), "limit"), LIMIT_ONLY_TOOLS[i]);
+  for (size_t i = 0; i < sizeof(OFFSET_ONLY_TOOLS) / sizeof(OFFSET_ONLY_TOOLS[0]); i++)
+    static_assertSpansEqual(static_propertyOf(search, "offset"), static_propertyOf(static_listedOutputSchema(catalogue, OFFSET_ONLY_TOOLS[i]), "offset"), OFFSET_ONLY_TOOLS[i]);
+  free(catalogue);
+}
+
+void test_mcp_DRIVERLOOKUPBULK_match_schema_is_the_DRIVERLOOKUP_match_schema(void)
+{
+  static const char* const SHARED_MEMBERS[] = { "hash", "hash_type", "found", "match_count" };
+  char* catalogue = static_toolsListCatalogue();
+  JsonReadSpan_t lookup      = static_listedOutputSchema(catalogue, "driver_lookup");
+  JsonReadSpan_t bulk_result = static_memberOf(static_propertyOf(static_listedOutputSchema(catalogue, "driver_lookup_bulk"), "results"), "items");
+  static_assertSpansEqual(static_memberOf(static_propertyOf(lookup, "matches"), "items"), static_memberOf(static_propertyOf(bulk_result, "matches"), "items"), "matches.items");
+  for (size_t i = 0; i < sizeof(SHARED_MEMBERS) / sizeof(SHARED_MEMBERS[0]); i++)
+    static_assertSpansEqual(static_propertyOf(lookup, SHARED_MEMBERS[i]), static_propertyOf(bulk_result, SHARED_MEMBERS[i]), SHARED_MEMBERS[i]);
+  free(catalogue);
+}
+
+void test_mcp_PACKAGECHECKBULK_advisory_texts_are_the_PACKAGECHECK_texts(void)
+{
+  static const char* const SHARED_MEMBERS[] = { "id", "aliases" };
+  char* catalogue = static_toolsListCatalogue();
+  JsonReadSpan_t check_result  = static_memberOf(static_propertyOf(static_listedOutputSchema(catalogue, "package_check"), "results"), "items");
+  JsonReadSpan_t bulk_result   = static_memberOf(static_propertyOf(static_listedOutputSchema(catalogue, "package_check_bulk"), "results"), "items");
+  JsonReadSpan_t bulk_advisory = static_memberOf(static_propertyOf(bulk_result, "advisories"), "items");
+  for (size_t i = 0; i < sizeof(SHARED_MEMBERS) / sizeof(SHARED_MEMBERS[0]); i++)
+    static_assertSpansEqual(static_propertyOf(check_result, SHARED_MEMBERS[i]), static_propertyOf(bulk_advisory, SHARED_MEMBERS[i]), SHARED_MEMBERS[i]);
+  free(catalogue);
+}
+
+void test_mcp_mx_item_schemas_are_one_text(void)
+{
+  char* catalogue = static_toolsListCatalogue();
+  JsonReadSpan_t lookup_mx  = static_memberOf(static_propertyOf(static_propertyOf(static_listedOutputSchema(catalogue, "dns_lookup"), "records"), "mx"), "items");
+  JsonReadSpan_t auth_mx    = static_memberOf(static_propertyOf(static_propertyOf(static_listedOutputSchema(catalogue, "email_auth_check"), "mx"), "hosts"), "items");
+  JsonReadSpan_t address_mx = static_memberOf(static_propertyOf(static_listedOutputSchema(catalogue, "email_address_check"), "mx_hosts"), "items");
+  static_assertSpansEqual(lookup_mx, auth_mx,    "email_auth_check mx.hosts.items");
+  static_assertSpansEqual(lookup_mx, address_mx, "email_address_check mx_hosts.items");
+  free(catalogue);
+}
+
+void test_mcp_CERTSEARCH_unavailable_texts_are_the_WAYBACKLOOKUP_texts(void)
+{
+  static const char* const SHARED_MEMBERS[] = { "reason", "retry_after_seconds" };
+  char* catalogue = static_toolsListCatalogue();
+  JsonReadSpan_t cert_search = static_listedOutputSchema(catalogue, "cert_search");
+  JsonReadSpan_t wayback     = static_listedOutputSchema(catalogue, "wayback_lookup");
+  for (size_t i = 0; i < sizeof(SHARED_MEMBERS) / sizeof(SHARED_MEMBERS[0]); i++)
+    static_assertSpansEqual(static_propertyOf(wayback, SHARED_MEMBERS[i]), static_propertyOf(cert_search, SHARED_MEMBERS[i]), SHARED_MEMBERS[i]);
+  free(catalogue);
+}
+
+void test_mcp_WELLKNOWN_issue_schemas_are_one_text(void)
+{
+  char* catalogue = static_toolsListCatalogue();
+  JsonReadSpan_t well_known      = static_listedOutputSchema(catalogue, "well_known");
+  JsonReadSpan_t robots_issues   = static_memberOf(static_propertyOf(static_propertyOf(well_known, "robots_txt"), "issues"), "items");
+  JsonReadSpan_t security_issues = static_memberOf(static_propertyOf(static_propertyOf(well_known, "security_txt"), "issues"), "items");
+  static_assertSpansEqual(robots_issues, security_issues, "security_txt issues.items");
+  free(catalogue);
+}
+
+void test_mcp_checked_at_texts_are_one_text(void)
+{
+  static const char* const OTHER_TOOLS[] = { "headers_check", "well_known", "redirect_chain" };
+  char* catalogue = static_toolsListCatalogue();
+  JsonReadSpan_t ssl_checked_at = static_propertyOf(static_listedOutputSchema(catalogue, "ssl_check"), "checked_at");
+  for (size_t i = 0; i < sizeof(OTHER_TOOLS) / sizeof(OTHER_TOOLS[0]); i++)
+    static_assertSpansEqual(ssl_checked_at, static_propertyOf(static_listedOutputSchema(catalogue, OTHER_TOOLS[i]), "checked_at"), OTHER_TOOLS[i]);
+  free(catalogue);
+}
+
+void test_mcp_WATCHLISTEVENTS_item_schema_is_the_WATCHLISTEDIT_item_schema(void)
+{
+  char* catalogue = static_toolsListCatalogue();
+  JsonReadSpan_t edit_item   = static_memberOf(static_propertyOf(static_listedOutputSchema(catalogue, "watchlist_edit"), "items"), "items");
+  JsonReadSpan_t events_item = static_propertyOf(static_memberOf(static_propertyOf(static_listedOutputSchema(catalogue, "watchlist_events"), "items"), "items"), "item");
+  static_assertSpansEqual(edit_item, events_item, "watchlist_events items.items.item");
+  free(catalogue);
+}
+
+void test_mcp_WATCHLISTEVENTS_cve_score_texts_are_the_CVETRIAGE_texts(void)
+{
+  static const char* const SHARED_MEMBERS[] = { "risk_score", "label" };
+  char* catalogue = static_toolsListCatalogue();
+  JsonReadSpan_t triage_item = static_memberOf(static_propertyOf(static_listedOutputSchema(catalogue, "cve_triage"), "results"), "items");
+  JsonReadSpan_t cve_facts   = static_memberOf(static_propertyOf(static_listedOutputSchema(catalogue, "watchlist_events"), "cves"), "additionalProperties");
+  for (size_t i = 0; i < sizeof(SHARED_MEMBERS) / sizeof(SHARED_MEMBERS[0]); i++)
+    static_assertSpansEqual(static_propertyOf(triage_item, SHARED_MEMBERS[i]), static_propertyOf(cve_facts, SHARED_MEMBERS[i]), SHARED_MEMBERS[i]);
+  free(catalogue);
+}
+
+void test_mcp_CVEPRODUCTS_item_schema_is_the_CVELOOKUP_product_schema(void)
+{
+  char* catalogue = static_toolsListCatalogue();
+  JsonReadSpan_t lookup_items   = static_memberOf(static_propertyOf(static_listedOutputSchema(catalogue, "cve_lookup"), "affected_products"), "items");
+  JsonReadSpan_t products_items = static_memberOf(static_propertyOf(static_listedOutputSchema(catalogue, "cve_products"), "results"), "items");
+  static_assertSpansEqual(lookup_items, products_items, "cve_products results.items");
+  free(catalogue);
+}
+
+void test_mcp_PRODUCTEXPOSURE_top_cve_schema_is_the_CVETRIAGE_item_schema(void)
+{
+  char* catalogue = static_toolsListCatalogue();
+  JsonReadSpan_t triage_items = static_memberOf(static_propertyOf(static_listedOutputSchema(catalogue, "cve_triage"), "results"), "items");
+  JsonReadSpan_t top_cves     = static_memberOf(static_propertyOf(static_listedOutputSchema(catalogue, "product_exposure"), "top_cves"), "items");
+  static_assertSpansEqual(triage_items, top_cves, "product_exposure top_cves.items");
+  free(catalogue);
+}
+
+void test_mcp_CVERISKSCORE_label_is_the_CVETRIAGE_label(void)
+{
+  char* catalogue = static_toolsListCatalogue();
+  JsonReadSpan_t triage_label = static_propertyOf(static_memberOf(static_propertyOf(static_listedOutputSchema(catalogue, "cve_triage"), "results"), "items"), "label");
+  JsonReadSpan_t score_label  = static_propertyOf(static_listedOutputSchema(catalogue, "cve_risk_score"), "label");
+  static_assertSpansEqual(triage_label, score_label, "cve_risk_score label");
+  free(catalogue);
+}
+
+void test_mcp_IPLOOKUP_asn_country_schema_is_the_ASNLOOKUP_asn_country_schema(void)
+{
+  char* catalogue = static_toolsListCatalogue();
+  JsonReadSpan_t ip_country  = static_propertyOf(static_listedOutputSchema(catalogue, "ip_lookup"), "asn_country");
+  JsonReadSpan_t asn_country = static_propertyOf(static_listedOutputSchema(catalogue, "asn_lookup"), "asn_country");
+  static_assertSpansEqual(ip_country, asn_country, "asn_lookup asn_country");
+  free(catalogue);
+}
+
+void test_mcp_WATCHLISTEVENTS_previous_items_schema_is_the_current_items_schema(void)
+{
+  char* catalogue = static_toolsListCatalogue();
+  JsonReadSpan_t event = static_memberOf(static_propertyOf(static_memberOf(static_propertyOf(static_listedOutputSchema(catalogue, "watchlist_events"), "items"), "items"), "events"), "items");
+  static_assertSpansEqual(static_memberOf(static_propertyOf(event, "previous"), "items"), static_memberOf(static_propertyOf(event, "current"), "items"), "current.items");
+  free(catalogue);
+}
+
+void test_mcp_PRODUCTEXPOSURE_cycle_texts_are_one_text(void)
+{
+  char* catalogue = static_toolsListCatalogue();
+  JsonReadSpan_t eol        = static_propertyOf(static_listedOutputSchema(catalogue, "product_exposure"), "eol");
+  JsonReadSpan_t cycle      = static_propertyOf(eol, "cycle");
+  JsonReadSpan_t variant    = static_memberOf(static_propertyOf(eol, "cycle_variants"), "items");
+  JsonReadSpan_t maintained = static_memberOf(static_propertyOf(eol, "maintained_cycles"), "items");
+  static_assertSpansEqual(static_propertyOf(cycle, "eol_date"), static_propertyOf(variant, "eol_date"), "cycle_variants eol_date");
+  static_assertSpansEqual(static_propertyOf(cycle, "eol_date"), static_propertyOf(maintained, "eol_date"), "maintained_cycles eol_date");
+  static_assertSpansEqual(static_propertyOf(cycle, "is_eol"), static_propertyOf(variant, "is_eol"), "cycle_variants is_eol");
+
+  JsonReadSpan_t check_eol = static_propertyOf(static_listedOutputSchema(catalogue, "package_check"), "eol");
+  JsonReadSpan_t key, member;
+  size_t offset = 0;
+  int compared_count = 0;
+  while (jsonread_objectNextMember(static_memberOf(check_eol, "properties"), &offset, &key, &member) == JSONREAD_OK)
+  {
+    char name[SCHEMA_CHECK_KEY_MAX_LEN];
+    int written = snprintf(name, sizeof(name), "%.*s", (int)key.m_len, key.mp_start);
+    TEST_ASSERT_TRUE_MESSAGE(written > 0 && (size_t)written < sizeof(name), "package_check eol");
+    if (strcmp(name, "cycle") == 0)
+      static_assertSpansEqual(static_memberOf(cycle, "properties"), static_memberOf(member, "properties"), "package_check eol.cycle.properties");
+    else
+      static_assertSpansEqual(static_propertyOf(eol, name), member, name);
+    compared_count++;
+  }
+  TEST_ASSERT_EQUAL_INT(7, compared_count);
+
+  JsonReadSpan_t bulk_eol = static_propertyOf(static_memberOf(static_propertyOf(static_listedOutputSchema(catalogue, "package_check_bulk"), "results"), "items"), "eol");
+  TEST_ASSERT_EQUAL_INT(6, static_assertListedMembersEqual(static_memberOf(static_propertyOf(bulk_eol, "cycle"), "properties"), static_memberOf(cycle, "properties"), "package_check_bulk eol.cycle"));
+  TEST_ASSERT_EQUAL_INT(4, static_assertListedMembersEqual(static_memberOf(static_memberOf(static_propertyOf(bulk_eol, "cycle_variants"), "items"), "properties"),
+                                                           static_memberOf(variant, "properties"), "package_check_bulk eol.cycle_variants.items"));
+  free(catalogue);
+}
+
+void test_mcp_optional_member_table_excuses_only_its_own_tool(void)
+{
+  static const char NOTE[] = "product_filter_note";
+  static const char WINDOW_NOTE[] = "window_note";
+  static const char TOTAL[] = "total";
+  JsonReadSpan_t note        = { NOTE,        sizeof(NOTE) - 1 };
+  JsonReadSpan_t window_note = { WINDOW_NOTE, sizeof(WINDOW_NOTE) - 1 };
+  JsonReadSpan_t total       = { TOTAL,       sizeof(TOTAL) - 1 };
+  TEST_ASSERT_TRUE(static_isMemberOptional("cve_search", "", note));
+  TEST_ASSERT_TRUE(static_isMemberOptional("cve_leading", "", note));
+  TEST_ASSERT_TRUE(static_isMemberOptional("cve_triage", "", note));
+  TEST_ASSERT_TRUE(static_isMemberOptional("epss_risers", "", note));
+  TEST_ASSERT_FALSE(static_isMemberOptional("cve_triage_bulk", "", note));
+  TEST_ASSERT_FALSE(static_isMemberOptional("cve_lookup", "", note));
+  TEST_ASSERT_TRUE(static_isMemberOptional("epss_risers", "", window_note));
+  TEST_ASSERT_FALSE(static_isMemberOptional("cve_search", "", window_note));
+  TEST_ASSERT_FALSE(static_isMemberOptional("cve_search", "", total));
+  TEST_ASSERT_FALSE(static_isMemberOptional("epss_risers", "", total));
+}
+
+
+static bool static_tryFindLevel(JsonReadSpan_t schema, const char* parent, JsonReadSpan_t* out)
+{
+  if (parent[0] == '\0')
+  {
+    *out = schema;
+    return true;
+  }
+  JsonReadSpan_t properties, key, member, items;
+  if (jsonread_objectKey(schema, "items", &items) == JSONREAD_OK && static_tryFindLevel(items, parent, out))
+    return true;
+  if (jsonread_objectKey(schema, "properties", &properties) != JSONREAD_OK)
+    return false;
+  size_t offset = 0;
+  while (jsonread_objectNextMember(properties, &offset, &key, &member) == JSONREAD_OK)
+  {
+    if (key.m_len == strlen(parent) && memcmp(key.mp_start, parent, key.m_len) == 0)
+    {
+      *out = member;
+      if (jsonread_objectKey(member, "items", &items) == JSONREAD_OK)
+        *out = items;
+      return true;
+    }
+    if (static_tryFindLevel(member, parent, out))
+      return true;
+  }
+  return false;
+}
+
+void test_mcp_optional_member_entries_are_declared_and_not_required(void)
+{
+  char* catalogue = static_toolsListCatalogue();
+  for (size_t i = 0; i < sizeof(OPTIONAL_MEMBERS_BY_TOOL) / sizeof(OPTIONAL_MEMBERS_BY_TOOL[0]); i++)
+  {
+    const OptionalMembersRow_t* row = &OPTIONAL_MEMBERS_BY_TOOL[i];
+    JsonReadSpan_t schema = static_listedOutputSchema(catalogue, row->mp_tool);
+    for (size_t k = 0; k < row->m_memberCount; k++)
+    {
+      char parent[128];
+      const char* entry = row->mp_members[k];
+      const char* dot = strrchr(entry, '.');
+      const char* name = dot != NULL ? dot + 1 : entry;
+      snprintf(parent, sizeof(parent), "%.*s", dot != NULL ? (int)(dot - entry) : 0, entry);
+      char label[256];
+      snprintf(label, sizeof(label), "%s: %s", row->mp_tool, entry);
+      JsonReadSpan_t level, properties, member;
+      TEST_ASSERT_TRUE_MESSAGE(static_tryFindLevel(schema, parent, &level), label);
+      TEST_ASSERT_EQUAL_INT_MESSAGE(JSONREAD_OK, jsonread_objectKey(level, "properties", &properties), label);
+      TEST_ASSERT_EQUAL_INT_MESSAGE(JSONREAD_OK, jsonread_objectKey(properties, name, &member), label);
+      JsonReadSpan_t required = { "[]", 2 };
+      (void)jsonread_objectKey(level, "required", &required);
+      JsonReadSpan_t key = { name, strlen(name) };
+      TEST_ASSERT_FALSE_MESSAGE(static_isNameInArray(required, key), label);
+    }
+  }
+  free(catalogue);
+}
+
+void test_schema_version_is_the_sql_function_version(void)
+{
+  char* text = static_readDocsFile("sql/fn_schema_version.sql");
+  const char* found = strstr(text, "\n  RETURN ");
+  TEST_ASSERT_NOT_NULL(found);
+  found += strlen("\n  RETURN ");
+  char* parse_end = NULL;
+  errno = 0;
+  long version = strtol(found, &parse_end, 10);
+  TEST_ASSERT_EQUAL_INT(0, errno);
+  TEST_ASSERT_TRUE(parse_end != found && *parse_end == ';');
+  TEST_ASSERT_EQUAL_INT(DB_REQUIRED_SCHEMA_VERSION, (int)version);
+  free(text);
+}
+
+#define SCHEMA_CHECK_TEST_SCHEMA \
+  R"({"type":"object","properties":{"a":{"type":"string","description":"d"},"n":{"type":"integer"},)" \
+  R"("x":{"type":["string","null"]},"list":{"type":"array","items":{"type":"number"}}},"required":["a"]})"
+
+void test_schema_checker_refuses_an_undeclared_member(void)
+{
+  TEST_ASSERT_EQUAL_INT(SCHEMA_CHECK_OK, static_checkTexts(SCHEMA_CHECK_TEST_SCHEMA, R"({"a":"v","n":1})"));
+  TEST_ASSERT_EQUAL_INT(SCHEMA_CHECK_UNDECLARED_MEMBER, static_checkTexts(SCHEMA_CHECK_TEST_SCHEMA, R"({"a":"v","n":1,"b":1})"));
+  TEST_ASSERT_EQUAL_INT(SCHEMA_CHECK_UNDECLARED_MEMBER,
+                        static_checkTexts(R"({"type":"array","items":{"type":"object","properties":{"a":{"type":"string"}}}})", R"([{"a":"v"},{"b":1}])"));
+}
+
+void test_schema_checker_refuses_a_missing_required_member(void)
+{
+  TEST_ASSERT_EQUAL_INT(SCHEMA_CHECK_MISSING_REQUIRED, static_checkTexts(SCHEMA_CHECK_TEST_SCHEMA, R"({"n":1})"));
+  TEST_ASSERT_EQUAL_INT(SCHEMA_CHECK_OK, static_checkTexts(SCHEMA_CHECK_TEST_SCHEMA, R"({"a":""})"));
+}
+
+void test_schema_checker_refuses_a_wrong_type(void)
+{
+  TEST_ASSERT_EQUAL_INT(SCHEMA_CHECK_WRONG_TYPE, static_checkTexts(SCHEMA_CHECK_TEST_SCHEMA, R"({"a":1})"));
+  TEST_ASSERT_EQUAL_INT(SCHEMA_CHECK_WRONG_TYPE, static_checkTexts(SCHEMA_CHECK_TEST_SCHEMA, R"({"a":true})"));
+  TEST_ASSERT_EQUAL_INT(SCHEMA_CHECK_WRONG_TYPE, static_checkTexts(SCHEMA_CHECK_TEST_SCHEMA, R"({"a":"v","list":["1"]})"));
+  TEST_ASSERT_EQUAL_INT(SCHEMA_CHECK_OK, static_checkTexts(SCHEMA_CHECK_TEST_SCHEMA, R"({"a":"v","list":[1,1.5,2e3]})"));
+}
+
+void test_schema_checker_refuses_a_fraction_for_an_integer(void)
+{
+  TEST_ASSERT_EQUAL_INT(SCHEMA_CHECK_WRONG_TYPE, static_checkTexts(SCHEMA_CHECK_TEST_SCHEMA, R"({"a":"v","n":1.5})"));
+  TEST_ASSERT_EQUAL_INT(SCHEMA_CHECK_WRONG_TYPE, static_checkTexts(SCHEMA_CHECK_TEST_SCHEMA, R"({"a":"v","n":1e3})"));
+  TEST_ASSERT_EQUAL_INT(SCHEMA_CHECK_OK, static_checkTexts(SCHEMA_CHECK_TEST_SCHEMA, R"({"a":"v","n":7})"));
+}
+
+void test_schema_checker_refuses_an_unknown_keyword(void)
+{
+  TEST_ASSERT_EQUAL_INT(SCHEMA_CHECK_UNKNOWN_KEYWORD, static_checkTexts(R"({"type":"object","$ref":"#/x"})", "{}"));
+  TEST_ASSERT_EQUAL_INT(SCHEMA_CHECK_UNKNOWN_KEYWORD, static_checkTexts(R"({"type":"object","properties":{"a":{"type":"string","enum":["v"]}}})", R"({"a":"v"})"));
+  TEST_ASSERT_EQUAL_INT(SCHEMA_CHECK_UNKNOWN_KEYWORD, static_checkTexts(R"({"type":"string","format":"date"})", R"("v")"));
+  TEST_ASSERT_EQUAL_INT(SCHEMA_CHECK_OK, static_checkTexts(R"({"type":"object","description":"d"})", "{}"));
+}
+
+void test_schema_checker_refuses_null_where_the_type_has_none(void)
+{
+  TEST_ASSERT_EQUAL_INT(SCHEMA_CHECK_WRONG_TYPE, static_checkTexts(SCHEMA_CHECK_TEST_SCHEMA, R"({"a":null})"));
+  TEST_ASSERT_EQUAL_INT(SCHEMA_CHECK_OK, static_checkTexts(SCHEMA_CHECK_TEST_SCHEMA, R"({"a":"v","x":null})"));
+  TEST_ASSERT_EQUAL_INT(SCHEMA_CHECK_OK, static_checkTexts(SCHEMA_CHECK_TEST_SCHEMA, R"({"a":"v","x":"s"})"));
+}
+
+void test_schema_checker_refuses_a_type_the_type_array_does_not_list(void)
+{
+  TEST_ASSERT_EQUAL_INT(SCHEMA_CHECK_WRONG_TYPE, static_checkTexts(SCHEMA_CHECK_TEST_SCHEMA, R"({"a":"v","x":1})"));
+  TEST_ASSERT_EQUAL_INT(SCHEMA_CHECK_WRONG_TYPE, static_checkTexts(R"({"type":["array","null"],"items":{"type":"string"}})", R"("s")"));
+}
+
+void test_schema_checker_refuses_a_capital_exponent_for_an_integer(void)
+{
+  TEST_ASSERT_EQUAL_INT(SCHEMA_CHECK_WRONG_TYPE, static_checkTexts(SCHEMA_CHECK_TEST_SCHEMA, R"({"a":"v","n":1E3})"));
+}
+
+void test_schema_checker_refuses_a_schema_without_a_type(void)
+{
+  TEST_ASSERT_EQUAL_INT(SCHEMA_CHECK_BAD_SCHEMA, static_checkTexts(R"({"type":"object","properties":{"a":{"description":"d"}}})", R"({"a":1})"));
+  TEST_ASSERT_EQUAL_INT(SCHEMA_CHECK_BAD_SCHEMA, static_checkTexts(R"({"type":"object","properties":{"a":"string"}})", R"({"a":1})"));
+}
+
+void test_schema_checker_refuses_items_on_a_schema_that_takes_no_array(void)
+{
+  TEST_ASSERT_EQUAL_INT(SCHEMA_CHECK_BAD_SCHEMA, static_checkTexts(R"({"type":"string","items":{"type":"integer"}})", R"("v")"));
+}
+
+void test_schema_checker_refuses_an_array_schema_without_items(void)
+{
+  TEST_ASSERT_EQUAL_INT(SCHEMA_CHECK_BAD_SCHEMA, static_checkTexts(R"({"type":"array"})", R"([1])"));
+  TEST_ASSERT_EQUAL_INT(SCHEMA_CHECK_BAD_SCHEMA, static_checkTexts(R"({"type":["array","null"]})", "null"));
+}
+
+#define SCHEMA_CHECK_MAP_SCHEMA R"({"type":"object","additionalProperties":{"type":"integer"}})"
+
+void test_schema_checker_refuses_a_map_value_of_the_wrong_type(void)
+{
+  TEST_ASSERT_EQUAL_INT(SCHEMA_CHECK_OK, static_checkTexts(SCHEMA_CHECK_MAP_SCHEMA, R"({"apache":2,"cisco":21})"));
+  TEST_ASSERT_EQUAL_INT(SCHEMA_CHECK_OK, static_checkTexts(SCHEMA_CHECK_MAP_SCHEMA, "{}"));
+  TEST_ASSERT_EQUAL_INT(SCHEMA_CHECK_WRONG_TYPE, static_checkTexts(SCHEMA_CHECK_MAP_SCHEMA, R"({"apache":2,"cisco":"21"})"));
+}
+
+void test_schema_checker_without_additional_properties_refuses_an_unknown_key(void)
+{
+  TEST_ASSERT_EQUAL_INT(SCHEMA_CHECK_UNDECLARED_MEMBER,
+                        static_checkTexts(R"({"type":"object","properties":{"a":{"type":"integer"}}})", R"({"a":1,"b":"v"})"));
+  const char* with_map = R"({"type":"object","properties":{"a":{"type":"integer"}},"additionalProperties":{"type":"string"}})";
+  TEST_ASSERT_EQUAL_INT(SCHEMA_CHECK_OK,         static_checkTexts(with_map, R"({"a":1,"b":"v"})"));
+  TEST_ASSERT_EQUAL_INT(SCHEMA_CHECK_WRONG_TYPE, static_checkTexts(with_map, R"({"a":1,"b":2})"));
+  TEST_ASSERT_EQUAL_INT(SCHEMA_CHECK_WRONG_TYPE, static_checkTexts(with_map, R"({"a":"v"})"));
+}
+
+#define SCHEMA_CHECK_UNION_SCHEMA \
+  R"({"type":"object","properties":{"g":{"type":["string","object","null"],)" \
+  R"("properties":{"id":{"type":"string"},"available":{"type":"boolean"},"list":{"type":"array","items":{"type":"integer"}}},)" \
+  R"("required":["id"]}},"required":["g"]})"
+
+void test_schema_checker_union_takes_a_string_and_an_object_and_refuses_a_number(void)
+{
+  const char* union_schema = R"({"type":"object","properties":{"g":{"type":["string","object","null"],"properties":{"id":{"type":"string"}}}}})";
+  TEST_ASSERT_EQUAL_INT(SCHEMA_CHECK_OK,         static_checkTexts(union_schema, R"({"g":"/cve_lookup/x"})"));
+  TEST_ASSERT_EQUAL_INT(SCHEMA_CHECK_OK,         static_checkTexts(union_schema, R"({"g":{"id":"GHSA-1"}})"));
+  TEST_ASSERT_EQUAL_INT(SCHEMA_CHECK_OK,         static_checkTexts(union_schema, R"({"g":null})"));
+  TEST_ASSERT_EQUAL_INT(SCHEMA_CHECK_WRONG_TYPE, static_checkTexts(union_schema, R"({"g":7})"));
+}
+
+void test_schema_checker_refuses_an_undeclared_member_of_an_object_form(void)
+{
+  const char* union_schema = R"({"type":"object","properties":{"g":{"type":["string","object","null"],"properties":{"id":{"type":"string"}}}}})";
+  TEST_ASSERT_EQUAL_INT(SCHEMA_CHECK_UNDECLARED_MEMBER, static_checkTexts(union_schema, R"({"g":{"id":"GHSA-1","b":1}})"));
+  TEST_ASSERT_EQUAL_INT(SCHEMA_CHECK_WRONG_TYPE,        static_checkTexts(union_schema, R"({"g":{"id":1}})"));
+}
+
+void test_schema_checker_reads_properties_and_items_by_the_actual_type(void)
+{
+  TEST_ASSERT_EQUAL_INT(SCHEMA_CHECK_OK,               static_checkTexts(SCHEMA_CHECK_UNION_SCHEMA, R"({"g":"s"})"));
+  TEST_ASSERT_EQUAL_INT(SCHEMA_CHECK_MISSING_REQUIRED, static_checkTexts(SCHEMA_CHECK_UNION_SCHEMA, R"({"g":{"available":false}})"));
+  TEST_ASSERT_EQUAL_INT(SCHEMA_CHECK_OK,               static_checkTexts(SCHEMA_CHECK_UNION_SCHEMA, R"({"g":{"id":"GHSA-1","list":[1,2]}})"));
+  TEST_ASSERT_EQUAL_INT(SCHEMA_CHECK_OK,               static_checkTexts(R"({"type":["array","string"],"items":{"type":"integer"}})", R"("s")"));
+  TEST_ASSERT_EQUAL_INT(SCHEMA_CHECK_WRONG_TYPE,       static_checkTexts(R"({"type":["array","string"],"items":{"type":"integer"}})", R"(["s"])"));
+}
+
+void test_schema_checker_takes_an_absent_optional_property_and_not_a_required_one(void)
+{
+  const char* schema = R"({"type":"object","properties":{"a":{"type":"string"},"o":{"type":"string","description":"Absent when unset."}},"required":["a"]})";
+  TEST_ASSERT_EQUAL_INT(SCHEMA_CHECK_OK,               static_checkTexts(schema, R"({"a":"v"})"));
+  TEST_ASSERT_EQUAL_INT(SCHEMA_CHECK_MISSING_REQUIRED, static_checkTexts(schema, R"({"o":"v"})"));
+  TEST_ASSERT_EQUAL_INT(SCHEMA_CHECK_OK,               static_checkTexts(schema, R"({"a":"v","o":"w"})"));
+}
+
+void test_schema_checker_refuses_additional_properties_that_is_not_a_schema(void)
+{
+  TEST_ASSERT_EQUAL_INT(SCHEMA_CHECK_BAD_SCHEMA, static_checkTexts(R"({"type":"object","additionalProperties":false})", "{}"));
+  TEST_ASSERT_EQUAL_INT(SCHEMA_CHECK_BAD_SCHEMA, static_checkTexts(R"({"type":"object","additionalProperties":true})", "{}"));
+  TEST_ASSERT_EQUAL_INT(SCHEMA_CHECK_BAD_SCHEMA, static_checkTexts(R"({"type":"object","additionalProperties":"integer"})", "{}"));
 }
 
 void test_rest_and_mcp_charge_one_price_for_every_accepted_parity_call(void)
@@ -17394,7 +22078,7 @@ void test_watchlist_events_rest_body_holds_items_and_domains(void)
     R"x("domains":{"example.com":{"registered_domain":"example.com","dns_presence":"found","ns":["ns1.example.org"],"mx":["10 mx.example.com"],)x"
       R"x("ip_address_reachability":"public","cname_takeover":"none","email_auth_failing":{"dmarc_record":"fail","dmarc_policy":"warn"}}},)x"
     R"x("advisories":{"GHSA-p6mc-m468-83gw":{"source":"ghsa","aliases":["CVE-2020-8203"]}},)x"
-    R"x("attribution":[{"source":"endoflife.date","license":"MIT"},{"source":"ghsa","license":"CC-BY-4.0"}],"credits":{"charged":1,"remaining":10}})x";
+    R"x("attribution":)x" WATCHLISTEVENTS_STUB_ATTRIBUTION R"x(,"credits":{"charged":1,"remaining":10}})x";
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, expected), buf);
   TEST_ASSERT_EQUAL_INT(1, g_stub_WATCHLISTEVENTS_call_count);
   TEST_ASSERT_EQUAL_INT(1, g_stub_WATCHLISTEVENTSResultFree_call_count);
@@ -18216,6 +22900,181 @@ void test_ip_lookup_pro_slots_follow_the_stored_keys_and_the_vendors(void)
       TEST_ASSERT_EQUAL_STRING_MESSAGE("8.8.8.8", g_stub_ABUSEIPDB_last_ip, name);
     }
   }
+}
+
+static void static_IPLOOKUPBranchFeedsUnloaded(IPLOOKUPRecord_t* record)
+{
+  record->m_asn                  = 0;
+  record->ma_asnName[0]          = '\0';
+  record->ma_asnCountry[0]       = '\0';
+  record->ma_geoCountry[0]       = '\0';
+  record->ma_cloudProvider[0]    = '\0';
+  record->ma_cloudService[0]     = '\0';
+  record->ma_crawler[0]          = '\0';
+  record->m_isCdn                = false;
+  record->m_isDatacenter         = false;
+  record->m_isTorExit            = false;
+  record->m_isAsnFeedLoaded      = false;
+  record->m_isGeoFeedLoaded      = false;
+  record->m_isCloudFeedLoaded    = false;
+  record->m_isTorFeedLoaded      = false;
+  record->m_isDropListFeedLoaded = false;
+  record->m_isCrawlerFeedLoaded  = false;
+  free(record->mp_listedOn);
+  record->mp_listedOn = NULL;
+}
+
+static void static_IPLOOKUPBranchCrawlerUnloaded(IPLOOKUPRecord_t* record)
+{
+  record->ma_crawler[0]         = '\0';
+  record->m_isCrawlerFeedLoaded = false;
+}
+
+static void static_IPLOOKUPBranchNothingHolds(IPLOOKUPRecord_t* record)
+{
+  record->m_asn               = 0;
+  record->ma_asnName[0]       = '\0';
+  record->ma_asnCountry[0]    = '\0';
+  record->ma_geoCountry[0]    = '\0';
+  record->ma_cloudProvider[0] = '\0';
+  record->ma_cloudService[0]  = '\0';
+  record->ma_crawler[0]       = '\0';
+  record->m_isCdn             = false;
+  record->m_isDatacenter      = false;
+  record->m_isTorExit         = true;
+  free(record->mp_listedOn);
+  record->mp_listedOn = strdup("[]");
+  TEST_ASSERT_NOT_NULL(record->mp_listedOn);
+}
+
+#define IPLOOKUP_BRANCH_MISSING_SLOT \
+  R"({"available":false,"reason":"vendor_key_missing","action_url":"https://api.contrastcyber.com/privacy_my_data","action_tool":"privacy_my_data"})"
+#define IPLOOKUP_BRANCH_REJECTED_SLOT \
+  R"({"available":false,"reason":"vendor_key_rejected","action_url":"https://api.contrastcyber.com/privacy_my_data","action_tool":"privacy_my_data"})"
+
+typedef struct {
+  const char*          mp_label;
+  RequestTier_t        m_tier;
+  void               (*m_changeRecord)(IPLOOKUPRecord_t* record);
+  DnsAnswerStatus_t    m_ptrStatus;
+  int                  m_ptrRecordCount;
+  DnsPtrConfirmation_t m_ptrConfirmation;
+  DnsAnswerStatus_t    m_ptrForwardStatus;
+  bool                 m_isKeyed;
+  DbStatus_t           m_vendorKeysDbStatus;
+  ShodanStatus_t       m_shodan;
+  unsigned int         m_shodanRetry;
+  AbuseIpDbStatus_t    m_abuseIpDb;
+  unsigned int         m_abuseIpDbRetry;
+  bool                 m_isSparse;
+  const char*          mp_creditsMember;
+  const char*          mp_marker;
+  const char*          mp_itemMarker;
+} IpLookupBranch_t;
+
+void test_mcp_IPLOOKUP_every_branch_conforms(void)
+{
+  static_resetSeenTypes();
+  static const IpLookupBranch_t branches[] = {
+    { "every feed loaded", REQUEST_TIER_FREE, NULL,
+      DNS_ANSWER_OK, 1, DNS_PTR_CONFIRMATION_CONFIRMED, DNS_ANSWER_OK, false, DB_OK, SHODAN_OK, 0, ABUSEIPDB_OK, 0, false, TEST_CREDITS_MEMBER,
+      R"({"ip_address":"8.8.8.8","asn":13335,"asn_name":"CLOUDFLARENET","asn_country":"US","geo_country":"AU","cloud_provider":"cloudflare","cloud_service":"cdn","is_cdn":true,"is_datacenter":true,"is_tor_exit":false,"crawler":"bingbot","listed_on":[{"prefix": "1.10.16.0/20", "source": "drop",)",
+      R"("ptr":"one.one.one.one","is_ptr_forward_confirmed":true,)" IPLOOKUP_PRO_KEY_REQUIRED_SLOTS R"("unavailable":{}})" },
+    { "every feed unloaded", REQUEST_TIER_FREE, static_IPLOOKUPBranchFeedsUnloaded,
+      DNS_ANSWER_OK, 1, DNS_PTR_CONFIRMATION_CONFIRMED, DNS_ANSWER_OK, false, DB_OK, SHODAN_OK, 0, ABUSEIPDB_OK, 0, false, TEST_CREDITS_MEMBER,
+      R"({"ip_address":"8.8.8.8","asn":null,"asn_name":null,"asn_country":null,"geo_country":null,"cloud_provider":null,"cloud_service":null,"is_cdn":null,"is_datacenter":null,"is_tor_exit":null,"crawler":null,"listed_on":null,)",
+      R"("unavailable":{"asn":"not_synced","geo_country":"not_synced","cloud_provider":"not_synced","is_tor_exit":"not_synced","crawler":"not_synced","listed_on":"not_synced"}})" },
+    { "crawler lists unloaded", REQUEST_TIER_FREE, static_IPLOOKUPBranchCrawlerUnloaded,
+      DNS_ANSWER_OK, 1, DNS_PTR_CONFIRMATION_CONFIRMED, DNS_ANSWER_OK, false, DB_OK, SHODAN_OK, 0, ABUSEIPDB_OK, 0, false, TEST_CREDITS_MEMBER,
+      R"("is_tor_exit":false,"crawler":null,"listed_on":[{)",
+      R"("unavailable":{"crawler":"not_synced"}})" },
+    { "nothing holds the address", REQUEST_TIER_FREE, static_IPLOOKUPBranchNothingHolds,
+      DNS_ANSWER_OK, 1, DNS_PTR_CONFIRMATION_CONFIRMED, DNS_ANSWER_OK, false, DB_OK, SHODAN_OK, 0, ABUSEIPDB_OK, 0, false, TEST_CREDITS_MEMBER,
+      R"({"ip_address":"8.8.8.8","asn":null,"asn_name":null,"asn_country":null,"geo_country":null,"cloud_provider":null,"cloud_service":null,"is_cdn":null,"is_datacenter":false,"is_tor_exit":true,"crawler":null,"listed_on":[],)",
+      R"("unavailable":{}})" },
+    { "PTR answer failed", REQUEST_TIER_FREE, NULL,
+      DNS_ANSWER_TIMEOUT, 0, DNS_PTR_CONFIRMATION_UNKNOWN, DNS_ANSWER_OK, false, DB_OK, SHODAN_OK, 0, ABUSEIPDB_OK, 0, false, TEST_CREDITS_MEMBER,
+      R"("ptr":null,"is_ptr_forward_confirmed":null,)",
+      R"("unavailable":{"ptr":"timeout"}})" },
+    { "forward answer failed", REQUEST_TIER_FREE, NULL,
+      DNS_ANSWER_OK, 1, DNS_PTR_CONFIRMATION_UNKNOWN, DNS_ANSWER_SERVER_ERROR, false, DB_OK, SHODAN_OK, 0, ABUSEIPDB_OK, 0, false, TEST_CREDITS_MEMBER,
+      R"("ptr":"one.one.one.one","is_ptr_forward_confirmed":null,)",
+      R"("unavailable":{"is_ptr_forward_confirmed":"server_error"}})" },
+    { "not confirmed", REQUEST_TIER_FREE, NULL,
+      DNS_ANSWER_OK, 2, DNS_PTR_CONFIRMATION_NOT_CONFIRMED, DNS_ANSWER_OK, false, DB_OK, SHODAN_OK, 0, ABUSEIPDB_OK, 0, false, TEST_CREDITS_MEMBER,
+      R"("ptr":"one.one.one.one","is_ptr_forward_confirmed":false,)",
+      R"("unavailable":{}})" },
+    { "vendor keys missing", REQUEST_TIER_PRO, NULL,
+      DNS_ANSWER_OK, 1, DNS_PTR_CONFIRMATION_CONFIRMED, DNS_ANSWER_OK, false, DB_OK, SHODAN_OK, 0, ABUSEIPDB_OK, 0, false, TEST_CREDITS_MEMBER,
+      R"("reputation":)" IPLOOKUP_BRANCH_MISSING_SLOT R"(,)",
+      R"("internet_exposure":)" IPLOOKUP_BRANCH_MISSING_SLOT R"(,)" },
+    { "vendor keys rejected", REQUEST_TIER_PRO, NULL,
+      DNS_ANSWER_OK, 1, DNS_PTR_CONFIRMATION_CONFIRMED, DNS_ANSWER_OK, true, DB_OK, SHODAN_KEY_REJECTED, 0, ABUSEIPDB_KEY_REJECTED, 0, false, TEST_CREDITS_MEMBER,
+      R"("reputation":)" IPLOOKUP_BRANCH_REJECTED_SLOT R"(,)",
+      R"("internet_exposure":)" IPLOOKUP_BRANCH_REJECTED_SLOT R"(,)" },
+    { "vendors unavailable with a wait", REQUEST_TIER_PRO, NULL,
+      DNS_ANSWER_OK, 1, DNS_PTR_CONFIRMATION_CONFIRMED, DNS_ANSWER_OK, true, DB_OK, SHODAN_RATE_LIMITED, 7, ABUSEIPDB_RATE_LIMITED, 11, false, TEST_CREDITS_MEMBER,
+      R"("reputation":{"available":false,"reason":"vendor_unavailable","retry_after_seconds":11},)",
+      R"("internet_exposure":{"available":false,"reason":"vendor_unavailable","retry_after_seconds":7},)" },
+    { "vendors unavailable without a wait", REQUEST_TIER_PRO, NULL,
+      DNS_ANSWER_OK, 1, DNS_PTR_CONFIRMATION_CONFIRMED, DNS_ANSWER_OK, true, DB_OK, SHODAN_UNAVAILABLE, 0, ABUSEIPDB_UNAVAILABLE, 0, false, TEST_CREDITS_MEMBER,
+      R"("reputation":{"available":false,"reason":"vendor_unavailable"},)",
+      R"("internet_exposure":{"available":false,"reason":"vendor_unavailable"},)" },
+    { "vendor key read failed", REQUEST_TIER_PRO, NULL,
+      DNS_ANSWER_OK, 1, DNS_PTR_CONFIRMATION_CONFIRMED, DNS_ANSWER_OK, true, DB_ERROR, SHODAN_OK, 0, ABUSEIPDB_OK, 0, false, TEST_CREDITS_MEMBER,
+      R"("reputation":{"available":false,"reason":"database_error"},)",
+      R"("internet_exposure":{"available":false,"reason":"database_error"},)" },
+    { "both slots filled", REQUEST_TIER_PRO, NULL,
+      DNS_ANSWER_OK, 1, DNS_PTR_CONFIRMATION_CONFIRMED, DNS_ANSWER_OK, true, DB_OK, SHODAN_OK, 0, ABUSEIPDB_OK, 0, false, TEST_CREDITS_MEMBER,
+      R"("reputation":{"available":true,"source":"abuseipdb","abuse_confidence_score":87,"total_reports":41,"distinct_reporter_count":9,"last_reported_at":"2026-11-01T08:00:00+00:00","is_whitelisted":false,"usage_type":"Data Center/Web Hosting/Transit"},)",
+      R"("internet_exposure":{"available":true,"source":"shodan","ports":[22,8443],"vulns":["CVE-2014-0160","CVE-2021-44228"],"vulns_truncated":false,"hostnames":["h\"1.example.net"],"tags":["vpn"],"last_update":"2026-10-30T11:22:33.123456"},)" },
+    { "count query and a report without texts", REQUEST_TIER_PRO, NULL,
+      DNS_ANSWER_OK, 1, DNS_PTR_CONFIRMATION_CONFIRMED, DNS_ANSWER_OK, true, DB_OK, SHODAN_OK, 0, ABUSEIPDB_OK, 0, true, TEST_CREDITS_MEMBER,
+      R"("reputation":{"available":true,"source":"abuseipdb","abuse_confidence_score":87,"total_reports":41,"distinct_reporter_count":9,"last_reported_at":null,"is_whitelisted":null,"usage_type":null},)",
+      R"("internet_exposure":{"available":true,"source":"shodan_facets","ports":[22,8443],"vulns":["CVE-2014-0160","CVE-2021-44228"],"vulns_truncated":true,"hostnames":[],"tags":["vpn"],"last_update":null},)" },
+    { "paid with x402", REQUEST_TIER_X402, NULL,
+      DNS_ANSWER_OK, 1, DNS_PTR_CONFIRMATION_CONFIRMED, DNS_ANSWER_OK, true, DB_OK, SHODAN_OK, 0, ABUSEIPDB_OK, 0, false, TEST_PAID_CREDITS_MEMBER,
+      R"({"ip_address":"8.8.8.8","asn":13335,)",
+      IPLOOKUP_PRO_KEY_REQUIRED_SLOTS R"("unavailable":{}})" },
+  };
+  for (size_t i = 0; i < sizeof(branches) / sizeof(branches[0]); i++)
+  {
+    const IpLookupBranch_t* branch = &branches[i];
+    static_resetVendorKeyStubs();
+    static_setIpLookupVendorStubs();
+    g_stub_IPLOOKUP_status               = DB_OK;
+    g_stub_IPLOOKUP_change_record        = branch->m_changeRecord;
+    g_stub_PTR_status                    = branch->m_ptrStatus;
+    g_stub_PTR_record_count              = branch->m_ptrRecordCount;
+    g_stub_PTR_confirmation              = branch->m_ptrConfirmation;
+    g_stub_PTR_forward_status            = branch->m_ptrForwardStatus;
+    g_stub_vendor_keys_db_status         = branch->m_vendorKeysDbStatus;
+    g_stub_SHODAN_lookup_status          = branch->m_shodan;
+    g_stub_SHODAN_retry_after_seconds    = branch->m_shodanRetry;
+    g_stub_ABUSEIPDB_status              = branch->m_abuseIpDb;
+    g_stub_ABUSEIPDB_retry_after_seconds = branch->m_abuseIpDbRetry;
+    if (branch->m_isSparse)
+    {
+      g_stub_SHODAN_host.m_isFromFacets      = true;
+      g_stub_SHODAN_host.m_isVulnListCut     = true;
+      g_stub_SHODAN_host.m_hostnames.m_count = 0;
+      g_stub_SHODAN_host.ma_lastUpdate[0]    = '\0';
+      g_stub_ABUSEIPDB_report.ma_lastReportedAt[0] = '\0';
+      g_stub_ABUSEIPDB_report.m_whitelist          = ABUSEIPDB_WHITELIST_UNKNOWN;
+      g_stub_ABUSEIPDB_report.ma_usageType[0]      = '\0';
+    }
+    if (branch->m_isKeyed)
+    {
+      TEST_ASSERT_TRUE_MESSAGE(keyvault_trySeal(VENDORKEY_TEST_API_KEY_ID, "shodan", VENDORKEY_SHODAN_KEY, strlen(VENDORKEY_SHODAN_KEY), g_stub_vendor_keys.ma_shodanSealedHex), branch->mp_label);
+      TEST_ASSERT_TRUE_MESSAGE(keyvault_trySeal(VENDORKEY_TEST_API_KEY_ID, "abuseipdb", VENDORKEY_ABUSEIPDB_KEY, strlen(VENDORKEY_ABUSEIPDB_KEY), g_stub_vendor_keys.ma_abuseIpDbSealedHex), branch->mp_label);
+    }
+    static char body[RESP_BUF];
+    TEST_ASSERT_EQUAL_INT_MESSAGE(ENDPOINT_RUN_OK, static_ipLookupRun(branch->m_tier, body, sizeof(body)), branch->mp_label);
+    char* body_copy = strdup(body);
+    TEST_ASSERT_NOT_NULL_MESSAGE(body_copy, branch->mp_label);
+    static_assertBodyWithCreditsMemberConforms("ip_lookup", body_copy, branch->mp_creditsMember, branch->mp_marker, branch->mp_itemMarker, branch->mp_label);
+  }
+  static_assertToolDeclaresOnlySeenTypes("ip_lookup");
 }
 
 void test_ip_lookup_asks_each_vendor_about_the_requested_address(void)
@@ -19783,6 +24642,44 @@ void test_mcp_x402_paid_call_is_served_with_the_receipt_in_meta(void)
   static_assertNoBudgetCall();
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_usageLines, R"("tier":"x402","status":200,)"), g_usageLines);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_usageLines, R"("credit_count":1})"), g_usageLines);
+}
+
+#define X402_TEST_MCP_KEV_CALL(meta) \
+  R"({"jsonrpc":"2.0","id":21,"method":"tools/call","params":{)" meta R"("name":"kev_lookup","arguments":{"cve_id":"CVE-2021-44228"}}})"
+
+void test_mcp_x402_paid_KEVLOOKUP_structured_content_holds_only_charged(void)
+{
+  static_startX402();
+  g_stub_KEVLOOKUP_status = DB_OK;
+  char buf[RESP_BUF];
+  static_callMcpX402("", X402_TEST_MCP_KEV_CALL(X402_TEST_MCP_PAID_META), buf, false);
+  TEST_ASSERT_EQUAL_INT(1, static_countResponses(buf));
+  static_assertLine(buf, "HTTP/1.1 200 OK\r\n");
+  const char* body = static_responseBody(buf);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(0, strncmp(body, R"({"jsonrpc":"2.0","id":21,)" X402_TEST_MCP_PAID_RESULT_START, strlen(R"({"jsonrpc":"2.0","id":21,)" X402_TEST_MCP_PAID_RESULT_START)), body);
+  const char* structured_start = strstr(body, R"(,"structuredContent":{)");
+  const char* is_error         = strstr(body, R"(,"isError":false}})");
+  TEST_ASSERT_NOT_NULL_MESSAGE(structured_start, body);
+  TEST_ASSERT_TRUE_MESSAGE(is_error != NULL && is_error > structured_start, body);
+
+  static_assertStructuredConforms(body, "kev_lookup");
+  JsonReadSpan_t credits = static_memberOf(static_structuredContentOf(body, "kev_lookup"), "credits");
+  TEST_ASSERT_TRUE_MESSAGE(jsonread_isSpanEqual(credits, R"({"charged":1})"), body);
+}
+
+void test_mcp_x402_KEVLOOKUP_offer_is_unchanged(void)
+{
+  TEST_ASSERT_EQUAL_UINT(1, endpoint_findByMcpName("kev_lookup")->m_creditCost);
+  static_startX402();
+  g_stub_credit_budget_status = RATELIMIT_DENY;
+  g_stub_credit_budget_reset  = time(NULL) + 120;
+  char buf[RESP_BUF];
+  static_callMcpX402("", X402_TEST_MCP_KEV_CALL(""), buf, false);
+  TEST_ASSERT_EQUAL_INT(1, static_countResponses(buf));
+  static_assertLine(buf, "HTTP/1.1 200 OK\r\n");
+  static_assertMcpOfferNamingTheWait(buf, "21", "kev_lookup", "10000", false);
+  static_assertNoX402Call();
+  TEST_ASSERT_EQUAL_INT(0, g_stub_query_call_count);
 }
 
 void test_mcp_x402_paid_call_whose_run_fails_is_released_and_not_settled(void)
@@ -22219,6 +27116,91 @@ int main(void)
   RUN_TEST(test_rest_and_mcp_send_one_not_found_text);
   RUN_TEST(test_only_a_request_that_calls_an_upstream_service_enters);
   RUN_TEST(test_rest_and_mcp_send_one_success_body);
+  RUN_TEST(test_mcp_structured_content_conforms_to_the_listed_schema);
+  RUN_TEST(test_mcp_structured_content_is_the_text_without_its_newline);
+  RUN_TEST(test_mcp_KEVLOOKUP_null_cwes_conforms);
+  RUN_TEST(test_mcp_CWELOOKUP_null_documents_conform);
+  RUN_TEST(test_mcp_HEALTH_feed_without_last_synced_conforms);
+  RUN_TEST(test_mcp_HEALTH_no_feeds_conforms);
+  RUN_TEST(test_mcp_CVELOOKUP_every_branch_conforms);
+  RUN_TEST(test_mcp_CVELOOKUP_schema_refuses_a_product_of_the_wrong_type);
+  RUN_TEST(test_mcp_CVELOOKUPBULK_record_schema_is_the_lookup_schema);
+  RUN_TEST(test_mcp_CVESEARCH_every_branch_conforms);
+  RUN_TEST(test_mcp_CVELEADING_every_verdict_conforms);
+  RUN_TEST(test_mcp_CVETRIAGE_every_branch_conforms);
+  RUN_TEST(test_mcp_CVETRIAGEBULK_every_branch_conforms);
+  RUN_TEST(test_mcp_EPSSRISERS_every_branch_conforms);
+  RUN_TEST(test_mcp_CWELOOKUP_every_branch_conforms);
+  RUN_TEST(test_mcp_CVEPRODUCTS_every_branch_conforms);
+  RUN_TEST(test_mcp_CVERISKSCORE_every_branch_conforms);
+  RUN_TEST(test_mcp_CVEEXPLOIT_every_branch_conforms);
+  RUN_TEST(test_mcp_PRODUCTEXPOSURE_every_branch_conforms);
+  RUN_TEST(test_mcp_CPESEARCH_every_branch_conforms);
+  RUN_TEST(test_mcp_CVSSCALCULATOR_result_conforms);
+  RUN_TEST(test_mcp_PASSWORDCHECK_every_branch_conforms);
+  RUN_TEST(test_mcp_PRIVACYMYDATA_every_branch_conforms);
+  RUN_TEST(test_mcp_ASNLOOKUP_every_branch_conforms);
+  RUN_TEST(test_mcp_D3FENDFORATTACK_every_branch_conforms);
+  RUN_TEST(test_mcp_DRIVERLOOKUP_every_branch_conforms);
+  RUN_TEST(test_mcp_DRIVERLOOKUPBULK_every_branch_conforms);
+  RUN_TEST(test_mcp_PACKAGECHECK_every_branch_conforms);
+  RUN_TEST(test_mcp_PACKAGECHECKBULK_every_branch_conforms);
+  RUN_TEST(test_mcp_DNSLOOKUP_every_branch_conforms);
+  RUN_TEST(test_mcp_DNSTAKEOVERCHECK_every_branch_conforms);
+  RUN_TEST(test_mcp_EMAILADDRESSCHECK_every_branch_conforms);
+  RUN_TEST(test_mcp_EMAILAUTHCHECK_every_branch_conforms);
+  RUN_TEST(test_mcp_WHOISLOOKUP_every_branch_conforms);
+  RUN_TEST(test_mcp_WAYBACKLOOKUP_every_branch_conforms);
+  RUN_TEST(test_mcp_CERTSEARCH_every_branch_conforms);
+  RUN_TEST(test_mcp_SUBDOMAINENUM_every_branch_conforms);
+  RUN_TEST(test_mcp_SSLCHECK_every_branch_conforms);
+  RUN_TEST(test_mcp_HEADERSCHECK_every_branch_conforms);
+  RUN_TEST(test_mcp_REDIRECTCHAIN_every_branch_conforms);
+  RUN_TEST(test_mcp_WELLKNOWN_every_branch_conforms);
+  RUN_TEST(test_mcp_WATCHLISTEDIT_every_branch_conforms);
+  RUN_TEST(test_mcp_VENDORKEYEDIT_every_branch_conforms);
+  RUN_TEST(test_mcp_WATCHLISTEVENTS_every_branch_conforms);
+  RUN_TEST(test_mcp_CVESEARCH_item_schema_is_the_CVELEADING_item_schema);
+  RUN_TEST(test_mcp_CVETRIAGE_item_schema_is_the_CVETRIAGEBULK_item_schema);
+  RUN_TEST(test_mcp_CVESEARCH_item_members_are_the_CVELOOKUP_members);
+  RUN_TEST(test_mcp_CVETRIAGEBULK_counters_are_the_CVELOOKUPBULK_counters);
+  RUN_TEST(test_mcp_list_paging_members_are_one_text);
+  RUN_TEST(test_mcp_DRIVERLOOKUPBULK_match_schema_is_the_DRIVERLOOKUP_match_schema);
+  RUN_TEST(test_mcp_PACKAGECHECKBULK_advisory_texts_are_the_PACKAGECHECK_texts);
+  RUN_TEST(test_mcp_mx_item_schemas_are_one_text);
+  RUN_TEST(test_mcp_CERTSEARCH_unavailable_texts_are_the_WAYBACKLOOKUP_texts);
+  RUN_TEST(test_mcp_WELLKNOWN_issue_schemas_are_one_text);
+  RUN_TEST(test_mcp_checked_at_texts_are_one_text);
+  RUN_TEST(test_mcp_WATCHLISTEVENTS_item_schema_is_the_WATCHLISTEDIT_item_schema);
+  RUN_TEST(test_mcp_WATCHLISTEVENTS_cve_score_texts_are_the_CVETRIAGE_texts);
+  RUN_TEST(test_mcp_CVEPRODUCTS_item_schema_is_the_CVELOOKUP_product_schema);
+  RUN_TEST(test_mcp_PRODUCTEXPOSURE_top_cve_schema_is_the_CVETRIAGE_item_schema);
+  RUN_TEST(test_mcp_CVERISKSCORE_label_is_the_CVETRIAGE_label);
+  RUN_TEST(test_mcp_IPLOOKUP_asn_country_schema_is_the_ASNLOOKUP_asn_country_schema);
+  RUN_TEST(test_mcp_WATCHLISTEVENTS_previous_items_schema_is_the_current_items_schema);
+  RUN_TEST(test_mcp_PRODUCTEXPOSURE_cycle_texts_are_one_text);
+  RUN_TEST(test_mcp_optional_member_table_excuses_only_its_own_tool);
+  RUN_TEST(test_mcp_optional_member_entries_are_declared_and_not_required);
+  RUN_TEST(test_schema_checker_refuses_a_missing_second_required_member);
+  RUN_TEST(test_schema_checker_refuses_an_undeclared_member);
+  RUN_TEST(test_schema_checker_refuses_a_missing_required_member);
+  RUN_TEST(test_schema_checker_refuses_a_wrong_type);
+  RUN_TEST(test_schema_checker_refuses_a_fraction_for_an_integer);
+  RUN_TEST(test_schema_checker_refuses_an_unknown_keyword);
+  RUN_TEST(test_schema_checker_refuses_null_where_the_type_has_none);
+  RUN_TEST(test_schema_checker_refuses_a_type_the_type_array_does_not_list);
+  RUN_TEST(test_schema_checker_refuses_a_capital_exponent_for_an_integer);
+  RUN_TEST(test_schema_checker_refuses_a_schema_without_a_type);
+  RUN_TEST(test_schema_checker_refuses_items_on_a_schema_that_takes_no_array);
+  RUN_TEST(test_schema_checker_refuses_an_array_schema_without_items);
+  RUN_TEST(test_schema_checker_refuses_a_map_value_of_the_wrong_type);
+  RUN_TEST(test_schema_checker_without_additional_properties_refuses_an_unknown_key);
+  RUN_TEST(test_schema_checker_union_takes_a_string_and_an_object_and_refuses_a_number);
+  RUN_TEST(test_schema_checker_refuses_an_undeclared_member_of_an_object_form);
+  RUN_TEST(test_schema_checker_reads_properties_and_items_by_the_actual_type);
+  RUN_TEST(test_schema_checker_takes_an_absent_optional_property_and_not_a_required_one);
+  RUN_TEST(test_schema_checker_refuses_additional_properties_that_is_not_a_schema);
+  RUN_TEST(test_schema_version_is_the_sql_function_version);
   RUN_TEST(test_rest_and_mcp_charge_one_price_for_every_accepted_parity_call);
   RUN_TEST(test_rest_and_mcp_answer_a_db_error_alike);
   RUN_TEST(test_rest_and_mcp_answer_alike_without_a_database);
@@ -22277,6 +27259,8 @@ int main(void)
   RUN_TEST(test_CVEEXPLOIT_cve_not_in_local_database_is_200_with_in_kev_null);
   RUN_TEST(test_CVELOOKUP_record_over_ceiling_answers_500_once);
   RUN_TEST(test_CVELOOKUPBULK_body_over_ceiling_answers_500_once);
+  RUN_TEST(test_DRIVERLOOKUPBULK_body_just_under_ceiling_ships_whole);
+  RUN_TEST(test_DRIVERLOOKUPBULK_body_over_ceiling_answers_500_once);
   RUN_TEST(test_KEVLOOKUP_body_over_ceiling_answers_500_once);
   RUN_TEST(test_CWELOOKUP_body_over_ceiling_answers_500_once);
   RUN_TEST(test_CVEEXPLOIT_body_that_cannot_grow_answers_500_once);
@@ -22319,6 +27303,7 @@ int main(void)
   RUN_TEST(test_docs_mcp_tool_table_names_every_tool);
   RUN_TEST(test_docs_mcp_category_list_matches_code);
   RUN_TEST(test_docs_mcp_example_entry_matches_tools_list);
+  RUN_TEST(test_tools_list_element_reads_the_last_tool_whole);
   RUN_TEST(test_docs_mcp_effect_table_hints_match_tools_list);
   RUN_TEST(test_docs_mcp_effect_table_tools_match_the_rows);
   RUN_TEST(test_docs_tools_call_arguments_match_rows);
@@ -22479,6 +27464,7 @@ int main(void)
   RUN_TEST(test_vendor_key_edit_calls_upstream_only_when_a_vendor_may_be_asked);
   RUN_TEST(test_ip_lookup_without_a_pro_key_asks_no_vendor);
   RUN_TEST(test_ip_lookup_pro_slots_follow_the_stored_keys_and_the_vendors);
+  RUN_TEST(test_mcp_IPLOOKUP_every_branch_conforms);
   RUN_TEST(test_ip_lookup_asks_each_vendor_about_the_requested_address);
   RUN_TEST(test_ip_lookup_failed_vendor_key_read_is_database_error_in_both_slots);
   RUN_TEST(test_ip_lookup_row_reads_a_credit_budget_and_calls_upstream);
@@ -22544,6 +27530,8 @@ int main(void)
   RUN_TEST(test_mcp_x402_keyed_call_ignores_the_meta_payment);
   RUN_TEST(test_mcp_x402_off_keeps_the_jsonrpc_429);
   RUN_TEST(test_mcp_x402_paid_call_is_served_with_the_receipt_in_meta);
+  RUN_TEST(test_mcp_x402_paid_KEVLOOKUP_structured_content_holds_only_charged);
+  RUN_TEST(test_mcp_x402_KEVLOOKUP_offer_is_unchanged);
   RUN_TEST(test_mcp_x402_paid_call_whose_run_fails_is_released_and_not_settled);
   RUN_TEST(test_mcp_x402_call_the_gate_refuses_opens_no_payment);
   RUN_TEST(test_mcp_x402_refused_settle_is_a_new_offer_without_the_tool_content);

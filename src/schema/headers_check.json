@@ -1,0 +1,115 @@
+{
+  "type": "object",
+  "properties": {
+    "url": {
+      "type": "string",
+      "description": "It is the URL of the last request, without its query. A value longer than 500 code points is cut there, unless include_full_header_values is true."
+    },
+    "total_url_length": {
+      "type": "integer",
+      "description": "Present only when url was cut. It gives the whole length in code points."
+    },
+    "status_code": {
+      "type": "integer",
+      "description": "It is the status of the last answer. A 4xx or 5xx answer is rated too."
+    },
+    "redirect_count": {
+      "type": "integer",
+      "description": "How many redirects the fetch followed, at most 5."
+    },
+    "redirect_to": {
+      "type": "string",
+      "description": "Present only when the last answer is a redirect the fetch did not follow and it names a target. It holds that target, cut as url is."
+    },
+    "total_redirect_to_length": {
+      "type": "integer",
+      "description": "Present only when redirect_to was cut. It gives the whole length in code points."
+    },
+    "redirect_limit_reached": {
+      "type": "boolean",
+      "description": "Present only when the redirect limit stopped the fetch on the site. It is then true."
+    },
+    "checked_at": {
+      "type": "string",
+      "description": "When the check ran, in UTC, as YYYY-MM-DDTHH:MM:SSZ. A cached answer keeps the time of its own check, up to an hour old."
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "header": {
+            "type": "string",
+            "description": "It is Content-Security-Policy, Strict-Transport-Security, X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Permissions-Policy, X-XSS-Protection, Set-Cookie or Access-Control-Allow-Origin."
+          },
+          "severity": {
+            "type": "string",
+            "description": "It is high, medium or low, fixed for each rule."
+          },
+          "result": {
+            "type": "string",
+            "description": "It is pass, warn, fail, or missing when the header is absent. An absent X-XSS-Protection, Set-Cookie or Access-Control-Allow-Origin passes instead."
+          },
+          "issues": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "It lists what the rule found."
+          },
+          "value": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The header's value as the site sent it, cut as url is. null when the header is absent, and always null for Set-Cookie."
+          },
+          "total_value_length": {
+            "type": "integer",
+            "description": "Present only when value was cut. It gives the whole length in code points."
+          },
+          "cookie_count": {
+            "type": "integer",
+            "description": "Present only in the Set-Cookie finding, and always there. It counts the cookies the answer set, 0 when it set none."
+          },
+          "remediation": {
+            "type": "string",
+            "description": "Present only when result is not pass. It is a fixed text for the rule."
+          }
+        },
+        "required": [
+          "header",
+          "severity",
+          "result",
+          "issues",
+          "value"
+        ]
+      },
+      "description": "It holds one finding for each of the 9 rules, in a fixed order."
+    },
+    "credits": {
+      "type": "object",
+      "properties": {
+        "charged": {
+          "type": "integer",
+          "description": "Credits this call cost; 0 for a free tool."
+        },
+        "remaining": {
+          "type": "integer",
+          "description": "Credits left in the budget window. Absent when not paid from a credit budget."
+        }
+      },
+      "required": [
+        "charged"
+      ]
+    }
+  },
+  "required": [
+    "url",
+    "status_code",
+    "redirect_count",
+    "checked_at",
+    "findings",
+    "credits"
+  ]
+}

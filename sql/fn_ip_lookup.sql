@@ -89,8 +89,7 @@ CREATE FUNCTION api.fn_ip_lookup(p_ip inet)
            host.is_cdn                                                     AS is_cdn,
            (CASE WHEN f.cloud_feed_loaded THEN host.provider IS NOT NULL END)
              OR (CASE WHEN f.asn_feed_loaded
-                      THEN coalesce(ia.asn = ANY (ARRAY[8075, 12876, 13335, 14061, 14618, 15169, 16276, 16509, 20473,
-                                                        24940, 31898, 45102, 63949, 132203, 396982]::bigint[]), false) END)
+                      THEN EXISTS (SELECT 1 FROM public.ip_hosting_asn AS iha WHERE iha.asn = ia.asn) END)
                                                                            AS is_datacenter,
            CASE WHEN f.tor_feed_loaded
                 THEN EXISTS (SELECT 1 FROM public.ip_tor_exit AS ite WHERE ite.ip_address = p_ip) END AS is_tor_exit,

@@ -1,0 +1,591 @@
+{
+  "type": "object",
+  "properties": {
+    "total": {
+      "type": "integer",
+      "description": "Elements submitted. Equals processed + skipped + the length of not_processed."
+    },
+    "processed": {
+      "type": "integer",
+      "description": "Well-formed IDs that were looked up. Equals successful + failed."
+    },
+    "successful": {
+      "type": "integer",
+      "description": "IDs found; results holds their records."
+    },
+    "skipped": {
+      "type": "integer",
+      "description": "Elements that are not a well-formed CVE ID."
+    },
+    "failed": {
+      "type": "integer",
+      "description": "Well-formed IDs not in the database or unreadable. Counted only here, not in results."
+    },
+    "not_processed": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Well-formed IDs the credit budget did not cover. They were not looked up."
+    },
+    "results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "cve_id": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string",
+            "description": "From CVSS v3, else v4, else v2: CRITICAL, HIGH, MEDIUM, LOW, NONE (score 0.0), or UNKNOWN (no CVSS)."
+          },
+          "cvss_v3": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "Base score, 0-10. null without a v3 vector."
+          },
+          "cvss_v3_vector": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "cvss_v3_source": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Source: nvd, cna (the CVE's CNA), adp (CISA's ADP) or other (any other source). null if none recorded."
+          },
+          "cvss_v4": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "Base score, 0-10. null without a v4 vector."
+          },
+          "cvss_v4_vector": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "cvss_v4_source": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Coded as cvss_v3_source; chosen apart from it."
+          },
+          "published_time": {
+            "type": "string",
+            "description": "YYYY-MM-DD."
+          },
+          "epss_score": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "EPSS probability, 0-1, of exploitation in the next 30 days. null if unscored."
+          },
+          "epss_percentile": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "Share of scored CVEs with an equal or lower EPSS score, 0-1. null with epss_score."
+          },
+          "cwe_id": {
+            "type": "string",
+            "description": "Main CWE, such as CWE-79. Empty when none is known."
+          },
+          "cwe_source": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Source of cwe_id, coded as cvss_v3_source; null if none recorded."
+          },
+          "cwes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "in_kev": {
+            "type": "boolean"
+          },
+          "kev_date_added": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "YYYY-MM-DD it entered CISA KEV. null if not in KEV or undated."
+          },
+          "vulnerability_status": {
+            "type": "string",
+            "description": "NVD status, such as Analyzed, Modified, Deferred or Rejected. May be empty."
+          },
+          "affected_products": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "vendor": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "null when the CPE name leaves the vendor open."
+                },
+                "product": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "null when the CPE name leaves the product open."
+                },
+                "cpe_part": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "a, o or h from the CPE name: application, operating system or hardware. Absent on a cna element."
+                },
+                "versions": {
+                  "type": [
+                    "array",
+                    "null"
+                  ],
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": [
+                        "string",
+                        "number",
+                        "boolean",
+                        "null",
+                        "object",
+                        "array"
+                      ],
+                      "items": {
+                        "type": [
+                          "string",
+                          "number",
+                          "boolean",
+                          "null",
+                          "object",
+                          "array"
+                        ],
+                        "items": {
+                          "type": [
+                            "string",
+                            "number",
+                            "boolean",
+                            "null",
+                            "object"
+                          ]
+                        },
+                        "additionalProperties": {
+                          "type": [
+                            "string",
+                            "number",
+                            "boolean",
+                            "null",
+                            "object"
+                          ]
+                        }
+                      },
+                      "additionalProperties": {
+                        "type": [
+                          "string",
+                          "number",
+                          "boolean",
+                          "null",
+                          "object",
+                          "array"
+                        ],
+                        "items": {
+                          "type": [
+                            "string",
+                            "number",
+                            "boolean",
+                            "null",
+                            "object"
+                          ]
+                        },
+                        "additionalProperties": {
+                          "type": [
+                            "string",
+                            "number",
+                            "boolean",
+                            "null",
+                            "object"
+                          ]
+                        }
+                      }
+                    }
+                  },
+                  "description": "The CNA's version entries as written; null if none. Only on a cna element."
+                },
+                "is_vulnerable": {
+                  "type": "boolean"
+                },
+                "default_status": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "affected, unaffected or unknown from the CNA; null if none. Absent on an nvd element."
+                },
+                "product_source": {
+                  "type": "string",
+                  "description": "nvd, cna_cpe or cna."
+                },
+                "version_end_excluding": {
+                  "type": "string"
+                },
+                "version_end_including": {
+                  "type": "string"
+                },
+                "version_start_excluding": {
+                  "type": "string"
+                },
+                "version_start_including": {
+                  "type": "string",
+                  "description": "Absent when the range has no such bound. The same holds for each other version_* member."
+                }
+              },
+              "required": [
+                "vendor",
+                "product",
+                "is_vulnerable",
+                "product_source"
+              ]
+            },
+            "description": "The first 20 products."
+          },
+          "affected_product_count": {
+            "type": "integer",
+            "description": "All products of the CVE; affected_products holds the first 20."
+          },
+          "product_count_by_vendor": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "description": "Up to 10 vendors with the most products, and each one's count."
+          },
+          "refs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "url": {
+                  "type": "string"
+                },
+                "tags": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "url",
+                "tags"
+              ]
+            },
+            "description": "The first 20 references."
+          },
+          "ref_count": {
+            "type": "integer"
+          },
+          "poc_count": {
+            "type": "integer",
+            "description": "References tagged Exploit."
+          },
+          "vendor_advisory_count": {
+            "type": "integer",
+            "description": "References tagged Vendor Advisory."
+          },
+          "epss_trend": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "score": {
+                  "type": "number"
+                },
+                "epss_date": {
+                  "type": "string"
+                },
+                "percentile": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "score",
+                "epss_date",
+                "percentile"
+              ]
+            },
+            "description": "Daily EPSS history, newest first, up to 30 days."
+          },
+          "cve_tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Tags of the CVE record from NVD or the CNA, such as disputed."
+          },
+          "has_metasploit_module": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "null when the Metasploit feed is not loaded."
+          },
+          "metasploit_module_count": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "null when the Metasploit feed is not loaded."
+          },
+          "nuclei_templates": {
+            "type": "object",
+            "properties": {
+              "source": {
+                "type": "string",
+                "description": "Always nuclei-templates."
+              },
+              "available": {
+                "type": "boolean"
+              },
+              "reason": {
+                "type": "string",
+                "description": "not_synced; present only when available is false."
+              },
+              "count": {
+                "type": "integer",
+                "description": "All templates of the CVE; templates holds up to 5."
+              },
+              "templates": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "url": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "severity": {
+                      "type": "string"
+                    },
+                    "template_id": {
+                      "type": "string"
+                    },
+                    "template_path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "url",
+                    "name",
+                    "severity",
+                    "template_id",
+                    "template_path"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "source",
+              "available",
+              "count",
+              "templates"
+            ]
+          },
+          "description": {
+            "type": "string"
+          },
+          "ransomware_campaign": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Known or Unknown for a KEV entry. null outside KEV."
+          },
+          "ssvc": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "CISA's SSVC assessment. null when CISA has not assessed the CVE.",
+            "properties": {
+              "exploitation": {
+                "type": "string",
+                "description": "none, poc or active."
+              },
+              "automatable": {
+                "type": "string",
+                "description": "yes or no."
+              },
+              "technical_impact": {
+                "type": "string",
+                "description": "partial or total."
+              },
+              "version": {
+                "type": "string"
+              },
+              "scored_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "UTC YYYY-MM-DDTHH:MM:SSZ. null when the time is not known."
+              },
+              "mission_wellbeing": {
+                "type": "object",
+                "description": "CISA's decision per mission and well-being impact level of the system's operator. Read high if the level is unknown. Members are described under low.",
+                "properties": {
+                  "low": {
+                    "type": "object",
+                    "properties": {
+                      "decision": {
+                        "type": "string",
+                        "description": "Track, Track* (Track, watched closer), Attend or Act, least to most urgent."
+                      },
+                      "remediation_advice": {
+                        "type": "string",
+                        "description": "CISA's timeline: standard updates for Track and Track*, sooner for Attend, as soon as possible for Act."
+                      }
+                    },
+                    "required": [
+                      "decision",
+                      "remediation_advice"
+                    ]
+                  },
+                  "medium": {
+                    "type": "object",
+                    "properties": {
+                      "decision": {
+                        "type": "string"
+                      },
+                      "remediation_advice": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "decision",
+                      "remediation_advice"
+                    ]
+                  },
+                  "high": {
+                    "type": "object",
+                    "properties": {
+                      "decision": {
+                        "type": "string"
+                      },
+                      "remediation_advice": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "decision",
+                      "remediation_advice"
+                    ]
+                  }
+                },
+                "required": [
+                  "low",
+                  "medium",
+                  "high"
+                ]
+              }
+            },
+            "required": [
+              "exploitation",
+              "automatable",
+              "technical_impact",
+              "version",
+              "scored_at",
+              "mission_wellbeing"
+            ]
+          },
+          "ghsa": {
+            "type": "string",
+            "description": "Link that asks /cve_lookup for this CVE's GitHub advisory."
+          }
+        },
+        "required": [
+          "cve_id",
+          "severity",
+          "cvss_v3",
+          "cvss_v3_vector",
+          "cvss_v3_source",
+          "cvss_v4",
+          "cvss_v4_vector",
+          "cvss_v4_source",
+          "published_time",
+          "epss_score",
+          "epss_percentile",
+          "cwe_id",
+          "cwe_source",
+          "cwes",
+          "in_kev",
+          "kev_date_added",
+          "vulnerability_status",
+          "affected_products",
+          "affected_product_count",
+          "product_count_by_vendor",
+          "refs",
+          "ref_count",
+          "poc_count",
+          "vendor_advisory_count",
+          "epss_trend",
+          "cve_tags",
+          "has_metasploit_module",
+          "metasploit_module_count",
+          "nuclei_templates",
+          "description",
+          "ransomware_campaign",
+          "ssvc",
+          "ghsa"
+        ]
+      }
+    },
+    "credits": {
+      "type": "object",
+      "properties": {
+        "charged": {
+          "type": "integer",
+          "description": "Credits this call cost; 0 for a free tool."
+        },
+        "remaining": {
+          "type": "integer",
+          "description": "Credits left in the budget window. Absent when not paid from a credit budget."
+        }
+      },
+      "required": [
+        "charged"
+      ]
+    }
+  },
+  "required": [
+    "total",
+    "processed",
+    "successful",
+    "skipped",
+    "failed",
+    "not_processed",
+    "results",
+    "credits"
+  ]
+}

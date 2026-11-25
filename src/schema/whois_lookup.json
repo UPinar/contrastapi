@@ -1,0 +1,130 @@
+{
+  "type": "object",
+  "properties": {
+    "domain": {
+      "type": "string",
+      "description": "The registrable domain the server asked about."
+    },
+    "available": {
+      "type": "boolean",
+      "description": "false when the registry could not be asked. Then registered is null, and only reason and retry_after_seconds follow. It does not tell whether the domain is free to register."
+    },
+    "registered": {
+      "type": [
+        "boolean",
+        "null"
+      ],
+      "description": "true when the answer holds the registration. null when available is false. A domain that is not registered is an error, so it is never false."
+    },
+    "reason": {
+      "type": "string",
+      "description": "Present only when available is false. It is no_registry_server when no registry server is known for the TLD, or quota_exhausted when the server reached its request limit for the registry server."
+    },
+    "retry_after_seconds": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "description": "Seconds to wait before the server sends that request again. Present only when available is false. null unless reason is quota_exhausted."
+    },
+    "rdap_server": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "It is the base URL of the RDAP server that was asked. null when a WHOIS server was asked."
+    },
+    "whois_server": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "It is the host of the WHOIS server that was asked. null when an RDAP server was asked."
+    },
+    "registrar_name": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "registrar_iana_id": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "description": "null when the registration names none."
+    },
+    "created_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "An RDAP date as the server wrote it. A WHOIS date is YYYY-MM-DD or a UTC time. null when none can be read."
+    },
+    "updated_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "As created_at."
+    },
+    "expires_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "As created_at."
+    },
+    "status": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "It lists the first 16 status values."
+    },
+    "status_count": {
+      "type": "integer",
+      "description": "It counts every status value, past the first 16 too."
+    },
+    "name_servers": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "It lists the first 16 name servers."
+    },
+    "name_server_count": {
+      "type": "integer",
+      "description": "It counts every name server, past the first 16 too."
+    },
+    "dnssec_signed": {
+      "type": [
+        "boolean",
+        "null"
+      ],
+      "description": "Whether the delegation is signed with DNSSEC. null when the answer does not say."
+    },
+    "credits": {
+      "type": "object",
+      "properties": {
+        "charged": {
+          "type": "integer",
+          "description": "Credits this call cost; 0 for a free tool."
+        },
+        "remaining": {
+          "type": "integer",
+          "description": "Credits left in the budget window. Absent when not paid from a credit budget."
+        }
+      },
+      "required": [
+        "charged"
+      ]
+    }
+  },
+  "required": [
+    "domain",
+    "available",
+    "registered",
+    "credits"
+  ]
+}

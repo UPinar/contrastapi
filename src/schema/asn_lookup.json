@@ -1,0 +1,98 @@
+{
+  "type": "object",
+  "properties": {
+    "target": {
+      "type": "string",
+      "description": "The target in canonical form: the address, or AS and the number."
+    },
+    "asn": {
+      "type": "integer"
+    },
+    "asn_name": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "The name IPtoASN gives the AS."
+    },
+    "asn_country": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "The two-letter country where the AS is registered. null when IPtoASN names none."
+    },
+    "prefix": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "The IPtoASN prefix that holds the address. null for an AS target."
+    },
+    "ipv4_prefix_count": {
+      "type": "integer",
+      "description": "All IPv4 prefixes of the AS, before paging."
+    },
+    "ipv6_prefix_count": {
+      "type": "integer",
+      "description": "All IPv6 prefixes of the AS, before paging."
+    },
+    "limit": {
+      "type": "integer",
+      "description": "Most prefixes of each family on this page: the limit argument, 50 by default."
+    },
+    "offset": {
+      "type": "integer",
+      "description": "Items skipped: the offset argument, 0 by default."
+    },
+    "next_offset": {
+      "type": "integer",
+      "description": "offset plus the length of the longer list on this page. The next page starts there. When it is not below the larger of ipv4_prefix_count and ipv6_prefix_count, this page is the last."
+    },
+    "ipv4_prefixes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "This page of IPv4 prefixes in CIDR form, in address order."
+    },
+    "ipv6_prefixes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "This page of IPv6 prefixes in CIDR form, in address order."
+    },
+    "credits": {
+      "type": "object",
+      "properties": {
+        "charged": {
+          "type": "integer",
+          "description": "Credits this call cost; 0 for a free tool."
+        },
+        "remaining": {
+          "type": "integer",
+          "description": "Credits left in the budget window. Absent when not paid from a credit budget."
+        }
+      },
+      "required": [
+        "charged"
+      ]
+    }
+  },
+  "required": [
+    "target",
+    "asn",
+    "asn_name",
+    "asn_country",
+    "prefix",
+    "ipv4_prefix_count",
+    "ipv6_prefix_count",
+    "limit",
+    "offset",
+    "next_offset",
+    "ipv4_prefixes",
+    "ipv6_prefixes",
+    "credits"
+  ]
+}

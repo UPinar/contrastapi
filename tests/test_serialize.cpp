@@ -3,7 +3,6 @@
 #include <string.h>
 #include <string>
 #include <math.h>
-#include <float.h>
 #include <limits.h>
 #include <stdint.h>
 #include <time.h>
@@ -236,7 +235,7 @@ void test_PRODUCTEXPOSURE_json_shape(void)
   r.m_maxEpss        = 0.97531;
   r.m_pocBackedCount = 12;
   r.m_worstRiskScore = 96.5;
-  strncpy(r.ma_mostRecentPublished, "2024-01-15T00:00:00Z", CVELOOKUP_PUBLISHED_LEN);
+  strncpy(r.ma_mostRecentPublished, "2024-01-15", CVELOOKUP_PUBLISHED_LEN);
   strncpy(r.ma_topCves[0].ma_cveId, "CVE-2021-44228", CVELOOKUP_ID_MAX_LEN);
   r.ma_topCves[0].m_riskScore = 96.5;
   strncpy(r.ma_topCves[0].ma_label, "CRITICAL", CVERISKSCORE_LABEL_LEN);
@@ -258,7 +257,7 @@ void test_PRODUCTEXPOSURE_json_shape(void)
   TEST_ASSERT_NOT_NULL(strstr(body, R"("max_epss":0.9753)"));
   TEST_ASSERT_NOT_NULL(strstr(body, R"("poc_backed_count":12)"));
   TEST_ASSERT_NOT_NULL(strstr(body, R"("worst_risk_score":96.5)"));
-  TEST_ASSERT_NOT_NULL(strstr(body, R"("most_recent_published":"2024-01-15T00:00:00Z")"));
+  TEST_ASSERT_NOT_NULL(strstr(body, R"("most_recent_published":"2024-01-15")"));
   TEST_ASSERT_NOT_NULL(strstr(body, R"("top_cves":[)"));
   TEST_ASSERT_NOT_NULL(strstr(body, R"("cve_id":"CVE-2021-44228")"));
   TEST_ASSERT_NOT_NULL(strstr(body, R"("risk_score":96.5)"));
@@ -297,7 +296,7 @@ void test_HEALTH_serializes_every_section(void)
   char* body = static_finishJsonBuf(json_buf);
 
   TEST_ASSERT_EQUAL_STRING(
-    R"({"status":"ok","version":"2.3.1","db":{)"
+    R"({"status":"ok","version":"2.3.3","db":{)"
       R"("nvd":{"cve_count":312000,"last_added":{"cve_id":"CVE-2026-1234",)"
         R"("published_time":"2026-08-29T10:00:00Z"}},)"
       R"("kev":{"entry_count":1300,"last_added":{"cve_id":"CVE-2026-9999",)"
@@ -318,7 +317,7 @@ void test_HEALTH_null_db_serializes_unavailable_and_null_db(void)
   char* body = static_finishJsonBuf(json_buf);
 
   TEST_ASSERT_EQUAL_STRING(
-    R"({"status":"unavailable","version":"2.3.1","db":null})" "\n", body);
+    R"({"status":"unavailable","version":"2.3.3","db":null})" "\n", body);
   free(body);
 }
 
@@ -380,7 +379,7 @@ void test_HEALTH_every_string_is_escaped_through_its_own_class(void)
   char* body = static_finishJsonBuf(json_buf);
 
   TEST_ASSERT_EQUAL_STRING(
-    R"({"status":"ok","version":"2.3.1","db":{)"
+    R"({"status":"ok","version":"2.3.3","db":{)"
       R"("nvd":{"cve_count":1,"last_added":{"cve_id":"CVE-\"1","published_time":"2026\\08"}},)"
       R"("kev":{"entry_count":2,"last_added":{"cve_id":"CVE\n9","date_added":"2026\t28"}},)"
       R"("cwe":{"entry_count":3,"last_updated":{"cwe_id":"CWE\b79","updated_at":"2026)" "\\u0001" R"(27"}},)"
@@ -729,7 +728,7 @@ void test_CVESEARCH_golden_next_offset_clamped_at_int_max(void)
   TEST_ASSERT_EQUAL_STRING(
     R"({"total":2147483647,"limit":1,"offset":2147483647,"next_offset":2147483647,"results":[)"
       R"({"cve_id":"CVE-2021-44228","severity":"LOW","cvss_v3":0.0,)"
-        R"("cvss_v3_source":null,"cvss_v4":null,"cvss_v4_source":null,"epss_score":0.00000,"epss_percentile":0.00000,"in_kev":false,"kev_date_added":null,)"
+        R"("cvss_v3_source":null,"cvss_v4":null,"cvss_v4_source":null,"epss_score":null,"epss_percentile":null,"in_kev":false,"kev_date_added":null,)"
         R"("published_time":"","cwe_id":"","cwe_source":null})"
     R"(]})" "\n", body);
   free(body);
@@ -980,7 +979,7 @@ static void static_fillGoldenCwe(CWELOOKUPRecord_t* record)
   strncpy(record->ma_description, "XSS description", CWELOOKUP_DESC_MAX_LEN);
   strncpy(record->ma_likelihood, "High", CWELOOKUP_LIKELIHOOD_LEN);
   strncpy(record->ma_parentCwe, "CWE-74", CWELOOKUP_PARENT_CWE_LEN);
-  strncpy(record->ma_updatedAt, "2026-05-21T00:00:00+00:00", CWELOOKUP_UPDATED_AT_LEN);
+  strncpy(record->ma_updatedAt, "2026-05-21T00:00:00Z", CWELOOKUP_UPDATED_AT_LEN);
   record->m_cveCount = 42;
   record->m_kevCount = 3;
   record->m_avgCvss  = 6.5;
@@ -1012,7 +1011,7 @@ void test_CWELOOKUP_golden_filled_heap(void)
       R"("owasp_top10":[{"id": "A03", "name": "Injection", "year": 2021}, {"id": "A05", "name": "Injection", "year": 2025}],)"
       R"("cve_count":42,)"
       R"("kev_count":3,"avg_cvss":6.50,"avg_epss":0.0287,)"
-      R"("updated_at":"2026-05-21T00:00:00+00:00"})" "\n", body);
+      R"("updated_at":"2026-05-21T00:00:00Z"})" "\n", body);
   free(body);
 }
 
@@ -1031,8 +1030,33 @@ void test_CWELOOKUP_golden_null_heap(void)
       R"("likelihood_of_exploit":"High","mitigations":null,)"
       R"("examples":null,"parent_cwe":"CWE-74","owasp_top10":null,"cve_count":42,)"
       R"("kev_count":3,"avg_cvss":6.50,"avg_epss":0.0287,)"
-      R"("updated_at":"2026-05-21T00:00:00+00:00"})" "\n", body);
+      R"("updated_at":"2026-05-21T00:00:00Z"})" "\n", body);
   free(body);
+}
+
+void test_CWELOOKUP_avg_null_when_not_above_zero(void)
+{
+  static const struct { double m_avgCvss; double m_avgEpss; const char* mp_json; } cases[] = {
+    { 0.0,  0.0,    R"("kev_count":3,"avg_cvss":null,"avg_epss":null,"updated_at")" },
+    { 0.01, 0.0001, R"("kev_count":3,"avg_cvss":0.01,"avg_epss":0.0001,"updated_at")" },
+    { 0.0,  0.0287, R"("kev_count":3,"avg_cvss":null,"avg_epss":0.0287,"updated_at")" },
+    { 6.5,  0.0,    R"("kev_count":3,"avg_cvss":6.50,"avg_epss":null,"updated_at")" },
+    { -1.0, -0.5,   R"("kev_count":3,"avg_cvss":null,"avg_epss":null,"updated_at")" },
+    { NAN,  NAN,    R"("kev_count":3,"avg_cvss":null,"avg_epss":null,"updated_at")" },
+    { 10.0, 1.0,    R"("kev_count":3,"avg_cvss":10.00,"avg_epss":1.0000,"updated_at")" },
+  };
+  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+  {
+    CWELOOKUPRecord_t record;
+    static_fillGoldenCwe(&record);
+    record.m_avgCvss = cases[i].m_avgCvss;
+    record.m_avgEpss = cases[i].m_avgEpss;
+    JsonBuf_t* json_buf = static_newJsonBuf(JSONBUF_INITIAL_CAP, JSONBUF_DEFAULT_CEILING);
+    serialize_CWELOOKUP_response(&record, json_buf);
+    char* body = static_finishJsonBuf(json_buf);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(body, cases[i].mp_json), body);
+    free(body);
+  }
 }
 
 void test_CWELOOKUP_golden_empty_heap_matches_null_heap(void)
@@ -1058,7 +1082,7 @@ void test_CWELOOKUP_golden_empty_heap_matches_null_heap(void)
       R"("likelihood_of_exploit":"High","mitigations":null,)"
       R"("examples":null,"parent_cwe":"CWE-74","owasp_top10":null,"cve_count":42,)"
       R"("kev_count":3,"avg_cvss":6.50,"avg_epss":0.0287,)"
-      R"("updated_at":"2026-05-21T00:00:00+00:00"})" "\n", body);
+      R"("updated_at":"2026-05-21T00:00:00Z"})" "\n", body);
   free(body);
 }
 
@@ -1471,7 +1495,7 @@ void test_CVELOOKUP_golden_ransomware_null_outside_kev(void)
     R"("cvss_v3_vector":"AV:N/AC:L/PR:N","cvss_v3_source":null,"cvss_v4":null,"cvss_v4_vector":null,"cvss_v4_source":null,)"
     R"("published_time":"2021-12-10",)"
     R"("epss_score":0.97564,"epss_percentile":0.99977,"cwe_id":"CWE-917","cwe_source":null,)"
-    R"("cwes":["CWE-917"],"in_kev":false,"kev_date_added":"",)"
+    R"("cwes":["CWE-917"],"in_kev":false,"kev_date_added":null,)"
     R"("vulnerability_status":"Analyzed",)"
     R"("affected_products":[],"affected_product_count":356,"product_count_by_vendor":{},)"
     R"("refs":[],"ref_count":52,"poc_count":22,"vendor_advisory_count":3,)"
@@ -1561,6 +1585,43 @@ void test_CVELOOKUP_booleans_follow_their_own_fields(void)
   body = static_finishJsonBuf(json_buf);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(body, R"("in_kev":true,)"), body);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(body, R"("has_metasploit_module":false,)"), body);
+  free(body);
+}
+
+void test_CVELOOKUP_kev_date_added_null_outside_kev(void)
+{
+  static const char* const NULL_FORM = R"("in_kev":false,"kev_date_added":null,"vulnerability_status":"Analyzed",)";
+  static const char* const DATE_FORM = R"("in_kev":true,"kev_date_added":"2024-03-15","vulnerability_status":"Analyzed",)";
+  CVELOOKUPRecord_t items[2];
+  static_fillGoldenLookup(&items[0], "CVE-2021-44228");
+  items[0].m_inKev              = false;
+  items[0].ma_kevDateAdded[0]   = '\0';
+  static_fillGoldenLookup(&items[1], "CVE-2024-3400");
+  strncpy(items[1].ma_kevDateAdded, "2024-03-15", CVELOOKUP_PUBLISHED_LEN);
+
+  JsonBuf_t* json_buf = static_newJsonBuf(JSONBUF_INITIAL_CAP, JSONBUF_DEFAULT_CEILING);
+  serialize_CVELOOKUP_response(&items[0], json_buf);
+  char* body = static_finishJsonBuf(json_buf);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(body, NULL_FORM), body);
+  free(body);
+
+  json_buf = static_newJsonBuf(JSONBUF_INITIAL_CAP, JSONBUF_DEFAULT_CEILING);
+  serialize_CVELOOKUP_response(&items[1], json_buf);
+  body = static_finishJsonBuf(json_buf);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(body, DATE_FORM), body);
+  free(body);
+
+  CVELOOKUPBULKResult_t results;
+  memset(&results, 0, sizeof(results));
+  results.m_total      = 2;
+  results.m_processed  = 2;
+  results.m_successful = 2;
+  results.mp_items     = items;
+  json_buf = static_newJsonBuf(JSONBUF_INITIAL_CAP, JSONBUF_DEFAULT_CEILING);
+  serialize_CVELOOKUPBULK_response(&results, json_buf);
+  body = static_finishJsonBuf(json_buf);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(1, static_countOccurrences(body, NULL_FORM), body);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(1, static_countOccurrences(body, DATE_FORM), body);
   free(body);
 }
 
@@ -2453,8 +2514,8 @@ void test_PRODUCTEXPOSURE_golden_no_top_cves(void)
   TEST_ASSERT_EQUAL_STRING(
     R"({"vendor":"cisco","product":"ios","exposure":{)"
       R"("total_cves":0,"critical":0,"high":0,"medium":0,"low":0,"kev_count":0,)"
-      R"("max_cvss":0.0,"avg_cvss":0.00,"max_epss":0.0000,"poc_backed_count":0,)"
-      R"("worst_risk_score":0.0,"most_recent_published":""},)"
+      R"("max_cvss":null,"avg_cvss":null,"max_epss":null,"poc_backed_count":0,)"
+      R"("worst_risk_score":0.0,"most_recent_published":null},)"
       PRODUCT_FILTER_NOTE_GOLDEN
       R"("top_cves":[],"eol":null})" "\n", body);
   free(body);
@@ -2475,7 +2536,7 @@ void test_PRODUCTEXPOSURE_envelope_strings_are_escaped(void)
   TEST_ASSERT_EQUAL_STRING(
     R"({"vendor":"ci\"sco","product":"i\\os","exposure":{)"
       R"("total_cves":0,"critical":0,"high":0,"medium":0,"low":0,"kev_count":0,)"
-      R"("max_cvss":0.0,"avg_cvss":0.00,"max_epss":0.0000,"poc_backed_count":0,)"
+      R"("max_cvss":null,"avg_cvss":null,"max_epss":null,"poc_backed_count":0,)"
       R"("worst_risk_score":0.0,"most_recent_published":"2024\"01"},)"
       PRODUCT_FILTER_NOTE_GOLDEN
       R"("top_cves":[],"eol":null})" "\n", body);
@@ -2499,7 +2560,7 @@ void test_PRODUCTEXPOSURE_golden_two_top_cves(void)
   record.m_maxEpss        = 0.97531;
   record.m_pocBackedCount = 12;
   record.m_worstRiskScore = 96.5;
-  strncpy(record.ma_mostRecentPublished, "2024-01-15T00:00:00Z", CVELOOKUP_PUBLISHED_LEN);
+  strncpy(record.ma_mostRecentPublished, "2024-01-15", CVELOOKUP_PUBLISHED_LEN);
   static_fillGoldenTriagePair(record.ma_topCves);
   record.m_topCveCount = 2;
 
@@ -2511,11 +2572,92 @@ void test_PRODUCTEXPOSURE_golden_two_top_cves(void)
     R"({"vendor":"cisco","product":"ios","exposure":{)"
       R"("total_cves":613,"critical":10,"high":20,"medium":8,"low":4,"kev_count":38,)"
       R"("max_cvss":10.0,"avg_cvss":6.42,"max_epss":0.9753,"poc_backed_count":12,)"
-      R"("worst_risk_score":96.5,"most_recent_published":"2024-01-15T00:00:00Z"},)"
+      R"("worst_risk_score":96.5,"most_recent_published":"2024-01-15"},)"
       PRODUCT_FILTER_NOTE_GOLDEN
       R"("top_cves":[)"
     CVETRIAGE_GOLDEN_ITEM_PAIR
     R"(],"eol":null})" "\n", body);
+  free(body);
+}
+
+#define PRODUCTEXPOSURE_SCORED_MAX_CVSS  R"("max_cvss":9.8,)"
+#define PRODUCTEXPOSURE_SCORED_AVG_CVSS  R"("avg_cvss":6.42,)"
+#define PRODUCTEXPOSURE_SCORED_MAX_EPSS  R"("max_epss":0.9753,)"
+#define PRODUCTEXPOSURE_SCORED_PUBLISHED R"("most_recent_published":"2024-01-15"})"
+
+void test_PRODUCTEXPOSURE_each_missing_value_is_null_alone(void)
+{
+  static const struct {
+    const char* mp_label;
+    bool        m_isMaxCvssSet;
+    bool        m_isAvgCvssSet;
+    bool        m_isMaxEpssSet;
+    bool        m_isPublishedSet;
+    const char* mp_expected;
+  } cases[] = {
+    { "every value set",       true,  true,  true,  true,
+      PRODUCTEXPOSURE_SCORED_MAX_CVSS PRODUCTEXPOSURE_SCORED_AVG_CVSS PRODUCTEXPOSURE_SCORED_MAX_EPSS
+      R"("poc_backed_count":12,"worst_risk_score":96.5,)" PRODUCTEXPOSURE_SCORED_PUBLISHED },
+    { "max_cvss missing",      false, true,  true,  true,
+      R"("max_cvss":null,)" PRODUCTEXPOSURE_SCORED_AVG_CVSS PRODUCTEXPOSURE_SCORED_MAX_EPSS
+      R"("poc_backed_count":12,"worst_risk_score":96.5,)" PRODUCTEXPOSURE_SCORED_PUBLISHED },
+    { "avg_cvss missing",      true,  false, true,  true,
+      PRODUCTEXPOSURE_SCORED_MAX_CVSS R"("avg_cvss":null,)" PRODUCTEXPOSURE_SCORED_MAX_EPSS
+      R"("poc_backed_count":12,"worst_risk_score":96.5,)" PRODUCTEXPOSURE_SCORED_PUBLISHED },
+    { "max_epss missing",      true,  true,  false, true,
+      PRODUCTEXPOSURE_SCORED_MAX_CVSS PRODUCTEXPOSURE_SCORED_AVG_CVSS R"("max_epss":null,)"
+      R"("poc_backed_count":12,"worst_risk_score":96.5,)" PRODUCTEXPOSURE_SCORED_PUBLISHED },
+    { "most_recent_published missing", true, true, true, false,
+      PRODUCTEXPOSURE_SCORED_MAX_CVSS PRODUCTEXPOSURE_SCORED_AVG_CVSS PRODUCTEXPOSURE_SCORED_MAX_EPSS
+      R"("poc_backed_count":12,"worst_risk_score":96.5,"most_recent_published":null})" },
+  };
+  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+  {
+    PRODUCTEXPOSURERecord_t record;
+    memset(&record, 0, sizeof(record));
+    strncpy(record.ma_vendor, "cisco", CVESEARCH_VENDOR_LEN);
+    strncpy(record.ma_product, "ios", CVESEARCH_PRODUCT_LEN);
+    record.m_totalCveCount  = 42;
+    record.m_pocBackedCount = 12;
+    record.m_worstRiskScore = 96.5;
+    record.m_maxCvss        = cases[i].m_isMaxCvssSet ? 9.8 : 0.0;
+    record.m_avgCvss        = cases[i].m_isAvgCvssSet ? 6.42 : 0.0;
+    record.m_maxEpss        = cases[i].m_isMaxEpssSet ? 0.97531 : 0.0;
+    if (cases[i].m_isPublishedSet)
+      strncpy(record.ma_mostRecentPublished, "2024-01-15", CVELOOKUP_PUBLISHED_LEN);
+
+    JsonBuf_t* json_buf = static_newJsonBuf(JSONBUF_INITIAL_CAP, JSONBUF_DEFAULT_CEILING);
+    serialize_PRODUCTEXPOSURE_response(&record, json_buf);
+    char* body = static_finishJsonBuf(json_buf);
+
+    char expected[1024];
+    int written = snprintf(expected, sizeof(expected),
+      R"({"vendor":"cisco","product":"ios","exposure":{)"
+      R"("total_cves":42,"critical":0,"high":0,"medium":0,"low":0,"kev_count":0,%s,)"
+      PRODUCT_FILTER_NOTE_GOLDEN
+      R"("top_cves":[],"eol":null})" "\n", cases[i].mp_expected);
+    TEST_ASSERT_TRUE(written > 0 && (size_t)written < sizeof(expected));
+    TEST_ASSERT_EQUAL_STRING_MESSAGE(expected, body, cases[i].mp_label);
+    free(body);
+  }
+}
+
+void test_PRODUCTEXPOSURE_smallest_positive_values_are_numbers(void)
+{
+  PRODUCTEXPOSURERecord_t record;
+  memset(&record, 0, sizeof(record));
+  strncpy(record.ma_vendor, "cisco", CVESEARCH_VENDOR_LEN);
+  strncpy(record.ma_product, "ios", CVESEARCH_PRODUCT_LEN);
+  record.m_totalCveCount = 1;
+  record.m_maxCvss       = 0.1;
+  record.m_avgCvss       = 0.1;
+  record.m_maxEpss       = 0.0001;
+
+  JsonBuf_t* json_buf = static_newJsonBuf(JSONBUF_INITIAL_CAP, JSONBUF_DEFAULT_CEILING);
+  serialize_PRODUCTEXPOSURE_response(&record, json_buf);
+  char* body = static_finishJsonBuf(json_buf);
+
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(body, R"("max_cvss":0.1,"avg_cvss":0.10,"max_epss":0.0001,)"), body);
   free(body);
 }
 
@@ -2543,8 +2685,8 @@ static void static_newEolRecord(PRODUCTEXPOSURERecord_t* record)
 #define PRODUCTEXPOSURE_GOLDEN_HEAD \
   R"({"vendor":"cisco","product":"ios","exposure":{)" \
     R"("total_cves":0,"critical":0,"high":0,"medium":0,"low":0,"kev_count":0,)" \
-    R"("max_cvss":0.0,"avg_cvss":0.00,"max_epss":0.0000,"poc_backed_count":0,)" \
-    R"("worst_risk_score":0.0,"most_recent_published":""},)" \
+    R"("max_cvss":null,"avg_cvss":null,"max_epss":null,"poc_backed_count":0,)" \
+    R"("worst_risk_score":0.0,"most_recent_published":null},)" \
     PRODUCT_FILTER_NOTE_GOLDEN \
     R"("top_cves":[],)"
 
@@ -2879,7 +3021,7 @@ void test_CWELOOKUP_golden_mixed_heap_states(void)
       R"("likelihood_of_exploit":"High","mitigations":null,)"
       R"("examples":["CVE-2024-1234"],"parent_cwe":"CWE-74","owasp_top10":[],"cve_count":42,)"
       R"("kev_count":3,"avg_cvss":6.50,"avg_epss":0.0287,)"
-      R"("updated_at":"2026-05-21T00:00:00+00:00"})" "\n", body);
+      R"("updated_at":"2026-05-21T00:00:00Z"})" "\n", body);
   free(body);
 }
 
@@ -5219,11 +5361,11 @@ void test_CVELEADING_clamps_nonfinite_top_epss(void)
   char* body = static_finishJsonBuf(json_buf);
 
   TEST_ASSERT_EQUAL_STRING(
-    R"({"count":1,"total":5,"limit":10,"verdict":"low",)"
-      R"("summary":"1 CVE ranked by exploitation probability; CVE-2024-3400 leads at 0.0% (EPSS, next 30 days). 0 in CISA KEV.",)"
+    R"({"count":1,"total":5,"limit":10,"verdict":"unknown",)"
+      R"("summary":"1 CVE ranked by exploitation probability; CVE-2024-3400 leads; it has no EPSS score. 0 in CISA KEV.",)"
       R"("results":[)"
       R"({"cve_id":"CVE-2024-3400","severity":"HIGH","cvss_v3":8.5,)"
-        R"("cvss_v3_source":null,"cvss_v4":null,"cvss_v4_source":null,"epss_score":0.00000,"epss_percentile":0.85000,"in_kev":false,"kev_date_added":null,)"
+        R"("cvss_v3_source":null,"cvss_v4":null,"cvss_v4_source":null,"epss_score":null,"epss_percentile":null,"in_kev":false,"kev_date_added":null,)"
         R"("published_time":"2024-04-12","cwe_id":"CWE-77","cwe_source":null})"
     R"(]})" "\n", body);
   free(body);
@@ -5273,11 +5415,11 @@ void test_CVELEADING_clamps_negative_and_infinite_item_fields(void)
   char* body = static_finishJsonBuf(json_buf);
 
   TEST_ASSERT_EQUAL_STRING(
-    R"({"count":1,"total":5,"limit":10,"verdict":"low",)"
-      R"("summary":"1 CVE ranked by exploitation probability; CVE-2024-3400 leads at 0.0% (EPSS, next 30 days). 0 in CISA KEV.",)"
+    R"({"count":1,"total":5,"limit":10,"verdict":"unknown",)"
+      R"("summary":"1 CVE ranked by exploitation probability; CVE-2024-3400 leads; it has no EPSS score. 0 in CISA KEV.",)"
       R"("results":[)"
       R"({"cve_id":"CVE-2024-3400","severity":"HIGH","cvss_v3":0.0,)"
-        R"("cvss_v3_source":null,"cvss_v4":null,"cvss_v4_source":null,"epss_score":0.00000,"epss_percentile":0.00000,"in_kev":false,"kev_date_added":null,)"
+        R"("cvss_v3_source":null,"cvss_v4":null,"cvss_v4_source":null,"epss_score":null,"epss_percentile":null,"in_kev":false,"kev_date_added":null,)"
         R"("published_time":"2024-04-12","cwe_id":"CWE-77","cwe_source":null})"
     R"(]})" "\n", body);
   free(body);
@@ -5300,11 +5442,11 @@ void test_CVELEADING_clamps_infinite_top_epss_drives_verdict(void)
   char* body = static_finishJsonBuf(json_buf);
 
   TEST_ASSERT_EQUAL_STRING(
-    R"({"count":1,"total":5,"limit":10,"verdict":"low",)"
-      R"("summary":"1 CVE ranked by exploitation probability; CVE-2024-3400 leads at 0.0% (EPSS, next 30 days). 0 in CISA KEV.",)"
+    R"({"count":1,"total":5,"limit":10,"verdict":"unknown",)"
+      R"("summary":"1 CVE ranked by exploitation probability; CVE-2024-3400 leads; it has no EPSS score. 0 in CISA KEV.",)"
       R"("results":[)"
       R"({"cve_id":"CVE-2024-3400","severity":"HIGH","cvss_v3":0.0,)"
-        R"("cvss_v3_source":null,"cvss_v4":null,"cvss_v4_source":null,"epss_score":0.00000,"epss_percentile":0.85000,"in_kev":false,"kev_date_added":null,)"
+        R"("cvss_v3_source":null,"cvss_v4":null,"cvss_v4_source":null,"epss_score":null,"epss_percentile":null,"in_kev":false,"kev_date_added":null,)"
         R"("published_time":"2024-04-12","cwe_id":"CWE-77","cwe_source":null})"
     R"(]})" "\n", body);
   free(body);
@@ -5327,11 +5469,11 @@ void test_CVELEADING_clamps_negative_zero_to_positive_zero(void)
   char* body = static_finishJsonBuf(json_buf);
 
   TEST_ASSERT_EQUAL_STRING(
-    R"({"count":1,"total":5,"limit":10,"verdict":"low",)"
-      R"("summary":"1 CVE ranked by exploitation probability; CVE-2024-3400 leads at 0.0% (EPSS, next 30 days). 0 in CISA KEV.",)"
+    R"({"count":1,"total":5,"limit":10,"verdict":"unknown",)"
+      R"("summary":"1 CVE ranked by exploitation probability; CVE-2024-3400 leads; it has no EPSS score. 0 in CISA KEV.",)"
       R"("results":[)"
       R"({"cve_id":"CVE-2024-3400","severity":"HIGH","cvss_v3":0.0,)"
-        R"("cvss_v3_source":null,"cvss_v4":null,"cvss_v4_source":null,"epss_score":0.00000,"epss_percentile":0.42000,"in_kev":false,"kev_date_added":null,)"
+        R"("cvss_v3_source":null,"cvss_v4":null,"cvss_v4_source":null,"epss_score":null,"epss_percentile":null,"in_kev":false,"kev_date_added":null,)"
         R"("published_time":"2024-04-12","cwe_id":"CWE-77","cwe_source":null})"
     R"(]})" "\n", body);
   free(body);
@@ -5445,7 +5587,7 @@ void test_CVELEADING_envelope_summary_escapes_the_repeated_cve_id(void)
   free(body);
 }
 
-void test_CVESEARCH_publishes_out_of_range_epss_unclamped(void)
+void test_CVESEARCH_clamps_out_of_range_epss(void)
 {
   CveListItem_t item;
   memset(&item, 0, sizeof(item));
@@ -5471,7 +5613,7 @@ void test_CVESEARCH_publishes_out_of_range_epss_unclamped(void)
   TEST_ASSERT_EQUAL_STRING(
     R"({"total":1,"limit":20,"offset":0,"next_offset":1,"results":[)"
       R"({"cve_id":"CVE-2021-44228","severity":"CRITICAL","cvss_v3":10.0,)"
-        R"("cvss_v3_source":null,"cvss_v4":null,"cvss_v4_source":null,"epss_score":1.50000,"epss_percentile":1.25000,"in_kev":true,"kev_date_added":null,)"
+        R"("cvss_v3_source":null,"cvss_v4":null,"cvss_v4_source":null,"epss_score":1.00000,"epss_percentile":1.00000,"in_kev":true,"kev_date_added":null,)"
         R"("published_time":"2021-12-10","cwe_id":"CWE-917","cwe_source":null})"
     R"(]})" "\n", body);
   free(body);
@@ -5491,8 +5633,8 @@ void test_list_widest_full_page_stays_under_the_default_ceiling(void)
     items[i].m_hasCvssV3      = true;
     items[i].m_cvssV4         = 10.0;
     items[i].m_hasCvssV4      = true;
-    items[i].m_epssScore      = -DBL_MAX;
-    items[i].m_epssPercentile = -DBL_MAX;
+    items[i].m_epssScore      = 1.0;
+    items[i].m_epssPercentile = 1.0;
   }
   CveListResult_t results = { .m_total = CVE_LIST_MAX_LIMIT, .m_count = CVE_LIST_MAX_LIMIT, .mp_items = items };
   CVESEARCHParams_t search_params;
@@ -5616,6 +5758,197 @@ void test_CVELEADING_widest_summary_sentence_fits_its_buffer(void)
   char expected[256];
   snprintf(expected, sizeof(expected), "\"summary\":\"%s\",", sentence);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(body, expected), body);
+  free(body);
+
+  items[0].m_epssScore = 0.0;
+  json_buf = static_newJsonBuf(JSONBUF_INITIAL_CAP, JSONBUF_DEFAULT_CEILING);
+  serialize_CVELEADING_response(&results, &params, json_buf);
+  body = static_finishJsonBuf(json_buf);
+
+  const char* unscored_sentence = "10 CVEs ranked by exploitation probability; CVE-2024-123456789012345 leads; it has no EPSS score. 10 in CISA KEV.";
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(113, strlen(unscored_sentence), "fixture no longer builds the widest no-score sentence");
+  snprintf(expected, sizeof(expected), "\"summary\":\"%s\",", unscored_sentence);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(body, expected), body);
+  free(body);
+}
+
+static const struct
+{
+  double      m_score;
+  double      m_percentile;
+  const char* mp_score;
+  const char* mp_percentile;
+} g_epssPairCases[] = {
+  { 0.0,       0.0,       "null",    "null"    },
+  { 0.0,       0.85,      "null",    "null"    },
+  { NAN,       0.85,      "null",    "null"    },
+  { -0.0,      0.42,      "null",    "null"    },
+  { -0.5,      0.85,      "null",    "null"    },
+  { -INFINITY, 0.85,      "null",    "null"    },
+  { INFINITY,  0.85,      "null",    "null"    },
+  { 1.5,       1.25,      "1.00000", "1.00000" },
+  { 0.3,       0.85,      "0.30000", "0.85000" },
+  { 0.00001,   0.02,      "0.00001", "0.02000" },
+  { 0.3,       -0.5,      "0.30000", "0.00000" },
+  { 0.3,       NAN,       "0.30000", "0.00000" },
+  { 0.97564,   0.99977,   "0.97564", "0.99977" },
+};
+
+static void static_epssPairCaseText(char* text, size_t text_size, const char* before, size_t case_index, const char* after)
+{
+  int written = snprintf(text, text_size, R"(%s"epss_score":%s,"epss_percentile":%s,%s)", before,
+                         g_epssPairCases[case_index].mp_score, g_epssPairCases[case_index].mp_percentile, after);
+  TEST_ASSERT_TRUE(written > 0 && (size_t)written < text_size);
+}
+
+void test_CVELOOKUP_epss_pair_is_null_without_a_score(void)
+{
+  for (size_t i = 0; i < sizeof(g_epssPairCases) / sizeof(g_epssPairCases[0]); i++)
+  {
+    CVELOOKUPRecord_t record;
+    static_fillGoldenLookup(&record, "CVE-2021-44228");
+    record.m_epssScore      = g_epssPairCases[i].m_score;
+    record.m_epssPercentile = g_epssPairCases[i].m_percentile;
+
+    JsonBuf_t* json_buf = static_newJsonBuf(JSONBUF_INITIAL_CAP, JSONBUF_DEFAULT_CEILING);
+    serialize_CVELOOKUP_response(&record, json_buf);
+    char* body = static_finishJsonBuf(json_buf);
+
+    char expected[256];
+    static_epssPairCaseText(expected, sizeof(expected), R"("published_time":"2021-12-10",)", i, R"("cwe_id":"CWE-917")");
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(body, expected), expected);
+    free(body);
+  }
+}
+
+void test_CVELOOKUPBULK_epss_pair_is_null_without_a_score(void)
+{
+  const size_t case_count = sizeof(g_epssPairCases) / sizeof(g_epssPairCases[0]);
+  for (size_t i = 0; i < case_count; i++)
+  {
+    const size_t next = (i + 1) % case_count;
+    CVELOOKUPRecord_t items[2];
+    static_fillGoldenLookup(&items[0], "CVE-2021-44228");
+    static_fillGoldenLookup(&items[1], "CVE-2024-3400");
+    items[0].m_epssScore      = g_epssPairCases[i].m_score;
+    items[0].m_epssPercentile = g_epssPairCases[i].m_percentile;
+    items[1].m_epssScore      = g_epssPairCases[next].m_score;
+    items[1].m_epssPercentile = g_epssPairCases[next].m_percentile;
+    CVELOOKUPBULKResult_t results;
+    memset(&results, 0, sizeof(results));
+    results.m_total      = 2;
+    results.m_processed  = 2;
+    results.m_successful = 2;
+    results.mp_items     = items;
+
+    JsonBuf_t* json_buf = static_newJsonBuf(JSONBUF_INITIAL_CAP, JSONBUF_DEFAULT_CEILING);
+    serialize_CVELOOKUPBULK_response(&results, json_buf);
+    char* body = static_finishJsonBuf(json_buf);
+
+    char first[256];
+    char second[256];
+    static_epssPairCaseText(first,  sizeof(first),  R"("published_time":"2021-12-10",)", i,    R"("cwe_id":"CWE-917")");
+    static_epssPairCaseText(second, sizeof(second), R"("published_time":"2021-12-10",)", next, R"("cwe_id":"CWE-917")");
+    const char* second_record = strstr(body, R"("cve_id":"CVE-2024-3400")");
+    TEST_ASSERT_NOT_NULL(second_record);
+    const char* first_pair = strstr(body, first);
+    TEST_ASSERT_NOT_NULL_MESSAGE(first_pair, first);
+    TEST_ASSERT_TRUE_MESSAGE(first_pair < second_record, first);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(second_record, second), second);
+    free(body);
+  }
+}
+
+void test_CVE_lists_write_epss_pair_null_without_a_score(void)
+{
+  for (size_t i = 0; i < sizeof(g_epssPairCases) / sizeof(g_epssPairCases[0]); i++)
+  {
+    CveListItem_t item;
+    static_fillGoldenCveListItem(&item, (GoldenCveListItem_t){
+      .mp_cveId = "CVE-2024-3400", .mp_severity = "HIGH", .m_cvssV3 = 8.5,
+      .m_epssScore = g_epssPairCases[i].m_score, .m_epssPercentile = g_epssPairCases[i].m_percentile, .m_inKev = false,
+      .mp_publishedTime = "2024-04-12", .mp_cweId = "CWE-77" });
+    CveListResult_t results = { .m_total = 1, .m_count = 1, .mp_items = &item };
+    char expected[256];
+    static_epssPairCaseText(expected, sizeof(expected), R"("cvss_v4_source":null,)", i, R"("in_kev":false)");
+
+    CVESEARCHParams_t search_params;
+    memset(&search_params, 0, sizeof(search_params));
+    search_params.m_limit = 20;
+    JsonBuf_t* search_buf = static_newJsonBuf(JSONBUF_INITIAL_CAP, JSONBUF_DEFAULT_CEILING);
+    serialize_CVESEARCH_response(&results, &search_params, search_buf);
+    char* search_body = static_finishJsonBuf(search_buf);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(search_body, expected), expected);
+    free(search_body);
+
+    CVELEADINGParams_t leading_params;
+    memset(&leading_params, 0, sizeof(leading_params));
+    leading_params.m_limit = 20;
+    JsonBuf_t* leading_buf = static_newJsonBuf(JSONBUF_INITIAL_CAP, JSONBUF_DEFAULT_CEILING);
+    serialize_CVELEADING_response(&results, &leading_params, leading_buf);
+    char* leading_body = static_finishJsonBuf(leading_buf);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(leading_body, expected), expected);
+    free(leading_body);
+  }
+}
+
+void test_CVELEADING_verdict_is_unknown_exactly_when_the_top_has_no_score(void)
+{
+  for (size_t i = 0; i < sizeof(g_epssPairCases) / sizeof(g_epssPairCases[0]); i++)
+  {
+    CveListItem_t item;
+    static_fillGoldenCveListItem(&item, (GoldenCveListItem_t){
+      .mp_cveId = "CVE-2024-3400", .mp_severity = "HIGH", .m_cvssV3 = 8.5,
+      .m_epssScore = g_epssPairCases[i].m_score, .m_epssPercentile = g_epssPairCases[i].m_percentile, .m_inKev = false,
+      .mp_publishedTime = "2024-04-12", .mp_cweId = "CWE-77" });
+    CveListResult_t results = { .m_total = 1, .m_count = 1, .mp_items = &item };
+    CVELEADINGParams_t params;
+    memset(&params, 0, sizeof(params));
+    params.m_limit = 20;
+    JsonBuf_t* json_buf = static_newJsonBuf(JSONBUF_INITIAL_CAP, JSONBUF_DEFAULT_CEILING);
+    serialize_CVELEADING_response(&results, &params, json_buf);
+    char* body = static_finishJsonBuf(json_buf);
+
+    const bool is_unscored = strcmp(g_epssPairCases[i].mp_score, "null") == 0;
+    const bool says_unknown = strstr(body, R"("verdict":"unknown")") != NULL;
+    const bool says_no_score = strstr(body, "leads; it has no EPSS score.") != NULL;
+    TEST_ASSERT_EQUAL_MESSAGE(is_unscored, says_unknown, g_epssPairCases[i].mp_score);
+    TEST_ASSERT_EQUAL_MESSAGE(is_unscored, says_no_score, g_epssPairCases[i].mp_score);
+    free(body);
+  }
+}
+
+void test_CVELEADING_golden_unknown_verdict_when_the_top_has_no_score(void)
+{
+  CveListItem_t items[2];
+  static_fillGoldenCveListItem(&items[0], (GoldenCveListItem_t){
+    .mp_cveId = "CVE-2024-3400", .mp_severity = "HIGH", .m_cvssV3 = 8.5,
+    .m_epssScore = 0.0, .m_epssPercentile = 0.85, .m_inKev = true,
+    .mp_publishedTime = "2024-04-12", .mp_cweId = "CWE-77" });
+  static_fillGoldenCveListItem(&items[1], (GoldenCveListItem_t){
+    .mp_cveId = "CVE-2021-44228", .mp_severity = "CRITICAL", .m_cvssV3 = 10.0,
+    .m_epssScore = 0.5, .m_epssPercentile = 0.9, .m_inKev = true,
+    .mp_publishedTime = "2021-12-10", .mp_cweId = "CWE-917" });
+  CveListResult_t results = { .m_total = 12, .m_count = 2, .mp_items = items };
+  CVELEADINGParams_t params;
+  memset(&params, 0, sizeof(params));
+  params.m_limit = 10;
+
+  JsonBuf_t* json_buf = static_newJsonBuf(JSONBUF_INITIAL_CAP, JSONBUF_DEFAULT_CEILING);
+  serialize_CVELEADING_response(&results, &params, json_buf);
+  char* body = static_finishJsonBuf(json_buf);
+
+  TEST_ASSERT_EQUAL_STRING(
+    R"({"count":2,"total":12,"limit":10,"verdict":"unknown",)"
+      R"("summary":"2 CVEs ranked by exploitation probability; CVE-2024-3400 leads; it has no EPSS score. 2 in CISA KEV.",)"
+      R"("results":[)"
+      R"({"cve_id":"CVE-2024-3400","severity":"HIGH","cvss_v3":8.5,)"
+        R"("cvss_v3_source":null,"cvss_v4":null,"cvss_v4_source":null,"epss_score":null,"epss_percentile":null,"in_kev":true,"kev_date_added":null,)"
+        R"("published_time":"2024-04-12","cwe_id":"CWE-77","cwe_source":null},)"
+      R"({"cve_id":"CVE-2021-44228","severity":"CRITICAL","cvss_v3":10.0,)"
+        R"("cvss_v3_source":null,"cvss_v4":null,"cvss_v4_source":null,"epss_score":0.50000,"epss_percentile":0.90000,"in_kev":true,"kev_date_added":null,)"
+        R"("published_time":"2021-12-10","cwe_id":"CWE-917","cwe_source":null})"
+    R"(]})" "\n", body);
   free(body);
 }
 
@@ -5795,7 +6128,7 @@ void test_PRODUCTEXPOSURE_top_cve_count_past_its_array_is_clamped(void)
 
 void test_registration_gate_test_count(void)
 {
-  TEST_ASSERT_EQUAL_INT_MESSAGE(362, (int)Unity.NumberOfTests,
+  TEST_ASSERT_EQUAL_INT_MESSAGE(372, (int)Unity.NumberOfTests,
     "RUN_TEST list and test definitions have drifted apart - a test may be unregistered");
 }
 
@@ -6442,7 +6775,7 @@ void test_WATCHLISTEVENTS_golden(void)
   params.m_isRepeat = false;
   WATCHLISTEVENTSEvent_t events[3];
   static_watchlistEvent(&events[0], "kev_added",              "2026-10-15T08:09:10Z", "CVE-2021-44228", false, 0.0, false, 0.0);
-  static_watchlistEvent(&events[1], "epss_changed",           "2026-10-15T08:09:11Z", "CVE-2022-12345", true,  0.4, true,  0.52345);
+  static_watchlistEvent(&events[1], "epss_above_min",         "2026-10-15T08:09:11Z", "CVE-2022-12345", true,  0.4, true,  0.52345);
   static_watchlistEvent(&events[2], "cvss_risk_band_changed", "2026-10-15T08:09:12Z", "CVE-2021-44228", true,  5.0, true,  7.5);
   WATCHLISTEVENTSAnswerItem_t items[2];
   static_answerItem(&items[0], "cve_lookup",     "CVE-2021-44228", 0, 1);
@@ -6470,13 +6803,57 @@ void test_WATCHLISTEVENTS_golden(void)
         R"x({"event":"kev_added","changed_at":"2026-10-15T08:09:10Z","cve_id":"CVE-2021-44228","previous":null,"current":null,"vendor":null,"product":null}]},)x"
       R"x({"item":{"endpoint":"cve_search","severity":"CRITICAL"},"events":[)x"
         R"x({"event":"kev_added","changed_at":"2026-10-15T08:09:10Z","cve_id":"CVE-2021-44228","previous":null,"current":null,"vendor":null,"product":null},)x"
-        R"x({"event":"epss_changed","changed_at":"2026-10-15T08:09:11Z","cve_id":"CVE-2022-12345","previous":0.40000,"current":0.52345,"vendor":null,"product":null},)x"
+        R"x({"event":"epss_above_min","changed_at":"2026-10-15T08:09:11Z","cve_id":"CVE-2022-12345","previous":0.40000,"current":0.52345,"vendor":null,"product":null},)x"
         R"x({"event":"cvss_risk_band_changed","changed_at":"2026-10-15T08:09:12Z","cve_id":"CVE-2021-44228","previous":5.00000,"current":7.50000,"vendor":null,"product":null}]})x"
     R"x(],"cves":{)x"
       R"x("CVE-2021-44228":{"risk_score":96.5,"label":"CRITICAL","in_kev":true,"kev_patch_deadline":"2021-12-24","known_ransomware":true,"has_metasploit":false,"poc_count":3},)x"
       R"x("CVE-2022-12345":{"risk_score":40.0,"label":"MEDIUM","in_kev":false,"kev_patch_deadline":null,"known_ransomware":false,"has_metasploit":true,"poc_count":12})x"
     R"x(},"domains":{},"advisories":{},"attribution":[]})x" "\n", body);
   free(body);
+}
+
+void test_WATCHLISTEVENTS_epss_previous_zero_is_null(void)
+{
+  static const struct { const char* mp_type; double m_previous; const char* mp_previous; } cases[] = {
+    { "epss_level_up",          0.0, "null"    },
+    { "epss_level_down",        0.0, "null"    },
+    { "epss_above_min",         0.0, "null"    },
+    { "epss_below_min",         0.0, "null"    },
+    { "epss_level_up",          0.3, "0.30000" },
+    { "epss_level_down",        0.3, "0.30000" },
+    { "epss_above_min",         0.3, "0.30000" },
+    { "epss_below_min",         0.3, "0.30000" },
+    { "cvss_risk_band_changed", 0.0, "0.00000" },
+    { "cvss_added",             0.0, "0.00000" },
+  };
+  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+  {
+    WATCHLISTEVENTSParams_t params;
+    memset(&params, 0, sizeof(params));
+    params.m_limit = 7;
+    WATCHLISTEVENTSEvent_t event;
+    static_watchlistEvent(&event, cases[i].mp_type, "2026-10-15T08:09:11Z", "CVE-2022-12345", true, cases[i].m_previous, true, 0.45);
+    WATCHLISTEVENTSAnswerItem_t item;
+    static_answerItem(&item, "cve_lookup", "CVE-2022-12345", 0, 1);
+    int pairs[] = { 0 };
+    WATCHLISTEVENTSResult_t result;
+    memset(&result, 0, sizeof(result));
+    result.mp_events           = &event;
+    result.m_eventCount        = 1;
+    result.mp_answerItems      = &item;
+    result.m_answerItemCount   = 1;
+    result.mp_pairEventIndexes = pairs;
+    result.m_pairCount         = 1;
+    char* body = static_WATCHLISTEVENTSBody(&params, "58", false, &result);
+
+    char expected[256];
+    int written = snprintf(expected, sizeof(expected),
+                           R"x({"event":"%s","changed_at":"2026-10-15T08:09:11Z","cve_id":"CVE-2022-12345","previous":%s,"current":0.45000,)x",
+                           cases[i].mp_type, cases[i].mp_previous);
+    TEST_ASSERT_TRUE(written > 0 && (size_t)written < sizeof(expected));
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(body, expected), expected);
+    free(body);
+  }
 }
 
 void test_WATCHLISTEVENTS_no_position_golden(void)
@@ -11610,6 +11987,7 @@ int main(void)
   RUN_TEST(test_CWELOOKUP_golden_filled_heap);
   RUN_TEST(test_CWELOOKUP_golden_null_heap);
   RUN_TEST(test_CWELOOKUP_golden_empty_heap_matches_null_heap);
+  RUN_TEST(test_CWELOOKUP_avg_null_when_not_above_zero);
   RUN_TEST(test_CVELOOKUP_golden_ghsa_hint_url);
   RUN_TEST(test_CVELOOKUP_golden_sources);
   RUN_TEST(test_CVELOOKUP_golden_metasploit_null_when_the_feed_is_not_loaded);
@@ -11620,6 +11998,7 @@ int main(void)
   RUN_TEST(test_CVELOOKUP_golden_ghsa_not_synced);
   RUN_TEST(test_CVELOOKUP_golden_ghsa_database_error);
   RUN_TEST(test_CVELOOKUP_golden_ransomware_null_outside_kev);
+  RUN_TEST(test_CVELOOKUP_kev_date_added_null_outside_kev);
   RUN_TEST(test_CVELOOKUP_cvss_v4_follows_its_vector_and_range);
   RUN_TEST(test_CVELOOKUP_golden_ssvc_object);
   RUN_TEST(test_CVELOOKUP_ssvc_without_a_time_writes_scored_at_null);
@@ -11656,6 +12035,8 @@ int main(void)
   RUN_TEST(test_PRODUCTEXPOSURE_golden_no_top_cves);
   RUN_TEST(test_PRODUCTEXPOSURE_envelope_strings_are_escaped);
   RUN_TEST(test_PRODUCTEXPOSURE_golden_two_top_cves);
+  RUN_TEST(test_PRODUCTEXPOSURE_each_missing_value_is_null_alone);
+  RUN_TEST(test_PRODUCTEXPOSURE_smallest_positive_values_are_numbers);
   RUN_TEST(test_PRODUCTEXPOSURE_golden_eol_one_cycle);
   RUN_TEST(test_PRODUCTEXPOSURE_golden_eol_cycle_without_date);
   RUN_TEST(test_PRODUCTEXPOSURE_golden_eol_lts_cycle);
@@ -11760,10 +12141,15 @@ int main(void)
   RUN_TEST(test_CVELEADING_over_ceiling_hands_back_no_body);
   RUN_TEST(test_CVESEARCH_item_escapes_every_field_through_the_shared_writer);
   RUN_TEST(test_CVELEADING_envelope_summary_escapes_the_repeated_cve_id);
-  RUN_TEST(test_CVESEARCH_publishes_out_of_range_epss_unclamped);
+  RUN_TEST(test_CVESEARCH_clamps_out_of_range_epss);
   RUN_TEST(test_list_widest_full_page_stays_under_the_default_ceiling);
   RUN_TEST(test_CVE_lists_write_cvss_v4_from_its_flag_and_range);
   RUN_TEST(test_CVE_lists_write_cvss_v3_from_its_flag_and_range);
+  RUN_TEST(test_CVELOOKUP_epss_pair_is_null_without_a_score);
+  RUN_TEST(test_CVELOOKUPBULK_epss_pair_is_null_without_a_score);
+  RUN_TEST(test_CVE_lists_write_epss_pair_null_without_a_score);
+  RUN_TEST(test_CVELEADING_verdict_is_unknown_exactly_when_the_top_has_no_score);
+  RUN_TEST(test_CVELEADING_golden_unknown_verdict_when_the_top_has_no_score);
   RUN_TEST(test_CVELEADING_widest_summary_sentence_fits_its_buffer);
   RUN_TEST(test_KEVLOOKUP_every_field_is_escaped_through_its_own_class);
   RUN_TEST(test_CWELOOKUP_every_field_is_escaped_through_its_own_class);
@@ -11893,6 +12279,7 @@ int main(void)
   RUN_TEST(test_WATCHLISTEDIT_problems_of_most_elements_fit_the_ceiling);
   RUN_TEST(test_WATCHLISTEDIT_item_writes_only_its_set_fields);
   RUN_TEST(test_WATCHLISTEVENTS_golden);
+  RUN_TEST(test_WATCHLISTEVENTS_epss_previous_zero_is_null);
   RUN_TEST(test_WATCHLISTEVENTS_no_position_golden);
   RUN_TEST(test_WATCHLISTEVENTS_cves_map_keeps_the_entry_order);
   RUN_TEST(test_WATCHLISTEVENTS_dns_events_golden);

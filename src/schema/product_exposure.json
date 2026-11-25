@@ -1,0 +1,279 @@
+{
+  "type": "object",
+  "properties": {
+    "vendor": {
+      "type": "string"
+    },
+    "product": {
+      "type": "string"
+    },
+    "exposure": {
+      "type": "object",
+      "description": "The CVEs that mark the pair vulnerable. Rejected CVEs count only with include_rejected. critical, high, medium and low count by severity, from CVSS v3, else v4, else v2. A CVE of severity NONE or UNKNOWN counts only in total_cves.",
+      "properties": {
+        "total_cves": {
+          "type": "integer",
+          "description": "CVEs that mark the pair vulnerable."
+        },
+        "critical": {
+          "type": "integer"
+        },
+        "high": {
+          "type": "integer"
+        },
+        "medium": {
+          "type": "integer"
+        },
+        "low": {
+          "type": "integer"
+        },
+        "kev_count": {
+          "type": "integer"
+        },
+        "max_cvss": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "Highest CVSS v3 base score. null if no CVE has one above 0."
+        },
+        "avg_cvss": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "Mean of the CVSS v3 base scores above 0. null if no CVE has one above 0."
+        },
+        "max_epss": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "Highest EPSS score, 0-1. null if no CVE is scored."
+        },
+        "poc_backed_count": {
+          "type": "integer",
+          "description": "CVEs for which cve_risk_score gives has_public_poc true."
+        },
+        "worst_risk_score": {
+          "type": "number",
+          "description": "Highest risk score, 0-100. 0.0 when total_cves is 0."
+        },
+        "most_recent_published": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "YYYY-MM-DD of the newest CVE. null when total_cves is 0."
+        }
+      },
+      "required": [
+        "total_cves",
+        "critical",
+        "high",
+        "medium",
+        "low",
+        "kev_count",
+        "max_cvss",
+        "avg_cvss",
+        "max_epss",
+        "poc_backed_count",
+        "worst_risk_score",
+        "most_recent_published"
+      ]
+    },
+    "product_filter_note": {
+      "type": "string",
+      "description": "Always present: an exact name match can miss CVEs."
+    },
+    "top_cves": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "cve_id": {
+            "type": "string"
+          },
+          "risk_score": {
+            "type": "number",
+            "description": "0-100, from CVSS, EPSS, CISA KEV and public exploit signals."
+          },
+          "label": {
+            "type": "string",
+            "description": "CRITICAL at 90+, HIGH at 70+, MEDIUM at 40+, else LOW."
+          }
+        },
+        "required": [
+          "cve_id",
+          "risk_score",
+          "label"
+        ]
+      },
+      "description": "At most 10 CVEs, highest risk score first."
+    },
+    "eol": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "Support dates from endoflife.date. null when the pair maps to no endoflife.date product. Then the dates are unknown. It does not mean the product is supported.",
+      "properties": {
+        "source": {
+          "type": "string",
+          "description": "Always endoflife.date."
+        },
+        "product": {
+          "type": "string",
+          "description": "The endoflife.date name of the product."
+        },
+        "url": {
+          "type": "string"
+        },
+        "cycle": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "description": "The one release cycle that the version argument, or a versioned product name such as windows_10_22h2, picks. null when none or more than one is picked.",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "eol_date": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "YYYY-MM-DD. null if the cycle has no date."
+            },
+            "is_eol": {
+              "type": "boolean",
+              "description": "true when eol_date is today or earlier. Without an eol_date, endoflife.date's own flag."
+            },
+            "is_maintained": {
+              "type": "boolean"
+            },
+            "is_lts": {
+              "type": "boolean"
+            },
+            "latest_version": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "null if endoflife.date gives none."
+            }
+          },
+          "required": [
+            "name",
+            "eol_date",
+            "is_eol",
+            "is_maintained",
+            "is_lts",
+            "latest_version"
+          ]
+        },
+        "cycle_variants": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "eol_date": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "YYYY-MM-DD. null if the cycle has no date."
+              },
+              "is_eol": {
+                "type": "boolean",
+                "description": "true when eol_date is today or earlier. Without an eol_date, endoflife.date's own flag."
+              },
+              "is_maintained": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "name",
+              "eol_date",
+              "is_eol",
+              "is_maintained"
+            ]
+          },
+          "description": "The release cycles picked when there are two or more, such as the editions of one release. null otherwise."
+        },
+        "maintained_cycles": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "eol_date": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "YYYY-MM-DD. null if the cycle has no date."
+              },
+              "is_lts": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "name",
+              "eol_date",
+              "is_lts"
+            ]
+          },
+          "description": "At most 10 cycles endoflife.date marks maintained, newest release first."
+        },
+        "maintained_cycles_truncated": {
+          "type": "boolean",
+          "description": "true when more cycles are maintained than listed."
+        }
+      },
+      "required": [
+        "source",
+        "product",
+        "url",
+        "cycle",
+        "cycle_variants",
+        "maintained_cycles",
+        "maintained_cycles_truncated"
+      ]
+    },
+    "credits": {
+      "type": "object",
+      "properties": {
+        "charged": {
+          "type": "integer",
+          "description": "Credits this call cost; 0 for a free tool."
+        },
+        "remaining": {
+          "type": "integer",
+          "description": "Credits left in the budget window. Absent when not paid from a credit budget."
+        }
+      },
+      "required": [
+        "charged"
+      ]
+    }
+  },
+  "required": [
+    "vendor",
+    "product",
+    "exposure",
+    "product_filter_note",
+    "top_cves",
+    "eol",
+    "credits"
+  ]
+}

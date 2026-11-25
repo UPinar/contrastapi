@@ -75,7 +75,9 @@ static const ServedFile_t SERVED_FILES[] = {
   { "/static/js/vendor_keys.js",       "text/javascript; charset=utf-8", "public, max-age=3600", "", "web/static/js/vendor_keys.js" },
   { "/static/js/theme-init.js",        "text/javascript; charset=utf-8", "public, max-age=3600", "", "web/static/js/theme-init.js" },
   { "/static/js/theme.js",             "text/javascript; charset=utf-8", "public, max-age=3600", "", "web/static/js/theme.js" },
-  { "/static/fonts/geist-mono.woff2",  "font/woff2",                     "public, max-age=3600", "", "web/static/fonts/geist-mono.woff2" },
+  { "/static/fonts/saira-variable.woff2","font/woff2",                     "public, max-age=3600", "", "web/static/fonts/saira-variable.woff2" },
+  { "/static/fonts/nunito-sans-variable.woff2","font/woff2",                     "public, max-age=3600", "", "web/static/fonts/nunito-sans-variable.woff2" },
+  { "/static/fonts/droid-sans-mono.woff2","font/woff2",                     "public, max-age=3600", "", "web/static/fonts/droid-sans-mono.woff2" },
   { "/static/favicon.svg",             "image/svg+xml",                  "public, max-age=3600", "", "web/static/favicon.svg" },
   { "/static/favicon-32.png",          "image/png",                      "public, max-age=3600", "", "web/static/favicon-32.png" },
   { "/static/favicon-192.png",         "image/png",                      "public, max-age=3600", "", "web/static/favicon-192.png" },
@@ -1112,39 +1114,81 @@ void test_no_stylesheet_sets_a_font_below_12px(void)
     const PagesFile_t* sheet = pages_findServedFile(SERVED_FILES[i].mp_httpPath);
     TEST_ASSERT_NOT_NULL(sheet);
     stylesheet_count++;
-    size_t at = 0;
-    while ((at = static_bodyFind(sheet, at, "font-size:")) < sheet->m_bodyByteCount)
+    static const char* const SIZE_PREFIXES[] = { "font-size:", "--text-preset-" };
+    for (size_t p = 0; p < sizeof(SIZE_PREFIXES) / sizeof(SIZE_PREFIXES[0]); p++)
     {
-      at += strlen("font-size:");
-      char value[32];
-      size_t value_len = 0;
-      while (at + value_len < sheet->m_bodyByteCount && value_len + 1 < sizeof(value)
-             && sheet->mp_body[at + value_len] != ';' && sheet->mp_body[at + value_len] != '}')
+      size_t at = 0;
+      while ((at = static_bodyFind(sheet, at, SIZE_PREFIXES[p])) < sheet->m_bodyByteCount)
       {
-        value[value_len] = (char)sheet->mp_body[at + value_len];
-        value_len++;
-      }
-      value[value_len] = '\0';
-      char* unit = NULL;
-      double number = strtod(value, &unit);
-      if (unit == value)
-        continue;
-      char message[96];
-      snprintf(message, sizeof(message), "%s font-size:%s", SERVED_FILES[i].mp_httpPath, value);
-      if (strncmp(unit, "rem", 3) == 0)
-      {
-        TEST_ASSERT_TRUE_MESSAGE(number >= PAGES_TEST_MIN_FONT_REM, message);
-        checked_count++;
-      }
-      else if (strncmp(unit, "px", 2) == 0)
-      {
-        TEST_ASSERT_TRUE_MESSAGE(number >= PAGES_TEST_MIN_FONT_PX, message);
-        checked_count++;
+        at += strlen(SIZE_PREFIXES[p]);
+        if (p == 1)
+        {
+          while (at < sheet->m_bodyByteCount && isdigit((unsigned char)sheet->mp_body[at]))
+            at++;
+          if (at >= sheet->m_bodyByteCount || sheet->mp_body[at] != ':')
+            continue;
+          at++;
+        }
+        char value[32];
+        size_t value_len = 0;
+        while (at + value_len < sheet->m_bodyByteCount && value_len + 1 < sizeof(value)
+               && sheet->mp_body[at + value_len] != ';' && sheet->mp_body[at + value_len] != '}')
+        {
+          value[value_len] = (char)sheet->mp_body[at + value_len];
+          value_len++;
+        }
+        value[value_len] = '\0';
+        char* unit = NULL;
+        double number = strtod(value, &unit);
+        if (unit == value)
+          continue;
+        char message[96];
+        snprintf(message, sizeof(message), "%s font-size:%s", SERVED_FILES[i].mp_httpPath, value);
+        if (strncmp(unit, "rem", 3) == 0)
+        {
+          TEST_ASSERT_TRUE_MESSAGE(number >= PAGES_TEST_MIN_FONT_REM, message);
+          checked_count++;
+        }
+        else if (strncmp(unit, "px", 2) == 0)
+        {
+          TEST_ASSERT_TRUE_MESSAGE(number >= PAGES_TEST_MIN_FONT_PX, message);
+          checked_count++;
+        }
       }
     }
   }
   TEST_ASSERT_EQUAL_INT(2, stylesheet_count);
-  TEST_ASSERT_TRUE_MESSAGE(checked_count > 50, "too few sizes read: the scan may have stopped matching");
+  TEST_ASSERT_TRUE_MESSAGE(checked_count >= 8, "too few sizes read: the scan may have stopped matching");
+}
+
+void test_each_stylesheet_url_names_a_served_file(void)
+{
+  TEST_ASSERT_TRUE(pages_init(15));
+  int url_count = 0;
+  for (int i = 0; i < SERVED_FILE_COUNT; i++)
+  {
+    if (strncmp(SERVED_FILES[i].mp_contentType, "text/css", strlen("text/css")) != 0)
+      continue;
+    const PagesFile_t* sheet = pages_findServedFile(SERVED_FILES[i].mp_httpPath);
+    TEST_ASSERT_NOT_NULL(sheet);
+    size_t at = 0;
+    while ((at = static_bodyFind(sheet, at, "url('")) < sheet->m_bodyByteCount)
+    {
+      at += strlen("url('");
+      char path[128];
+      size_t path_len = 0;
+      while (at + path_len < sheet->m_bodyByteCount && path_len + 1 < sizeof(path)
+             && sheet->mp_body[at + path_len] != '\'')
+      {
+        path[path_len] = (char)sheet->mp_body[at + path_len];
+        path_len++;
+      }
+      path[path_len] = '\0';
+      TEST_ASSERT_NOT_NULL_MESSAGE(pages_findServedFile(path), path);
+      url_count++;
+    }
+  }
+  TEST_ASSERT_EQUAL_INT(3, url_count);
 }
 
 static bool static_skipLiteral(const char* text, size_t* at, const char* literal)
@@ -1485,7 +1529,7 @@ void test_no_served_text_file_holds_an_em_dash(void)
 
 void test_registration_gate_test_count(void)
 {
-  TEST_ASSERT_EQUAL_INT_MESSAGE(48, (int)Unity.NumberOfTests,
+  TEST_ASSERT_EQUAL_INT_MESSAGE(49, (int)Unity.NumberOfTests,
     "RUN_TEST list and test definitions have drifted apart - a test may be unregistered");
 }
 
@@ -1538,6 +1582,7 @@ int main(void)
   RUN_TEST(test_privacy_policy_url_names_a_served_page);
   RUN_TEST(test_legal_pages_state_the_retention_minutes);
   RUN_TEST(test_no_stylesheet_sets_a_font_below_12px);
+  RUN_TEST(test_each_stylesheet_url_names_a_served_file);
   RUN_TEST(test_no_served_text_file_holds_an_em_dash);
   RUN_TEST(test_registration_gate_test_count);
   return UNITY_END();

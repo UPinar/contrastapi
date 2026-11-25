@@ -324,6 +324,63 @@ void test_escape_table_row_by_row(void)
   }
 }
 
+static const EscapeRow_t WITHOUT_BLANKS_TABLE[] = {
+  { "each blank outside a string is dropped",        "{ \"a\" :\t1 ,\r\n\"b\":[ 1 , 2 ] }", "{\"a\":1,\"b\":[1,2]}"   },
+  { "blanks inside a string stay",                   "[ \"x  y\" ]",                        "[\"x  y\"]"              },
+  { "an escaped quote does not end the string",      "[ \"a\\\" b\" , \"c\" ]",             "[\"a\\\" b\",\"c\"]"     },
+  { "the quote after an escaped backslash ends it",  "[ \"a\\\\\" , \"b c\" ]",             "[\"a\\\\\",\"b c\"]"     },
+  { "text with no blank is copied whole",            "{\"a\":[true,null]}",                 "{\"a\":[true,null]}"     },
+  { "only blanks",                                   " \t\r\n",                             ""                        },
+  { "empty text",                                    "",                                    ""                        },
+  { "an open string keeps its blanks",               "[ \"a b ",                            "[\"a b "                 },
+  { "a backslash that ends the text is kept",        "[ \"a\\",                             "[\"a\\"                  },
+};
+
+void test_appendJsonTextWithoutBlanks_table_row_by_row(void)
+{
+  for (size_t i = 0; i < sizeof(WITHOUT_BLANKS_TABLE) / sizeof(WITHOUT_BLANKS_TABLE[0]); i++)
+  {
+    const EscapeRow_t* row = &WITHOUT_BLANKS_TABLE[i];
+
+    JsonBuf_t* buf = jsonbuf_create(4, 64);
+    TEST_ASSERT_NOT_NULL(buf);
+    TEST_ASSERT_TRUE_MESSAGE(jsonbuf_appendJsonTextWithoutBlanks(buf, row->mp_input), row->mp_name);
+
+    char* body = jsonbuf_finish(buf);
+    TEST_ASSERT_EQUAL_STRING_MESSAGE(row->mp_expected, body, row->mp_name);
+    free(body);
+    jsonbuf_destroy(buf);
+  }
+}
+
+void test_appendJsonTextWithoutBlanks_treats_null_as_empty(void)
+{
+  JsonBuf_t* buf = jsonbuf_create(4, 64);
+  TEST_ASSERT_NOT_NULL(buf);
+  TEST_ASSERT_TRUE(jsonbuf_appendJsonText(buf, "[1"));
+  TEST_ASSERT_TRUE(jsonbuf_appendJsonTextWithoutBlanks(buf, NULL));
+
+  char* body = jsonbuf_finish(buf);
+  TEST_ASSERT_EQUAL_STRING("[1", body);
+  free(body);
+  jsonbuf_destroy(buf);
+}
+
+void test_ceiling_refuses_appendJsonTextWithoutBlanks_too(void)
+{
+  JsonBuf_t* first_run = jsonbuf_create(4, 8);
+  TEST_ASSERT_NOT_NULL(first_run);
+  TEST_ASSERT_FALSE(jsonbuf_appendJsonTextWithoutBlanks(first_run, "[1111111111] "));
+  TEST_ASSERT_NULL(jsonbuf_finish(first_run));
+  jsonbuf_destroy(first_run);
+
+  JsonBuf_t* later_run = jsonbuf_create(4, 8);
+  TEST_ASSERT_NOT_NULL(later_run);
+  TEST_ASSERT_FALSE(jsonbuf_appendJsonTextWithoutBlanks(later_run, "[1, 2222222222]"));
+  TEST_ASSERT_NULL(jsonbuf_finish(later_run));
+  jsonbuf_destroy(later_run);
+}
+
 static const EscapeRow_t JSON_TEXT_TABLE[] = {
   { "punctuation, quotes and escapes copied", R"(["a\"b","c\\d",{"k":[1,null]}])", R"(["a\"b","c\\d",{"k":[1,null]}])" },
   { "a \\u escape copied",                    "[\"\\u00e9\"]", "[\"\\u00e9\"]" },
@@ -709,7 +766,7 @@ void test_a_zero_size_is_refused_at_create(void)
 
 void test_registration_gate_test_count(void)
 {
-  TEST_ASSERT_EQUAL_INT_MESSAGE(43, (int)Unity.NumberOfTests,
+  TEST_ASSERT_EQUAL_INT_MESSAGE(46, (int)Unity.NumberOfTests,
     "RUN_TEST list and test definitions have drifted apart - a test may be unregistered");
 }
 
@@ -887,6 +944,9 @@ int main(void)
   RUN_TEST(test_appendJsonText_treats_null_as_empty);
   RUN_TEST(test_ceiling_refuses_appendJsonText_too);
   RUN_TEST(test_appendJsonText_on_detached_buffer_is_inert);
+  RUN_TEST(test_appendJsonTextWithoutBlanks_table_row_by_row);
+  RUN_TEST(test_appendJsonTextWithoutBlanks_treats_null_as_empty);
+  RUN_TEST(test_ceiling_refuses_appendJsonTextWithoutBlanks_too);
   RUN_TEST(test_ceiling_refuses_appendEscaped_too);
   RUN_TEST(test_ceiling_budgets_the_terminating_nul);
   RUN_TEST(test_appendFormat_encoding_failure_sets_failed);

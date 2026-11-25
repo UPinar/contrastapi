@@ -1,0 +1,78 @@
+{
+  "type": "object",
+  "properties": {
+    "total": {
+      "type": "integer",
+      "description": "Vendor and product pairs that hold the search text, before paging."
+    },
+    "limit": {
+      "type": "integer",
+      "description": "Most items in results: the limit argument, 20 by default."
+    },
+    "offset": {
+      "type": "integer",
+      "description": "Items skipped: the offset argument, 0 by default."
+    },
+    "next_offset": {
+      "type": "integer",
+      "description": "offset plus this page's items; total on the last page."
+    },
+    "results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "vendor": {
+            "type": "string"
+          },
+          "product": {
+            "type": "string",
+            "description": "CPE escapes kept, such as notepad\\+\\+."
+          },
+          "vulnerable_cve_count": {
+            "type": "integer",
+            "description": "CVEs that mark the pair vulnerable. 0 when CVEs name the pair only as not vulnerable: a vendor or product filter then finds no CVE."
+          },
+          "product_named_by": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Who named the pair: nvd (an NVD CPE configuration), cna_cpe (a CPE name the CNA gave) or cna (the CNA's free text), each at most once."
+          }
+        },
+        "required": [
+          "vendor",
+          "product",
+          "vulnerable_cve_count",
+          "product_named_by"
+        ]
+      },
+      "description": "Highest vulnerable_cve_count first. Pass vendor and product as they are, escapes included, to the vendor and product arguments of other tools."
+    },
+    "credits": {
+      "type": "object",
+      "properties": {
+        "charged": {
+          "type": "integer",
+          "description": "Credits this call cost; 0 for a free tool."
+        },
+        "remaining": {
+          "type": "integer",
+          "description": "Credits left in the budget window. Absent when not paid from a credit budget."
+        }
+      },
+      "required": [
+        "charged"
+      ]
+    }
+  },
+  "required": [
+    "total",
+    "limit",
+    "offset",
+    "next_offset",
+    "results",
+    "credits"
+  ]
+}

@@ -1,0 +1,77 @@
+{
+  "type": "object",
+  "properties": {
+    "hostname": {
+      "type": "string"
+    },
+    "cname": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "It is the target of the host name's first CNAME. null when the host name has none."
+    },
+    "chain": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "It lists every target of the CNAME chain in order, cname first. The check judges the last name. [] without a CNAME."
+    },
+    "target_exists": {
+      "type": [
+        "boolean",
+        "null"
+      ],
+      "description": "Whether the last name of chain exists. null without a CNAME."
+    },
+    "dangling": {
+      "type": "boolean",
+      "description": "true when the host name has a CNAME and the last name of chain does not exist."
+    },
+    "provider": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "The service whose name suffix ends the last name of chain. null when the check knows no such suffix."
+    },
+    "takeover_possible": {
+      "type": [
+        "boolean",
+        "null"
+      ],
+      "description": "false without a CNAME. With a provider, true when dangling is true and false otherwise. null when the host name has a CNAME and provider is null, even when the last name exists. DNS alone cannot tell then."
+    },
+    "summary": {
+      "type": "string"
+    },
+    "credits": {
+      "type": "object",
+      "properties": {
+        "charged": {
+          "type": "integer",
+          "description": "Credits this call cost; 0 for a free tool."
+        },
+        "remaining": {
+          "type": "integer",
+          "description": "Credits left in the budget window. Absent when not paid from a credit budget."
+        }
+      },
+      "required": [
+        "charged"
+      ]
+    }
+  },
+  "required": [
+    "hostname",
+    "cname",
+    "chain",
+    "target_exists",
+    "dangling",
+    "provider",
+    "takeover_possible",
+    "summary",
+    "credits"
+  ]
+}

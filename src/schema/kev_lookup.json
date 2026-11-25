@@ -1,0 +1,88 @@
+{
+  "type": "object",
+  "description": "A CVE in CISA KEV now or removed from it. A CVE never listed gets the tool error KEV entry not found.",
+  "properties": {
+    "cve_id": {
+      "type": "string"
+    },
+    "in_kev": {
+      "type": "boolean",
+      "description": "false for an entry CISA removed from the catalog."
+    },
+    "date_added": {
+      "type": "string",
+      "description": "YYYY-MM-DD, or empty."
+    },
+    "vendor_project": {
+      "type": "string"
+    },
+    "product": {
+      "type": "string"
+    },
+    "patch_deadline": {
+      "type": "string",
+      "description": "YYYY-MM-DD by which US federal agencies must patch, or empty."
+    },
+    "required_action": {
+      "type": "string"
+    },
+    "known_ransomware_use": {
+      "type": "boolean"
+    },
+    "vulnerability_name": {
+      "type": "string"
+    },
+    "short_description": {
+      "type": "string"
+    },
+    "notes": {
+      "type": "string",
+      "description": "CISA's free text, often URLs, or empty."
+    },
+    "cwes": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "string"
+      }
+    },
+    "date_removed": {
+      "type": "string",
+      "description": "UTC YYYY-MM-DDTHH:MM:SSZ the KEV sync found it gone from CISA's feed. Empty while listed."
+    },
+    "credits": {
+      "type": "object",
+      "properties": {
+        "charged": {
+          "type": "integer",
+          "description": "Credits this call cost; 0 for a free tool."
+        },
+        "remaining": {
+          "type": "integer",
+          "description": "Credits left in the budget window. Absent when not paid from a credit budget."
+        }
+      },
+      "required": [
+        "charged"
+      ]
+    }
+  },
+  "required": [
+    "cve_id",
+    "in_kev",
+    "date_added",
+    "vendor_project",
+    "product",
+    "patch_deadline",
+    "required_action",
+    "known_ransomware_use",
+    "vulnerability_name",
+    "short_description",
+    "notes",
+    "cwes",
+    "date_removed",
+    "credits"
+  ]
+}

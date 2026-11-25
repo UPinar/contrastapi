@@ -1,0 +1,165 @@
+{
+  "type": "object",
+  "properties": {
+    "tier": {
+      "type": "string",
+      "description": "free without an API key, pro with an active one."
+    },
+    "upgrade_url": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "The page that sells a Pro key. null on the pro tier."
+    },
+    "key_expires_at": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "description": "Unix seconds when the API key stops working. null off the pro tier and for a key that never expires."
+    },
+    "key_expires_at_utc": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "key_expires_at as UTC YYYY-MM-DDTHH:MM:SSZ. null when key_expires_at is null. null when it cannot be written as a date."
+    },
+    "rate_limit": {
+      "type": "object",
+      "properties": {
+        "hourly_limit": {
+          "type": "integer",
+          "description": "Credits the budget holds for one hour."
+        },
+        "remaining_in_window": {
+          "type": "integer",
+          "description": "Credits left after this call."
+        },
+        "resets_at": {
+          "type": "integer",
+          "description": "Unix seconds when the budget resets."
+        },
+        "resets_at_utc": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "resets_at as UTC YYYY-MM-DDTHH:MM:SSZ. null when it cannot be written as a date."
+        },
+        "resets_in": {
+          "type": "string",
+          "description": "Time left until the reset, as HH:MM:SS."
+        }
+      },
+      "required": [
+        "hourly_limit",
+        "remaining_in_window",
+        "resets_at",
+        "resets_at_utc",
+        "resets_in"
+      ]
+    },
+    "stored": {
+      "type": "object",
+      "description": "What the server stores to count this call's credits.",
+      "properties": {
+        "metered_by": {
+          "type": "string",
+          "description": "ip_hmac without an API key, key_sha256 with one."
+        },
+        "hash": {
+          "type": "string",
+          "description": "The hash that meters this call's credits."
+        }
+      },
+      "required": [
+        "metered_by",
+        "hash"
+      ]
+    },
+    "vendor_keys": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "Which vendor keys ip_lookup can use. null off the pro tier.",
+      "properties": {
+        "shodan": {
+          "type": "object",
+          "properties": {
+            "configured": {
+              "type": [
+                "boolean",
+                "null"
+              ],
+              "description": "true when the API key stores a key for this vendor. null when the state could not be read."
+            }
+          },
+          "required": [
+            "configured"
+          ]
+        },
+        "abuseipdb": {
+          "type": "object",
+          "properties": {
+            "configured": {
+              "type": [
+                "boolean",
+                "null"
+              ],
+              "description": "As in shodan."
+            }
+          },
+          "required": [
+            "configured"
+          ]
+        },
+        "manage_url": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "A link to the page that saves or deletes the vendor keys. It works as a credential for 15 minutes, so do not log or share it. null when the state could not be read."
+        }
+      },
+      "required": [
+        "shodan",
+        "abuseipdb",
+        "manage_url"
+      ]
+    },
+    "policy": {
+      "type": "string",
+      "description": "The privacy policy page. It says what the server keeps and for how long."
+    },
+    "credits": {
+      "type": "object",
+      "properties": {
+        "charged": {
+          "type": "integer",
+          "description": "Credits this call cost; 0 for a free tool."
+        },
+        "remaining": {
+          "type": "integer",
+          "description": "Credits left in the budget window. Absent when not paid from a credit budget."
+        }
+      },
+      "required": [
+        "charged"
+      ]
+    }
+  },
+  "required": [
+    "tier",
+    "upgrade_url",
+    "key_expires_at",
+    "key_expires_at_utc",
+    "rate_limit",
+    "stored",
+    "vendor_keys",
+    "policy",
+    "credits"
+  ]
+}
