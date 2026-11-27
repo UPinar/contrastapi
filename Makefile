@@ -410,8 +410,9 @@ bin/test_router: tests/test_router.c obj/router.o obj/pages.o obj/endpoint.o obj
 # set the clock the wayback_lookup run reads its deadline from. The health run reads the same
 # clock to tell whether its kept answer is still fresh.
 # --wrap=dns_askQuestions,--wrap=dns_answerFree: the watchlist_edit run asks DNS for the name
-# of a domain item's add. The fake answers with the status a test sets, and the wrapped free
-# counts the frees and calls the real one. Calls inside obj/dns.o are not wrapped.
+# of a domain item's add, and the ssl_check run asks about a host name its probe did not find.
+# The fake answers with the status a test sets, and the wrapped free counts the frees and
+# calls the real one. Calls inside obj/dns.o are not wrapped.
 bin/test_endpoint: tests/test_endpoint.c obj/endpoint.o obj/endpoint_table.o obj/output_schema.o obj/endpoint_run.o obj/cveidstate.o obj/endpoint_run_watchlist.o obj/endpoint_run_billing.o obj/jsoncanon.o $(NOWPAYMENTS_STUB_OBJ) $(VENDORKEY_RUN_OBJS) obj/billing.o obj/datetime.o obj/auth.o obj/registryask.o obj/registryask_table.o obj/endpoint_weight.o obj/imagescan.o obj/imageindicator.o $(EXIFCLIENT_STUB_OBJ) $(EMAILCHECK_STUB_OBJ) obj/emailcheck_table.o $(TLSPROBE_STUB_OBJ) $(CACHE_STUB_OBJ) $(RDAP_STUB_OBJ) $(WAYBACK_STUB_OBJ) $(CVESERVICES_STUB_OBJ) obj/upstream.o $(CERTSPOTTER_STUB_OBJ) $(SUBDOMAIN_STUB_OBJ) $(HEADER_FETCH_STUB_OBJ) $(WELL_KNOWN_STUB_OBJ) $(QUOTA_STUB_OBJ) $(THROTTLE_STUB_OBJ) $(X402_PAID_PATH_TEST_OBJS) $(WHOIS_STUB_OBJ) obj/etld.o obj/etld_table.o obj/watchlist/watchlist.o obj/handler.o obj/cvss.o obj/response.o obj/db.o obj/db_watchlist.o obj/ssvc.o obj/dbhelper.o obj/validate.o obj/query.o obj/serialize.o obj/tlsprobe_table.o obj/header_check.o obj/robotstxt.o obj/securitytxt.o obj/jsonbuf.o obj/utf8.o obj/cve_exploit.o obj/external/hibp.o obj/retryafter.o obj/dns.o obj/dns_table.o obj/monotonic.o obj/http.o obj/ipguard.o obj/jsonread.o obj/jsonrpc.o obj/mcp.o obj/picohttpparser.o obj/usagelog.o obj/bytes.o $(UNITY_OBJ) | bin
 	$(CC) $(TEST_CFLAGS) -o $@ $^ -Wl,--wrap=monotonic_nowMs,--wrap=dns_askQuestions,--wrap=dns_answerFree $(LDFLAGS)
 

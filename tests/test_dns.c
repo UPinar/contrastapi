@@ -3063,6 +3063,86 @@ void test_checkTakeover_allocation_failure_is_no_memory(void)
   }
 }
 
+#define CNAME_STATE_TARGET "shop-example.cloudapp.net"
+
+static DnsNameState_t static_readHandBuiltCname(DnsAnswerStatus_t status, const char* target, char* cname_out)
+{
+  DnsRecordText_t text   = { (char*)target, target != NULL ? strlen(target) : 0 };
+  DnsAnswer_t     answer = { 0 };
+  answer.m_status      = status;
+  answer.m_recordCount = target != NULL ? 1 : 0;
+  answer.mp_texts      = target != NULL ? &text : NULL;
+  memset(cname_out, 'x', VALIDATE_DOMAIN_NAME_MAX_LEN);
+  cname_out[VALIDATE_DOMAIN_NAME_MAX_LEN] = '\0';
+  DnsNameState_t state = dns_readCnameState(&answer, cname_out);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(status, answer.m_status, "the answer was changed");
+  TEST_ASSERT_TRUE_MESSAGE(answer.mp_texts == (target != NULL ? &text : NULL), "the answer was freed");
+  return state;
+}
+
+void test_readCnameState_answers_the_state_of_each_status(void)
+{
+  typedef struct {
+    DnsAnswerStatus_t m_status;
+    const char*       mp_target;
+    DnsNameState_t    m_state;
+  } Case_t;
+  static const Case_t cases[] = {
+    { DNS_ANSWER_NXDOMAIN,        NULL,               DNS_NAME_STATE_ABSENT },
+    { DNS_ANSWER_OK,              CNAME_STATE_TARGET, DNS_NAME_STATE_ALIAS },
+    { DNS_ANSWER_OK,              NULL,               DNS_NAME_STATE_PRESENT },
+    { DNS_ANSWER_NO_MEMORY,       NULL,               DNS_NAME_STATE_NO_MEMORY },
+    { DNS_ANSWER_TIMEOUT,         NULL,               DNS_NAME_STATE_UNKNOWN },
+    { DNS_ANSWER_SERVER_ERROR,    NULL,               DNS_NAME_STATE_UNKNOWN },
+    { DNS_ANSWER_TRUNCATED,       NULL,               DNS_NAME_STATE_UNKNOWN },
+    { DNS_ANSWER_MALFORMED,       NULL,               DNS_NAME_STATE_UNKNOWN },
+    { DNS_ANSWER_NO_RESOLVER,     NULL,               DNS_NAME_STATE_UNKNOWN },
+    { DNS_ANSWER_BAD_QUESTION,    NULL,               DNS_NAME_STATE_UNKNOWN },
+    { DNS_ANSWER_NOT_PUBLIC_NAME, NULL,               DNS_NAME_STATE_UNKNOWN },
+  };
+  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+  {
+    char cname[VALIDATE_DOMAIN_NAME_MAX_LEN + 1];
+    TEST_ASSERT_EQUAL_INT_MESSAGE(cases[i].m_state, static_readHandBuiltCname(cases[i].m_status, cases[i].mp_target, cname), "state");
+    TEST_ASSERT_EQUAL_STRING(cases[i].m_state == DNS_NAME_STATE_ALIAS ? CNAME_STATE_TARGET : "", cname);
+  }
+}
+
+void test_readCnameState_copies_only_a_public_target(void)
+{
+  char cname[VALIDATE_DOMAIN_NAME_MAX_LEN + 1];
+  TEST_ASSERT_EQUAL_INT(DNS_NAME_STATE_ALIAS, static_readHandBuiltCname(DNS_ANSWER_OK, "www.example.net", cname));
+  TEST_ASSERT_EQUAL_STRING("www.example.net", cname);
+
+  TEST_ASSERT_EQUAL_INT(DNS_NAME_STATE_ALIAS, static_readHandBuiltCname(DNS_ANSWER_OK, "printer.local", cname));
+  TEST_ASSERT_EQUAL_STRING("", cname);
+
+  TEST_ASSERT_EQUAL_INT(DNS_NAME_STATE_ALIAS, static_readHandBuiltCname(DNS_ANSWER_OK, "_x.example.com", cname));
+  TEST_ASSERT_EQUAL_STRING("", cname);
+
+  char longest[VALIDATE_DOMAIN_NAME_MAX_LEN + 2] = { 0 };
+  memset(longest, 'a', 63);
+  longest[63] = '.';
+  memset(longest + 64, 'b', 63);
+  longest[127] = '.';
+  memset(longest + 128, 'c', 63);
+  longest[191] = '.';
+  memset(longest + 192, 'd', 61);
+  TEST_ASSERT_EQUAL_size_t(VALIDATE_DOMAIN_NAME_MAX_LEN, strlen(longest));
+  TEST_ASSERT_EQUAL_INT(DNS_NAME_STATE_ALIAS, static_readHandBuiltCname(DNS_ANSWER_OK, longest, cname));
+  TEST_ASSERT_EQUAL_STRING(longest, cname);
+
+  longest[253] = 'd';
+  TEST_ASSERT_EQUAL_INT(DNS_NAME_STATE_ALIAS, static_readHandBuiltCname(DNS_ANSWER_OK, longest, cname));
+  TEST_ASSERT_EQUAL_STRING("", cname);
+
+  DnsRecordText_t text   = { (char*)CNAME_STATE_TARGET, strlen(CNAME_STATE_TARGET) };
+  DnsAnswer_t     answer = { .m_status = DNS_ANSWER_OK, .m_recordCount = 1, .mp_texts = &text };
+  TEST_ASSERT_EQUAL_INT(DNS_NAME_STATE_ALIAS, dns_readCnameState(&answer, NULL));
+  answer = (DnsAnswer_t){ .m_status = DNS_ANSWER_NXDOMAIN };
+  TEST_ASSERT_EQUAL_INT(DNS_NAME_STATE_ABSENT, dns_readCnameState(&answer, NULL));
+}
+
 void test_takeoverSuffixes_entries_are_safe_to_write_raw(void)
 {
   for (int i = 0; i < DNS_TAKEOVER_SUFFIX_COUNT; i++)
@@ -3665,6 +3745,19 @@ void test_lookupPtr_unreadable_forward_answer_is_unknown(void)
   }
 }
 
+void test_readCnameState_alias_without_text_gives_no_target(void)
+{
+  char cname[VALIDATE_DOMAIN_NAME_MAX_LEN + 1] = "stale.example.org";
+  DnsAnswer_t answer = { .m_status = DNS_ANSWER_OK, .m_recordCount = 1, .mp_texts = NULL };
+  TEST_ASSERT_EQUAL_INT(DNS_NAME_STATE_ALIAS, dns_readCnameState(&answer, cname));
+  TEST_ASSERT_EQUAL_STRING("", cname);
+  DnsRecordText_t text = { NULL, 0 };
+  answer.mp_texts = &text;
+  snprintf(cname, sizeof(cname), "%s", "stale.example.org");
+  TEST_ASSERT_EQUAL_INT(DNS_NAME_STATE_ALIAS, dns_readCnameState(&answer, cname));
+  TEST_ASSERT_EQUAL_STRING("", cname);
+}
+
 int main(void)
 {
   UNITY_BEGIN();
@@ -3759,6 +3852,9 @@ int main(void)
   RUN_TEST(test_checkTakeover_answer_from_a_name_that_is_not_public_is_no_answer);
   RUN_TEST(test_checkTakeover_refuses_a_name_that_is_not_public);
   RUN_TEST(test_checkTakeover_allocation_failure_is_no_memory);
+  RUN_TEST(test_readCnameState_answers_the_state_of_each_status);
+  RUN_TEST(test_readCnameState_copies_only_a_public_target);
+  RUN_TEST(test_readCnameState_alias_without_text_gives_no_target);
   RUN_TEST(test_takeoverSuffixes_entries_are_safe_to_write_raw);
   RUN_TEST(test_takeoverSuffixes_table_is_pinned);
   RUN_TEST(test_lookupPtr_asks_about_the_reverse_name);

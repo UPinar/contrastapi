@@ -71,8 +71,10 @@ DnsLookupStatus_t emailcheck_checkAddressDomain(const char* domain, EMAILADDRESS
   g_stub_EMAILADDRESSCHECK_dns_call_count++;
   snprintf(g_stub_EMAILADDRESSCHECK_last_dns_domain, sizeof(g_stub_EMAILADDRESSCHECK_last_dns_domain), "%s", domain);
 
-  record->m_isDomainFound = false;
-  record->m_mailRoute     = EMAILCHECK_MAIL_ROUTE_NONE;
+  record->m_isDomainFound   = false;
+  record->m_mailRoute       = EMAILCHECK_MAIL_ROUTE_NONE;
+  record->ma_cname[0]       = '\0';
+  record->m_isCnameDangling = false;
   memset(&record->m_mxAnswer, 0, sizeof(record->m_mxAnswer));
   if (g_stub_EMAILADDRESSCHECK_dns_status == DNS_LOOKUP_NOT_FOUND)
     record->m_mxAnswer.m_status = DNS_ANSWER_NXDOMAIN;

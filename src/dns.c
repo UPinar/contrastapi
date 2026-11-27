@@ -422,6 +422,34 @@ DnsLookupStatus_t dns_checkTakeover(const char* hostname, DNSTAKEOVERCHECKRecord
   return DNS_LOOKUP_OK;
 }
 
+DnsNameState_t dns_readCnameState(const DnsAnswer_t* cname_answer, char cname_out[VALIDATE_DOMAIN_NAME_MAX_LEN + 1])
+{
+  if (cname_out != NULL)
+    cname_out[0] = '\0';
+
+  DnsNameState_t state = DNS_NAME_STATE_UNKNOWN;
+  if (cname_answer->m_status == DNS_ANSWER_NXDOMAIN)
+    state = DNS_NAME_STATE_ABSENT;
+  else if (cname_answer->m_status == DNS_ANSWER_OK && cname_answer->m_recordCount > 0)
+    state = DNS_NAME_STATE_ALIAS;
+  else if (cname_answer->m_status == DNS_ANSWER_OK)
+    state = DNS_NAME_STATE_PRESENT;
+  else if (cname_answer->m_status == DNS_ANSWER_NO_MEMORY)
+    state = DNS_NAME_STATE_NO_MEMORY;
+
+  if (state != DNS_NAME_STATE_ALIAS || cname_out == NULL || cname_answer->mp_texts == NULL)
+    return state;
+
+  const char* target = cname_answer->mp_texts[0].mp_bytes;
+  if (target == NULL || !validate_publicDnsName(target))
+    return state;
+
+  size_t target_len = strlen(target);
+  assert(target_len <= VALIDATE_DOMAIN_NAME_MAX_LEN);
+  memcpy(cname_out, target, target_len + 1);
+  return state;
+}
+
 void dns_lookupPtr(const char* ip_address, DnsPtrAnswer_t* answer_out)
 {
   memset(answer_out, 0, sizeof(*answer_out));

@@ -5,6 +5,9 @@ BEGIN
   ASSERT (SELECT row(g.ghsa_feed_loaded, g.advisory)::text FROM api.fn_cve_ghsa_advisory('CVE-2030-0001', 32) AS g)
          = row(false, NULL)::text,
          'an empty catalog answers one row with ghsa_feed_loaded false';
+  ASSERT (SELECT reloptions FROM pg_class WHERE oid = 'public.idx_osv_advisories_aliases'::regclass)
+         = ARRAY['fastupdate=off'],
+         'idx_osv_advisories_aliases is a GIN index with fastupdate off';
 END
 $$;
 

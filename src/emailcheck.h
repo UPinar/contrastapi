@@ -95,6 +95,8 @@ typedef struct {
 
 typedef struct {
   char                            ma_domain[VALIDATE_DOMAIN_NAME_MAX_LEN + 1];
+  char                            ma_cname[VALIDATE_DOMAIN_NAME_MAX_LEN + 1];
+  bool                            m_isCnameDangling;
   DnsAnswer_t                     m_spfAnswer;
   int                             m_spfRecordCount;
   int                             m_spfRecordIndex;
@@ -146,6 +148,8 @@ typedef struct {
   bool                    m_isDomainFound;
   EmailCheckMailRoute_t   m_mailRoute;
   DnsAnswer_t             m_mxAnswer;
+  char                    ma_cname[VALIDATE_DOMAIN_NAME_MAX_LEN + 1];
+  bool                    m_isCnameDangling;
 } EMAILADDRESSCHECKRecord_t;
 
 DnsLookupStatus_t emailcheck_checkDomain                  (const char* domain, const char* dkim_selector, EMAILAUTHCHECKRecord_t* record_out);

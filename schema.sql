@@ -1529,7 +1529,7 @@ CREATE TABLE osv_advisories (
                                                       AND cardinality(string_to_array(array_to_string(aliases, ' '), ' ')) = cardinality(aliases))
 );
 
-CREATE INDEX idx_osv_advisories_aliases ON osv_advisories USING gin (aliases);
+CREATE INDEX idx_osv_advisories_aliases ON osv_advisories USING gin (aliases) WITH (fastupdate = off);
 
 CREATE TABLE osv_affected (
   advisory_id               TEXT    NOT NULL REFERENCES osv_advisories(advisory_id) ON DELETE CASCADE,

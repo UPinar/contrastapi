@@ -71,7 +71,7 @@ static const char INTERNAL_ERROR_BODY[] =
 static const char MCP_INTERNAL_ERROR_BODY[] =
   R"({"jsonrpc":"2.0","id":null,"error":{"code":-32603,"message":")" HANDLER_INTERNAL_ERROR_MESSAGE R"("}})";
 
-static void   static_sendNotFound                 (int client_fd, const Endpoint_t* endpoint);
+static void   static_sendNotFound                 (int client_fd, const Endpoint_t* endpoint, const char* run_message);
 static char*  static_errorBody                    (const char* err_code, const char* message);
 static char*  static_errorBodyWithRetryAfter      (const char* err_code, const char* message, unsigned int retry_after_sec, bool has_upgrade_url);
 static void   static_writePaymentRequiredMessage  (char* message_out, unsigned int retry_after_sec);
@@ -188,7 +188,7 @@ static void static_sendRunAnswer(int client_fd, const Endpoint_t* endpoint, Endp
         handler_internalError(client_fd);
       break;
     case ENDPOINT_RUN_NOT_FOUND:
-      static_sendNotFound(client_fd, endpoint);
+      static_sendNotFound(client_fd, endpoint, run_result.mp_message);
       break;
     case ENDPOINT_RUN_NOT_FOUND_WITH_BODY:
       response_send(client_fd, 404, "Not Found", run_result.mp_body);
@@ -783,12 +783,13 @@ static void static_sendMcpError(int client_fd, int status_code, const char* stat
   free(envelope);
 }
 
-static void static_sendNotFound(int client_fd, const Endpoint_t* endpoint)
+static void static_sendNotFound(int client_fd, const Endpoint_t* endpoint, const char* run_message)
 {
   assert(client_fd >= 0);
   assert(endpoint->mp_notFoundMessage != NULL);
 
-  static_sendError(client_fd, 404, "Not Found", "not_found", endpoint->mp_notFoundMessage);
+  const char* message = run_message != NULL ? run_message : endpoint->mp_notFoundMessage;
+  static_sendError(client_fd, 404, "Not Found", "not_found", message);
 }
 
 static void static_sendRestGateRefusal(int client_fd, const Endpoint_t* endpoint, EndpointGateResult_t gate_result)

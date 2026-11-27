@@ -2682,6 +2682,8 @@ curl "https://api.contrastcyber.com/email_auth_check/example.com?dkim_selector=g
 ```json
 {
   "domain": "example.com",
+  "cname": null,
+  "dangling": false,
   "spf": {
     "available": true,
     "record_count": 1,
@@ -2798,6 +2800,8 @@ The example shows 4 of its 21 checks. The table under **Checks** lists them all.
 | Field | Type | Description |
 |-------|------|-------------|
 | `domain` | string | The domain, in lower case |
+| `cname` | string, or null | The target of the domain's CNAME record. It is null when the domain is not a CNAME, or when its target is not a public name, such as `printer.local`. `dangling` can be true then |
+| `dangling` | boolean | True when the domain is a CNAME whose target does not exist. The domain itself exists, so the check goes on, and the sections find no record. False otherwise |
 | `spf` | object | The SPF record, below |
 | `dmarc` | object | The DMARC record that applies, below |
 | `dkim` | object | The DKIM selectors and keys, below |
@@ -2914,8 +2918,8 @@ judge every `present` key of every selector and give the worst result. A key tha
 | `400`  | `dkim_selector` is empty, or breaks a label rule of Parameters | `{"error":{"code":"bad_request","message":"dkim_selector must be labels of 1 to 63 letters, digits and hyphens, with dots between them, such as google. A label must not start or end with a hyphen."}}` |
 | `400`  | `dkim_selector` is longer than 238 bytes | `{"error":{"code":"bad_request","message":"dkim_selector is too long"}}` |
 | `400`  | `<dkim_selector>._domainkey.<domain>` is longer than 253 bytes | `{"error":{"code":"bad_request","message":"dkim_selector and domain make a name longer than 253 bytes"}}` |
-| `404`  | The TXT or the MX question of the domain got NXDOMAIN, and neither of the two got a NOERROR answer | `{"error":{"code":"not_found","message":"domain does not exist"}}` |
-| `502`  | No question of the first round got a NOERROR or an NXDOMAIN answer in 5 seconds | `{"error":{"code":"upstream_unavailable","message":"upstream service unavailable"}}` |
+| `404`  | The domain itself does not exist. It is also sent when the TXT or MX answer says the domain does not exist and the resolver gave no usable answer about the name itself. A domain that is a CNAME whose target does not exist gets `200`, with `dangling` true | `{"error":{"code":"not_found","message":"domain does not exist"}}` |
+| `502`  | No question of the first round but the CNAME one got a NOERROR or an NXDOMAIN answer in 5 seconds | `{"error":{"code":"upstream_unavailable","message":"upstream service unavailable"}}` |
 | `503`  | The server is busy with requests to outside services. Try again after the `Retry-After` wait | `{"error":{"code":"upstream_busy","message":"upstream service busy","retry_after_seconds":5}}` |
 
 A refused value pays its 1 credit, and so do a `404` and a `502`. A `503` costs nothing.
@@ -3285,6 +3289,8 @@ Only this path segment is decoded. The MCP tool takes the address as it is sent:
 {
   "email": "Admin+ci@example.com",
   "domain": "example.com",
+  "cname": null,
+  "dangling": false,
   "domain_exists": true,
   "accepts_mail": false,
   "mail_route": "null_mx",
@@ -3300,9 +3306,11 @@ Only this path segment is decoded. The MCP tool takes the address as it is sent:
 |-------|------|-------------|
 | `email` | string | The address after the path segment is decoded, with its local part in the case it was sent and its domain in lower case |
 | `domain` | string | The domain, in lower case |
-| `domain_exists` | boolean | `false` when the resolver said the domain does not exist (NXDOMAIN for its MX question) |
+| `cname` | string \| null | The target of the domain's CNAME record. `null` when the domain is not a CNAME, or when its target is not a public name, such as `printer.local`. `dangling` can be `true` then |
+| `dangling` | boolean | `true` when the domain is a CNAME whose target does not exist. `domain_exists` is then `true` and `mail_route` is `none` |
+| `domain_exists` | boolean | `false` when the domain itself does not exist. It is also `false` when the MX answer says the domain does not exist and the resolver gave no usable answer about the name itself. A domain that is a CNAME whose target does not exist still exists |
 | `accepts_mail` | boolean | `true` when `mail_route` is `mx` or `implicit_mx` |
-| `mail_route` | string \| null | `mx`: the domain's MX hosts take its mail. `implicit_mx`: the domain has no MX record, so its own A or AAAA address takes its mail (RFC 5321 section 5.1). `null_mx`: the domain publishes a null MX and takes no mail (RFC 7505). `none`: the domain has no MX, A or AAAA record. `null` when the domain does not exist |
+| `mail_route` | string \| null | `mx`: the domain's MX hosts take its mail. `implicit_mx`: the domain has no MX record, so its own A or AAAA address takes its mail (RFC 5321 section 5.1). `null_mx`: the domain publishes a null MX and takes no mail (RFC 7505). `none`: the domain has no MX, A or AAAA record, or it is a CNAME whose target does not exist. `null` when the domain itself does not exist |
 | `mx_hosts` | array | The MX records of the domain, as [DNS Lookup](#dns-lookup-get-dns_lookupdomain) writes them: `priority`, then `host`. `[]` when the MX answer holds none. A null MX is not listed |
 | `disposable` | boolean \| null | `true` when the disposable domain list names the domain or a parent of it, and the longest such name is not a public suffix. `false` when the list is loaded and names neither, or when that longest name is a public suffix. `null` while the list is not loaded |
 | `disposable_listed_domain` | string \| null | The name the list holds: the domain, or the longest parent of it on the list, such as `mailinator.com` for `a.b.mailinator.com`. `null` when the list holds neither, when that name is a public suffix, and while the list is not loaded |
@@ -3523,7 +3531,9 @@ checked with 300 seconds of slack.
 | `400`  | The host name is not a public domain name, as the Parameters section of DNS Lookup says | `{"error":{"code":"bad_request","message":"Provide a public domain name, such as example.com."}}` |
 | `400`  | No host name after `/ssl_check/` | `{"error":{"code":"bad_request","message":"domain is required"}}` |
 | `400`  | No address of the host name is globally reachable, or its records lead to a name only a local network can answer | `{"error":{"code":"bad_request","message":"hostname has no globally reachable address"}}` |
-| `404`  | The resolver said the host name does not exist, or that it has no A or AAAA record | `{"error":{"code":"not_found","message":"hostname does not exist"}}` |
+| `404`  | The resolver said the host name does not exist. It is also sent when the host name has no A or AAAA record, and the resolver gave no usable answer about the name itself | `{"error":{"code":"not_found","message":"hostname does not exist"}}` |
+| `404`  | The host name is a CNAME, and its target has no A or AAAA record. The target may not exist; `/dns_takeover_check/` tells | `{"error":{"code":"not_found","message":"hostname is a CNAME whose target has no A or AAAA record; dns_takeover_check tells whether the target exists"}}` |
+| `404`  | The host name exists and is not a CNAME, but it has no A or AAAA record | `{"error":{"code":"not_found","message":"hostname has no A or AAAA record"}}` |
 | `502`  | The resolver gave no answer the server can use, such as a timeout or SERVFAIL, and no answer held an address | `{"error":{"code":"upstream_unavailable","message":"upstream service unavailable"}}` |
 | `503`  | The server is busy with requests to outside services. Try again after the `Retry-After` wait | `{"error":{"code":"upstream_busy","message":"upstream service busy","retry_after_seconds":5}}` |
 | `504`  | The server reached no TLS server at the host name. The message says why, as the table below lists | `{"error":{"code":"target_unreachable","message":"no address of the host name took a connection on port 443"}}` |
@@ -5853,7 +5863,7 @@ A feed whose name, time or status cannot be read is left out of `db.feeds`. The 
 ```json
 {
   "status": "ok",
-  "version": "2.3.4",
+  "version": "2.3.5",
   "db": {
     "nvd": {
       "cve_count": 251430,
@@ -5888,7 +5898,7 @@ A feed whose name, time or status cannot be read is left out of `db.feeds`. The 
 When the database cannot be read, the answer is HTTP 503 with a `Retry-After: 5` header and this body:
 
 ```json
-{"status":"unavailable","version":"2.3.4","db":null,"credits":{"charged":0}}
+{"status":"unavailable","version":"2.3.5","db":null,"credits":{"charged":0}}
 ```
 
 ---
@@ -6445,8 +6455,10 @@ request target counts the bytes as sent.
 | 404  | The CVE, KEV entry, CWE, domain, host name, AS or order does not exist, or the domain is not registered. A path that neither an endpoint nor a web file serves gets it too | all |
 | 404  | The resolver said the domain does not exist, and no record type was answered; body `{"error":{"code":"not_found","message":"domain does not exist"}}` | `/dns_lookup/{domain}` |
 | 404  | The resolver answered the CNAME question that the host name does not exist; body `{"error":{"code":"not_found","message":"hostname does not exist"}}` | `/dns_takeover_check/{domain}` |
-| 404  | The TXT or the MX question of the domain got NXDOMAIN, and neither of the two got a NOERROR answer; body `{"error":{"code":"not_found","message":"domain does not exist"}}` | `/email_auth_check/{domain}` |
-| 404  | The resolver said the host name does not exist, or that it has no A or AAAA record; body `{"error":{"code":"not_found","message":"hostname does not exist"}}` | `/ssl_check/{domain}` |
+| 404  | The domain itself does not exist, or the TXT or MX answer says it does not and the resolver gave no usable answer about the name itself. A CNAME whose target does not exist gets `200`, with `dangling` true; body `{"error":{"code":"not_found","message":"domain does not exist"}}` | `/email_auth_check/{domain}` |
+| 404  | The resolver said the host name does not exist, or it has no A or AAAA record and the resolver gave no usable answer about the name itself; body `{"error":{"code":"not_found","message":"hostname does not exist"}}` | `/ssl_check/{domain}` |
+| 404  | The host name is a CNAME, and its target has no A or AAAA record; body `{"error":{"code":"not_found","message":"hostname is a CNAME whose target has no A or AAAA record; dns_takeover_check tells whether the target exists"}}` | `/ssl_check/{domain}` |
+| 404  | The host name exists and is not a CNAME, but it has no A or AAAA record; body `{"error":{"code":"not_found","message":"hostname has no A or AAAA record"}}` | `/ssl_check/{domain}` |
 | 404  | The RDAP server answered 404 for the registrable domain, or the WHOIS server answered with its text for a name no one has registered; body `{"error":{"code":"not_found","message":"domain is not registered"}}`. The request still pays its credit | `/whois_lookup/{domain}` |
 | 404  | The CVE is not in our data, and CVE.org names the state of the id; body `{"error":{"code":"not_found","message":"CVE not found; CVE.org lists it as rejected","cve_org_state":"rejected"},"credits":{"charged":1,"remaining":29}}`. The state `published` adds `retry_after_seconds`, and there is no `Retry-After` header. The request pays 1 credit as any other `404` of this endpoint. See [CVE.org state of a missing CVE](#cveorg-state-of-a-missing-cve) | `/cve_lookup/{cve_id}` |
 | 405  | HTTP method not allowed; `Allow` header lists permitted methods. An endpoint takes no `HEAD`, and a web file's `Allow` is `GET, HEAD`. An answer to a `HEAD` request leaves its body out, a `405` too, and its `Content-Length` still counts the body. A refusal that comes before routing keeps its body: a `400` for `Content-Length` or `Transfer-Encoding`, a `413`, a `414`, a `431` or a `501`. The `400` for a body with a NUL comes after routing, so its answer to a `HEAD` request has no body | all |
@@ -6462,7 +6474,7 @@ request target counts the bytes as sent.
 | 503  | The server is busy with requests to outside services (`upstream_busy`). The response carries `Retry-After: 5`. It costs no credits and carries no `X-RateLimit-*` headers. A request that the endpoint refuses for its method, its parameter names or its values gets that refusal instead. A request with a malformed, unknown, revoked or expired key gets it too | the endpoints that ask an outside service, `/mcp` |
 | 503  | Every place for an image request is in use (`raw_body_busy`). The response carries `Retry-After: 10`. It costs no credits | `/image_inspect` |
 | 503  | The payment cannot be settled now (`payment_unavailable`). The response carries `Retry-After: 5` | every endpoint that takes payment |
-| 503  | The database cannot be read. The body is `{"status":"unavailable","version":"2.3.4","db":null,"credits":{"charged":0}}` and the response carries `Retry-After: 5` | `/health` |
+| 503  | The database cannot be read. The body is `{"status":"unavailable","version":"2.3.5","db":null,"credits":{"charged":0}}` and the response carries `Retry-After: 5` | `/health` |
 | 504  | No TLS server or site was reached at the host name. `message` says why | `/ssl_check/`, `/headers_check/`, `/well_known/`, `/redirect_chain` |
 
 ---
@@ -6686,7 +6698,7 @@ gets the same `tools/list` document, and its `title` and `_meta` members are not
 `2025-03-26`. See [MCP_Documentation.md](MCP_Documentation.md) for the authoritative protocol-era details.
 
 **Methods:** `initialize` (legacy) / `server/discover` (2026-07-28 era), `tools/list`, `tools/call`,
-`ping`, and notifications (e.g. `notifications/initialized`). In the legacy era a notification
+`ping` (legacy), and notifications (e.g. `notifications/initialized`). In the legacy era a notification
 returns HTTP `202` with no body; the 2026-07-28 era refuses it with `-32600`.
 
 **Tools** (one per data endpoint but `/image_inspect`; the account and payment endpoints are not tools): `cve_lookup`, `cve_lookup_bulk`, `cve_products`, `cve_search`, `cve_triage`,

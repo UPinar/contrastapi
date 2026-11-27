@@ -280,9 +280,9 @@ void test_checkDomain_asks_two_rounds_and_passes_every_check(void)
   TEST_ASSERT_EQUAL_INT(DNS_LOOKUP_OK, emailcheck_checkDomain("Example.COM", NULL, &g_record));
 
   TEST_ASSERT_EQUAL_INT(2, g_callCount);
-  const char* const     first_names[] = { "example.com", "example.com", "_dmarc.example.com", "_mta-sts.example.com" };
-  const DnsRecordType_t first_types[] = { DNS_RECORD_TYPE_TXT, DNS_RECORD_TYPE_MX, DNS_RECORD_TYPE_TXT, DNS_RECORD_TYPE_TXT };
-  static_assertQuestions(&g_calls[0], first_names, first_types, 4);
+  const char* const     first_names[] = { "example.com", "example.com", "_dmarc.example.com", "_mta-sts.example.com", "example.com" };
+  const DnsRecordType_t first_types[] = { DNS_RECORD_TYPE_TXT, DNS_RECORD_TYPE_MX, DNS_RECORD_TYPE_TXT, DNS_RECORD_TYPE_TXT, DNS_RECORD_TYPE_CNAME };
+  static_assertQuestions(&g_calls[0], first_names, first_types, 5);
   TEST_ASSERT_EQUAL_INT(DNS_LOOKUP_DEADLINE_MS, g_calls[0].m_deadlineMs);
   const char* const     second_names[] = { "google._domainkey.example.com" };
   const DnsRecordType_t second_types[] = { DNS_RECORD_TYPE_TXT };
@@ -325,9 +325,9 @@ void test_checkDomain_asks_a_given_selector_in_the_first_round(void)
   TEST_ASSERT_EQUAL_INT(DNS_LOOKUP_OK, emailcheck_checkDomain("Example.COM", "Sel1", &g_record));
 
   TEST_ASSERT_EQUAL_INT(1, g_callCount);
-  const char* const     names[] = { "example.com", "example.com", "_dmarc.example.com", "_mta-sts.example.com", "Sel1._domainkey.example.com" };
-  const DnsRecordType_t types[] = { DNS_RECORD_TYPE_TXT, DNS_RECORD_TYPE_MX, DNS_RECORD_TYPE_TXT, DNS_RECORD_TYPE_TXT, DNS_RECORD_TYPE_TXT };
-  static_assertQuestions(&g_calls[0], names, types, 5);
+  const char* const     names[] = { "example.com", "example.com", "_dmarc.example.com", "_mta-sts.example.com", "Sel1._domainkey.example.com", "example.com" };
+  const DnsRecordType_t types[] = { DNS_RECORD_TYPE_TXT, DNS_RECORD_TYPE_MX, DNS_RECORD_TYPE_TXT, DNS_RECORD_TYPE_TXT, DNS_RECORD_TYPE_TXT, DNS_RECORD_TYPE_CNAME };
+  static_assertQuestions(&g_calls[0], names, types, 6);
   TEST_ASSERT_EQUAL_INT(EMAILCHECK_DKIM_SELECTOR_SOURCE_CALLER_GIVEN, g_record.m_dkimSelectorSource);
   TEST_ASSERT_EQUAL_INT(1, g_record.m_dkimSelectorCount);
   TEST_ASSERT_EQUAL_STRING("Sel1", g_record.ma_dkimSelectors[0].ma_selector);
@@ -345,7 +345,7 @@ void test_checkDomain_refuses_a_selector_whose_name_is_too_long(void)
 
   TEST_ASSERT_EQUAL_INT(DNS_LOOKUP_NOT_FOUND, emailcheck_checkDomain(domain, selector, &g_record));
   TEST_ASSERT_EQUAL_INT(1, g_callCount);
-  TEST_ASSERT_EQUAL_INT(5, g_calls[0].m_questionCount);
+  TEST_ASSERT_EQUAL_INT(6, g_calls[0].m_questionCount);
   TEST_ASSERT_EQUAL_INT(VALIDATE_DOMAIN_NAME_MAX_LEN, (int)strlen(g_calls[0].ma_names[4]));
   emailcheck_EMAILAUTHCHECKRecordFree(&g_record);
 
@@ -364,7 +364,7 @@ void test_checkDomain_refuses_an_invalid_domain_or_selector(void)
 
   static_fakeGoodDomain(NULL, DNS_RECORD_TYPE_TXT);
   TEST_ASSERT_EQUAL_INT(DNS_LOOKUP_OK, emailcheck_checkDomain("example.com", "", &g_record));
-  TEST_ASSERT_EQUAL_INT(4, g_calls[0].m_questionCount);
+  TEST_ASSERT_EQUAL_INT(5, g_calls[0].m_questionCount);
   TEST_ASSERT_EQUAL_INT(EMAILCHECK_DKIM_SELECTOR_SOURCE_PROVIDER, g_record.m_dkimSelectorSource);
 }
 
@@ -421,6 +421,97 @@ void test_checkDomain_no_memory_when_an_answer_could_not_be_allocated(void)
   static_addFake((FakeAnswer_t){ "google._domainkey.example.com", DNS_RECORD_TYPE_TXT, DNS_ANSWER_NO_MEMORY, { NULL }, false });
   TEST_ASSERT_EQUAL_INT(DNS_LOOKUP_NO_MEMORY, emailcheck_checkDomain("example.com", NULL, &g_record));
   TEST_ASSERT_EQUAL_INT(2, g_callCount);
+}
+
+void test_checkDomain_reads_a_dangling_cname(void)
+{
+  static_addFake((FakeAnswer_t){ "shop.example.com",   DNS_RECORD_TYPE_CNAME, DNS_ANSWER_OK, { "gone.example.net" }, false });
+  static_addFake((FakeAnswer_t){ "_dmarc.example.com", DNS_RECORD_TYPE_TXT,   DNS_ANSWER_OK, { "v=DMARC1; p=reject" }, false });
+
+  TEST_ASSERT_EQUAL_INT(DNS_LOOKUP_OK, emailcheck_checkDomain("shop.example.com", NULL, &g_record));
+
+  TEST_ASSERT_EQUAL_INT(2, g_callCount);
+  TEST_ASSERT_EQUAL_STRING("shop.example.com", g_calls[0].ma_names[4]);
+  TEST_ASSERT_EQUAL_INT(DNS_RECORD_TYPE_CNAME, g_calls[0].ma_types[4]);
+  TEST_ASSERT_EQUAL_STRING("gone.example.net", g_record.ma_cname);
+  TEST_ASSERT_TRUE(g_record.m_isCnameDangling);
+  TEST_ASSERT_EQUAL_INT(DNS_ANSWER_NXDOMAIN, g_record.m_spfAnswer.m_status);
+  TEST_ASSERT_EQUAL_INT(DNS_ANSWER_NXDOMAIN, g_record.m_mxAnswer.m_status);
+  TEST_ASSERT_EQUAL_INT(DNS_ANSWER_OK, g_record.m_dmarcStatus);
+  TEST_ASSERT_EQUAL_INT(EMAILCHECK_DMARC_SOURCE_ORGANIZATIONAL, g_record.m_dmarcSource);
+  TEST_ASSERT_TRUE(g_record.m_isDmarcApplied);
+  TEST_ASSERT_EQUAL_INT(EMAILAUTH_DMARC_POLICY_REJECT, g_record.m_appliedDmarcPolicy);
+}
+
+typedef struct {
+  const char*        mp_label;
+  DnsAnswerStatus_t  m_txtStatus;
+  DnsAnswerStatus_t  m_mxStatus;
+  DnsAnswerStatus_t  m_cnameStatus;
+  const char*        mp_cnameTarget;
+  DnsLookupStatus_t  m_status;
+  const char*        mp_cname;
+  bool               m_isCnameDangling;
+} CnameStateCase_t;
+
+void test_checkDomain_reads_the_cname_state(void)
+{
+  static const CnameStateCase_t cases[] = {
+    { "nxdomain, cname nxdomain",   DNS_ANSWER_NXDOMAIN, DNS_ANSWER_NXDOMAIN, DNS_ANSWER_NXDOMAIN,     NULL,               DNS_LOOKUP_NOT_FOUND, "",                 false },
+    { "nxdomain, cname timeout",    DNS_ANSWER_NXDOMAIN, DNS_ANSWER_NXDOMAIN, DNS_ANSWER_TIMEOUT,      NULL,               DNS_LOOKUP_NOT_FOUND, "",                 false },
+    { "nxdomain, cname servfail",   DNS_ANSWER_NXDOMAIN, DNS_ANSWER_NXDOMAIN, DNS_ANSWER_SERVER_ERROR, NULL,               DNS_LOOKUP_NOT_FOUND, "",                 false },
+    { "nxdomain, cname present",    DNS_ANSWER_NXDOMAIN, DNS_ANSWER_NXDOMAIN, DNS_ANSWER_OK,           NULL,               DNS_LOOKUP_OK,        "",                 false },
+    { "nxdomain, cname alias",      DNS_ANSWER_NXDOMAIN, DNS_ANSWER_NXDOMAIN, DNS_ANSWER_OK,           "gone.example.net", DNS_LOOKUP_OK,        "gone.example.net", true },
+    { "mx timeout, cname alias",    DNS_ANSWER_NXDOMAIN, DNS_ANSWER_TIMEOUT,  DNS_ANSWER_OK,           "gone.example.net", DNS_LOOKUP_OK,        "gone.example.net", true },
+    { "mx timeout, cname absent",   DNS_ANSWER_NXDOMAIN, DNS_ANSWER_TIMEOUT,  DNS_ANSWER_NXDOMAIN,     NULL,               DNS_LOOKUP_NOT_FOUND, "",                 false },
+    { "txt and mx ok, cname alias", DNS_ANSWER_OK,       DNS_ANSWER_OK,       DNS_ANSWER_OK,           "mail.example.net", DNS_LOOKUP_OK,        "mail.example.net", false },
+    { "mx ok, cname alias",         DNS_ANSWER_NXDOMAIN, DNS_ANSWER_OK,       DNS_ANSWER_OK,           "mail.example.net", DNS_LOOKUP_OK,        "mail.example.net", false },
+    { "both timeout, cname alias",  DNS_ANSWER_TIMEOUT,  DNS_ANSWER_TIMEOUT,  DNS_ANSWER_OK,           "mail.example.net", DNS_LOOKUP_OK,        "mail.example.net", false },
+  };
+  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+  {
+    const CnameStateCase_t* row = &cases[i];
+    setUp();
+    static_addFake((FakeAnswer_t){ "example.com", DNS_RECORD_TYPE_TXT,   row->m_txtStatus,   { NULL }, false });
+    static_addFake((FakeAnswer_t){ "example.com", DNS_RECORD_TYPE_MX,    row->m_mxStatus,    { "mx.example.net" }, false });
+    static_addFake((FakeAnswer_t){ "example.com", DNS_RECORD_TYPE_CNAME, row->m_cnameStatus, { row->mp_cnameTarget }, false });
+    static_addFake((FakeAnswer_t){ "_dmarc.example.com", DNS_RECORD_TYPE_TXT, DNS_ANSWER_OK, { "v=DMARC1; p=none" }, false });
+    snprintf(g_record.ma_cname, sizeof(g_record.ma_cname), "%s", "stale.example.org");
+    g_record.m_isCnameDangling = !row->m_isCnameDangling;
+
+    TEST_ASSERT_EQUAL_INT_MESSAGE(row->m_status, emailcheck_checkDomain("example.com", NULL, &g_record), row->mp_label);
+
+    TEST_ASSERT_EQUAL_STRING_MESSAGE(row->mp_cname, g_record.ma_cname, row->mp_label);
+    TEST_ASSERT_EQUAL_MESSAGE(row->m_isCnameDangling, g_record.m_isCnameDangling, row->mp_label);
+    emailcheck_EMAILAUTHCHECKRecordFree(&g_record);
+  }
+}
+
+void test_checkDomain_cname_answer_alone_is_no_answer(void)
+{
+  static const DnsAnswerStatus_t cname_statuses[] = { DNS_ANSWER_OK, DNS_ANSWER_NXDOMAIN };
+  for (size_t i = 0; i < sizeof(cname_statuses) / sizeof(cname_statuses[0]); i++)
+  {
+    setUp();
+    const char* const timed_out[] = { "example.com", "_dmarc.example.com", "_mta-sts.example.com" };
+    for (int j = 0; j < 3; j++)
+      static_addFake((FakeAnswer_t){ timed_out[j], DNS_RECORD_TYPE_TXT, DNS_ANSWER_TIMEOUT, { NULL }, false });
+    static_addFake((FakeAnswer_t){ "example.com", DNS_RECORD_TYPE_MX,    DNS_ANSWER_TIMEOUT, { NULL }, false });
+    static_addFake((FakeAnswer_t){ "example.com", DNS_RECORD_TYPE_CNAME, cname_statuses[i],  { "mail.example.net" }, false });
+
+    TEST_ASSERT_EQUAL_INT(DNS_LOOKUP_NO_ANSWER, emailcheck_checkDomain("example.com", NULL, &g_record));
+    TEST_ASSERT_EQUAL_INT(1, g_callCount);
+    emailcheck_EMAILAUTHCHECKRecordFree(&g_record);
+  }
+}
+
+void test_checkDomain_no_memory_when_the_cname_answer_could_not_be_allocated(void)
+{
+  static_fakeGoodDomain(NULL, DNS_RECORD_TYPE_TXT);
+  static_addFake((FakeAnswer_t){ "example.com", DNS_RECORD_TYPE_CNAME, DNS_ANSWER_NO_MEMORY, { NULL }, false });
+
+  TEST_ASSERT_EQUAL_INT(DNS_LOOKUP_NO_MEMORY, emailcheck_checkDomain("example.com", NULL, &g_record));
+  TEST_ASSERT_EQUAL_INT(1, g_callCount);
 }
 
 void test_EMAILAUTHCHECKRecordFree_ignores_null(void)
@@ -728,7 +819,7 @@ void test_checkDomain_skips_the_names_that_do_not_fit(void)
   static_writeLongDomain(247, domain);
   static_addFake((FakeAnswer_t){ domain, DNS_RECORD_TYPE_TXT, DNS_ANSWER_OK, { NULL }, false });
   TEST_ASSERT_EQUAL_INT(DNS_LOOKUP_OK, emailcheck_checkDomain(domain, NULL, &g_record));
-  TEST_ASSERT_EQUAL_INT(2, g_calls[0].m_questionCount);
+  TEST_ASSERT_EQUAL_INT(3, g_calls[0].m_questionCount);
   TEST_ASSERT_EQUAL_INT(DNS_ANSWER_BAD_QUESTION, g_record.m_dmarcStatus);
   TEST_ASSERT_EQUAL_INT(DNS_ANSWER_BAD_QUESTION, g_record.m_mtaStsAnswer.m_status);
   TEST_ASSERT_EQUAL_INT(0, g_record.m_dkimSelectorCount);
@@ -1520,10 +1611,10 @@ void test_checkAddressDomain_asks_mx_a_and_aaaa_in_one_round(void)
   TEST_ASSERT_EQUAL_INT(DNS_LOOKUP_OK, emailcheck_checkAddressDomain("example.com", &g_addressRecord));
 
   TEST_ASSERT_EQUAL_INT(1, g_callCount);
-  TEST_ASSERT_EQUAL_INT(3, g_calls[0].m_questionCount);
+  TEST_ASSERT_EQUAL_INT(4, g_calls[0].m_questionCount);
   TEST_ASSERT_EQUAL_INT(DNS_LOOKUP_DEADLINE_MS, g_calls[0].m_deadlineMs);
-  static const DnsRecordType_t types[] = { DNS_RECORD_TYPE_MX, DNS_RECORD_TYPE_A, DNS_RECORD_TYPE_AAAA };
-  for (int i = 0; i < 3; i++)
+  static const DnsRecordType_t types[] = { DNS_RECORD_TYPE_MX, DNS_RECORD_TYPE_A, DNS_RECORD_TYPE_AAAA, DNS_RECORD_TYPE_CNAME };
+  for (int i = 0; i < 4; i++)
   {
     TEST_ASSERT_EQUAL_STRING("example.com", g_calls[0].ma_names[i]);
     TEST_ASSERT_EQUAL_INT(types[i], g_calls[0].ma_types[i]);
@@ -1533,6 +1624,8 @@ void test_checkAddressDomain_asks_mx_a_and_aaaa_in_one_round(void)
   TEST_ASSERT_EQUAL_INT(DNS_ANSWER_OK, g_addressRecord.m_mxAnswer.m_status);
   TEST_ASSERT_EQUAL_INT(2, g_addressRecord.m_mxAnswer.m_recordCount);
   TEST_ASSERT_EQUAL_STRING("mx2.example.net", g_addressRecord.m_mxAnswer.mp_mxRecords[1].mp_hostname);
+  TEST_ASSERT_EQUAL_STRING("", g_addressRecord.ma_cname);
+  TEST_ASSERT_FALSE(g_addressRecord.m_isCnameDangling);
   TEST_ASSERT_EQUAL_STRING("Kept+ci@example.com", g_addressRecord.ma_email);
   TEST_ASSERT_EQUAL_STRING("example.com", g_addressRecord.ma_domain);
   TEST_ASSERT_EQUAL_STRING("kept.example", g_addressRecord.ma_disposableListedDomain);
@@ -1613,6 +1706,56 @@ void test_checkAddressDomain_refuses_a_name_that_is_not_public(void)
   TEST_ASSERT_EQUAL_INT(0, g_addressRecord.m_mxAnswer.m_recordCount);
 }
 
+typedef struct {
+  const char*           mp_label;
+  DnsAnswerStatus_t     m_mxStatus;
+  const char*           mp_mxHost;
+  DnsAnswerStatus_t     m_cnameStatus;
+  const char*           mp_cnameTarget;
+  DnsLookupStatus_t     m_status;
+  bool                  m_isDomainFound;
+  EmailCheckMailRoute_t m_mailRoute;
+  const char*           mp_cname;
+  bool                  m_isCnameDangling;
+} AddressCnameCase_t;
+
+void test_checkAddressDomain_reads_the_cname_state(void)
+{
+  static const AddressCnameCase_t cases[] = {
+    { "mx nxdomain, alias",         ADDRESS_NO_FAKE,         NULL,             DNS_ANSWER_OK,           "gone.example.net", DNS_LOOKUP_OK,        true,  EMAILCHECK_MAIL_ROUTE_NONE, "gone.example.net", true },
+    { "mx nxdomain, present",       ADDRESS_NO_FAKE,         NULL,             DNS_ANSWER_OK,           NULL,               DNS_LOOKUP_OK,        true,  EMAILCHECK_MAIL_ROUTE_NONE, "",                 false },
+    { "mx nxdomain, absent",        ADDRESS_NO_FAKE,         NULL,             ADDRESS_NO_FAKE,         NULL,               DNS_LOOKUP_NOT_FOUND, false, EMAILCHECK_MAIL_ROUTE_NONE, "",                 false },
+    { "mx nxdomain, timeout",       ADDRESS_NO_FAKE,         NULL,             DNS_ANSWER_TIMEOUT,      NULL,               DNS_LOOKUP_NOT_FOUND, false, EMAILCHECK_MAIL_ROUTE_NONE, "",                 false },
+    { "mx nxdomain, servfail",      ADDRESS_NO_FAKE,         NULL,             DNS_ANSWER_SERVER_ERROR, NULL,               DNS_LOOKUP_NOT_FOUND, false, EMAILCHECK_MAIL_ROUTE_NONE, "",                 false },
+    { "mx host, alias",             DNS_ANSWER_OK,           "mx.example.net", DNS_ANSWER_OK,           "mail.example.net", DNS_LOOKUP_OK,        true,  EMAILCHECK_MAIL_ROUTE_MX,   "mail.example.net", false },
+    { "mx host, cname timeout",     DNS_ANSWER_OK,           "mx.example.net", DNS_ANSWER_TIMEOUT,      NULL,               DNS_LOOKUP_OK,        true,  EMAILCHECK_MAIL_ROUTE_MX,   "",                 false },
+    { "mx timeout, alias",          DNS_ANSWER_TIMEOUT,      NULL,             DNS_ANSWER_OK,           "gone.example.net", DNS_LOOKUP_NO_ANSWER, false, EMAILCHECK_MAIL_ROUTE_NONE, "gone.example.net", false },
+    { "mx host, cname no memory",   DNS_ANSWER_OK,           "mx.example.net", DNS_ANSWER_NO_MEMORY,    NULL,               DNS_LOOKUP_NO_MEMORY, false, EMAILCHECK_MAIL_ROUTE_NONE, "",                 false },
+    { "mx nxdomain, cname no mem",  ADDRESS_NO_FAKE,         NULL,             DNS_ANSWER_NO_MEMORY,    NULL,               DNS_LOOKUP_NO_MEMORY, false, EMAILCHECK_MAIL_ROUTE_NONE, "",                 false },
+  };
+  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+  {
+    const AddressCnameCase_t* row = &cases[i];
+    setUp();
+    if (row->m_mxStatus != ADDRESS_NO_FAKE)
+      static_addFake((FakeAnswer_t){ "example.com", DNS_RECORD_TYPE_MX, row->m_mxStatus, { row->mp_mxHost }, false });
+    if (row->m_cnameStatus != ADDRESS_NO_FAKE)
+      static_addFake((FakeAnswer_t){ "example.com", DNS_RECORD_TYPE_CNAME, row->m_cnameStatus, { row->mp_cnameTarget }, false });
+    emailcheck_EMAILADDRESSCHECKRecordFree(&g_addressRecord);
+    g_addressRecord.m_isDomainFound   = !row->m_isDomainFound;
+    g_addressRecord.m_mailRoute       = EMAILCHECK_MAIL_ROUTE_NULL_MX;
+    g_addressRecord.m_isCnameDangling = !row->m_isCnameDangling;
+    snprintf(g_addressRecord.ma_cname, sizeof(g_addressRecord.ma_cname), "%s", "stale.example.org");
+
+    TEST_ASSERT_EQUAL_INT_MESSAGE(row->m_status, emailcheck_checkAddressDomain("example.com", &g_addressRecord), row->mp_label);
+
+    TEST_ASSERT_EQUAL_MESSAGE(row->m_isDomainFound, g_addressRecord.m_isDomainFound, row->mp_label);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(row->m_mailRoute, g_addressRecord.m_mailRoute, row->mp_label);
+    TEST_ASSERT_EQUAL_STRING_MESSAGE(row->mp_cname, g_addressRecord.ma_cname, row->mp_label);
+    TEST_ASSERT_EQUAL_MESSAGE(row->m_isCnameDangling, g_addressRecord.m_isCnameDangling, row->mp_label);
+  }
+}
+
 void test_EMAILADDRESSCHECKRecordFree_accepts_null(void)
 {
   emailcheck_EMAILADDRESSCHECKRecordFree(NULL);
@@ -1642,6 +1785,36 @@ void test_kindId_names_each_kind_and_no_other_value(void)
   TEST_ASSERT_NULL(emailcheck_kindId((EmailCheckKind_t)EMAILCHECK_KIND_COUNT));
 }
 
+void test_checkDomain_cname_no_memory_wins_over_not_found_and_no_answer(void)
+{
+  setUp();
+  static_addFake((FakeAnswer_t){ "example.com", DNS_RECORD_TYPE_TXT,   DNS_ANSWER_NXDOMAIN,   { NULL }, false });
+  static_addFake((FakeAnswer_t){ "example.com", DNS_RECORD_TYPE_MX,    DNS_ANSWER_NXDOMAIN,   { NULL }, false });
+  static_addFake((FakeAnswer_t){ "example.com", DNS_RECORD_TYPE_CNAME, DNS_ANSWER_NO_MEMORY, { NULL }, false });
+  TEST_ASSERT_EQUAL_INT_MESSAGE(DNS_LOOKUP_NO_MEMORY, emailcheck_checkDomain("example.com", NULL, &g_record), "nxdomain");
+  emailcheck_EMAILAUTHCHECKRecordFree(&g_record);
+
+  setUp();
+  const char* const timed_out[] = { "example.com", "_dmarc.example.com", "_mta-sts.example.com" };
+  for (int j = 0; j < 3; j++)
+    static_addFake((FakeAnswer_t){ timed_out[j], DNS_RECORD_TYPE_TXT, DNS_ANSWER_TIMEOUT, { NULL }, false });
+  static_addFake((FakeAnswer_t){ "example.com", DNS_RECORD_TYPE_MX,    DNS_ANSWER_TIMEOUT,   { NULL }, false });
+  static_addFake((FakeAnswer_t){ "example.com", DNS_RECORD_TYPE_CNAME, DNS_ANSWER_NO_MEMORY, { NULL }, false });
+  TEST_ASSERT_EQUAL_INT_MESSAGE(DNS_LOOKUP_NO_MEMORY, emailcheck_checkDomain("example.com", NULL, &g_record), "all timeout");
+  emailcheck_EMAILAUTHCHECKRecordFree(&g_record);
+}
+
+void test_checkAddressDomain_refused_cname_target_is_still_dangling(void)
+{
+  setUp();
+  static_addFake((FakeAnswer_t){ "example.com", DNS_RECORD_TYPE_CNAME, DNS_ANSWER_OK, { "printer.local" }, false });
+  emailcheck_EMAILADDRESSCHECKRecordFree(&g_addressRecord);
+  TEST_ASSERT_EQUAL_INT(DNS_LOOKUP_OK, emailcheck_checkAddressDomain("example.com", &g_addressRecord));
+  TEST_ASSERT_TRUE(g_addressRecord.m_isDomainFound);
+  TEST_ASSERT_EQUAL_STRING("", g_addressRecord.ma_cname);
+  TEST_ASSERT_TRUE(g_addressRecord.m_isCnameDangling);
+}
+
 int main(void)
 {
   UNITY_BEGIN();
@@ -1652,6 +1825,10 @@ int main(void)
   RUN_TEST(test_checkDomain_not_found_when_the_domain_does_not_exist);
   RUN_TEST(test_checkDomain_no_answer_when_no_first_round_question_is_answered);
   RUN_TEST(test_checkDomain_no_memory_when_an_answer_could_not_be_allocated);
+  RUN_TEST(test_checkDomain_reads_a_dangling_cname);
+  RUN_TEST(test_checkDomain_reads_the_cname_state);
+  RUN_TEST(test_checkDomain_cname_answer_alone_is_no_answer);
+  RUN_TEST(test_checkDomain_no_memory_when_the_cname_answer_could_not_be_allocated);
   RUN_TEST(test_EMAILAUTHCHECKRecordFree_ignores_null);
   RUN_TEST(test_checkDomain_leaves_out_the_checks_of_a_failed_section);
   RUN_TEST(test_checkDomain_walk_picks_the_record_with_the_fewest_labels);
@@ -1690,6 +1867,9 @@ int main(void)
   RUN_TEST(test_checkAddressDomain_asks_mx_a_and_aaaa_in_one_round);
   RUN_TEST(test_checkAddressDomain_route_of_each_answer);
   RUN_TEST(test_checkAddressDomain_refuses_a_name_that_is_not_public);
+  RUN_TEST(test_checkAddressDomain_reads_the_cname_state);
+  RUN_TEST(test_checkDomain_cname_no_memory_wins_over_not_found_and_no_answer);
+  RUN_TEST(test_checkAddressDomain_refused_cname_target_is_still_dangling);
   RUN_TEST(test_EMAILADDRESSCHECKRecordFree_accepts_null);
   RUN_TEST(test_kindId_names_each_kind_and_no_other_value);
   return UNITY_END();

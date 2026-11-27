@@ -139,6 +139,10 @@ DnsAnswerStatus_t g_stub_ASKQUESTIONS_status = DNS_ANSWER_OK;
 int  g_stub_ASKQUESTIONS_call_count = 0;
 char g_stub_ASKQUESTIONS_last_domain_name[VALIDATE_DOMAIN_NAME_MAX_LEN + 1] = "";
 
+int g_stub_ASKQUESTIONS_record_count = 0;
+
+static DnsRecordText_t STUB_CNAME_TARGET[] = { { "shop-example.cloudapp.net", 25 } };
+
 void dns_askQuestions(const DnsQuestion_t* questions, int question_count, int deadline_ms, DnsAnswer_t* answers_out)
 {
   (void)deadline_ms;
@@ -149,5 +153,26 @@ void dns_askQuestions(const DnsQuestion_t* questions, int question_count, int de
   {
     memset(&answers_out[i], 0, sizeof(answers_out[i]));
     answers_out[i].m_status = g_stub_ASKQUESTIONS_status;
+    if (g_stub_ASKQUESTIONS_status != DNS_ANSWER_OK || g_stub_ASKQUESTIONS_record_count == 0)
+      continue;
+    answers_out[i].m_recordCount = 1;
+    answers_out[i].mp_texts      = STUB_CNAME_TARGET;
   }
+}
+
+DnsNameState_t dns_readCnameState(const DnsAnswer_t* cname_answer, char cname_out[VALIDATE_DOMAIN_NAME_MAX_LEN + 1])
+{
+  if (cname_out != NULL)
+    cname_out[0] = '\0';
+
+  DnsNameState_t state = DNS_NAME_STATE_UNKNOWN;
+  if (cname_answer->m_status == DNS_ANSWER_NXDOMAIN)
+    state = DNS_NAME_STATE_ABSENT;
+  else if (cname_answer->m_status == DNS_ANSWER_OK && cname_answer->m_recordCount > 0)
+    state = DNS_NAME_STATE_ALIAS;
+  else if (cname_answer->m_status == DNS_ANSWER_OK)
+    state = DNS_NAME_STATE_PRESENT;
+  else if (cname_answer->m_status == DNS_ANSWER_NO_MEMORY)
+    state = DNS_NAME_STATE_NO_MEMORY;
+  return state;
 }

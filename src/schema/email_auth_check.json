@@ -4,6 +4,17 @@
     "domain": {
       "type": "string"
     },
+    "cname": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "null when the domain is not a CNAME, or its target is not a public name."
+    },
+    "dangling": {
+      "type": "boolean",
+      "description": "true when the domain is a CNAME whose target does not exist."
+    },
     "spf": {
       "type": "object",
       "description": "available is false when the DNS question failed. Then only reason follows.",
@@ -395,6 +406,8 @@
   },
   "required": [
     "domain",
+    "cname",
+    "dangling",
     "spf",
     "dmarc",
     "dkim",

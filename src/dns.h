@@ -130,6 +130,14 @@ typedef enum {
   DNS_LOOKUP_NO_MEMORY,
 } DnsLookupStatus_t;
 
+typedef enum {
+  DNS_NAME_STATE_ABSENT,
+  DNS_NAME_STATE_ALIAS,
+  DNS_NAME_STATE_PRESENT,
+  DNS_NAME_STATE_UNKNOWN,
+  DNS_NAME_STATE_NO_MEMORY,
+} DnsNameState_t;
+
 typedef struct {
   char ma_domain[VALIDATE_DOMAIN_NAME_MAX_LEN + 1];
 } DNSLOOKUPParams_t;
@@ -166,5 +174,6 @@ DnsLookupStatus_t   dns_lookupDomain        (const char* domain, DNSLOOKUPRecord
 void                dns_DNSLOOKUPRecordFree (DNSLOOKUPRecord_t* record);
 DnsLookupStatus_t   dns_checkTakeover       (const char* hostname, DNSTAKEOVERCHECKRecord_t* record_out);
 void                dns_lookupPtr           (const char* ip_address, DnsPtrAnswer_t* answer_out);
+DnsNameState_t      dns_readCnameState      (const DnsAnswer_t* cname_answer, char cname_out[VALIDATE_DOMAIN_NAME_MAX_LEN + 1]);
 
 #endif

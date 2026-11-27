@@ -2603,6 +2603,19 @@ static void static_EMAILAUTHCHECKWriteSpan(EmailAuthSpan_t span, JsonBuf_t* json
   jsonbuf_appendFormat(json_buf, "\"");
 }
 
+static void static_writeEmailCname(const char* cname, bool is_dangling, JsonBuf_t* json_buf)
+{
+  if (cname[0] == '\0')
+    jsonbuf_appendFormat(json_buf, R"("cname":null,)");
+  else
+  {
+    jsonbuf_appendFormat(json_buf, R"("cname":")");
+    jsonbuf_appendEscaped(json_buf, cname);
+    jsonbuf_appendFormat(json_buf, R"(",)");
+  }
+  jsonbuf_appendFormat(json_buf, R"("dangling":%s,)", is_dangling ? "true" : "false");
+}
+
 static void static_EMAILAUTHCHECKWriteUnavailable(const char* key, DnsAnswerStatus_t status, JsonBuf_t* json_buf)
 {
   jsonbuf_appendFormat(json_buf, R"("%s":{"available":false,"reason":"%s"},)", key, static_DNSLOOKUPReason(status));
@@ -2755,6 +2768,7 @@ void serialize_EMAILAUTHCHECK_response(const EMAILAUTHCHECKRecord_t* record, Jso
   jsonbuf_appendFormat(json_buf, R"({"domain":")");
   jsonbuf_appendEscaped(json_buf, record->ma_domain);
   jsonbuf_appendFormat(json_buf, R"(",)");
+  static_writeEmailCname(record->ma_cname, record->m_isCnameDangling, json_buf);
   static_EMAILAUTHCHECKWriteSpf(record, json_buf);
   static_EMAILAUTHCHECKWriteDmarc(record, json_buf);
   static_EMAILAUTHCHECKWriteDkim(record, json_buf);
@@ -2835,7 +2849,9 @@ void serialize_EMAILADDRESSCHECK_response(const EMAILADDRESSCHECKRecord_t* recor
   jsonbuf_appendEscaped(json_buf, record->ma_email);
   jsonbuf_appendFormat(json_buf, R"(","domain":")");
   jsonbuf_appendEscaped(json_buf, record->ma_domain);
-  jsonbuf_appendFormat(json_buf, R"(","domain_exists":%s,"accepts_mail":%s,)", record->m_isDomainFound ? "true" : "false", is_mail_accepted ? "true" : "false");
+  jsonbuf_appendFormat(json_buf, R"(",)");
+  static_writeEmailCname(record->ma_cname, record->m_isCnameDangling, json_buf);
+  jsonbuf_appendFormat(json_buf, R"("domain_exists":%s,"accepts_mail":%s,)", record->m_isDomainFound ? "true" : "false", is_mail_accepted ? "true" : "false");
   if (record->m_isDomainFound)
     jsonbuf_appendFormat(json_buf, R"("mail_route":"%s",)", static_EMAILADDRESSCHECKRouteName(record->m_mailRoute));
   else

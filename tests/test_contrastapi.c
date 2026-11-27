@@ -227,8 +227,8 @@ void test_mcp_era_does_not_carry_over_to_the_next_request(void)
   static_callRequestHandle(
     "POST /mcp HTTP/1.1\r\n"
     "MCP-Protocol-Version: 2026-07-28\r\n"
-    "Mcp-Method: ping\r\n\r\n"
-    "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\",\"params\":{\"_meta\":{"
+    "Mcp-Method: server/discover\r\n\r\n"
+    "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"server/discover\",\"params\":{\"_meta\":{"
     "\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\","
     "\"io.modelcontextprotocol/clientInfo\":{\"name\":\"p\",\"version\":\"1\"},"
     "\"io.modelcontextprotocol/clientCapabilities\":{}}}}",

@@ -196,9 +196,9 @@ static bool static_WATCHLISTEDITIsNxdomain(const char* domain_name)
   const DnsQuestion_t question = { domain_name, DNS_RECORD_TYPE_CNAME };
   DnsAnswer_t         answer;
   dns_askQuestions(&question, 1, DNS_LOOKUP_DEADLINE_MS, &answer);
-  bool is_nxdomain = answer.m_status == DNS_ANSWER_NXDOMAIN;
+  bool is_absent = dns_readCnameState(&answer, NULL) == DNS_NAME_STATE_ABSENT;
   dns_answerFree(&answer);
-  return is_nxdomain;
+  return is_absent;
 }
 
 bool endpoint_WATCHLISTEDITWillAskResolver(const EndpointAnyParams_t* params)

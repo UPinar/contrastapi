@@ -42,20 +42,23 @@ static const char* const MCP_HANDSHAKE_VERSIONS[] = {
 static const size_t MCP_HANDSHAKE_COUNT = sizeof(MCP_HANDSHAKE_VERSIONS) / sizeof(MCP_HANDSHAKE_VERSIONS[0]);
 
 #define MCP_META_KEY_PROTOCOL_VERSION    "io.modelcontextprotocol/protocolVersion"
-#define MCP_META_KEY_CLIENT_INFO         "io.modelcontextprotocol/clientInfo"
 #define MCP_META_KEY_CLIENT_CAPABILITIES "io.modelcontextprotocol/clientCapabilities"
+
+#define MCP_META_KEY_SERVER_INFO         "io.modelcontextprotocol/serverInfo"
 
 #define MCP_META_KEY_TOOL_CATEGORY       "com.contrastcyber/category"
 
 #define MCP_META_KEY_TOOL_CREDITS        "com.contrastcyber/credits"
 
-#define MCP_SERVER_INFO_JSON \
-  "\"serverInfo\":{\"name\":\"contrastapi\",\"title\":\"ContrastAPI\",\"version\":\"" CONTRASTAPI_VERSION "\"}"
+#define MCP_SERVER_INFO_OBJECT_JSON \
+  "{\"name\":\"contrastapi\",\"title\":\"ContrastAPI\",\"version\":\"" CONTRASTAPI_VERSION "\"}"
+#define MCP_SERVER_INFO_JSON "\"serverInfo\":" MCP_SERVER_INFO_OBJECT_JSON
 
 #define MCP_CACHEABLE_RESULT_JSON "\"cacheScope\":\"public\",\"ttlMs\":3600000"
 
 static const char MCP_DISCOVER_RESULT[] =
-  "{" MCP_CACHEABLE_RESULT_JSON ","
+  "{\"_meta\":{\"" MCP_META_KEY_SERVER_INFO "\":" MCP_SERVER_INFO_OBJECT_JSON "},"
+  MCP_CACHEABLE_RESULT_JSON ","
   "\"supportedVersions\":[\"" MCP_MODERN_PROTOCOL_VERSION "\"],"
   "\"capabilities\":{\"tools\":{}},"
   MCP_SERVER_INFO_JSON ","
@@ -257,14 +260,13 @@ static char* static_classifyModernInbound(const JsonRpcRequest_t* req, const Mcp
       jsonread_objectKey(req->m_params, "_meta", &meta_span) == JSONREAD_OK &&
       jsonread_objectKey(meta_span, MCP_META_KEY_PROTOCOL_VERSION, &pv_span) == JSONREAD_OK &&
       jsonread_spanToStrStatus(pv_span, envelope_version, sizeof(envelope_version)) == JSONREAD_OK &&
-      jsonread_objectKey(meta_span, MCP_META_KEY_CLIENT_INFO, &probe_span) == JSONREAD_OK &&
       jsonread_objectKey(meta_span, MCP_META_KEY_CLIENT_CAPABILITIES, &probe_span) == JSONREAD_OK;
 
   if (!meta_ok)
   {
     *status_out = static_modernHttpStatus(JSONRPC_ERR_PARAMS);
     return static_buildRpcErrorEnvelope(req->ma_id, JSONRPC_ERR_PARAMS,
-        "params._meta must carry the reserved protocol-version, client-info and "
+        "params._meta must carry the reserved protocol-version and "
         "client-capabilities envelope keys");
   }
 
@@ -388,8 +390,6 @@ static bool static_dispatchModern(const JsonRpcRequest_t* req, const McpRoutingH
     *json_out = static_buildModernResult(req->ma_id, MCP_DISCOVER_RESULT);
   else if (strcmp(req->ma_rpcMethod, "tools/list") == 0)
     *json_out = static_buildToolsListResponse(req->ma_id, true);
-  else if (strcmp(req->ma_rpcMethod, "ping") == 0)
-    *json_out = static_buildModernResult(req->ma_id, "{}");
   else if (strcmp(req->ma_rpcMethod, "tools/call") == 0)
   {
     int protocol_code = 0;
@@ -1016,7 +1016,7 @@ static void static_runTool(const Endpoint_t* endpoint, JsonReadSpan_t args_span,
       run_result.mp_body = NULL;
       break;
     case ENDPOINT_RUN_NOT_FOUND:
-      static_setToolError(result_out, "%s", endpoint->mp_notFoundMessage);
+      static_setToolError(result_out, "%s", run_result.mp_message != NULL ? run_result.mp_message : endpoint->mp_notFoundMessage);
       break;
     case ENDPOINT_RUN_REFUSED:
       static_setToolError(result_out, "%s", run_result.mp_message);

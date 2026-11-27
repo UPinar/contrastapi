@@ -5109,7 +5109,7 @@ void test_robots_txt_keeps_the_example_urls_open_to_user_agents_only(void)
 
 void test_registration_gate_test_count(void)
 {
-  TEST_ASSERT_EQUAL_INT_MESSAGE(274, (int)Unity.NumberOfTests,
+  TEST_ASSERT_EQUAL_INT_MESSAGE(276, (int)Unity.NumberOfTests,
     "RUN_TEST list and test definitions have drifted apart - a test may be unregistered");
 }
 
@@ -5204,11 +5204,14 @@ void test_SSLCHECKRun_names_why_each_probe_failed(void)
   memset(&params, 0, sizeof(params));
   snprintf(params.m_sslCheck.ma_hostname, sizeof(params.m_sslCheck.ma_hostname), "%s", "shop.example.com");
   g_stub_CACHE_get_count = 0;
+  static_resetFakeAsk();
+  g_fakeAskStatus = DNS_ANSWER_NXDOMAIN;
   for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
   {
     g_stub_TLSPROBE_status          = cases[i].m_probeStatus;
     g_stub_TLSPROBE_handshake_error = cases[i].m_handshakeError;
     g_stub_TLSPROBE_last_hostname[0] = '\0';
+    g_fakeAskCallCount               = 0;
     JsonBuf_t* json_buf = jsonbuf_create(JSONBUF_INITIAL_CAP, JSONBUF_DEFAULT_CEILING);
     TEST_ASSERT_NOT_NULL(json_buf);
     const char* message = NULL;
@@ -5218,11 +5221,99 @@ void test_SSLCHECKRun_names_why_each_probe_failed(void)
     else
       TEST_ASSERT_EQUAL_STRING(cases[i].mp_message, message);
     TEST_ASSERT_EQUAL_STRING("shop.example.com", g_stub_TLSPROBE_last_hostname);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(cases[i].m_probeStatus == TLSPROBE_NAME_NOT_FOUND ? 1 : 0, g_fakeAskCallCount, cases[i].mp_message);
     jsonbuf_destroy(json_buf);
   }
   TEST_ASSERT_EQUAL_INT(0, g_stub_CACHE_get_count);
   g_stub_TLSPROBE_status          = TLSPROBE_OK;
   g_stub_TLSPROBE_handshake_error = TLSPROBE_HANDSHAKE_ERROR_NONE;
+  static_resetFakeAsk();
+}
+
+void test_SSLCHECKRun_tells_a_missing_name_from_a_name_without_address(void)
+{
+  static const char* const CNAME_TEXT      = "hostname is a CNAME whose target has no A or AAAA record; dns_takeover_check tells whether the target exists";
+  static const char* const NO_ADDRESS_TEXT = "hostname has no A or AAAA record";
+  static const struct {
+    DnsAnswerStatus_t   m_askStatus;
+    int                 m_recordCount;
+    EndpointRunStatus_t m_runStatus;
+    const char*         mp_message;
+  } cases[] = {
+    { DNS_ANSWER_NXDOMAIN,      0, ENDPOINT_RUN_NOT_FOUND, NULL },
+    { DNS_ANSWER_OK,            1, ENDPOINT_RUN_NOT_FOUND, CNAME_TEXT },
+    { DNS_ANSWER_OK,            0, ENDPOINT_RUN_NOT_FOUND, NO_ADDRESS_TEXT },
+    { DNS_ANSWER_TIMEOUT,       0, ENDPOINT_RUN_NOT_FOUND, NULL },
+    { DNS_ANSWER_SERVER_ERROR,  0, ENDPOINT_RUN_NOT_FOUND, NULL },
+    { DNS_ANSWER_NO_MEMORY,     0, ENDPOINT_RUN_NO_MEMORY, NULL },
+  };
+  EndpointAnyParams_t params;
+  memset(&params, 0, sizeof(params));
+  snprintf(params.m_sslCheck.ma_hostname, sizeof(params.m_sslCheck.ma_hostname), "%s", "shop.example.com");
+  g_stub_TLSPROBE_status = TLSPROBE_NAME_NOT_FOUND;
+  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+  {
+    static_resetFakeAsk();
+    g_fakeAskStatus      = cases[i].m_askStatus;
+    g_fakeAskRecordCount = cases[i].m_recordCount;
+    JsonBuf_t* json_buf = jsonbuf_create(JSONBUF_INITIAL_CAP, JSONBUF_DEFAULT_CEILING);
+    TEST_ASSERT_NOT_NULL(json_buf);
+    const char* message = NULL;
+    TEST_ASSERT_EQUAL_INT_MESSAGE(cases[i].m_runStatus, endpoint_SSLCHECKRun(NULL, &params, json_buf, &message), cases[i].mp_message);
+    if (cases[i].mp_message == NULL)
+      TEST_ASSERT_NULL(message);
+    else
+      TEST_ASSERT_EQUAL_STRING(cases[i].mp_message, message);
+    TEST_ASSERT_EQUAL_size_t(0, jsonbuf_length(json_buf));
+    TEST_ASSERT_EQUAL_INT(1, g_fakeAskCallCount);
+    TEST_ASSERT_EQUAL_INT(1, g_fakeAskQuestionCount);
+    TEST_ASSERT_EQUAL_INT(DNS_RECORD_TYPE_CNAME, g_fakeAskType);
+    TEST_ASSERT_EQUAL_INT(TLSPROBE_RESOLVE_DEADLINE_MS, g_fakeAskDeadlineMs);
+    TEST_ASSERT_EQUAL_STRING("shop.example.com", g_fakeAskName);
+    TEST_ASSERT_EQUAL_INT(1, g_fakeAnswerFreeCount);
+    jsonbuf_destroy(json_buf);
+  }
+
+  const Endpoint_t* row = endpoint_findByMcpName("ssl_check");
+  TEST_ASSERT_NOT_NULL(row);
+  static_resetFakeAsk();
+  g_fakeAskRecordCount = 1;
+  EndpointRunResult_t run_result = endpoint_runRow(row, &params, NULL, &TEST_FULL_CHARGE);
+  TEST_ASSERT_EQUAL_INT(ENDPOINT_RUN_NOT_FOUND, run_result.m_status);
+  TEST_ASSERT_EQUAL_STRING(CNAME_TEXT, run_result.mp_message);
+  TEST_ASSERT_NULL(run_result.mp_body);
+  static_resetFakeAsk();
+  g_stub_TLSPROBE_status = TLSPROBE_OK;
+}
+
+void test_SSLCHECKRun_asks_dns_only_when_the_probe_finds_no_name(void)
+{
+  static const struct {
+    TlsProbeStatus_t    m_probeStatus;
+    EndpointRunStatus_t m_runStatus;
+  } cases[] = {
+    { TLSPROBE_OK,             ENDPOINT_RUN_OK },
+    { TLSPROBE_CONNECT_FAILED, ENDPOINT_RUN_TARGET_UNREACHABLE },
+    { TLSPROBE_RESOLVE_FAILED, ENDPOINT_RUN_UPSTREAM_ERROR },
+  };
+  EndpointAnyParams_t params;
+  memset(&params, 0, sizeof(params));
+  snprintf(params.m_sslCheck.ma_hostname, sizeof(params.m_sslCheck.ma_hostname), "%s", "shop.example.com");
+  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+  {
+    static_resetFakeAsk();
+    g_fakeAskStatus        = DNS_ANSWER_NXDOMAIN;
+    g_stub_TLSPROBE_status = cases[i].m_probeStatus;
+    JsonBuf_t* json_buf = jsonbuf_create(JSONBUF_INITIAL_CAP, JSONBUF_DEFAULT_CEILING);
+    TEST_ASSERT_NOT_NULL(json_buf);
+    const char* message = NULL;
+    TEST_ASSERT_EQUAL_INT(cases[i].m_runStatus, endpoint_SSLCHECKRun(NULL, &params, json_buf, &message));
+    TEST_ASSERT_EQUAL_INT(0, g_fakeAskCallCount);
+    TEST_ASSERT_EQUAL_INT(0, g_fakeAnswerFreeCount);
+    jsonbuf_destroy(json_buf);
+  }
+  static_resetFakeAsk();
+  g_stub_TLSPROBE_status = TLSPROBE_OK;
 }
 
 void test_runRow_hands_the_reason_of_an_unreachable_target_on(void)
@@ -9391,6 +9482,8 @@ int main(void)
   RUN_TEST(test_DNSTAKEOVERCHECKRun_refuses_a_name_that_is_not_public);
   RUN_TEST(test_EMAILAUTHCHECKRun_refusal_names_what_was_refused);
   RUN_TEST(test_SSLCHECKRun_names_why_each_probe_failed);
+  RUN_TEST(test_SSLCHECKRun_tells_a_missing_name_from_a_name_without_address);
+  RUN_TEST(test_SSLCHECKRun_asks_dns_only_when_the_probe_finds_no_name);
   RUN_TEST(test_runRow_hands_the_reason_of_an_unreachable_target_on);
   RUN_TEST(test_HEADERSCHECKRun_names_why_each_fetch_failed);
   RUN_TEST(test_HEADERSCHECKRun_without_a_connection_writes_the_rated_fetch);

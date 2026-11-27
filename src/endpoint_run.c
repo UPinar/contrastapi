@@ -741,6 +741,34 @@ EndpointRunStatus_t endpoint_ASNLOOKUPRun(PGconn* conn, const EndpointAnyParams_
 #define SSLCHECK_CONNECT_FAILED_MESSAGE "no address of the host name took a connection on port " MACRO_STR(TLSPROBE_PORT)
 #define SSLCHECK_TIMEOUT_MESSAGE        "the TLS handshake did not finish within " MACRO_STR(TLSPROBE_DEADLINE_MS) " ms"
 
+#define SSLCHECK_NO_ADDRESS_MESSAGE              "hostname has no A or AAAA record"
+#define SSLCHECK_CNAME_TARGET_NO_ADDRESS_MESSAGE "hostname is a CNAME whose target has no A or AAAA record; dns_takeover_check tells whether the target exists"
+
+static EndpointRunStatus_t static_SSLCHECKExplainNoAddress(const char* hostname, const char** message_out)
+{
+  const DnsQuestion_t question = { hostname, DNS_RECORD_TYPE_CNAME };
+  DnsAnswer_t answer;
+  dns_askQuestions(&question, 1, TLSPROBE_RESOLVE_DEADLINE_MS, &answer);
+  DnsNameState_t name_state = dns_readCnameState(&answer, NULL);
+  dns_answerFree(&answer);
+
+  switch (name_state)
+  {
+    case DNS_NAME_STATE_ALIAS:
+      *message_out = SSLCHECK_CNAME_TARGET_NO_ADDRESS_MESSAGE;
+      break;
+    case DNS_NAME_STATE_PRESENT:
+      *message_out = SSLCHECK_NO_ADDRESS_MESSAGE;
+      break;
+    case DNS_NAME_STATE_NO_MEMORY:
+      return ENDPOINT_RUN_NO_MEMORY;
+    case DNS_NAME_STATE_ABSENT:
+    case DNS_NAME_STATE_UNKNOWN:
+      break;
+  }
+  return ENDPOINT_RUN_NOT_FOUND;
+}
+
 static const char* static_SSLCHECKHandshakeErrorMessage(TlsProbeHandshakeError_t handshake_error)
 {
   switch (handshake_error)
@@ -797,7 +825,7 @@ EndpointRunStatus_t endpoint_SSLCHECKRun(PGconn* conn, const EndpointAnyParams_t
       *message_out = TLSPROBE_ADDRESS_NOT_GLOBALLY_REACHABLE_REFUSAL_MESSAGE;
       return ENDPOINT_RUN_REFUSED;
     case TLSPROBE_NAME_NOT_FOUND:
-      return ENDPOINT_RUN_NOT_FOUND;
+      return static_SSLCHECKExplainNoAddress(hostname, message_out);
     case TLSPROBE_RESOLVE_FAILED:
       return ENDPOINT_RUN_UPSTREAM_ERROR;
     case TLSPROBE_CONNECT_FAILED:

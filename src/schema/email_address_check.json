@@ -8,9 +8,20 @@
     "domain": {
       "type": "string"
     },
+    "cname": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "null when the domain is not a CNAME, or its target is not a public name."
+    },
+    "dangling": {
+      "type": "boolean",
+      "description": "true when the domain is a CNAME whose target does not exist. domain_exists is still true."
+    },
     "domain_exists": {
       "type": "boolean",
-      "description": "false when the resolver said the domain does not exist."
+      "description": "false when DNS said the domain does not exist and its CNAME question did not show it exists."
     },
     "accepts_mail": {
       "type": "boolean",
@@ -86,6 +97,8 @@
   "required": [
     "email",
     "domain",
+    "cname",
+    "dangling",
     "domain_exists",
     "accepts_mail",
     "mail_route",

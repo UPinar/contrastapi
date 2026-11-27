@@ -230,6 +230,9 @@ extern "C" char              g_stub_DNSLOOKUP_last_domain[VALIDATE_DOMAIN_NAME_M
 extern "C" void            (*g_stub_DNSLOOKUP_on_call)(void);
 
 extern "C" int               g_stub_ASKQUESTIONS_call_count;
+extern "C" DnsAnswerStatus_t g_stub_ASKQUESTIONS_status;
+extern "C" int               g_stub_ASKQUESTIONS_record_count;
+extern "C" char              g_stub_ASKQUESTIONS_last_domain_name[VALIDATE_DOMAIN_NAME_MAX_LEN + 1];
 extern "C" DnsLookupStatus_t g_stub_DNSTAKEOVERCHECK_status;
 extern "C" int               g_stub_DNSTAKEOVERCHECK_call_count;
 extern "C" char              g_stub_DNSTAKEOVERCHECK_last_hostname[VALIDATE_DOMAIN_NAME_MAX_LEN + 1];
@@ -614,6 +617,8 @@ void setUp(void)
   g_stub_PTR_confirmation                   = DNS_PTR_CONFIRMATION_CONFIRMED;
   g_stub_PTR_forward_status                 = DNS_ANSWER_OK;
   g_stub_PTR_shown_name_index               = 0;
+  g_stub_ASKQUESTIONS_status                = DNS_ANSWER_OK;
+  g_stub_ASKQUESTIONS_record_count          = 0;
   memset(g_stub_PTR_last_ip_address, 0, sizeof(g_stub_PTR_last_ip_address));
   g_stub_TLSPROBE_status                    = TLSPROBE_OK;
   g_stub_TLSPROBE_result                    = g_stub_TLSPROBE_default_result;
@@ -3042,7 +3047,7 @@ void test_HEALTH_db_error_answers_503_with_retry_after(void)
   TEST_ASSERT_EQUAL_INT(1, static_countResponses(buf));
   TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 503 Service Unavailable\r\n"));
   TEST_ASSERT_NOT_NULL(strstr(buf, "\r\nRetry-After: 5\r\n"));
-  TEST_ASSERT_NOT_NULL(strstr(buf, R"({"status":"unavailable","version":"2.3.4","db":null,"credits":{"charged":0}})"));
+  TEST_ASSERT_NOT_NULL(strstr(buf, R"({"status":"unavailable","version":"2.3.5","db":null,"credits":{"charged":0}})"));
   TEST_ASSERT_NULL(strstr(buf, R"("cve_count")"));
 }
 
@@ -3056,7 +3061,7 @@ void test_HEALTH_db_not_found_also_answers_503(void)
   static_callRequestHandle(req, buf, sizeof(buf));
   TEST_ASSERT_EQUAL_INT(1, static_countResponses(buf));
   TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 503 Service Unavailable\r\n"));
-  TEST_ASSERT_NOT_NULL(strstr(buf, R"({"status":"unavailable","version":"2.3.4","db":null,"credits":{"charged":0}})"));
+  TEST_ASSERT_NOT_NULL(strstr(buf, R"({"status":"unavailable","version":"2.3.5","db":null,"credits":{"charged":0}})"));
   TEST_ASSERT_NULL(strstr(buf, R"("cve_count")"));
 }
 
@@ -4766,7 +4771,7 @@ void test_email_auth_check_is_one_upstream_thread_while_it_asks_the_resolver(voi
 }
 
 #define EMAILAUTHCHECK_STUB_BODY \
-  R"({"domain":"example.com","spf":{"available":true,"record_count":0,"record":null,"terms":null,)" \
+  R"({"domain":"example.com","cname":null,"dangling":false,"spf":{"available":true,"record_count":0,"record":null,"terms":null,)" \
   R"("dns_lookup_term_count":null,"invalid_term_count":null,"unread_term_count":null},)" \
   R"("dmarc":{"available":true,"record_name":null,"source":null,"record":null,"policy":null,)" \
   R"("subdomain_policy":null,"nonexistent_subdomain_policy":null,"applied_policy":null,"test_mode":null,)" \
@@ -5184,7 +5189,8 @@ void test_ssl_check_failed_probes_on_both_transports(void)
     { TLSPROBE_NO_MEMORY, TLSPROBE_HANDSHAKE_ERROR_NONE, "HTTP/1.1 500 Internal Server Error\r\n",
       "internal_error", "internal server error", R"({"code":-32603,"message":"Internal error"})" },
   };
-  g_stub_api_key_state = DB_API_KEY_ACTIVE;
+  g_stub_api_key_state       = DB_API_KEY_ACTIVE;
+  g_stub_ASKQUESTIONS_status = DNS_ANSWER_NXDOMAIN;
   for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
   {
     g_stub_TLSPROBE_status          = cases[i].m_status;
@@ -5220,6 +5226,54 @@ void test_ssl_check_failed_probes_on_both_transports(void)
     TEST_ASSERT_EQUAL_INT(2, g_stub_CACHE_get_count);
   }
   TEST_ASSERT_EQUAL_INT(0, g_stub_CACHE_put_count);
+}
+
+void test_ssl_check_name_not_found_texts_on_both_transports(void)
+{
+  static const struct {
+    DnsAnswerStatus_t m_askStatus;
+    int               m_recordCount;
+    const char*       mp_message;
+  } cases[] = {
+    { DNS_ANSWER_NXDOMAIN,     0, "hostname does not exist" },
+    { DNS_ANSWER_OK,           1, "hostname is a CNAME whose target has no A or AAAA record; dns_takeover_check tells whether the target exists" },
+    { DNS_ANSWER_OK,           0, "hostname has no A or AAAA record" },
+    { DNS_ANSWER_SERVER_ERROR, 0, "hostname does not exist" },
+    { DNS_ANSWER_TIMEOUT,      0, "hostname does not exist" },
+  };
+  g_stub_api_key_state   = DB_API_KEY_ACTIVE;
+  g_stub_TLSPROBE_status = TLSPROBE_NAME_NOT_FOUND;
+  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+  {
+    g_stub_ASKQUESTIONS_status       = cases[i].m_askStatus;
+    g_stub_ASKQUESTIONS_record_count = cases[i].m_recordCount;
+    g_stub_ASKQUESTIONS_call_count   = 0;
+
+    char rest_body[256];
+    int written = snprintf(rest_body, sizeof(rest_body), R"({"error":{"code":"not_found","message":"%s"}})" "\n", cases[i].mp_message);
+    TEST_ASSERT_TRUE(written > 0 && (size_t)written < sizeof(rest_body));
+    char mcp_body[256];
+    written = snprintf(mcp_body, sizeof(mcp_body), R"({"jsonrpc":"2.0","id":53,"result":{"content":[{"type":"text","text":"%s"}],"isError":true}})", cases[i].mp_message);
+    TEST_ASSERT_TRUE(written > 0 && (size_t)written < sizeof(mcp_body));
+
+    char buf[RESP_BUF];
+    g_stub_last_credit_cost = CREDIT_COST_SENTINEL;
+    static_callRequestHandle("GET /ssl_check/shop.example.com HTTP/1.1\r\nX-API-Key: " VALID_KEY "\r\n\r\n", buf, sizeof(buf));
+    TEST_ASSERT_EQUAL_INT_MESSAGE(1, static_countResponses(buf), cases[i].mp_message);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "HTTP/1.1 404 Not Found\r\n"), cases[i].mp_message);
+    TEST_ASSERT_EQUAL_STRING(rest_body, static_responseBody(buf));
+    TEST_ASSERT_EQUAL_UINT(1, g_stub_last_credit_cost);
+
+    g_stub_last_credit_cost = CREDIT_COST_SENTINEL;
+    static_callRequestHandle("POST /mcp HTTP/1.1\r\nX-API-Key: " VALID_KEY "\r\nContent-Type: application/json\r\n\r\n"
+                             R"({"jsonrpc":"2.0","id":53,"method":"tools/call","params":{"name":"ssl_check","arguments":{"domain":"shop.example.com"}}})",
+                             buf, sizeof(buf));
+    TEST_ASSERT_EQUAL_INT(1, static_countResponses(buf));
+    TEST_ASSERT_EQUAL_STRING(mcp_body, static_responseBody(buf));
+    TEST_ASSERT_EQUAL_UINT(1, g_stub_last_credit_cost);
+    TEST_ASSERT_EQUAL_INT(2, g_stub_ASKQUESTIONS_call_count);
+    TEST_ASSERT_EQUAL_STRING("shop.example.com", g_stub_ASKQUESTIONS_last_domain_name);
+  }
 }
 
 #define HEADERSCHECK_CHECKED_AT_MASK "YYYY-MM-DDTHH:MM:SSZ"
@@ -6453,21 +6507,21 @@ void test_email_address_check_answer_is_200(void)
     const char*           mp_body;
   } cases[] = {
     { "Admin%2Bci%40Example.COM", true, "", DNS_LOOKUP_OK, EMAILCHECK_MAIL_ROUTE_MX, "example.com",
-      R"({"email":"Admin+ci@example.com","domain":"example.com","domain_exists":true,"accepts_mail":true,"mail_route":"mx","mx_hosts":)"
+      R"({"email":"Admin+ci@example.com","domain":"example.com","cname":null,"dangling":false,"domain_exists":true,"accepts_mail":true,"mail_route":"mx","mx_hosts":)"
       EMAILADDRESSCHECK_STUB_MX_HOSTS
       R"(,"disposable":false,"disposable_listed_domain":null,"unavailable":{},"credits":{"charged":1,"remaining":10}})" "\n" },
     { "x.y@A.B.Mailinator.com", true, "mailinator.com", DNS_LOOKUP_OK, EMAILCHECK_MAIL_ROUTE_IMPLICIT_MX, "a.b.mailinator.com",
-      R"({"email":"x.y@a.b.mailinator.com","domain":"a.b.mailinator.com","domain_exists":true,"accepts_mail":true,"mail_route":"implicit_mx","mx_hosts":[],)"
+      R"({"email":"x.y@a.b.mailinator.com","domain":"a.b.mailinator.com","cname":null,"dangling":false,"domain_exists":true,"accepts_mail":true,"mail_route":"implicit_mx","mx_hosts":[],)"
       R"("disposable":true,"disposable_listed_domain":"mailinator.com","unavailable":{},"credits":{"charged":1,"remaining":10}})" "\n" },
     { "noreply+ci@Gmail.com", false, "", DNS_LOOKUP_OK, EMAILCHECK_MAIL_ROUTE_NULL_MX, "gmail.com",
-      R"({"email":"noreply+ci@gmail.com","domain":"gmail.com","domain_exists":true,"accepts_mail":false,"mail_route":"null_mx","mx_hosts":[],)"
+      R"({"email":"noreply+ci@gmail.com","domain":"gmail.com","cname":null,"dangling":false,"domain_exists":true,"accepts_mail":false,"mail_route":"null_mx","mx_hosts":[],)"
       R"("disposable":null,"disposable_listed_domain":null,)"
       R"("unavailable":{"disposable_listed_domain":"not_synced"},"credits":{"charged":1,"remaining":10}})" "\n" },
     { "Support@Gone.Example.org", true, "", DNS_LOOKUP_NOT_FOUND, EMAILCHECK_MAIL_ROUTE_MX, "gone.example.org",
-      R"({"email":"Support@gone.example.org","domain":"gone.example.org","domain_exists":false,"accepts_mail":false,"mail_route":null,"mx_hosts":[],)"
+      R"({"email":"Support@gone.example.org","domain":"gone.example.org","cname":null,"dangling":false,"domain_exists":false,"accepts_mail":false,"mail_route":null,"mx_hosts":[],)"
       R"("disposable":false,"disposable_listed_domain":null,"unavailable":{},"credits":{"charged":1,"remaining":10}})" "\n" },
     { "bob@example.net", false, "", DNS_LOOKUP_OK, EMAILCHECK_MAIL_ROUTE_NONE, "example.net",
-      R"({"email":"bob@example.net","domain":"example.net","domain_exists":true,"accepts_mail":false,"mail_route":"none","mx_hosts":[],)"
+      R"({"email":"bob@example.net","domain":"example.net","cname":null,"dangling":false,"domain_exists":true,"accepts_mail":false,"mail_route":"none","mx_hosts":[],)"
       R"("disposable":null,"disposable_listed_domain":null,)"
       R"("unavailable":{"disposable_listed_domain":"not_synced"},"credits":{"charged":1,"remaining":10}})" "\n" },
   };
@@ -14049,6 +14103,8 @@ void test_docs_dns_refusals_match_the_server(void)
     { "/headers_check/example.com?include_full_header_values=yes", 1, 0 },
     { "/well_known/printer.local",            10, 1 },
     { "/well_known/",                         10, 0 },
+    { "/ssl_check/shop.example.com",          2, 1 },
+    { "/ssl_check/mail.example.com",          2, 1 },
   };
   char* api_text = static_readDocsFile(DOCS_API_PATH);
   char* mcp_text = static_readDocsFile(DOCS_MCP_PATH);
@@ -14057,7 +14113,9 @@ void test_docs_dns_refusals_match_the_server(void)
     g_stub_DNSLOOKUP_status     = i == 3 ? DNS_LOOKUP_NOT_FOUND : DNS_LOOKUP_OK;
     g_stub_DNSTAKEOVERCHECK_status = i == 4 ? DNS_LOOKUP_NOT_FOUND : DNS_LOOKUP_OK;
     g_stub_EMAILAUTHCHECK_status   = i == 6 ? DNS_LOOKUP_NOT_FOUND : i == 8 ? DNS_LOOKUP_INVALID_NAME : DNS_LOOKUP_OK;
-    g_stub_TLSPROBE_status         = i == 11 ? TLSPROBE_NAME_NOT_FOUND : i == 12 ? TLSPROBE_ADDRESS_NOT_GLOBALLY_REACHABLE : TLSPROBE_OK;
+    g_stub_TLSPROBE_status         = i == 11 || i >= 24 ? TLSPROBE_NAME_NOT_FOUND : i == 12 ? TLSPROBE_ADDRESS_NOT_GLOBALLY_REACHABLE : TLSPROBE_OK;
+    g_stub_ASKQUESTIONS_status     = i == 11 ? DNS_ANSWER_NXDOMAIN : DNS_ANSWER_OK;
+    g_stub_ASKQUESTIONS_record_count = i == 24 ? 1 : 0;
     g_stub_RDAP_lookup_status      = i == 16 ? RDAP_NOT_REGISTERED : RDAP_OK;
     char buf[RESP_BUF];
     static_restGet(cases[i].mp_path, buf, sizeof(buf));
@@ -15378,7 +15436,7 @@ void test_api_key_claim_refuses_an_order_id_that_is_not_a_uuid(void)
 
 void test_registration_gate_test_count(void)
 {
-  int expected_test_count = 891;
+  int expected_test_count = 893;
   TEST_ASSERT_EQUAL_INT_MESSAGE(expected_test_count, (int)Unity.NumberOfTests,
     "RUN_TEST list and test definitions have drifted apart - a test may be unregistered");
 }
@@ -15626,6 +15684,7 @@ void test_rest_and_mcp_send_one_not_found_text(void)
   g_stub_DNSTAKEOVERCHECK_status = DNS_LOOKUP_NOT_FOUND;
   g_stub_EMAILAUTHCHECK_status   = DNS_LOOKUP_NOT_FOUND;
   g_stub_TLSPROBE_status         = TLSPROBE_NAME_NOT_FOUND;
+  g_stub_ASKQUESTIONS_status     = DNS_ANSWER_NXDOMAIN;
   g_stub_RDAP_lookup_status      = RDAP_NOT_REGISTERED;
   int checked = 0;
   for (int i = 0; i < endpoint_count; i++)
@@ -18506,6 +18565,8 @@ typedef struct {
   EmailCheckMailRoute_t m_mailRoute;
   DnsAnswerStatus_t     m_mxStatus;
   int                   m_mxRecordCount;
+  const char*           mp_cname;
+  bool                  m_isCnameDangling;
   const char*           mp_marker;
   const char*           mp_itemMarker;
 } EmailAddressBranch_t;
@@ -18514,16 +18575,19 @@ void test_mcp_EMAILADDRESSCHECK_every_branch_conforms(void)
 {
   static_resetSeenTypes();
   static const EmailAddressBranch_t branches[] = {
-    { "mx, not disposable", "Alice@example.com", "example.com", true, "", true, EMAILCHECK_MAIL_ROUTE_MX, DNS_ANSWER_OK, 2,
-      R"({"email":"Alice@example.com","domain":"example.com","domain_exists":true,"accepts_mail":true,"mail_route":"mx",)"
+    { "mx, not disposable", "Alice@example.com", "example.com", true, "", true, EMAILCHECK_MAIL_ROUTE_MX, DNS_ANSWER_OK, 2, "", false,
+      R"({"email":"Alice@example.com","domain":"example.com","cname":null,"dangling":false,"domain_exists":true,"accepts_mail":true,"mail_route":"mx",)"
       R"("mx_hosts":[{"priority":10,"host":"mx1.example.com"},{"priority":20,"host":"mx2.example.com"}],)",
       R"("disposable":false,"disposable_listed_domain":null,"unavailable":{}})" },
-    { "disposable parent", "x@inbox.mailinator.com", "inbox.mailinator.com", true, "mailinator.com", true, EMAILCHECK_MAIL_ROUTE_IMPLICIT_MX, DNS_ANSWER_OK, 0,
+    { "disposable parent", "x@inbox.mailinator.com", "inbox.mailinator.com", true, "mailinator.com", true, EMAILCHECK_MAIL_ROUTE_IMPLICIT_MX, DNS_ANSWER_OK, 0, "", false,
       R"("domain_exists":true,"accepts_mail":true,"mail_route":"implicit_mx","mx_hosts":[],)",
       R"("disposable":true,"disposable_listed_domain":"mailinator.com","unavailable":{}})" },
-    { "no domain, list not loaded", "bob@no-such-domain.example", "no-such-domain.example", false, "", false, EMAILCHECK_MAIL_ROUTE_NONE, DNS_ANSWER_NXDOMAIN, 0,
+    { "no domain, list not loaded", "bob@no-such-domain.example", "no-such-domain.example", false, "", false, EMAILCHECK_MAIL_ROUTE_NONE, DNS_ANSWER_NXDOMAIN, 0, "", false,
       R"("domain_exists":false,"accepts_mail":false,"mail_route":null,"mx_hosts":[],)",
       R"("disposable":null,"disposable_listed_domain":null,"unavailable":{"disposable_listed_domain":"not_synced"}})" },
+    { "dangling cname", "eve@shop.example.com", "shop.example.com", true, "", true, EMAILCHECK_MAIL_ROUTE_NONE, DNS_ANSWER_NXDOMAIN, 0, "gone.example.net", true,
+      R"("domain":"shop.example.com","cname":"gone.example.net","dangling":true,"domain_exists":true,"accepts_mail":false,"mail_route":"none","mx_hosts":[],)",
+      R"("disposable":false,"disposable_listed_domain":null,"unavailable":{}})" },
   };
   for (size_t i = 0; i < sizeof(branches) / sizeof(branches[0]); i++)
   {
@@ -18539,6 +18603,8 @@ void test_mcp_EMAILADDRESSCHECK_every_branch_conforms(void)
     record.m_mxAnswer.m_status      = branch->m_mxStatus;
     record.m_mxAnswer.m_recordCount = branch->m_mxRecordCount;
     record.m_mxAnswer.mp_mxRecords  = branch->m_mxRecordCount > 0 ? EMAILADDRESSBRANCH_MX : NULL;
+    snprintf(record.ma_cname, sizeof(record.ma_cname), "%s", branch->mp_cname);
+    record.m_isCnameDangling        = branch->m_isCnameDangling;
     JsonBuf_t* json_buf = static_newBodyBuf();
     serialize_EMAILADDRESSCHECK_response(&record, json_buf);
     static_assertBodyConforms("email_address_check", static_finishBody(json_buf), branch->mp_marker, branch->mp_itemMarker, branch->mp_label);
@@ -18691,6 +18757,14 @@ static void static_EMAILAUTHCHECKBranchNoSpfRecord(EMAILAUTHCHECKRecord_t* recor
   record->ma_checks[3].m_result   = EMAILCHECK_RESULT_WARN;
 }
 
+static void static_EMAILAUTHCHECKBranchDanglingCname(EMAILAUTHCHECKRecord_t* record)
+{
+  static_EMAILAUTHCHECKBranchNoSpfRecord(record);
+  record->m_spfAnswer.m_status = DNS_ANSWER_NXDOMAIN;
+  snprintf(record->ma_cname, sizeof(record->ma_cname), "%s", "gone.example.net");
+  record->m_isCnameDangling = true;
+}
+
 static void static_EMAILAUTHCHECKBranchEverySectionUnavailable(EMAILAUTHCHECKRecord_t* record)
 {
   memset(&record->m_spfAnswer, 0, sizeof(record->m_spfAnswer));
@@ -18773,6 +18847,10 @@ void test_mcp_EMAILAUTHCHECK_every_branch_conforms(void)
       R"("mx":{"available":true,"null_mx":true,"hosts":[]},"mail_providers":[],"mta_sts":{"available":true,"record_found":false},)" },
     { "no spf record, mx nxdomain", static_EMAILAUTHCHECKBranchNoSpfRecord,
       R"("spf":{"available":true,"record_count":0,"record":null,)",
+      R"("mx":{"available":true,"null_mx":false,"hosts":[]},)",
+      R"("check_counts":{"pass":0,"warn":3,"fail":2}})" },
+    { "dangling cname, no spf record, mx nxdomain", static_EMAILAUTHCHECKBranchDanglingCname,
+      R"({"domain":"example.com","cname":"gone.example.net","dangling":true,"spf":{"available":true,"record_count":0,"record":null,)",
       R"("mx":{"available":true,"null_mx":false,"hosts":[]},)",
       R"("check_counts":{"pass":0,"warn":3,"fail":2}})" },
     { "every section unavailable", static_EMAILAUTHCHECKBranchEverySectionUnavailable,
@@ -25072,7 +25150,7 @@ void test_mcp_x402_modern_ladder_refuses_a_payment_before_its_open(void)
   char buf[RESP_BUF];
   static_callMcpX402(X402_TEST_MCP_MODERN_HEADERS("cve_lookup"), X402_TEST_MCP_CVE_CALL(X402_TEST_MCP_PAID_META), buf, false);
   static_assertMcpAnswer(buf, "HTTP/1.1 400 Bad Request\r\n",
-                         R"({"jsonrpc":"2.0","id":21,"error":{"code":-32602,"message":"params._meta must carry the reserved protocol-version, client-info and client-capabilities envelope keys"}})");
+                         R"({"jsonrpc":"2.0","id":21,"error":{"code":-32602,"message":"params._meta must carry the reserved protocol-version and client-capabilities envelope keys"}})");
   static_assertNoX402Call();
   TEST_ASSERT_EQUAL_INT(0, g_stub_CVELOOKUP_call_count);
 }
@@ -26687,6 +26765,16 @@ void test_credits_charged_unknown_key_on_a_two_credit_row_says_2(void)
   static_assertChargedLine(buf, "2");
 }
 
+void test_ssl_check_cname_no_memory_is_500(void)
+{
+  g_stub_api_key_state       = DB_API_KEY_ACTIVE;
+  g_stub_TLSPROBE_status     = TLSPROBE_NAME_NOT_FOUND;
+  g_stub_ASKQUESTIONS_status = DNS_ANSWER_NO_MEMORY;
+  char buf[RESP_BUF];
+  static_callRequestHandle("GET /ssl_check/shop.example.com HTTP/1.1\r\nX-API-Key: " VALID_KEY "\r\n\r\n", buf, sizeof(buf));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "HTTP/1.1 500 Internal Server Error\r\n"));
+}
+
 int main(void)
 {
   if (!pages_init(endpoint_mcpToolCount()))
@@ -26961,6 +27049,8 @@ int main(void)
   RUN_TEST(test_ssl_check_answer_survives_a_failed_cache_write);
   RUN_TEST(test_ssl_check_refused_domain_is_400);
   RUN_TEST(test_ssl_check_failed_probes_on_both_transports);
+  RUN_TEST(test_ssl_check_name_not_found_texts_on_both_transports);
+  RUN_TEST(test_ssl_check_cname_no_memory_is_500);
   RUN_TEST(test_headers_check_is_one_upstream_thread_while_it_fetches_the_site);
   RUN_TEST(test_well_known_is_one_upstream_thread_while_it_fetches_the_site);
   RUN_TEST(test_redirect_chain_is_one_upstream_thread_while_it_fetches_the_site);

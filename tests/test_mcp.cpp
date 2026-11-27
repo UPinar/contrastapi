@@ -235,6 +235,7 @@ extern "C" char              g_stub_PTR_last_ip_address[INET6_ADDRSTRLEN];
 extern "C" DnsAnswerStatus_t g_stub_ASKQUESTIONS_status;
 extern "C" int               g_stub_ASKQUESTIONS_call_count;
 extern "C" char              g_stub_ASKQUESTIONS_last_domain_name[VALIDATE_DOMAIN_NAME_MAX_LEN + 1];
+extern "C" int               g_stub_ASKQUESTIONS_record_count;
 
 extern "C" const TlsProbeResult_t   g_stub_TLSPROBE_default_result;
 extern "C" TlsProbeStatus_t         g_stub_TLSPROBE_status;
@@ -460,6 +461,7 @@ void setUp(void)
   memset(g_stub_PTR_last_ip_address, 0, sizeof(g_stub_PTR_last_ip_address));
   g_stub_ASKQUESTIONS_status                 = DNS_ANSWER_OK;
   g_stub_ASKQUESTIONS_call_count             = 0;
+  g_stub_ASKQUESTIONS_record_count           = 0;
   memset(g_stub_ASKQUESTIONS_last_domain_name, 0, sizeof(g_stub_ASKQUESTIONS_last_domain_name));
   g_stub_TLSPROBE_status                     = TLSPROBE_OK;
   g_stub_TLSPROBE_result                     = g_stub_TLSPROBE_default_result;
@@ -1230,6 +1232,8 @@ void test_tools_list_is_the_whole_catalogue(void)
       R"json(},"required":["domain"],"additionalProperties":false})json"
       R"json(,"outputSchema":{"type":"object","properties":{)json"
       R"json("domain":{"type":"string"},)json"
+      R"json("cname":{"type":["string","null"],"description":"null when the domain is not a CNAME, or its target is not a public name."},)json"
+      R"json("dangling":{"type":"boolean","description":"true when the domain is a CNAME whose target does not exist."},)json"
       R"json("spf":{"type":"object","description":"available is false when the DNS question failed. Then only reason follows.","properties":{"available":{"type":"boolean"},"reason":{"type":"string","description":"The code says why the DNS question failed. It is server_error, truncated, malformed_answer, timeout or not_public_name."},"record_count":{"type":"integer","description":"It counts the SPF records among the domain's TXT records."},"record":{"type":["string","null"],"description":"null unless record_count is 1. terms and the three counts are then null too."},"terms":{"type":["array","null"],"items":{"type":"object","properties":{"kind":{"type":"string","description":"It is all, include, a, mx, ptr, ip4, ip6, exists, redirect, exp, unknown_modifier or invalid."},"qualifier":{"type":["string","null"],"description":"It is pass, fail, softfail or neutral. null for a modifier and for an invalid term."},"value":{"type":["string","null"],"description":"It is the text after the term's name. null when the term has none, such as -all."}},"required":["kind","qualifier","value"]},"description":"It holds the first 64 terms of the record."},"dns_lookup_term_count":{"type":["integer","null"],"description":"It counts the terms that make a DNS lookup, as a receiver counts them. It covers this record only."},"invalid_term_count":{"type":["integer","null"]},"unread_term_count":{"type":["integer","null"],"description":"It counts the terms after the first 64, which terms leaves out."}},"required":["available"]},)json"
       R"json("dmarc":{"type":"object","description":"Its forms are as in spf.","properties":{"available":{"type":"boolean"},"reason":{"type":"string","description":"The code says why the DNS question failed. It is server_error, truncated, malformed_answer, timeout, no_resolver, bad_question or not_public_name."},"record_name":{"type":["string","null"],"description":"The DNS name of the record that applies. null when no record applies, and then every member below is null."},"source":{"type":["string","null"],"description":"It is domain, organizational or public_suffix: whose record applies."},"record":{"type":["string","null"]},"policy":{"type":["string","null"],"description":"It is none, quarantine, reject or invalid. null when the record lacks the tag."},"subdomain_policy":{"type":["string","null"],"description":"It is none, quarantine, reject or invalid. null when the record lacks the tag."},"nonexistent_subdomain_policy":{"type":["string","null"],"description":"It is none, quarantine, reject or invalid. null when the record lacks the tag."},"applied_policy":{"type":["string","null"],"description":"The policy a receiver applies to the domain's mail. null when no record applies. Also null when a policy tag is invalid and rua holds no valid address, since receivers then ignore the record."},"test_mode":{"type":["boolean","null"],"description":"true when the record has t=y."},"domain_role":{"type":["string","null"],"description":"It is public_suffix, organizational, not_public_suffix or invalid, from the psd tag. null when the record lacks the tag."},"aggregate_report_uris":{"type":["array","null"],"items":{"type":"string"},"description":"It lists the first 8 addresses of the rua tag."},"failure_report_uris":{"type":["array","null"],"items":{"type":"string"},"description":"It lists the first 8 addresses of the ruf tag."}},"required":["available"]},)json"
       R"json("dkim":{"type":"object","description":"Its forms are as in spf.","properties":{"available":{"type":"boolean"},"reason":{"type":"string","description":"The code says why the DNS question failed. It is server_error, truncated, malformed_answer, timeout, no_resolver, bad_question or not_public_name."},"key_status":{"type":"string","description":"It is found when a tested selector holds a key. not_found means the selector the caller gave holds none. unknown means none of the selectors the server picked holds one, so the domain may sign with another."},"usable_key_count":{"type":"integer","description":"It counts the selectors whose key state is present."},"selector_source":{"type":"string","description":"It is given, provider or common. It says where the tested selectors come from."},"tested_selectors":{"type":"array","items":{"type":"string"}},"keys":{"type":"array","items":{"type":"object","properties":{"selector":{"type":"string"},"state":{"type":"string","description":"It is present, revoked, unreadable or unknown_type."},"key_type":{"type":"string","description":"The k tag, or rsa when the record has none."},"key_bits":{"type":["integer","null"],"description":"null unless state is present."},"test_mode":{"type":"boolean","description":"true when the key has t=y."}},"required":["selector","state","key_type","key_bits","test_mode"]},"description":"The best key record of each selector that holds one."}},"required":["available"]},)json"
@@ -1240,7 +1244,7 @@ void test_tools_list_is_the_whole_catalogue(void)
       R"json("checks":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string","description":"It is spf_record, spf_syntax, spf_lookup_limit, spf_all, spf_ignored_terms, spf_ptr, spf_wide_range, spf_record_size, dmarc_record, dmarc_policy, dmarc_test_mode, dmarc_reporting, dkim_key_found, dkim_key_usable, dkim_key_size, dkim_key_format, dkim_test_mode, dkim_key_restricted, dkim_multiple_keys, mx or mta_sts."},"result":{"type":"string","description":"It is pass, warn or fail."},"severity":{"type":"string","description":"It is high, medium or low, fixed for each check."},"detail":{"type":"string","description":"It is a fixed sentence for the check and its result."}},"required":["id","result","severity","detail"]},"description":"The checks the answers allow, in a fixed order."},)json"
       R"json("check_counts":{"type":"object","properties":{"pass":{"type":"integer"},"warn":{"type":"integer"},"fail":{"type":"integer"}},"required":["pass","warn","fail"]},)json"
       R"json("credits":{"type":"object","properties":{"charged":{"type":"integer","description":"Credits this call cost; 0 for a free tool."},"remaining":{"type":"integer","description":"Credits left in the budget window. Absent when not paid from a credit budget."}},"required":["charged"]})json"
-      R"json(},"required":["domain","spf","dmarc","dkim","mx","mail_providers","mta_sts","no_mail_domain","checks","check_counts","credits"]})json"
+      R"json(},"required":["domain","cname","dangling","spf","dmarc","dkim","mx","mail_providers","mta_sts","no_mail_domain","checks","check_counts","credits"]})json"
       R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":true},"_meta":{"com.contrastcyber/category":"Domain Intelligence","com.contrastcyber/credits":{"per_call":1}}})json",
     R"json({"name":"email_address_check","title":"Email Address Check","description":"Check an e-mail address without sending mail: whether its domain exists and takes mail, and whether a disposable domain list names it. It cannot tell whether the mailbox exists.",)json"
       R"json("inputSchema":{"type":"object","properties":{)json"
@@ -1249,7 +1253,9 @@ void test_tools_list_is_the_whole_catalogue(void)
       R"json(,"outputSchema":{"type":"object","properties":{)json"
       R"json("email":{"type":"string","description":"It is the address, with its domain in lower case."},)json"
       R"json("domain":{"type":"string"},)json"
-      R"json("domain_exists":{"type":"boolean","description":"false when the resolver said the domain does not exist."},)json"
+      R"json("cname":{"type":["string","null"],"description":"null when the domain is not a CNAME, or its target is not a public name."},)json"
+      R"json("dangling":{"type":"boolean","description":"true when the domain is a CNAME whose target does not exist. domain_exists is still true."},)json"
+      R"json("domain_exists":{"type":"boolean","description":"false when DNS said the domain does not exist and its CNAME question did not show it exists."},)json"
       R"json("accepts_mail":{"type":"boolean","description":"true when mail_route is mx or implicit_mx."},)json"
       R"json("mail_route":{"type":["string","null"],"description":"It is mx when MX hosts take the mail, implicit_mx when the domain has no MX and its own address takes it, null_mx when it takes no mail, or none when it has no MX, A or AAAA record. null when the domain does not exist."},)json"
       R"json("mx_hosts":{"type":"array","items":{"type":"object","properties":{"priority":{"type":"integer"},"host":{"type":"string"}},"required":["priority","host"]},"description":"The MX records, as dns_lookup writes them."},)json"
@@ -1257,7 +1263,7 @@ void test_tools_list_is_the_whole_catalogue(void)
       R"json("disposable_listed_domain":{"type":["string","null"],"description":"The name the list holds: the domain or a parent of it. null unless disposable is true."},)json"
       R"json("unavailable":{"type":"object","description":"It holds disposable_listed_domain with not_synced while the disposable domain list is not loaded. It is {} otherwise.","properties":{"disposable_listed_domain":{"type":"string"}},"required":[]},)json"
       R"json("credits":{"type":"object","properties":{"charged":{"type":"integer","description":"Credits this call cost; 0 for a free tool."},"remaining":{"type":"integer","description":"Credits left in the budget window. Absent when not paid from a credit budget."}},"required":["charged"]})json"
-      R"json(},"required":["email","domain","domain_exists","accepts_mail","mail_route","mx_hosts","disposable","disposable_listed_domain","unavailable","credits"]})json"
+      R"json(},"required":["email","domain","cname","dangling","domain_exists","accepts_mail","mail_route","mx_hosts","disposable","disposable_listed_domain","unavailable","credits"]})json"
       R"json(,"annotations":{"readOnlyHint":true,"openWorldHint":true},"_meta":{"com.contrastcyber/category":"Domain Intelligence","com.contrastcyber/credits":{"per_call":1}}})json",
     R"json({"name":"ssl_check","title":"SSL/TLS Certificate Check","description":"Check the TLS certificate and settings of a host name on port 443: version, cipher, trust, OCSP revocation, expiry, DNS names, the chain and an abuse.ch SSL Blacklist listing.",)json"
       R"json("inputSchema":{"type":"object","properties":{)json"
@@ -3012,14 +3018,14 @@ void test_era2026_tools_list_carries_cache_fields(void)
   free(modern);
 }
 
-void test_era2026_ping_carries_result_type(void)
+void test_era2026_ping_is_method_not_found_404(void)
 {
   static_setRoutingHeaders("2026-07-28", "ping", NULL);
   int status;
   char* response = static_dispatch(R"({"jsonrpc":"2.0","id":59,"method":"ping",)"
                      R"("params":{)" META_2026 "}}", &status);
-  TEST_ASSERT_EQUAL_INT(200, status);
-  TEST_ASSERT_EQUAL_STRING(R"({"jsonrpc":"2.0","id":59,"result":{"resultType":"complete"}})", response);
+  TEST_ASSERT_EQUAL_INT(404, status);
+  TEST_ASSERT_EQUAL_STRING(R"({"jsonrpc":"2.0","id":59,"error":{"code":-32601,"message":"Method not found"}})", response);
   free(response);
 }
 
@@ -3034,6 +3040,7 @@ void test_era2026_server_discover_ok(void)
   static_assertContains(response, R"("capabilities":{"tools":{}})");
   static_assertContains(response, R"("supportedVersions":["2026-07-28"])");
   static_assertContains(response, R"("serverInfo":{"name":"contrastapi","title":"ContrastAPI","version":")" CONTRASTAPI_VERSION R"("})");
+  static_assertContains(response, R"("result":{"resultType":"complete","_meta":{"io.modelcontextprotocol/serverInfo":{"name":"contrastapi","title":"ContrastAPI","version":")" CONTRASTAPI_VERSION R"("}},)");
   static_assertContains(response, R"("cacheScope":"public")");
   static_assertContains(response, R"("ttlMs":)");
   TEST_ASSERT_NULL(strstr(response, R"("error")"));
@@ -3196,6 +3203,20 @@ void test_era2026_meta_missing_one_key_is_32602_400(void)
   TEST_ASSERT_EQUAL_INT(400, status);
   static_assertContains(response, R"("code":-32602)");
   static_assertContains(response, "params._meta must carry the reserved");
+  free(response);
+}
+
+void test_era2026_meta_without_client_info_is_served(void)
+{
+  static_setRoutingHeaders("2026-07-28", "server/discover", NULL);
+  int status;
+  char* response = static_dispatch(R"({"jsonrpc":"2.0","id":69,"method":"server/discover",)"
+                     R"("params":{"_meta":{)"
+                     R"("io.modelcontextprotocol/protocolVersion":"2026-07-28",)"
+                     R"("io.modelcontextprotocol/clientCapabilities":{}}}})", &status);
+  TEST_ASSERT_EQUAL_INT(200, status);
+  static_assertContains(response, R"("result":{"resultType":"complete")");
+  TEST_ASSERT_NULL(strstr(response, R"("error")"));
   free(response);
 }
 
@@ -4249,6 +4270,34 @@ void test_tool_DNSTAKEOVERCHECK_not_found_is_a_tool_error(void)
   free(response);
 }
 
+void test_tool_SSLCHECK_not_found_names_why(void)
+{
+  static const struct {
+    DnsAnswerStatus_t m_askStatus;
+    int               m_recordCount;
+    const char*       mp_text;
+  } cases[] = {
+    { DNS_ANSWER_NXDOMAIN, 0, R"("text":"hostname does not exist"}],"isError":true)" },
+    { DNS_ANSWER_OK,       1, R"("text":"hostname is a CNAME whose target has no A or AAAA record; dns_takeover_check tells whether the target exists"}],"isError":true)" },
+    { DNS_ANSWER_OK,       0, R"("text":"hostname has no A or AAAA record"}],"isError":true)" },
+  };
+  g_stub_TLSPROBE_status = TLSPROBE_NAME_NOT_FOUND;
+  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+  {
+    g_stub_ASKQUESTIONS_status       = cases[i].m_askStatus;
+    g_stub_ASKQUESTIONS_record_count = cases[i].m_recordCount;
+    g_stub_ASKQUESTIONS_call_count   = 0;
+    int status;
+    char* response = static_dispatch(R"({"jsonrpc":"2.0","id":62,"method":"tools/call",)"
+                       R"("params":{"name":"ssl_check","arguments":{"domain":"shop.example.com"}}})", &status);
+    TEST_ASSERT_EQUAL_INT(200, status);
+    static_assertContains(response, cases[i].mp_text);
+    TEST_ASSERT_EQUAL_INT(1, g_stub_ASKQUESTIONS_call_count);
+    TEST_ASSERT_EQUAL_STRING("shop.example.com", g_stub_ASKQUESTIONS_last_domain_name);
+    free(response);
+  }
+}
+
 void test_tool_EMAILAUTHCHECK_answer(void)
 {
   int status;
@@ -5169,11 +5218,11 @@ void test_tool_EMAILADDRESSCHECK_answer(void)
   g_stub_EMAILADDRESSCHECK_status = DB_OK;
   static const struct { const char* mp_email; const char* mp_domain; const char* mp_text; } cases[] = {
     { "Admin+ci@Example.COM", "example.com",
-      R"("text":"{\"email\":\"Admin+ci@example.com\",\"domain\":\"example.com\",\"domain_exists\":true,\"accepts_mail\":true,)"
+      R"("text":"{\"email\":\"Admin+ci@example.com\",\"domain\":\"example.com\",\"cname\":null,\"dangling\":false,\"domain_exists\":true,\"accepts_mail\":true,)"
       EMAILADDRESSCHECK_STUB_TEXT_MX
       R"(\"unavailable\":{},\"credits\":{\"charged\":4294967295}}\n"}])" },
     { "a%40b@Gmail.com", "gmail.com",
-      R"("text":"{\"email\":\"a%40b@gmail.com\",\"domain\":\"gmail.com\",\"domain_exists\":true,\"accepts_mail\":true,)"
+      R"("text":"{\"email\":\"a%40b@gmail.com\",\"domain\":\"gmail.com\",\"cname\":null,\"dangling\":false,\"domain_exists\":true,\"accepts_mail\":true,)"
       EMAILADDRESSCHECK_STUB_TEXT_MX
       R"(\"unavailable\":{},\"credits\":{\"charged\":4294967295}}\n"}])" },
   };
@@ -6719,7 +6768,7 @@ void test_tool_EPSSRISERS_uncomputable_window_is_a_result(void)
   TEST_ASSERT_EQUAL_INT(1, g_stub_EPSSRISERS_call_count);
 }
 
-#define TEST_TOOLS_LIST_MAX_BYTE_COUNT 190464
+#define TEST_TOOLS_LIST_MAX_BYTE_COUNT 190976
 
 #define TEST_MCP_TOOL_DESCRIPTION_MAX_LEN 240
 
@@ -7704,7 +7753,7 @@ void test_envelope_that_cannot_be_created_fails_dispatch(void)
     { "legacy ping",           NULL,         NULL,         R"({"jsonrpc":"2.0","id":1030,"method":"ping"})" },
     { "legacy initialize",     NULL,         NULL,         R"({"jsonrpc":"2.0","id":1031,"method":"initialize"})" },
     { "legacy unknown method", NULL,         NULL,         R"({"jsonrpc":"2.0","id":1032,"method":"no/such/method"})" },
-    { "modern ping",           "2026-07-28", "ping",       R"({"jsonrpc":"2.0","id":1033,"method":"ping","params":{)" META_2026 "}}" },
+    { "modern discover",       "2026-07-28", "server/discover", R"({"jsonrpc":"2.0","id":1033,"method":"server/discover","params":{)" META_2026 "}}" },
     { "modern -32022",         "2027-01-01", "tools/list", R"({"jsonrpc":"2.0","id":1034,"method":"tools/list","params":{"_meta":{)"
                                                            R"("io.modelcontextprotocol/protocolVersion":"2027-01-01",)"
                                                            R"("io.modelcontextprotocol/clientInfo":{"name":"p","version":"1"},)"
@@ -8353,7 +8402,7 @@ void test_mcp_server_instructions_name_x402_pay_per_call(void)
 
 void test_registration_gate_test_count(void)
 {
-  TEST_ASSERT_EQUAL_INT_MESSAGE(433, (int)Unity.NumberOfTests,
+  TEST_ASSERT_EQUAL_INT_MESSAGE(435, (int)Unity.NumberOfTests,
     "RUN_TEST list and test definitions have drifted apart - a test may be unregistered");
 }
 
@@ -9029,6 +9078,7 @@ int main(void)
   RUN_TEST(test_tool_DNSTAKEOVERCHECK_answer);
   RUN_TEST(test_tool_DNSTAKEOVERCHECK_missing_and_refused_domain);
   RUN_TEST(test_tool_DNSTAKEOVERCHECK_not_found_is_a_tool_error);
+  RUN_TEST(test_tool_SSLCHECK_not_found_names_why);
   RUN_TEST(test_tool_EMAILAUTHCHECK_answer);
   RUN_TEST(test_tool_EMAILAUTHCHECK_missing_domain_and_refused_selector);
   RUN_TEST(test_tool_SSLCHECK_answer);
@@ -9096,7 +9146,7 @@ int main(void)
   RUN_TEST(test_era2026_tools_list_carries_result_type);
   RUN_TEST(test_era2026_tools_list_is_the_legacy_tools_list);
   RUN_TEST(test_era2026_tools_list_carries_cache_fields);
-  RUN_TEST(test_era2026_ping_carries_result_type);
+  RUN_TEST(test_era2026_ping_is_method_not_found_404);
   RUN_TEST(test_era2026_server_discover_ok);
   RUN_TEST(test_era2026_server_discover_legacy_method_not_found);
   RUN_TEST(test_era2026_initialize_is_method_not_found_404);
@@ -9110,6 +9160,7 @@ int main(void)
   RUN_TEST(test_era2026_id_outside_the_grammar_is_400);
   RUN_TEST(test_era2026_all_handshake_versions_stay_legacy);
   RUN_TEST(test_era2026_meta_missing_one_key_is_32602_400);
+  RUN_TEST(test_era2026_meta_without_client_info_is_served);
   RUN_TEST(test_era2026_meta_pv_not_string_is_32602_400);
   RUN_TEST(test_era2026_missing_params_is_32602_400);
   RUN_TEST(test_era2026_unknown_tool_is_32602_400);

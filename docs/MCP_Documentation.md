@@ -116,7 +116,9 @@ closes the connection.
 
 ### The `_meta` envelope (SEP-2575)
 
-Every modern request must carry three reserved keys in `params._meta`:
+Every modern request must carry two reserved keys in `params._meta`:
+`io.modelcontextprotocol/protocolVersion` and `io.modelcontextprotocol/clientCapabilities`.
+The `io.modelcontextprotocol/clientInfo` key is optional:
 
 ```json
 { "jsonrpc":"2.0", "id":1, "method":"tools/call",
@@ -135,7 +137,7 @@ A modern request passes three checks in order. The **first check that fails answ
 
 | # | Check | Failure |
 |---|---|---|
-| 1 | `params._meta` carries all three reserved keys, with the right types | `-32602` / 400 |
+| 1 | `params._meta` carries `protocolVersion` as a string, and `clientCapabilities` | `-32602` / 400 |
 | 2 | Routing headers agree with the envelope and body (version ↔ `_meta`, `Mcp-Method` ↔ `method`, `Mcp-Name` ↔ `params.name`; a **missing** required routing header is also a mismatch) | `-32020` / 400 |
 | 3 | The envelope's version is one the server speaks (`2026-07-28`) | `-32022` / 400, with `"data":{ "supported":["2026-07-28"], "requested":"…" }` |
 
@@ -150,18 +152,21 @@ The modern era has no handshake. Discovery is a plain request, and it costs no c
 { "jsonrpc":"2.0", "id":1,
   "result":{
     "resultType":"complete",
+    "_meta":{ "io.modelcontextprotocol/serverInfo":{ "name":"contrastapi", "title":"ContrastAPI", "version":"2.3.5" } },
     "cacheScope":"public", "ttlMs":3600000,
     "supportedVersions":["2026-07-28"],
     "capabilities":{ "tools":{} },
-    "serverInfo":{ "name":"contrastapi", "title":"ContrastAPI", "version":"2.3.4" },
+    "serverInfo":{ "name":"contrastapi", "title":"ContrastAPI", "version":"2.3.5" },
     "instructions":"ContrastAPI is a security data and monitoring server, with watchlists of CVEs, packages, domains and IP addresses. Call cve_lookup for a CVE, package_check for a package, dns_lookup for a domain and ip_lookup for an IP address. Call watchlist_edit and watchlist_events for monitoring, which needs an API key. A Pro API key is sold at https://api.contrastcyber.com/pricing. It looks up, searches and scores CVE, KEV and CWE records. It gives public exploit intelligence. It decodes and scores a CVSS v3 vector. It checks a password's SHA-1 against Have I Been Pwned. It reads a domain's DNS records and checks a host name for a dangling CNAME. It checks a domain's SPF, DMARC, DKIM and MTA-STS records. It checks whether an e-mail address's domain takes mail and whether the address is disposable. It checks the TLS certificate and settings of a host name and rates the security headers of a web site. It reads the robots.txt and the security.txt of a web site. It looks up the registration of a domain name over RDAP or WHOIS. It lists the Wayback Machine captures of a host name. It lists the unexpired certificates that Certificate Transparency logs hold for a host name. It lists the subdomains of a registrable domain from Certificate Transparency and DNS. It names the MITRE D3FEND defenses that counter a MITRE ATT&CK technique. It finds a driver file hash in the LOLDrivers catalog. It looks up the AS, the country, the cloud range, the Tor exit, the crawler range and the DROP listing of a public IP address. It looks up an AS by its number or by an address it holds. It checks a package or a list of packages of nine ecosystems against OSV.dev advisories and malicious packages. It gives the end-of-life dates of a product or a package from endoflife.date. The watchlist keeps CVE, package, domain and IP items for an API key, and watchlist_events reads their change events. A Pro API key can save its own Shodan and AbuseIPDB keys with vendor_key_edit, and ip_lookup then adds their answers. It says what it keeps about the caller. It follows the redirect chain of a URL and lists each hop. A call with no API key and no credits left can pay per call with x402 in USDC on Solana."
   } }
 ```
 
 The reply may be cached by shared caches (`"cacheScope":"public"`) for an hour (`ttlMs`).
+The same `serverInfo` object is in `result._meta` and in the result body.
 Each era refuses the other era's method:
 
 - Modern `initialize` → `-32601` / HTTP **404**.
+- Modern `ping` → `-32601` / HTTP **404**.
 - Legacy `server/discover` → `-32601` / HTTP **200**.
 
 ### `resultType` stamping (SEP-2322)
@@ -239,10 +244,10 @@ era changes only the envelope rules and the HTTP statuses.
 | Method | Purpose | Reply |
 |---|---|---|
 | `initialize` | **Legacy era only.** Handshake; negotiate protocol version, advertise capabilities | `result` with `protocolVersion`, `capabilities`, `serverInfo`, `instructions` |
-| `server/discover` | **Modern era only.** Self-description; replaces the handshake | `result` with `supportedVersions`, `capabilities`, `serverInfo`, `instructions` and cache hints; see [Protocol eras](#protocol-eras--the-2026-07-28-stateless-envelope) |
+| `server/discover` | **Modern era only.** Self-description; replaces the handshake | `result` with `supportedVersions`, `capabilities`, `serverInfo` (in the body and in `_meta`), `instructions` and cache hints; see [Protocol eras](#protocol-eras--the-2026-07-28-stateless-envelope) |
 | `tools/list` | Enumerate the available tools and their JSON Schemas | `result` with `tools[]` (each has `name`, `title`, `description`, `inputSchema`, `annotations`, `_meta`, `outputSchema`) |
 | `tools/call` | Invoke one tool by name with `arguments` | `result` with a text content block, and `structuredContent` on success (see below) |
-| `ping` | Liveness check | `result` `{}` |
+| `ping` | **Legacy era only.** Liveness check | `result` `{}` |
 | `notifications/*` | **Legacy era only.** Client→server notification (no `id`), e.g. `notifications/initialized` | **HTTP 202**, no body |
 
 A **notification** is any JSON-RPC message without an `id`. It gets HTTP `202 Accepted` with an
@@ -268,7 +273,7 @@ An id longer than 64 bytes is still served, but its reply carries `"id":null`.
   "result":{
     "protocolVersion":"2025-11-25",
     "capabilities":{ "tools":{} },
-    "serverInfo":{ "name":"contrastapi", "title":"ContrastAPI", "version":"2.3.4" },
+    "serverInfo":{ "name":"contrastapi", "title":"ContrastAPI", "version":"2.3.5" },
     "instructions":"ContrastAPI is a security data and monitoring server, with watchlists of CVEs, packages, domains and IP addresses. Call cve_lookup for a CVE, package_check for a package, dns_lookup for a domain and ip_lookup for an IP address. Call watchlist_edit and watchlist_events for monitoring, which needs an API key. A Pro API key is sold at https://api.contrastcyber.com/pricing. It looks up, searches and scores CVE, KEV and CWE records. It gives public exploit intelligence. It decodes and scores a CVSS v3 vector. It checks a password's SHA-1 against Have I Been Pwned. It reads a domain's DNS records and checks a host name for a dangling CNAME. It checks a domain's SPF, DMARC, DKIM and MTA-STS records. It checks whether an e-mail address's domain takes mail and whether the address is disposable. It checks the TLS certificate and settings of a host name and rates the security headers of a web site. It reads the robots.txt and the security.txt of a web site. It looks up the registration of a domain name over RDAP or WHOIS. It lists the Wayback Machine captures of a host name. It lists the unexpired certificates that Certificate Transparency logs hold for a host name. It lists the subdomains of a registrable domain from Certificate Transparency and DNS. It names the MITRE D3FEND defenses that counter a MITRE ATT&CK technique. It finds a driver file hash in the LOLDrivers catalog. It looks up the AS, the country, the cloud range, the Tor exit, the crawler range and the DROP listing of a public IP address. It looks up an AS by its number or by an address it holds. It checks a package or a list of packages of nine ecosystems against OSV.dev advisories and malicious packages. It gives the end-of-life dates of a product or a package from endoflife.date. The watchlist keeps CVE, package, domain and IP items for an API key, and watchlist_events reads their change events. A Pro API key can save its own Shodan and AbuseIPDB keys with vendor_key_edit, and ip_lookup then adds their answers. It says what it keeps about the caller. It follows the redirect chain of a URL and lists each hop. A call with no API key and no credits left can pay per call with x402 in USDC on Solana."
   } }
 ```
@@ -1328,10 +1333,12 @@ Mirrors [`GET /email_auth_check/{domain}`](API_Documentation.md#email-auth-check
 A domain without one DMARC record of its own gets the record found above it in the DNS tree. The
 answer holds each record, the DKIM keys of the selectors tried, the mail providers, and the
 checks, each with `pass`, `warn` or `fail` and a severity. `no_mail_domain` says whether the domain
-takes and sends no mail.
+takes and sends no mail. `cname` is the target of the domain's CNAME record, or `null`.
 
-A domain the resolver says does not exist is the tool `isError` `"domain does not exist"`, where
-REST answers `404`. When the first DNS questions get no usable answer, the call is the protocol
+A domain that does not exist itself is the tool `isError` `"domain does not exist"`, where REST
+answers `404`. So is a domain whose TXT or MX answer says it does not exist while the resolver
+gave no usable answer about the name itself. A domain that is a CNAME whose target does not exist gets an answer, with
+`dangling` `true`. When the first DNS questions get no usable answer, the call is the protocol
 error `-32603` with `"Internal error: upstream unavailable"`, where REST answers `502`. Each of these
 calls still costs its credit.
 
@@ -1346,7 +1353,7 @@ curl -sX POST https://api.contrastcyber.com/mcp \
 ```
 ```jsonc
 // decoded payload, cut to its first check:
-{ "domain":"example.com",
+{ "domain":"example.com", "cname":null, "dangling":false,
   "spf":{ "available":true, "record_count":1, "record":"v=spf1 include:_spf.google.com ~all", "terms":[ … ], "dns_lookup_term_count":1, … },
   "dmarc":{ "available":true, "record_name":"_dmarc.example.com", "source":"domain", "applied_policy":"quarantine", … },
   "dkim":{ "available":true, "key_status":"found", "usable_key_count":1, "selector_source":"provider", "tested_selectors":["google"], "keys":[ … ] },
@@ -1371,7 +1378,9 @@ Mirrors [`GET /email_address_check/{email}`](API_Documentation.md#email-address-
 The answer says whether the domain exists and takes mail, and whether the disposable-email-domains
 list (CC0 1.0) names the domain. The list misses every disposable domain it does not name yet. No
 SMTP connection is made, so the answer cannot tell whether the mailbox exists. A domain that does
-not exist is an answer, with `domain_exists` `false` and `mail_route` `null`. While the list is not
+not exist is an answer, with `domain_exists` `false` and `mail_route` `null`. A domain that is a
+CNAME whose target does not exist has `domain_exists` `true`, `mail_route` `"none"` and `dangling`
+`true`. `cname` is the target of the domain's CNAME record, or `null`. While the list is not
 loaded, `disposable` and `disposable_listed_domain` are `null`, and `unavailable` names
 `disposable_listed_domain`. Over MCP the address travels in the request body, so it stays out of
 URLs.
@@ -1392,7 +1401,8 @@ curl -sX POST https://api.contrastcyber.com/mcp \
 ```
 ```jsonc
 // decoded payload:
-{ "email":"Admin+ci@example.com", "domain":"example.com", "domain_exists":true, "accepts_mail":false,
+{ "email":"Admin+ci@example.com", "domain":"example.com", "cname":null, "dangling":false,
+  "domain_exists":true, "accepts_mail":false,
   "mail_route":"null_mx", "mx_hosts":[],
   "disposable":false, "disposable_listed_domain":null, "unavailable":{},
   "credits":{"charged":1,"remaining":29} }
@@ -1526,8 +1536,12 @@ or the list holds no row, `listed_on` is null and `unavailable` says why. An ans
 says when its check ran.
 
 A host name the resolver says does not exist is the tool `isError` `"hostname does not exist"`,
-where REST answers `404`. A host name without a globally reachable address is the tool `isError`
-`"hostname has no globally reachable address"`, where REST answers `400`. When the server reaches
+where REST answers `404`. A host name that exists but has no A or AAAA record is the tool
+`isError` `"hostname has no A or AAAA record"`. A CNAME whose target has no such record is the
+tool `isError`
+`"hostname is a CNAME whose target has no A or AAAA record; dns_takeover_check tells whether the target exists"`.
+REST answers both with `404`. A host name without a globally reachable address is the tool
+`isError` `"hostname has no globally reachable address"`, where REST answers `400`. When the server reaches
 no TLS server, the call is the tool `isError` with the text REST answers `504` with, such as
 `"no address of the host name took a connection on port 443"`. When the resolver gives no answer
 the check can use, the call is the protocol error `-32603` with
@@ -2394,7 +2408,7 @@ curl -sX POST https://api.contrastcyber.com/mcp -H "X-API-Key: $KEY" \
 ```
 ```jsonc
 // result.content[0].text (decoded):
-{ "status":"ok", "version":"2.3.4",
+{ "status":"ok", "version":"2.3.5",
   "db":{ "nvd":{ "cve_count":352507, "last_added":{ "cve_id":"CVE-2026-47782", "published_time":"2026-05-31" } },
          "kev":{ "entry_count":1592, "last_added":{ "cve_id":"CVE-2026-42897", "date_added":"2026-05-15" } },
          "cwe":{ "entry_count":944, "last_updated":{ "cwe_id":"CWE-1434", "updated_at":"2026-05-20T14:07:56Z" } },
@@ -2658,7 +2672,7 @@ calls are:
 
 - `initialize`: handshake / version negotiation (legacy era)
 - `server/discover`: self-description (modern era)
-- `ping`: liveness
+- `ping`: liveness (legacy era)
 - any `notifications/*` (e.g. `notifications/initialized`; legacy era only, as the modern era rejects them)
 - `tools/call` → **`health`**: data-source freshness
 

@@ -10,9 +10,9 @@
 #include "bytes.h"
 #include "monotonic.h"
 
-#define EMAILCHECK_ROUND_ONE_MAX_QUESTION_COUNT   5
+#define EMAILCHECK_ROUND_ONE_MAX_QUESTION_COUNT   6
 
-#define EMAILCHECK_ADDRESS_QUESTION_COUNT   3
+#define EMAILCHECK_ADDRESS_QUESTION_COUNT   4
 
 #define EMAILCHECK_DMARC_WALK_MAX_LABEL_COUNT   8
 
@@ -71,7 +71,7 @@ static bool               static_isNoMailDomain       (const EMAILAUTHCHECKRecor
 static EmailCheckResult_t static_rateMx               (const DnsAnswer_t* mx_answer);
 static void               static_rateRecord           (EMAILAUTHCHECKRecord_t* record);
 
-static DnsLookupStatus_t  static_readMailRoute        (EMAILADDRESSCHECKRecord_t* record, const DnsAnswer_t* a_answer, const DnsAnswer_t* aaaa_answer);
+static DnsLookupStatus_t  static_readMailRoute        (EMAILADDRESSCHECKRecord_t* record, const DnsAnswer_t* a_answer, const DnsAnswer_t* aaaa_answer, DnsNameState_t name_state);
 static bool               static_hasRecord            (const DnsAnswer_t* answer);
 
 DnsLookupStatus_t emailcheck_checkDomain(const char* domain, const char* dkim_selector, EMAILAUTHCHECKRecord_t* record_out)
@@ -148,8 +148,10 @@ DnsLookupStatus_t emailcheck_checkAddressDomain(const char* domain, EMAILADDRESS
   assert(domain != NULL);
   assert(record != NULL);
 
-  record->m_isDomainFound = false;
-  record->m_mailRoute     = EMAILCHECK_MAIL_ROUTE_NONE;
+  record->m_isDomainFound   = false;
+  record->m_mailRoute       = EMAILCHECK_MAIL_ROUTE_NONE;
+  record->ma_cname[0]       = '\0';
+  record->m_isCnameDangling = false;
   memset(&record->m_mxAnswer, 0, sizeof(record->m_mxAnswer));
 
   if (!validate_publicDnsName(domain))
@@ -159,14 +161,17 @@ DnsLookupStatus_t emailcheck_checkAddressDomain(const char* domain, EMAILADDRESS
     { domain, DNS_RECORD_TYPE_MX },
     { domain, DNS_RECORD_TYPE_A },
     { domain, DNS_RECORD_TYPE_AAAA },
+    { domain, DNS_RECORD_TYPE_CNAME },
   };
   DnsAnswer_t answers[EMAILCHECK_ADDRESS_QUESTION_COUNT];
   dns_askQuestions(questions, EMAILCHECK_ADDRESS_QUESTION_COUNT, DNS_LOOKUP_DEADLINE_MS, answers);
 
   record->m_mxAnswer = answers[0];
-  DnsLookupStatus_t route_status = static_readMailRoute(record, &answers[1], &answers[2]);
+  DnsNameState_t    name_state   = dns_readCnameState(&answers[3], record->ma_cname);
+  DnsLookupStatus_t route_status = static_readMailRoute(record, &answers[1], &answers[2], name_state);
   dns_answerFree(&answers[1]);
   dns_answerFree(&answers[2]);
+  dns_answerFree(&answers[3]);
 
   return route_status;
 }
@@ -216,31 +221,35 @@ static DnsLookupStatus_t static_askFirstRound(EMAILAUTHCHECKRecord_t* record, co
     questions[question_count] = (DnsQuestion_t){ given_selector_name, DNS_RECORD_TYPE_TXT };
     record_answers[question_count++] = &record->ma_dkimSelectors[0].m_answer;
   }
+  int cname_index = question_count;
+  questions[question_count++] = (DnsQuestion_t){ record->ma_domain, DNS_RECORD_TYPE_CNAME };
   assert(question_count <= EMAILCHECK_ROUND_ONE_MAX_QUESTION_COUNT);
 
   DnsAnswer_t answers[DNS_MAX_QUESTION_COUNT];
   dns_askQuestions(questions, question_count, DNS_LOOKUP_DEADLINE_MS, answers);
   bool is_any_answered  = false;
   bool is_any_no_memory = false;
-  for (int i = 0; i < question_count; i++)
+  for (int i = 0; i < cname_index; i++)
   {
     *record_answers[i] = answers[i];
     is_any_answered  = is_any_answered  || static_isAnswered(&answers[i]);
     is_any_no_memory = is_any_no_memory || answers[i].m_status == DNS_ANSWER_NO_MEMORY;
   }
+  DnsNameState_t name_state = dns_readCnameState(&answers[cname_index], record->ma_cname);
+  dns_answerFree(&answers[cname_index]);
 
-  if (is_any_no_memory)
+  if (is_any_no_memory || name_state == DNS_NAME_STATE_NO_MEMORY)
     return DNS_LOOKUP_NO_MEMORY;
   if (!is_any_answered)
     return DNS_LOOKUP_NO_ANSWER;
 
-  if (record->m_spfAnswer.m_status  != DNS_ANSWER_OK    &&
-      record->m_mxAnswer.m_status   != DNS_ANSWER_OK    &&
-      (record->m_spfAnswer.m_status == DNS_ANSWER_NXDOMAIN || record->m_mxAnswer.m_status == DNS_ANSWER_NXDOMAIN))
-  {
+  bool is_name_missing = record->m_spfAnswer.m_status  != DNS_ANSWER_OK &&
+                         record->m_mxAnswer.m_status   != DNS_ANSWER_OK &&
+                         (record->m_spfAnswer.m_status == DNS_ANSWER_NXDOMAIN || record->m_mxAnswer.m_status == DNS_ANSWER_NXDOMAIN);
+  if (is_name_missing && (name_state == DNS_NAME_STATE_ABSENT || name_state == DNS_NAME_STATE_UNKNOWN))
     return DNS_LOOKUP_NOT_FOUND;
-  }
 
+  record->m_isCnameDangling = is_name_missing && name_state == DNS_NAME_STATE_ALIAS;
   return DNS_LOOKUP_OK;
 }
 
@@ -932,17 +941,25 @@ static void static_rateRecord(EMAILAUTHCHECKRecord_t* record)
   }
 }
 
-static DnsLookupStatus_t static_readMailRoute(EMAILADDRESSCHECKRecord_t* record, const DnsAnswer_t* a_answer, const DnsAnswer_t* aaaa_answer)
+static DnsLookupStatus_t static_readMailRoute(EMAILADDRESSCHECKRecord_t* record, const DnsAnswer_t* a_answer, const DnsAnswer_t* aaaa_answer, DnsNameState_t name_state)
 {
   const DnsAnswer_t* mx_answer = &record->m_mxAnswer;
   if (mx_answer->m_status   == DNS_ANSWER_NO_MEMORY ||
       a_answer->m_status    == DNS_ANSWER_NO_MEMORY ||
-      aaaa_answer->m_status == DNS_ANSWER_NO_MEMORY)
+      aaaa_answer->m_status == DNS_ANSWER_NO_MEMORY ||
+      name_state            == DNS_NAME_STATE_NO_MEMORY)
   {
     return DNS_LOOKUP_NO_MEMORY;
   }
-  if (mx_answer->m_status == DNS_ANSWER_NXDOMAIN)
+  if (mx_answer->m_status == DNS_ANSWER_NXDOMAIN && (name_state == DNS_NAME_STATE_ABSENT || name_state == DNS_NAME_STATE_UNKNOWN))
     return DNS_LOOKUP_NOT_FOUND;
+  if (mx_answer->m_status == DNS_ANSWER_NXDOMAIN)
+  {
+    record->m_isCnameDangling = name_state == DNS_NAME_STATE_ALIAS;
+    record->m_mailRoute       = EMAILCHECK_MAIL_ROUTE_NONE;
+    record->m_isDomainFound   = true;
+    return DNS_LOOKUP_OK;
+  }
   if (mx_answer->m_status != DNS_ANSWER_OK)
     return DNS_LOOKUP_NO_ANSWER;
 

@@ -296,7 +296,7 @@ void test_HEALTH_serializes_every_section(void)
   char* body = static_finishJsonBuf(json_buf);
 
   TEST_ASSERT_EQUAL_STRING(
-    R"({"status":"ok","version":"2.3.4","db":{)"
+    R"({"status":"ok","version":"2.3.5","db":{)"
       R"("nvd":{"cve_count":312000,"last_added":{"cve_id":"CVE-2026-1234",)"
         R"("published_time":"2026-08-29T10:00:00Z"}},)"
       R"("kev":{"entry_count":1300,"last_added":{"cve_id":"CVE-2026-9999",)"
@@ -317,7 +317,7 @@ void test_HEALTH_null_db_serializes_unavailable_and_null_db(void)
   char* body = static_finishJsonBuf(json_buf);
 
   TEST_ASSERT_EQUAL_STRING(
-    R"({"status":"unavailable","version":"2.3.4","db":null})" "\n", body);
+    R"({"status":"unavailable","version":"2.3.5","db":null})" "\n", body);
   free(body);
 }
 
@@ -379,7 +379,7 @@ void test_HEALTH_every_string_is_escaped_through_its_own_class(void)
   char* body = static_finishJsonBuf(json_buf);
 
   TEST_ASSERT_EQUAL_STRING(
-    R"({"status":"ok","version":"2.3.4","db":{)"
+    R"({"status":"ok","version":"2.3.5","db":{)"
       R"("nvd":{"cve_count":1,"last_added":{"cve_id":"CVE-\"1","published_time":"2026\\08"}},)"
       R"("kev":{"entry_count":2,"last_added":{"cve_id":"CVE\n9","date_added":"2026\t28"}},)"
       R"("cwe":{"entry_count":3,"last_updated":{"cwe_id":"CWE\b79","updated_at":"2026)" "\\u0001" R"(27"}},)"
@@ -3668,7 +3668,7 @@ void test_EMAILADDRESSCHECK_golden_mx_route(void)
   char* body = static_EMAILADDRESSCHECKBody(&record);
 
   TEST_ASSERT_EQUAL_STRING(
-    R"({"email":"Info+x@example.com","domain":"example.com","domain_exists":true,"accepts_mail":true,"mail_route":"mx","mx_hosts":)"
+    R"({"email":"Info+x@example.com","domain":"example.com","cname":null,"dangling":false,"domain_exists":true,"accepts_mail":true,"mail_route":"mx","mx_hosts":)"
     EMAILADDRESSCHECK_GOLDEN_MX_HOSTS
     R"(,"disposable":false,"disposable_listed_domain":null,"unavailable":{}})" "\n",
     body);
@@ -3714,10 +3714,35 @@ void test_EMAILADDRESSCHECK_each_route(void)
 
     char* body = static_EMAILADDRESSCHECKBody(&record);
 
-    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(body, R"("domain":"example.com",)"), cases[i].mp_part);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(body, R"("domain":"example.com","cname":null,"dangling":false,)"), cases[i].mp_part);
     TEST_ASSERT_NOT_NULL_MESSAGE(strstr(body, cases[i].mp_part), cases[i].mp_part);
     free(body);
   }
+}
+
+void test_EMAILADDRESSCHECK_writes_the_cname_and_dangling(void)
+{
+  EMAILADDRESSCHECKRecord_t record;
+  static_fillEMAILADDRESSCHECKRecord(&record);
+  snprintf(record.ma_cname, sizeof(record.ma_cname), "%s", "gone.example.net");
+  record.m_isCnameDangling         = true;
+  record.m_mailRoute               = EMAILCHECK_MAIL_ROUTE_NONE;
+  record.m_mxAnswer.m_status       = DNS_ANSWER_NXDOMAIN;
+  record.m_mxAnswer.m_recordCount  = 0;
+
+  char* body = static_EMAILADDRESSCHECKBody(&record);
+  TEST_ASSERT_EQUAL_STRING(
+    R"({"email":"Info+x@example.com","domain":"example.com","cname":"gone.example.net","dangling":true,)"
+    R"("domain_exists":true,"accepts_mail":false,"mail_route":"none","mx_hosts":[],)"
+    R"("disposable":false,"disposable_listed_domain":null,"unavailable":{}})" "\n",
+    body);
+  free(body);
+
+  snprintf(record.ma_cname, sizeof(record.ma_cname), "%s", "a\"b\\c.example.net");
+  record.m_isCnameDangling = false;
+  body = static_EMAILADDRESSCHECKBody(&record);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(body, R"("domain":"example.com","cname":"a\"b\\c.example.net","dangling":false,"domain_exists":true,)"), body);
+  free(body);
 }
 
 void test_EMAILADDRESSCHECK_disposable_of_each_list_state(void)
@@ -6128,7 +6153,7 @@ void test_PRODUCTEXPOSURE_top_cve_count_past_its_array_is_clamped(void)
 
 void test_registration_gate_test_count(void)
 {
-  TEST_ASSERT_EQUAL_INT_MESSAGE(372, (int)Unity.NumberOfTests,
+  TEST_ASSERT_EQUAL_INT_MESSAGE(374, (int)Unity.NumberOfTests,
     "RUN_TEST list and test definitions have drifted apart - a test may be unregistered");
 }
 
@@ -10524,7 +10549,7 @@ void test_EMAILAUTHCHECK_answered_golden(void)
   static_fillEMAILAUTHCHECKRecord(&record, texts);
   char* body = static_EMAILAUTHCHECKBody(&record);
   TEST_ASSERT_EQUAL_STRING(
-    R"({"domain":"example.com","spf":{"available":true,"record_count":1,"record":"v=spf1 include:_spf.example.net ip4:192.0.2.0/24 exists:x.example.net -all exp=e.example.net",)"
+    R"({"domain":"example.com","cname":null,"dangling":false,"spf":{"available":true,"record_count":1,"record":"v=spf1 include:_spf.example.net ip4:192.0.2.0/24 exists:x.example.net -all exp=e.example.net",)"
     R"("terms":[{"kind":"include","qualifier":"pass","value":"_spf.example.net"},{"kind":"ip4","qualifier":"neutral","value":"192.0.2.0/24"},)"
     R"({"kind":"exists","qualifier":"softfail","value":"x.example.net"},{"kind":"all","qualifier":"fail","value":null},)"
     R"({"kind":"exp","qualifier":null,"value":"e.example.net"}],)"
@@ -10570,6 +10595,27 @@ void test_EMAILAUTHCHECK_no_mail_domain_golden(void)
   free(body);
 }
 
+void test_EMAILAUTHCHECK_writes_the_cname_and_dangling(void)
+{
+  EMAILAUTHCHECKRecord_t record;
+  DnsRecordText_t        texts[4];
+  static_fillEMAILAUTHCHECKRecord(&record, texts);
+  snprintf(record.ma_cname, sizeof(record.ma_cname), "%s", "gone.example.net");
+  record.m_isCnameDangling = true;
+
+  char* body = static_EMAILAUTHCHECKBody(&record);
+  const char* head = R"({"domain":"example.com","cname":"gone.example.net","dangling":true,"spf":{"available":true,)";
+  TEST_ASSERT_EQUAL_STRING_LEN(head, body, strlen(head));
+  free(body);
+
+  snprintf(record.ma_cname, sizeof(record.ma_cname), "%s", "a\"b\\c.example.net");
+  record.m_isCnameDangling = false;
+  body = static_EMAILAUTHCHECKBody(&record);
+  head = R"({"domain":"example.com","cname":"a\"b\\c.example.net","dangling":false,"spf":{)";
+  TEST_ASSERT_EQUAL_STRING_LEN(head, body, strlen(head));
+  free(body);
+}
+
 void test_EMAILAUTHCHECK_failed_sections_golden(void)
 {
   EMAILAUTHCHECKRecord_t record;
@@ -10582,7 +10628,7 @@ void test_EMAILAUTHCHECK_failed_sections_golden(void)
   record.m_mtaStsAnswer.m_status = DNS_ANSWER_BAD_QUESTION;
   char* body = static_EMAILAUTHCHECKBody(&record);
   TEST_ASSERT_EQUAL_STRING(
-    R"({"domain":"example.com","spf":{"available":false,"reason":"timeout"},"dmarc":{"available":false,"reason":"server_error"},)"
+    R"({"domain":"example.com","cname":null,"dangling":false,"spf":{"available":false,"reason":"timeout"},"dmarc":{"available":false,"reason":"server_error"},)"
     R"("dkim":{"available":false,"reason":"no_resolver"},"mx":{"available":false,"reason":"malformed_answer"},"mail_providers":[],)"
     R"("mta_sts":{"available":false,"reason":"bad_question"},"no_mail_domain":false,"checks":[],"check_counts":{"pass":0,"warn":0,"fail":0}})" "\n", body);
   free(body);
@@ -10617,7 +10663,7 @@ void test_EMAILAUTHCHECK_inherited_dmarc_and_two_spf_records_golden(void)
   record.m_checkCount         = 0;
   char* body = static_EMAILAUTHCHECKBody(&record);
   TEST_ASSERT_EQUAL_STRING(
-    R"({"domain":"example.com","spf":{"available":true,"record_count":2,"record":null,"terms":null,"dns_lookup_term_count":null,)"
+    R"({"domain":"example.com","cname":null,"dangling":false,"spf":{"available":true,"record_count":2,"record":null,"terms":null,"dns_lookup_term_count":null,)"
     R"("invalid_term_count":null,"unread_term_count":null},)"
     R"("dmarc":{"available":true,"record_name":"_dmarc.com","source":"public_suffix","record":"v=DMARC1; p=bogus; psd=y",)"
     R"("policy":"invalid","subdomain_policy":null,"nonexistent_subdomain_policy":null,"applied_policy":null,)"
@@ -10638,7 +10684,7 @@ void test_EMAILAUTHCHECK_nxdomain_spf_answer_is_available(void)
   record.m_spfAnswer.m_status = DNS_ANSWER_NXDOMAIN;
   char* body = static_EMAILAUTHCHECKBody(&record);
   static const char spf[] =
-    R"({"domain":"example.com","spf":{"available":true,"record_count":0,"record":null,"terms":null,"dns_lookup_term_count":null,)"
+    R"({"domain":"example.com","cname":null,"dangling":false,"spf":{"available":true,"record_count":0,"record":null,"terms":null,"dns_lookup_term_count":null,)"
     R"("invalid_term_count":null,"unread_term_count":null},"dmarc":)";
   TEST_ASSERT_EQUAL_STRING_LEN(spf, body, strlen(spf));
   free(body);
@@ -12085,6 +12131,7 @@ int main(void)
   RUN_TEST(test_EMAILADDRESSCHECK_echoed_address_is_escaped);
   RUN_TEST(test_EMAILADDRESSCHECK_each_route);
   RUN_TEST(test_EMAILADDRESSCHECK_disposable_of_each_list_state);
+  RUN_TEST(test_EMAILADDRESSCHECK_writes_the_cname_and_dangling);
   RUN_TEST(test_IPLOOKUP_golden_every_source_loaded_with_matches);
   RUN_TEST(test_IPLOOKUP_golden_ipv6_cdn_that_is_not_a_tor_exit);
   RUN_TEST(test_IPLOOKUP_golden_every_source_loaded_without_a_match);
@@ -12184,6 +12231,7 @@ int main(void)
   RUN_TEST(test_EMAILAUTHCHECK_answered_golden);
   RUN_TEST(test_EMAILAUTHCHECK_no_mail_domain_golden);
   RUN_TEST(test_EMAILAUTHCHECK_failed_sections_golden);
+  RUN_TEST(test_EMAILAUTHCHECK_writes_the_cname_and_dangling);
   RUN_TEST(test_EMAILAUTHCHECK_inherited_dmarc_and_two_spf_records_golden);
   RUN_TEST(test_EMAILAUTHCHECK_nxdomain_spf_answer_is_available);
   RUN_TEST(test_EMAILAUTHCHECK_every_check_has_its_id_severity_and_sentence);
